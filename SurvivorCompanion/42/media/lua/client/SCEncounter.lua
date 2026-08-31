@@ -1189,6 +1189,17 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
                     navigation = status,
                 })
             end
+            local terminalNavigation = not ok and (string.find(
+                tostring(status or ""), "recovery_exhausted:", 1, true) == 1
+                or string.find(tostring(status or ""), "actor_state_timeout:", 1, true) == 1)
+            if terminalNavigation then
+                resetScavengeTarget(actor, state, {
+                    cancelVisual = true, stopMovement = true,
+                    reason = status, phase = "failed", cooldown = true,
+                    memoryResult = "navigation_failed", time = time,
+                })
+                return false, status
+            end
             return ok, status or "approaching_container"
         end
         resetScavengeTarget(actor, state, {

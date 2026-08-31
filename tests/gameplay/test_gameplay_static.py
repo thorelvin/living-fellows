@@ -183,7 +183,9 @@ def main() -> int:
     require("perceptionSquareBudget" in sources["SCSenses.lua"], "perception budget not enforced")
     require("outerSampled" in sources["SCSenses.lua"], "rotating outer perception coverage missing")
     require("navigationNodeBudget" in sources["SCNavigation.lua"], "navigation node budget not enforced")
-    require("stuck_terminal" in sources["SCNavigation.lua"], "bounded terminal navigation failure missing")
+    require("recovery_exhausted:" in sources["SCNavigation.lua"]
+            and "navigationTerminalRetryMs" in sources["SCNavigation.lua"],
+            "bounded retryable terminal navigation episode missing")
     require("navigationBreadcrumbLimit" in sources["SCNavigation.lua"]
             and "boundedOutdoorPath" in sources["SCNavigation.lua"]
             and "function Navigation.retreatTarget" in sources["SCNavigation.lua"],

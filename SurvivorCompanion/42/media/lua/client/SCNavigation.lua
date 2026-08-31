@@ -27,6 +27,24 @@ local function recordMovement(actor, kind, fields)
     end
 end
 
+local function actionSupervisor()
+    if type(SC.ActionSupervisor) == "table" then return SC.ActionSupervisor end
+    return nil
+end
+
+local function supervisedToken(intent)
+    local token = type(intent) == "table" and intent.supervisorToken or nil
+    local service = actionSupervisor()
+    if token and service and type(service.isCurrent) == "function"
+        and service.isCurrent(token) then return service, token end
+    return service, nil
+end
+
+local function tokenSerial(intent)
+    local _, token = supervisedToken(intent)
+    return token and tonumber(token.serial) or nil
+end
+
 local function stateFor(actor)
     local state = states[actor]
     if not state then
@@ -547,10 +565,10 @@ local function poorSight(actor, sourceSquare, nextSquare, afterSquare, intent)
     return false
 end
 
-local function stopAndObserve(actor, target, snapshot)
+local function stopAndObserve(actor, target, intent)
     local utility = U()
     if not utility.stop(actor) then return false end
-    if insideSecureBase(actor, snapshot) then return true end
+    if insideSecureBase(actor, intent and intent.snapshot) then return true end
     local accepted = utility.move(actor, "walk", {
         action = "ready_weapon",
         targetSquare = target,
@@ -558,6 +576,7 @@ local function stopAndObserve(actor, target, snapshot)
         stableFacing = true,
         weaponReady = true,
         humanAnimationOnly = true,
+        supervisorToken = intent and intent.supervisorToken,
     })
     return accepted == true
 end
@@ -1476,6 +1495,7 @@ local function handleWindow(actor, state, window, fromSquare, toSquare, now, int
             targetSquare = toSquare,
             direction = directionBetween(fromSquare, toSquare),
             acceptsInjury = action == "climb_window_emergency",
+            supervisorToken = intent and intent.supervisorToken,
         })
         if not accepted then
             release(window, actor)
@@ -1486,6 +1506,7 @@ local function handleWindow(actor, state, window, fromSquare, toSquare, now, int
 
     local ok, status = beginInteraction(actor, state, window, action, now, {
         fromSquare = fromSquare, toSquare = toSquare,
+        supervisorToken = intent and intent.supervisorToken,
     }, true)
     if not ok then return false, status end
     local complete, completeStatus = completeWindowAction(actor, state, window, action, now)
@@ -1507,6 +1528,7 @@ local function handleWindowFrame(actor, frame, fromSquare, toSquare, now, intent
         targetSquare = toSquare,
         direction = directionBetween(fromSquare, toSquare),
         emptyFrame = true,
+        supervisorToken = intent and intent.supervisorToken,
     })
     if not accepted then release(frame, actor) return false, "action_rejected" end
     return nil, "climbing_frame"
@@ -1861,6 +1883,7 @@ local function lateralYield(actor, state, sourceSquare, nextSquare, intent, now)
                 direct = true,
                 collisionValidated = true,
                 yieldFor = state.yieldBlocker,
+                supervisorToken = intent and intent.supervisorToken,
             })
             if accepted then
                 state.path = nil
@@ -1944,7 +1967,7 @@ local function checkRoomEntry(actor, state, sourceSquare, nextSquare, intent, no
         state.roomEntrySweepPhase = 0
     end
     if now < (state.roomEntryObserveUntil or 0) then
-        if not stopAndObserve(actor, nextSquare, intent.snapshot) then
+        if not stopAndObserve(actor, nextSquare, intent) then
             return false, "room_entry_stop_rejected"
         end
         return nil, "checking_room_entry"
@@ -1971,6 +1994,7 @@ local function checkRoomEntry(actor, state, sourceSquare, nextSquare, intent, no
             stableFacing = true,
             roomEntryCheck = true,
             weaponReady = not insideSecureBase(actor, intent.snapshot),
+            supervisorToken = intent and intent.supervisorToken,
         })
         if not accepted then return false, "room_entry_" .. side .. "_sweep_rejected" end
         state.roomEntrySweepPhase = phase + 1
@@ -1991,7 +2015,7 @@ local function tacticalStep(actor, state, sourceSquare, nextSquare, afterSquare,
             sourceSquare, nextSquare, afterSquare, actor, state, intent, now)
     end
     if choke and not urgent and not chokeAccepted then
-        if not stopAndObserve(actor, nextSquare, intent.snapshot) then
+        if not stopAndObserve(actor, nextSquare, intent) then
             return false, "choke_reservation_stop_rejected"
         end
         state.chokeQueueSince = state.chokeQueueSince or now
@@ -2013,7 +2037,7 @@ local function tacticalStep(actor, state, sourceSquare, nextSquare, afterSquare,
         end
         state.onStairSequence = true
         if not urgent and now < (state.stairObserveUntil or 0) then
-            if not stopAndObserve(actor, afterSquare or nextSquare, intent.snapshot) then
+            if not stopAndObserve(actor, afterSquare or nextSquare, intent) then
                 return false, "stair_observe_stop_rejected"
             end
             return nil, "checking_stair_landing"
@@ -2022,7 +2046,7 @@ local function tacticalStep(actor, state, sourceSquare, nextSquare, afterSquare,
         if crowded and not urgent then
             state.stairSpacingSince = state.stairSpacingSince or now
             if now - state.stairSpacingSince < (utility.config("navigationChokeReservationMs") or 1400) then
-                if not stopAndObserve(actor, afterSquare or nextSquare, intent.snapshot) then
+                if not stopAndObserve(actor, afterSquare or nextSquare, intent) then
                     return false, "stair_spacing_stop_rejected"
                 end
                 return nil, "holding_stair_spacing"
@@ -2051,7 +2075,7 @@ local function tacticalStep(actor, state, sourceSquare, nextSquare, afterSquare,
             state.cornerObserveUntil = now + (utility.config("navigationCornerObserveMs") or 350)
         end
         if not urgent and now < (state.cornerObserveUntil or 0) then
-            if not stopAndObserve(actor, afterSquare, intent.snapshot) then
+            if not stopAndObserve(actor, afterSquare, intent) then
                 return false, "corner_observe_stop_rejected"
             end
             return nil, "checking_blind_corner"
@@ -2355,6 +2379,135 @@ local function rememberFailure(actor, state, fromSquare, toSquare, reason, now, 
     return blocker
 end
 
+local function topologySignatureAt(actor, centre)
+    local utility = U()
+    local x, y, z = utility.position(centre)
+    if x == nil then return "unloaded" end
+    local parts = {}
+    local offsets = { { 0, 0 }, { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } }
+    for _, offset in ipairs(offsets) do
+        local square = utility.gridSquare(x + offset[1], y + offset[2], z)
+        if not square then
+            parts[#parts + 1] = tostring(offset[1]) .. "," .. tostring(offset[2]) .. "=missing"
+        else
+            local static, staticKind = utility.squareStaticBlocker(square)
+            local edgeObject, edgeKind
+            if offset[1] == 0 and offset[2] == 0 then
+                edgeKind = "centre"
+            else
+                edgeObject, edgeKind = barrierBetween(centre, square)
+            end
+            local affordance = ""
+            if edgeObject ~= nil then
+                affordance = ":open=" .. tostring(objectOpen(edgeObject))
+                    .. ":locked=" .. tostring(objectLocked(edgeObject))
+                    .. ":barricaded=" .. tostring(objectBarricaded(edgeObject))
+            end
+            parts[#parts + 1] = tostring(offset[1]) .. "," .. tostring(offset[2])
+                .. "=" .. tostring(edgeKind or "open") .. affordance
+                .. ":static=" .. tostring(staticKind or (static and "blocked" or "none"))
+                .. ":safehouse=" .. tostring(utility.safehouseBlocker(square, actor) == true)
+        end
+    end
+    return table.concat(parts, "|")
+end
+
+local function topologySignature(actor, sourceSquare, goalSquare)
+    return tostring(squareKey(sourceSquare)) .. "{" .. topologySignatureAt(actor, sourceSquare)
+        .. "}>" .. tostring(squareKey(goalSquare)) .. "{"
+        .. topologySignatureAt(actor, goalSquare) .. "}"
+end
+
+local function routeTargetSignature(goalSquare, intent)
+    intent = type(intent) == "table" and intent or {}
+    local moving = intent.movingTarget == true or intent.followRecovery == true
+        or intent.player ~= nil or intent.action == "follow_formation"
+        or intent.action == "regroup"
+    local semanticTarget = intent.container or intent.object or intent.vehicle
+        or intent.player or intent.item or "none"
+    local explicit = intent.targetSignature or intent.capabilitySignature
+        or intent.commandSerial or "none"
+    return tostring(intent.action or "move") .. "|"
+        .. (moving and "moving" or tostring(squareKey(goalSquare))) .. "|"
+        .. tostring(semanticTarget) .. "|" .. tostring(intent.item or "none")
+        .. "|" .. tostring(explicit) .. "|token=" .. tostring(tokenSerial(intent) or "none")
+end
+
+local function clearTerminalEpisode(actor, state, reason, now)
+    if state.terminalGoalKey ~= nil then
+        recordMovement(actor, "terminal_cleared", {
+            status = reason or "changed", targetSquare = state.goalSquare,
+            blocker = state.terminalBlockerType,
+        })
+    end
+    state.terminalGoalKey = nil
+    state.terminalReason = nil
+    state.terminalAt = nil
+    state.terminalRetryAt = nil
+    state.terminalTargetSignature = nil
+    state.terminalTopologySignature = nil
+    state.terminalActorSquareKey = nil
+    state.terminalBlockerType = nil
+    state.terminalAttempt = nil
+    state.stuckAttempts = 0
+    state.lastProgressAt = now or U().nowMs()
+end
+
+local function beginTerminalEpisode(actor, state, sourceSquare, goalSquare, intent,
+        blocker, now)
+    local blockerType = blocker and blocker.type or "unknown"
+    state.terminalGoalKey = squareKey(goalSquare)
+    state.terminalReason = "recovery_exhausted:" .. tostring(blockerType)
+    state.terminalAt = now
+    state.terminalRetryAt = now + (U().config("navigationTerminalRetryMs") or 8000)
+    state.terminalTargetSignature = routeTargetSignature(goalSquare, intent)
+    state.terminalTopologySignature = topologySignature(actor, sourceSquare, goalSquare)
+    state.terminalActorSquareKey = squareKey(sourceSquare)
+    state.terminalBlockerType = blockerType
+    state.terminalAttempt = state.stuckAttempts
+    recordBlocker(actor, state, blockerType, blocker and blocker.object,
+        blocker and blocker.square or goalSquare, blocker and blocker.actorState,
+        "recovery_exhausted", now)
+    recordMovement(actor, "terminal_failure", {
+        blocker = blockerType, recovery = "exhausted",
+        targetSquare = goalSquare, status = state.terminalReason,
+        detail = "attempt=" .. tostring(state.stuckAttempts),
+    })
+    local service, token = supervisedToken(intent)
+    if service and token then
+        if type(service.transition) == "function" then
+            service.transition(token, "recovering", {
+                blocker = blockerType, attempt = state.stuckAttempts,
+            })
+        end
+        if type(service.progress) == "function" then
+            service.progress(token, "recovery_exhausted:" .. tostring(state.stuckAttempts), {
+                blocker = blockerType,
+            })
+        end
+    end
+    return state.terminalReason
+end
+
+local function terminalEpisodeActive(actor, state, sourceSquare, goalSquare, intent, now)
+    if state.terminalGoalKey ~= squareKey(goalSquare) then return false end
+    local reason
+    if state.terminalTargetSignature ~= routeTargetSignature(goalSquare, intent) then
+        reason = "target_changed"
+    elseif state.terminalActorSquareKey ~= squareKey(sourceSquare) then
+        reason = "actor_repositioned"
+    elseif state.terminalTopologySignature ~= topologySignature(actor, sourceSquare, goalSquare) then
+        reason = "topology_changed"
+    elseif now >= (state.terminalRetryAt or math.huge) then
+        reason = "retry_due"
+    end
+    if reason then
+        clearTerminalEpisode(actor, state, reason, now)
+        return false
+    end
+    return true, state.terminalReason or "recovery_exhausted:unknown"
+end
+
 local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, now)
     local utility = U()
     local actorSquare = utility.squareOf(actor)
@@ -2439,13 +2592,26 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
     state.nextRepathAt = 0
     local maximum = utility.config("navigationRecoveryAttempts") or 3
     if state.stuckAttempts > maximum then
-        state.terminalGoalKey = squareKey(goalSquare)
-        state.terminalReason = "stuck_terminal"
-        return true, false, state.terminalReason
+        return true, false, beginTerminalEpisode(actor, state, actorSquare,
+            goalSquare, intent, preview, now)
     end
     local failedFrom = state.lastAttemptFrom or actorSquare
     local failedTo = state.lastAttemptTo or goalSquare
     local blocker = classifyMovementBlocker(actor, failedFrom, failedTo, state.lastMovementReason)
+    local service, token = supervisedToken(intent)
+    if service and token then
+        if type(service.transition) == "function" then
+            service.transition(token, "recovering", {
+                blocker = blocker.type, attempt = state.stuckAttempts,
+            })
+        end
+        if type(service.progress) == "function" then
+            service.progress(token, "recovery:" .. tostring(state.stuckAttempts)
+                .. ":" .. tostring(blocker.type), {
+                    blocker = blocker.type, attempt = state.stuckAttempts,
+                })
+        end
+    end
     if blocker.type ~= "actor_state" then
         blacklistEdge(state, failedFrom, failedTo, blocker.type, blocker.object, now, blocker.dynamic)
     end
@@ -2522,6 +2688,7 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
                 collisionValidated = true,
                 doorwayRecovery = nearbyDoor ~= nil,
                 treeRecovery = treeAwayX ~= nil,
+                supervisorToken = intent and intent.supervisorToken,
             })
             if accepted then
                 recordBlocker(actor, state, blocker.type, blocker.object, blocker.square,
@@ -2542,6 +2709,7 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
             requireLoaded = true,
             requireUnseen = true,
             lastResort = true,
+            supervisorToken = intent and intent.supervisorToken,
         })
         if accepted then return true, true, "recovering_offscreen" end
     end
@@ -2573,9 +2741,26 @@ function Navigation.request(actor, target, movementMode, intent)
     requestIntent.mode = movementMode or requestIntent.mode or "walk"
     requestIntent.stealthAvoidance = stealthAvoidanceRequested(
         actor, requestIntent.mode, requestIntent)
+    local currentTokenSerial = tokenSerial(requestIntent)
+    local currentTargetSignature = routeTargetSignature(goalSquare, requestIntent)
+    local previousTokenSerial = state.actionTokenSerial
+    local previousTargetSignature = state.routeTargetSignature
     state.stealthAvoidance = requestIntent.stealthAvoidance == true
     closeOwnedDoors(actor, state, now, requestIntent.snapshot)
-    updateProgress(actor, state, now)
+    local progressed = updateProgress(actor, state, now)
+    local service, token = supervisedToken(requestIntent)
+    if progressed and service and token then
+        if token.phase == "recovering" and type(service.transition) == "function" then
+            service.transition(token, "approaching", {
+                square = squareKey(sourceSquare), resumed = true,
+            })
+        end
+        if type(service.progress) == "function" then
+            service.progress(token, "square:" .. tostring(squareKey(sourceSquare)), {
+                target = squareKey(goalSquare),
+            })
+        end
+    end
 
     if utility.distance(actor, goalSquare) <= (utility.config("navigationArrivalDistance") or 0.6)
         or sameSquare(sourceSquare, goalSquare) then
@@ -2586,6 +2771,9 @@ function Navigation.request(actor, target, movementMode, intent)
         state.pathIndex = 1
         state.arrivedAt = now
         state.stuckAttempts = 0
+        state.actionTokenSerial = currentTokenSerial
+        state.routeTargetSignature = currentTargetSignature
+        clearTerminalEpisode(actor, state, "arrived", now)
         clearMovementTransients(actor, state)
         if not utility.stop(actor) then return false, "arrival_stop_rejected" end
         if poorSight(actor, sourceSquare, goalSquare, nil, requestIntent) then
@@ -2593,13 +2781,23 @@ function Navigation.request(actor, target, movementMode, intent)
                 action = "ready_weapon", targetSquare = goalSquare,
                 facingTarget = goalSquare, weaponReady = true,
                 humanAnimationOnly = true,
+                supervisorToken = requestIntent.supervisorToken,
             })
             if ready ~= true then return false, "arrival_ready_rejected" end
+        end
+        if service and token and type(service.progress) == "function" then
+            service.progress(token, "arrived:" .. tostring(squareKey(goalSquare)), {
+                target = squareKey(goalSquare),
+            })
         end
         return true, "arrived"
     end
 
-    if changedGoal(state, goalSquare) then
+    local goalChanged = changedGoal(state, goalSquare)
+    local ownershipChanged = previousTokenSerial ~= currentTokenSerial
+        or (previousTargetSignature ~= nil
+            and previousTargetSignature ~= currentTargetSignature)
+    if goalChanged then
         local previousGoal = state.goalSquare
         local previousAction = tostring(state.goalAction or "")
         local requestedAction = tostring(requestIntent.action or "")
@@ -2607,8 +2805,14 @@ function Navigation.request(actor, target, movementMode, intent)
         local materialGoalChange = previousGoal == nil
             or previousAction ~= requestedAction
             or goalShift >= (utility.config("navigationGoalResetDistance") or 3.0)
+            or ownershipChanged
         state.goalSquare = goalSquare
         state.goalAction = requestIntent.action
+        if state.terminalGoalKey ~= nil and state.terminalGoalKey ~= squareKey(goalSquare)
+            and (requestIntent.movingTarget == true or requestIntent.followRecovery == true
+                or requestIntent.player ~= nil) then
+            clearTerminalEpisode(actor, state, "moving_target_changed", now)
+        end
         if materialGoalChange then
             clearMovementTransients(actor, state)
             state.path = nil
@@ -2617,13 +2821,23 @@ function Navigation.request(actor, target, movementMode, intent)
             state.nextRepathAt = 0
             state.stuckAttempts = 0
             state.lastProgressAt = now
-            state.terminalGoalKey = nil
-            state.terminalReason = nil
+            clearTerminalEpisode(actor, state, "route_owner_or_goal_changed", now)
         end
+    elseif ownershipChanged then
+        clearMovementTransients(actor, state)
+        state.path = nil
+        state.pathGoalSquare = nil
+        state.pathIndex = 1
+        state.nextRepathAt = 0
+        clearTerminalEpisode(actor, state, "route_owner_changed", now)
     end
+    state.actionTokenSerial = currentTokenSerial
+    state.routeTargetSignature = currentTargetSignature
 
-    if state.terminalGoalKey == squareKey(goalSquare) then
-        return false, state.terminalReason or "stuck_terminal"
+    local terminal, terminalReason = terminalEpisodeActive(
+        actor, state, sourceSquare, goalSquare, requestIntent, now)
+    if terminal then
+        return false, terminalReason
     end
 
     local leaseState, leaseStatus = maintainNativeLease(actor, state, goalSquare, now)
@@ -2753,6 +2967,11 @@ function Navigation.request(actor, target, movementMode, intent)
             if SC.Performance and type(SC.Performance.markYield) == "function" then
                 SC.Performance.markYield("navigation", utility.idOf(actor), usedNodes or 0)
             end
+            if service and token and type(service.progress) == "function" then
+                service.progress(token, "path_search:" .. tostring(expanded or 0), {
+                    expanded = expanded, target = squareKey(planningGoal),
+                })
+            end
             return true, "path_searching"
         end
 
@@ -2824,6 +3043,17 @@ function Navigation.request(actor, target, movementMode, intent)
             rememberFailure(actor, state, sourceSquare, goalSquare,
                 movementReason or "engine_path_rejected", now, "engine_replan")
             return false, "engine_path_rejected"
+        end
+        if service and token then
+            if token.phase == "recovering" and type(service.transition) == "function" then
+                service.transition(token, "approaching", { strategy = "engine_path" })
+            end
+            if type(service.progress) == "function" then
+                service.progress(token, "move:" .. tostring(squareKey(sourceSquare))
+                    .. ">" .. tostring(squareKey(goalSquare)), {
+                        strategy = "engine_path",
+                    })
+            end
         end
         beginNativeLease(state, { goalSquare }, sourceSquare, goalSquare,
             goalSquare, now, "engine_goal", false)
@@ -2982,6 +3212,17 @@ function Navigation.request(actor, target, movementMode, intent)
             movementReason or "movement_rejected", now, "direct_replan")
         return false, "movement_rejected"
     end
+    if service and token then
+        if token.phase == "recovering" and type(service.transition) == "function" then
+            service.transition(token, "approaching", { strategy = "route_step" })
+        end
+        if type(service.progress) == "function" then
+            service.progress(token, "move:" .. tostring(squareKey(sourceSquare))
+                .. ">" .. tostring(squareKey(nextSquare)), {
+                    strategy = requestIntent.enginePath == true and "native_edge" or "direct",
+                })
+        end
+    end
     if requestIntent.enginePath == true then
         beginNativeLease(state, { nextSquare }, sourceSquare, nextSquare,
             goalSquare, now, requestIntent.vegetationClearance
@@ -3055,6 +3296,7 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
     intent = utility.copyShallow(intent)
+    local service, token = supervisedToken(intent)
     local valid, seen = {}, {}
     for _, candidate in ipairs(type(candidates) == "table" and candidates or {}) do
         local square = utility.squareOf(candidate) or candidate
@@ -3078,6 +3320,11 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
                 existing.nativeLease = nil
                 existing.multiGoalKey, existing.multiGoalSelected = nil, nil
             end
+            if service and token and type(service.progress) == "function" then
+                service.progress(token, "arrived:" .. tostring(squareKey(square)), {
+                    target = squareKey(square), multiGoal = true,
+                })
+            end
             return true, "arrived", square
         end
     end
@@ -3090,6 +3337,15 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
     end)
     local now, state = utility.nowMs(), stateFor(actor)
     local key = multiGoalKey(valid, intent.action)
+    local currentTokenSerial = token and tonumber(token.serial) or nil
+    if state.actionTokenSerial ~= currentTokenSerial
+        or (state.multiGoalOwnerKey ~= nil and state.multiGoalOwnerKey ~= key) then
+        if state.nativeLease then clearMovementTransients(actor, state) end
+        state.multiGoalSelected = nil
+    end
+    state.actionTokenSerial = currentTokenSerial
+    state.routeTargetSignature = routeTargetSignature(valid[1], intent)
+    state.multiGoalOwnerKey = key
     state.multiGoalFailures = state.multiGoalFailures or {}
     for failedKey, expiry in pairs(state.multiGoalFailures) do
         if expiry <= now then state.multiGoalFailures[failedKey] = nil end
@@ -3114,6 +3370,18 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
             beginNativeLease(state, valid, state.lastAttemptFrom, valid[1],
                 valid[1], now, "nearest_interaction", true)
             state.nativeLease.multiGoalKey = key
+            if service and token then
+                if type(service.transition) == "function" then
+                    service.transition(token, "approaching", {
+                        strategy = "nearest_interaction", candidates = #valid,
+                    })
+                end
+                if type(service.progress) == "function" then
+                    service.progress(token, "nearest_path_started:" .. key, {
+                        candidates = #valid,
+                    })
+                end
+            end
             return true, reason or "nearest_path_started"
         end
         state.nativeMultiUnavailableUntil = now + 5000
@@ -3183,6 +3451,7 @@ function Navigation.interact(actor, object, action, options)
         direction = directionBetween(utility.squareOf(actor), objectSquare),
         interaction = true,
         options = options,
+        supervisorToken = options and options.supervisorToken,
     })
     if not accepted then return false, "action_rejected" end
     return true, "delegated"
@@ -3203,6 +3472,32 @@ end
 
 function Navigation.peek(actor)
     return actor and states[actor] or nil
+end
+
+function Navigation.status(actor)
+    local state = actor and states[actor] or nil
+    if not state then return { active = false, phase = "idle" } end
+    local blocker = state.lastBlocker
+    local current = U().nowMs()
+    return {
+        active = state.goalSquare ~= nil,
+        phase = state.terminalGoalKey and "failed"
+            or (state.actorStateName and "waiting")
+            or (state.stuckAttempts or 0) > 0 and "recovering"
+            or state.nativeLease and "native_path"
+            or state.pathSearch and "planning" or "moving",
+        action = state.goalAction,
+        target = squareKey(state.goalSquare),
+        actionTokenSerial = state.actionTokenSerial,
+        stuckAttempts = state.stuckAttempts or 0,
+        terminalReason = state.terminalReason,
+        terminalRetryMs = state.terminalRetryAt
+            and math.max(0, state.terminalRetryAt - current) or nil,
+        blockerType = blocker and blocker.type or nil,
+        blockerSquare = blocker and blocker.squareKey or nil,
+        actorState = blocker and blocker.actorState or state.actorStateName,
+        recoveryResult = blocker and blocker.recoveryResult or nil,
+    }
 end
 
 function Navigation.findPath(sourceSquare, destinationSquare, options)

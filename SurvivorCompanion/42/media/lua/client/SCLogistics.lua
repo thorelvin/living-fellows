@@ -1014,6 +1014,14 @@ local function approachTransaction(actor, state, snapshot)
             navigation = reason,
         })
     end
+    local terminalNavigation = not accepted and (string.find(
+        tostring(reason or ""), "recovery_exhausted:", 1, true) == 1
+        or string.find(tostring(reason or ""), "actor_state_timeout:", 1, true) == 1)
+    if terminalNavigation then
+        return terminalTransaction(actor, state, false, reason, {
+            kind = transaction.kind, navigation = reason,
+        })
+    end
     return accepted, reason or "approaching_storage"
 end
 

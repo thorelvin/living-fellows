@@ -116,6 +116,7 @@ local valueData = {
     navigationRouteMemoryFailurePenalty = 4.5,
     navigationCrowdPenalty = 9,
     navigationRecoveryAttempts = 3,
+    navigationTerminalRetryMs = 8000,
     navigationGoalResetDistance = 3.0,
     navigationReservationMs = 8000,
     navigationBreadcrumbLimit = 64,

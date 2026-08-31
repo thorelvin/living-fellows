@@ -568,6 +568,7 @@ SurvivorCompanion.Config = {
         navigationStuckMs = 5000,
         navigationObstacleStuckMs = 900,
         navigationRecoveryAttempts = 2,
+        navigationTerminalRetryMs = 8000,
         navigationBushPenalty = 5.5,
         navigationTreePenalty = 12,
         navigationTreeClearancePenalty = 4,
@@ -1484,6 +1485,30 @@ local rejectedNavigation = SurvivorCompanion.Navigation.request(
 )
 check(not rejectedNavigation, "navigation never reports movement success when Actor rejects the step")
 
+do
+local supervisedRouteActor = actor("sc-nav-supervised", -5, 1, {})
+registry[supervisedRouteActor.id] = supervisedRouteActor
+local supervisedRouteToken = assert(SurvivorCompanion.ActionSupervisor.begin(
+    supervisedRouteActor, {
+        owner = "test", action = "supervised_route", targetKey = "-2:1:0",
+        priority = SurvivorCompanion.ActionSupervisor.Priority.WORK,
+        allowedActions = { supervised_route = true },
+    }))
+local supervisedMoved = SurvivorCompanion.Navigation.request(
+    supervisedRouteActor, squares[squareKey(-2, 1, 0)], "walk", {
+        action = "supervised_route", supervisorToken = supervisedRouteToken,
+    })
+local supervisedRouteStatus = SurvivorCompanion.Navigation.status(supervisedRouteActor)
+check(supervisedMoved and supervisedRouteStatus.actionTokenSerial == supervisedRouteToken.serial
+        and supervisedRouteActor.lastIntent.supervisorToken == supervisedRouteToken,
+    "route state and every emitted movement retain the owning action token")
+SurvivorCompanion.Navigation.reset(supervisedRouteActor)
+SurvivorCompanion.ActionSupervisor.cancel(supervisedRouteActor, "fixture_done", nil, true)
+registry[supervisedRouteActor.id] = nil
+end
+
+do
+local stuckClock = clock
 local stuckActor = actor("sc-stuck", -5, 2, {})
 registry[stuckActor.id] = stuckActor
 SurvivorCompanion.Config.values.navigationStuckMs = 0
@@ -1497,7 +1522,48 @@ local terminalRecovery, terminalReason = SurvivorCompanion.Navigation.request(
     "walk",
     {}
 )
-check(not terminalRecovery and terminalReason == "stuck_terminal", "stuck recovery reaches a bounded terminal failure")
+local terminalStatus = SurvivorCompanion.Navigation.status(stuckActor)
+check(not terminalRecovery
+        and string.find(terminalReason or "", "recovery_exhausted:", 1, true) == 1
+        and terminalStatus.phase == "failed" and terminalStatus.terminalRetryMs > 0
+        and terminalStatus.blockerType ~= nil,
+    "stuck recovery reaches one visible bounded failure episode")
+local terminalHeld, terminalHeldReason = SurvivorCompanion.Navigation.request(
+    stuckActor, squares[squareKey(-2, 2, 0)], "walk", {})
+check(not terminalHeld and terminalHeldReason == terminalReason,
+    "unchanged terminal route cannot restart on every AI tick")
+clock = clock + SurvivorCompanion.Config.values.navigationTerminalRetryMs + 1
+local terminalRetried, terminalRetryReason = SurvivorCompanion.Navigation.request(
+    stuckActor, squares[squareKey(-2, 2, 0)], "walk", {})
+check(terminalRetried and terminalRetryReason ~= terminalReason,
+    "terminal route receives one explicit timed retry instead of a permanent lock")
+SurvivorCompanion.Navigation.reset(stuckActor)
+registry[stuckActor.id] = nil
+clock = stuckClock
+end
+
+do
+local topologyActor = actor("sc-stuck-topology", -5, 3, {})
+registry[topologyActor.id] = topologyActor
+local topologyGoal = squares[squareKey(-2, 3, 0)]
+check(SurvivorCompanion.Navigation.request(topologyActor, topologyGoal, "walk", {})
+        and SurvivorCompanion.Navigation.request(topologyActor, topologyGoal, "walk", {}),
+    "topology retry fixture exhausts its bounded recovery attempts")
+local topologyTerminal = SurvivorCompanion.Navigation.request(
+    topologyActor, topologyGoal, "walk", {})
+check(not topologyTerminal and SurvivorCompanion.Navigation.status(topologyActor).phase == "failed",
+    "topology retry fixture records its terminal episode")
+local changedTopologySquare = squares[squareKey(-2, 4, 0)]
+changedTopologySquare.solid = true
+local topologyRetried, topologyRetryReason = SurvivorCompanion.Navigation.request(
+    topologyActor, topologyGoal, "walk", {})
+check(topologyRetried and topologyRetryReason ~= "recovery_exhausted:unknown"
+        and SurvivorCompanion.Navigation.status(topologyActor).phase ~= "failed",
+    "a material topology change clears the prior terminal episode immediately")
+changedTopologySquare.solid = false
+SurvivorCompanion.Navigation.reset(topologyActor)
+registry[topologyActor.id] = nil
+end
 
 do
     local treeStuckActor = actor("sc-tree-stuck", -5, 6, {})
@@ -1542,7 +1608,8 @@ do
         "walk",
         { action = "follow_formation", followRecovery = true }
     )
-    check(not movingGoalRecovered and movingGoalReason == "stuck_terminal",
+    check(not movingGoalRecovered
+            and string.find(movingGoalReason or "", "recovery_exhausted:", 1, true) == 1,
         "moving formation goals cannot reset the stuck guard forever")
     local movingGoalState = SurvivorCompanion.Navigation.peek(movingGoalActor)
     check(movingGoalState.roomEntryKey == nil and movingGoalState.cornerObserveKey == nil,
