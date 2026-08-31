@@ -1,0 +1,7 @@
+name=Survivor Companion Real Sandbox Harness
+id=SCRealSandboxHarness
+description=Private disposable in-game integration harness. Never ship with the release mod.
+modversion=0.1.0
+versionMin=42.20.4
+versionMax=42.20.4
+require=SurvivorCompanion

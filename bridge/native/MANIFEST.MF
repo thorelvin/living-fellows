@@ -1,0 +1,4 @@
+Manifest-Version: 1.0
+Main-Class: survivorcompanion.bridge.SCLauncher
+Implementation-Title: SurvivorCompanion Native Bridge
+Implementation-Version: 0.21.7

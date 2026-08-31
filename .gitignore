@@ -1,0 +1,39 @@
+# Generated release and staging output
+/build/
+/Workshop/Contents/
+/bridge/build/
+/tests/**/out/
+
+# Compiler and runtime output
+*.class
+__pycache__/
+*.py[cod]
+*.log
+*.tmp
+*.bak
+*.zip
+*.sha256
+*.sha256.txt
+
+# Installer ownership markers and local state
+.sc-install-manifest.json
+PRIVATE-NATIVE-BRIDGE.txt
+STANDALONE-NATIVE-BRIDGE.txt
+
+# Local playtest material must never be committed
+/offline-playtest/
+/live-sandbox-runs/
+/Saves/
+/cache/
+/logs/
+console.txt
+logs.zip
+
+# Editors and operating systems
+.idea/
+.vscode/
+*.user
+*.suo
+.DS_Store
+Thumbs.db
+desktop.ini

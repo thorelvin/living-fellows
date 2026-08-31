@@ -1,0 +1,11 @@
+name=Living Fellows: Companion
+id=SurvivorCompanion
+description=Single-player native companions, survivor households, and living-base systems for Project Zomboid 42.20.x. Requires ZombieBuddy 2.3.3 or newer.
+poster=poster.png
+modversion=0.22.7
+versionMin=42.20.4
+versionMax=42.20.4
+require=\ZombieBuddy
+ZBVersionMin=2.3.3
+javaJarFile=media/java/SurvivorCompanionBridge.jar
+javaPkgName=survivorcompanion.bridge

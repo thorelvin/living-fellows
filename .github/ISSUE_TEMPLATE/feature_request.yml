@@ -1,0 +1,35 @@
+name: Feature request
+description: Suggest a grounded companion, faction, base-life, or interface improvement
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Player problem or opportunity
+      description: What part of play currently feels limited, confusing, repetitive, or lifeless?
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Proposed behavior
+      description: Explain what the survivor should perceive, decide, do, and communicate.
+    validations:
+      required: true
+  - type: textarea
+    id: control
+    attributes:
+      label: Player control and uncertainty
+      description: What should the player be able to order, and what should remain an autonomous choice?
+  - type: textarea
+    id: risks
+    attributes:
+      label: Edge cases and risks
+      description: Consider danger, interruption, animation, inventory, vehicles, save/load, performance, and mod conflicts.
+  - type: textarea
+    id: inspiration
+    attributes:
+      label: Inspiration
+      description: Mention games or real behavior as high-level inspiration, without requesting copied code or assets.

@@ -1,0 +1,84 @@
+name: Bug report
+description: Report a reproducible Living Fellows problem
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for testing Living Fellows. Back up important saves and remove private information from logs before uploading them.
+  - type: input
+    id: mod-version
+    attributes:
+      label: Living Fellows version
+      placeholder: 0.22.7
+    validations:
+      required: true
+  - type: input
+    id: game-version
+    attributes:
+      label: Project Zomboid version
+      placeholder: 42.20.4
+    validations:
+      required: true
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installation method
+      options:
+        - Steam Workshop with ZombieBuddy
+        - Standalone Install.bat
+        - Source/development install
+    validations:
+      required: true
+  - type: dropdown
+    id: save
+    attributes:
+      label: Save type
+      options:
+        - New save
+        - Existing save first loaded with this version
+        - Existing save upgraded from an earlier Living Fellows version
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe what you saw and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Load the save...
+        2. Recruit a survivor...
+        3. Select...
+    validations:
+      required: true
+  - type: textarea
+    id: mods
+    attributes:
+      label: Other enabled mods
+      description: Paste the list or attach a screenshot. Write "None" if Living Fellows is the only mod.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and media
+      description: Attach console.txt or logs.zip from the Zomboid user folder, plus screenshots/video for visual or pathing issues. Remove private information first.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Safety checks
+      options:
+        - label: I reproduced this in single-player on Project Zomboid 42.20.4.
+          required: true
+        - label: I am not running the Workshop and standalone copies together.
+          required: true
+        - label: I backed up the affected save.
+          required: true

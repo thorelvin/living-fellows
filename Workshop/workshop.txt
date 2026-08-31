@@ -1,0 +1,6 @@
+version=1
+id=0
+title=Living Fellows: Companion
+description=Public beta for Project Zomboid 42.20.4: persistent native companions, survivor households, social contracts, and living bases. Requires ZombieBuddy 2.3.3 or newer. Single-player only.
+tags=Build 42;Singleplayer;NPC
+visibility=unlisted

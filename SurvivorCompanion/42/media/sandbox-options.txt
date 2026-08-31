@@ -1,0 +1,77 @@
+VERSION = 1,
+
+option LivingFellows.EncountersEnabled
+{
+    type = boolean,
+    default = true,
+    page = LivingFellows,
+    translation = LivingFellows_EncountersEnabled,
+}
+
+option LivingFellows.EncounterFrequency
+{
+    type = enum,
+    numValues = 4,
+    default = 3,
+    page = LivingFellows,
+    translation = LivingFellows_EncounterFrequency,
+    valueTranslation = LivingFellows_EncounterFrequency,
+}
+
+option LivingFellows.MaxCompanions
+{
+    type = integer,
+    min = 1,
+    max = 16,
+    default = 16,
+    page = LivingFellows,
+    translation = LivingFellows_MaxCompanions,
+}
+
+option LivingFellows.CompanionNeedsRate
+{
+    type = double,
+    min = 0,
+    max = 2,
+    default = 0.5,
+    page = LivingFellows,
+    translation = LivingFellows_CompanionNeedsRate,
+}
+
+option LivingFellows.HouseholdSpawnsEnabled
+{
+    type = boolean,
+    default = true,
+    page = LivingFellows,
+    translation = LivingFellows_HouseholdSpawnsEnabled,
+}
+
+option LivingFellows.HouseholdDailyChance
+{
+    type = integer,
+    min = 0,
+    max = 100,
+    default = 8,
+    page = LivingFellows,
+    translation = LivingFellows_HouseholdDailyChance,
+}
+
+option LivingFellows.MaxHouseholds
+{
+    type = integer,
+    min = 0,
+    max = 12,
+    default = 3,
+    page = LivingFellows,
+    translation = LivingFellows_MaxHouseholds,
+}
+
+option LivingFellows.UIOpacity
+{
+    type = double,
+    min = 0.25,
+    max = 0.85,
+    default = 0.66,
+    page = LivingFellows,
+    translation = LivingFellows_UIOpacity,
+}

@@ -1,0 +1,23 @@
+{
+    "Sandbox_LivingFellows": "Living Fellows",
+    "Sandbox_LivingFellows_EncountersEnabled": "Spawn independent survivors",
+    "Sandbox_LivingFellows_EncountersEnabled_tooltip": "Allows new independent survivors to appear. Existing companions are never removed when this is disabled.",
+    "Sandbox_LivingFellows_EncounterFrequency": "Independent survivor frequency",
+    "Sandbox_LivingFellows_EncounterFrequency_tooltip": "Controls the minimum real-time delay between independent survivor encounters.",
+    "Sandbox_LivingFellows_EncounterFrequency_option1": "Very rare",
+    "Sandbox_LivingFellows_EncounterFrequency_option2": "Rare",
+    "Sandbox_LivingFellows_EncounterFrequency_option3": "Normal",
+    "Sandbox_LivingFellows_EncounterFrequency_option4": "Frequent",
+    "Sandbox_LivingFellows_MaxCompanions": "Maximum active companions",
+    "Sandbox_LivingFellows_MaxCompanions_tooltip": "Limits new recruitment and encounters. Lowering this value never deletes companions already stored in the save.",
+    "Sandbox_LivingFellows_CompanionNeedsRate": "Companion hunger and thirst rate",
+    "Sandbox_LivingFellows_CompanionNeedsRate_tooltip": "0 disables natural hunger and thirst growth. 0.5 is the intended default; 1 matches the ordinary player rate.",
+    "Sandbox_LivingFellows_HouseholdSpawnsEnabled": "Spawn new survivor households",
+    "Sandbox_LivingFellows_HouseholdSpawnsEnabled_tooltip": "Allows new barricaded households to appear. Existing households remain alive when this is disabled.",
+    "Sandbox_LivingFellows_HouseholdDailyChance": "Household daily spawn chance",
+    "Sandbox_LivingFellows_HouseholdDailyChance_tooltip": "Chance checked on an eligible day after the household cooldown and distance rules are satisfied.",
+    "Sandbox_LivingFellows_MaxHouseholds": "Maximum new households",
+    "Sandbox_LivingFellows_MaxHouseholds_tooltip": "Stops additional household spawning at this count. Lowering the value never removes households already saved.",
+    "Sandbox_LivingFellows_UIOpacity": "Companion menu opacity",
+    "Sandbox_LivingFellows_UIOpacity_tooltip": "Adjusts the background opacity of the companion menu while preserving visibility of approaching threats."
+}

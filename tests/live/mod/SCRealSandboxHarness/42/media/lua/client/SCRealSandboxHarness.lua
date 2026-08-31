@@ -1,0 +1,1029 @@
+-- SPDX-License-Identifier: MIT
+-- Private live integration harness. This file is installed only in a disposable
+-- cachedir created by Invoke-LiveSandboxTests.ps1; it is never packaged with the mod.
+
+local CONFIG_FILE = "SurvivorCompanionHarness/config.ini"
+local EVENTS_FILE = "SurvivorCompanionHarness/events.log"
+local SUMMARY_FILE = "SurvivorCompanionHarness/summary.txt"
+
+local Harness = {
+    config = {},
+    results = {},
+    phase = "idle",
+    failures = 0,
+    skipped = 0,
+    passes = 0,
+    startedAt = 0,
+    phaseStartedAt = 0,
+    finished = false,
+    autoloadIssued = false,
+    observedRoomStatuses = {},
+}
+
+local function nowMs()
+    if type(getTimestampMs) == "function" then
+        local ok, value = pcall(getTimestampMs)
+        if ok and tonumber(value) then return tonumber(value) end
+    end
+    return math.floor(os.time() * 1000)
+end
+
+local function clean(value)
+    local text = tostring(value or "")
+    text = string.gsub(text, "[\r\n|]", " ")
+    if #text > 480 then text = string.sub(text, 1, 480) end
+    return text
+end
+
+local function readConfig()
+    if type(getFileReader) ~= "function" then return {} end
+    local reader = getFileReader(CONFIG_FILE, true)
+    if reader == nil then return {} end
+    local values = {}
+    while true do
+        local line = reader:readLine()
+        if line == nil then break end
+        local key, value = string.match(line, "^([%w_]+)=(.*)$")
+        if key then values[key] = value end
+    end
+    reader:close()
+    return values
+end
+
+local function writeSnapshot(done)
+    if type(getFileWriter) ~= "function" then return end
+    local writer = getFileWriter(EVENTS_FILE, true, false)
+    if writer ~= nil then
+        writer:writeln("SC_REAL_SANDBOX_EVENTS_V1")
+        writer:writeln("run_id=" .. clean(Harness.config.run_id))
+        for _, result in ipairs(Harness.results) do
+            writer:writeln(clean(result.status) .. "|" .. clean(result.name)
+                .. "|" .. clean(result.detail))
+        end
+        writer:close()
+    end
+    if not done then return end
+    writer = getFileWriter(SUMMARY_FILE, true, false)
+    if writer ~= nil then
+        writer:writeln("SC_REAL_SANDBOX_SUMMARY_V1")
+        writer:writeln("run_id=" .. clean(Harness.config.run_id))
+        writer:writeln("status=" .. (Harness.failures == 0 and "PASS" or "FAIL"))
+        writer:writeln("passes=" .. tostring(Harness.passes))
+        writer:writeln("failures=" .. tostring(Harness.failures))
+        writer:writeln("skipped=" .. tostring(Harness.skipped))
+        writer:writeln("release=" .. clean(Harness.release))
+        writer:close()
+    end
+end
+
+local function result(status, name, detail)
+    if status == "PASS" then Harness.passes = Harness.passes + 1
+    elseif status == "SKIP" then Harness.skipped = Harness.skipped + 1
+    else Harness.failures = Harness.failures + 1 status = "FAIL" end
+    Harness.results[#Harness.results + 1] = {
+        status = status,
+        name = name,
+        detail = detail,
+    }
+    print("SC_REAL_SANDBOX|" .. status .. "|" .. clean(name) .. "|" .. clean(detail))
+    writeSnapshot(false)
+end
+
+local function check(name, condition, detail)
+    result(condition and "PASS" or "FAIL", name, detail)
+    return condition == true
+end
+
+local function skip(name, detail)
+    result("SKIP", name, detail)
+end
+
+local function setPhase(name, current)
+    Harness.phase = name
+    Harness.phaseStartedAt = current or nowMs()
+end
+
+local function getPlayerSafe()
+    if type(getPlayer) ~= "function" then return nil end
+    local ok, player = pcall(getPlayer)
+    return ok and player or nil
+end
+
+local function position(value)
+    local utility = SurvivorCompanion and SurvivorCompanion.GameplayUtil
+    if utility and type(utility.position) == "function" then
+        return utility.position(value)
+    end
+    return nil, nil, nil
+end
+
+local function distance(a, b)
+    local utility = SurvivorCompanion and SurvivorCompanion.GameplayUtil
+    if utility and type(utility.distance) == "function" then
+        return utility.distance(a, b)
+    end
+    return math.huge
+end
+
+local function safeSpawnSquare(player)
+    local SC = SurvivorCompanion
+    local utility = SC and SC.GameplayUtil
+    if not utility then return nil end
+    local px, py, pz = position(player)
+    if px == nil or type(getCell) ~= "function" then return nil end
+    local cell = getCell()
+    if cell == nil then return nil end
+    local offsets = {
+        { 7, 0 }, { -7, 0 }, { 0, 7 }, { 0, -7 },
+        { 6, 3 }, { -6, 3 }, { 6, -3 }, { -6, -3 },
+        { 5, 0 }, { -5, 0 }, { 0, 5 }, { 0, -5 },
+        { 4, 3 }, { -4, 3 }, { 4, -3 }, { -4, -3 },
+    }
+    for _, offset in ipairs(offsets) do
+        local square = cell:getGridSquare(
+            math.floor(px + offset[1]), math.floor(py + offset[2]), math.floor(pz or 0))
+        if square ~= nil and utility.isSquareFree(square) then
+            local free, freeOk = utility.call(square, "isFree", true)
+            local safe, safeOk = utility.call(square, "isSafeToSpawn")
+            if (not freeOk or free == true) and (not safeOk or safe == true) then
+                return square
+            end
+        end
+    end
+    return nil
+end
+
+local function beginNativeSpawn(current)
+    local SC = SurvivorCompanion
+    local square = safeSpawnSquare(Harness.player)
+    if square == nil then
+        local living = SC.Registry.living()
+        if #living > 0 then
+            Harness.actor = living[1]
+            skip("deferred_native_spawn", "no safe loaded test square; using restored companion")
+            return true
+        end
+        result("FAIL", "deferred_native_spawn", "no safe loaded spawn square")
+        return false
+    end
+    Harness.spawnSquare = square
+    local ticket, reason = SC.Actor.beginSpawn(square, {
+        recruited = true,
+        identity = {
+            forename = "Harness",
+            surname = "Fellow",
+            gender = "man",
+            outfit = "Generic01",
+        },
+    })
+    if ticket == nil then
+        local living = SC.Registry.living()
+        if #living > 0 then
+            Harness.actor = living[1]
+            skip("deferred_native_spawn", "spawn unavailable: " .. clean(reason)
+                .. "; using restored companion")
+            return true
+        end
+        result("FAIL", "deferred_native_spawn", reason)
+        return false
+    end
+    Harness.spawnTicket = ticket
+    setPhase("poll_spawn", current)
+    return nil
+end
+
+local function routeProbe(actor, player)
+    local SC = SurvivorCompanion
+    local utility = SC.GameplayUtil
+    local square = utility.squareOf(actor)
+    local x, y, z = position(square)
+    if x == nil or type(getCell) ~= "function" then
+        result("FAIL", "real_route_evaluation", "actor square is unavailable")
+        return
+    end
+    local snapshot = SC.Senses.snapshot(actor, player, {})
+    Harness.snapshot = snapshot
+    local offsets = {
+        { 7, 0 }, { -7, 0 }, { 0, 7 }, { 0, -7 },
+        { 6, 4 }, { -6, 4 }, { 6, -4 }, { -6, -4 },
+    }
+    local best
+    for _, offset in ipairs(offsets) do
+        local goal = getCell():getGridSquare(
+            math.floor(x + offset[1]), math.floor(y + offset[2]), math.floor(z or 0))
+        if goal ~= nil and utility.isSquareFree(goal) then
+            local ok, report = pcall(SC.Navigation.evaluateRoutes, square, goal, snapshot)
+            if ok and type(report) == "table" and type(report.path) == "table" then
+                if best == nil or (tonumber(report.candidateCount) or 0)
+                    > (tonumber(best.candidateCount) or 0) then best = report end
+            end
+        end
+    end
+    if best == nil then
+        result("FAIL", "real_route_evaluation", "no bounded path to a loaded probe square")
+        return
+    end
+    local count = tonumber(best.candidateCount) or 0
+    local expanded = tonumber(best.expandedNodes) or math.huge
+    check("real_route_evaluation", count >= 1 and count <= 3 and expanded <= 380,
+        "candidates=" .. tostring(count) .. " expanded=" .. tostring(expanded)
+            .. " selected=" .. tostring(best.selectedOriginalIndex))
+    if count >= 2 then
+        result("PASS", "alternative_follow_routes", "distinct bounded candidates=" .. tostring(count))
+    else
+        skip("alternative_follow_routes", "loaded surroundings provide only one viable bounded route")
+    end
+end
+
+local function roomOf(square)
+    local utility = SurvivorCompanion.GameplayUtil
+    local room, ok = utility.call(square, "getRoom")
+    return ok and room or nil
+end
+
+local function isWalkableRoomThreshold(source, destination)
+    local utility = SurvivorCompanion.GameplayUtil
+    local window, windowOk = utility.call(source, "isWindowTo", destination)
+    if windowOk and window == true then return false end
+    local hoppable, hopOk = utility.call(source, "isHoppableTo", destination)
+    if hopOk and hoppable == true then return false end
+    local door, doorOk = utility.call(source, "isDoorTo", destination)
+    if doorOk and door == true then return true end
+    return not utility.edgeBlocked(source, destination)
+end
+
+local function findRoomEntryPair(player)
+    local SC = SurvivorCompanion
+    local utility = SC.GameplayUtil
+    local px, py, pz = position(player)
+    if px == nil or type(getCell) ~= "function" then return nil, nil end
+    local cell = getCell()
+    local cardinal = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+    for radius = 1, 12 do
+        for dx = -radius, radius do
+            for _, dy in ipairs({ -radius, radius }) do
+                local source = cell:getGridSquare(math.floor(px + dx),
+                    math.floor(py + dy), math.floor(pz or 0))
+                if source ~= nil and utility.isSquareFree(source) then
+                    local sourceRoom = roomOf(source)
+                    for _, step in ipairs(cardinal) do
+                        local destination = cell:getGridSquare(math.floor(px + dx + step[1]),
+                            math.floor(py + dy + step[2]), math.floor(pz or 0))
+                        local destinationRoom = roomOf(destination)
+                        if destination ~= nil and utility.isSquareFree(destination)
+                            and destinationRoom ~= nil and destinationRoom ~= sourceRoom then
+                            local path = SC.Navigation.findPath(source, destination)
+                            if type(path) == "table" and #path >= 2
+                                and isWalkableRoomThreshold(source, destination) then
+                                return source, destination
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        for dy = -radius + 1, radius - 1 do
+            for _, dx in ipairs({ -radius, radius }) do
+                local source = cell:getGridSquare(math.floor(px + dx),
+                    math.floor(py + dy), math.floor(pz or 0))
+                if source ~= nil and utility.isSquareFree(source) then
+                    local sourceRoom = roomOf(source)
+                    for _, step in ipairs(cardinal) do
+                        local destination = cell:getGridSquare(math.floor(px + dx + step[1]),
+                            math.floor(py + dy + step[2]), math.floor(pz or 0))
+                        local destinationRoom = roomOf(destination)
+                        if destination ~= nil and utility.isSquareFree(destination)
+                            and destinationRoom ~= nil and destinationRoom ~= sourceRoom then
+                            local path = SC.Navigation.findPath(source, destination)
+                            if type(path) == "table" and #path >= 2
+                                and isWalkableRoomThreshold(source, destination) then
+                                return source, destination
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil, nil
+end
+
+local function beginRoomProbe(current)
+    local SC = SurvivorCompanion
+    local source, destination = findRoomEntryPair(Harness.player)
+    if source == nil then
+        skip("real_room_entry_sweep", "no loaded room threshold within 12 squares")
+        setPhase("awareness", current)
+        return
+    end
+    local id = SC.Registry.idOf(Harness.actor)
+    if id then pcall(SC.Commands.issue, id, "stay", nil, Harness.player) end
+    local recovered, reason = SC.Actor.recover(Harness.actor, source)
+    if recovered ~= true then
+        result("FAIL", "real_room_entry_sweep", "native relocation failed: " .. clean(reason))
+        setPhase("awareness", current)
+        return
+    end
+    SC.Navigation.reset(Harness.actor)
+    local moveIssued, moveReason = SC.Commands.issue(id, "move_to",
+        { square = destination }, Harness.player)
+    if moveIssued ~= true then
+        result("FAIL", "real_room_entry_sweep", "move command rejected: " .. clean(moveReason))
+        setPhase("awareness", nowMs())
+        return
+    end
+    Harness.roomDestination = destination
+    Harness.roomSnapshot = SC.Senses.snapshot(Harness.actor, Harness.player, {})
+    Harness.roomProbeObservedAt = nil
+    Harness.observedRoomStatuses = {}
+    -- Room discovery intentionally exercises the bounded production pathfinder
+    -- and can take seconds in a dense cell. Start the probe timeout after that
+    -- synchronous setup instead of inheriting the stale pre-search timestamp.
+    setPhase("room_probe", nowMs())
+end
+
+local function runRoomProbe(current)
+    local SC = SurvivorCompanion
+    local accepted, status = SC.Navigation.request(Harness.actor, Harness.roomDestination, "walk", {
+        action = "ordered_move",
+        snapshot = Harness.roomSnapshot,
+        urgent = false,
+        movementPriority = 100,
+    })
+    status = tostring(status or "")
+    Harness.observedRoomStatuses[status] = true
+    if string.find(status, "checking_room_entry", 1, true)
+        and Harness.roomProbeObservedAt == nil then Harness.roomProbeObservedAt = nowMs() end
+    if accepted == false and not string.find(status, "checking_room_entry", 1, true) then
+        result("FAIL", "real_room_entry_sweep", status)
+        setPhase("awareness", current)
+        return
+    end
+    local seen = Harness.observedRoomStatuses
+    if seen.checking_room_entry_left and seen.checking_room_entry_right then
+        result("PASS", "real_room_entry_sweep",
+            "observed threshold pause plus left and right native-facing requests")
+        setPhase("awareness", current)
+        return
+    end
+    local probeNow = nowMs()
+    if Harness.roomProbeObservedAt ~= nil and probeNow - Harness.roomProbeObservedAt > 6000 then
+        local observed = {}
+        for value in pairs(Harness.observedRoomStatuses) do observed[#observed + 1] = value end
+        table.sort(observed)
+        local navigation = SC.Navigation.peek(Harness.actor) or {}
+        local ax, ay, az = position(Harness.actor)
+        local dx, dy, dz = position(Harness.roomDestination)
+        result("FAIL", "real_room_entry_sweep", "timeout; last_status=" .. status
+            .. "; observed=" .. table.concat(observed, ",")
+            .. "; internal_now=" .. tostring(SC.GameplayUtil.nowMs())
+            .. "; harness_now=" .. tostring(probeNow)
+            .. "; observe_until=" .. tostring(navigation.roomEntryObserveUntil)
+            .. "; stuck_attempts=" .. tostring(navigation.stuckAttempts)
+            .. "; key=" .. tostring(navigation.roomEntryKey)
+            .. "; path_index=" .. tostring(navigation.pathIndex)
+            .. "; actor=" .. table.concat({ tostring(ax), tostring(ay), tostring(az) }, ":")
+            .. "; destination=" .. table.concat({ tostring(dx), tostring(dy), tostring(dz) }, ":"))
+        setPhase("awareness", current)
+    end
+end
+
+local function playerStillIsolated()
+    local player = Harness.player
+    local x, y, z = position(player)
+    local samePosition = x ~= nil and math.abs(x - Harness.playerX) < 0.05
+        and math.abs(y - Harness.playerY) < 0.05 and math.abs((z or 0) - Harness.playerZ) < 0.05
+    local sameSingleton = true
+    if type(getSpecificPlayer) == "function" then
+        local ok, localPlayer = pcall(getSpecificPlayer, 0)
+        sameSingleton = ok and localPlayer == player
+    end
+    return samePosition and sameSingleton
+end
+
+local function runAwareness(current)
+    local SC = SurvivorCompanion
+    local utility = SC.GameplayUtil
+    local ax, ay, az = position(Harness.actor)
+    if ax == nil then
+        result("FAIL", "native_rear_awareness", "actor position unavailable")
+        setPhase("finish", current)
+        return
+    end
+    local forwardX, forwardXOk = utility.call(Harness.player, "getForwardDirectionX")
+    local forwardY, forwardYOk = utility.call(Harness.player, "getForwardDirectionY")
+    if not forwardXOk or not forwardYOk or tonumber(forwardX) == nil or tonumber(forwardY) == nil then
+        forwardX, forwardY = 1, 0
+    end
+    local accepted, reason = SC.Actor.setMovement(Harness.actor, "walk", {
+        action = "rear_scan",
+        targetPosition = { x = ax - forwardX * 2, y = ay - forwardY * 2, z = az },
+        stableFacing = true,
+        awarenessMovement = true,
+    })
+    check("native_rear_awareness", accepted == true, reason)
+    Harness.awarenessForwardX = forwardX
+    Harness.awarenessForwardY = forwardY
+    setPhase("restore_awareness", current)
+end
+
+local function restoreAwareness(current)
+    if current - Harness.phaseStartedAt < 650 then return end
+    local SC = SurvivorCompanion
+    local ax, ay, az = position(Harness.actor)
+    local accepted, reason = SC.Actor.setMovement(Harness.actor, "walk", {
+        action = "face_formation",
+        targetPosition = {
+            x = ax + Harness.awarenessForwardX * 2,
+            y = ay + Harness.awarenessForwardY * 2,
+            z = az,
+        },
+        stableFacing = true,
+        awarenessMovement = true,
+    })
+    check("formation_facing_restore", accepted == true, reason)
+    check("local_player_unchanged", playerStillIsolated(),
+        "companion spawn, follow and facing actions did not move or replace player 0")
+    setPhase("zombie_targeting", current)
+end
+
+local function cleanupTestZombie(zombie)
+    if zombie == nil then return end
+    pcall(function() zombie:setTarget(nil) end)
+    pcall(function() zombie:removeFromWorld() end)
+    pcall(function() zombie:removeFromSquare() end)
+end
+
+local function zombieTargetSquare(actor, player)
+    local SC = SurvivorCompanion
+    local utility = SC.GameplayUtil
+    local ax, ay, az = position(actor)
+    local px, py = position(player)
+    if ax == nil or px == nil or type(getCell) ~= "function" then return nil end
+    local cell = getCell()
+    if cell == nil then return nil end
+    local offsets = {
+        { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 },
+        { 1, 1 }, { -1, 1 }, { 1, -1 }, { -1, -1 },
+    }
+    table.sort(offsets, function(first, second)
+        local firstDistance = (ax + first[1] - px) ^ 2 + (ay + first[2] - py) ^ 2
+        local secondDistance = (ax + second[1] - px) ^ 2 + (ay + second[2] - py) ^ 2
+        return firstDistance > secondDistance
+    end)
+    for _, offset in ipairs(offsets) do
+        local square = cell:getGridSquare(math.floor(ax + offset[1]),
+            math.floor(ay + offset[2]), math.floor(az or 0))
+        if square ~= nil and utility.isSquareFree(square)
+            and utility.canSee(actor, square) then return square end
+    end
+    return nil
+end
+
+local function probeZombieTargeting(current)
+    local SC = SurvivorCompanion
+    if type(addZombiesInOutfit) ~= "function" then
+        result("FAIL", "native_zombie_targets_companion", "addZombiesInOutfit unavailable")
+        setPhase("faction_begin", current)
+        return
+    end
+    local square = zombieTargetSquare(Harness.actor, Harness.player)
+    if square == nil then
+        skip("native_zombie_targets_companion", "no clear adjacent loaded square")
+        setPhase("faction_begin", current)
+        return
+    end
+    local x, y, z = position(square)
+    local spawnedOk, zombies = pcall(addZombiesInOutfit,
+        math.floor(x), math.floor(y), math.floor(z or 0), 1, nil, 0)
+    local zombie
+    if spawnedOk and zombies ~= nil then
+        local utility = SC.GameplayUtil
+        zombie = select(1, utility.call(zombies, "get", 0))
+    end
+    if zombie == nil then
+        result("FAIL", "native_zombie_targets_companion", "real zombie spawn returned no actor")
+        setPhase("faction_begin", current)
+        return
+    end
+    pcall(SC.Actor.stop, Harness.actor)
+    SC.ZombieTargeting.reset(Harness.actor)
+    local scanned, reason, detail = SC.ZombieTargeting.scan(
+        Harness.actor, current, { zombie })
+    local target, targetOk = SC.GameplayUtil.call(zombie, "getTarget")
+    local acquired = scanned == true and targetOk and target == Harness.actor
+    check("native_zombie_targets_companion", acquired,
+        "scan=" .. clean(reason)
+            .. " checked=" .. tostring(detail and detail.checked)
+            .. " targeted=" .. tostring(detail and detail.targeted)
+            .. " target_is_companion=" .. tostring(target == Harness.actor))
+    cleanupTestZombie(zombie)
+    SC.ZombieTargeting.reset(Harness.actor)
+    setPhase("faction_begin", current)
+end
+
+local function beginFactionProbe(current)
+    local SC = SurvivorCompanion
+    check("debug_faction_tools_enabled", SC.Config.get("debugSpawnEnabled") == true,
+        "isolated harness uses the private debug payload")
+    local spawned, factionId = SC.Factions.debugSpawnHousehold(Harness.player, 2)
+    if not spawned then
+        skip("manual_faction_household_spawn", "no valid loaded test house: " .. clean(factionId))
+        setPhase("finish", current)
+        return
+    end
+    Harness.factionId = factionId
+    result("PASS", "manual_faction_household_spawn", factionId)
+    setPhase("faction_wait", current)
+end
+
+local function factionActors(group)
+    local rows = {}
+    for _, member in ipairs(group and group.members or {}) do
+        local record = member.actorId and SurvivorCompanion.Registry.byId(member.actorId) or nil
+        if record and record.actor then rows[#rows + 1] = record end
+    end
+    return rows
+end
+
+local function probeFactionSocialContracts(SC, group)
+    local initial = SC.Factions.summary(group.id).social
+    check("persistent_social_contract_profile", type(initial) == "table"
+        and type(initial.offer) == "table" and initial.completedContracts == 0,
+        initial and tostring(initial.currentKind) or "social summary unavailable")
+
+    local talked, response = SC.FactionContracts.talk(
+        group, Harness.player, "needs", true)
+    local afterTalk = SC.Factions.summary(group.id).social
+    check("real_representative_conversation", talked == true
+        and type(response) == "string" and #response > 12
+        and type(afterTalk.lastSpeaker) == "string",
+        tostring(afterTalk.lastSpeaker) .. ": " .. clean(response))
+
+    local supplied = SC.FactionContracts.debugOffer(group.id, "supply")
+    local accepted = SC.FactionContracts.accept(group, Harness.player, true)
+    local activeSummary = SC.Factions.summary(group.id).social
+    local duplicate, duplicateReason = SC.FactionContracts.accept(group, Harness.player, true)
+    local completed, completeReason = SC.FactionContracts.debugComplete(group.id)
+    local first = SC.Factions.summary(group.id).social
+    check("social_contract_single_active_and_reward_scope", supplied == true
+        and accepted == true and duplicate ~= true
+        and duplicateReason == "one_contract_already_active" and completed == true
+        and first.futureRecruitConsideration == true
+        and first.futureRecruitCandidate ~= true
+        and activeSummary.active.marker ~= nil,
+        "complete=" .. tostring(completeReason) .. " future="
+            .. tostring(first.futureRecruitConsideration) .. " marker="
+            .. tostring(activeSummary.active.marker and activeSummary.active.marker.lastResult))
+
+    local kindsOk = true
+    for _, kind in ipairs({ "medical", "local_threat" }) do
+        kindsOk = kindsOk and SC.FactionContracts.debugOffer(group.id, kind) == true
+            and SC.FactionContracts.accept(group, Harness.player, true) == true
+            and SC.FactionContracts.debugComplete(group.id) == true
+    end
+    check("all_social_contract_kinds", kindsOk,
+        "supply, medical and local-threat contracts completed through live Lua")
+
+    local complicationsOk = true
+    for _, value in ipairs({ "hidden_severity", "diverted_delivery",
+        "rival_objection", "broken_reward", "private_dissent" }) do
+        local offered = SC.FactionContracts.debugOffer(group.id, "supply")
+        local changed = SC.FactionContracts.debugComplication(group.id, value)
+        local done = SC.FactionContracts.debugComplete(group.id)
+        complicationsOk = complicationsOk and offered == true and changed == true and done == true
+    end
+    local complicated = SC.Factions.summary(group.id).social
+    check("all_social_contract_complications", complicationsOk
+        and complicated.householdDebt == 25
+        and complicated.contractHistoryCount >= 8,
+        "history=" .. tostring(complicated.contractHistoryCount)
+            .. " debt=" .. tostring(complicated.householdDebt))
+
+    local inventory = Harness.player and Harness.player:getInventory() or nil
+    local sheetA = inventory and inventory:AddItem("Base.RippedSheets") or nil
+    local sheetB = inventory and inventory:AddItem("Base.RippedSheets") or nil
+    local wipes = inventory and inventory:AddItem("Base.AlcoholWipes") or nil
+    local medicalReady = SC.FactionContracts.debugOffer(group.id, "medical")
+        and SC.FactionContracts.accept(group, Harness.player, true)
+    local medicalProgress = medicalReady
+        and SC.FactionContracts.progress(group, Harness.player, false) or nil
+    check("contract_alternative_goods_preview", sheetA ~= nil and sheetB ~= nil
+        and wipes ~= nil and medicalProgress and medicalProgress.ready == true
+        and #medicalProgress.requirements == 2,
+        medicalProgress and (tostring(medicalProgress.requirements[1].available)
+            .. " bandages matched=" .. tostring(medicalProgress.requirements[1].matched)
+            .. " protected=" .. tostring(medicalProgress.requirements[1].protected)
+            .. " types=" .. table.concat(medicalProgress.requirements[1].observedTypes or {}, ",")
+            .. "; " .. tostring(medicalProgress.requirements[2].available)
+            .. " disinfectant matched=" .. tostring(medicalProgress.requirements[2].matched)
+            .. " protected=" .. tostring(medicalProgress.requirements[2].protected)
+            .. " types=" .. table.concat(medicalProgress.requirements[2].observedTypes or {}, ",")
+            .. " actual=" .. clean(sheetA and sheetA:getFullType()) .. ","
+            .. clean(wipes and wipes:getFullType()) .. " inventory="
+            .. tostring(#SC.GameplayUtil.inventoryItems(inventory, 4096))
+            .. " reason=" .. clean(medicalProgress.reason))
+            or "Build 42 inventory preview unavailable")
+    if inventory then
+        if sheetA then inventory:Remove(sheetA) end
+        if sheetB then inventory:Remove(sheetB) end
+        if wipes then inventory:Remove(wipes) end
+    end
+    SC.FactionContracts.debugComplete(group.id)
+    local reserves = SC.Trade.reserveSummary(group.id)
+    local policy = SC.FactionContracts.tradePolicy(group)
+    check("explicit_household_trade_reserves", type(reserves) == "table" and #reserves >= 3
+        and type(policy.refusedReasons) == "table",
+        "reserve rows=" .. tostring(type(reserves) == "table" and #reserves or 0))
+
+    local expiring = SC.FactionContracts.debugOffer(group.id, "medical")
+        and SC.FactionContracts.accept(group, Harness.player, true)
+    local expired = SC.FactionContracts.debugExpire(group.id)
+    local expiredSocial = SC.Factions.summary(group.id).social
+    check("social_contract_broken_promise", expiring == true and expired == true
+        and expiredSocial.brokenPromises >= 1
+        and #expiredSocial.notifications > 0,
+        "expired promises remain visible in household memory")
+
+    local guest = SC.FactionContracts.debugAccess(group.id, "guest")
+    local accessible = SC.FactionContracts.hasAccess(group, Harness.player)
+    SC.FactionContracts.noteAction(group, "theft", "live harness boundary probe")
+    check("social_contract_guest_access", guest == true and accessible == true
+        and SC.FactionContracts.hasAccess(group, Harness.player) ~= true,
+        "guest access is time-bounded and revoked by a remembered theft")
+end
+
+local function waitForFaction(current)
+    local SC = SurvivorCompanion
+    local summary = SC.Factions.summary(Harness.factionId)
+    if not summary then
+        result("FAIL", "persistent_faction_registration", "spawned faction disappeared")
+        setPhase("finish", current)
+        return
+    end
+    if summary.alive ~= 2 then
+        result("FAIL", "persistent_faction_registration", "requested=2 alive="
+            .. tostring(summary.alive))
+        setPhase("finish", current)
+        return
+    end
+    if summary.active < summary.alive then
+        if current - Harness.phaseStartedAt > 15000 then
+            local failures = {}
+            local group = SC.Factions.group(Harness.factionId)
+            for _, member in ipairs(group and group.members or {}) do
+                if member.spawnFailure then
+                    failures[#failures + 1] = tostring(member.key) .. "="
+                        .. clean(member.spawnFailure)
+                end
+            end
+            result("FAIL", "persistent_faction_registration", "active="
+                .. tostring(summary.active) .. " alive=" .. tostring(summary.alive)
+                .. " failures=" .. table.concat(failures, ";"))
+            setPhase("finish", current)
+        end
+        return
+    end
+    local group = SC.Factions.group(Harness.factionId)
+    local actors = factionActors(group)
+    local isolated = #actors == summary.alive
+    for _, record in ipairs(actors) do
+        isolated = isolated and record.recruited ~= true and record.factionId == Harness.factionId
+        local recruited, reason = SC.Commands.issue(record.id, "recruit", nil, Harness.player)
+        isolated = isolated and recruited ~= true
+            and reason == "faction_members_use_faction_interactions"
+    end
+    check("persistent_faction_registration", isolated,
+        "members=" .. tostring(#actors) .. " faction=" .. Harness.factionId)
+    check("faction_member_command_isolation", isolated,
+        "faction residents cannot enter the companion command/recruit path")
+    check("faction_fortification_plan", type(group.jobs) == "table" and #group.jobs > 0
+        and type(group.house.primaryEntry) == "table",
+        "jobs=" .. tostring(#(group.jobs or {})))
+    local life = summary.life
+    check("persistent_faction_life_profile", type(life) == "table"
+        and type(life.personalityPrimary) == "string"
+        and type(life.members) == "table" and #life.members == 2
+        and type(life.relations) == "table" and #life.relations == 1
+        and life.rumoursTotal == 3,
+        life and (tostring(life.personality) .. " rumours=" .. tostring(life.rumoursTotal))
+            or "life summary unavailable")
+    probeFactionSocialContracts(SC, group)
+
+    local personalitiesOk = true
+    for _, personality in ipairs({ "Paranoid", "Generous", "Militarized", "Desperate",
+        "Isolationist", "Resourceful" }) do
+        local changed = SC.FactionLife.debugSetPersonality(Harness.factionId, personality)
+        personalitiesOk = personalitiesOk and changed == true
+            and SC.Factions.summary(Harness.factionId).life.personalityPrimary == personality
+    end
+    check("faction_debug_personality_controls", personalitiesOk,
+        "all six persistent household profiles selected through debug-only APIs")
+
+    local beforeRoutine = SC.Factions.summary(Harness.factionId).life.routines
+    local beforeFirst = beforeRoutine and beforeRoutine[group.members[1].key]
+    local routineAdvanced = SC.FactionLife.debugAdvanceRoutine(Harness.factionId)
+    local afterFirst = SC.Factions.summary(Harness.factionId).life.routines[group.members[1].key]
+    check("faction_debug_routine_control", routineAdvanced == true
+        and afterFirst ~= nil and afterFirst ~= beforeFirst,
+        "before=" .. tostring(beforeFirst) .. " after=" .. tostring(afterFirst))
+
+    local audited, auditDetail = SC.FactionLife.debugAuditResources(Harness.factionId)
+    local resources = SC.Factions.summary(Harness.factionId).life.resources
+    check("faction_debug_resource_audit", audited == true
+        and resources and resources.source == "inventory",
+        "result=" .. tostring(auditDetail) .. " level="
+            .. tostring(resources and resources.level))
+
+    local crisesOk, crisisDetail = true, {}
+    for _, crisisKind in ipairs({ "supply_collapse", "illness", "internal_dispute" }) do
+        local started, startReason = SC.FactionLife.debugTriggerCrisis(
+            Harness.factionId, crisisKind)
+        local active = SC.Factions.summary(Harness.factionId).life.crisis
+        local resolved, resolveReason = SC.FactionLife.debugResolveCrisis(Harness.factionId)
+        crisesOk = crisesOk and started == true and active and active.kind == crisisKind
+            and resolved == true
+        crisisDetail[#crisisDetail + 1] = crisisKind .. "=" .. tostring(startReason)
+            .. "/" .. tostring(resolveReason)
+    end
+    check("faction_debug_crisis_controls", crisesOk, table.concat(crisisDetail, ","))
+
+    local rumourShared, rumourDetail = SC.FactionLife.debugShareRumour(
+        Harness.factionId, Harness.player)
+    local afterRumour = SC.Factions.summary(Harness.factionId).life
+    check("real_world_map_rumour", rumourShared == true
+        and afterRumour.rumoursShared == 1
+        and (tonumber(afterRumour.lastRumourUncertainty) or 0) >= 4,
+        "result=" .. tostring(rumourDetail) .. " shared="
+            .. tostring(afterRumour.rumoursShared) .. " uncertainty="
+            .. tostring(afterRumour.lastRumourUncertainty))
+
+    group.discovered = true
+    SC.Factions.forceStanding(Harness.factionId, "Tolerated")
+    group.life.nextPulseAt = 0
+    SC.FactionLife.pulseGroup(group, Harness.player, current)
+    local representative = SC.Factions.summary(Harness.factionId).life.representative
+    local representativeDistance = distance(Harness.player, group.house.anchor)
+    if representativeDistance <= (tonumber(SC.Config.get(
+        "factionRepresentativeApproachRadius")) or 26) then
+        check("faction_representative_policy", representative.state == "approaching"
+            or representative.state == "at_entry",
+            "distance=" .. tostring(representativeDistance) .. " state="
+                .. tostring(representative.state))
+    else
+        skip("faction_representative_policy", "test household is "
+            .. tostring(math.floor(representativeDistance)) .. " tiles from the player")
+    end
+    Harness.factionActors = actors
+    setPhase("faction_fortify", current)
+end
+
+local function probeFactionFortification(current)
+    local SC = SurvivorCompanion
+    local group = SC.Factions.group(Harness.factionId)
+    if not group then
+        result("FAIL", "native_faction_barricade_work", "faction disappeared")
+        setPhase("finish", current)
+        return
+    end
+    local progressed, threatened = false, false
+    for _, record in ipairs(Harness.factionActors or {}) do
+        if SC.NativeActions.isWorkActive(record.actor) then progressed = true end
+        local snapshot = SC.Senses.snapshot(record.actor, Harness.player, {})
+        if (tonumber(snapshot.threatCount) or 0) > 0 then threatened = true end
+    end
+    for _, job in ipairs(group.jobs or {}) do
+        if job.status == "active" or job.status == "completed" then progressed = true end
+    end
+    if not progressed and current - Harness.phaseStartedAt < 20000 then return end
+    if threatened and not progressed then
+        skip("native_faction_barricade_work", "nearby zombies correctly preempted construction")
+    else
+        check("native_faction_barricade_work", progressed,
+            "a real timed barricade job became active or completed")
+    end
+    check("territorial_warning_state", group.discovered == true
+        and ((group.warningLevel or 0) >= 1 or distance(Harness.player, group.house.anchor) > 24),
+        "warning=" .. tostring(group.warningLevel))
+    local saved, document = SC.Persistence.save(Harness.player)
+    local factionActorsSaved = 0
+    if saved and type(document.factionActors) == "table" then
+        for _, _ in pairs(document.factionActors) do factionActorsSaved = factionActorsSaved + 1 end
+    end
+    check("faction_save_document", saved == true and type(document.factions) == "table"
+        and document.factions.groups[Harness.factionId] ~= nil
+        and type(document.factions.groups[Harness.factionId].social) == "table"
+        and type(document.factions.groups[Harness.factionId].social.memories) == "table"
+        and factionActorsSaved == #(Harness.factionActors or {}),
+        "saved faction actors=" .. tostring(factionActorsSaved))
+    local closeEnough = distance(Harness.player, group.house.anchor) <= 25
+    if not closeEnough then
+        skip("native_human_targeting", "test house is outside the bounded territorial leash")
+        setPhase("finish", current)
+        return
+    end
+    SC.Factions.forceStanding(Harness.factionId, "Hostile")
+    setPhase("faction_hostile", current)
+end
+
+local function probeFactionHostility(current)
+    if current - Harness.phaseStartedAt < 4500 then return end
+    local SC = SurvivorCompanion
+    local engaged = false
+    for _, record in ipairs(Harness.factionActors or {}) do
+        local decision = SC.Decision.peek(record.actor) or {}
+        local reason = tostring(record.runtime and record.runtime.lastDecision or "")
+        if decision.current == "faction" or string.find(reason, "attack", 1, true)
+            or string.find(reason, "territory", 1, true) then engaged = true end
+    end
+    check("native_human_targeting", engaged,
+        "hostile residents selected the player through the native faction decision path")
+    SC.Factions.forceStanding(Harness.factionId, "Wary")
+    for _, record in ipairs(Harness.factionActors or {}) do pcall(SC.Actor.stop, record.actor) end
+    setPhase("finish", current)
+end
+
+local function finish()
+    if Harness.finished then return end
+    Harness.finished = true
+    writeSnapshot(true)
+    print("SC_REAL_SANDBOX|SUMMARY|status="
+        .. (Harness.failures == 0 and "PASS" or "FAIL")
+        .. "|passes=" .. tostring(Harness.passes)
+        .. "|failures=" .. tostring(Harness.failures)
+        .. "|skipped=" .. tostring(Harness.skipped))
+    if Events and Events.OnRenderTick then Events.OnRenderTick.Remove(Harness.safeTick) end
+    if type(getCore) == "function" and getCore() ~= nil then
+        getCore():quitToDesktop()
+    end
+end
+
+local function tick()
+    if Harness.finished or Harness.phase == "idle" then return end
+    local current = nowMs()
+    local overallTimeout = tonumber(Harness.config.internal_timeout_ms) or 60000
+    if current - Harness.startedAt > overallTimeout then
+        result("FAIL", "harness_timeout", "phase=" .. tostring(Harness.phase))
+        finish()
+        return
+    end
+
+    if Harness.phase == "wait_runtime" then
+        if current - Harness.phaseStartedAt < 2000 then return end
+        local spawnState = beginNativeSpawn(current)
+        if spawnState == false then setPhase("finish", current)
+        elseif spawnState == true then setPhase("validate_actor", current) end
+    elseif Harness.phase == "poll_spawn" then
+        local actor, reason = SurvivorCompanion.Actor.pollSpawn(Harness.spawnTicket)
+        if actor ~= nil then
+            Harness.actor = actor
+            result("PASS", "deferred_native_spawn", "spawn completed after Lua-to-Java frame unwound")
+            setPhase("validate_actor", current)
+        elseif reason ~= "spawn_pending" then
+            result("FAIL", "deferred_native_spawn", reason)
+            setPhase("finish", current)
+        elseif current - Harness.phaseStartedAt > 10000 then
+            result("FAIL", "deferred_native_spawn", "native spawn polling timed out")
+            setPhase("finish", current)
+        end
+    elseif Harness.phase == "validate_actor" then
+        local SC = SurvivorCompanion
+        local valid, reason = SC.Actor.validateNative(Harness.actor)
+        check("native_actor_validation", valid == true, reason)
+        check("registry_ownership", SC.Registry.idOf(Harness.actor) ~= nil
+            and SC.Actor.isCompanion(Harness.actor), "registry and bridge agree on actor ownership")
+        local schedulerStats = SC.Scheduler.getStats()
+        check("production_scheduler_active", SC.Runtime.isTickAttached()
+            and SC.Runtime.tasksRegistered() and (schedulerStats.frames or 0) > 0,
+            "frames=" .. tostring(schedulerStats.frames)
+                .. " callbacks=" .. tostring(schedulerStats.callbacks)
+                .. " tasks=" .. tostring(schedulerStats.taskCount))
+        routeProbe(Harness.actor, Harness.player)
+        local id = SC.Registry.idOf(Harness.actor)
+        local issued, issueReason = SC.Commands.issue(id, "follow", nil, Harness.player)
+        check("follow_command_accepted", issued == true, issueReason)
+        Harness.followInitialDistance = distance(Harness.actor, Harness.player)
+        Harness.followThreatened = type(Harness.snapshot) == "table"
+            and (tonumber(Harness.snapshot.threatCount) or 0) > 0
+        setPhase("follow", current)
+    elseif Harness.phase == "follow" then
+        local currentDistance = distance(Harness.actor, Harness.player)
+        if Harness.followThreatened then
+            skip("real_follow_progress", "nearby threat makes deterministic formation movement unsafe to assert")
+            setPhase("begin_room", current)
+        elseif currentDistance <= 4.5
+            or currentDistance <= Harness.followInitialDistance - 0.75 then
+            result("PASS", "real_follow_progress", "distance="
+                .. string.format("%.2f->%.2f", Harness.followInitialDistance, currentDistance))
+            setPhase("begin_room", current)
+        elseif current - Harness.phaseStartedAt > 12000 then
+            local SC = SurvivorCompanion
+            local record = SC.Registry.byId(SC.Registry.idOf(Harness.actor))
+            local runtime = record and record.runtime or {}
+            local decision = SC.Decision.peek(Harness.actor) or {}
+            local navigation = SC.Navigation.peek(Harness.actor) or {}
+            local stats = SC.Scheduler.getStats()
+            result("FAIL", "real_follow_progress", "distance="
+                .. string.format("%.2f->%.2f", Harness.followInitialDistance, currentDistance)
+                .. " frames=" .. tostring(stats.frames)
+                .. " callbacks=" .. tostring(stats.callbacks)
+                .. " lastDecision=" .. tostring(runtime.lastDecision)
+                .. " handled=" .. tostring(runtime.lastDecisionHandled)
+                .. " state=" .. tostring(decision.current)
+                .. " intent=" .. tostring(decision.intent)
+                .. " nav=" .. tostring(navigation.pathReason))
+            setPhase("begin_room", current)
+        end
+    elseif Harness.phase == "begin_room" then
+        beginRoomProbe(current)
+    elseif Harness.phase == "room_probe" then
+        runRoomProbe(current)
+    elseif Harness.phase == "awareness" then
+        runAwareness(current)
+    elseif Harness.phase == "restore_awareness" then
+        restoreAwareness(current)
+    elseif Harness.phase == "zombie_targeting" then
+        probeZombieTargeting(current)
+    elseif Harness.phase == "faction_begin" then
+        beginFactionProbe(current)
+    elseif Harness.phase == "faction_wait" then
+        waitForFaction(current)
+    elseif Harness.phase == "faction_fortify" then
+        probeFactionFortification(current)
+    elseif Harness.phase == "faction_hostile" then
+        probeFactionHostility(current)
+    elseif Harness.phase == "finish" then
+        finish()
+    end
+end
+
+function Harness.safeTick()
+    local ok, failure = pcall(tick)
+    if not ok and not Harness.finished then
+        result("FAIL", "unhandled_harness_error", failure)
+        finish()
+    end
+end
+
+local function onGameStart()
+    Harness.config = readConfig()
+    if Harness.config.enabled ~= "true" then return end
+    Harness.results = {}
+    Harness.failures, Harness.skipped, Harness.passes = 0, 0, 0
+    Harness.finished = false
+    Harness.startedAt = nowMs()
+    Harness.player = getPlayerSafe()
+    if Harness.player == nil then
+        result("FAIL", "local_player_available", "getPlayer returned nil")
+        finish()
+        return
+    end
+    if type(getGameSpeed) == "function" and type(setGameSpeed) == "function"
+        and getGameSpeed() == 0 then
+        setGameSpeed(1)
+    end
+    check("gameplay_clock_running", type(getGameSpeed) ~= "function"
+        or getGameSpeed() > 0, "game_speed=" .. tostring(type(getGameSpeed) == "function"
+        and getGameSpeed() or "unavailable"))
+    local loaded, failure = pcall(require, "SCBootstrap")
+    check("companion_bootstrap_loaded", loaded == true and type(SurvivorCompanion) == "table", failure)
+    local SC = SurvivorCompanion
+    Harness.release = SC and SC.Identity and SC.Identity.release or "unknown"
+    local server = type(isServer) == "function" and isServer() == true
+    local client = type(isClient) == "function" and isClient() == true
+    check("single_player_client", not server and not client, "server=" .. tostring(server)
+        .. " client=" .. tostring(client))
+    local bridgeReady, bridgeReason = SC.Actor.checkBridge(true)
+    check("native_bridge_ready", bridgeReady == true, bridgeReason)
+    local singletonOk = true
+    if type(getSpecificPlayer) == "function" then singletonOk = getSpecificPlayer(0) == Harness.player end
+    check("local_player_slot_zero", singletonOk, "getPlayer equals getSpecificPlayer(0)")
+    Harness.playerX, Harness.playerY, Harness.playerZ = position(Harness.player)
+    Harness.playerZ = Harness.playerZ or 0
+    setPhase("wait_runtime", Harness.startedAt)
+end
+
+local function onMainMenuEnter()
+    Harness.config = readConfig()
+    if Harness.config.enabled ~= "true" or Harness.config.autoload ~= "true"
+        or Harness.autoloadIssued then return end
+    Harness.autoloadIssued = true
+    local loaded, failure = pcall(require, "OptionScreens/MainScreen")
+    if not loaded or type(MainScreen) ~= "table"
+        or type(MainScreen.continueLatestSave) ~= "function" then
+        result("FAIL", "autoload", failure or "MainScreen API unavailable")
+        writeSnapshot(true)
+        return
+    end
+    print("SC_REAL_SANDBOX|BOOT|world=" .. clean(Harness.config.world)
+        .. "|mode=" .. clean(Harness.config.mode))
+    MainScreen.continueLatestSave(Harness.config.mode, Harness.config.world)
+end
+
+Harness.config = readConfig()
+if Events and Events.OnMainMenuEnter then Events.OnMainMenuEnter.Add(onMainMenuEnter) end
+if Events and Events.OnGameStart then Events.OnGameStart.Add(onGameStart) end
+if Events and Events.OnRenderTick then Events.OnRenderTick.Add(Harness.safeTick) end
+
+SCRealSandboxHarness = Harness
+return Harness

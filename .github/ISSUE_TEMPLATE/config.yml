@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Installation and troubleshooting guide
+    url: https://github.com/thorelvin/living-fellows#troubleshooting
+    about: Read the setup and common-fix guide before opening a bug.
