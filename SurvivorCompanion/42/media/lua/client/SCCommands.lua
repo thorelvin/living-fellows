@@ -1043,6 +1043,8 @@ local function vehicleAction(actor, entry, state, payload, player, action)
         vehicle = vehicle,
         seat = type(payload) == "table" and payload.seat or nil,
         transactional = true,
+        immediateCommand = true,
+        playerCommand = true,
     }) then return false, action .. "_rejected" end
     markCommand(actor, entry, state)
     return true, action

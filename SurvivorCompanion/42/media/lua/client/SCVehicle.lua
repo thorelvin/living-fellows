@@ -4,6 +4,7 @@ require "SCNamespace"
 require "SCConfig"
 require "SCRegistry"
 require "SCDiagnostics"
+require "SCActionSupervisor"
 
 local SC = SurvivorCompanion
 SC.Vehicle = SC.Vehicle or {}
@@ -13,6 +14,8 @@ local storedById = {}
 local reservations = {}
 local manifests = {}
 local lastVehicleShotAt = setmetatable({}, { __mode = "k" })
+local transactions = setmetatable({}, { __mode = "k" })
+local seatResources = {}
 local stationary
 
 local function method(object, name)
@@ -63,6 +66,140 @@ end
 local function seatKey(identity, seat)
     local key = keyFor(identity)
     return key and (key .. ":" .. tostring(seat)) or nil
+end
+
+local function seatResource(reservation)
+    if reservation == nil then return nil end
+    local resource = seatResources[reservation]
+    if resource == nil then
+        resource = { kind = "vehicle_seat", key = reservation }
+        seatResources[reservation] = resource
+    end
+    return resource
+end
+
+local function supervisor()
+    return type(SC.ActionSupervisor) == "table" and SC.ActionSupervisor or nil
+end
+
+local function transactionIsCurrent(transaction)
+    local service = supervisor()
+    return type(transaction) == "table" and service ~= nil
+        and type(service.isCurrent) == "function"
+        and service.isCurrent(transaction.supervisorToken)
+end
+
+local function clearTransaction(actor, transaction)
+    if transactions[actor] == transaction then transactions[actor] = nil end
+end
+
+local function actorIsOnFoot(actor)
+    local vehicleOk, current = invoke(actor, "getVehicle")
+    return vehicleOk and current == nil
+end
+
+local function cancelTransactionState(actor, reason, token)
+    local transaction = transactions[actor]
+    if transaction == nil or transaction.supervisorToken ~= token then return true end
+    if transaction.moduleReservationClaimed == true and actorIsOnFoot(actor)
+        and reservations[transaction.reservation] == transaction.actorId then
+        reservations[transaction.reservation] = nil
+    end
+    clearTransaction(actor, transaction)
+    return true, reason or "vehicle_transaction_cancelled"
+end
+
+local function finishTransaction(transaction, succeeded, reason, detail)
+    if type(transaction) ~= "table" then return false, "vehicle_transaction_missing" end
+    local service = supervisor()
+    local token = transaction.supervisorToken
+    if succeeded ~= true and transaction.moduleReservationClaimed == true
+        and not (type(detail) == "table" and detail.preserveReservation == true)
+        and actorIsOnFoot(transaction.actor)
+        and reservations[transaction.reservation] == transaction.actorId then
+        reservations[transaction.reservation] = nil
+    end
+    clearTransaction(transaction.actor, transaction)
+    if service == nil or type(token) ~= "table" then return succeeded, reason end
+    if succeeded == true and type(service.complete) == "function" then
+        service.complete(token, reason or "vehicle_transaction_complete", detail)
+    elseif succeeded ~= true and type(service.fail) == "function" then
+        service.fail(token, reason or "vehicle_transaction_failed", detail)
+    end
+    return succeeded, reason
+end
+
+local function beginTransaction(actor, vehicle, seat, action, intent)
+    local service = supervisor()
+    if service == nil or type(service.begin) ~= "function"
+        or type(service.reserve) ~= "function" then
+        return nil, "action_supervisor_unavailable"
+    end
+    if not SC.Actor.isCompanion(actor) then return nil, "actor is not an active companion" end
+    local identity = vehicleIdentity(vehicle)
+    if identity == nil then return nil, "vehicle identity is unavailable" end
+    seat = math.floor(finite(seat, -1))
+    if seat < 1 then return nil, "native vehicle seat is invalid" end
+    local reservation = seatKey(identity, seat)
+    local id = SC.Registry.idOf(actor)
+    if id == nil then return nil, "companion identity is unavailable" end
+    local existing = transactions[actor]
+    if transactionIsCurrent(existing) then
+        if existing.action == action and existing.vehicle == vehicle and existing.seat == seat then
+            return existing, "already_active"
+        end
+    else
+        transactions[actor] = nil
+    end
+    local explicit = type(intent) == "table" and (intent.immediateCommand == true
+        or intent.playerCommand == true)
+    local targetKey = action .. ":" .. tostring(reservation)
+    local token, beginReason, retry = service.begin(actor, {
+        owner = "vehicle",
+        action = action,
+        priority = explicit and service.Priority.PLAYER or service.Priority.TRAVEL,
+        targetKey = targetKey,
+        targetLabel = tostring(identity.script or "vehicle") .. " seat " .. tostring(seat),
+        phase = action == "board_vehicle" and "approaching" or "selected",
+        allowedActions = {
+            approach_vehicle = true,
+            board_vehicle = true,
+            exit_vehicle = true,
+            ready_weapon = true,
+            lower_weapon = true,
+        },
+        metadata = { seat = seat, vehicleKey = keyFor(identity) },
+        onCancel = cancelTransactionState,
+    })
+    if token == nil then return nil, beginReason, retry end
+    local resource = seatResource(reservation)
+    local reserved, reserveReason = service.reserve(token, resource,
+        "passenger seat " .. tostring(seat))
+    if reserved ~= true then
+        service.fail(token, "vehicle_seat_reservation_failed", { reason = reserveReason })
+        return nil, reserveReason
+    end
+    local claimed = reservations[reservation] == nil
+    if reservations[reservation] ~= nil and reservations[reservation] ~= id then
+        service.fail(token, "vehicle_seat_reserved_by_other", { seat = seat })
+        return nil, "vehicle seat is reserved by another companion"
+    end
+    reservations[reservation] = id
+    local transaction = {
+        actor = actor,
+        actorId = id,
+        action = action,
+        vehicle = vehicle,
+        identity = identity,
+        vehicleKey = keyFor(identity),
+        seat = seat,
+        reservation = reservation,
+        resource = resource,
+        moduleReservationClaimed = claimed,
+        supervisorToken = token,
+    }
+    transactions[actor] = transaction
+    return transaction, "started"
 end
 
 local function coordinates(value)
@@ -586,6 +723,53 @@ function vehicleService.isSeatReserved(vehicle, seat)
     return reservations[reservation] ~= nil, reservations[reservation]
 end
 
+function vehicleService.beginBoarding(actor, vehicle, requestedSeat, intent)
+    if vehicle == nil then return nil, "vehicle is required" end
+    local identity = vehicleIdentity(vehicle)
+    if identity == nil then return nil, "vehicle identity is unavailable" end
+    local seat, reason = chooseSeat(vehicle, actor, requestedSeat, identity)
+    if seat == nil then return nil, reason end
+    local stopped, stopReason = stationary(vehicle)
+    if stopped ~= true then return nil, stopReason end
+    return beginTransaction(actor, vehicle, seat, "board_vehicle", intent)
+end
+
+function vehicleService.cancelTransaction(actor, reason)
+    local transaction = actor and transactions[actor] or nil
+    if transaction == nil then return true, "no_vehicle_transaction" end
+    local service = supervisor()
+    if service == nil or type(service.cancel) ~= "function" then
+        cancelTransactionState(actor, reason, transaction.supervisorToken)
+        return true, "vehicle_transaction_cleared"
+    end
+    return service.cancel(actor, reason or "vehicle_transaction_cancelled", nil, true)
+end
+
+function vehicleService.failTransaction(actor, reason, detail)
+    local transaction = actor and transactions[actor] or nil
+    if transaction == nil then return false, "no_vehicle_transaction" end
+    if transaction.moduleReservationClaimed == true and actorIsOnFoot(actor)
+        and reservations[transaction.reservation] == transaction.actorId then
+        reservations[transaction.reservation] = nil
+    end
+    return finishTransaction(transaction, false,
+        reason or "vehicle_transaction_failed", detail)
+end
+
+function vehicleService.transactionStatus(actor)
+    local transaction = actor and transactions[actor] or nil
+    if not transactionIsCurrent(transaction) then return nil end
+    local service = supervisor()
+    local snapshot = service and service.snapshot and service.snapshot(actor) or nil
+    return {
+        action = transaction.action,
+        phase = snapshot and snapshot.phase or "unknown",
+        vehicle = transaction.vehicle,
+        seat = transaction.seat,
+        targetKey = snapshot and snapshot.targetKey or nil,
+    }
+end
+
 function vehicleService.board(actor, vehicle, requestedSeat, intent)
     intent = type(intent) == "table" and intent or {}
     local supplied = intent.preflight
@@ -593,41 +777,71 @@ function vehicleService.board(actor, vehicle, requestedSeat, intent)
         requestedSeat = supplied.seat
     end
     local prepared, prepareReason = vehicleService.preflightBoard(actor, vehicle, requestedSeat)
-    if prepared == nil then return false, prepareReason end
+    if prepared == nil then
+        vehicleService.failTransaction(actor, "vehicle_board_preflight_failed", {
+            reason = prepareReason,
+        })
+        return false, prepareReason
+    end
     if supplied ~= nil and (type(supplied) ~= "table" or supplied.actorId ~= prepared.actorId
         or supplied.vehicle ~= vehicle or supplied.seat ~= prepared.seat
         or supplied.reservation ~= prepared.reservation
         or supplied.vehicleKey ~= prepared.vehicleKey) then
+        vehicleService.failTransaction(actor, "vehicle_board_preflight_stale")
         return false, "vehicle boarding preflight is stale or belongs to another actor"
     end
+    local transaction = transactions[actor]
+    if not transactionIsCurrent(transaction) or transaction.action ~= "board_vehicle"
+        or transaction.vehicle ~= vehicle or transaction.seat ~= prepared.seat then
+        transaction, prepareReason = beginTransaction(actor, vehicle, prepared.seat,
+            "board_vehicle", intent)
+        if transaction == nil then return false, prepareReason end
+    end
+    intent.supervisorToken = transaction.supervisorToken
     local reservation = prepared.reservation
     local id = prepared.actorId
     if SC.Actor.stop(actor) ~= true then
+        finishTransaction(transaction, false, "vehicle_board_stop_failed")
         return false, "companion could not stop safely at the passenger door"
     end
     reservations[reservation] = id
 
+    local service = supervisor()
+    service.transition(transaction.supervisorToken, "committing", {
+        seat = prepared.seat, vehicleKey = prepared.vehicleKey,
+    })
+
     local entered, nativeReason, safeFallback = nativeBoard(actor, vehicle, prepared.seat)
     if entered then
+        service.transition(transaction.supervisorToken, "verifying", {
+            result = nativeReason, seat = prepared.seat,
+        })
         local record = SC.Registry.byId(id)
         if record ~= nil then
             record.runtime = type(record.runtime) == "table" and record.runtime or {}
             record.runtime.vehicle = { native = true, vehicle = vehicle, seat = prepared.seat }
         end
-        return true, nativeReason
+        return finishTransaction(transaction, true, nativeReason, {
+            vehicleKey = prepared.vehicleKey, seat = prepared.seat, native = true,
+        })
     end
 
     if safeFallback ~= true then
-        reservations[reservation] = nil
-        return false, nativeReason
+        if transaction.moduleReservationClaimed == true then reservations[reservation] = nil end
+        return finishTransaction(transaction, false, nativeReason, {
+            rollbackVerified = false, preserveReservation = true,
+        })
     end
     if intent.allowVirtualSeat ~= true then
-        reservations[reservation] = nil
-        return false, nativeReason
+        if transaction.moduleReservationClaimed == true then reservations[reservation] = nil end
+        return finishTransaction(transaction, false, nativeReason, {
+            rollbackVerified = true,
+        })
     end
     if SC.Persistence == nil or type(SC.Persistence.captureRecord) ~= "function" then
-        reservations[reservation] = nil
-        return false, "persistence adapter is unavailable for virtual seating"
+        if transaction.moduleReservationClaimed == true then reservations[reservation] = nil end
+        return finishTransaction(transaction, false,
+            "persistence adapter is unavailable for virtual seating")
     end
     local record = SC.Registry.byId(id)
     local saved, captureReason = SC.Persistence.captureRecord(record, {
@@ -636,15 +850,15 @@ function vehicleService.board(actor, vehicle, requestedSeat, intent)
         seat = prepared.seat,
     })
     if saved == nil then
-        reservations[reservation] = nil
-        return false, captureReason
+        if transaction.moduleReservationClaimed == true then reservations[reservation] = nil end
+        return finishTransaction(transaction, false, captureReason)
     end
     record.runtime = type(record.runtime) == "table" and record.runtime or {}
     record.runtime.lastStableSnapshot = saved
     local removed, removedRecord = SC.Actor.remove(actor)
     if not removed then
-        reservations[reservation] = nil
-        return false, tostring(removedRecord)
+        if transaction.moduleReservationClaimed == true then reservations[reservation] = nil end
+        return finishTransaction(transaction, false, tostring(removedRecord))
     end
     storedById[id] = {
         id = id,
@@ -653,10 +867,16 @@ function vehicleService.board(actor, vehicle, requestedSeat, intent)
         seat = prepared.seat,
         reservation = reservation,
     }
-    return true, "virtual_seat"
+    service.transition(transaction.supervisorToken, "verifying", {
+        stored = true, seat = prepared.seat,
+    })
+    return finishTransaction(transaction, true, "virtual_seat", {
+        vehicleKey = prepared.vehicleKey, seat = prepared.seat, stored = true,
+    })
 end
 
-function vehicleService.exit(actor, vehicle)
+function vehicleService.exit(actor, vehicle, requestedSeat, intent)
+    intent = type(intent) == "table" and intent or {}
     if not SC.Actor.isCompanion(actor) then
         return false, "actor is not an active companion"
     end
@@ -668,28 +888,55 @@ function vehicleService.exit(actor, vehicle)
     local seatOk, seat = invoke(vehicle, "getSeat", actor)
     local identity = vehicleIdentity(vehicle)
     if not seatOk or finite(seat, -1) < 0 then return false, "native vehicle seat is invalid" end
-    local square, squareReason = exitSquare(vehicle, nil, math.floor(seat))
-    if square == nil then return false, squareReason end
-    if SC.Actor.stop(actor) ~= true then return false, "companion could not stop before vehicle exit" end
+    seat = math.floor(seat)
+    local transaction = transactions[actor]
+    if not transactionIsCurrent(transaction) or transaction.action ~= "exit_vehicle"
+        or transaction.vehicle ~= vehicle or transaction.seat ~= seat then
+        transaction, stopReason = beginTransaction(actor, vehicle, seat,
+            "exit_vehicle", intent)
+        if transaction == nil then return false, stopReason end
+    end
+    intent.supervisorToken = transaction.supervisorToken
+    local square, squareReason = exitSquare(vehicle, nil, seat)
+    if square == nil then
+        return finishTransaction(transaction, false, squareReason)
+    end
+    if SC.Actor.stop(actor) ~= true then
+        finishTransaction(transaction, false, "vehicle_exit_stop_failed")
+        return false, "companion could not stop before vehicle exit"
+    end
+    local service = supervisor()
+    service.transition(transaction.supervisorToken, "committing", { seat = seat })
     local exitedOk, exited = invoke(vehicle, "exit", actor)
-    if not exitedOk or exited ~= true then return false, "native vehicle exit was rejected" end
+    if not exitedOk or exited ~= true then
+        return finishTransaction(transaction, false, "native vehicle exit was rejected")
+    end
+    service.transition(transaction.supervisorToken, "verifying", { seat = seat })
     local verifyOk, after = invoke(actor, "getVehicle")
-    if verifyOk and after ~= nil then return false, "native vehicle exit could not be verified" end
+    if not verifyOk or after ~= nil then
+        return finishTransaction(transaction, false,
+            "native vehicle exit could not be verified", { preserveReservation = true })
+    end
     local recovered, recoverReason = SC.Actor.recover(actor, square)
     if recovered ~= true then
-        local rollbackOk, rollbackEntered = invoke(vehicle, "enter", math.floor(seat), actor)
+        local rollbackOk, rollbackEntered = invoke(vehicle, "enter", seat, actor)
         local rollbackVehicleOk, rollbackVehicle = invoke(actor, "getVehicle")
         if rollbackOk and rollbackEntered == true and rollbackVehicleOk and rollbackVehicle == vehicle then
-            return false, "native vehicle exit placement failed; seat rollback verified: "
-                .. tostring(recoverReason)
+            return finishTransaction(transaction, false,
+                "native vehicle exit placement failed; seat rollback verified: "
+                    .. tostring(recoverReason), { preserveReservation = true })
         end
-        return false, "native vehicle exit placement and rollback failed: " .. tostring(recoverReason)
+        return finishTransaction(transaction, false,
+            "native vehicle exit placement and rollback failed: " .. tostring(recoverReason),
+            { preserveReservation = true })
     end
     if seatOk and identity ~= nil then reservations[seatKey(identity, seat)] = nil end
     local record = SC.Registry.byId(SC.Registry.idOf(actor))
     if record ~= nil then record.runtime.vehicle = nil end
     vehicleService.invalidateManifests(vehicle)
-    return true, "native_exit"
+    return finishTransaction(transaction, true, "native_exit", {
+        vehicleKey = keyFor(identity), seat = seat,
+    })
 end
 
 function vehicleService.restoreForVehicle(vehicle, player)
@@ -822,6 +1069,11 @@ function vehicleService.contains(id)
 end
 
 function vehicleService.reset()
+    local activeActors = {}
+    for actor in pairs(transactions) do activeActors[#activeActors + 1] = actor end
+    for _, actor in ipairs(activeActors) do
+        vehicleService.cancelTransaction(actor, "vehicle_reset")
+    end
     for _, stored in pairs(storedById) do
         if stored.spawnTicket ~= nil and SC.Actor ~= nil
             and type(SC.Actor.cancelSpawn) == "function" then
@@ -831,6 +1083,8 @@ function vehicleService.reset()
     storedById = {}
     reservations = {}
     manifests = {}
+    transactions = setmetatable({}, { __mode = "k" })
+    seatResources = {}
     lastVehicleShotAt = setmetatable({}, { __mode = "k" })
 end
 

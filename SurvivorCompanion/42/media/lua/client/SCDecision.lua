@@ -278,6 +278,9 @@ local function enforceVehicleExitPolicy(actor, player, commands)
         return true, stopReason == "vehicle is moving"
             and "waiting_for_safe_exit" or "vehicle_speed_unavailable"
     end
+    if type(SC.Vehicle.cancelTransaction) == "function" then
+        SC.Vehicle.cancelTransaction(actor, "vehicle_exit_policy_changed")
+    end
     if not utility.move(actor, "walk", {
         action = "exit_vehicle",
         vehicle = actorVehicle,
@@ -332,22 +335,43 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
     elseif playerVehicleOk and playerVehicle then
         if not SC.Vehicle or type(SC.Vehicle.preflightBoard) ~= "function"
             or type(SC.Vehicle.boardingSquare) ~= "function"
+            or type(SC.Vehicle.beginBoarding) ~= "function"
             or type(SC.Vehicle.isStationary) ~= "function"
             or type(SC.Vehicle.assignmentFor) ~= "function" then
             return false, "vehicle_adapter_unavailable"
         end
         if commands.rideWithPlayer == false then
+            if type(SC.Vehicle.cancelTransaction) == "function" then
+                SC.Vehicle.cancelTransaction(actor, "ride_with_player_disabled")
+            end
             if not utility.stop(actor) then return false, "vehicle_opt_out_stop_rejected" end
             return true, "ride_with_player_disabled"
         end
         local assignment, assignmentReason = SC.Vehicle.assignmentFor(
             actor, playerVehicle, player)
         if assignment == nil then
+            if type(SC.Vehicle.cancelTransaction) == "function" then
+                SC.Vehicle.cancelTransaction(actor, assignmentReason or "vehicle_assignment_lost")
+            end
             if assignmentReason == "vehicle_capacity_wait" then
                 if not utility.stop(actor) then return false, "vehicle_capacity_wait_stop_rejected" end
                 return true, "vehicle_capacity_wait"
             end
             return false, "vehicle_manifest_rejected:" .. tostring(assignmentReason)
+        end
+        local stopped, stopReason = SC.Vehicle.isStationary(playerVehicle)
+        if stopped ~= true then
+            if type(SC.Vehicle.cancelTransaction) == "function" then
+                SC.Vehicle.cancelTransaction(actor, "vehicle_moving_before_board")
+            end
+            if not utility.stop(actor) then return false, "vehicle_wait_stop_rejected" end
+            return true, stopReason == "vehicle is moving"
+                and "waiting_for_vehicle_to_stop" or "vehicle_speed_unavailable"
+        end
+        local transaction, transactionReason = SC.Vehicle.beginBoarding(
+            actor, playerVehicle, assignment.seat, { followPlayer = true })
+        if transaction == nil then
+            return false, "vehicle_transaction_rejected:" .. tostring(transactionReason)
         end
         local prepared, prepareReason = SC.Vehicle.preflightBoard(
             actor, playerVehicle, assignment.seat)
@@ -361,26 +385,34 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
                 followPlayer = true,
                 transactional = true,
                 allowVirtualSeat = false,
-            }) then return false, "board_vehicle_rejected" end
+                supervisorToken = transaction.supervisorToken,
+            }) then
+                SC.Vehicle.failTransaction(actor, "board_vehicle_dispatch_rejected")
+                return false, "board_vehicle_rejected"
+            end
             return true, "boarding_vehicle"
         end
-        local stopped, stopReason = SC.Vehicle.isStationary(playerVehicle)
-        if stopped ~= true then
-            if not utility.stop(actor) then return false, "vehicle_wait_stop_rejected" end
-            return true, stopReason == "vehicle is moving"
-                and "waiting_for_vehicle_to_stop" or "vehicle_speed_unavailable"
-        end
         if prepareReason ~= "companion is not at the passenger door" then
+            SC.Vehicle.failTransaction(actor, "vehicle_board_preflight_failed", {
+                reason = prepareReason,
+            })
             return false, "board_vehicle_rejected:" .. tostring(prepareReason)
         end
         local target, seat, targetReason = SC.Vehicle.boardingSquare(
             actor, playerVehicle, assignment.seat)
-        if target == nil then return false, "vehicle_approach_rejected:" .. tostring(targetReason) end
+        if target == nil then
+            SC.Vehicle.failTransaction(actor, "vehicle_boarding_square_failed", {
+                reason = targetReason,
+            })
+            return false, "vehicle_approach_rejected:" .. tostring(targetReason)
+        end
         if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
+            SC.Vehicle.failTransaction(actor, "vehicle_navigation_unavailable")
             return false, "navigation_unavailable"
         end
         local distance = utility.distance(actor, target)
-        return SC.Navigation.request(actor, target, distance > 8 and "run" or "walk", {
+        local accepted, reason = SC.Navigation.request(actor, target,
+            distance > 8 and "run" or "walk", {
             action = "approach_vehicle",
             vehicle = playerVehicle,
             seat = seat,
@@ -389,7 +421,12 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
             desiredDistance = 0,
             urgent = false,
             movementPriority = 30,
+            supervisorToken = transaction.supervisorToken,
         })
+        if accepted ~= true then
+            SC.Vehicle.failTransaction(actor, "vehicle_approach_failed", { reason = reason })
+        end
+        return accepted, reason
     elseif actorVehicleOk and actorVehicle and (not playerVehicleOk or not playerVehicle) then
         if not SC.Vehicle or type(SC.Vehicle.isStationary) ~= "function" then
             return false, "vehicle_adapter_unavailable"
@@ -407,6 +444,9 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
             restoreByDoor = true,
         }) then return false, "exit_vehicle_rejected" end
         return true, "exiting_vehicle"
+    end
+    if SC.Vehicle and type(SC.Vehicle.cancelTransaction) == "function" then
+        SC.Vehicle.cancelTransaction(actor, "player_not_in_vehicle")
     end
     if not SC.Positioning or type(SC.Positioning.formationTarget) ~= "function" then
         return false, "positioning_unavailable"

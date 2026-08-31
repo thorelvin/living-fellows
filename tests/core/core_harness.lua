@@ -615,10 +615,30 @@ local movingPreflight, movingReason = SC.Vehicle.preflightBoard(actor, vehicle, 
 check(movingPreflight == nil and movingReason == "vehicle is moving",
     "vehicle entry refuses a moving target")
 vehicle.speed = 0
+function SC.__testVehicleTransaction()
+    local boardingTransaction, boardingTransactionReason = SC.Vehicle.beginBoarding(
+        actor, vehicle, 1, { followPlayer = true })
+    local boardingSnapshot = SC.ActionSupervisor.snapshot(actor)
+    local seatReserved, seatReservedBy = SC.Vehicle.isSeatReserved(vehicle, 1)
+    check(boardingTransaction ~= nil and boardingTransactionReason == "started"
+            and boardingSnapshot.owner == "vehicle" and boardingSnapshot.action == "board_vehicle"
+            and boardingSnapshot.phase == "approaching" and boardingSnapshot.reservationCount == 1
+            and seatReserved and seatReservedBy == "sc-core-actor",
+        "vehicle approach owns the actor and the exact passenger seat")
+    check(SC.Vehicle.cancelTransaction(actor, "fixture_cancel")
+            and SC.ActionSupervisor.snapshot(actor).phase == "idle"
+            and SC.ActionSupervisor.reservationCount(actor) == 0
+            and SC.Vehicle.isSeatReserved(vehicle, 1) == false,
+        "cancelled vehicle approach releases actor and seat ownership")
+end
+SC.__testVehicleTransaction()
+SC.__testVehicleTransaction = nil
 local boarded, boardReason = SC.Vehicle.board(actor, vehicle, nil, { preflight = preflight })
 check(boarded and boardReason == "native_seat" and SC.Vehicle.isNativeSeated(actor)
-    and SC.Registry.byId("sc-core-actor") ~= nil,
-    "verified native passenger entry preserves the active roster record")
+    and SC.Registry.byId("sc-core-actor") ~= nil
+    and SC.ActionSupervisor.snapshot(actor).phase == "idle"
+    and SC.ActionSupervisor.reservationCount(actor) == 0,
+    "verified native passenger entry commits once and releases action ownership")
 function SC.__testVehiclePolicyStatus()
     check(SC.Commands.issue(record.id, "set_ride_with_player", { enabled = false }, nil),
         "Ride with player can be disabled while already seated")
@@ -635,8 +655,10 @@ function SC.__testVehiclePolicyStatus()
         "a stopped seated companion exposes the contextual emergency exit")
     local exited, exitReason = SC.Vehicle.exit(actor, vehicle)
     check(exited and exitReason == "native_exit" and actor:getVehicle() == nil
-        and actor:getCurrentSquare() ~= nil,
-        "native passenger exit restores a valid loaded door-side square")
+        and actor:getCurrentSquare() ~= nil
+        and SC.ActionSupervisor.snapshot(actor).phase == "idle"
+        and SC.ActionSupervisor.reservationCount(actor) == 0,
+        "native passenger exit restores a valid square and closes its transaction")
     manifestPlayer.vehicle = nil
     local footStatus = SC.Vehicle.statusFor(actor, manifestPlayer)
     check(footStatus.status == "on_foot", "vehicle status reports an unseated companion on foot")

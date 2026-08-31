@@ -524,6 +524,14 @@ SurvivorCompanion.Actor = {
         movementLog[#movementLog + 1] = { actor = value, mode = mode, intent = intent, accepted = not rejected }
         if rejected then return false end
         value.lastIntent = intent
+        if intent and intent.action == "equip_weapon" and intent.item ~= nil then
+            value.primary = intent.item
+            if intent.item.isTwoHandWeapon and intent.item:isTwoHandWeapon() then
+                value.secondary = intent.item
+            elseif value.secondary == intent.item then
+                value.secondary = nil
+            end
+        end
         return true
     end,
     stop = function(value)
@@ -1792,7 +1800,10 @@ do
     check(priorityAccepted and priorityReason == "weapon_equipped"
         and type(priorityDetails) == "table" and priorityDetails.weaponName == "Base.Axe"
         and armedCompanion.lastIntent and armedCompanion.lastIntent.action == "equip_weapon"
-        and armedCompanion.lastIntent.item == commandAxe,
+        and armedCompanion.lastIntent.item == commandAxe
+        and armedCompanion.primary == commandAxe
+        and SurvivorCompanion.ActionSupervisor.snapshot(armedCompanion).phase == "idle"
+        and SurvivorCompanion.ActionSupervisor.reservationCount(armedCompanion) == 0,
         "melee preference immediately equips an available axe instead of retaining a stronger firearm")
     check(SurvivorCompanion.Commands.peek(armedCompanion).weaponPriority == "melee",
         "immediate weapon equip also persists the requested preference")

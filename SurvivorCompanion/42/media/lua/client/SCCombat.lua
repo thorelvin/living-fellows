@@ -14,6 +14,75 @@ local function U()
     return SC.GameplayUtil
 end
 
+local function actionSupervisor()
+    return type(SC.ActionSupervisor) == "table" and SC.ActionSupervisor or nil
+end
+
+local function weaponKey(item)
+    return "weapon:" .. tostring(U().itemType(item) or "unknown") .. ":" .. tostring(item)
+end
+
+local function equipWeapon(actor, item, options)
+    options = type(options) == "table" and options or {}
+    if item == nil then return false, "equip_weapon_missing" end
+    local primary, primaryOk = U().call(actor, "getPrimaryHandItem")
+    if primaryOk and primary == item then return true, "weapon_already_equipped" end
+    local service = actionSupervisor()
+    if service == nil or type(service.begin) ~= "function" then
+        return U().move(actor, "walk", {
+            action = "equip_weapon", item = item, nextAction = options.nextAction,
+            immediateCommand = options.immediateCommand == true,
+        })
+    end
+    local token, beginReason, retry = service.begin(actor, {
+        owner = "combat-loadout",
+        action = "equip_weapon",
+        priority = options.immediateCommand == true and service.Priority.PLAYER
+            or service.Priority.COMBAT_RESCUE,
+        targetKey = weaponKey(item),
+        targetLabel = U().itemName(item),
+        phase = "selected",
+        allowedActions = { equip_weapon = true },
+        metadata = { preference = options.preference, nextAction = options.nextAction },
+    })
+    if token == nil then return false, beginReason or "equip_owner_rejected", retry end
+    local reserved, reserveReason = service.reserve(token, item, "weapon")
+    if reserved ~= true then
+        service.fail(token, "equip_weapon_reservation_failed", { reason = reserveReason })
+        return false, reserveReason
+    end
+    service.transition(token, "committing", { weapon = U().itemName(item) })
+    local accepted, reason = U().move(actor, "walk", {
+        action = "equip_weapon", item = item, nextAction = options.nextAction,
+        immediateCommand = options.immediateCommand == true,
+        supervisorToken = token,
+    })
+    if accepted ~= true then
+        service.fail(token, "equip_weapon_rejected", { reason = reason })
+        return false, reason or "equip_rejected"
+    end
+    service.transition(token, "verifying", { nativeReason = reason })
+    primary, primaryOk = U().call(actor, "getPrimaryHandItem")
+    if not primaryOk or primary ~= item then
+        service.fail(token, "equip_weapon_not_verified", { nativeReason = reason })
+        return false, "equip_not_verified"
+    end
+    local twoHanded, twoHandedOk = U().call(item, "isTwoHandWeapon")
+    if twoHandedOk and twoHanded == true then
+        local secondary, secondaryOk = U().call(actor, "getSecondaryHandItem")
+        if not secondaryOk or secondary ~= item then
+            service.fail(token, "equip_two_handed_not_verified", { nativeReason = reason })
+            return false, "equip_two_handed_not_verified"
+        end
+    end
+    service.complete(token, "weapon_equipped", {
+        weapon = U().itemName(item), preference = options.preference,
+    })
+    return true, "weapon_equipped"
+end
+
+Combat.equipWeapon = equipWeapon
+
 local function stateFor(actor)
     local state = states[actor]
     if not state then
@@ -361,10 +430,8 @@ function Combat.equipPreferred(actor, preference)
     if primaryOk and primary == weapon.item then
         return true, "weapon_already_equipped", { weaponName = weaponName }
     end
-    local accepted, reason = U().move(actor, "walk", {
-        action = "equip_weapon",
-        item = weapon.item,
-        weaponPriority = preference or "best",
+    local accepted, reason = equipWeapon(actor, weapon.item, {
+        preference = preference or "best",
         immediateCommand = true,
     })
     if not accepted then
@@ -1144,11 +1211,9 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         return executeRetreat(actor, snapshot, target, action.kind == "escape")
     end
     if weapon and not weapon.equipped and action.kind ~= "shove" and action.kind ~= "stomp" then
-        if not utility.move(actor, "walk", {
-            action = "equip_weapon",
-            item = weapon.item,
-            nextAction = action.kind,
-        }) then return false, "equip_rejected" end
+        if not equipWeapon(actor, weapon.item, { nextAction = action.kind }) then
+            return false, "equip_rejected"
+        end
         return true, "equip"
     end
     local accepted
@@ -1193,9 +1258,7 @@ local function vehicleCombat(actor, player, snapshot, target, weapon, inventory,
         return true, "vehicle_no_firearm"
     end
     if not weapon.equipped then
-        local accepted = utility.move(actor, "walk", {
-            action = "equip_weapon", item = weapon.item, nextAction = "shoot",
-        })
+        local accepted = equipWeapon(actor, weapon.item, { nextAction = "shoot" })
         return accepted == true, accepted and "equip" or "equip_rejected"
     end
     if weapon.ammo <= 0 then
