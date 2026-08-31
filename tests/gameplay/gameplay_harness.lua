@@ -2777,10 +2777,13 @@ local stagedRuntime = {
 local stagedStarted, stagedStartReason = SurvivorCompanion.Encounter.tryScavenge(
     stagedLootActor, nil, stagedRuntime)
 local movementCountAtStart = stagedLootActor.movementCalls
+local stagedAction = SurvivorCompanion.ActionSupervisor.snapshot(stagedLootActor)
 check(stagedStarted and stagedStartReason == "looting"
         and stagedContainer:contains(stagedFood)
-        and not stagedLootActor.inventory:contains(stagedFood),
-    "scavenging waits for the native rummage animation before mutating inventory")
+        and not stagedLootActor.inventory:contains(stagedFood)
+        and stagedAction.owner == "encounter" and stagedAction.action == "scavenge"
+        and stagedAction.phase == "animating" and stagedAction.reservationCount == 2,
+    "scavenging owns its animation and exact resources before mutating inventory")
 local stagedWaiting, stagedWaitReason = SurvivorCompanion.Encounter.tryScavenge(
     stagedLootActor, nil, stagedRuntime)
 check(stagedWaiting and stagedWaitReason == "looting"
@@ -2789,10 +2792,13 @@ check(stagedWaiting and stagedWaitReason == "looting"
 stagedVisualState = "completed"
 local stagedFinished, stagedFinishReason = SurvivorCompanion.Encounter.tryScavenge(
     stagedLootActor, nil, stagedRuntime)
+local stagedCompleted = SurvivorCompanion.ActionSupervisor.snapshot(stagedLootActor)
 check(stagedFinished and stagedFinishReason == "looted" and stagedClears == 1
         and stagedLootActor.inventory:contains(stagedFood)
-        and not stagedContainer:contains(stagedFood),
-    "completed rummage commits exactly one verified container transfer")
+        and not stagedContainer:contains(stagedFood)
+        and stagedCompleted.phase == "idle" and stagedCompleted.reservationCount == 0
+        and stagedCompleted.last and stagedCompleted.last.event == "completed",
+    "completed rummage commits once and releases supervisor ownership and reservations")
 SurvivorCompanion.NativeActions = nil
 end
 
@@ -2845,8 +2851,10 @@ check(dangerStarted and not dangerCancelled
         and dangerSource:contains(dangerFood)
         and not dangerActor.inventory:contains(dangerFood)
         and visualCancels[dangerActor] == 1
-        and SurvivorCompanion.Encounter.peek(dangerActor).task == nil,
-    "danger cancels the owned Loot action before any inventory mutation")
+        and SurvivorCompanion.Encounter.peek(dangerActor).task == nil
+        and SurvivorCompanion.ActionSupervisor.snapshot(dangerActor).phase == "idle"
+        and SurvivorCompanion.ActionSupervisor.reservationCount(dangerActor) == 0,
+    "danger cancels the supervised Loot action before mutation and releases resources")
 
 local commandFood = item("Base.CannedTomato", "Food")
 local commandActor = recruitedScavenger("sc-loot-command-cancel", -35, -45)
@@ -3144,8 +3152,11 @@ local packWaiting, packWaitReason = SurvivorCompanion.Logistics.update(
     } })
 check(packStarted and packWaiting and phasedStarts == 1
         and phasedActor.inventory:contains(phasedFood)
-        and not phasedBagInventory:contains(phasedFood),
-    "post-loot packing waits for one complete owned Loot action without restarting it: "
+        and not phasedBagInventory:contains(phasedFood)
+        and SurvivorCompanion.ActionSupervisor.snapshot(phasedActor).owner == "logistics"
+        and SurvivorCompanion.ActionSupervisor.snapshot(phasedActor).phase == "animating"
+        and SurvivorCompanion.ActionSupervisor.reservationCount(phasedActor) == 1,
+    "post-loot packing waits under one supervised Loot action without restarting it: "
         .. tostring(packStartReason) .. "/" .. tostring(packWaitReason))
 phasedState = "completed"
 local packFinished, packFinishReason = SurvivorCompanion.Logistics.update(
@@ -3154,8 +3165,10 @@ local packFinished, packFinishReason = SurvivorCompanion.Logistics.update(
     } })
 check(packFinished and packFinishReason == "item_packed"
         and not phasedActor.inventory:contains(phasedFood)
-        and phasedBagInventory:contains(phasedFood) and phasedStarts == 1,
-    "post-loot packing commits exactly once after its animation completes")
+        and phasedBagInventory:contains(phasedFood) and phasedStarts == 1
+        and SurvivorCompanion.ActionSupervisor.snapshot(phasedActor).phase == "idle"
+        and SurvivorCompanion.ActionSupervisor.reservationCount(phasedActor) == 0,
+    "post-loot packing commits exactly once and releases transaction ownership")
 
 local cancelFood = item("Base.CannedPeachesPackCancel", "Food", { weight = 1 })
 phasedActor.inventory:AddItem(cancelFood)
@@ -3169,8 +3182,10 @@ local cancelledPack, cancelledPackReason = SurvivorCompanion.Logistics.update(
     } })
 check(not cancelledPack and cancelledPackReason == "logistics_unsafe"
         and phasedCancels == 1 and phasedActor.inventory:contains(cancelFood)
-        and not phasedBagInventory:contains(cancelFood),
-    "danger cancels post-loot packing before inventory mutation")
+        and not phasedBagInventory:contains(cancelFood)
+        and SurvivorCompanion.ActionSupervisor.snapshot(phasedActor).phase == "idle"
+        and SurvivorCompanion.ActionSupervisor.reservationCount(phasedActor) == 0,
+    "danger cancels post-loot packing before mutation and releases its reservation")
 SurvivorCompanion.Actor.setMovement = originalSetMovement
 SurvivorCompanion.NativeActions = nil
 SurvivorCompanion.Logistics.reset(phasedActor)
@@ -3301,8 +3316,17 @@ local rejectedClothingUpdate, rejectedClothingReason = SurvivorCompanion.Logisti
     })
 check(not rejectedClothingUpdate and rejectedClothingReason == "wearable_equip_failed"
     and rollbackClothingActor:getWornItem("Shirt") == rollbackShirt
-    and not rollbackClothingActor:isEquippedClothing(rejectedUpgradeShirt),
-    "failed clothing mutation restores the exact previous worn state transactionally")
+    and not rollbackClothingActor:isEquippedClothing(rejectedUpgradeShirt)
+    and SurvivorCompanion.ActionSupervisor.snapshot(rollbackClothingActor).phase == "idle"
+    and SurvivorCompanion.ActionSupervisor.reservationCount(rollbackClothingActor) == 0,
+    "failed clothing mutation rolls back exactly and releases action ownership")
+local rejectedClothingRetry, rejectedClothingRetryReason =
+    SurvivorCompanion.Logistics.update(rollbackClothingActor, nil, {
+        snapshot = { threats = {}, immediateCount = 0, threatCount = 0, pressure = 0 },
+    })
+check(not rejectedClothingRetry and rejectedClothingRetryReason == "retry_cooldown"
+    and rollbackClothingActor:getWornItem("Shirt") == rollbackShirt,
+    "an unchanged failed wearable transaction cannot restart on the next AI tick")
 
 local unsafeCorpseFood = item("Base.CannedSardines", "Food", { weight = 1 })
 local unsafeCorpseLooter = actor("sc-corpse-unsafe", 11, 0, {})

@@ -92,6 +92,18 @@ local cooled, cooledReason = Supervisor.begin(actor, {
 })
 check(cooled == nil and cooledReason == "retry_cooldown",
     "unchanged failure cannot restart every scheduler tick")
+local cooledAny, cooledAnyReason = Supervisor.begin(actor, {
+    owner = "logistics", action = "wear_armor", targetKey = "vest:1",
+    priority = Supervisor.Priority.WORK, retryCategory = "*",
+})
+check(cooledAny == nil and cooledAnyReason == "retry_cooldown",
+    "transaction start can honor any active failure category for its target")
+local cooledDefault, cooledDefaultReason = Supervisor.begin(actor, {
+    owner = "logistics", action = "wear_armor", targetKey = "vest:1",
+    priority = Supervisor.Priority.WORK,
+})
+check(cooledDefault == nil and cooledDefaultReason == "retry_cooldown",
+    "default transaction retry policy cannot bypass a differently classified failure")
 SC_TEST_CLOCK = SC_TEST_CLOCK + (SC.Config.get("actionRetryBaseMs") or 1500) + 1
 check(Supervisor.begin(actor, {
     owner = "logistics", action = "wear_armor", targetKey = "vest:1",

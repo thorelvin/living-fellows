@@ -311,6 +311,26 @@ function Supervisor.retryStatus(actor, action, targetKey, category)
     return copy
 end
 
+function Supervisor.retryStatusAny(actor, action, targetKey)
+    local ledger = actor and retryByActor[actor] or nil
+    if not ledger then return nil end
+    local current = nowMs()
+    local selected
+    for _, record in pairs(ledger) do
+        if record.action == action and record.targetKey == targetKey
+            and (tonumber(record.retryAt) or 0) > current then
+            if not selected or (tonumber(record.retryAt) or 0)
+                > (tonumber(selected.retryAt) or 0) then
+                selected = record
+            end
+        end
+    end
+    if not selected then return nil end
+    local copy = safeDetail(selected, 0)
+    copy.remainingMs = math.max(0, (tonumber(selected.retryAt) or 0) - current)
+    return copy
+end
+
 function Supervisor.canRetry(actor, action, targetKey, category)
     local status = Supervisor.retryStatus(actor, action, targetKey, category)
     if not status then return true end
@@ -354,9 +374,14 @@ function Supervisor.begin(actor, spec)
         if not cancelled then return nil, cancelReason or "preemption_rejected" end
     end
     if spec.ignoreRetry ~= true then
-        local category = clean(spec.retryCategory, 48) or "unknown"
-        local ready, retry = Supervisor.canRetry(actor, action, targetKey, category)
-        if not ready then return nil, "retry_cooldown", retry end
+        local category = clean(spec.retryCategory, 48)
+        if category == nil or category == "*" then
+            local retry = Supervisor.retryStatusAny(actor, action, targetKey)
+            if retry then return nil, "retry_cooldown", retry end
+        else
+            local ready, retry = Supervisor.canRetry(actor, action, targetKey, category)
+            if not ready then return nil, "retry_cooldown", retry end
+        end
     end
     sequence = sequence + 1
     local currentTime = nowMs()

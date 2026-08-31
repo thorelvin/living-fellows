@@ -13,6 +13,11 @@ local function U()
     return SC.GameplayUtil
 end
 
+local function supervisor()
+    if type(SC.ActionSupervisor) == "table" then return SC.ActionSupervisor end
+    return nil
+end
+
 local function walkContainer(container, limit, callback, visited)
     if not container or limit.remaining <= 0 then return end
     visited = visited or setmetatable({}, { __mode = "k" })
@@ -724,13 +729,104 @@ local function clearVisual(actor)
     end
 end
 
-local function cancelTransaction(actor, state, reason)
+local function cleanupTransaction(actor, state, reason)
     local transaction = state and state.transaction or nil
     if transaction and transaction.phase == "visual" and SC.NativeActions
         and type(SC.NativeActions.cancelVisual) == "function" then
         pcall(SC.NativeActions.cancelVisual, actor, reason or "logistics_cancelled")
     end
     if state then state.transaction = nil end
+end
+
+local function cancelTransaction(actor, state, reason)
+    local transaction = state and state.transaction or nil
+    local service = supervisor()
+    local token = transaction and transaction.supervisorToken or nil
+    if token and service and type(service.isCurrent) == "function"
+        and service.isCurrent(token) and type(service.cancel) == "function" then
+        service.cancel(actor, reason or "logistics_cancelled", nil, true)
+        if state.transaction == transaction then cleanupTransaction(actor, state, reason) end
+        return
+    end
+    cleanupTransaction(actor, state, reason)
+end
+
+local function terminalTransaction(actor, state, succeeded, reason, receipt)
+    local transaction = state and state.transaction or nil
+    local token = transaction and transaction.supervisorToken or nil
+    cleanupTransaction(actor, state, reason)
+    if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+        pcall(SC.Navigation.cancel, actor, "logistics_interaction")
+    end
+    states[actor] = nil
+    local service = supervisor()
+    if token and service then
+        if succeeded and type(service.complete) == "function" then
+            service.complete(token, reason or "completed", receipt)
+        elseif not succeeded and type(service.fail) == "function" then
+            service.fail(token, reason or "logistics_failed", receipt)
+        end
+    end
+    return succeeded == true, reason
+end
+
+local function markTransactionVerifying(transaction, detail)
+    local service = supervisor()
+    if service and transaction and transaction.supervisorToken
+        and type(service.transition) == "function" then
+        service.transition(transaction.supervisorToken, "verifying", detail)
+    end
+end
+
+local function transactionTargetKey(transaction)
+    return tostring(transaction.kind) .. "|" .. tostring(transaction.item)
+        .. "|" .. tostring(transaction.destination or transaction.square or "none")
+end
+
+local function beginTransaction(actor, state, transaction)
+    transaction.phase = transaction.phase or "selected"
+    state.transaction = transaction
+    local service = supervisor()
+    if not service or type(service.begin) ~= "function" then return true, "started" end
+    local token, reason = service.begin(actor, {
+        owner = "logistics", action = "logistics_" .. tostring(transaction.kind),
+        priority = service.Priority and service.Priority.WORK or 150,
+        targetKey = transactionTargetKey(transaction),
+        targetLabel = U().itemName(transaction.item), retryCategory = "*",
+        requiresVisual = true,
+        allowedActions = {
+            wear_clothing = true, loot_container = true,
+            move_to_base_storage = true,
+        },
+        metadata = {
+            kind = transaction.kind, item = U().itemType(transaction.item),
+        },
+        onCancel = function(cancelActor, cancelReason)
+            cleanupTransaction(cancelActor, state,
+                cancelReason or "logistics_cancelled")
+            if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+                pcall(SC.Navigation.cancel, cancelActor, "logistics_interaction")
+            end
+            return true, cancelReason
+        end,
+    })
+    if not token then
+        state.transaction = nil
+        return false, reason or "action_owner_unavailable"
+    end
+    transaction.supervisorToken = token
+    local reserved, reserveReason = service.reserve(token, transaction.item, "transaction_item")
+    if not reserved then
+        cleanupTransaction(actor, state, reserveReason)
+        service.fail(token, reserveReason or "resource_reserved", {
+            kind = transaction.kind, item = U().itemType(transaction.item),
+        })
+        return false, reserveReason or "resource_reserved"
+    end
+    if transaction.phase == "approach" and type(service.transition) == "function" then
+        service.transition(token, "approaching", { kind = transaction.kind })
+    end
+    return true, "started"
 end
 
 local function stopForInventoryAction(actor)
@@ -745,18 +841,37 @@ local function stopForInventoryAction(actor)
 end
 
 local function advanceTransactionVisual(actor, transaction)
+    local service = supervisor()
+    local token = transaction.supervisorToken
     local visualAction = transaction.kind == "wear"
         and "wear_clothing" or "loot_container"
     if transaction.phase == "visual" then
         local status = visualStatus(actor, visualAction)
-        if status == "active" then return false, "logistics_action_active" end
+        if status == "active" then
+            if service and token and type(service.progress) == "function" then
+                service.progress(token, "visual:active", { action = visualAction })
+            end
+            return false, "logistics_action_active"
+        end
         if status == "completed" then
             clearVisual(actor)
+            if service and token and type(service.markVisualVerified) == "function" then
+                service.markVisualVerified(token, { action = visualAction })
+            end
             transaction.phase = "commit"
+            if service and token and type(service.transition) == "function" then
+                service.transition(token, "committing", { action = visualAction })
+            end
             return true, "logistics_action_completed"
         end
         if status == nil then
+            if service and token and type(service.markVisualVerified) == "function" then
+                service.markVisualVerified(token, { action = visualAction, tracked = false })
+            end
             transaction.phase = "commit"
+            if service and token and type(service.transition) == "function" then
+                service.transition(token, "committing", { action = visualAction })
+            end
             return true, "logistics_action_untracked"
         end
         return nil, "logistics_animation_" .. tostring(status)
@@ -766,25 +881,37 @@ local function advanceTransactionVisual(actor, transaction)
     local intent = transaction.kind == "wear" and {
         action = "wear_clothing", item = transaction.item,
         wearLocation = transaction.record and transaction.record.location,
-        durationTicks = 90,
+        durationTicks = 90, supervisorToken = token,
     } or {
         action = "loot_container", item = transaction.item,
         container = transaction.destination,
         packing = transaction.kind == "pack",
         depositing = transaction.kind == "deposit" or transaction.kind == "drop",
         groundDrop = transaction.kind == "drop",
-        durationTicks = 90,
+        durationTicks = 90, supervisorToken = token,
     }
+    if service and token and type(service.expectVisual) == "function" then
+        service.expectVisual(token, { action = visualAction })
+    end
     local animated, reason = U().move(actor, "walk", intent)
     if not animated then return nil, reason or "logistics_action_rejected" end
     local status = visualStatus(actor, visualAction)
     if status == "active" then
         transaction.phase = "visual"
+        if service and token and type(service.transition) == "function" then
+            service.transition(token, "animating", { action = visualAction })
+        end
         return false, "logistics_action_active"
     end
     if status == "completed" then clearVisual(actor)
     elseif status ~= nil then return nil, "logistics_animation_" .. tostring(status) end
+    if service and token and type(service.markVisualVerified) == "function" then
+        service.markVisualVerified(token, { action = visualAction, tracked = status ~= nil })
+    end
     transaction.phase = "commit"
+    if service and token and type(service.transition) == "function" then
+        service.transition(token, "committing", { action = visualAction })
+    end
     return true, "logistics_action_completed"
 end
 
@@ -792,51 +919,102 @@ local function executeTransaction(actor, state)
     local transaction = state and state.transaction or nil
     if not transaction then return false, "logistics_transaction_missing" end
     if not U().inventoryContains(transaction.source, transaction.item) then
-        states[actor] = nil
-        return false, "logistics_source_changed"
+        return terminalTransaction(actor, state, false, "logistics_source_changed", {
+            kind = transaction.kind,
+        })
     end
     local ready, reason = advanceTransactionVisual(actor, transaction)
     if ready == false then return true, reason end
     if ready == nil then
-        cancelTransaction(actor, state, reason)
-        states[actor] = nil
-        return false, reason
+        return terminalTransaction(actor, state, false, reason, {
+            kind = transaction.kind,
+        })
     end
 
     if transaction.kind == "wear" then
         local equipped, equipReason = commitWearable(actor, transaction.record)
-        states[actor] = nil
+        markTransactionVerifying(transaction, { kind = transaction.kind })
         if equipped and SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
             SC.NativeActions.noteResult(actor, "wear_equipment", "equipped", {
                 kind = "long",
             })
         end
-        return equipped == true, equipped == true and "wearable_equipped"
+        local resultReason = equipped == true and "wearable_equipped"
             or equipReason or "wearable_equip_failed"
+        return terminalTransaction(actor, state, equipped == true, resultReason, {
+            worn = equipped == true, item = U().itemType(transaction.item),
+        })
     end
 
     if transaction.kind == "drop" then
         local dropped, dropReason = U().dropItem(transaction.source,
             transaction.square, transaction.item, 0.5, 0.5, 0)
-        states[actor] = nil
+        markTransactionVerifying(transaction, { kind = transaction.kind })
         if dropped and SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
             SC.NativeActions.noteResult(actor, "logistics_drop", "completed")
         end
-        return dropped == true, dropped == true and "surplus_dropped"
+        local resultReason = dropped == true and "surplus_dropped"
             or dropReason or "surplus_drop_failed"
+        return terminalTransaction(actor, state, dropped == true, resultReason, {
+            dropped = dropped == true, item = U().itemType(transaction.item),
+        })
     end
     local transferred, transferReason = U().transferItemVerified(
         transaction.source, transaction.destination, transaction.item)
-    states[actor] = nil
+    markTransactionVerifying(transaction, { kind = transaction.kind })
     if transferred then
         if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
             SC.NativeActions.noteResult(actor, "logistics_" .. tostring(transaction.kind),
                 "completed")
         end
-        return true, transaction.kind == "pack" and "item_packed" or "surplus_stored"
+        return terminalTransaction(actor, state, true,
+            transaction.kind == "pack" and "item_packed" or "surplus_stored", {
+                sourceEmpty = not U().inventoryContains(transaction.source, transaction.item),
+                destinationContains = U().inventoryContains(
+                    transaction.destination, transaction.item),
+            })
     end
-    return false, transferReason or (transaction.kind == "pack"
-        and "bag_pack_failed" or "logistics_deposit_failed")
+    return terminalTransaction(actor, state, false,
+        transferReason or (transaction.kind == "pack"
+            and "bag_pack_failed" or "logistics_deposit_failed"), {
+                kind = transaction.kind,
+            })
+end
+
+local function approachTransaction(actor, state, snapshot)
+    local transaction = state and state.transaction or nil
+    if not transaction or transaction.phase ~= "approach" then return nil end
+    if U().distance(actor, transaction.owner) <= 1.45 then
+        stopForInventoryAction(actor)
+        transaction.phase = "selected"
+        local service = supervisor()
+        if service and transaction.supervisorToken and type(service.transition) == "function" then
+            service.transition(transaction.supervisorToken, "settling", {
+                kind = transaction.kind,
+            })
+        end
+        return executeTransaction(actor, state)
+    end
+    if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
+        return terminalTransaction(actor, state, false,
+            "logistics_navigation_unavailable", { kind = transaction.kind })
+    end
+    local targets = SC.Navigation.interactionTargets(actor, transaction.owner, {
+        snapshot = snapshot,
+    })
+    local accepted, reason = SC.Navigation.requestAny(actor, targets, "walk", {
+        action = "move_to_base_storage", container = transaction.destination,
+        item = transaction.item, object = transaction.owner, snapshot = snapshot,
+        logistics = true, arrivalDistance = 1.0,
+        supervisorToken = transaction.supervisorToken,
+    })
+    local service = supervisor()
+    if service and transaction.supervisorToken and type(service.progress) == "function" then
+        service.progress(transaction.supervisorToken, "approach:" .. tostring(reason), {
+            navigation = reason,
+        })
+    end
+    return accepted, reason or "approaching_storage"
 end
 
 function Logistics.update(actor, player, runtime)
@@ -848,34 +1026,42 @@ function Logistics.update(actor, player, runtime)
         if existing then states[actor] = nil end
         return false, "logistics_unsafe"
     end
-    if existing and existing.transaction then return executeTransaction(actor, existing) end
+    if existing and existing.transaction then
+        if existing.transaction.phase == "approach" then
+            return approachTransaction(actor, existing, snapshot)
+        end
+        return executeTransaction(actor, existing)
+    end
     local audit = Logistics.status(actor)
     if audit.bagUpgrade then
         local state = states[actor] or {}
         states[actor] = state
-        state.transaction = {
+        local started, reason = beginTransaction(actor, state, {
             kind = "wear", item = audit.bagUpgrade.item,
             source = audit.bagUpgrade.source, record = audit.bagUpgrade,
-        }
+        })
+        if not started then states[actor] = nil return false, reason end
         return executeTransaction(actor, state)
     end
     if audit.clothingUpgrade then
         local state = states[actor] or {}
         states[actor] = state
-        state.transaction = {
+        local started, reason = beginTransaction(actor, state, {
             kind = "wear", item = audit.clothingUpgrade.item,
             source = audit.clothingUpgrade.source, record = audit.clothingUpgrade,
-        }
+        })
+        if not started then states[actor] = nil return false, reason end
         return executeTransaction(actor, state)
     end
     if audit.packMove then
         local move = audit.packMove
         local state = states[actor] or {}
         states[actor] = state
-        state.transaction = {
+        local started, reason = beginTransaction(actor, state, {
             kind = "pack", item = move.item, source = move.source,
             destination = move.destination,
-        }
+        })
+        if not started then states[actor] = nil return false, reason end
         return executeTransaction(actor, state)
     end
     if not audit.shouldUnload then states[actor] = nil return false, "load_balanced" end
@@ -888,33 +1074,25 @@ function Logistics.update(actor, player, runtime)
     end
     if state.destination then
         local destination = state.destination
-        if U().distance(actor, destination.owner) > 1.45 then
-            if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
-                states[actor] = nil
-                return false, "logistics_navigation_unavailable"
-            end
-            local targets = SC.Navigation.interactionTargets(actor, destination.owner, {
-                snapshot = snapshot,
-            })
-            return SC.Navigation.requestAny(actor, targets, "walk", {
-                action = "move_to_base_storage", container = destination.container,
-                item = state.item, object = destination.owner, snapshot = snapshot,
-                logistics = true, arrivalDistance = 1.0,
-            })
-        end
-        state.transaction = {
+        local phase = U().distance(actor, destination.owner) > 1.45
+            and "approach" or "selected"
+        local started, reason = beginTransaction(actor, state, {
             kind = "deposit", item = state.item, source = state.source,
-            destination = destination.container,
-        }
+            destination = destination.container, owner = destination.owner,
+            phase = phase,
+        })
+        if not started then states[actor] = nil return false, reason end
+        if phase == "approach" then return approachTransaction(actor, state, snapshot) end
         return executeTransaction(actor, state)
     end
 
     local square = U().squareOf(actor)
     if not square then states[actor] = nil return false, "drop_square_unavailable" end
-    state.transaction = {
+    local started, reason = beginTransaction(actor, state, {
         kind = "drop", item = state.item, source = state.source, square = square,
         destination = state.source,
-    }
+    })
+    if not started then states[actor] = nil return false, reason end
     return executeTransaction(actor, state)
 end
 

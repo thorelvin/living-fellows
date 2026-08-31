@@ -12,6 +12,7 @@ local containerReservations = setmetatable({}, { __mode = "k" })
 local corpseContainers = setmetatable({}, { __mode = "k" })
 local failedContainers = setmetatable({}, { __mode = "k" })
 local stopScavengeMovement
+local cleanupScavengeTarget
 
 local function U()
     return SC.GameplayUtil
@@ -42,6 +43,25 @@ local function now()
     return U().nowMs()
 end
 
+local function supervisor()
+    if type(SC.ActionSupervisor) == "table" then return SC.ActionSupervisor end
+    return nil
+end
+
+local supervisorPhases = {
+    select = "selected", approach = "approaching", settle = "settling",
+    animate = "animating", commit = "committing", verify = "verifying",
+}
+
+local function syncSupervisorPhase(task, phase, reason)
+    local service = supervisor()
+    local token = task and task.supervisorToken or nil
+    local mapped = supervisorPhases[phase]
+    if service and mapped and token and type(service.transition) == "function" then
+        service.transition(token, mapped, { reason = reason, item = task.itemType })
+    end
+end
+
 local function debugTrace(actor, task, phase, reason)
     local utility = U()
     if not utility or utility.config("debugSpawnEnabled") ~= true then return end
@@ -60,6 +80,7 @@ local function setTaskPhase(actor, state, task, phase, reason)
     task.reason = reason
     task.phaseAt = now()
     state.task = task
+    syncSupervisorPhase(task, phase, reason)
     if changed then debugTrace(actor, task, phase, reason) end
 end
 
@@ -722,7 +743,7 @@ local function clearSearchFields(actor, state)
     end
 end
 
-local function resetScavengeTarget(actor, state, options)
+cleanupScavengeTarget = function(actor, state, options)
     options = options or {}
     local task = state.task
     local container = task and task.container or state.container
@@ -751,6 +772,37 @@ local function resetScavengeTarget(actor, state, options)
         debugTrace(actor, task, state.lastStatus.phase, options.reason)
     end
     clearTaskFields(state)
+end
+
+local function resetScavengeTarget(actor, state, options)
+    options = options or {}
+    local task = state and state.task or nil
+    local service = supervisor()
+    local token = task and task.supervisorToken or nil
+    if token and service and type(service.isCurrent) == "function"
+        and service.isCurrent(token) and options.fromSupervisor ~= true then
+        local terminal = options.phase or "cancelled"
+        if terminal == "cancelled" and type(service.cancel) == "function" then
+            service.cancel(actor, options.reason or "scavenge_cancelled", nil, true)
+            if state.task == task then
+                cleanupScavengeTarget(actor, state, options)
+            end
+            return
+        end
+        cleanupScavengeTarget(actor, state, options)
+        if terminal == "failed" and type(service.fail) == "function" then
+            service.fail(token, options.reason or "scavenge_failed", {
+                source = task.sourceKind, destination = task.destinationKind,
+                item = task.itemType,
+            })
+        elseif terminal == "complete" and type(service.complete) == "function" then
+            service.complete(token, options.reason or "looted")
+        elseif type(service.cancel) == "function" then
+            service.cancel(actor, options.reason or "scavenge_cancelled", nil, true)
+        end
+        return
+    end
+    cleanupScavengeTarget(actor, state, options)
 end
 
 local function chooseDestination(actor, item, category, audit)
@@ -787,6 +839,52 @@ local function beginTask(actor, state, container, item, category, owner, command
     state.item = item
     state.itemCategory = category
     state.containerOwner = task.owner
+    local service = supervisor()
+    if service and type(service.begin) == "function" then
+        local x, y, z = U().position(task.owner)
+        local targetKey = tostring(container) .. "|" .. tostring(task.itemType)
+            .. "@" .. tostring(math.floor(tonumber(x) or 0)) .. ":"
+            .. tostring(math.floor(tonumber(y) or 0)) .. ":"
+            .. tostring(math.floor(tonumber(z) or 0))
+        local token, startReason = service.begin(actor, {
+            owner = "encounter", action = "scavenge",
+            priority = service.Priority and service.Priority.WORK or 150,
+            targetKey = targetKey, targetLabel = task.itemName,
+            retryCategory = "*", requiresVisual = true,
+            allowedActions = { move_to_scavenge = true, loot_container = true },
+            metadata = {
+                source = task.sourceKind, destination = task.destinationKind,
+                item = task.itemType,
+            },
+            onCancel = function(cancelActor, cancelReason)
+                cleanupScavengeTarget(cancelActor, state, {
+                    cancelVisual = true, stopMovement = true,
+                    reason = cancelReason or "scavenge_cancelled",
+                    phase = "cancelled", memoryResult = "interrupted",
+                    time = now(), fromSupervisor = true,
+                })
+                return true, cancelReason
+            end,
+        })
+        if not token then
+            releaseContainer(container, actor)
+            clearTaskFields(state)
+            return nil, startReason or "action_owner_unavailable"
+        end
+        task.supervisorToken = token
+        local reserved, reserveReason = service.reserve(token, container, "source_container")
+        if reserved then reserved, reserveReason = service.reserve(token, item, "source_item") end
+        if not reserved then
+            cleanupScavengeTarget(actor, state, {
+                reason = reserveReason or "resource_reserved", phase = "failed",
+                time = time, status = true, fromSupervisor = true,
+            })
+            service.fail(token, reserveReason or "resource_reserved", {
+                item = task.itemType,
+            })
+            return nil, reserveReason or "resource_reserved"
+        end
+    end
     setTaskPhase(actor, state, task, "select", "selected")
     state.lastStatus = nil
     return task
@@ -927,9 +1025,10 @@ local function commitTask(actor, state, task, commands, audit, time)
         return false, "destination_full"
     end
 
-    setTaskPhase(actor, state, task, "verify", "committing")
+    setTaskPhase(actor, state, task, "commit", "committing")
     local transferred, transferReason, receipt = utility.transferItemVerified(
         task.container, destination, task.item)
+    setTaskPhase(actor, state, task, "verify", "verifying_transfer")
     if transferred and utility.inventoryContains(destination, task.item)
         and not utility.inventoryContains(task.container, task.item) then
         local flags = containerFlags(task.container)
@@ -959,8 +1058,15 @@ local function commitTask(actor, state, task, commands, audit, time)
             expires = time + (utility.config("scavengeStatusHoldMs") or 8000),
         }
         setTaskPhase(actor, state, task, "complete", "looted")
+        local token = task.supervisorToken
         releaseContainer(task.container, actor)
         clearTaskFields(state)
+        local service = supervisor()
+        if token and service and type(service.complete) == "function" then
+            service.complete(token, "looted", receipt or {
+                sourceEmpty = true, destinationContains = true,
+            })
+        end
         if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
             SC.NativeActions.noteResult(actor, "scavenge", "looted")
         end
@@ -1075,8 +1181,14 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             local ok, status = SC.Navigation.requestAny(actor, targets, "walk", {
                 action = "move_to_scavenge", container = task.container,
                 item = task.item, object = task.owner, snapshot = snapshot,
-                arrivalDistance = 1.0,
+                arrivalDistance = 1.0, supervisorToken = task.supervisorToken,
             })
+            local service = supervisor()
+            if service and task.supervisorToken and type(service.progress) == "function" then
+                service.progress(task.supervisorToken, "approach:" .. tostring(status), {
+                    navigation = status,
+                })
+            end
             return ok, status or "approaching_container"
         end
         resetScavengeTarget(actor, state, {
@@ -1113,9 +1225,20 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
 
     if task.phase == "animate" then
         local visualState = nativeVisualStatus(actor, "loot_container")
-        if visualState == "active" then return true, "looting" end
+        if visualState == "active" then
+            local service = supervisor()
+            if service and task.supervisorToken and type(service.progress) == "function" then
+                service.progress(task.supervisorToken, "visual:active", { visual = visualState })
+            end
+            return true, "looting"
+        end
         if visualState == "completed" then
             clearNativeVisual(actor)
+            local service = supervisor()
+            if service and task.supervisorToken
+                and type(service.markVisualVerified) == "function" then
+                service.markVisualVerified(task.supervisorToken, { action = "loot_container" })
+            end
             setTaskPhase(actor, state, task, "commit", "animation_completed")
         elseif visualState ~= nil then
             resetScavengeTarget(actor, state, {
@@ -1124,12 +1247,24 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             })
             return false, "loot_animation_" .. tostring(visualState)
         else
+            local service = supervisor()
+            if service and task.supervisorToken
+                and type(service.markVisualVerified) == "function" then
+                service.markVisualVerified(task.supervisorToken, {
+                    action = "loot_container", tracked = false,
+                })
+            end
             setTaskPhase(actor, state, task, "commit", "animation_untracked_complete")
         end
     elseif task.phase == "settle" then
+        local service = supervisor()
+        if service and task.supervisorToken and type(service.expectVisual) == "function" then
+            service.expectVisual(task.supervisorToken, { action = "loot_container" })
+        end
         local animated, animationReason = utility.move(actor, "walk", {
             action = "loot_container", container = task.container,
             item = task.item, category = task.category,
+            supervisorToken = task.supervisorToken,
         })
         if not animated then
             resetScavengeTarget(actor, state, {
@@ -1151,6 +1286,12 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
                 cooldown = true, memoryResult = "animation_failed", time = time,
             })
             return false, "loot_animation_" .. tostring(visualState)
+        end
+        if service and task.supervisorToken
+            and type(service.markVisualVerified) == "function" then
+            service.markVisualVerified(task.supervisorToken, {
+                action = "loot_container", tracked = visualState ~= nil,
+            })
         end
         setTaskPhase(actor, state, task, "commit", "animation_completed")
     end
