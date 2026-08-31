@@ -485,11 +485,11 @@ local function nativeBridgeProvider()
 
     function provider:disposeAll()
         local ok, removed = staticInvoke(bridge, "removeAll")
-        nativeOwned = setmetatable({}, { __mode = "k" })
         if not ok or removed ~= true then
             local reasonOk, reason = staticInvoke(bridge, "getLastFailure")
             return false, reasonOk and reason or removed
         end
+        nativeOwned = setmetatable({}, { __mode = "k" })
         return true
     end
 
@@ -1005,11 +1005,11 @@ function actorService.disposeAll()
         local protocolOk, protocol = staticInvoke(bridge, "getProtocol")
         if protocolOk and protocol == expectedNativeProtocol then
             local ok, removed = staticInvoke(bridge, "removeAll")
-            nativeOwned = setmetatable({}, { __mode = "k" })
             if not ok or removed ~= true then
                 local reasonOk, reason = staticInvoke(bridge, "getLastFailure")
                 return false, tostring(reasonOk and reason or removed)
             end
+            nativeOwned = setmetatable({}, { __mode = "k" })
             return true
         end
     end
@@ -1029,7 +1029,7 @@ function actorService.disposeAll()
                 end
             end
         end
-        experimentalOwned = setmetatable({}, { __mode = "k" })
+        if clean then experimentalOwned = setmetatable({}, { __mode = "k" }) end
         return clean, failure
     end
     return true

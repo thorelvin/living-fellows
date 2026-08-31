@@ -46,6 +46,8 @@ public final class SCBridge {
     private static final long INVALID_SPAWN_REQUEST = -1L;
     private static final Set<SCNativeCompanion> OWNED = Collections.newSetFromMap(
             new IdentityHashMap<>());
+    private static final Map<SCNativeCompanion, String> CLEANUP_FAILURES =
+            new IdentityHashMap<>();
     private static final Map<Long, SpawnRequest> SPAWN_REQUESTS = new LinkedHashMap<>();
     private static final AtomicLong NEXT_SPAWN_REQUEST = new AtomicLong(1L);
     /**
@@ -61,6 +63,7 @@ public final class SCBridge {
         return thread;
     });
     private static volatile String lastFailure = "";
+    private static volatile String cleanupFailureForTests = "";
 
     /**
      * IsoPlayer's constructor fires the local/mod-facing
@@ -105,7 +108,7 @@ public final class SCBridge {
         }
     }
 
-    private enum SpawnState { PENDING, READY, FAILED }
+    private enum SpawnState { PENDING, READY, FAILED, CLEANUP_PENDING }
 
     private static final class SpawnRequest {
         private final long id;
@@ -117,6 +120,7 @@ public final class SCBridge {
         private SpawnState state = SpawnState.PENDING;
         private SCNativeCompanion actor;
         private String failure = "";
+        private boolean cancelRequested;
 
         private SpawnRequest(long id, IsoGridSquare square, String forename,
                 String surname, boolean female, String outfit) {
@@ -145,8 +149,13 @@ public final class SCBridge {
     }
 
     public static String checkReady() {
+        if (!SCBootstrap.isStarted()) SCBootstrap.start();
         if (!SCBootstrap.isReady()) {
             return SCBootstrap.getStatus();
+        }
+        String contractFailure = SCNativeCompanion.runtimeContractFailure();
+        if (!contractFailure.isEmpty()) {
+            return "native bridge runtime contract failed: " + contractFailure;
         }
         String version = getDetectedGameVersion();
         if (!isSupportedGameVersion(version)) {
@@ -312,8 +321,10 @@ public final class SCBridge {
         synchronized (SPAWN_REQUESTS) {
             SpawnRequest request = SPAWN_REQUESTS.get(requestId);
             if (request == null) return failBoolean("native spawn request is unknown");
-            if (request.state == SpawnState.PENDING) {
-                return failBoolean("native spawn request is still pending");
+            if (request.state == SpawnState.PENDING
+                    || request.state == SpawnState.CLEANUP_PENDING) {
+                return failBoolean("native spawn request is not terminal: "
+                        + request.state.name().toLowerCase());
             }
             SPAWN_REQUESTS.remove(requestId);
             return true;
@@ -325,13 +336,27 @@ public final class SCBridge {
         lastFailure = "";
         final SpawnRequest request;
         synchronized (SPAWN_REQUESTS) {
-            request = SPAWN_REQUESTS.remove(requestId);
+            request = SPAWN_REQUESTS.get(requestId);
+            if (request != null) request.cancelRequested = true;
         }
         if (request == null) return failBoolean("native spawn request is unknown");
         if (request.actor != null) {
-            boolean removed = removeUnchecked(request.actor);
-            if (removed) removeOwned(request.actor);
+            boolean removed = cleanupActor(request.actor, "cancelled spawn request");
+            synchronized (SPAWN_REQUESTS) {
+                if (removed) {
+                    SPAWN_REQUESTS.remove(requestId);
+                } else {
+                    request.state = SpawnState.CLEANUP_PENDING;
+                    request.failure = cleanupFailure(request.actor);
+                }
+            }
             return removed;
+        }
+        // No native actor exists, so there is no ownership reference to lose.
+        // A queued completion that has not started will observe an unknown id
+        // and become a no-op.
+        synchronized (SPAWN_REQUESTS) {
+            SPAWN_REQUESTS.remove(requestId);
         }
         return true;
     }
@@ -351,26 +376,50 @@ public final class SCBridge {
         synchronized (SPAWN_REQUESTS) {
             request = SPAWN_REQUESTS.get(requestId);
             if (request == null || request.state != SpawnState.PENDING) return;
+            if (request.cancelRequested) {
+                SPAWN_REQUESTS.remove(requestId);
+                return;
+            }
         }
 
         SCNativeCompanion actor = spawnNow(request);
         String failure = actor == null ? lastFailure : "";
-        boolean abandoned = false;
+        boolean cleanupAbandonedActor = false;
         synchronized (SPAWN_REQUESTS) {
             SpawnRequest current = SPAWN_REQUESTS.get(requestId);
             if (current == null) {
-                abandoned = true;
+                cleanupAbandonedActor = actor != null;
             } else if (actor == null) {
-                current.failure = failure.isEmpty() ? "native companion spawn failed" : failure;
-                current.state = SpawnState.FAILED;
+                if (current.actor != null && isCleanupPending(current.actor)) {
+                    current.failure = cleanupFailure(current.actor);
+                    current.state = SpawnState.CLEANUP_PENDING;
+                } else {
+                    current.actor = null;
+                    current.failure = failure.isEmpty()
+                            ? "native companion spawn failed" : failure;
+                    current.state = SpawnState.FAILED;
+                }
+            } else if (current.cancelRequested) {
+                cleanupAbandonedActor = true;
             } else {
                 current.actor = actor;
                 current.state = SpawnState.READY;
             }
         }
-        if (abandoned && actor != null) {
-            boolean removed = removeUnchecked(actor);
-            if (removed) removeOwned(actor);
+        if (cleanupAbandonedActor && actor != null) {
+            boolean removed = cleanupActor(actor, "abandoned spawn result");
+            synchronized (SPAWN_REQUESTS) {
+                SpawnRequest current = SPAWN_REQUESTS.get(requestId);
+                if (current != null && current.cancelRequested) {
+                    if (removed) {
+                        SPAWN_REQUESTS.remove(requestId);
+                    } else {
+                        current.actor = actor;
+                        current.state = SpawnState.CLEANUP_PENDING;
+                        current.failure = cleanupFailure(actor);
+                    }
+                }
+            }
         }
     }
 
@@ -394,6 +443,11 @@ public final class SCBridge {
             IsoCell cell = square.getCell();
             actor = constructCompanion(descriptor, cell,
                     square.getX(), square.getY(), square.getZ());
+            // Ownership begins immediately after construction. Every later
+            // operation can throw, and teardown itself can fail; retaining the
+            // reference is the only safe way to make cleanup retryable.
+            addOwned(actor);
+            request.actor = actor;
             actor.setX(square.getX() + 0.5f);
             actor.setY(square.getY() + 0.5f);
             actor.setZ(square.getZ());
@@ -410,17 +464,23 @@ public final class SCBridge {
             String actorFailure = checkActorState(actor);
             if (!renderFailure.isEmpty() || !actorFailure.isEmpty()
                     || !actor.isExistInTheWorld()) {
-                removeUnchecked(actor);
-                if (!renderFailure.isEmpty()) return failNull(renderFailure);
-                return failNull(actorFailure.isEmpty()
-                        ? "native companion did not enter the world" : actorFailure);
+                String reason = !renderFailure.isEmpty() ? renderFailure
+                        : actorFailure.isEmpty() ? "native companion did not enter the world"
+                        : actorFailure;
+                boolean removed = cleanupActor(actor, "failed spawn");
+                if (removed) request.actor = null;
+                return failNull(reason + (removed ? "" : "; cleanup is pending"));
             }
-            addOwned(actor);
             return actor;
         } catch (RuntimeException | LinkageError failure) {
-            if (actor != null) removeUnchecked(actor);
-            return failNull("native companion spawn failed: " + failure.getClass().getSimpleName()
-                    + messageSuffix(failure.getMessage()));
+            String reason = "native companion spawn failed: "
+                    + failure.getClass().getSimpleName() + messageSuffix(failure.getMessage());
+            if (actor != null) {
+                boolean removed = cleanupActor(actor, "failed spawn exception");
+                if (removed) request.actor = null;
+                if (!removed) reason += "; cleanup is pending";
+            }
+            return failNull(reason);
         }
     }
 
@@ -446,6 +506,13 @@ public final class SCBridge {
         if (localState == null || !localState.matches()) {
             return failBoolean("local-player state is unavailable for companion recovery");
         }
+        float oldX = actor.getX();
+        float oldY = actor.getY();
+        float oldZ = actor.getZ();
+        IsoGridSquare oldCurrentSquare = actor.getCurrentSquare();
+        IsoGridSquare oldSquare = actor.getSquare();
+        boolean oldWorldMembership = actor.isExistInTheWorld();
+        boolean oldModelMembership = actor.isAddedToModelManager();
         try {
             actor.StopAllActionQueue();
             if (actor.getPathFindBehavior2() != null) actor.getPathFindBehavior2().cancel();
@@ -473,18 +540,81 @@ public final class SCBridge {
             String failure = checkActorState(actor);
             if (!localState.matches()) {
                 localState.restore();
-                return failBoolean("companion recovery changed local-player state");
+                return failRecoveryWithRollback(actor, "companion recovery changed local-player state",
+                        oldX, oldY, oldZ, oldCurrentSquare, oldSquare,
+                        oldWorldMembership, oldModelMembership);
             }
             if (!renderFailure.isEmpty()) {
-                return failBoolean("companion recovery failed: " + renderFailure);
+                return failRecoveryWithRollback(actor,
+                        "companion recovery failed: " + renderFailure,
+                        oldX, oldY, oldZ, oldCurrentSquare, oldSquare,
+                        oldWorldMembership, oldModelMembership);
             }
-            if (!failure.isEmpty()) return failBoolean("companion recovery failed: " + failure);
+            if (!failure.isEmpty()) {
+                return failRecoveryWithRollback(actor,
+                        "companion recovery failed: " + failure,
+                        oldX, oldY, oldZ, oldCurrentSquare, oldSquare,
+                        oldWorldMembership, oldModelMembership);
+            }
             return true;
         } catch (RuntimeException | LinkageError failure) {
             localState.restore();
-            return failBoolean("native companion recovery failed: "
-                    + failure.getClass().getSimpleName() + messageSuffix(failure.getMessage()));
+            return failRecoveryWithRollback(actor, "native companion recovery failed: "
+                    + failure.getClass().getSimpleName() + messageSuffix(failure.getMessage()),
+                    oldX, oldY, oldZ, oldCurrentSquare, oldSquare,
+                    oldWorldMembership, oldModelMembership);
         }
+    }
+
+    private static boolean failRecoveryWithRollback(SCNativeCompanion actor, String reason,
+            float oldX, float oldY, float oldZ, IsoGridSquare oldCurrentSquare,
+            IsoGridSquare oldSquare,
+            boolean oldWorldMembership, boolean oldModelMembership) {
+        ArrayList<String> rollbackFailures = new ArrayList<>();
+        try {
+            if (actor.isExistInTheWorld()) actor.removeFromWorld();
+        } catch (RuntimeException | LinkageError failure) {
+            rollbackFailures.add("world-detach=" + failure.getClass().getSimpleName());
+        }
+        try { actor.removeFromSquare(); }
+        catch (RuntimeException | LinkageError failure) {
+            rollbackFailures.add("square-detach=" + failure.getClass().getSimpleName());
+        }
+        try {
+            actor.setMovingSquare(null);
+            actor.setCurrentSquare(null);
+            actor.setSquare(null);
+            actor.setX(oldX);
+            actor.setY(oldY);
+            actor.setZ(oldZ);
+            actor.setCurrentSquare(oldCurrentSquare);
+            actor.setSquare(oldSquare);
+            actor.setMovingSquare(oldCurrentSquare);
+            if (oldWorldMembership) actor.addToWorld();
+            if (oldModelMembership) {
+                String renderFailure = attachRenderModel(actor);
+                if (!renderFailure.isEmpty()) rollbackFailures.add(renderFailure);
+            } else if (actor.isAddedToModelManager()) {
+                detachRenderModel(actor);
+            }
+        } catch (RuntimeException | LinkageError failure) {
+            rollbackFailures.add("restore=" + failure.getClass().getSimpleName()
+                    + messageSuffix(failure.getMessage()));
+        }
+        boolean matches = Float.compare(actor.getX(), oldX) == 0
+                && Float.compare(actor.getY(), oldY) == 0
+                && Float.compare(actor.getZ(), oldZ) == 0
+                && actor.getCurrentSquare() == oldCurrentSquare
+                && actor.getSquare() == oldSquare
+                && actor.isExistInTheWorld() == oldWorldMembership
+                && actor.isAddedToModelManager() == oldModelMembership;
+        if (!matches) rollbackFailures.add("prior placement was not restored");
+        if (rollbackFailures.isEmpty()) return failBoolean(reason + "; prior state restored");
+
+        boolean removed = cleanupActor(actor, "failed recovery rollback");
+        return failBoolean(reason + "; rollback failed: "
+                + String.join(", ", rollbackFailures)
+                + (removed ? "; actor removed" : "; cleanup is pending"));
     }
 
     private static void failSpawnRequest(long requestId, String reason) {
@@ -500,9 +630,31 @@ public final class SCBridge {
         lastFailure = "";
         if (actor == null) return failBoolean("native companion is null");
         if (!isOwned(actor)) return failBoolean("native companion is not owned by SCBridge");
-        boolean removed = removeUnchecked(actor);
-        if (removed) removeOwned(actor);
-        return removed;
+        return cleanupActor(actor, "explicit removal");
+    }
+
+    /** Retries a previously unverified native teardown without dropping ownership. */
+    public static boolean retryCleanup(SCNativeCompanion actor) {
+        lastFailure = "";
+        if (actor == null || !isOwned(actor)) {
+            return failBoolean("native companion is not owned by SCBridge");
+        }
+        if (!isCleanupPending(actor)) {
+            return failBoolean("native companion has no pending cleanup");
+        }
+        return cleanupActor(actor, "cleanup retry");
+    }
+
+    public static boolean retryCleanupAll() {
+        lastFailure = "";
+        ArrayList<String> failures = new ArrayList<>();
+        for (SCNativeCompanion actor : cleanupSnapshot()) {
+            if (!cleanupActor(actor, "cleanup retry")) failures.add(cleanupFailure(actor));
+        }
+        if (!failures.isEmpty()) {
+            return failBoolean("native cleanup remains pending: " + String.join("; ", failures));
+        }
+        return true;
     }
 
     public static boolean stop(SCNativeCompanion actor) {
@@ -562,15 +714,22 @@ public final class SCBridge {
     /** Best-effort world teardown used before registry reset or world replacement. */
     public static boolean removeAll() {
         lastFailure = "";
+        Set<SCNativeCompanion> requestActors = Collections.newSetFromMap(
+                new IdentityHashMap<>());
+        ArrayList<Long> requestIds;
         synchronized (SPAWN_REQUESTS) {
-            // Removing the requests first makes any already-queued completion a no-op.
-            SPAWN_REQUESTS.clear();
+            requestIds = new ArrayList<>(SPAWN_REQUESTS.keySet());
+            for (SpawnRequest request : SPAWN_REQUESTS.values()) {
+                if (request.actor != null) requestActors.add(request.actor);
+            }
         }
         ArrayList<String> failures = new ArrayList<>();
+        for (long requestId : requestIds) {
+            if (!cancelSpawnRequest(requestId)) failures.add(lastFailure);
+        }
         for (SCNativeCompanion actor : ownedSnapshot()) {
-            if (!removeUnchecked(actor)) failures.add(lastFailure);
-            // World replacement must never retain a strong reference into the old cell.
-            removeOwned(actor);
+            if (!requestActors.contains(actor)
+                    && !cleanupActor(actor, "world teardown")) failures.add(lastFailure);
         }
         if (!failures.isEmpty()) {
             return failBoolean("one or more native companions failed teardown: "
@@ -583,6 +742,16 @@ public final class SCBridge {
         synchronized (OWNED) {
             return OWNED.size();
         }
+    }
+
+    public static int getCleanupPendingCount() {
+        synchronized (CLEANUP_FAILURES) {
+            return CLEANUP_FAILURES.size();
+        }
+    }
+
+    public static String getCleanupFailure(SCNativeCompanion actor) {
+        return cleanupFailure(actor);
     }
 
     /**
@@ -651,6 +820,9 @@ public final class SCBridge {
             failures.add("moving-square=" + failure.getClass().getSimpleName());
         }
         try {
+            if (consumeCleanupFailureForTests("current-square")) {
+                throw new IllegalStateException("injected cleanup failure");
+            }
             actor.setCurrentSquare(null);
         } catch (RuntimeException | LinkageError failure) {
             failures.add("current-square=" + failure.getClass().getSimpleName());
@@ -666,6 +838,59 @@ public final class SCBridge {
         if (!failures.isEmpty()) {
             return failBoolean("native companion removal failed: " + String.join(", ", failures));
         }
+        return true;
+    }
+
+    /**
+     * The ownership transaction commits only after native world, model and
+     * square membership are all verified absent. A failed teardown remains a
+     * strongly managed object and is surfaced through the retry API.
+     */
+    private static boolean cleanupActor(SCNativeCompanion actor, String operation) {
+        if (actor == null) return failBoolean("native companion is null");
+        addOwned(actor);
+        if (removeUnchecked(actor)) {
+            synchronized (CLEANUP_FAILURES) {
+                CLEANUP_FAILURES.remove(actor);
+            }
+            removeOwned(actor);
+            return true;
+        }
+        String failure = cleanFailure(operation + ": " + lastFailure);
+        synchronized (CLEANUP_FAILURES) {
+            CLEANUP_FAILURES.put(actor, failure);
+        }
+        lastFailure = failure;
+        return false;
+    }
+
+    private static boolean isCleanupPending(SCNativeCompanion actor) {
+        synchronized (CLEANUP_FAILURES) {
+            return CLEANUP_FAILURES.containsKey(actor);
+        }
+    }
+
+    private static String cleanupFailure(SCNativeCompanion actor) {
+        synchronized (CLEANUP_FAILURES) {
+            String failure = CLEANUP_FAILURES.get(actor);
+            return failure == null ? "" : failure;
+        }
+    }
+
+    private static ArrayList<SCNativeCompanion> cleanupSnapshot() {
+        synchronized (CLEANUP_FAILURES) {
+            return new ArrayList<>(CLEANUP_FAILURES.keySet());
+        }
+    }
+
+    /** Package-private, one-shot fault seam used only by the real-JAR control. */
+    static void failNextCleanupStepForTests(String step) {
+        cleanupFailureForTests = step == null ? "" : step;
+    }
+
+    private static boolean consumeCleanupFailureForTests(String step) {
+        if (!step.equals(cleanupFailureForTests)) return false;
+        cleanupFailureForTests = "";
         return true;
     }
 

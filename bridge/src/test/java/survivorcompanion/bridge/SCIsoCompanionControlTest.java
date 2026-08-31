@@ -318,12 +318,32 @@ public final class SCIsoCompanionControlTest {
                         && SCBridge.getOwnedCount() == 1 && !SCBridge.isCompanion(actor)
                         && invoke(actor, "getCurrentSquare") == deathSquare,
                 "finalized death retirement removed the corpse actor from its world square");
+        Object cleanupDescriptor = companionDescriptor(false, "Cleanup");
+        SCNativeCompanion cleanupActor = SCBridge.constructCompanion(
+                (SurvivorDesc) cleanupDescriptor, (IsoCell) cell, 0, 0, 0);
+        cleanupActor.setCurrentSquare((zombie.iso.IsoGridSquare) square);
+        cleanupActor.setSquare((zombie.iso.IsoGridSquare) square);
+        cleanupActor.setMovingSquare((zombie.iso.IsoGridSquare) square);
+        addOwned.invoke(null, cleanupActor);
+        SCBridge.failNextCleanupStepForTests("current-square");
+        require(!SCBridge.remove(cleanupActor)
+                        && SCBridge.isCompanion(cleanupActor)
+                        && SCBridge.getOwnedCount() == 2
+                        && SCBridge.getCleanupPendingCount() == 1
+                        && !SCBridge.getCleanupFailure(cleanupActor).isEmpty(),
+                "failed teardown lost native ownership or cleanup evidence");
+        require(SCBridge.retryCleanup(cleanupActor)
+                        && !SCBridge.isCompanion(cleanupActor)
+                        && SCBridge.getCleanupPendingCount() == 0
+                        && SCBridge.getOwnedCount() == 1,
+                "native cleanup retry did not commit ownership removal");
         require(SCBridge.removeAll() && SCBridge.getOwnedCount() == 0
                         && !SCBridge.isCompanion(secondActor),
                 "bridge teardown did not clear all owned companion references: "
                         + SCBridge.getLastFailure());
         System.out.println("ISO_COMPANION_CONTROL_PASS actors=2 index=3 components=true local-state=unchanged"
                 + " movement=true animation-scalars=true rollback=true transient-ownership=true ownership=true permadeath=true teardown=true"
-                + " update=" + (updateReachedRenderBoundary ? "contained-render-boundary" : "complete"));
+                + " cleanup-retry=true update="
+                + (updateReachedRenderBoundary ? "contained-render-boundary" : "complete"));
     }
 }

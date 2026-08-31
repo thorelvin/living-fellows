@@ -62,4 +62,28 @@ check(ISInventoryPage.selectContainer == originalSelect and not state.selectInst
     and not state.selectDeferred,
     "deferred removal completes after the newer owner releases the method chain")
 
+SC.Runtime.start()
+local generationBeforeFailure = SC.State.generation
+local registryResetsBeforeFailure = SC.Registry.resetCalls
+local actorResetsBeforeFailure = SC.Actor.resetCalls
+local persistenceResetsBeforeFailure = SC.Persistence.resetCalls
+SC.Actor.disposeResult = false
+local failedReset, failedReason = SC.Runtime.reset(true)
+check(failedReset == false
+    and string.find(tostring(failedReason), "injected native cleanup failure", 1, true) ~= nil,
+    "unverified native teardown fails the reset transaction")
+check(SC.State.generation == generationBeforeFailure
+    and SC.Registry.resetCalls == registryResetsBeforeFailure
+    and SC.Actor.resetCalls == actorResetsBeforeFailure
+    and SC.Persistence.resetCalls == persistenceResetsBeforeFailure,
+    "failed native teardown preserves registry, actor, persistence, and generation state")
+check(SC.State.active == false
+    and string.find(tostring(SC.State.disabledReason), "native companion teardown", 1, true) ~= nil,
+    "failed native teardown disables runtime with an actionable reason")
+SC.Actor.disposeResult = true
+check(SC.Runtime.reset(true) == true
+    and SC.Registry.resetCalls == registryResetsBeforeFailure + 1
+    and SC.Actor.resetCalls == actorResetsBeforeFailure + 1,
+    "verified cleanup retry allows the reset transaction to commit")
+
 print("RUNTIME_HOOK_KAHLUA_PASS checks=" .. tostring(checks))

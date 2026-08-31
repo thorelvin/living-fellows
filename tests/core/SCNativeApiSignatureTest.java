@@ -100,6 +100,26 @@ public final class SCNativeApiSignatureTest {
                 "deferred bridge poll/cancel signatures changed");
         require(method(bridge, "recover", companion, square).getReturnType() == boolean.class,
                 "native companion recovery signature changed");
+        require(method(bridge, "retryCleanup", companion).getReturnType() == boolean.class
+                        && method(bridge, "retryCleanupAll").getReturnType() == boolean.class
+                        && method(bridge, "getCleanupPendingCount").getReturnType() == int.class
+                        && method(bridge, "getCleanupFailure", companion).getReturnType()
+                                == String.class,
+                "native cleanup ownership/retry signatures changed");
+        Method runtimeContract = companion.getDeclaredMethod("runtimeContractFailure");
+        runtimeContract.setAccessible(true);
+        require("".equals(runtimeContract.invoke(null)),
+                "native private-method runtime contract failed: "
+                        + runtimeContract.invoke(null));
+        for (String reflected : new String[] {
+                "updateInternal", "updateWhileInVehicle", "checkActionGroup" }) {
+            Class<?> owner = reflected.equals("updateInternal") ? character : player;
+            Method privateMethod = owner.getDeclaredMethod(reflected);
+            require(privateMethod.getParameterCount() == 0
+                            && privateMethod.getReturnType() == void.class,
+                    "version-pinned private method changed: " + owner.getSimpleName()
+                            + "." + reflected);
+        }
         require(method(luaEventManager, "getEvents", java.util.ArrayList.class,
                         java.util.HashMap.class).getReturnType() == void.class
                         && luaEvent.getField("callbacks").getType() == java.util.ArrayList.class,
@@ -299,6 +319,7 @@ public final class SCNativeApiSignatureTest {
                 + " IsoPlayer-NPC-constructor=true AttackType=true room-facing=true"
                 + " player-accessors=true descriptor=true direct-native=true removal=true vitals=true"
                 + " needs=true water-source=true emote=true fatal-injury=true deferred-spawn=true"
-                + " faction-life=true world-map-rumours=true readable-speech=true");
+                + " faction-life=true world-map-rumours=true readable-speech=true"
+                + " reflection-contract=true cleanup-retry=true");
     }
 }

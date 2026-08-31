@@ -476,11 +476,43 @@ public final class SCNativeCompanion extends IsoPlayer {
         }
     }
 
+    /**
+     * Fail-closed contract for every private Build 42 method used by the
+     * native actor.  Checking only the generic update method allowed a bridge
+     * to report ready and then silently skip vehicle or animation work after
+     * a game update renamed one of the other methods.
+     */
+    static String runtimeContractFailure() {
+        String failure = reflectedMethodFailure(GENERIC_CHARACTER_UPDATE,
+                IsoGameCharacter.class, "updateInternal");
+        if (!failure.isEmpty()) return failure;
+        failure = reflectedMethodFailure(PLAYER_VEHICLE_UPDATE,
+                IsoPlayer.class, "updateWhileInVehicle");
+        if (!failure.isEmpty()) return failure;
+        return reflectedMethodFailure(PLAYER_ACTION_GROUP_CHECK,
+                IsoPlayer.class, "checkActionGroup");
+    }
+
+    private static String reflectedMethodFailure(Method method, Class<?> owner, String name) {
+        if (method == null) return owner.getSimpleName() + "." + name + " is unavailable";
+        if (method.getDeclaringClass() != owner || !method.getName().equals(name)
+                || method.getParameterCount() != 0 || method.getReturnType() != void.class) {
+            return owner.getSimpleName() + "." + name + " has an incompatible signature";
+        }
+        try {
+            if (!method.trySetAccessible()) {
+                return owner.getSimpleName() + "." + name + " is inaccessible";
+            }
+        } catch (RuntimeException failure) {
+            return owner.getSimpleName() + "." + name + " access failed: "
+                    + failure.getClass().getSimpleName();
+        }
+        return "";
+    }
+
     /** Package-private real-JAR test seam for the version-pinned update path. */
     static boolean hasGenericCharacterUpdate() {
-        return GENERIC_CHARACTER_UPDATE != null
-                && GENERIC_CHARACTER_UPDATE.getDeclaringClass() == IsoGameCharacter.class
-                && GENERIC_CHARACTER_UPDATE.getParameterCount() == 0;
+        return runtimeContractFailure().isEmpty();
     }
 
     /** Package-private real-JAR test seam for the deferred physics request. */

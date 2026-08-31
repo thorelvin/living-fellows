@@ -641,6 +641,20 @@ function runtime.reset(detach)
     if SC.ActionSupervisor ~= nil and type(SC.ActionSupervisor.reset) == "function" then
         pcall(SC.ActionSupervisor.reset, nil, "save_boundary")
     end
+    -- Native actor teardown is the reset transaction boundary. If Java still
+    -- owns an actor, keep every Lua registry/diagnostic reference intact so a
+    -- later retry can finish cleanup instead of orphaning the native object.
+    if SC.Actor ~= nil and type(SC.Actor.disposeAll) == "function" then
+        local ok, disposed, reason = pcall(SC.Actor.disposeAll)
+        if not ok or disposed ~= true then
+            local detail = tostring(reason or disposed)
+            SC.Diagnostics.report("actor-provider", nil,
+                "native companion teardown was incomplete", detail)
+            SC.State.active = false
+            SC.State.disabledReason = "native companion teardown: " .. detail
+            return false, SC.State.disabledReason
+        end
+    end
     if SC.Factions ~= nil and type(SC.Factions.reset) == "function" then pcall(SC.Factions.reset) end
     if SC.Trade ~= nil and type(SC.Trade.reset) == "function" then pcall(SC.Trade.reset) end
     if SC.FactionBehavior ~= nil and type(SC.FactionBehavior.reset) == "function" then
@@ -649,15 +663,6 @@ function runtime.reset(detach)
     if SC.FactionContracts ~= nil then
         if type(SC.FactionContracts.reset) == "function" then
             pcall(SC.FactionContracts.reset)
-        end
-    end
-    if SC.Actor ~= nil and type(SC.Actor.disposeAll) == "function" then
-        local ok, disposed, reason = pcall(SC.Actor.disposeAll)
-        if not ok or disposed ~= true then
-            SC.Diagnostics.report("actor-provider", nil,
-                "native companion teardown was incomplete", reason or disposed)
-            failures[#failures + 1] = "native companion teardown: "
-                .. tostring(reason or disposed)
         end
     end
     if SC.Decision ~= nil and type(SC.Decision.resetAll) == "function" then

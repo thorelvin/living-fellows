@@ -40,15 +40,18 @@ end
 SC.Actor = {
     checkBridge = function() return false, "fixture has no actor provider" end,
     disposeCalls = 0,
+    disposeResult = true,
+    resetCalls = 0,
     disposeAll = function()
         SC.Actor.disposeCalls = SC.Actor.disposeCalls + 1
-        return true
+        return SC.Actor.disposeResult, SC.Actor.disposeResult and nil or "injected native cleanup failure"
     end,
-    reset = function() end,
+    reset = function() SC.Actor.resetCalls = SC.Actor.resetCalls + 1 end,
 }
 SC.Registry = {
     records = function() return {} end,
-    reset = function() end,
+    resetCalls = 0,
+    reset = function() SC.Registry.resetCalls = SC.Registry.resetCalls + 1 end,
 }
 SC.Scheduler = {
     reset = function() end,
@@ -60,7 +63,8 @@ SC.Persistence = {
     restore = function() return true end,
     restorePulse = function() return true end,
     save = function() return true end,
-    reset = function() end,
+    resetCalls = 0,
+    reset = function() SC.Persistence.resetCalls = SC.Persistence.resetCalls + 1 end,
 }
 SC.Vehicle = {
     restoreForVehicle = function() return 0 end,

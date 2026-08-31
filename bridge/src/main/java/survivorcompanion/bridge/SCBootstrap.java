@@ -36,15 +36,16 @@ public final class SCBootstrap {
                     Thread.sleep(50L);
                 } catch (InterruptedException interrupted) {
                     Thread.currentThread().interrupt();
-                    status = "native bridge exposure interrupted";
+                    stopAfterFailure("native bridge exposure interrupted");
                     return;
-                } catch (ReflectiveOperationException | LinkageError failure) {
-                    status = "native bridge exposure failed: " + failure.getClass().getSimpleName();
+                } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+                    stopAfterFailure("native bridge exposure failed: "
+                            + failure.getClass().getSimpleName());
                     System.err.println("[SurvivorCompanionBridge] " + status);
                     return;
                 }
             }
-            if (!exposedOnce) status = "native bridge exposure timed out";
+            if (!exposedOnce) stopAfterFailure("native bridge exposure timed out");
         }, "SurvivorCompanion-bridge-bootstrap");
         installer.setDaemon(true);
         installer.start();
@@ -54,7 +55,17 @@ public final class SCBootstrap {
         return ready;
     }
 
+    public static boolean isStarted() {
+        return started;
+    }
+
     public static String getStatus() {
         return status;
+    }
+
+    private static synchronized void stopAfterFailure(String reason) {
+        ready = false;
+        started = false;
+        status = reason;
     }
 }
