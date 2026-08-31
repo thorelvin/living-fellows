@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 require "SCNamespace"
+require "SCCall"
 require "SCConfig"
 
 local SC = SurvivorCompanion
@@ -88,7 +89,7 @@ function diagnostics.guard(subsystem, companionId, callback, ...)
         return false, "circuit open"
     end
 
-    local results = { pcall(callback, ...) }
+    local results = SC.Call.pack(pcall(callback, ...))
     if not results[1] then
         recordFailure(subsystem, companionId, "subsystem exception", results[2])
         return false, results[2]
@@ -107,8 +108,7 @@ function diagnostics.guard(subsystem, companionId, callback, ...)
     end
     circuits[key] = nil
 
-    local unpackFn = table.unpack or unpack
-    return true, unpackFn(results, 2)
+    return true, SC.Call.unpack(results, 2, results.n)
 end
 
 function diagnostics.isDisabled(subsystem, companionId)

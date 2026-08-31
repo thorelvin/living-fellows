@@ -25,7 +25,8 @@ all_lua = "\n".join(path.read_text(encoding="utf-8") for path in lua_files)
 tick_adds = [
     (path, match.start())
     for path in lua_files
-    for match in re.finditer(r"Events\.OnTick\.Add\s*\(", path.read_text(encoding="utf-8"))
+    for match in re.finditer(r"(?:Events\.OnTick\.Add\s*\(|pcall\(Events\.OnTick\.Add\s*,)",
+                             path.read_text(encoding="utf-8"))
 ]
 require(len(tick_adds) == 1 and tick_adds[0][0].name == "SCRuntime.lua",
         f"expected one central OnTick attachment, got {tick_adds}")
@@ -47,7 +48,7 @@ require("selectContainerWrapper" in runtime and "setNewContainerWrapper" in runt
         and "ISInventoryPage.selectContainer == selectContainerWrapper" in runtime
         and "ISInventoryPage.setNewContainer == setNewContainerWrapper" in runtime,
         "container hook removal lacks explicit wrapper-ownership checks")
-require("SC.Persistence.restore(player())" in runtime,
+require("pcall(SC.Persistence.restore, player())" in runtime,
         "persistence document must import even when provider is unavailable")
 require("notifyDisabled(reason)" in runtime and "setHaloNote" in runtime,
         "fail-closed runtime lacks its rate-limited in-game notice")

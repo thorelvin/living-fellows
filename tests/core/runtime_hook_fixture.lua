@@ -77,3 +77,13 @@ SC.Encounter = {
         if container ~= nil then SC.Encounter.opened = SC.Encounter.opened + 1 end
     end,
 }
+SC.Factions = { reset = function() end }
+SC.FactionContracts = {
+    resetCalls = 0,
+    removeCalls = 0,
+    reset = function() SC.FactionContracts.resetCalls = SC.FactionContracts.resetCalls + 1 end,
+    removeHooks = function()
+        SC.FactionContracts.removeCalls = SC.FactionContracts.removeCalls + 1
+        return true
+    end,
+}

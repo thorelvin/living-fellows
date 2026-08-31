@@ -52,6 +52,8 @@ try {
     $coreFiles = @(
         (Join-Path $TestRoot 'core_fixture.lua'),
         (Join-Path $Shared 'SCNamespace.lua'),
+        (Join-Path $Shared 'SCCall.lua'),
+        (Join-Path $Shared 'SCStableValue.lua'),
         (Join-Path $Shared 'SCConfig.lua'),
         (Join-Path $Shared 'SCDiagnostics.lua'),
         (Join-Path $Shared 'SCNet.lua'),
@@ -96,6 +98,7 @@ try {
         $runtimeHookFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $Shared 'SCDiagnostics.lua'),
             (Join-Path $TestRoot 'runtime_hook_fixture.lua'),
@@ -105,9 +108,22 @@ try {
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @runtimeHookFiles
         if ($LASTEXITCODE -ne 0) { throw 'Runtime container-hook ownership harness failed.' }
 
+        $bootstrapLifecycleFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $TestRoot 'bootstrap_lifecycle_fixture.lua'),
+            (Join-Path $Client 'SCBootstrap.lua'),
+            (Join-Path $TestRoot 'bootstrap_lifecycle_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @bootstrapLifecycleFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Bootstrap lifecycle transaction harness failed.' }
+
         $productionSpawnFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCStableValue.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $Shared 'SCDiagnostics.lua'),
             (Join-Path $Shared 'SCRegistry.lua'),
@@ -122,6 +138,8 @@ try {
         $privateFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $PrivateLua 'shared\SCNamespace.lua'),
+            (Join-Path $PrivateLua 'shared\SCCall.lua'),
+            (Join-Path $PrivateLua 'shared\SCStableValue.lua'),
             (Join-Path $PrivateLua 'shared\SCConfig.lua'),
             (Join-Path $PrivateLua 'shared\SCDiagnostics.lua'),
             (Join-Path $PrivateLua 'shared\SCRegistry.lua'),

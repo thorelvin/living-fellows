@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 require "SCNamespace"
+require "SCCall"
 require "SCConfig"
 require "SCRegistry"
 require "SCDiagnostics"
@@ -153,12 +154,7 @@ local function method(object, name)
 end
 
 local function invoke(object, name, ...)
-    local callback = method(object, name)
-    if callback == nil then return false, nil end
-    local values = { pcall(callback, object, ...) }
-    if not values[1] then return false, values[2] end
-    local unpackFn = table.unpack or unpack
-    return true, unpackFn(values, 2)
+    return SC.Call.method(object, name, ...)
 end
 
 local function nowMs()

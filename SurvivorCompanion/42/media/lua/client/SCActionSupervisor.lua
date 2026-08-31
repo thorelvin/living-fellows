@@ -1,5 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
+require "SCCall"
+
 local SC = SurvivorCompanion
 SC.ActionSupervisor = SC.ActionSupervisor or {}
 
@@ -47,12 +49,9 @@ local function config(key, fallback)
 end
 
 local function invoke(value, methodName, ...)
-    if value == nil then return nil, false end
-    local ok, method = pcall(function() return value[methodName] end)
-    if not ok or type(method) ~= "function" then return nil, false end
-    local results = { pcall(method, value, ...) }
-    if not results[1] then return nil, false end
-    return results[2], true
+    local values = SC.Call.pack(SC.Call.method(value, methodName, ...))
+    if values[1] ~= true then return nil, false end
+    return values[2], true, SC.Call.unpack(values, 3, values.n)
 end
 
 local function actorId(actor)

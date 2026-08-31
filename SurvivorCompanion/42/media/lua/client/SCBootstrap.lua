@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 require "SCNamespace"
+require "SCCall"
 require "SCConfig"
 require "SCDiagnostics"
 require "SCNet"
@@ -60,6 +61,9 @@ SC.Bootstrap = SC.Bootstrap or {}
 
 local bootstrap = SC.Bootstrap
 local installed = false
+local contractsInstalled = false
+local encounterFallback = nil
+local uiFallback = nil
 
 local requiredModules = {
     "Performance", "ActionSupervisor",
@@ -83,25 +87,78 @@ local function validateModules()
 end
 
 local function installContracts()
+    if contractsInstalled then return true end
     if type(SC.Encounter.onPlayerContainerOpened) ~= "function" then
-        SC.Encounter.onPlayerContainerOpened = function(container)
+        encounterFallback = function(container)
             return SC.Encounter.markPlayerOpened(container)
         end
+        SC.Encounter.onPlayerContainerOpened = encounterFallback
     end
     if type(SC.UI.scheduledRefresh) ~= "function" then
-        SC.UI.scheduledRefresh = function()
+        uiFallback = function()
             return SC.UI.refresh()
         end
+        SC.UI.scheduledRefresh = uiFallback
     end
-    if SC.Factions and type(SC.Factions.installHooks) == "function" then
-        SC.Factions.installHooks()
+
+    local acquired = {}
+    local installers = {
+        { name = "faction combat", owner = SC.Factions, install = "installHooks",
+            remove = "removeHooks" },
+        { name = "faction contracts", owner = SC.FactionContracts, install = "installHooks",
+            remove = "removeHooks" },
+        { name = "companion minimap", owner = SC.CompanionMap, install = "install",
+            remove = "remove" },
+    }
+    for _, contract in ipairs(installers) do
+        local callback = contract.owner and contract.owner[contract.install]
+        if type(callback) ~= "function" then
+            for index = #acquired, 1, -1 do
+                local item = acquired[index]
+                pcall(item.owner[item.remove])
+            end
+            return false, contract.name .. " installer is unavailable"
+        end
+        local called, ok, reason = pcall(callback)
+        if not called or ok ~= true then
+            for index = #acquired, 1, -1 do
+                local item = acquired[index]
+                pcall(item.owner[item.remove])
+            end
+            return false, contract.name .. " hook failed: " .. tostring(called and reason or ok)
+        end
+        acquired[#acquired + 1] = contract
     end
-    if SC.FactionContracts and type(SC.FactionContracts.installHooks) == "function" then
-        SC.FactionContracts.installHooks()
+    contractsInstalled = true
+    return true
+end
+
+local function removeContracts()
+    local failures = {}
+    local removers = {
+        { name = "companion minimap", owner = SC.CompanionMap, callback = "remove" },
+        { name = "faction contracts", owner = SC.FactionContracts, callback = "removeHooks" },
+        { name = "faction combat", owner = SC.Factions, callback = "removeHooks" },
+    }
+    for _, contract in ipairs(removers) do
+        local callback = contract.owner and contract.owner[contract.callback]
+        if type(callback) == "function" then
+            local called, ok, reason = pcall(callback)
+            if not called or ok == false then
+                failures[#failures + 1] = contract.name .. ": "
+                    .. tostring(called and reason or ok)
+            end
+        end
     end
-    if SC.CompanionMap and type(SC.CompanionMap.install) == "function" then
-        SC.CompanionMap.install()
+    if encounterFallback ~= nil and SC.Encounter.onPlayerContainerOpened == encounterFallback then
+        SC.Encounter.onPlayerContainerOpened = nil
     end
+    if uiFallback ~= nil and SC.UI.scheduledRefresh == uiFallback then
+        SC.UI.scheduledRefresh = nil
+    end
+    encounterFallback, uiFallback = nil, nil
+    contractsInstalled = #failures > 0
+    return #failures == 0, table.concat(failures, "; ")
 end
 
 local function onGameStart()
@@ -115,8 +172,19 @@ local function onGameStart()
         SC.Diagnostics.report("bootstrap", nil, "module contract failed", reason)
         return
     end
-    installContracts()
-    SC.Runtime.start()
+    local contractsOk, contractsReason = installContracts()
+    if not contractsOk then
+        SC.State.active = false
+        SC.State.disabledReason = contractsReason
+        SC.Diagnostics.report("bootstrap", nil, "runtime contracts failed", contractsReason)
+        return
+    end
+    local _, runtimeReason, operational = SC.Runtime.start()
+    if operational == false then
+        SC.State.active = false
+        SC.State.disabledReason = runtimeReason
+        SC.Diagnostics.report("bootstrap", nil, "runtime start failed", runtimeReason)
+    end
 end
 
 local function onSave()
@@ -132,35 +200,62 @@ function bootstrap.install()
     if installed then return true end
     local valid, reason = validateModules()
     if not valid then return false, reason end
-    installContracts()
     if Events == nil or Events.OnGameStart == nil or Events.OnSave == nil
-        or Events.OnMainMenuEnter == nil then
+        or Events.OnMainMenuEnter == nil
+        or type(Events.OnGameStart.Add) ~= "function"
+        or type(Events.OnGameStart.Remove) ~= "function"
+        or type(Events.OnSave.Add) ~= "function"
+        or type(Events.OnSave.Remove) ~= "function"
+        or type(Events.OnMainMenuEnter.Add) ~= "function"
+        or type(Events.OnMainMenuEnter.Remove) ~= "function" then
         return false, "required Project Zomboid lifecycle events are unavailable"
     end
-    Events.OnGameStart.Add(onGameStart)
-    Events.OnSave.Add(onSave)
-    Events.OnMainMenuEnter.Add(onMainMenuEnter)
+    local contractsOk, contractsReason = installContracts()
+    if not contractsOk then return false, contractsReason end
+    local added = {}
+    for _, entry in ipairs({
+        { event = Events.OnGameStart, callback = onGameStart, name = "OnGameStart" },
+        { event = Events.OnSave, callback = onSave, name = "OnSave" },
+        { event = Events.OnMainMenuEnter, callback = onMainMenuEnter,
+            name = "OnMainMenuEnter" },
+    }) do
+        local ok, addReason = pcall(entry.event.Add, entry.callback)
+        if not ok then
+            for index = #added, 1, -1 do
+                pcall(added[index].event.Remove, added[index].callback)
+            end
+            removeContracts()
+            return false, entry.name .. " hook failed: " .. tostring(addReason)
+        end
+        added[#added + 1] = entry
+    end
     installed = true
     SC.Modules.bootstrap = true
     return true
 end
 
 function bootstrap.remove()
-    if not installed then return end
-    SC.Runtime.reset(true)
-    if SC.Factions and type(SC.Factions.removeHooks) == "function" then
-        SC.Factions.removeHooks()
-    end
-    if SC.CompanionMap and type(SC.CompanionMap.remove) == "function" then
-        SC.CompanionMap.remove()
-    end
+    if not installed then return true end
+    local failures = {}
+    local resetOk, resetReason = SC.Runtime.reset(true)
+    if resetOk == false then failures[#failures + 1] = tostring(resetReason) end
     if Events ~= nil then
-        if Events.OnGameStart ~= nil then Events.OnGameStart.Remove(onGameStart) end
-        if Events.OnSave ~= nil then Events.OnSave.Remove(onSave) end
-        if Events.OnMainMenuEnter ~= nil then Events.OnMainMenuEnter.Remove(onMainMenuEnter) end
+        for _, entry in ipairs({
+            { event = Events.OnMainMenuEnter, callback = onMainMenuEnter },
+            { event = Events.OnSave, callback = onSave },
+            { event = Events.OnGameStart, callback = onGameStart },
+        }) do
+            if entry.event ~= nil and type(entry.event.Remove) == "function" then
+                local ok, removeReason = pcall(entry.event.Remove, entry.callback)
+                if not ok then failures[#failures + 1] = tostring(removeReason) end
+            end
+        end
     end
+    local contractsOk, contractsReason = removeContracts()
+    if not contractsOk then failures[#failures + 1] = contractsReason end
     installed = false
     SC.Modules.bootstrap = nil
+    return #failures == 0, table.concat(failures, "; ")
 end
 
 function bootstrap.isInstalled()

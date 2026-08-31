@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 require "SCNamespace"
+require "SCCall"
 require "SCConfig"
 require "SCDiagnostics"
 require "SCRegistry"
@@ -82,12 +83,7 @@ local function method(object, name)
 end
 
 local function invoke(object, name, ...)
-    local callback = method(object, name)
-    if callback == nil then return false, nil end
-    local values = { pcall(callback, object, ...) }
-    if not values[1] then return false, values[2] end
-    local unpackFn = table.unpack or unpack
-    return true, unpackFn(values, 2)
+    return SC.Call.method(object, name, ...)
 end
 
 local function notifyDisabled(reason)
@@ -437,25 +433,37 @@ end
 
 local function registerTasks()
     SC.Scheduler.reset(true)
-    SC.Scheduler.register("decision", 1, 100, decisionTask, { lane = "critical" })
-    SC.Scheduler.register("vitals", 25, 80, vitalsTask, { lane = "critical" })
-    SC.Scheduler.register("vehicle", 250, 70, vehicleTask, { lane = "critical" })
-    SC.Scheduler.register("restore", 1000, 50, restoreTask, { lane = "high" })
-    SC.Scheduler.register("spawn-completion", 100, 32, spawnCompletionTask, { lane = "normal" })
-    SC.Scheduler.register("encounter-spawn", SC.Config.get("productionSpawnCheckIntervalMs"),
-        31, productionSpawnTask, { lane = "background" })
-    SC.Scheduler.register("factions", SC.Config.get("factionPulseIntervalMs"), 30, factionTask,
-        { lane = "normal" })
-    SC.Scheduler.register("ui-refresh", 500, 20, uiTask, { lane = "background" })
-    SC.Scheduler.register("base-maintenance", SC.Config.get("baseAuditIntervalMs"),
-        19, baseMaintenanceTask, { lane = "background" })
-    SC.Scheduler.register("infection-crisis", SC.Config.get("infectionCrisisIntervalMs"),
-        18, infectionCrisisTask, { lane = "normal" })
-    SC.Scheduler.register("community", SC.Config.get("communityPulseIntervalMs"),
-        17, communityTask, { lane = "background" })
-    SC.Scheduler.register("persistence", SC.Config.get("persistenceIntervalMs"), 10, saveTask,
-        { lane = "background" })
+    local definitions = {
+        { "decision", 1, 100, decisionTask, "critical" },
+        { "vitals", 25, 80, vitalsTask, "critical" },
+        { "vehicle", 250, 70, vehicleTask, "critical" },
+        { "restore", 1000, 50, restoreTask, "high" },
+        { "spawn-completion", 100, 32, spawnCompletionTask, "normal" },
+        { "encounter-spawn", SC.Config.get("productionSpawnCheckIntervalMs"), 31,
+            productionSpawnTask, "background" },
+        { "factions", SC.Config.get("factionPulseIntervalMs"), 30, factionTask, "normal" },
+        { "ui-refresh", 500, 20, uiTask, "background" },
+        { "base-maintenance", SC.Config.get("baseAuditIntervalMs"), 19,
+            baseMaintenanceTask, "background" },
+        { "infection-crisis", SC.Config.get("infectionCrisisIntervalMs"), 18,
+            infectionCrisisTask, "normal" },
+        { "community", SC.Config.get("communityPulseIntervalMs"), 17,
+            communityTask, "background" },
+        { "persistence", SC.Config.get("persistenceIntervalMs"), 10,
+            saveTask, "background" },
+    }
+    for _, definition in ipairs(definitions) do
+        local called, ok, reason = pcall(SC.Scheduler.register, definition[1],
+            definition[2], definition[3], definition[4], { lane = definition[5] })
+        if not called or ok ~= true then
+            SC.Scheduler.reset(true)
+            tasksRegistered = false
+            return false, "scheduler task " .. definition[1] .. " failed: "
+                .. tostring(called and reason or ok)
+        end
+    end
     tasksRegistered = true
+    return true
 end
 
 local function productionTick()
@@ -464,18 +472,24 @@ end
 
 local function attachTick()
     if tickAttached then return true end
-    if Events == nil or Events.OnTick == nil then return false end
-    Events.OnTick.Add(productionTick)
+    if Events == nil or Events.OnTick == nil or type(Events.OnTick.Add) ~= "function" then
+        return false, "OnTick event is unavailable"
+    end
+    local ok, reason = pcall(Events.OnTick.Add, productionTick)
+    if not ok then return false, tostring(reason) end
     tickAttached = true
     return true
 end
 
 local function detachTick()
-    if not tickAttached then return end
-    if Events ~= nil and Events.OnTick ~= nil then
-        Events.OnTick.Remove(productionTick)
+    if not tickAttached then return true end
+    if Events == nil or Events.OnTick == nil or type(Events.OnTick.Remove) ~= "function" then
+        return false, "OnTick removal is unavailable"
     end
+    local ok, reason = pcall(Events.OnTick.Remove, productionTick)
+    if not ok then return false, tostring(reason) end
     tickAttached = false
+    return true
 end
 
 local function markOpened(container)
@@ -494,9 +508,14 @@ local function markOpened(container)
 end
 
 local function installContainerHook()
-    if originalSelectContainer ~= nil or type(ISInventoryPage) ~= "table" then return end
+    if originalSelectContainer ~= nil and originalSetNewContainer ~= nil then return true end
+    if type(ISInventoryPage) ~= "table" then
+        return false, "inventory-page class is unavailable"
+    end
     if type(ISInventoryPage.selectContainer) ~= "function"
-        or type(ISInventoryPage.setNewContainer) ~= "function" then return end
+        or type(ISInventoryPage.setNewContainer) ~= "function" then
+        return false, "inventory-page methods are unavailable"
+    end
     originalSelectContainer = ISInventoryPage.selectContainer
     originalSetNewContainer = ISInventoryPage.setNewContainer
     selectContainerWrapper = function(self, button)
@@ -515,11 +534,24 @@ local function installContainerHook()
         end
         return result
     end
-    ISInventoryPage.selectContainer = selectContainerWrapper
-    ISInventoryPage.setNewContainer = setNewContainerWrapper
+    local ok, reason = pcall(function()
+        ISInventoryPage.selectContainer = selectContainerWrapper
+        ISInventoryPage.setNewContainer = setNewContainerWrapper
+    end)
+    if not ok then
+        pcall(function()
+            ISInventoryPage.selectContainer = originalSelectContainer
+            ISInventoryPage.setNewContainer = originalSetNewContainer
+        end)
+        originalSelectContainer, originalSetNewContainer = nil, nil
+        selectContainerWrapper, setNewContainerWrapper = nil, nil
+        return false, tostring(reason)
+    end
+    return true
 end
 
 local function removeContainerHook()
+    local failures = {}
     if originalSelectContainer ~= nil then
         if type(ISInventoryPage) == "table"
             and ISInventoryPage.selectContainer == selectContainerWrapper then
@@ -530,6 +562,7 @@ local function removeContainerHook()
             SC.Diagnostics.report("container-hook", nil,
                 "selectContainer hook removal deferred",
                 "another wrapper currently owns the method chain")
+            failures[#failures + 1] = "selectContainer wrapper chain changed"
         end
     end
     if originalSetNewContainer ~= nil then
@@ -542,30 +575,55 @@ local function removeContainerHook()
             SC.Diagnostics.report("container-hook", nil,
                 "setNewContainer hook removal deferred",
                 "another wrapper currently owns the method chain")
+            failures[#failures + 1] = "setNewContainer wrapper chain changed"
         end
     end
+    return #failures == 0, table.concat(failures, "; ")
 end
 
 function runtime.start()
-    runtime.reset(false)
-    local ready, reason = SC.Actor.checkBridge(true)
+    local resetOk, resetReason = runtime.reset(false)
+    if resetOk == false then return false, resetReason, false end
+    local bridgeCalled, ready, reason = pcall(SC.Actor.checkBridge, true)
+    if not bridgeCalled then
+        runtime.reset(true)
+        return false, "actor bridge check failed: " .. tostring(ready), false
+    end
     SC.State.active = ready == true
     SC.State.disabledReason = ready and nil or reason
-    registerTasks()
-    installContainerHook()
-    attachTick()
+    local tasksOk, tasksReason = registerTasks()
+    if not tasksOk then
+        runtime.reset(true)
+        return false, tasksReason, false
+    end
+    local containerOk, containerReason = installContainerHook()
+    if not containerOk then
+        runtime.reset(true)
+        return false, containerReason, false
+    end
+    local tickOk, tickReason = attachTick()
+    if not tickOk then
+        runtime.reset(true)
+        return false, tickReason, false
+    end
     -- Always import the document, even while the actor provider is unavailable.
     -- Pending records are then re-emitted by save(), so a fail-closed provider
     -- can never erase an existing companion save merely by loading the world.
-    local restored, restoreReason = SC.Persistence.restore(player())
+    local restoreCalled, restored, restoreReason = pcall(SC.Persistence.restore, player())
+    if not restoreCalled then
+        restoreReason = restored
+        restored = false
+    end
     if not restored then
         SC.Diagnostics.report("persistence", nil, "restore initialization failed", restoreReason)
+        runtime.reset(true)
+        return false, restoreReason, false
     end
     if not ready then
         SC.Diagnostics.report("actor-provider", nil, "companion actors disabled", reason)
         notifyDisabled(reason)
     end
-    return ready, reason
+    return ready, reason, true
 end
 
 function runtime.save()
@@ -573,8 +631,13 @@ function runtime.save()
 end
 
 function runtime.reset(detach)
-    if detach ~= false then detachTick() end
-    removeContainerHook()
+    local failures = {}
+    if detach ~= false then
+        local ok, reason = detachTick()
+        if not ok then failures[#failures + 1] = tostring(reason) end
+    end
+    local containerOk, containerReason = removeContainerHook()
+    if not containerOk then failures[#failures + 1] = tostring(containerReason) end
     if SC.ActionSupervisor ~= nil and type(SC.ActionSupervisor.reset) == "function" then
         pcall(SC.ActionSupervisor.reset, nil, "save_boundary")
     end
@@ -584,9 +647,6 @@ function runtime.reset(detach)
         pcall(SC.FactionBehavior.reset)
     end
     if SC.FactionContracts ~= nil then
-        if type(SC.FactionContracts.removeHooks) == "function" then
-            pcall(SC.FactionContracts.removeHooks)
-        end
         if type(SC.FactionContracts.reset) == "function" then
             pcall(SC.FactionContracts.reset)
         end
@@ -596,6 +656,8 @@ function runtime.reset(detach)
         if not ok or disposed ~= true then
             SC.Diagnostics.report("actor-provider", nil,
                 "native companion teardown was incomplete", reason or disposed)
+            failures[#failures + 1] = "native companion teardown: "
+                .. tostring(reason or disposed)
         end
     end
     if SC.Decision ~= nil and type(SC.Decision.resetAll) == "function" then
@@ -627,6 +689,7 @@ function runtime.reset(detach)
     lastPlayerVehicle = nil
     lastDebugSpawnReportAt = -math.huge
     lastDebugSpawnReason = nil
+    return #failures == 0, table.concat(failures, "; ")
 end
 
 function runtime.onMainMenuEnter()

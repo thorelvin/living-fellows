@@ -2,6 +2,7 @@
 
 require "SCNamespace"
 require "SCConfig"
+require "SCStableValue"
 
 local SC = SurvivorCompanion
 SC.Registry = SC.Registry or {}
@@ -29,24 +30,19 @@ local function migratedDoctrine(order)
     return "close_defense"
 end
 
-local function copyStable(value, depth, remaining)
-    remaining = remaining or { count = 256 }
-    if remaining.count <= 0 then return nil end
-    if type(value) == "string" or type(value) == "number" or type(value) == "boolean" then
-        remaining.count = remaining.count - 1
-        return value
-    end
-    if type(value) ~= "table" or (depth or 0) <= 0 then return nil end
-    local result = {}
-    remaining.count = remaining.count - 1
-    for key, item in pairs(value) do
-        if type(key) == "string" or type(key) == "number" then
-            local copy = copyStable(item, depth - 1, remaining)
-            if copy ~= nil then result[key] = copy end
-            if remaining.count <= 0 then break end
-        end
-    end
-    return result
+local orders = { follow = true, stay = true, guard = true, regroup = true,
+    retreat = true, wander = true }
+local combatStances = { passive = true, defensive = true, aggressive = true }
+local weaponPriorities = { best = true, melee = true, firearm = true, quiet = true }
+local followDistances = { [2] = true, [3] = true, [5] = true, [8] = true }
+
+local function ownedCopy(value, label, maximumDepth, maximumValues, fallback)
+    if value == nil then return fallback end
+    local copied, reason = SC.StableValue.copyStrict(value, {
+        path = label, maxDepth = maximumDepth, maxEntries = maximumValues,
+    })
+    if reason ~= nil then return nil, reason end
+    return copied
 end
 
 local function validId(id)
@@ -62,6 +58,25 @@ local function getModData(actor)
         return nil, "actor mod data is unavailable"
     end
     return data
+end
+
+local function snapshotIdentityFields(data)
+    local snapshot = {}
+    for _, key in ipairs({ "SC_Id", "SC_FactionId", "SC_FactionRole" }) do
+        local ok, value = pcall(function() return data[key] end)
+        if not ok then return nil, "cannot read " .. key .. ": " .. tostring(value) end
+        snapshot[key] = value
+    end
+    return snapshot
+end
+
+local function restoreIdentityFields(data, snapshot)
+    local failures = {}
+    for _, key in ipairs({ "SC_Id", "SC_FactionId", "SC_FactionRole" }) do
+        local ok, reason = pcall(function() data[key] = snapshot[key] end)
+        if not ok then failures[#failures + 1] = key .. ": " .. tostring(reason) end
+    end
+    return #failures == 0, table.concat(failures, "; ")
 end
 
 local function isSurvivor(actor)
@@ -128,10 +143,51 @@ local function defaultState(source, recruited)
     local defaultOrder = recruited == true
         and SC.Config.get("orders", "defaultOrder") or "wander"
     local defaultScavenge = recruited == true
+        and SC.Config.get("orders", "defaultScavenge") == true
+    local currentOrder = orders[order.current] and order.current
+        or (orders[defaultOrder] and defaultOrder or (recruited and "follow" or "wander"))
+    local followDistance = tonumber(order.followDistance)
+        or tonumber(SC.Config.get("orders", "defaultFollowDistance")) or 3
+    if not followDistances[followDistance] then followDistance = 3 end
+    local combatStance = combatStances[order.combatStance] and order.combatStance
+        or SC.Config.get("orders", "defaultCombatStance")
+    if not combatStances[combatStance] then combatStance = "defensive" end
+    local weaponPriority = weaponPriorities[order.weaponPriority] and order.weaponPriority
+        or SC.Config.get("orders", "defaultWeaponPriority")
+    if not weaponPriorities[weaponPriority] then weaponPriority = "best" end
+
+    local profile, copyReason = ownedCopy(personality.profile,
+        "personality.profile", 3, 32, {})
+    if copyReason then return nil, copyReason end
+    local memories
+    memories, copyReason = ownedCopy(personality.memories,
+        "personality.memories", 8, 512, {})
+    if copyReason then return nil, copyReason end
+    local background
+    background, copyReason = ownedCopy(personality.background,
+        "personality.background", 6, 256, {})
+    if copyReason then return nil, copyReason end
+    local care
+    care, copyReason = ownedCopy(personality.care, "personality.care", 5, 192, {})
+    if copyReason then return nil, copyReason end
+    local reveals
+    reveals, copyReason = ownedCopy(personality.reveals,
+        "personality.reveals", 5, 192, {})
+    if copyReason then return nil, copyReason end
+    local objectives
+    objectives, copyReason = ownedCopy(source.objectives, "objectives", 6, 320, {})
+    if copyReason then return nil, copyReason end
+    local possessions
+    possessions, copyReason = ownedCopy(source.possessions, "possessions", 6, 192, {})
+    if copyReason then return nil, copyReason end
+    local facts
+    facts, copyReason = ownedCopy(downtime.facts, "downtime.facts", 6, 256, {})
+    if copyReason then return nil, copyReason end
+
     return {
         order = {
-            current = order.current or defaultOrder,
-            followDistance = order.followDistance or SC.Config.get("orders", "defaultFollowDistance"),
+            current = currentOrder,
+            followDistance = followDistance,
             scavenge = order.scavenge == nil and defaultScavenge or order.scavenge == true,
             rideWithPlayer = order.rideWithPlayer == nil
                 and SC.Config.get("defaultRideWithPlayer") ~= false
@@ -140,35 +196,35 @@ local function defaultState(source, recruited)
                 or (recruited == true and "copy" or "walk"),
             movementModeVersion = tonumber(order.movementModeVersion)
                 or (recruited == true and 0 or 2),
-            combatStance = order.combatStance or SC.Config.get("orders", "defaultCombatStance"),
+            combatStance = combatStance,
             combatDoctrine = migratedDoctrine(order),
             holdFire = order.holdFire == true,
-            weaponPriority = order.weaponPriority or SC.Config.get("orders", "defaultWeaponPriority"),
+            weaponPriority = weaponPriority,
             workMode = workMode,
             workTarget = workTarget,
-            returnOrder = order.returnOrder,
-            returnWorkMode = order.returnWorkMode,
+            returnOrder = orders[order.returnOrder] and order.returnOrder or nil,
+            returnWorkMode = workModes[order.returnWorkMode] and order.returnWorkMode or nil,
         },
         group = source.group,
         personality = {
             archetype = personality.archetype,
-            profile = copyStable(personality.profile, 2, { count = 16 }) or {},
+            profile = profile,
             trust = tonumber(personality.trust) or 0,
             bond = tonumber(personality.bond) or 0,
             morale = tonumber(personality.morale) or 55,
             stress = tonumber(personality.stress) or 12,
-            memories = type(personality.memories) == "table" and personality.memories or {},
-            background = type(personality.background) == "table" and personality.background or {},
-            care = type(personality.care) == "table" and personality.care or {},
-            reveals = type(personality.reveals) == "table" and personality.reveals or {},
+            memories = memories,
+            background = background,
+            care = care,
+            reveals = reveals,
             timeTogetherMs = math.max(0, tonumber(personality.timeTogetherMs) or 0),
             lastEncouragedAt = math.max(0, tonumber(personality.lastEncouragedAt) or 0),
         },
-        objectives = copyStable(source.objectives, 4, { count = 160 }) or {},
-        possessions = copyStable(source.possessions, 4, { count = 96 }) or {},
+        objectives = objectives,
+        possessions = possessions,
         downtime = {
             lastCompleted = downtime.lastCompleted,
-            facts = type(downtime.facts) == "table" and downtime.facts or {},
+            facts = facts,
         },
     }
 end
@@ -183,9 +239,12 @@ function registry.register(actor, record)
         return nil, dataError
     end
 
+    local identitySnapshot, snapshotReason = snapshotIdentityFields(data)
+    if identitySnapshot == nil then return nil, snapshotReason end
+
     record = type(record) == "table" and record or {}
     local requestedId = record.id
-    local actorId = data.SC_Id
+    local actorId = identitySnapshot.SC_Id
     if requestedId ~= nil and not validId(requestedId) then
         return nil, "invalid companion id"
     end
@@ -210,15 +269,19 @@ function registry.register(actor, record)
 
     local recruited = record.recruited == true
     local factionId = type(record.factionId) == "string" and record.factionId
-        or type(data.SC_FactionId) == "string" and data.SC_FactionId or nil
+        or type(identitySnapshot.SC_FactionId) == "string" and identitySnapshot.SC_FactionId or nil
     local factionRole = type(record.factionRole) == "string" and record.factionRole
-        or type(data.SC_FactionRole) == "string" and data.SC_FactionRole or nil
-    local state = defaultState(record.state or record, recruited)
+        or type(identitySnapshot.SC_FactionRole) == "string" and identitySnapshot.SC_FactionRole or nil
+    local state, stateReason = defaultState(record.state or record, recruited)
+    if state == nil then return nil, "invalid registry state: " .. tostring(stateReason) end
+    local identity, identityReason = ownedCopy(record.identity,
+        "identity", 5, 128, {})
+    if identity == nil then return nil, "invalid companion identity: " .. tostring(identityReason) end
     local committed = {
         id = id,
         actor = actor,
         recruited = recruited,
-        identity = type(record.identity) == "table" and record.identity or {},
+        identity = identity,
         state = state,
         -- Flat mirrors are the gameplay command adapter's stable compatibility
         -- surface. Commands replace `state` whenever these values change, and
@@ -264,7 +327,6 @@ function registry.register(actor, record)
         committed.runtime.debugDiscovered = record.debugDiscovered == true
     end
 
-    local previousId = data.SC_Id
     local ok, assignmentError = pcall(function()
         data.SC_Id = id
         data.SC_FactionId = factionId
@@ -275,7 +337,11 @@ function registry.register(actor, record)
     if not ok then
         recordsById[id] = nil
         idsByActor[actor] = nil
-        data.SC_Id = previousId
+        local restored, rollbackReason = restoreIdentityFields(data, identitySnapshot)
+        if not restored then
+            return nil, "registry commit failed: " .. tostring(assignmentError)
+                .. "; registry rollback failed: " .. tostring(rollbackReason)
+        end
         return nil, "registry commit failed: " .. tostring(assignmentError)
     end
     return committed

@@ -1115,20 +1115,30 @@ end
 
 function Contracts.installHooks()
     if zombieHookInstalled then return true end
-    if type(Events) == "table" and Events.OnZombieDead
-        and type(Events.OnZombieDead.Add) == "function" then
-        Events.OnZombieDead.Add(Contracts.onZombieDead)
-        zombieHookInstalled = true
+    if type(Events) ~= "table" or not Events.OnZombieDead
+        or type(Events.OnZombieDead.Add) ~= "function" then
+        return false, "OnZombieDead event is unavailable"
     end
-    return zombieHookInstalled
+    local ok, reason = pcall(Events.OnZombieDead.Add, Contracts.onZombieDead)
+    if not ok then return false, tostring(reason) end
+    zombieHookInstalled = true
+    return true
 end
 
 function Contracts.removeHooks()
-    if zombieHookInstalled and type(Events) == "table" and Events.OnZombieDead
-        and type(Events.OnZombieDead.Remove) == "function" then
-        Events.OnZombieDead.Remove(Contracts.onZombieDead)
+    if not zombieHookInstalled then return true end
+    if type(Events) ~= "table" or not Events.OnZombieDead
+        or type(Events.OnZombieDead.Remove) ~= "function" then
+        return false, "OnZombieDead removal is unavailable"
     end
+    local ok, reason = pcall(Events.OnZombieDead.Remove, Contracts.onZombieDead)
+    if not ok then return false, tostring(reason) end
     zombieHookInstalled = false
+    return true
+end
+
+function Contracts.hooksInstalled()
+    return zombieHookInstalled
 end
 
 local function actorState(actor)
@@ -1326,7 +1336,5 @@ function Contracts.reset(actor)
     if actor then actorStates[actor] = nil
     else actorStates = setmetatable({}, { __mode = "k" }) end
 end
-
-Contracts.installHooks()
 
 return Contracts

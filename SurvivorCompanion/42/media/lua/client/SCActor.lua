@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 require "SCNamespace"
+require "SCCall"
 require "SCConfig"
 require "SCDiagnostics"
 require "SCRegistry"
@@ -34,29 +35,11 @@ local function method(object, name)
 end
 
 local function invoke(object, name, ...)
-    local callback = method(object, name)
-    if callback == nil then
-        return false, "method unavailable: " .. tostring(name)
-    end
-    local values = { pcall(callback, object, ...) }
-    if not values[1] then
-        return false, tostring(values[2])
-    end
-    local unpackFn = table.unpack or unpack
-    return true, unpackFn(values, 2)
+    return SC.Call.method(object, name, ...)
 end
 
 local function staticInvoke(object, name, ...)
-    local callback = method(object, name)
-    if callback == nil then
-        return false, "static method unavailable: " .. tostring(name)
-    end
-    local values = { pcall(callback, ...) }
-    if not values[1] then
-        return false, tostring(values[2])
-    end
-    local unpackFn = table.unpack or unpack
-    return true, unpackFn(values, 2)
+    return SC.Call.static(object, name, ...)
 end
 
 local function multiplayerActive()

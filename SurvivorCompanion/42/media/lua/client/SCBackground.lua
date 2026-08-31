@@ -1,5 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
+require "SCCall"
+
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 
@@ -450,12 +452,9 @@ function Background.baseJobModifier(background, kind)
 end
 
 local function invoke(object, methodName, ...)
-    if object == nil then return nil, false end
-    local ok, callback = pcall(function() return object[methodName] end)
-    if not ok or type(callback) ~= "function" then return nil, false end
-    local values = { pcall(callback, object, ...) }
-    if not values[1] then return values[2], false end
-    return values[2], true
+    local values = SC.Call.pack(SC.Call.method(object, methodName, ...))
+    if values[1] ~= true then return values[2], false end
+    return values[2], true, SC.Call.unpack(values, 3, values.n)
 end
 
 local function listSize(list)

@@ -2,6 +2,7 @@
 
 if type(require) == "function" then
     pcall(require, "SCNamespace")
+    pcall(require, "SCCall")
     pcall(require, "SCConfig")
 end
 
@@ -234,11 +235,10 @@ end
 function Performance.measure(system, companionId, callback, ...)
     if type(callback) ~= "function" then return false, "invalid callback" end
     local started = nowMs()
-    local values = { pcall(callback, ...) }
+    local values = SC.Call.pack(pcall(callback, ...))
     Performance.record(system, companionId, nowMs() - started)
     if not values[1] then return false, values[2] end
-    local unpackFn = table.unpack or unpack
-    return true, unpackFn(values, 2)
+    return true, SC.Call.unpack(values, 2, values.n)
 end
 
 function Performance.intervalScale(lane)

@@ -8,6 +8,14 @@ end
 
 local SC = SurvivorCompanion
 check(type(SC) == "table" and SC.Identity.saveKey == "SC_SaveV1", "namespace identity")
+do
+    local values = SC.Call.pack(SC.Call.protected(function()
+        return "first", nil, "third", nil
+    end))
+    check(values.n == 5 and values[1] == true and values[2] == "first"
+            and values[3] == nil and values[4] == "third" and values[5] == nil,
+        "protected calls preserve sparse and trailing return values exactly")
+end
 local immutable = pcall(function() SC.Config.defaults.frameBudgetMs = 99 end)
 check(not immutable and SC.Config.get("frameBudgetMs") == 2, "configuration is immutable")
 do
@@ -256,6 +264,59 @@ check(neutralRecord ~= nil and neutralRecord.recruited == false
     "fresh neutral registry actors do not inherit recruited follow defaults")
 check(SC.Registry.unregister(neutralActor) == neutralRecord,
     "neutral registry default regression fixture unregisters cleanly")
+
+do
+    local source = {
+        identity = { forename = "Owned", surname = "Copy" },
+        state = {
+            order = { current = "invalid", followDistance = 999,
+                combatStance = "invalid", weaponPriority = "invalid" },
+            personality = { memories = { { text = "original" } },
+                background = { occupation = "carpenter" }, care = {}, reveals = {} },
+            downtime = { facts = { repaired = 1 } },
+        },
+    }
+    local copyActor = setmetatable({ __owned = true, __class = "IsoPlayer", data = {},
+        square = square, characterActions = actionList() }, { __index = actor })
+    local copied = SC.Registry.register(copyActor, {
+        id = "sc-owned-copy", recruited = true, identity = source.identity, state = source.state,
+    })
+    source.identity.forename = "Mutated"
+    source.state.personality.memories[1].text = "mutated"
+    check(copied and copied.identity.forename == "Owned"
+            and copied.memories[1].text == "original"
+            and copied.order == "follow" and copied.followDistance == 3
+            and copied.combatMode == "defensive" and copied.weaponPriority == "best",
+        "registry owns nested inputs and normalizes invalid command enums")
+    SC.Registry.unregister(copyActor)
+end
+
+do
+    local storage = { SC_FactionId = "old-faction", SC_FactionRole = "old-role" }
+    local failed = false
+    local proxy = setmetatable({}, {
+        __index = function(_, key) return storage[key] end,
+        __newindex = function(_, key, value)
+            if key == "SC_FactionRole" and not failed then
+                failed = true
+                error("injected mod-data assignment failure")
+            end
+            storage[key] = value
+        end,
+    })
+    local rollbackActor = setmetatable({ __owned = true, __class = "IsoPlayer",
+        data = proxy, square = square, characterActions = actionList() }, { __index = actor })
+    local committed, reason = SC.Registry.register(rollbackActor, {
+        id = "sc-rollback", recruited = true, factionId = "new-faction",
+        factionRole = "new-role",
+    })
+    check(committed == nil and string.find(tostring(reason), "registry commit failed", 1, true)
+            and storage.SC_Id == nil and storage.SC_FactionId == "old-faction"
+            and storage.SC_FactionRole == "old-role"
+            and SC.Registry.byId("sc-rollback") == nil
+            and SC.Registry.idOf(rollbackActor) == nil,
+        "registry assignment failure restores all actor fields and both ownership maps")
+end
 
 local record = SC.Registry.register(actor, { id = "sc-core-actor", recruited = true })
 check(record ~= nil and SC.Actor.isCompanion(actor)

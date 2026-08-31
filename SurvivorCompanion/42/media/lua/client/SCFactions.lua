@@ -1050,20 +1050,30 @@ end
 
 function Factions.installHooks()
     if hitHookInstalled then return true end
-    if type(Events) == "table" and Events.OnWeaponHitCharacter
-        and type(Events.OnWeaponHitCharacter.Add) == "function" then
-        Events.OnWeaponHitCharacter.Add(Factions.onWeaponHitCharacter)
-        hitHookInstalled = true
+    if type(Events) ~= "table" or not Events.OnWeaponHitCharacter
+        or type(Events.OnWeaponHitCharacter.Add) ~= "function" then
+        return false, "OnWeaponHitCharacter event is unavailable"
     end
+    local ok, reason = pcall(Events.OnWeaponHitCharacter.Add, Factions.onWeaponHitCharacter)
+    if not ok then return false, tostring(reason) end
+    hitHookInstalled = true
     return true
 end
 
 function Factions.removeHooks()
-    if hitHookInstalled and type(Events) == "table" and Events.OnWeaponHitCharacter
-        and type(Events.OnWeaponHitCharacter.Remove) == "function" then
-        Events.OnWeaponHitCharacter.Remove(Factions.onWeaponHitCharacter)
+    if not hitHookInstalled then return true end
+    if type(Events) ~= "table" or not Events.OnWeaponHitCharacter
+        or type(Events.OnWeaponHitCharacter.Remove) ~= "function" then
+        return false, "OnWeaponHitCharacter removal is unavailable"
     end
+    local ok, reason = pcall(Events.OnWeaponHitCharacter.Remove, Factions.onWeaponHitCharacter)
+    if not ok then return false, tostring(reason) end
     hitHookInstalled = false
+    return true
+end
+
+function Factions.hooksInstalled()
+    return hitHookInstalled
 end
 
 function Factions.isFactionRecord(record)

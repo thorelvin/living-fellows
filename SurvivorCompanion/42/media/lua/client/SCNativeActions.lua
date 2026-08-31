@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 require "SCNamespace"
+require "SCCall"
 require "SCConfig"
 require "TimedActions/ISBaseTimedAction"
 require "TimedActions/ISTimedActionQueue"
@@ -173,16 +174,7 @@ local function method(object, name)
 end
 
 local function invoke(object, name, ...)
-    local callback = method(object, name)
-    if callback == nil then
-        return false, "native method is unavailable: " .. tostring(name)
-    end
-    local values = { pcall(callback, object, ...) }
-    if not values[1] then
-        return false, tostring(values[2])
-    end
-    local unpackFn = table.unpack or unpack
-    return true, unpackFn(values, 2)
+    return SC.Call.method(object, name, ...)
 end
 
 local function finite(value)
@@ -609,7 +601,7 @@ local function useProvider(provider, operation, ...)
     if type(provider) ~= "table" or type(provider[operation]) ~= "function" then
         return nil, "provider operation is unavailable: " .. tostring(operation)
     end
-    local values = { pcall(provider[operation], provider, ...) }
+    local values = SC.Call.pack(pcall(provider[operation], provider, ...))
     if not values[1] then
         return false, tostring(values[2])
     end

@@ -12,6 +12,8 @@ local originalSetNew = ISInventoryPage.setNewContainer
 
 SC.Runtime.start()
 SC.Runtime.start()
+check(SC.FactionContracts.removeCalls == 0 and SC.FactionContracts.resetCalls == 2,
+    "per-world runtime reset clears contract state without removing bootstrap-owned hooks")
 SC_TEST_CLOCK = 32001
 isClient = function() return true end
 SC.Runtime.start()
