@@ -1,4 +1,7 @@
 Manifest-Version: 1.0
 Main-Class: survivorcompanion.bridge.SCLauncher
 Implementation-Title: SurvivorCompanion Native Bridge
-Implementation-Version: 0.21.7
+Implementation-Version: 0.22.8
+SC-Bridge-Protocol: 42.20-isocompanion-5
+SC-Supported-Game-Version: 42.20
+SC-Compiled-Game-Version: 42.20.4

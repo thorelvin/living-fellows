@@ -10,6 +10,10 @@ param(
     [string]$ConfigBackupRoot,
     [string]$PreparedPayloadRoot = '',
     [string]$PrebuiltBridgeJar = '',
+    [ValidateSet('', 'payload-build', 'payload-validation', 'native-config-stage',
+        'native-config-replace', 'native-jar-replace', 'native-manifest-write',
+        'old-mod-backup', 'new-mod-move', 'local-manifest-write')]
+    [string]$FailAfter = '',
     [switch]$NativeBridge,
     [switch]$Standalone
 )
@@ -61,7 +65,16 @@ if (-not [string]::IsNullOrWhiteSpace($ConfigBackupRoot)) {
 if (-not [string]::IsNullOrWhiteSpace($PrebuiltBridgeJar)) {
     $nativeArguments.PrebuiltBridgeJar = $PrebuiltBridgeJar
 }
-& $nativeInstaller @nativeArguments | Out-Null
+if ($FailAfter -like 'native-*') { $nativeArguments.FailAfter = $FailAfter }
+
+function Invoke-InstallFault([string]$Boundary) {
+    if ($FailAfter -eq $Boundary) { throw "Injected local installer failure after $Boundary" }
+}
+
+function Get-InstallHash([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { return '' }
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
 
 $ModsRoot = [System.IO.Path]::GetFullPath($ModsRoot)
 New-Item -ItemType Directory -Path $ModsRoot -Force | Out-Null
@@ -107,6 +120,16 @@ if (Test-Path -LiteralPath $Target) {
 
 $stageRoot = Join-Path $ModsRoot ('.SurvivorCompanion.stage.' + [guid]::NewGuid().ToString('N'))
 $installed = $false
+$targetExisted = Test-Path -LiteralPath $Target -PathType Container
+$nativeSnapshotReady = $false
+$nativeConfigPath = Join-Path $GameRoot 'ProjectZomboid64.json'
+$nativeManifestPath = Join-Path ([System.IO.Path]::GetFullPath($BridgeRoot)) 'install-manifest.json'
+$nativeJarPath = Join-Path ([System.IO.Path]::GetFullPath($BridgeRoot)) 'SurvivorCompanionBridge.jar'
+$nativeBridgeRootExisted = Test-Path -LiteralPath $BridgeRoot -PathType Container
+$effectiveConfigBackupRoot = if ([string]::IsNullOrWhiteSpace($ConfigBackupRoot)) {
+    Join-Path $ProjectRoot 'build\game-config-backups'
+} else { [System.IO.Path]::GetFullPath($ConfigBackupRoot) }
+$nativeBackupNamesBefore = @()
 try {
     $stagedMod = Join-Path $stageRoot 'SurvivorCompanion'
     if ([string]::IsNullOrWhiteSpace($PreparedPayloadRoot)) {
@@ -141,6 +164,7 @@ try {
             throw "Prepared payload is missing its owned marker: $markerName"
         }
     }
+    Invoke-InstallFault 'payload-build'
     if (-not (Test-Path -LiteralPath $stagedMod -PathType Container)) { throw 'Private payload staging failed.' }
     if (Get-ChildItem -LiteralPath $stagedMod -Recurse -File -Filter '*.class') {
         throw 'Loose Java classes are forbidden in local installs.'
@@ -150,6 +174,7 @@ try {
     if ($nativeJars.Count -ne 1 -or $nativeJars[0].FullName -ne $expectedNativeJar) {
         throw 'The staged install does not contain exactly one owned native bridge JAR.'
     }
+    Invoke-InstallFault 'payload-validation'
 
     $stagePrefix = [System.IO.Path]::GetFullPath($stagedMod).TrimEnd('\') + '\'
     $hashes = [ordered]@{}
@@ -173,26 +198,126 @@ try {
         files = $hashes
     }
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $stagedMod '.sc-install-manifest.json') -Encoding utf8
+    Invoke-InstallFault 'local-manifest-write'
 
-    if ($backup) { Move-Item -LiteralPath $Target -Destination $backup }
+    # Snapshot every native live artifact before the sub-transaction commits.
+    # This outer snapshot also rolls the bridge back if a later mod-directory
+    # commit fails.
+    if (-not (Test-Path -LiteralPath $nativeConfigPath -PathType Leaf)) {
+        throw "ProjectZomboid64.json was not found at $nativeConfigPath"
+    }
+    $outerPrior = Join-Path $stageRoot '.outer-native-prior'
+    New-Item -ItemType Directory -Path $outerPrior -Force | Out-Null
+    $priorNativeConfig = Join-Path $outerPrior 'ProjectZomboid64.json'
+    $priorNativeJar = Join-Path $outerPrior 'SurvivorCompanionBridge.jar'
+    $priorNativeManifest = Join-Path $outerPrior 'install-manifest.json'
+    Copy-Item -LiteralPath $nativeConfigPath -Destination $priorNativeConfig
+    $priorNativeJarExisted = Test-Path -LiteralPath $nativeJarPath -PathType Leaf
+    $priorNativeManifestExisted = Test-Path -LiteralPath $nativeManifestPath -PathType Leaf
+    if ($priorNativeJarExisted) { Copy-Item -LiteralPath $nativeJarPath -Destination $priorNativeJar }
+    if ($priorNativeManifestExisted) {
+        Copy-Item -LiteralPath $nativeManifestPath -Destination $priorNativeManifest
+    }
+    $priorNativeConfigHash = Get-InstallHash $priorNativeConfig
+    $priorNativeJarHash = Get-InstallHash $priorNativeJar
+    $priorNativeManifestHash = Get-InstallHash $priorNativeManifest
+    if (Test-Path -LiteralPath $effectiveConfigBackupRoot -PathType Container) {
+        $nativeBackupNamesBefore = @(Get-ChildItem -LiteralPath $effectiveConfigBackupRoot -File |
+            ForEach-Object Name)
+    }
+    $nativeSnapshotReady = $true
+    $nativeArguments.PrebuiltBridgeJar = $expectedNativeJar
+    & $nativeInstaller @nativeArguments | Out-Null
+
+    if ($backup) {
+        Move-Item -LiteralPath $Target -Destination $backup
+        Invoke-InstallFault 'old-mod-backup'
+    }
     Move-Item -LiteralPath $stagedMod -Destination $Target
+    Invoke-InstallFault 'new-mod-move'
     $installed = $true
 }
 catch {
-    $backupExists = $backup -and (Test-Path -LiteralPath $backup)
-    $targetMissing = -not (Test-Path -LiteralPath $Target)
-    if (-not $installed -and $backupExists -and $targetMissing) {
-        Move-Item -LiteralPath $backup -Destination $Target
+    $trigger = $_
+    $rollbackFailures = @()
+
+    try {
+        if ($targetExisted) {
+            if ($backup -and (Test-Path -LiteralPath $backup -PathType Container)) {
+                if (Test-Path -LiteralPath $Target) {
+                    Remove-Item -LiteralPath $Target -Recurse -Force
+                }
+                Move-Item -LiteralPath $backup -Destination $Target
+            } elseif (-not (Test-Path -LiteralPath $Target -PathType Container)) {
+                throw 'original managed mod and its transaction backup are both missing'
+            }
+        } elseif (Test-Path -LiteralPath $Target) {
+            Remove-Item -LiteralPath $Target -Recurse -Force
+        }
+    } catch { $rollbackFailures += "mod restore: $($_.Exception.Message)" }
+
+    if ($nativeSnapshotReady) {
+        try { Copy-Item -LiteralPath $priorNativeConfig -Destination $nativeConfigPath -Force }
+        catch { $rollbackFailures += "launcher restore: $($_.Exception.Message)" }
+        try {
+            if ($priorNativeJarExisted) {
+                Copy-Item -LiteralPath $priorNativeJar -Destination $nativeJarPath -Force
+            } elseif (Test-Path -LiteralPath $nativeJarPath) {
+                Remove-Item -LiteralPath $nativeJarPath -Force
+            }
+        } catch { $rollbackFailures += "bridge JAR restore: $($_.Exception.Message)" }
+        try {
+            if ($priorNativeManifestExisted) {
+                Copy-Item -LiteralPath $priorNativeManifest -Destination $nativeManifestPath -Force
+            } elseif (Test-Path -LiteralPath $nativeManifestPath) {
+                Remove-Item -LiteralPath $nativeManifestPath -Force
+            }
+        } catch { $rollbackFailures += "bridge manifest restore: $($_.Exception.Message)" }
+        try {
+            if (Test-Path -LiteralPath $effectiveConfigBackupRoot -PathType Container) {
+                Get-ChildItem -LiteralPath $effectiveConfigBackupRoot -File | Where-Object {
+                    $_.Name -notin $nativeBackupNamesBefore
+                } | Remove-Item -Force
+            }
+        } catch { $rollbackFailures += "native backup restore: $($_.Exception.Message)" }
+
+        if ((Get-InstallHash $nativeConfigPath) -ne $priorNativeConfigHash) {
+            $rollbackFailures += 'launcher rollback hash mismatch'
+        }
+        if ($priorNativeJarExisted -ne (Test-Path -LiteralPath $nativeJarPath -PathType Leaf) -or
+            ($priorNativeJarExisted -and (Get-InstallHash $nativeJarPath) -ne $priorNativeJarHash)) {
+            $rollbackFailures += 'bridge JAR rollback presence/hash mismatch'
+        }
+        if ($priorNativeManifestExisted -ne
+            (Test-Path -LiteralPath $nativeManifestPath -PathType Leaf) -or
+            ($priorNativeManifestExisted -and
+                (Get-InstallHash $nativeManifestPath) -ne $priorNativeManifestHash)) {
+            $rollbackFailures += 'bridge manifest rollback presence/hash mismatch'
+        }
+        if (-not $nativeBridgeRootExisted -and (Test-Path -LiteralPath $BridgeRoot -PathType Container)) {
+            try {
+                if (@(Get-ChildItem -LiteralPath $BridgeRoot -Force).Count -eq 0) {
+                    Remove-Item -LiteralPath $BridgeRoot -Force
+                }
+            } catch { $rollbackFailures += "empty bridge-root cleanup: $($_.Exception.Message)" }
+        }
     }
-    throw
+    if ($rollbackFailures.Count -gt 0) {
+        throw [System.InvalidOperationException]::new(
+            $trigger.Exception.Message + ' Rollback failures: ' + ($rollbackFailures -join '; '),
+            $trigger.Exception)
+    }
+    throw $trigger
 }
 finally {
     if (Test-Path -LiteralPath $stageRoot) {
         $resolvedStage = [System.IO.Path]::GetFullPath($stageRoot)
         if (-not $resolvedStage.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
-            throw "Refusing to clean unexpected stage: $resolvedStage"
+            Write-Warning "Refusing to clean unexpected stage: $resolvedStage"
+        } else {
+            try { Remove-Item -LiteralPath $stageRoot -Recurse -Force }
+            catch { Write-Warning "Could not remove local installer staging directory: $($_.Exception.Message)" }
         }
-        Remove-Item -LiteralPath $stageRoot -Recurse -Force
     }
 }
 
