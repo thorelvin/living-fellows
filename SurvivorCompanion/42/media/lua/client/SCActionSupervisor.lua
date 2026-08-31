@@ -130,6 +130,9 @@ local function append(actor, event, token, reason, detail)
         action = token and token.action or nil,
         phase = token and token.phase or nil,
         targetKey = token and token.targetKey or nil,
+        targetLabel = token and token.targetLabel or nil,
+        failureCategory = token and token.failureCategory or nil,
+        recovery = token and safeDetail(token.recovery, 0) or nil,
         reason = clean(reason, 128), detail = safeDetail(detail, 0),
     }
     history[#history + 1] = entry
@@ -596,6 +599,102 @@ function Supervisor.history(actor, limit)
     local result = {}
     local first = math.max(1, #source - limit + 1)
     for index = first, #source do result[#result + 1] = safeDetail(source[index], 0) end
+    return result
+end
+
+local function mostRecentFailure(actor)
+    local history = actor and historyFor(actor) or {}
+    for index = #history, 1, -1 do
+        local entry = history[index]
+        if entry.event == "failed" then return entry end
+    end
+    return nil
+end
+
+local function mostRecentRetry(actor)
+    local ledger = actor and retryByActor[actor] or nil
+    if not ledger then return nil end
+    local selected
+    for _, record in pairs(ledger) do
+        if selected == nil or (tonumber(record.failedAt) or 0)
+            > (tonumber(selected.failedAt) or 0) then
+            selected = record
+        end
+    end
+    if not selected then return nil end
+    local copy = safeDetail(selected, 0)
+    copy.remainingMs = math.max(0, (tonumber(selected.retryAt) or 0) - nowMs())
+    return copy
+end
+
+function Supervisor.summary(actor)
+    if actor == nil then return nil end
+    Supervisor.update(actor)
+    local token = activeByActor[actor]
+    local native = token == nil and nativeSnapshot(actor) or nil
+    local source = token or native
+    local failure = mostRecentFailure(actor)
+    local retry = mostRecentRetry(actor)
+    local currentTime = nowMs()
+    return {
+        actorId = actorId(actor),
+        active = source ~= nil,
+        external = source and source.external == true or false,
+        owner = source and source.owner or "none",
+        action = source and source.action or "idle",
+        phase = source and source.phase or "idle",
+        targetKey = source and source.targetKey or nil,
+        targetLabel = source and source.targetLabel or nil,
+        progress = source and safeDetail(source.progress, 0) or nil,
+        reason = source and source.reason or nil,
+        recovery = source and safeDetail(source.recovery, 0) or nil,
+        ageMs = source and math.max(0, currentTime
+            - (tonumber(source.startedAt) or currentTime)) or 0,
+        phaseAgeMs = source and math.max(0, currentTime
+            - (tonumber(source.phaseAt) or currentTime)) or 0,
+        reservationCount = token and #token.reservations or 0,
+        lastFailure = failure and safeDetail(failure, 0) or nil,
+        retry = retry,
+    }
+end
+
+function Supervisor.health()
+    local result = {
+        active = 0,
+        reservations = 0,
+        leakedReservations = 0,
+        coolingDown = 0,
+        invariantViolations = 0,
+    }
+    for _, token in pairs(activeByActor) do
+        if Supervisor.isCurrent(token) then
+            result.active = result.active + 1
+            result.reservations = result.reservations + #(token.reservations or {})
+        end
+    end
+    for _, token in pairs(reservationOwners) do
+        if not Supervisor.isCurrent(token) then result.leakedReservations = result.leakedReservations + 1 end
+    end
+    local current = nowMs()
+    for actor, ledger in pairs(retryByActor) do
+        if actor ~= nil then
+            for _, record in pairs(ledger) do
+                if (tonumber(record.retryAt) or 0) > current then
+                    result.coolingDown = result.coolingDown + 1
+                end
+            end
+        end
+    end
+    for actor, history in pairs(historyByActor) do
+        if actor ~= nil then
+            for _, entry in ipairs(history) do
+                if entry.event == "invariant_violation" then
+                    result.invariantViolations = result.invariantViolations + 1
+                end
+            end
+        end
+    end
+    result.healthy = result.leakedReservations == 0 and result.invariantViolations == 0
     return result
 end
 

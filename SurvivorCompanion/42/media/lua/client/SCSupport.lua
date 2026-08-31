@@ -7,6 +7,7 @@ require "SCActor"
 require "SCRegistry"
 require "SCScheduler"
 require "SCPerformance"
+require "SCActionSupervisor"
 
 local SC = SurvivorCompanion
 SC.Support = SC.Support or {}
@@ -86,6 +87,42 @@ local function bridgeAdvice(status)
     return "The native bridge did not become ready. Restart once, then copy this report if the problem remains."
 end
 
+local function redact(value)
+    local text = tostring(value or "")
+    text = string.gsub(text, "[A-Za-z]:[\\/][^\r\n]*", "<local-path>")
+    text = string.gsub(text, "/[Uu]sers/[^/\r\n]+/[^\r\n]*", "<local-path>")
+    text = string.gsub(text, "/home/[^/\r\n]+/[^\r\n]*", "<local-path>")
+    text = string.gsub(text, "file:[^%s]+", "<local-path>")
+    return text
+end
+
+local function companionActionEvidence()
+    local result = {}
+    if not SC.Registry or type(SC.Registry.living) ~= "function"
+        or not SC.ActionSupervisor or type(SC.ActionSupervisor.summary) ~= "function" then
+        return result
+    end
+    local living = safeCall(function() return SC.Registry.living() end, {})
+    local maximum = math.max(1, tonumber(SC.Config.get("maxCompanions")) or 16)
+    for index = 1, math.min(#living, maximum) do
+        local actor = living[index]
+        local id = safeCall(function() return SC.Registry.idOf(actor) end, "unknown")
+        local name = safeCall(function()
+            if type(actor.getDisplayName) == "function" then return actor:getDisplayName() end
+            return id
+        end, id)
+        result[#result + 1] = {
+            id = tostring(id),
+            name = redact(name),
+            summary = SC.ActionSupervisor.summary(actor),
+            history = type(SC.ActionSupervisor.history) == "function"
+                and SC.ActionSupervisor.history(actor, 20) or {},
+        }
+    end
+    table.sort(result, function(left, right) return left.id < right.id end)
+    return result
+end
+
 function support.snapshot(force)
     local bridge = safeCall(function()
         return SC.Actor.bridgeStatus(force == true)
@@ -97,6 +134,9 @@ function support.snapshot(force)
         reason = "SC.Actor.bridgeStatus is unavailable",
     })
     bridge.advice = bridgeAdvice(bridge)
+    local actionHealth = safeCall(function()
+        return SC.ActionSupervisor.health()
+    end, {})
     return {
         release = tostring(SC.Identity.release or "unknown"),
         gameVersion = gameVersion(),
@@ -114,6 +154,8 @@ function support.snapshot(force)
             return SC.Performance.snapshot()
         end, {}),
         diagnostics = diagnosticSummary(),
+        actionSupervisor = actionHealth,
+        companionActions = companionActionEvidence(),
         sandbox = safeCall(function()
             return SC.Config.sandboxSnapshot()
         end, {}),
@@ -138,6 +180,7 @@ function support.summary(force)
         "Runtime active: " .. booleanText(data.runtimeActive),
         "Bridge: " .. tostring(bridge.code or "unknown"),
         "Bridge provider: " .. tostring(bridge.provider or "none"),
+        "Install/bridge mode: " .. tostring(bridge.provider or bridge.code or "unknown"),
         "Bridge protocol: " .. tostring(bridge.observedProtocol or "unavailable")
             .. " (expected " .. tostring(bridge.expectedProtocol or "unknown") .. ")",
         "Bridge detail: " .. tostring(bridge.reason or "none"),
@@ -155,6 +198,11 @@ function support.summary(force)
         "Diagnostics: " .. tostring(diagnostics.reports or 0) .. " reports, "
             .. tostring(diagnostics.open or 0) .. " open circuits, "
             .. tostring(diagnostics.recoveries or 0) .. " recoveries",
+        "Action supervisor: " .. tostring(data.actionSupervisor.active or 0) .. " active, "
+            .. tostring(data.actionSupervisor.reservations or 0) .. " reservations, "
+            .. tostring(data.actionSupervisor.leakedReservations or 0) .. " leaked, "
+            .. tostring(data.actionSupervisor.coolingDown or 0) .. " cooling down, "
+            .. tostring(data.actionSupervisor.invariantViolations or 0) .. " invariant violations",
     }
     if data.disabledReason ~= nil then
         lines[#lines + 1] = "Runtime disabled reason: " .. tostring(data.disabledReason)
@@ -171,6 +219,36 @@ function support.summary(force)
             tostring(metric.label or metric.key), tonumber(metric.p95Ms) or 0,
             tonumber(metric.maxMs) or 0, tonumber(metric.yielded) or 0)
     end
+    for _, actor in ipairs(data.companionActions or {}) do
+        local current = actor.summary or {}
+        lines[#lines + 1] = "Companion action " .. tostring(actor.id) .. " ("
+            .. tostring(actor.name) .. "): " .. tostring(current.owner or "none") .. "/"
+            .. tostring(current.action or "idle") .. "/" .. tostring(current.phase or "idle")
+            .. ", target " .. tostring(current.targetLabel or "none")
+            .. ", age " .. tostring(math.floor((tonumber(current.ageMs) or 0) / 1000))
+            .. "s, reservations " .. tostring(current.reservationCount or 0)
+        local failure = current.lastFailure
+        if type(failure) == "table" then
+            lines[#lines + 1] = "Companion last failure " .. tostring(actor.id) .. ": "
+                .. tostring(failure.action or "unknown") .. "/"
+                .. tostring(failure.failureCategory or "unknown") .. "/"
+                .. tostring(failure.reason or "unknown")
+        end
+        local retry = current.retry
+        if type(retry) == "table" and (tonumber(retry.remainingMs) or 0) > 0 then
+            lines[#lines + 1] = "Companion retry " .. tostring(actor.id) .. ": "
+                .. tostring(retry.action or "unknown") .. " in "
+                .. tostring(math.ceil((tonumber(retry.remainingMs) or 0) / 1000)) .. "s"
+        end
+        for _, transition in ipairs(actor.history or {}) do
+            lines[#lines + 1] = "Action transition " .. tostring(actor.id) .. ": "
+                .. tostring(transition.event or "unknown") .. "/"
+                .. tostring(transition.action or "unknown") .. "/"
+                .. tostring(transition.phase or "unknown") .. "/"
+                .. tostring(transition.reason or "none")
+        end
+    end
+    for index, line in ipairs(lines) do lines[index] = redact(line) end
     return table.concat(lines, "\n"), data
 end
 

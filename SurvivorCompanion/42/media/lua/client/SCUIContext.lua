@@ -369,6 +369,7 @@ end
 
 local function addConversation(menu, row, player)
     if row.recruited ~= true then return end
+    addCommand(menu, "UI_SC_Action_Doing", row.id, "doing", nil, player)
     addCommand(menu, "UI_SC_Action_Status", row.id, "status", nil, player)
     addCommand(menu, "UI_SC_Action_Needs", row.id, "needs", nil, player)
     addCommand(menu, "UI_SC_Action_Memory", row.id, "memory", nil, player)

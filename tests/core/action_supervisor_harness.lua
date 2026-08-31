@@ -125,5 +125,17 @@ check(timeoutCancelled == 1 and not Supervisor.isCurrent(timeout),
 local timeoutHistory = Supervisor.history(timeoutActor, 4)
 check(#timeoutHistory > 0 and timeoutHistory[#timeoutHistory].phase == "failed",
     "public bounded history records terminal timeout evidence")
+local timeoutSummary = Supervisor.summary(timeoutActor)
+local supervisorHealth = Supervisor.health()
+check(timeoutSummary.active == false
+        and timeoutSummary.lastFailure.action == "approach_job"
+        and timeoutSummary.lastFailure.failureCategory ~= nil
+        and timeoutSummary.retry.remainingMs > 0,
+    "public action summary exposes the latest stable failure and retry window")
+check(supervisorHealth.active == 0 and supervisorHealth.reservations == 0
+        and supervisorHealth.leakedReservations == 0
+        and supervisorHealth.coolingDown >= 1
+        and supervisorHealth.invariantViolations >= 1,
+    "public supervisor health reports bounded retries, invariants, and reservation leaks")
 
 print("ACTION_SUPERVISOR_PASS assertions=" .. tostring(assertions))

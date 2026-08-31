@@ -264,6 +264,12 @@ local signatureExcludedFields = {
     actor = true,
     distance = true,
     tooltip = true,
+    ageMs = true,
+    phaseAgeMs = true,
+    remainingMs = true,
+    retryAt = true,
+    failedAt = true,
+    at = true,
 }
 
 local function stableSignatureValue(value, depth, budget, seen)
@@ -410,6 +416,7 @@ local function copySummary(row, summary)
     row.distance = summary.distance or row.distance
     row.order = summary.order or row.order
     row.activity = summary.activity or row.activity
+    row.actionSummary = summary.actionSummary or row.actionSummary
     row.intent = summary.intent or row.intent
     row.combatDoctrine = summary.combatDoctrine or summary.combat_doctrine or row.combatDoctrine
     row.combatStance = summary.combatStance or summary.combatMode
@@ -528,6 +535,36 @@ end
 
 function UI.distanceText(value)
     return UI.text("UI_SC_Value_Distance", numericText(value, 1))
+end
+
+function UI.actionSummaryText(summary)
+    if type(summary) ~= "table" then return UI.text("UI_SC_Value_Unknown") end
+    if summary.active ~= true then return UI.text("UI_SC_ActionState_Idle") end
+    local value = UI.stateText(summary.action) .. " - " .. UI.stateText(summary.phase)
+    if type(summary.targetLabel) == "string" and summary.targetLabel ~= "" then
+        value = value .. " | " .. tostring(summary.targetLabel)
+    end
+    local progress = summary.progress
+    if type(progress) == "table" then
+        local current = tonumber(progress.current or progress.progress or progress.index)
+        local total = tonumber(progress.total or progress.count)
+        if current and total then value = value .. " | " .. tostring(current) .. "/" .. tostring(total) end
+    end
+    local seconds = math.floor(math.max(0, tonumber(summary.ageMs) or 0) / 1000)
+    if seconds > 0 then value = value .. " | " .. tostring(seconds) .. "s" end
+    return value
+end
+
+function UI.actionFailureText(summary)
+    local failure = type(summary) == "table" and summary.lastFailure or nil
+    if type(failure) ~= "table" then return nil end
+    local value = UI.stateText(failure.action) .. ": " .. UI.stateText(failure.reason)
+    local retry = summary.retry
+    if type(retry) == "table" and (tonumber(retry.remainingMs) or 0) > 0 then
+        value = value .. " | " .. UI.text("UI_SC_ActionState_RetryIn",
+            math.max(1, math.ceil((tonumber(retry.remainingMs) or 0) / 1000)))
+    end
+    return value
 end
 
 local function summaryTooltip(row)
@@ -1768,6 +1805,12 @@ function SCUIDetail:buildOverview(panel, row)
         y = self:addInformationLine(panel, y, "UI_SC_Info_Load", loadText)
         y = self:addInformationLine(panel, y, "UI_SC_Info_AllowOverload",
             UI.booleanText(row.allowOverload))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_CurrentAction",
+            UI.actionSummaryText(row.actionSummary))
+        local actionFailure = UI.actionFailureText(row.actionSummary)
+        if actionFailure then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_LastActionFailure", actionFailure)
+        end
         y = self:addInformationLine(panel, y, "UI_SC_Info_Order", UI.stateText(row.order))
         y = self:addInformationLine(panel, y, "UI_SC_Info_Intent", UI.stateText(row.intent or row.activity))
         y = self:addInformationLine(panel, y, "UI_SC_Info_Distance", UI.distanceText(row.distance))
@@ -1866,6 +1909,7 @@ function SCUIDetail:buildOverview(panel, row)
     y = self:addSignal(panel, y, "UI_SC_Action_HandSignFire", "fire")
     y = self:addSignal(panel, y, "UI_SC_Action_HandSignFallBack", "fall_back")
     y = self:addSection(panel, y + 4, "UI_SC_Section_Conversation")
+    y = self:addCommand(panel, y, "UI_SC_Action_Doing", "doing", nil)
     y = self:addCommand(panel, y, "UI_SC_Action_Status", "status", nil)
     y = self:addCommand(panel, y, "UI_SC_Action_Needs", "needs", nil)
     y = self:addCommand(panel, y, "UI_SC_Action_Memory", "memory", nil)
@@ -2774,6 +2818,7 @@ function SCUIDetail:buildSupport(panel)
     local bridge = status.bridge or {}
     local scheduler = status.scheduler or {}
     local diagnostics = status.diagnostics or {}
+    local supervisor = status.actionSupervisor or {}
     y = self:addInformationLine(panel, y, "UI_SC_Support_Release", status.release)
     y = self:addInformationLine(panel, y, "UI_SC_Support_GameBuild",
         tostring(status.gameVersion) .. " / " .. tostring(status.expectedGameVersion))
@@ -2799,6 +2844,11 @@ function SCUIDetail:buildSupport(panel)
         tostring(diagnostics.reports or 0) .. " / "
             .. tostring(diagnostics.open or 0) .. " / "
             .. tostring(diagnostics.recoveries or 0))
+    y = self:addInformationLine(panel, y, "UI_SC_Support_ActionSupervisor",
+        tostring(supervisor.active or 0) .. " / "
+            .. tostring(supervisor.reservations or 0) .. " / "
+            .. tostring(supervisor.leakedReservations or 0) .. " / "
+            .. tostring(supervisor.coolingDown or 0))
     if status.disabledReason ~= nil then
         y = self:addInformationLine(panel, y, "UI_SC_Support_DisabledReason",
             status.disabledReason)

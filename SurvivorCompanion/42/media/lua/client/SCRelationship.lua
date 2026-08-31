@@ -454,11 +454,86 @@ local function backgroundResponse(state)
     return backgroundLine("Habit", state.background.habit), "shrug", false
 end
 
+local doingLabels = {
+    bandage_treatment = "bandaging a wound",
+    replace_bandage = "replacing a bandage",
+    treat_patient = "treating an injury",
+    scavenge = "searching for useful supplies",
+    loot_container = "searching a container",
+    wear_clothing = "changing equipment",
+    equip_weapon = "equipping a weapon",
+    board_vehicle = "getting into the vehicle",
+    exit_vehicle = "getting out of the vehicle",
+    read = "reading",
+    repair = "repairing equipment",
+    craft_supply = "making supplies",
+    sit = "taking a short rest",
+    wash = "washing up",
+    follow_formation = "keeping formation",
+    approach_vehicle = "reaching the passenger door",
+}
+
+local function readableAction(value)
+    local key = tostring(value or "idle")
+    if doingLabels[key] then return doingLabels[key] end
+    local readable = string.gsub(key, "[_%-]+", " ")
+    return string.lower(readable)
+end
+
+local function idleAction(state)
+    local order = type(state) == "table" and state.order or "idle"
+    local labels = {
+        follow = "staying ready to follow you",
+        regroup = "moving back toward the group",
+        guard = "watching this position",
+        stay = "holding this position",
+        retreat = "looking for a safer position",
+        base_duty = "waiting for the next camp job",
+    }
+    return labels[order] or "keeping watch"
+end
+
+local function doingResponse(actor, state, description)
+    local summary = type(description.actionSummary) == "table"
+        and description.actionSummary or {}
+    local action = readableAction(summary.action)
+    if summary.active == true then
+        if summary.phase == "recovering" then
+            return varied(actor, "doing.recovering",
+                "That route failed. I'm finding another way to %1.", { action }, state),
+                "undecided", false
+        end
+        if summary.phase == "waiting" or summary.phase == "cooling_down" then
+            return varied(actor, "doing.waiting",
+                "I'm waiting before I can finish %1.", { action }, state),
+                "undecided", false
+        end
+        if type(summary.targetLabel) == "string" and summary.targetLabel ~= "" then
+            return varied(actor, "doing.target", "I'm %1 at %2.",
+                { action, summary.targetLabel }, state), "yes", false
+        end
+        return varied(actor, "doing.active", "I'm %1 right now.",
+            { action }, state), "yes", false
+    end
+    local failure = type(summary.lastFailure) == "table" and summary.lastFailure or nil
+    local retry = type(summary.retry) == "table" and summary.retry or nil
+    if failure and retry and (tonumber(retry.remainingMs) or 0) > 0 then
+        local seconds = math.max(1, math.ceil((tonumber(retry.remainingMs) or 0) / 1000))
+        return varied(actor, "doing.failed",
+            "I couldn't finish %1. I'll try again in about %2 seconds.",
+            { readableAction(failure.action), seconds }, state), "undecided", false
+    end
+    return varied(actor, "doing.idle", "Nothing urgent. I'm %1.",
+        { idleAction(state) }, state), "shrug", false
+end
+
 function Relationship.respond(action, actor, player, state, description)
     Relationship.initialize(actor, state)
     description = type(description) == "table" and description or {}
     local now = U().nowMs()
-    if action == "plans" then
+    if action == "doing" then
+        return doingResponse(actor, state, description)
+    elseif action == "plans" then
         if SC.Objectives and type(SC.Objectives.respondPlans) == "function" then
             return SC.Objectives.respondPlans(state, actor)
         end

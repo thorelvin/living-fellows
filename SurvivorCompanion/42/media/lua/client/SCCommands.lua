@@ -1380,6 +1380,11 @@ function Commands.describe(companionId, player)
         local ok, value = pcall(SC.Encounter.status, actor)
         if ok and type(value) == "table" then scavengeStatus = value end
     end
+    local actionSummary
+    if SC.ActionSupervisor and type(SC.ActionSupervisor.summary) == "function" then
+        local ok, value = pcall(SC.ActionSupervisor.summary, actor)
+        if ok and type(value) == "table" then actionSummary = value end
+    end
     local nativeSeated = vehicleStatus and (vehicleStatus.status == "in_vehicle"
         or vehicleStatus.status == "waiting_safe_exit") or false
     local result = {
@@ -1391,7 +1396,9 @@ function Commands.describe(companionId, player)
         thirst = U().characterStatValue(actor, "THIRST", 0),
         distance = player and U().distance(actor, player) or math.huge,
         order = state.order,
-        activity = currentActivity(actor, state),
+        activity = actionSummary and actionSummary.active == true
+            and actionSummary.action or currentActivity(actor, state),
+        actionSummary = actionSummary,
         intent = currentIntent(actor),
         combatMode = state.combatMode,
         combatDoctrine = state.combatDoctrine,
@@ -1474,6 +1481,7 @@ function Commands.describe(companionId, player)
 end
 
 local conversationActions = {
+    doing = true,
     status = true,
     needs = true,
     memory = true,

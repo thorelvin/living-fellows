@@ -141,6 +141,8 @@
     "UI_SC_Info_Ammunition":  "Ammunition: %1",
     "UI_SC_Info_Load":  "Carry load: %1",
     "UI_SC_Info_AllowOverload":  "Allow overload: %1",
+    "UI_SC_Info_CurrentAction": "Current action: %1",
+    "UI_SC_Info_LastActionFailure": "Last action problem: %1",
     "UI_SC_Info_Order":  "Order: %1",
     "UI_SC_Info_Intent":  "Intent: %1",
     "UI_SC_Info_Distance":  "Distance: %1",
@@ -157,6 +159,7 @@
     "UI_SC_Info_VehicleStatus": "Vehicle status: %1",
     "UI_SC_Info_FollowDistance":  "Follow distance: %1",
     "UI_SC_Info_Group":  "Group: %1",
+    "UI_SC_Action_Doing": "What are you doing?",
     "UI_SC_Action_Status":  "How are you?",
     "UI_SC_Action_Memory":  "Talk about memories",
     "UI_SC_Action_Recruit":  "Invite to join",
@@ -833,6 +836,7 @@
     "UI_SC_Support_WorldCounts": "Companions / households: %1",
     "UI_SC_Support_Scheduler": "Scheduler tasks / exceptions / deferred frames: %1",
     "UI_SC_Support_Diagnostics": "Reports / open circuits / recoveries: %1",
+    "UI_SC_Support_ActionSupervisor": "Active actions / reservations / leaked / retrying: %1",
     "UI_SC_Support_DisabledReason": "Runtime disabled reason: %1",
     "UI_SC_Support_Actions": "Support actions",
     "UI_SC_Support_Copy": "Copy support report",
@@ -840,5 +844,7 @@
     "UI_SC_Support_Retry": "Retry failed subsystems",
     "UI_SC_Support_Retried": "Cleared %1 failed subsystem circuits and rechecked the bridge.",
     "UI_SC_Support_Ready": "Native companion bridge is ready.",
-    "UI_SC_Support_Unavailable": "Support diagnostics are unavailable."
+    "UI_SC_Support_Unavailable": "Support diagnostics are unavailable.",
+    "UI_SC_ActionState_Idle": "No supervised action",
+    "UI_SC_ActionState_RetryIn": "retry in %1s"
 }

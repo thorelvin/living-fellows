@@ -893,6 +893,18 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("onCommandButton(target", callback)
         self.assertIn("tickBox:setSelected(index, previous)", callback)
 
+    def test_supervised_action_status_and_talk_command_are_visible(self) -> None:
+        overview = lua_function(self.ui, "function SCUIDetail:buildOverview(panel, row)")
+        support = lua_function(self.ui, "function SCUIDetail:buildSupport(panel)")
+        self.assertIn("UI_SC_Info_CurrentAction", overview)
+        self.assertIn("UI_SC_Info_LastActionFailure", overview)
+        self.assertIn('"UI_SC_Action_Doing", "doing"', overview)
+        self.assertIn("UI_SC_Support_ActionSupervisor", support)
+        self.assertIn('addCommand(menu, "UI_SC_Action_Doing"', self.context)
+        for key in ("UI_SC_Action_Doing", "UI_SC_Info_CurrentAction",
+                    "UI_SC_Info_LastActionFailure", "UI_SC_Support_ActionSupervisor"):
+            self.assertIn(key, self.translations)
+
     def test_work_mode_selector_matches_the_persistent_backend_contract(self) -> None:
         orders = lua_function(self.ui, "function SCUIDetail:buildOrders(panel)")
         self.assertIn('WORK_MODES, "set_work_mode", "mode"', orders)

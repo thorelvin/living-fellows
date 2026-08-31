@@ -1817,6 +1817,21 @@ check(statusOK and fellow.lastSpeech and SurvivorCompanion.UI.lastStatus.id == f
 check(SurvivorCompanion.Commands.conversation(fellow.id, "needs", player)
     and SurvivorCompanion.Commands.conversation(fellow.id, "opinion", player),
     "contextual needs and opinion conversations speak successfully")
+do
+    local doingToken = assert(SurvivorCompanion.ActionSupervisor.begin(fellow, {
+        owner = "scavenge", action = "scavenge", targetKey = "shelf:test",
+        targetLabel = "grocery shelves", phase = "approaching",
+        priority = SurvivorCompanion.ActionSupervisor.Priority.WORK,
+    }))
+    fellow.lastSpeech, player.lastSpeech = nil, nil
+    local doingAccepted, doingSentence = SurvivorCompanion.Commands.conversation(
+        fellow.id, "doing", player)
+    check(doingAccepted and type(doingSentence) == "string" and #doingSentence > 10
+            and fellow.lastSpeech == doingSentence and player.lastSpeech == nil
+            and string.find(string.lower(doingSentence), "shel", 1, true) ~= nil,
+        "What are you doing reports the supervised target over the selected companion")
+    SurvivorCompanion.ActionSupervisor.cancel(fellow, "fixture_done", nil, true)
+end
 local bondBeforeBackground = SurvivorCompanion.Commands.peek(fellow).bond
 check(SurvivorCompanion.Commands.conversation(fellow.id, "background", player)
     and SurvivorCompanion.Commands.peek(fellow).bond > bondBeforeBackground,

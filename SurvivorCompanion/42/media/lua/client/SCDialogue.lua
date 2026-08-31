@@ -365,6 +365,34 @@ local pools = {
         "I need to finish what I'm doing first.", "One thing at a time. I'm still busy.",
         "Give me a moment to finish this.", "I heard you. Let me complete this action first.",
     } },
+    ["doing.active"] = { common = {
+        "I'm %1 right now.", "I'm working on %1.",
+        "Right now, I'm %1.", "Give me a moment. I'm %1.",
+    } },
+    ["doing.target"] = { common = {
+        "I'm %1 at %2.", "I'm working on %1 near %2.",
+        "The current job is %1 at %2.", "I'm handling %1 by %2.",
+    } },
+    ["doing.waiting"] = { common = {
+        "I'm waiting before I can finish %1.", "I'm held up trying to finish %1.",
+        "I haven't abandoned it. I'm waiting on %1.", "I need a clear moment to continue %1.",
+    } },
+    ["doing.recovering"] = { common = {
+        "That route failed. I'm finding another way to %1.",
+        "I'm working around an obstacle so I can finish %1.",
+        "The approach is blocked. I'm replanning %1.",
+        "I'm still on it. I need a safer route for %1.",
+    } },
+    ["doing.failed"] = { common = {
+        "I couldn't finish %1. I'll try again in about %2 seconds.",
+        "%1 failed. Give me roughly %2 seconds before I try again.",
+        "I hit a problem with %1. The next attempt is in about %2 seconds.",
+        "That %1 attempt didn't work. I'm waiting %2 seconds before another try.",
+    } },
+    ["doing.idle"] = { common = {
+        "Nothing urgent. I'm %1.", "For now, I'm %1.",
+        "I'm clear at the moment, so I'm %1.", "No active job. I'm %1.",
+    } },
     ["stress.vent"] = {
         common = {
             "Damn it. I need a minute before I say something worse.",

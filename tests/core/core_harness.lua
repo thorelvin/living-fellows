@@ -1316,8 +1316,12 @@ function runSupportReportChecks()
     local supportStatus = SC.Support.snapshot(false)
     check(supportStatus.bridge.ready == true
             and supportStatus.bridge.code == "ready"
-            and supportStatus.bridge.provider == "iso-companion",
+            and supportStatus.bridge.provider == "iso-companion"
+            and type(supportStatus.actionSupervisor) == "table"
+            and type(supportStatus.companionActions) == "table",
         "support snapshot exposes the selected native provider without mutating it")
+    SC.Diagnostics.report("support-path", nil,
+        "C:\\Users\\Tester\\Zomboid\\console.txt")
     Clipboard = {
         setClipboard = function(value) Clipboard.copied = value end,
     }
@@ -1325,8 +1329,10 @@ function runSupportReportChecks()
     check(copied and copiedReason == "Support report copied to the clipboard."
             and Clipboard.copied == copiedText
             and string.find(copiedText, "Living Fellows support report", 1, true) ~= nil
-            and string.find(copiedText, "Bridge: ready", 1, true) ~= nil,
-        "bounded in-game support report copies through Build 42's clipboard contract")
+            and string.find(copiedText, "Bridge: ready", 1, true) ~= nil
+            and string.find(copiedText, "Action supervisor:", 1, true) ~= nil
+            and string.find(copiedText, "C:\\Users\\Tester", 1, true) == nil,
+        "bounded support report includes action health and redacts private paths")
     SC.Diagnostics.disable("support-retry-test", nil, "injected manual latch")
     local retryOk, retryCount = SC.Support.retryFailures()
     check(retryOk and retryCount >= 1
