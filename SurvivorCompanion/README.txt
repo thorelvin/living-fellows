@@ -1,4 +1,4 @@
-Living Fellows: Companion 0.22.7 playtest candidate
+Living Fellows: Companion 0.22.8 reliability playtest candidate
 
 The included native bridge supplies SCNativeCompanion, an original IsoPlayer
 subclass that remains outside the local-player slots. Workshop installations
@@ -353,6 +353,17 @@ warning without producing squad chatter. A bounded adapter also presents only
 zombies already found by shared perception to the zombie's own spotted logic,
 so zombies acquire companions normally without global zombie scans, local-
 player registration, or stealing a materially closer player target.
+
+0.22.8 makes actor actions, saves, lifecycle hooks, native cleanup and local
+installation explicit transactions. Failed actions retain reservations and
+rollback evidence; failed save validation preserves prior and quarantined raw
+data; permanently incompatible restores stop retrying until manually released.
+Native actors retain cleanup ownership until removal is verified, and bridge
+startup validates every version-pinned reflected method before spawning.
+Installer updates now restore config, JAR, manifest and payload at every tested
+failure boundary. Configuration reload, scheduler diagnostics, faction limits,
+provider IDs and dynamic perception caches are consistent and bounded. Public
+source CI and trusted real-JAR release gates enforce these contracts.
 
 0.22.7 adds player-like tactical combat readiness. Health, wounds, endurance,
 panic, pain, tiredness, stress, morale, load, physical and weapon skills,

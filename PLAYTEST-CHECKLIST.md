@@ -5,7 +5,7 @@
 ## Mandatory gate before launch
 
 - [ ] `scripts\Test-Project.ps1` passes against Project Zomboid 42.20.4.
-- [ ] `VERSION.txt`, both `mod.info` files and the Support tab all report 0.22.7.
+- [ ] `VERSION.txt`, both `mod.info` files and the Support tab all report 0.22.8.
 - [ ] Workshop-path testing has ZombieBuddy 2.3.3 or newer enabled before Living Fellows.
 - [ ] The loose legacy `zombie\characters\IsoSurvivor.class` is absent and the game is closed.
 - [ ] The local install displays `PRIVATE-NATIVE-BRIDGE.txt`.
