@@ -412,6 +412,34 @@ local function supportsVisualLifecycle()
         and type(SC.NativeActions.clearVisual) == "function"
 end
 
+local function supervisor()
+    return type(SC.ActionSupervisor) == "table" and SC.ActionSupervisor or nil
+end
+
+local function supervisedTransition(state, phase, detail)
+    local service = supervisor()
+    if not service or not state or not state.supervisorToken then return true, phase end
+    return service.transition(state.supervisorToken, phase, detail)
+end
+
+local function supervisedProgress(state, signature, detail)
+    local service = supervisor()
+    if not service or not state or not state.supervisorToken then return true end
+    return service.progress(state.supervisorToken, signature, detail)
+end
+
+local function supervisedVisualExpected(state, detail)
+    local service = supervisor()
+    if not service or not state or not state.supervisorToken then return true end
+    return service.expectVisual(state.supervisorToken, detail)
+end
+
+local function supervisedVisualVerified(state, detail)
+    local service = supervisor()
+    if not service or not state or not state.supervisorToken then return true end
+    return service.markVisualVerified(state.supervisorToken, detail)
+end
+
 local function treatmentWound(assessment, state)
     for _, wound in ipairs(assessment.wounds or {}) do
         if wound.index == state.woundIndex then
@@ -431,11 +459,70 @@ local function treatmentWound(assessment, state)
     return chooseWound(assessment, true)
 end
 
-local function clearTreatment(helper, state, reason)
-    local rolledBack = rollbackEmergencyBandage(state and state.inventory,
-        state and state.emergencyTransaction)
-    treatmentState[helper] = nil
-    return false, rolledBack and reason or "treatment_rollback_failed"
+local function releaseTreatmentResources(helper, state, reason)
+    state = state or treatmentState[helper]
+    if not state then return true, reason or "no_treatment" end
+    local rolledBack = rollbackEmergencyBandage(state.inventory,
+        state.emergencyTransaction)
+    if SC.NativeActions and type(SC.NativeActions.cancelVisual) == "function" then
+        local visual = state.phase == "ripping" and "rip_clothing_for_bandage"
+            or state.phase == "bandaging" and (state.visualAction or "kneel_treat") or nil
+        if visual then pcall(SC.NativeActions.cancelVisual, helper,
+            reason or "medical_cancelled") end
+    end
+    if state.phase == "approaching" and SC.Navigation
+        and type(SC.Navigation.cancel) == "function" then
+        pcall(SC.Navigation.cancel, helper, reason or "medical_cancelled")
+    end
+    if rolledBack then
+        state.emergencyTransaction = nil
+        treatmentState[helper] = nil
+    end
+    return rolledBack, rolledBack and (reason or "cancelled")
+        or "treatment_rollback_failed"
+end
+
+local function clearTreatment(helper, state, reason, detail)
+    local rolledBack, finalReason = releaseTreatmentResources(helper, state, reason)
+    if not rolledBack then
+        finalReason = "treatment_rollback_failed"
+        if state then state.emergencyTransaction = nil end
+        treatmentState[helper] = nil
+    end
+    local service = supervisor()
+    local token = state and state.supervisorToken
+    if service and token and service.isCurrent(token) then
+        service.fail(token, finalReason or reason or "treatment_failed", detail)
+    end
+    return false, finalReason or reason or "treatment_failed"
+end
+
+local function startRipAnimation(helper, state)
+    local expected, expectedReason = supervisedVisualExpected(state, {
+        action = "rip_clothing_for_bandage",
+        itemType = state.emergencyCandidate
+            and U().itemType(state.emergencyCandidate.clothing) or nil,
+    })
+    if expected ~= true then return clearTreatment(helper, state,
+        expectedReason or "visual_registration_failed") end
+    local accepted, reason = U().move(helper, "walk", {
+        action = "rip_clothing_for_bandage",
+        item = state.emergencyCandidate and state.emergencyCandidate.clothing,
+        emergency = state.emergency == true,
+        durationTicks = 120,
+        supervisorToken = state.supervisorToken,
+    })
+    if not accepted then return clearTreatment(helper, state,
+        reason or "rip_action_rejected") end
+    state.phase = "ripping"
+    state.startedAt = U().nowMs()
+    treatmentState[helper] = state
+    local transitioned, transitionReason = supervisedTransition(state, "animating", {
+        action = "rip_clothing_for_bandage",
+    })
+    if transitioned ~= true then return clearTreatment(helper, state,
+        transitionReason or "animation_phase_rejected") end
+    return true, "ripping_emergency_bandage"
 end
 
 local function startBandageAnimation(helper, state)
@@ -445,6 +532,11 @@ local function startBandageAnimation(helper, state)
     if not inventoryContains(state.inventory, state.bandage) then
         return clearTreatment(helper, state, "bandage_missing")
     end
+    local expected, expectedReason = supervisedVisualExpected(state, {
+        action = state.visualAction or "kneel_treat", woundIndex = wound.index,
+    })
+    if expected ~= true then return clearTreatment(helper, state,
+        expectedReason or "visual_registration_failed") end
     local accepted, reason = U().move(helper, "walk", {
         action = state.visualAction or "kneel_treat",
         patient = state.patient,
@@ -454,6 +546,7 @@ local function startBandageAnimation(helper, state)
         humanAnimationOnly = true,
         emergency = state.emergency == true,
         durationTicks = 100,
+        supervisorToken = state.supervisorToken,
     })
     if not accepted then
         return clearTreatment(helper, state, reason or "treatment_action_rejected")
@@ -462,6 +555,12 @@ local function startBandageAnimation(helper, state)
     state.woundIndex = wound.index
     state.startedAt = U().nowMs()
     treatmentState[helper] = state
+    local transitioned, transitionReason = supervisedTransition(state, "animating", {
+        action = state.visualAction or "kneel_treat",
+        woundIndex = wound.index,
+    })
+    if transitioned ~= true then return clearTreatment(helper, state,
+        transitionReason or "animation_phase_rejected") end
     return true, "treatment_animation_started"
 end
 
@@ -469,23 +568,69 @@ local function finishTreatment(helper, state)
     local assessment = Medical.assess(state.patient)
     local wound = treatmentWound(assessment, state)
     if not wound then return clearTreatment(helper, state, "wound_no_longer_treatable") end
+    local committing, commitReason = supervisedTransition(state, "committing", {
+        woundIndex = wound.index, itemType = U().itemType(state.bandage),
+    })
+    if committing ~= true then return clearTreatment(helper, state,
+        commitReason or "commit_rejected") end
     local applied, reason = commitBandage(state.patient, assessment, wound,
         state.bandage, state.inventory, state.emergencyTransaction)
+    if not applied then return clearTreatment(helper, state, reason) end
+    state.emergencyTransaction = nil
+    local verifying, verifyReason = supervisedTransition(state, "verifying", {
+        woundIndex = wound.index,
+    })
+    if verifying ~= true then
+        treatmentState[helper] = nil
+        local service = supervisor()
+        if service and state.supervisorToken and service.isCurrent(state.supervisorToken) then
+            service.fail(state.supervisorToken, verifyReason or "verification_failed")
+        end
+        return false, verifyReason or "verification_failed"
+    end
+    local verifiedAssessment = Medical.assess(state.patient)
+    local verifiedWound
+    for _, candidate in ipairs(verifiedAssessment.wounds or {}) do
+        if candidate.index == wound.index then verifiedWound = candidate break end
+    end
+    if not verifiedWound or verifiedWound.bandaged ~= true
+        or verifiedWound.dirtyBandage == true then
+        treatmentState[helper] = nil
+        local service = supervisor()
+        if service and state.supervisorToken and service.isCurrent(state.supervisorToken) then
+            service.fail(state.supervisorToken, "verification_failed", {
+                woundIndex = wound.index,
+            })
+        end
+        return false, "verification_failed"
+    end
     treatmentState[helper] = nil
-    if not applied then return false, reason end
     if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
         SC.NativeActions.noteResult(helper, "medical_treatment", "bandaged", {
             kind = "long",
         })
     end
+    local service = supervisor()
+    if service and state.supervisorToken and service.isCurrent(state.supervisorToken) then
+        service.complete(state.supervisorToken, "bandaged", {
+            woundIndex = wound.index, patientId = U().idOf(state.patient), verified = true,
+        })
+    end
     return true, "bandaged"
 end
 
+local continueTreatmentApproach
+
 local function advanceTreatment(helper, state)
+    if state.phase == "approaching" then
+        return continueTreatmentApproach(helper, state)
+    end
     local expected = state.phase == "ripping" and "rip_clothing_for_bandage"
         or state.visualAction or "kneel_treat"
     local visualState = SC.NativeActions.visualStatus(helper, expected)
     if visualState == "active" then
+        supervisedProgress(state, "visual:" .. tostring(state.phase)
+            .. ":" .. tostring(state.startedAt), { visual = expected })
         return true, state.phase == "ripping" and "ripping_emergency_bandage"
             or "treatment_animation_active"
     end
@@ -494,10 +639,28 @@ local function advanceTreatment(helper, state)
         return clearTreatment(helper, state, "treatment_animation_" .. tostring(visualState))
     end
     SC.NativeActions.clearVisual(helper)
+    local verified, verifyReason = supervisedVisualVerified(state, {
+        action = expected,
+    })
+    if verified ~= true then return clearTreatment(helper, state,
+        verifyReason or "animation_verification_failed") end
     if state.phase == "ripping" then
+        local committing, commitReason = supervisedTransition(state, "committing", {
+            action = "rip_clothing_for_bandage",
+        })
+        if committing ~= true then return clearTreatment(helper, state,
+            commitReason or "commit_rejected") end
         local rag, transaction, reason = commitEmergencyBandage(
             state.inventory, state.emergencyCandidate)
         if not rag then return clearTreatment(helper, state, reason or "rag_creation_failed") end
+        local verifying, transitionReason = supervisedTransition(state, "verifying", {
+            itemType = U().itemType(rag),
+        })
+        if verifying ~= true or not inventoryContains(state.inventory, rag) then
+            state.emergencyTransaction = transaction
+            return clearTreatment(helper, state,
+                transitionReason or "rag_verification_failed")
+        end
         state.bandage = rag
         state.emergencyTransaction = transaction
         state.emergencyCandidate = nil
@@ -509,19 +672,27 @@ end
 -- Compatibility path for the isolated gameplay harness. The shipping runtime
 -- always loads SCNativeActions and therefore always uses the staged lifecycle.
 local function immediateTreatment(helper, patient, assessment, wound, bandage,
-        inventory, emergencyTransaction, visualAction)
+        inventory, emergencyTransaction, visualAction, state)
     local accepted = U().move(helper, "walk", {
         action = visualAction or "kneel_treat", patient = patient,
         bodyPartIndex = wound.index, bodyPart = wound.part,
         itemType = U().itemType(bandage), humanAnimationOnly = true,
         emergency = wound.bleeding == true,
+        supervisorToken = state and state.supervisorToken,
     })
     if not accepted then
-        local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction)
-        return false, rolledBack and "treatment_action_rejected" or "treatment_rollback_failed"
+        return clearTreatment(helper, state or {
+            inventory = inventory, emergencyTransaction = emergencyTransaction,
+        }, "treatment_action_rejected")
     end
-    return commitBandage(patient, assessment, wound, bandage, inventory,
-        emergencyTransaction)
+    state = state or {
+        patient = patient, woundIndex = wound.index, bandage = bandage,
+        inventory = inventory, emergencyTransaction = emergencyTransaction,
+        visualAction = visualAction,
+    }
+    state.bandage = bandage
+    state.emergencyTransaction = emergencyTransaction
+    return finishTreatment(helper, state)
 end
 
 local function treatmentSquare(helper, patient)
@@ -549,11 +720,7 @@ local function rescueViable(helper, snapshot)
     return true
 end
 
-function Medical.treat(helper, patient, runtime, options)
-    local utility = U()
-    if not utility.isValidActor(helper) or not utility.isValidActor(patient) then return false, "invalid_patient" end
-    local active = treatmentState[helper]
-    if active then return advanceTreatment(helper, active) end
+local function treatmentCapability(helper, patient, options)
     options = type(options) == "table" and options or {}
     local assessment = Medical.assess(patient)
     local wound
@@ -564,73 +731,178 @@ function Medical.treat(helper, patient, runtime, options)
     else
         wound = chooseWound(assessment, true)
     end
-    if not wound then return false, "no_treatable_wound" end
+    if not wound then return nil, "no_treatable_wound" end
+    local bandage, inventory = findBandage(helper)
+    local clothing, candidate, failure
+    if not bandage then
+        clothing, inventory, candidate, failure = emergencyClothing(helper)
+        if not clothing then
+            return {
+                assessment = assessment, wound = wound, inventory = inventory,
+                dirtyOnly = options.dirtyOnly == true,
+            }, options.dirtyOnly and "no_clean_bandage"
+                or (failure == "no_expendable_clothing" and "no_bandage" or failure or "no_bandage")
+        end
+    end
+    return {
+        assessment = assessment, wound = wound, inventory = inventory,
+        bandage = bandage, emergencyCandidate = candidate,
+        dirtyOnly = options.dirtyOnly == true,
+        visualAction = options.visualAction,
+        available = true,
+    }
+end
+
+function Medical.canReplaceDirtyBandage(actor)
+    if not U().isValidActor(actor) then return false, "invalid_actor" end
+    local capability, reason = treatmentCapability(actor, actor, {
+        dirtyOnly = true, visualAction = "replace_bandage",
+    })
+    return capability ~= nil and capability.available == true,
+        reason or (capability and "ready" or "no_treatable_wound"), capability
+end
+
+local function beginTreatmentState(helper, patient, capability)
+    local wound = capability.wound
+    local action = capability.dirtyOnly and "replace_dirty_bandage" or "treat_wound"
+    local targetKey = tostring(U().idOf(patient) or "patient") .. ":"
+        .. tostring(wound.index)
+    local state = {
+        phase = "selected", patient = patient, woundIndex = wound.index,
+        woundName = wound.name, dirtyOnly = capability.dirtyOnly == true,
+        emergency = wound.bleeding == true,
+        inventory = capability.inventory, bandage = capability.bandage,
+        emergencyCandidate = capability.emergencyCandidate,
+        visualAction = capability.visualAction,
+        targetKey = targetKey,
+    }
+    local service = supervisor()
+    if service then
+        if capability.available == true then service.clearRetry(helper, action, targetKey) end
+        local token, reason, retry = service.begin(helper, {
+            owner = "medical", action = action, targetKey = targetKey,
+            targetLabel = tostring(U().nameOf(patient)) .. " " .. tostring(wound.name),
+            priority = wound.bleeding and service.Priority.COMBAT_RESCUE
+                or service.Priority.NEEDS,
+            interruptible = true, requiresVisual = false,
+            retryCategory = capability.available and nil or "resources",
+            allowedActions = {
+                move_to_treat = true, kneel_treat = true, replace_bandage = true,
+                rip_clothing_for_bandage = true,
+            },
+            onCancel = function(_, cancelReason)
+                return releaseTreatmentResources(helper, state,
+                    cancelReason or "medical_cancelled")
+            end,
+            metadata = { woundIndex = wound.index, dirtyOnly = capability.dirtyOnly == true },
+        })
+        if not token then return nil, reason or "medical_owner_rejected", retry end
+        state.supervisorToken = token
+        if capability.available ~= true then
+            service.fail(token, capability.dirtyOnly and "no_clean_bandage" or "no_supplies", {
+                woundIndex = wound.index,
+            })
+            return nil, capability.dirtyOnly and "no_clean_bandage" or "no_bandage"
+        end
+        local resource = capability.bandage
+            or capability.emergencyCandidate and capability.emergencyCandidate.clothing
+        if resource then
+            local reserved, reserveReason = service.reserve(token, resource, "medical_supply")
+            if reserved ~= true then
+                service.fail(token, reserveReason or "reservation_lost")
+                return nil, reserveReason or "reservation_lost"
+            end
+        end
+    elseif capability.available ~= true then
+        return nil, capability.dirtyOnly and "no_clean_bandage" or "no_bandage"
+    end
+    treatmentState[helper] = state
+    return state, "selected"
+end
+
+continueTreatmentApproach = function(helper, state, runtime)
+    local utility = U()
+    if not utility.isValidActor(state.patient) then
+        return clearTreatment(helper, state, "invalid_target")
+    end
+    local rootRuntime = utility.actorState(helper, runtime)
+    local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
+    if not rescueViable(helper, snapshot) then
+        return Medical.cancel(helper, "danger_preempted")
+    end
+    if utility.distance(helper, state.patient) <= (utility.config("medicalRange") or 1.35) then
+        utility.stop(helper)
+        local settled, settleReason = supervisedTransition(state, "settling", {
+            patientId = U().idOf(state.patient),
+        })
+        if settled ~= true then return clearTreatment(helper, state,
+            settleReason or "settle_rejected") end
+        if state.emergencyCandidate then
+            if supportsVisualLifecycle() then return startRipAnimation(helper, state) end
+            local accepted = utility.move(helper, "walk", {
+                action = "rip_clothing_for_bandage",
+                item = state.emergencyCandidate.clothing,
+                emergency = state.emergency,
+                supervisorToken = state.supervisorToken,
+            })
+            if not accepted then return clearTreatment(helper, state, "rip_action_rejected") end
+            local committing, commitReason = supervisedTransition(state, "committing", {
+                action = "rip_clothing_for_bandage",
+            })
+            if committing ~= true then return clearTreatment(helper, state,
+                commitReason or "commit_rejected") end
+            local rag, transaction, reason = commitEmergencyBandage(
+                state.inventory, state.emergencyCandidate)
+            if not rag then return clearTreatment(helper, state, reason or "rag_creation_failed") end
+            state.bandage, state.emergencyTransaction, state.emergencyCandidate = rag, transaction, nil
+            supervisedTransition(state, "verifying", { itemType = utility.itemType(rag) })
+        end
+        if supportsVisualLifecycle() then return startBandageAnimation(helper, state) end
+        return immediateTreatment(helper, state.patient, Medical.assess(state.patient),
+            treatmentWound(Medical.assess(state.patient), state), state.bandage,
+            state.inventory, state.emergencyTransaction, state.visualAction, state)
+    end
+    local navigation = SC.Navigation
+    if type(navigation) ~= "table" or type(navigation.requestAny) ~= "function" then
+        return clearTreatment(helper, state, "navigation_unavailable")
+    end
+    local targets = navigation.interactionTargets(helper, state.patient, {
+        snapshot = snapshot, maximum = 4,
+    })
+    local fallback = treatmentSquare(helper, state.patient)
+    if #targets == 0 and fallback then targets[1] = fallback end
+    if #targets == 0 then return clearTreatment(helper, state, "no_interaction_point") end
+    local transitioned, transitionReason = supervisedTransition(state, "approaching", {
+        patientId = U().idOf(state.patient), candidates = #targets,
+    })
+    if transitioned ~= true then return clearTreatment(helper, state,
+        transitionReason or "approach_rejected") end
+    state.phase = "approaching"
+    local ok, status = navigation.requestAny(helper, targets, "walk", {
+        action = "move_to_treat", patient = state.patient, snapshot = snapshot,
+        arrivalDistance = 0.9, supervisorToken = state.supervisorToken,
+    })
+    if not ok then return clearTreatment(helper, state, status or "route_failed") end
+    supervisedProgress(state, "approach:" .. tostring(status), {
+        status = status, patientId = U().idOf(state.patient),
+    })
+    return true, status or "approaching_patient"
+end
+
+function Medical.treat(helper, patient, runtime, options)
+    local utility = U()
+    if not utility.isValidActor(helper) or not utility.isValidActor(patient) then return false, "invalid_patient" end
+    local active = treatmentState[helper]
+    if active then return advanceTreatment(helper, active, runtime) end
+    options = type(options) == "table" and options or {}
+    local capability, capabilityReason = treatmentCapability(helper, patient, options)
+    if not capability then return false, capabilityReason or "no_treatable_wound" end
     local rootRuntime = utility.actorState(helper, runtime)
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
     if not rescueViable(helper, snapshot) then return false, "unsafe_rescue" end
-
-    local square = treatmentSquare(helper, patient)
-    if not square then return false, "no_treatment_square" end
-    if utility.distance(helper, patient) > (utility.config("medicalRange") or 1.35) then
-        local navigation = SC.Navigation
-        if type(navigation) ~= "table" or type(navigation.requestAny) ~= "function" then return false, "navigation_unavailable" end
-        local targets = navigation.interactionTargets(helper, patient, {
-            snapshot = snapshot, maximum = 4,
-        })
-        if #targets == 0 then targets[1] = square end
-        local ok, status = navigation.requestAny(helper, targets, "walk", {
-            action = "move_to_treat",
-            patient = patient,
-            snapshot = snapshot,
-            arrivalDistance = 0.9,
-        })
-        return ok, status or "approaching_patient"
-    end
-
-    local bandage, inventory = findBandage(helper)
-    if not bandage then
-        local clothing, candidate, failure
-        clothing, inventory, candidate, failure = emergencyClothing(helper)
-        if not clothing then return false, failure or "no_bandage" end
-        if supportsVisualLifecycle() then
-            local accepted, reason = utility.move(helper, "walk", {
-                action = "rip_clothing_for_bandage",
-                item = clothing,
-                emergency = wound.bleeding == true,
-                durationTicks = 120,
-            })
-            if not accepted then return false, reason or "rip_action_rejected" end
-            treatmentState[helper] = {
-                phase = "ripping", patient = patient, woundIndex = wound.index,
-                dirtyOnly = options.dirtyOnly == true,
-                emergency = wound.bleeding == true,
-                inventory = inventory, emergencyCandidate = candidate,
-                startedAt = utility.nowMs(),
-                visualAction = options.visualAction,
-            }
-            return true, "ripping_emergency_bandage"
-        end
-        local accepted = utility.move(helper, "walk", {
-            action = "rip_clothing_for_bandage", item = clothing, emergency = true,
-        })
-        if not accepted then return false, "rip_action_rejected" end
-        local transaction
-        bandage, transaction, failure = commitEmergencyBandage(inventory, candidate)
-        if not bandage then return false, failure or "no_bandage" end
-        return immediateTreatment(helper, patient, assessment, wound, bandage,
-            inventory, transaction, options.visualAction)
-    end
-    if supportsVisualLifecycle() then
-        return startBandageAnimation(helper, {
-            patient = patient, woundIndex = wound.index,
-            dirtyOnly = options.dirtyOnly == true,
-            emergency = wound.bleeding == true,
-            inventory = inventory, bandage = bandage,
-            visualAction = options.visualAction,
-        })
-    end
-    return immediateTreatment(helper, patient, assessment, wound, bandage,
-        inventory, nil, options.visualAction)
+    local state, stateReason = beginTreatmentState(helper, patient, capability)
+    if not state then return false, stateReason or capabilityReason or "medical_owner_rejected" end
+    return continueTreatmentApproach(helper, state, rootRuntime)
 end
 
 local function enterDowned(actor, assessment, runtime)
@@ -698,6 +970,8 @@ function Medical.update(actor, player, runtime)
     rootRuntime.medicalAssessment = assessment
 
     if not assessment.alive or assessment.health <= 0 or assessment.terminalKnox then
+        if treatmentState[actor] then Medical.cancel(actor,
+            assessment.terminalKnox and "terminal_knox" or "death", true) end
         downed[actor] = nil
         rootRuntime.downed = nil
         return false, assessment.terminalKnox and "terminal_knox" or "dead"
@@ -737,17 +1011,30 @@ function Medical.replaceDirtyBandage(actor)
 end
 
 function Medical.replaceDirtyBandageAfterVisual(actor)
-    local utility = U()
-    if not utility.isValidActor(actor) then return false, "invalid_actor" end
-    local assessment = Medical.assess(actor)
-    local wound
-    for _, value in ipairs(assessment.wounds) do
-        if value.dirtyBandage then wound = value break end
+    -- Kept as a compatibility entry point, but it no longer commits after a
+    -- foreign downtime visual. Medical owns selection, animation and commit.
+    return Medical.replaceDirtyBandage(actor)
+end
+
+function Medical.cancel(actor, reason, force)
+    local state = actor and treatmentState[actor] or nil
+    if not state then return true, "no_active_treatment" end
+    local service = supervisor()
+    if service and state.supervisorToken and service.isCurrent(state.supervisorToken) then
+        return service.cancel(actor, reason or "medical_cancelled", nil, force == true)
     end
-    if not wound then return false, "no_dirty_bandage" end
-    local bandage, inventory = findBandage(actor)
-    if not bandage then return false, "no_clean_bandage" end
-    return commitBandage(actor, assessment, wound, bandage, inventory)
+    return releaseTreatmentResources(actor, state, reason or "medical_cancelled")
+end
+
+function Medical.peek(actor)
+    local state = actor and treatmentState[actor] or nil
+    if not state then return nil end
+    return {
+        phase = state.phase, patient = state.patient, woundIndex = state.woundIndex,
+        woundName = state.woundName, dirtyOnly = state.dirtyOnly,
+        emergency = state.emergency, startedAt = state.startedAt,
+        supervisorToken = state.supervisorToken,
+    }
 end
 
 function Medical.statusText(character)
@@ -770,18 +1057,25 @@ function Medical.reset(actor)
     if actor then
         local state = treatmentState[actor]
         if state then
-            rollbackEmergencyBandage(state.inventory, state.emergencyTransaction)
-            if SC.NativeActions and type(SC.NativeActions.cancelVisual) == "function" then
-                pcall(SC.NativeActions.cancelVisual, actor, "medical_reset")
+            local service = supervisor()
+            if service and state.supervisorToken and service.isCurrent(state.supervisorToken) then
+                service.cancel(actor, "medical_reset", nil, true)
+            else
+                releaseTreatmentResources(actor, state, "medical_reset")
             end
         end
         downed[actor] = nil
         treatmentState[actor] = nil
     else
-        for helper, state in pairs(treatmentState) do
-            rollbackEmergencyBandage(state.inventory, state.emergencyTransaction)
-            if SC.NativeActions and type(SC.NativeActions.cancelVisual) == "function" then
-                pcall(SC.NativeActions.cancelVisual, helper, "medical_reset_all")
+        local helpers = {}
+        for helper in pairs(treatmentState) do helpers[#helpers + 1] = helper end
+        for _, helper in ipairs(helpers) do
+            local state = treatmentState[helper]
+            local service = supervisor()
+            if state and service and state.supervisorToken and service.isCurrent(state.supervisorToken) then
+                service.cancel(helper, "medical_reset_all", nil, true)
+            elseif state then
+                releaseTreatmentResources(helper, state, "medical_reset_all")
             end
         end
         downed = setmetatable({}, { __mode = "k" })

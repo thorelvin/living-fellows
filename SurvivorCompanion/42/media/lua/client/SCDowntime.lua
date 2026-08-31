@@ -9,12 +9,16 @@ local Downtime = SC.Downtime
 local states = setmetatable({}, { __mode = "k" })
 local reservations = setmetatable({}, { __mode = "k" })
 local visualActivities = {
-    read = true, repair = true, replace_bandage = true, craft_supply = true,
+    read = true, repair = true, craft_supply = true,
     wash_self = true, wash_equipment = true,
 }
 
 local function U()
     return SC.GameplayUtil
+end
+
+local function supervisor()
+    return type(SC.ActionSupervisor) == "table" and SC.ActionSupervisor or nil
 end
 
 local function debugTrace(actor, event, activity, reason)
@@ -361,6 +365,10 @@ local function dirtyBandageActivity(actor)
     if not SC.Medical or type(SC.Medical.assess) ~= "function" then return nil end
     local assessment = SC.Medical.assess(actor)
     if assessment and assessment.dirtyBandages > 0 then
+        if type(SC.Medical.canReplaceDirtyBandage) == "function" then
+            local available = SC.Medical.canReplaceDirtyBandage(actor)
+            if available ~= true then return nil end
+        end
         return {
             kind = "replace_bandage",
             score = 75,
@@ -614,8 +622,117 @@ local function reserveActivity(actor, activity, now)
     return true
 end
 
+local function activityTargetKey(activity)
+    local utility = U()
+    local target = activity.object or activity.item or activity.material
+        or activity.scraps and activity.scraps[1]
+    if target == nil then return tostring(activity.kind) end
+    local x, y, z = utility.position(target)
+    if x ~= nil then
+        return tostring(activity.kind) .. ":" .. tostring(math.floor(x)) .. ":"
+            .. tostring(math.floor(y)) .. ":" .. tostring(math.floor(z or 0))
+    end
+    return tostring(activity.kind) .. ":" .. tostring(utility.itemType(target))
+end
+
+local function releaseDowntimeResources(actor, state, activity, reason)
+    activity = activity or state and state.active
+    if not activity then return true, reason or "no_activity" end
+    if SC.NativeActions and type(SC.NativeActions.cancelVisual) == "function"
+        and activity.startedAt then
+        pcall(SC.NativeActions.cancelVisual, actor, reason or "downtime_cancelled")
+    end
+    if activity.approaching and SC.Navigation and type(SC.Navigation.cancel) == "function" then
+        pcall(SC.Navigation.cancel, actor, reason or "downtime_cancelled")
+    end
+    releaseActivity(actor, activity)
+    if state and state.active == activity then state.active = nil end
+    return true, reason or "cancelled"
+end
+
+local function failActivity(actor, state, reason, detail)
+    local activity = state and state.active
+    if not activity then return false, reason or "no_activity" end
+    debugTrace(actor, "finish_blocked", activity, reason)
+    releaseDowntimeResources(actor, state, activity, reason)
+    state.nextEvaluationAt = U().nowMs() + (U().config("downtimeIntervalMs") or 1500)
+    local service = supervisor()
+    if service and activity.supervisorToken
+        and service.isCurrent(activity.supervisorToken) then
+        service.fail(activity.supervisorToken, reason or "downtime_failed", detail)
+    end
+    return false, reason or "downtime_failed"
+end
+
+local function beginSupervisedActivity(actor, state, activity)
+    local service = supervisor()
+    if not service then return true end
+    local token, reason = service.begin(actor, {
+        owner = "downtime", action = tostring(activity.kind),
+        targetKey = activityTargetKey(activity),
+        targetLabel = activity.item and U().itemName(activity.item)
+            or activity.kind,
+        priority = service.Priority.DOWNTIME,
+        interruptible = true, requiresVisual = false,
+        allowedActions = {
+            [activity.kind] = true,
+            move_to_seat = true, move_to_water_source = true,
+        },
+        onCancel = function(_, cancelReason)
+            return releaseDowntimeResources(actor, state, activity,
+                cancelReason or "downtime_cancelled")
+        end,
+        metadata = { commandSerial = activity.commandSerial or 0 },
+    })
+    if not token then return false, reason or "downtime_owner_rejected" end
+    activity.supervisorToken = token
+    local resources = {}
+    if activity.object then resources[#resources + 1] = activity.object end
+    if activity.item then resources[#resources + 1] = activity.item end
+    if activity.material then resources[#resources + 1] = activity.material end
+    for _, value in ipairs(activity.scraps or {}) do resources[#resources + 1] = value end
+    for _, value in ipairs(resources) do
+        if value then
+            local reserved, reserveReason = service.reserve(token, value, "downtime_resource")
+            if reserved ~= true then
+                service.fail(token, reserveReason or "reservation_lost")
+                activity.supervisorToken = nil
+                return false, reserveReason or "reservation_lost"
+            end
+        end
+    end
+    return true
+end
+
+local function startSupervisedVisual(actor, activity, detail)
+    if not SC.NativeActions or type(SC.NativeActions.visualStatus) ~= "function" then
+        return true
+    end
+    local service = supervisor()
+    if not service or not activity.supervisorToken then return true end
+    return service.expectVisual(activity.supervisorToken, detail)
+end
+
+local function transitionActivity(activity, phase, detail)
+    local service = supervisor()
+    if not service or not activity.supervisorToken then return true, phase end
+    return service.transition(activity.supervisorToken, phase, detail)
+end
+
 local function beginActivity(actor, state, activity, commands, now)
+    if activity.kind == "replace_bandage" then
+        if not SC.Medical or type(SC.Medical.replaceDirtyBandage) ~= "function" then
+            return false, "medical_unavailable"
+        end
+        return SC.Medical.replaceDirtyBandage(actor)
+    end
     if not reserveActivity(actor, activity, now) then return false, "reserved" end
+    activity.commandSerial = commands.commandSerial or 0
+    local owned, ownerReason = beginSupervisedActivity(actor, state, activity)
+    if owned ~= true then
+        releaseActivity(actor, activity)
+        return false, ownerReason or "downtime_owner_rejected"
+    end
     local utility = U()
     local wash = activity.kind == "wash_self" or activity.kind == "wash_equipment"
     if (activity.kind == "sit" or wash) and activity.square
@@ -625,17 +742,29 @@ local function beginActivity(actor, state, activity, commands, now)
                 action = wash and "move_to_water_source" or "move_to_seat",
                 targetSquare = activity.square,
                 object = activity.object,
+                supervisorToken = activity.supervisorToken,
             })
             if not accepted then
-                releaseActivity(actor, activity)
-                return false, status or "seat_approach_rejected"
+                state.active = activity
+                return failActivity(actor, state, status or "route_failed")
             end
             activity.approaching = true
+            transitionActivity(activity, "approaching", { status = status })
         else
-            releaseActivity(actor, activity)
-            return false, "navigation_unavailable"
+            state.active = activity
+            return failActivity(actor, state, "navigation_unavailable")
         end
     else
+        if visualActivities[activity.kind] then
+            local expected, expectedReason = startSupervisedVisual(actor, activity, {
+                action = activity.kind,
+            })
+            if expected ~= true then
+                state.active = activity
+                return failActivity(actor, state,
+                    expectedReason or "visual_registration_failed")
+            end
+        end
         if not utility.move(actor, "walk", {
             action = activity.kind,
             item = activity.item,
@@ -643,14 +772,17 @@ local function beginActivity(actor, state, activity, commands, now)
             object = activity.object,
             downtime = true,
             durationMs = utility.config("downtimeActivityMs") or 6000,
+            supervisorToken = activity.supervisorToken,
         }) then
-            releaseActivity(actor, activity)
-            return false, "activity_rejected"
+            state.active = activity
+            return failActivity(actor, state, "animation_rejected")
         end
         activity.startedAt = now
         activity.actionAccepted = true
+        transitionActivity(activity, visualActivities[activity.kind]
+            and SC.NativeActions and type(SC.NativeActions.visualStatus) == "function"
+            and "animating" or "settling", { action = activity.kind })
     end
-    activity.commandSerial = commands.commandSerial or 0
     state.active = activity
     state.idleStopped = false
     debugTrace(actor, "start", activity, activity.approaching and "approaching" or "action_started")
@@ -769,12 +901,13 @@ end
 local function finishActivity(actor, state, now)
     local activity = state.active
     if not activity then return false, "none" end
+    local committing, commitReason = transitionActivity(activity, "committing", {
+        action = activity.kind,
+    })
+    if committing ~= true then return failActivity(actor, state,
+        commitReason or "commit_rejected") end
     local success = true
-    if activity.kind == "replace_bandage" then
-        success = SC.Medical
-            and type(SC.Medical.replaceDirtyBandageAfterVisual) == "function"
-            and select(1, SC.Medical.replaceDirtyBandageAfterVisual(actor)) == true
-    elseif activity.kind == "repair" then
+    if activity.kind == "repair" then
         success = completeRepair(actor, activity)
     elseif activity.kind == "craft_supply" then
         success = completeCraft(actor, activity)
@@ -790,6 +923,23 @@ local function finishActivity(actor, state, now)
     elseif activity.kind == "wash_equipment" then
         success = completeWashEquipment(actor, activity)
     end
+    local failureReasons = {
+        repair = "repair_commit_failed",
+        craft_supply = "craft_commit_failed",
+        read = "read_verification_failed",
+        sit = "sit_verification_failed",
+        wash_self = "wash_self_commit_failed",
+        wash_equipment = "wash_equipment_commit_failed",
+    }
+    if not success then
+        return failActivity(actor, state,
+            failureReasons[activity.kind] or "downtime_commit_failed")
+    end
+    local verifying, verifyReason = transitionActivity(activity, "verifying", {
+        action = activity.kind,
+    })
+    if verifying ~= true then return failActivity(actor, state,
+        verifyReason or "verification_failed") end
     if success then
         local fact = U().copyShallow(activity.fact)
         fact.completedAt = now
@@ -805,8 +955,14 @@ local function finishActivity(actor, state, now)
     releaseActivity(actor, activity)
     state.active = nil
     state.nextEvaluationAt = now + (U().config("downtimeIntervalMs") or 1500)
-    debugTrace(actor, "finish", activity, success and "completed" or "completion_failed")
-    return success, success and "completed" or "completion_failed"
+    local service = supervisor()
+    if service and activity.supervisorToken and service.isCurrent(activity.supervisorToken) then
+        service.complete(activity.supervisorToken, "completed", {
+            activity = activity.kind, verified = true,
+        })
+    end
+    debugTrace(actor, "finish", activity, "completed")
+    return true, "completed"
 end
 
 function Downtime.cancel(actor, reason)
@@ -814,18 +970,20 @@ function Downtime.cancel(actor, reason)
     if not state then return false end
     local changed = clearCurtainTask(actor, state)
     if state.active then
-        if SC.NativeActions and type(SC.NativeActions.cancelVisual) == "function" then
-            local ok, cancelled, cancelReason = pcall(
-                SC.NativeActions.cancelVisual, actor, reason or "downtime_cancelled")
-            if not ok or cancelled ~= true then
-                debugTrace(actor, "cancel_blocked", state.active,
-                    ok and cancelReason or cancelled)
-                return false, ok and (cancelReason or "visual_cancel_failed") or tostring(cancelled)
+        local activity = state.active
+        local service = supervisor()
+        if service and activity.supervisorToken and service.isCurrent(activity.supervisorToken) then
+            local cancelled, cancelReason = service.cancel(actor,
+                reason or "downtime_cancelled", nil, false)
+            if cancelled ~= true then
+                debugTrace(actor, "cancel_blocked", activity, cancelReason)
+                return false, cancelReason or "downtime_cancel_rejected"
             end
+        else
+            releaseDowntimeResources(actor, state, activity,
+                reason or "downtime_cancelled")
         end
-        debugTrace(actor, "cancel", state.active, reason)
-        releaseActivity(actor, state.active)
-        state.active = nil
+        debugTrace(actor, "cancel", activity, reason)
         changed = true
     end
     if not changed then return false end
@@ -847,10 +1005,23 @@ function Downtime.update(actor, player, runtime, desiredKind)
     end
     local current = utility.nowMs()
     local unsafe = dangerPresent(snapshot) or not orderAllowsIdle(commands, actor, player, snapshot)
+    local medicalState = SC.Medical and type(SC.Medical.peek) == "function"
+        and SC.Medical.peek(actor) or nil
     if unsafe then
         state.safeSince = nil
         if state.active or state.curtainTask then Downtime.cancel(actor, "danger_or_order") end
+        if medicalState and medicalState.dirtyOnly
+            and type(SC.Medical.cancel) == "function" then
+            SC.Medical.cancel(actor, "danger_or_order")
+        end
         return false, "unsafe_or_busy"
+    end
+
+    -- Downtime may propose a dirty-bandage change, but Medical owns and
+    -- advances the entire transaction once accepted.
+    if medicalState and medicalState.dirtyOnly
+        and type(SC.Medical.replaceDirtyBandage) == "function" then
+        return SC.Medical.replaceDirtyBandage(actor)
     end
 
     if not state.active then
@@ -874,16 +1045,14 @@ function Downtime.update(actor, player, runtime, desiredKind)
                 local accepted, status = SC.Navigation.request(actor, state.active.square, "walk", {
                     action = "move_to_seat",
                     targetSquare = state.active.square,
+                    supervisorToken = state.active.supervisorToken,
                 })
                 if not accepted then
-                    releaseActivity(actor, state.active)
-                    state.active = nil
-                    return false, status or "seat_approach_rejected"
+                    return failActivity(actor, state, status or "route_failed")
                 end
+                transitionActivity(state.active, "approaching", { status = status })
             else
-                releaseActivity(actor, state.active)
-                state.active = nil
-                return false, "navigation_unavailable"
+                return failActivity(actor, state, "navigation_unavailable")
             end
             return true, "approaching_seat"
         end
@@ -896,30 +1065,35 @@ function Downtime.update(actor, player, runtime, desiredKind)
                     action = "move_to_water_source",
                     targetSquare = state.active.square,
                     object = state.active.object,
+                    supervisorToken = state.active.supervisorToken,
                 })
                 if not accepted then
-                    releaseActivity(actor, state.active)
-                    state.active = nil
-                    return false, status or "wash_approach_rejected"
+                    return failActivity(actor, state, status or "route_failed")
                 end
+                transitionActivity(state.active, "approaching", { status = status })
             end
             return true, "approaching_wash_source"
         end
         if washing and state.active.approaching then
+            local expected, expectedReason = startSupervisedVisual(actor, state.active, {
+                action = state.active.kind,
+            })
+            if expected ~= true then return failActivity(actor, state,
+                expectedReason or "visual_registration_failed") end
             if not utility.move(actor, "walk", {
                 action = state.active.kind,
                 item = state.active.item,
                 object = state.active.object,
                 downtime = true,
                 durationMs = utility.config("downtimeActivityMs") or 6000,
+                supervisorToken = state.active.supervisorToken,
             }) then
-                releaseActivity(actor, state.active)
-                state.active = nil
-                return false, "wash_action_rejected"
+                return failActivity(actor, state, "animation_rejected")
             end
             state.active.approaching = nil
             state.active.actionAccepted = true
             state.active.startedAt = current
+            transitionActivity(state.active, "animating", { action = state.active.kind })
             return true, state.active.kind
         end
         if state.active.kind == "sit" and state.active.approaching then
@@ -927,14 +1101,14 @@ function Downtime.update(actor, player, runtime, desiredKind)
                 action = "sit",
                 object = state.active.object,
                 downtime = true,
+                supervisorToken = state.active.supervisorToken,
             }) then
-                releaseActivity(actor, state.active)
-                state.active = nil
-                return false, "sit_action_rejected"
+                return failActivity(actor, state, "animation_rejected")
             end
             state.active.approaching = nil
             state.active.actionAccepted = true
             state.active.startedAt = current
+            transitionActivity(state.active, "settling", { action = "sit" })
             return true, "sit"
         end
         local duration = utility.config("downtimeActivityMs") or 6000
@@ -945,20 +1119,32 @@ function Downtime.update(actor, player, runtime, desiredKind)
         if state.active.startedAt and visualActivities[state.active.kind]
             and SC.NativeActions and type(SC.NativeActions.visualStatus) == "function" then
             local visualState = SC.NativeActions.visualStatus(actor, state.active.kind)
-            if visualState == "active" then return true, state.active.kind end
+            if visualState == "active" then
+                local service = supervisor()
+                if service and state.active.supervisorToken then
+                    service.progress(state.active.supervisorToken,
+                        "visual:" .. tostring(state.active.startedAt), {
+                            action = state.active.kind,
+                        })
+                end
+                return true, state.active.kind
+            end
             if visualState == "completed" then
                 if type(SC.NativeActions.clearVisual) == "function" then
                     SC.NativeActions.clearVisual(actor)
                 end
                 state.active.visualCompleted = true
+                local service = supervisor()
+                if service and state.active.supervisorToken then
+                    local verified, verifyReason = service.markVisualVerified(
+                        state.active.supervisorToken, { action = state.active.kind })
+                    if verified ~= true then return failActivity(actor, state,
+                        verifyReason or "animation_verification_failed") end
+                end
                 return finishActivity(actor, state, current)
             end
-            debugTrace(actor, "finish_blocked", state.active,
+            return failActivity(actor, state,
                 "animation_" .. tostring(visualState))
-            releaseActivity(actor, state.active)
-            state.active = nil
-            state.nextEvaluationAt = current + (utility.config("downtimeIntervalMs") or 1500)
-            return false, "downtime_animation_" .. tostring(visualState)
         elseif state.active.startedAt and current - state.active.startedAt >= duration then
             return finishActivity(actor, state, current)
         end
@@ -988,6 +1174,9 @@ function Downtime.reset(actor)
         Downtime.cancel(actor, "reset")
         states[actor] = nil
     else
+        local actors = {}
+        for value in pairs(states) do actors[#actors + 1] = value end
+        for _, value in ipairs(actors) do Downtime.cancel(value, "reset_all") end
         states = setmetatable({}, { __mode = "k" })
         reservations = setmetatable({}, { __mode = "k" })
     end

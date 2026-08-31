@@ -500,8 +500,9 @@ local function updateChore(actor, state, job, player, runtime)
         if ok and reason == "bandaged" then
             SC.BaseLife.completeJob(job.id, actorId(actor), reason)
         end
-        local terminalFailure = ok ~= true and reason ~= "treatment_animation_active"
-            and reason ~= "treatment_animation_started"
+        local activeTreatment = SC.Medical and type(SC.Medical.peek) == "function"
+            and SC.Medical.peek(actor) or nil
+        local terminalFailure = ok ~= true and activeTreatment == nil
         return ok == true, reason or "medical_unavailable", terminalFailure
     end
     if state.choreKind ~= job.type then

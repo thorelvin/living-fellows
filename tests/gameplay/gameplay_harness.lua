@@ -2000,6 +2000,69 @@ check(stagedFinished and stagedFinishReason == "bandaged"
         and resultNotes[#resultNotes].source == "medical_treatment",
     "completed medical animation commits and verifies exactly one bandage result")
 
+local unavailableDirtyPart = bodyPart({
+    name = "LowerLeg_R", isBandaged = true, dirty = true, bandageLife = 0,
+    bandageType = "Base.DirtyBandage",
+})
+local unavailableDirtyActor = actor("sc-dirty-no-supply", 9, 4, {
+    body = bodyDamage(80, { unavailableDirtyPart }), inventory = inventory({}),
+})
+unavailableDirtyActor.square.room = { name = "safe_room" }
+unavailableDirtyActor.modData.SC_Order = "stay"
+unavailableDirtyActor.modData.SC_WorkMode = "idle"
+local replacementReady, replacementReason =
+    SurvivorCompanion.Medical.canReplaceDirtyBandage(unavailableDirtyActor)
+check(not replacementReady and replacementReason == "no_clean_bandage",
+    "dirty-bandage capability probe rejects work before animation when no supply exists")
+SurvivorCompanion.Downtime.reset(unavailableDirtyActor)
+local unavailableDowntime = SurvivorCompanion.Downtime.update(
+    unavailableDirtyActor, player, {
+        snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+            player = { danger = 0 }, indoors = true },
+    }, "replace_bandage")
+check(not unavailableDowntime
+        and SurvivorCompanion.Downtime.peek(unavailableDirtyActor).active == nil
+        and SurvivorCompanion.Medical.peek(unavailableDirtyActor) == nil
+        and visualStates[unavailableDirtyActor] == nil,
+    "downtime cannot create a duplicate dirty-bandage visual without a clean supply")
+
+local ownedDirtyPart = bodyPart({
+    name = "UpperLeg_L", isBandaged = true, dirty = true, bandageLife = 0,
+    bandageType = "Base.DirtyBandage",
+})
+local ownedCleanBandage = item("Base.Bandage", "Medical")
+local ownedDirtyActor = actor("sc-dirty-medical-owner", 9, 3, {
+    body = bodyDamage(80, { ownedDirtyPart }),
+    inventory = inventory({ ownedCleanBandage }),
+})
+ownedDirtyActor.square.room = { name = "safe_room" }
+ownedDirtyActor.modData.SC_Order = "stay"
+ownedDirtyActor.modData.SC_WorkMode = "idle"
+SurvivorCompanion.Downtime.reset(ownedDirtyActor)
+local ownedReplacement, ownedReplacementReason = SurvivorCompanion.Downtime.update(
+    ownedDirtyActor, player, {
+        snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+            player = { danger = 0 }, indoors = true },
+    }, "replace_bandage")
+local ownedSupervisor = SurvivorCompanion.ActionSupervisor.snapshot(ownedDirtyActor)
+check(ownedReplacement and ownedReplacementReason == "treatment_animation_started"
+        and SurvivorCompanion.Downtime.peek(ownedDirtyActor).active == nil
+        and SurvivorCompanion.Medical.peek(ownedDirtyActor) ~= nil
+        and ownedSupervisor.owner == "medical"
+        and ownedSupervisor.action == "replace_dirty_bandage",
+    "Medical exclusively owns a dirty-bandage action proposed by downtime")
+visualStates[ownedDirtyActor].status = "completed"
+local ownedFinished, ownedFinishedReason = SurvivorCompanion.Downtime.update(
+    ownedDirtyActor, player, {
+        snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+            player = { danger = 0 }, indoors = true },
+    }, "replace_bandage")
+check(ownedFinished and ownedFinishedReason == "bandaged"
+        and ownedDirtyPart.isBandaged and not ownedDirtyPart.dirty
+        and ownedCleanBandage.used
+        and SurvivorCompanion.ActionSupervisor.snapshot(ownedDirtyActor).phase == "idle",
+    "Medical completes and verifies the sole dirty-bandage transaction")
+
 local interruptedPart = bodyPart({ name = "Hand_L", isBleeding = true })
 local interruptedBandage = item("Base.Bandage", "Medical")
 local interruptedMedic = actor("sc-interrupted-medical", 9, 6, {

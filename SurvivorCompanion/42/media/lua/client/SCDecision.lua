@@ -1240,8 +1240,33 @@ end
 local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
         needs, commands, state, current)
     local native = SC.NativeActions
-    if type(native) ~= "table" then return false end
     local urgent = survivalNeedsImmediateControl(snapshot, assessment, needs, commands)
+    if SC.ActionSupervisor and type(SC.ActionSupervisor.current) == "function" then
+        local token = SC.ActionSupervisor.current(actor)
+        if token then
+            local serialChanged = token.owner == "downtime"
+                and type(token.metadata) == "table"
+                and tonumber(token.metadata.commandSerial) ~= (tonumber(commands.commandSerial) or 0)
+            if urgent or serialChanged then
+                local cancelled, cancelReason = SC.ActionSupervisor.cancel(actor,
+                    urgent and "survival_priority" or "command_changed",
+                    urgent and SC.ActionSupervisor.Priority.SURVIVAL
+                        or SC.ActionSupervisor.Priority.PLAYER, false)
+                if cancelled ~= true then
+                    state.current = "activity"
+                    state.intent = cancelReason or "action_cancel_pending"
+                    state.lastHandledAt = current
+                    return true, state.intent
+                end
+            elseif token.phase == "committing" or token.phase == "verifying" then
+                state.current = "activity"
+                state.intent = tostring(token.owner) .. ":" .. tostring(token.action)
+                state.lastHandledAt = current
+                return true, state.intent
+            end
+        end
+    end
+    if type(native) ~= "table" then return false end
     if type(native.activityStatus) == "function" then
         local phase, owner, name = native.activityStatus(actor)
         if phase == "active" and not urgent then

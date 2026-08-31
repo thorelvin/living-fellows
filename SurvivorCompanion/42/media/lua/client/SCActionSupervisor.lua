@@ -405,6 +405,10 @@ function Supervisor.transition(token, phase, detail)
     if phase == "committing" and token.requiresVisual and token.visualVerified ~= true then
         return false, "commit_without_verified_visual"
     end
+    if token.phase == phase then
+        token.progress = safeDetail(detail, 0) or token.progress
+        return true, "unchanged"
+    end
     local current = nowMs()
     token.phase = phase
     token.phaseAt = current
@@ -438,6 +442,18 @@ function Supervisor.markVisualVerified(token, detail)
     token.protectedPose = false
     token.lastProgressAt = nowMs()
     append(token.actor, "visual_verified", token, "verified", detail)
+    return true
+end
+
+function Supervisor.expectVisual(token, detail)
+    if not Supervisor.isCurrent(token) then return false, "stale_token" end
+    token.requiresVisual = true
+    token.visualVerified = false
+    token.protectedPose = true
+    local x, y, z = position(token.actor)
+    token.poseOrigin = x ~= nil and { x = x, y = y, z = z } or nil
+    token.lastProgressAt = nowMs()
+    append(token.actor, "visual_expected", token, "pending", detail)
     return true
 end
 
