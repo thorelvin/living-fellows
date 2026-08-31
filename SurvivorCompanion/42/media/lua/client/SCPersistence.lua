@@ -2,6 +2,7 @@
 
 require "SCNamespace"
 require "SCCall"
+require "SCStableValue"
 require "SCConfig"
 require "SCRegistry"
 require "SCVitals"
@@ -15,6 +16,7 @@ local pending = {}
 local pendingOrder = {}
 local lastDocument = nil
 local saveBlockedReason = nil
+local quarantined = { companions = {}, factionActors = {}, subsystems = {} }
 local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true }
 
 local function method(object, name)
@@ -61,30 +63,10 @@ local function text(value, fallback, limit)
     return value
 end
 
-local function boundedStableCopy(value, depth, remaining)
-    if value == nil or type(value) == "boolean" or type(value) == "string" then
-        return value
-    end
-    if type(value) == "number" then
-        return finite(value, 0)
-    end
-    if type(value) ~= "table" or depth <= 0 or remaining.count <= 0 then
-        return nil
-    end
-    local result = {}
-    for key, child in pairs(value) do
-        if remaining.count <= 0 then
-            break
-        end
-        if type(key) == "string" or (type(key) == "number" and finite(key, nil) ~= nil) then
-            remaining.count = remaining.count - 1
-            local copy = boundedStableCopy(child, depth - 1, remaining)
-            if copy ~= nil then
-                result[key] = copy
-            end
-        end
-    end
-    return result
+local function stableCopy(value, depth, maximum, path)
+    return SC.StableValue.copyStrict(value, {
+        maxDepth = depth, maxEntries = maximum, path = path or "$",
+    })
 end
 
 local function copyList(source, limit)
@@ -93,10 +75,10 @@ local function copyList(source, limit)
         return result
     end
     for index = 1, math.min(#source, limit) do
-        local copy = boundedStableCopy(source[index], 3, { count = 32 })
-        if copy ~= nil then
-            result[#result + 1] = copy
-        end
+        local copy, reason = stableCopy(source[index], 4, 128,
+            "$[" .. tostring(index) .. "]")
+        if reason ~= nil then return nil, reason end
+        result[#result + 1] = copy
     end
     return result
 end
@@ -332,14 +314,20 @@ local function captureItem(item)
     if hasEntries(scalar) then entry.scalar = scalar end
     local dataOk, modData = invoke(item, "getModData")
     if dataOk and type(modData) == "table" then
-        local copied = boundedStableCopy(modData, 5, {
-            count = SC.Config.get("persistence", "maxItemModDataEntries") or 256,
-        })
+        local copied, copyReason = stableCopy(modData, 5,
+            SC.Config.get("persistence", "maxItemModDataEntries") or 256,
+            "$.inventory[].modData")
+        if copyReason ~= nil then return nil, copyReason end
         if hasEntries(copied) then entry.modData = copied end
     end
     if SC.PersonalItems and type(SC.PersonalItems.personalRecord) == "function" then
         local personal = SC.PersonalItems.personalRecord(item)
-        if personal then entry.personal = boundedStableCopy(personal, 2, { count = 12 }) end
+        if personal then
+            local copied, copyReason = stableCopy(personal, 3, 48,
+                "$.inventory[].personal")
+            if copyReason ~= nil then return nil, copyReason end
+            entry.personal = copied
+        end
     end
     local firearm = false
     if type(instanceof) == "function" then
@@ -519,7 +507,8 @@ local function captureInventory(actor)
 end
 
 local function capturePossessions(actor, source, ownerId)
-    local possessions = boundedStableCopy(source, 4, { count = 96 }) or {}
+    local possessions, copyReason = stableCopy(source or {}, 6, 256, "$.possessions")
+    if copyReason ~= nil then return nil, copyReason end
     possessions.version = 1
     local keepsake = type(possessions.keepsake) == "table" and possessions.keepsake or nil
     if not keepsake or type(keepsake.key) ~= "string" or keepsake.key == "" then return possessions end
@@ -530,7 +519,10 @@ local function capturePossessions(actor, source, ownerId)
     if item then
         keepsake.status = "carried"
         keepsake.lastSeenAt = math.max(0, finite(keepsake.lastSeenAt, 0))
-        if depth and depth > 0 then keepsake.nestedCarried = captureItem(item)
+        if depth and depth > 0 then
+            local nested, nestedReason = captureItem(item)
+            if nested == nil then return nil, nestedReason end
+            keepsake.nestedCarried = nested
         else keepsake.nestedCarried = nil end
     else
         keepsake.status = "not_carried"
@@ -595,7 +587,8 @@ function persistence.captureRecord(record, vehicleState)
     local order = type(state.order) == "table" and state.order or {}
     local personality = type(state.personality) == "table" and state.personality or {}
     local objectives = type(state.objectives) == "table" and state.objectives or {}
-    local possessions = capturePossessions(actor, state.possessions, record.id)
+    local possessions, possessionsReason = capturePossessions(actor, state.possessions, record.id)
+    if possessions == nil then return nil, possessionsReason end
     local downtime = type(state.downtime) == "table" and state.downtime or {}
     local vitals, vitalsReason = SC.Vitals.capture(actor)
     if vitals == nil then
@@ -622,6 +615,33 @@ function persistence.captureRecord(record, vehicleState)
                 and order.workTarget.kind or "barricade",
         }
     end
+    local profile, copyReason = stableCopy(personality.profile, 3, 64,
+        "$.personality.profile")
+    if copyReason ~= nil then return nil, copyReason end
+    local memories
+    memories, copyReason = copyList(personality.memories, SC.Config.get("maxMemories"))
+    if copyReason ~= nil then return nil, copyReason end
+    local background
+    background, copyReason = stableCopy(personality.background, 4, 128,
+        "$.personality.background")
+    if copyReason ~= nil then return nil, copyReason end
+    local care
+    care, copyReason = stableCopy(personality.care, 4, 192, "$.personality.care")
+    if copyReason ~= nil then return nil, copyReason end
+    local reveals
+    reveals, copyReason = stableCopy(personality.reveals, 4, 128,
+        "$.personality.reveals")
+    if copyReason ~= nil then return nil, copyReason end
+    local objectiveCopy
+    objectiveCopy, copyReason = stableCopy(objectives, 6, 512, "$.objectives")
+    if copyReason ~= nil then return nil, copyReason end
+    local downtimeFacts
+    downtimeFacts, copyReason = copyList(downtime.facts, SC.Config.get("maxDowntimeFacts"))
+    if copyReason ~= nil then return nil, copyReason end
+    local vehicleCopy
+    vehicleCopy, copyReason = stableCopy(vehicleState, 4, 96, "$.vehicle")
+    if copyReason ~= nil then return nil, copyReason end
+
     return {
         id = record.id,
         recruited = record.recruited == true,
@@ -654,19 +674,19 @@ function persistence.captureRecord(record, vehicleState)
         group = state.group ~= nil and text(state.group, "", 64) or nil,
         personality = {
             archetype = personality.archetype ~= nil and text(personality.archetype, "", 48) or nil,
-            profile = boundedStableCopy(personality.profile, 2, { count = 16 }),
+            profile = profile,
             trust = finite(personality.trust, 0),
             bond = finite(personality.bond, 0),
             morale = finite(personality.morale, 55),
             stress = finite(personality.stress, 12),
-            memories = copyList(personality.memories, SC.Config.get("maxMemories")),
-            background = boundedStableCopy(personality.background, 2, { count = 24 }),
-            care = boundedStableCopy(personality.care, 2, { count = 32 }),
-            reveals = boundedStableCopy(personality.reveals, 2, { count = 16 }),
+            memories = memories,
+            background = background,
+            care = care,
+            reveals = reveals,
             timeTogetherMs = math.max(0, finite(personality.timeTogetherMs, 0)),
             lastEncouragedAt = math.max(0, finite(personality.lastEncouragedAt, 0)),
         },
-        objectives = boundedStableCopy(objectives, 4, { count = 160 }),
+        objectives = objectiveCopy,
         possessions = possessions,
         inventory = inventorySnapshot,
         skills = captureSkills(actor),
@@ -675,9 +695,9 @@ function persistence.captureRecord(record, vehicleState)
         downtime = {
             lastCompleted = downtime.lastCompleted ~= nil
                 and text(downtime.lastCompleted, "", 64) or nil,
-            facts = copyList(downtime.facts, SC.Config.get("maxDowntimeFacts")),
+            facts = downtimeFacts,
         },
-        vehicle = boundedStableCopy(vehicleState, 3, { count = 24 }),
+        vehicle = vehicleCopy,
     }
 end
 
@@ -715,18 +735,39 @@ function persistence.save(player)
         savedAt = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0,
         companions = {},
         factionActors = {},
-        factions = SC.Factions ~= nil and type(SC.Factions.export) == "function"
-            and boundedStableCopy(SC.Factions.export(), 10, { count = 65536 }) or nil,
-        factionWorld = SC.FactionWorld ~= nil and type(SC.FactionWorld.export) == "function"
-            and boundedStableCopy(SC.FactionWorld.export(), 6, { count = 8192 }) or nil,
-        baseLife = SC.BaseLife ~= nil and type(SC.BaseLife.export) == "function"
-            and boundedStableCopy(SC.BaseLife.export(), 8, { count = 8192 }) or nil,
-        infectionCrisis = SC.InfectionCrisis ~= nil
-            and type(SC.InfectionCrisis.export) == "function"
-            and boundedStableCopy(SC.InfectionCrisis.export(), 8, { count = 8192 }) or nil,
-        community = SC.Community ~= nil and type(SC.Community.export) == "function"
-            and boundedStableCopy(SC.Community.export(), 8, { count = 16384 }) or nil,
     }
+    local subsystemDefinitions = {
+        { field = "factions", owner = SC.Factions, depth = 12, entries = 131072 },
+        { field = "factionWorld", owner = SC.FactionWorld, depth = 8, entries = 16384 },
+        { field = "baseLife", owner = SC.BaseLife, depth = 10, entries = 16384 },
+        { field = "infectionCrisis", owner = SC.InfectionCrisis,
+            depth = 10, entries = 16384 },
+        { field = "community", owner = SC.Community, depth = 10, entries = 32768 },
+    }
+    for _, definition in ipairs(subsystemDefinitions) do
+        local source
+        local quarantine = quarantined.subsystems[definition.field]
+        if quarantine ~= nil then
+            source = quarantine.raw
+        elseif definition.owner ~= nil and type(definition.owner.export) == "function" then
+            local called, value, exportReason = pcall(definition.owner.export)
+            if not called then
+                return false, definition.field .. " export failed: " .. tostring(value)
+            end
+            if value == nil and exportReason ~= nil then
+                return false, definition.field .. " export failed: "
+                    .. tostring(exportReason)
+            end
+            source = value
+        end
+        local copied, reason = stableCopy(source, definition.depth, definition.entries,
+            "$." .. definition.field)
+        if reason ~= nil then
+            return false, definition.field .. " cannot be preserved completely: "
+                .. tostring(reason)
+        end
+        document[definition.field] = copied
+    end
     local priorDocument = data[SC.Identity.saveKey]
     for _, record in ipairs(SC.Registry.records()) do
         if (record.recruited == true or type(record.factionId) == "string")
@@ -749,12 +790,13 @@ function persistence.save(player)
                     or (type(lastDocument) == "table"
                         and type(lastDocument[priorBucket]) == "table"
                         and lastDocument[priorBucket][record.id])
-                local preserved = boundedStableCopy(previous, 7, { count = 4096 })
+                local preserved, preserveReason = stableCopy(previous, 14, 131072,
+                    "$." .. priorBucket .. "[" .. tostring(record.id) .. "]")
                 if type(preserved) ~= "table" then
                     SC.Diagnostics.report("persistence", record.id,
                         "save transaction aborted; quarantined actor has no stable snapshot")
                     return false, "quarantined companion has no prior stable snapshot: "
-                        .. tostring(record.id)
+                        .. tostring(record.id) .. ": " .. tostring(preserveReason)
                 end
                 destination[record.id] = preserved
             else
@@ -782,13 +824,49 @@ function persistence.save(player)
             local destination = entry.record.recruited == true
                 and document.companions or document.factionActors
             if destination[id] == nil then
-                destination[id] = boundedStableCopy(entry.record, 6, { count = 2048 })
+                local copied, reason = stableCopy(entry.record, 14, 131072,
+                    "$.pending[" .. tostring(id) .. "]")
+                if copied == nil then
+                    return false, "pending companion cannot be preserved: " .. tostring(id)
+                        .. ": " .. tostring(reason)
+                end
+                destination[id] = copied
             end
         end
     end
-    data[SC.Identity.saveKey] = document
-    lastDocument = document
-    return true, document
+    for _, bucket in ipairs({ "companions", "factionActors" }) do
+        for id, entry in pairs(quarantined[bucket]) do
+            if document[bucket][id] == nil then
+                local copied, reason = stableCopy(entry.raw, 14, 131072,
+                    "$." .. bucket .. "[" .. tostring(id) .. "]")
+                if copied == nil then
+                    return false, "quarantined record cannot be preserved: "
+                        .. tostring(id) .. ": " .. tostring(reason)
+                end
+                document[bucket][id] = copied
+            end
+        end
+    end
+    local outgoing, outgoingReason = stableCopy(document, 20,
+        SC.Config.get("persistence", "maxDocumentEntries") or 2000000, "$")
+    if outgoing == nil then
+        return false, "outgoing save validation failed: " .. tostring(outgoingReason)
+    end
+    local assigned, assignmentReason = pcall(function()
+        data[SC.Identity.saveKey] = outgoing
+    end)
+    if not assigned then
+        local rolledBack, rollbackReason = pcall(function()
+            data[SC.Identity.saveKey] = priorDocument
+        end)
+        if not rolledBack then
+            return false, "save assignment failed: " .. tostring(assignmentReason)
+                .. "; rollback failed: " .. tostring(rollbackReason)
+        end
+        return false, "save assignment failed: " .. tostring(assignmentReason)
+    end
+    lastDocument = outgoing
+    return true, outgoing
 end
 
 local function copyInventoryNode(source, context, depth)
@@ -807,14 +885,26 @@ local function copyInventoryNode(source, context, depth)
     local clean = { id = id, type = text(source.type, "", 128) }
     if source.condition ~= nil then clean.condition = math.floor(finite(source.condition, 0)) end
     if source.favorite ~= nil then clean.favorite = source.favorite == true end
-    clean.scalar = boundedStableCopy(source.scalar, 2, { count = 32 })
-    clean.personal = boundedStableCopy(source.personal, 3, { count = 24 })
-    clean.modData = boundedStableCopy(source.modData, 5, {
-        count = SC.Config.get("persistence", "maxItemModDataEntries") or 256,
-    })
-    clean.firearm = boundedStableCopy(source.firearm, 2, { count = 24 })
-    clean.fluid = boundedStableCopy(source.fluid, 3, { count = 64 })
-    clean.visual = boundedStableCopy(source.visual, 4, { count = 256 })
+    local copyReason
+    clean.scalar, copyReason = stableCopy(source.scalar, 3, 64,
+        "$.inventory[].scalar")
+    if copyReason ~= nil then return nil, copyReason end
+    clean.personal, copyReason = stableCopy(source.personal, 4, 64,
+        "$.inventory[].personal")
+    if copyReason ~= nil then return nil, copyReason end
+    clean.modData, copyReason = stableCopy(source.modData, 5,
+        SC.Config.get("persistence", "maxItemModDataEntries") or 256,
+        "$.inventory[].modData")
+    if copyReason ~= nil then return nil, copyReason end
+    clean.firearm, copyReason = stableCopy(source.firearm, 3, 64,
+        "$.inventory[].firearm")
+    if copyReason ~= nil then return nil, copyReason end
+    clean.fluid, copyReason = stableCopy(source.fluid, 4, 128,
+        "$.inventory[].fluid")
+    if copyReason ~= nil then return nil, copyReason end
+    clean.visual, copyReason = stableCopy(source.visual, 5, 512,
+        "$.inventory[].visual")
+    if copyReason ~= nil then return nil, copyReason end
     clean.children = {}
     for _, child in ipairs(type(source.children) == "table" and source.children or {}) do
         local copied, reason = copyInventoryNode(child, context, depth + 1)
@@ -932,7 +1022,9 @@ local function validateRecord(id, source)
     for key, value in pairs(source) do
         if key ~= "inventory" then sourceWithoutInventory[key] = value end
     end
-    local clean = boundedStableCopy(sourceWithoutInventory, 10, { count = 16384 })
+    local clean, copyReason = stableCopy(sourceWithoutInventory, 12, 65536,
+        "$.records[" .. tostring(id) .. "]")
+    if copyReason ~= nil then return nil, copyReason end
     local inventory, inventoryReason = normalizeInventorySnapshot(source.inventory)
     if inventory == nil then return nil, inventoryReason end
     clean.id = id
@@ -941,7 +1033,8 @@ local function validateRecord(id, source)
     clean.factionRole = type(source.factionRole) == "string" and text(source.factionRole, "", 32) or nil
     clean.factionLeader = source.factionLeader == true
     clean.inventory = inventory
-    clean.skills = copyList(clean.skills, 128)
+    clean.skills, copyReason = copyList(clean.skills, 128)
+    if copyReason ~= nil then return nil, copyReason end
     return clean
 end
 
@@ -1023,9 +1116,10 @@ local function applyItemState(item, entry, restoredKeys)
     if type(entry.modData) == "table" then
         local dataOk, data = invoke(item, "getModData")
         if not dataOk or type(data) ~= "table" then return false, "item modData is unavailable" end
-        local copy = boundedStableCopy(entry.modData, 5, {
-            count = SC.Config.get("persistence", "maxItemModDataEntries") or 256,
-        }) or {}
+        local copy, copyReason = stableCopy(entry.modData, 5,
+            SC.Config.get("persistence", "maxItemModDataEntries") or 256,
+            "$.inventory[].modData")
+        if copy == nil then return false, copyReason end
         for key, value in pairs(copy) do data[key] = value end
     end
     if type(entry.firearm) == "table" then
@@ -1184,8 +1278,11 @@ local function applyNestedKeepsake(actor, possessions, context)
         or type(keepsake.nestedCarried) ~= "table" then return true end
     local key = text(keepsake.key, "", 128)
     if key == "" or context.restoredKeys[key] then return true end
-    local entry = boundedStableCopy(keepsake.nestedCarried, 3, { count = 48 })
-    if type(entry) ~= "table" then return false, "nested personal snapshot is invalid" end
+    local entry, copyReason = stableCopy(keepsake.nestedCarried, 5, 128,
+        "$.possessions.keepsake.nestedCarried")
+    if type(entry) ~= "table" then
+        return false, "nested personal snapshot is invalid: " .. tostring(copyReason)
+    end
     entry.personal = {
         version = 1,
         ownerId = text(keepsake.ownerId, "", 80),
@@ -1310,13 +1407,54 @@ local function importVehicleRecord(record)
     return false, "vehicle save record has an unsupported seating state"
 end
 
+local permanentRestoreTokens = {
+    "unknown perk", "invalid", "unsupported", "missing from inventory",
+    "saved fluid type", "could not be restored", "has no stable type",
+    "api is unavailable", "adapter is unavailable",
+}
+
+local function classifyRestoreFailure(reason)
+    local lowered = string.lower(tostring(reason or "unknown restore failure"))
+    for _, token in ipairs(permanentRestoreTokens) do
+        if string.find(lowered, token, 1, true) then return "permanent" end
+    end
+    return "retryable"
+end
+
+local function restoreDelay(attempts)
+    local base = math.max(1, tonumber(SC.Config.get("persistence", "restoreIntervalMs")) or 5000)
+    local maximum = math.max(base,
+        tonumber(SC.Config.get("persistence", "restoreMaximumBackoffMs")) or 300000)
+    return math.min(maximum, base * (2 ^ math.max(0, (attempts or 1) - 1)))
+end
+
+local function failRestore(id, entry, reason, current, failureClass)
+    entry.attempts = (entry.attempts or 0) + 1
+    entry.firstAttemptAt = entry.firstAttemptAt or current
+    entry.reason = tostring(reason or "unknown restore failure")
+    entry.failureClass = failureClass or classifyRestoreFailure(entry.reason)
+    local maximumAttempts = math.max(1,
+        tonumber(SC.Config.get("persistence", "restoreMaximumAttempts")) or 6)
+    if entry.failureClass == "permanent" or entry.attempts >= maximumAttempts then
+        entry.status = "quarantined"
+        entry.nextAt = nil
+        entry.quarantinedAt = current
+        SC.Diagnostics.report("persistence", id, "restore record quarantined", entry.reason)
+        return false
+    end
+    entry.status = "retrying"
+    entry.nextAt = current + restoreDelay(entry.attempts)
+    return true
+end
+
 function persistence.restorePulse(player)
     local current = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0
     local processed = 0
     local maximum = SC.Config.get("restorePerPulse")
     for _, id in ipairs(pendingOrder) do
         local entry = pending[id]
-        if entry ~= nil and processed < maximum and current >= (entry.nextAt or 0) then
+        if entry ~= nil and entry.status ~= "quarantined" and processed < maximum
+            and current >= (entry.nextAt or 0) then
             if SC.Registry.byId(id) ~= nil then
                 pending[id] = nil
             elseif entry.vehicle == true then
@@ -1325,9 +1463,7 @@ function persistence.restorePulse(player)
                 if imported then
                     pending[id] = nil
                 else
-                    entry.attempts = (entry.attempts or 0) + 1
-                    entry.reason = tostring(reason)
-                    entry.nextAt = current + SC.Config.get("restoreIntervalMs")
+                    failRestore(id, entry, reason, current)
                 end
             else
                 processed = processed + 1
@@ -1338,17 +1474,18 @@ function persistence.restorePulse(player)
                         pending[id] = nil
                     elseif result == "spawn_pending" then
                         entry.reason = result
+                        entry.failureClass = "transient"
                     else
                         entry.spawnTicket = nil
-                        entry.attempts = (entry.attempts or 0) + 1
-                        entry.reason = tostring(result)
-                        entry.nextAt = current + SC.Config.get("restoreIntervalMs")
+                        failRestore(id, entry, result, current)
                     end
                 else
                     local square = squareFor(entry.record)
                     if square == nil then
                         entry.nextAt = current + SC.Config.get("restoreIntervalMs")
                         entry.reason = "saved square is not currently loaded"
+                        entry.failureClass = "transient"
+                        entry.status = "waiting_environment"
                     else
                         local saved = entry.record
                         local actor, result, ticket = persistence.restoreAt(saved, square)
@@ -1357,10 +1494,10 @@ function persistence.restorePulse(player)
                         elseif result == "spawn_pending" and ticket ~= nil then
                             entry.spawnTicket = ticket
                             entry.reason = result
+                            entry.failureClass = "transient"
+                            entry.status = "spawn_pending"
                         else
-                            entry.attempts = (entry.attempts or 0) + 1
-                            entry.reason = tostring(result)
-                            entry.nextAt = current + SC.Config.get("restoreIntervalMs")
+                            failRestore(id, entry, result, current)
                         end
                     end
                 end
@@ -1373,16 +1510,17 @@ end
 function persistence.restore(player)
     local data, dataReason = playerData(player)
     if data == nil then return false, dataReason end
-    local document = data[SC.Identity.saveKey]
-    for _, entry in pairs(pending) do
-        if entry.spawnTicket ~= nil and SC.Actor ~= nil
-            and type(SC.Actor.cancelSpawn) == "function" then
-            pcall(SC.Actor.cancelSpawn, entry.spawnTicket)
-        end
-    end
-    pending = {}
-    pendingOrder = {}
+    local readOk, document = pcall(function() return data[SC.Identity.saveKey] end)
+    if not readOk then return false, "save document cannot be read: " .. tostring(document) end
     if document == nil then
+        for _, entry in pairs(pending) do
+            if entry.spawnTicket ~= nil and SC.Actor ~= nil
+                and type(SC.Actor.cancelSpawn) == "function" then
+                pcall(SC.Actor.cancelSpawn, entry.spawnTicket)
+            end
+        end
+        pending, pendingOrder = {}, {}
+        quarantined = { companions = {}, factionActors = {}, subsystems = {} }
         lastDocument = nil
         saveBlockedReason = nil
         return true, "no SurvivorCompanion save document"
@@ -1395,61 +1533,66 @@ function persistence.restore(player)
         return false, saveBlockedReason
     end
     saveBlockedReason = nil
-    if SC.Factions ~= nil and type(SC.Factions.restore) == "function" then
-        local ok, reason = SC.Factions.restore(document.factions)
-        if ok ~= true then
-            SC.Diagnostics.report("factions", nil, "invalid faction state ignored", reason)
+    local current = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0
+    local candidatePending, candidateOrder = {}, {}
+    local candidateQuarantine = { companions = {}, factionActors = {}, subsystems = {} }
+    local function quarantineRecord(bucket, id, raw, reason, path)
+        candidateQuarantine[bucket][id] = {
+            raw = raw, reason = tostring(reason), path = path,
+            firstSeenAt = current,
+        }
+        SC.Diagnostics.report("persistence", id, "save record quarantined", reason)
+    end
+
+    local subsystemDefinitions = {
+        { field = "factions", owner = SC.Factions, diagnostic = "factions" },
+        { field = "factionWorld", owner = SC.FactionWorld, diagnostic = "faction-world" },
+        { field = "baseLife", owner = SC.BaseLife, diagnostic = "base-life" },
+        { field = "infectionCrisis", owner = SC.InfectionCrisis,
+            diagnostic = "infection-crisis" },
+        { field = "community", owner = SC.Community, diagnostic = "community" },
+    }
+    for _, definition in ipairs(subsystemDefinitions) do
+        if definition.owner ~= nil and type(definition.owner.restore) == "function" then
+            local called, ok, reason = pcall(definition.owner.restore,
+                document[definition.field])
+            if not called or ok ~= true then
+                local failure = tostring(called and reason or ok)
+                candidateQuarantine.subsystems[definition.field] = {
+                    raw = document[definition.field], reason = failure,
+                    path = "$." .. definition.field, firstSeenAt = current,
+                }
+                SC.Diagnostics.report(definition.diagnostic, nil,
+                    "subsystem save quarantined", failure)
+            end
         end
     end
-    if SC.FactionWorld ~= nil and type(SC.FactionWorld.restore) == "function" then
-        local ok, reason = SC.FactionWorld.restore(document.factionWorld)
-        if ok ~= true then
-            SC.Diagnostics.report("faction-world", nil,
-                "invalid faction world state ignored", reason)
-        end
-    end
-    if SC.BaseLife ~= nil and type(SC.BaseLife.restore) == "function" then
-        local ok, reason = SC.BaseLife.restore(document.baseLife)
-        if ok ~= true then
-            SC.Diagnostics.report("base-life", nil, "invalid base state ignored", reason)
-        end
-    end
-    if SC.InfectionCrisis ~= nil and type(SC.InfectionCrisis.restore) == "function" then
-        local ok, reason = SC.InfectionCrisis.restore(document.infectionCrisis)
-        if ok ~= true then
-            SC.Diagnostics.report("infection-crisis", nil, "invalid crisis state ignored", reason)
-        end
-    end
-    if SC.Community ~= nil and type(SC.Community.restore) == "function" then
-        local ok, reason = SC.Community.restore(document.community)
-        if ok ~= true then
-            SC.Diagnostics.report("community", nil, "invalid community state ignored", reason)
-        end
-    end
-    local ids = {}
+
+    local ids, seenIds = {}, {}
     for id in pairs(document.companions) do ids[#ids + 1] = id end
     table.sort(ids)
     for _, id in ipairs(ids) do
+        seenIds[id] = true
         local clean, reason = validateRecord(id, document.companions[id])
         if clean ~= nil then
             if clean.vehicle ~= nil then
                 local imported, importReason = importVehicleRecord(clean)
-                if not imported then
-                    pending[id] = {
-                        record = clean,
-                        reason = importReason,
-                        nextAt = 0,
-                        attempts = 0,
-                        vehicle = true,
-                    }
-                    pendingOrder[#pendingOrder + 1] = id
-                end
+                candidatePending[id] = {
+                    record = clean, reason = imported and nil or importReason,
+                    nextAt = 0, attempts = 0, vehicle = not imported,
+                    status = imported and "restored" or "pending",
+                }
+                if imported then candidatePending[id] = nil
+                else candidateOrder[#candidateOrder + 1] = id end
             else
-                pending[id] = { record = clean, nextAt = 0, attempts = 0 }
-                pendingOrder[#pendingOrder + 1] = id
+                candidatePending[id] = {
+                    record = clean, nextAt = 0, attempts = 0, status = "pending",
+                }
+                candidateOrder[#candidateOrder + 1] = id
             end
         else
-            SC.Diagnostics.report("persistence", id, "invalid save record ignored", reason)
+            quarantineRecord("companions", id, document.companions[id], reason,
+                "$.companions[" .. tostring(id) .. "]")
         end
     end
     local factionActors = type(document.factionActors) == "table"
@@ -1458,18 +1601,33 @@ function persistence.restore(player)
     for id in pairs(factionActors) do factionIds[#factionIds + 1] = id end
     table.sort(factionIds)
     for _, id in ipairs(factionIds) do
-        if pending[id] == nil then
+        if not seenIds[id] then
             local clean, reason = validateRecord(id, factionActors[id])
             if clean ~= nil and type(clean.factionId) == "string"
                 and SC.Factions and SC.Factions.group(clean.factionId) then
-                pending[id] = { record = clean, nextAt = 0, attempts = 0 }
-                pendingOrder[#pendingOrder + 1] = id
+                candidatePending[id] = {
+                    record = clean, nextAt = 0, attempts = 0, status = "pending",
+                }
+                candidateOrder[#candidateOrder + 1] = id
             else
-                SC.Diagnostics.report("persistence", id,
-                    "invalid faction actor save record ignored", reason)
+                quarantineRecord("factionActors", id, factionActors[id],
+                    reason or "faction actor references an unavailable faction",
+                    "$.factionActors[" .. tostring(id) .. "]")
             end
+        else
+            quarantineRecord("factionActors", id, factionActors[id],
+                "duplicate companion id across save buckets",
+                "$.factionActors[" .. tostring(id) .. "]")
         end
     end
+
+    for _, entry in pairs(pending) do
+        if entry.spawnTicket ~= nil and SC.Actor ~= nil
+            and type(SC.Actor.cancelSpawn) == "function" then
+            pcall(SC.Actor.cancelSpawn, entry.spawnTicket)
+        end
+    end
+    pending, pendingOrder, quarantined = candidatePending, candidateOrder, candidateQuarantine
     lastDocument = document
     persistence.restorePulse(player)
     return true, persistence.pendingCount()
@@ -1492,9 +1650,91 @@ function persistence.pendingSnapshot()
             attempts = entry.attempts or 0,
             reason = entry.reason,
             nextAt = entry.nextAt,
+            status = entry.status or "pending",
+            failureClass = entry.failureClass,
+            firstAttemptAt = entry.firstAttemptAt,
+            quarantinedAt = entry.quarantinedAt,
         }
     end
     return result
+end
+
+function persistence.quarantineSnapshot()
+    local result = { companions = {}, factionActors = {}, subsystems = {} }
+    for _, bucket in ipairs({ "companions", "factionActors", "subsystems" }) do
+        for id, entry in pairs(quarantined[bucket]) do
+            result[bucket][id] = {
+                reason = entry.reason, path = entry.path, firstSeenAt = entry.firstSeenAt,
+            }
+        end
+    end
+    for id, entry in pairs(pending) do
+        if entry.status == "quarantined" then
+            local bucket = entry.record and entry.record.recruited == true
+                and "companions" or "factionActors"
+            result[bucket][id] = {
+                reason = entry.reason,
+                path = "$." .. bucket .. "[" .. tostring(id) .. "]",
+                firstSeenAt = entry.quarantinedAt or entry.firstAttemptAt,
+                attempts = entry.attempts,
+                failureClass = entry.failureClass,
+            }
+        end
+    end
+    return result
+end
+
+function persistence.retry(id)
+    if type(id) ~= "string" then return false, "companion id is required" end
+    local entry = pending[id]
+    if entry ~= nil then
+        if entry.spawnTicket ~= nil and SC.Actor and type(SC.Actor.cancelSpawn) == "function" then
+            pcall(SC.Actor.cancelSpawn, entry.spawnTicket)
+        end
+        entry.spawnTicket = nil
+        entry.attempts = 0
+        entry.firstAttemptAt = nil
+        entry.quarantinedAt = nil
+        entry.failureClass = nil
+        entry.reason = "manual retry"
+        entry.status = "pending"
+        entry.nextAt = 0
+        return true, "retry_scheduled"
+    end
+    for _, bucket in ipairs({ "companions", "factionActors" }) do
+        local quarantine = quarantined[bucket][id]
+        if quarantine ~= nil then
+            local clean, reason = validateRecord(id, quarantine.raw)
+            if clean == nil then return false, reason end
+            if bucket == "factionActors" and (type(clean.factionId) ~= "string"
+                or not SC.Factions or not SC.Factions.group(clean.factionId)) then
+                return false, "faction actor references an unavailable faction"
+            end
+            pending[id] = { record = clean, nextAt = 0, attempts = 0,
+                status = "pending", reason = "manual retry" }
+            pendingOrder[#pendingOrder + 1] = id
+            quarantined[bucket][id] = nil
+            return true, "retry_scheduled"
+        end
+    end
+    return false, "quarantined companion is unavailable"
+end
+
+function persistence.retrySubsystem(field)
+    local entry = type(field) == "string" and quarantined.subsystems[field] or nil
+    if entry == nil then return false, "quarantined subsystem is unavailable" end
+    local owners = {
+        factions = SC.Factions, factionWorld = SC.FactionWorld, baseLife = SC.BaseLife,
+        infectionCrisis = SC.InfectionCrisis, community = SC.Community,
+    }
+    local owner = owners[field]
+    if owner == nil or type(owner.restore) ~= "function" then
+        return false, "subsystem restore adapter is unavailable"
+    end
+    local called, ok, reason = pcall(owner.restore, entry.raw)
+    if not called or ok ~= true then return false, tostring(called and reason or ok) end
+    quarantined.subsystems[field] = nil
+    return true, "subsystem_restored"
 end
 
 function persistence.lastDocument()
@@ -1510,6 +1750,7 @@ function persistence.reset()
     end
     pending = {}
     pendingOrder = {}
+    quarantined = { companions = {}, factionActors = {}, subsystems = {} }
     lastDocument = nil
     saveBlockedReason = nil
 end

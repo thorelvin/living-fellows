@@ -374,8 +374,8 @@ def main() -> int:
             and "nextEventHour" in faction_world and "word_travels:" in faction_world,
             "bounded persistent faction-world relations or consequence propagation missing")
     persistence_source = (CLIENT / "SCPersistence.lua").read_text(encoding="utf-8")
-    require("factionWorld =" in persistence_source
-            and "SC.FactionWorld.restore(document.factionWorld)" in persistence_source,
+    require('{ field = "factionWorld", owner = SC.FactionWorld' in persistence_source
+            and "pcall(definition.owner.restore" in persistence_source,
             "faction-world state is not part of the transactional save document")
     require("function Combat.assessOverrun" in sources["SCCombat.lua"]
             and "combatOverrunHoldMs" in sources["SCCombat.lua"]

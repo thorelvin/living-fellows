@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 local SC = SurvivorCompanion
+if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 SC.FactionWorld = SC.FactionWorld or {}
 
 local World = SC.FactionWorld
@@ -53,29 +54,11 @@ local function worldHour()
 end
 
 local function stableCopy(value, depth, budget)
-    budget = budget or { count = 4096 }
-    if budget.count <= 0 then return nil end
-    local kind = type(value)
-    if kind == "string" or kind == "boolean" then
-        budget.count = budget.count - 1
-        return value
-    end
-    if kind == "number" then
-        if finite(value, nil) == nil then return nil end
-        budget.count = budget.count - 1
-        return value
-    end
-    if kind ~= "table" or (depth or 0) <= 0 then return nil end
-    budget.count = budget.count - 1
-    local copy = {}
-    for key, child in pairs(value) do
-        if type(key) == "string" or type(key) == "number" then
-            local clean = stableCopy(child, depth - 1, budget)
-            if clean ~= nil then copy[key] = clean end
-            if budget.count <= 0 then break end
-        end
-    end
-    return copy
+    return SC.StableValue.copyStrict(value, {
+        maxDepth = tonumber(depth) or 8,
+        maxEntries = type(budget) == "table" and budget.count or 4096,
+        path = "$.factionWorld",
+    })
 end
 
 local function appendBounded(list, value, maximum)
@@ -383,16 +366,17 @@ function World.export()
 end
 
 function World.restore(document)
-    state = freshState()
-    spreading = false
     if document == nil then
-        World.reconcile()
+        local previous, previousSpreading = state, spreading
+        state, spreading = freshState(), false
+        local called, reason = pcall(World.reconcile)
+        if not called then state, spreading = previous, previousSpreading
+            return false, tostring(reason) end
         return true, "no_faction_world_state"
     end
     if type(document) ~= "table" or document.schema ~= SCHEMA
         or type(document.relations) ~= "table" or type(document.news) ~= "table"
         or #document.news > MAX_NEWS or relationCount(document.relations) > MAX_RELATIONS then
-        World.reconcile()
         return false, "invalid_faction_world_state"
     end
     local restored = freshState()
@@ -401,14 +385,12 @@ function World.restore(document)
     restored.nextEventHour = finite(document.nextEventHour, nil)
     for key, relation in pairs(document.relations) do
         if type(relation) ~= "table" then
-            World.reconcile()
             return false, "invalid_faction_world_relation"
         end
         local expected, leftId, rightId = pairKey(relation.leftId, relation.rightId)
         if type(key) ~= "string" or expected ~= key or not group(leftId) or not group(rightId)
             or finite(relation.score, nil) == nil
             or finite(relation.contactCount, nil) == nil then
-            World.reconcile()
             return false, "invalid_faction_world_relation"
         end
         local clean = {
@@ -425,7 +407,6 @@ function World.restore(document)
             or type(entry.kind) ~= "string" or type(entry.message) ~= "string"
             or type(entry.leftId) ~= "string" or type(entry.rightId) ~= "string"
             or finite(entry.hour, nil) == nil then
-            World.reconcile()
             return false, "invalid_faction_world_news"
         end
         appendBounded(restored.news, {
@@ -435,8 +416,11 @@ function World.restore(document)
             message = string.sub(entry.message, 1, 384), known = entry.known == true,
         }, MAX_NEWS)
     end
-    state = restored
-    World.reconcile()
+    local previous, previousSpreading = state, spreading
+    state, spreading = restored, false
+    local called, reason = pcall(World.reconcile)
+    if not called then state, spreading = previous, previousSpreading
+        return false, tostring(reason) end
     return true, relationCount(state.relations)
 end
 

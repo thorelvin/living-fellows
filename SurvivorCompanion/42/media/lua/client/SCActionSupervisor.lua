@@ -1,6 +1,8 @@
 -- SPDX-License-Identifier: MIT
 
-require "SCCall"
+if not SurvivorCompanion or not SurvivorCompanion.Call then
+    if type(require) == "function" then pcall(require, "SCCall") end
+end
 
 local SC = SurvivorCompanion
 SC.ActionSupervisor = SC.ActionSupervisor or {}

@@ -5523,6 +5523,23 @@ check(socialRestored and socialCount == 1 and socialRestoredSummary
 group = Factions.group("faction-test")
 Contracts.debugComplete("faction-test")
 
+do
+    local priorGroup = Factions.group("faction-test")
+    local invalidFactionDocument = Factions.export()
+    invalidFactionDocument.order = {}
+    local invalidFactionRestored, invalidFactionReason = Factions.restore(invalidFactionDocument)
+    check(not invalidFactionRestored
+            and string.find(tostring(invalidFactionReason), "unordered", 1, true)
+            and Factions.group("faction-test") == priorGroup,
+        "invalid faction restore leaves the complete prior in-memory state untouched")
+    priorGroup.__cycle = priorGroup
+    local cyclicExport, cyclicExportReason = Factions.export()
+    priorGroup.__cycle = nil
+    check(cyclicExport == nil and string.find(tostring(cyclicExportReason),
+            "cyclic", 1, true),
+        "faction export rejects a cycle instead of returning a partial group")
+end
+
 local mapSaved = false
 local symbols = { rows = {} }
 function symbols:getDefaultTextLayerID() return "text" end

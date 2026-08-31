@@ -15,6 +15,16 @@ do
     check(values.n == 5 and values[1] == true and values[2] == "first"
             and values[3] == nil and values[4] == "third" and values[5] == nil,
         "protected calls preserve sparse and trailing return values exactly")
+    local exact = { one = 1, two = 2, three = 3 }
+    local copied, copyReason = SC.StableValue.copyStrict(exact, {
+        maxDepth = 2, maxEntries = 4, path = "$.exact",
+    })
+    local rejected, rejectReason = SC.StableValue.copyStrict(exact, {
+        maxDepth = 2, maxEntries = 3, path = "$.over",
+    })
+    check(copied and copied.three == 3 and copyReason == nil and rejected == nil
+            and string.find(tostring(rejectReason), "limit exceeded", 1, true),
+        "strict stable copies succeed at the exact boundary and reject one over")
 end
 local immutable = pcall(function() SC.Config.defaults.frameBudgetMs = 99 end)
 check(not immutable and SC.Config.get("frameBudgetMs") == 2, "configuration is immutable")
@@ -1272,10 +1282,119 @@ local player = {}
 function player:getModData() return playerData end
 local restored = SC.Persistence.restore(player)
 check(restored and SC.Persistence.pendingCount() == 1, "unavailable square remains pending")
+SC_TEST_CLOCK = SC_TEST_CLOCK + 60000
+SC.Persistence.restorePulse(player)
+player.__unloadedSnapshot = SC.Persistence.pendingSnapshot()["sc-pending-record"]
+check(player.__unloadedSnapshot and player.__unloadedSnapshot.attempts == 0
+        and player.__unloadedSnapshot.status == "waiting_environment",
+    "an unloaded square waits without consuming destructive restore attempts")
 local saved, document = SC.Persistence.save(player)
 check(saved and document.companions["sc-pending-record"] ~= nil,
     "provider/square failure cannot erase a pending save record")
 check(playerData.OtherMod.untouched == true, "unrelated mod data is preserved")
+
+function runPersistenceIntegrityChecks()
+SC.Persistence.reset()
+local rawInvalid = {
+    id = "sc-invalid-raw", recruited = true,
+    identity = { forename = "Raw", surname = "Record" },
+    position = { x = 10, y = 10, z = 0 },
+    inventory = { schema = 2, complete = true, count = 0, roots = {},
+        equipment = { primary = "missing", worn = {}, attached = {} } },
+    skills = {}, vitals = {}, order = {},
+}
+local mixedData = { SC_SaveV1 = {
+    schema = SC.Identity.saveSchema, companions = {
+        ["sc-valid-pending"] = {
+            id = "sc-valid-pending", recruited = true,
+            identity = { forename = "Valid", surname = "Record" },
+            position = { x = 20, y = 20, z = 0 }, inventory = {},
+            skills = {}, vitals = {}, order = {},
+        },
+        ["sc-invalid-raw"] = rawInvalid,
+    },
+    community = { version = 2, minds = "malformed", pairs = {}, history = {}, deaths = {} },
+} }
+local mixedPlayer = { getModData = function() return mixedData end }
+local priorCommunity = SC.Community
+SC.Community = {
+    restore = function() return false, "injected malformed community" end,
+    export = function() return { version = 2, minds = {}, pairs = {}, history = {}, deaths = {} } end,
+}
+check(SC.Persistence.restore(mixedPlayer),
+    "a malformed record is isolated without disabling valid pending records")
+local quarantineState = SC.Persistence.quarantineSnapshot()
+check(SC.Persistence.isPending("sc-valid-pending")
+        and quarantineState.companions["sc-invalid-raw"] ~= nil
+        and quarantineState.subsystems.community ~= nil,
+    "invalid companion and subsystem state are observable in raw quarantine")
+local mixedSaved, mixedDocument = SC.Persistence.save(mixedPlayer)
+local preservedInvalid = mixedDocument and mixedDocument.companions["sc-invalid-raw"]
+check(mixedSaved and preservedInvalid.inventory.equipment.primary == "missing"
+        and mixedDocument.community.minds == "malformed",
+    "load-save preserves rejected companion and subsystem values verbatim")
+SC.Community = priorCommunity
+
+SC.Persistence.reset()
+local cyclicRaw = {
+    id = "sc-cyclic-raw", recruited = true,
+    identity = { forename = "Cycle", surname = "Guard" },
+    position = { x = 30, y = 30, z = 0 }, inventory = {},
+    skills = {}, vitals = {}, order = {},
+}
+cyclicRaw.identity.loop = cyclicRaw.identity
+local cyclicDocument = { schema = SC.Identity.saveSchema,
+    companions = { ["sc-cyclic-raw"] = cyclicRaw } }
+local cyclicData = { SC_SaveV1 = cyclicDocument }
+local cyclicPlayer = { getModData = function() return cyclicData end }
+check(SC.Persistence.restore(cyclicPlayer), "cyclic raw record enters quarantine")
+local cyclicSaved, cyclicReason = SC.Persistence.save(cyclicPlayer)
+check(not cyclicSaved and cyclicData.SC_SaveV1 == cyclicDocument
+        and string.find(tostring(cyclicReason), "cannot be preserved", 1, true),
+    "uncopyable quarantine blocks save and leaves the prior document untouched")
+
+SC.Persistence.reset()
+local deterministicProvider = { testOnly = true, kind = "iso-companion", polls = 0 }
+function deterministicProvider:isActor() return false end
+function deterministicProvider:requestSpawn() return 501 end
+function deterministicProvider:pollSpawn()
+    self.polls = self.polls + 1
+    return nil, "unknown perk in save record: MissingPerk"
+end
+function deterministicProvider:cancelSpawn() return true end
+check(SC.Actor._setProviderForTests(deterministicProvider),
+    "deterministic restore-failure provider installed")
+local priorGetCell = getCell
+getCell = function()
+    return { getGridSquare = function() return square end }
+end
+local terminalData = { SC_SaveV1 = { schema = SC.Identity.saveSchema, companions = {
+    ["sc-terminal-restore"] = {
+        id = "sc-terminal-restore", recruited = true,
+        identity = { forename = "Terminal", surname = "Retry" },
+        position = { x = 40, y = 40, z = 0 }, inventory = {},
+        skills = { { id = "MissingPerk", level = 1 } }, vitals = {}, order = {},
+    },
+} } }
+local terminalPlayer = { getModData = function() return terminalData end }
+check(SC.Persistence.restore(terminalPlayer), "terminal restore document imports")
+local terminalSnapshot = SC.Persistence.pendingSnapshot()["sc-terminal-restore"]
+check(terminalSnapshot and terminalSnapshot.status == "quarantined"
+        and terminalSnapshot.failureClass == "permanent" and terminalSnapshot.attempts == 1,
+    "deterministic incompatibility enters terminal quarantine after one attempt")
+SC_TEST_CLOCK = SC_TEST_CLOCK + 600000
+SC.Persistence.restorePulse(terminalPlayer)
+check(deterministicProvider.polls == 1,
+    "terminal quarantine stops repeated native spawn work")
+check(SC.Persistence.retry("sc-terminal-restore"), "manual retry resets terminal bound")
+SC.Persistence.restorePulse(terminalPlayer)
+check(deterministicProvider.polls == 2,
+    "manual retry performs exactly one new deterministic attempt")
+getCell = priorGetCell
+SC.Persistence.reset()
+end
+runPersistenceIntegrityChecks()
+runPersistenceIntegrityChecks = nil
 
 local deferredActor = setmetatable({
     __owned = false, __class = "IsoPlayer", data = {}, square = square,

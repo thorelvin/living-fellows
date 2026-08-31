@@ -518,6 +518,9 @@ local valueData = {
 
     restoreIntervalMs = 5000,
     restorePerPulse = 2,
+    restoreMaximumBackoffMs = 300000,
+    restoreMaximumAttempts = 6,
+    persistenceMaxDocumentEntries = 2000000,
     maxInventoryItems = 256,
     -- Persistence has a separate, larger budget than ordinary AI inventory
     -- scans.  Reaching either bound aborts the save transaction instead of
@@ -653,6 +656,9 @@ local aliases = {
     persistence = {
         restoreIntervalMs = "restoreIntervalMs",
         restorePerPulse = "restorePerPulse",
+        restoreMaximumBackoffMs = "restoreMaximumBackoffMs",
+        restoreMaximumAttempts = "restoreMaximumAttempts",
+        maxDocumentEntries = "persistenceMaxDocumentEntries",
         maxInventoryItems = "maxInventoryItems",
         maxSavedInventoryItems = "persistenceMaxInventoryItems",
         maxSavedInventoryDepth = "persistenceMaxInventoryDepth",

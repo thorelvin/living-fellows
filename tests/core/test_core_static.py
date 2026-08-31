@@ -151,8 +151,8 @@ require("lastStableSnapshot" in persistence and "quarantined companion" in persi
         "quarantined record does not preserve its last stable snapshot")
 require("record.vehicle.stored == false" in persistence and "importNativeSeat" in persistence,
         "native and virtual vehicle save states are not distinguished")
-require("community = SC.Community" in persistence
-        and "SC.Community.restore(document.community)" in persistence,
+require('{ field = "community", owner = SC.Community' in persistence
+        and "pcall(definition.owner.restore" in persistence,
         "community state is not persisted and restored")
 
 commands = (CLIENT / "SCCommands.lua").read_text(encoding="utf-8")

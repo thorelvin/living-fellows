@@ -2,6 +2,7 @@
 
 local SC = SurvivorCompanion
 if not SC.Performance and type(require) == "function" then pcall(require, "SCPerformance") end
+if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 SC.Factions = SC.Factions or {}
 
 local Factions = SC.Factions
@@ -105,29 +106,11 @@ local function random(maximum)
 end
 
 local function stableCopy(value, depth, budget)
-    budget = budget or { count = 8192 }
-    if budget.count <= 0 then return nil end
-    local kind = type(value)
-    if kind == "string" or kind == "boolean" then
-        budget.count = budget.count - 1
-        return value
-    end
-    if kind == "number" then
-        if value ~= value or value == math.huge or value == -math.huge then return nil end
-        budget.count = budget.count - 1
-        return value
-    end
-    if kind ~= "table" or (depth or 0) <= 0 then return nil end
-    budget.count = budget.count - 1
-    local result = {}
-    for key, child in pairs(value) do
-        if type(key) == "string" or type(key) == "number" then
-            local copy = stableCopy(child, depth - 1, budget)
-            if copy ~= nil then result[key] = copy end
-            if budget.count <= 0 then break end
-        end
-    end
-    return result
+    return SC.StableValue.copyStrict(value, {
+        maxDepth = math.max(0, tonumber(depth) or 8),
+        maxEntries = type(budget) == "table" and budget.count or 8192,
+        path = "$.factions",
+    })
 end
 
 local function appendBounded(list, value, maximum)
@@ -1724,17 +1707,22 @@ function Factions.pulse(player, current)
 end
 
 function Factions.export()
+    local orderCopy, orderReason = stableCopy(groupOrder, 3, { count = 256 })
+    if orderCopy == nil then return nil, orderReason end
     local result = {
         schema = SCHEMA, sequence = sequence,
         lastWorldSpawnDay = lastWorldSpawnDay == -math.huge and nil or lastWorldSpawnDay,
         lastProductionCheckDay = lastProductionCheckDay == -math.huge and nil or lastProductionCheckDay,
-        order = stableCopy(groupOrder, 2, { count = 64 }), groups = {},
+        order = orderCopy, groups = {},
     }
     for _, id in ipairs(groupOrder) do
         local group = groups[id]
         if group then
-            local copy = stableCopy(group, 8, { count = 16384 })
-            if copy then
+            local copy, copyReason = stableCopy(group, 14, { count = 131072 })
+            if copy == nil then
+                return nil, "faction " .. tostring(id) .. " export failed: "
+                    .. tostring(copyReason)
+            else
                 -- Active native actors are captured transactionally by
                 -- SCPersistence.factionActors. Only hibernated snapshots live
                 -- inside faction state.
@@ -1820,37 +1808,51 @@ local function validGroup(source, id)
 end
 
 function Factions.restore(document)
-    if spawnTicket and SC.Actor and type(SC.Actor.cancelSpawn) == "function" then
-        pcall(SC.Actor.cancelSpawn, spawnTicket)
+    local candidateGroups, candidateOrder, candidateMembers = {}, {}, {}
+    local candidateSequence, candidateWorldDay, candidateCheckDay = 0, -math.huge, -math.huge
+    if document == nil then
+        if spawnTicket and SC.Actor and type(SC.Actor.cancelSpawn) == "function" then
+            local called, cancelled, reason = pcall(SC.Actor.cancelSpawn, spawnTicket)
+            if not called or cancelled == false then
+                return false, "faction spawn cancellation failed: "
+                    .. tostring(called and reason or cancelled)
+            end
+        end
+        groups, groupOrder, memberToGroup = candidateGroups, candidateOrder, candidateMembers
+        spawnQueue, spawnTicket, spawnEntry = {}, nil, nil
+        productionHouseSearch = nil
+        sequence, lastWorldSpawnDay, lastProductionCheckDay = 0, -math.huge, -math.huge
+        restored = true
+        return true, "no_faction_state"
     end
-    groups, groupOrder, memberToGroup = {}, {}, {}
-    spawnQueue, spawnTicket, spawnEntry = {}, nil, nil
-    productionHouseSearch = nil
-    sequence, lastWorldSpawnDay, lastProductionCheckDay = 0, -math.huge, -math.huge
-    restored = true
-    if document == nil then return true, "no_faction_state" end
     if type(document) ~= "table" or document.schema ~= SCHEMA or type(document.groups) ~= "table" then
         return false, "invalid_faction_state"
     end
-    sequence = math.max(0, math.floor(tonumber(document.sequence) or 0))
-    lastWorldSpawnDay = tonumber(document.lastWorldSpawnDay) or -math.huge
-    lastProductionCheckDay = tonumber(document.lastProductionCheckDay) or -math.huge
-    local sourceOrder = type(document.order) == "table" and document.order or {}
+    if type(document.order) ~= "table" or #document.order > 128 then
+        return false, "invalid_faction_order"
+    end
+    candidateSequence = math.max(0, math.floor(tonumber(document.sequence) or 0))
+    candidateWorldDay = tonumber(document.lastWorldSpawnDay) or -math.huge
+    candidateCheckDay = tonumber(document.lastProductionCheckDay) or -math.huge
+    local sourceOrder = document.order
     local seenGroups, seenActors = {}, {}
     for _, id in ipairs(sourceOrder) do
         local source = document.groups[id]
         -- Sandbox maximums govern future spawns only. Lowering the setting
         -- must never prune already-persistent households on the next save.
-        if type(id) == "string" and not seenGroups[id]
-            and validGroup(source, id) then
-            local group = stableCopy(source, 8, { count = 16384 })
-            local unique = group ~= nil
+        if type(id) ~= "string" or seenGroups[id] or source == nil then
+            return false, "invalid or duplicate faction order entry"
+        end
+        local group, copyReason = stableCopy(source, 14, { count = 131072 })
+        if group == nil then return false, copyReason end
+        if validGroup(group, id) then
+            local unique = true
             for _, member in ipairs(group and group.members or {}) do
                 if member.actorId and seenActors[member.actorId] then unique = false break end
             end
             if unique then
                 seenGroups[id] = true
-                groups[id], groupOrder[#groupOrder + 1] = group, id
+                candidateGroups[id], candidateOrder[#candidateOrder + 1] = group, id
                 if not requestDefinitions[group.shortageKind]
                     or type(group.request) ~= "table" then
                     group.shortageKind = requestDefinitions[group.shortageKind]
@@ -1878,14 +1880,44 @@ function Factions.restore(document)
                     if member.hibernated ~= true then member.snapshot = nil end
                     if member.actorId and Factions.memberIsPresent(member) then
                         seenActors[member.actorId] = true
-                        memberToGroup[member.actorId] = id
+                        candidateMembers[member.actorId] = id
                     end
                 end
-            end
+            else return false, "duplicate faction actor id" end
+        else
+            return false, "invalid faction group: " .. tostring(id)
         end
     end
+    for id in pairs(document.groups) do
+        if not seenGroups[id] then return false, "unordered faction group: " .. tostring(id) end
+    end
+    if spawnTicket and SC.Actor and type(SC.Actor.cancelSpawn) == "function" then
+        local called, cancelled, reason = pcall(SC.Actor.cancelSpawn, spawnTicket)
+        if not called or cancelled == false then
+            return false, "faction spawn cancellation failed: "
+                .. tostring(called and reason or cancelled)
+        end
+    end
+    local previous = {
+        groups = groups, order = groupOrder, members = memberToGroup,
+        sequence = sequence, worldDay = lastWorldSpawnDay,
+        checkDay = lastProductionCheckDay, restored = restored,
+    }
+    groups, groupOrder, memberToGroup = candidateGroups, candidateOrder, candidateMembers
+    sequence, lastWorldSpawnDay, lastProductionCheckDay = candidateSequence,
+        candidateWorldDay, candidateCheckDay
+    spawnQueue, spawnTicket, spawnEntry = {}, nil, nil
+    productionHouseSearch = nil
+    restored = true
     if SC.FactionWorld and type(SC.FactionWorld.reconcile) == "function" then
-        SC.FactionWorld.reconcile()
+        local called, reason = pcall(SC.FactionWorld.reconcile)
+        if not called then
+            groups, groupOrder, memberToGroup = previous.groups, previous.order, previous.members
+            sequence, lastWorldSpawnDay, lastProductionCheckDay = previous.sequence,
+                previous.worldDay, previous.checkDay
+            restored = previous.restored
+            return false, "faction reconcile failed: " .. tostring(reason)
+        end
     end
     return true, #groupOrder
 end

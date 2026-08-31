@@ -4,6 +4,7 @@ SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
 if not SC.LifeEvents and type(require) == "function" then pcall(require, "SCLifeEvents") end
+if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 
 SC.Community = SC.Community or {}
 local Community = SC.Community
@@ -47,28 +48,11 @@ local function clean(value, fallback, maximum)
 end
 
 local function stableCopy(value, depth, remaining)
-    remaining = remaining or { count = 4096 }
-    if remaining.count <= 0 then return nil end
-    local kind = type(value)
-    if kind == "string" or kind == "boolean" then
-        remaining.count = remaining.count - 1
-        return value
-    elseif kind == "number" then
-        remaining.count = remaining.count - 1
-        return finite(value, 0)
-    elseif kind ~= "table" or (depth or 0) <= 0 then
-        return nil
-    end
-    remaining.count = remaining.count - 1
-    local result = {}
-    for key, child in pairs(value) do
-        if type(key) == "string" or type(key) == "number" then
-            local copied = stableCopy(child, depth - 1, remaining)
-            if copied ~= nil then result[key] = copied end
-            if remaining.count <= 0 then break end
-        end
-    end
-    return result
+    return SC.StableValue.copyStrict(value, {
+        maxDepth = tonumber(depth) or 8,
+        maxEntries = type(remaining) == "table" and remaining.count or 4096,
+        path = "$.community",
+    })
 end
 
 local function now()
@@ -1005,7 +989,15 @@ function Community.export()
 end
 
 function Community.restore(source)
-    document = normalize(source)
+    if source ~= nil and (type(source) ~= "table"
+        or tonumber(source.version) ~= Community.VERSION
+        or type(source.minds) ~= "table" or type(source.pairs) ~= "table"
+        or type(source.history) ~= "table" or type(source.deaths) ~= "table") then
+        return false, "invalid_community_state"
+    end
+    local stable, reason = stableCopy(source, 12, { count = 131072 })
+    if source ~= nil and stable == nil then return false, reason end
+    document = normalize(stable)
     reservations = {}
     return true, document
 end

@@ -2,6 +2,7 @@
 
 require "SCNamespace"
 require "SCCall"
+require "SCStableValue"
 require "SCConfig"
 require "SCDiagnostics"
 require "SCNet"

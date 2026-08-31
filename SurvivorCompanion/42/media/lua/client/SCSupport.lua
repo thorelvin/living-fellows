@@ -123,6 +123,26 @@ local function companionActionEvidence()
     return result
 end
 
+local function persistenceEvidence()
+    local pendingSnapshot = safeCall(function()
+        return SC.Persistence and SC.Persistence.pendingSnapshot
+            and SC.Persistence.pendingSnapshot() or nil
+    end, {})
+    local quarantineSnapshot = safeCall(function()
+        return SC.Persistence and SC.Persistence.quarantineSnapshot
+            and SC.Persistence.quarantineSnapshot() or nil
+    end, { companions = {}, factionActors = {}, subsystems = {} })
+    local pendingCount, quarantineCount = 0, 0
+    for _ in pairs(pendingSnapshot) do pendingCount = pendingCount + 1 end
+    for _, bucket in pairs(quarantineSnapshot) do
+        for _ in pairs(bucket) do quarantineCount = quarantineCount + 1 end
+    end
+    return {
+        pending = pendingSnapshot, pendingCount = pendingCount,
+        quarantine = quarantineSnapshot, quarantineCount = quarantineCount,
+    }
+end
+
 function support.snapshot(force)
     local bridge = safeCall(function()
         return SC.Actor.bridgeStatus(force == true)
@@ -156,6 +176,7 @@ function support.snapshot(force)
         diagnostics = diagnosticSummary(),
         actionSupervisor = actionHealth,
         companionActions = companionActionEvidence(),
+        persistence = persistenceEvidence(),
         sandbox = safeCall(function()
             return SC.Config.sandboxSnapshot()
         end, {}),
@@ -172,6 +193,7 @@ function support.summary(force)
     local scheduler = data.scheduler or {}
     local diagnostics = data.diagnostics or {}
     local performance = data.performance or {}
+    local persistence = data.persistence or {}
     local lines = {
         "Living Fellows support report",
         "Release: " .. data.release,
@@ -203,6 +225,8 @@ function support.summary(force)
             .. tostring(data.actionSupervisor.leakedReservations or 0) .. " leaked, "
             .. tostring(data.actionSupervisor.coolingDown or 0) .. " cooling down, "
             .. tostring(data.actionSupervisor.invariantViolations or 0) .. " invariant violations",
+        "Persistence: " .. tostring(persistence.pendingCount or 0) .. " pending, "
+            .. tostring(persistence.quarantineCount or 0) .. " quarantined",
     }
     if data.disabledReason ~= nil then
         lines[#lines + 1] = "Runtime disabled reason: " .. tostring(data.disabledReason)
@@ -218,6 +242,21 @@ function support.summary(force)
         lines[#lines + 1] = string.format("Performance %s: p95 %.2f ms, max %.2f ms, yields %d",
             tostring(metric.label or metric.key), tonumber(metric.p95Ms) or 0,
             tonumber(metric.maxMs) or 0, tonumber(metric.yielded) or 0)
+    end
+    for id, entry in pairs(persistence.pending or {}) do
+        lines[#lines + 1] = "Restore " .. tostring(id) .. ": "
+            .. tostring(entry.status or "pending") .. ", class "
+            .. tostring(entry.failureClass or "none") .. ", attempts "
+            .. tostring(entry.attempts or 0) .. ", next "
+            .. tostring(entry.nextAt or "manual") .. ", reason "
+            .. tostring(entry.reason or "none")
+    end
+    for bucket, entries in pairs(persistence.quarantine or {}) do
+        for id, entry in pairs(entries) do
+            lines[#lines + 1] = "Save quarantine " .. tostring(bucket) .. "/"
+                .. tostring(id) .. ": " .. tostring(entry.path or "unknown path")
+                .. ", " .. tostring(entry.reason or "unknown reason")
+        end
     end
     for _, actor in ipairs(data.companionActions or {}) do
         local current = actor.summary or {}
@@ -322,6 +361,21 @@ function support.retryFailures()
     end
     if SC.Actor and type(SC.Actor.checkBridge) == "function" then
         SC.Actor.checkBridge(true)
+    end
+    if SC.Persistence and type(SC.Persistence.pendingSnapshot) == "function"
+        and type(SC.Persistence.retry) == "function" then
+        for id, entry in pairs(SC.Persistence.pendingSnapshot()) do
+            if entry.status == "quarantined" and SC.Persistence.retry(id) == true then
+                retried = retried + 1
+            end
+        end
+    end
+    if SC.Persistence and type(SC.Persistence.quarantineSnapshot) == "function"
+        and type(SC.Persistence.retrySubsystem) == "function" then
+        local quarantine = SC.Persistence.quarantineSnapshot()
+        for field in pairs(quarantine.subsystems or {}) do
+            if SC.Persistence.retrySubsystem(field) == true then retried = retried + 1 end
+        end
     end
     return true, retried
 end

@@ -1,7 +1,8 @@
 -- SPDX-License-Identifier: MIT
 
-require "SCNamespace"
+if type(require) == "function" then pcall(require, "SCNamespace") end
 
+SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 SC.StableValue = SC.StableValue or {}
 

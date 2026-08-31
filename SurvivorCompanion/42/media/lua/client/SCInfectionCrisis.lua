@@ -5,6 +5,7 @@ local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
 if not SC.Medical and type(require) == "function" then pcall(require, "SCMedical") end
 if not SC.BaseLife and type(require) == "function" then pcall(require, "SCBaseLife") end
+if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 
 SC.InfectionCrisis = SC.InfectionCrisis or {}
 local Crisis = SC.InfectionCrisis
@@ -36,28 +37,11 @@ local function cleanText(value, fallback, limit)
 end
 
 local function stableCopy(value, depth, remaining)
-    remaining = remaining or { count = 1024 }
-    if remaining.count <= 0 then return nil end
-    local kind = type(value)
-    if kind == "string" or kind == "boolean" then
-        remaining.count = remaining.count - 1
-        return value
-    end
-    if kind == "number" then
-        remaining.count = remaining.count - 1
-        return finite(value, 0)
-    end
-    if kind ~= "table" or (depth or 0) <= 0 then return nil end
-    remaining.count = remaining.count - 1
-    local result = {}
-    for key, item in pairs(value) do
-        if type(key) == "string" or type(key) == "number" then
-            local copied = stableCopy(item, depth - 1, remaining)
-            if copied ~= nil then result[key] = copied end
-            if remaining.count <= 0 then break end
-        end
-    end
-    return result
+    return SC.StableValue.copyStrict(value, {
+        maxDepth = tonumber(depth) or 8,
+        maxEntries = type(remaining) == "table" and remaining.count or 1024,
+        path = "$.infectionCrisis",
+    })
 end
 
 local function emptyDocument()
@@ -665,7 +649,19 @@ local function normalize(source)
 end
 
 function Crisis.export() return stableCopy(ensure(), 8, { count = 8192 }) end
-function Crisis.restore(source) document = normalize(source); actorRuntime = setmetatable({}, { __mode = "k" }); return true, document end
+function Crisis.restore(source)
+    if source ~= nil and (type(source) ~= "table"
+        or tonumber(source.version) ~= Crisis.VERSION
+        or type(source.crises) ~= "table" or type(source.observations) ~= "table"
+        or type(source.history) ~= "table") then
+        return false, "invalid_infection_crisis_state"
+    end
+    local stable, reason = stableCopy(source, 12, { count = 65536 })
+    if source ~= nil and stable == nil then return false, reason end
+    document = normalize(stable)
+    actorRuntime = setmetatable({}, { __mode = "k" })
+    return true, document
+end
 function Crisis.reset() document = emptyDocument(); actorRuntime = setmetatable({}, { __mode = "k" }) end
 
 Crisis.reset()

@@ -8,6 +8,7 @@ $ErrorActionPreference = 'Stop'
 $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectRoot = (Resolve-Path -LiteralPath (Join-Path $TestRoot '..\..')).Path
 $ClientRoot = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\client'
+$SharedRoot = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua\shared'
 $Jar = Join-Path $GameRoot 'projectzomboid.jar'
 $GameJava = Join-Path $GameRoot 'jre64\bin\java.exe'
 $Javac = (Get-Command javac.exe -ErrorAction Stop).Source
@@ -18,6 +19,10 @@ if (-not (Test-Path -LiteralPath $Jar) -or -not (Test-Path -LiteralPath $GameJav
 }
 
 $LuaFiles = @(
+    (Join-Path $SharedRoot 'SCCall.lua'),
+    (Join-Path $SharedRoot 'SCStableValue.lua')
+)
+$LuaFiles += @(
     'SCGameplayUtil.lua',
     'SCActionSupervisor.lua',
     'SCLocomotion.lua',
@@ -53,7 +58,7 @@ $LuaFiles = @(
     'SCCommands.lua',
     'SCFactionRecruitment.lua',
     'SCDecision.lua'
-) | ForEach-Object { Join-Path $ClientRoot $_ }
+    ) | ForEach-Object { Join-Path $ClientRoot $_ }
 $LuaFiles += Join-Path $TestRoot 'gameplay_harness.lua'
 
 New-Item -ItemType Directory -Path $BuildRoot | Out-Null

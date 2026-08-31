@@ -3,6 +3,7 @@
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
+if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 
 SC.BaseLife = SC.BaseLife or {}
 local BaseLife = SC.BaseLife
@@ -82,23 +83,11 @@ local function cleanText(value, fallback, maximum)
 end
 
 local function stableCopy(value, depth, remaining)
-    remaining = remaining or { count = 4096 }
-    if remaining.count <= 0 then return nil end
-    if type(value) == "string" or type(value) == "number" or type(value) == "boolean" then
-        remaining.count = remaining.count - 1
-        return value
-    end
-    if type(value) ~= "table" or (depth or 0) <= 0 then return nil end
-    local result = {}
-    remaining.count = remaining.count - 1
-    for key, child in pairs(value) do
-        if type(key) == "string" or type(key) == "number" then
-            local copy = stableCopy(child, depth - 1, remaining)
-            if copy ~= nil then result[key] = copy end
-            if remaining.count <= 0 then break end
-        end
-    end
-    return result
+    return SC.StableValue.copyStrict(value, {
+        maxDepth = tonumber(depth) or 8,
+        maxEntries = type(remaining) == "table" and remaining.count or 4096,
+        path = "$.baseLife",
+    })
 end
 
 local function position(value)
@@ -992,7 +981,16 @@ function BaseLife.export()
 end
 
 function BaseLife.restore(source)
-    document = normalize(source)
+    if source ~= nil and (type(source) ~= "table"
+        or tonumber(source.version) ~= BaseLife.VERSION
+        or type(source.bases) ~= "table" or type(source.residents) ~= "table"
+        or type(source.restrictions) ~= "table" or type(source.history) ~= "table") then
+        return false, "invalid_base_life_state"
+    end
+    local stable, reason = stableCopy(source, 12, { count = 65536 })
+    if source ~= nil and stable == nil then return false, reason end
+    local candidate = normalize(stable)
+    document = candidate
     draftZone, operationsCache = nil, nil
     return true, document
 end
