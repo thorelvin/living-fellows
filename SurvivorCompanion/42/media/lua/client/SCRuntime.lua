@@ -575,6 +575,9 @@ end
 function runtime.reset(detach)
     if detach ~= false then detachTick() end
     removeContainerHook()
+    if SC.ActionSupervisor ~= nil and type(SC.ActionSupervisor.reset) == "function" then
+        pcall(SC.ActionSupervisor.reset, nil, "save_boundary")
+    end
     if SC.Factions ~= nil and type(SC.Factions.reset) == "function" then pcall(SC.Factions.reset) end
     if SC.Trade ~= nil and type(SC.Trade.reset) == "function" then pcall(SC.Trade.reset) end
     if SC.FactionBehavior ~= nil and type(SC.FactionBehavior.reset) == "function" then

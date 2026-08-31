@@ -260,6 +260,22 @@ end
 function Locomotion.authorize(actor, mode, intent)
     if actor == nil or type(intent) ~= "table" then return false, "invalid_locomotion_request" end
     local phase, action = classify(mode, intent)
+    if SC.ActionSupervisor and type(SC.ActionSupervisor.movementPermission) == "function" then
+        local permitted, supervisorReason, supervisorState =
+            SC.ActionSupervisor.movementPermission(actor, action, intent)
+        if permitted ~= true and not urgent(action, intent) then
+            stopForOwnership(actor)
+            transition(actor, "interact", "supervisor",
+                supervisorState and supervisorState.action or "activity",
+                supervisorReason or "action_owned", intent)
+            append(actor, "rejected", {
+                phase = phase, owner = "locomotion", action = action,
+                status = supervisorReason or "action_owned",
+                targetSquare = intent.targetSquare, nextSquare = intent.nextSquare,
+            })
+            return false, "locomotion_" .. tostring(supervisorReason or "action_owned")
+        end
+    end
     local activityPhase, activityOwner, activityName, activityAt
     if SC.NativeActions and type(SC.NativeActions.activityStatus) == "function" then
         activityPhase, activityOwner, activityName, activityAt = SC.NativeActions.activityStatus(actor)

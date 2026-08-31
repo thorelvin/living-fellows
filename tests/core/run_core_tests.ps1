@@ -58,6 +58,7 @@ try {
         (Join-Path $Shared 'SCRegistry.lua'),
         (Join-Path $Shared 'SCVitals.lua'),
         (Join-Path $Client 'SCNativeActions.lua'),
+        (Join-Path $Client 'SCActionSupervisor.lua'),
         (Join-Path $Client 'SCBackground.lua'),
         (Join-Path $Client 'SCActor.lua'),
         (Join-Path $Client 'SCVehicle.lua'),
@@ -74,6 +75,7 @@ try {
         (Join-Path $Client 'SCCommands.lua'),
         (Join-Path $Client 'SCCombat.lua'),
         (Join-Path $Client 'SCSupport.lua'),
+        (Join-Path $TestRoot 'action_supervisor_harness.lua'),
         (Join-Path $TestRoot 'core_harness.lua')
     )
     Push-Location -LiteralPath $GameRoot

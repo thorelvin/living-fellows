@@ -8,6 +8,7 @@ require "SCRegistry"
 require "SCVitals"
 require "SCScheduler"
 require "SCNativeActions"
+require "SCActionSupervisor"
 require "SCBackground"
 require "SCActor"
 require "SCPersistence"
@@ -61,7 +62,7 @@ local bootstrap = SC.Bootstrap
 local installed = false
 
 local requiredModules = {
-    "Performance",
+    "Performance", "ActionSupervisor",
     "Background", "Dialogue", "Factions", "Trade", "FactionLife", "FactionContracts", "FactionWorld",
     "FactionBehavior", "ZombieTargeting",
     "Locomotion", "Senses", "Navigation", "Positioning", "Combat", "Medical", "Encounter",

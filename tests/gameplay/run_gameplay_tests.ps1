@@ -19,6 +19,7 @@ if (-not (Test-Path -LiteralPath $Jar) -or -not (Test-Path -LiteralPath $GameJav
 
 $LuaFiles = @(
     'SCGameplayUtil.lua',
+    'SCActionSupervisor.lua',
     'SCLocomotion.lua',
     'SCPerformance.lua',
     'SCDialogue.lua',

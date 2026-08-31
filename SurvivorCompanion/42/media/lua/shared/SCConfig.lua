@@ -40,6 +40,26 @@ local valueData = {
     disabledNoticeCooldownMs = 30000,
     maxIntentLength = 48,
 
+    -- Public reliability telemetry is deliberately bounded. The action
+    -- supervisor keeps control state in memory only; saves reconstruct work
+    -- from authoritative game state instead of serializing a partial commit.
+    actionHistoryLimit = 20,
+    actionRetryBaseMs = 1500,
+    actionRetrySecondMs = 5000,
+    actionRetryThirdMs = 15000,
+    actionRetryMaximumMs = 60000,
+    actionRetryMaxAttempts = 4,
+    actionSelectedTimeoutMs = 2500,
+    actionReservedTimeoutMs = 5000,
+    actionApproachTimeoutMs = 15000,
+    actionSettleTimeoutMs = 2500,
+    actionAnimationTimeoutMs = 12000,
+    actionCommitTimeoutMs = 1000,
+    actionVerifyTimeoutMs = 1000,
+    actionWaitingTimeoutMs = 15000,
+    actionRecoveryTimeoutMs = 15000,
+    actionPoseMaximumDisplacement = 0.25,
+
     movementIntervalMs = 100,
     combatDecisionIntervalMs = 125,
     followIntervalMs = 167,
@@ -531,6 +551,12 @@ local aliases = {
         diagnosticCooldownMs = "diagnosticCooldownMs",
         disabledNoticeCooldownMs = "disabledNoticeCooldownMs",
         maxIntentLength = "maxIntentLength",
+        actionHistoryLimit = "actionHistoryLimit",
+        actionRetryBaseMs = "actionRetryBaseMs",
+        actionRetrySecondMs = "actionRetrySecondMs",
+        actionRetryThirdMs = "actionRetryThirdMs",
+        actionRetryMaximumMs = "actionRetryMaximumMs",
+        actionRetryMaxAttempts = "actionRetryMaxAttempts",
     },
     rates = {
         movementMs = "movementIntervalMs",
