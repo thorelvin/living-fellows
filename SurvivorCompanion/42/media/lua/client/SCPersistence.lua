@@ -3,6 +3,7 @@
 require "SCNamespace"
 require "SCCall"
 require "SCStableValue"
+require "SCNativeList"
 require "SCConfig"
 require "SCRegistry"
 require "SCVitals"
@@ -89,32 +90,8 @@ local function hasEntries(value)
     return false
 end
 
-local function listSize(list)
-    if list == nil then
-        return 0
-    end
-    if type(list) == "table" then
-        if type(list.size) == "function" then
-            local ok, count = pcall(list.size, list)
-            if ok and tonumber(count) then return tonumber(count) end
-        end
-        return #list
-    end
-    local ok, count = invoke(list, "size")
-    return ok and tonumber(count) or 0
-end
-
-local function listGet(list, index)
-    if type(list) == "table" then
-        if type(list.get) == "function" then
-            local ok, value = pcall(list.get, list, index)
-            if ok then return value end
-        end
-        return list[index + 1]
-    end
-    local ok, value = invoke(list, "get", index)
-    return ok and value or nil
-end
+local listSize = SC.NativeList.size
+local listGet = SC.NativeList.get
 
 local function positionOf(actor)
     local squareOk, square = invoke(actor, "getCurrentSquare")

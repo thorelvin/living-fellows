@@ -86,7 +86,7 @@ function diagnostics.guard(subsystem, companionId, callback, ...)
         return false, "invalid callback"
     end
     if diagnostics.isDisabled(subsystem, companionId) then
-        return false, "circuit open"
+        return false, "circuit open", "circuit_skip"
     end
 
     local results = SC.Call.pack(pcall(callback, ...))
@@ -153,8 +153,9 @@ function diagnostics.snapshot()
         if circuit ~= nil then
             disabled = circuit.manual == true
                 or nowMs() < (tonumber(circuit.retryAt) or math.huge)
-            if not disabled and circuit.manual ~= true then circuit.state = "half_open" end
         end
+        local state = circuit and circuit.state or "closed"
+        if circuit ~= nil and not disabled and circuit.manual ~= true then state = "half_open" end
         copy[key] = {
             count = entry.count,
             lastMessage = entry.lastMessage,
@@ -163,7 +164,7 @@ function diagnostics.snapshot()
             consecutiveFailures = entry.consecutiveFailures or 0,
             recoveries = entry.recoveries or 0,
             lastRecoveredAt = entry.lastRecoveredAt,
-            state = circuit and circuit.state or "closed",
+            state = state,
             disabled = disabled,
             retryAt = circuit and circuit.retryAt or nil,
             manual = circuit and circuit.manual == true or false,

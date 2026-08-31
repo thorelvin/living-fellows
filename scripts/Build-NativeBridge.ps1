@@ -27,6 +27,10 @@ $javacCandidates = @(
     'C:\Program Files\Java\jdk-17\bin\javac.exe'
 )
 $javac = $javacCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
+if (-not $javac) {
+    $command = Get-Command javac.exe -ErrorAction SilentlyContinue
+    if ($command) { $javac = $command.Source }
+}
 if (-not $javac) { throw 'A Java 17+ JDK with javac.exe is required to build the native bridge.' }
 $jar = Join-Path (Split-Path -Parent $javac) 'jar.exe'
 if (-not (Test-Path -LiteralPath $jar -PathType Leaf)) { throw "jar.exe was not found beside $javac" }

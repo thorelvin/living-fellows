@@ -25,6 +25,59 @@ do
     SC.Scheduler.tick()
     check(order[1] == "critical" and order[2] == "background",
         "scheduler always runs combat/survival lanes before background work")
+    check(SC.Scheduler.register("bad-lane", 1, 1, function() end,
+            { lane = "urgent-ish" }) == false,
+        "scheduler rejects undocumented lane names")
+
+    local firstCallback = function() end
+    SC.Scheduler.register("replace-test", 10, 10, firstCallback, { lane = "normal" })
+    clock = clock + 10
+    SC.Scheduler.tick()
+    local dueBefore
+    for _, task in ipairs(SC.Scheduler.getStats().tasks) do
+        if task.name == "replace-test" then dueBefore = task.nextDue end
+    end
+    SC.Scheduler.register("replace-test", 100, 10, function() end, { lane = "normal" })
+    local dueAfter
+    for _, task in ipairs(SC.Scheduler.getStats().tasks) do
+        if task.name == "replace-test" then dueAfter = task.nextDue end
+    end
+    check(dueBefore ~= nil and dueAfter == nil,
+        "re-registering changed scheduling parameters resets stale nextDue")
+end
+
+do
+    SC.Scheduler.reset(true)
+    SC.Diagnostics.reset()
+    SC.Diagnostics.disable("skip-task", nil, "fixture circuit")
+    SC.Scheduler.register("skip-task", 1, 80, function() error("must not run") end,
+        { lane = "critical" })
+    SC.Scheduler.register("reported-task", 1, 70,
+        function() return false, "reported failure" end,
+        { lane = "critical", reportFailure = true })
+    SC.Scheduler.register("exception-task", 1, 60,
+        function() error("fixture exception") end, { lane = "critical" })
+    SC.Scheduler.tick()
+    clock = clock + 1
+    SC.Scheduler.tick()
+    local schedulerStats = SC.Scheduler.getStats()
+    check(schedulerStats.circuitSkips == 1 and schedulerStats.exceptions == 1
+            and schedulerStats.reportedFailures == 1,
+        "scheduler separates circuit skips, exceptions, and reported failures")
+
+    SC.Diagnostics.reset()
+    SC_TEST_CLOCK = 1000
+    for _ = 1, 3 do
+        SC.Diagnostics.guard("snapshot-test", nil, function() error("fixture") end)
+    end
+    SC_TEST_CLOCK = 40000
+    local afterExpiry = SC.Diagnostics.snapshot()["snapshot-test:global"]
+    SC_TEST_CLOCK = 2000
+    local beforeExpiry = SC.Diagnostics.snapshot()["snapshot-test:global"]
+    check(afterExpiry.state == "half_open" and beforeExpiry.state == "open",
+        "diagnostic snapshot derives half-open state without mutating the circuit")
+    SC.Diagnostics.reset()
+    SC_TEST_CLOCK = 1000
 end
 
 for _, companionCount in ipairs({ 1, 4, 8, 16 }) do
@@ -92,6 +145,23 @@ check(SC.Performance.cacheGet("test", "square", clock + 50) == "cached",
     "short-lived shared cache returns fresh data")
 check(SC.Performance.cacheGet("test", "square", clock + 100) == nil,
     "short-lived shared cache expires stale data")
+
+SC.Performance.reset()
+local namespaceLimit = SC.Config.get("performanceCacheNamespaceLimit")
+local totalLimit = SC.Config.get("performanceCacheTotalLimit")
+for index = 1, totalLimit * 3 do
+    SC.Performance.cachePut("perception-square", "dynamic:" .. tostring(index), index,
+        10, clock)
+end
+local cacheStats = SC.Performance.cacheStats()
+check(cacheStats.entries <= totalLimit
+        and cacheStats.namespaces["perception-square"] <= namespaceLimit
+        and cacheStats.evictions > 0,
+    "dynamic perception-square cache stays within namespace and total caps")
+SC.Performance.sweepCache(clock + 1000, totalLimit * 4)
+cacheStats = SC.Performance.cacheStats()
+check(cacheStats.entries == 0 and cacheStats.expired > 0,
+    "bounded incremental sweep removes expired dynamic cache entries")
 
 SC.Performance._setClock(nil)
 SC.Scheduler._setClock(nil)

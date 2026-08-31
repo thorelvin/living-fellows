@@ -257,6 +257,11 @@ function provider:recover(candidate, targetSquare)
     return true
 end
 check(SC.Actor._setProviderForTests(provider), "real Actor adapter accepts explicit test provider")
+SC_TEST_EXPERIMENTAL_STATUS = SC.Actor.bridgeStatus(false)
+check(SC_TEST_EXPERIMENTAL_STATUS.ready == true
+        and SC_TEST_EXPERIMENTAL_STATUS.provider == SC.Identity.providers.experimental
+        and SC_TEST_EXPERIMENTAL_STATUS.code == "experimental_provider",
+    "canonical experimental provider kind reaches its intended support status")
 
 local neutralActor = setmetatable({
     __owned = true,

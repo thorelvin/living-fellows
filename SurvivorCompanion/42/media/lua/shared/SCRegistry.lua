@@ -3,6 +3,7 @@
 require "SCNamespace"
 require "SCConfig"
 require "SCStableValue"
+require "SCTransaction"
 
 local SC = SurvivorCompanion
 SC.Registry = SC.Registry or {}
@@ -327,22 +328,26 @@ function registry.register(actor, record)
         committed.runtime.debugDiscovered = record.debugDiscovered == true
     end
 
-    local ok, assignmentError = pcall(function()
+    local ok, assignmentError, rollbackError = SC.Transaction.run(function()
         data.SC_Id = id
         data.SC_FactionId = factionId
         data.SC_FactionRole = factionRole
         recordsById[id] = committed
         idsByActor[actor] = id
-    end)
-    if not ok then
+        return true
+    end, function()
         recordsById[id] = nil
         idsByActor[actor] = nil
         local restored, rollbackReason = restoreIdentityFields(data, identitySnapshot)
-        if not restored then
-            return nil, "registry commit failed: " .. tostring(assignmentError)
-                .. "; registry rollback failed: " .. tostring(rollbackReason)
+        if not restored then return false, rollbackReason end
+        return true
+    end)
+    if not ok then
+        local reason = "registry commit failed: " .. tostring(assignmentError)
+        if rollbackError ~= nil then
+            reason = reason .. "; registry rollback failed: " .. tostring(rollbackError)
         end
-        return nil, "registry commit failed: " .. tostring(assignmentError)
+        return nil, reason
     end
     return committed
 end

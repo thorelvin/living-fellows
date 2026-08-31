@@ -1,5 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
+if type(require) == "function" then pcall(require, "SCNativeList") end
+
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 
@@ -194,7 +196,7 @@ local fallbackValues = {
     dangerSignalMaxDistance = 10,
     dangerSignalImmediateRadius = 4,
     diagnosticCooldownMs = 10000,
-    circuitBreakerFailures = 3,
+    circuitBreakerErrors = 3,
     circuitBreakerResetMs = 30000,
     maxCompanions = 16,
 }
@@ -408,7 +410,7 @@ function U.safeSubsystem(subsystem, actor, callback)
     end
     circuit.failures = circuit.failures + 1
     U.diagnostic(subsystem, actor, a)
-    if circuit.failures >= (U.config("circuitBreakerFailures") or 3) then
+    if circuit.failures >= (U.config("circuitBreakerErrors") or 3) then
         circuit.disabledUntil = now + (U.config("circuitBreakerResetMs") or 30000)
         circuit.failures = 0
     end
@@ -491,19 +493,12 @@ function U.loadedSquare(target)
 end
 
 function U.listSize(list)
-    if list == nil then return 0 end
-    if type(list) == "table" then return #list end
-    local size, ok = U.call(list, "size")
-    if ok and type(size) == "number" then return size end
-    return 0
+    return SC.NativeList.size(list)
 end
 
 function U.listGet(list, index)
-    if list == nil then return nil end
-    if type(list) == "table" then return list[index + 1] end
-    local value, ok = U.call(list, "get", index)
-    if ok then return value end
-    return nil
+    local value = SC.NativeList.get(list, index)
+    return value
 end
 
 function U.each(list, limit, callback)

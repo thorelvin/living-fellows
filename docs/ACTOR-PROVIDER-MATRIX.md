@@ -4,7 +4,7 @@
 
 | Candidate | Kahlua/loader result | Native components | Update result | Decision |
 |---|---|---|---|---|
-| ZombieBuddy-loaded `SCBridge` class | ZombieBuddy loads the declared JAR/package and exposes the owned bridge to Kahlua. Living Fellows pins ZombieBuddy 2.3.3+ and bridge protocol `42.20-isocompanion-4`. | Full native companion components | Supported single-player launch path with fail-closed health checks | Production provider |
+| Owned `SCLauncher` native bridge | The transactional installer adds the owned bridge JAR to the launcher classpath and exposes only `SCBridge` to Kahlua. Living Fellows pins bridge protocol `42.20-isocompanion-5` and validates the exact Build 42.20.4 private-method contract before spawning. | Full native companion components | Supported single-player launch path with fail-closed health and cleanup checks | Production provider |
 | Stock `IsoSurvivor.new` / `SurvivorFactory` | Exposed to Kahlua | BodyDamage, Moodles, XP and emitter are null; HumanVisual access fails | Unsafe shell | Rejected |
 | Custom `IsoLivingCharacter` | Requires unsupported custom class loading | Some components can be initialized | Native Moodles update casts to `IsoPlayer` | Rejected |
 | javaagent-modified `IsoSurvivor` | Manual JVM argument and game-class instrumentation required | Prototype only | Spawn/update gate incomplete | Rejected; never packaged |

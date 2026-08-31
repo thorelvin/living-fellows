@@ -117,12 +117,15 @@ require('U.call(item, "getTags")' in gameplay_util
         "Build 42 item-tag lookup can regress to the pool-corrupting hasTag(String) call")
 
 actor = (CLIENT / "SCActor.lua").read_text(encoding="utf-8")
-require('kind = "iso-companion"' in actor and 'globalValue("SCBridge")' in actor
-        and 'expectedNativeProtocol = "42.20-isocompanion-5"' in actor,
+namespace = (SHARED / "SCNamespace.lua").read_text(encoding="utf-8")
+require('native = "iso-companion"' in namespace and 'globalValue("SCBridge")' in actor
+        and "expectedNativeProtocol = SC.Identity.bridgeProtocol" in actor
+        and "kind = providerKinds.native" in actor,
         "version-pinned native IsoCompanion provider boundary is missing")
 for token in ("requestSpawn", "pollSpawn", "beginSpawn", "spawn_pending"):
     require(token in actor, f"deferred native spawn contract missing: {token}")
-require('kind = "experimental-npc-player"' in actor and "directNative = true" in actor,
+require('experimental = "experimental-npc-player"' in namespace
+        and "kind = providerKinds.experimental" in actor and "directNative = true" in actor,
         "disabled emergency fallback boundary is missing")
 require("isExistInTheWorld" in actor and "native removal postcondition failed" in actor
         and "quarantineRecord" in actor,

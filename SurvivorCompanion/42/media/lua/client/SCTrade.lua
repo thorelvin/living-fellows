@@ -1,5 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
+if type(require) == "function" then pcall(require, "SCNativeList") end
+
 local SC = SurvivorCompanion
 SC.Trade = SC.Trade or {}
 
@@ -24,17 +26,8 @@ local function invoke(object, methodName, ...)
     return called, value, b, c
 end
 
-local function listSize(list)
-    if type(list) == "table" then return #list end
-    local ok, size = invoke(list, "size")
-    return ok and tonumber(size) or 0
-end
-
-local function listGet(list, index)
-    if type(list) == "table" then return list[index + 1] end
-    local ok, value = invoke(list, "get", index)
-    return ok and value or nil
-end
+local listSize = SC.NativeList.size
+local listGet = SC.NativeList.get
 
 local function fullType(item)
     local ok, value = invoke(item, "getFullType")

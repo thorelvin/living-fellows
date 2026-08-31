@@ -1,8 +1,11 @@
 -- SPDX-License-Identifier: MIT
 
-require "SCBaseLife"
-require "BuildingObjects/TimedActions/ISBuildAction"
-require "TimedActions/ISTimedActionQueue"
+if type(require) == "function" then
+    pcall(require, "SCBaseLife")
+    pcall(require, "SCNativeList")
+    pcall(require, "BuildingObjects/TimedActions/ISBuildAction")
+    pcall(require, "TimedActions/ISTimedActionQueue")
+end
 
 -- Build 42 defines ISBuildIsoEntity in the vanilla server script set and
 -- publishes the global into single-player before world actions run. A client
@@ -38,18 +41,8 @@ local function invoke(object, name, ...)
     return U().call(object, name, ...)
 end
 
-local function listSize(value)
-    if value == nil then return 0 end
-    if type(value) == "table" then return #value end
-    local size, ok = invoke(value, "size")
-    return ok and tonumber(size) or 0
-end
-
-local function listGet(value, index)
-    if type(value) == "table" then return value[index + 1] end
-    local child, ok = invoke(value, "get", index)
-    return ok and child or nil
-end
+local listSize = SC.NativeList.size
+local listGet = SC.NativeList.get
 
 local function stateFor(actor)
     local state = states[actor]

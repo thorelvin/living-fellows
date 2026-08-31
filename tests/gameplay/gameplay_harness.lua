@@ -5508,6 +5508,38 @@ local socialDocument = Factions.export()
 local exportedSocialGroup = socialDocument.groups["faction-test"]
 check(Life.validate(exportedSocialGroup) and Contracts.validate(exportedSocialGroup),
     "exported faction life and social-contract documents pass their bounded validators")
+do
+    local priorGet = SurvivorCompanion.Config.get
+    local limits = {
+        factionContractHistoryLimit = 3,
+        factionContractMemoryLimit = 4,
+        factionContractPromiseLimit = 2,
+        factionNotificationLimit = 3,
+        factionNotificationFlagLimit = 5,
+    }
+    SurvivorCompanion.Config.get = function(key)
+        if limits[key] ~= nil then return limits[key] end
+        return priorGet(key)
+    end
+    local social = exportedSocialGroup.social
+    social.contract.history, social.memories, social.promises = {}, {}, {}
+    social.notifications, social.notificationFlagOrder, social.notificationFlags = {}, {}, {}
+    for index = 1, 3 do social.contract.history[index] = { id = "history-" .. index } end
+    for index = 1, 4 do social.memories[index] = { detail = "memory-" .. index } end
+    for index = 1, 2 do social.promises[index] = { id = "promise-" .. index } end
+    for index = 1, 3 do social.notifications[index] = { message = "notice-" .. index } end
+    for index = 1, 5 do
+        social.notificationFlagOrder[index] = "flag-" .. index
+        social.notificationFlags["flag-" .. index] = true
+    end
+    check(Contracts.validateConfiguration() and Contracts.validate(exportedSocialGroup),
+        "faction validator accepts the exact configured writer limits")
+    social.promises[3] = { id = "one-over" }
+    check(not Contracts.validate(exportedSocialGroup),
+        "faction validator rejects one entry beyond the configured promise limit")
+    social.promises[3] = nil
+    SurvivorCompanion.Config.get = priorGet
+end
 local socialRestored, socialCount = Factions.restore(socialDocument)
 local socialRestoredSummary = Factions.summary("faction-test")
 check(socialRestored and socialCount == 1 and socialRestoredSummary

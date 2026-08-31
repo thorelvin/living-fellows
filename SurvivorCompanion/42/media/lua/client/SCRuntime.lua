@@ -360,7 +360,12 @@ local function restoreTask()
 end
 
 local function saveTask()
-    SC.Persistence.save(player())
+    local saved, reason = SC.Persistence.save(player())
+    if saved ~= true then
+        SC.Diagnostics.report("persistence", nil,
+            "scheduled save reported failure", reason)
+    end
+    return saved, reason
 end
 
 local function spawnCompletionTask(current)
@@ -450,11 +455,13 @@ local function registerTasks()
         { "community", SC.Config.get("communityPulseIntervalMs"), 17,
             communityTask, "background" },
         { "persistence", SC.Config.get("persistenceIntervalMs"), 10,
-            saveTask, "background" },
+            saveTask, "background", true },
     }
     for _, definition in ipairs(definitions) do
         local called, ok, reason = pcall(SC.Scheduler.register, definition[1],
-            definition[2], definition[3], definition[4], { lane = definition[5] })
+            definition[2], definition[3], definition[4], {
+                lane = definition[5], reportFailure = definition[6] == true,
+            })
         if not called or ok ~= true then
             SC.Scheduler.reset(true)
             tasksRegistered = false

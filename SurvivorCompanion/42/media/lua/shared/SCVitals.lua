@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 require "SCNamespace"
+require "SCNativeList"
 
 local SC = SurvivorCompanion
 SC.Vitals = SC.Vitals or {}
@@ -117,9 +118,9 @@ function vitals.capture(actor)
 
     local parts = invoke(body, "getBodyParts", nil)
     if parts ~= nil and type(parts.size) == "function" and type(parts.get) == "function" then
-        local count = math.min(32, tonumber(parts:size()) or 0)
+        local count = math.min(32, SC.NativeList.size(parts))
         for index = 0, count - 1 do
-            local part = parts:get(index)
+            local part = SC.NativeList.get(parts, index)
             if part ~= nil then
                 result.parts[#result.parts + 1] = capturePart(part)
             end
@@ -181,9 +182,9 @@ function vitals.apply(actor, saved)
     local byType = {}
     if currentParts ~= nil and type(currentParts.size) == "function"
         and type(currentParts.get) == "function" then
-        local count = math.min(32, tonumber(currentParts:size()) or 0)
+        local count = math.min(32, SC.NativeList.size(currentParts))
         for index = 0, count - 1 do
-            local part = currentParts:get(index)
+            local part = SC.NativeList.get(currentParts, index)
             byType[tostring(invoke(part, "getType", "unknown"))] = part
         end
     end

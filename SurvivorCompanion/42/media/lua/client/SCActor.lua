@@ -19,7 +19,8 @@ local experimentalOwned = setmetatable({}, { __mode = "k" })
 local experimentalDisabledReason = nil
 local nativeOwned = setmetatable({}, { __mode = "k" })
 local spawnTickets = setmetatable({}, { __mode = "k" })
-local expectedNativeProtocol = "42.20-isocompanion-5"
+local expectedNativeProtocol = SC.Identity.bridgeProtocol
+local providerKinds = SC.Identity.providers
 
 local function method(object, name)
     if object == nil then
@@ -220,7 +221,7 @@ local function experimentalProvider()
     end
 
     local provider = {
-        kind = "experimental-npc-player",
+        kind = providerKinds.experimental,
         directNative = true,
     }
 
@@ -354,7 +355,7 @@ local function nativeBridgeProvider()
     end
 
     local provider = {
-        kind = "iso-companion",
+        kind = providerKinds.native,
         directNative = true,
     }
 
@@ -542,9 +543,9 @@ function actorService.bridgeStatus(force)
         return status
     end
     if ready == true then
-        if status.provider == "experimental-isoplayer" then
+        if status.provider == providerKinds.experimental then
             status.code = "experimental_provider"
-        elseif status.provider == "test" then
+        elseif status.provider == providerKinds.test then
             status.code = "test_provider"
         end
         return status

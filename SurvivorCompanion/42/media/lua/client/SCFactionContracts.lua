@@ -57,6 +57,20 @@ local function clamp(value, minimum, maximum)
     return math.max(minimum, math.min(maximum, tonumber(value) or minimum))
 end
 
+local function configuredLimit(key, fallback, maximum)
+    local value = tonumber(SC.Config.get(key))
+    if value == nil or value ~= value or value == math.huge or value == -math.huge then
+        return fallback
+    end
+    return math.max(1, math.min(maximum or 4096, math.floor(value)))
+end
+
+local function localPlayer()
+    if type(getPlayer) ~= "function" then return nil end
+    local ok, value = pcall(getPlayer)
+    return ok and value or nil
+end
+
 local function appendBounded(rows, value, maximum)
     rows[#rows + 1] = value
     while #rows > maximum do table.remove(rows, 1) end
@@ -154,7 +168,7 @@ local function addMemory(group, kind, detail, memberKey)
     appendBounded(social.memories, {
         hour = worldHour(), day = worldDay(), kind = kind,
         detail = tostring(detail or ""), memberKey = memberKey,
-    }, tonumber(SC.Config.get("factionContractMemoryLimit")) or 64)
+    }, configuredLimit("factionContractMemoryLimit", 64))
 end
 
 local function notify(group, player, kind, message, onceKey)
@@ -169,7 +183,8 @@ local function notify(group, player, kind, message, onceKey)
     if onceKey then
         social.notificationFlags[onceKey] = true
         social.notificationFlagOrder[#social.notificationFlagOrder + 1] = onceKey
-        while #social.notificationFlagOrder > 96 do
+        while #social.notificationFlagOrder
+            > configuredLimit("factionNotificationFlagLimit", 96) do
             local removed = table.remove(social.notificationFlagOrder, 1)
             social.notificationFlags[removed] = nil
         end
@@ -180,11 +195,9 @@ local function notify(group, player, kind, message, onceKey)
         message = tostring(message or "Contract updated."),
     }
     social.notificationSerial = row.serial
-    appendBounded(social.notifications, row, 24)
-    if player == nil and type(getPlayer) == "function" then
-        local ok, value = pcall(getPlayer)
-        if ok then player = value end
-    end
+    appendBounded(social.notifications, row,
+        configuredLimit("factionNotificationLimit", 24))
+    if player == nil then player = localPlayer() end
     if player then U().call(player, "setHaloNote", row.message, 238, 196, 82, 300) end
     return true
 end
@@ -194,7 +207,7 @@ local function addPromise(group, contract, status)
         id = contract.id, kind = contract.kind, status = status,
         madeHour = contract.acceptedHour, deadlineHour = contract.deadlineHour,
         resolvedHour = status ~= "active" and worldHour() or nil,
-    }, 24)
+    }, configuredLimit("factionContractPromiseLimit", 24))
 end
 
 local function relationNames(group, relation)
@@ -681,10 +694,7 @@ function Contracts.progress(groupOrId, player, scanThreat)
             and result.kills >= result.requiredKills and result.remainingThreats == 0
         return result
     end
-    if player == nil and type(getPlayer) == "function" then
-        local ok, value = pcall(getPlayer)
-        if ok then player = value end
-    end
+    if player == nil then player = localPlayer() end
     if player and SC.Trade and type(SC.Trade.previewRequirements) == "function" then
         local rows, ready, reason = SC.Trade.previewRequirements(player,
             contract.requirements, false)
@@ -769,13 +779,13 @@ local function completeContract(group, contract, forced)
         end
     end
     appendBounded(social.contract.history, copy(contract, 6, { count = 512 }),
-        tonumber(SC.Config.get("factionContractHistoryLimit")) or 32)
+        configuredLimit("factionContractHistoryLimit", 32))
     social.contract.active = nil
     social.contract.cooldownUntilHour = worldHour()
         + (tonumber(SC.Config.get("factionContractCooldownHours")) or 24)
     if contract.reward.rumour and SC.FactionLife and type(SC.FactionLife.shareRumour) == "function"
         and forced ~= true then
-        local player = type(getPlayer) == "function" and getPlayer() or nil
+        local player = localPlayer()
         if player then pcall(SC.FactionLife.shareRumour, group, player, false) end
     end
     return true, contract.outcome
@@ -836,7 +846,7 @@ function Contracts.withdraw(groupOrId, player, forced)
     contract.status, contract.failedHour, contract.outcome = "failed", worldHour(), "promise_withdrawn"
     closeContractMarker(contract, "withdrawn")
     appendBounded(social.contract.history, copy(contract, 6, { count = 512 }),
-        tonumber(SC.Config.get("factionContractHistoryLimit")) or 32)
+        configuredLimit("factionContractHistoryLimit", 32))
     social.contract.active = nil
     social.contract.cooldownUntilHour = worldHour()
         + (tonumber(SC.Config.get("factionContractCooldownHours")) or 24)
@@ -968,7 +978,7 @@ local function closeContractWithoutBlame(group, contract, outcome, message)
     contract.status, contract.failedHour, contract.outcome = "failed", worldHour(), outcome
     closeContractMarker(contract, outcome)
     appendBounded(group.social.contract.history, copy(contract, 6, { count = 512 }),
-        tonumber(SC.Config.get("factionContractHistoryLimit")) or 32)
+        configuredLimit("factionContractHistoryLimit", 32))
     for index = #(group.social.promises or {}), 1, -1 do
         local promise = group.social.promises[index]
         if promise.id == contract.id and promise.status == "active" then
@@ -1030,7 +1040,7 @@ local function failExpiredContract(group, contract)
     closeContractMarker(contract, "expired")
     local social = group.social
     appendBounded(social.contract.history, copy(contract, 6, { count = 512 }),
-        tonumber(SC.Config.get("factionContractHistoryLimit")) or 32)
+        configuredLimit("factionContractHistoryLimit", 32))
     social.contract.active = nil
     social.contract.cooldownUntilHour = worldHour()
         + (tonumber(SC.Config.get("factionContractCooldownHours")) or 24)
@@ -1095,7 +1105,7 @@ end
 function Contracts.onZombieDead(zombie)
     if zombie == nil then return end
     local attacker, attackerOk = U().call(zombie, "getAttackedBy")
-    local player = type(getPlayer) == "function" and getPlayer() or nil
+    local player = localPlayer()
     if not attackerOk or attacker ~= player then return end
     for _, group in ipairs(SC.Factions and SC.Factions.list(false) or {}) do
         local active = group.social and group.social.contract and group.social.contract.active or nil
@@ -1115,6 +1125,8 @@ end
 
 function Contracts.installHooks()
     if zombieHookInstalled then return true end
+    local configured, configuredReason = Contracts.validateConfiguration()
+    if not configured then return false, configuredReason end
     if type(Events) ~= "table" or not Events.OnZombieDead
         or type(Events.OnZombieDead.Add) ~= "function" then
         return false, "OnZombieDead event is unavailable"
@@ -1211,7 +1223,7 @@ function Contracts.summary(groupOrId)
     local current = active or offer
     local response = social.dialogue.lastResponse
     local contact = social.privateContact
-    local player = type(getPlayer) == "function" and getPlayer() or nil
+    local player = localPlayer()
     local progress = current and Contracts.progress(group, player, false) or nil
     local reserves = SC.Trade and type(SC.Trade.reserveSummary) == "function"
         and SC.Trade.reserveSummary(group) or nil
@@ -1312,10 +1324,14 @@ function Contracts.validate(group)
         or type(social.dialogue) ~= "table" or type(social.trade) ~= "table"
         or type(social.notifications) ~= "table" or type(social.notificationFlags) ~= "table"
         or type(social.notificationFlagOrder) ~= "table"
-        or #social.contract.history > 32 or #social.memories > 64 or #social.promises > 24 then
+        or #social.contract.history > configuredLimit("factionContractHistoryLimit", 32)
+        or #social.memories > configuredLimit("factionContractMemoryLimit", 64)
+        or #social.promises > configuredLimit("factionContractPromiseLimit", 24) then
         return false
     end
-    if #social.notifications > 24 or #social.notificationFlagOrder > 96 then return false end
+    if #social.notifications > configuredLimit("factionNotificationLimit", 24)
+        or #social.notificationFlagOrder
+            > configuredLimit("factionNotificationFlagLimit", 96) then return false end
     if not accessStates[social.access.state] then return false end
     local active, offer = social.contract.active, social.contract.offer
     if active and (not contractKinds[active.kind] or active.status ~= "active") then return false end
@@ -1327,6 +1343,23 @@ function Contracts.validate(group)
                 or #contract.requirements > 8))
             or (contract.kind == "local_threat" and type(contract.target) ~= "table")) then
             return false
+        end
+    end
+    return true
+end
+
+function Contracts.validateConfiguration()
+    for _, spec in ipairs({
+        { "factionContractHistoryLimit", 32 },
+        { "factionContractMemoryLimit", 64 },
+        { "factionContractPromiseLimit", 24 },
+        { "factionNotificationLimit", 24 },
+        { "factionNotificationFlagLimit", 96 },
+    }) do
+        local raw = tonumber(SC.Config.get(spec[1]))
+        if raw == nil or raw ~= raw or raw == math.huge or raw == -math.huge
+            or raw < 1 or raw > 4096 or raw ~= math.floor(raw) then
+            return false, "invalid faction limit: " .. spec[1]
         end
     end
     return true

@@ -12,13 +12,14 @@ local scheduler = SC.Scheduler
 local tasksByName = {}
 local ordered = {}
 local actorClocks = {}
-local cursor = 1
 local clockOverride = nil
 local stats = {
     frames = 0,
     callbacks = 0,
     deferredFrames = 0,
     exceptions = 0,
+    circuitSkips = 0,
+    reportedFailures = 0,
     lastFrameMs = 0,
     overBudgetFrames = 0,
 }
@@ -46,9 +47,6 @@ local function rebuildOrder()
         end
         return a.priority > b.priority
     end)
-    if cursor > #ordered then
-        cursor = 1
-    end
 end
 
 local function stableHash(text)
@@ -82,14 +80,26 @@ function scheduler.register(name, interval, priority, callback, options)
 
     options = type(options) == "table" and options or {}
     local existing = tasksByName[name]
+    local lane = options.lane or (existing and existing.lane) or inferredLane(priority)
+    local validLanes = { critical = true, high = true, normal = true, background = true }
+    if validLanes[lane] ~= true then
+        return false, "scheduler lane must be critical, high, normal, or background"
+    end
+    local unchanged = existing ~= nil and existing.interval == math.floor(interval)
+        and existing.priority == priority and existing.callback == callback
+        and existing.lane == lane
+    local keepSchedule = existing ~= nil
+        and (options.preserveSchedule == true or unchanged)
     tasksByName[name] = {
         name = name,
         interval = math.floor(interval),
         priority = priority,
         callback = callback,
-        nextDue = existing and existing.nextDue or nil,
+        nextDue = keepSchedule and existing.nextDue or nil,
         runs = existing and existing.runs or 0,
-        lane = options.lane or (existing and existing.lane) or inferredLane(priority),
+        lane = lane,
+        reportFailure = options.reportFailure == nil and existing ~= nil
+            and existing.reportFailure == true or options.reportFailure == true,
     }
     rebuildOrder()
     return true
@@ -168,7 +178,8 @@ function scheduler.tick()
             break
         end
         local callbackStarted = nowMs()
-        local ok = SC.Diagnostics.guard(task.name, nil, task.callback, current, budget - (current - started))
+        local ok, result, detail = SC.Diagnostics.guard(task.name, nil,
+            task.callback, current, budget - (current - started))
         local callbackElapsed = math.max(0, nowMs() - callbackStarted)
         if SC.Performance and type(SC.Performance.record) == "function" then
             SC.Performance.record("scheduler." .. task.name, nil, callbackElapsed)
@@ -176,15 +187,21 @@ function scheduler.tick()
         task.runs = task.runs + 1
         stats.callbacks = stats.callbacks + 1
         if not ok then
-            stats.exceptions = stats.exceptions + 1
+            if detail == "circuit_skip" then
+                stats.circuitSkips = stats.circuitSkips + 1
+            else
+                stats.exceptions = stats.exceptions + 1
+            end
+        elseif task.reportFailure and result == false then
+            stats.reportedFailures = stats.reportedFailures + 1
+            SC.Diagnostics.report(task.name, nil,
+                "scheduled callback reported failure", detail)
         end
         current = nowMs()
         local scale = SC.Performance and type(SC.Performance.intervalScale) == "function"
             and SC.Performance.intervalScale(task.lane) or 1
         task.nextDue = current + math.max(1, math.floor(task.interval * scale))
-        cursor = runnableIndex + 1
     end
-    if cursor > #ordered then cursor = 1 end
     stats.lastFrameMs = nowMs() - started
     if stats.lastFrameMs > budget then stats.overBudgetFrames = stats.overBudgetFrames + 1 end
     if SC.Performance and type(SC.Performance.endFrame) == "function" then
@@ -194,11 +211,12 @@ end
 
 function scheduler.reset(clearTasks)
     actorClocks = {}
-    cursor = 1
     stats.frames = 0
     stats.callbacks = 0
     stats.deferredFrames = 0
     stats.exceptions = 0
+    stats.circuitSkips = 0
+    stats.reportedFailures = 0
     stats.lastFrameMs = 0
     stats.overBudgetFrames = 0
     if clearTasks then
@@ -231,6 +249,8 @@ function scheduler.getStats()
         callbacks = stats.callbacks,
         deferredFrames = stats.deferredFrames,
         exceptions = stats.exceptions,
+        circuitSkips = stats.circuitSkips,
+        reportedFailures = stats.reportedFailures,
         lastFrameMs = stats.lastFrameMs,
         overBudgetFrames = stats.overBudgetFrames,
         taskCount = #ordered,

@@ -18,6 +18,11 @@ SC.Identity = SC.Identity or {
     -- documents can be migrated in place by SCPersistence.
     saveSchema = 2,
 }
+SC.Identity.providers = {
+    native = "iso-companion",
+    experimental = "experimental-npc-player",
+    test = "test",
+}
 
 SC.Modules = SC.Modules or {}
 SC.State = SC.State or {

@@ -1,0 +1,22 @@
+name: Real Project Zomboid compatibility
+
+on:
+  workflow_dispatch:
+    inputs:
+      gameRoot:
+        description: Absolute Project Zomboid 42.20.4 installation path on the trusted runner
+        required: true
+        default: 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid'
+
+permissions:
+  contents: read
+
+jobs:
+  real-jar:
+    runs-on: [self-hosted, Windows, living-fellows-pz]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run real-JAR and packaging gates
+        shell: pwsh
+        run: ./scripts/Test-Project.ps1 -GameRoot '${{ inputs.gameRoot }}'

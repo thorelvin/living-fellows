@@ -54,6 +54,8 @@ try {
         (Join-Path $Shared 'SCNamespace.lua'),
         (Join-Path $Shared 'SCCall.lua'),
         (Join-Path $Shared 'SCStableValue.lua'),
+        (Join-Path $Shared 'SCTransaction.lua'),
+        (Join-Path $Shared 'SCNativeList.lua'),
         (Join-Path $Shared 'SCConfig.lua'),
         (Join-Path $Shared 'SCDiagnostics.lua'),
         (Join-Path $Shared 'SCNet.lua'),
@@ -108,6 +110,29 @@ try {
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @runtimeHookFiles
         if ($LASTEXITCODE -ne 0) { throw 'Runtime container-hook ownership harness failed.' }
 
+        $configReloadFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $TestRoot 'config_reload_before.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $TestRoot 'config_reload_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @configReloadFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Configuration hot-reload harness failed.' }
+
+        $sharedPrimitiveFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCTransaction.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'),
+            (Join-Path $TestRoot 'shared_primitives_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @sharedPrimitiveFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Shared safety primitive harness failed.' }
+
         $bootstrapLifecycleFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),
@@ -124,6 +149,7 @@ try {
             (Join-Path $Shared 'SCNamespace.lua'),
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCStableValue.lua'),
+            (Join-Path $Shared 'SCTransaction.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
             (Join-Path $Shared 'SCDiagnostics.lua'),
             (Join-Path $Shared 'SCRegistry.lua'),
@@ -140,6 +166,7 @@ try {
             (Join-Path $PrivateLua 'shared\SCNamespace.lua'),
             (Join-Path $PrivateLua 'shared\SCCall.lua'),
             (Join-Path $PrivateLua 'shared\SCStableValue.lua'),
+            (Join-Path $PrivateLua 'shared\SCTransaction.lua'),
             (Join-Path $PrivateLua 'shared\SCConfig.lua'),
             (Join-Path $PrivateLua 'shared\SCDiagnostics.lua'),
             (Join-Path $PrivateLua 'shared\SCRegistry.lua'),
@@ -193,6 +220,8 @@ try {
 
     & $Python (Join-Path $TestRoot 'test_core_static.py')
     if ($LASTEXITCODE -ne 0) { throw 'Core static tests failed.' }
+    & $Python (Join-Path $ProjectRoot 'tests\source\test_release_sync.py')
+    if ($LASTEXITCODE -ne 0) { throw 'Release constants/documentation synchronization failed.' }
     & (Join-Path $TestRoot 'test_installer.ps1') -ProjectRoot $ProjectRoot
 }
 finally {

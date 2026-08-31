@@ -3,6 +3,7 @@
 local SC = SurvivorCompanion
 if not SC.Performance and type(require) == "function" then pcall(require, "SCPerformance") end
 if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
+if not SC.NativeList and type(require) == "function" then pcall(require, "SCNativeList") end
 SC.Factions = SC.Factions or {}
 
 local Factions = SC.Factions
@@ -92,6 +93,12 @@ local function worldDay()
     return math.floor(worldAgeHours() / 24)
 end
 
+local function localPlayer()
+    if type(getPlayer) ~= "function" then return nil end
+    local ok, value = pcall(getPlayer)
+    return ok and value or nil
+end
+
 local function random(maximum)
     maximum = math.max(1, math.floor(tonumber(maximum) or 1))
     if type(ZombRand) == "function" then
@@ -123,17 +130,8 @@ local function invoke(object, methodName, ...)
     return called, value, b, c
 end
 
-local function listSize(list)
-    if type(list) == "table" then return #list end
-    local ok, size = invoke(list, "size")
-    return ok and tonumber(size) or 0
-end
-
-local function listGet(list, index)
-    if type(list) == "table" then return list[index + 1] end
-    local ok, value = invoke(list, "get", index)
-    return ok and value or nil
-end
+local listSize = SC.NativeList.size
+local listGet = SC.NativeList.get
 
 local function objectKind(object)
     if object == nil then return nil end
@@ -1011,8 +1009,8 @@ local function observeContainerTransfers(current)
 end
 
 function Factions.onWeaponHitCharacter(attacker, target, weapon, damage)
-    local localPlayer = type(getPlayer) == "function" and getPlayer() or nil
-    if attacker == nil or attacker ~= localPlayer or target == nil then return end
+    local currentPlayer = localPlayer()
+    if attacker == nil or attacker ~= currentPlayer or target == nil then return end
     local id = U().idOf(target)
     local record = id and SC.Registry.byId(id) or nil
     if not record then return end

@@ -3,6 +3,8 @@
 require "SCNamespace"
 require "SCCall"
 require "SCStableValue"
+require "SCTransaction"
+require "SCNativeList"
 require "SCConfig"
 require "SCDiagnostics"
 require "SCNet"
@@ -67,7 +69,9 @@ local encounterFallback = nil
 local uiFallback = nil
 
 local requiredModules = {
-    "Performance", "ActionSupervisor",
+    "Call", "StableValue", "Transaction", "NativeList", "Config", "Diagnostics",
+    "Registry", "Vitals", "Scheduler", "NativeActions", "Performance",
+    "ActionSupervisor", "Actor", "Persistence", "Vehicle", "Spawn", "GameplayUtil",
     "Background", "Dialogue", "Factions", "Trade", "FactionLife", "FactionContracts", "FactionWorld",
     "FactionBehavior", "ZombieTargeting",
     "Locomotion", "Senses", "Navigation", "Positioning", "Combat", "Medical", "Encounter",

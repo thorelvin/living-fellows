@@ -18,6 +18,11 @@ local systems = {}
 local actors = {}
 local frameSamples = {}
 local cache = {}
+local cacheQueue = {}
+local cacheQueueHead = 1
+local cacheQueueTail = 0
+local cacheSerial = 0
+local cacheEntries = 0
 local loadLevel = 0
 local lastLoadChangeFrame = 0
 local totals = {
@@ -27,6 +32,8 @@ local totals = {
     yieldedJobs = 0,
     cacheHits = 0,
     cacheMisses = 0,
+    cacheEvictions = 0,
+    cacheExpired = 0,
 }
 
 local quotaKeys = {
@@ -51,6 +58,87 @@ local function configured(key, fallback)
     local value = SC.Config and type(SC.Config.get) == "function" and SC.Config.get(key) or nil
     value = tonumber(value)
     return value ~= nil and value or fallback
+end
+
+local function cacheBucket(name)
+    local bucket = cache[name]
+    if bucket == nil then
+        bucket = { entries = {}, queue = {}, head = 1, tail = 0, count = 0 }
+        cache[name] = bucket
+    end
+    return bucket
+end
+
+local function removeCacheEntry(namespace, key, serial, expired)
+    local bucket = cache[namespace]
+    local entry = bucket and bucket.entries[key] or nil
+    if entry == nil or entry.serial ~= serial then return false end
+    bucket.entries[key] = nil
+    bucket.count = math.max(0, bucket.count - 1)
+    cacheEntries = math.max(0, cacheEntries - 1)
+    if bucket.count == 0 then cache[namespace] = nil end
+    if expired then totals.cacheExpired = totals.cacheExpired + 1
+    else totals.cacheEvictions = totals.cacheEvictions + 1 end
+    return true
+end
+
+local function cacheLimits()
+    local namespaceLimit = math.max(1,
+        math.floor(configured("performanceCacheNamespaceLimit", 512)))
+    local totalLimit = math.max(namespaceLimit,
+        math.floor(configured("performanceCacheTotalLimit", 1024)))
+    return namespaceLimit, totalLimit
+end
+
+local function dequeueGlobal()
+    if cacheQueueHead > cacheQueueTail then return nil end
+    local token = cacheQueue[cacheQueueHead]
+    cacheQueue[cacheQueueHead] = nil
+    cacheQueueHead = cacheQueueHead + 1
+    if cacheQueueHead > cacheQueueTail then
+        cacheQueue, cacheQueueHead, cacheQueueTail = {}, 1, 0
+    end
+    return token
+end
+
+local function sweepCache(current, maximum)
+    maximum = math.max(0, math.floor(tonumber(maximum) or 0))
+    for _ = 1, maximum do
+        local token = dequeueGlobal()
+        if token == nil then break end
+        local bucket = cache[token.namespace]
+        local entry = bucket and bucket.entries[token.key] or nil
+        if entry ~= nil and entry.serial == token.serial then
+            if current > entry.expires then
+                removeCacheEntry(token.namespace, token.key, token.serial, true)
+            else
+                cacheQueueTail = cacheQueueTail + 1
+                cacheQueue[cacheQueueTail] = token
+            end
+        end
+    end
+end
+
+local function evictBucketOldest(namespace, bucket)
+    while bucket.head <= bucket.tail do
+        local token = bucket.queue[bucket.head]
+        bucket.queue[bucket.head] = nil
+        bucket.head = bucket.head + 1
+        local entry = token and bucket.entries[token.key] or nil
+        if entry ~= nil and entry.serial == token.serial then
+            return removeCacheEntry(namespace, token.key, token.serial, false)
+        end
+    end
+    bucket.queue, bucket.head, bucket.tail = {}, 1, 0
+    return false
+end
+
+local function evictGlobalOldest()
+    while true do
+        local token = dequeueGlobal()
+        if token == nil then return false end
+        if removeCacheEntry(token.namespace, token.key, token.serial, false) then return true end
+    end
 end
 
 local function sampleWindow()
@@ -170,10 +258,12 @@ local function updateLoadLevel()
 end
 
 function Performance.beginFrame(budgetMs, startedAt)
+    local current = tonumber(startedAt) or nowMs()
+    sweepCache(current, configured("performanceCacheSweepPerFrame", 24))
     frameSequence = frameSequence + 1
     frame = {
         id = frameSequence,
-        startedAt = tonumber(startedAt) or nowMs(),
+        startedAt = current,
         budgetMs = math.max(0.1, tonumber(budgetMs) or configured("frameBudgetMs", 2)),
         used = {},
         yielded = {},
@@ -258,28 +348,69 @@ function Performance.intervalScale(lane)
 end
 
 function Performance.cacheGet(namespace, key, current)
-    local bucket = cache[tostring(namespace or "default")]
-    local entry = bucket and bucket[tostring(key)] or nil
+    local name = tostring(namespace or "default")
+    local textKey = tostring(key)
+    local bucket = cache[name]
+    local entry = bucket and bucket.entries[textKey] or nil
     current = tonumber(current) or nowMs()
     if entry and current <= entry.expires then
         totals.cacheHits = totals.cacheHits + 1
         return entry.value
     end
-    if bucket and entry then bucket[tostring(key)] = nil end
+    if entry then removeCacheEntry(name, textKey, entry.serial, true) end
     totals.cacheMisses = totals.cacheMisses + 1
     return nil
 end
 
 function Performance.cachePut(namespace, key, value, ttlMs, current)
     local name = tostring(namespace or "default")
-    cache[name] = cache[name] or {}
+    local textKey = tostring(key)
+    local bucket = cacheBucket(name)
     current = tonumber(current) or nowMs()
-    cache[name][tostring(key)] = {
-        value = value,
-        expires = current + math.max(1, tonumber(ttlMs)
-            or configured("performanceCacheTtlMs", 75)),
-    }
+    local entry = bucket.entries[textKey]
+    if entry == nil then
+        cacheSerial = cacheSerial + 1
+        entry = { serial = cacheSerial }
+        bucket.entries[textKey] = entry
+        bucket.count = bucket.count + 1
+        cacheEntries = cacheEntries + 1
+        local token = { namespace = name, key = textKey, serial = entry.serial }
+        bucket.tail = bucket.tail + 1
+        bucket.queue[bucket.tail] = token
+        cacheQueueTail = cacheQueueTail + 1
+        cacheQueue[cacheQueueTail] = token
+    end
+    entry.value = value
+    entry.expires = current + math.max(1, tonumber(ttlMs)
+        or configured("performanceCacheTtlMs", 75))
+    local namespaceLimit, totalLimit = cacheLimits()
+    while bucket.count > namespaceLimit do
+        if not evictBucketOldest(name, bucket) then break end
+    end
+    while cacheEntries > totalLimit do
+        if not evictGlobalOldest() then break end
+    end
     return value
+end
+
+function Performance.cacheStats()
+    local namespaces = {}
+    for name, bucket in pairs(cache) do namespaces[name] = bucket.count end
+    local namespaceLimit, totalLimit = cacheLimits()
+    return {
+        entries = cacheEntries,
+        namespaceLimit = namespaceLimit,
+        totalLimit = totalLimit,
+        evictions = totals.cacheEvictions,
+        expired = totals.cacheExpired,
+        namespaces = namespaces,
+    }
+end
+
+-- Test/support hook: production sweeping remains bounded through beginFrame.
+function Performance.sweepCache(current, maximum)
+    sweepCache(tonumber(current) or nowMs(), maximum)
+    return Performance.cacheStats()
 end
 
 function Performance.frameId()
@@ -303,6 +434,9 @@ function Performance.snapshot()
         yieldedJobs = totals.yieldedJobs,
         cacheHits = totals.cacheHits,
         cacheMisses = totals.cacheMisses,
+        cacheEntries = cacheEntries,
+        cacheEvictions = totals.cacheEvictions,
+        cacheExpired = totals.cacheExpired,
         loadLevel = loadLevel,
         topSystems = sortedMetrics(systems, 12),
         topActors = sortedMetrics(actors, 12),
@@ -344,11 +478,17 @@ function Performance.reset()
     actors = {}
     frameSamples = {}
     cache = {}
+    cacheQueue = {}
+    cacheQueueHead = 1
+    cacheQueueTail = 0
+    cacheSerial = 0
+    cacheEntries = 0
     loadLevel = 0
     lastLoadChangeFrame = 0
     totals = {
         frames = 0, overBudgetFrames = 0, deferredFrames = 0,
         yieldedJobs = 0, cacheHits = 0, cacheMisses = 0,
+        cacheEvictions = 0, cacheExpired = 0,
     }
     return true
 end

@@ -29,12 +29,14 @@ local valueData = {
     performanceFactionSamplesPerFrame = 12,
     performanceUrgentUnitFloor = 96,
     performanceCacheTtlMs = 75,
+    performanceCacheNamespaceLimit = 512,
+    performanceCacheTotalLimit = 1024,
+    performanceCacheSweepPerFrame = 24,
     performanceLoadEvaluationFrames = 60,
     performanceLoadChangeCooldownFrames = 120,
     performanceLoadRaiseRatio = 0.22,
     performanceLoadLowerRatio = 0.05,
     circuitBreakerErrors = 3,
-    circuitBreakerFailures = 3,
     circuitBreakerResetMs = 30000,
     diagnosticCooldownMs = 10000,
     disabledNoticeCooldownMs = 30000,
@@ -499,6 +501,9 @@ local valueData = {
     factionContractTargetDistance = 24,
     factionContractMemoryLimit = 64,
     factionContractHistoryLimit = 32,
+    factionContractPromiseLimit = 24,
+    factionNotificationLimit = 24,
+    factionNotificationFlagLimit = 96,
     factionGuestAccessHours = 12,
     factionPrivateContactRadius = 14,
     -- A household may lend one named resident for a real field trial after
@@ -550,7 +555,8 @@ local aliases = {
     runtime = {
         frameBudgetMs = "frameBudgetMs",
         circuitBreakerErrors = "circuitBreakerErrors",
-        circuitBreakerFailures = "circuitBreakerFailures",
+        -- Temporary read alias for older add-ons; one canonical value remains.
+        circuitBreakerFailures = "circuitBreakerErrors",
         circuitBreakerResetMs = "circuitBreakerResetMs",
         diagnosticCooldownMs = "diagnosticCooldownMs",
         disabledNoticeCooldownMs = "disabledNoticeCooldownMs",
@@ -641,6 +647,9 @@ local aliases = {
         contractTargetDistance = "factionContractTargetDistance",
         contractMemoryLimit = "factionContractMemoryLimit",
         contractHistoryLimit = "factionContractHistoryLimit",
+        contractPromiseLimit = "factionContractPromiseLimit",
+        notificationLimit = "factionNotificationLimit",
+        notificationFlagLimit = "factionNotificationFlagLimit",
         guestAccessHours = "factionGuestAccessHours",
         privateContactRadius = "factionPrivateContactRadius",
         recruitmentEnabled = "factionRecruitmentEnabled",
@@ -682,7 +691,12 @@ local aliases = {
     },
 }
 
-local runtimeOverrides = {}
+-- Canonical backing tables live on the module object so hot reloads cannot
+-- leave public proxy objects closing over stale module-local values.
+SC.Config._values = valueData
+SC.Config._aliases = aliases
+SC.Config._overrides = {}
+local runtimeOverrides = SC.Config._overrides
 
 local function clamp(value, minimum, maximum)
     value = tonumber(value)
@@ -699,7 +713,7 @@ end
 
 function SC.Config.refreshSandbox(source)
     local sandbox = sandboxRoot(source)
-    runtimeOverrides = {}
+    for key in pairs(runtimeOverrides) do runtimeOverrides[key] = nil end
     if sandbox == nil then return false, "sandbox options unavailable" end
 
     if type(sandbox.EncountersEnabled) == "boolean" then
@@ -740,32 +754,40 @@ function SC.Config.sandboxSnapshot()
 end
 
 local function effectiveValue(key)
+    key = key == "circuitBreakerFailures" and "circuitBreakerErrors" or key
     if runtimeOverrides[key] ~= nil then return runtimeOverrides[key] end
-    return valueData[key]
+    return SC.Config._values[key]
 end
 
 local sectionViews = {}
 for section, mapping in pairs(aliases) do
     local data = setmetatable({}, {
         __index = function(_, key)
-            local flatKey = mapping[key]
-            return flatKey and effectiveValue(flatKey) or nil
+            local currentMapping = SC.Config._aliases[section]
+            local flatKey = currentMapping and currentMapping[key] or nil
+            return flatKey and SC.Config.get(flatKey) or nil
         end,
     })
     sectionViews[section] = readonly(data, "SC.Config.sections." .. section)
 end
 
-SC.Config.defaults = SC.Config.defaults or readonly(valueData, "SC.Config.defaults")
-SC.Config.sections = SC.Config.sections or readonly(sectionViews, "SC.Config.sections")
+SC.Config.defaults = readonly(setmetatable({}, {
+    __index = function(_, key)
+        key = key == "circuitBreakerFailures" and "circuitBreakerErrors" or key
+        return SC.Config._values[key]
+    end,
+}), "SC.Config.defaults")
+SC.Config.sections = readonly(sectionViews, "SC.Config.sections")
 
 function SC.Config.get(section, key)
     if key == nil then
-        if valueData[section] ~= nil then
+        section = section == "circuitBreakerFailures" and "circuitBreakerErrors" or section
+        if SC.Config._values[section] ~= nil then
             return effectiveValue(section)
         end
-        return sectionViews[section]
+        return SC.Config.sections[section]
     end
-    local mapping = aliases[section]
+    local mapping = SC.Config._aliases[section]
     local flatKey = mapping and mapping[key] or nil
     return flatKey and effectiveValue(flatKey) or nil
 end

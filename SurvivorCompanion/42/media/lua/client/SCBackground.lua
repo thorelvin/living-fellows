@@ -3,6 +3,9 @@
 if not SurvivorCompanion or not SurvivorCompanion.Call then
     if type(require) == "function" then pcall(require, "SCCall") end
 end
+if not SurvivorCompanion or not SurvivorCompanion.NativeList then
+    if type(require) == "function" then pcall(require, "SCNativeList") end
+end
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -459,15 +462,8 @@ local function invoke(object, methodName, ...)
     return values[2], true, SC.Call.unpack(values, 3, values.n)
 end
 
-local function listSize(list)
-    local value, ok = invoke(list, "size")
-    return ok and math.max(0, math.floor(tonumber(value) or 0)) or 0
-end
-
-local function listGet(list, index)
-    local value, ok = invoke(list, "get", index)
-    return ok and value or nil
-end
+local listSize = SC.NativeList.size
+local listGet = SC.NativeList.get
 
 local function resolveScriptObject(className, id)
     local class = type(_G) == "table" and rawget(_G, className) or nil
