@@ -1393,6 +1393,7 @@ function Combat.update(actor, player, runtime)
         state.active, state.target, state.lastAction = false, nil, nil
         state.retreating = false
         clearAimPreparation(state)
+        utility.call(actor, "setCompanionAimTarget", nil)
         state.lastOffensiveTarget, state.lastOffensiveAt = nil, nil
         clearEngagement(state)
         rootRuntime.combatTarget = nil
@@ -1414,10 +1415,15 @@ function Combat.update(actor, player, runtime)
         state.active, state.target = false, nil
         state.retreating = false
         clearAimPreparation(state)
+        utility.call(actor, "setCompanionAimTarget", nil)
         state.readiness, state.overrun = nil, nil
         clearEngagement(state)
         return false, "no_credible_target"
     end
+    -- Continuously point the actor at the engaged target so the native swing's
+    -- hit arc (getDirectionAngle) lands, like a player's mouse aim. Cleared above
+    -- when there is no credible target.
+    utility.call(actor, "setCompanionAimTarget", target.actor)
     local distance = math.sqrt(target.distanceSq or utility.distanceSq(actor, target.actor))
     local vehicle, vehicleOk = utility.call(actor, "getVehicle")
     local seated = vehicleOk and vehicle ~= nil

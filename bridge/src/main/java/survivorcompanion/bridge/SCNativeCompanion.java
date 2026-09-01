@@ -47,6 +47,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile long bridgeSpeechRefreshUntilNanos;
     private volatile long bridgePostUpdateCount;
     private volatile String bridgePostUpdateDiagnostic = "not_run";
+    private volatile zombie.iso.IsoMovingObject bridgeAimTarget;
     private boolean genericUpdateActive;
 
     public SCNativeCompanion(SurvivorDesc descriptor, IsoCell cell, int x, int y, int z) {
@@ -127,6 +128,10 @@ public final class SCNativeCompanion extends IsoPlayer {
         boolean beforeMelee = canCompanionTransitionToMelee();
         boolean beforeInitiate = isInitiateAttack();
         boolean beforeVariable = getVariableBoolean("initiateAttack");
+        // Re-point at the aim target immediately before the engine advances the
+        // swing animation and fires its AttackCollisionCheck, so the hit arc sees
+        // the companion facing the target.
+        applyCompanionAim();
         super.postupdate();
         bridgePostUpdateCount++;
         bridgePostUpdateDiagnostic = "before=" + beforeState
@@ -327,6 +332,37 @@ public final class SCNativeCompanion extends IsoPlayer {
         super.SayDebug(0, line);
     }
 
+    /**
+     * Continuously point the companion straight at its combat target, like a
+     * player's mouse aim. Build 42's CombatManager hit arc reads
+     * getDirectionAngle (the angle of forwardDirection), and the ordinary
+     * per-frame update resets that vector, so a swing set up from Lua misses a
+     * target the companion appears to face. Lua sets the target while engaging
+     * and clears it when combat ends; a target that leaves the world is dropped.
+     */
+    public void setCompanionAimTarget(zombie.iso.IsoMovingObject target) {
+        bridgeAimTarget = target;
+    }
+
+    public boolean hasCompanionAimTarget() {
+        return bridgeAimTarget != null;
+    }
+
+    private void applyCompanionAim() {
+        zombie.iso.IsoMovingObject target = bridgeAimTarget;
+        if (target == null || getVehicle() != null) return;
+        if (!target.isExistInTheWorld()) {
+            bridgeAimTarget = null;
+            return;
+        }
+        float dx = target.getX() - getX();
+        float dy = target.getY() - getY();
+        float length = (float) Math.sqrt(dx * dx + dy * dy);
+        if (length > 0.0001f) {
+            setForwardDirection(dx / length, dy / length);
+        }
+    }
+
     private void applyCompanionTacticalMovement() {
         if (bridgeTacticalMovement) {
             setIsAiming(true);
@@ -394,6 +430,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             // stops ticking. Force full opacity after the generic update so the
             // companion is both visible and fully simulated.
             setAlphaAndTarget(1.0f);
+            applyCompanionAim();
             refreshCompanionSpeech();
             if (getVehicle() == null) applyBridgeMovement();
         } catch (RuntimeException | LinkageError failure) {

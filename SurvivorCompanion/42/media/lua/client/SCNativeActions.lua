@@ -1572,6 +1572,11 @@ local function attack(actor, action, intent, provider)
     if not faceOk or faced ~= true then
         return false, "actor could not face the attack target"
     end
+    -- faceLocationF only sets the coarse sprite facing. Ask the native actor to
+    -- keep its precise forward direction (which CombatManager's hit arc reads)
+    -- pointed at the target every frame through the swing, like a player's mouse
+    -- aim; the ordinary per-frame update otherwise resets it and the swing misses.
+    invoke(actor, "setCompanionAimTarget", target)
     if intent.weapon ~= nil then
         local equipped, equipReason = equip(actor, { item = intent.weapon }, provider)
         if not equipped then
