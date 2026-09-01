@@ -181,6 +181,10 @@ public final class SCIsoCompanionControlTest {
         require(playerClass.isInstance(actor), "companion is not an IsoPlayer subtype");
         require((Boolean) invoke(actor, "isNpc"), "companion is not in NPC mode");
         require(!(Boolean) invoke(actor, "isLocalPlayer"), "companion became local");
+        require("player".equals(invoke(actor, "getCompanionActionGroupName"))
+                        && !String.valueOf(invoke(actor,
+                                "getCompanionActionStateName")).isBlank(),
+                "companion did not expose its player ActionContext safely");
         actor.getClass().getMethod("setMoving", boolean.class).invoke(actor, true);
         actor.getClass().getMethod("MoveForward", float.class, float.class, float.class, float.class)
                 .invoke(actor, 0.045f, 1.0f, 0.0f, 1.0f);

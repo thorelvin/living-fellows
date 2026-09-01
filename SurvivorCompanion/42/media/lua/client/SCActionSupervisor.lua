@@ -27,12 +27,48 @@ local validPhases = {
     cooling_down = true, waiting = true, recovering = true,
     completed = true, cancelled = true, failed = true,
 }
-local movementPhases = { selected = true, reserved = true, approaching = true, recovering = true }
+-- This graph is deliberately explicit.  A phase may be skipped only through a
+-- listed edge; transaction phases never move backwards into selection or
+-- animation.  Waiting/recovery are resumable pre-commit support phases.
+local legalTransitions = {
+    selected = {
+        reserved = true, approaching = true, settling = true, animating = true,
+        committing = true, waiting = true, recovering = true,
+    },
+    reserved = {
+        approaching = true, settling = true, animating = true,
+        committing = true, waiting = true, recovering = true,
+    },
+    approaching = {
+        settling = true, animating = true, committing = true,
+        waiting = true, recovering = true,
+    },
+    settling = {
+        animating = true, committing = true, waiting = true, recovering = true,
+    },
+    animating = { committing = true, waiting = true, recovering = true },
+    waiting = {
+        selected = true, reserved = true, approaching = true, settling = true,
+        animating = true, recovering = true,
+    },
+    recovering = {
+        selected = true, reserved = true, approaching = true, settling = true,
+        animating = true, waiting = true,
+    },
+    committing = { verifying = true },
+    verifying = { cooling_down = true },
+    cooling_down = {},
+}
+local movementPhases = { approaching = true, recovering = true }
 local activeByActor = setmetatable({}, { __mode = "k" })
 local historyByActor = setmetatable({}, { __mode = "k" })
 local retryByActor = setmetatable({}, { __mode = "k" })
+local retryResetByActor = setmetatable({}, { __mode = "k" })
 local reservationOwners = setmetatable({}, { __mode = "k" })
+local urgentByActor = setmetatable({}, { __mode = "k" })
+local lastUrgentByActor = setmetatable({}, { __mode = "k" })
 local sequence = 0
+local urgentSequence = 0
 
 local function nowMs()
     if type(getTimestampMs) == "function" then
@@ -67,6 +103,21 @@ local function actorId(actor)
     end
     if type(actor) == "table" and actor.id ~= nil then return tostring(actor.id) end
     return tostring(actor or "unknown")
+end
+
+local function nativeActivity(actor)
+    if actor == nil or not SC.NativeActions
+        or type(SC.NativeActions.activityStatus) ~= "function" then return nil end
+    local ok, phase, owner, action, at, object = pcall(
+        SC.NativeActions.activityStatus, actor)
+    if not ok or phase == nil or phase == "none" then return nil end
+    return {
+        actorId = actorId(actor), owner = owner or "native",
+        action = action or "activity", phase = phase, startedAt = at,
+        phaseAt = at, object = object, priority = Supervisor.Priority.EXTERNAL,
+        external = owner == "native", compatibility = true,
+        reservationCount = 0,
+    }
 end
 
 local function clean(value, maximum)
@@ -164,6 +215,11 @@ local function copyRecord(record)
         reservationCount = type(record.reservations) == "table" and #record.reservations or 0,
         protectedPose = record.protectedPose == true,
         visualVerified = record.visualVerified == true,
+        commitEntered = record.commitEntered == true,
+        commitAttempted = record.commitAttempted == true,
+        committed = record.committed == true,
+        commitAt = record.commitAt,
+        commitReceipt = safeDetail(record.commitReceipt, 0),
     }
 end
 
@@ -188,7 +244,13 @@ local function deadlineFor(token, phase)
 end
 
 local function failureCategory(reason)
-    local value = tostring(reason or "unknown")
+    local value = string.lower(tostring(reason or "unspecified_failure"))
+    if string.find(value, "phase_timeout:animat", 1, true) then return "animation" end
+    if string.find(value, "phase_timeout:commit", 1, true)
+        or string.find(value, "phase_timeout:verif", 1, true) then return "transaction" end
+    if string.find(value, "phase_timeout:approach", 1, true)
+        or string.find(value, "phase_timeout:recover", 1, true) then return "navigation" end
+    if string.find(value, "phase_timeout", 1, true) then return "control" end
     if string.find(value, "animation", 1, true) or string.find(value, "pose", 1, true) then
         return "animation"
     elseif string.find(value, "route", 1, true) or string.find(value, "blocked", 1, true)
@@ -207,13 +269,28 @@ local function failureCategory(reason)
         or value == "death" or value == "actor_removed" or value == "save_boundary" then
         return "control"
     elseif string.find(value, "api", 1, true) or string.find(value, "external", 1, true)
-        or string.find(value, "unsupported", 1, true) then return "capability" end
-    return "unknown"
+        or string.find(value, "unsupported", 1, true)
+        or string.find(value, "unavailable", 1, true) then return "capability"
+    elseif string.find(value, "treatment", 1, true)
+        or string.find(value, "medical", 1, true)
+        or string.find(value, "equip", 1, true)
+        or string.find(value, "wear", 1, true)
+        or string.find(value, "transfer", 1, true)
+        or string.find(value, "deposit", 1, true)
+        or string.find(value, "drop", 1, true)
+        or string.find(value, "vehicle", 1, true)
+        or string.find(value, "native", 1, true) then return "transaction"
+    elseif string.find(value, "invalid", 1, true)
+        or string.find(value, "missing", 1, true) then return "target" end
+    -- A stable broad category is preferable to emitting an unexplained
+    -- `unknown` into public UI/support output.  Callers should still add a more
+    -- specific vocabulary mapping when introducing a new failure code.
+    return "control"
 end
 
 local function retryKey(action, targetKey, category)
     return tostring(action or "unknown") .. "|" .. tostring(targetKey or "none")
-        .. "|" .. tostring(category or "unknown")
+        .. "|" .. tostring(category or "control")
 end
 
 local function retryDelay(attempt)
@@ -223,18 +300,34 @@ local function retryDelay(attempt)
     return tonumber(config("actionRetryMaximumMs", 60000)) or 60000
 end
 
+local function retryResetState(actor)
+    local state = retryResetByActor[actor]
+    if not state then
+        state = { generation = 0, reason = "initial", at = nowMs() }
+        retryResetByActor[actor] = state
+    end
+    return state
+end
+
 local function noteFailure(actor, token, reason, category)
     local ledger = retryByActor[actor]
     if not ledger then ledger = {} retryByActor[actor] = ledger end
     local key = retryKey(token.action, token.targetKey, category)
     local previous = ledger[key]
-    local attempts = math.min(tonumber(config("actionRetryMaxAttempts", 4)) or 4,
+    local reset = retryResetState(actor)
+    local maximum = math.max(1,
+        math.floor(tonumber(config("actionRetryMaxAttempts", 4)) or 4))
+    local attempts = math.min(maximum,
         (previous and tonumber(previous.attempts) or 0) + 1)
     local current = nowMs()
+    local exhausted = attempts >= maximum
     ledger[key] = {
         action = token.action, targetKey = token.targetKey, category = category,
         reason = clean(reason, 128), attempts = attempts,
-        failedAt = current, retryAt = current + retryDelay(attempts),
+        maximumAttempts = maximum, exhausted = exhausted,
+        failedAt = current,
+        retryAt = exhausted and nil or current + retryDelay(attempts),
+        resetGeneration = reset.generation, resetReason = reset.reason,
     }
     return ledger[key]
 end
@@ -251,6 +344,8 @@ local function releaseReservations(token)
     token.reservations = {}
     return released
 end
+
+local dispatchQueuedUrgent
 
 local function finish(token, phase, reason, detail, recordRetry)
     if type(token) ~= "table" or token.actor == nil then return false, "invalid_token" end
@@ -269,6 +364,7 @@ local function finish(token, phase, reason, detail, recordRetry)
         retry = noteFailure(token.actor, token, reason, token.failureCategory)
     end
     append(token.actor, phase, token, reason, detail)
+    if dispatchQueuedUrgent then dispatchQueuedUrgent(token.actor, phase) end
     return true, phase, retry
 end
 
@@ -305,13 +401,151 @@ local function runCancel(token, reason, force, terminalFailure)
     }, terminalFailure == true)
 end
 
+local function urgentPublic(record)
+    if type(record) ~= "table" then return nil end
+    return {
+        serial = record.serial, actorId = record.actorId,
+        owner = record.owner, action = record.action,
+        priority = record.priority, state = record.state,
+        reason = record.reason, queuedAt = record.queuedAt,
+        expiresAt = record.expiresAt, readyAt = record.readyAt,
+        dispatchedAt = record.dispatchedAt, detail = safeDetail(record.detail, 0),
+        result = safeDetail(record.result, 0),
+    }
+end
+
+local function appendUrgent(actor, event, record, reason, detail)
+    local token = {
+        actorId = record.actorId, serial = record.serial,
+        owner = record.owner, action = record.action,
+        phase = record.state, targetKey = record.targetKey,
+        targetLabel = record.targetLabel,
+    }
+    append(actor, event, token, reason, detail)
+end
+
+dispatchQueuedUrgent = function(actor, releaseReason)
+    local record = actor and urgentByActor[actor] or nil
+    if not record then return false, "no_urgent_intent" end
+    local current = nowMs()
+    if current >= (tonumber(record.expiresAt) or current) then
+        urgentByActor[actor] = nil
+        record.state, record.reason = "expired", "urgent_intent_expired"
+        record.readyAt = current
+        lastUrgentByActor[actor] = record
+        appendUrgent(actor, "urgent_expired", record, record.reason, {
+            releaseReason = releaseReason,
+        })
+        return false, record.reason
+    end
+    if activeByActor[actor] ~= nil then return false, "urgent_waiting_for_owner" end
+    local native = nativeActivity(actor)
+    if native ~= nil then
+        record.state = "waiting_external"
+        record.reason = "external_action_owned:" .. tostring(native.owner)
+            .. ":" .. tostring(native.action) .. ":" .. tostring(native.phase)
+        return false, record.reason
+    end
+    urgentByActor[actor] = nil
+    record.state, record.readyAt = "dispatching", current
+    local callOk, accepted, reason, detail = true, true, "urgent_dispatched", nil
+    if type(record.dispatch) == "function" then
+        callOk, accepted, reason, detail = pcall(record.dispatch, actor,
+            urgentPublic(record))
+    end
+    record.dispatchedAt = nowMs()
+    if not callOk then
+        record.state, record.reason = "failed", "urgent_dispatch_error"
+        record.result = { error = clean(accepted, 160) }
+    elseif accepted == false then
+        record.state, record.reason = "failed", clean(reason, 128)
+            or "urgent_dispatch_rejected"
+        record.result = safeDetail(detail, 0)
+    else
+        record.state, record.reason = "dispatched", clean(reason, 128)
+            or "urgent_dispatched"
+        record.result = safeDetail(detail, 0)
+    end
+    lastUrgentByActor[actor] = record
+    appendUrgent(actor, record.state == "dispatched" and "urgent_dispatched"
+        or "urgent_dispatch_failed", record, record.reason, {
+            releaseReason = releaseReason, result = record.result,
+        })
+    return record.state == "dispatched", record.reason, urgentPublic(record)
+end
+
+function Supervisor.queueUrgent(actor, spec)
+    if actor == nil or type(spec) ~= "table" then return false, "invalid_urgent_intent" end
+    local action = clean(spec.action, 80)
+    if action == nil or action == "" then return false, "urgent_action_missing" end
+    local current = nowMs()
+    local existing = urgentByActor[actor]
+    if existing and current >= (tonumber(existing.expiresAt) or current) then
+        dispatchQueuedUrgent(actor, "queue_deadline")
+        existing = nil
+    end
+    if existing then
+        if existing.owner == clean(spec.owner, 48) and existing.action == action then
+            return true, "urgent_already_queued", urgentPublic(existing)
+        end
+        return false, "urgent_queue_occupied", urgentPublic(existing)
+    end
+    urgentSequence = urgentSequence + 1
+    local maximumWait = math.max(1, tonumber(spec.expiresMs)
+        or tonumber(config("actionUrgentQueueMs", 5000)) or 5000)
+    local record = {
+        serial = "urgent-" .. tostring(urgentSequence),
+        actorId = actorId(actor), owner = clean(spec.owner, 48) or "survival",
+        action = action, priority = tonumber(spec.priority) or Supervisor.Priority.SURVIVAL,
+        targetKey = clean(spec.targetKey, 120),
+        targetLabel = clean(spec.targetLabel, 96),
+        state = "queued", reason = clean(spec.reason, 128) or "urgent_queued",
+        queuedAt = current, expiresAt = current + maximumWait,
+        dispatch = spec.dispatch, detail = safeDetail(spec.detail, 0),
+    }
+    urgentByActor[actor] = record
+    appendUrgent(actor, "urgent_queued", record, record.reason, record.detail)
+    local token = activeByActor[actor]
+    if token ~= nil and token.phase ~= "committing" and token.phase ~= "verifying" then
+        local cancelled, cancelReason = runCancel(token,
+            "urgent_preempted_by:" .. tostring(record.owner) .. ":" .. action, false)
+        if cancelled ~= true then
+            record.reason = cancelReason or "urgent_waiting_for_owner"
+            return true, "urgent_queued", urgentPublic(record)
+        end
+        local last = lastUrgentByActor[actor]
+        return last and last.state == "dispatched", last and last.reason
+            or "urgent_dispatched", urgentPublic(last)
+    end
+    if token ~= nil or nativeActivity(actor) ~= nil then
+        return true, "urgent_queued", urgentPublic(record)
+    end
+    return dispatchQueuedUrgent(actor, "owner_idle")
+end
+
+function Supervisor.urgentStatus(actor)
+    return urgentPublic(actor and (urgentByActor[actor] or lastUrgentByActor[actor]) or nil)
+end
+
+function Supervisor.clearUrgent(actor, reason)
+    local record = actor and urgentByActor[actor] or nil
+    if not record then return false, "no_urgent_intent" end
+    urgentByActor[actor] = nil
+    record.state, record.reason = "cancelled", clean(reason, 128) or "urgent_cancelled"
+    record.readyAt = nowMs()
+    lastUrgentByActor[actor] = record
+    appendUrgent(actor, "urgent_cancelled", record, record.reason, nil)
+    return true, record.reason
+end
+
 function Supervisor.retryStatus(actor, action, targetKey, category)
     local ledger = actor and retryByActor[actor] or nil
     if not ledger then return nil end
     local record = ledger[retryKey(action, targetKey, category)]
     if not record then return nil end
     local copy = safeDetail(record, 0)
-    copy.remainingMs = math.max(0, (tonumber(record.retryAt) or 0) - nowMs())
+    copy.remainingMs = record.exhausted == true and 0
+        or math.max(0, (tonumber(record.retryAt) or 0) - nowMs())
     return copy
 end
 
@@ -322,38 +556,64 @@ function Supervisor.retryStatusAny(actor, action, targetKey)
     local selected
     for _, record in pairs(ledger) do
         if record.action == action and record.targetKey == targetKey
-            and (tonumber(record.retryAt) or 0) > current then
-            if not selected or (tonumber(record.retryAt) or 0)
-                > (tonumber(selected.retryAt) or 0) then
+            and (record.exhausted == true or (tonumber(record.retryAt) or 0) > current) then
+            local better = selected == nil
+                or (record.exhausted == true and selected.exhausted ~= true)
+                or (record.exhausted == selected.exhausted
+                    and (tonumber(record.failedAt) or 0)
+                        > (tonumber(selected.failedAt) or 0))
+            if better then
                 selected = record
             end
         end
     end
     if not selected then return nil end
     local copy = safeDetail(selected, 0)
-    copy.remainingMs = math.max(0, (tonumber(selected.retryAt) or 0) - current)
+    copy.remainingMs = selected.exhausted == true and 0
+        or math.max(0, (tonumber(selected.retryAt) or 0) - current)
     return copy
 end
 
 function Supervisor.canRetry(actor, action, targetKey, category)
     local status = Supervisor.retryStatus(actor, action, targetKey, category)
     if not status then return true end
+    if status.exhausted == true then return false, status end
     if (tonumber(status.remainingMs) or 0) <= 0 then return true, status end
     return false, status
 end
 
-function Supervisor.clearRetry(actor, action, targetKey)
+function Supervisor.resetRetry(actor, reason, action, targetKey)
+    if actor == nil then return 0, nil end
+    local prior = retryResetState(actor)
+    local reset = {
+        generation = (tonumber(prior.generation) or 0) + 1,
+        reason = clean(reason, 128) or "explicit_retry_reset", at = nowMs(),
+    }
+    retryResetByActor[actor] = reset
     local ledger = actor and retryByActor[actor] or nil
-    if not ledger then return 0 end
     local cleared = 0
-    for key, record in pairs(ledger) do
-        if (action == nil or record.action == action)
-            and (targetKey == nil or record.targetKey == targetKey) then
-            ledger[key] = nil
-            cleared = cleared + 1
+    if ledger then
+        for key, record in pairs(ledger) do
+            if (action == nil or record.action == action)
+                and (targetKey == nil or record.targetKey == targetKey) then
+                ledger[key] = nil
+                cleared = cleared + 1
+            end
         end
     end
-    return cleared
+    append(actor, "retry_reset", activeByActor[actor], reset.reason, {
+        generation = reset.generation, cleared = cleared,
+        action = action, targetKey = targetKey,
+    })
+    return cleared, safeDetail(reset, 0)
+end
+
+function Supervisor.retryResetStatus(actor)
+    return safeDetail(actor and retryResetState(actor) or nil, 0)
+end
+
+function Supervisor.clearRetry(actor, action, targetKey, reason)
+    return Supervisor.resetRetry(actor, reason or "explicit_retry_reset", action, targetKey)
 end
 
 function Supervisor.begin(actor, spec)
@@ -377,14 +637,23 @@ function Supervisor.begin(actor, spec)
             "preempted_by:" .. owner .. ":" .. action, false)
         if not cancelled then return nil, cancelReason or "preemption_rejected" end
     end
+    local native = nativeActivity(actor)
+    if native ~= nil then
+        local prefix = native.external == true and "external_action_owned:"
+            or "compatibility_action_owned:"
+        return nil, prefix .. tostring(native.owner) .. ":"
+            .. tostring(native.action) .. ":" .. tostring(native.phase), native
+    end
     if spec.ignoreRetry ~= true then
         local category = clean(spec.retryCategory, 48)
         if category == nil or category == "*" then
             local retry = Supervisor.retryStatusAny(actor, action, targetKey)
-            if retry then return nil, "retry_cooldown", retry end
+            if retry then return nil, retry.exhausted == true and "retry_exhausted"
+                or "retry_cooldown", retry end
         else
             local ready, retry = Supervisor.canRetry(actor, action, targetKey, category)
-            if not ready then return nil, "retry_cooldown", retry end
+            if not ready then return nil, retry and retry.exhausted == true
+                and "retry_exhausted" or "retry_cooldown", retry end
         end
     end
     sequence = sequence + 1
@@ -394,7 +663,8 @@ function Supervisor.begin(actor, spec)
         owner = owner, action = action,
         priority = tonumber(spec.priority) or Supervisor.Priority.WORK,
         targetKey = targetKey, targetLabel = clean(spec.targetLabel, 96),
-        phase = validPhases[spec.phase] and spec.phase or "selected",
+        phase = validPhases[spec.phase] and not terminalPhases[spec.phase]
+            and spec.phase or "selected",
         startedAt = currentTime, phaseAt = currentTime, lastProgressAt = currentTime,
         progress = safeDetail(spec.progress, 0), progressSignature = nil,
         interruptible = spec.interruptible ~= false,
@@ -407,6 +677,7 @@ function Supervisor.begin(actor, spec)
         allowedMovementPhases = type(spec.allowedMovementPhases) == "table"
             and spec.allowedMovementPhases or movementPhases,
         reservations = {}, metadata = safeDetail(spec.metadata, 0),
+        commitEntered = false, commitAttempted = false, committed = false,
     }
     if token.protectedPose then
         local x, y, z = position(actor)
@@ -428,15 +699,68 @@ function Supervisor.isCurrent(token)
         and activeByActor[token.actor] == token and token.terminalAt == nil
 end
 
+function Supervisor.commit(token, operation, detail)
+    if not Supervisor.isCurrent(token) then return false, "stale_token" end
+    if token.phase ~= "committing" then return false, "commit_phase_required" end
+    if token.commitAttempted == true then return false, "commit_already_attempted",
+        safeDetail(token.commitReceipt, 0) end
+    token.commitAttempted = true
+    local accepted, reason, receipt = true, "committed", nil
+    if type(operation) == "function" then
+        local callOk
+        callOk, accepted, reason, receipt = pcall(operation, token)
+        if not callOk then
+            accepted, receipt = false, { error = clean(accepted, 160) }
+            reason = "commit_callback_failed"
+        end
+    else
+        receipt = operation
+        if receipt == nil then receipt = detail end
+    end
+    token.commitAt = nowMs()
+    token.commitReceipt = safeDetail(receipt, 0)
+    token.lastProgressAt = token.commitAt
+    if accepted ~= true then
+        token.commitRejected = true
+        append(token.actor, "commit_rejected", token,
+            clean(reason, 128) or "commit_rejected", token.commitReceipt)
+        return false, clean(reason, 128) or "commit_rejected", token.commitReceipt
+    end
+    token.committed = true
+    append(token.actor, "commit", token, clean(reason, 128) or "committed",
+        token.commitReceipt)
+    return true, clean(reason, 128) or "committed", token.commitReceipt
+end
+
 function Supervisor.transition(token, phase, detail)
     if not Supervisor.isCurrent(token) then return false, "stale_token" end
     if not validPhases[phase] or terminalPhases[phase] then return false, "invalid_active_phase" end
-    if phase == "committing" and token.requiresVisual and token.visualVerified ~= true then
-        return false, "commit_without_verified_visual"
-    end
     if token.phase == phase then
         token.progress = safeDetail(detail, 0) or token.progress
         return true, "unchanged"
+    end
+    local edges = legalTransitions[token.phase]
+    if type(edges) ~= "table" or edges[phase] ~= true then
+        return false, "illegal_phase_transition:" .. tostring(token.phase)
+            .. ":" .. tostring(phase)
+    end
+    if phase == "committing" then
+        if token.requiresVisual and token.visualVerified ~= true then
+            return false, "commit_without_verified_visual"
+        end
+        if token.commitEntered == true or token.commitAttempted == true then
+            return false, "commit_already_entered"
+        end
+    elseif phase == "verifying" then
+        if token.phase ~= "committing" then return false, "commit_phase_required" end
+        if token.commitAttempted ~= true then
+            local recorded, recordReason = Supervisor.commit(token, {
+                legacyTransition = true, detail = safeDetail(detail, 0),
+            })
+            if recorded ~= true then return false, recordReason or "commit_receipt_missing" end
+        elseif token.committed ~= true then
+            return false, "commit_not_accepted"
+        end
     end
     local current = nowMs()
     token.phase = phase
@@ -447,6 +771,8 @@ function Supervisor.transition(token, phase, detail)
         token.protectedPose = true
         local x, y, z = position(token.actor)
         if x ~= nil then token.poseOrigin = { x = x, y = y, z = z } end
+    elseif phase == "committing" then
+        token.commitEntered = true
     end
     append(token.actor, "transition", token, nil, detail)
     return true, phase
@@ -476,6 +802,9 @@ end
 
 function Supervisor.expectVisual(token, detail)
     if not Supervisor.isCurrent(token) then return false, "stale_token" end
+    if token.commitEntered == true or token.committed == true then
+        return false, "visual_after_commit"
+    end
     token.requiresVisual = true
     token.visualVerified = false
     token.protectedPose = true
@@ -511,6 +840,11 @@ function Supervisor.release(token, resource, reason)
 end
 
 function Supervisor.complete(token, reason, receipt)
+    if not Supervisor.isCurrent(token) then return false, "stale_token" end
+    if token.commitEntered == true and token.committed ~= true then
+        return false, "commit_receipt_missing"
+    end
+    if token.phase == "committing" then return false, "verification_phase_required" end
     return finish(token, "completed", reason or "completed", receipt, false)
 end
 
@@ -528,7 +862,17 @@ end
 
 function Supervisor.update(actor)
     local token = actor and activeByActor[actor] or nil
-    if not token then return false, "idle" end
+    if not token then
+        if actor and urgentByActor[actor] then
+            local dispatched, reason = dispatchQueuedUrgent(actor, "owner_idle")
+            return dispatched, reason
+        end
+        return false, "idle"
+    end
+    local queued = urgentByActor[actor]
+    if queued and nowMs() >= (tonumber(queued.expiresAt) or nowMs()) then
+        dispatchQueuedUrgent(actor, "queue_deadline")
+    end
     if token.protectedPose and token.poseOrigin then
         local displacement = distanceFrom(actor, token.poseOrigin)
         local maximum = tonumber(config("actionPoseMaximumDisplacement", 0.25)) or 0.25
@@ -568,14 +912,7 @@ function Supervisor.movementPermission(actor, action, intent)
 end
 
 local function nativeSnapshot(actor)
-    if not SC.NativeActions or type(SC.NativeActions.activityStatus) ~= "function" then return nil end
-    local phase, owner, action, at = SC.NativeActions.activityStatus(actor)
-    if phase == nil or phase == "none" then return nil end
-    return {
-        actorId = actorId(actor), owner = owner or "native", action = action or "activity",
-        phase = phase, startedAt = at, phaseAt = at, priority = Supervisor.Priority.EXTERNAL,
-        external = owner == "native", compatibility = true, reservationCount = 0,
-    }
+    return nativeActivity(actor)
 end
 
 function Supervisor.snapshot(actor)
@@ -624,7 +961,8 @@ local function mostRecentRetry(actor)
     end
     if not selected then return nil end
     local copy = safeDetail(selected, 0)
-    copy.remainingMs = math.max(0, (tonumber(selected.retryAt) or 0) - nowMs())
+    copy.remainingMs = selected.exhausted == true and 0
+        or math.max(0, (tonumber(selected.retryAt) or 0) - nowMs())
     return copy
 end
 
@@ -656,6 +994,7 @@ function Supervisor.summary(actor)
         reservationCount = token and #token.reservations or 0,
         lastFailure = failure and safeDetail(failure, 0) or nil,
         retry = retry,
+        urgent = Supervisor.urgentStatus(actor),
     }
 end
 
@@ -665,6 +1004,7 @@ function Supervisor.health()
         reservations = 0,
         leakedReservations = 0,
         coolingDown = 0,
+        exhaustedRetries = 0,
         invariantViolations = 0,
     }
     for _, token in pairs(activeByActor) do
@@ -680,7 +1020,9 @@ function Supervisor.health()
     for actor, ledger in pairs(retryByActor) do
         if actor ~= nil then
             for _, record in pairs(ledger) do
-                if (tonumber(record.retryAt) or 0) > current then
+                if record.exhausted == true then
+                    result.exhaustedRetries = result.exhaustedRetries + 1
+                elseif (tonumber(record.retryAt) or 0) > current then
                     result.coolingDown = result.coolingDown + 1
                 end
             end
@@ -714,12 +1056,23 @@ end
 
 function Supervisor.reset(actor, reason)
     if actor ~= nil then
+        if urgentByActor[actor] then Supervisor.clearUrgent(actor,
+            reason or "reset") end
         local token = activeByActor[actor]
         if token then runCancel(token, reason or "reset", true) end
         activeByActor[actor] = nil
         retryByActor[actor] = nil
+        local prior = retryResetState(actor)
+        retryResetByActor[actor] = {
+            generation = (tonumber(prior.generation) or 0) + 1,
+            reason = clean(reason, 128) or "reset", at = nowMs(),
+        }
         return true
     end
+    -- A reset boundary cancels queued survival work; it must never dispatch
+    -- movement while actors are being torn down.
+    urgentByActor = setmetatable({}, { __mode = "k" })
+    lastUrgentByActor = setmetatable({}, { __mode = "k" })
     local actors = {}
     for value in pairs(activeByActor) do actors[#actors + 1] = value end
     for _, value in ipairs(actors) do
@@ -729,6 +1082,7 @@ function Supervisor.reset(actor, reason)
     activeByActor = setmetatable({}, { __mode = "k" })
     historyByActor = setmetatable({}, { __mode = "k" })
     retryByActor = setmetatable({}, { __mode = "k" })
+    retryResetByActor = setmetatable({}, { __mode = "k" })
     reservationOwners = setmetatable({}, { __mode = "k" })
     return true
 end

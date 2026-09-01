@@ -18,9 +18,22 @@ local cachedReason = "actor provider has not been checked"
 local experimentalOwned = setmetatable({}, { __mode = "k" })
 local experimentalDisabledReason = nil
 local nativeOwned = setmetatable({}, { __mode = "k" })
-local spawnTickets = setmetatable({}, { __mode = "k" })
+-- Pending native work is an ownership ledger, not a cache.  Strong references
+-- are intentional: losing the caller's last ticket/actor reference must not
+-- make an unfinished bridge transaction impossible to retry.
+local spawnTickets = {}
+local actorCleanupPending = {}
+local spawnCleanupPendingPrefix = "spawn_cleanup_pending:"
 local expectedNativeProtocol = SC.Identity.bridgeProtocol
 local providerKinds = SC.Identity.providers
+
+-- Some supported Build 42 Kahlua paths omit Lua's global next(). Ownership
+-- ledgers must remain inspectable during teardown even in that environment.
+local function tableHasEntries(value)
+    if type(value) ~= "table" then return false end
+    for _ in pairs(value) do return true end
+    return false
+end
 
 local function method(object, name)
     if object == nil then
@@ -358,6 +371,25 @@ local function nativeBridgeProvider()
         kind = providerKinds.native,
         directNative = true,
     }
+    local awaitingForget = {}
+    local cleanupPendingPrefix = spawnCleanupPendingPrefix .. " "
+
+    local function lastBridgeFailure(fallback)
+        local reasonOk, reason = staticInvoke(bridge, "getLastFailure")
+        return reasonOk and tostring(reason) or tostring(fallback)
+    end
+
+    local function forgetRequest(requestId)
+        local ok, forgot = staticInvoke(bridge, "forgetSpawnRequest", requestId)
+        if ok and forgot == true then return true end
+        return false, lastBridgeFailure(forgot)
+    end
+
+    local function cancelRequest(requestId)
+        local ok, cancelled = staticInvoke(bridge, "cancelSpawnRequest", requestId)
+        if ok and cancelled == true then return true end
+        return false, lastBridgeFailure(cancelled)
+    end
 
     function provider:isActor(actor)
         if actor == nil or nativeOwned[actor] ~= true then return false end
@@ -398,50 +430,82 @@ local function nativeBridgeProvider()
     end
 
     function provider:pollSpawn(requestId)
+        local deferred = awaitingForget[requestId]
+        if deferred ~= nil then
+            local forgot, forgetReason = forgetRequest(requestId)
+            if not forgot then
+                return nil, cleanupPendingPrefix .. tostring(forgetReason)
+            end
+            awaitingForget[requestId] = nil
+            if deferred.actor ~= nil then return deferred.actor end
+            return nil, tostring(deferred.reason or "native companion spawn failed")
+        end
         local stateOk, state = staticInvoke(bridge, "getSpawnState", requestId)
         if not stateOk then
-            staticInvoke(bridge, "cancelSpawnRequest", requestId)
+            local cancelled, cancelReason = cancelRequest(requestId)
+            if not cancelled then
+                return nil, cleanupPendingPrefix .. tostring(cancelReason)
+            end
             return nil, "native spawn state query failed"
         end
         state = tostring(state or "unknown")
         if state == "pending" then return nil, "spawn_pending" end
         if state == "failed" then
             local reasonOk, reason = staticInvoke(bridge, "getSpawnFailure", requestId)
-            staticInvoke(bridge, "forgetSpawnRequest", requestId)
-            return nil, reasonOk and tostring(reason) or "native companion spawn failed"
+            local failure = reasonOk and tostring(reason) or "native companion spawn failed"
+            local forgot, forgetReason = forgetRequest(requestId)
+            if not forgot then
+                awaitingForget[requestId] = { reason = failure }
+                return nil, cleanupPendingPrefix .. tostring(forgetReason)
+            end
+            return nil, failure
+        end
+        if state == "cleanup_pending" then
+            local cancelled, cancelReason = cancelRequest(requestId)
+            if not cancelled then
+                return nil, cleanupPendingPrefix .. tostring(cancelReason)
+            end
+            return nil, "native spawn cleanup completed after a failed request"
         end
         if state ~= "ready" then
-            staticInvoke(bridge, "cancelSpawnRequest", requestId)
             return nil, "native spawn request is unknown"
         end
 
         local resultOk, actor = staticInvoke(bridge, "getSpawnResult", requestId)
         if not resultOk or actor == nil then
-            staticInvoke(bridge, "cancelSpawnRequest", requestId)
+            local cancelled, cancelReason = cancelRequest(requestId)
+            if not cancelled then
+                return nil, cleanupPendingPrefix .. tostring(cancelReason)
+            end
             return nil, "native spawn result is unavailable"
         end
         nativeOwned[actor] = true
         local healthy, healthReason = self:validate(actor)
         if not healthy then
-            staticInvoke(bridge, "remove", actor)
+            local removeOk, removed = staticInvoke(bridge, "remove", actor)
+            if not removeOk or removed ~= true then
+                return nil, cleanupPendingPrefix .. lastBridgeFailure(removed)
+            end
             nativeOwned[actor] = nil
-            staticInvoke(bridge, "forgetSpawnRequest", requestId)
+            local forgot, forgetReason = forgetRequest(requestId)
+            if not forgot then
+                awaitingForget[requestId] = { reason = healthReason }
+                return nil, cleanupPendingPrefix .. tostring(forgetReason)
+            end
             return nil, healthReason
         end
-        local forgotOk, forgot = staticInvoke(bridge, "forgetSpawnRequest", requestId)
-        if not forgotOk or forgot ~= true then
-            staticInvoke(bridge, "remove", actor)
-            nativeOwned[actor] = nil
-            return nil, "native spawn request could not be finalized"
+        local forgot, forgetReason = forgetRequest(requestId)
+        if not forgot then
+            awaitingForget[requestId] = { actor = actor }
+            return nil, cleanupPendingPrefix .. tostring(forgetReason)
         end
         return actor
     end
 
     function provider:cancelSpawn(requestId)
-        local ok, cancelled = staticInvoke(bridge, "cancelSpawnRequest", requestId)
-        if ok and cancelled == true then return true end
-        local reasonOk, reason = staticInvoke(bridge, "getLastFailure")
-        return false, reasonOk and tostring(reason) or tostring(cancelled)
+        local cancelled, reason = cancelRequest(requestId)
+        if cancelled then awaitingForget[requestId] = nil end
+        return cancelled, reason
     end
 
     function provider:spawn()
@@ -608,17 +672,179 @@ function actorService.isCompanion(actor)
         and not (type(record.runtime) == "table" and record.runtime.inactive == true)
 end
 
-local function rollbackSpawn(actor, provider)
-    provider = provider or cachedProvider
-    if actor ~= nil and provider ~= nil then
-        local ok, removed, reason = pcall(provider.remove, provider, actor)
+local function reportOwnership(summary, detail, id)
+    if SC.Diagnostics ~= nil and type(SC.Diagnostics.report) == "function" then
+        pcall(SC.Diagnostics.report, "actor-ownership", id, summary, detail)
+    end
+end
+
+local function registryRecordFor(actor)
+    if actor == nil then return nil, nil, true end
+    if SC.Registry == nil or type(SC.Registry.idOf) ~= "function" then
+        return nil, nil, false, "registry ownership adapter is unavailable"
+    end
+    local id = nil
+    local idOk, idValue = pcall(SC.Registry.idOf, actor)
+    if not idOk then return nil, nil, false, tostring(idValue) end
+    id = idValue
+    local record = nil
+    if id ~= nil and type(SC.Registry.byId) == "function" then
+        local ok, value = pcall(SC.Registry.byId, id)
+        if not ok then return nil, id, false, tostring(value) end
+        record = value
+    elseif id ~= nil then
+        return nil, id, false, "registry record adapter is unavailable"
+    end
+    return record, id, true
+end
+
+local function retainActorCleanup(actor, provider, options)
+    if actor == nil or provider == nil then
+        return nil, "cleanup ownership cannot be retained without actor and provider"
+    end
+    options = type(options) == "table" and options or {}
+    local entry = actorCleanupPending[actor]
+    if entry == nil then
+        entry = {
+            actor = actor,
+            provider = provider,
+            operation = options.operation or "remove",
+            nativeReleased = options.nativeReleased == true,
+            unregister = options.unregister == true,
+            permadead = options.permadead == true,
+            record = options.record,
+            reason = tostring(options.reason or "native actor cleanup is pending"),
+            attempts = 0,
+        }
+        actorCleanupPending[actor] = entry
+    else
+        -- Never weaken an existing cleanup obligation.  In particular, an
+        -- already-released native actor must not be removed a second time.
+        entry.provider = entry.provider or provider
+        entry.unregister = entry.unregister == true or options.unregister == true
+        entry.permadead = entry.permadead == true or options.permadead == true
+        entry.record = entry.record or options.record
+        if options.nativeReleased == true then entry.nativeReleased = true end
+        if options.reason ~= nil then entry.reason = tostring(options.reason) end
+    end
+    local record, id, registryObserved, registryReason = registryRecordFor(actor)
+    record = entry.record or record
+    entry.record = record
+    if entry.unregister and not registryObserved then
+        entry.registryObservationFailure = tostring(registryReason)
+    end
+    if entry.unregister and type(record) == "table" then
+        record.runtime = type(record.runtime) == "table" and record.runtime or {}
+        record.runtime.inactive = true
+        record.runtime.unrecoverable = true
+        record.runtime.removalPending = true
+        record.runtime.removalFailure = entry.reason
+    end
+    reportOwnership("native actor cleanup retained for retry", entry.reason, id)
+    return entry
+end
+
+local function attemptActorCleanup(actor)
+    local entry = actorCleanupPending[actor]
+    if entry == nil then return true, "no actor cleanup is pending" end
+    entry.attempts = (entry.attempts or 0) + 1
+
+    if entry.nativeReleased ~= true then
+        local callback = entry.provider.remove
+        if entry.operation == "retireDead" then
+            callback = entry.provider.retireDead
+        end
+        if type(callback) ~= "function" then
+            entry.reason = "actor provider has no " .. tostring(entry.operation)
+                .. " cleanup adapter"
+            reportOwnership("native actor cleanup retry failed", entry.reason)
+            return false, entry.reason
+        end
+        local ok, removed, reason = pcall(callback, entry.provider, actor)
         if not ok or removed ~= true then
-            cachedReady = false
-            cachedReason = "actor rollback was not verified; provider disabled: "
-                .. tostring(reason or removed)
-            SC.Diagnostics.report("actor-provider", nil, cachedReason)
+            entry.reason = tostring(reason or removed or "actor cleanup failed")
+            local _, id = registryRecordFor(actor)
+            if type(entry.record) == "table" then
+                entry.record.runtime = type(entry.record.runtime) == "table"
+                    and entry.record.runtime or {}
+                entry.record.runtime.removalFailure = entry.reason
+            end
+            reportOwnership("native actor cleanup retry failed", entry.reason, id)
+            return false, entry.reason
+        end
+        entry.nativeReleased = true
+    end
+
+    local releasedRecord = entry.record
+    if entry.unregister == true then
+        local record, id, observed, observationReason = registryRecordFor(actor)
+        releasedRecord = releasedRecord or record
+        if not observed then
+            entry.reason = "registry ownership could not be observed: "
+                .. tostring(observationReason)
+            reportOwnership("registry cleanup retained for retry", entry.reason, id)
+            return false, entry.reason
+        end
+        if id ~= nil then
+            if SC.Registry == nil or type(SC.Registry.unregister) ~= "function" then
+                entry.reason = "registry unregister adapter is unavailable"
+                reportOwnership("registry cleanup retained for retry", entry.reason, id)
+                return false, entry.reason
+            end
+            local ok, unregistered, reason = pcall(SC.Registry.unregister, actor)
+            if not ok or unregistered == nil then
+                -- A throwing adapter may have committed before it threw.  Only
+                -- retry when the registry still proves ownership.
+                local remaining, remainingId, remainingObserved, remainingReason =
+                    registryRecordFor(actor)
+                if not remainingObserved or remainingId ~= nil or remaining ~= nil then
+                    entry.reason = tostring(reason or unregistered
+                        or remainingReason or "registry cleanup failed")
+                    reportOwnership("registry cleanup retained for retry",
+                        entry.reason, id)
+                    return false, entry.reason
+                end
+            else
+                releasedRecord = unregistered
+            end
         end
     end
+
+    if type(releasedRecord) == "table" then
+        releasedRecord.runtime = {}
+        if entry.permadead == true then releasedRecord.permadead = true end
+    end
+    actorCleanupPending[actor] = nil
+    reportOwnership("native actor cleanup completed after retry",
+        "attempts=" .. tostring(entry.attempts))
+    return true, releasedRecord
+end
+
+local function rollbackSpawn(actor, provider, reason, unregister, record)
+    provider = provider or cachedProvider
+    if actor == nil then return true end
+    local entry, retainReason = retainActorCleanup(actor, provider, {
+        operation = "remove",
+        unregister = unregister == true,
+        record = record,
+        reason = reason or "spawn finalization rollback",
+    })
+    if entry == nil then
+        cachedReady = false
+        cachedReason = "actor rollback ownership could not be retained: "
+            .. tostring(retainReason)
+        reportOwnership("actor provider disabled", cachedReason)
+        return false, cachedReason
+    end
+    local cleaned, cleanupReason = attemptActorCleanup(actor)
+    if not cleaned then
+        cachedReady = false
+        cachedReason = "actor rollback was not verified; provider disabled: "
+            .. tostring(cleanupReason)
+        reportOwnership("actor provider disabled", cachedReason)
+        return false, cleanupReason
+    end
+    return true
 end
 
 local function quarantineRecord(record, reason)
@@ -626,6 +852,7 @@ local function quarantineRecord(record, reason)
     record.runtime = type(record.runtime) == "table" and record.runtime or {}
     record.runtime.inactive = true
     record.runtime.unrecoverable = true
+    record.runtime.removalPending = true
     record.runtime.removalFailure = tostring(reason)
     SC.Diagnostics.report("actor-removal", record.id,
         "actor quarantined inactive after unverified removal", reason)
@@ -646,8 +873,12 @@ end
 local function finalizeSpawn(actor, profile, provider)
     local initialized, nativeReason = nativeComponents(actor)
     if not initialized then
-        rollbackSpawn(actor, provider)
-        return nil, nativeReason
+        local cleaned, cleanupReason = rollbackSpawn(actor, provider, nativeReason)
+        local failure = tostring(nativeReason)
+        if not cleaned then
+            failure = failure .. "; cleanup pending: " .. tostring(cleanupReason)
+        end
+        return nil, failure, not cleaned and actor or nil
     end
     local background
     if SC.Background and type(SC.Background.prepareProfile) == "function" then
@@ -676,26 +907,60 @@ local function finalizeSpawn(actor, profile, provider)
     if type(profile.initialize) == "function" then
         local ok, result, initializeReason = pcall(profile.initialize, actor, recordInput)
         if not ok or result == false then
-            rollbackSpawn(actor, provider)
-            return nil, "actor initialization failed: " .. tostring(initializeReason or result)
+            local failure = "actor initialization failed: "
+                .. tostring(initializeReason or result)
+            local cleaned, cleanupReason = rollbackSpawn(actor, provider, failure)
+            if not cleaned then
+                failure = failure .. "; cleanup pending: " .. tostring(cleanupReason)
+            end
+            return nil, failure, not cleaned and actor or nil
         end
     end
 
     local record, registerReason = SC.Registry.register(actor, recordInput)
     if record == nil then
-        rollbackSpawn(actor, provider)
-        return nil, registerReason
+        local cleanupRecord, cleanupId, cleanupObserved = registryRecordFor(actor)
+        local failure = tostring(registerReason)
+        local cleaned, cleanupReason = rollbackSpawn(actor, provider, failure,
+            cleanupObserved ~= true or cleanupId ~= nil, cleanupRecord)
+        if not cleaned then
+            failure = failure .. "; cleanup pending: " .. tostring(cleanupReason)
+        end
+        return nil, failure, not cleaned and actor or nil
     end
     if SC.Commands and type(SC.Commands.restore) == "function" then
         local restoredOk, restored, characterReason = pcall(SC.Commands.restore, actor, record)
         if not restoredOk or restored ~= true then
-            SC.Registry.unregister(actor)
-            rollbackSpawn(actor, provider)
-            return nil, "character-depth initialization failed: "
+            local failure = "character-depth initialization failed: "
                 .. tostring(characterReason or restored)
+            local cleaned, cleanupReason = rollbackSpawn(actor, provider,
+                failure, true, record)
+            if not cleaned then
+                failure = failure .. "; cleanup pending: " .. tostring(cleanupReason)
+            end
+            return nil, failure, not cleaned and actor or nil
         end
     end
     return actor, record
+end
+
+local function safelyFinalizeSpawn(actor, profile, provider)
+    local ok, finalized, result, cleanupActor = pcall(
+        finalizeSpawn, actor, profile, provider)
+    if ok then return finalized, result, cleanupActor end
+
+    -- Finalization calls adapters owned by several subsystems.  An exception
+    -- may happen before or after registry publication, so conservatively
+    -- observe registry ownership and retain both cleanup phases when the
+    -- observation itself is unavailable.
+    local record, id, observed = registryRecordFor(actor)
+    local failure = "actor finalization threw: " .. tostring(finalized)
+    local cleaned, cleanupReason = rollbackSpawn(actor, provider, failure,
+        observed ~= true or id ~= nil, record)
+    if not cleaned then
+        failure = failure .. "; cleanup pending: " .. tostring(cleanupReason)
+    end
+    return nil, failure, not cleaned and actor or nil
 end
 
 function actorService.spawn(square, profile)
@@ -714,7 +979,7 @@ function actorService.spawn(square, profile)
     if not spawnOk or actorOrReason == nil then
         return nil, "actor provider spawn failed: " .. tostring(providerReason or actorOrReason)
     end
-    return finalizeSpawn(actorOrReason, profile, cachedProvider)
+    return safelyFinalizeSpawn(actorOrReason, profile, cachedProvider)
 end
 
 function actorService.beginSpawn(square, profile)
@@ -752,6 +1017,21 @@ function actorService.beginSpawn(square, profile)
     return ticket, "spawn_pending"
 end
 
+local function cancelTicketRequest(ticket, context)
+    if type(ticket) ~= "table" or ticket.provider == nil
+        or type(ticket.provider.cancelSpawn) ~= "function" then
+        return false, tostring(context or "spawn cleanup")
+            .. ": spawn cancellation is unavailable"
+    end
+    local ok, cancelled, reason = pcall(ticket.provider.cancelSpawn,
+        ticket.provider, ticket.request)
+    if not ok or cancelled ~= true then
+        return false, tostring(context or "spawn cleanup") .. ": "
+            .. tostring(reason or cancelled)
+    end
+    return true
+end
+
 function actorService.pollSpawn(ticket)
     if type(ticket) ~= "table" or spawnTickets[ticket] ~= true then
         return nil, "invalid spawn ticket"
@@ -767,17 +1047,45 @@ function actorService.pollSpawn(ticket)
         spawnTickets[ticket] = nil
         return nil, tostring(ticket.reason or "actor spawn failed")
     end
+    if ticket.state == "cleanup_pending" and ticket.actor ~= nil then
+        local cleaned, cleanupReason = attemptActorCleanup(ticket.actor)
+        if not cleaned then
+            ticket.reason = tostring(ticket.failureReason or "actor spawn failed")
+                .. "; cleanup pending: " .. tostring(cleanupReason)
+            reportOwnership("spawn ticket cleanup is still pending", ticket.reason)
+            return nil, "spawn_pending", ticket.reason
+        end
+        ticket.actor = nil
+        ticket.state = "failed"
+        ticket.reason = tostring(ticket.failureReason or "actor spawn failed")
+        spawnTickets[ticket] = nil
+        return nil, ticket.reason
+    end
     if ticket.state ~= "pending" or ticket.provider == nil
         or type(ticket.provider.pollSpawn) ~= "function" then
+        local cancelled, cancelReason = cancelTicketRequest(ticket,
+            "spawn ticket cannot be polled")
+        if not cancelled then
+            ticket.reason = tostring(cancelReason)
+            reportOwnership("spawn ticket retained for cancellation retry", ticket.reason)
+            return nil, "spawn_pending", ticket.reason
+        end
+        ticket.state = "failed"
+        ticket.reason = "spawn ticket could not be polled and was cancelled"
         spawnTickets[ticket] = nil
-        return nil, "spawn ticket cannot be polled"
+        return nil, ticket.reason
     end
 
     local ok, actor, reason = pcall(ticket.provider.pollSpawn,
         ticket.provider, ticket.request)
     if not ok then
-        if type(ticket.provider.cancelSpawn) == "function" then
-            pcall(ticket.provider.cancelSpawn, ticket.provider, ticket.request)
+        local cancelled, cancelReason = cancelTicketRequest(ticket,
+            "spawn provider failed")
+        if not cancelled then
+            ticket.reason = "spawn provider failed and cleanup is pending: "
+                .. tostring(actor) .. "; " .. tostring(cancelReason)
+            reportOwnership("spawn ticket retained after provider exception", ticket.reason)
+            return nil, "spawn_pending", ticket.reason
         end
         ticket.state = "failed"
         ticket.reason = tostring(actor)
@@ -785,15 +1093,32 @@ function actorService.pollSpawn(ticket)
         return nil, ticket.reason
     end
     if actor == nil then
-        if reason == "spawn_pending" then return nil, reason end
+        if reason == "spawn_pending"
+            or string.find(tostring(reason or ""), spawnCleanupPendingPrefix,
+                1, true) == 1 then
+            ticket.reason = tostring(reason)
+            if reason ~= "spawn_pending" then
+                reportOwnership("native spawn request cleanup is pending", ticket.reason)
+            end
+            return nil, "spawn_pending", ticket.reason
+        end
         ticket.state = "failed"
         ticket.reason = tostring(reason or "actor provider spawn failed")
         spawnTickets[ticket] = nil
         return nil, ticket.reason
     end
 
-    local finalized, result = finalizeSpawn(actor, ticket.profile, ticket.provider)
+    local finalized, result, cleanupActor = safelyFinalizeSpawn(
+        actor, ticket.profile, ticket.provider)
     if finalized == nil then
+        if cleanupActor ~= nil and actorCleanupPending[cleanupActor] ~= nil then
+            ticket.state = "cleanup_pending"
+            ticket.actor = cleanupActor
+            ticket.failureReason = tostring(result)
+            ticket.reason = tostring(result)
+            reportOwnership("spawn finalization retained actor and ticket", ticket.reason)
+            return nil, "spawn_pending", ticket.reason
+        end
         ticket.state = "failed"
         ticket.reason = tostring(result)
         spawnTickets[ticket] = nil
@@ -808,16 +1133,29 @@ function actorService.cancelSpawn(ticket)
     if type(ticket) ~= "table" or spawnTickets[ticket] ~= true then
         return false, "invalid spawn ticket"
     end
-    if ticket.state == "pending" and ticket.provider ~= nil
-        and type(ticket.provider.cancelSpawn) == "function" then
-        local ok, cancelled, reason = pcall(ticket.provider.cancelSpawn,
-            ticket.provider, ticket.request)
-        if not ok or cancelled ~= true then
-            return false, tostring(reason or cancelled)
+    if ticket.state == "pending" then
+        local cancelled, reason = cancelTicketRequest(ticket,
+            "spawn ticket cancellation failed")
+        if not cancelled then
+            ticket.reason = tostring(reason)
+            reportOwnership("spawn ticket cancellation retained for retry", ticket.reason)
+            return false, ticket.reason
+        end
+    elseif ticket.state == "cleanup_pending" and ticket.actor ~= nil then
+        local cleaned, reason = attemptActorCleanup(ticket.actor)
+        if not cleaned then
+            ticket.reason = tostring(ticket.failureReason or "actor spawn failed")
+                .. "; cleanup pending: " .. tostring(reason)
+            return false, ticket.reason
         end
     elseif ticket.state == "ready" and ticket.actor ~= nil then
         local removed, reason = actorService.remove(ticket.actor)
         if not removed then return false, tostring(reason) end
+    elseif ticket.state ~= "failed" and ticket.state ~= "cancelled" then
+        ticket.reason = "spawn ticket has an unsupported cleanup state: "
+            .. tostring(ticket.state)
+        reportOwnership("spawn ticket retained in unsupported state", ticket.reason)
+        return false, ticket.reason
     end
     ticket.state = "cancelled"
     ticket.actor = nil
@@ -825,7 +1163,63 @@ function actorService.cancelSpawn(ticket)
     return true
 end
 
+local function releaseActionOwnership(actor, reason, preserveVehicleBoardCommit)
+    local service = SC.ActionSupervisor
+    if actor == nil or type(service) ~= "table" or type(service.reset) ~= "function" then
+        return true, "action_supervisor_unavailable"
+    end
+    if preserveVehicleBoardCommit == true and type(service.current) == "function" then
+        local token = service.current(actor)
+        if token and token.owner == "vehicle" and token.action == "board_vehicle"
+            and token.phase == "committing" then
+            -- Virtual boarding removes the world actor as the physical effect
+            -- of the still-live vehicle transaction.  Its owner must retain
+            -- the receipt long enough to enter verifying and complete.
+            if type(service.clearUrgent) == "function" then
+                service.clearUrgent(actor, reason or "actor_removed")
+            end
+            if type(service.resetRetry) == "function" then
+                service.resetRetry(actor, reason or "actor_removed")
+            end
+            return true, "vehicle_board_commit_retained"
+        end
+    end
+    service.reset(actor, reason or "actor_removed")
+    return true, reason or "actor_removed"
+end
+
+local function releaseAllActionOwnership(reason)
+    if SC.Registry == nil or type(SC.Registry.records) ~= "function" then
+        local service = SC.ActionSupervisor
+        if type(service) == "table" and type(service.reset) == "function" then
+            service.reset(nil, reason or "actor_unload")
+        end
+        return
+    end
+    for _, record in ipairs(SC.Registry.records()) do
+        if record.actor ~= nil then releaseActionOwnership(record.actor,
+            reason or "actor_unload", false) end
+    end
+    local service = SC.ActionSupervisor
+    if type(service) == "table" and type(service.reset) == "function" then
+        service.reset(nil, reason or "actor_unload")
+    end
+end
+
 function actorService.remove(actor)
+    local pendingCleanup = actorCleanupPending[actor]
+    if pendingCleanup ~= nil then
+        if pendingCleanup.operation ~= "remove" then
+            return false, "actor has a different cleanup operation pending: "
+                .. tostring(pendingCleanup.operation)
+        end
+        local cleaned, result = attemptActorCleanup(actor)
+        if not cleaned then
+            quarantineRecord(pendingCleanup.record, result)
+            return false, "actor removal cleanup is still pending: " .. tostring(result)
+        end
+        return true, result
+    end
     if not actorService.isCompanion(actor) then
         return false, "actor is not an active SurvivorCompanion actor"
     end
@@ -845,22 +1239,33 @@ function actorService.remove(actor)
             activeRecord.runtime.lastStableSnapshot = snapshot
         end
     end
-    local removedOk, removed, removeReason = pcall(cachedProvider.remove, cachedProvider, actor)
-    if not removedOk or removed ~= true then
-        local failure = tostring(removeReason or removed or "actor removal failed")
-        quarantineRecord(activeRecord, failure)
-        return false, "actor removal was not verified; registry record is inactive: " .. failure
+    releaseActionOwnership(actor, "actor_removed", true)
+    retainActorCleanup(actor, cachedProvider, {
+        operation = "remove",
+        unregister = true,
+        record = activeRecord,
+        reason = "explicit actor removal",
+    })
+    local cleaned, result = attemptActorCleanup(actor)
+    if not cleaned then
+        quarantineRecord(activeRecord, result)
+        return false, "actor removal was not verified; registry record is inactive; "
+            .. "ownership retained for retry: " .. tostring(result)
     end
-    local record, unregisterReason = SC.Registry.unregister(actor)
-    if record == nil then
-        quarantineRecord(activeRecord, unregisterReason)
-        return false, "world removal succeeded but registry cleanup failed: "
-            .. tostring(unregisterReason)
-    end
-    return true, record
+    return true, result
 end
 
 function actorService.retireDead(actor)
+    local pendingCleanup = actorCleanupPending[actor]
+    if pendingCleanup ~= nil then
+        if pendingCleanup.operation ~= "retireDead" then
+            return false, "actor has a different cleanup operation pending: "
+                .. tostring(pendingCleanup.operation)
+        end
+        local cleaned, result = attemptActorCleanup(actor)
+        if not cleaned then return false, tostring(result) end
+        return true, result
+    end
     if not actorService.isCompanion(actor) then
         return false, "actor is not an active SurvivorCompanion actor"
     end
@@ -870,18 +1275,35 @@ function actorService.retireDead(actor)
         return false, "actor provider cannot finalize a permanent death"
     end
     local id = SC.Registry.idOf(actor)
+    releaseActionOwnership(actor, "actor_death", false)
     local retiredOk, retired, retireReason = pcall(
         cachedProvider.retireDead, cachedProvider, actor)
     if not retiredOk or retired ~= true then
-        return false, tostring(retireReason or retired)
+        local failure = tostring(retireReason or retired)
+        if retiredOk and failure == "death_pending" then return false, failure end
+        retainActorCleanup(actor, cachedProvider, {
+            operation = "retireDead",
+            unregister = true,
+            permadead = true,
+            record = id and SC.Registry.byId(id) or nil,
+            reason = failure,
+        })
+        return false, "death cleanup ownership retained for retry: " .. failure
     end
-    local record, unregisterReason = SC.Registry.unregister(actor)
-    if record == nil then
-        return false, "death ownership was released but roster cleanup failed: "
-            .. tostring(unregisterReason or id)
+    retainActorCleanup(actor, cachedProvider, {
+        operation = "retireDead",
+        nativeReleased = true,
+        unregister = true,
+        permadead = true,
+        record = id and SC.Registry.byId(id) or nil,
+        reason = "death roster cleanup",
+    })
+    local cleaned, result = attemptActorCleanup(actor)
+    if not cleaned then
+        return false, "death ownership was released but roster cleanup is pending: "
+            .. tostring(result or id)
     end
-    record.permadead = true
-    return true, record
+    return true, result
 end
 
 function actorService.setMovement(actor, mode, intent)
@@ -991,12 +1413,15 @@ function actorService.endLife(actor)
 end
 
 function actorService.disposeAll()
+    releaseAllActionOwnership("actor_unload")
     -- Prefer the cached provider so test/alternate providers can own teardown.
     if cachedProvider ~= nil and type(cachedProvider.disposeAll) == "function" then
         local ok, removed, reason = pcall(cachedProvider.disposeAll, cachedProvider)
         if not ok or removed ~= true then return false, tostring(reason or removed) end
         nativeOwned = setmetatable({}, { __mode = "k" })
         experimentalOwned = setmetatable({}, { __mode = "k" })
+        spawnTickets = {}
+        actorCleanupPending = {}
         return true
     end
 
@@ -1011,6 +1436,8 @@ function actorService.disposeAll()
                 return false, tostring(reasonOk and reason or removed)
             end
             nativeOwned = setmetatable({}, { __mode = "k" })
+            spawnTickets = {}
+            actorCleanupPending = {}
             return true
         end
     end
@@ -1018,6 +1445,26 @@ function actorService.disposeAll()
     -- Final fallback for the disabled raw test provider.
     if cachedProvider ~= nil and type(cachedProvider.remove) == "function" then
         local clean, failure = true, nil
+        local tickets = {}
+        for ticket in pairs(spawnTickets) do tickets[#tickets + 1] = ticket end
+        for _, ticket in ipairs(tickets) do
+            local cancelled, reason = actorService.cancelSpawn(ticket)
+            if not cancelled then
+                clean = false
+                failure = reason or failure
+            end
+        end
+        local cleanupActors = {}
+        for actor in pairs(actorCleanupPending) do
+            cleanupActors[#cleanupActors + 1] = actor
+        end
+        for _, actor in ipairs(cleanupActors) do
+            local removed, reason = attemptActorCleanup(actor)
+            if not removed then
+                clean = false
+                failure = reason or failure
+            end
+        end
         for _, record in ipairs(SC.Registry.records()) do
             local actor = record.actor
             local ownedOk, owned = pcall(cachedProvider.isActor, cachedProvider, actor)
@@ -1030,10 +1477,46 @@ function actorService.disposeAll()
                 end
             end
         end
-        if clean then experimentalOwned = setmetatable({}, { __mode = "k" }) end
+        if clean then
+            experimentalOwned = setmetatable({}, { __mode = "k" })
+            spawnTickets = {}
+            actorCleanupPending = {}
+        end
         return clean, failure
     end
+    if tableHasEntries(spawnTickets) or tableHasEntries(actorCleanupPending) then
+        return false, "actor ownership remains but no cleanup provider is available"
+    end
     return true
+end
+
+function actorService.ownershipSnapshot()
+    local tickets = 0
+    local ticketStates = {}
+    for ticket in pairs(spawnTickets) do
+        tickets = tickets + 1
+        local state = tostring(ticket.state or "unknown")
+        ticketStates[state] = (ticketStates[state] or 0) + 1
+    end
+    local cleanups = 0
+    local cleanupDetails = {}
+    for actor, entry in pairs(actorCleanupPending) do
+        cleanups = cleanups + 1
+        cleanupDetails[#cleanupDetails + 1] = {
+            actor = actor,
+            operation = entry.operation,
+            nativeReleased = entry.nativeReleased == true,
+            unregister = entry.unregister == true,
+            attempts = entry.attempts or 0,
+            reason = entry.reason,
+        }
+    end
+    return {
+        tickets = tickets,
+        ticketStates = ticketStates,
+        actorCleanups = cleanups,
+        cleanupDetails = cleanupDetails,
+    }
 end
 
 function actorService.providerKind()
@@ -1051,13 +1534,32 @@ function actorService._setProviderForTests(provider)
 end
 
 function actorService.reset()
+    local snapshot = actorService.ownershipSnapshot()
+    local activeRecords = 0
+    if SC.Registry ~= nil and type(SC.Registry.records) == "function" then
+        local ok, records = pcall(SC.Registry.records)
+        if ok and type(records) == "table" then activeRecords = #records end
+    end
+    if snapshot.tickets > 0 or snapshot.actorCleanups > 0 or activeRecords > 0 then
+        local reason = "actor service reset refused while ownership remains: tickets="
+            .. tostring(snapshot.tickets) .. ", cleanups="
+            .. tostring(snapshot.actorCleanups) .. ", records=" .. tostring(activeRecords)
+        reportOwnership("actor service reset retained live ownership", reason)
+        return false, reason
+    end
+    local service = SC.ActionSupervisor
+    if type(service) == "table" and type(service.reset) == "function" then
+        service.reset(nil, "actor_service_reset")
+    end
     cachedProvider = nil
     cachedReady = false
     cachedReason = "actor provider has not been checked"
     experimentalOwned = setmetatable({}, { __mode = "k" })
     experimentalDisabledReason = nil
     nativeOwned = setmetatable({}, { __mode = "k" })
-    spawnTickets = setmetatable({}, { __mode = "k" })
+    spawnTickets = {}
+    actorCleanupPending = {}
+    return true
 end
 
 return actorService

@@ -3,12 +3,35 @@
 local SC = SurvivorCompanion
 
 local tickHandlers = {}
+SC_RUNTIME_FIXTURE = {
+    failTickAdd = false,
+    failTickRemove = false,
+    rejectTask = nil,
+    bridgeThrows = false,
+    restoreThrows = false,
+    restoreResult = true,
+    restoreReason = nil,
+    prepareThrows = false,
+    prepareResult = true,
+    prepareReason = nil,
+}
 Events = {
     OnTick = {
-        Add = function(callback) tickHandlers[callback] = true end,
-        Remove = function(callback) tickHandlers[callback] = nil end,
+        Add = function(callback)
+            if SC_RUNTIME_FIXTURE.failTickAdd then error("injected OnTick add failure") end
+            tickHandlers[callback] = true
+        end,
+        Remove = function(callback)
+            if SC_RUNTIME_FIXTURE.failTickRemove then error("injected OnTick remove failure") end
+            tickHandlers[callback] = nil
+        end,
     },
 }
+function SC_RUNTIME_FIXTURE.tickCount()
+    local count = 0
+    for _ in pairs(tickHandlers) do count = count + 1 end
+    return count
+end
 
 ISInventoryPage = {}
 function ISInventoryPage.selectContainer(self, button)
@@ -21,6 +44,10 @@ function ISInventoryPage.setNewContainer(self, inventory)
 end
 
 local localPlayer = {}
+local playerModData = {}
+function localPlayer:getModData() return playerModData end
+function SC_RUNTIME_FIXTURE.setDocument(value) playerModData.SC_SaveV1 = value end
+function SC_RUNTIME_FIXTURE.document() return playerModData.SC_SaveV1 end
 function localPlayer:setHaloNote(message)
     self.haloNotes = (self.haloNotes or 0) + 1
     self.lastHalo = message
@@ -38,7 +65,10 @@ function getText(key, detail)
 end
 
 SC.Actor = {
-    checkBridge = function() return false, "fixture has no actor provider" end,
+    checkBridge = function()
+        if SC_RUNTIME_FIXTURE.bridgeThrows then error("injected bridge exception") end
+        return false, "fixture has no actor provider"
+    end,
     disposeCalls = 0,
     disposeResult = true,
     resetCalls = 0,
@@ -54,25 +84,62 @@ SC.Registry = {
     reset = function() SC.Registry.resetCalls = SC.Registry.resetCalls + 1 end,
 }
 SC.Scheduler = {
-    reset = function() end,
-    register = function() return true end,
+    registrations = {},
+    resetCalls = 0,
+    reset = function()
+        SC.Scheduler.resetCalls = SC.Scheduler.resetCalls + 1
+        SC.Scheduler.registrations = {}
+    end,
+    register = function(name)
+        if SC_RUNTIME_FIXTURE.rejectTask == name then
+            return false, "injected scheduler rejection: " .. tostring(name)
+        end
+        SC.Scheduler.registrations[name] = true
+        return true
+    end,
     tick = function() end,
     dueFor = function() return false end,
 }
 SC.Persistence = {
-    restore = function() return true end,
+    restoreCalls = 0,
+    saveCalls = 0,
+    committed = false,
+    restore = function()
+        SC.Persistence.restoreCalls = SC.Persistence.restoreCalls + 1
+        if SC_RUNTIME_FIXTURE.restoreThrows then error("injected restore exception") end
+        SC.Persistence.committed = SC_RUNTIME_FIXTURE.restoreResult == true
+        return SC_RUNTIME_FIXTURE.restoreResult, SC_RUNTIME_FIXTURE.restoreReason
+    end,
     restorePulse = function() return true end,
-    save = function() return true end,
+    save = function()
+        SC.Persistence.saveCalls = SC.Persistence.saveCalls + 1
+        playerModData.SC_SaveV1 = { overwritten = true }
+        return true
+    end,
+    prepareReset = function()
+        if SC_RUNTIME_FIXTURE.prepareThrows then error("injected prepare-reset exception") end
+        return SC_RUNTIME_FIXTURE.prepareResult, SC_RUNTIME_FIXTURE.prepareReason
+    end,
+    restoreStatus = function()
+        return SC.Persistence.committed,
+            SC.Persistence.committed and nil or SC_RUNTIME_FIXTURE.restoreReason
+    end,
     resetCalls = 0,
-    reset = function() SC.Persistence.resetCalls = SC.Persistence.resetCalls + 1 end,
+    reset = function()
+        SC.Persistence.resetCalls = SC.Persistence.resetCalls + 1
+        SC.Persistence.committed = false
+        return true
+    end,
 }
 SC.Vehicle = {
     restoreForVehicle = function() return 0 end,
-    reset = function() end,
+    resetCalls = 0,
+    reset = function() SC.Vehicle.resetCalls = SC.Vehicle.resetCalls + 1 end,
 }
 SC.Spawn = {
     debugPulse = function() return false end,
-    reset = function() end,
+    resetCalls = 0,
+    reset = function() SC.Spawn.resetCalls = SC.Spawn.resetCalls + 1 end,
 }
 SC.Vitals = { summary = function() return {} end }
 SC.Encounter = {
@@ -81,7 +148,10 @@ SC.Encounter = {
         if container ~= nil then SC.Encounter.opened = SC.Encounter.opened + 1 end
     end,
 }
-SC.Factions = { reset = function() end }
+SC.Factions = {
+    resetCalls = 0,
+    reset = function() SC.Factions.resetCalls = SC.Factions.resetCalls + 1 end,
+}
 SC.FactionContracts = {
     resetCalls = 0,
     removeCalls = 0,
@@ -91,3 +161,30 @@ SC.FactionContracts = {
         return true
     end,
 }
+SC.Decision = {
+    resetCalls = 0,
+    resetMode = "success",
+    resetAll = function()
+        SC.Decision.resetCalls = SC.Decision.resetCalls + 1
+        if SC.Decision.resetMode == "false" then
+            return false, "injected decision reset rejection"
+        elseif SC.Decision.resetMode == "throw" then
+            error("injected decision reset exception")
+        end
+        return true
+    end,
+}
+SC.Community = {
+    resetCalls = 0,
+    reset = function() SC.Community.resetCalls = SC.Community.resetCalls + 1 end,
+}
+SC.Diagnostics.resetCalls = 0
+SC.Diagnostics.reportCalls = 0
+SC.Diagnostics.reset = function()
+    SC.Diagnostics.resetCalls = SC.Diagnostics.resetCalls + 1
+    return true
+end
+SC.Diagnostics.report = function()
+    SC.Diagnostics.reportCalls = SC.Diagnostics.reportCalls + 1
+    return true
+end

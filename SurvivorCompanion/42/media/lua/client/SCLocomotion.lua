@@ -257,23 +257,76 @@ local function stopForOwnership(actor)
     end
 end
 
+local function copyIntent(intent)
+    local result = {}
+    for key, value in pairs(type(intent) == "table" and intent or {}) do
+        result[key] = value
+    end
+    -- A queued intent is dispatched after the prior owner has terminated.  A
+    -- token captured from that owner must never authorize the later movement.
+    result.supervisorToken = nil
+    result.urgentQueued = true
+    return result
+end
+
+local function queueUrgentMovement(actor, mode, action, intent)
+    local service = SC.ActionSupervisor
+    if type(service) ~= "table" or type(service.queueUrgent) ~= "function" then
+        return false, "urgent_queue_unavailable"
+    end
+    local queuedIntent = copyIntent(intent)
+    return service.queueUrgent(actor, {
+        owner = "locomotion", action = action,
+        priority = service.Priority and service.Priority.SURVIVAL or 100,
+        targetKey = squareText(intent.targetSquare or intent.target or intent.nextSquare),
+        targetLabel = squareText(intent.targetSquare or intent.target),
+        reason = "urgent_locomotion_waiting_for_owner",
+        detail = { mode = mode, action = action },
+        dispatch = function()
+            if type(SC.Actor) ~= "table" or type(SC.Actor.setMovement) ~= "function" then
+                return false, "actor_movement_unavailable"
+            end
+            return SC.Actor.setMovement(actor, mode, queuedIntent)
+        end,
+    })
+end
+
 function Locomotion.authorize(actor, mode, intent)
     if actor == nil or type(intent) ~= "table" then return false, "invalid_locomotion_request" end
     local phase, action = classify(mode, intent)
     if SC.ActionSupervisor and type(SC.ActionSupervisor.movementPermission) == "function" then
         local permitted, supervisorReason, supervisorState =
             SC.ActionSupervisor.movementPermission(actor, action, intent)
-        if permitted ~= true and not urgent(action, intent) then
-            stopForOwnership(actor)
-            transition(actor, "interact", "supervisor",
-                supervisorState and supervisorState.action or "activity",
-                supervisorReason or "action_owned", intent)
-            append(actor, "rejected", {
-                phase = phase, owner = "locomotion", action = action,
-                status = supervisorReason or "action_owned",
-                targetSquare = intent.targetSquare, nextSquare = intent.nextSquare,
-            })
-            return false, "locomotion_" .. tostring(supervisorReason or "action_owned")
+        if permitted ~= true then
+            local urgentIntent = urgent(action, intent)
+            if urgentIntent and supervisorState
+                and supervisorState.phase ~= "committing"
+                and supervisorState.phase ~= "verifying"
+                and type(SC.ActionSupervisor.cancel) == "function" then
+                local cancelled = SC.ActionSupervisor.cancel(actor,
+                    "urgent_locomotion_preemption", nil, false)
+                if cancelled == true then permitted = true end
+            end
+            if permitted == true then
+                supervisorReason, supervisorState = nil, nil
+            else
+                stopForOwnership(actor)
+                local status = supervisorReason or "action_owned"
+                if urgentIntent then
+                    local queued, queueReason = queueUrgentMovement(actor, mode, action, intent)
+                    status = queued and (queueReason or "urgent_queued")
+                        or (queueReason or "urgent_queue_rejected")
+                end
+                transition(actor, "interact", "supervisor",
+                    supervisorState and supervisorState.action or "activity",
+                    status, intent)
+                append(actor, "rejected", {
+                    phase = phase, owner = "locomotion", action = action,
+                    status = status,
+                    targetSquare = intent.targetSquare, nextSquare = intent.nextSquare,
+                })
+                return false, "locomotion_" .. tostring(status)
+            end
         end
     end
     local activityPhase, activityOwner, activityName, activityAt
@@ -285,21 +338,29 @@ function Locomotion.authorize(actor, mode, intent)
         local grace = tonumber(SC.Config and SC.Config.get("visualEffectClaimMs")) or 2000
         if nowMs() - (tonumber(activityAt) or nowMs()) >= grace then protectedActivity = false end
     end
-    if protectedActivity
-        and activityName ~= action and not urgent(action, intent) then
+    if protectedActivity and activityName ~= action then
         stopForOwnership(actor)
+        local status = "protected_activity:" .. tostring(activityOwner)
+            .. ":" .. tostring(activityName)
+        local response = "locomotion_protected_activity:" .. tostring(activityPhase)
+            .. ":" .. tostring(activityOwner) .. ":" .. tostring(activityName)
+        if urgent(action, intent) then
+            local queued, queueReason = queueUrgentMovement(actor, mode, action, intent)
+            status = queued and (queueReason or "urgent_queued")
+                or (queueReason or status)
+            response = "locomotion_" .. tostring(status)
+        end
         transition(actor, "interact", tostring(activityOwner or "native"),
-            tostring(activityName or "activity"), "protected_activity", intent)
+            tostring(activityName or "activity"), status, intent)
         append(actor, "rejected", {
             phase = phase, owner = "locomotion", action = action,
-            status = "protected_activity:" .. tostring(activityOwner) .. ":" .. tostring(activityName),
+            status = status,
             targetSquare = intent.targetSquare, nextSquare = intent.nextSquare,
         })
-        return false, "locomotion_protected_activity:" .. tostring(activityPhase)
-            .. ":" .. tostring(activityOwner) .. ":" .. tostring(activityName)
+        return false, response
     end
     if (phase == "walk" or phase == "run" or phase == "strafe" or phase == "recover")
-        and not urgent(action, intent) then
+        then
         local u = utility()
         local blocker = u and type(u.movementStateBlocker) == "function"
             and u.movementStateBlocker(actor) or nil

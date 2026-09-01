@@ -10,6 +10,7 @@ import zombie.core.skinnedmodel.visual.BaseVisual;
 import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.skinnedmodel.advancedanimation.IAnimationVariableSlot;
 import zombie.characters.ecs.ECSComponent;
+import zombie.characters.action.ActionContext;
 import zombie.pathfind.PathFindBehavior2;
 import zombie.vehicles.BaseVehicle;
 
@@ -28,6 +29,7 @@ public class IsoGameCharacter extends IsoMovingObject {
     public boolean canStandAt(float x, float y, float z) { return false; }
     public IsoCell getCell() { return null; }
     public BodyDamage getBodyDamage() { return null; }
+    public ActionContext getActionContext() { return null; }
     public IsoGridSquare getCurrentSquare() { return null; }
     public BaseCharacterSoundEmitter getEmitter() { return null; }
     public Moodles getMoodles() { return null; }
@@ -67,6 +69,9 @@ public class IsoGameCharacter extends IsoMovingObject {
     public void setForwardDirection(float x, float y) {}
     public boolean isAiming() { return false; }
     public void setIsAiming(boolean aiming) {}
+    public boolean getVariableBoolean(String key) { return false; }
+    public boolean isPerformingAttackAnimation() { return false; }
+    public void postupdate() {}
     public <ComponentType extends ECSComponent> ComponentType getECSComponent(
             Class<ComponentType> componentTypeClass) { return null; }
     public IAnimationVariableSlot setVariable(String key, float value) { return null; }

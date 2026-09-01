@@ -648,17 +648,169 @@ local function normalize(source)
     return copy
 end
 
-function Crisis.export() return stableCopy(ensure(), 8, { count = 8192 }) end
-function Crisis.restore(source)
-    if source ~= nil and (type(source) ~= "table"
-        or tonumber(source.version) ~= Crisis.VERSION
-        or type(source.crises) ~= "table" or type(source.observations) ~= "table"
-        or type(source.history) ~= "table") then
+local function restoreFailure(path, detail)
+    return false, "invalid infection crisis state at " .. tostring(path) .. ": " .. tostring(detail)
+end
+
+local function finiteNumber(value)
+    return type(value) == "number" and value == value
+        and value ~= math.huge and value ~= -math.huge
+end
+
+local function denseArray(value, path, maximum)
+    if type(value) ~= "table" then return restoreFailure(path, "expected dense array") end
+    local count, highest = 0, 0
+    for key in pairs(value) do
+        if type(key) ~= "number" or not finiteNumber(key) or key < 1
+            or key ~= math.floor(key) then
+            return restoreFailure(path .. "[" .. tostring(key) .. "]", "non-array key")
+        end
+        count, highest = count + 1, math.max(highest, key)
+    end
+    if highest ~= count then return restoreFailure(path, "sparse array") end
+    if maximum ~= nil and count > maximum then return restoreFailure(path, "too many entries") end
+    return true, count
+end
+
+local function configuredLimit(key, fallback)
+    local raw = U() and U().config and tonumber(U().config(key)) or nil
+    if raw == nil or raw ~= raw or raw < 0 or raw == math.huge or raw == -math.huge then
+        return fallback
+    end
+    return math.floor(raw)
+end
+
+local phases = { discovered = true, deliberating = true, resolved = true,
+    terminal = true, closed = true }
+local strategies = { conceal = true, confess = true, self_exile = true }
+local knowledgeValues = { unaware = true, suspected = true, confirmed = true }
+local stanceValues = { protective = true, pragmatic = true, fearful = true,
+    compassionate = true, authoritarian = true }
+
+local function validateCrisis(crisis, id, path)
+    if type(crisis) ~= "table" or type(id) ~= "string" or id == ""
+        or crisis.id ~= id or type(crisis.subjectId) ~= "string" or crisis.subjectId == "" then
+        return restoreFailure(path, "invalid crisis identity")
+    end
+    if not phases[crisis.phase] then return restoreFailure(path .. ".phase", "invalid phase") end
+    if not strategies[crisis.strategy] then
+        return restoreFailure(path .. ".strategy", "invalid strategy")
+    end
+    if crisis.outcome ~= nil and not Crisis.OUTCOMES[crisis.outcome] then
+        return restoreFailure(path .. ".outcome", "invalid outcome")
+    end
+    if type(crisis.finalAuthorized) ~= "boolean" then
+        return restoreFailure(path .. ".finalAuthorized", "expected boolean")
+    end
+    if crisis.finalAuthorized and (crisis.phase ~= "resolved"
+        or (crisis.outcome ~= "mercy" and crisis.outcome ~= "self_sacrifice")) then
+        return restoreFailure(path .. ".finalAuthorized", "authorization is inconsistent with outcome")
+    end
+    if type(crisis.participants) ~= "table" then
+        return restoreFailure(path .. ".participants", "expected participant map")
+    end
+    for participantId, participant in pairs(crisis.participants) do
+        local participantPath = path .. ".participants[" .. tostring(participantId) .. "]"
+        if type(participantId) ~= "string" or participantId == ""
+            or type(participant) ~= "table" then
+            return restoreFailure(participantPath, "invalid participant")
+        end
+        if not knowledgeValues[participant.knowledge] then
+            return restoreFailure(participantPath .. ".knowledge", "invalid knowledge")
+        end
+        if not finiteNumber(participant.certainty) or participant.certainty < 0
+            or participant.certainty > 100 then
+            return restoreFailure(participantPath .. ".certainty", "invalid certainty")
+        end
+        if participant.stance ~= nil and not stanceValues[participant.stance] then
+            return restoreFailure(participantPath .. ".stance", "invalid stance")
+        end
+        if participant.choice ~= nil and not Crisis.OUTCOMES[participant.choice] then
+            return restoreFailure(participantPath .. ".choice", "invalid choice")
+        end
+        if type(participant.spoken) ~= "boolean" then
+            return restoreFailure(participantPath .. ".spoken", "expected boolean")
+        end
+    end
+    local evidenceOkay, evidenceCount = denseArray(crisis.evidence, path .. ".evidence",
+        configuredLimit("infectionCrisisEvidenceLimit", 32))
+    if not evidenceOkay then return false, evidenceCount end
+    for index = 1, evidenceCount do
+        local evidence = crisis.evidence[index]
+        local evidencePath = path .. ".evidence[" .. tostring(index) .. "]"
+        if type(evidence) ~= "table" or type(evidence.kind) ~= "string"
+            or type(evidence.observerId) ~= "string" or not finiteNumber(evidence.certainty)
+            or evidence.certainty < 0 or evidence.certainty > 100
+            or not finiteNumber(evidence.at) or type(evidence.details) ~= "string" then
+            return restoreFailure(evidencePath, "invalid evidence")
+        end
+    end
+    if type(crisis.artifacts) ~= "table" then
+        return restoreFailure(path .. ".artifacts", "expected artifact map")
+    end
+    return true
+end
+
+local function validateRestoreSource(source)
+    if type(source) ~= "table" or source.version ~= Crisis.VERSION
+        or type(source.crises) ~= "table" or type(source.observations) ~= "table" then
         return false, "invalid_infection_crisis_state"
     end
-    local stable, reason = stableCopy(source, 12, { count = 65536 })
-    if source ~= nil and stable == nil then return false, reason end
-    document = normalize(stable)
+    if not finiteNumber(source.nextSerial) or source.nextSerial < 1
+        or source.nextSerial ~= math.floor(source.nextSerial) then
+        return restoreFailure("$.infectionCrisis.nextSerial", "expected positive integer")
+    end
+    local crisisCount = 0
+    for id, crisis in pairs(source.crises) do
+        crisisCount = crisisCount + 1
+        if crisisCount > configuredLimit("infectionCrisisMaxRecords", 32) then
+            return restoreFailure("$.infectionCrisis.crises", "too many crises")
+        end
+        local okay, reason = validateCrisis(crisis, id,
+            "$.infectionCrisis.crises[" .. tostring(id) .. "]")
+        if not okay then return false, reason end
+    end
+    for id, observation in pairs(source.observations) do
+        local path = "$.infectionCrisis.observations[" .. tostring(id) .. "]"
+        if type(id) ~= "string" or id == "" or type(observation) ~= "table"
+            or not finiteNumber(observation.bites) or observation.bites < 0
+            or observation.bites ~= math.floor(observation.bites)
+            or type(observation.infected) ~= "boolean"
+            or not finiteNumber(observation.infectionLevel) or observation.infectionLevel < 0
+            or not finiteNumber(observation.seenAt) then
+            return restoreFailure(path, "invalid observation")
+        end
+    end
+    local historyOkay, historyCount = denseArray(source.history,
+        "$.infectionCrisis.history", configuredLimit("infectionCrisisHistoryLimit", 96))
+    if not historyOkay then return false, historyCount end
+    for index = 1, historyCount do
+        if type(source.history[index]) ~= "table" then
+            return restoreFailure("$.infectionCrisis.history[" .. tostring(index) .. "]",
+                "expected record")
+        end
+    end
+    return true
+end
+
+function Crisis.export() return stableCopy(ensure(), 8, { count = 8192 }) end
+function Crisis.restore(source)
+    if source == nil then
+        document = emptyDocument()
+        actorRuntime = setmetatable({}, { __mode = "k" })
+        return true, document
+    end
+    local stable, reason = stableCopy(source, 12, { count = 8192 })
+    if stable == nil then
+        return restoreFailure("$.infectionCrisis", reason or "copy failed")
+    end
+    local valid, validationReason = validateRestoreSource(stable)
+    if not valid then return false, validationReason end
+    local normalized, candidate = pcall(normalize, stable)
+    if not normalized or type(candidate) ~= "table" then
+        return restoreFailure("$.infectionCrisis", normalized and "normalization failed" or candidate)
+    end
+    document = candidate
     actorRuntime = setmetatable({}, { __mode = "k" })
     return true, document
 end

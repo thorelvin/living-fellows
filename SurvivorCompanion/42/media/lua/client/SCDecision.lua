@@ -1277,6 +1277,30 @@ local function pacingFollowMustMove(actor, player, commands)
         and U().distance(actor, player) > math.max(2, limit - 1.5))
 end
 
+local function queueUrgentReassessment(actor, state, source)
+    local service = SC.ActionSupervisor
+    if type(service) ~= "table" or type(service.queueUrgent) ~= "function" then
+        return false, "urgent_queue_unavailable"
+    end
+    return service.queueUrgent(actor, {
+        owner = "decision", action = "survival_reassess",
+        priority = service.Priority and service.Priority.SURVIVAL or 100,
+        targetKey = "actor:" .. tostring(U().idOf(actor) or actor),
+        reason = "survival_priority_waiting_for_owner",
+        detail = { source = source },
+        dispatch = function()
+            -- The concrete survival action is deliberately selected on the
+            -- next decision pass from fresh senses.  This callback is the
+            -- observable hand-off from the former non-cancellable owner.
+            state.current = "urgent"
+            state.intent = "survival_reassess_released"
+            state.urgentReleasedAt = U().nowMs()
+            state.lastHandledAt = 0
+            return true, "survival_reassess_dispatched", { source = source }
+        end,
+    })
+end
+
 local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
         needs, commands, state, current)
     local native = SC.NativeActions
@@ -1294,7 +1318,15 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                         or SC.ActionSupervisor.Priority.PLAYER, false)
                 if cancelled ~= true then
                     state.current = "activity"
-                    state.intent = cancelReason or "action_cancel_pending"
+                    if urgent then
+                        local queued, queueReason = queueUrgentReassessment(actor,
+                            state, tostring(token.owner) .. ":" .. tostring(token.action)
+                                .. ":" .. tostring(token.phase))
+                        state.intent = queued and (queueReason or "urgent_queued")
+                            or (queueReason or cancelReason or "action_cancel_pending")
+                    else
+                        state.intent = cancelReason or "action_cancel_pending"
+                    end
                     state.lastHandledAt = current
                     return true, state.intent
                 end
@@ -1312,6 +1344,14 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
         if phase == "active" and not urgent then
             state.current = "activity"
             state.intent = tostring(owner) .. ":" .. tostring(name)
+            state.lastHandledAt = current
+            return true, state.intent
+        elseif urgent and phase ~= nil and phase ~= "none" then
+            local queued, queueReason = queueUrgentReassessment(actor, state,
+                tostring(owner) .. ":" .. tostring(name) .. ":" .. tostring(phase))
+            state.current = "activity"
+            state.intent = queued and (queueReason or "urgent_queued")
+                or (queueReason or "urgent_queue_rejected")
             state.lastHandledAt = current
             return true, state.intent
         end

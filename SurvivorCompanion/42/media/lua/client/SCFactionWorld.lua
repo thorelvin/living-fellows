@@ -211,6 +211,27 @@ function World.reconcile()
     return true, #rows
 end
 
+-- Run a faction-world mutation as one in-memory transaction.  Faction restore
+-- temporarily exposes its candidate groups so reconciliation can rebuild the
+-- relation graph; if reconciliation or the final spawn cancellation fails,
+-- none of those relation changes may leak into the live save.
+function World.transaction(operation)
+    if type(operation) ~= "function" then return false, "invalid_faction_world_transaction" end
+    local copied, checkpoint, checkpointReason = pcall(stableCopy,
+        state, 6, { count = 8192 })
+    if not copied or checkpoint == nil then
+        return false, "faction world checkpoint failed: "
+            .. tostring(copied and checkpointReason or checkpoint)
+    end
+    local checkpointSpreading = spreading
+    local called, accepted, result = pcall(operation)
+    if not called or accepted ~= true then
+        state, spreading = checkpoint, checkpointSpreading
+        return false, tostring(called and (result or accepted) or accepted)
+    end
+    return true, result
+end
+
 function World.onGroupAdded(groupId)
     local added = type(groupId) == "table" and groupId or group(groupId)
     if not added or type(added.id) ~= "string" then return false, "faction_unavailable" end
@@ -365,63 +386,117 @@ function World.export()
     return stableCopy(state, 6, { count = 8192 })
 end
 
+local function restoreFailure(path, detail)
+    return false, "invalid faction world state at " .. tostring(path) .. ": " .. tostring(detail)
+end
+
+local function finiteNumber(value)
+    return type(value) == "number" and value == value
+        and value ~= math.huge and value ~= -math.huge
+end
+
+local function denseArray(value, path, maximum)
+    if type(value) ~= "table" then return restoreFailure(path, "expected dense array") end
+    local count, highest = 0, 0
+    for key in pairs(value) do
+        if type(key) ~= "number" or not finiteNumber(key) or key < 1
+            or key ~= math.floor(key) then
+            return restoreFailure(path .. "[" .. tostring(key) .. "]", "non-array key")
+        end
+        count, highest = count + 1, math.max(highest, key)
+    end
+    if highest ~= count then return restoreFailure(path, "sparse array") end
+    if maximum ~= nil and count > maximum then return restoreFailure(path, "too many entries") end
+    return true, count
+end
+
 function World.restore(document)
     if document == nil then
-        local previous, previousSpreading = state, spreading
-        state, spreading = freshState(), false
-        local called, reason = pcall(World.reconcile)
-        if not called then state, spreading = previous, previousSpreading
-            return false, tostring(reason) end
-        return true, "no_faction_world_state"
+        local committed, reason = World.transaction(function()
+            state, spreading = freshState(), false
+            local reconciled, reconcileReason = World.reconcile()
+            if reconciled ~= true then return false, reconcileReason end
+            return true, "no_faction_world_state"
+        end)
+        return committed, reason
     end
-    if type(document) ~= "table" or document.schema ~= SCHEMA
-        or type(document.relations) ~= "table" or type(document.news) ~= "table"
-        or #document.news > MAX_NEWS or relationCount(document.relations) > MAX_RELATIONS then
+    if type(document) ~= "table" or document.schema ~= SCHEMA then
         return false, "invalid_faction_world_state"
     end
+    local source, copyReason = stableCopy(document, 6, { count = 8192 })
+    if source == nil then return restoreFailure("$.factionWorld", copyReason or "copy failed") end
+    if type(source.relations) ~= "table" then
+        return restoreFailure("$.factionWorld.relations", "expected relation map")
+    end
+    if relationCount(source.relations) > MAX_RELATIONS then
+        return restoreFailure("$.factionWorld.relations", "too many relations")
+    end
+    local newsOkay, newsCount = denseArray(source.news, "$.factionWorld.news", MAX_NEWS)
+    if not newsOkay then return false, newsCount end
+    if not finiteNumber(source.serial) or source.serial < 0
+        or source.serial ~= math.floor(source.serial) then
+        return restoreFailure("$.factionWorld.serial", "expected non-negative integer")
+    end
+    if not finiteNumber(source.version) or source.version < 0
+        or source.version ~= math.floor(source.version) then
+        return restoreFailure("$.factionWorld.version", "expected non-negative integer")
+    end
+    if source.nextEventHour ~= nil and not finiteNumber(source.nextEventHour) then
+        return restoreFailure("$.factionWorld.nextEventHour", "expected finite number")
+    end
     local restored = freshState()
-    restored.serial = math.max(0, math.floor(finite(document.serial, 0)))
-    restored.version = math.max(0, math.floor(finite(document.version, 0)))
-    restored.nextEventHour = finite(document.nextEventHour, nil)
-    for key, relation in pairs(document.relations) do
+    restored.serial = source.serial
+    restored.version = source.version
+    restored.nextEventHour = source.nextEventHour
+    for key, relation in pairs(source.relations) do
+        local path = "$.factionWorld.relations[" .. tostring(key) .. "]"
         if type(relation) ~= "table" then
-            return false, "invalid_faction_world_relation"
+            return restoreFailure(path, "expected relation")
         end
         local expected, leftId, rightId = pairKey(relation.leftId, relation.rightId)
         if type(key) ~= "string" or expected ~= key or not group(leftId) or not group(rightId)
-            or finite(relation.score, nil) == nil
-            or finite(relation.contactCount, nil) == nil then
-            return false, "invalid_faction_world_relation"
+            or not finiteNumber(relation.score)
+            or relation.score < -100 or relation.score > 100
+            or not finiteNumber(relation.contactCount) or relation.contactCount < 0
+            or relation.contactCount ~= math.floor(relation.contactCount)
+            or relation.status ~= relationStatus(relation.score)
+            or (relation.lastEventHour ~= nil and not finiteNumber(relation.lastEventHour)) then
+            return restoreFailure(path, "invalid relation or faction reference")
         end
         local clean = {
             key = key, leftId = leftId, rightId = rightId,
-            score = clamp(relation.score, -100, 100),
-            contactCount = math.max(0, math.floor(finite(relation.contactCount, 0))),
-            lastEventHour = finite(relation.lastEventHour, nil),
+            score = relation.score, contactCount = relation.contactCount,
+            lastEventHour = relation.lastEventHour,
         }
         clean.status = relationStatus(clean.score)
         restored.relations[key] = clean
     end
-    for _, entry in ipairs(document.news) do
+    for index = 1, newsCount do
+        local entry = source.news[index]
+        local path = "$.factionWorld.news[" .. tostring(index) .. "]"
         if type(entry) ~= "table" or type(entry.id) ~= "string"
             or type(entry.kind) ~= "string" or type(entry.message) ~= "string"
+            or #entry.id > 96 or #entry.kind > 48 or #entry.message > 384
             or type(entry.leftId) ~= "string" or type(entry.rightId) ~= "string"
-            or finite(entry.hour, nil) == nil then
-            return false, "invalid_faction_world_news"
+            or entry.leftId == entry.rightId or not finiteNumber(entry.hour)
+            or not finiteNumber(entry.delta) or entry.delta < -100 or entry.delta > 100
+            or type(entry.status) ~= "string" or type(entry.known) ~= "boolean" then
+            return restoreFailure(path, "invalid world-news record")
         end
         appendBounded(restored.news, {
             id = string.sub(entry.id, 1, 96), kind = string.sub(entry.kind, 1, 48),
-            hour = finite(entry.hour, 0), leftId = entry.leftId, rightId = entry.rightId,
-            delta = clamp(entry.delta, -100, 100), status = tostring(entry.status or "Neutral"),
-            message = string.sub(entry.message, 1, 384), known = entry.known == true,
+            hour = entry.hour, leftId = entry.leftId, rightId = entry.rightId,
+            delta = entry.delta, status = entry.status,
+            message = string.sub(entry.message, 1, 384), known = entry.known,
         }, MAX_NEWS)
     end
-    local previous, previousSpreading = state, spreading
-    state, spreading = restored, false
-    local called, reason = pcall(World.reconcile)
-    if not called then state, spreading = previous, previousSpreading
-        return false, tostring(reason) end
-    return true, relationCount(state.relations)
+    local committed, reason = World.transaction(function()
+        state, spreading = restored, false
+        local reconciled, reconcileReason = World.reconcile()
+        if reconciled ~= true then return false, reconcileReason end
+        return true, relationCount(state.relations)
+    end)
+    return committed, reason
 end
 
 function World.reset()

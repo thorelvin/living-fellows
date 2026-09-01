@@ -40,6 +40,14 @@ uses the save named by the real `latestSave.ini`, but only as read-only input:
 .\scripts\Invoke-LiveSandboxTests.ps1
 ```
 
+For the release-isolation run, add `-LivingFellowsOnly`. The cloned world is
+still used as read-only input, but only Living Fellows and the private harness
+are placed in its isolated mod list; no local/Vortex mod junctions are created:
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -LivingFellowsOnly
+```
+
 Use `-PrepareOnly` to inspect the clone without launching the game. Every run is
 retained with a manifest, isolated console, event log, and terminal summary.
 `PASS` means every applicable assertion passed; environment-dependent geometry

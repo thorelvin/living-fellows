@@ -4,12 +4,14 @@ package survivorcompanion.bridge;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -63,7 +65,16 @@ public final class SCBridge {
         return thread;
     });
     private static volatile String lastFailure = "";
-    private static volatile String cleanupFailureForTests = "";
+    /**
+     * Package-private fault controls are intentionally unreachable through the
+     * public/Kahlua bridge. They let the real-game-JAR control prove that every
+     * destructive transaction retains ownership until native cleanup has been
+     * verified, including failures that the headless engine cannot naturally
+     * produce on demand.
+     */
+    private static final Set<String> FAILURE_STEPS_FOR_TESTS = new HashSet<>();
+    private static volatile CountDownLatch SPAWN_PAUSED_FOR_TESTS;
+    private static volatile CountDownLatch SPAWN_RESUME_FOR_TESTS;
 
     /**
      * IsoPlayer's constructor fires the local/mod-facing
@@ -352,11 +363,14 @@ public final class SCBridge {
             }
             return removed;
         }
-        // No native actor exists, so there is no ownership reference to lose.
-        // A queued completion that has not started will observe an unknown id
-        // and become a no-op.
+        // Keep a pending request queryable until completeSpawn observes the
+        // cancellation. It may already have passed its first map lookup and be
+        // constructing an actor; removing the request here would leave a failed
+        // abandoned-actor cleanup with no request-level retry handle.
         synchronized (SPAWN_REQUESTS) {
-            SPAWN_REQUESTS.remove(requestId);
+            if (request.state != SpawnState.PENDING) {
+                SPAWN_REQUESTS.remove(requestId);
+            }
         }
         return true;
     }
@@ -382,6 +396,8 @@ public final class SCBridge {
             }
         }
 
+        awaitSpawnCompletionPauseForTests();
+
         SCNativeCompanion actor = spawnNow(request);
         String failure = actor == null ? lastFailure : "";
         boolean cleanupAbandonedActor = false;
@@ -391,7 +407,9 @@ public final class SCBridge {
                 cleanupAbandonedActor = actor != null;
             } else if (actor == null) {
                 if (current.actor != null && isCleanupPending(current.actor)) {
-                    current.failure = cleanupFailure(current.actor);
+                    String cleanup = cleanupFailure(current.actor);
+                    current.failure = failure.isEmpty() ? cleanup
+                            : cleanFailure(failure + "; " + cleanup);
                     current.state = SpawnState.CLEANUP_PENDING;
                 } else {
                     current.actor = null;
@@ -420,6 +438,27 @@ public final class SCBridge {
                     }
                 }
             }
+        }
+    }
+
+    static void pauseSpawnCompletionForTests(CountDownLatch paused,
+            CountDownLatch resume) {
+        SPAWN_PAUSED_FOR_TESTS = paused;
+        SPAWN_RESUME_FOR_TESTS = resume;
+    }
+
+    private static void awaitSpawnCompletionPauseForTests() {
+        CountDownLatch paused = SPAWN_PAUSED_FOR_TESTS;
+        CountDownLatch resume = SPAWN_RESUME_FOR_TESTS;
+        if (paused == null || resume == null) return;
+        SPAWN_PAUSED_FOR_TESTS = null;
+        SPAWN_RESUME_FOR_TESTS = null;
+        paused.countDown();
+        try {
+            resume.await();
+        } catch (InterruptedException failure) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("spawn completion test pause interrupted", failure);
         }
     }
 
@@ -460,7 +499,9 @@ public final class SCBridge {
             actor.setMovingSquare(square);
             actor.addToWorld();
 
-            String renderFailure = attachRenderModel(actor);
+            String renderFailure = consumeFailureForTests("spawn:render-validation")
+                    ? "injected native companion render validation failure"
+                    : attachRenderModel(actor);
             String actorFailure = checkActorState(actor);
             if (!renderFailure.isEmpty() || !actorFailure.isEmpty()
                     || !actor.isExistInTheWorld()) {
@@ -511,6 +552,7 @@ public final class SCBridge {
         float oldZ = actor.getZ();
         IsoGridSquare oldCurrentSquare = actor.getCurrentSquare();
         IsoGridSquare oldSquare = actor.getSquare();
+        IsoGridSquare oldMovingSquare = actor.getMovingSquare();
         boolean oldWorldMembership = actor.isExistInTheWorld();
         boolean oldModelMembership = actor.isAddedToModelManager();
         try {
@@ -535,25 +577,40 @@ public final class SCBridge {
             actor.setCurrentSquare(square);
             actor.setSquare(square);
             actor.setMovingSquare(square);
-            actor.addToWorld();
-            String renderFailure = attachRenderModel(actor);
-            String failure = checkActorState(actor);
+            boolean injectedFinalCheck = consumeFailureForTests("recovery:final-check");
+            // A real live actor always performs the native world commit. The
+            // injected branch stops at the immediately preceding transaction
+            // boundary so the real-JAR headless control can exercise rollback
+            // without IsoGameCharacter's unavailable render/ragdoll runtime.
+            if (!injectedFinalCheck) actor.addToWorld();
+            String renderFailure;
+            String failure;
+            if (injectedFinalCheck) {
+                // Exercise the rollback from the same final validation point
+                // without requiring a live world renderer in the real-JAR
+                // headless control. Normal production calls cannot select it.
+                renderFailure = "";
+                failure = "injected recovery final-check failure";
+            } else {
+                renderFailure = attachRenderModel(actor);
+                failure = checkActorState(actor);
+            }
             if (!localState.matches()) {
                 localState.restore();
                 return failRecoveryWithRollback(actor, "companion recovery changed local-player state",
-                        oldX, oldY, oldZ, oldCurrentSquare, oldSquare,
+                        oldX, oldY, oldZ, oldCurrentSquare, oldSquare, oldMovingSquare,
                         oldWorldMembership, oldModelMembership);
             }
             if (!renderFailure.isEmpty()) {
                 return failRecoveryWithRollback(actor,
                         "companion recovery failed: " + renderFailure,
-                        oldX, oldY, oldZ, oldCurrentSquare, oldSquare,
+                        oldX, oldY, oldZ, oldCurrentSquare, oldSquare, oldMovingSquare,
                         oldWorldMembership, oldModelMembership);
             }
             if (!failure.isEmpty()) {
                 return failRecoveryWithRollback(actor,
                         "companion recovery failed: " + failure,
-                        oldX, oldY, oldZ, oldCurrentSquare, oldSquare,
+                        oldX, oldY, oldZ, oldCurrentSquare, oldSquare, oldMovingSquare,
                         oldWorldMembership, oldModelMembership);
             }
             return true;
@@ -561,18 +618,27 @@ public final class SCBridge {
             localState.restore();
             return failRecoveryWithRollback(actor, "native companion recovery failed: "
                     + failure.getClass().getSimpleName() + messageSuffix(failure.getMessage()),
-                    oldX, oldY, oldZ, oldCurrentSquare, oldSquare,
+                    oldX, oldY, oldZ, oldCurrentSquare, oldSquare, oldMovingSquare,
                     oldWorldMembership, oldModelMembership);
         }
     }
 
     private static boolean failRecoveryWithRollback(SCNativeCompanion actor, String reason,
             float oldX, float oldY, float oldZ, IsoGridSquare oldCurrentSquare,
-            IsoGridSquare oldSquare,
+            IsoGridSquare oldSquare, IsoGridSquare oldMovingSquare,
             boolean oldWorldMembership, boolean oldModelMembership) {
         ArrayList<String> rollbackFailures = new ArrayList<>();
         try {
-            if (actor.isExistInTheWorld()) actor.removeFromWorld();
+            if (actor.isExistInTheWorld()) {
+                if (consumeFailureForTests("recovery:headless-square-detach")) {
+                    // The injected final-check branch never entered the game
+                    // entity manager, so only its square-list registration
+                    // exists in the real-JAR headless control.
+                    actor.removeFromSquare();
+                } else {
+                    actor.removeFromWorld();
+                }
+            }
         } catch (RuntimeException | LinkageError failure) {
             rollbackFailures.add("world-detach=" + failure.getClass().getSimpleName());
         }
@@ -589,7 +655,7 @@ public final class SCBridge {
             actor.setZ(oldZ);
             actor.setCurrentSquare(oldCurrentSquare);
             actor.setSquare(oldSquare);
-            actor.setMovingSquare(oldCurrentSquare);
+            actor.setMovingSquare(oldMovingSquare);
             if (oldWorldMembership) actor.addToWorld();
             if (oldModelMembership) {
                 String renderFailure = attachRenderModel(actor);
@@ -606,6 +672,7 @@ public final class SCBridge {
                 && Float.compare(actor.getZ(), oldZ) == 0
                 && actor.getCurrentSquare() == oldCurrentSquare
                 && actor.getSquare() == oldSquare
+                && actor.getMovingSquare() == oldMovingSquare
                 && actor.isExistInTheWorld() == oldWorldMembership
                 && actor.isAddedToModelManager() == oldModelMembership;
         if (!matches) rollbackFailures.add("prior placement was not restored");
@@ -800,40 +867,44 @@ public final class SCBridge {
             failures.add("stop=" + failure.getClass().getSimpleName());
         }
         try {
+            failCleanupStepForTests("model");
             detachRenderModel(actor);
         } catch (RuntimeException | LinkageError failure) {
             failures.add("model=" + failure.getClass().getSimpleName());
         }
         try {
+            failCleanupStepForTests("world");
             if (actor.isExistInTheWorld()) actor.removeFromWorld();
         } catch (RuntimeException | LinkageError failure) {
             failures.add("world=" + failure.getClass().getSimpleName());
         }
         try {
+            failCleanupStepForTests("square-list");
             actor.removeFromSquare();
         } catch (RuntimeException | LinkageError failure) {
             failures.add("square-list=" + failure.getClass().getSimpleName());
         }
         try {
+            failCleanupStepForTests("moving-square");
             actor.setMovingSquare(null);
         } catch (RuntimeException | LinkageError failure) {
             failures.add("moving-square=" + failure.getClass().getSimpleName());
         }
         try {
-            if (consumeCleanupFailureForTests("current-square")) {
-                throw new IllegalStateException("injected cleanup failure");
-            }
+            failCleanupStepForTests("current-square");
             actor.setCurrentSquare(null);
         } catch (RuntimeException | LinkageError failure) {
             failures.add("current-square=" + failure.getClass().getSimpleName());
         }
         try {
+            failCleanupStepForTests("render-square");
             actor.setSquare(null);
         } catch (RuntimeException | LinkageError failure) {
             failures.add("render-square=" + failure.getClass().getSimpleName());
         }
         boolean removed = !actor.isExistInTheWorld() && !actor.isAddedToModelManager()
-                && actor.getCurrentSquare() == null && actor.getSquare() == null;
+                && actor.getCurrentSquare() == null && actor.getSquare() == null
+                && actor.getMovingSquare() == null;
         if (!removed) failures.add("world, model, or square membership remains");
         if (!failures.isEmpty()) {
             return failBoolean("native companion removal failed: " + String.join(", ", failures));
@@ -885,13 +956,30 @@ public final class SCBridge {
 
     /** Package-private, one-shot fault seam used only by the real-JAR control. */
     static void failNextCleanupStepForTests(String step) {
-        cleanupFailureForTests = step == null ? "" : step;
+        failNextBridgeStepsForTests(step == null ? null : "cleanup:" + step);
     }
 
-    private static boolean consumeCleanupFailureForTests(String step) {
-        if (!step.equals(cleanupFailureForTests)) return false;
-        cleanupFailureForTests = "";
-        return true;
+    /** Package-private multi-point variant for compound rollback controls. */
+    static void failNextBridgeStepsForTests(String... steps) {
+        synchronized (FAILURE_STEPS_FOR_TESTS) {
+            FAILURE_STEPS_FOR_TESTS.clear();
+            if (steps == null) return;
+            for (String step : steps) {
+                if (step != null && !step.isBlank()) FAILURE_STEPS_FOR_TESTS.add(step);
+            }
+        }
+    }
+
+    private static boolean consumeFailureForTests(String step) {
+        synchronized (FAILURE_STEPS_FOR_TESTS) {
+            return FAILURE_STEPS_FOR_TESTS.remove(step);
+        }
+    }
+
+    private static void failCleanupStepForTests(String step) {
+        if (consumeFailureForTests("cleanup:" + step)) {
+            throw new IllegalStateException("injected cleanup failure");
+        }
     }
 
     private static String localPlayerIsolationFailure() {

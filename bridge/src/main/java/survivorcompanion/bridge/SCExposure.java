@@ -49,15 +49,36 @@ final class SCExposure {
             return false;
         }
         if (now - candidateSince < INIT_STABILITY_NANOS) return false;
-        if (rawget.invoke(environment, "SCBridge") != null) return true;
+        Object bridgeGlobal = rawget.invoke(environment, "SCBridge");
+        Object attackTypeGlobal = rawget.invoke(environment, "AttackType");
+        if (bridgeGlobal != null && hasRequiredAttackTypes(
+                tableClass, rawget, attackTypeGlobal)) return true;
 
         Method setExposed = exposer.getClass().getMethod("setExposed", Class.class);
         Method expose = exposer.getClass().getMethod("exposeLikeJava", Class.class, tableClass);
-        for (Class<?> type : new Class<?>[] { SCBridge.class, SCNativeCompanion.class }) {
+        // Build 42.20.4 exposes CharacterActionAnims but not zombie.AttackType.
+        // SCNativeActions must select an exact shove/stomp/shot/melee request
+        // before invoking IsoPlayer.DoAttack(), so expose this one version-pinned
+        // enum alongside the narrow bridge instead of relying on an absent
+        // stock Kahlua global.
+        Class<?> attackType = Class.forName("zombie.AttackType", false, loader);
+        for (Class<?> type : new Class<?>[] {
+                SCBridge.class, SCNativeCompanion.class, attackType }) {
             setExposed.invoke(exposer, type);
             expose.invoke(exposer, type, environment);
         }
-        return rawget.invoke(environment, "SCBridge") != null;
+        return rawget.invoke(environment, "SCBridge") != null
+                && hasRequiredAttackTypes(tableClass, rawget,
+                        rawget.invoke(environment, "AttackType"));
+    }
+
+    private static boolean hasRequiredAttackTypes(Class<?> tableClass,
+            Method rawget, Object attackTypes) throws ReflectiveOperationException {
+        if (!tableClass.isInstance(attackTypes)) return false;
+        for (String name : new String[] { "SHOVE", "STOMP", "SHOT", "MELEE_SWING" }) {
+            if (rawget.invoke(attackTypes, name) == null) return false;
+        }
+        return true;
     }
 
     private static void clearCandidate() {

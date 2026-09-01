@@ -980,16 +980,239 @@ function BaseLife.export()
     return stableCopy(ensure(), 7, { count = 8192 })
 end
 
-function BaseLife.restore(source)
-    if source ~= nil and (type(source) ~= "table"
-        or tonumber(source.version) ~= BaseLife.VERSION
+local function restoreFailure(path, detail)
+    return false, "invalid base life state at " .. tostring(path) .. ": " .. tostring(detail)
+end
+
+local function finiteNumber(value)
+    return type(value) == "number" and value == value
+        and value ~= math.huge and value ~= -math.huge
+end
+
+local function denseArray(value, path, maximum)
+    if type(value) ~= "table" then return restoreFailure(path, "expected dense array") end
+    local count, highest = 0, 0
+    for key in pairs(value) do
+        if type(key) ~= "number" or not finiteNumber(key) or key < 1
+            or key ~= math.floor(key) then
+            return restoreFailure(path .. "[" .. tostring(key) .. "]", "non-array key")
+        end
+        count, highest = count + 1, math.max(highest, key)
+    end
+    if highest ~= count then return restoreFailure(path, "sparse array") end
+    if maximum ~= nil and count > maximum then return restoreFailure(path, "too many entries") end
+    return true, count
+end
+
+local function configuredLimit(key, fallback)
+    local raw = U() and U().config and tonumber(U().config(key)) or nil
+    if raw == nil or raw ~= raw or raw < 0 or raw == math.huge or raw == -math.huge then
+        return fallback
+    end
+    return math.floor(raw)
+end
+
+local function validPoint(value, path)
+    if type(value) ~= "table" then return restoreFailure(path, "expected position") end
+    for _, key in ipairs({ "x", "y", "z" }) do
+        if not finiteNumber(value[key]) then
+            return restoreFailure(path .. "." .. key, "expected finite number")
+        end
+    end
+    return true
+end
+
+local function validRecordArray(value, path, maximum)
+    local okay, countOrReason = denseArray(value, path, maximum)
+    if not okay then return false, countOrReason end
+    for index = 1, countOrReason do
+        if type(value[index]) ~= "table" then
+            return restoreFailure(path .. "[" .. tostring(index) .. "]", "expected record")
+        end
+    end
+    return true, countOrReason
+end
+
+local function validBaseSource(source, id, path)
+    if type(source) ~= "table" or source.id ~= id or not validId(id, "base:") then
+        return restoreFailure(path, "invalid base id")
+    end
+    local okay, reason = validPoint(source.core, path .. ".core")
+    if not okay then return false, reason end
+    if type(source.settings) ~= "table" then
+        return restoreFailure(path .. ".settings", "expected settings")
+    end
+    if not DEFENSE_POLICIES[source.settings.defense] then
+        return restoreFailure(path .. ".settings.defense", "invalid defense policy")
+    end
+    if not WORKLOAD_POLICIES[source.settings.workload] then
+        return restoreFailure(path .. ".settings.workload", "invalid workload policy")
+    end
+    if type(source.settings.routines) ~= "boolean"
+        or type(source.settings.autoMaintenance) ~= "boolean" then
+        return restoreFailure(path .. ".settings", "policy flags must be boolean")
+    end
+    if type(source.settings.stockTargets) ~= "table" then
+        return restoreFailure(path .. ".settings.stockTargets", "expected target map")
+    end
+    for category, amount in pairs(source.settings.stockTargets) do
+        if defaultStockTargets[category] == nil or not finiteNumber(amount)
+            or amount < 0 or amount > 99 or amount ~= math.floor(amount) then
+            return restoreFailure(path .. ".settings.stockTargets[" .. tostring(category) .. "]",
+                "invalid stock target")
+        end
+    end
+    for category in pairs(defaultStockTargets) do
+        if source.settings.stockTargets[category] == nil then
+            return restoreFailure(path .. ".settings.stockTargets[" .. category .. "]",
+                "missing stock target")
+        end
+    end
+
+    local arrays = {
+        { key = "zones", limit = configuredLimit("baseMaxZones", 24), normalizer = normalizeZone },
+        { key = "storages", limit = configuredLimit("baseMaxStorages", 32), normalizer = normalizeStorage },
+        { key = "maintenanceTargets", limit = configuredLimit("baseMaxMaintenanceTargets", 64),
+            normalizer = normalizeTarget },
+        { key = "jobs", limit = configuredLimit("baseMaxJobs", 64), normalizer = normalizeJob },
+    }
+    local ids = {}
+    for _, specification in ipairs(arrays) do
+        local arrayPath = path .. "." .. specification.key
+        local arrayOkay, countOrReason = denseArray(source[specification.key], arrayPath,
+            specification.limit)
+        if not arrayOkay then return false, countOrReason end
+        for index = 1, countOrReason do
+            local row, rowPath = source[specification.key][index],
+                arrayPath .. "[" .. tostring(index) .. "]"
+            local normalized, normalizerCalled = nil, false
+            normalizerCalled, normalized = pcall(specification.normalizer, row)
+            if type(row) ~= "table" or not normalizerCalled or normalized == nil then
+                return restoreFailure(rowPath, "invalid persisted entity")
+            end
+            if ids[row.id] then return restoreFailure(rowPath .. ".id", "duplicate entity id") end
+            ids[row.id] = true
+            if specification.key == "storages" then
+                if type(row.reserves) ~= "table" then
+                    return restoreFailure(rowPath .. ".reserves", "expected reserve map")
+                end
+                local reserveCount = 0
+                for itemType, amount in pairs(row.reserves) do
+                    reserveCount = reserveCount + 1
+                    if type(itemType) ~= "string" or itemType == "" or not finiteNumber(amount)
+                        or amount < 0 or amount > 9999 or amount ~= math.floor(amount) then
+                        return restoreFailure(rowPath .. ".reserves[" .. tostring(itemType) .. "]",
+                            "invalid reserve")
+                    end
+                end
+                if reserveCount > 64 then
+                    return restoreFailure(rowPath .. ".reserves", "too many reserves")
+                end
+            elseif specification.key == "maintenanceTargets" then
+                if row.kind ~= "barricade" and row.kind ~= "maintain" then
+                    return restoreFailure(rowPath .. ".kind", "invalid maintenance kind")
+                end
+            elseif specification.key == "jobs" then
+                if not JOB_STATES[row.state] then
+                    return restoreFailure(rowPath .. ".state", "invalid job state")
+                end
+                if row.state == "completed" or row.state == "cancelled" then
+                    return restoreFailure(rowPath .. ".state", "terminal job belongs in completed history")
+                end
+                if row.target ~= nil then
+                    local targetCopy, targetReason = stableCopy(row.target, 3, { count = 64 })
+                    if targetCopy == nil then
+                        return restoreFailure(rowPath .. ".target", targetReason or "invalid target")
+                    end
+                end
+            end
+        end
+    end
+    okay, reason = validRecordArray(source.completed, path .. ".completed", 24)
+    if not okay then return false, reason end
+    for index = 1, reason do
+        local rowCopy, rowReason = stableCopy(source.completed[index], 2, { count = 32 })
+        if rowCopy == nil then
+            return restoreFailure(path .. ".completed[" .. tostring(index) .. "]",
+                rowReason or "invalid completed record")
+        end
+    end
+    return true
+end
+
+local function validateRestoreSource(source)
+    if type(source) ~= "table" or source.version ~= BaseLife.VERSION
         or type(source.bases) ~= "table" or type(source.residents) ~= "table"
-        or type(source.restrictions) ~= "table" or type(source.history) ~= "table") then
+        or type(source.restrictions) ~= "table" then
         return false, "invalid_base_life_state"
     end
-    local stable, reason = stableCopy(source, 12, { count = 65536 })
-    if source ~= nil and stable == nil then return false, reason end
-    local candidate = normalize(stable)
+    for _, field in ipairs({ "nextBaseSerial", "nextZoneSerial", "nextStorageSerial",
+        "nextTargetSerial", "nextJobSerial" }) do
+        local value = source[field]
+        if not finiteNumber(value) or value < 1 or value ~= math.floor(value) then
+            return restoreFailure("$.baseLife." .. field, "expected positive integer")
+        end
+    end
+    for id, base in pairs(source.bases) do
+        if type(id) ~= "string" then
+            return restoreFailure("$.baseLife.bases[" .. tostring(id) .. "]", "non-string key")
+        end
+        local okay, reason = validBaseSource(base, id,
+            "$.baseLife.bases[" .. id .. "]")
+        if not okay then return false, reason end
+    end
+    if source.activeBaseId ~= nil and (type(source.activeBaseId) ~= "string"
+        or source.bases[source.activeBaseId] == nil) then
+        return restoreFailure("$.baseLife.activeBaseId", "unknown base reference")
+    end
+    for id, resident in pairs(source.residents) do
+        local path = "$.baseLife.residents[" .. tostring(id) .. "]"
+        if type(id) ~= "string" or id == "" or type(resident) ~= "table" then
+            return restoreFailure(path, "invalid resident")
+        end
+        if type(resident.baseId) ~= "string" or source.bases[resident.baseId] == nil then
+            return restoreFailure(path .. ".baseId", "unknown base reference")
+        end
+        if not BaseLife.ROLES[resident.role] then
+            return restoreFailure(path .. ".role", "invalid resident role")
+        end
+        if type(resident.duty) ~= "boolean" then
+            return restoreFailure(path .. ".duty", "expected boolean")
+        end
+    end
+    for id, restriction in pairs(source.restrictions) do
+        local path = "$.baseLife.restrictions[" .. tostring(id) .. "]"
+        if type(id) ~= "string" or id == ""
+            or (restriction ~= "watch" and restriction ~= "quarantine") then
+            return restoreFailure(path, "invalid restriction")
+        end
+    end
+    local okay, countOrReason = validRecordArray(source.history, "$.baseLife.history",
+        configuredLimit("baseHistoryLimit", 96))
+    if not okay then return false, countOrReason end
+    for index = 1, countOrReason do
+        local rowCopy, rowReason = stableCopy(source.history[index], 3, { count = 64 })
+        if rowCopy == nil then
+            return restoreFailure("$.baseLife.history[" .. tostring(index) .. "]",
+                rowReason or "invalid history record")
+        end
+    end
+    return true
+end
+
+function BaseLife.restore(source)
+    if source == nil then
+        document, draftZone, operationsCache = emptyDocument(), nil, nil
+        return true, document
+    end
+    local stable, reason = stableCopy(source, 12, { count = 8192 })
+    if stable == nil then return restoreFailure("$.baseLife", reason or "copy failed") end
+    local valid, validationReason = validateRestoreSource(stable)
+    if not valid then return false, validationReason end
+    local normalized, candidate = pcall(normalize, stable)
+    if not normalized or type(candidate) ~= "table" then
+        return restoreFailure("$.baseLife", normalized and "normalization failed" or candidate)
+    end
     document = candidate
     draftZone, operationsCache = nil, nil
     return true, document

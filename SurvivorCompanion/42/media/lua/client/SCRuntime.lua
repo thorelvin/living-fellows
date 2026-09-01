@@ -32,6 +32,13 @@ SC.Runtime = SC.Runtime or {}
 local runtime = SC.Runtime
 local tickAttached = false
 local tasksRegistered = false
+local running = false
+local lastStartReady = false
+local lastStartReason = nil
+local startupCommitted = false
+local restoreCommitted = false
+local startupFailureReason = "runtime has not started"
+local teardownPending = false
 local decisionCursor = 1
 local vitalsCursor = 1
 local lastPlayerVehicle = nil
@@ -360,7 +367,7 @@ local function restoreTask()
 end
 
 local function saveTask()
-    local saved, reason = SC.Persistence.save(player())
+    local saved, reason = runtime.save()
     if saved ~= true then
         SC.Diagnostics.report("persistence", nil,
             "scheduled save reported failure", reason)
@@ -557,61 +564,178 @@ local function installContainerHook()
     return true
 end
 
+local function preflightContainerHookRemoval()
+    if originalSelectContainer == nil and originalSetNewContainer == nil then return true end
+    if type(ISInventoryPage) ~= "table" then
+        return false, "inventory-page class disappeared while wrappers are owned"
+    end
+    if originalSelectContainer ~= nil
+        and not (ISInventoryPage.selectContainer == selectContainerWrapper) then
+        return false, "selectContainer wrapper chain changed"
+    end
+    if originalSetNewContainer ~= nil
+        and not (ISInventoryPage.setNewContainer == setNewContainerWrapper) then
+        return false, "setNewContainer wrapper chain changed"
+    end
+    return true
+end
+
 local function removeContainerHook()
-    local failures = {}
+    local ready, preflightReason = preflightContainerHookRemoval()
+    if not ready then
+        SC.Diagnostics.report("container-hook", nil,
+            "container hook removal deferred", preflightReason)
+        return false, preflightReason
+    end
+    if originalSelectContainer == nil and originalSetNewContainer == nil then return true end
+
+    local removedSelect, removedSetNew = false, false
     if originalSelectContainer ~= nil then
-        if type(ISInventoryPage) == "table"
-            and ISInventoryPage.selectContainer == selectContainerWrapper then
+        local ok, reason = pcall(function()
             ISInventoryPage.selectContainer = originalSelectContainer
-            originalSelectContainer = nil
-            selectContainerWrapper = nil
-        else
-            SC.Diagnostics.report("container-hook", nil,
-                "selectContainer hook removal deferred",
-                "another wrapper currently owns the method chain")
-            failures[#failures + 1] = "selectContainer wrapper chain changed"
-        end
+        end)
+        if not ok then return false, "selectContainer removal failed: " .. tostring(reason) end
+        removedSelect = true
     end
     if originalSetNewContainer ~= nil then
-        if type(ISInventoryPage) == "table"
-            and ISInventoryPage.setNewContainer == setNewContainerWrapper then
+        local ok, reason = pcall(function()
             ISInventoryPage.setNewContainer = originalSetNewContainer
-            originalSetNewContainer = nil
-            setNewContainerWrapper = nil
+        end)
+        if not ok then
+            if removedSelect then
+                pcall(function() ISInventoryPage.selectContainer = selectContainerWrapper end)
+            end
+            return false, "setNewContainer removal failed: " .. tostring(reason)
+        end
+        removedSetNew = true
+    end
+
+    if removedSelect then
+        originalSelectContainer = nil
+        selectContainerWrapper = nil
+    end
+    if removedSetNew then
+        originalSetNewContainer = nil
+        setNewContainerWrapper = nil
+    end
+    return true
+end
+
+local function preflightInfrastructureTeardown(shouldDetach)
+    if tickAttached and shouldDetach ~= true then
+        return false, "runtime tick must be detached before destructive reset"
+    end
+    if tickAttached and (Events == nil or Events.OnTick == nil
+        or type(Events.OnTick.Remove) ~= "function") then
+        return false, "OnTick removal is unavailable"
+    end
+    return preflightContainerHookRemoval()
+end
+
+local function removeInfrastructure(shouldDetach)
+    local ready, reason = preflightInfrastructureTeardown(shouldDetach)
+    if not ready then return false, reason end
+    local detached = false
+    if tickAttached then
+        local tickOk, tickReason = detachTick()
+        if not tickOk then return false, tickReason end
+        detached = true
+    end
+    local containerOk, containerReason = removeContainerHook()
+    if not containerOk then
+        local rollbackOk, rollbackReason = true, nil
+        if detached then rollbackOk, rollbackReason = attachTick() end
+        return false, tostring(containerReason)
+            .. (rollbackOk and "" or "; tick rollback failed: "
+                .. tostring(rollbackReason))
+    end
+    return true
+end
+
+local function rollbackStartup(reason)
+    local removed, removalReason = removeInfrastructure(true)
+    if removed then
+        local schedulerOk, schedulerReason = pcall(SC.Scheduler.reset, true)
+        if schedulerOk then tasksRegistered = false
         else
-            SC.Diagnostics.report("container-hook", nil,
-                "setNewContainer hook removal deferred",
-                "another wrapper currently owns the method chain")
-            failures[#failures + 1] = "setNewContainer wrapper chain changed"
+            removed = false
+            removalReason = "scheduler rollback failed: " .. tostring(schedulerReason)
         end
     end
-    return #failures == 0, table.concat(failures, "; ")
+    running = false
+    startupCommitted = false
+    restoreCommitted = false
+    startupFailureReason = tostring(reason or "runtime startup failed")
+    SC.State.active = false
+    SC.State.disabledReason = startupFailureReason
+    return false, startupFailureReason
+        .. (removed and "" or "; infrastructure rollback incomplete: "
+            .. tostring(removalReason))
 end
 
 function runtime.start()
-    local resetOk, resetReason = runtime.reset(false)
-    if resetOk == false then return false, resetReason, false end
+    -- OnGameStart can be delivered more than once for the same loaded world.
+    -- Once this runtime owns its scheduler and tick, startup is a read-only
+    -- status query: tearing down here would dispose active native actors.
+    if running and tickAttached and tasksRegistered then
+        return lastStartReady, lastStartReason, true
+    end
+    if teardownPending then
+        local resetOk, resetReason = runtime.reset(true)
+        if not resetOk then return false, resetReason, false end
+    end
+    startupCommitted = false
+    restoreCommitted = false
+    startupFailureReason = "runtime startup is in progress"
+
+    -- A prior interrupted startup may still own local infrastructure. Clear
+    -- only those runtime-owned pieces; never dispose actors or persistence as
+    -- part of a startup retry.
+    if tickAttached or originalSelectContainer ~= nil
+        or originalSetNewContainer ~= nil or tasksRegistered then
+        local cleaned, cleanReason = removeInfrastructure(true)
+        if not cleaned then
+            startupFailureReason = "stale runtime infrastructure could not be removed: "
+                .. tostring(cleanReason)
+            SC.State.active = false
+            SC.State.disabledReason = startupFailureReason
+            return false, startupFailureReason, false
+        end
+        local schedulerOk, schedulerReason = pcall(SC.Scheduler.reset, true)
+        if not schedulerOk then
+            startupFailureReason = "stale scheduler state could not be reset: "
+                .. tostring(schedulerReason)
+            SC.State.active = false
+            SC.State.disabledReason = startupFailureReason
+            return false, startupFailureReason, false
+        end
+        tasksRegistered = false
+    end
+
     local bridgeCalled, ready, reason = pcall(SC.Actor.checkBridge, true)
     if not bridgeCalled then
-        runtime.reset(true)
-        return false, "actor bridge check failed: " .. tostring(ready), false
+        startupFailureReason = "actor bridge check failed: " .. tostring(ready)
+        SC.State.active = false
+        SC.State.disabledReason = startupFailureReason
+        return false, startupFailureReason, false
     end
-    SC.State.active = ready == true
-    SC.State.disabledReason = ready and nil or reason
+    -- Do not publish active/started state until persistence import commits.
+    SC.State.active = false
+    SC.State.disabledReason = nil
     local tasksOk, tasksReason = registerTasks()
     if not tasksOk then
-        runtime.reset(true)
-        return false, tasksReason, false
+        local _, failure = rollbackStartup(tasksReason)
+        return false, failure, false
     end
     local containerOk, containerReason = installContainerHook()
     if not containerOk then
-        runtime.reset(true)
-        return false, containerReason, false
+        local _, failure = rollbackStartup(containerReason)
+        return false, failure, false
     end
     local tickOk, tickReason = attachTick()
     if not tickOk then
-        runtime.reset(true)
-        return false, tickReason, false
+        local _, failure = rollbackStartup(tickReason)
+        return false, failure, false
     end
     -- Always import the document, even while the actor provider is unavailable.
     -- Pending records are then re-emitted by save(), so a fail-closed provider
@@ -623,31 +747,88 @@ function runtime.start()
     end
     if not restored then
         SC.Diagnostics.report("persistence", nil, "restore initialization failed", restoreReason)
-        runtime.reset(true)
-        return false, restoreReason, false
+        local _, failure = rollbackStartup(restoreReason)
+        return false, failure, false
     end
+    restoreCommitted = true
+    startupCommitted = true
     if not ready then
         SC.Diagnostics.report("actor-provider", nil, "companion actors disabled", reason)
         notifyDisabled(reason)
     end
+    running = true
+    lastStartReady = ready == true
+    lastStartReason = reason
+    startupFailureReason = nil
+    SC.State.active = ready == true
+    SC.State.disabledReason = ready and nil or reason
     return ready, reason, true
 end
 
 function runtime.save()
+    if not startupCommitted or not restoreCommitted or not running then
+        return false, "runtime save is blocked until startup and persistence restore commit: "
+            .. tostring(startupFailureReason or "startup is incomplete")
+    end
+    if SC.Persistence ~= nil and type(SC.Persistence.restoreStatus) == "function" then
+        local called, committed, restoreReason = pcall(SC.Persistence.restoreStatus)
+        if not called or committed ~= true then
+            return false, "runtime save is blocked because persistence restore is not committed: "
+                .. tostring(called and restoreReason or committed)
+        end
+    end
     return SC.Persistence.save(player())
 end
 
 function runtime.reset(detach)
-    local failures = {}
-    if detach ~= false then
-        local ok, reason = detachTick()
-        if not ok then failures[#failures + 1] = tostring(reason) end
+    local shouldDetach = detach ~= false
+    local hadTick = tickAttached
+    local hadContainer = originalSelectContainer ~= nil
+        or originalSetNewContainer ~= nil
+    local infrastructureOk, infrastructureReason = removeInfrastructure(shouldDetach)
+    if not infrastructureOk then
+        -- No destructive state mutation occurs unless both runtime-local hook
+        -- removals passed their preflight and commit. A later retry can proceed
+        -- once the foreign wrapper/event owner releases the chain.
+        return false, tostring(infrastructureReason)
     end
-    local containerOk, containerReason = removeContainerHook()
-    if not containerOk then failures[#failures + 1] = tostring(containerReason) end
-    if SC.ActionSupervisor ~= nil and type(SC.ActionSupervisor.reset) == "function" then
-        pcall(SC.ActionSupervisor.reset, nil, "save_boundary")
+
+    local function restoreInfrastructure()
+        local failures = {}
+        if hadContainer then
+            local ok, reason = installContainerHook()
+            if not ok then failures[#failures + 1] = tostring(reason) end
+        end
+        if hadTick then
+            local ok, reason = attachTick()
+            if not ok then failures[#failures + 1] = tostring(reason) end
+        end
+        return #failures == 0, table.concat(failures, "; ")
     end
+
+    -- Cancel deferred restore tickets while retaining their records. The
+    -- persistence module clears those records only after native teardown is
+    -- verified, so a bridge failure cannot erase the last retry reference.
+    if SC.Persistence ~= nil and type(SC.Persistence.prepareReset) == "function" then
+        local called, prepared, prepareReason = pcall(SC.Persistence.prepareReset)
+        if not called or prepared ~= true then
+            local restored, rollbackReason = restoreInfrastructure()
+            local detail = "persistence reset preflight failed: "
+                .. tostring(called and prepareReason or prepared)
+                .. (restored and "" or "; infrastructure rollback failed: "
+                    .. tostring(rollbackReason))
+            if not restored then
+                SC.State.active = false
+                SC.State.disabledReason = detail
+                startupCommitted = false
+                restoreCommitted = false
+                startupFailureReason = detail
+                running = false
+            end
+            return false, detail
+        end
+    end
+
     -- Native actor teardown is the reset transaction boundary. If Java still
     -- owns an actor, keep every Lua registry/diagnostic reference intact so a
     -- later retry can finish cleanup instead of orphaning the native object.
@@ -659,53 +840,122 @@ function runtime.reset(detach)
                 "native companion teardown was incomplete", detail)
             SC.State.active = false
             SC.State.disabledReason = "native companion teardown: " .. detail
+            startupCommitted = false
+            restoreCommitted = false
+            startupFailureReason = SC.State.disabledReason
+            teardownPending = true
+            running = false
             return false, SC.State.disabledReason
         end
     end
-    if SC.Factions ~= nil and type(SC.Factions.reset) == "function" then pcall(SC.Factions.reset) end
-    if SC.Trade ~= nil and type(SC.Trade.reset) == "function" then pcall(SC.Trade.reset) end
-    if SC.FactionBehavior ~= nil and type(SC.FactionBehavior.reset) == "function" then
-        pcall(SC.FactionBehavior.reset)
-    end
-    if SC.FactionContracts ~= nil then
-        if type(SC.FactionContracts.reset) == "function" then
-            pcall(SC.FactionContracts.reset)
+
+    if SC.Persistence ~= nil and type(SC.Persistence.reset) == "function" then
+        local called, resetOk, resetReason = pcall(SC.Persistence.reset)
+        if not called or resetOk ~= true then
+            SC.State.active = false
+            SC.State.disabledReason = "persistence reset failed after native teardown: "
+                .. tostring(called and resetReason or resetOk)
+            startupCommitted = false
+            restoreCommitted = false
+            startupFailureReason = SC.State.disabledReason
+            teardownPending = true
+            running = false
+            return false, SC.State.disabledReason
         end
     end
-    if SC.Decision ~= nil and type(SC.Decision.resetAll) == "function" then
-        pcall(SC.Decision.resetAll)
+    -- Local subsystem teardown is checked and best-effort. A reset that
+    -- explicitly returns false is just as fatal as an exception. Continue
+    -- through peer subsystems to release independent state, but preserve the
+    -- registry, actor ledger and diagnostics until every gameplay subsystem
+    -- has accepted cleanup; a later reset can then retry without hiding the
+    -- old-world owner which refused to release.
+    local resetFailures = {}
+    local function resetModule(label, owner, callbackName, ...)
+        if owner == nil or type(owner[callbackName]) ~= "function" then return true end
+        local called, ok, reason = pcall(owner[callbackName], ...)
+        if not called or ok == false then
+            resetFailures[#resetFailures + 1] = label .. ": "
+                .. tostring(called and (reason or ok) or ok)
+            return false
+        end
+        return true
     end
-    if SC.UI ~= nil and type(SC.UI.reset) == "function" then pcall(SC.UI.reset) end
-    if SC.BaseWork ~= nil and type(SC.BaseWork.reset) == "function" then pcall(SC.BaseWork.reset) end
-    if SC.BaseLife ~= nil and type(SC.BaseLife.reset) == "function" then pcall(SC.BaseLife.reset) end
-    if SC.InfectionCrisis ~= nil and type(SC.InfectionCrisis.reset) == "function" then
-        pcall(SC.InfectionCrisis.reset)
+    resetModule("factions", SC.Factions, "reset")
+    resetModule("trade", SC.Trade, "reset")
+    resetModule("faction behavior", SC.FactionBehavior, "reset")
+    resetModule("faction contracts", SC.FactionContracts, "reset")
+    resetModule("decision", SC.Decision, "resetAll")
+    resetModule("ui", SC.UI, "reset")
+    resetModule("base work", SC.BaseWork, "reset")
+    resetModule("base life", SC.BaseLife, "reset")
+    resetModule("infection crisis", SC.InfectionCrisis, "reset")
+    resetModule("autonomy", SC.Autonomy, "reset")
+    resetModule("dialogue", SC.Dialogue, "reset")
+    resetModule("community", SC.Community, "reset")
+    resetModule("life events", SC.LifeEvents, "reset")
+
+    local schedulerReset = false
+    if #resetFailures == 0 then
+        schedulerReset = resetModule("scheduler", SC.Scheduler, "reset", true)
+        resetModule("vehicle", SC.Vehicle, "reset")
+        resetModule("spawn", SC.Spawn, "reset")
+        -- Actor and registry ledgers are the final ownership boundary. Do not
+        -- erase either after a scheduler/world adapter has rejected cleanup.
+        if #resetFailures == 0 then
+            resetModule("actor", SC.Actor, "reset")
+        end
+        if #resetFailures == 0 then
+            resetModule("registry", SC.Registry, "reset")
+        end
+        -- Diagnostics is deliberately last. If any earlier cleanup rejects,
+        -- retain the evidence and append the aggregate failure below.
+        if #resetFailures == 0 then
+            resetModule("diagnostics", SC.Diagnostics, "reset")
+        end
     end
-    if SC.Autonomy ~= nil and type(SC.Autonomy.reset) == "function" then pcall(SC.Autonomy.reset) end
-    if SC.Dialogue ~= nil and type(SC.Dialogue.reset) == "function" then pcall(SC.Dialogue.reset) end
-    if SC.Community ~= nil and type(SC.Community.reset) == "function" then pcall(SC.Community.reset) end
-    if SC.LifeEvents ~= nil and type(SC.LifeEvents.reset) == "function" then pcall(SC.LifeEvents.reset) end
-    SC.Scheduler.reset(true)
-    SC.Persistence.reset()
-    SC.Vehicle.reset()
-    SC.Spawn.reset()
-    SC.Registry.reset()
-    SC.Actor.reset()
-    SC.Diagnostics.reset()
+    if schedulerReset then tasksRegistered = false end
+    if #resetFailures > 0 then
+        local detail = "runtime subsystem reset was incomplete: "
+            .. table.concat(resetFailures, "; ")
+        pcall(SC.Diagnostics.report, "runtime", nil,
+            "subsystem teardown was incomplete", detail)
+        SC.State.active = false
+        SC.State.disabledReason = detail
+        running = false
+        lastStartReady = false
+        lastStartReason = detail
+        startupCommitted = false
+        restoreCommitted = false
+        startupFailureReason = detail
+        teardownPending = true
+        return false, detail
+    end
     SC.State.generation = (SC.State.generation or 0) + 1
     SC.State.active = false
     SC.State.disabledReason = nil
     tasksRegistered = false
+    running = false
+    lastStartReady = false
+    lastStartReason = nil
+    startupCommitted = false
+    restoreCommitted = false
+    startupFailureReason = "runtime has not started"
+    teardownPending = false
     decisionCursor = 1
     vitalsCursor = 1
     lastPlayerVehicle = nil
     lastDebugSpawnReportAt = -math.huge
     lastDebugSpawnReason = nil
-    return #failures == 0, table.concat(failures, "; ")
+    return true
 end
 
 function runtime.onMainMenuEnter()
-    runtime.reset(true)
+    local ok, reason = runtime.reset(true)
+    if not ok then
+        pcall(SC.Diagnostics.report, "runtime", nil,
+            "main-menu teardown failed", reason)
+    end
+    return ok, reason
 end
 
 function runtime.isTickAttached()

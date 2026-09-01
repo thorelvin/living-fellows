@@ -294,6 +294,16 @@ function provider:spawn(spawnSquare)
     local generated = makeItem("Base.GeneratedOutfit")
     local actor = makeActor(spawnSquare, makeInventory({ generated }))
     actor:setWornItem("TorsoExtra", generated)
+    if self.rejectWornLocation ~= nil then
+        local setWornItem = actor.setWornItem
+        local rejectedLocation = self.rejectWornLocation
+        function actor:setWornItem(location, item)
+            if location == rejectedLocation then
+                error("unsupported saved body location: " .. tostring(location))
+            end
+            return setWornItem(self, location, item)
+        end
+    end
     self.spawned[#self.spawned + 1] = actor
     return actor
 end
@@ -373,6 +383,10 @@ local weapon = makeItem("Base.VarmintRifle", {
 })
 local jacket = makeItem("Base.Jacket_Police", { condition = 6, bloodLevel = 0.45 })
 local knife = makeItem("Base.HuntingKnife", { condition = 8 })
+-- Build 42's base InventoryItem does not expose getInventory(); only real
+-- InventoryContainer items do. A failed method lookup returns an error string
+-- through SCCall and must never be mistaken for a nested container object.
+knife.getInventory = nil
 original.inventory:AddItem(weapon)
 original.inventory:AddItem(jacket)
 original.inventory:AddItem(knife)
@@ -382,7 +396,8 @@ original:setWornItem("Back", bag)
 original:setWornItem("Jacket", jacket)
 original:setAttachedItem("Belt Left", knife)
 local captured, captureReason = SC.Persistence.captureRecord(record)
-check(captured ~= nil, captureReason)
+check(captured ~= nil,
+    "plain native items without getInventory still capture: " .. tostring(captureReason))
 check(bottle.fluid.sampleReleased == true,
     "fluid persistence releases the pooled Build 42 sample after exact capture")
 check(captured.possessions.keepsake.status == "carried"
@@ -400,6 +415,71 @@ check(captured.inventory.schema == 2 and captured.inventory.complete == true
         .. tostring(#captured.inventory.equipment.worn) .. " primary="
         .. tostring(captured.inventory.equipment.primary) .. " secondary="
         .. tostring(captured.inventory.equipment.secondary))
+
+do
+    local originalMemories = record.state.personality.memories
+    local memoryLimit = SC.Config.get("maxMemories")
+    local boundaryMemories = {}
+    for index = 1, memoryLimit do
+        boundaryMemories[index] = { kind = "boundary", at = index, impact = 1 }
+    end
+    record.state.personality.memories = boundaryMemories
+    local boundary, boundaryReason = SC.Persistence.captureRecord(record)
+    check(boundary ~= nil and #boundary.personality.memories == memoryLimit,
+        "configured memory boundary copies exactly without truncation: "
+            .. tostring(boundaryReason))
+    boundaryMemories[memoryLimit + 1] = { kind = "over-boundary", at = 999 }
+    local oversized, oversizedReason = SC.Persistence.captureRecord(record)
+    check(oversized == nil and string.find(tostring(oversizedReason),
+        "exceeds the configured maximum", 1, true) ~= nil,
+        "one-over memory list fails actor capture instead of silently truncating")
+    record.state.personality.memories = originalMemories
+end
+
+do
+    local originalInventory = original.inventory
+    local originalPrimary = original:getPrimaryHandItem()
+    local originalSecondary = original:getSecondaryHandItem()
+    original:setPrimaryHandItem(nil)
+    original:setSecondaryHandItem(nil)
+    original:removeWornItem(bag)
+    original:removeWornItem(jacket)
+    original:removeAttachedItem(knife)
+    local inventoryLimit = SC.Config.get("persistence", "maxSavedInventoryItems")
+    local boundaryItems = {}
+    for index = 1, inventoryLimit do
+        boundaryItems[index] = makeItem("Base.InventoryBoundary" .. tostring(index))
+    end
+    original.inventory = makeInventory(boundaryItems)
+    local boundary, boundaryReason = SC.Persistence.captureRecord(record)
+    check(boundary ~= nil and boundary.inventory.count == inventoryLimit,
+        "configured inventory boundary captures every item without truncation: "
+            .. tostring(boundaryReason) .. " count="
+            .. tostring(boundary and boundary.inventory and boundary.inventory.count)
+            .. " expected=" .. tostring(inventoryLimit))
+
+    original.inventory:AddItem(makeItem("Base.InventoryBoundaryOver"))
+    local oversized, oversizedReason = SC.Persistence.captureRecord(record)
+    check(oversized == nil and string.find(tostring(oversizedReason),
+        "inventory exceeds the persistence item limit", 1, true) ~= nil,
+        "one-over inventory fails actor capture instead of returning a partial tree: "
+            .. tostring(oversizedReason))
+    local priorDocument = { schema = SC.Identity.saveSchema,
+        companions = { untouched = { marker = "keep" } } }
+    local saveData = { [SC.Identity.saveKey] = priorDocument }
+    local savePlayer = { getModData = function() return saveData end }
+    local saved, saveReason = SC.Persistence.save(savePlayer)
+    check(saved == false and saveData[SC.Identity.saveKey] == priorDocument
+            and saveData[SC.Identity.saveKey].companions.untouched.marker == "keep",
+        "one-over inventory aborts save and preserves the previous document: "
+            .. tostring(saveReason))
+    original.inventory = originalInventory
+    original:setPrimaryHandItem(originalPrimary)
+    original:setSecondaryHandItem(originalSecondary)
+    original:setWornItem("Back", bag)
+    original:setWornItem("Jacket", jacket)
+    original:setAttachedItem("Belt Left", knife)
+end
 
 SC.Commands.reset(original)
 SC.Registry.unregister(original)
@@ -454,6 +534,22 @@ check(restoredBottle.uses == 3 and math.abs(restoredBottle.usedDelta - 0.65) < 0
 
 SC.Commands.reset(restored)
 SC.Registry.unregister(restored)
+local compatibilityLocation = captured.inventory.equipment.worn[1].location
+captured.inventory.equipment.worn[1].location = "eartop"
+provider.rejectWornLocation = "eartop"
+local compatible, compatibilityReason = SC.Persistence.restoreAt(captured, square)
+local compatibilityItem = compatible and findType(
+    compatible.inventory, "Base.Bag_Schoolbag") or nil
+check(compatible ~= nil and compatibilityItem ~= nil
+        and compatible:getWornItem("eartop") == nil,
+    "obsolete saved body locations keep the exact item in inventory without aborting actor restore: "
+        .. tostring(compatibilityReason))
+if compatible ~= nil then
+    SC.Commands.reset(compatible)
+    SC.Registry.unregister(compatible)
+end
+provider.rejectWornLocation = nil
+captured.inventory.equipment.worn[1].location = compatibilityLocation
 local verifiedCount = captured.inventory.count
 captured.inventory.count = verifiedCount + 1
 local rejected, rejectionReason = SC.Persistence.restoreAt(captured, square)

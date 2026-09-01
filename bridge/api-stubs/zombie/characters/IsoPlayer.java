@@ -21,6 +21,7 @@ public class IsoPlayer extends IsoLivingCharacter {
     public boolean isLocalPlayer() { return false; }
     public boolean isPlayerMoving() { return false; }
     public boolean isNpc() { return false; }
+    public boolean isInitiateAttack() { return false; }
     public void StopAllActionQueue() {}
     public void setNpc(boolean npc) {}
     public void updateMovementRates() {}

@@ -1313,6 +1313,48 @@ local entryAdvanced = SurvivorCompanion.Navigation.request(
     entryActor, entryGoal, "walk", { action = "house_entry_test", snapshot = { allies = {} } })
 check(entryAdvanced and entryActor.lastIntent and entryActor.lastIntent.roomEntryChecked == true,
     "room-entry movement advances only after both corner checks")
+
+-- A lower-priority decision pulse must not clear an owning route's threshold
+-- timer before its eventual movement dispatch is rejected.  This is the exact
+-- interleaving exercised by the live harness: the owner pauses at a doorway
+-- while the ordinary follow/stay scheduler also asks Navigation for a route.
+SurvivorCompanion.Navigation.reset(entryActor)
+local ownedEntryClock = clock
+local entryOwner = assert(SurvivorCompanion.ActionSupervisor.begin(entryActor, {
+    owner = "test", action = "room_entry_owner",
+    priority = SurvivorCompanion.ActionSupervisor.Priority.EXTERNAL,
+    phase = "approaching", allowedMovementPhases = { approaching = true },
+}))
+local ownedEntryHeld, ownedEntryReason = SurvivorCompanion.Navigation.request(
+    entryActor, entryGoal, "walk", {
+        action = "room_entry_owner", snapshot = { allies = {} },
+        supervisorToken = entryOwner,
+    })
+local ownedEntryState = SurvivorCompanion.Navigation.peek(entryActor)
+local ownedEntryKey = ownedEntryState and ownedEntryState.roomEntryKey
+local ownedEntryDeadline = ownedEntryState and ownedEntryState.roomEntryObserveUntil
+local competingEntryMove, competingEntryReason = SurvivorCompanion.Navigation.request(
+    entryActor, cell:getGridSquare(12, 0, 0), "walk", {
+        action = "follow_formation", snapshot = { allies = {} },
+    })
+local protectedEntryState = SurvivorCompanion.Navigation.peek(entryActor)
+check(ownedEntryHeld and ownedEntryReason == "checking_room_entry"
+        and not competingEntryMove
+        and string.find(tostring(competingEntryReason), "action_owned:", 1, true) ~= nil
+        and protectedEntryState.roomEntryKey == ownedEntryKey
+        and protectedEntryState.roomEntryObserveUntil == ownedEntryDeadline
+        and protectedEntryState.roomEntrySweepPhase == 0,
+    "a rejected competing route cannot restart an owned room-entry sweep")
+clock = clock + 500
+local ownedLeftChecked, ownedLeftReason = SurvivorCompanion.Navigation.request(
+    entryActor, entryGoal, "walk", {
+        action = "room_entry_owner", snapshot = { allies = {} },
+        supervisorToken = entryOwner,
+    })
+check(ownedLeftChecked and ownedLeftReason == "checking_room_entry_left",
+    "the owned room-entry sweep advances after a rejected scheduler interleave")
+SurvivorCompanion.ActionSupervisor.cancel(entryActor, "fixture_done", nil, true)
+clock = ownedEntryClock
 entryStep.room, entryGoal.room = nil, nil
 SurvivorCompanion.Navigation.reset(entryActor)
 registry[entryActor.id] = nil
@@ -2301,6 +2343,66 @@ local fought, combatAction = SurvivorCompanion.Combat.update(fellow, player, com
 check(fought and fellow.lastIntent and (fellow.lastIntent.action == "shove" or fellow.lastIntent.action == "attack_melee"), "combat selects a close self-preservation action")
 
 do
+local approachClock = clock
+local approachConfig = SurvivorCompanion.Config.values
+local savedShoveDistance = approachConfig.combatShoveDistance
+approachConfig.combatShoveDistance = 0.5
+local sword = item("Base.Katana", "Weapon", {
+    damage = 3, range = 1.7, sharpness = 1,
+    weaponCategories = { "LongBlade" },
+})
+local swordActor = actor("sc-melee-approach", 20, 20, {
+    inventory = inventory({ sword }),
+})
+swordActor.primary = sword
+registry[swordActor.id] = swordActor
+local swordZed = zombie(23, 20, { attacking = true, target = swordActor })
+local approachSnapshot = {
+    threats = { { actor = swordZed, square = swordZed.square, distanceSq = 9,
+        visible = true, obstructed = false, attacking = true, score = 90 } },
+    allies = {},
+    escapeSquares = { { square = cell:getGridSquare(19, 20, 0), danger = 0,
+        nearestThreatSq = 16 } },
+    threatCount = 1, immediateCount = 0, closeImmediateCount = 0,
+    closeThreatCount = 1, occupiedThreatSectors = 1,
+    pressure = 0, encircled = false,
+    player = { danger = 0, immediateThreats = 0 },
+}
+local approached, approachReason = SurvivorCompanion.Combat.update(
+    swordActor, player, { snapshot = approachSnapshot })
+check(approached and approachReason == "approach"
+        and swordActor.lastIntent.action == "combat_approach"
+        and swordActor.lastIntent.weaponReady == true
+        and swordActor.lastIntent.target == swordZed,
+    "an equipped melee companion closes a safe gap instead of kiting forever")
+
+-- Once inside weapon range the same engagement must produce a real attack
+-- request. A rejected pulse remains inspectable, then clears after a retry.
+swordActor.worldX = 21.6
+approachSnapshot.threats[1].distanceSq = 1.4 * 1.4
+swordActor.rejectActions = { attack_melee = true }
+local rejectedRuntime = { snapshot = approachSnapshot }
+local rejectedAttack, rejectedReason = SurvivorCompanion.Combat.update(
+    swordActor, player, rejectedRuntime)
+check(not rejectedAttack and rejectedReason == "melee_rejected"
+        and rejectedRuntime.combatRejectedAction == "melee"
+        and rejectedRuntime.combatRejectedReason == "melee_rejected",
+    "a rejected native melee pulse is retained in combat diagnostics")
+swordActor.rejectActions = nil
+local attacked, attackReason = SurvivorCompanion.Combat.update(
+    swordActor, player, rejectedRuntime)
+check(attacked and attackReason == "melee"
+        and swordActor.lastIntent.action == "attack_melee"
+        and rejectedRuntime.combatRejectedReason == nil,
+    "the companion retries and attacks with its equipped melee weapon once ready")
+SurvivorCompanion.Combat.reset(swordActor)
+registry[swordActor.id] = nil
+swordZed.dead = true
+approachConfig.combatShoveDistance = savedShoveDistance
+clock = approachClock
+end
+
+do
 local stompStartClock = clock
 local stompActor = actor("sc-shove-stomp", 8, -7, { inventory = inventory() })
 local stompZed = zombie(9, -7, { attacking = true, target = stompActor })
@@ -2702,6 +2804,48 @@ local reloadSnapshot = {
 }
 check(SurvivorCompanion.Combat.update(reloader, player, { snapshot = reloadSnapshot })
     and reloader.lastIntent.action == "reload", "firearm combat chooses a valid reload")
+
+do
+-- Regression: an on-foot companion on the ranged_support doctrine must draw its
+-- firearm even when weaponPriority is stale and a zombie has closed to melee
+-- range. Previously only a seated companion honored the doctrine, so the
+-- close-range firearm penalty flipped the selection to an already-drawn melee
+-- weapon and the companion swung instead of firing.
+local doctrineRifle = item("Base.HuntingRifle", "Weapon", {
+    ranged = true, damage = 2, range = 12, ammo = 5, maxAmmo = 5,
+    condition = 10, conditionMax = 10,
+})
+local doctrineAxe = item("Base.Axe", "Weapon", {
+    damage = 2, range = 1.5, condition = 10, conditionMax = 10, sharpness = 1,
+})
+local doctrineFighter = actor("sc-ranged-doctrine", 0, 12, {
+    inventory = inventory({ doctrineRifle, doctrineAxe }),
+})
+doctrineFighter.primary = doctrineAxe
+registry[doctrineFighter.id] = doctrineFighter
+local doctrineCommands = SurvivorCompanion.Commands.peek(doctrineFighter)
+doctrineCommands.combatDoctrine = "ranged_support"
+doctrineCommands.weaponPriority = "best" -- stale priority that used to win the pick
+doctrineCommands.holdFire = false
+local doctrineZed = zombie(0, 14, { attacking = true, target = doctrineFighter })
+local doctrineSnapshot = {
+    threats = { { actor = doctrineZed, square = doctrineZed.square, distanceSq = 2.56,
+        visible = true, obstructed = false, attacking = true, score = 60 } },
+    allies = {}, escapeSquares = {},
+    threatCount = 1, immediateCount = 0, closeImmediateCount = 0,
+    closeThreatCount = 1, occupiedThreatSectors = 1, pressure = 0,
+    player = { danger = 0, immediateThreats = 0 },
+}
+local doctrineHandled = SurvivorCompanion.Combat.update(
+    doctrineFighter, player, { snapshot = doctrineSnapshot })
+check(doctrineHandled and doctrineFighter.lastIntent.action ~= "attack_melee",
+    "an on-foot ranged_support companion never swings melee when a firearm is available")
+check(doctrineFighter.lastIntent.action == "equip_weapon"
+        and doctrineFighter.lastIntent.item == doctrineRifle,
+    "an on-foot ranged_support companion draws the firearm despite a stale weaponPriority")
+doctrineZed.dead = true
+SurvivorCompanion.Combat.reset(doctrineFighter)
+end
 
 check(SurvivorCompanion.Commands.issue(fellow.id, "set_group", "Alpha", player), "first group assignment")
 check(SurvivorCompanion.Commands.issue(shooter.id, "set_group", "Alpha", player), "second group assignment")
@@ -5732,6 +5876,189 @@ Trade.reset()
 end
 SurvivorCompanion.__testFactionDomain()
 SurvivorCompanion.__testFactionDomain = nil
+
+-- A faction restore spans the persistent group graph, transient spawn work,
+-- and the derived faction-world relation graph.  Any late failure must put all
+-- three back exactly where they were before the restore began.
+function SurvivorCompanion.__testFactionRestoreTransactions()
+local Factions = SurvivorCompanion.Factions
+local World = SurvivorCompanion.FactionWorld
+local Actor = SurvivorCompanion.Actor
+local baseline = {
+    schema = 1, sequence = 7, lastWorldSpawnDay = 3, lastProductionCheckDay = 4,
+    order = { "faction-transaction-a" },
+    groups = {
+        ["faction-transaction-a"] = {
+            id = "faction-transaction-a", archetype = "barricaded_household",
+            name = "Transaction household A", lifecycle = "settled",
+            standing = "Tolerated", reputation = 5, discovered = true,
+            barterUnlocked = false, permanentHostility = false,
+            shortageKind = "food",
+            house = {
+                id = "1:1:4:4", bounds = { x1 = 1, y1 = 1, x2 = 4, y2 = 4, z = 0 },
+                anchor = { x = 2, y = 2, z = 0 },
+                interior = { { x = 2, y = 2, z = 0 } }, openings = {},
+            },
+            members = { { key = "member-a", role = "leader", identity = {
+                forename = "Ada", surname = "Test", gender = "female",
+            }, alive = true, hibernated = false } },
+            jobs = {}, offenses = {}, history = {},
+            request = { kind = "food", status = "available", rewardReserved = true,
+                required = { { category = "food", count = 1 } }, reward = {} },
+        },
+    },
+}
+
+local function candidateDocument()
+    local candidate = SurvivorCompanion.StableValue.copyStrict(baseline, {
+        maxDepth = 16, maxEntries = 131072, path = "$.transactionCandidate",
+    })
+    local second = SurvivorCompanion.StableValue.copyStrict(
+        baseline.groups["faction-transaction-a"], {
+            maxDepth = 16, maxEntries = 131072, path = "$.transactionGroup",
+        })
+    second.id, second.name = "faction-transaction-b", "Transaction household B"
+    second.house.id = "5:1:8:4"
+    second.house.anchor = { x = 6, y = 2, z = 0 }
+    second.house.bounds = { x1 = 5, y1 = 1, x2 = 8, y2 = 4, z = 0 }
+    second.house.interior = { { x = 6, y = 2, z = 0 } }
+    second.members[1].key = "member-b"
+    candidate.sequence = 99
+    candidate.order[2] = second.id
+    candidate.groups[second.id] = second
+    return candidate
+end
+
+local function relationCount(document)
+    local amount = 0
+    for _ in pairs(document and document.relations or {}) do amount = amount + 1 end
+    return amount
+end
+
+local function sameWorldState(left, right)
+    return relationCount(left) == relationCount(right)
+        and left.serial == right.serial and left.version == right.version
+        and left.nextEventHour == right.nextEventHour
+        and #(left.news or {}) == #(right.news or {})
+end
+
+Factions.reset()
+check(Factions.restore(baseline), "transaction fixture restores its baseline household")
+World.reset()
+check(World.reconcile(), "transaction fixture starts with a reconciled world graph")
+World.pulse(10)
+
+do
+    local beforeFaction, beforeWorld = Factions.export(), World.export()
+    local originalReconcile = World.reconcile
+    World.reconcile = function()
+        originalReconcile()
+        error("forced reconcile exception after mutation")
+    end
+    local accepted, reason = Factions.restore(candidateDocument())
+    World.reconcile = originalReconcile
+    local afterFaction, afterWorld = Factions.export(), World.export()
+    check(not accepted
+        and string.find(tostring(reason), "forced reconcile exception", 1, true) ~= nil
+        and #afterFaction.order == 1 and afterFaction.order[1] == beforeFaction.order[1]
+        and afterFaction.sequence == beforeFaction.sequence
+        and Factions.group("faction-transaction-b") == nil
+        and sameWorldState(afterWorld, beforeWorld),
+        "a reconcile exception rolls back faction globals and world mutations")
+end
+
+do
+    local beforeWorld = World.export()
+    local originalReconcile = World.reconcile
+    World.reconcile = function()
+        originalReconcile()
+        return false, "forced reconcile rejection after mutation"
+    end
+    local accepted, reason = Factions.restore(candidateDocument())
+    World.reconcile = originalReconcile
+    local afterWorld = World.export()
+    check(not accepted
+        and string.find(tostring(reason), "forced reconcile rejection", 1, true) ~= nil
+        and Factions.group("faction-transaction-a") ~= nil
+        and Factions.group("faction-transaction-b") == nil
+        and sameWorldState(afterWorld, beforeWorld),
+        "a reconcile false result is a transactional failure, not a partial restore")
+end
+
+do
+    local beforeWorld = World.export()
+    local replacement = SurvivorCompanion.StableValue.copyStrict(beforeWorld, {
+        maxDepth = 8, maxEntries = 8192, path = "$.worldReplacement",
+    })
+    replacement.serial, replacement.version = 41, 73
+    replacement.nextEventHour = 999
+    local originalReconcile = World.reconcile
+    World.reconcile = function() return false, "forced world restore rejection" end
+    local accepted, reason = World.restore(replacement)
+    World.reconcile = originalReconcile
+    check(not accepted and reason == "forced world restore rejection"
+        and sameWorldState(World.export(), beforeWorld),
+        "faction-world restore rolls back when reconciliation returns false")
+end
+
+do
+    local originalBegin = Actor.beginSpawn
+    local originalPoll = Actor.pollSpawn
+    local originalCancel = Actor.cancelSpawn
+    local activeTicket = { id = "faction-transaction-ticket" }
+    local beginCalls, pollCalls, cancelCalls = 0, 0, 0
+    Actor.beginSpawn = function()
+        beginCalls = beginCalls + 1
+        return activeTicket, "spawn_pending"
+    end
+    Actor.pollSpawn = function(ticket)
+        if ticket == activeTicket then pollCalls = pollCalls + 1 end
+        return nil, "spawn_pending"
+    end
+    Actor.cancelSpawn = function(ticket)
+        if ticket == activeTicket then cancelCalls = cancelCalls + 1 end
+        return false, "forced cancellation rejection"
+    end
+    Factions._nextProductionAt = math.huge
+    Factions.pulse(player, clock)
+    Factions.pulse(player, clock + 1)
+    check(beginCalls == 1 and Factions.group("faction-transaction-a").members[1].spawnQueued == true,
+        "transaction fixture owns one active faction spawn before restore")
+
+    local beforeWorld = World.export()
+    local cleared, clearReason = Factions.restore(nil)
+    check(not cleared
+        and string.find(tostring(clearReason), "forced cancellation rejection", 1, true) ~= nil
+        and Factions.group("faction-transaction-a") ~= nil
+        and Factions.group("faction-transaction-a").members[1].spawnQueued == true,
+        "nil faction restore preserves live state when spawn cancellation fails")
+
+    local accepted, reason = Factions.restore(candidateDocument())
+    local afterWorld = World.export()
+    check(not accepted
+        and string.find(tostring(reason), "forced cancellation rejection", 1, true) ~= nil
+        and cancelCalls == 2 and Factions.group("faction-transaction-a") ~= nil
+        and Factions.group("faction-transaction-b") == nil
+        and Factions.group("faction-transaction-a").members[1].spawnQueued == true
+        and sameWorldState(afterWorld, beforeWorld),
+        "late spawn cancellation failure rolls back candidate groups, queue state and world relations")
+    Factions.pulse(player, clock + 2)
+    check(pollCalls == 1 and beginCalls == 1,
+        "the original active spawn ticket remains owned after restore rollback")
+
+    Actor.cancelSpawn = function(ticket)
+        if ticket == activeTicket then cancelCalls = cancelCalls + 1 end
+        return true
+    end
+    check(Factions.restore(baseline) and cancelCalls == 3,
+        "a verified cancellation commits the replacement and clears transient spawn work")
+    Actor.beginSpawn, Actor.pollSpawn, Actor.cancelSpawn = originalBegin, originalPoll, originalCancel
+end
+
+Factions.reset()
+end
+SurvivorCompanion.__testFactionRestoreTransactions()
+SurvivorCompanion.__testFactionRestoreTransactions = nil
 
 check(SurvivorCompanion.Decision.resetAll(), "central gameplay runtime reset")
 check(SurvivorCompanion.Decision.peek(fellow) == nil and SurvivorCompanion.Combat.peek(fellow) == nil,

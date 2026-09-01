@@ -62,6 +62,9 @@ if ($configText -notmatch '(?m)^\s*experimentalNpcPlayerActor\s*=\s*false,\s*$')
 if ($configText -notmatch '(?m)^\s*debugSpawnEnabled\s*=\s*false,\s*$') {
     throw 'Workshop staging requires debugSpawnEnabled=false in source.'
 }
+if ($configText -notmatch '(?m)^\s*movementRecorderEnabled\s*=\s*false,\s*$') {
+    throw 'Workshop staging requires movementRecorderEnabled=false in source.'
+}
 $looseClasses = Get-ChildItem -LiteralPath $Payload -Recurse -File -Filter '*.class'
 if ($looseClasses) { throw "Loose Java classes are forbidden in release payload: $($looseClasses.FullName -join ', ')" }
 $payloadJars = @(Get-ChildItem -LiteralPath $Payload -Recurse -File -Filter '*.jar')
@@ -141,8 +144,11 @@ try {
         throw 'Archive native bridge JAR ownership check failed.'
     }
     $archiveConfig = Get-Content -LiteralPath (Join-Path $ArchiveCheck 'Contents\mods\SurvivorCompanion\42\media\lua\shared\SCConfig.lua') -Raw -Encoding utf8
-    if ($archiveConfig -match '(?m)^\s*experimentalNpcPlayerActor\s*=\s*true,\s*$') {
-        throw 'Archive unexpectedly enables the experimental actor provider.'
+    foreach ($setting in @('experimentalNpcPlayerActor', 'debugSpawnEnabled',
+            'movementRecorderEnabled')) {
+        if ($archiveConfig -notmatch "(?m)^\s*$setting\s*=\s*false,\s*$") {
+            throw "Archive does not preserve the public false gate: $setting"
+        }
     }
 }
 finally {

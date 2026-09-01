@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 local SC = SurvivorCompanion
+if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 SC.FactionContracts = SC.FactionContracts or {}
 
 local Contracts = SC.FactionContracts
@@ -76,30 +77,24 @@ local function appendBounded(rows, value, maximum)
     while #rows > maximum do table.remove(rows, 1) end
 end
 
-local function copy(value, depth, budget)
-    budget = budget or { count = 2048 }
-    if budget.count <= 0 then return nil end
-    local kind = type(value)
-    if kind == "string" or kind == "boolean" then
-        budget.count = budget.count - 1
-        return value
+local copyLimits = {
+    requirements = { maxDepth = 4, maxEntries = 96 },
+    relation = { maxDepth = 3, maxEntries = 32 },
+    marker = { maxDepth = 3, maxEntries = 32 },
+    contract = { maxDepth = 6, maxEntries = 512 },
+    access = { maxDepth = 3, maxEntries = 48 },
+    notifications = { maxDepth = 4, maxEntries = 192 },
+}
+
+local function strictCopy(value, limit, path)
+    if not SC.StableValue or type(SC.StableValue.copyStrict) ~= "function" then
+        return nil, "stable copy unavailable at " .. tostring(path or "$.factionContracts")
     end
-    if kind == "number" then
-        if value ~= value or value == math.huge or value == -math.huge then return nil end
-        budget.count = budget.count - 1
-        return value
-    end
-    if kind ~= "table" or (depth or 0) <= 0 then return nil end
-    budget.count = budget.count - 1
-    local result = {}
-    for key, child in pairs(value) do
-        if type(key) == "string" or type(key) == "number" then
-            local childCopy = copy(child, depth - 1, budget)
-            if childCopy ~= nil then result[key] = childCopy end
-            if budget.count <= 0 then break end
-        end
-    end
-    return result
+    return SC.StableValue.copyStrict(value, {
+        maxDepth = limit.maxDepth,
+        maxEntries = limit.maxEntries,
+        path = path or "$.factionContracts",
+    })
 end
 
 local function groupFor(value)
@@ -277,7 +272,8 @@ end
 
 local function supplyRequirements(group)
     if type(group.request) == "table" and type(group.request.required) == "table" then
-        return copy(group.request.required, 4, { count = 96 })
+        return strictCopy(group.request.required, copyLimits.requirements,
+            "$.factionContracts.offer.requirements")
     end
     local kind = group.shortageKind or "food"
     if kind == "water" then return { { category = "water", count = 3 } }
@@ -289,7 +285,7 @@ local function supplyRequirements(group)
     elseif kind == "materials" then return { { type = "Base.Plank", count = 4 } }
     elseif kind == "ammunition" then return { { type = "Base.Bullets9mmBox", count = 1 } }
     end
-    return { { category = "food", count = 5 } }
+    return { { category = "food", count = 5 } }, nil
 end
 
 local function chooseContractKind(group, serial, forcedKind)
@@ -317,9 +313,8 @@ end
 
 local function makeContract(group, forcedKind, forcedComplication)
     local social = group.social
-    social.contract.sequence = math.max(0,
+    local serial = math.max(0,
         math.floor(tonumber(social.contract.sequence) or 0)) + 1
-    local serial = social.contract.sequence
     local kind = chooseContractKind(group, serial, forcedKind)
     local complication = chooseComplication(group, kind, serial, forcedComplication)
     local contract = {
@@ -332,7 +327,9 @@ local function makeContract(group, forcedKind, forcedComplication)
     }
     if kind == "supply" then
         contract.title = "Urgent supply delivery"
-        contract.requirements = supplyRequirements(group)
+        local requirements, requirementsReason = supplyRequirements(group)
+        if not requirements then return nil, requirementsReason end
+        contract.requirements = requirements
         contract.resource = group.shortageKind or "food"
         contract.progress.delivered = false
     elseif kind == "medical" then
@@ -358,9 +355,15 @@ local function makeContract(group, forcedKind, forcedComplication)
     end
     local relation = highestTensionRelation(group)
     if complication == "rival_objection" or complication == "private_dissent" then
-        contract.rival = relation and copy(relation, 3, { count = 32 }) or nil
+        if relation then
+            local rival, rivalReason = strictCopy(relation, copyLimits.relation,
+                "$.factionContracts.offer.rival")
+            if not rival then return nil, rivalReason end
+            contract.rival = rival
+        end
     end
-    return contract
+    social.contract.sequence = serial
+    return contract, nil
 end
 
 local function ensureOffer(group, forcedKind, forcedComplication)
@@ -375,10 +378,13 @@ local function ensureOffer(group, forcedKind, forcedComplication)
         or crisis.kind == "supply_collapse" and "supply" or nil) or nil
     if forcedKind or forcedComplication or offer == nil
         or (crisisKind and offer.kind ~= crisisKind and offer.status == "offered") then
-        offer = makeContract(group, forcedKind or crisisKind, forcedComplication)
+        local candidate, candidateReason = makeContract(group,
+            forcedKind or crisisKind, forcedComplication)
+        if not candidate then return nil, candidateReason end
+        offer = candidate
         social.contract.offer = offer
     end
-    return offer
+    return offer, nil
 end
 
 function Contracts.initialize(group)
@@ -411,8 +417,12 @@ function Contracts.initialize(group)
     social.notificationSerial = math.max(0, math.floor(tonumber(social.notificationSerial) or 0))
     social.privateContact = type(social.privateContact) == "table"
         and social.privateContact or nil
-    if group.lifecycle ~= "destroyed" and #livingMembers(group) > 0 then ensureOffer(group) end
-    return social
+    local offerReason
+    if group.lifecycle ~= "destroyed" and #livingMembers(group) > 0 then
+        local ignored
+        ignored, offerReason = ensureOffer(group)
+    end
+    return social, offerReason
 end
 
 local function canTalk(group, player, forced)
@@ -536,7 +546,10 @@ function Contracts.talk(groupOrId, player, topic, forced)
     local ready, reason = canTalk(group, player, forced)
     if not ready then return false, reason end
     local social = Contracts.initialize(group)
-    local offer = ensureOffer(group)
+    local offer, offerReason = ensureOffer(group)
+    if not offer then
+        return false, "contract_offer_copy_failed:" .. tostring(offerReason)
+    end
     topic = tostring(topic or "status")
     local speaker = representative(group)
     local speakerKey = speaker and speaker.key or nil
@@ -604,10 +617,19 @@ function Contracts.accept(groupOrId, player, forced)
     if not ready then return false, reason end
     local social = Contracts.initialize(group)
     if social.contract.active then return false, "one_contract_already_active" end
-    local offer = ensureOffer(group)
+    local offer, offerReason = ensureOffer(group)
+    if not offer then
+        return false, "contract_offer_copy_failed:" .. tostring(offerReason)
+    end
     if not offer.revealed and forced ~= true then return false, "ask_about_need_first" end
+    local activeOffer, activeCopyReason = strictCopy(offer, copyLimits.contract,
+        "$.factionContracts.active")
+    if not activeOffer then
+        return false, "contract_accept_copy_failed:" .. tostring(activeCopyReason)
+    end
     social.contract.offer = nil
-    social.contract.active = offer
+    social.contract.active = activeOffer
+    offer = activeOffer
     offer.status, offer.acceptedHour = "active", worldHour()
     offer.deadlineHour = offer.acceptedHour
         + (tonumber(SC.Config.get("factionContractDeadlineHours")) or 48)
@@ -669,9 +691,14 @@ function Contracts.progress(groupOrId, player, scanThreat)
     local social = Contracts.initialize(group)
     local contract = social.contract.active or social.contract.offer
     if not contract then return nil, "contract_unavailable" end
+    local marker, markerReason = strictCopy(contract.marker, copyLimits.marker,
+        "$.factionContracts.progress.marker")
+    if markerReason ~= nil then
+        return nil, "contract_progress_copy_failed:" .. tostring(markerReason)
+    end
     local result = {
         id = contract.id, kind = contract.kind, status = contract.status,
-        ready = false, requirements = {}, marker = copy(contract.marker, 3, { count = 32 }),
+        ready = false, requirements = {}, marker = marker,
     }
     result.hoursRemaining, result.urgency = deadlineProgress(contract)
     if contract.kind == "local_threat" then
@@ -721,18 +748,41 @@ local function resolveLifeCrisis(group, kind)
     end
 end
 
+local function completionOutcome(contract)
+    local complication = contract and contract.complication
+    return complication == "diverted_delivery" and "part_of_delivery_diverted"
+        or complication == "rival_objection" and "invitation_contested"
+        or complication == "broken_reward" and "promised_payment_unavailable"
+        or "agreement_honored"
+end
+
+local function historyCopy(contract, status, hourKey, hour, outcome, path)
+    local staged, sourceReason = strictCopy(contract, copyLimits.contract, path)
+    if sourceReason ~= nil then return nil, sourceReason end
+    staged.status = status
+    staged[hourKey] = hour
+    staged.outcome = outcome
+    return strictCopy(staged, copyLimits.contract, path)
+end
+
 local function completeContract(group, contract, forced)
     local social = group.social
-    contract.status, contract.completedHour = "completed", worldHour()
     local complication = contract.complication
+    local outcome = completionOutcome(contract)
+    local completedHour = worldHour()
+    local historyRow, historyReason = historyCopy(contract, "completed", "completedHour",
+        completedHour, outcome, "$.factionContracts.history.completed")
+    if not historyRow then
+        return false, "contract_history_copy_failed:" .. tostring(historyReason)
+    end
+    contract.status, contract.completedHour, contract.outcome =
+        "completed", completedHour, outcome
     if complication == "diverted_delivery" then
-        contract.outcome = "part_of_delivery_diverted"
         local relation = highestTensionRelation(group)
         if relation then relation.tension = clamp((relation.tension or 0) + 15, 0, 100) end
         addMemory(group, "delivery_diverted", "A resident hid part of the delivery.",
             relation and relation.right or nil)
     elseif complication == "rival_objection" then
-        contract.outcome = "invitation_contested"
         local relation = contract.rival or highestTensionRelation(group)
         social.access.state, social.access.reason = "contested", "resident_objected"
         social.access.hostMemberKey = representative(group) and representative(group).key or nil
@@ -742,10 +792,9 @@ local function completeContract(group, contract, forced)
         addMemory(group, "access_contested", relationNames(group, relation),
             social.access.objectorMemberKey)
     elseif complication == "broken_reward" then
-        contract.outcome = "promised_payment_unavailable"
         social.trade.debt = clamp((social.trade.debt or 0) + 25, 0, 200)
         addMemory(group, "reward_unpaid", "The household could not honor its full promise.")
-    else contract.outcome = "agreement_honored" end
+    end
     if complication ~= "rival_objection" then
         social.access.state, social.access.reason = "guest", "contract_completed"
         social.access.hostMemberKey = representative(group) and representative(group).key or nil
@@ -778,7 +827,7 @@ local function completeContract(group, contract, forced)
             break
         end
     end
-    appendBounded(social.contract.history, copy(contract, 6, { count = 512 }),
+    appendBounded(social.contract.history, historyRow,
         configuredLimit("factionContractHistoryLimit", 32))
     social.contract.active = nil
     social.contract.cooldownUntilHour = worldHour()
@@ -797,6 +846,12 @@ function Contracts.fulfill(groupOrId, player, forced)
     local social = Contracts.initialize(group)
     local contract = social.contract.active
     if not contract then return false, "no_active_contract" end
+    local ignoredHistory, contractCopyReason = historyCopy(contract, "completed",
+        "completedHour", worldHour(), completionOutcome(contract),
+        "$.factionContracts.history.completed")
+    if not ignoredHistory then
+        return false, "contract_fulfill_copy_failed:" .. tostring(contractCopyReason)
+    end
     if forced ~= true then
         local ready, reason = canTalk(group, player, false)
         if contract.kind ~= "local_threat" and not ready then return false, reason end
@@ -843,9 +898,16 @@ function Contracts.withdraw(groupOrId, player, forced)
         local ready, reason = canTalk(group, player, false)
         if not ready then return false, reason end
     end
-    contract.status, contract.failedHour, contract.outcome = "failed", worldHour(), "promise_withdrawn"
+    local failedHour = worldHour()
+    local historyRow, historyReason = historyCopy(contract, "failed", "failedHour",
+        failedHour, "promise_withdrawn", "$.factionContracts.history.withdrawn")
+    if not historyRow then
+        return false, "contract_history_copy_failed:" .. tostring(historyReason)
+    end
+    contract.status, contract.failedHour, contract.outcome =
+        "failed", failedHour, "promise_withdrawn"
     closeContractMarker(contract, "withdrawn")
-    appendBounded(social.contract.history, copy(contract, 6, { count = 512 }),
+    appendBounded(social.contract.history, historyRow,
         configuredLimit("factionContractHistoryLimit", 32))
     social.contract.active = nil
     social.contract.cooldownUntilHour = worldHour()
@@ -974,10 +1036,16 @@ function Contracts.noteAction(groupOrId, kind, detail)
 end
 
 local function closeContractWithoutBlame(group, contract, outcome, message)
-    if not contract then return end
-    contract.status, contract.failedHour, contract.outcome = "failed", worldHour(), outcome
+    if not contract then return true end
+    local failedHour = worldHour()
+    local historyRow, historyReason = historyCopy(contract, "failed", "failedHour",
+        failedHour, outcome, "$.factionContracts.history." .. tostring(outcome))
+    if not historyRow then
+        return false, "contract_history_copy_failed:" .. tostring(historyReason)
+    end
+    contract.status, contract.failedHour, contract.outcome = "failed", failedHour, outcome
     closeContractMarker(contract, outcome)
-    appendBounded(group.social.contract.history, copy(contract, 6, { count = 512 }),
+    appendBounded(group.social.contract.history, historyRow,
         configuredLimit("factionContractHistoryLimit", 32))
     for index = #(group.social.promises or {}), 1, -1 do
         local promise = group.social.promises[index]
@@ -990,6 +1058,7 @@ local function closeContractWithoutBlame(group, contract, outcome, message)
     group.social.contract.cooldownUntilHour = worldHour() + 12
     addMemory(group, outcome, message)
     notify(group, nil, "closed", message, contract.id .. ":" .. outcome)
+    return true
 end
 
 function Contracts.memberDied(groupOrId, memberOrActorId)
@@ -1005,8 +1074,10 @@ function Contracts.memberDied(groupOrId, memberOrActorId)
     end
     local alive = livingMembers(group)
     if #alive == 0 or group.lifecycle == "destroyed" then
-        closeContractWithoutBlame(group, social.contract.active, "household_destroyed",
+        local closed, closeReason = closeContractWithoutBlame(group,
+            social.contract.active, "household_destroyed",
             "The household is gone. Its contract has ended.")
+        if not closed then return false, closeReason end
         social.contract.offer, social.privateContact = nil, nil
         social.access.state, social.access.reason, social.access.safeRest =
             "denied", "household_destroyed", false
@@ -1016,14 +1087,17 @@ function Contracts.memberDied(groupOrId, memberOrActorId)
     local active = social.contract.active
     if active and active.kind == "medical" and deadMember
         and active.targetMemberKey == deadMember.key then
-        closeContractWithoutBlame(group, active, "patient_died",
+        local closed, closeReason = closeContractWithoutBlame(group, active, "patient_died",
             "The patient died before medical help could arrive.")
+        if not closed then return false, closeReason end
     end
     local offer = social.contract.offer
     if offer and offer.kind == "medical" and deadMember
         and offer.targetMemberKey == deadMember.key then
-        social.contract.offer = nil
-        ensureOffer(group, "medical", offer.complication)
+        local replacement, replacementReason = ensureOffer(group, "medical", offer.complication)
+        if not replacement then
+            return false, "contract_offer_copy_failed:" .. tostring(replacementReason)
+        end
     end
     if deadMember and (social.access.hostMemberKey == deadMember.key
         or social.access.objectorMemberKey == deadMember.key) then
@@ -1036,10 +1110,17 @@ function Contracts.memberDied(groupOrId, memberOrActorId)
 end
 
 local function failExpiredContract(group, contract)
-    contract.status, contract.failedHour, contract.outcome = "failed", worldHour(), "promise_expired"
+    local failedHour = worldHour()
+    local historyRow, historyReason = historyCopy(contract, "failed", "failedHour",
+        failedHour, "promise_expired", "$.factionContracts.history.expired")
+    if not historyRow then
+        return false, "contract_history_copy_failed:" .. tostring(historyReason)
+    end
+    contract.status, contract.failedHour, contract.outcome =
+        "failed", failedHour, "promise_expired"
     closeContractMarker(contract, "expired")
     local social = group.social
-    appendBounded(social.contract.history, copy(contract, 6, { count = 512 }),
+    appendBounded(social.contract.history, historyRow,
         configuredLimit("factionContractHistoryLimit", 32))
     social.contract.active = nil
     social.contract.cooldownUntilHour = worldHour()
@@ -1050,6 +1131,7 @@ local function failExpiredContract(group, contract)
     notify(group, nil, "expired", "Contract expired: " .. tostring(contract.title) .. ".",
         contract.id .. ":expired")
     if SC.Factions then pcall(SC.Factions.adjustStanding, group.id, -15, "promise_expired") end
+    return true
 end
 
 function Contracts.pulseGroup(group, player, current)
@@ -1064,7 +1146,8 @@ function Contracts.pulseGroup(group, player, current)
     end
     local active = social.contract.active
     if active and worldHour() > (tonumber(active.deadlineHour) or math.huge) then
-        failExpiredContract(group, active)
+        local expired, expireReason = failExpiredContract(group, active)
+        if not expired then return false, expireReason end
     elseif active then
         ensureContractMarker(group, active)
         local hours, urgency = deadlineProgress(active)
@@ -1097,7 +1180,10 @@ function Contracts.pulseGroup(group, player, current)
         end
     elseif not active and social.contract.offer == nil
         and worldHour() >= (tonumber(social.contract.cooldownUntilHour) or 0) then
-        ensureOffer(group)
+        local offer, offerReason = ensureOffer(group)
+        if not offer then
+            return false, "contract_offer_copy_failed:" .. tostring(offerReason)
+        end
     end
     return true, "social_contract_updated"
 end
@@ -1227,10 +1313,33 @@ function Contracts.summary(groupOrId)
     local progress = current and Contracts.progress(group, player, false) or nil
     local reserves = SC.Trade and type(SC.Trade.reserveSummary) == "function"
         and SC.Trade.reserveSummary(group) or nil
+    local access, copyReason = strictCopy(social.access, copyLimits.access,
+        "$.factionContracts.summary.access")
+    if copyReason ~= nil then
+        return nil, "contract_summary_copy_failed:" .. tostring(copyReason)
+    end
+    local offerCopy
+    offerCopy, copyReason = strictCopy(offer, copyLimits.contract,
+        "$.factionContracts.summary.offer")
+    if copyReason ~= nil then
+        return nil, "contract_summary_copy_failed:" .. tostring(copyReason)
+    end
+    local activeCopy
+    activeCopy, copyReason = strictCopy(active, copyLimits.contract,
+        "$.factionContracts.summary.active")
+    if copyReason ~= nil then
+        return nil, "contract_summary_copy_failed:" .. tostring(copyReason)
+    end
+    local notifications
+    notifications, copyReason = strictCopy(social.notifications,
+        copyLimits.notifications, "$.factionContracts.summary.notifications")
+    if copyReason ~= nil then
+        return nil, "contract_summary_copy_failed:" .. tostring(copyReason)
+    end
     return {
-        access = copy(social.access, 3, { count = 48 }),
-        offer = offer and copy(offer, 6, { count = 512 }) or nil,
-        active = active and copy(active, 6, { count = 512 }) or nil,
+        access = access,
+        offer = offerCopy,
+        active = activeCopy,
         currentTitle = current and current.title or nil,
         currentKind = current and current.kind or nil,
         lastResponse = response,
@@ -1249,7 +1358,7 @@ function Contracts.summary(groupOrId)
         tradePolicy = Contracts.tradePolicy(group),
         progress = progress,
         reserveSummary = reserves,
-        notifications = copy(social.notifications, 4, { count = 192 }) or {},
+        notifications = notifications or {},
     }
 end
 
@@ -1258,8 +1367,12 @@ function Contracts.debugOffer(id, kind)
     local group = groupFor(id)
     if not group or not contractKinds[kind] then return false, "invalid_contract_kind" end
     local social = Contracts.initialize(group)
+    local candidate, candidateReason = makeContract(group, kind, "none")
+    if not candidate then
+        return false, "contract_offer_copy_failed:" .. tostring(candidateReason)
+    end
     social.contract.active = nil
-    social.contract.offer = makeContract(group, kind, "none")
+    social.contract.offer = candidate
     social.contract.offer.revealed = true
     return true, kind
 end
@@ -1271,9 +1384,18 @@ function Contracts.debugComplication(id, value)
     local social = Contracts.initialize(group)
     local contract = social.contract.active or social.contract.offer
     if not contract then return false, "contract_unavailable" end
+    local rival
+    if value == "rival_objection" or value == "private_dissent" then
+        local rivalReason
+        rival, rivalReason = strictCopy(highestTensionRelation(group),
+            copyLimits.relation, "$.factionContracts.debug.rival")
+        if rivalReason ~= nil then
+            return false, "contract_rival_copy_failed:" .. tostring(rivalReason)
+        end
+    end
     contract.complication, contract.hiddenSeverity = value, value == "hidden_severity"
     if value == "rival_objection" or value == "private_dissent" then
-        contract.rival = copy(highestTensionRelation(group), 3, { count = 32 })
+        contract.rival = rival
     end
     return true, value
 end

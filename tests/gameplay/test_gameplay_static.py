@@ -198,6 +198,15 @@ def main() -> int:
             and 'phase == 0 and "left" or "right"' in sources["SCNavigation.lua"]
             and "navigationRoomEntryObserveMs" in sources["SCNavigation.lua"],
             "two-sided room-entry corner checking missing")
+    require("navigationOwnershipPermission" in sources["SCNavigation.lua"]
+            and "movementPermission" in sources["SCNavigation.lua"]
+            and sources["SCNavigation.lua"].index(
+                "local permitted, permissionReason = navigationOwnershipPermission(actor, intent)",
+                sources["SCNavigation.lua"].index("function Navigation.request("))
+                < sources["SCNavigation.lua"].index(
+                    "local now = utility.nowMs()",
+                    sources["SCNavigation.lua"].index("function Navigation.request(")),
+            "navigation must reject a competing owner before route state mutates")
     require("chooseFollowRoute" in sources["SCNavigation.lua"]
             and "navigationAlternativeRoutes" in sources["SCNavigation.lua"]
             and "routeDanger" in sources["SCNavigation.lua"]
@@ -375,7 +384,8 @@ def main() -> int:
             "bounded persistent faction-world relations or consequence propagation missing")
     persistence_source = (CLIENT / "SCPersistence.lua").read_text(encoding="utf-8")
     require('{ field = "factionWorld", owner = SC.FactionWorld' in persistence_source
-            and "pcall(definition.owner.restore" in persistence_source,
+            and re.search(r"SC\.Call\.protected\(\s*definition\.owner\.restore",
+                          persistence_source) is not None,
             "faction-world state is not part of the transactional save document")
     require("function Combat.assessOverrun" in sources["SCCombat.lua"]
             and "combatOverrunHoldMs" in sources["SCCombat.lua"]

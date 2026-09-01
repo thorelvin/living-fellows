@@ -38,12 +38,38 @@ public final class SCNativeBridgeExposureTest {
                 "production bootstrap did not expose the bridge: "
                         + bootstrapClass.getMethod("getStatus").invoke(null));
 
+        int requestsBeforeContractFailure = SCBridge.getSpawnRequestCount();
+        for (String missing : new String[] {
+                "IsoGameCharacter.updateInternal is unavailable",
+                "IsoPlayer.updateWhileInVehicle has an incompatible signature",
+                "IsoPlayer.checkActionGroup is inaccessible"
+        }) {
+            SCNativeCompanion.failRuntimeContractForTests(missing);
+            String failedReady = SCBridge.checkReady();
+            long rejected = SCBridge.requestSpawn(null, "Negative", "Contract", false, "");
+            require(failedReady.equals("native bridge runtime contract failed: " + missing)
+                            && rejected == -1L
+                            && SCBridge.getSpawnRequestCount() == requestsBeforeContractFailure
+                            && SCBridge.getLastFailure().contains(missing),
+                    "missing reflected method did not fail closed before allocating a request: "
+                            + missing);
+        }
+        SCNativeCompanion.failRuntimeContractForTests(null);
+        require(SCNativeCompanion.runtimeContractFailure().isEmpty(),
+                "negative runtime-contract seam did not restore production readiness");
+
         Object environment = managerClass.getField("env").get(null);
         Object thread = managerClass.getField("thread").get(null);
         Class<?> tableClass = Class.forName("se.krka.kahlua.vm.KahluaTable");
         String source = "assert(SCBridge ~= nil, 'SCBridge is not exposed')\n"
+                + "assert(AttackType ~= nil, 'AttackType is not exposed')\n"
+                + "assert(AttackType.SHOVE ~= nil, 'AttackType.SHOVE is unavailable')\n"
+                + "assert(AttackType.STOMP ~= nil, 'AttackType.STOMP is unavailable')\n"
+                + "assert(AttackType.SHOT ~= nil, 'AttackType.SHOT is unavailable')\n"
+                + "assert(AttackType.MELEE_SWING ~= nil, 'AttackType.MELEE_SWING is unavailable')\n"
                 + "SC_TEST_PROTOCOL = SCBridge.getProtocol()\n"
-                + "SC_TEST_READY = SCBridge.checkReady()\n";
+                + "SC_TEST_READY = SCBridge.checkReady()\n"
+                + "SC_TEST_ATTACK_TYPES = true\n";
         Object closure = Class.forName("se.krka.kahlua.luaj.compiler.LuaCompiler")
                 .getMethod("loadstring", String.class, String.class, tableClass)
                 .invoke(null, source, "SCNativeBridgeExposureTest.lua", environment);
@@ -52,6 +78,8 @@ public final class SCNativeBridgeExposureTest {
         Method rawget = tableClass.getMethod("rawget", Object.class);
         require("42.20-isocompanion-5".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
                 "Lua received the wrong native bridge protocol");
+        require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_ATTACK_TYPES")),
+                "production bridge did not expose the native attack enum contract");
         String readiness = String.valueOf(rawget.invoke(environment, "SC_TEST_READY"));
         require(SCBridge.isSupportedGameVersion("42.20")
                         && SCBridge.isSupportedGameVersion("42.20.4")
@@ -62,6 +90,6 @@ public final class SCNativeBridgeExposureTest {
                 "live 42.20 label was incorrectly rejected by the version gate: " + readiness);
         require(!readiness.isEmpty(),
                 "headless readiness unexpectedly bypassed the local-player isolation gate");
-        System.out.println("NATIVE_BRIDGE_EXPOSURE_PASS protocol=true kahlua=true version-family-gate=true local-player-gate=true");
+        System.out.println("NATIVE_BRIDGE_EXPOSURE_PASS protocol=true kahlua=true attack-types=true version-family-gate=true local-player-gate=true reflection-negative=true");
     }
 }

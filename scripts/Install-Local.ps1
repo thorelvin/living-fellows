@@ -12,7 +12,8 @@ param(
     [string]$PrebuiltBridgeJar = '',
     [ValidateSet('', 'payload-build', 'payload-validation', 'native-config-stage',
         'native-config-replace', 'native-jar-replace', 'native-manifest-write',
-        'old-mod-backup', 'new-mod-move', 'local-manifest-write')]
+        'old-mod-backup', 'new-mod-move', 'local-manifest-write',
+        'target-file-corrupt', 'target-postcondition')]
     [string]$FailAfter = '',
     [switch]$NativeBridge,
     [switch]$Standalone
@@ -76,6 +77,15 @@ function Get-InstallHash([string]$Path) {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Test-InstallSamePath([string]$Left, [string]$Right) {
+    if ([string]::IsNullOrWhiteSpace($Left) -or [string]::IsNullOrWhiteSpace($Right)) {
+        return $false
+    }
+    return ([System.IO.Path]::GetFullPath($Left).TrimEnd('\')).Equals(
+        [System.IO.Path]::GetFullPath($Right).TrimEnd('\'),
+        [System.StringComparison]::OrdinalIgnoreCase)
+}
+
 $ModsRoot = [System.IO.Path]::GetFullPath($ModsRoot)
 New-Item -ItemType Directory -Path $ModsRoot -Force | Out-Null
 $Target = Join-Path $ModsRoot 'SurvivorCompanion'
@@ -132,6 +142,21 @@ $effectiveConfigBackupRoot = if ([string]::IsNullOrWhiteSpace($ConfigBackupRoot)
 $nativeBackupNamesBefore = @()
 try {
     $stagedMod = Join-Path $stageRoot 'SurvivorCompanion'
+    $compiledBridgeJar = ''
+    if ($NativeBridge -and
+        [string]::IsNullOrWhiteSpace($PreparedPayloadRoot) -and
+        [string]::IsNullOrWhiteSpace($PrebuiltBridgeJar)) {
+        # A direct development install must compile the current Java sources.
+        # Do not trust the possibly older JAR checked into the canonical payload
+        # and do not mutate that payload as a side effect of installation.
+        & (Join-Path $ProjectRoot 'scripts\Build-NativeBridge.ps1') `
+            -ProjectRoot $ProjectRoot | Out-Null
+        $compiledBridgeJar = Join-Path $ProjectRoot `
+            'build\native-bridge\SurvivorCompanionBridge.jar'
+        if (-not (Test-Path -LiteralPath $compiledBridgeJar -PathType Leaf)) {
+            throw 'Direct native bridge compilation did not produce its expected JAR.'
+        }
+    }
     if ([string]::IsNullOrWhiteSpace($PreparedPayloadRoot)) {
         $payloadBuilder = if ($Standalone) {
             Join-Path ([System.IO.Path]::GetFullPath($ProjectRoot)) 'scripts\New-StandalonePayload.ps1'
@@ -166,11 +191,23 @@ try {
     }
     Invoke-InstallFault 'payload-build'
     if (-not (Test-Path -LiteralPath $stagedMod -PathType Container)) { throw 'Private payload staging failed.' }
+    $expectedNativeJar = Join-Path $stagedMod '42\media\java\SurvivorCompanionBridge.jar'
+    $selectedBridgeJar = if (-not [string]::IsNullOrWhiteSpace($compiledBridgeJar)) {
+        [System.IO.Path]::GetFullPath($compiledBridgeJar)
+    } elseif (-not [string]::IsNullOrWhiteSpace($PrebuiltBridgeJar)) {
+        [System.IO.Path]::GetFullPath($PrebuiltBridgeJar)
+    } else { $expectedNativeJar }
+    if (-not (Test-Path -LiteralPath $selectedBridgeJar -PathType Leaf)) {
+        throw "Selected native bridge JAR was not found: $selectedBridgeJar"
+    }
+    if (-not (Test-InstallSamePath $selectedBridgeJar $expectedNativeJar)) {
+        Copy-Item -LiteralPath $selectedBridgeJar -Destination $expectedNativeJar -Force
+    }
+    $selectedBridgeHash = Get-InstallHash $expectedNativeJar
     if (Get-ChildItem -LiteralPath $stagedMod -Recurse -File -Filter '*.class') {
         throw 'Loose Java classes are forbidden in local installs.'
     }
     $nativeJars = @(Get-ChildItem -LiteralPath $stagedMod -Recurse -File -Filter '*.jar')
-    $expectedNativeJar = Join-Path $stagedMod '42\media\java\SurvivorCompanionBridge.jar'
     if ($nativeJars.Count -ne 1 -or $nativeJars[0].FullName -ne $expectedNativeJar) {
         throw 'The staged install does not contain exactly one owned native bridge JAR.'
     }
@@ -193,11 +230,14 @@ try {
         installedAtUtc = [DateTime]::UtcNow.ToString('o')
         nativeBridge = $true
         bridgeRoot = [System.IO.Path]::GetFullPath($BridgeRoot)
+        bridgeSha256 = $selectedBridgeHash
         backupPath = $backup
         backupRoot = $BackupRoot
         files = $hashes
     }
-    $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $stagedMod '.sc-install-manifest.json') -Encoding utf8
+    $stagedLocalManifest = Join-Path $stagedMod '.sc-install-manifest.json'
+    $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $stagedLocalManifest -Encoding utf8
+    $stagedLocalManifestHash = Get-InstallHash $stagedLocalManifest
     Invoke-InstallFault 'local-manifest-write'
 
     # Snapshot every native live artifact before the sub-transaction commits.
@@ -235,6 +275,74 @@ try {
     }
     Move-Item -LiteralPath $stagedMod -Destination $Target
     Invoke-InstallFault 'new-mod-move'
+
+    if ($FailAfter -eq 'target-file-corrupt') {
+        $corruptTarget = Join-Path $Target '42\mod.info'
+        [System.IO.File]::AppendAllText($corruptTarget, "`n# injected post-move corruption")
+    }
+
+    # Verify the exact committed generation rather than assuming Move-Item
+    # preserved staging. This catches disk/filter-driver corruption, a stale
+    # prepared payload and manifest/file divergence before the old generation
+    # is released from the rollback transaction.
+    $committedManifestPath = Join-Path $Target '.sc-install-manifest.json'
+    if ((Get-InstallHash $committedManifestPath) -ne $stagedLocalManifestHash) {
+        throw 'Installed mod manifest hash differs from the staged manifest.'
+    }
+    $committedManifest = Get-Content -LiteralPath $committedManifestPath -Raw -Encoding utf8 |
+        ConvertFrom-Json
+    if ([string]$committedManifest.owner -ne $Owner -or
+        [string]$committedManifest.version -ne $installedVersion -or
+        -not (Test-InstallSamePath ([string]$committedManifest.bridgeRoot) $BridgeRoot) -or
+        [string]$committedManifest.bridgeSha256 -ne $selectedBridgeHash) {
+        throw 'Installed mod manifest ownership/version/native bridge postcondition failed.'
+    }
+    $committedPrefix = [System.IO.Path]::GetFullPath($Target).TrimEnd('\') + '\'
+    $expectedNames = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase)
+    [void]$expectedNames.Add('.sc-install-manifest.json')
+    foreach ($property in $committedManifest.files.PSObject.Properties) {
+        $relative = [string]$property.Name
+        if ([System.IO.Path]::IsPathRooted($relative)) {
+            throw "Installed manifest contains an absolute file path: $relative"
+        }
+        $candidate = [System.IO.Path]::GetFullPath(
+            (Join-Path $Target $relative.Replace('/', '\')))
+        if (-not $candidate.StartsWith($committedPrefix,
+                [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "Installed manifest file escapes the mod root: $relative"
+        }
+        if (-not $expectedNames.Add($relative)) {
+            throw "Installed manifest contains a duplicate file path: $relative"
+        }
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf) -or
+            (Get-InstallHash $candidate) -ne [string]$property.Value) {
+            throw "Installed file hash postcondition failed: $relative"
+        }
+    }
+    $actualNames = @(Get-ChildItem -LiteralPath $Target -Recurse -File | ForEach-Object {
+        $_.FullName.Substring($committedPrefix.Length).Replace('\', '/')
+    })
+    if ($actualNames.Count -ne $expectedNames.Count -or
+        @($actualNames | Where-Object { -not $expectedNames.Contains($_) }).Count -ne 0) {
+        throw 'Installed file set differs from its ownership manifest.'
+    }
+    $committedBridgeJar = Join-Path $Target '42\media\java\SurvivorCompanionBridge.jar'
+    if ((Get-InstallHash $committedBridgeJar) -ne $selectedBridgeHash -or
+        (Get-InstallHash $nativeJarPath) -ne $selectedBridgeHash) {
+        throw 'Installed payload and launcher bridge JAR hashes are not identical.'
+    }
+    $committedNativeManifest = Get-Content -LiteralPath $nativeManifestPath -Raw -Encoding utf8 |
+        ConvertFrom-Json
+    if ([string]$committedNativeManifest.owner -ne 'SurvivorCompanion.NativeBridge' -or
+        -not (Test-InstallSamePath ([string]$committedNativeManifest.bridgeRoot) $BridgeRoot) -or
+        -not (Test-InstallSamePath ([string]$committedNativeManifest.bridgeJar) $nativeJarPath) -or
+        [string]$committedNativeManifest.bridgeSha256 -ne $selectedBridgeHash -or
+        [string]$committedNativeManifest.installedConfigSha256 -ne
+            (Get-InstallHash $nativeConfigPath)) {
+        throw 'Native bridge manifest/hash postcondition failed after local install.'
+    }
+    Invoke-InstallFault 'target-postcondition'
     $installed = $true
 }
 catch {

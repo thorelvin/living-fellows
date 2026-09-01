@@ -92,6 +92,37 @@ local function stateFor(actor)
     return state
 end
 
+-- Keep rejected native combat pulses visible without flooding console.txt.
+-- The ordinary diagnostics throttle is keyed by actor and message, while the
+-- runtime fields let the support panel explain why a drawn weapon did not
+-- produce a swing on the most recent combat tick.
+function Combat.noteRejection(actor, state, runtime, action, reason, target, distance, weapon)
+    reason = tostring(reason or "combat_action_rejected")
+    state.lastRejectedAction = action
+    state.lastRejectedReason = reason
+    state.lastRejectedAt = U().nowMs()
+    runtime.combatRejectedAction = action
+    runtime.combatRejectedReason = reason
+    runtime.combatRejectedDistance = tonumber(distance)
+    runtime.combatRejectedWeapon = weapon and U().itemName(weapon.item) or nil
+    U().diagnostic("combat", actor,
+        "action=" .. tostring(action or "none")
+            .. " reason=" .. reason
+            .. " distance=" .. string.format("%.2f", tonumber(distance) or -1)
+            .. " weapon=" .. tostring(runtime.combatRejectedWeapon or "none")
+            .. " target=" .. tostring(target and U().objectLabel(target) or "none"))
+end
+
+local function clearRejection(state, runtime)
+    state.lastRejectedAction = nil
+    state.lastRejectedReason = nil
+    state.lastRejectedAt = nil
+    runtime.combatRejectedAction = nil
+    runtime.combatRejectedReason = nil
+    runtime.combatRejectedDistance = nil
+    runtime.combatRejectedWeapon = nil
+end
+
 local function commandState(actor)
     local commands = SC.Commands
     if type(commands) == "table" and type(commands.peek) == "function" then
@@ -976,6 +1007,17 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                     - pressure * 3 - fatiguePenalty
                     - math.max(0, readiness.weaponCost - 1.5) * 3,
             }
+        elseif isolatedFront and readiness.staminaCritical ~= true then
+            -- A melee companion used to kite laterally forever whenever the
+            -- target was just outside swing range. Advance under a ready guard
+            -- when the lane is safe; the next decision tick switches to the
+            -- ordinary melee/shove exchange at combatMeleeDistance.
+            actions[#actions + 1] = {
+                kind = "approach",
+                score = 61 + weapon.damage * 3 + readiness.combatSkill * 1.2
+                    + readiness.nimble * 0.7 + readiness.confidence * 0.08
+                    - math.max(0, distance - 2) * 2 - pressure * 3,
+            }
         else
             actions[#actions + 1] = {
                 kind = "kite",
@@ -1235,6 +1277,21 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
     elseif action.kind == "stomp" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
         accepted = utility.move(actor, "walk", { action = "stomp", target = targetActor, floorAttack = true })
+    elseif action.kind == "approach" then
+        if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
+        local ax, ay = utility.position(actor)
+        local tx, ty = utility.position(targetActor)
+        if ax == nil or tx == nil then return false, "approach_position_unavailable" end
+        accepted = utility.move(actor, "walk", {
+            action = "combat_approach",
+            dx = tx - ax,
+            dy = ty - ay,
+            target = targetActor,
+            facingTarget = targetActor,
+            keepFacing = true,
+            weaponReady = true,
+            tacticalStrafe = true,
+        })
     elseif action.kind == "backstep" then
         accepted = utility.move(actor, "walk", { action = "backstep", target = targetActor, keepFacing = true })
     elseif action.kind == "kite" then
@@ -1364,9 +1421,21 @@ function Combat.update(actor, player, runtime)
     local distance = math.sqrt(target.distanceSq or utility.distanceSq(actor, target.actor))
     local vehicle, vehicleOk = utility.call(actor, "getVehicle")
     local seated = vehicleOk and vehicle ~= nil
-    local preference = seated and (commands.combatDoctrine == "ranged_support"
-        or commands.combatDoctrine == "weapons_free") and "firearm"
-        or commands.weaponPriority
+    -- The ranged_support doctrine means "prefer the firearm" whether or not the
+    -- companion is seated. Previously only the seated branch honored the
+    -- doctrine, so an on-foot companion fell back to weaponPriority. When that
+    -- priority was stale (for example a team doctrine change that did not
+    -- resync the per-actor priority), chooseWeapon's close-range firearm
+    -- penalty made an approaching zombie flip the selection to a melee weapon,
+    -- so a companion set to ranged combat drew and swung melee instead of
+    -- firing. weapons_free stays best-weapon on foot but firearm-only seated,
+    -- where melee is not an option.
+    local preference = commands.weaponPriority
+    if commands.combatDoctrine == "ranged_support" then
+        preference = "firearm"
+    elseif seated and commands.combatDoctrine == "weapons_free" then
+        preference = "firearm"
+    end
     local weapon, inventory = chooseWeapon(actor, preference, distance, snapshot.pressure or 0)
     if seated then
         clearAimPreparation(state)
@@ -1476,7 +1545,12 @@ function Combat.update(actor, player, runtime)
     end
 
     local ok, reason = execute(actor, player, snapshot, target, weapon, chosen, commands)
-    if not ok then return false, reason end
+    if not ok then
+        Combat.noteRejection(actor, state, rootRuntime, chosen.kind, reason,
+            target.actor, distance, weapon)
+        return false, reason
+    end
+    clearRejection(state, rootRuntime)
     if chosen.kind == "shoot" or chosen.kind == "melee"
         or chosen.kind == "shove" or chosen.kind == "stomp" then
         claimTarget(target.actor, actor, now)

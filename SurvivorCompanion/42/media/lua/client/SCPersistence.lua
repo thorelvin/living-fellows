@@ -17,6 +17,8 @@ local pending = {}
 local pendingOrder = {}
 local lastDocument = nil
 local saveBlockedReason = nil
+local restoreCommitted = false
+local restoreFailureReason = "restore has not committed"
 local quarantined = { companions = {}, factionActors = {}, subsystems = {} }
 local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true }
 
@@ -70,18 +72,103 @@ local function stableCopy(value, depth, maximum, path)
     })
 end
 
-local function copyList(source, limit)
+local function documentEntryLimit()
+    return math.max(1, math.floor(tonumber(
+        SC.Config.get("persistence", "maxDocumentEntries")) or 2000000))
+end
+
+local function documentDepthLimit()
+    -- Each nested inventory node adds both a node table and a children list
+    -- below the document envelope. Honour the configured inventory depth at
+    -- its exact boundary rather than imposing a shallower generic copy limit.
+    local inventoryDepth = math.max(1, math.floor(tonumber(
+        SC.Config.get("persistence", "maxSavedInventoryDepth")) or 12))
+    return math.max(32, 10 + inventoryDepth * 2)
+end
+
+local function sortedKeys(source)
+    local result = {}
+    if type(source) ~= "table" then return result end
+    for key in pairs(source) do result[#result + 1] = key end
+    table.sort(result, function(left, right)
+        local leftType, rightType = type(left), type(right)
+        if leftType ~= rightType then return leftType < rightType end
+        if leftType == "number" then return left < right end
+        return tostring(left) < tostring(right)
+    end)
+    return result
+end
+
+local function blockSave(document, reason)
+    lastDocument = document
+    saveBlockedReason = tostring(reason or "save document restore did not commit")
+    restoreCommitted = false
+    restoreFailureReason = saveBlockedReason
+    return false, saveBlockedReason
+end
+
+local function cancelEntryTicket(id, entry, context)
+    if type(entry) ~= "table" or entry.spawnTicket == nil then return true end
+    if SC.Actor == nil or type(SC.Actor.cancelSpawn) ~= "function" then
+        return false, tostring(context or "pending replacement")
+            .. " cannot cancel spawn ticket for " .. tostring(id)
+            .. ": actor cancellation API is unavailable"
+    end
+    local called, cancelled, reason = SC.Call.protected(
+        SC.Actor.cancelSpawn, entry.spawnTicket)
+    if not called or cancelled ~= true then
+        return false, tostring(context or "pending replacement")
+            .. " cannot cancel spawn ticket for " .. tostring(id) .. ": "
+            .. tostring(called and (reason or cancelled) or cancelled)
+    end
+    -- Only release the Lua ticket reference after its owner confirmed that the
+    -- native/deferred request no longer exists. The record remains pending
+    -- until the caller commits its larger transaction.
+    entry.spawnTicket = nil
+    entry.status = "pending"
+    entry.failureClass = nil
+    entry.nextAt = 0
+    return true
+end
+
+local function preparePendingCancellation(context)
+    for _, id in ipairs(sortedKeys(pending)) do
+        local cancelled, reason = cancelEntryTicket(id, pending[id], context)
+        if not cancelled then return false, reason end
+    end
+    return true
+end
+
+local function copyList(source, limit, path)
     local result = {}
     if type(source) ~= "table" then
         return result
     end
-    for index = 1, math.min(#source, limit) do
-        local copy, reason = stableCopy(source[index], 4, 128,
-            "$[" .. tostring(index) .. "]")
-        if reason ~= nil then return nil, reason end
-        result[#result + 1] = copy
+    limit = math.max(0, math.floor(tonumber(limit) or 0))
+    path = tostring(path or "$")
+    local indices = {}
+    for index in pairs(source) do
+        if type(index) ~= "number" or index ~= math.floor(index) or index < 1 then
+            return nil, path .. " has an unsupported list key: " .. tostring(index)
+        end
+        if index > limit then
+            return nil, path .. " index " .. tostring(index)
+                .. " exceeds the configured maximum " .. tostring(limit)
+        end
+        indices[#indices + 1] = index
+        if #indices > limit then
+            return nil, path .. " contains more than the configured maximum "
+                .. tostring(limit) .. " entries"
+        end
     end
-    return result
+    table.sort(indices)
+    for _, index in ipairs(indices) do
+        local copy, reason = stableCopy(source[index], 4, 128,
+            path .. "[" .. tostring(index) .. "]")
+        if reason ~= nil then return nil, reason end
+        result[index] = copy
+    end
+    return result, nil, #indices
 end
 
 local function hasEntries(value)
@@ -376,10 +463,11 @@ local function captureInventory(actor)
 
         local nestedOk, nested = invoke(item, "getInventory")
         local isContainerOk, isContainer = invoke(item, "IsInventoryContainer")
-        if nested ~= nil then
+        if nestedOk and nested ~= nil then
             local childListOk, childList = invoke(nested, "getItems")
             if not childListOk or childList == nil then
-                return nil, "nested inventory item list is unavailable"
+                return nil, "nested inventory item list is unavailable for "
+                    .. tostring(entry.type) .. ": " .. tostring(childList)
             end
             entry.children = {}
             for index = 0, listSize(childList) - 1 do
@@ -389,7 +477,8 @@ local function captureInventory(actor)
                 entry.children[#entry.children + 1] = captured
             end
         elseif isContainerOk and isContainer == true then
-            return nil, "inventory container has no nested inventory"
+            return nil, "inventory container has no nested inventory: "
+                .. tostring(entry.type) .. ": " .. tostring(nested)
         end
 
         local partsOk, parts = invoke(item, "getAllWeaponParts")
@@ -596,7 +685,8 @@ function persistence.captureRecord(record, vehicleState)
         "$.personality.profile")
     if copyReason ~= nil then return nil, copyReason end
     local memories
-    memories, copyReason = copyList(personality.memories, SC.Config.get("maxMemories"))
+    memories, copyReason = copyList(personality.memories,
+        SC.Config.get("maxMemories"), "$.personality.memories")
     if copyReason ~= nil then return nil, copyReason end
     local background
     background, copyReason = stableCopy(personality.background, 4, 128,
@@ -613,7 +703,8 @@ function persistence.captureRecord(record, vehicleState)
     objectiveCopy, copyReason = stableCopy(objectives, 6, 512, "$.objectives")
     if copyReason ~= nil then return nil, copyReason end
     local downtimeFacts
-    downtimeFacts, copyReason = copyList(downtime.facts, SC.Config.get("maxDowntimeFacts"))
+    downtimeFacts, copyReason = copyList(downtime.facts,
+        SC.Config.get("maxDowntimeFacts"), "$.downtime.facts")
     if copyReason ~= nil then return nil, copyReason end
     local vehicleCopy
     vehicleCopy, copyReason = stableCopy(vehicleState, 4, 96, "$.vehicle")
@@ -760,14 +851,16 @@ function persistence.save(player)
                 -- still finishing, or the companion would return after load.
             elseif inactive then
                 local previous = record.runtime.lastStableSnapshot
-                    or (pending[record.id] and pending[record.id].record)
+                    or (pending[record.id]
+                        and (pending[record.id].raw or pending[record.id].record))
                     or (type(priorDocument) == "table"
                         and type(priorDocument[priorBucket]) == "table"
                         and priorDocument[priorBucket][record.id])
                     or (type(lastDocument) == "table"
                         and type(lastDocument[priorBucket]) == "table"
                         and lastDocument[priorBucket][record.id])
-                local preserved, preserveReason = stableCopy(previous, 14, 131072,
+                local preserved, preserveReason = stableCopy(previous,
+                    documentDepthLimit(), documentEntryLimit(),
                     "$." .. priorBucket .. "[" .. tostring(record.id) .. "]")
                 if type(preserved) ~= "table" then
                     SC.Diagnostics.report("persistence", record.id,
@@ -797,11 +890,23 @@ function persistence.save(player)
         end
     end
     for id, entry in pairs(pending) do
-        if type(entry.record) == "table" then
-            local destination = entry.record.recruited == true
-                and document.companions or document.factionActors
+        -- Activation works from the validated/normalized record, but a record
+        -- that has not activated yet is still caller-owned save data. Re-emit
+        -- the accepted raw copy so retries, backoff and terminal quarantine do
+        -- not silently migrate legacy fields or discard forward-compatible
+        -- values. Keep the original bucket as well: normalization must never
+        -- move a record between companions and factionActors.
+        local source = type(entry.raw) == "table" and entry.raw or entry.record
+        if type(source) == "table" then
+            local bucket = entry.bucket
+            if bucket ~= "companions" and bucket ~= "factionActors" then
+                bucket = entry.record and entry.record.recruited == true
+                    and "companions" or "factionActors"
+            end
+            local destination = document[bucket]
             if destination[id] == nil then
-                local copied, reason = stableCopy(entry.record, 14, 131072,
+                local copied, reason = stableCopy(source,
+                    documentDepthLimit(), documentEntryLimit(),
                     "$.pending[" .. tostring(id) .. "]")
                 if copied == nil then
                     return false, "pending companion cannot be preserved: " .. tostring(id)
@@ -814,7 +919,8 @@ function persistence.save(player)
     for _, bucket in ipairs({ "companions", "factionActors" }) do
         for id, entry in pairs(quarantined[bucket]) do
             if document[bucket][id] == nil then
-                local copied, reason = stableCopy(entry.raw, 14, 131072,
+                local copied, reason = stableCopy(entry.raw,
+                    documentDepthLimit(), documentEntryLimit(),
                     "$." .. bucket .. "[" .. tostring(id) .. "]")
                 if copied == nil then
                     return false, "quarantined record cannot be preserved: "
@@ -824,8 +930,8 @@ function persistence.save(player)
             end
         end
     end
-    local outgoing, outgoingReason = stableCopy(document, 20,
-        SC.Config.get("persistence", "maxDocumentEntries") or 2000000, "$")
+    local outgoing, outgoingReason = stableCopy(document, documentDepthLimit(),
+        documentEntryLimit(), "$")
     if outgoing == nil then
         return false, "outgoing save validation failed: " .. tostring(outgoingReason)
     end
@@ -1010,7 +1116,8 @@ local function validateRecord(id, source)
     clean.factionRole = type(source.factionRole) == "string" and text(source.factionRole, "", 32) or nil
     clean.factionLeader = source.factionLeader == true
     clean.inventory = inventory
-    clean.skills, copyReason = copyList(clean.skills, 128)
+    clean.skills, copyReason = copyList(clean.skills, 128,
+        "$.records[" .. tostring(id) .. "].skills")
     if copyReason ~= nil then return nil, copyReason end
     return clean
 end
@@ -1198,7 +1305,14 @@ local function addInventoryNode(parentInventory, entry, context, depth)
     return true, item
 end
 
-local function applyEquipment(actor, equipment, byId)
+local function reportEquipmentFallback(companionId, kind, location, reason)
+    if SC.Diagnostics == nil or type(SC.Diagnostics.report) ~= "function" then return end
+    pcall(SC.Diagnostics.report, "persistence", companionId,
+        "saved " .. tostring(kind) .. " item left in inventory",
+        "location=" .. tostring(location) .. "; reason=" .. tostring(reason))
+end
+
+local function applyEquipment(actor, equipment, byId, companionId)
     equipment = type(equipment) == "table" and equipment or {}
     if equipment.primary ~= nil then
         local item = byId[equipment.primary]
@@ -1214,20 +1328,31 @@ local function applyEquipment(actor, equipment, byId)
     end
     for _, worn in ipairs(type(equipment.worn) == "table" and equipment.worn or {}) do
         local item = byId[worn.id]
-        if item == nil or not invoke(actor, "setWornItem", worn.location, item) then
-            return false, "worn item could not be equipped at " .. tostring(worn.location)
+        if item == nil then
+            return false, "worn item reference is missing at " .. tostring(worn.location)
+        end
+        local equipped, equipReason = invoke(actor, "setWornItem", worn.location, item)
+        if not equipped then
+            -- Body-location names can disappear when Build 42 or a clothing mod
+            -- changes. The item tree is already restored exactly; retaining the
+            -- item in inventory is safer than rolling back the entire actor.
+            reportEquipmentFallback(companionId, "worn", worn.location, equipReason)
         end
     end
     for _, attached in ipairs(type(equipment.attached) == "table" and equipment.attached or {}) do
         local item = byId[attached.id]
-        if item == nil or not invoke(actor, "setAttachedItem", attached.location, item) then
-            return false, "attached item could not be equipped at " .. tostring(attached.location)
+        if item == nil then
+            return false, "attached item reference is missing at " .. tostring(attached.location)
+        end
+        local equipped, equipReason = invoke(actor, "setAttachedItem", attached.location, item)
+        if not equipped then
+            reportEquipmentFallback(companionId, "attached", attached.location, equipReason)
         end
     end
     return true
 end
 
-local function applyInventory(actor, entries)
+local function applyInventory(actor, entries, companionId)
     local inventoryOk, inventory = invoke(actor, "getInventory")
     if not inventoryOk or inventory == nil then
         return false, "native inventory is unavailable"
@@ -1241,7 +1366,8 @@ local function applyInventory(actor, entries)
         local applied, reason = addInventoryNode(inventory, entry, context, 1)
         if not applied then return false, reason end
     end
-    local equipped, equipReason = applyEquipment(actor, snapshot.equipment, context.byId)
+    local equipped, equipReason = applyEquipment(
+        actor, snapshot.equipment, context.byId, companionId)
     if not equipped then return false, equipReason end
     context.snapshot = snapshot
     return true, context
@@ -1305,7 +1431,7 @@ local function applySkills(actor, skills)
 end
 
 local function initializeRestoredActor(actor, input, saved)
-    local inventoryOk, contextOrReason = applyInventory(actor, saved.inventory)
+    local inventoryOk, contextOrReason = applyInventory(actor, saved.inventory, saved.id)
     local context = inventoryOk and contextOrReason or nil
     local inventoryReason = inventoryOk and nil or contextOrReason
     if not inventoryOk then return false, inventoryReason end
@@ -1390,8 +1516,18 @@ local permanentRestoreTokens = {
     "api is unavailable", "adapter is unavailable",
 }
 
+local transientRestoreTokens = {
+    "provider is unavailable", "provider unavailable", "provider is still starting",
+    "bridge bootstrap has not run", "bridge is still starting",
+    "world is unavailable", "cell is unavailable", "square is not currently loaded",
+    "vehicle is not loaded", "spawn_pending",
+}
+
 local function classifyRestoreFailure(reason)
     local lowered = string.lower(tostring(reason or "unknown restore failure"))
+    for _, token in ipairs(transientRestoreTokens) do
+        if string.find(lowered, token, 1, true) then return "transient" end
+    end
     for _, token in ipairs(permanentRestoreTokens) do
         if string.find(lowered, token, 1, true) then return "permanent" end
     end
@@ -1406,10 +1542,18 @@ local function restoreDelay(attempts)
 end
 
 local function failRestore(id, entry, reason, current, failureClass)
-    entry.attempts = (entry.attempts or 0) + 1
-    entry.firstAttemptAt = entry.firstAttemptAt or current
     entry.reason = tostring(reason or "unknown restore failure")
     entry.failureClass = failureClass or classifyRestoreFailure(entry.reason)
+    if entry.failureClass == "transient" then
+        -- Provider/bootstrap/world availability is not a destructive restore
+        -- attempt. Keep probing at the base cadence so a bridge that finishes
+        -- starting can resume without exhausting the actor's retry budget.
+        entry.status = "waiting_environment"
+        entry.nextAt = current + restoreDelay(1)
+        return true
+    end
+    entry.attempts = (entry.attempts or 0) + 1
+    entry.firstAttemptAt = entry.firstAttemptAt or current
     local maximumAttempts = math.max(1,
         tonumber(SC.Config.get("persistence", "restoreMaximumAttempts")) or 6)
     if entry.failureClass == "permanent" or entry.attempts >= maximumAttempts then
@@ -1485,31 +1629,55 @@ function persistence.restorePulse(player)
 end
 
 function persistence.restore(player)
+    restoreCommitted = false
+    restoreFailureReason = "restore is in progress"
     local data, dataReason = playerData(player)
-    if data == nil then return false, dataReason end
+    if data == nil then
+        restoreFailureReason = dataReason
+        return false, dataReason
+    end
     local readOk, document = pcall(function() return data[SC.Identity.saveKey] end)
-    if not readOk then return false, "save document cannot be read: " .. tostring(document) end
+    if not readOk then
+        restoreFailureReason = "save document cannot be read: " .. tostring(document)
+        return false, restoreFailureReason
+    end
     if document == nil then
-        for _, entry in pairs(pending) do
-            if entry.spawnTicket ~= nil and SC.Actor ~= nil
-                and type(SC.Actor.cancelSpawn) == "function" then
-                pcall(SC.Actor.cancelSpawn, entry.spawnTicket)
-            end
+        local cancelled, cancelReason = preparePendingCancellation("empty-document restore")
+        if not cancelled then
+            saveBlockedReason = cancelReason
+            restoreFailureReason = cancelReason
+            return false, cancelReason
         end
         pending, pendingOrder = {}, {}
         quarantined = { companions = {}, factionActors = {}, subsystems = {} }
         lastDocument = nil
         saveBlockedReason = nil
+        restoreCommitted = true
+        restoreFailureReason = nil
         return true, "no SurvivorCompanion save document"
     end
     if type(document) ~= "table"
         or (document.schema ~= SC.Identity.saveSchema and document.schema ~= 1)
         or type(document.companions) ~= "table" then
-        lastDocument = document
-        saveBlockedReason = "SC_SaveV1 has an unsupported or invalid schema"
-        return false, saveBlockedReason
+        return blockSave(document, "SC_SaveV1 has an unsupported or invalid schema")
     end
-    saveBlockedReason = nil
+
+    -- Prove that the complete raw envelope is preservable before any subsystem
+    -- receives state. Subsystem validators never see caller-owned save tables.
+    local candidateDocument, documentReason = stableCopy(document,
+        documentDepthLimit(), documentEntryLimit(), "$")
+    if candidateDocument == nil then
+        return blockSave(document, "SC_SaveV1 cannot be preserved completely: "
+            .. tostring(documentReason))
+    end
+    if type(candidateDocument.companions) ~= "table" then
+        return blockSave(document, "SC_SaveV1 companions bucket is malformed")
+    end
+    if candidateDocument.factionActors ~= nil
+        and type(candidateDocument.factionActors) ~= "table" then
+        return blockSave(document, "SC_SaveV1 factionActors bucket is malformed")
+    end
+
     local current = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0
     local candidatePending, candidateOrder = {}, {}
     local candidateQuarantine = { companions = {}, factionActors = {}, subsystems = {} }
@@ -1521,74 +1689,36 @@ function persistence.restore(player)
         SC.Diagnostics.report("persistence", id, "save record quarantined", reason)
     end
 
-    local subsystemDefinitions = {
-        { field = "factions", owner = SC.Factions, diagnostic = "factions" },
-        { field = "factionWorld", owner = SC.FactionWorld, diagnostic = "faction-world" },
-        { field = "baseLife", owner = SC.BaseLife, diagnostic = "base-life" },
-        { field = "infectionCrisis", owner = SC.InfectionCrisis,
-            diagnostic = "infection-crisis" },
-        { field = "community", owner = SC.Community, diagnostic = "community" },
-    }
-    for _, definition in ipairs(subsystemDefinitions) do
-        if definition.owner ~= nil and type(definition.owner.restore) == "function" then
-            local called, ok, reason = pcall(definition.owner.restore,
-                document[definition.field])
-            if not called or ok ~= true then
-                local failure = tostring(called and reason or ok)
-                candidateQuarantine.subsystems[definition.field] = {
-                    raw = document[definition.field], reason = failure,
-                    path = "$." .. definition.field, firstSeenAt = current,
-                }
-                SC.Diagnostics.report(definition.diagnostic, nil,
-                    "subsystem save quarantined", failure)
-            end
-        end
-    end
-
-    local ids, seenIds = {}, {}
-    for id in pairs(document.companions) do ids[#ids + 1] = id end
-    table.sort(ids)
-    for _, id in ipairs(ids) do
+    -- Validate both actor buckets before invoking subsystem restore. Mixed
+    -- string/numeric keys are deterministic and invalid keys enter quarantine
+    -- instead of reaching table.sort's incomparable-key failure.
+    local seenIds, factionCandidates = {}, {}
+    for _, id in ipairs(sortedKeys(candidateDocument.companions)) do
         seenIds[id] = true
-        local clean, reason = validateRecord(id, document.companions[id])
+        local clean, reason = validateRecord(id, candidateDocument.companions[id])
         if clean ~= nil then
-            if clean.vehicle ~= nil then
-                local imported, importReason = importVehicleRecord(clean)
-                candidatePending[id] = {
-                    record = clean, reason = imported and nil or importReason,
-                    nextAt = 0, attempts = 0, vehicle = not imported,
-                    status = imported and "restored" or "pending",
-                }
-                if imported then candidatePending[id] = nil
-                else candidateOrder[#candidateOrder + 1] = id end
-            else
-                candidatePending[id] = {
-                    record = clean, nextAt = 0, attempts = 0, status = "pending",
-                }
-                candidateOrder[#candidateOrder + 1] = id
-            end
+            candidatePending[id] = {
+                record = clean, nextAt = 0, attempts = 0, status = "pending",
+                vehicle = clean.vehicle ~= nil,
+                raw = candidateDocument.companions[id], bucket = "companions",
+            }
+            candidateOrder[#candidateOrder + 1] = id
         else
-            quarantineRecord("companions", id, document.companions[id], reason,
+            quarantineRecord("companions", id, candidateDocument.companions[id], reason,
                 "$.companions[" .. tostring(id) .. "]")
         end
     end
-    local factionActors = type(document.factionActors) == "table"
-        and document.factionActors or {}
-    local factionIds = {}
-    for id in pairs(factionActors) do factionIds[#factionIds + 1] = id end
-    table.sort(factionIds)
-    for _, id in ipairs(factionIds) do
+    local factionActors = candidateDocument.factionActors or {}
+    for _, id in ipairs(sortedKeys(factionActors)) do
         if not seenIds[id] then
             local clean, reason = validateRecord(id, factionActors[id])
-            if clean ~= nil and type(clean.factionId) == "string"
-                and SC.Factions and SC.Factions.group(clean.factionId) then
-                candidatePending[id] = {
-                    record = clean, nextAt = 0, attempts = 0, status = "pending",
+            if clean ~= nil and type(clean.factionId) == "string" then
+                factionCandidates[#factionCandidates + 1] = {
+                    id = id, record = clean, raw = factionActors[id],
                 }
-                candidateOrder[#candidateOrder + 1] = id
             else
                 quarantineRecord("factionActors", id, factionActors[id],
-                    reason or "faction actor references an unavailable faction",
+                    reason or "faction actor has no valid faction reference",
                     "$.factionActors[" .. tostring(id) .. "]")
             end
         else
@@ -1598,15 +1728,103 @@ function persistence.restore(player)
         end
     end
 
-    for _, entry in pairs(pending) do
-        if entry.spawnTicket ~= nil and SC.Actor ~= nil
-            and type(SC.Actor.cancelSpawn) == "function" then
-            pcall(SC.Actor.cancelSpawn, entry.spawnTicket)
+    -- Replacing pending work is a checked cancellation boundary. A failed or
+    -- throwing cancellation keeps its ticket/record reachable, and no
+    -- subsystem restore has run yet.
+    local cancelled, cancelReason = preparePendingCancellation("document restore")
+    if not cancelled then return blockSave(document, cancelReason) end
+
+    local subsystemDefinitions = {
+        { field = "factions", owner = SC.Factions, diagnostic = "factions" },
+        { field = "factionWorld", owner = SC.FactionWorld, diagnostic = "faction-world" },
+        { field = "baseLife", owner = SC.BaseLife, diagnostic = "base-life" },
+        { field = "infectionCrisis", owner = SC.InfectionCrisis,
+            diagnostic = "infection-crisis" },
+        { field = "community", owner = SC.Community, diagnostic = "community" },
+    }
+    for _, definition in ipairs(subsystemDefinitions) do
+        local raw = candidateDocument[definition.field]
+        if raw ~= nil then
+            local called, ok, reason
+            local restoreInput, inputReason = stableCopy(raw,
+                documentDepthLimit(), documentEntryLimit(),
+                "$." .. definition.field)
+            if restoreInput == nil then
+                called, ok, reason = true, false, inputReason
+            elseif definition.owner ~= nil and type(definition.owner.restore) == "function" then
+                -- Give the subsystem a disposable working copy. A hostile or
+                -- legacy restore adapter may mutate its argument before it
+                -- rejects it; quarantine must still retain the accepted raw
+                -- envelope byte-for-value.
+                called, ok, reason = SC.Call.protected(
+                    definition.owner.restore, restoreInput)
+            else
+                called, ok, reason = true, false, "subsystem restore adapter is unavailable"
+            end
+            if not called or ok ~= true then
+                local failure = tostring(called and (reason or ok) or ok)
+                candidateQuarantine.subsystems[definition.field] = {
+                    raw = raw, reason = failure,
+                    path = "$." .. definition.field, firstSeenAt = current,
+                }
+                SC.Diagnostics.report(definition.diagnostic, nil,
+                    "subsystem save quarantined", failure)
+            end
         end
     end
+
+    -- Faction cross-references are checked only after the faction subsystem's
+    -- transactional restore has published its accepted groups.
+    for _, candidate in ipairs(factionCandidates) do
+        local clean, id = candidate.record, candidate.id
+        local groupCalled, group = false, nil
+        if SC.Factions ~= nil and type(SC.Factions.group) == "function" then
+            groupCalled, group = SC.Call.protected(SC.Factions.group, clean.factionId)
+        end
+        local available = groupCalled and group ~= nil
+        if available then
+            candidatePending[id] = {
+                record = clean, nextAt = 0, attempts = 0, status = "pending",
+                raw = candidate.raw, bucket = "factionActors",
+            }
+            candidateOrder[#candidateOrder + 1] = id
+        else
+            quarantineRecord("factionActors", id, factionActors[id],
+                "faction actor references an unavailable faction",
+                "$.factionActors[" .. tostring(id) .. "]")
+        end
+    end
+
+    -- Vehicle import happens only after the full envelope/bucket preflight. A
+    -- failed import remains pending and can be re-emitted without loss.
+    for _, id in ipairs(candidateOrder) do
+        local entry = candidatePending[id]
+        if entry ~= nil and entry.vehicle == true then
+            local called, imported, importReason = SC.Call.protected(
+                importVehicleRecord, entry.record)
+            if called and imported == true then
+                candidatePending[id] = nil
+            else
+                entry.reason = tostring(called and importReason or imported)
+                entry.status = "pending"
+            end
+        end
+    end
+
     pending, pendingOrder, quarantined = candidatePending, candidateOrder, candidateQuarantine
-    lastDocument = document
-    persistence.restorePulse(player)
+    lastDocument = candidateDocument
+    saveBlockedReason = nil
+    restoreCommitted = true
+    restoreFailureReason = nil
+
+    -- Activation is deliberately outside the import transaction. A pulse
+    -- exception cannot turn an accepted raw document into a destructive load
+    -- failure or discard its pending records.
+    local pulsed, pulseReason = pcall(persistence.restorePulse, player)
+    if not pulsed then
+        SC.Diagnostics.report("persistence", nil,
+            "initial restore pulse failed; imported records retained", pulseReason)
+    end
     return true, persistence.pendingCount()
 end
 
@@ -1628,6 +1846,7 @@ function persistence.pendingSnapshot()
             reason = entry.reason,
             nextAt = entry.nextAt,
             status = entry.status or "pending",
+            hasSpawnTicket = entry.spawnTicket ~= nil,
             failureClass = entry.failureClass,
             firstAttemptAt = entry.firstAttemptAt,
             quarantinedAt = entry.quarantinedAt,
@@ -1647,8 +1866,11 @@ function persistence.quarantineSnapshot()
     end
     for id, entry in pairs(pending) do
         if entry.status == "quarantined" then
-            local bucket = entry.record and entry.record.recruited == true
-                and "companions" or "factionActors"
+            local bucket = entry.bucket
+            if bucket ~= "companions" and bucket ~= "factionActors" then
+                bucket = entry.record and entry.record.recruited == true
+                    and "companions" or "factionActors"
+            end
             result[bucket][id] = {
                 reason = entry.reason,
                 path = "$." .. bucket .. "[" .. tostring(id) .. "]",
@@ -1665,10 +1887,8 @@ function persistence.retry(id)
     if type(id) ~= "string" then return false, "companion id is required" end
     local entry = pending[id]
     if entry ~= nil then
-        if entry.spawnTicket ~= nil and SC.Actor and type(SC.Actor.cancelSpawn) == "function" then
-            pcall(SC.Actor.cancelSpawn, entry.spawnTicket)
-        end
-        entry.spawnTicket = nil
+        local cancelled, cancelReason = cancelEntryTicket(id, entry, "manual retry")
+        if not cancelled then return false, cancelReason end
         entry.attempts = 0
         entry.firstAttemptAt = nil
         entry.quarantinedAt = nil
@@ -1687,8 +1907,11 @@ function persistence.retry(id)
                 or not SC.Factions or not SC.Factions.group(clean.factionId)) then
                 return false, "faction actor references an unavailable faction"
             end
-            pending[id] = { record = clean, nextAt = 0, attempts = 0,
-                status = "pending", reason = "manual retry" }
+            pending[id] = {
+                record = clean, raw = quarantine.raw, bucket = bucket,
+                nextAt = 0, attempts = 0,
+                status = "pending", reason = "manual retry",
+            }
             pendingOrder[#pendingOrder + 1] = id
             quarantined[bucket][id] = nil
             return true, "retry_scheduled"
@@ -1708,8 +1931,20 @@ function persistence.retrySubsystem(field)
     if owner == nil or type(owner.restore) ~= "function" then
         return false, "subsystem restore adapter is unavailable"
     end
-    local called, ok, reason = pcall(owner.restore, entry.raw)
-    if not called or ok ~= true then return false, tostring(called and reason or ok) end
+    local restoreInput, copyReason = stableCopy(entry.raw,
+        documentDepthLimit(), documentEntryLimit(),
+        "$.quarantine.subsystems[" .. tostring(field) .. "]")
+    if restoreInput == nil then
+        return false, "quarantined subsystem cannot be copied for retry: "
+            .. tostring(copyReason)
+    end
+    -- A retry adapter receives disposable data just like the initial import.
+    -- A mutating adapter that rejects or throws must not corrupt the raw value
+    -- which remains responsible for lossless passthrough on the next save.
+    local called, ok, reason = SC.Call.protected(owner.restore, restoreInput)
+    if not called or ok ~= true then
+        return false, tostring(called and (reason or ok) or ok)
+    end
     quarantined.subsystems[field] = nil
     return true, "subsystem_restored"
 end
@@ -1718,18 +1953,25 @@ function persistence.lastDocument()
     return lastDocument
 end
 
+function persistence.restoreStatus()
+    return restoreCommitted, restoreFailureReason, saveBlockedReason
+end
+
+function persistence.prepareReset()
+    return preparePendingCancellation("persistence reset")
+end
+
 function persistence.reset()
-    for _, entry in pairs(pending) do
-        if entry.spawnTicket ~= nil and SC.Actor ~= nil
-            and type(SC.Actor.cancelSpawn) == "function" then
-            pcall(SC.Actor.cancelSpawn, entry.spawnTicket)
-        end
-    end
+    local cancelled, cancelReason = persistence.prepareReset()
+    if not cancelled then return false, cancelReason end
     pending = {}
     pendingOrder = {}
     quarantined = { companions = {}, factionActors = {}, subsystems = {} }
     lastDocument = nil
     saveBlockedReason = nil
+    restoreCommitted = false
+    restoreFailureReason = "restore has not committed"
+    return true
 end
 
 return persistence

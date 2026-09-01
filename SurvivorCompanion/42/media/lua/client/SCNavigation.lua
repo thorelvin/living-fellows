@@ -40,6 +40,28 @@ local function supervisedToken(intent)
     return service, nil
 end
 
+-- Reject a competing route before it can mutate the active owner's path,
+-- threshold sweep, reservations, or recovery timers.  Locomotion performs the
+-- same permission check immediately before dispatch, but that is deliberately
+-- too late for Navigation's state machine: a denied request may already have
+-- cleared room-entry state while calculating its own route.
+--
+-- Urgent requests still reach Locomotion so its existing preemption/urgent-
+-- queue policy remains the single authority for survival movement.
+local function navigationOwnershipPermission(actor, intent)
+    local service = actionSupervisor()
+    if type(service) ~= "table" or type(service.movementPermission) ~= "function" then
+        return true
+    end
+    local request = type(intent) == "table" and intent or {}
+    local permitted, reason = service.movementPermission(
+        actor, tostring(request.action or "move"), request)
+    if permitted == true then return true end
+    if request.urgent == true or request.emergency == true
+        or request.survivalCritical == true then return true end
+    return false, reason or "action_owned"
+end
+
 local function tokenSerial(intent)
     local _, token = supervisedToken(intent)
     return token and tonumber(token.serial) or nil
@@ -2726,6 +2748,8 @@ function Navigation.request(actor, target, movementMode, intent)
     if not sourceSquare then return false, "invalid_source" end
     local goalSquare, goalAdjusted = resolveFollowGoal(sourceSquare, requestedGoalSquare, intent)
     if not goalSquare then return false, "invalid_destination" end
+    local permitted, permissionReason = navigationOwnershipPermission(actor, intent)
+    if permitted ~= true then return false, permissionReason end
 
     local now = utility.nowMs()
     local state = stateFor(actor)
@@ -3296,6 +3320,8 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
     intent = utility.copyShallow(intent)
+    local permitted, permissionReason = navigationOwnershipPermission(actor, intent)
+    if permitted ~= true then return false, permissionReason end
     local service, token = supervisedToken(intent)
     local valid, seen = {}, {}
     for _, candidate in ipairs(type(candidates) == "table" and candidates or {}) do

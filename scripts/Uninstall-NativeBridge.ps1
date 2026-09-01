@@ -2,7 +2,8 @@
 
 [CmdletBinding()]
 param(
-    [string]$BridgeRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'LivingFellowsDev\NativeBridge')
+    [string]$BridgeRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'LivingFellowsDev\NativeBridge'),
+    [switch]$PreflightOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -57,8 +58,11 @@ if (-not (Test-Path -LiteralPath $bridgeJar -PathType Leaf) -or
 }
 
 $configHash = Get-HashOrEmpty $configPath
-if ($manifest.installedConfigSha256 -and
-    $configHash -ne [string]$manifest.installedConfigSha256) {
+$installedConfigHash = [string]$manifest.installedConfigSha256
+if ([string]::IsNullOrWhiteSpace($installedConfigHash)) {
+    throw 'Native bridge manifest has no installedConfigSha256; refusing automatic rollback.'
+}
+if ($configHash -ne $installedConfigHash.ToLowerInvariant()) {
     throw 'Launcher configuration changed after installation; refusing automatic rollback.'
 }
 $config = Get-Content -LiteralPath $configPath -Raw -Encoding utf8 | ConvertFrom-Json
@@ -71,14 +75,22 @@ if (-not (Test-Path -LiteralPath $originalBackup -PathType Leaf)) {
     throw "Original launcher backup is missing: $originalBackup"
 }
 $originalHash = Get-HashOrEmpty $originalBackup
-if ($manifest.originalConfigSha256 -and
-    $originalHash -ne [string]$manifest.originalConfigSha256) {
+$recordedOriginalHash = [string]$manifest.originalConfigSha256
+if ([string]::IsNullOrWhiteSpace($recordedOriginalHash)) {
+    throw 'Native bridge manifest has no originalConfigSha256; refusing automatic rollback.'
+}
+if ($originalHash -ne $recordedOriginalHash.ToLowerInvariant()) {
     throw 'Original launcher backup hash no longer matches the owned manifest.'
 }
 $original = Get-Content -LiteralPath $originalBackup -Raw -Encoding utf8 | ConvertFrom-Json
 if ([string]$original.mainClass -ne [string]$manifest.originalMainClass -or
     [string]$original.mainClass -eq $wrapper) {
     throw 'Original launcher backup does not preserve the true original main class.'
+}
+
+if ($PreflightOnly) {
+    Write-Output "NATIVE_BRIDGE_UNINSTALL_PREFLIGHT_PASS config=$configPath jar=$bridgeJar"
+    return
 }
 
 $transactionRoot = Join-Path $BridgeRoot ('.uninstall-transaction.' + [guid]::NewGuid().ToString('N'))

@@ -29,6 +29,7 @@ Set-Content -LiteralPath $gameConfig -Value $originalConfig -Encoding utf8
 $Install = Join-Path $ProjectRoot 'scripts\Install-Local.ps1'
 $Uninstall = Join-Path $ProjectRoot 'scripts\Uninstall-Local.ps1'
 $NativeInstall = Join-Path $ProjectRoot 'scripts\Install-NativeBridge.ps1'
+$StandaloneUninstall = Join-Path $ProjectRoot 'scripts\Uninstall-Standalone.ps1'
 
 function Get-TreeSnapshot([hashtable]$Paths) {
     $snapshot = [ordered]@{}
@@ -75,6 +76,32 @@ function New-InstallFixture([string]$Name) {
     }
 }
 
+function New-StandaloneInstallFixture([string]$Name) {
+    $root = Join-Path $Sandbox $Name
+    $mods = Join-Path $root 'mods'
+    $game = Join-Path $root 'game'
+    $data = Join-Path $root 'install-data'
+    $backups = Join-Path $data 'mod-backups'
+    $bridge = Join-Path $data 'bridge'
+    $configBackups = Join-Path $data 'config-backups'
+    New-Item -ItemType Directory -Path $mods, $game, $backups, $configBackups -Force |
+        Out-Null
+    $configPath = Join-Path $game 'ProjectZomboid64.json'
+    Set-Content -LiteralPath $configPath -Value $originalConfig -Encoding utf8
+    return [ordered]@{
+        root = $root; mods = $mods; game = $game; data = $data
+        backups = $backups; bridge = $bridge; configBackups = $configBackups
+        config = $configPath; target = (Join-Path $mods 'SurvivorCompanion')
+    }
+}
+
+function Install-StandaloneFixture($Fixture, [string]$PreparedPayload, [string]$PrebuiltJar) {
+    & $Install -ProjectRoot $ProjectRoot -ModsRoot $Fixture.mods -GameRoot $Fixture.game `
+        -BackupRoot $Fixture.backups -BridgeRoot $Fixture.bridge `
+        -ConfigBackupRoot $Fixture.configBackups -PreparedPayloadRoot $PreparedPayload `
+        -PrebuiltBridgeJar $PrebuiltJar -Standalone | Out-Null
+}
+
 function Get-InstallFixtureSnapshot($Fixture) {
     return Get-TreeSnapshot @{
         config = $Fixture.config
@@ -87,7 +114,8 @@ function Get-InstallFixtureSnapshot($Fixture) {
 
 try {
     & $Install -ProjectRoot $ProjectRoot -ModsRoot $ModsRoot -GameRoot $GameRoot `
-        -BackupRoot $BackupRoot -BridgeRoot $BridgeRoot -NativeBridge | Out-Null
+        -BackupRoot $BackupRoot -BridgeRoot $BridgeRoot `
+        -ConfigBackupRoot $ConfigBackupRoot -NativeBridge | Out-Null
     $Target = Join-Path $ModsRoot 'SurvivorCompanion'
     $Config = Join-Path $Target '42\media\lua\shared\SCConfig.lua'
     $configText = Get-Content -LiteralPath $Config -Raw -Encoding utf8
@@ -107,6 +135,16 @@ try {
     if ($jarOwnershipFailed) {
         throw 'Private install native bytecode ownership check failed.'
     }
+    $compiledBridge = Join-Path $ProjectRoot 'build\native-bridge\SurvivorCompanionBridge.jar'
+    $payloadBridge = Join-Path $Target '42\media\java\SurvivorCompanionBridge.jar'
+    $launcherBridge = Join-Path $BridgeRoot 'SurvivorCompanionBridge.jar'
+    $compiledHash = (Get-FileHash -LiteralPath $compiledBridge -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ((Get-FileHash -LiteralPath $payloadBridge -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+            $compiledHash -or
+        (Get-FileHash -LiteralPath $launcherBridge -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+            $compiledHash) {
+        throw 'Direct native development install did not use the current compiled bridge in both targets.'
+    }
     $patchedConfig = Get-Content -LiteralPath $gameConfig -Raw -Encoding utf8 | ConvertFrom-Json
     $bridgeJar = (Join-Path $BridgeRoot 'SurvivorCompanionBridge.jar').Replace('\', '/')
     $launcherInvalid = $patchedConfig.mainClass -ne 'survivorcompanion/bridge/SCLauncher'
@@ -117,7 +155,8 @@ try {
     }
 
     & $Install -ProjectRoot $ProjectRoot -ModsRoot $ModsRoot -GameRoot $GameRoot `
-        -BackupRoot $BackupRoot -BridgeRoot $BridgeRoot -NativeBridge | Out-Null
+        -BackupRoot $BackupRoot -BridgeRoot $BridgeRoot `
+        -ConfigBackupRoot $ConfigBackupRoot -NativeBridge | Out-Null
     $duplicateIds = @(Get-ChildItem -LiteralPath $ModsRoot -Force -Directory | Where-Object {
         $info = Join-Path $_.FullName 'mod.info'
         (Test-Path -LiteralPath $info) -and (Get-Content -LiteralPath $info -Raw) -match '(?m)^id=SurvivorCompanion\s*$'
@@ -155,11 +194,17 @@ try {
         -ProjectRoot $ProjectRoot -OutputRoot $preparedRoot -AllowExternalOutput | Out-Null
     $preparedPayload = Join-Path $preparedRoot 'SurvivorCompanion'
     $prebuiltJar = Join-Path $preparedPayload '42\media\java\SurvivorCompanionBridge.jar'
+    $standalonePreparedRoot = Join-Path $Sandbox 'prepared-standalone-payload'
+    & (Join-Path $ProjectRoot 'scripts\New-StandalonePayload.ps1') `
+        -ProjectRoot $ProjectRoot -OutputRoot $standalonePreparedRoot `
+        -AllowExternalOutput | Out-Null
+    $standalonePreparedPayload = Join-Path $standalonePreparedRoot 'SurvivorCompanion'
 
     $failureBoundaries = @(
         'payload-build', 'payload-validation', 'native-config-stage',
         'native-config-replace', 'native-jar-replace', 'native-manifest-write',
-        'local-manifest-write', 'old-mod-backup', 'new-mod-move'
+        'local-manifest-write', 'old-mod-backup', 'new-mod-move',
+        'target-postcondition'
     )
     foreach ($boundary in @($failureBoundaries | Where-Object { $_ -ne 'old-mod-backup' })) {
         $fixture = New-InstallFixture ('fresh-matrix-' + $boundary)
@@ -217,6 +262,110 @@ try {
         }
     }
 
+    foreach ($mode in @('fresh', 'update')) {
+        $fixture = New-InstallFixture ('target-corruption-' + $mode)
+        if ($mode -eq 'update') {
+            & $Install -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods -GameRoot $fixture.game `
+                -BackupRoot $fixture.backups -BridgeRoot $fixture.bridge `
+                -ConfigBackupRoot $fixture.configBackups -PreparedPayloadRoot $preparedPayload `
+                -NativeBridge | Out-Null
+        }
+        $before = Get-InstallFixtureSnapshot $fixture
+        $failed = $false
+        try {
+            & $Install -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods -GameRoot $fixture.game `
+                -BackupRoot $fixture.backups -BridgeRoot $fixture.bridge `
+                -ConfigBackupRoot $fixture.configBackups -PreparedPayloadRoot $preparedPayload `
+                -NativeBridge -FailAfter 'target-file-corrupt' | Out-Null
+        } catch { $failed = $_.Exception.Message -like '*Installed file hash postcondition failed*' }
+        if (-not $failed -or (Get-InstallFixtureSnapshot $fixture) -ne $before) {
+            throw "Post-move target corruption did not fail with exact rollback: $mode"
+        }
+    }
+
+    foreach ($hashMode in @('missing', 'mismatch')) {
+        $fixture = New-InstallFixture ('native-installed-config-hash-' + $hashMode)
+        & $NativeInstall -ProjectRoot $ProjectRoot -GameRoot $fixture.game `
+            -BridgeRoot $fixture.bridge -ConfigBackupRoot $fixture.configBackups `
+            -PrebuiltBridgeJar $prebuiltJar | Out-Null
+        $ownedManifestPath = Join-Path $fixture.bridge 'install-manifest.json'
+        $ownedManifest = Get-Content -LiteralPath $ownedManifestPath -Raw -Encoding utf8 |
+            ConvertFrom-Json
+        if ($hashMode -eq 'missing') {
+            $ownedManifest.PSObject.Properties.Remove('installedConfigSha256')
+        } else {
+            $ownedManifest.installedConfigSha256 = ('0' * 64)
+        }
+        $ownedManifest | ConvertTo-Json -Depth 12 |
+            Set-Content -LiteralPath $ownedManifestPath -Encoding utf8
+        $before = Get-InstallFixtureSnapshot $fixture
+        $refused = $false
+        try {
+            & $NativeInstall -ProjectRoot $ProjectRoot -GameRoot $fixture.game `
+                -BridgeRoot $fixture.bridge -ConfigBackupRoot $fixture.configBackups `
+                -PrebuiltBridgeJar $prebuiltJar | Out-Null
+        } catch {
+            $refused = $_.Exception.Message -like '*installedConfigSha256*refusing update*'
+        }
+        if (-not $refused -or (Get-InstallFixtureSnapshot $fixture) -ne $before) {
+            throw "Native update accepted or mutated an installedConfigSha256 $hashMode fixture."
+        }
+    }
+
+    $derivedBridge = New-InstallFixture 'manifest-derived-bridge-root'
+    & $Install -ProjectRoot $ProjectRoot -ModsRoot $derivedBridge.mods -GameRoot $derivedBridge.game `
+        -BackupRoot $derivedBridge.backups -BridgeRoot $derivedBridge.bridge `
+        -ConfigBackupRoot $derivedBridge.configBackups -PreparedPayloadRoot $preparedPayload `
+        -NativeBridge | Out-Null
+    $before = Get-InstallFixtureSnapshot $derivedBridge
+    $refused = $false
+    try {
+        & $Uninstall -ModsRoot $derivedBridge.mods `
+            -BridgeRoot (Join-Path $derivedBridge.root 'wrong-bridge') | Out-Null
+    } catch { $refused = $_.Exception.Message -like '*Explicit BridgeRoot does not match*' }
+    if (-not $refused -or (Get-InstallFixtureSnapshot $derivedBridge) -ne $before) {
+        throw 'Local uninstaller did not reject an explicit bridge-root mismatch before mutation.'
+    }
+    & $Uninstall -ModsRoot $derivedBridge.mods | Out-Null
+    if ((Test-Path -LiteralPath $derivedBridge.target) -or
+        (Test-Path -LiteralPath (Join-Path $derivedBridge.bridge 'install-manifest.json'))) {
+        throw 'Local uninstaller did not derive and remove the owned bridge from its mod manifest.'
+    }
+
+    $missingNative = New-InstallFixture 'missing-native-final-generation'
+    & $Install -ProjectRoot $ProjectRoot -ModsRoot $missingNative.mods -GameRoot $missingNative.game `
+        -BackupRoot $missingNative.backups -BridgeRoot $missingNative.bridge `
+        -ConfigBackupRoot $missingNative.configBackups -PreparedPayloadRoot $preparedPayload `
+        -NativeBridge | Out-Null
+    Remove-Item -LiteralPath (Join-Path $missingNative.bridge 'install-manifest.json') -Force
+    $before = Get-InstallFixtureSnapshot $missingNative
+    $refused = $false
+    try { & $Uninstall -ModsRoot $missingNative.mods | Out-Null }
+    catch { $refused = $_.Exception.Message -like '*requires its native rollback manifest*' }
+    if (-not $refused -or (Get-InstallFixtureSnapshot $missingNative) -ne $before) {
+        throw 'Final local generation was removed or changed without its native rollback manifest.'
+    }
+
+    $missingNativeHash = New-InstallFixture 'missing-native-installed-config-hash'
+    & $Install -ProjectRoot $ProjectRoot -ModsRoot $missingNativeHash.mods `
+        -GameRoot $missingNativeHash.game -BackupRoot $missingNativeHash.backups `
+        -BridgeRoot $missingNativeHash.bridge `
+        -ConfigBackupRoot $missingNativeHash.configBackups `
+        -PreparedPayloadRoot $preparedPayload -NativeBridge | Out-Null
+    $nativeManifestPath = Join-Path $missingNativeHash.bridge 'install-manifest.json'
+    $nativeManifestObject = Get-Content -LiteralPath $nativeManifestPath -Raw -Encoding utf8 |
+        ConvertFrom-Json
+    $nativeManifestObject.PSObject.Properties.Remove('installedConfigSha256')
+    $nativeManifestObject | ConvertTo-Json -Depth 12 |
+        Set-Content -LiteralPath $nativeManifestPath -Encoding utf8
+    $before = Get-InstallFixtureSnapshot $missingNativeHash
+    $refused = $false
+    try { & $Uninstall -ModsRoot $missingNativeHash.mods | Out-Null }
+    catch { $refused = $_.Exception.Message -like '*has no installedConfigSha256*' }
+    if (-not $refused -or (Get-InstallFixtureSnapshot $missingNativeHash) -ne $before) {
+        throw 'Final local generation bypassed an incomplete native manifest preflight.'
+    }
+
     $manifestless = New-InstallFixture 'manifestless-wrapper'
     $brokenConfig = Get-Content -LiteralPath $manifestless.config -Raw -Encoding utf8 | ConvertFrom-Json
     $brokenConfig.mainClass = 'survivorcompanion/bridge/SCLauncher'
@@ -260,19 +409,98 @@ try {
         throw 'Stale-protocol prebuilt bridge was not rejected before live mutation.'
     }
 
+    foreach ($boundary in @(
+            'standalone-snapshot', 'standalone-generation-remove',
+            'standalone-native-rollback', 'standalone-postcondition')) {
+        $fixture = New-StandaloneInstallFixture ('standalone-atomic-' + $boundary)
+        1..3 | ForEach-Object {
+            Install-StandaloneFixture $fixture $standalonePreparedPayload $prebuiltJar
+        }
+        $before = Get-TreeSnapshot @{
+            config = $fixture.config
+            target = $fixture.target
+            installData = $fixture.data
+        }
+        $failed = $false
+        try {
+            & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $fixture.mods `
+                -InstallDataRoot $fixture.data -FailAfter $boundary | Out-Null
+        } catch { $failed = $_.Exception.Message -like '*Injected standalone uninstaller failure*' }
+        $after = Get-TreeSnapshot @{
+            config = $fixture.config
+            target = $fixture.target
+            installData = $fixture.data
+        }
+        if (-not $failed -or $after -ne $before) {
+            throw "Standalone uninstall boundary did not restore its full snapshot: $boundary"
+        }
+    }
+
+    $deepCorrupt = New-StandaloneInstallFixture 'standalone-deep-corrupt'
+    1..3 | ForEach-Object {
+        Install-StandaloneFixture $deepCorrupt $standalonePreparedPayload $prebuiltJar
+    }
+    $newest = Get-Content -LiteralPath `
+        (Join-Path $deepCorrupt.target '.sc-install-manifest.json') -Raw -Encoding utf8 |
+        ConvertFrom-Json
+    $middlePath = [string]$newest.backupPath
+    $middle = Get-Content -LiteralPath (Join-Path $middlePath '.sc-install-manifest.json') `
+        -Raw -Encoding utf8 | ConvertFrom-Json
+    $deepPath = [string]$middle.backupPath
+    if ([string]::IsNullOrWhiteSpace($deepPath)) {
+        throw 'Three-generation standalone fixture did not create a deep backup.'
+    }
+    [System.IO.File]::AppendAllText((Join-Path $deepPath '42\mod.info'),
+        "`n# injected deep-generation corruption")
+    $before = Get-TreeSnapshot @{
+        config = $deepCorrupt.config
+        target = $deepCorrupt.target
+        installData = $deepCorrupt.data
+    }
+    $refused = $false
+    try {
+        & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $deepCorrupt.mods `
+            -InstallDataRoot $deepCorrupt.data | Out-Null
+    } catch { $refused = $_.Exception.Message -like '*generation file changed or is missing*' }
+    $after = Get-TreeSnapshot @{
+        config = $deepCorrupt.config
+        target = $deepCorrupt.target
+        installData = $deepCorrupt.data
+    }
+    if (-not $refused -or $after -ne $before) {
+        throw 'Deep corrupt standalone generation was not rejected before all mutation.'
+    }
+
+    $standaloneSuccess = New-StandaloneInstallFixture 'standalone-success'
+    1..3 | ForEach-Object {
+        Install-StandaloneFixture $standaloneSuccess $standalonePreparedPayload $prebuiltJar
+    }
+    & $StandaloneUninstall -ProjectRoot $ProjectRoot -ModsRoot $standaloneSuccess.mods `
+        -InstallDataRoot $standaloneSuccess.data | Out-Null
+    $restoredStandalone = Get-Content -LiteralPath $standaloneSuccess.config -Raw -Encoding utf8 |
+        ConvertFrom-Json
+    if ((Test-Path -LiteralPath $standaloneSuccess.target) -or
+        (Test-Path -LiteralPath (Join-Path $standaloneSuccess.bridge 'install-manifest.json')) -or
+        @(Get-ChildItem -LiteralPath $standaloneSuccess.backups -Directory `
+            -ErrorAction SilentlyContinue).Count -ne 0 -or
+        $restoredStandalone.mainClass -ne 'zombie/gameStates/MainScreenState') {
+        throw 'Successful standalone uninstall did not consume all generations and restore launcher.'
+    }
+
     $legacy = Join-Path $GameRoot 'zombie\characters\IsoSurvivor.class'
     New-Item -ItemType Directory -Path (Split-Path -Parent $legacy) -Force | Out-Null
     Set-Content -LiteralPath $legacy -Value 'legacy fixture' -Encoding ascii
     $legacyRefused = $false
     try {
         & $Install -ProjectRoot $ProjectRoot -ModsRoot $ModsRoot -GameRoot $GameRoot `
-            -BackupRoot $BackupRoot -BridgeRoot $BridgeRoot -NativeBridge | Out-Null
+            -BackupRoot $BackupRoot -BridgeRoot $BridgeRoot `
+            -ConfigBackupRoot $ConfigBackupRoot -NativeBridge | Out-Null
     } catch {
         $legacyRefused = $_.Exception.Message -like '*Legacy loose actor bridge detected*'
     }
     if (-not $legacyRefused) { throw 'Installer did not reject the legacy loose actor class.' }
 
-    Write-Output 'INSTALLER_TRANSACTION_PASS ownership=true rollback=all-boundaries no-duplicate-id=true legacy-preflight=true native-launcher=true manifestless-refusal=true stale-protocol=true'
+    Write-Output 'INSTALLER_TRANSACTION_PASS ownership=true rollback=all-boundaries standalone-atomic=true deep-chain-preflight=true derived-bridge=true exact-target=true no-duplicate-id=true legacy-preflight=true native-launcher=true manifestless-refusal=true stale-protocol=true'
 }
 finally {
     if (Test-Path -LiteralPath $Sandbox) {

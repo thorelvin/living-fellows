@@ -2,6 +2,7 @@
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
+if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 SC.FactionRecruitment = SC.FactionRecruitment or {}
 
 local Recruitment = SC.FactionRecruitment
@@ -26,25 +27,20 @@ local function worldHour()
     return U().nowMs() / 3600000
 end
 
-local function copy(value, depth, budget)
-    budget = budget or { count = 512 }
-    if budget.count <= 0 then return nil end
-    local kind = type(value)
-    if kind == "string" or kind == "boolean" or kind == "number" then
-        budget.count = budget.count - 1
-        return value
+local copyLimits = {
+    origin = { maxDepth = 3, maxEntries = 32 },
+    summary = { maxDepth = 4, maxEntries = 128 },
+}
+
+local function strictCopy(value, limit, path)
+    if not SC.StableValue or type(SC.StableValue.copyStrict) ~= "function" then
+        return nil, "stable copy unavailable at " .. tostring(path or "$.recruitment")
     end
-    if kind ~= "table" or (depth or 0) <= 0 then return nil end
-    budget.count = budget.count - 1
-    local result = {}
-    for key, child in pairs(value) do
-        if type(key) == "string" or type(key) == "number" then
-            local stable = copy(child, depth - 1, budget)
-            if stable ~= nil then result[key] = stable end
-            if budget.count <= 0 then break end
-        end
-    end
-    return result
+    return SC.StableValue.copyStrict(value, {
+        maxDepth = limit.maxDepth,
+        maxEntries = limit.maxEntries,
+        path = path or "$.recruitment",
+    })
 end
 
 local function append(list, value, maximum)
@@ -290,7 +286,19 @@ function Recruitment.startTrial(groupOrId, player, forced)
     local detached, origin = SC.Factions.detachMemberForRecruitment(group.id, candidate.key)
     if not detached then return false, origin end
     origin.factionId, origin.memberKey, origin.factionRole = group.id, candidate.key, candidate.role
-    local transitioned, transitionReason = SC.Commands.beginFactionTrial(record.actor, origin, player)
+    local stableOrigin, originCopyReason = strictCopy(origin, copyLimits.origin,
+        "$.recruitment.origin")
+    if not stableOrigin then
+        local restored, restoreReason = SC.Factions.restoreMemberFromRecruitment(
+            group.id, candidate.key, record.id, "origin_copy_rollback")
+        if not restored then
+            return false, "recruitment_origin_copy_failed:" .. tostring(originCopyReason)
+                .. ";rollback_failed:" .. tostring(restoreReason)
+        end
+        return false, "recruitment_origin_copy_failed:" .. tostring(originCopyReason)
+    end
+    local transitioned, transitionReason = SC.Commands.beginFactionTrial(
+        record.actor, stableOrigin, player)
     if not transitioned then
         SC.Factions.restoreMemberFromRecruitment(group.id, candidate.key, record.id,
             "transition_rollback")
@@ -302,7 +310,7 @@ function Recruitment.startTrial(groupOrId, player, forced)
     local maximum = tonumber(SC.Config.get("factionRecruitmentTrialMaxHours")) or 24
     state.status = "trial"
     state.actorId = record.id
-    state.origin = copy(origin, 3, { count = 32 })
+    state.origin = stableOrigin
     state.trialStartedHour = started
     state.readyHour = started + minimum
     state.deadlineHour = started + math.max(minimum, maximum)
@@ -574,7 +582,12 @@ function Recruitment.summary(groupOrId)
         cooldownHours = math.max(0, (tonumber(state.cooldownUntilHour) or 0) - now),
         historyCount = #state.history,
     }
-    return copy(result, 4, { count = 128 })
+    local copied, copyReason = strictCopy(result, copyLimits.summary,
+        "$.recruitment.summary")
+    if not copied then
+        return nil, "recruitment_summary_copy_failed:" .. tostring(copyReason)
+    end
+    return copied
 end
 
 function Recruitment.debugPrepare(groupOrId)

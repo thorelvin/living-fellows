@@ -11,6 +11,17 @@ param(
 $ErrorActionPreference = 'Stop'
 # Must match the stable ownership id written by every managed local build.
 $Owner = 'LivingFellows.Companion.cleanroom.0.9.0'
+$bridgeRootWasExplicit = $PSBoundParameters.ContainsKey('BridgeRoot')
+
+function Test-SamePath([string]$Left, [string]$Right) {
+    if ([string]::IsNullOrWhiteSpace($Left) -or [string]::IsNullOrWhiteSpace($Right)) {
+        return $false
+    }
+    return ([System.IO.Path]::GetFullPath($Left).TrimEnd('\')).Equals(
+        [System.IO.Path]::GetFullPath($Right).TrimEnd('\'),
+        [System.StringComparison]::OrdinalIgnoreCase)
+}
+
 $ModsRoot = [System.IO.Path]::GetFullPath($ModsRoot)
 $liveCacheRoot = [System.IO.Path]::GetFullPath(
     (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Zomboid'))
@@ -30,6 +41,15 @@ if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
 }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw -Encoding utf8 | ConvertFrom-Json
 if ($manifest.owner -ne $Owner) { throw "Refusing to remove target owned by $($manifest.owner)" }
+$manifestBridgeRoot = [string]$manifest.bridgeRoot
+if ([string]::IsNullOrWhiteSpace($manifestBridgeRoot)) {
+    throw 'Owned mod manifest has no bridgeRoot; refusing uninstall before mutation.'
+}
+$manifestBridgeRoot = [System.IO.Path]::GetFullPath($manifestBridgeRoot).TrimEnd('\')
+if ($bridgeRootWasExplicit -and -not (Test-SamePath $BridgeRoot $manifestBridgeRoot)) {
+    throw "Explicit BridgeRoot does not match the owned mod manifest: $BridgeRoot"
+}
+$BridgeRoot = $manifestBridgeRoot
 
 $changed = @()
 $targetPrefix = [System.IO.Path]::GetFullPath($Target).TrimEnd('\') + '\'
@@ -90,6 +110,17 @@ if ($backup) {
         throw "Managed backup has unexpected owner: $($backupManifest.owner)"
     }
 }
+$isFinalGeneration = [string]::IsNullOrWhiteSpace($backup)
+$nativeUninstaller = Join-Path $PSScriptRoot 'Uninstall-NativeBridge.ps1'
+if ($isFinalGeneration) {
+    $nativeManifest = Join-Path $BridgeRoot 'install-manifest.json'
+    if (-not (Test-Path -LiteralPath $nativeManifest -PathType Leaf)) {
+        throw "Final managed generation requires its native rollback manifest: $nativeManifest"
+    }
+    # Validate launcher ownership, exact installed hashes, original backup and
+    # canonical bridge paths before moving even the first mod file.
+    & $nativeUninstaller -BridgeRoot $BridgeRoot -PreflightOnly | Out-Null
+}
 $quarantine = Join-Path $ModsRoot ('.SurvivorCompanion.uninstall.' + [guid]::NewGuid().ToString('N'))
 $restoredBackup = $false
 try {
@@ -98,7 +129,12 @@ try {
         Move-Item -LiteralPath $backup -Destination $Target
         $restoredBackup = $true
     }
-    Remove-Item -LiteralPath $quarantine -Recurse -Force
+    if ($isFinalGeneration -and -not $KeepNativeBridge) {
+        # The native uninstaller is itself transactional. Keep the mod in
+        # quarantine until it commits so a failed launcher rollback can restore
+        # the exact live generation.
+        & $nativeUninstaller -BridgeRoot $BridgeRoot | Out-Null
+    }
 }
 catch {
     $targetExists = Test-Path -LiteralPath $Target
@@ -114,12 +150,15 @@ catch {
     throw
 }
 
+# At this point either a prior generation is live, the caller deliberately
+# retained a preflighted bridge, or the native rollback committed. Failure to
+# delete this no-longer-live quarantine must not roll back a successful native
+# transaction into an inconsistent half-install.
+try { Remove-Item -LiteralPath $quarantine -Recurse -Force }
+catch { Write-Warning "Owned uninstall quarantine was retained at $quarantine`: $($_.Exception.Message)" }
+
 Write-Output "Removed owned Living Fellows install at $Target"
 if ($restoredBackup) { Write-Output "Restored prior managed install from $backup" }
-if (-not $restoredBackup -and -not $KeepNativeBridge) {
-    $nativeManifest = Join-Path ([System.IO.Path]::GetFullPath($BridgeRoot)) 'install-manifest.json'
-    if (Test-Path -LiteralPath $nativeManifest -PathType Leaf) {
-        & (Join-Path $PSScriptRoot 'Uninstall-NativeBridge.ps1') -BridgeRoot $BridgeRoot | Out-Null
-        Write-Output 'Restored the original Project Zomboid launcher configuration.'
-    }
+if ($isFinalGeneration -and -not $KeepNativeBridge) {
+    Write-Output 'Restored the original Project Zomboid launcher configuration.'
 }

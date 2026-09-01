@@ -18,9 +18,9 @@ local systems = {}
 local actors = {}
 local frameSamples = {}
 local cache = {}
-local cacheQueue = {}
-local cacheQueueHead = 1
-local cacheQueueTail = 0
+local cacheQueueHead = nil
+local cacheQueueTail = nil
+local cacheQueueCount = 0
 local cacheSerial = 0
 local cacheEntries = 0
 local loadLevel = 0
@@ -63,16 +63,67 @@ end
 local function cacheBucket(name)
     local bucket = cache[name]
     if bucket == nil then
-        bucket = { entries = {}, queue = {}, head = 1, tail = 0, count = 0 }
+        bucket = { entries = {}, head = nil, tail = nil, count = 0 }
         cache[name] = bucket
     end
     return bucket
+end
+
+local function appendGlobalToken(token)
+    token.globalPrev = cacheQueueTail
+    token.globalNext = nil
+    token.globalLinked = true
+    if cacheQueueTail ~= nil then cacheQueueTail.globalNext = token
+    else cacheQueueHead = token end
+    cacheQueueTail = token
+    cacheQueueCount = cacheQueueCount + 1
+end
+
+local function unlinkGlobalToken(token)
+    if token == nil or token.globalLinked ~= true then return false end
+    local previous, following = token.globalPrev, token.globalNext
+    if previous ~= nil then previous.globalNext = following
+    else cacheQueueHead = following end
+    if following ~= nil then following.globalPrev = previous
+    else cacheQueueTail = previous end
+    token.globalPrev, token.globalNext, token.globalLinked = nil, nil, false
+    cacheQueueCount = math.max(0, cacheQueueCount - 1)
+    return true
+end
+
+local function appendBucketToken(bucket, token)
+    token.bucketOwner = bucket
+    token.bucketPrev = bucket.tail
+    token.bucketNext = nil
+    token.bucketLinked = true
+    if bucket.tail ~= nil then bucket.tail.bucketNext = token
+    else bucket.head = token end
+    bucket.tail = token
+end
+
+local function unlinkBucketToken(token)
+    if token == nil or token.bucketLinked ~= true then return false end
+    local bucket = token.bucketOwner
+    local previous, following = token.bucketPrev, token.bucketNext
+    if previous ~= nil then previous.bucketNext = following
+    elseif bucket ~= nil then bucket.head = following end
+    if following ~= nil then following.bucketPrev = previous
+    elseif bucket ~= nil then bucket.tail = previous end
+    token.bucketOwner, token.bucketPrev, token.bucketNext = nil, nil, nil
+    token.bucketLinked = false
+    return true
 end
 
 local function removeCacheEntry(namespace, key, serial, expired)
     local bucket = cache[namespace]
     local entry = bucket and bucket.entries[key] or nil
     if entry == nil or entry.serial ~= serial then return false end
+    local token = entry.token
+    if token ~= nil then
+        unlinkGlobalToken(token)
+        unlinkBucketToken(token)
+        entry.token = nil
+    end
     bucket.entries[key] = nil
     bucket.count = math.max(0, bucket.count - 1)
     cacheEntries = math.max(0, cacheEntries - 1)
@@ -90,21 +141,15 @@ local function cacheLimits()
     return namespaceLimit, totalLimit
 end
 
-local function dequeueGlobal()
-    if cacheQueueHead > cacheQueueTail then return nil end
-    local token = cacheQueue[cacheQueueHead]
-    cacheQueue[cacheQueueHead] = nil
-    cacheQueueHead = cacheQueueHead + 1
-    if cacheQueueHead > cacheQueueTail then
-        cacheQueue, cacheQueueHead, cacheQueueTail = {}, 1, 0
-    end
-    return token
+local function moveGlobalTokenToTail(token)
+    if token == nil or cacheQueueTail == token then return end
+    if unlinkGlobalToken(token) then appendGlobalToken(token) end
 end
 
 local function sweepCache(current, maximum)
     maximum = math.max(0, math.floor(tonumber(maximum) or 0))
     for _ = 1, maximum do
-        local token = dequeueGlobal()
+        local token = cacheQueueHead
         if token == nil then break end
         local bucket = cache[token.namespace]
         local entry = bucket and bucket.entries[token.key] or nil
@@ -112,32 +157,37 @@ local function sweepCache(current, maximum)
             if current > entry.expires then
                 removeCacheEntry(token.namespace, token.key, token.serial, true)
             else
-                cacheQueueTail = cacheQueueTail + 1
-                cacheQueue[cacheQueueTail] = token
+                moveGlobalTokenToTail(token)
             end
+        else
+            -- Normal removal unlinks both queues atomically. This branch only
+            -- self-heals unexpected stale state without retaining a token.
+            unlinkGlobalToken(token)
+            unlinkBucketToken(token)
         end
     end
 end
 
 local function evictBucketOldest(namespace, bucket)
-    while bucket.head <= bucket.tail do
-        local token = bucket.queue[bucket.head]
-        bucket.queue[bucket.head] = nil
-        bucket.head = bucket.head + 1
+    while bucket.head ~= nil do
+        local token = bucket.head
         local entry = token and bucket.entries[token.key] or nil
         if entry ~= nil and entry.serial == token.serial then
             return removeCacheEntry(namespace, token.key, token.serial, false)
         end
+        unlinkBucketToken(token)
+        unlinkGlobalToken(token)
     end
-    bucket.queue, bucket.head, bucket.tail = {}, 1, 0
     return false
 end
 
 local function evictGlobalOldest()
     while true do
-        local token = dequeueGlobal()
+        local token = cacheQueueHead
         if token == nil then return false end
         if removeCacheEntry(token.namespace, token.key, token.serial, false) then return true end
+        unlinkGlobalToken(token)
+        unlinkBucketToken(token)
     end
 end
 
@@ -375,10 +425,9 @@ function Performance.cachePut(namespace, key, value, ttlMs, current)
         bucket.count = bucket.count + 1
         cacheEntries = cacheEntries + 1
         local token = { namespace = name, key = textKey, serial = entry.serial }
-        bucket.tail = bucket.tail + 1
-        bucket.queue[bucket.tail] = token
-        cacheQueueTail = cacheQueueTail + 1
-        cacheQueue[cacheQueueTail] = token
+        entry.token = token
+        appendBucketToken(bucket, token)
+        appendGlobalToken(token)
     end
     entry.value = value
     entry.expires = current + math.max(1, tonumber(ttlMs)
@@ -393,10 +442,52 @@ function Performance.cachePut(namespace, key, value, ttlMs, current)
     return value
 end
 
+local function physicalQueueStats()
+    local globalTokens, globalTombstones, globalCycle = 0, 0, false
+    local seenGlobal = {}
+    local token = cacheQueueHead
+    while token ~= nil do
+        if seenGlobal[token] then globalCycle = true break end
+        seenGlobal[token] = true
+        globalTokens = globalTokens + 1
+        local bucket = cache[token.namespace]
+        local entry = bucket and bucket.entries[token.key] or nil
+        if entry == nil or entry.serial ~= token.serial or entry.token ~= token then
+            globalTombstones = globalTombstones + 1
+        end
+        token = token.globalNext
+    end
+
+    local namespaceTokens, namespaceTombstones, namespaceCycle = 0, 0, false
+    for name, bucket in pairs(cache) do
+        local seenBucket, bucketToken = {}, bucket.head
+        while bucketToken ~= nil do
+            if seenBucket[bucketToken] then namespaceCycle = true break end
+            seenBucket[bucketToken] = true
+            namespaceTokens = namespaceTokens + 1
+            local entry = bucket.entries[bucketToken.key]
+            if bucketToken.namespace ~= name or entry == nil
+                or entry.serial ~= bucketToken.serial or entry.token ~= bucketToken then
+                namespaceTombstones = namespaceTombstones + 1
+            end
+            bucketToken = bucketToken.bucketNext
+        end
+    end
+    return {
+        global = globalTokens,
+        globalTracked = cacheQueueCount,
+        globalTombstones = globalTombstones,
+        namespaces = namespaceTokens,
+        namespaceTombstones = namespaceTombstones,
+        cycle = globalCycle or namespaceCycle,
+    }
+end
+
 function Performance.cacheStats()
     local namespaces = {}
     for name, bucket in pairs(cache) do namespaces[name] = bucket.count end
     local namespaceLimit, totalLimit = cacheLimits()
+    local physical = physicalQueueStats()
     return {
         entries = cacheEntries,
         namespaceLimit = namespaceLimit,
@@ -404,6 +495,12 @@ function Performance.cacheStats()
         evictions = totals.cacheEvictions,
         expired = totals.cacheExpired,
         namespaces = namespaces,
+        queueTokens = physical.global,
+        trackedQueueTokens = physical.globalTracked,
+        queueTombstones = physical.globalTombstones,
+        namespaceQueueTokens = physical.namespaces,
+        namespaceQueueTombstones = physical.namespaceTombstones,
+        queueCycle = physical.cycle,
     }
 end
 
@@ -478,9 +575,9 @@ function Performance.reset()
     actors = {}
     frameSamples = {}
     cache = {}
-    cacheQueue = {}
-    cacheQueueHead = 1
-    cacheQueueTail = 0
+    cacheQueueHead = nil
+    cacheQueueTail = nil
+    cacheQueueCount = 0
     cacheSerial = 0
     cacheEntries = 0
     loadLevel = 0

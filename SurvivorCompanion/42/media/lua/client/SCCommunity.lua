@@ -984,20 +984,270 @@ local function normalize(source)
     return copy
 end
 
+local function restoreFailure(path, detail)
+    return false, "invalid community state at " .. tostring(path) .. ": " .. tostring(detail)
+end
+
+local function finiteNumber(value)
+    return type(value) == "number" and value == value
+        and value ~= math.huge and value ~= -math.huge
+end
+
+local function denseArray(value, path, maximum)
+    if type(value) ~= "table" then return restoreFailure(path, "expected dense array") end
+    local count, highest = 0, 0
+    for key in pairs(value) do
+        if type(key) ~= "number" or not finiteNumber(key) or key < 1
+            or key ~= math.floor(key) then
+            return restoreFailure(path .. "[" .. tostring(key) .. "]", "non-array key")
+        end
+        count, highest = count + 1, math.max(highest, key)
+    end
+    if highest ~= count then return restoreFailure(path, "sparse array") end
+    if maximum ~= nil and count > maximum then return restoreFailure(path, "too many entries") end
+    return true, count
+end
+
+local function configuredLimit(key, fallback)
+    local raw = U() and U().config and tonumber(U().config(key)) or nil
+    if raw == nil or raw ~= raw or raw < 0 or raw == math.huge or raw == -math.huge then
+        return fallback
+    end
+    return math.floor(raw)
+end
+
+local stressResponses = { venter = true, restless = true, confronter = true,
+    withdrawer = true, shutdown = true }
+local joyResponses = { focused = true, rallying = true, caretaker = true,
+    organizer = true, bold = true }
+local expectationStatuses = { pending = true, fulfilled = true, broken = true }
+
+local function validBoundedNumber(value, low, high)
+    return finiteNumber(value) and value >= low and value <= high
+end
+
+local function validateThought(thought, path)
+    if type(thought) ~= "table" or type(thought.key) ~= "string" or thought.key == ""
+        or type(thought.kind) ~= "string" or type(thought.text) ~= "string"
+        or not validBoundedNumber(thought.stress, -100, 100)
+        or not validBoundedNumber(thought.morale, -100, 100)
+        or not finiteNumber(thought.at) or thought.at < 0
+        or not finiteNumber(thought.expiresAt) or thought.expiresAt < thought.at
+        or type(thought.sourceId) ~= "string" or type(thought.targetId) ~= "string"
+        or type(thought.memoryId) ~= "string" then
+        return restoreFailure(path, "invalid thought")
+    end
+    return true
+end
+
+local function validateGrief(grief, path)
+    if type(grief) ~= "table" or type(grief.subjectId) ~= "string"
+        or grief.subjectId == "" or type(grief.subjectName) ~= "string"
+        or not finiteNumber(grief.startedAt) or grief.startedAt < 0
+        or not finiteNumber(grief.acuteUntil) or grief.acuteUntil < grief.startedAt
+        or not finiteNumber(grief.recoveryAt) or grief.recoveryAt < grief.acuteUntil
+        or not validBoundedNumber(grief.intensity, 0, 100)
+        or type(grief.witnessed) ~= "boolean"
+        or type(grief.reactionPending) ~= "boolean"
+        or not finiteNumber(grief.nextReactionAt) or grief.nextReactionAt < grief.startedAt
+        or not finiteNumber(grief.reactedAt) or grief.reactedAt < 0
+        or not finiteNumber(grief.resolvedAt) or grief.resolvedAt < 0 then
+        return restoreFailure(path, "invalid grief record")
+    end
+    return true
+end
+
+local function validateMind(mind, id, path)
+    if type(mind) ~= "table" or type(id) ~= "string" or id == "" or mind.id ~= id then
+        return restoreFailure(path, "invalid mind identity")
+    end
+    if not stressResponses[mind.stressResponse] then
+        return restoreFailure(path .. ".stressResponse", "invalid stress response")
+    end
+    if not joyResponses[mind.joyResponse] then
+        return restoreFailure(path .. ".joyResponse", "invalid joy response")
+    end
+    for _, field in ipairs({ "impatience", "boredom", "stressTarget", "moraleTarget" }) do
+        if not validBoundedNumber(mind[field], 0, 100) then
+            return restoreFailure(path .. "." .. field, "expected number from 0 to 100")
+        end
+    end
+    for _, field in ipairs({ "lastEvaluatedAt", "nextMinorAt", "nextMajorAt", "nextJoyAt",
+        "nextPurposeAt", "lastSupplyRequestAt" }) do
+        if not finiteNumber(mind[field]) or mind[field] < 0 then
+            return restoreFailure(path .. "." .. field, "expected non-negative finite number")
+        end
+    end
+    for _, field in ipairs({ "criticalSince", "hopefulSince" }) do
+        if not finiteNumber(mind[field]) then
+            return restoreFailure(path .. "." .. field, "expected finite number")
+        end
+    end
+    if mind.activeEpisode ~= nil and type(mind.activeEpisode) ~= "string" then
+        return restoreFailure(path .. ".activeEpisode", "expected string or nil")
+    end
+    if mind.inspiration ~= nil and type(mind.inspiration) ~= "table" then
+        return restoreFailure(path .. ".inspiration", "expected record or nil")
+    end
+    if mind.inspiration ~= nil then
+        local inspirationCopy, inspirationReason = stableCopy(mind.inspiration, 2, { count = 16 })
+        if inspirationCopy == nil then
+            return restoreFailure(path .. ".inspiration",
+                inspirationReason or "invalid inspiration")
+        end
+    end
+    if mind.pendingRequest ~= nil then
+        if type(mind.pendingRequest) ~= "table" then
+            return restoreFailure(path .. ".pendingRequest", "expected record or nil")
+        end
+        local requestCopy, requestReason = stableCopy(mind.pendingRequest, 3, { count = 32 })
+        if requestCopy == nil then
+            return restoreFailure(path .. ".pendingRequest",
+                requestReason or "invalid pending request")
+        end
+        if mind.pendingRequest.choices ~= nil then
+            local choiceOkay, choiceCount = denseArray(mind.pendingRequest.choices,
+                path .. ".pendingRequest.choices", 16)
+            if not choiceOkay then return false, choiceCount end
+            for index = 1, choiceCount do
+                if type(mind.pendingRequest.choices[index]) ~= "string" then
+                    return restoreFailure(path .. ".pendingRequest.choices[" .. tostring(index) .. "]",
+                        "expected string")
+                end
+            end
+        end
+    end
+
+    local thoughtOkay, thoughtCount = denseArray(mind.thoughts, path .. ".thoughts",
+        configuredLimit("mindThoughtLimit", 12))
+    if not thoughtOkay then return false, thoughtCount end
+    for index = 1, thoughtCount do
+        local okay, reason = validateThought(mind.thoughts[index],
+            path .. ".thoughts[" .. tostring(index) .. "]")
+        if not okay then return false, reason end
+    end
+    local expectationOkay, expectationCount = denseArray(mind.expectations,
+        path .. ".expectations", 8)
+    if not expectationOkay then return false, expectationCount end
+    for index = 1, expectationCount do
+        local expectation = mind.expectations[index]
+        local expectationPath = path .. ".expectations[" .. tostring(index) .. "]"
+        if type(expectation) ~= "table" or type(expectation.kind) ~= "string"
+            or expectation.kind == "" or not finiteNumber(expectation.madeAt)
+            or expectation.madeAt < 0 or not finiteNumber(expectation.dueAt)
+            or expectation.dueAt < 0 or not expectationStatuses[expectation.status]
+            or (expectation.fulfilledAt ~= nil and not finiteNumber(expectation.fulfilledAt)) then
+            return restoreFailure(expectationPath, "invalid expectation")
+        end
+    end
+    local griefOkay, griefCount = denseArray(mind.grief, path .. ".grief",
+        configuredLimit("griefMemoryLimit", 8))
+    if not griefOkay then return false, griefCount end
+    for index = 1, griefCount do
+        local okay, reason = validateGrief(mind.grief[index],
+            path .. ".grief[" .. tostring(index) .. "]")
+        if not okay then return false, reason end
+    end
+    return true
+end
+
+local function validatePair(pair, key, path)
+    if type(pair) ~= "table" or type(key) ~= "string" or pair.id ~= key
+        or type(pair.firstId) ~= "string" or type(pair.secondId) ~= "string" then
+        return restoreFailure(path, "invalid pair identity")
+    end
+    local expected = pairKey(pair.firstId, pair.secondId)
+    if expected ~= key then return restoreFailure(path, "non-canonical pair key") end
+    if not validBoundedNumber(pair.opinion, -100, 100)
+        or not validBoundedNumber(pair.trust, -100, 100)
+        or not validBoundedNumber(pair.tension, 0, 100)
+        or not validBoundedNumber(pair.familiarity, 0, 100)
+        or not finiteNumber(pair.lastInteractionAt) then
+        return restoreFailure(path, "invalid pair values")
+    end
+    local memoryOkay, memoryCount = denseArray(pair.memories, path .. ".memories",
+        configuredLimit("mindPairMemoryLimit", 8))
+    if not memoryOkay then return false, memoryCount end
+    for index = 1, memoryCount do
+        if type(pair.memories[index]) ~= "table" then
+            return restoreFailure(path .. ".memories[" .. tostring(index) .. "]",
+                "expected record")
+        end
+    end
+    return true
+end
+
+local function validateRestoreSource(source)
+    if type(source) ~= "table" or source.version ~= Community.VERSION
+        or type(source.minds) ~= "table" or type(source.pairs) ~= "table"
+        or type(source.deaths) ~= "table" then
+        return false, "invalid_community_state"
+    end
+    for _, field in ipairs({ "groupMajorCooldownUntil", "groupJoyCooldownUntil",
+        "lastSupplyRunAt" }) do
+        if not finiteNumber(source[field]) or source[field] < 0 then
+            return restoreFailure("$.community." .. field, "expected non-negative finite number")
+        end
+    end
+    for id, mind in pairs(source.minds) do
+        local okay, reason = validateMind(mind, id,
+            "$.community.minds[" .. tostring(id) .. "]")
+        if not okay then return false, reason end
+    end
+    local pairCount = 0
+    for key, pair in pairs(source.pairs) do
+        pairCount = pairCount + 1
+        if pairCount > configuredLimit("mindPairLimit", 64) then
+            return restoreFailure("$.community.pairs", "too many pairs")
+        end
+        local okay, reason = validatePair(pair, key,
+            "$.community.pairs[" .. tostring(key) .. "]")
+        if not okay then return false, reason end
+    end
+    local deathCount = 0
+    for id, death in pairs(source.deaths) do
+        deathCount = deathCount + 1
+        local path = "$.community.deaths[" .. tostring(id) .. "]"
+        if deathCount > configuredLimit("griefDeathHistoryLimit", 32) then
+            return restoreFailure("$.community.deaths", "too many deaths")
+        end
+        if type(id) ~= "string" or id == "" or type(death) ~= "table"
+            or death.subjectId ~= id or type(death.subjectName) ~= "string"
+            or not finiteNumber(death.startedAt) or death.startedAt < 0 then
+            return restoreFailure(path, "invalid death record")
+        end
+    end
+    local historyOkay, historyCount = denseArray(source.history, "$.community.history",
+        configuredLimit("mindHistoryLimit", 96))
+    if not historyOkay then return false, historyCount end
+    for index = 1, historyCount do
+        if type(source.history[index]) ~= "table" then
+            return restoreFailure("$.community.history[" .. tostring(index) .. "]",
+                "expected record")
+        end
+    end
+    return true
+end
+
 function Community.export()
     return stableCopy(ensure(), 8, { count = 16384 })
 end
 
 function Community.restore(source)
-    if source ~= nil and (type(source) ~= "table"
-        or tonumber(source.version) ~= Community.VERSION
-        or type(source.minds) ~= "table" or type(source.pairs) ~= "table"
-        or type(source.history) ~= "table" or type(source.deaths) ~= "table") then
-        return false, "invalid_community_state"
+    if source == nil then
+        document = emptyDocument()
+        reservations = {}
+        return true, document
     end
-    local stable, reason = stableCopy(source, 12, { count = 131072 })
-    if source ~= nil and stable == nil then return false, reason end
-    document = normalize(stable)
+    local stable, reason = stableCopy(source, 12, { count = 16384 })
+    if stable == nil then return restoreFailure("$.community", reason or "copy failed") end
+    local valid, validationReason = validateRestoreSource(stable)
+    if not valid then return false, validationReason end
+    local normalized, candidate = pcall(normalize, stable)
+    if not normalized or type(candidate) ~= "table" then
+        return restoreFailure("$.community", normalized and "normalization failed" or candidate)
+    end
+    document = candidate
     reservations = {}
     return true, document
 end

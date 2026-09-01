@@ -1544,6 +1544,11 @@ local function attack(actor, action, intent, provider)
         return false, reason
     end
 
+    local activeOk, alreadyActive = invoke(actor, "isAttackStarted")
+    if activeOk and alreadyActive == true then
+        return false, "native attack is already active"
+    end
+
     local vehicleOk, vehicle = invoke(actor, "getVehicle")
     if vehicleOk and vehicle ~= nil then
         if action ~= "attack_firearm" then
@@ -1574,12 +1579,83 @@ local function attack(actor, action, intent, provider)
         end
     end
     invoke(actor, "setAimAtFloor", action == "stomp")
-    if action == "attack_firearm" or action == "attack_melee" then
-        local aimOk = invoke(actor, "setIsAiming", true)
-        if not aimOk then return false, "native weapon-ready state could not be requested" end
+    local shoveStateOk, previousDoShove = invoke(actor, "isDoShove")
+    if not shoveStateOk then
+        return false, "native shove action state is unavailable"
     end
-    local authorizeShoveStomp = action == "shove" or action == "stomp"
-    invoke(actor, "setAuthorizeShoveStomp", authorizeShoveStomp)
+    local grappleStateOk, previousDoGrapple = invoke(actor, "isDoGrapple")
+    if not grappleStateOk then
+        return false, "native grapple action state is unavailable"
+    end
+    local shoveStateSet = invoke(actor, "setDoShove",
+        action == "shove" or action == "stomp")
+    local grappleStateSet = invoke(actor, "setDoGrapple", false)
+    if not shoveStateSet or not grappleStateSet then
+        invoke(actor, "setDoShove", previousDoShove == true)
+        invoke(actor, "setDoGrapple", previousDoGrapple == true)
+        return false, "native hand-to-hand action state could not be selected"
+    end
+    local function restoreActionState()
+        invoke(actor, "setDoShove", previousDoShove == true)
+        invoke(actor, "setDoGrapple", previousDoGrapple == true)
+    end
+    if action == "attack_firearm" or action == "attack_melee" then
+        -- Firearms aim; a melee swing must not. Build 42's local player clears
+        -- aiming before a hand-weapon swing, and leaving it set keeps the
+        -- player action graph in the aiming/turning stance instead of entering
+        -- the swipe state, so the swing animation and its hit never run.
+        local aimOk = invoke(actor, "setIsAiming", action == "attack_firearm")
+        if not aimOk then
+            restoreActionState()
+            return false, "native weapon-ready state could not be requested"
+        end
+    end
+
+    -- Build 42 does not make DoAttack() perform the normal player preflight.
+    -- CanAttack() initializes useHandWeapon and verifies the freshly equipped
+    -- hand model, current action state, condition and endurance. An equip can
+    -- be visible one frame before that model is attack-ready, so refuse this
+    -- pulse and let Combat retry rather than reporting a phantom swing.
+    local readyOk, ready = invoke(actor, "CanAttack")
+    if not readyOk then
+        restoreActionState()
+        return false, "native CanAttack preflight is unavailable"
+    end
+    if ready ~= true then
+        restoreActionState()
+        return false, "native weapon is not attack-ready"
+    end
+
+    local meleeAuthOk, previousMeleeAuth = invoke(actor,
+        "isAuthorizedHandToHandAction")
+    if not meleeAuthOk then
+        restoreActionState()
+        return false, "native melee-action authorization state is unavailable"
+    end
+    local shoveAuthOk, previousShoveAuth = invoke(actor,
+        "isAuthorizedHandToHand")
+    if not shoveAuthOk then
+        restoreActionState()
+        return false, "native shove authorization state is unavailable"
+    end
+    local authorized = invoke(actor, "setAuthorizedHandToHandAction", true)
+    if not authorized then
+        restoreActionState()
+        return false, "native melee-action authorization could not be enabled"
+    end
+    -- CombatManager may convert a close weapon attack into a defensive shove.
+    -- Keep hand-to-hand authorized for the complete synchronous preflight, not
+    -- only for an explicitly selected shove/stomp action.
+    local shoveAuthorized = invoke(actor, "setAuthorizedHandToHand", true)
+    if not shoveAuthorized then
+        invoke(actor, "setAuthorizedHandToHandAction", previousMeleeAuth == true)
+        restoreActionState()
+        return false, "native shove authorization could not be updated"
+    end
+    local function restoreAuthorization()
+        invoke(actor, "setAuthorizedHandToHandAction", previousMeleeAuth == true)
+        invoke(actor, "setAuthorizedHandToHand", previousShoveAuth == true)
+    end
     local attackType = type(_G) == "table" and rawget(_G, "AttackType") or nil
     local attackTypeName = action == "attack_firearm" and "SHOT"
         or action == "attack_melee" and "MELEE_SWING"
@@ -1591,23 +1667,30 @@ local function attack(actor, action, intent, provider)
         if selectedOk then selected = value end
     end
     if selected == nil then
-        invoke(actor, "setAuthorizeShoveStomp", false)
+        restoreAuthorization()
+        restoreActionState()
         return false, "native AttackType is unavailable for " .. action
     end
     local typeOk = invoke(actor, "setAttackType", selected)
     if not typeOk then
-        invoke(actor, "setAuthorizeShoveStomp", false)
+        restoreAuthorization()
+        restoreActionState()
         return false, "native attack type could not be selected"
     end
     local started, result = invoke(actor, "DoAttack", 0)
-    invoke(actor, "setAuthorizeShoveStomp", false)
+    restoreAuthorization()
     local stateOk, attackStarted = invoke(actor, "isAttackStarted")
     -- Build 42's IsoPlayer.DoAttack deliberately returns false after handing
     -- the request to CombatManager.  The authoritative success signal is the
     -- native attack-started state set by CombatManager.pressedAttack.
-    if not started or (result ~= true and (not stateOk or attackStarted ~= true)) then
+    if not started or not stateOk or attackStarted ~= true then
+        restoreActionState()
         return false, "native attack did not start"
     end
+    -- Do not restore doShove/aimAtFloor after success. CombatManager copied
+    -- the calculated attack variables back to the player and the animation
+    -- state owns them until clearHandToHandAttack(). The next requested attack
+    -- explicitly selects its own state before starting.
     return true, "attack_started"
 end
 

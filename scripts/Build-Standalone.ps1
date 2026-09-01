@@ -107,6 +107,11 @@ $originalConfig = [ordered]@{
 & (Join-Path $stageRoot 'scripts\Install-Standalone.ps1') `
     -ProjectRoot $stageRoot -GameRoot $gameRoot -ModsRoot $modsRoot `
     -InstallDataRoot $dataRoot | Out-Null
+# Exercise an actual update so the staged uninstaller must unwind a managed
+# backup chain rather than only the newest payload.
+& (Join-Path $stageRoot 'scripts\Install-Standalone.ps1') `
+    -ProjectRoot $stageRoot -GameRoot $gameRoot -ModsRoot $modsRoot `
+    -InstallDataRoot $dataRoot | Out-Null
 $installed = Join-Path $modsRoot 'SurvivorCompanion'
 $manifestPath = Join-Path $installed '.sc-install-manifest.json'
 if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
@@ -128,6 +133,12 @@ $restored = Get-Content -LiteralPath (Join-Path $gameRoot 'ProjectZomboid64.json
 if (($restored.mainClass -ne 'zombie/gameStates/MainScreenState') -or
     (Test-Path -LiteralPath $installed)) {
     throw 'Standalone staged uninstaller did not restore the isolated fixture.'
+}
+$remainingBackups = @(Get-ChildItem -LiteralPath (Join-Path $dataRoot 'mod-backups') `
+    -Directory -ErrorAction SilentlyContinue)
+if ($remainingBackups.Count -ne 0 -or
+    (Test-Path -LiteralPath (Join-Path $dataRoot 'bridge\install-manifest.json') -PathType Leaf)) {
+    throw 'Standalone staged uninstaller left a managed update generation or active bridge manifest.'
 }
 
 $zipName = "LivingFellowsCompanion-$version-STANDALONE-WINDOWS.zip"

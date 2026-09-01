@@ -11,6 +11,7 @@ if not SC.Objectives and type(require) == "function" then pcall(require, "SCObje
 if not SC.Journal and type(require) == "function" then pcall(require, "SCJournal") end
 if not SC.BaseLife and type(require) == "function" then pcall(require, "SCBaseLife") end
 if not SC.BaseWork and type(require) == "function" then pcall(require, "SCBaseWork") end
+if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 
 SC.Commands = SC.Commands or {}
 local Commands = SC.Commands
@@ -36,24 +37,34 @@ local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle
 local groupStaging = false
 local copyCommandState
 
-local function copyNested(value, depth, remaining)
-    remaining = remaining or { count = 256 }
-    if remaining.count <= 0 then return nil end
-    if type(value) == "string" or type(value) == "number" or type(value) == "boolean" then
-        remaining.count = remaining.count - 1
-        return value
+local copyLimits = {
+    profile = { maxDepth = 3, maxEntries = 64 },
+    memories = { maxDepth = 5, maxEntries = 8192 },
+    background = { maxDepth = 4, maxEntries = 128 },
+    care = { maxDepth = 4, maxEntries = 192 },
+    reveals = { maxDepth = 4, maxEntries = 128 },
+    objectives = { maxDepth = 6, maxEntries = 512 },
+    possessions = { maxDepth = 6, maxEntries = 256 },
+    downtime = { maxDepth = 4, maxEntries = 128 },
+    downtimeFacts = { maxDepth = 5, maxEntries = 4096 },
+    summary = { maxDepth = 2, maxEntries = 64 },
+}
+
+local function strictCopy(value, limit, path)
+    if not SC.StableValue or type(SC.StableValue.copyStrict) ~= "function" then
+        return nil, "stable copy unavailable at " .. tostring(path or "$.commands")
     end
-    if type(value) ~= "table" or (depth or 0) <= 0 then return nil end
-    local result = {}
-    remaining.count = remaining.count - 1
-    for key, item in pairs(value) do
-        if type(key) == "string" or type(key) == "number" then
-            local copy = copyNested(item, depth - 1, remaining)
-            if copy ~= nil then result[key] = copy end
-            if remaining.count <= 0 then break end
-        end
-    end
-    return result
+    return SC.StableValue.copyStrict(value, {
+        maxDepth = limit.maxDepth,
+        maxEntries = limit.maxEntries,
+        path = path or "$.commands",
+    })
+end
+
+local function requiredCopy(value, limit, path)
+    local copied, reason = strictCopy(value, limit, path)
+    if reason ~= nil then error(reason) end
+    return copied
 end
 
 local stableDataKeys = {
@@ -157,6 +168,26 @@ local function snapshotState(actor, entry)
         or (type(entry) == "table" and type(entry.objectives) == "table" and entry.objectives or {})
     local persistedPossessions = type(persisted.possessions) == "table" and persisted.possessions
         or (type(entry) == "table" and type(entry.possessions) == "table" and entry.possessions or {})
+    local stableProfile = requiredCopy(valueFrom(entry, { "personalityProfile" },
+        persistedPersonality.profile or {}), copyLimits.profile,
+        "$.commands.personalityProfile") or {}
+    local stableMemories = requiredCopy(valueFrom(entry, { "memories" },
+        valueFrom(data, { "SC_Memories" }, persistedPersonality.memories or {})),
+        copyLimits.memories, "$.commands.memories") or {}
+    local stableBackground = requiredCopy(valueFrom(entry, { "background" },
+        persistedPersonality.background), copyLimits.background,
+        "$.commands.background")
+    local stableCare = requiredCopy(valueFrom(entry, { "care" }, persistedPersonality.care),
+        copyLimits.care, "$.commands.care")
+    local stableReveals = requiredCopy(valueFrom(entry, { "reveals" },
+        persistedPersonality.reveals), copyLimits.reveals, "$.commands.reveals")
+    local stableObjectives = requiredCopy(persistedObjectives, copyLimits.objectives,
+        "$.commands.objectives") or {}
+    local stablePossessions = requiredCopy(persistedPossessions, copyLimits.possessions,
+        "$.commands.possessions") or {}
+    local stableLastDowntime = requiredCopy(valueFrom(entry, { "lastDowntime" },
+        valueFrom(data, { "SC_LastDowntime" }, persistedDowntime.lastCompleted)),
+        copyLimits.downtime, "$.commands.lastDowntime")
     local flatOrder = type(entry) == "table" and type(entry.order) == "string"
         and entry.order or nil
     local flatPersonality = type(entry) == "table" and type(entry.personality) == "string"
@@ -204,8 +235,7 @@ local function snapshotState(actor, entry)
         group = valueFrom(data, { "SC_Group" }, valueFrom(entry, { "group" }, persisted.group)),
         personality = valueFrom(data, { "SC_Personality" },
             flatPersonality or persistedPersonality.archetype or "steady"),
-        personalityProfile = valueFrom(entry, { "personalityProfile" },
-            persistedPersonality.profile or {}),
+        personalityProfile = stableProfile,
         trust = tonumber(valueFrom(data, { "SC_Trust" },
             valueFrom(entry, { "trust" }, persistedPersonality.trust or 0))) or 0,
         bond = tonumber(valueFrom(data, { "SC_Bond" },
@@ -214,19 +244,17 @@ local function snapshotState(actor, entry)
             valueFrom(entry, { "morale" }, persistedPersonality.morale or 55))) or 55,
         stress = tonumber(valueFrom(data, { "SC_Stress" },
             valueFrom(entry, { "stress" }, persistedPersonality.stress or 12))) or 12,
-        memories = valueFrom(entry, { "memories" },
-            valueFrom(data, { "SC_Memories" }, persistedPersonality.memories or {})),
-        background = valueFrom(entry, { "background" }, persistedPersonality.background),
-        care = valueFrom(entry, { "care" }, persistedPersonality.care),
-        reveals = valueFrom(entry, { "reveals" }, persistedPersonality.reveals),
+        memories = stableMemories,
+        background = stableBackground,
+        care = stableCare,
+        reveals = stableReveals,
         timeTogetherMs = tonumber(valueFrom(data, { "SC_TimeTogetherMs" },
             valueFrom(entry, { "timeTogetherMs" }, persistedPersonality.timeTogetherMs or 0))) or 0,
         lastEncouragedAt = tonumber(persistedPersonality.lastEncouragedAt) or 0,
-        objectives = copyNested(persistedObjectives, 4, { count = 160 }) or {},
-        possessions = copyNested(persistedPossessions, 4, { count = 96 }) or {},
+        objectives = stableObjectives,
+        possessions = stablePossessions,
         commandSerial = tonumber(valueFrom(data, { "SC_CommandSerial" }, 0)) or 0,
-        lastDowntime = valueFrom(entry, { "lastDowntime" },
-            valueFrom(data, { "SC_LastDowntime" }, persistedDowntime.lastCompleted)),
+        lastDowntime = stableLastDowntime,
         returnOrder = valueFrom(data, { "SC_ReturnOrder" },
             valueFrom(entry, { "returnOrder" }, persistedOrder.returnOrder)),
         returnWorkMode = valueFrom(data, { "SC_ReturnWorkMode" },
@@ -350,6 +378,35 @@ local function writeStable(actor, entry, state)
                 and state.workTarget.kind or "barricade",
         }
     end
+    -- Validate and detach every nested value before touching actor mod-data or
+    -- the registry record. A failed copy therefore cannot commit a shortened
+    -- objective, possession, or personality document.
+    local prior = type(entry) == "table" and type(entry.state) == "table"
+        and entry.state or {}
+    local priorPersonality = type(prior.personality) == "table"
+        and prior.personality or {}
+    local priorDowntime = type(prior.downtime) == "table" and prior.downtime or {}
+    local stableProfile = requiredCopy(state.personalityProfile or priorPersonality.profile or {},
+        copyLimits.profile, "$.commands.personalityProfile") or {}
+    local stableMemories = requiredCopy(type(state.memories) == "table" and state.memories
+        or priorPersonality.memories or {}, copyLimits.memories,
+        "$.commands.memories") or {}
+    local stableBackground = requiredCopy(type(state.background) == "table" and state.background
+        or priorPersonality.background or {}, copyLimits.background,
+        "$.commands.background") or {}
+    local stableCare = requiredCopy(type(state.care) == "table" and state.care
+        or priorPersonality.care or {}, copyLimits.care, "$.commands.care") or {}
+    local stableReveals = requiredCopy(type(state.reveals) == "table" and state.reveals
+        or priorPersonality.reveals or {}, copyLimits.reveals,
+        "$.commands.reveals") or {}
+    local stableObjectives = requiredCopy(state.objectives or prior.objectives or {},
+        copyLimits.objectives, "$.commands.objectives") or {}
+    local stablePossessions = requiredCopy(state.possessions or prior.possessions or {},
+        copyLimits.possessions, "$.commands.possessions") or {}
+    local stableLastDowntime = requiredCopy(state.lastDowntime,
+        copyLimits.downtime, "$.commands.lastDowntime")
+    local stableDowntimeFacts = requiredCopy(priorDowntime.facts or {},
+        copyLimits.downtimeFacts, "$.commands.downtime.facts") or {}
     local data = U().modData(actor)
     if data then
         data.SC_Recruited = state.recruited
@@ -374,7 +431,7 @@ local function writeStable(actor, entry, state)
         data.SC_Stress = state.stress
         data.SC_TimeTogetherMs = state.timeTogetherMs
         data.SC_CommandSerial = state.commandSerial
-        data.SC_LastDowntime = state.lastDowntime
+        data.SC_LastDowntime = stableLastDowntime
         data.SC_WorkMode = state.workMode
         data.SC_ReturnOrder = state.returnOrder
         data.SC_ReturnWorkMode = state.returnWorkMode
@@ -401,11 +458,6 @@ local function writeStable(actor, entry, state)
         end
     end
     if type(entry) == "table" then
-        local prior = type(entry.state) == "table" and entry.state or {}
-        local priorPersonality = type(prior.personality) == "table" and prior.personality or {}
-        local priorDowntime = type(prior.downtime) == "table" and prior.downtime or {}
-        local stableObjectives = copyNested(state.objectives or prior.objectives, 4, { count = 160 }) or {}
-        local stablePossessions = copyNested(state.possessions or prior.possessions, 4, { count = 96 }) or {}
         entry.state = {
             order = {
                 current = state.order,
@@ -427,28 +479,23 @@ local function writeStable(actor, entry, state)
             group = state.group,
             personality = {
                 archetype = state.personality,
-                profile = copyNested(state.personalityProfile or priorPersonality.profile,
-                    2, { count = 16 }) or {},
+                profile = stableProfile,
                 trust = state.trust,
                 bond = state.bond,
                 morale = state.morale,
                 stress = state.stress,
-                memories = type(state.memories) == "table" and state.memories
-                    or priorPersonality.memories or {},
-                background = type(state.background) == "table" and state.background
-                    or priorPersonality.background or {},
-                care = type(state.care) == "table" and state.care
-                    or priorPersonality.care or {},
-                reveals = type(state.reveals) == "table" and state.reveals
-                    or priorPersonality.reveals or {},
+                memories = stableMemories,
+                background = stableBackground,
+                care = stableCare,
+                reveals = stableReveals,
                 timeTogetherMs = tonumber(state.timeTogetherMs) or 0,
                 lastEncouragedAt = tonumber(state.lastEncouragedAt) or 0,
             },
             objectives = stableObjectives,
             possessions = stablePossessions,
             downtime = {
-                lastCompleted = state.lastDowntime,
-                facts = priorDowntime.facts or {},
+                lastCompleted = stableLastDowntime,
+                facts = stableDowntimeFacts,
             },
         }
         entry.recruited = state.recruited
@@ -472,14 +519,14 @@ local function writeStable(actor, entry, state)
         entry.morale = state.morale
         entry.stress = state.stress
         entry.timeTogetherMs = state.timeTogetherMs
-        entry.personalityProfile = copyNested(state.personalityProfile, 2, { count = 16 })
+        entry.personalityProfile = stableProfile
         entry.objectives = stableObjectives
         entry.possessions = stablePossessions
-        entry.memories = state.memories
-        entry.background = state.background
-        entry.care = state.care
-        entry.reveals = state.reveals
-        entry.lastDowntime = state.lastDowntime
+        entry.memories = stableMemories
+        entry.background = stableBackground
+        entry.care = stableCare
+        entry.reveals = stableReveals
+        entry.lastDowntime = stableLastDowntime
         entry.workMode = state.workMode
         entry.workTarget = stableWorkTarget
         entry.returnOrder = state.returnOrder
@@ -1268,23 +1315,13 @@ local function woundSummaries(wounds)
     return result
 end
 
-local function stableSummaryCopy(value, depth)
-    if type(value) ~= "table" then
-        if type(value) == "string" or type(value) == "number" or type(value) == "boolean" or value == nil then return value end
-        return tostring(value)
+local function stableSummaryCopy(value, path)
+    local copied, reason = strictCopy(value, copyLimits.summary,
+        path or "$.commands.summary")
+    if reason ~= nil then
+        return { unavailable = true, copyError = reason }
     end
-    if (depth or 0) >= 2 then return nil end
-    local copy = {}
-    local count = 0
-    for key, child in pairs(value) do
-        if type(key) == "string" or type(key) == "number" then
-            local childCopy = stableSummaryCopy(child, (depth or 0) + 1)
-            if childCopy ~= nil then copy[key] = childCopy end
-            count = count + 1
-            if count >= 64 then break end
-        end
-    end
-    return copy
+    return copied
 end
 
 -- Read-only query in the behavioral sense: it does not create command state,
@@ -1439,7 +1476,8 @@ function Commands.describe(companionId, player)
             return primaryOk and primary and U().itemName(primary) or nil
         end)(),
         personality = state.personality,
-        personalityProfile = stableSummaryCopy(state.personalityProfile, 0),
+        personalityProfile = stableSummaryCopy(state.personalityProfile,
+            "$.commands.summary.personalityProfile"),
         profession = relationship.profession,
         aptitude = relationship.aptitude,
         backgroundLabel = relationship.backgroundLabel,
@@ -1456,25 +1494,30 @@ function Commands.describe(companionId, player)
         joyResponse = autonomy.joyResponse,
         joyResponseLabel = autonomy.joyResponseLabel,
         boredom = autonomy.boredom,
-        topThoughts = stableSummaryCopy(autonomy.topThoughts, 0),
+        topThoughts = stableSummaryCopy(autonomy.topThoughts, "$.commands.summary.topThoughts"),
         currentExpectation = autonomy.currentExpectation,
         activeEpisode = autonomy.activeEpisode,
         inspiration = autonomy.inspiration,
-        pendingRequest = stableSummaryCopy(autonomy.pendingRequest, 0),
-        grief = stableSummaryCopy(autonomy.grief, 0),
+        pendingRequest = stableSummaryCopy(autonomy.pendingRequest,
+            "$.commands.summary.pendingRequest"),
+        grief = stableSummaryCopy(autonomy.grief, "$.commands.summary.grief"),
         lossCount = tonumber(autonomy.lossCount) or 0,
-        background = stableSummaryCopy(relationship.background or state.background, 0),
+        background = stableSummaryCopy(relationship.background or state.background,
+            "$.commands.summary.background"),
         timeTogetherHours = relationship.timeTogetherHours or 0,
-        memories = stableSummaryCopy(state.memories, 0),
-        lastDowntime = stableSummaryCopy(state.lastDowntime, 0),
+        memories = stableSummaryCopy(state.memories, "$.commands.summary.memories"),
+        lastDowntime = stableSummaryCopy(state.lastDowntime,
+            "$.commands.summary.lastDowntime"),
         objectives = nil,
         possessions = nil,
     }
     if SC.Journal and type(SC.Journal.build) == "function" then
         result.journal = SC.Journal.build(actor, state, result)
-        result.objectives = stableSummaryCopy(result.journal.objective, 0)
+        result.objectives = stableSummaryCopy(result.journal.objective,
+            "$.commands.summary.objectives")
         result.possessions = {
-            keepsake = stableSummaryCopy(result.journal.keepsake, 0),
+            keepsake = stableSummaryCopy(result.journal.keepsake,
+                "$.commands.summary.possessions.keepsake"),
         }
     end
     return result
@@ -1507,7 +1550,8 @@ local function showConversation(actor, entry, state, id, action, player)
         return false, "relationship_unavailable"
     end
     local description = Commands.describe(id, player)
-    local staged = copyCommandState(state)
+    local staged, copyReason = copyCommandState(state)
+    if not staged then return false, "command_state_copy_failed:" .. tostring(copyReason) end
     local storageBefore = snapshotStorage(actor, entry)
     local ok, sentence, emote, changed, reason = pcall(
         SC.Relationship.respond, action, actor, player, staged, description)
@@ -1569,7 +1613,8 @@ local function issueOne(companionId, command, payload, player)
     local handler = handlers[command]
     if not handler then return false, "unsupported_command" end
     if not state.recruited and command ~= "recruit" and command ~= "dismiss" then return false, "not_recruited" end
-    local before = copyCommandState(state)
+    local before, copyReason = copyCommandState(state)
+    if not before then return false, "command_state_copy_failed:" .. tostring(copyReason) end
     local storageBefore = snapshotStorage(actor, entry)
     local ok, a, b, c = U().safeSubsystem("commands", actor, function()
         return handler(actor, entry, state, payload, player)
@@ -1677,18 +1722,22 @@ copyCommandState = function(state)
     if state.tacticalTarget then copy.tacticalTarget = U().copyShallow(state.tacticalTarget) end
     if state.pendingInteraction then copy.pendingInteraction = U().copyShallow(state.pendingInteraction) end
     if state.workTarget then copy.workTarget = U().copyShallow(state.workTarget) end
-    if state.background then copy.background = U().copyShallow(state.background) end
-    if state.care then copy.care = U().copyShallow(state.care) end
-    if state.reveals then copy.reveals = U().copyShallow(state.reveals) end
-    if state.personalityProfile then
-        copy.personalityProfile = copyNested(state.personalityProfile, 2, { count = 16 })
-    end
-    if state.objectives then copy.objectives = copyNested(state.objectives, 4, { count = 160 }) end
-    if state.possessions then copy.possessions = copyNested(state.possessions, 4, { count = 96 }) end
-    if type(state.memories) == "table" then
-        copy.memories = {}
-        for index, memory in ipairs(state.memories) do
-            copy.memories[index] = type(memory) == "table" and U().copyShallow(memory) or memory
+    local fields = {
+        { "personalityProfile", copyLimits.profile },
+        { "memories", copyLimits.memories },
+        { "background", copyLimits.background },
+        { "care", copyLimits.care },
+        { "reveals", copyLimits.reveals },
+        { "objectives", copyLimits.objectives },
+        { "possessions", copyLimits.possessions },
+        { "lastDowntime", copyLimits.downtime },
+    }
+    for _, specification in ipairs(fields) do
+        local key, limit = specification[1], specification[2]
+        if state[key] ~= nil then
+            local copied, reason = strictCopy(state[key], limit, "$.commands." .. key)
+            if reason ~= nil then return nil, reason end
+            copy[key] = copied
         end
     end
     return copy
@@ -1707,13 +1756,23 @@ local function issueMemberSetAtomic(members, command, payload, player)
         if not actor then return false, reason, {} end
         local current = states[actor] or stateFor(actor, entry)
         if not current.recruited then return false, "not_recruited", {} end
+        local before, beforeReason = copyCommandState(current)
+        if not before then
+            return false, "group_prevalidation:command_state_copy_failed:"
+                .. tostring(beforeReason), {}
+        end
+        local staged, stagedReason = copyCommandState(current)
+        if not staged then
+            return false, "group_prevalidation:command_state_copy_failed:"
+                .. tostring(stagedReason), {}
+        end
         plans[#plans + 1] = {
             actor = actor,
             id = member.id,
             entry = entry,
-            before = copyCommandState(current),
+            before = before,
             storage = snapshotStorage(actor, entry),
-            staged = copyCommandState(current),
+            staged = staged,
         }
     end
 
@@ -1963,7 +2022,9 @@ function Commands.persist(actor)
     if not actor then return false, "invalid_actor" end
     local state = states[actor] or stateFor(actor)
     local _, entry = U().resolveActor(U().idOf(actor))
+    local storage = snapshotStorage(actor, entry)
     local ok, reason = pcall(writeStable, actor, entry, state)
+    if not ok then restoreStorage(actor, entry, storage) end
     return ok == true, ok and "state_persisted" or reason
 end
 
@@ -1985,9 +2046,15 @@ local function transitionFactionMembership(actor, specification, player)
         return false, "recruitment_state_changed"
     end
 
-    local before = copyCommandState(current)
+    local before, beforeReason = copyCommandState(current)
+    if not before then
+        return false, "faction_transition_copy_failed:" .. tostring(beforeReason)
+    end
     local storage = snapshotStorage(actor, entry)
-    local staged = copyCommandState(current)
+    local staged, stagedReason = copyCommandState(current)
+    if not staged then
+        return false, "faction_transition_copy_failed:" .. tostring(stagedReason)
+    end
     staged.recruited = specification.recruited == true
     staged.factionId = type(specification.factionId) == "string"
         and specification.factionId or nil
@@ -2146,51 +2213,68 @@ end
 
 function Commands.export(actor)
     if not actor then return nil end
-    local state = states[actor] or snapshotState(actor)
+    local ok, state = pcall(function()
+        return states[actor] or snapshotState(actor)
+    end)
+    if not ok then return nil, "command_export_copy_failed:" .. tostring(state) end
+    local detached, copyReason = copyCommandState(state)
+    if not detached then
+        return nil, "command_export_copy_failed:" .. tostring(copyReason)
+    end
     return {
-        recruited = state.recruited,
-        factionId = state.factionId,
-        factionRole = state.factionRole,
-        order = state.order,
-        followDistance = state.followDistance,
-        scavenge = state.scavenge,
-        allowOverload = state.allowOverload,
-        rideWithPlayer = state.rideWithPlayer,
-        workMode = state.workMode,
-        workTarget = state.workTarget,
-        returnOrder = state.returnOrder,
-        returnWorkMode = state.returnWorkMode,
-        moveMode = state.moveMode,
-        moveModeVersion = state.moveModeVersion,
-        combatMode = state.combatMode,
-        combatDoctrine = state.combatDoctrine,
-        weaponPriority = state.weaponPriority,
-        holdFire = state.holdFire,
-        group = state.group,
-        personality = state.personality,
-        personalityProfile = copyNested(state.personalityProfile, 2, { count = 16 }),
-        trust = state.trust,
-        bond = state.bond,
-        morale = state.morale,
-        stress = state.stress,
-        memories = state.memories,
-        background = state.background,
-        care = state.care,
-        reveals = state.reveals,
-        timeTogetherMs = state.timeTogetherMs,
-        objectives = copyNested(state.objectives, 4, { count = 160 }),
-        possessions = copyNested(state.possessions, 4, { count = 96 }),
-        lastDowntime = state.lastDowntime,
+        recruited = detached.recruited,
+        factionId = detached.factionId,
+        factionRole = detached.factionRole,
+        order = detached.order,
+        followDistance = detached.followDistance,
+        scavenge = detached.scavenge,
+        allowOverload = detached.allowOverload,
+        rideWithPlayer = detached.rideWithPlayer,
+        workMode = detached.workMode,
+        workTarget = detached.workTarget,
+        returnOrder = detached.returnOrder,
+        returnWorkMode = detached.returnWorkMode,
+        moveMode = detached.moveMode,
+        moveModeVersion = detached.moveModeVersion,
+        combatMode = detached.combatMode,
+        combatDoctrine = detached.combatDoctrine,
+        weaponPriority = detached.weaponPriority,
+        holdFire = detached.holdFire,
+        group = detached.group,
+        personality = detached.personality,
+        personalityProfile = detached.personalityProfile,
+        trust = detached.trust,
+        bond = detached.bond,
+        morale = detached.morale,
+        stress = detached.stress,
+        memories = detached.memories,
+        background = detached.background,
+        care = detached.care,
+        reveals = detached.reveals,
+        timeTogetherMs = detached.timeTogetherMs,
+        objectives = detached.objectives,
+        possessions = detached.possessions,
+        lastDowntime = detached.lastDowntime,
     }
 end
 
 function Commands.restore(actor, record)
-    if not actor or type(record) ~= "table" then return false end
-    local state = snapshotState(actor, record)
+    if not actor or type(record) ~= "table" then return false, "invalid_command_record" end
+    local copied, state = pcall(snapshotState, actor, record)
+    if not copied then
+        return false, "command_restore_copy_failed:" .. tostring(state)
+    end
     local initialized, reason = initializeCharacterState(actor, state)
     if not initialized then return false, reason end
+    local previous = states[actor]
+    local storage = snapshotStorage(actor, record)
+    local persisted, persistenceReason = pcall(writeStable, actor, record, state)
+    if not persisted then
+        states[actor] = previous
+        restoreStorage(actor, record, storage)
+        return false, "command_restore_commit_failed:" .. tostring(persistenceReason)
+    end
     states[actor] = state
-    writeStable(actor, record, state)
     return true
 end
 

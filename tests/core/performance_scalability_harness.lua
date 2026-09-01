@@ -149,7 +149,7 @@ check(SC.Performance.cacheGet("test", "square", clock + 100) == nil,
 SC.Performance.reset()
 local namespaceLimit = SC.Config.get("performanceCacheNamespaceLimit")
 local totalLimit = SC.Config.get("performanceCacheTotalLimit")
-for index = 1, totalLimit * 3 do
+for index = 1, totalLimit * 8 do
     SC.Performance.cachePut("perception-square", "dynamic:" .. tostring(index), index,
         10, clock)
 end
@@ -158,9 +158,35 @@ check(cacheStats.entries <= totalLimit
         and cacheStats.namespaces["perception-square"] <= namespaceLimit
         and cacheStats.evictions > 0,
     "dynamic perception-square cache stays within namespace and total caps")
-SC.Performance.sweepCache(clock + 1000, totalLimit * 4)
+check(cacheStats.queueTokens == cacheStats.entries
+        and cacheStats.trackedQueueTokens == cacheStats.entries
+        and cacheStats.namespaceQueueTokens == cacheStats.entries
+        and cacheStats.queueTombstones == 0
+        and cacheStats.namespaceQueueTombstones == 0
+        and cacheStats.queueCycle == false,
+    "namespace eviction unlinks every physical global and namespace queue token")
+
+SC.Performance.reset()
+local churnNamespaces = math.ceil((totalLimit * 4) / namespaceLimit) + 1
+for index = 1, totalLimit * 4 do
+    local namespace = "global-churn:" .. tostring((index - 1) % churnNamespaces)
+    SC.Performance.cachePut(namespace, "dynamic:" .. tostring(index), index, 10, clock)
+end
 cacheStats = SC.Performance.cacheStats()
-check(cacheStats.entries == 0 and cacheStats.expired > 0,
+check(cacheStats.entries == totalLimit and cacheStats.evictions > 0
+        and cacheStats.queueTokens == cacheStats.entries
+        and cacheStats.trackedQueueTokens == cacheStats.entries
+        and cacheStats.namespaceQueueTokens == cacheStats.entries
+        and cacheStats.queueTombstones == 0
+        and cacheStats.namespaceQueueTombstones == 0
+        and cacheStats.queueCycle == false,
+    "global eviction unlinks physical tokens from every namespace queue")
+
+SC.Performance.sweepCache(clock + 1000, totalLimit)
+cacheStats = SC.Performance.cacheStats()
+check(cacheStats.entries == 0 and cacheStats.expired > 0
+        and cacheStats.queueTokens == 0 and cacheStats.trackedQueueTokens == 0
+        and cacheStats.namespaceQueueTokens == 0,
     "bounded incremental sweep removes expired dynamic cache entries")
 
 SC.Performance._setClock(nil)

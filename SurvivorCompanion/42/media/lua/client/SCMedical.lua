@@ -422,6 +422,18 @@ local function supervisedTransition(state, phase, detail)
     return service.transition(state.supervisorToken, phase, detail)
 end
 
+local function supervisedCommit(state, operation, detail)
+    local service = supervisor()
+    if service and state and state.supervisorToken
+        and type(service.commit) == "function" then
+        return service.commit(state.supervisorToken, operation, detail)
+    end
+    if type(operation) ~= "function" then return true, "committed", operation end
+    local ok, accepted, reason, receipt = pcall(operation, state and state.supervisorToken)
+    if not ok then return false, "commit_callback_failed", { error = tostring(accepted) } end
+    return accepted == true, reason, receipt
+end
+
 local function supervisedProgress(state, signature, detail)
     local service = supervisor()
     if not service or not state or not state.supervisorToken then return true end
@@ -564,6 +576,111 @@ local function startBandageAnimation(helper, state)
     return true, "treatment_animation_started"
 end
 
+local function beginEmergencyApplyToken(helper, state, parentSerial)
+    local service = supervisor()
+    if not service then return true, "unsupervised" end
+    local token, reason, retry = service.begin(helper, {
+        owner = "medical", action = state.supervisorAction or "treat_wound",
+        targetKey = state.targetKey,
+        targetLabel = tostring(U().nameOf(state.patient)) .. " "
+            .. tostring(state.woundName),
+        priority = state.supervisorPriority or service.Priority.COMBAT_RESCUE,
+        interruptible = true, requiresVisual = false,
+        allowedActions = {
+            kneel_treat = true, replace_bandage = true,
+        },
+        onCancel = function(_, cancelReason)
+            return releaseTreatmentResources(helper, state,
+                cancelReason or "medical_cancelled")
+        end,
+        metadata = {
+            woundIndex = state.woundIndex, emergencyStage = "apply",
+            parentCommitSerial = parentSerial,
+        },
+    })
+    if not token then return false, reason or "medical_apply_owner_rejected", retry end
+    state.supervisorToken = token
+    local reserved, reserveReason = service.reserve(token, state.bandage,
+        "emergency_bandage")
+    if reserved ~= true then
+        service.fail(token, reserveReason or "reservation_lost")
+        state.supervisorToken = nil
+        return false, reserveReason or "reservation_lost"
+    end
+    return true, "emergency_apply_selected"
+end
+
+local function finishEmergencyRip(helper, state, startVisual)
+    local committing, commitReason = supervisedTransition(state, "committing", {
+        action = "rip_clothing_for_bandage",
+    })
+    if committing ~= true then return clearTreatment(helper, state,
+        commitReason or "commit_rejected") end
+
+    local rag, transaction
+    local committed, reason = supervisedCommit(state, function()
+        local failure
+        rag, transaction, failure = commitEmergencyBandage(
+            state.inventory, state.emergencyCandidate)
+        if not rag then
+            return false, failure or "rag_creation_failed", {
+                stage = "emergency_rip",
+            }
+        end
+        return true, "emergency_bandage_created", {
+            stage = "emergency_rip", itemType = U().itemType(rag),
+        }
+    end)
+    if committed ~= true then return clearTreatment(helper, state,
+        reason or "rag_creation_failed") end
+
+    state.bandage = rag
+    state.emergencyTransaction = transaction
+    state.emergencyCandidate = nil
+    local verifying, verifyReason = supervisedTransition(state, "verifying", {
+        itemType = U().itemType(rag), stage = "emergency_rip",
+    })
+    if verifying ~= true or not inventoryContains(state.inventory, rag) then
+        return clearTreatment(helper, state,
+            verifyReason or "rag_verification_failed")
+    end
+
+    local service = supervisor()
+    local parentToken = state.supervisorToken
+    local urgent = service and type(service.urgentStatus) == "function"
+        and service.urgentStatus(helper) or nil
+    if service and parentToken and service.isCurrent(parentToken) then
+        local completed, completeReason = service.complete(parentToken,
+            "emergency_bandage_created", {
+                itemType = U().itemType(rag), stage = "emergency_rip",
+            })
+        if completed ~= true then return clearTreatment(helper, state,
+            completeReason or "emergency_rip_completion_failed") end
+    end
+    state.supervisorToken = nil
+
+    -- Completion releases a queued survival intent.  Do not immediately claim
+    -- a second token over that hand-off; restore the clothing if treatment was
+    -- preempted between the two independently committed physical effects.
+    if urgent and (urgent.state == "queued" or urgent.state == "waiting_external") then
+        local rolledBack = releaseTreatmentResources(helper, state,
+            "urgent_preempted_after_emergency_rip")
+        return false, rolledBack and "urgent_preempted_after_emergency_rip"
+            or "treatment_rollback_failed"
+    end
+
+    local began, beginReason = beginEmergencyApplyToken(helper, state,
+        parentToken and parentToken.serial or nil)
+    if began ~= true then
+        local rolledBack = releaseTreatmentResources(helper, state,
+            beginReason or "emergency_apply_owner_rejected")
+        return false, rolledBack and (beginReason or "emergency_apply_owner_rejected")
+            or "treatment_rollback_failed"
+    end
+    if startVisual ~= false then return startBandageAnimation(helper, state) end
+    return true, "emergency_apply_selected"
+end
+
 local function finishTreatment(helper, state)
     local assessment = Medical.assess(state.patient)
     local wound = treatmentWound(assessment, state)
@@ -573,8 +690,14 @@ local function finishTreatment(helper, state)
     })
     if committing ~= true then return clearTreatment(helper, state,
         commitReason or "commit_rejected") end
-    local applied, reason = commitBandage(state.patient, assessment, wound,
-        state.bandage, state.inventory, state.emergencyTransaction)
+    local applied, reason = supervisedCommit(state, function()
+        local accepted, result = commitBandage(state.patient, assessment, wound,
+            state.bandage, state.inventory, state.emergencyTransaction)
+        return accepted, result, {
+            stage = "apply_bandage", woundIndex = wound.index,
+            itemType = U().itemType(state.bandage),
+        }
+    end)
     if not applied then return clearTreatment(helper, state, reason) end
     state.emergencyTransaction = nil
     local verifying, verifyReason = supervisedTransition(state, "verifying", {
@@ -645,26 +768,7 @@ local function advanceTreatment(helper, state)
     if verified ~= true then return clearTreatment(helper, state,
         verifyReason or "animation_verification_failed") end
     if state.phase == "ripping" then
-        local committing, commitReason = supervisedTransition(state, "committing", {
-            action = "rip_clothing_for_bandage",
-        })
-        if committing ~= true then return clearTreatment(helper, state,
-            commitReason or "commit_rejected") end
-        local rag, transaction, reason = commitEmergencyBandage(
-            state.inventory, state.emergencyCandidate)
-        if not rag then return clearTreatment(helper, state, reason or "rag_creation_failed") end
-        local verifying, transitionReason = supervisedTransition(state, "verifying", {
-            itemType = U().itemType(rag),
-        })
-        if verifying ~= true or not inventoryContains(state.inventory, rag) then
-            state.emergencyTransaction = transaction
-            return clearTreatment(helper, state,
-                transitionReason or "rag_verification_failed")
-        end
-        state.bandage = rag
-        state.emergencyTransaction = transaction
-        state.emergencyCandidate = nil
-        return startBandageAnimation(helper, state)
+        return finishEmergencyRip(helper, state, true)
     end
     return finishTreatment(helper, state)
 end
@@ -767,6 +871,9 @@ local function beginTreatmentState(helper, patient, capability)
     local action = capability.dirtyOnly and "replace_dirty_bandage" or "treat_wound"
     local targetKey = tostring(U().idOf(patient) or "patient") .. ":"
         .. tostring(wound.index)
+    local service = supervisor()
+    local priority = service and (wound.bleeding and service.Priority.COMBAT_RESCUE
+        or service.Priority.NEEDS) or nil
     local state = {
         phase = "selected", patient = patient, woundIndex = wound.index,
         woundName = wound.name, dirtyOnly = capability.dirtyOnly == true,
@@ -775,15 +882,19 @@ local function beginTreatmentState(helper, patient, capability)
         emergencyCandidate = capability.emergencyCandidate,
         visualAction = capability.visualAction,
         targetKey = targetKey,
+        supervisorAction = action, supervisorPriority = priority,
     }
-    local service = supervisor()
     if service then
-        if capability.available == true then service.clearRetry(helper, action, targetKey) end
+        local priorRetry = capability.available == true
+            and service.retryStatusAny(helper, action, targetKey) or nil
+        if priorRetry and priorRetry.category == "resources"
+            and type(service.resetRetry) == "function" then
+            service.resetRetry(helper, "medical_resources_available", action, targetKey)
+        end
         local token, reason, retry = service.begin(helper, {
             owner = "medical", action = action, targetKey = targetKey,
             targetLabel = tostring(U().nameOf(patient)) .. " " .. tostring(wound.name),
-            priority = wound.bleeding and service.Priority.COMBAT_RESCUE
-                or service.Priority.NEEDS,
+            priority = priority,
             interruptible = true, requiresVisual = false,
             retryCategory = capability.available and nil or "resources",
             allowedActions = {
@@ -846,16 +957,8 @@ continueTreatmentApproach = function(helper, state, runtime)
                 supervisorToken = state.supervisorToken,
             })
             if not accepted then return clearTreatment(helper, state, "rip_action_rejected") end
-            local committing, commitReason = supervisedTransition(state, "committing", {
-                action = "rip_clothing_for_bandage",
-            })
-            if committing ~= true then return clearTreatment(helper, state,
-                commitReason or "commit_rejected") end
-            local rag, transaction, reason = commitEmergencyBandage(
-                state.inventory, state.emergencyCandidate)
-            if not rag then return clearTreatment(helper, state, reason or "rag_creation_failed") end
-            state.bandage, state.emergencyTransaction, state.emergencyCandidate = rag, transaction, nil
-            supervisedTransition(state, "verifying", { itemType = utility.itemType(rag) })
+            local finished, finishReason = finishEmergencyRip(helper, state, false)
+            if finished ~= true then return false, finishReason end
         end
         if supportsVisualLifecycle() then return startBandageAnimation(helper, state) end
         return immediateTreatment(helper, state.patient, Medical.assess(state.patient),

@@ -17,6 +17,27 @@ local function expectEqual(actual, expected, message)
 end
 
 -- Protected calls and transactions must preserve nil holes and trailing nils.
+local noReturns = Call.pack(Call.protected(function() end))
+expectEqual(noReturns.n, 1, "no-return protected tuple count")
+expectEqual(noReturns[1], true, "no-return protected status")
+
+local oneNil = Call.pack(Call.protected(function() return nil end))
+expectEqual(oneNil.n, 2, "single-nil protected tuple count")
+expectEqual(oneNil[1], true, "single-nil protected status")
+expect(oneNil[2] == nil, "single nil is retained")
+
+local nilReason = Call.pack(Call.protected(function() return nil, "reason" end))
+expectEqual(nilReason.n, 3, "nil-reason protected tuple count")
+expectEqual(nilReason[1], true, "nil-reason protected status")
+expect(nilReason[2] == nil, "nil-reason first value")
+expectEqual(nilReason[3], "reason", "nil-reason detail")
+
+local sparseNumbers = Call.pack(Call.protected(function() return 1, nil, 3 end))
+expectEqual(sparseNumbers.n, 4, "sparse protected tuple count")
+expectEqual(sparseNumbers[2], 1, "sparse first result")
+expect(sparseNumbers[3] == nil, "sparse middle nil")
+expectEqual(sparseNumbers[4], 3, "sparse final result")
+
 local protected = Call.pack(Call.protected(function()
     return "first", nil, "third", nil
 end))
@@ -26,6 +47,49 @@ expectEqual(protected[2], "first", "protected first value")
 expect(protected[3] == nil, "protected nil hole")
 expectEqual(protected[4], "third", "protected third value")
 expect(protected[5] == nil, "protected trailing nil")
+
+local protectedSideEffects = 0
+local thrown = Call.pack(Call.protected(function()
+    protectedSideEffects = protectedSideEffects + 1
+    error("protected fixture failure")
+end))
+expectEqual(thrown.n, 2, "thrown protected tuple count")
+expectEqual(thrown[1], false, "thrown protected status")
+expect(string.find(tostring(thrown[2]), "protected fixture failure", 1, true) ~= nil,
+    "thrown protected reason")
+expectEqual(protectedSideEffects, 1, "thrown callback executes once")
+
+local instanceSideEffects = 0
+local instance = {
+    fail = function(self)
+        instanceSideEffects = instanceSideEffects + 1
+        error("instance fixture failure")
+    end,
+}
+local instanceResult = Call.pack(Call.method(instance, "fail"))
+expectEqual(instanceResult[1], false, "failed instance method status")
+-- Build 42.20.4's Kahlua runtime replaces an explicit Lua error raised from a
+-- callback with a table receiver by its own non-empty method-dispatch reason.
+-- The safety contract here is visible failure plus exactly one invocation;
+-- Java method exceptions retain their native diagnostic text.
+expect(type(instanceResult[2]) == "string" and instanceResult[2] ~= "",
+    "failed instance method exposes a reason")
+expectEqual(instanceSideEffects, 1,
+    "failed instance method is not retried with another receiver convention")
+
+local staticSideEffects = 0
+local static = {
+    fail = function()
+        staticSideEffects = staticSideEffects + 1
+        error("static fixture failure")
+    end,
+}
+local staticResult = Call.pack(Call.static(static, "fail"))
+expectEqual(staticResult[1], false, "failed static method status")
+expect(type(staticResult[2]) == "string" and staticResult[2] ~= "",
+    "failed static method exposes a reason")
+expectEqual(staticSideEffects, 1,
+    "failed static method is not retried as an instance method")
 
 local committed = Call.pack(Transaction.run(function()
     return true, "value", nil, "tail"

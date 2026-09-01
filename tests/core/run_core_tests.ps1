@@ -42,6 +42,7 @@ try {
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCDeferredMainThreadQueueTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCIsoPlayerControlTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCIsoCompanionControlTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeCleanupTransactionTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeBridgeExposureTest.java')
     if ($LASTEXITCODE -ne 0) { throw 'Core Java test harness compilation failed.' }
 
@@ -87,6 +88,30 @@ try {
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @coreFiles
         if ($LASTEXITCODE -ne 0) { throw 'Core Kahlua integration harness failed.' }
 
+        $actorOwnershipFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCStableValue.lua'),
+            (Join-Path $Shared 'SCTransaction.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Shared 'SCDiagnostics.lua'),
+            (Join-Path $Shared 'SCRegistry.lua'),
+            (Join-Path $Client 'SCNativeActions.lua'),
+            (Join-Path $Client 'SCActionSupervisor.lua'),
+            (Join-Path $Client 'SCBackground.lua'),
+            (Join-Path $Client 'SCActor.lua'),
+            (Join-Path $TestRoot 'actor_ownership_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @actorOwnershipFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Lua/native actor ownership harness failed.' }
+
+        $supervisorSoakFiles = @($coreFiles | Select-Object -SkipLast 2)
+        $supervisorSoakFiles += Join-Path $TestRoot 'supervisor_fault_soak_harness.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @supervisorSoakFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Action-supervisor fault/soak harness failed.' }
+
         $performanceFiles = @($coreFiles | Select-Object -SkipLast 1)
         $performanceFiles += Join-Path $TestRoot 'performance_scalability_harness.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @performanceFiles
@@ -96,6 +121,11 @@ try {
         $characterDepthFiles += Join-Path $TestRoot 'character_depth_persistence_harness.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @characterDepthFiles
         if ($LASTEXITCODE -ne 0) { throw 'Character-depth persistence harness failed.' }
+
+        $persistenceTransactionFiles = @($coreFiles | Select-Object -SkipLast 2)
+        $persistenceTransactionFiles += Join-Path $TestRoot 'persistence_transaction_harness.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @persistenceTransactionFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Persistence transaction/boundary harness failed.' }
 
         $runtimeHookFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
@@ -109,6 +139,24 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @runtimeHookFiles
         if ($LASTEXITCODE -ne 0) { throw 'Runtime container-hook ownership harness failed.' }
+
+        $runtimeTransactionFiles = @($runtimeHookFiles | Select-Object -SkipLast 1)
+        $runtimeTransactionFiles += Join-Path $TestRoot 'runtime_transaction_harness.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @runtimeTransactionFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Runtime startup/teardown transaction harness failed.' }
+
+        $registryTransactionFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCStableValue.lua'),
+            (Join-Path $Shared 'SCTransaction.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Shared 'SCRegistry.lua'),
+            (Join-Path $TestRoot 'registry_transaction_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @registryTransactionFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Registry transaction harness failed.' }
 
         $configReloadFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
@@ -143,6 +191,51 @@ try {
         )
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @bootstrapLifecycleFiles
         if ($LASTEXITCODE -ne 0) { throw 'Bootstrap lifecycle transaction harness failed.' }
+
+        $factionLifecycleFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCStableValue.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'),
+            (Join-Path $TestRoot 'faction_lifecycle_fixture.lua'),
+            (Join-Path $Client 'SCFactions.lua'),
+            (Join-Path $Client 'SCFactionContracts.lua'),
+            (Join-Path $Client 'SCRuntime.lua'),
+            (Join-Path $Client 'SCBootstrap.lua'),
+            (Join-Path $TestRoot 'faction_lifecycle_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @factionLifecycleFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Production faction lifecycle harness failed.' }
+
+        $strictCopyFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCStableValue.lua'),
+            (Join-Path $TestRoot 'strict_copy_boundary_fixture.lua'),
+            (Join-Path $Client 'SCCommands.lua'),
+            (Join-Path $Client 'SCFactionContracts.lua'),
+            (Join-Path $Client 'SCFactionRecruitment.lua'),
+            (Join-Path $TestRoot 'strict_copy_boundary_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @strictCopyFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Strict copy boundary harness failed.' }
+
+        $subsystemRestoreFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCStableValue.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'),
+            (Join-Path $TestRoot 'subsystem_restore_integrity_fixture.lua'),
+            (Join-Path $Client 'SCBaseLife.lua'),
+            (Join-Path $Client 'SCInfectionCrisis.lua'),
+            (Join-Path $Client 'SCCommunity.lua'),
+            (Join-Path $Client 'SCFactions.lua'),
+            (Join-Path $Client 'SCFactionWorld.lua'),
+            (Join-Path $TestRoot 'subsystem_restore_integrity_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @subsystemRestoreFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Subsystem restore-integrity harness failed.' }
 
         $productionSpawnFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
@@ -209,6 +302,8 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Actual IsoPlayer control gate failed.' }
         & $GameJava -cp "$BuildRoot;$NativeJar;$Jar" survivorcompanion.bridge.SCIsoCompanionControlTest
         if ($LASTEXITCODE -ne 0) { throw 'Native IsoCompanion isolation control failed.' }
+        & $GameJava -cp "$BuildRoot;$NativeJar;$Jar" survivorcompanion.bridge.SCNativeCleanupTransactionTest
+        if ($LASTEXITCODE -ne 0) { throw 'Native cleanup transaction control failed.' }
         & $GameJava -cp "$BuildRoot;$NativeJar;$Jar" survivorcompanion.bridge.SCNativeBridgeExposureTest
         if ($LASTEXITCODE -ne 0) { throw 'Production native bridge Kahlua exposure failed.' }
         & $GameJava -cp "$NativeJar;$Jar" survivorcompanion.bridge.SCLauncher --sc-bridge-smoke-test

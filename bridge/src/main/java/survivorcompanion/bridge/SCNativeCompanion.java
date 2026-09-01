@@ -12,6 +12,7 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.SurvivorDesc;
 import zombie.characters.component.AIComponent;
+import zombie.characters.action.ActionState;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.pathfind.PathFindBehavior2;
@@ -23,6 +24,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     private static final Method GENERIC_CHARACTER_UPDATE = resolveGenericCharacterUpdate();
     private static final Method PLAYER_VEHICLE_UPDATE = resolvePlayerVehicleUpdate();
     private static final Method PLAYER_ACTION_GROUP_CHECK = resolvePlayerActionGroupCheck();
+    private static volatile String RUNTIME_CONTRACT_FAILURE_FOR_TESTS = "";
     private static final int MIN_SPEECH_DISPLAY_MILLIS = 4_000;
     private static final int MAX_SPEECH_DISPLAY_MILLIS = 30_000;
 
@@ -43,8 +45,9 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile int bridgeNextSpeechDisplayMillis;
     private volatile String bridgeSpeechLine;
     private volatile long bridgeSpeechRefreshUntilNanos;
+    private volatile long bridgePostUpdateCount;
+    private volatile String bridgePostUpdateDiagnostic = "not_run";
     private boolean genericUpdateActive;
-    private boolean bridgeWasSeated;
 
     public SCNativeCompanion(SurvivorDesc descriptor, IsoCell cell, int x, int y, int z) {
         super(cell, descriptor, x, y, z, false);
@@ -58,6 +61,61 @@ public final class SCNativeCompanion extends IsoPlayer {
     @Override
     public boolean isLocalPlayer() {
         return false;
+    }
+
+    /** Kahlua-safe diagnostic view of the otherwise unexposed ActionContext. */
+    public String getCompanionActionGroupName() {
+        if (getActionContext() == null || getActionContext().getGroup() == null) return "";
+        String name = getActionContext().getGroup().getName();
+        return name == null ? "" : name;
+    }
+
+    /** Kahlua-safe diagnostic view of the active root player-action state. */
+    public String getCompanionActionStateName() {
+        if (getActionContext() == null) return "";
+        String name = getActionContext().getCurrentStateName();
+        return name == null ? "" : name;
+    }
+
+    /** The transition the stock player graph would select on its next update. */
+    public String getCompanionNextActionStateName() {
+        if (getActionContext() == null) return "";
+        ActionState state = getActionContext().peekNextState();
+        return state == null || state.getName() == null ? "" : state.getName();
+    }
+
+    /** Whether all Build 42 transition conditions currently permit melee. */
+    public boolean canCompanionTransitionToMelee() {
+        return getActionContext() != null
+                && getActionContext().canTransitionToState("melee");
+    }
+
+    /**
+     * Compact live diagnostic proving whether the engine-owned postupdate pass
+     * consumed a companion attack request through the ordinary player action
+     * graph. This is intentionally read-only and safe to expose to Kahlua.
+     */
+    public String getCompanionPostUpdateDiagnostic() {
+        return bridgePostUpdateDiagnostic + ",count=" + bridgePostUpdateCount;
+    }
+
+    @Override
+    public void postupdate() {
+        String beforeState = getCompanionActionStateName();
+        String beforeNext = getCompanionNextActionStateName();
+        boolean beforeMelee = canCompanionTransitionToMelee();
+        boolean beforeInitiate = isInitiateAttack();
+        boolean beforeVariable = getVariableBoolean("initiateAttack");
+        super.postupdate();
+        bridgePostUpdateCount++;
+        bridgePostUpdateDiagnostic = "before=" + beforeState
+                + ",next=" + beforeNext
+                + ",canMelee=" + beforeMelee
+                + ",initiate=" + beforeInitiate
+                + ",variable=" + beforeVariable
+                + ",after=" + getCompanionActionStateName()
+                + ",afterInitiate=" + isInitiateAttack()
+                + ",performing=" + isPerformingAttackAnimation();
     }
 
     /**
@@ -289,13 +347,34 @@ public final class SCNativeCompanion extends IsoPlayer {
             if (seated) suspendBridgeLocomotion();
             synchronizePlayerLocomotion();
             genericUpdateActive = true;
-            if (seated) updatePlayerVehicleState();
-            else if (bridgeWasSeated) updatePlayerActionGroup();
+            if (seated) {
+                updatePlayerVehicleState();
+            } else {
+                // Keep the on-foot player action group active every frame, not
+                // only on the vehicle-exit frame. checkActionGroup() only
+                // selects the ActionGroup (no local input), and ActionContext
+                // .update() already runs through this actor's postupdate chain
+                // (IsoPlayer.postupdate -> ... -> IsoGameCharacter
+                // .postUpdateInternal -> postUpdateAnimating). Without the
+                // combat-capable group set, that context can never transition
+                // into ai.states.SwipeStatePlayer, so a DoAttack-initiated
+                // swing plays its animation (driven by the initiateAttack
+                // variable) but SwipeStatePlayer.OnAnimEvent_AttackCollisionCheck
+                // never fires and the melee hit is never resolved.
+                updatePlayerActionGroup();
+            }
             updateGenericCharacter();
             genericUpdateActive = false;
+            // The vanilla visibility fade never raises this non-local actor's
+            // render alpha, so it stays 0: the companion is invisible even while
+            // present on the map (seen only on the minimap), and the
+            // MovingObjectUpdateScheduler treats a <0.25-alpha actor as barely
+            // visible and collapses its simulation level until it effectively
+            // stops ticking. Force full opacity after the generic update so the
+            // companion is both visible and fully simulated.
+            setAlphaAndTarget(1.0f);
             refreshCompanionSpeech();
             if (getVehicle() == null) applyBridgeMovement();
-            bridgeWasSeated = seated;
         } catch (RuntimeException | LinkageError failure) {
             genericUpdateActive = false;
             boolean repaired = localState.restore();
@@ -483,6 +562,8 @@ public final class SCNativeCompanion extends IsoPlayer {
      * a game update renamed one of the other methods.
      */
     static String runtimeContractFailure() {
+        String injected = RUNTIME_CONTRACT_FAILURE_FOR_TESTS;
+        if (!injected.isEmpty()) return injected;
         String failure = reflectedMethodFailure(GENERIC_CHARACTER_UPDATE,
                 IsoGameCharacter.class, "updateInternal");
         if (!failure.isEmpty()) return failure;
@@ -513,6 +594,11 @@ public final class SCNativeCompanion extends IsoPlayer {
     /** Package-private real-JAR test seam for the version-pinned update path. */
     static boolean hasGenericCharacterUpdate() {
         return runtimeContractFailure().isEmpty();
+    }
+
+    /** Package-private negative readiness seam; never exposed through Kahlua. */
+    static void failRuntimeContractForTests(String failure) {
+        RUNTIME_CONTRACT_FAILURE_FOR_TESTS = failure == null ? "" : failure.trim();
     }
 
     /** Package-private real-JAR test seam for the deferred physics request. */

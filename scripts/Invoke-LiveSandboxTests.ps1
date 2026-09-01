@@ -12,6 +12,7 @@ param(
     # asset loading before Build 42 exposes its click-to-start gate. The
     # in-game harness retains its own bounded deadline once play begins.
     [int]$TimeoutSeconds = 300,
+    [switch]$LivingFellowsOnly,
     [switch]$PrepareOnly
 )
 
@@ -200,7 +201,7 @@ Copy-Item -LiteralPath $SeedSave -Destination $TargetSave -Recurse
 # Expose existing local/Vortex mod payloads through read-only-use junctions. The
 # sandbox owns only the junction objects; the runner never cleans or writes targets.
 $realMods = Join-Path $UserCache 'mods'
-if (Test-Path -LiteralPath $realMods -PathType Container) {
+if (-not $LivingFellowsOnly -and (Test-Path -LiteralPath $realMods -PathType Container)) {
     foreach ($directory in Get-ChildItem -LiteralPath $realMods -Directory) {
         if ($directory.Name -eq 'SurvivorCompanion' -or
             $directory.Name -eq 'SCRealSandboxHarness') { continue }
@@ -225,10 +226,24 @@ if (-not (Test-Path -LiteralPath $sourceMod -PathType Container) -or
     -not (Test-Path -LiteralPath $harnessMod -PathType Container)) {
     throw 'Source mod or live harness mod is missing.'
 }
+$sourceBridge = Join-Path $sourceMod '42\media\java\SurvivorCompanionBridge.jar'
+if (-not (Test-Path -LiteralPath $sourceBridge -PathType Leaf)) {
+    throw "Source payload native bridge is missing: $sourceBridge"
+}
+$installedBridgeHash = (Get-FileHash -LiteralPath $bridgePath -Algorithm SHA256).Hash
+$sourceBridgeHash = (Get-FileHash -LiteralPath $sourceBridge -Algorithm SHA256).Hash
+if ($installedBridgeHash -ne $sourceBridgeHash) {
+    throw 'The installed native bridge does not match the source candidate. ' +
+        'Run Install-Local.ps1 -NativeBridge before the real sandbox harness.'
+}
 Copy-Item -LiteralPath $sourceMod -Destination (Join-Path $SandboxMods 'SurvivorCompanion') -Recurse
 Copy-Item -LiteralPath $harnessMod -Destination (Join-Path $SandboxMods 'SCRealSandboxHarness') -Recurse
 
-$modText = Get-Content -LiteralPath $seedMods -Raw -Encoding utf8
+$modText = if ($LivingFellowsOnly) {
+    "VERSION = 1,`r`n`r`nmods`r`n{`r`n}`r`n`r`nmaps`r`n{`r`n}`r`n"
+} else {
+    Get-Content -LiteralPath $seedMods -Raw -Encoding utf8
+}
 $modText = Add-ModEntry $modText 'SurvivorCompanion'
 $modText = Add-ModEntry $modText 'SCRealSandboxHarness'
 [System.IO.File]::WriteAllText((Join-Path $SandboxMods 'default.txt'), $modText, $utf8NoBom)
@@ -258,6 +273,7 @@ $manifest = [ordered]@{
     sourceRelease = ((Get-Content -LiteralPath (Join-Path $sourceMod 'mod.info') |
         Where-Object { $_ -match '^modversion=' }) -replace '^modversion=', '')
     sourceSaveIsReadOnlyInput = $true
+    livingFellowsOnly = $LivingFellowsOnly.IsPresent
     autoCleanup = $false
 }
 [System.IO.File]::WriteAllText((Join-Path $RunRoot 'run-manifest.json'),
@@ -278,35 +294,50 @@ $process = Start-Process -FilePath $gameExe -WorkingDirectory $GameRoot `
     -ArgumentList $argumentLine -PassThru
 Write-Output "Started real Project Zomboid client test pid=$($process.Id)"
 
-$deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-$nextLoadingClick = [DateTime]::MaxValue
-$loadingReadyObserved = $false
-$clickAttempts = 0
-while ([DateTime]::UtcNow -lt $deadline -and -not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
-    $process.Refresh()
-    if ($process.HasExited) {
-        throw "Live sandbox client exited before writing a summary (exit=$($process.ExitCode)). Run retained at $RunRoot"
-    }
-    if (-not $loadingReadyObserved -and (Test-Path -LiteralPath $consolePath -PathType Leaf)) {
-        $loadingReadyObserved = Select-String -LiteralPath $consolePath `
-            -SimpleMatch 'game loading took' -Quiet
-        if ($loadingReadyObserved) {
-            $nextLoadingClick = [DateTime]::UtcNow.AddMilliseconds(750)
-            Write-Output 'World load completed; waiting for the Build 42 click-to-start gate.'
-        }
-    }
-    if ($loadingReadyObserved -and [DateTime]::UtcNow -ge $nextLoadingClick -and
-        -not (Test-Path -LiteralPath $eventsPath -PathType Leaf)) {
-        $clickAttempts++
-        if (Invoke-LoadingScreenClick $process) {
-            Write-Output "Sent isolated click-to-start attempt $clickAttempts to pid=$($process.Id)"
-        }
-        $nextLoadingClick = [DateTime]::UtcNow.AddSeconds(3)
-    }
-    Start-Sleep -Milliseconds 500
+function Stop-OwnedSandboxProcess {
+    param([System.Diagnostics.Process]$OwnedProcess, [string]$Reason)
+    if ($null -eq $OwnedProcess) { return }
+    try { $OwnedProcess.Refresh() } catch { return }
+    if ($OwnedProcess.HasExited) { return }
+    Stop-Process -Id $OwnedProcess.Id -Force -ErrorAction Stop
+    [void]$OwnedProcess.WaitForExit(10000)
+    Write-Output "Stopped owned live sandbox client pid=$($OwnedProcess.Id) reason=$Reason"
 }
-if (-not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
-    throw "Live sandbox test timed out. Run retained at $RunRoot; inspect $consolePath and process $($process.Id)."
+
+try {
+    $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $nextLoadingClick = [DateTime]::MaxValue
+    $loadingReadyObserved = $false
+    $clickAttempts = 0
+    while ([DateTime]::UtcNow -lt $deadline -and -not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
+        $process.Refresh()
+        if ($process.HasExited) {
+            throw "Live sandbox client exited before writing a summary (exit=$($process.ExitCode)). Run retained at $RunRoot"
+        }
+        if (-not $loadingReadyObserved -and (Test-Path -LiteralPath $consolePath -PathType Leaf)) {
+            $loadingReadyObserved = Select-String -LiteralPath $consolePath `
+                -SimpleMatch 'game loading took' -Quiet
+            if ($loadingReadyObserved) {
+                $nextLoadingClick = [DateTime]::UtcNow.AddMilliseconds(750)
+                Write-Output 'World load completed; waiting for the Build 42 click-to-start gate.'
+            }
+        }
+        if ($loadingReadyObserved -and [DateTime]::UtcNow -ge $nextLoadingClick -and
+            -not (Test-Path -LiteralPath $eventsPath -PathType Leaf)) {
+            $clickAttempts++
+            if (Invoke-LoadingScreenClick $process) {
+                Write-Output "Sent isolated click-to-start attempt $clickAttempts to pid=$($process.Id)"
+            }
+            $nextLoadingClick = [DateTime]::UtcNow.AddSeconds(3)
+        }
+        Start-Sleep -Milliseconds 500
+    }
+    if (-not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
+        throw "Live sandbox test timed out. Run retained at $RunRoot; inspect $consolePath."
+    }
+} catch {
+    Stop-OwnedSandboxProcess $process 'runner_failure'
+    throw
 }
 
 $summary = Get-Content -LiteralPath $summaryPath
@@ -317,6 +348,10 @@ while ([DateTime]::UtcNow -lt $exitDeadline) {
     $process.Refresh()
     if ($process.HasExited) { break }
     Start-Sleep -Milliseconds 250
+}
+$process.Refresh()
+if (-not $process.HasExited) {
+    Stop-OwnedSandboxProcess $process 'post_summary_deadline'
 }
 
 Get-Content -LiteralPath $eventsPath -ErrorAction SilentlyContinue

@@ -36,8 +36,21 @@ require("build\\live-sandbox-runs" in runner, "runs must stay under the project 
 require("Copy-Item -LiteralPath $SeedSave -Destination $TargetSave -Recurse" in runner,
         "runner must clone, never open, the source save")
 require("sourceSaveIsReadOnlyInput = $true" in runner, "run manifest must state source-save ownership")
+require("[switch]$LivingFellowsOnly" in runner
+        and "livingFellowsOnly = $LivingFellowsOnly.IsPresent" in runner,
+        "runner must expose and record a Living-Fellows-only release-isolation mode")
+require("-not $LivingFellowsOnly" in runner
+        and '"VERSION = 1,`r`n`r`nmods' in runner,
+        "isolation mode must omit local mod junctions and rebuild a minimal mod list")
 require("autoCleanup = $false" in runner, "audit runs must not recursively clean junction-bearing trees")
 require("Test-ProjectZomboidRunning" in runner, "runner must refuse a second game process")
+require("installedBridgeHash" in runner and "sourceBridgeHash" in runner
+        and "Get-FileHash" in runner,
+        "runner must prove the installed bridge matches the source candidate")
+require("Stop-OwnedSandboxProcess" in runner
+        and "Stop-Process -Id $OwnedProcess.Id -Force" in runner
+        and "runner_failure" in runner and "post_summary_deadline" in runner,
+        "runner must terminate only its owned client on timeout, failure, or failed self-exit")
 require("survivorcompanion/bridge/SCLauncher" in runner, "runner must require the native launcher")
 require("SCRealSandboxHarness" in runner and "Add-ModEntry" in runner,
         "runner must add the harness to default and cloned-save mod lists")
@@ -64,6 +77,7 @@ require("-not (Test-Path -LiteralPath $eventsPath" in runner,
 for token in (
     "Events.OnMainMenuEnter",
     "MainScreen.continueLatestSave",
+    "SC_REAL_SANDBOX|AUTOLOAD_CONFIRM",
     "Events.OnGameStart",
     "Events.OnRenderTick",
     "getFileWriter",
@@ -89,6 +103,7 @@ for test_name in (
     "formation_facing_restore",
     "local_player_unchanged",
     "native_zombie_targets_companion",
+    "direct_native_melee_attack",
     "debug_faction_tools_enabled",
     "manual_faction_household_spawn",
     "persistent_faction_registration",
@@ -117,10 +132,48 @@ for test_name in (
 
 require("internal_timeout_ms" in lua and "harness_timeout" in lua,
         "in-game harness needs its own fail-safe timeout")
+require("MainScreen.instance.checkSavefileModal" in lua and "modal:onClick(modal.yes)" in lua
+        and "autoloadConfirmations" in lua and "modal ~= Harness.autoloadModal" in lua
+        and "autoloadPromptSignatures" in lua and '"autoload_prompt_loop"' in lua,
+        "isolated cloned saves must auto-confirm sequential load/conversion prompts")
 require("pcall(tick)" in lua and "unhandled_harness_error" in lua,
         "event errors must become durable failed results")
+require("pcall(MainScreen.continueLatestSave" in lua,
+        "main-menu autoload failures must become durable failed results")
 require("Actor.beginSpawn" in lua and "Actor.pollSpawn" in lua,
         "spawn test must exercise the deferred production API")
+require("Harness.factionProgressAt" in lua
+        and "stalledFor > 20000" in lua and "elapsed > 45000" in lua
+        and '"queued=" .. tostring(member.spawnQueued == true)' in lua
+        and 'if task.name == "factions"' in lua,
+        "faction registration must tolerate healthy deferred spawning and diagnose a real stall")
+require("beginHarnessControl" in lua
+        and "supervisorToken = Harness.roomSupervisorToken" in lua
+        and "supervisorToken = Harness.combatSupervisorToken" in lua
+        and "record.runtime.inactive = true" not in lua,
+        "deterministic probes must use action ownership without deactivating the actor")
+require('inventory:AddItem("Base.Katana")' in lua
+        and 'action = "attack_melee"' in lua and '"isAttackStarted"' in lua
+        and '"isPerformingAttackAnimation"' in lua
+        and '"getSecondaryHandItem"' in lua and '"getUseHandWeapon"' in lua
+        and 'Harness.phase == "combat_animation"' in lua,
+        "live harness must prove that a two-handed native sword attack animates and completes")
+for diagnostic in (
+    '"getCompanionActionGroupName"', '"getCompanionActionStateName"',
+    '"isInitiateAttack"',
+    '"getVariableString", "Weapon"', '"getVariableBoolean", "rangedWeapon"',
+    '"getVariableBoolean", "bDoShove"', '"isAnimationUpdatingThisFrame"',
+    '"getCurrentState"', '"isDoShove"', '"isAimAtFloor"',
+    '"isCollidedWithVehicle"', '"isCollidedWithDoor"', '"getCollidedObject"',
+    '"target_health="', '"target_dead="',
+):
+    require(diagnostic in lua,
+            f"native combat failure diagnostics missing: {diagnostic}")
+require('utility.call(actor, "getActionContext")' not in lua,
+        "live diagnostics must not index Build 42's unexposed ActionContext from Kahlua")
+require('SC.GameplayUtil.call(Harness.actor, "checkActionGroup")' in lua
+        and '"group_control="' in lua,
+        "native combat probe must isolate stale player action-group state")
 require("SC.Navigation.evaluateRoutes" in lua,
         "route test must exercise real loaded grid squares")
 require("checking_room_entry_left" in lua and "checking_room_entry_right" in lua,

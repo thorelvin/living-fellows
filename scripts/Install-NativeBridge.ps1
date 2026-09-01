@@ -138,6 +138,15 @@ if ($existingManifest) {
     if ($config.mainClass -ne $WrapperMain) {
         throw 'Owned native bridge manifest exists but SCLauncher is not active; recover or uninstall it before updating.'
     }
+    $recordedInstalledConfigHash = [string]$existingManifest.installedConfigSha256
+    if ([string]::IsNullOrWhiteSpace($recordedInstalledConfigHash)) {
+        throw 'Owned native bridge manifest has no installedConfigSha256; refusing update before mutation.'
+    }
+    $currentInstalledConfigHash = Get-HashOrEmpty $configPath
+    if (-not $recordedInstalledConfigHash.Equals($currentInstalledConfigHash,
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Launcher configuration hash no longer matches installedConfigSha256; refusing update before mutation.'
+    }
     if (-not (Test-Path -LiteralPath $targetJar -PathType Leaf)) {
         throw "Owned native bridge JAR is missing: $targetJar"
     }

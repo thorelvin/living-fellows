@@ -11,9 +11,17 @@ local originalSelect = ISInventoryPage.selectContainer
 local originalSetNew = ISInventoryPage.setNewContainer
 
 SC.Runtime.start()
+local disposalsAfterFirstStart = SC.Actor.disposeCalls
+local generationAfterFirstStart = SC.State.generation
 SC.Runtime.start()
-check(SC.FactionContracts.removeCalls == 0 and SC.FactionContracts.resetCalls == 2,
-    "per-world runtime reset clears contract state without removing bootstrap-owned hooks")
+check(SC.Actor.disposeCalls == disposalsAfterFirstStart
+        and SC.Persistence.restoreCalls == 1
+        and SC.State.generation == generationAfterFirstStart
+        and SC.FactionContracts.removeCalls == 0
+        and SC.FactionContracts.resetCalls == 0,
+    "repeated same-world start preserves actors and performs no second initialization")
+check(SC.Runtime.reset(true) == true,
+    "explicit world boundary resets an idempotently started runtime")
 SC_TEST_CLOCK = 32001
 isClient = function() return true end
 SC.Runtime.start()
@@ -42,22 +50,23 @@ local newerSelect = function(self, button)
 end
 ISInventoryPage.selectContainer = newerSelect
 local disposalsBeforeReset = SC.Actor.disposeCalls
-SC.Runtime.reset(true)
+local blockedReset, blockedReason = SC.Runtime.reset(true)
 state = SC.Runtime.containerHookState()
-check(SC.Actor.disposeCalls == disposalsBeforeReset + 1,
-    "world reset disposes native actors before clearing Lua ownership")
+check(blockedReset == false
+        and string.find(tostring(blockedReason), "wrapper chain changed", 1, true) ~= nil
+        and SC.Actor.disposeCalls == disposalsBeforeReset,
+    "foreign wrapper ownership blocks teardown before native or Lua state changes")
 check(ISInventoryPage.selectContainer == newerSelect and state.selectDeferred,
     "reset never clobbers a wrapper installed later by another mod")
-check(ISInventoryPage.setNewContainer == originalSetNew and not state.setNewInstalled
-    and not state.setNewDeferred,
-    "runtime restores a method only while it still owns that method")
+check(ISInventoryPage.setNewContainer == ownSetNew and state.setNewInstalled,
+    "teardown preflight leaves every owned wrapper installed on chain conflict")
 
 ISInventoryPage.selectContainer = ownSelect
 disposalsBeforeReset = SC.Actor.disposeCalls
 SC.Runtime.reset(true)
 state = SC.Runtime.containerHookState()
 check(SC.Actor.disposeCalls == disposalsBeforeReset + 1,
-    "every world reset repeats native teardown without relying on stale Lua state")
+    "cleanup retry disposes native actors after wrapper ownership is restored")
 check(ISInventoryPage.selectContainer == originalSelect and not state.selectInstalled
     and not state.selectDeferred,
     "deferred removal completes after the newer owner releases the method chain")

@@ -192,9 +192,36 @@ function actor:getPrimaryHandItem() return self.primaryHand end
 function actor:setSecondaryHandItem(item) self.secondaryHand = item end
 function actor:getSecondaryHandItem() return self.secondaryHand end
 function actor:setAimAtFloor(value) self.aimAtFloor = value end
-function actor:setAuthorizeShoveStomp(value) self.authorizedShoveStomp = value end
+function actor:setDoShove(value) self.doShove = value == true end
+function actor:isDoShove() return self.doShove == true end
+function actor:setDoGrapple(value) self.doGrapple = value == true end
+function actor:isDoGrapple() return self.doGrapple == true end
+function actor:setAuthorizeShoveStomp(value) self.authorizedHandToHand = value == true end
+function actor:setAuthorizedHandToHandAction(value)
+    self.authorizedHandToHandAction = value == true
+end
+function actor:isAuthorizedHandToHandAction()
+    if self.authorizedHandToHandAction == nil then return true end
+    return self.authorizedHandToHandAction == true
+end
+function actor:setAuthorizedHandToHand(value) self.authorizedHandToHand = value == true end
+function actor:isAuthorizedHandToHand()
+    if self.authorizedHandToHand == nil then return true end
+    return self.authorizedHandToHand == true
+end
 function actor:setAttackType(value) self.attackType = value end
-function actor:DoAttack() self.attackStarted = true return false end
+function actor:CanAttack()
+    self.canAttackCalls = (self.canAttackCalls or 0) + 1
+    if self.attackStarted == true or self.attackModelReady == false then return false end
+    self.useHandWeapon = self.primaryHand
+    return true
+end
+function actor:DoAttack()
+    self.doAttackCalls = (self.doAttackCalls or 0) + 1
+    if not self:isAuthorizedHandToHandAction() then return false end
+    self.attackStarted = true
+    return false
+end
 function actor:isAttackStarted() return self.attackStarted == true end
 function actor:setKnockedDown(value) self.knockedDown = value end
 function actor:isKnockedDown() return self.knockedDown == true end
@@ -921,20 +948,38 @@ local lowerOk, lowerReason = SC.Actor.setMovement(actor, "walk", { action = "low
 check(lowerOk and lowerReason == "weapon_lowered" and actor.aiming == false
         and actor.tacticalMovement == false and actor.strafeX == 0 and actor.strafeY == 0,
     "weapon-ready posture lowers through the native player state")
-local twoHandedWeapon = { isTwoHandWeapon = function() return true end }
-local twoHandedOk, twoHandedReason = SC.Actor.setMovement(actor, "walk", {
-    action = "equip_weapon", item = twoHandedWeapon,
-})
-check(twoHandedOk and twoHandedReason == "equipped"
-    and actor.primaryHand == twoHandedWeapon and actor.secondaryHand == twoHandedWeapon,
-    "direct-native adapter equips a two-handed axe in both hands")
-AttackType = { SHOVE = {}, STOMP = {}, SHOT = {}, MELEE_SWING = {} }
-local attackOk, attackReason = SC.Actor.setMovement(actor, "walk", {
-    action = "shove", target = target,
-})
-check(attackOk and attackReason == "attack_started" and actor.attackType == AttackType.SHOVE
-    and actor.authorizedShoveStomp == false,
-    "direct-native adapter selects attack type, starts attack, and clears shove authorization")
+do
+    local twoHandedWeapon = { isTwoHandWeapon = function() return true end }
+    local twoHandedOk, twoHandedReason = SC.Actor.setMovement(actor, "walk", {
+        action = "equip_weapon", item = twoHandedWeapon,
+    })
+    check(twoHandedOk and twoHandedReason == "equipped"
+        and actor.primaryHand == twoHandedWeapon and actor.secondaryHand == twoHandedWeapon,
+        "direct-native adapter equips a two-handed axe in both hands")
+    AttackType = { SHOVE = {}, STOMP = {}, SHOT = {}, MELEE_SWING = {} }
+    actor.attackModelReady = false
+    local warmupOk, warmupReason = SC.Actor.setMovement(actor, "walk", {
+        action = "attack_melee", target = target, weapon = twoHandedWeapon,
+    })
+    check(not warmupOk and warmupReason == "native weapon is not attack-ready"
+        and (actor.doAttackCalls or 0) == 0,
+        "freshly equipped weapon waits for native CanAttack model readiness")
+    actor.attackModelReady = true
+    local attackOk, attackReason = SC.Actor.setMovement(actor, "walk", {
+        action = "shove", target = target,
+    })
+    check(attackOk and attackReason == "attack_started" and actor.attackType == AttackType.SHOVE
+        and actor.doShove == true and actor.doGrapple == false
+        and actor.authorizedHandToHandAction ~= false
+        and actor.authorizedHandToHand ~= false,
+        "direct-native adapter preflights, authorizes, starts, and restores native attack state")
+    actor.attackStarted = false
+    local meleeOk, meleeReason = SC.Actor.setMovement(actor, "walk", {
+        action = "attack_melee", target = target, weapon = twoHandedWeapon,
+    })
+    check(meleeOk and meleeReason == "attack_started" and actor.doShove == false,
+        "a weapon swing clears stale shove state before the native attack starts")
+end
 
 ISReloadWeaponAction = {}
 function ISReloadWeaponAction.BeginAutomaticReload(candidate)
@@ -1238,11 +1283,17 @@ local partialRemovalProvider = {
     testOnly = true,
     kind = "experimental-npc-player",
     directNative = true,
+    removeCalls = 0,
 }
 function partialRemovalProvider:isActor(candidate) return candidate ~= nil and candidate.__owned == true end
 function partialRemovalProvider:remove(candidate)
-    candidate.partialWorldRemoval = true
-    return false, "injected partial world removal"
+    self.removeCalls = self.removeCalls + 1
+    if self.removeCalls == 1 then
+        candidate.partialWorldRemoval = true
+        return false, "injected partial world removal"
+    end
+    candidate.__owned = false
+    return true
 end
 check(SC.Actor._setProviderForTests(partialRemovalProvider),
     "partial-removal regression selects explicit provider")
@@ -1255,7 +1306,9 @@ check(not removed and string.find(tostring(removalReason), "inactive", 1, true) 
 local quarantineSaved, quarantineDocument = SC.Persistence.save(transactionalPlayer)
 check(quarantineSaved and quarantineDocument.companions[record.id] ~= nil,
     "quarantined actor re-emits its bounded last stable snapshot")
-SC.Registry.unregister(actor)
+check(SC.Actor.remove(actor) == true and partialRemovalProvider.removeCalls == 2
+        and SC.Registry.byId(record.id) == nil,
+    "quarantined removal retains a callable cleanup retry")
 
 SC.Persistence.reset()
 local invalidDocument = { schema = 99, companions = { untouched = true } }
@@ -1352,11 +1405,15 @@ local cyclicDocument = { schema = SC.Identity.saveSchema,
     companions = { ["sc-cyclic-raw"] = cyclicRaw } }
 local cyclicData = { SC_SaveV1 = cyclicDocument }
 local cyclicPlayer = { getModData = function() return cyclicData end }
-check(SC.Persistence.restore(cyclicPlayer), "cyclic raw record enters quarantine")
+local cyclicRestored, cyclicRestoreReason = SC.Persistence.restore(cyclicPlayer)
+check(not cyclicRestored
+        and cyclicData.SC_SaveV1 == cyclicDocument
+        and string.find(tostring(cyclicRestoreReason), "cannot be preserved", 1, true),
+    "cyclic full-envelope input is rejected before restore and retained exactly")
 local cyclicSaved, cyclicReason = SC.Persistence.save(cyclicPlayer)
 check(not cyclicSaved and cyclicData.SC_SaveV1 == cyclicDocument
-        and string.find(tostring(cyclicReason), "cannot be preserved", 1, true),
-    "uncopyable quarantine blocks save and leaves the prior document untouched")
+        and string.find(tostring(cyclicReason), "preserved without overwrite", 1, true),
+    "blocked cyclic restore keeps OnSave fail-closed and the prior document untouched")
 
 SC.Persistence.reset()
 local deterministicProvider = { testOnly = true, kind = "iso-companion", polls = 0 }
@@ -1397,9 +1454,142 @@ check(deterministicProvider.polls == 2,
     "manual retry performs exactly one new deterministic attempt")
 getCell = priorGetCell
 SC.Persistence.reset()
+
+local restoreValues = SC.Config._values
+local savedRestoreInterval = restoreValues.restoreIntervalMs
+local savedRestoreBackoff = restoreValues.restoreMaximumBackoffMs
+local savedRestoreAttempts = restoreValues.restoreMaximumAttempts
+restoreValues.restoreIntervalMs = 100
+restoreValues.restoreMaximumBackoffMs = 1000
+restoreValues.restoreMaximumAttempts = 3
+getCell = function()
+    return { getGridSquare = function() return square end }
+end
+
+local startingProvider = {
+    testOnly = true, kind = "iso-companion", ready = false, requests = 0, polls = 0,
+}
+function startingProvider:isActor() return false end
+function startingProvider:requestSpawn()
+    self.requests = self.requests + 1
+    if not self.ready then return nil, "provider is still starting" end
+    return 601
+end
+function startingProvider:pollSpawn()
+    self.polls = self.polls + 1
+    return nil, "unknown perk in save record: StartupPerk"
+end
+function startingProvider:cancelSpawn() return true end
+check(SC.Actor._setProviderForTests(startingProvider),
+    "starting restore provider installed")
+local startingData = { SC_SaveV1 = { schema = SC.Identity.saveSchema, companions = {
+    ["sc-provider-starting"] = {
+        id = "sc-provider-starting", recruited = true,
+        identity = { forename = "Waiting", surname = "Bridge" },
+        position = { x = 41, y = 41, z = 0 }, inventory = {},
+        skills = {}, vitals = {}, order = {},
+    },
+} } }
+local startingPlayer = { getModData = function() return startingData end }
+check(SC.Persistence.restore(startingPlayer), "provider-starting record imports")
+local startingSnapshot = SC.Persistence.pendingSnapshot()["sc-provider-starting"]
+check(startingSnapshot and startingSnapshot.status == "waiting_environment"
+        and startingSnapshot.failureClass == "transient"
+        and startingSnapshot.attempts == 0 and startingProvider.requests == 1,
+    "provider startup waits without consuming the destructive retry budget")
+SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+startingProvider.ready = true
+SC.Persistence.restorePulse(startingPlayer)
+startingSnapshot = SC.Persistence.pendingSnapshot()["sc-provider-starting"]
+check(startingProvider.requests == 2 and startingProvider.polls == 1
+        and startingSnapshot.status == "quarantined"
+        and startingSnapshot.attempts == 1,
+    "a provider becoming ready resumes the preserved record immediately")
+SC.Persistence.reset()
+
+local retryProvider = {
+    testOnly = true, kind = "iso-companion", requests = 0,
+}
+function retryProvider:isActor() return false end
+function retryProvider:requestSpawn()
+    self.requests = self.requests + 1
+    return nil, "temporary native queue failure"
+end
+check(SC.Actor._setProviderForTests(retryProvider),
+    "retryable restore provider installed")
+local retryData = { SC_SaveV1 = { schema = SC.Identity.saveSchema, companions = {
+    ["sc-retry-backoff"] = {
+        id = "sc-retry-backoff", recruited = true,
+        identity = { forename = "Retry", surname = "Bounded" },
+        position = { x = 42, y = 42, z = 0 }, inventory = {},
+        skills = {}, vitals = {}, order = {},
+    },
+} } }
+local retryPlayer = { getModData = function() return retryData end }
+local retryStart = SC_TEST_CLOCK
+check(SC.Persistence.restore(retryPlayer), "retryable restore record imports")
+local retrySnapshot = SC.Persistence.pendingSnapshot()["sc-retry-backoff"]
+check(retryProvider.requests == 1 and retrySnapshot.attempts == 1
+        and retrySnapshot.nextAt == retryStart + 100,
+    "first retryable failure schedules the configured base delay")
+SC_TEST_CLOCK = retryStart + 99
+SC.Persistence.restorePulse(retryPlayer)
+check(retryProvider.requests == 1,
+    "retryable restore does not run before its deterministic deadline")
+SC_TEST_CLOCK = retryStart + 100
+SC.Persistence.restorePulse(retryPlayer)
+retrySnapshot = SC.Persistence.pendingSnapshot()["sc-retry-backoff"]
+check(retryProvider.requests == 2 and retrySnapshot.attempts == 2
+        and retrySnapshot.nextAt == retryStart + 300,
+    "retryable restore doubles its deterministic delay")
+SC_TEST_CLOCK = retryStart + 300
+SC.Persistence.restorePulse(retryPlayer)
+retrySnapshot = SC.Persistence.pendingSnapshot()["sc-retry-backoff"]
+check(retryProvider.requests == 3 and retrySnapshot.attempts == 3
+        and retrySnapshot.status == "quarantined" and retrySnapshot.nextAt == nil,
+    "retryable restore stops at the configured attempt bound")
+SC.Persistence.reset()
+getCell = priorGetCell
+restoreValues.restoreIntervalMs = savedRestoreInterval
+restoreValues.restoreMaximumBackoffMs = savedRestoreBackoff
+restoreValues.restoreMaximumAttempts = savedRestoreAttempts
 end
 runPersistenceIntegrityChecks()
 runPersistenceIntegrityChecks = nil
+
+function runFailedPollOwnershipChecks()
+local failedPollProvider = {
+    testOnly = true, kind = "iso-companion", directNative = true,
+    cancelCalls = 0,
+}
+function failedPollProvider:isActor() return false end
+function failedPollProvider:requestSpawn() return 76 end
+function failedPollProvider:pollSpawn() error("injected provider poll failure") end
+function failedPollProvider:cancelSpawn()
+    self.cancelCalls = self.cancelCalls + 1
+    if self.cancelCalls == 1 then return false, "injected cancellation failure" end
+    return true
+end
+check(SC.Actor._setProviderForTests(failedPollProvider),
+    "failed-poll ownership fixture selects explicit provider")
+local failedPollTicket = SC.Actor.beginSpawn(square, {
+    id = "sc-failed-poll-ticket", recruited = false,
+})
+local failedPollActor, failedPollStatus, failedPollReason = SC.Actor.pollSpawn(failedPollTicket)
+check(failedPollActor == nil
+        and failedPollStatus == "spawn_pending"
+        and string.find(tostring(failedPollReason), "cleanup is pending", 1, true) ~= nil
+        and failedPollProvider.cancelCalls == 1,
+    "provider exception plus failed cancellation retains the Lua spawn ticket")
+check(SC.Actor.cancelSpawn(failedPollTicket)
+        and failedPollProvider.cancelCalls == 2,
+    "retained spawn ticket releases only after a verified cancellation retry")
+local consumedPollActor, consumedPollReason = SC.Actor.pollSpawn(failedPollTicket)
+check(consumedPollActor == nil and consumedPollReason == "invalid spawn ticket",
+    "verified cancellation is the only point that releases Lua ticket ownership")
+end
+runFailedPollOwnershipChecks()
+runFailedPollOwnershipChecks = nil
 
 local deferredActor = setmetatable({
     __owned = false, __class = "IsoPlayer", data = {}, square = square,

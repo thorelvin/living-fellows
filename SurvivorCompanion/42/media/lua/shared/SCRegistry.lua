@@ -11,7 +11,9 @@ SC.Registry = SC.Registry or {}
 local registry = SC.Registry
 local recordsById = {}
 local idsByActor = {}
+local quarantinesByActor = {}
 local sequence = 0
+local assignmentFaultForTests = nil
 local workModes = { auto = true, idle = true, craft = true, build = true }
 local moveModes = { copy = true, walk = true, sneak = true, jog = true }
 local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true }
@@ -36,6 +38,25 @@ local orders = { follow = true, stay = true, guard = true, regroup = true,
 local combatStances = { passive = true, defensive = true, aggressive = true }
 local weaponPriorities = { best = true, melee = true, firearm = true, quiet = true }
 local followDistances = { [2] = true, [3] = true, [5] = true, [8] = true }
+local maximumSafeInteger = 9007199254740991
+
+local function finite(value)
+    return type(value) == "number" and value == value
+        and value ~= math.huge and value ~= -math.huge
+end
+
+local function boundedNumber(value, fallback, minimum, maximum, integer)
+    local numeric = tonumber(value)
+    if not finite(numeric) then numeric = fallback end
+    if not finite(numeric) then numeric = 0 end
+    numeric = math.max(minimum, math.min(maximum, numeric))
+    return integer == true and math.floor(numeric) or numeric
+end
+
+local function boundedText(value, maximumLength)
+    if type(value) ~= "string" or value == "" then return nil end
+    return string.sub(value, 1, maximumLength)
+end
 
 local function ownedCopy(value, label, maximumDepth, maximumValues, fallback)
     if value == nil then return fallback end
@@ -71,13 +92,73 @@ local function snapshotIdentityFields(data)
     return snapshot
 end
 
+local function assignmentAllowed(phase, target, key, value)
+    if type(assignmentFaultForTests) ~= "function" then return true, nil, false end
+    local ok, accepted, reason = pcall(assignmentFaultForTests,
+        phase, target, key, value)
+    if not ok then return false, tostring(accepted) end
+    -- Executable test seam for containers that accept __newindex without
+    -- retaining the value (proxy tables and engine-backed maps can do this).
+    -- Production callers never install this callback.
+    if accepted == "silent_reject" then return true, nil, true end
+    if accepted == false then
+        return false, tostring(reason or "injected registry assignment failure")
+    end
+    return true, nil, false
+end
+
+local function checkedAssignment(container, key, value, phase, target)
+    local allowed, faultReason, suppressWrite = assignmentAllowed(
+        phase, target, key, value)
+    if not allowed then return false, faultReason end
+    local ok, reason = pcall(function()
+        if not suppressWrite then container[key] = value end
+    end)
+    if not ok then return false, tostring(reason) end
+    local readOk, actual = pcall(function() return container[key] end)
+    if not readOk then
+        return false, "assignment read-back failed: " .. tostring(actual)
+    end
+    if actual ~= value then
+        return false, "assignment did not persist"
+    end
+    return true
+end
+
+local function requireAssignment(container, key, value, target)
+    local assigned, reason = checkedAssignment(container, key, value,
+        "commit", target)
+    if not assigned then error(target .. "." .. tostring(key) .. ": " .. tostring(reason)) end
+end
+
 local function restoreIdentityFields(data, snapshot)
     local failures = {}
     for _, key in ipairs({ "SC_Id", "SC_FactionId", "SC_FactionRole" }) do
-        local ok, reason = pcall(function() data[key] = snapshot[key] end)
+        local ok, reason = checkedAssignment(data, key, snapshot[key],
+            "rollback", "modData")
         if not ok then failures[#failures + 1] = key .. ": " .. tostring(reason) end
     end
     return #failures == 0, table.concat(failures, "; ")
+end
+
+local function quarantineActor(actor, data, id, committed, commitReason, rollbackReason)
+    local quarantine = {
+        actor = actor,
+        id = id,
+        reason = tostring(commitReason or "registry commit failed"),
+        rollbackReason = tostring(rollbackReason or "registry rollback failed"),
+        inactive = true,
+    }
+    committed.runtime = type(committed.runtime) == "table" and committed.runtime or {}
+    committed.runtime.inactive = true
+    committed.runtime.registryQuarantined = true
+    committed.runtime.registryQuarantineReason = quarantine.rollbackReason
+    quarantinesByActor[actor] = quarantine
+    pcall(function()
+        data.SC_RegistryQuarantined = true
+        data.SC_RegistryQuarantineReason = quarantine.rollbackReason
+    end)
+    return quarantine
 end
 
 local function isSurvivor(actor)
@@ -122,18 +203,18 @@ local function defaultState(source, recruited)
     local downtime = type(source.downtime) == "table" and source.downtime or {}
     local workMode = workModes[order.workMode] and order.workMode or "auto"
     local workTarget
-    if type(order.workTarget) == "table" and type(order.workTarget.x) == "number"
-        and type(order.workTarget.y) == "number"
-        and tonumber(order.workTarget.objectIndex) ~= nil then
+    if type(order.workTarget) == "table" and finite(tonumber(order.workTarget.x))
+        and finite(tonumber(order.workTarget.y))
+        and finite(tonumber(order.workTarget.objectIndex)) then
         workTarget = {
-            x = order.workTarget.x,
-            y = order.workTarget.y,
-            z = tonumber(order.workTarget.z) or 0,
-            objectIndex = math.floor(tonumber(order.workTarget.objectIndex)),
-            initialPlanks = math.max(0,
-                math.floor(tonumber(order.workTarget.initialPlanks) or 0)),
-            baseJobId = type(order.workTarget.baseJobId) == "string"
-                and order.workTarget.baseJobId or nil,
+            x = boundedNumber(order.workTarget.x, 0, -1000000, 1000000, false),
+            y = boundedNumber(order.workTarget.y, 0, -1000000, 1000000, false),
+            z = boundedNumber(order.workTarget.z, 0, -128, 128, false),
+            objectIndex = boundedNumber(order.workTarget.objectIndex,
+                0, 0, 1000000, true),
+            initialPlanks = boundedNumber(order.workTarget.initialPlanks,
+                0, 0, 10000, true),
+            baseJobId = boundedText(order.workTarget.baseJobId, 64),
             barricadeSide = order.workTarget.barricadeSide == "same" and "same"
                 or order.workTarget.barricadeSide == "opposite" and "opposite" or nil,
             kind = targetedWorkKinds[order.workTarget.kind]
@@ -147,8 +228,10 @@ local function defaultState(source, recruited)
         and SC.Config.get("orders", "defaultScavenge") == true
     local currentOrder = orders[order.current] and order.current
         or (orders[defaultOrder] and defaultOrder or (recruited and "follow" or "wander"))
-    local followDistance = tonumber(order.followDistance)
-        or tonumber(SC.Config.get("orders", "defaultFollowDistance")) or 3
+    local followDistance = finite(tonumber(order.followDistance))
+        and tonumber(order.followDistance)
+        or boundedNumber(SC.Config.get("orders", "defaultFollowDistance"),
+            3, 2, 8, false)
     if not followDistances[followDistance] then followDistance = 3 end
     local combatStance = combatStances[order.combatStance] and order.combatStance
         or SC.Config.get("orders", "defaultCombatStance")
@@ -195,8 +278,8 @@ local function defaultState(source, recruited)
                 or order.rideWithPlayer == true,
             movementMode = moveModes[order.movementMode] and order.movementMode
                 or (recruited == true and "copy" or "walk"),
-            movementModeVersion = tonumber(order.movementModeVersion)
-                or (recruited == true and 0 or 2),
+            movementModeVersion = boundedNumber(order.movementModeVersion,
+                recruited == true and 0 or 2, 0, 2, true),
             combatStance = combatStance,
             combatDoctrine = migratedDoctrine(order),
             holdFire = order.holdFire == true,
@@ -206,25 +289,27 @@ local function defaultState(source, recruited)
             returnOrder = orders[order.returnOrder] and order.returnOrder or nil,
             returnWorkMode = workModes[order.returnWorkMode] and order.returnWorkMode or nil,
         },
-        group = source.group,
+        group = boundedText(source.group, 64),
         personality = {
-            archetype = personality.archetype,
+            archetype = boundedText(personality.archetype, 48),
             profile = profile,
-            trust = tonumber(personality.trust) or 0,
-            bond = tonumber(personality.bond) or 0,
-            morale = tonumber(personality.morale) or 55,
-            stress = tonumber(personality.stress) or 12,
+            trust = boundedNumber(personality.trust, 0, 0, 100, false),
+            bond = boundedNumber(personality.bond, 0, 0, 100, false),
+            morale = boundedNumber(personality.morale, 55, 0, 100, false),
+            stress = boundedNumber(personality.stress, 12, 0, 100, false),
             memories = memories,
             background = background,
             care = care,
             reveals = reveals,
-            timeTogetherMs = math.max(0, tonumber(personality.timeTogetherMs) or 0),
-            lastEncouragedAt = math.max(0, tonumber(personality.lastEncouragedAt) or 0),
+            timeTogetherMs = boundedNumber(personality.timeTogetherMs,
+                0, 0, maximumSafeInteger, true),
+            lastEncouragedAt = boundedNumber(personality.lastEncouragedAt,
+                0, 0, maximumSafeInteger, true),
         },
         objectives = objectives,
         possessions = possessions,
         downtime = {
-            lastCompleted = downtime.lastCompleted,
+            lastCompleted = boundedText(downtime.lastCompleted, 64),
             facts = facts,
         },
     }
@@ -238,6 +323,9 @@ function registry.register(actor, record)
     local data, dataError = getModData(actor)
     if data == nil then
         return nil, dataError
+    end
+    if quarantinesByActor[actor] ~= nil then
+        return nil, "actor is quarantined after an incomplete registry rollback"
     end
 
     local identitySnapshot, snapshotReason = snapshotIdentityFields(data)
@@ -269,10 +357,10 @@ function registry.register(actor, record)
     end
 
     local recruited = record.recruited == true
-    local factionId = type(record.factionId) == "string" and record.factionId
-        or type(identitySnapshot.SC_FactionId) == "string" and identitySnapshot.SC_FactionId or nil
-    local factionRole = type(record.factionRole) == "string" and record.factionRole
-        or type(identitySnapshot.SC_FactionRole) == "string" and identitySnapshot.SC_FactionRole or nil
+    local factionId = boundedText(record.factionId, 96)
+        or boundedText(identitySnapshot.SC_FactionId, 96)
+    local factionRole = boundedText(record.factionRole, 32)
+        or boundedText(identitySnapshot.SC_FactionRole, 32)
     local state, stateReason = defaultState(record.state or record, recruited)
     if state == nil then return nil, "invalid registry state: " .. tostring(stateReason) end
     local identity, identityReason = ownedCopy(record.identity,
@@ -329,23 +417,30 @@ function registry.register(actor, record)
     end
 
     local ok, assignmentError, rollbackError = SC.Transaction.run(function()
-        data.SC_Id = id
-        data.SC_FactionId = factionId
-        data.SC_FactionRole = factionRole
-        recordsById[id] = committed
-        idsByActor[actor] = id
+        requireAssignment(data, "SC_Id", id, "modData")
+        requireAssignment(data, "SC_FactionId", factionId, "modData")
+        requireAssignment(data, "SC_FactionRole", factionRole, "modData")
+        requireAssignment(recordsById, id, committed, "recordsById")
+        requireAssignment(idsByActor, actor, id, "idsByActor")
         return true
     end, function()
-        recordsById[id] = nil
-        idsByActor[actor] = nil
+        local failures = {}
+        local recordsOk, recordsReason = checkedAssignment(recordsById, id, nil,
+            "rollback", "recordsById")
+        if not recordsOk then failures[#failures + 1] = "recordsById: " .. tostring(recordsReason) end
+        local idsOk, idsReason = checkedAssignment(idsByActor, actor, nil,
+            "rollback", "idsByActor")
+        if not idsOk then failures[#failures + 1] = "idsByActor: " .. tostring(idsReason) end
         local restored, rollbackReason = restoreIdentityFields(data, identitySnapshot)
-        if not restored then return false, rollbackReason end
+        if not restored then failures[#failures + 1] = rollbackReason end
+        if #failures > 0 then return false, table.concat(failures, "; ") end
         return true
     end)
     if not ok then
         local reason = "registry commit failed: " .. tostring(assignmentError)
         if rollbackError ~= nil then
             reason = reason .. "; registry rollback failed: " .. tostring(rollbackError)
+            quarantineActor(actor, data, id, committed, assignmentError, rollbackError)
         end
         return nil, reason
     end
@@ -376,6 +471,27 @@ end
 
 function registry.idOf(actor)
     return idsByActor[actor]
+end
+
+function registry.quarantineOf(actor)
+    return quarantinesByActor[actor]
+end
+
+function registry.quarantines()
+    local result = {}
+    for _, quarantine in pairs(quarantinesByActor) do
+        result[#result + 1] = quarantine
+    end
+    table.sort(result, function(a, b) return tostring(a.id) < tostring(b.id) end)
+    return result
+end
+
+function registry._setAssignmentFaultForTests(callback)
+    if callback ~= nil and type(callback) ~= "function" then
+        return false, "registry assignment fault must be a function or nil"
+    end
+    assignmentFaultForTests = callback
+    return true
 end
 
 function registry.living()
@@ -411,7 +527,9 @@ end
 
 function registry.isActive(actor, id)
     return validId(id) and idsByActor[actor] == id and recordsById[id] ~= nil
-        and recordsById[id].actor == actor
+        and recordsById[id].actor == actor and quarantinesByActor[actor] == nil
+        and not (type(recordsById[id].runtime) == "table"
+            and recordsById[id].runtime.inactive == true)
 end
 
 function registry.isValidId(id)
@@ -425,6 +543,17 @@ function registry.reset()
     end
     recordsById = {}
     idsByActor = {}
+    for actor in pairs(quarantinesByActor) do
+        local data = getModData(actor)
+        if data ~= nil then
+            pcall(function()
+                data.SC_RegistryQuarantined = nil
+                data.SC_RegistryQuarantineReason = nil
+            end)
+        end
+    end
+    quarantinesByActor = {}
+    assignmentFaultForTests = nil
 end
 
 return registry

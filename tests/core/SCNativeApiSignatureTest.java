@@ -26,6 +26,8 @@ public final class SCNativeApiSignatureTest {
         Class<?> survivorFactory = Class.forName("zombie.characters.SurvivorFactory");
         Class<?> survivorType = Class.forName("zombie.characters.SurvivorFactory$SurvivorType");
         Class<?> attackType = Class.forName("zombie.AttackType");
+        Class<?> inventoryItem = Class.forName("zombie.inventory.InventoryItem");
+        Class<?> handWeapon = Class.forName("zombie.inventory.types.HandWeapon");
         Class<?> bodyDamage = Class.forName("zombie.characters.BodyDamage.BodyDamage");
         Class<?> bodyPart = Class.forName("zombie.characters.BodyDamage.BodyPart");
         Class<?> movingObject = Class.forName("zombie.iso.IsoMovingObject");
@@ -64,6 +66,11 @@ public final class SCNativeApiSignatureTest {
                 "SCNativeCompanion reserved player index changed");
         require(companion.getDeclaredMethod("isLocalPlayer").getReturnType() == boolean.class,
                 "SCNativeCompanion non-local override changed");
+        require(companion.getDeclaredMethod("getCompanionActionGroupName").getReturnType()
+                        == String.class
+                        && companion.getDeclaredMethod("getCompanionActionStateName")
+                                .getReturnType() == String.class,
+                "SCNativeCompanion action-context diagnostics changed");
         require(companion.getDeclaredMethod("isMoving").getReturnType() == boolean.class
                         && companion.getDeclaredMethod("isPlayerMoving").getReturnType()
                                 == boolean.class
@@ -208,8 +215,30 @@ public final class SCNativeApiSignatureTest {
                 "AttemptAttack must take zero arguments");
         require(method(player, "DoAttack", float.class).getReturnType() == boolean.class,
                 "DoAttack(float) signature changed");
+        require(method(player, "CanAttack").getReturnType() == boolean.class,
+                "CanAttack() signature changed");
+        require(method(player, "setDoShove", boolean.class).getReturnType() == void.class
+                        && method(player, "isDoShove").getReturnType() == boolean.class,
+                "shove action-state signatures changed");
+        require(method(player, "setDoGrapple", boolean.class).getReturnType() == void.class
+                        && method(player, "isDoGrapple").getReturnType() == boolean.class,
+                "grapple action-state signatures changed");
         require(method(player, "setAttackType", attackType).getReturnType() == void.class,
                 "setAttackType(AttackType) signature changed");
+        require(method(player, "getAttackType").getReturnType() == attackType
+                        && method(player, "getUseHandWeapon").getReturnType() == handWeapon
+                        && method(player, "getPrimaryHandItem").getReturnType() == inventoryItem
+                        && method(player, "getSecondaryHandItem").getReturnType() == inventoryItem,
+                "native attack/equipment readback signatures changed");
+        require(method(player, "isPerformingAttackAnimation").getReturnType() == boolean.class
+                        && method(player, "clearHandToHandAttack").getReturnType() == void.class,
+                "native attack animation lifecycle signatures changed");
+        require(method(player, "setAuthorizedHandToHandAction", boolean.class).getReturnType() == void.class
+                        && method(player, "isAuthorizedHandToHandAction").getReturnType() == boolean.class,
+                "melee-action authorization signatures changed");
+        require(method(player, "setAuthorizedHandToHand", boolean.class).getReturnType() == void.class
+                        && method(player, "isAuthorizedHandToHand").getReturnType() == boolean.class,
+                "shove authorization signatures changed");
         require(method(player, "setAuthorizeShoveStomp", boolean.class).getReturnType() == void.class,
                 "setAuthorizeShoveStomp(boolean) signature changed");
         for (String constant : new String[] { "SHOVE", "STOMP", "SHOT", "MELEE_SWING" }) {

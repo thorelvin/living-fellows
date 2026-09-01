@@ -1754,31 +1754,109 @@ function Factions.export()
 end
 
 local function finiteNumber(value)
-    value = tonumber(value)
-    return value ~= nil and value == value and value ~= math.huge and value ~= -math.huge
+    return type(value) == "number" and value == value
+        and value ~= math.huge and value ~= -math.huge
 end
 
-local function validGroup(source, id)
+local function restoreFailure(path, detail)
+    return false, "invalid faction state at " .. tostring(path) .. ": " .. tostring(detail)
+end
+
+local function denseArray(value, path, minimum, maximum)
+    if type(value) ~= "table" then return restoreFailure(path, "expected dense array") end
+    local count, highest = 0, 0
+    for key in pairs(value) do
+        if type(key) ~= "number" or not finiteNumber(key) or key < 1
+            or key ~= math.floor(key) then
+            return restoreFailure(path .. "[" .. tostring(key) .. "]", "non-array key")
+        end
+        count, highest = count + 1, math.max(highest, key)
+    end
+    if highest ~= count then return restoreFailure(path, "sparse array") end
+    if minimum ~= nil and count < minimum then return restoreFailure(path, "too few entries") end
+    if maximum ~= nil and count > maximum then return restoreFailure(path, "too many entries") end
+    return true, count
+end
+
+local function validPosition(value, path, requireObject)
+    if type(value) ~= "table" then return restoreFailure(path, "expected position") end
+    if not finiteNumber(value.x) then return restoreFailure(path .. ".x", "expected finite number") end
+    if not finiteNumber(value.y) then return restoreFailure(path .. ".y", "expected finite number") end
+    if not finiteNumber(value.z or 0) then return restoreFailure(path .. ".z", "expected finite number") end
+    if requireObject == true and (not finiteNumber(value.objectIndex)
+        or tonumber(value.objectIndex) < 0
+        or tonumber(value.objectIndex) ~= math.floor(tonumber(value.objectIndex))) then
+        return restoreFailure(path .. ".objectIndex", "expected non-negative integer")
+    end
+    return true
+end
+
+local function validRecordArray(value, path, maximum)
+    local okay, countOrReason = denseArray(value, path, 0, maximum)
+    if not okay then return false, countOrReason end
+    for index = 1, countOrReason do
+        if type(value[index]) ~= "table" then
+            return restoreFailure(path .. "[" .. tostring(index) .. "]", "expected record")
+        end
+    end
+    return true, countOrReason
+end
+
+local function validGroup(source, id, path)
+    path = path or ("$.factions.groups[" .. tostring(id) .. "]")
     if type(source) ~= "table" or source.id ~= id
         or type(id) ~= "string" or #id < 8 or #id > 96
         or source.archetype ~= "barricaded_household"
         or not lifecycleValues[source.lifecycle]
         or not standingValues[source.standing]
-        or type(source.house) ~= "table" or type(source.house.anchor) ~= "table"
-        or not finiteNumber(source.house.anchor.x) or not finiteNumber(source.house.anchor.y)
-        or not finiteNumber(source.house.anchor.z or 0)
-        or type(source.house.bounds) ~= "table"
-        or not finiteNumber(source.house.bounds.x1) or not finiteNumber(source.house.bounds.y1)
-        or not finiteNumber(source.house.bounds.x2) or not finiteNumber(source.house.bounds.y2)
-        or tonumber(source.house.bounds.x1) > tonumber(source.house.bounds.x2)
-        or tonumber(source.house.bounds.y1) > tonumber(source.house.bounds.y2)
-        or type(source.house.interior) ~= "table" or #source.house.interior < 1
-        or type(source.house.openings) ~= "table"
-        or type(source.members) ~= "table" or #source.members < 1 or #source.members > 3 then
-        return false
+        or type(source.house) ~= "table" then
+        return restoreFailure(path, "invalid group header")
     end
+    local okay, reason = validPosition(source.house.anchor, path .. ".house.anchor", false)
+    if not okay then return false, reason end
+    if type(source.house.bounds) ~= "table" then
+        return restoreFailure(path .. ".house.bounds", "expected bounds")
+    end
+    for _, field in ipairs({ "x1", "y1", "x2", "y2" }) do
+        if not finiteNumber(source.house.bounds[field]) then
+            return restoreFailure(path .. ".house.bounds." .. field, "expected finite number")
+        end
+    end
+    if tonumber(source.house.bounds.x1) > tonumber(source.house.bounds.x2)
+        or tonumber(source.house.bounds.y1) > tonumber(source.house.bounds.y2) then
+        return restoreFailure(path .. ".house.bounds", "inverted bounds")
+    end
+    okay, reason = denseArray(source.house.interior, path .. ".house.interior", 1, 16384)
+    if not okay then return false, reason end
+    for index = 1, reason do
+        local pointOkay, pointReason = validPosition(source.house.interior[index],
+            path .. ".house.interior[" .. tostring(index) .. "]", false)
+        if not pointOkay then return false, pointReason end
+    end
+    local openingCount
+    okay, openingCount = denseArray(source.house.openings, path .. ".house.openings", 0, 4096)
+    if not okay then return false, openingCount end
+    for index = 1, openingCount do
+        local opening = source.house.openings[index]
+        local openingPath = path .. ".house.openings[" .. tostring(index) .. "]"
+        local openingOkay, openingReason = validPosition(opening, openingPath, true)
+        if not openingOkay then return false, openingReason end
+        if opening.kind ~= "door" and opening.kind ~= "window" then
+            return restoreFailure(openingPath .. ".kind", "invalid opening kind")
+        end
+    end
+    if source.house.primaryEntry ~= nil then
+        okay, reason = validPosition(source.house.primaryEntry,
+            path .. ".house.primaryEntry", true)
+        if not okay then return false, reason end
+    end
+    local memberCount
+    okay, memberCount = denseArray(source.members, path .. ".members", 1, 3)
+    if not okay then return false, memberCount end
     local memberKeys, actorIds = {}, {}
-    for _, member in ipairs(source.members) do
+    for index = 1, memberCount do
+        local member = source.members[index]
+        local memberPath = path .. ".members[" .. tostring(index) .. "]"
         if type(member) ~= "table" or type(member.key) ~= "string" or memberKeys[member.key]
             or type(member.identity) ~= "table"
             or (member.actorId ~= nil and (not SC.Registry
@@ -1786,64 +1864,152 @@ local function validGroup(source, id)
                 or not SC.Registry.isValidId(member.actorId)))
             or (member.actorId ~= nil and actorIds[member.actorId])
             or (member.hibernated == true and type(member.snapshot) ~= "table") then
-            return false
+            return restoreFailure(memberPath, "invalid or duplicate member")
         end
         memberKeys[member.key] = true
         if member.actorId then actorIds[member.actorId] = true end
     end
-    if type(source.jobs) ~= "table" or #source.jobs > 256
-        or type(source.offenses) ~= "table" or #source.offenses > 64
-        or type(source.history) ~= "table" or #source.history > 256 then
-        return false
+    okay, reason = validRecordArray(source.jobs, path .. ".jobs", 256)
+    if not okay then return false, reason end
+    okay, reason = validRecordArray(source.offenses, path .. ".offenses", 64)
+    if not okay then return false, reason end
+    okay, reason = validRecordArray(source.history, path .. ".history", 256)
+    if not okay then return false, reason end
+    if type(source.request) ~= "table" then
+        return restoreFailure(path .. ".request", "expected request")
     end
-    if SC.FactionLife and type(SC.FactionLife.validate) == "function"
-        and SC.FactionLife.validate(source) ~= true then return false end
-    if SC.FactionContracts and type(SC.FactionContracts.validate) == "function"
-        and SC.FactionContracts.validate(source) ~= true then return false end
-    if SC.FactionRecruitment and type(SC.FactionRecruitment.validate) == "function"
-        and SC.FactionRecruitment.validate(source) ~= true then return false end
+    for _, field in ipairs({ "required", "reward" }) do
+        okay, reason = validRecordArray(source.request[field],
+            path .. ".request." .. field, 64)
+        if not okay then return false, reason end
+    end
+    if SC.FactionLife and type(SC.FactionLife.validate) == "function" then
+        local called, accepted = pcall(SC.FactionLife.validate, source)
+        if not called or accepted ~= true then
+            return restoreFailure(path .. ".life", called
+                and "invalid faction-life extension" or accepted)
+        end
+    end
+    if SC.FactionContracts and type(SC.FactionContracts.validate) == "function" then
+        local called, accepted = pcall(SC.FactionContracts.validate, source)
+        if not called or accepted ~= true then
+            return restoreFailure(path .. ".social", called
+                and "invalid faction-contract extension" or accepted)
+        end
+    end
+    if SC.FactionRecruitment and type(SC.FactionRecruitment.validate) == "function" then
+        local called, accepted = pcall(SC.FactionRecruitment.validate, source)
+        if not called or accepted ~= true then
+            return restoreFailure(path .. ".recruitment", called
+                and "invalid faction-recruitment extension" or accepted)
+        end
+    end
     return true
+end
+
+local function captureRestoreState()
+    return {
+        groups = groups, order = groupOrder, members = memberToGroup,
+        sequence = sequence, worldDay = lastWorldSpawnDay,
+        checkDay = lastProductionCheckDay,
+        houseSearch = productionHouseSearch,
+        queue = spawnQueue, ticket = spawnTicket, entry = spawnEntry,
+        restored = restored,
+        observed = observedContainers, attacks = recentPlayerAttacks,
+        hookInstalled = hitHookInstalled, randomSequence = fallbackRandomSequence,
+        nextProductionAt = Factions._nextProductionAt,
+    }
+end
+
+local function reinstateRestoreState(previous)
+    groups, groupOrder, memberToGroup = previous.groups, previous.order, previous.members
+    sequence, lastWorldSpawnDay, lastProductionCheckDay = previous.sequence,
+        previous.worldDay, previous.checkDay
+    productionHouseSearch = previous.houseSearch
+    spawnQueue, spawnTicket, spawnEntry = previous.queue, previous.ticket, previous.entry
+    restored = previous.restored
+    observedContainers, recentPlayerAttacks = previous.observed, previous.attacks
+    hitHookInstalled, fallbackRandomSequence = previous.hookInstalled, previous.randomSequence
+    Factions._nextProductionAt = previous.nextProductionAt
+end
+
+local function cancelRestoreSpawn(ticket)
+    if ticket == nil then return true end
+    if not SC.Actor or type(SC.Actor.cancelSpawn) ~= "function" then
+        return false, "faction spawn cancellation unavailable"
+    end
+    local called, cancelled, reason = pcall(SC.Actor.cancelSpawn, ticket)
+    if not called or cancelled ~= true then
+        return false, "faction spawn cancellation failed: "
+            .. tostring(called and (reason or cancelled) or cancelled)
+    end
+    return true
+end
+
+local function commitRestoredTransients()
+    productionHouseSearch = nil
+    spawnQueue, spawnTicket, spawnEntry = {}, nil, nil
+    observedContainers = setmetatable({}, { __mode = "k" })
+    recentPlayerAttacks = {}
+    fallbackRandomSequence = 0
+    Factions._nextProductionAt = nil
 end
 
 function Factions.restore(document)
     local candidateGroups, candidateOrder, candidateMembers = {}, {}, {}
     local candidateSequence, candidateWorldDay, candidateCheckDay = 0, -math.huge, -math.huge
     if document == nil then
-        if spawnTicket and SC.Actor and type(SC.Actor.cancelSpawn) == "function" then
-            local called, cancelled, reason = pcall(SC.Actor.cancelSpawn, spawnTicket)
-            if not called or cancelled == false then
-                return false, "faction spawn cancellation failed: "
-                    .. tostring(called and reason or cancelled)
-            end
-        end
+        local previous = captureRestoreState()
+        local cancelled, cancelReason = cancelRestoreSpawn(previous.ticket)
+        if not cancelled then return false, cancelReason end
         groups, groupOrder, memberToGroup = candidateGroups, candidateOrder, candidateMembers
-        spawnQueue, spawnTicket, spawnEntry = {}, nil, nil
-        productionHouseSearch = nil
         sequence, lastWorldSpawnDay, lastProductionCheckDay = 0, -math.huge, -math.huge
         restored = true
+        commitRestoredTransients()
         return true, "no_faction_state"
     end
     if type(document) ~= "table" or document.schema ~= SCHEMA or type(document.groups) ~= "table" then
         return false, "invalid_faction_state"
     end
-    if type(document.order) ~= "table" or #document.order > 128 then
-        return false, "invalid_faction_order"
+    local sourceOrder, copyReason = stableCopy(document.order, 3, { count = 256 })
+    if sourceOrder == nil then
+        return restoreFailure("$.factions.order", copyReason or "copy failed")
     end
-    candidateSequence = math.max(0, math.floor(tonumber(document.sequence) or 0))
-    candidateWorldDay = tonumber(document.lastWorldSpawnDay) or -math.huge
-    candidateCheckDay = tonumber(document.lastProductionCheckDay) or -math.huge
-    local sourceOrder = document.order
+    local orderOkay, orderCount = denseArray(sourceOrder, "$.factions.order", 0, 128)
+    if not orderOkay then return false, orderCount end
+    if not finiteNumber(document.sequence) or tonumber(document.sequence) < 0 then
+        return restoreFailure("$.factions.sequence", "expected non-negative finite number")
+    end
+    if document.lastWorldSpawnDay ~= nil and not finiteNumber(document.lastWorldSpawnDay) then
+        return restoreFailure("$.factions.lastWorldSpawnDay", "expected finite number")
+    end
+    if document.lastProductionCheckDay ~= nil
+        and not finiteNumber(document.lastProductionCheckDay) then
+        return restoreFailure("$.factions.lastProductionCheckDay", "expected finite number")
+    end
+    candidateSequence = math.max(0, math.floor(tonumber(document.sequence)))
+    candidateWorldDay = document.lastWorldSpawnDay ~= nil
+        and tonumber(document.lastWorldSpawnDay) or -math.huge
+    candidateCheckDay = document.lastProductionCheckDay ~= nil
+        and tonumber(document.lastProductionCheckDay) or -math.huge
     local seenGroups, seenActors = {}, {}
-    for _, id in ipairs(sourceOrder) do
+    for orderIndex = 1, orderCount do
+        local id = sourceOrder[orderIndex]
         local source = document.groups[id]
         -- Sandbox maximums govern future spawns only. Lowering the setting
         -- must never prune already-persistent households on the next save.
         if type(id) ~= "string" or seenGroups[id] or source == nil then
-            return false, "invalid or duplicate faction order entry"
+            return restoreFailure("$.factions.order[" .. tostring(orderIndex) .. "]",
+                "missing or duplicate group id")
         end
-        local group, copyReason = stableCopy(source, 14, { count = 131072 })
-        if group == nil then return false, copyReason end
-        if validGroup(group, id) then
+        local group, groupCopyReason = stableCopy(source, 14, { count = 131072 })
+        if group == nil then
+            return restoreFailure("$.factions.groups[" .. tostring(id) .. "]",
+                groupCopyReason or "copy failed")
+        end
+        local groupOkay, groupReason = validGroup(group, id,
+            "$.factions.groups[" .. tostring(id) .. "]")
+        if groupOkay then
             local unique = true
             for _, member in ipairs(group and group.members or {}) do
                 if member.actorId and seenActors[member.actorId] then unique = false break end
@@ -1851,26 +2017,36 @@ function Factions.restore(document)
             if unique then
                 seenGroups[id] = true
                 candidateGroups[id], candidateOrder[#candidateOrder + 1] = group, id
-                if not requestDefinitions[group.shortageKind]
-                    or type(group.request) ~= "table" then
-                    group.shortageKind = requestDefinitions[group.shortageKind]
-                        and group.shortageKind or requestKinds[((sequence + #group.members)
+                if not requestDefinitions[group.shortageKind] then
+                    group.shortageKind = requestDefinitions[group.request.kind]
+                        and group.request.kind or requestKinds[((candidateSequence + #group.members)
                             % #requestKinds) + 1]
-                    group.request = makeRequest(group)
                 end
                 if SC.FactionLife and type(SC.FactionLife.initialize) == "function" then
-                    SC.FactionLife.initialize(group)
+                    local called, initialized = pcall(SC.FactionLife.initialize, group)
+                    if not called or initialized == nil then
+                        return restoreFailure("$.factions.groups[" .. tostring(id) .. "].life",
+                            called and "initialization rejected" or initialized)
+                    end
                     group.life.nextPulseAt = nil
                     group.life.representative.requested = false
                     group.life.representative.state = "inside"
                     group.life.representative.memberKey = nil
                 end
                 if SC.FactionContracts and type(SC.FactionContracts.initialize) == "function" then
-                    SC.FactionContracts.initialize(group)
+                    local called, initialized = pcall(SC.FactionContracts.initialize, group)
+                    if not called or initialized == nil then
+                        return restoreFailure("$.factions.groups[" .. tostring(id) .. "].social",
+                            called and "initialization rejected" or initialized)
+                    end
                     group.social.nextPulseAt = nil
                 end
                 if SC.FactionRecruitment and type(SC.FactionRecruitment.initialize) == "function" then
-                    SC.FactionRecruitment.initialize(group)
+                    local called, initialized = pcall(SC.FactionRecruitment.initialize, group)
+                    if not called or initialized == nil then
+                        return restoreFailure("$.factions.groups[" .. tostring(id)
+                            .. "].recruitment", called and "initialization rejected" or initialized)
+                    end
                 end
                 for _, member in ipairs(group.members or {}) do
                     member.spawnQueued, member.waking = nil, nil
@@ -1881,42 +2057,59 @@ function Factions.restore(document)
                         candidateMembers[member.actorId] = id
                     end
                 end
-            else return false, "duplicate faction actor id" end
+            else
+                return restoreFailure("$.factions.groups[" .. tostring(id) .. "].members",
+                    "actor id also belongs to an earlier group")
+            end
         else
-            return false, "invalid faction group: " .. tostring(id)
+            return false, groupReason
         end
     end
     for id in pairs(document.groups) do
-        if not seenGroups[id] then return false, "unordered faction group: " .. tostring(id) end
-    end
-    if spawnTicket and SC.Actor and type(SC.Actor.cancelSpawn) == "function" then
-        local called, cancelled, reason = pcall(SC.Actor.cancelSpawn, spawnTicket)
-        if not called or cancelled == false then
-            return false, "faction spawn cancellation failed: "
-                .. tostring(called and reason or cancelled)
+        if type(id) ~= "string" then
+            return restoreFailure("$.factions.groups[" .. tostring(id) .. "]",
+                "group map key must be a string")
+        end
+        if not seenGroups[id] then
+            return restoreFailure("$.factions.groups[" .. tostring(id) .. "]",
+                "unordered group is absent from order")
         end
     end
-    local previous = {
-        groups = groups, order = groupOrder, members = memberToGroup,
-        sequence = sequence, worldDay = lastWorldSpawnDay,
-        checkDay = lastProductionCheckDay, restored = restored,
-    }
+    local previous = captureRestoreState()
+    local world = SC.FactionWorld
+    if world and type(world.reconcile) == "function"
+        and type(world.transaction) ~= "function" then
+        return false, "faction world transaction unavailable"
+    end
     groups, groupOrder, memberToGroup = candidateGroups, candidateOrder, candidateMembers
     sequence, lastWorldSpawnDay, lastProductionCheckDay = candidateSequence,
         candidateWorldDay, candidateCheckDay
-    spawnQueue, spawnTicket, spawnEntry = {}, nil, nil
-    productionHouseSearch = nil
     restored = true
-    if SC.FactionWorld and type(SC.FactionWorld.reconcile) == "function" then
-        local called, reason = pcall(SC.FactionWorld.reconcile)
-        if not called then
-            groups, groupOrder, memberToGroup = previous.groups, previous.order, previous.members
-            sequence, lastWorldSpawnDay, lastProductionCheckDay = previous.sequence,
-                previous.worldDay, previous.checkDay
-            restored = previous.restored
-            return false, "faction reconcile failed: " .. tostring(reason)
+
+    local function reconcileAndCancel()
+        if world and type(world.reconcile) == "function" then
+            local called, reconciled, reason = pcall(world.reconcile)
+            if not called or reconciled ~= true then
+                return false, "faction reconcile failed: "
+                    .. tostring(called and (reason or reconciled) or reconciled)
+            end
         end
+        return cancelRestoreSpawn(previous.ticket)
     end
+
+    local committed, commitReason
+    if world and type(world.reconcile) == "function" then
+        local called
+        called, committed, commitReason = pcall(world.transaction, reconcileAndCancel)
+        if not called then committed, commitReason = false, committed end
+    else
+        committed, commitReason = reconcileAndCancel()
+    end
+    if committed ~= true then
+        reinstateRestoreState(previous)
+        return false, tostring(commitReason or "faction restore transaction failed")
+    end
+    commitRestoredTransients()
     return true, #groupOrder
 end
 

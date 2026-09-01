@@ -38,7 +38,8 @@ for task in ("decision", "vitals", "vehicle", "restore", "spawn-completion",
     require(f'"{task}"' in runtime, f"central scheduler task missing: {task}")
 require('Scheduler.register("debug-spawn"' not in runtime,
         "automatic one-minute debug spawning must remain removed from runtime")
-require("SC.Decision.resetAll" in runtime, "lifecycle reset must clear Decision state")
+require('resetModule("decision", SC.Decision, "resetAll")' in runtime,
+        "lifecycle reset must clear and verify Decision state")
 require('SC.Diagnostics.guard("decision", record.id' in runtime
         and 'SC.Diagnostics.guard("vitals", record.id' in runtime,
         "actor-specific runtime work lacks per-companion circuit breakers")
@@ -71,12 +72,20 @@ for module in ("SCSenses", "SCNavigation", "SCCombat", "SCMedical", "SCEncounter
 
 native = (CLIENT / "SCNativeActions.lua").read_text(encoding="utf-8")
 navigation = (CLIENT / "SCNavigation.lua").read_text(encoding="utf-8")
-require("setDoShove" not in native, "nonexistent B42 setDoShove call regressed")
+native_exposure = (PROJECT / "bridge" / "src" / "main" / "java"
+                   / "survivorcompanion" / "bridge" / "SCExposure.java").read_text(
+                       encoding="utf-8")
+require("setDoShove" in native and "isDoShove" in native
+        and "setDoGrapple" in native and "isDoGrapple" in native,
+        "native attack adapter must select the verified B42 hand-to-hand state")
 require("AttemptAttack" not in native, "AttemptAttack fallback must not receive guessed arguments")
 for token in ("setAttackType", "DoAttack", "SHOVE", "STOMP", "SHOT", "MELEE_SWING"):
     require(token in native, f"native attack adapter missing {token}")
+require('Class.forName("zombie.AttackType"' in native_exposure
+        and 'rawget.invoke(environment, "AttackType")' in native_exposure,
+        "native bridge must expose the AttackType enum absent from stock 42.20.4 Kahlua")
 require('action == "shove" or action == "stomp"' in native,
-        "shove/stomp authorization is not scoped")
+        "shove/stomp action-state selection is not scoped")
 require("room_sweep_facing_started" in native and "faceLocationF" in native
         and "isTurning" in native, "verified human room sweep is missing")
 for action in ("loot_container", "kneel_treat", "rip_clothing_for_bandage",
@@ -155,7 +164,8 @@ require("lastStableSnapshot" in persistence and "quarantined companion" in persi
 require("record.vehicle.stored == false" in persistence and "importNativeSeat" in persistence,
         "native and virtual vehicle save states are not distinguished")
 require('{ field = "community", owner = SC.Community' in persistence
-        and "pcall(definition.owner.restore" in persistence,
+        and "SC.Call.protected(" in persistence
+        and "definition.owner.restore, restoreInput" in persistence,
         "community state is not persisted and restored")
 
 commands = (CLIENT / "SCCommands.lua").read_text(encoding="utf-8")
@@ -402,6 +412,10 @@ require("public boolean isPlayerMoving()" in native_companion
         and "bridgePathActive" in native_companion
         and "return behavior.shouldBeMoving()" not in native_companion,
         "native companion does not drive the complete player locomotion animation state")
+require("public String getCompanionActionGroupName()" in native_companion
+        and "public String getCompanionActionStateName()" in native_companion
+        and "getActionContext().getCurrentStateName()" in native_companion,
+        "native companion lacks Kahlua-safe ActionContext diagnostics")
 require('"actor_state_busy:" .. tostring(blocker)' in native
         and 'movementStateBlocker(actor)' in native
         and '"action_animation_state"' in gameplay_util,

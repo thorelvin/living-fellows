@@ -17,6 +17,12 @@ local Harness = {
     phaseStartedAt = 0,
     finished = false,
     autoloadIssued = false,
+    autoloadConfirmed = false,
+    autoloadConfirmations = 0,
+    autoloadModal = nil,
+    autoloadPromptSignatures = {},
+    nextAutoloadConfirmAt = 0,
+    autoloadIssuedAt = 0,
     observedRoomStatuses = {},
 }
 
@@ -101,6 +107,45 @@ end
 local function setPhase(name, current)
     Harness.phase = name
     Harness.phaseStartedAt = current or nowMs()
+end
+
+-- Keep a production actor registered and healthy while preventing the normal
+-- decision scheduler from racing deterministic movement/combat probes. The
+-- action supervisor is the same ownership boundary used by real gameplay.
+local function beginHarnessControl(actor, action, timeoutMs)
+    local SC = SurvivorCompanion
+    local supervisor = SC and SC.ActionSupervisor
+    if type(supervisor) ~= "table" or type(supervisor.begin) ~= "function" then
+        return nil, "action supervisor unavailable"
+    end
+    if type(supervisor.cancel) == "function" then
+        pcall(supervisor.cancel, actor, "live_harness_control", nil, true)
+    end
+    local priority = supervisor.Priority and supervisor.Priority.EXTERNAL or 1000
+    return supervisor.begin(actor, {
+        owner = "live_harness",
+        action = action,
+        priority = priority,
+        phase = "approaching",
+        interruptible = false,
+        ignoreRetry = true,
+        deadlines = { approaching = timeoutMs or 15000 },
+        allowedMovementPhases = { approaching = true },
+    })
+end
+
+local function endHarnessControl(token, reason)
+    if type(token) ~= "table" then return end
+    local supervisor = SurvivorCompanion and SurvivorCompanion.ActionSupervisor
+    if type(supervisor) ~= "table" then return end
+    local completed = false
+    if type(supervisor.complete) == "function" then
+        local ok, result = pcall(supervisor.complete, token, reason or "probe_complete")
+        completed = ok and result == true
+    end
+    if not completed and type(supervisor.cancel) == "function" then
+        pcall(supervisor.cancel, token.actor, reason or "probe_cleanup", nil, true)
+    end
 end
 
 local function getPlayerSafe()
@@ -325,13 +370,15 @@ local function beginRoomProbe(current)
         return
     end
     SC.Navigation.reset(Harness.actor)
-    local moveIssued, moveReason = SC.Commands.issue(id, "move_to",
-        { square = destination }, Harness.player)
-    if moveIssued ~= true then
-        result("FAIL", "real_room_entry_sweep", "move command rejected: " .. clean(moveReason))
+    local control, controlReason = beginHarnessControl(
+        Harness.actor, "room_entry_probe", 12000)
+    if control == nil then
+        result("FAIL", "real_room_entry_sweep",
+            "control ownership rejected: " .. clean(controlReason))
         setPhase("awareness", nowMs())
         return
     end
+    Harness.roomSupervisorToken = control
     Harness.roomDestination = destination
     Harness.roomSnapshot = SC.Senses.snapshot(Harness.actor, Harness.player, {})
     Harness.roomProbeObservedAt = nil
@@ -349,18 +396,27 @@ local function runRoomProbe(current)
         snapshot = Harness.roomSnapshot,
         urgent = false,
         movementPriority = 100,
+        supervisorToken = Harness.roomSupervisorToken,
     })
     status = tostring(status or "")
     Harness.observedRoomStatuses[status] = true
     if string.find(status, "checking_room_entry", 1, true)
         and Harness.roomProbeObservedAt == nil then Harness.roomProbeObservedAt = nowMs() end
     if accepted == false and not string.find(status, "checking_room_entry", 1, true) then
+        SC.Navigation.reset(Harness.actor)
+        pcall(SC.Actor.stop, Harness.actor)
+        endHarnessControl(Harness.roomSupervisorToken, "room_probe_failed")
+        Harness.roomSupervisorToken = nil
         result("FAIL", "real_room_entry_sweep", status)
         setPhase("awareness", current)
         return
     end
     local seen = Harness.observedRoomStatuses
     if seen.checking_room_entry_left and seen.checking_room_entry_right then
+        SC.Navigation.reset(Harness.actor)
+        pcall(SC.Actor.stop, Harness.actor)
+        endHarnessControl(Harness.roomSupervisorToken, "room_probe_complete")
+        Harness.roomSupervisorToken = nil
         result("PASS", "real_room_entry_sweep",
             "observed threshold pause plus left and right native-facing requests")
         setPhase("awareness", current)
@@ -374,7 +430,7 @@ local function runRoomProbe(current)
         local navigation = SC.Navigation.peek(Harness.actor) or {}
         local ax, ay, az = position(Harness.actor)
         local dx, dy, dz = position(Harness.roomDestination)
-        result("FAIL", "real_room_entry_sweep", "timeout; last_status=" .. status
+        local detail = "timeout; last_status=" .. status
             .. "; observed=" .. table.concat(observed, ",")
             .. "; internal_now=" .. tostring(SC.GameplayUtil.nowMs())
             .. "; harness_now=" .. tostring(probeNow)
@@ -383,7 +439,12 @@ local function runRoomProbe(current)
             .. "; key=" .. tostring(navigation.roomEntryKey)
             .. "; path_index=" .. tostring(navigation.pathIndex)
             .. "; actor=" .. table.concat({ tostring(ax), tostring(ay), tostring(az) }, ":")
-            .. "; destination=" .. table.concat({ tostring(dx), tostring(dy), tostring(dz) }, ":"))
+            .. "; destination=" .. table.concat({ tostring(dx), tostring(dy), tostring(dz) }, ":")
+        SC.Navigation.reset(Harness.actor)
+        pcall(SC.Actor.stop, Harness.actor)
+        endHarnessControl(Harness.roomSupervisorToken, "room_probe_timeout")
+        Harness.roomSupervisorToken = nil
+        result("FAIL", "real_room_entry_sweep", detail)
         setPhase("awareness", current)
     end
 end
@@ -454,6 +515,160 @@ local function cleanupTestZombie(zombie)
     pcall(function() zombie:removeFromSquare() end)
 end
 
+local function classLabel(value)
+    if value == nil then return "none" end
+    if type(getClassSimpleName) == "function" then
+        local ok, name = pcall(getClassSimpleName, value)
+        if ok and name ~= nil and tostring(name) ~= "" then return tostring(name) end
+    end
+    return SurvivorCompanion.GameplayUtil.objectLabel(value)
+end
+
+-- Keep a complete transition snapshot when the real IsoPlayer attack graph
+-- rejects a request. attackStarted alone only proves CombatManager accepted
+-- the pulse; these values identify the precise ActionContext gate which kept
+-- the request from becoming a visible melee animation.
+local function combatDiagnosticSnapshot(actor, target)
+    local utility = SurvivorCompanion.GameplayUtil
+    local function read(methodName, ...)
+        local value, ok = utility.call(actor, methodName, ...)
+        if not ok then return "unavailable" end
+        return value
+    end
+    local function observed(value, ok)
+        if not ok then return "unavailable" end
+        return value
+    end
+    local groupName = read("getCompanionActionGroupName")
+    local actionState = read("getCompanionActionStateName")
+    return table.concat({
+        "group=" .. clean(groupName),
+        "action_state=" .. clean(actionState),
+        "next=" .. clean(read("getCompanionNextActionStateName")),
+        "can_melee=" .. clean(read("canCompanionTransitionToMelee")),
+        "initiate_var=" .. clean(read("getVariableBoolean", "initiateAttack")),
+        "initiate=" .. clean(read("isInitiateAttack")),
+        "post=" .. clean(read("getCompanionPostUpdateDiagnostic")),
+        "weapon_var=" .. clean(read("getVariableString", "Weapon")),
+        "ranged_var=" .. clean(read("getVariableBoolean", "rangedWeapon")),
+        "shove_var=" .. clean(read("getVariableBoolean", "bDoShove")),
+        "started=" .. clean(read("isAttackStarted")),
+        "performing=" .. clean(read("isPerformingAttackAnimation")),
+        "anim_updating=" .. clean(read("isAnimationUpdatingThisFrame")),
+        -- Why a started attack may still fail to become a resolved swing: the
+        -- actor's root state, hand-to-hand/floor intent, any native collision,
+        -- and whether the intended target actually took damage.
+        "state=" .. clean(read("getCurrentState")),
+        "do_shove=" .. clean(read("isDoShove")),
+        "aim_floor=" .. clean(read("isAimAtFloor")),
+        "col_vehicle=" .. clean(read("isCollidedWithVehicle")),
+        "col_door=" .. clean(read("isCollidedWithDoor")),
+        "col_object=" .. clean(read("getCollidedObject")),
+        "target_health=" .. clean(observed(utility.call(target, "getHealth"))),
+        "target_dead=" .. clean(observed(utility.call(target, "isDead"))),
+        "group_control=" .. clean(Harness.combatActionGroupControl or "none"),
+    }, ",")
+end
+
+local function finishCombatProbe(current, status, detail)
+    endHarnessControl(Harness.combatSupervisorToken, "combat_probe_complete")
+    Harness.combatSupervisorToken = nil
+    check("direct_native_melee_attack", status == true, detail)
+    cleanupTestZombie(Harness.testZombie)
+    Harness.testZombie = nil
+    Harness.combatWeapon = nil
+    Harness.combatLastReason = nil
+    Harness.combatAnimationObserved = nil
+    Harness.combatStartedAt = nil
+    Harness.combatStartSnapshot = nil
+    Harness.combatActionGroupControl = nil
+    setPhase("faction_begin", current)
+end
+
+local function probeNativeCombat(current)
+    if current - Harness.phaseStartedAt < 300 then return end
+    if current < (Harness.combatNextAttemptAt or 0) then return end
+    Harness.combatNextAttemptAt = current + 125
+    local SC = SurvivorCompanion
+    local accepted, reason = SC.Actor.setMovement(Harness.actor, "walk", {
+        action = "attack_melee",
+        target = Harness.testZombie,
+        weapon = Harness.combatWeapon,
+        urgent = true,
+        emergency = true,
+        supervisorToken = Harness.combatSupervisorToken,
+    })
+    Harness.combatLastReason = reason
+    if accepted == true then
+        local stateOk, started = SC.GameplayUtil.call(Harness.actor, "isAttackStarted")
+        local primary, primaryOk = SC.GameplayUtil.call(
+            Harness.actor, "getPrimaryHandItem")
+        local secondary, secondaryOk = SC.GameplayUtil.call(
+            Harness.actor, "getSecondaryHandItem")
+        local attackingWeapon, weaponOk = SC.GameplayUtil.call(
+            Harness.actor, "getUseHandWeapon")
+        local typeValue, typeOk = SC.GameplayUtil.call(Harness.actor, "getAttackType")
+        local typeActive = typeOk and typeValue ~= nil and tostring(typeValue) ~= ""
+        if not stateOk or started ~= true or not primaryOk
+            or primary ~= Harness.combatWeapon or not secondaryOk
+            or secondary ~= Harness.combatWeapon or not weaponOk
+            or attackingWeapon ~= Harness.combatWeapon or not typeActive then
+            finishCombatProbe(current, false,
+                "adapter=" .. clean(reason)
+                    .. " attack_started=" .. tostring(started)
+                    .. " primary=" .. tostring(primary == Harness.combatWeapon)
+                    .. " secondary=" .. tostring(secondary == Harness.combatWeapon)
+                    .. " use_weapon=" .. tostring(attackingWeapon == Harness.combatWeapon)
+                    .. " attack_type=" .. clean(typeValue))
+            return
+        end
+        -- attackStarted is set synchronously by CombatManager.pressedAttack().
+        -- Do not call that a real sword swing until the ordinary IsoPlayer
+        -- animation graph consumes the request and subsequently completes it.
+        Harness.combatStartedAt = current
+        Harness.combatAnimationObserved = false
+        Harness.combatAttackType = tostring(typeValue)
+        Harness.combatStartSnapshot = combatDiagnosticSnapshot(
+            Harness.actor, Harness.testZombie)
+        setPhase("combat_animation", current)
+        return
+    end
+    if current - Harness.phaseStartedAt > 5000 then
+        finishCombatProbe(current, false,
+            "timed out after exact Build 42 attack preflight: " .. clean(reason))
+    end
+end
+
+local function probeNativeCombatAnimation(current)
+    local SC = SurvivorCompanion
+    local performing, performingOk = SC.GameplayUtil.call(
+        Harness.actor, "isPerformingAttackAnimation")
+    local started, startedOk = SC.GameplayUtil.call(Harness.actor, "isAttackStarted")
+    if performingOk and performing == true then
+        Harness.combatAnimationObserved = true
+    end
+    if Harness.combatAnimationObserved == true and startedOk and started ~= true
+        and (not performingOk or performing ~= true) then
+        finishCombatProbe(current, true,
+            "adapter=" .. clean(Harness.combatLastReason)
+                .. " attack_type=" .. clean(Harness.combatAttackType)
+                .. " animation_observed=true completed=true")
+        return
+    end
+    if current - (Harness.combatStartedAt or Harness.phaseStartedAt) > 5000 then
+        pcall(function() Harness.actor:clearHandToHandAttack() end)
+        finishCombatProbe(current, false,
+            "native attack did not complete through the player animation graph:"
+                .. " observed=" .. tostring(Harness.combatAnimationObserved)
+                .. " started=" .. tostring(started)
+                .. " performing=" .. tostring(performing)
+                .. " type=" .. clean(Harness.combatAttackType)
+                .. " end={" .. clean(combatDiagnosticSnapshot(
+                    Harness.actor, Harness.testZombie)) .. "}"
+                .. " start={" .. clean(Harness.combatStartSnapshot) .. "}")
+    end
+end
+
 local function zombieTargetSquare(actor, player)
     local SC = SurvivorCompanion
     local utility = SC.GameplayUtil
@@ -517,9 +732,62 @@ local function probeZombieTargeting(current)
             .. " checked=" .. tostring(detail and detail.checked)
             .. " targeted=" .. tostring(detail and detail.targeted)
             .. " target_is_companion=" .. tostring(target == Harness.actor))
-    cleanupTestZombie(zombie)
     SC.ZombieTargeting.reset(Harness.actor)
-    setPhase("faction_begin", current)
+    if not acquired then
+        cleanupTestZombie(zombie)
+        setPhase("faction_begin", current)
+        return
+    end
+
+    -- Exercise the exact failure reported in playtesting: a native companion
+    -- visibly equips a long blade but never enters an attack action. Keep the
+    -- disposable target alive and ordinary, isolate the actor from the decision loop,
+    -- then retry only while Build 42 prepares the new hand model.
+    pcall(function() zombie:setTarget(nil) end)
+    pcall(SC.Actor.stop, Harness.actor)
+    local control, controlReason = beginHarnessControl(
+        Harness.actor, "direct_native_melee_probe", 15000)
+    if control == nil then
+        cleanupTestZombie(zombie)
+        result("FAIL", "direct_native_melee_attack",
+            "control ownership rejected: " .. clean(controlReason))
+        setPhase("faction_begin", current)
+        return
+    end
+    Harness.combatSupervisorToken = control
+    local groupBefore = select(1, SC.GameplayUtil.call(
+        Harness.actor, "getCompanionActionGroupName"))
+    local _, groupChecked = SC.GameplayUtil.call(Harness.actor, "checkActionGroup")
+    local groupAfter = select(1, SC.GameplayUtil.call(
+        Harness.actor, "getCompanionActionGroupName"))
+    Harness.combatActionGroupControl = "called=" .. tostring(groupChecked)
+        .. ",before=" .. clean(groupBefore) .. ",after=" .. clean(groupAfter)
+    local inventory = Harness.actor:getInventory()
+    local weapon = inventory and inventory:AddItem("Base.Katana") or nil
+    if weapon == nil then
+        endHarnessControl(Harness.combatSupervisorToken, "combat_weapon_missing")
+        Harness.combatSupervisorToken = nil
+        cleanupTestZombie(zombie)
+        result("FAIL", "direct_native_melee_attack", "Base.Katana could not be created")
+        setPhase("faction_begin", current)
+        return
+    end
+    local equipped, equipReason = SC.Actor.setMovement(Harness.actor, "walk", {
+        action = "equip_weapon", item = weapon,
+        supervisorToken = Harness.combatSupervisorToken,
+    })
+    if not equipped then
+        endHarnessControl(Harness.combatSupervisorToken, "combat_equip_failed")
+        Harness.combatSupervisorToken = nil
+        cleanupTestZombie(zombie)
+        result("FAIL", "direct_native_melee_attack", "equip failed: " .. clean(equipReason))
+        setPhase("faction_begin", current)
+        return
+    end
+    Harness.testZombie = zombie
+    Harness.combatWeapon = weapon
+    Harness.combatNextAttemptAt = current + 300
+    setPhase("combat_attack", current)
 end
 
 local function beginFactionProbe(current)
@@ -533,6 +801,8 @@ local function beginFactionProbe(current)
         return
     end
     Harness.factionId = factionId
+    Harness.factionActiveObserved = 0
+    Harness.factionProgressAt = current
     result("PASS", "manual_faction_household_spawn", factionId)
     setPhase("faction_wait", current)
 end
@@ -668,17 +938,50 @@ local function waitForFaction(current)
         return
     end
     if summary.active < summary.alive then
-        if current - Harness.phaseStartedAt > 15000 then
-            local failures = {}
+        if summary.active > (tonumber(Harness.factionActiveObserved) or 0) then
+            Harness.factionActiveObserved = summary.active
+            Harness.factionProgressAt = current
+        end
+        local stalledFor = current - (Harness.factionProgressAt or Harness.phaseStartedAt)
+        local elapsed = current - Harness.phaseStartedAt
+        -- Native actors are created after Lua unwinds and faction spawning is a
+        -- normal scheduler lane. Under deliberate load shedding a two-member
+        -- household can therefore need more than the old fixed 15-second
+        -- deadline even though the queue is healthy and still progressing.
+        if stalledFor > 20000 or elapsed > 45000 then
+            local failures, members = {}, {}
             local group = SC.Factions.group(Harness.factionId)
             for _, member in ipairs(group and group.members or {}) do
                 if member.spawnFailure then
                     failures[#failures + 1] = tostring(member.key) .. "="
                         .. clean(member.spawnFailure)
                 end
+                members[#members + 1] = table.concat({
+                    tostring(member.key),
+                    "actorId=" .. clean(member.actorId),
+                    "queued=" .. tostring(member.spawnQueued == true),
+                    "waking=" .. tostring(member.waking == true),
+                    "retryAt=" .. clean(member.spawnRetryAt),
+                }, ",")
+            end
+            local schedulerRuns, loadLevel = "unavailable", "unavailable"
+            if SC.Scheduler and type(SC.Scheduler.getStats) == "function" then
+                local stats = SC.Scheduler.getStats()
+                loadLevel = stats and clean(stats.loadLevel) or loadLevel
+                for _, task in ipairs(stats and stats.tasks or {}) do
+                    if task.name == "factions" then
+                        schedulerRuns = clean(task.runs)
+                        break
+                    end
+                end
             end
             result("FAIL", "persistent_faction_registration", "active="
                 .. tostring(summary.active) .. " alive=" .. tostring(summary.alive)
+                .. " elapsed=" .. tostring(elapsed)
+                .. " stalled=" .. tostring(stalledFor)
+                .. " faction_runs=" .. schedulerRuns
+                .. " load=" .. loadLevel
+                .. " members=" .. table.concat(members, ";")
                 .. " failures=" .. table.concat(failures, ";"))
             setPhase("finish", current)
         end
@@ -806,16 +1109,32 @@ local function probeFactionFortification(current)
         and ((group.warningLevel or 0) >= 1 or distance(Harness.player, group.house.anchor) > 24),
         "warning=" .. tostring(group.warningLevel))
     local saved, document = SC.Persistence.save(Harness.player)
-    local factionActorsSaved = 0
-    if saved and type(document.factionActors) == "table" then
-        for _, _ in pairs(document.factionActors) do factionActorsSaved = factionActorsSaved + 1 end
+    local expectedFactionActors = {}
+    for _, record in ipairs(Harness.factionActors or {}) do
+        expectedFactionActors[record.id] = true
     end
+    local factionActorsSaved, currentFactionActorsSaved, missingFactionActors = 0, 0, 0
+    if saved and type(document.factionActors) == "table" then
+        for id, savedRecord in pairs(document.factionActors) do
+            factionActorsSaved = factionActorsSaved + 1
+            if type(savedRecord) == "table" and savedRecord.factionId == Harness.factionId then
+                currentFactionActorsSaved = currentFactionActorsSaved + 1
+                expectedFactionActors[id] = nil
+            end
+        end
+    end
+    for _ in pairs(expectedFactionActors) do missingFactionActors = missingFactionActors + 1 end
     check("faction_save_document", saved == true and type(document.factions) == "table"
         and document.factions.groups[Harness.factionId] ~= nil
         and type(document.factions.groups[Harness.factionId].social) == "table"
         and type(document.factions.groups[Harness.factionId].social.memories) == "table"
-        and factionActorsSaved == #(Harness.factionActors or {}),
-        "saved faction actors=" .. tostring(factionActorsSaved))
+        and currentFactionActorsSaved == #(Harness.factionActors or {})
+        and missingFactionActors == 0,
+        saved == true and ("saved current faction actors="
+            .. tostring(currentFactionActorsSaved) .. " total="
+            .. tostring(factionActorsSaved) .. " missing="
+            .. tostring(missingFactionActors))
+            or ("save failed: " .. tostring(document)))
     local closeEnough = distance(Harness.player, group.house.anchor) <= 25
     if not closeEnough then
         skip("native_human_targeting", "test house is outside the bounded territorial leash")
@@ -859,8 +1178,45 @@ local function finish()
 end
 
 local function tick()
-    if Harness.finished or Harness.phase == "idle" then return end
+    if Harness.finished then return end
     local current = nowMs()
+    if Harness.phase == "idle" then
+        -- A cloned save can legitimately display Build 42's non-fatal missing-mod,
+        -- missing-map, or world-conversion confirmation.  The harness owns the
+        -- disposable clone, so accepting that prompt is safe and keeps the live
+        -- runner deterministic without sending blind desktop clicks.
+        if Harness.autoloadIssued
+            and current - (Harness.autoloadIssuedAt or current) >= 750
+            and type(MainScreen) == "table" and MainScreen.instance ~= nil then
+            local modal = MainScreen.instance.checkSavefileModal
+            if modal == nil then
+                -- A cloned, heavily modded save can present more than one safe
+                -- confirmation in sequence (missing mods, world dictionary,
+                -- then conversion). Re-arm only after the prior modal vanished.
+                Harness.autoloadModal = nil
+            elseif modal ~= Harness.autoloadModal
+                and current >= (Harness.nextAutoloadConfirmAt or 0)
+                and modal.yes ~= nil and type(modal.onClick) == "function" then
+                local signature = clean(modal.text or "unknown load confirmation")
+                if Harness.autoloadPromptSignatures[signature] then
+                    result("FAIL", "autoload_prompt_loop",
+                        "same cloned-save prompt repeated: " .. signature)
+                    finish()
+                    return
+                end
+                Harness.autoloadPromptSignatures[signature] = true
+                Harness.autoloadConfirmed = true
+                Harness.autoloadConfirmations = Harness.autoloadConfirmations + 1
+                Harness.autoloadModal = modal
+                Harness.nextAutoloadConfirmAt = current + 750
+                print("SC_REAL_SANDBOX|AUTOLOAD_CONFIRM|world="
+                    .. clean(Harness.config.world) .. "|count="
+                    .. tostring(Harness.autoloadConfirmations))
+                modal:onClick(modal.yes)
+            end
+        end
+        return
+    end
     local overallTimeout = tonumber(Harness.config.internal_timeout_ms) or 60000
     if current - Harness.startedAt > overallTimeout then
         result("FAIL", "harness_timeout", "phase=" .. tostring(Harness.phase))
@@ -944,6 +1300,10 @@ local function tick()
         restoreAwareness(current)
     elseif Harness.phase == "zombie_targeting" then
         probeZombieTargeting(current)
+    elseif Harness.phase == "combat_attack" then
+        probeNativeCombat(current)
+    elseif Harness.phase == "combat_animation" then
+        probeNativeCombatAnimation(current)
     elseif Harness.phase == "faction_begin" then
         beginFactionProbe(current)
     elseif Harness.phase == "faction_wait" then
@@ -1008,6 +1368,7 @@ local function onMainMenuEnter()
     if Harness.config.enabled ~= "true" or Harness.config.autoload ~= "true"
         or Harness.autoloadIssued then return end
     Harness.autoloadIssued = true
+    Harness.autoloadIssuedAt = nowMs()
     local loaded, failure = pcall(require, "OptionScreens/MainScreen")
     if not loaded or type(MainScreen) ~= "table"
         or type(MainScreen.continueLatestSave) ~= "function" then
@@ -1017,7 +1378,13 @@ local function onMainMenuEnter()
     end
     print("SC_REAL_SANDBOX|BOOT|world=" .. clean(Harness.config.world)
         .. "|mode=" .. clean(Harness.config.mode))
-    MainScreen.continueLatestSave(Harness.config.mode, Harness.config.world)
+    local continued, continueFailure = pcall(MainScreen.continueLatestSave,
+        Harness.config.mode, Harness.config.world)
+    if not continued then
+        result("FAIL", "autoload", continueFailure)
+        Harness.finished = true
+        writeSnapshot(true)
+    end
 end
 
 Harness.config = readConfig()

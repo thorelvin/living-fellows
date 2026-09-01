@@ -35,6 +35,9 @@ source_workflow = (ROOT / ".github/workflows/source-ci.yml").read_text(encoding=
 real_jar_workflow = (ROOT / ".github/workflows/real-jar-compatibility.yml").read_text(
     encoding="utf-8"
 )
+native_installer = (ROOT / "scripts/Install-NativeBridge.ps1").read_text(
+    encoding="utf-8"
+)
 
 lua_release = capture(r'release\s*=\s*"([^"]+)"', namespace, "Lua release")
 lua_game = capture(r'gameVersion\s*=\s*"([^"]+)"', namespace, "Lua game version")
@@ -45,16 +48,31 @@ java_protocol = capture(r'PROTOCOL\s*=\s*"([^"]+)"', bridge, "Java protocol")
 java_game = capture(r'COMPILED_GAME_VERSION\s*=\s*"([^"]+)"', bridge, "Java game version")
 jar_protocol = capture(r'^SC-Bridge-Protocol:\s*(\S+)', manifest, "JAR protocol")
 jar_game = capture(r'^SC-Compiled-Game-Version:\s*(\S+)', manifest, "JAR game version")
+installer_protocol = capture(
+    r"\$ExpectedProtocol\s*=\s*'([^']+)'", native_installer, "installer protocol"
+)
+installer_supported_game = capture(
+    r"\$ExpectedSupportedGame\s*=\s*'([^']+)'",
+    native_installer,
+    "installer supported game family",
+)
+installer_compiled_game = capture(
+    r"\$ExpectedCompiledGame\s*=\s*'([^']+)'",
+    native_installer,
+    "installer compiled game version",
+)
 
 require(version == lua_release, "VERSION.txt and SC.Identity.release disagree")
 for info_path in (ROOT / "SurvivorCompanion/mod.info", ROOT / "SurvivorCompanion/42/mod.info"):
     info = info_path.read_text(encoding="utf-8")
     require(capture(r'^modversion=(\S+)', info, str(info_path)) == version,
             f"{info_path} version disagrees")
-require(lua_protocol == java_protocol == jar_protocol,
-        "Lua, Java, and source JAR manifest protocols disagree")
-require(lua_game == java_game == jar_game,
-        "Lua, Java, and source JAR manifest game versions disagree")
+require(lua_protocol == java_protocol == jar_protocol == installer_protocol,
+        "Lua, Java, source JAR, and installer protocols disagree")
+require(lua_game == java_game == jar_game == installer_compiled_game,
+        "Lua, Java, source JAR, and installer game versions disagree")
+require(installer_supported_game == ".".join(lua_game.split(".")[:2]),
+        "installer supported game family disagrees with the pinned game version")
 require("local expectedNativeProtocol = SC.Identity.bridgeProtocol" in actor,
         "SCActor must read the shared protocol identity")
 require(lua_protocol in architecture and "42.20-isocompanion-4" not in architecture,

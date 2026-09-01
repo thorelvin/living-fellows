@@ -52,6 +52,7 @@ public final class SCKahluaExposureTest {
         Method rawget = tableClass.getMethod("rawget", Object.class);
         String baselineSource = "SC_BASELINE_SCBRIDGE = SCBridge ~= nil\n"
                 + "SC_BASELINE_PROBE = ProbeBridge ~= nil\n"
+                + "SC_BASELINE_ATTACKTYPE = AttackType ~= nil\n"
                 + "SC_HAS_LUAJAVA = luajava ~= nil\n"
                 + "SC_HAS_CLASS = Class ~= nil\n"
                 + "SC_HAS_LUAMANAGER = LuaManager ~= nil\n"
@@ -63,6 +64,8 @@ public final class SCKahluaExposureTest {
                 "custom SCBridge unexpectedly appeared on the stock Kahlua path");
         require(Boolean.FALSE.equals(rawget.invoke(environment, "SC_BASELINE_PROBE")),
                 "probe class unexpectedly appeared before explicit exposure");
+        require(Boolean.FALSE.equals(rawget.invoke(environment, "SC_BASELINE_ATTACKTYPE")),
+                "stock 42.20.4 unexpectedly exposed AttackType to Kahlua");
 
         Object exposer = managerClass.getField("exposer").get(null);
         require(exposer != null, "LuaManager did not create its Java exposer");
@@ -87,7 +90,9 @@ public final class SCKahluaExposureTest {
                 "CharacterActionAnims enum values are not available to production Kahlua");
 
         System.out.println("baseline-SCBridge=" + rawget.invoke(environment, "SC_BASELINE_SCBRIDGE")
-                + " baseline-probe=" + rawget.invoke(environment, "SC_BASELINE_PROBE"));
+                + " baseline-probe=" + rawget.invoke(environment, "SC_BASELINE_PROBE")
+                + " baseline-AttackType=" + rawget.invoke(environment,
+                        "SC_BASELINE_ATTACKTYPE"));
         System.out.println("luajava=" + rawget.invoke(environment, "SC_HAS_LUAJAVA")
                 + " Class=" + rawget.invoke(environment, "SC_HAS_CLASS")
                 + " LuaManager=" + rawget.invoke(environment, "SC_HAS_LUAMANAGER")
