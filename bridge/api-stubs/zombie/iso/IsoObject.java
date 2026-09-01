@@ -4,4 +4,5 @@ package zombie.iso;
 public class IsoObject {
     public IsoGridSquare getSquare() { return null; }
     public void setAlphaAndTarget(float alpha) {}
+    public IsoCell getCell() { return null; }
 }

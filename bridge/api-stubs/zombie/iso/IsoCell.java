@@ -10,4 +10,5 @@ public class IsoCell {
     public IsoGridSquare getGridSquare(int x, int y, int z) { return null; }
     public IsoGridSquare getGridSquare(Double x, Double y, Double z) { return null; }
     public ArrayList<IsoSurvivor> getSurvivorList() { return null; }
+    public java.util.Set<IsoMovingObject> getObjectList() { return null; }
 }

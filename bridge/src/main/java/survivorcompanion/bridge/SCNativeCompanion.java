@@ -95,6 +95,27 @@ public final class SCNativeCompanion extends IsoPlayer {
      * consumed a companion attack request through the ordinary player action
      * graph. This is intentionally read-only and safe to expose to Kahlua.
      */
+    /**
+     * addToWorld()/setCurrentSquare() only reliably register a manually
+     * constructed non-local actor into the cell's deferred add list, so the
+     * MovingObjectUpdateScheduler (which iterates IsoCell.getObjectList()) never
+     * ticks it while it is stationary. Force live object-list membership so the
+     * companion is simulated every frame like a normal character.
+     */
+    public boolean ensureScheduled() {
+        if (bridgeDisabled) return false;
+        try {
+            zombie.iso.IsoCell cell = getCell();
+            if (cell == null) return false;
+            java.util.Set<zombie.iso.IsoMovingObject> list = cell.getObjectList();
+            if (list == null) return false;
+            if (!list.contains(this)) list.add(this);
+            return list.contains(this);
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
     public String getCompanionPostUpdateDiagnostic() {
         return bridgePostUpdateDiagnostic + ",count=" + bridgePostUpdateCount;
     }

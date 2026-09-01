@@ -480,7 +480,27 @@ local function registerTasks()
     return true
 end
 
+-- Keep every live native companion in the cell's object list so Build 42's
+-- MovingObjectUpdateScheduler simulates it every frame. A manually constructed
+-- non-local actor is only placed in the cell's deferred add list by
+-- addToWorld/movement, so a stationary companion otherwise falls out of the
+-- scheduler and stops being updated (frozen animation, attacks that start but
+-- never resolve a hit). This runs on the always-live player tick, so it can
+-- re-register a companion even while that companion is not itself being ticked.
+local function ensureCompanionsScheduled()
+    local registry = SC.Registry
+    if type(registry) ~= "table" or type(registry.living) ~= "function" then return end
+    local ok, actors = pcall(registry.living)
+    if not ok or type(actors) ~= "table" then return end
+    local utility = SC.GameplayUtil
+    if type(utility) ~= "table" or type(utility.call) ~= "function" then return end
+    for _, actor in ipairs(actors) do
+        if actor ~= nil then utility.call(actor, "ensureScheduled") end
+    end
+end
+
 local function productionTick()
+    ensureCompanionsScheduled()
     SC.Scheduler.tick()
 end
 
