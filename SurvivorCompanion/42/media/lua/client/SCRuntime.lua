@@ -17,6 +17,7 @@ require "SCFactionBehavior"
 require "SCFactionContracts"
 require "SCFactionWorld"
 require "SCZombieTargeting"
+require "SCZombieAttack"
 require "SCBaseLife"
 require "SCBaseWork"
 require "SCInfectionCrisis"
@@ -206,6 +207,23 @@ local function decisionTask(current)
         elseif scanned == true then
             record.runtime.lastZombieTargeting = scanReason
             record.runtime.zombieTargeting = scanDetail
+        end
+        -- Apply the wounds those attackers land: the engine resolves the swing
+        -- but never writes the bite/scratch to a non-local companion's body.
+        if SC.ZombieAttack and type(SC.ZombieAttack.resolve) == "function" then
+            local attackStarted = nowMs()
+            local attackGuarded, resolved, attackReason, attackDetail = SC.Diagnostics.guard(
+                "zombie-attack", record.id, SC.ZombieAttack.resolve,
+                record.actor, current, candidates)
+            if SC.Performance and type(SC.Performance.record) == "function" then
+                SC.Performance.record("zombie-attack", record.id, nowMs() - attackStarted)
+            end
+            if not attackGuarded then
+                record.runtime.lastZombieAttack = resolved
+            elseif resolved == true then
+                record.runtime.lastZombieAttack = attackReason
+                record.runtime.zombieAttack = attackDetail
+            end
         end
     end
 end

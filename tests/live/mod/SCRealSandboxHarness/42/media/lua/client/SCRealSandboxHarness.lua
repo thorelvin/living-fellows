@@ -505,7 +505,7 @@ local function restoreAwareness(current)
     check("formation_facing_restore", accepted == true, reason)
     check("local_player_unchanged", playerStillIsolated(),
         "companion spawn, follow and facing actions did not move or replace player 0")
-    setPhase("zombie_targeting", current)
+    setPhase("zombie_attack_observe", current)
 end
 
 local function cleanupTestZombie(zombie)
@@ -773,6 +773,136 @@ local function zombieTargetSquare(actor, player)
             and utility.canSee(actor, square) then return square end
     end
     return nil
+end
+
+-- Verify the reported bug directly: with the companion's AI fully disabled (so it
+-- cannot retaliate and stagger the attacker), several real zombies locked onto it
+-- should land a bite. We spawn a small pack adjacent, keep their target sustained,
+-- and require an actual BodyDamage wound -- engagement alone is not enough here.
+local function endZombieAttackObserve(current)
+    for _, z in ipairs(Harness.zObserveZombies or {}) do cleanupTestZombie(z) end
+    Harness.zObserveZombies = nil
+    -- Restore the local player's zombie visibility we suppressed for isolation.
+    if Harness.zObservePlayerGhost ~= nil then
+        local wasGhost = Harness.zObservePlayerGhost
+        pcall(function() Harness.player:setGhostMode(wasGhost == true) end)
+        Harness.zObservePlayerGhost = nil
+    end
+    -- Release the harness action ownership held over the companion.
+    if Harness.zObserveControl ~= nil then
+        endHarnessControl(Harness.zObserveControl, "zombie_attack_observe_done")
+        Harness.zObserveControl = nil
+    end
+    setPhase("zombie_targeting", current)
+end
+
+local function probeZombieAttackObserve(current)
+    local SC = SurvivorCompanion
+    local U = SC.GameplayUtil
+    local function v(obj, m, ...) local val, ok = U.call(obj, m, ...) return ok and tostring(val) or "na" end
+    local function num1(obj, m) local val = select(1, U.call(obj, m)) return tonumber(val) or 0 end
+    if Harness.zObserveZombies == nil then
+        if type(addZombiesInOutfit) ~= "function" then
+            skip("native_zombie_attacks_companion", "addZombiesInOutfit unavailable")
+            setPhase("zombie_targeting", current); return
+        end
+        local ax, ay, az = position(Harness.actor)
+        if ax == nil then
+            skip("native_zombie_attacks_companion", "companion has no position")
+            setPhase("zombie_targeting", current); return
+        end
+        local okSpawn, zs = pcall(addZombiesInOutfit,
+            math.floor(ax), math.floor(ay), math.floor(az or 0), 4, nil, 0)
+        local zombies = {}
+        if okSpawn and zs ~= nil then
+            local size = num1(zs, "size")
+            for i = 0, size - 1 do
+                local z = select(1, U.call(zs, "get", i))
+                if z ~= nil then zombies[#zombies + 1] = z end
+            end
+        end
+        if #zombies == 0 then
+            result("FAIL", "native_zombie_attacks_companion", "zombie spawn returned no actors")
+            setPhase("zombie_targeting", current); return
+        end
+        -- Ghost the local player so the pack does not wander off to player 0.
+        Harness.zObservePlayerGhost = select(1, U.call(Harness.player, "isGhostMode")) == true
+        pcall(function() Harness.player:setGhostMode(true) end)
+        -- Hold the companion still through action ownership (not by deactivating
+        -- it): a moving companion is chased (WalkTowardState) instead of attacked,
+        -- and retaliation staggers attackers. Owning its action stops the decision
+        -- loop from commanding it; anchoring its position keeps it a stationary
+        -- dummy so zombies settle into their AttackState in reach -- the moment the
+        -- resolver applies a wound.
+        Harness.zObserveControl = beginHarnessControl(
+            Harness.actor, "zombie_attack_observe", 20000)
+        pcall(SC.Actor.stop, Harness.actor)
+        pcall(function() Harness.actor:setX(ax) end)
+        pcall(function() Harness.actor:setY(ay) end)
+        pcall(function() Harness.actor:setCurrentSquareFromPosition() end)
+        SC.ZombieTargeting.reset(Harness.actor)
+        for _, z in ipairs(zombies) do pcall(function() z:setTarget(Harness.actor) end) end
+        Harness.zObserveZombies = zombies
+        Harness.zObserveStart = current
+        Harness.zObserveNextLog = current
+        Harness.zObserveLog = ""
+        Harness.zObserveEngaged = false
+        return
+    end
+    local zombies = Harness.zObserveZombies
+    -- A zombie hit shows up as a BodyDamage wound (bite/scratch/laceration ->
+    -- bleeding), not as an immediate getHealth() drop.
+    local bd = select(1, U.call(Harness.actor, "getBodyDamage"))
+    local wounds = 0
+    if bd ~= nil then
+        wounds = num1(bd, "getNumPartsBitten")
+            + num1(bd, "getNumPartsScratched")
+            + num1(bd, "getNumPartsBleeding")
+    end
+    local attackedBy = select(1, U.call(Harness.actor, "getAttackedBy"))
+    -- Sustain each attacker's lock via the production scan (its cooldown paces it);
+    -- do not re-issue setTarget or re-pin every tick -- that interrupts the swing.
+    pcall(SC.ZombieTargeting.scan, Harness.actor, current, zombies)
+    -- Drive the incoming-attack resolver each tick (the production runtime does
+    -- this from the decision loop): a zombie landing a swing in reach writes a
+    -- real BodyDamage wound to the companion.
+    if SC.ZombieAttack and type(SC.ZombieAttack.resolve) == "function" then
+        pcall(SC.ZombieAttack.resolve, Harness.actor, current, zombies)
+    end
+
+    -- Summarise the pack: nearest distance, any engaged, and the lead zombie state.
+    local nearest, anyEngaged, lead = 99, false, zombies[1]
+    for _, z in ipairs(zombies) do
+        local dValue = select(1, U.call(z, "DistToProper", Harness.actor))
+        local d = tonumber(dValue) or 99
+        if d < nearest then nearest = d; lead = z end
+        local sn = clean(v(z, "getCurrentState"))
+        if select(1, U.call(z, "getTarget")) == Harness.actor
+            and (sn:find("AttackState") or sn:find("LungeState")) then anyEngaged = true end
+    end
+    if anyEngaged then Harness.zObserveEngaged = true end
+
+    if wounds > 0 then
+        check("native_zombie_attacks_companion", true,
+            "wounds=" .. tostring(wounds) .. " attackedBy=" .. tostring(attackedBy ~= nil)
+                .. " engaged=" .. tostring(Harness.zObserveEngaged))
+        endZombieAttackObserve(current); return
+    end
+    if current >= (Harness.zObserveNextLog or 0) then
+        Harness.zObserveNextLog = current + 1500
+        local leadState = clean(v(lead, "getCurrentState")):gsub(".*states%.", ""):gsub("@.*", "")
+        Harness.zObserveLog = (Harness.zObserveLog or "")
+            .. leadState .. "/" .. string.format("%.1f", nearest) .. " "
+    end
+    if current - Harness.zObserveStart > 15000 then
+        check("native_zombie_attacks_companion", false,
+            "no wound in 15s with " .. tostring(#zombies) .. " frozen-companion"
+                .. " zombies: wounds=" .. tostring(wounds)
+                .. " ever_engaged=" .. tostring(Harness.zObserveEngaged)
+                .. " nearest=" .. string.format("%.1f", nearest)
+                .. " series=[" .. (Harness.zObserveLog or "") .. "]")
+        endZombieAttackObserve(current); return
+    end
 end
 
 local function probeZombieTargeting(current)
@@ -1406,6 +1536,8 @@ local function tick()
         runAwareness(current)
     elseif Harness.phase == "restore_awareness" then
         restoreAwareness(current)
+    elseif Harness.phase == "zombie_attack_observe" then
+        probeZombieAttackObserve(current)
     elseif Harness.phase == "zombie_targeting" then
         probeZombieTargeting(current)
     elseif Harness.phase == "combat_attack" then
