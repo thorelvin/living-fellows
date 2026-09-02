@@ -46,6 +46,9 @@ public class IsoGameCharacter extends IsoMovingObject {
     public float getY() { return 0; }
     public float getZ() { return 0; }
     public boolean isDead() { return false; }
+    public void OnAnimEvent(zombie.core.skinnedmodel.advancedanimation.AnimLayer layer,
+            zombie.core.skinnedmodel.animation.AnimationTrack track,
+            zombie.core.skinnedmodel.advancedanimation.AnimEvent event) {}
     public boolean hasPath() { return false; }
     public boolean isAddedToModelManager() { return false; }
     public boolean hasActiveModel() { return false; }

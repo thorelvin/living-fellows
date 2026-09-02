@@ -17,6 +17,9 @@ import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.pathfind.PathFindBehavior2;
 import zombie.pathfind.PolygonalMap2;
+import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
+import zombie.core.skinnedmodel.advancedanimation.AnimLayer;
+import zombie.core.skinnedmodel.animation.AnimationTrack;
 
 /** A non-local human actor backed by Build 42's complete player character runtime. */
 public final class SCNativeCompanion extends IsoPlayer {
@@ -24,6 +27,11 @@ public final class SCNativeCompanion extends IsoPlayer {
     private static final Method GENERIC_CHARACTER_UPDATE = resolveGenericCharacterUpdate();
     private static final Method PLAYER_VEHICLE_UPDATE = resolvePlayerVehicleUpdate();
     private static final Method PLAYER_ACTION_GROUP_CHECK = resolvePlayerActionGroupCheck();
+    private static final Method COMBAT_MANAGER_INSTANCE = resolveStatic("zombie.CombatManager", "getInstance");
+    private static final Method SWIPE_STATE_INSTANCE = resolveStatic("zombie.ai.states.SwipeStatePlayer", "instance");
+    private static final Method ATTACK_COLLISION_CHECK = resolveAttackCollisionCheck();
+    private static final Method GET_USE_HAND_WEAPON = resolveNoArg(IsoGameCharacter.class, "getUseHandWeapon");
+    private static final Method GET_ATTACK_TYPE = resolveNoArg(IsoPlayer.class, "getAttackType");
     private static volatile String RUNTIME_CONTRACT_FAILURE_FOR_TESTS = "";
     private static final int MIN_SPEECH_DISPLAY_MILLIS = 4_000;
     private static final int MAX_SPEECH_DISPLAY_MILLIS = 30_000;
@@ -142,6 +150,56 @@ public final class SCNativeCompanion extends IsoPlayer {
                 + ",after=" + getCompanionActionStateName()
                 + ",afterInitiate=" + isInitiateAttack()
                 + ",performing=" + isPerformingAttackAnimation();
+    }
+
+    /**
+     * Build 42's SwipeStatePlayer.OnAnimEvent_AttackCollisionCheck resolves a
+     * melee/ranged hit only for a local player (in multiplayer the server does
+     * it for everyone else). A non-local companion therefore swings, finds valid
+     * targets and animates, but never applies damage in single player. Detect the
+     * same swing event and drive the collision check ourselves. CombatManager's
+     * hit application is gated on isLocalPlayer()||isNpc(), and this actor is an
+     * NPC, so the hit lands. This is the sole place the companion applies a swing.
+     */
+    @Override
+    public void OnAnimEvent(AnimLayer layer, AnimationTrack track, AnimEvent event) {
+        super.OnAnimEvent(layer, track, event);
+        if (event != null && "AttackCollisionCheck".equals(event.eventName)) {
+            driveCompanionAttackCollision(event.parameterValue);
+        }
+    }
+
+    private void driveCompanionAttackCollision(String attackTypeName) {
+        if (bridgeDisabled || getVehicle() != null) return;
+        if (COMBAT_MANAGER_INSTANCE == null || ATTACK_COLLISION_CHECK == null
+                || SWIPE_STATE_INSTANCE == null || GET_USE_HAND_WEAPON == null
+                || GET_ATTACK_TYPE == null) {
+            return;
+        }
+        try {
+            Object weapon = GET_USE_HAND_WEAPON.invoke(this);
+            if (weapon == null) return;
+            // The AttackType that gates CombatManager's stance filter is carried
+            // by the swing's AttackCollisionCheck anim event (its parameter is the
+            // enum id, e.g. "MeleeSwing"), not by the actor's getAttackType()
+            // (which is DEFAULT/MISS off the collision path). With the wrong type
+            // the hit loop skips the target. Resolve it from the event parameter;
+            // only fall back to the actor's value if the event carries no name.
+            Object attackType = resolveAttackType(attackTypeName);
+            if (attackType == null) {
+                attackType = GET_ATTACK_TYPE.invoke(this);
+            }
+            Object combatManager = COMBAT_MANAGER_INSTANCE.invoke(null);
+            Object swipeState = SWIPE_STATE_INSTANCE.invoke(null);
+            if (combatManager == null || swipeState == null) return;
+            // Re-point at the current target: the swing animation may have turned
+            // the actor, and attackCollisionCheck rebuilds the hit-info list
+            // against the actor's facing before applying the hit.
+            applyCompanionAim();
+            ATTACK_COLLISION_CHECK.invoke(combatManager, this, weapon, swipeState, attackType);
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
+            // Fail closed: no swing damage rather than an update-breaking throw.
+        }
     }
 
     /**
@@ -606,6 +664,64 @@ public final class SCNativeCompanion extends IsoPlayer {
     private static Method resolvePlayerActionGroupCheck() {
         try {
             Method method = IsoPlayer.class.getDeclaredMethod("checkActionGroup");
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveStatic(String className, String methodName) {
+        try {
+            Method method = Class.forName(className).getMethod(methodName);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveNoArg(Class<?> owner, String methodName) {
+        try {
+            Method method = owner.getMethod(methodName);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private static Object resolveAttackType(String name) {
+        if (name == null || name.isEmpty()) return null;
+        try {
+            Class<?> attackType = Class.forName("zombie.AttackType");
+            if (!attackType.isEnum()) return null;
+            // The anim-event parameter (e.g. "MeleeSwing") corresponds to the
+            // enum's id, which toString() returns lowercased ("meleeswing") --
+            // not the constant name ("MELEE_SWING"). Try the constant name first,
+            // then a case-insensitive match on the id.
+            try {
+                return Enum.valueOf((Class<? extends Enum>) attackType, name);
+            } catch (IllegalArgumentException notAConstantName) {
+                for (Object value : attackType.getEnumConstants()) {
+                    if (name.equalsIgnoreCase(String.valueOf(value))) return value;
+                }
+                return null;
+            }
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveAttackCollisionCheck() {
+        try {
+            Class<?> combatManager = Class.forName("zombie.CombatManager");
+            Class<?> handWeapon = Class.forName("zombie.inventory.types.HandWeapon");
+            Class<?> swipeState = Class.forName("zombie.ai.states.SwipeStatePlayer");
+            Class<?> attackType = Class.forName("zombie.AttackType");
+            Method method = combatManager.getMethod("attackCollisionCheck",
+                    IsoGameCharacter.class, handWeapon, swipeState, attackType);
             method.setAccessible(true);
             return method;
         } catch (ReflectiveOperationException | RuntimeException failure) {

@@ -570,10 +570,20 @@ local function combatDiagnosticSnapshot(actor, target)
     }, ",")
 end
 
-local function finishCombatProbe(current, status, detail)
+local function pinTestZombieAhead()
+    local ax, ay, az = position(Harness.actor)
+    local z = Harness.testZombie
+    if ax == nil or z == nil then return end
+    pcall(function() z:setTarget(nil) end)
+    pcall(function() z:setX(ax + 1.0) end)
+    pcall(function() z:setY(ay) end)
+    pcall(function() z:setZ(az or 0) end)
+    pcall(function() z:setCurrentSquareFromPosition() end)
+end
+
+local function cleanupCombat(current)
     endHarnessControl(Harness.combatSupervisorToken, "combat_probe_complete")
     Harness.combatSupervisorToken = nil
-    check("direct_native_melee_attack", status == true, detail)
     cleanupTestZombie(Harness.testZombie)
     Harness.testZombie = nil
     Harness.combatWeapon = nil
@@ -582,7 +592,63 @@ local function finishCombatProbe(current, status, detail)
     Harness.combatStartedAt = nil
     Harness.combatStartSnapshot = nil
     Harness.combatActionGroupControl = nil
+    Harness.combatTargetInitialHealth = nil
+    Harness.combatSwingCount = nil
     setPhase("faction_begin", current)
+end
+
+local function finishCombatProbe(current, status, detail)
+    check("direct_native_melee_attack", status == true, detail)
+    cleanupCombat(current)
+end
+
+-- After a swing completes, keep swinging at the pinned in-range zombie and poll
+-- its health, passing as soon as a swing damages or kills it.
+local function probeCombatDamage(current)
+    local SC = SurvivorCompanion
+    local afterDead = select(1, SC.GameplayUtil.call(Harness.testZombie, "isDead"))
+    local afterHealth = select(1, SC.GameplayUtil.call(Harness.testZombie, "getHealth"))
+    local before = Harness.combatTargetInitialHealth
+    local damaged = afterDead == true
+        or (before ~= nil and tonumber(afterHealth) ~= nil
+            and tonumber(afterHealth) < before - 0.0001)
+    if damaged then
+        check("direct_native_melee_damage", true,
+            "before=" .. tostring(before) .. " after=" .. tostring(afterHealth)
+                .. " dead=" .. tostring(afterDead)
+                .. " swings=" .. tostring(Harness.combatSwingCount))
+        cleanupCombat(current)
+        return
+    end
+    if current - Harness.phaseStartedAt > 12000 then
+        local function v(obj, m, ...) local val, ok = SC.GameplayUtil.call(obj, m, ...) return ok and tostring(val) or "na" end
+        check("direct_native_melee_damage", false,
+            "no damage in 12s over " .. tostring(Harness.combatSwingCount)
+                .. " swings: before=" .. tostring(before)
+                .. " after=" .. tostring(afterHealth)
+                .. " a_npc=" .. v(Harness.actor, "isNpc")
+                .. " a_inmelee=" .. v(Harness.actor, "IsInMeleeAttack")
+                .. " z_attackedby=" .. tostring(select(1, SC.GameplayUtil.call(
+                    Harness.testZombie, "getAttackedBy")) ~= nil))
+        cleanupCombat(current)
+        return
+    end
+    if current >= (Harness.combatNextAttemptAt or 0) then
+        local performing = select(1, SC.GameplayUtil.call(
+            Harness.actor, "isPerformingAttackAnimation"))
+        if performing ~= true then
+            pinTestZombieAhead()
+            local accepted = SC.Actor.setMovement(Harness.actor, "walk", {
+                action = "attack_melee", target = Harness.testZombie,
+                weapon = Harness.combatWeapon, urgent = true, emergency = true,
+                supervisorToken = Harness.combatSupervisorToken,
+            })
+            if accepted == true then
+                Harness.combatSwingCount = (Harness.combatSwingCount or 0) + 1
+            end
+            Harness.combatNextAttemptAt = current + 700
+        end
+    end
 end
 
 local function probeNativeCombat(current)
@@ -628,6 +694,17 @@ local function probeNativeCombat(current)
         Harness.combatStartedAt = current
         Harness.combatAnimationObserved = false
         Harness.combatAttackType = tostring(typeValue)
+        -- Read how many targets CombatManager found for this swing. Size 0 means
+        -- calcValidTargets rejected the target (no valid target => AttackType.MISS);
+        -- size > 0 means a target was found and any miss is a hit roll.
+        local hitList = SC.GameplayUtil.call(Harness.actor, "getHitInfoList")
+        local hitSize = hitList and SC.GameplayUtil.call(hitList, "size") or nil
+        Harness.combatHitListSize = tostring(hitSize)
+        Harness.combatSwingCount = (Harness.combatSwingCount or 0) + 1
+        if Harness.combatTargetInitialHealth == nil then
+            local zh = SC.GameplayUtil.call(Harness.testZombie, "getHealth")
+            Harness.combatTargetInitialHealth = tonumber(zh)
+        end
         Harness.combatStartSnapshot = combatDiagnosticSnapshot(
             Harness.actor, Harness.testZombie)
         setPhase("combat_animation", current)
@@ -649,10 +726,13 @@ local function probeNativeCombatAnimation(current)
     end
     if Harness.combatAnimationObserved == true and startedOk and started ~= true
         and (not performingOk or performing ~= true) then
-        finishCombatProbe(current, true,
+        result("PASS", "direct_native_melee_attack",
             "adapter=" .. clean(Harness.combatLastReason)
                 .. " attack_type=" .. clean(Harness.combatAttackType)
+                .. " hit_targets=" .. tostring(Harness.combatHitListSize)
                 .. " animation_observed=true completed=true")
+        Harness.combatNextAttemptAt = current + 400
+        setPhase("combat_damage", current)
         return
     end
     if current - (Harness.combatStartedAt or Harness.phaseStartedAt) > 5000 then
@@ -786,7 +866,35 @@ local function probeZombieTargeting(current)
     end
     Harness.testZombie = zombie
     Harness.combatWeapon = weapon
-    Harness.combatNextAttemptAt = current + 300
+    Harness.combatTargetInitialHealth = nil
+    Harness.combatSwingCount = 0
+    -- Remove hit-chance: max the blade skills so an in-range, faced swing lands.
+    pcall(function()
+        if Perks ~= nil then
+            for _, perk in ipairs({ Perks.LongBlade, Perks.Blade, Perks.Axe }) do
+                if perk ~= nil then Harness.actor:setPerkLevelDebug(perk, 10) end
+            end
+        end
+    end)
+    -- Freeze the target one clean tile ahead so it stays in the swing band
+    -- through the whole swing. A stationary probe actor cannot follow a wandering
+    -- zombie, and per-frame teleporting fights the aim; stopping its movement is
+    -- clean.
+    do
+        local ax, ay, az = position(Harness.actor)
+        if ax ~= nil then
+            pcall(function() zombie:setX(ax + 1.0) end)
+            pcall(function() zombie:setY(ay) end)
+            pcall(function() zombie:setZ(az or 0) end)
+            pcall(function() zombie:setCurrentSquareFromPosition() end)
+        end
+        pcall(function() zombie:setTarget(nil) end)
+        pcall(function() zombie:setPathing(false) end)
+        pcall(function() zombie:setSpeedMod(0.0) end)
+        pcall(function() zombie:setPath2(nil) end)
+    end
+    SC.GameplayUtil.call(Harness.actor, "setCompanionAimTarget", zombie)
+    Harness.combatNextAttemptAt = current + 600
     setPhase("combat_attack", current)
 end
 
@@ -1304,6 +1412,8 @@ local function tick()
         probeNativeCombat(current)
     elseif Harness.phase == "combat_animation" then
         probeNativeCombatAnimation(current)
+    elseif Harness.phase == "combat_damage" then
+        probeCombatDamage(current)
     elseif Harness.phase == "faction_begin" then
         beginFactionProbe(current)
     elseif Harness.phase == "faction_wait" then
