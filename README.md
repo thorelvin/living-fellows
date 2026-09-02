@@ -142,6 +142,8 @@ Companions can backpedal or strafe while disengaging on safe ground. A true over
 
 Combat decisions use the companion's real body condition, endurance reserve, panic, pain, tiredness, stress, morale, encumbrance, skills, weapon quality, support, threat directions, footing, and available exits. Allies try to split targets, avoid friendly fire, preserve stamina, shove when a lane is safe, finish isolated grounded zombies, kite, cover a retreat, or disengage before they are surrounded.
 
+Companion attacks land real damage, and companions are real targets in return: zombies notice, chase, and attack them, and a landed hit inflicts an actual wound. Bites can infect and eventually turn a companion, while scratches and lacerations wound and bleed without infecting — so a swarmed or careless companion is in genuine danger and can be lost. Hostile survivors are damaged the same way.
+
 Combat barks report threat scale, engagement, prolonged effort, kills, and emergency withdrawal. They draw from varied English line pools and use actor, team, and intent cooldowns. Spoken yells create real sound and can attract zombies; quiet doctrine prefers silent hand signals when danger permits.
 
 ### Scavenging and equipment
