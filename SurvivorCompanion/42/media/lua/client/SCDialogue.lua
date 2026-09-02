@@ -151,18 +151,24 @@ local pools = {
             "*holds up four fingers: small group ahead*", "*signals several walkers clustered ahead*",
             "*shows four fingers, then makes a spreading motion*", "*points forward and signals a small pack*",
             "*counts four on one hand and gestures for quiet*", "*signals multiple contacts ahead*",
+            "*four fingers, then a fist: hold and let them bunch*", "*shows four, then taps two of us: pair up*",
         },
-        cautious = { "*signals four, then traces the route back with one finger*" },
-        practical = { "*shows four contacts and points toward better ground*" },
+        cautious = { "*signals four, then traces the route back with one finger*",
+            "*shows four, shakes their head, and points to the exit*" },
+        practical = { "*shows four contacts and points toward better ground*",
+            "*four fingers, then marks a choke to fight them one at a time*" },
     },
     ["signal.crowd"] = {
         common = {
             "*spreads both hands: large group ahead*", "*signals many walkers and motions everyone down*",
             "*shows both hands, then points away from the crowd*", "*makes a wide circling motion: big pack*",
             "*signals six-plus contacts and a quiet retreat*", "*points ahead, then waves the route closed*",
+            "*both hands wide, then a flat palm down: everyone stay low*", "*sweeps a hand across their throat: too many, no fight*",
         },
-        cautious = { "*signals a crowd and urgently points toward another route*" },
-        practical = { "*marks the route blocked by a large group*" },
+        cautious = { "*signals a crowd and urgently points toward another route*",
+            "*both hands up, then jabs a finger back the way we came*" },
+        practical = { "*marks the route blocked by a large group*",
+            "*wide hands, then taps their watch: we wait them out*" },
     },
     ["signal.horde"] = {
         common = {
