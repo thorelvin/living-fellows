@@ -1648,10 +1648,13 @@ local function attack(actor, action, intent, provider)
         restoreActionState()
         return false, "native melee-action authorization could not be enabled"
     end
-    -- CombatManager may convert a close weapon attack into a defensive shove.
-    -- Keep hand-to-hand authorized for the complete synchronous preflight, not
-    -- only for an explicitly selected shove/stomp action.
-    local shoveAuthorized = invoke(actor, "setAuthorizedHandToHand", true)
+    -- Authorize the hand-to-hand (shove) path only for an explicitly selected
+    -- shove/stomp. Build 42's CombatManager converts an authorized weapon attack
+    -- into a defensive shove, which moves the target but deals no damage, so a
+    -- companion "swings but never lands" even at a clean range while facing the
+    -- target. A weapon swing must not authorize hand-to-hand.
+    local wantsHandToHand = action == "shove" or action == "stomp"
+    local shoveAuthorized = invoke(actor, "setAuthorizedHandToHand", wantsHandToHand)
     if not shoveAuthorized then
         invoke(actor, "setAuthorizedHandToHandAction", previousMeleeAuth == true)
         restoreActionState()

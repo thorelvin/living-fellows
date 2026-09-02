@@ -347,6 +347,7 @@ local function weaponRecord(item)
     local maxAmmo = numberCall(item, "getMaxAmmo", ranged and 1 or 1)
     local damage = numberCall(item, "getMaxDamage", 1)
     local range = numberCall(item, "getMaxRange", ranged and 8 or 1.5)
+    local minRange = math.max(0, numberCall(item, "getMinRange", 0))
     local swing = math.max(0.2, numberCall(item, "getSwingTime", 1))
     local weight = math.max(0.1, numberCall(item, "getActualWeight",
         numberCall(item, "getWeight", 1)))
@@ -364,6 +365,7 @@ local function weaponRecord(item)
         maxAmmo = maxAmmo,
         damage = damage,
         range = range,
+        minRange = minRange,
         swing = swing,
         weight = weight,
         enduranceMod = enduranceMod,
@@ -1000,13 +1002,27 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                 }
             end
         elseif distance <= (utility.config("combatMeleeDistance") or 1.7) then
-            actions[#actions + 1] = {
-                kind = "melee",
-                score = 58 + weapon.damage * 5 + readiness.combatSkill * 1.8
-                    + readiness.strength * 0.6 + readiness.weaponQuality * 8
-                    - pressure * 3 - fatiguePenalty
-                    - math.max(0, readiness.weaponCost - 1.5) * 3,
-            }
+            local swingMin = (tonumber(weapon.minRange) or 0)
+                + (utility.config("combatMeleeMinMargin") or 0.15)
+            if distance < swingMin then
+                -- Too close to swing: inside the weapon's minimum reach a long
+                -- blade cannot land, and Build 42 converts a point-blank weapon
+                -- attack into a non-damaging shove. Open a small gap back to the
+                -- effective swing distance first (kept facing the target).
+                actions[#actions + 1] = {
+                    kind = "backstep",
+                    score = 60 + pressure * 6 + readiness.nimble * 1.5
+                        + readiness.fitness - readiness.footing.crowd * 4,
+                }
+            else
+                actions[#actions + 1] = {
+                    kind = "melee",
+                    score = 58 + weapon.damage * 5 + readiness.combatSkill * 1.8
+                        + readiness.strength * 0.6 + readiness.weaponQuality * 8
+                        - pressure * 3 - fatiguePenalty
+                        - math.max(0, readiness.weaponCost - 1.5) * 3,
+                }
+            end
         elseif isolatedFront and readiness.staminaCritical ~= true then
             -- A melee companion used to kite laterally forever whenever the
             -- target was just outside swing range. Advance under a ready guard
