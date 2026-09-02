@@ -613,6 +613,13 @@ public final class SCBridge {
                         oldX, oldY, oldZ, oldCurrentSquare, oldSquare, oldMovingSquare,
                         oldWorldMembership, oldModelMembership);
             }
+            // addToWorld() restores square membership but not the cell object
+            // list the MovingObjectUpdateScheduler iterates. Without this the
+            // recovered actor is never ticked: it stops moving and its render
+            // alpha fades to invisible (while its valid square keeps it on the
+            // minimap, lootable, and a target for zombies) -- exactly the
+            // "teleported companion disappears but does not move" symptom.
+            actor.ensureScheduled();
             return true;
         } catch (RuntimeException | LinkageError failure) {
             localState.restore();
