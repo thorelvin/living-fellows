@@ -23,6 +23,8 @@ SC.ZombieAttack = SC.ZombieAttack or {}
 local ZombieAttack = SC.ZombieAttack
 -- Per-companion, per-attacker cooldown so one swing writes one wound.
 local lastHitAt = setmetatable({}, { __mode = "k" })
+-- Per-companion grab/pin state for the overwhelm pull-down.
+local grabState = setmetatable({}, { __mode = "k" })
 
 local function U()
     return SC.GameplayUtil
@@ -132,6 +134,88 @@ local function isLandingAttack(zombie, actor)
     return false
 end
 
+-- Knock the companion to the ground the way an overwhelming zombie grab does,
+-- setting the same flags the engine's grab sequence sets on a victim so the
+-- companion's own state machine plays the fall/on-ground animation.
+local function knockCompanionDown(actor)
+    U().call(actor, "setFallOnFront", randChance() < 0.5)
+    U().call(actor, "setKnockedDown", true)
+end
+
+local function releaseCompanion(actor)
+    U().call(actor, "setDeathDragDown", false)
+    U().call(actor, "setKnockedDown", false)
+end
+
+-- Higher trait effectiveness = harder to grab, easier to break free.
+local function grappleEffectiveness(actor)
+    local value = select(1, U().call(actor, "calculateGrappleEffectivenessFromTraits"))
+    local v = tonumber(value)
+    if v == nil then return 0.5 end
+    return v
+end
+
+-- Zombies pile onto and pull down an overwhelmed companion, just as they grab a
+-- surrounded player. When enough are attacking it at once, roll (against the
+-- companion's grapple traits) to grab and knock it to the ground; while pinned
+-- it is torn at (drag-down damage) and cannot fight, and it is freed only when
+-- the pile thins below the threshold or it struggles loose. If the drag-down
+-- kills it, ordinary permadeath applies -- a swarmed companion can be lost.
+local function resolveGrapple(actor, current, attackers)
+    if select(1, U().call(actor, "getVehicle")) ~= nil then return "in_vehicle" end
+    local grabbed = grabState[actor]
+    local threshold = config("zombieGrabThreshold", 2)
+    if grabbed and grabbed.pinned then
+        -- RESCUE: thin the pile below the threshold (kill/pull off attackers) and
+        -- the companion is freed -- alive, if bloodied. This is the whole point of
+        -- the grace window: a downed companion is savable.
+        if attackers < threshold then
+            releaseCompanion(actor); grabState[actor] = nil; return "grab_broken"
+        end
+        local held = current - (grabbed.pinnedAt or current)
+        -- Grace expired while still pinned: the swarm drags it down for good.
+        if held >= config("zombieGrabGraceMs", 9000) then
+            releaseCompanion(actor); grabState[actor] = nil
+            if SC.Actor and type(SC.Actor.endLife) == "function" then
+                pcall(SC.Actor.endLife, actor)
+            end
+            return "grab_killed"
+        end
+        -- SELF-ESCAPE: a tougher companion can struggle loose after a moment.
+        if held >= config("zombieGrabMinDurationMs", 1500) then
+            local escape = config("zombieGrabEscapeChance", 0.2) * (0.5 + grappleEffectiveness(actor))
+            if randChance() < escape then
+                releaseCompanion(actor); grabState[actor] = nil; return "grab_escaped"
+            end
+        end
+        -- Bleeding injury while held (real consequence), but the killing blow is
+        -- gated on the grace window above so the player always has time to react.
+        if current >= (grabbed.nextDragAt or 0) then
+            grabbed.nextDragAt = current + config("zombieGrabDragIntervalMs", 900)
+            applyWound(actor, rollWound(config("zombieGrabBiteChance", 0.5)))
+            U().call(actor, "setDeathDragDown", true)
+        end
+        -- Re-assert the pin each tick; the state machine would otherwise stand up.
+        U().call(actor, "setKnockedDown", true)
+        return "grabbed"
+    end
+    if attackers >= threshold then
+        local lastAttempt = grabbed and grabbed.lastAttemptAt or -math.huge
+        if current - lastAttempt >= config("zombieGrabAttemptCooldownMs", 1200) then
+            local chance = config("zombieGrabChance", 0.3)
+                * math.max(0.2, 1.5 - grappleEffectiveness(actor))
+            if randChance() < chance then
+                knockCompanionDown(actor)
+                grabState[actor] = { pinned = true, pinnedAt = current,
+                    nextDragAt = current + 700 }
+                return "grabbed_now"
+            end
+            grabState[actor] = { pinned = false, lastAttemptAt = current }
+        end
+    end
+    return "no_grab"
+end
+
 -- Resolve incoming zombie attacks against one companion. `zombies` is the
 -- already-bounded Senses threat list the runtime supplies; never rescan here.
 function ZombieAttack.resolve(actor, current, zombies)
@@ -149,10 +233,15 @@ function ZombieAttack.resolve(actor, current, zombies)
     end
 
     local holdRadius = config("zombieAttackHoldRadius", 3.0)
-    local applied, checked, targeting, landed = 0, 0, 0, 0
+    local grabReach = config("zombieGrabReach", 1.6)
+    local applied, checked, targeting, landed, pile = 0, 0, 0, 0, 0
     U().each(zombies, maximum, function(zombie)
         checked = checked + 1
         if U().isZombie(zombie) ~= true or U().isDead(zombie) == true then return end
+        -- The "pile": zombies crowding the companion in grab range. Count them by
+        -- proximity before the target gate -- a crowded-in zombie is part of the
+        -- overwhelm even on the frames its target flickers off between scans.
+        if U().distance(zombie, actor) <= grabReach then pile = pile + 1 end
         if select(1, U().call(zombie, "getTarget")) ~= actor then return end
         targeting = targeting + 1
         -- The stock vision loop only scans the local players[] array, so it never
@@ -177,13 +266,26 @@ function ZombieAttack.resolve(actor, current, zombies)
         if applyWound(actor, rollWound(biteChance)) then applied = applied + 1 end
     end)
 
+    -- Overwhelm pull-down: the crowd size (zombies in grab range targeting the
+    -- companion) is the reliable count. getSurroundingAttackingZombies() reads 0
+    -- for a non-local actor, so trust the pile.
+    local attackers = pile
+    local nativeValue = select(1, U().call(actor, "getSurroundingAttackingZombies"))
+    local native = tonumber(nativeValue)
+    if native and native > attackers then attackers = native end
+    local grapple = resolveGrapple(actor, current, attackers)
+
     return true, applied > 0 and "companion_wounded" or "no_landed_attack",
-        { checked = checked, targeting = targeting, landed = landed, applied = applied }
+        { checked = checked, targeting = targeting, landed = landed, applied = applied,
+          pile = pile, attackers = attackers, grapple = grapple }
 end
 
 function ZombieAttack.reset(actor)
-    if actor ~= nil then lastHitAt[actor] = nil
-    else lastHitAt = setmetatable({}, { __mode = "k" }) end
+    if actor ~= nil then lastHitAt[actor] = nil; grabState[actor] = nil
+    else
+        lastHitAt = setmetatable({}, { __mode = "k" })
+        grabState = setmetatable({}, { __mode = "k" })
+    end
     return true
 end
 

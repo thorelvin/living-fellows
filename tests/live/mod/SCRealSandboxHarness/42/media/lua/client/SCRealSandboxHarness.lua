@@ -1027,6 +1027,12 @@ end
 local function endZombieAttackObserve(current)
     for _, z in ipairs(Harness.zObserveZombies or {}) do cleanupTestZombie(z) end
     Harness.zObserveZombies = nil
+    -- Clear any grab/knockdown so later phases start from a standing companion.
+    if SurvivorCompanion.ZombieAttack and type(SurvivorCompanion.ZombieAttack.reset) == "function" then
+        pcall(SurvivorCompanion.ZombieAttack.reset, Harness.actor)
+    end
+    pcall(function() Harness.actor:setKnockedDown(false) end)
+    pcall(function() Harness.actor:setDeathDragDown(false) end)
     -- Restore the local player's zombie visibility we suppressed for isolation.
     if Harness.zObservePlayerGhost ~= nil then
         local wasGhost = Harness.zObservePlayerGhost
@@ -1092,6 +1098,8 @@ local function probeZombieAttackObserve(current)
         Harness.zObserveNextLog = current
         Harness.zObserveLog = ""
         Harness.zObserveEngaged = false
+        Harness.zObserveWounded = false
+        Harness.zObserveGrappled = false
         return
     end
     local zombies = Harness.zObserveZombies
@@ -1112,7 +1120,14 @@ local function probeZombieAttackObserve(current)
     -- this from the decision loop): a zombie landing a swing in reach writes a
     -- real BodyDamage wound to the companion.
     if SC.ZombieAttack and type(SC.ZombieAttack.resolve) == "function" then
-        pcall(SC.ZombieAttack.resolve, Harness.actor, current, zombies)
+        local rok, _, _, rd = pcall(SC.ZombieAttack.resolve, Harness.actor, current, zombies)
+        if rok and type(rd) == "table" then
+            Harness.zObservePile = math.max(Harness.zObservePile or 0, tonumber(rd.pile) or 0)
+            Harness.zObserveAtk = math.max(Harness.zObserveAtk or 0, tonumber(rd.attackers) or 0)
+            Harness.zObserveGrappleResult = tostring(rd.grapple)
+        elseif not rok then
+            Harness.zObserveGrappleResult = "resolve_error"
+        end
     end
 
     -- Summarise the pack: nearest distance, any engaged, and the lead zombie state.
@@ -1127,10 +1142,23 @@ local function probeZombieAttackObserve(current)
     end
     if anyEngaged then Harness.zObserveEngaged = true end
 
-    if wounds > 0 then
+    -- Assert two things over the same swarm: a wound lands, and enough attackers
+    -- overwhelm the companion into a grab (knocked down / drag-down).
+    local knocked = select(1, U.call(Harness.actor, "isKnockedDown")) == true
+        or select(1, U.call(Harness.actor, "isOnFloor")) == true
+    if wounds > 0 and not Harness.zObserveWounded then
+        Harness.zObserveWounded = true
         check("native_zombie_attacks_companion", true,
             "wounds=" .. tostring(wounds) .. " attackedBy=" .. tostring(attackedBy ~= nil)
                 .. " engaged=" .. tostring(Harness.zObserveEngaged))
+    end
+    if knocked and not Harness.zObserveGrappled then
+        Harness.zObserveGrappled = true
+        check("native_zombie_grapples_companion", true,
+            "knocked down / pulled down by the swarm; surrounding="
+                .. tostring(num1(Harness.actor, "getSurroundingAttackingZombies")))
+    end
+    if Harness.zObserveWounded and Harness.zObserveGrappled then
         endZombieAttackObserve(current); return
     end
     if current >= (Harness.zObserveNextLog or 0) then
@@ -1139,13 +1167,24 @@ local function probeZombieAttackObserve(current)
         Harness.zObserveLog = (Harness.zObserveLog or "")
             .. leadState .. "/" .. string.format("%.1f", nearest) .. " "
     end
-    if current - Harness.zObserveStart > 15000 then
-        check("native_zombie_attacks_companion", false,
-            "no wound in 15s with " .. tostring(#zombies) .. " frozen-companion"
-                .. " zombies: wounds=" .. tostring(wounds)
-                .. " ever_engaged=" .. tostring(Harness.zObserveEngaged)
-                .. " nearest=" .. string.format("%.1f", nearest)
-                .. " series=[" .. (Harness.zObserveLog or "") .. "]")
+    if current - Harness.zObserveStart > 18000 then
+        if not Harness.zObserveWounded then
+            check("native_zombie_attacks_companion", false,
+                "no wound in 18s with " .. tostring(#zombies) .. " zombies: wounds="
+                    .. tostring(wounds) .. " ever_engaged=" .. tostring(Harness.zObserveEngaged)
+                    .. " nearest=" .. string.format("%.1f", nearest)
+                    .. " series=[" .. (Harness.zObserveLog or "") .. "]")
+        end
+        if not Harness.zObserveGrappled then
+            check("native_zombie_grapples_companion", false,
+                "not pulled down in 18s: pile=" .. tostring(Harness.zObservePile or 0)
+                    .. " atk=" .. tostring(Harness.zObserveAtk or 0)
+                    .. " grab_result=" .. tostring(Harness.zObserveGrappleResult or "none")
+                    .. " eff=" .. v(Harness.actor, "calculateGrappleEffectivenessFromTraits")
+                    .. " knocked=" .. tostring(knocked)
+                    .. " dragdown=" .. tostring(select(1, U.call(Harness.actor, "isDeathDragDown")) == true)
+                    .. " a_state=" .. clean(v(Harness.actor, "getCompanionActionStateName")))
+        end
         endZombieAttackObserve(current); return
     end
 end
