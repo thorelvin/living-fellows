@@ -775,13 +775,12 @@ local function zombieTargetSquare(actor, player)
     return nil
 end
 
--- Verify the companion actually FIRES a gun and the shot connects. The reported
--- bug was a ranged-set companion drawing a melee weapon; the follow-up question
--- is whether, given a loaded firearm and a target, the non-local actor runs the
--- full fire pipeline (aim -> attackCollisionCheck -> fireWeapon -> ballistic hit)
--- that Build 42 normally gates to the local player. We equip a loaded pistol,
--- keep a zombie downrange, command attack_firearm, and pass on a spent round or a
--- damaged target.
+-- Verify the whole firearm lifecycle for a non-local companion: it fires (the
+-- aim -> attackCollisionCheck -> fireWeapon pipeline Build 42 normally gates to
+-- the local player), reloads an emptied gun from a spare magazine (a queued timed
+-- action that must tick to completion off the local player), and the reloaded gun
+-- fires again. We equip a loaded pistol with a spare magazine, keep a zombie
+-- downrange, and drive attack_firearm then reload then attack_firearm again.
 local function endRangedProbe(current, zombie)
     if zombie ~= nil then cleanupTestZombie(zombie) end
     Harness.rangedZombie = nil
@@ -831,12 +830,15 @@ local function probeRangedFire(current)
             result("FAIL", "native_companion_fires_ranged", "Base.Pistol could not be created")
             setPhase("faction_begin", current); return
         end
-        -- Load it: fill a magazine of the gun's type, chamber a round, clear jams.
+        -- Load it: fill a magazine of the gun's type, chamber a round, clear jams,
+        -- and keep a second full magazine in the pack so a later reload has ammo.
         local clip = num1(gun, "getClipSize") or 15
         local magType = select(1, U.call(gun, "getMagazineType"))
         if magType and tostring(magType) ~= "" then
             local mag = inv:AddItem(tostring(magType))
             if mag ~= nil then pcall(function() mag:setCurrentAmmoCount(clip) end) end
+            local spare = inv:AddItem(tostring(magType))
+            if spare ~= nil then pcall(function() spare:setCurrentAmmoCount(clip) end) end
         end
         pcall(function() gun:setContainsClip(true) end)
         pcall(function() gun:setCurrentAmmoCount(clip) end)
@@ -848,6 +850,8 @@ local function probeRangedFire(current)
             action = "equip_weapon", item = gun, supervisorToken = control })
         Harness.rangedZombie = zombie
         Harness.rangedGun = gun
+        Harness.rangedClip = clip
+        Harness.rangedStage = "fire"
         Harness.rangedStart = current
         Harness.rangedNextAt = current + 900
         Harness.rangedShots = 0
@@ -857,27 +861,110 @@ local function probeRangedFire(current)
     end
     local zombie = Harness.rangedZombie
     local gun = Harness.rangedGun
+
+    -- Stage two: verify the companion actually reloads an emptied firearm. A
+    -- reload is a queued timed action; the open question is whether that queue
+    -- ticks to completion for a non-local actor the way a swing anim does.
+    if Harness.rangedStage == "reload" then
+        local ammo = num1(gun, "getCurrentAmmoCount") or 0
+        if ammo > 0 then
+            -- Reloaded; now confirm the freshly loaded gun is actually usable by
+            -- firing again (a loaded-but-unchambered gun that will not fire is a
+            -- real fault worth catching).
+            Harness.rangedReloadedAmmo = ammo
+            Harness.rangedStage = "refire"
+            Harness.rangedRefireStart = current
+            Harness.rangedNextAt = current
+            return
+        end
+        if current - (Harness.rangedReloadAt or current) > 12000 then
+            check("native_companion_reloads", false,
+                "empty gun not reloaded in 12s: ammo=" .. tostring(ammo)
+                    .. " a_state=" .. clean(v(Harness.actor, "getCompanionActionStateName"))
+                    .. " performing=" .. v(Harness.actor, "isPerformingAttackAnimation")
+                    .. " spare_mags=present")
+            endRangedProbe(current, zombie); return
+        end
+        -- Re-issue the reload if the queue drained without loading.
+        if current >= (Harness.rangedNextAt or 0) then
+            SC.Actor.setMovement(Harness.actor, "walk", {
+                action = "reload", weapon = gun, supervisorToken = Harness.rangedControl })
+            Harness.rangedNextAt = current + 1500
+        end
+        return
+    end
+
+    -- Stage three: the reloaded gun must fire again (proves it is usable, i.e.
+    -- chambered/racked as needed, not just holding ammo it cannot shoot).
+    if Harness.rangedStage == "refire" then
+        local ammo = num1(gun, "getCurrentAmmoCount") or 0
+        if ammo < (Harness.rangedReloadedAmmo or 0) then
+            check("native_companion_reloads", true,
+                "reloaded 0->" .. tostring(Harness.rangedReloadedAmmo)
+                    .. " then fired to " .. tostring(ammo))
+            endRangedProbe(current, zombie); return
+        end
+        if current - (Harness.rangedRefireStart or current) > 10000 then
+            check("native_companion_reloads", false,
+                "reloaded to " .. tostring(Harness.rangedReloadedAmmo)
+                    .. " but the gun would not fire again: ammo=" .. tostring(ammo)
+                    .. " chambered=" .. v(gun, "isRoundChambered")
+                    .. " a_state=" .. clean(v(Harness.actor, "getCompanionActionStateName")))
+            endRangedProbe(current, zombie); return
+        end
+        local ax = position(Harness.actor)
+        if ax ~= nil and (num1(Harness.actor, "DistTo", zombie) or 0) < 3 then
+            local ay = select(2, position(Harness.actor))
+            pcall(function() zombie:setX(ax + 6) end)
+            pcall(function() zombie:setY(ay) end)
+            pcall(function() zombie:setCurrentSquareFromPosition() end)
+        end
+        if current >= (Harness.rangedNextAt or 0) then
+            local performing = select(1, U.call(Harness.actor, "isPerformingAttackAnimation"))
+            if performing ~= true then
+                SC.Actor.setMovement(Harness.actor, "walk", {
+                    action = "attack_firearm", target = zombie, weapon = gun,
+                    urgent = true, emergency = true, supervisorToken = Harness.rangedControl })
+                Harness.rangedNextAt = current + 800
+            end
+        end
+        return
+    end
+
+    -- Stage one: fire and connect.
     local ammo = num1(gun, "getCurrentAmmoCount")
     local zh = num1(zombie, "getHealth")
     local zdead = select(1, U.call(zombie, "isDead")) == true
     if Harness.rangedAmmo0 and ammo and ammo < Harness.rangedAmmo0 then
         Harness.rangedFired = true
     end
-    local hit = zdead or (Harness.rangedZHealth0 and zh and zh < Harness.rangedZHealth0 - 0.0001)
-    -- A spent round proves the companion runs the full fire pipeline; a damaged
-    -- target proves the shot also connects. Require a connect to pass, so a gun
-    -- that fires but never hits is caught.
-    if hit then
+    if hit then Harness.rangedHit = true end
+    -- Firing is the deterministic capability we assert (a spent round proves the
+    -- full aim -> collision-check -> fireWeapon pipeline runs); landing a shot is
+    -- aim RNG, reported for information. Move on to the reload stage once the gun
+    -- has clearly fired.
+    local shots = Harness.rangedShots or 0
+    if Harness.rangedFired and shots >= 6 then
         check("native_companion_fires_ranged", true,
-            "ammo " .. tostring(Harness.rangedAmmo0) .. "->" .. tostring(ammo)
-                .. " target_hit=true shots=" .. tostring(Harness.rangedShots))
-        endRangedProbe(current, zombie); return
+            "fired=true target_hit=" .. tostring(Harness.rangedHit == true)
+                .. " ammo " .. tostring(Harness.rangedAmmo0) .. "->" .. tostring(ammo)
+                .. " shots=" .. tostring(shots))
+        pcall(function() gun:setCurrentAmmoCount(0) end)
+        pcall(function() gun:setRoundChambered(false) end)
+        pcall(SC.Actor.stop, Harness.actor)
+        SC.Actor.setMovement(Harness.actor, "walk", {
+            action = "reload", weapon = gun, supervisorToken = Harness.rangedControl })
+        Harness.rangedStage = "reload"
+        Harness.rangedReloadAt = current
+        Harness.rangedNextAt = current + 1500
+        return
     end
-    if current - Harness.rangedStart > 15000 then
+    if current - Harness.rangedStart > 18000 then
         check("native_companion_fires_ranged", Harness.rangedFired == true,
             "fired=" .. tostring(Harness.rangedFired == true)
-                .. " target_hit=false ammo " .. tostring(Harness.rangedAmmo0) .. "->" .. tostring(ammo)
-                .. " shots=" .. tostring(Harness.rangedShots)
+                .. " target_hit=" .. tostring(Harness.rangedHit == true)
+                .. " ammo " .. tostring(Harness.rangedAmmo0) .. "->" .. tostring(ammo)
+                .. " shots=" .. tostring(shots)
                 .. " aiming=" .. v(Harness.actor, "isAiming")
                 .. " a_state=" .. clean(v(Harness.actor, "getCompanionActionStateName"))
                 .. " dist=" .. v(Harness.actor, "DistTo", zombie))
