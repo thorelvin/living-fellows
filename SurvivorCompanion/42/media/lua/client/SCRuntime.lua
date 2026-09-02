@@ -291,6 +291,17 @@ local function vitalsTask(current)
             return
         elseif state.recruited == true then
             local currentPlayer = player()
+            -- Only a following companion catches up to the player. A posted
+            -- companion (stay, guard, base duty, or working) must never be yanked
+            -- across the map when the player walks out of range and its chunk
+            -- unloads: keep its registry record intact and let it reload in place
+            -- when the player returns to its area, exactly like the vehicle case.
+            if state.order ~= "follow" and state.order ~= "regroup" then
+                record.runtime.nativeSquareMissingAt = current
+                record.runtime.postedRecoveryDeferred = true
+                return
+            end
+            record.runtime.postedRecoveryDeferred = nil
             local playerVehicleOk, playerVehicle = invoke(currentPlayer, "getVehicle")
             if playerVehicleOk and playerVehicle ~= nil then
                 -- A follower that missed boarding may unload while the player
