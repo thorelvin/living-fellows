@@ -594,7 +594,7 @@ local function cleanupCombat(current)
     Harness.combatActionGroupControl = nil
     Harness.combatTargetInitialHealth = nil
     Harness.combatSwingCount = nil
-    setPhase("faction_begin", current)
+    setPhase("ranged_fire", current)
 end
 
 local function finishCombatProbe(current, status, detail)
@@ -773,6 +773,133 @@ local function zombieTargetSquare(actor, player)
             and utility.canSee(actor, square) then return square end
     end
     return nil
+end
+
+-- Verify the companion actually FIRES a gun and the shot connects. The reported
+-- bug was a ranged-set companion drawing a melee weapon; the follow-up question
+-- is whether, given a loaded firearm and a target, the non-local actor runs the
+-- full fire pipeline (aim -> attackCollisionCheck -> fireWeapon -> ballistic hit)
+-- that Build 42 normally gates to the local player. We equip a loaded pistol,
+-- keep a zombie downrange, command attack_firearm, and pass on a spent round or a
+-- damaged target.
+local function endRangedProbe(current, zombie)
+    if zombie ~= nil then cleanupTestZombie(zombie) end
+    Harness.rangedZombie = nil
+    Harness.rangedGun = nil
+    if Harness.rangedControl ~= nil then
+        endHarnessControl(Harness.rangedControl, "ranged_probe_done")
+        Harness.rangedControl = nil
+    end
+    setPhase("faction_begin", current)
+end
+
+local function probeRangedFire(current)
+    local SC = SurvivorCompanion
+    local U = SC.GameplayUtil
+    local function v(obj, m, ...) local val, ok = U.call(obj, m, ...) return ok and tostring(val) or "na" end
+    local function num1(obj, m) local val = select(1, U.call(obj, m)) return tonumber(val) end
+    if type(addZombiesInOutfit) ~= "function" then
+        skip("native_companion_fires_ranged", "addZombiesInOutfit unavailable")
+        setPhase("faction_begin", current); return
+    end
+    if Harness.rangedZombie == nil then
+        local ax, ay, az = position(Harness.actor)
+        if ax == nil then
+            skip("native_companion_fires_ranged", "companion has no position")
+            setPhase("faction_begin", current); return
+        end
+        local okSpawn, zs = pcall(addZombiesInOutfit,
+            math.floor(ax + 6), math.floor(ay), math.floor(az or 0), 1, nil, 0)
+        local zombie = okSpawn and zs and select(1, U.call(zs, "get", 0)) or nil
+        if zombie == nil then
+            result("FAIL", "native_companion_fires_ranged", "downrange zombie spawn failed")
+            setPhase("faction_begin", current); return
+        end
+        pcall(SC.Actor.stop, Harness.actor)
+        local control = beginHarnessControl(Harness.actor, "ranged_fire_probe", 20000)
+        if control == nil then
+            cleanupTestZombie(zombie)
+            result("FAIL", "native_companion_fires_ranged", "control ownership rejected")
+            setPhase("faction_begin", current); return
+        end
+        Harness.rangedControl = control
+        local inv = Harness.actor:getInventory()
+        local gun = inv and inv:AddItem("Base.Pistol") or nil
+        if gun == nil then
+            endHarnessControl(control, "ranged_gun_missing")
+            cleanupTestZombie(zombie)
+            result("FAIL", "native_companion_fires_ranged", "Base.Pistol could not be created")
+            setPhase("faction_begin", current); return
+        end
+        -- Load it: fill a magazine of the gun's type, chamber a round, clear jams.
+        local clip = num1(gun, "getClipSize") or 15
+        local magType = select(1, U.call(gun, "getMagazineType"))
+        if magType and tostring(magType) ~= "" then
+            local mag = inv:AddItem(tostring(magType))
+            if mag ~= nil then pcall(function() mag:setCurrentAmmoCount(clip) end) end
+        end
+        pcall(function() gun:setContainsClip(true) end)
+        pcall(function() gun:setCurrentAmmoCount(clip) end)
+        pcall(function() gun:setRoundChambered(true) end)
+        pcall(function() gun:setJammed(false) end)
+        pcall(function() if Perks ~= nil and Perks.Aiming ~= nil then
+            Harness.actor:setPerkLevelDebug(Perks.Aiming, 10) end end)
+        SC.Actor.setMovement(Harness.actor, "walk", {
+            action = "equip_weapon", item = gun, supervisorToken = control })
+        Harness.rangedZombie = zombie
+        Harness.rangedGun = gun
+        Harness.rangedStart = current
+        Harness.rangedNextAt = current + 900
+        Harness.rangedShots = 0
+        Harness.rangedAmmo0 = num1(gun, "getCurrentAmmoCount")
+        Harness.rangedZHealth0 = num1(zombie, "getHealth")
+        return
+    end
+    local zombie = Harness.rangedZombie
+    local gun = Harness.rangedGun
+    local ammo = num1(gun, "getCurrentAmmoCount")
+    local zh = num1(zombie, "getHealth")
+    local zdead = select(1, U.call(zombie, "isDead")) == true
+    if Harness.rangedAmmo0 and ammo and ammo < Harness.rangedAmmo0 then
+        Harness.rangedFired = true
+    end
+    local hit = zdead or (Harness.rangedZHealth0 and zh and zh < Harness.rangedZHealth0 - 0.0001)
+    -- A spent round proves the companion runs the full fire pipeline; a damaged
+    -- target proves the shot also connects. Require a connect to pass, so a gun
+    -- that fires but never hits is caught.
+    if hit then
+        check("native_companion_fires_ranged", true,
+            "ammo " .. tostring(Harness.rangedAmmo0) .. "->" .. tostring(ammo)
+                .. " target_hit=true shots=" .. tostring(Harness.rangedShots))
+        endRangedProbe(current, zombie); return
+    end
+    if current - Harness.rangedStart > 15000 then
+        check("native_companion_fires_ranged", Harness.rangedFired == true,
+            "fired=" .. tostring(Harness.rangedFired == true)
+                .. " target_hit=false ammo " .. tostring(Harness.rangedAmmo0) .. "->" .. tostring(ammo)
+                .. " shots=" .. tostring(Harness.rangedShots)
+                .. " aiming=" .. v(Harness.actor, "isAiming")
+                .. " a_state=" .. clean(v(Harness.actor, "getCompanionActionStateName"))
+                .. " dist=" .. v(Harness.actor, "DistTo", zombie))
+        endRangedProbe(current, zombie); return
+    end
+    -- Keep the target downrange so the shot has a clear firearm engagement.
+    local ax, ay, az = position(Harness.actor)
+    if ax ~= nil and (num1(Harness.actor, "DistTo", zombie) or 0) < 3 then
+        pcall(function() zombie:setX(ax + 6) end)
+        pcall(function() zombie:setY(ay) end)
+        pcall(function() zombie:setCurrentSquareFromPosition() end)
+    end
+    if current >= (Harness.rangedNextAt or 0) then
+        local performing = select(1, U.call(Harness.actor, "isPerformingAttackAnimation"))
+        if performing ~= true then
+            local accepted = SC.Actor.setMovement(Harness.actor, "walk", {
+                action = "attack_firearm", target = zombie, weapon = gun,
+                urgent = true, emergency = true, supervisorToken = Harness.rangedControl })
+            if accepted == true then Harness.rangedShots = (Harness.rangedShots or 0) + 1 end
+            Harness.rangedNextAt = current + 800
+        end
+    end
 end
 
 -- Verify the reported bug directly: with the companion's AI fully disabled (so it
@@ -1546,6 +1673,8 @@ local function tick()
         probeNativeCombatAnimation(current)
     elseif Harness.phase == "combat_damage" then
         probeCombatDamage(current)
+    elseif Harness.phase == "ranged_fire" then
+        probeRangedFire(current)
     elseif Harness.phase == "faction_begin" then
         beginFactionProbe(current)
     elseif Harness.phase == "faction_wait" then
