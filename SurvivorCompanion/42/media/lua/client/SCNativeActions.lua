@@ -1734,6 +1734,46 @@ local function reload(actor, intent, provider)
     return true, "reload_started"
 end
 
+-- Clear a jammed firearm by racking it, the same ISRackFirearm timed action the
+-- radial menu queues for the player; ISRackFirearm.rackBullet clears the jam.
+local function unjam(actor, intent, provider)
+    local weapon = intent.weapon
+    if weapon == nil then
+        return false, "unjam intent has no weapon"
+    end
+    local handled, reason = useProvider(provider, "unjam", actor, weapon, intent)
+    if handled ~= nil then
+        return handled, reason
+    end
+    if not provider.directNative then
+        return false, reason
+    end
+    if type(ISRackFirearm) ~= "table" or type(ISRackFirearm.new) ~= "function"
+        or type(ISTimedActionQueue) ~= "table"
+        or type(ISTimedActionQueue.add) ~= "function"
+        or type(ISTimedActionQueue.getTimedActionQueue) ~= "function" then
+        return false, "native rack action is unavailable"
+    end
+    if type(ISReloadWeaponAction) == "table"
+        and type(ISReloadWeaponAction.canRack) == "function" then
+        local okRack, canRack = pcall(ISReloadWeaponAction.canRack, weapon)
+        if okRack and canRack ~= true then return false, "weapon cannot be racked" end
+    end
+    local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    local before = queue and queue.queue and #queue.queue or 0
+    local action = ISRackFirearm:new(actor, weapon)
+    local ok, failure = pcall(ISTimedActionQueue.add, action)
+    if not ok then
+        return false, tostring(failure)
+    end
+    queue = ISTimedActionQueue.getTimedActionQueue(actor)
+    local after = queue and queue.queue and #queue.queue or 0
+    if after <= before or queue.current == nil then
+        return false, "native rack action did not enter the queue"
+    end
+    return true, "unjam_started"
+end
+
 local function windowAction(actor, action, intent, provider)
     local object = intent.object
     if object == nil then
@@ -2257,6 +2297,8 @@ function actions.dispatch(actor, mode, intent, provider)
         return equip(actor, intent, provider)
     elseif action == "reload" then
         return reload(actor, intent, provider)
+    elseif action == "unjam" then
+        return unjam(actor, intent, provider)
     elseif combatActions[action] then
         return attack(actor, action, intent, provider)
     elseif action == "backstep" or action == "lateral_kite" then

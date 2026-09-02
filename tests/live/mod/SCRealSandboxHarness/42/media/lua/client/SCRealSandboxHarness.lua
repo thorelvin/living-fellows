@@ -902,7 +902,15 @@ local function probeRangedFire(current)
             check("native_companion_reloads", true,
                 "reloaded 0->" .. tostring(Harness.rangedReloadedAmmo)
                     .. " then fired to " .. tostring(ammo))
-            endRangedProbe(current, zombie); return
+            -- Stage four: jam the gun and confirm the companion racks it clear.
+            pcall(function() gun:setJammed(true) end)
+            pcall(SC.Actor.stop, Harness.actor)
+            SC.Actor.setMovement(Harness.actor, "walk", {
+                action = "unjam", weapon = gun, supervisorToken = Harness.rangedControl })
+            Harness.rangedStage = "unjam"
+            Harness.rangedUnjamAt = current
+            Harness.rangedNextAt = current + 1500
+            return
         end
         if current - (Harness.rangedRefireStart or current) > 10000 then
             check("native_companion_reloads", false,
@@ -927,6 +935,29 @@ local function probeRangedFire(current)
                     urgent = true, emergency = true, supervisorToken = Harness.rangedControl })
                 Harness.rangedNextAt = current + 800
             end
+        end
+        return
+    end
+
+    -- Stage four: a jammed gun must be racked clear.
+    if Harness.rangedStage == "unjam" then
+        local jammed = select(1, U.call(gun, "isJammed")) == true
+        if not jammed then
+            check("native_companion_clears_jam", true,
+                "racked the jam clear; chambered=" .. v(gun, "isRoundChambered"))
+            endRangedProbe(current, zombie); return
+        end
+        if current - (Harness.rangedUnjamAt or current) > 10000 then
+            check("native_companion_clears_jam", false,
+                "jam not cleared in 10s: jammed=" .. tostring(jammed)
+                    .. " a_state=" .. clean(v(Harness.actor, "getCompanionActionStateName"))
+                    .. " performing=" .. v(Harness.actor, "isPerformingAttackAnimation"))
+            endRangedProbe(current, zombie); return
+        end
+        if current >= (Harness.rangedNextAt or 0) then
+            SC.Actor.setMovement(Harness.actor, "walk", {
+                action = "unjam", weapon = gun, supervisorToken = Harness.rangedControl })
+            Harness.rangedNextAt = current + 1500
         end
         return
     end

@@ -11,7 +11,7 @@ local histories = setmetatable({}, { __mode = "k" })
 
 local interactionActions = {
     attack_melee = true, attack_firearm = true, shove = true, stomp = true,
-    reload = true, equip = true, equip_weapon = true,
+    reload = true, unjam = true, equip = true, equip_weapon = true,
     bandage = true, treat = true, kneel_treat = true,
     rip_clothing = true, tear_clothing = true, rip_clothing_for_bandage = true,
     replace_bandage = true,

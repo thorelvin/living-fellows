@@ -340,6 +340,7 @@ local function weaponRecord(item)
         or utility.hasMethod(item, "getMaxDamage")
     if not isWeapon then return nil end
     local ranged = boolCall(item, "isRanged")
+    local jammed = ranged and boolCall(item, "isJammed") or false
     local condition = numberCall(item, "getCondition", 100)
     local conditionMax = math.max(1, numberCall(item, "getConditionMax", 100))
     local ammo = numberCall(item, "getCurrentAmmoCount", -1)
@@ -359,6 +360,7 @@ local function weaponRecord(item)
         item = item,
         type = utility.itemType(item),
         ranged = ranged,
+        jammed = jammed,
         condition = condition,
         conditionRatio = condition / conditionMax,
         ammo = ammo,
@@ -981,7 +983,11 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
     end
     if weapon then
         if weapon.ranged then
-            if weapon.ammo <= 0 and hasReloadAmmo(inventory, weapon) then
+            if weapon.jammed then
+                -- A jammed firearm must be racked clear before it can fire or
+                -- reload; prioritise it above every other ranged action.
+                actions[#actions + 1] = { kind = "unjam", score = 80 }
+            elseif weapon.ammo <= 0 and hasReloadAmmo(inventory, weapon) then
                 actions[#actions + 1] = { kind = "reload", score = distance > 3 and 62 or 24 }
             elseif weapon.ammo > 0 and not commands.holdFire and target.visible
                 and utility.sameFloor(actor, target.actor)
@@ -1275,7 +1281,9 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         return true, "equip"
     end
     local accepted
-    if action.kind == "reload" then
+    if action.kind == "unjam" then
+        accepted = utility.move(actor, "walk", { action = "unjam", weapon = weapon.item, target = targetActor })
+    elseif action.kind == "reload" then
         accepted = utility.move(actor, "walk", { action = "reload", weapon = weapon.item, target = targetActor })
     elseif action.kind == "shoot" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
@@ -1333,6 +1341,12 @@ local function vehicleCombat(actor, player, snapshot, target, weapon, inventory,
     if not weapon.equipped then
         local accepted = equipWeapon(actor, weapon.item, { nextAction = "shoot" })
         return accepted == true, accepted and "equip" or "equip_rejected"
+    end
+    if weapon.jammed then
+        local accepted = utility.move(actor, "walk", {
+            action = "unjam", weapon = weapon.item, target = target.actor,
+        })
+        return accepted == true, accepted and "unjam" or "unjam_rejected"
     end
     if weapon.ammo <= 0 then
         if not hasReloadAmmo(inventory, weapon) then
