@@ -731,6 +731,7 @@ local pools = {
     } },
     ["faction.warn.weapon"] = { common = {
         "Lower your weapon!", "Put the weapon down!", "Muzzle down, stranger!",
+        "Hands where I can see them, weapon down!", "Ease off the trigger and back up!",
         "Don't point that at us!", "Lower it now if you want to keep talking!",
     } },
     ["faction.warn.leave"] = { common = {
