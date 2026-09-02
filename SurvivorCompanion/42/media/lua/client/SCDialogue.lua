@@ -126,7 +126,7 @@ local pools = {
         common = {
             "*raises one finger: one walker ahead*", "*closes a fist, then points to one zombie*",
             "*holds up one finger and points ahead*", "*signals one contact, straight ahead*",
-            "*taps one finger against their weapon: one*", "*points low, then shows one finger*",
+            "*taps their thigh once, then shows one finger*", "*points low, then shows one finger*",
         },
         cautious = { "*signals one walker, then points back to the escape route*" },
         practical = { "*shows one finger: single contact*" },
@@ -135,7 +135,7 @@ local pools = {
         common = {
             "*raises two fingers: two walkers ahead*", "*points ahead, then holds up two fingers*",
             "*signals a pair moving together*", "*shows two fingers and motions for spacing*",
-            "*taps twice against their weapon and points forward*", "*signals two contacts near each other*",
+            "*taps twice on their forearm, then points forward*", "*signals two contacts near each other*",
         },
         cautious = { "*shows two fingers, then motions to split them apart*" },
         practical = { "*signals two contacts and marks the nearer one*" },
