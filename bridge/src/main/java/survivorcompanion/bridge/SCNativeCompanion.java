@@ -643,7 +643,18 @@ public final class SCNativeCompanion extends IsoPlayer {
         isPlayerMoving = moving;
         super.setMoving(moving);
         applyCompanionTacticalMovement();
-        updateMovementRates();
+        try {
+            updateMovementRates();
+        } catch (RuntimeException | LinkageError rateFailure) {
+            // updateMovementRates -> calculateWalkSpeed -> calculateSneakLimpSpeedScale
+            // reads a limp/sneak animation-variable slot that is momentarily null on
+            // a non-local companion (e.g. while limping from a leg wound). This is a
+            // non-critical per-frame speed refresh; skip it this frame (the rates
+            // keep their prior value) rather than letting the NPE fail the whole
+            // update and trip the health gate into a remove+respawn (the vanish).
+            bridgePostUpdateDiagnostic = "movement_rate_skipped:"
+                    + rateFailure.getClass().getSimpleName();
+        }
     }
 
     private boolean isBridgeLocomotionActive() {

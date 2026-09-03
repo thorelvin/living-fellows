@@ -922,6 +922,29 @@ local function probeFinishGrounded(current)
     end
 end
 
+-- Diagnostic: break down why SC.Actor.isCompanion(actor) is false (the
+-- "actor is not an active companion" reject), to locate the failing condition.
+local function companionStateBreakdown(actor)
+    local SC = SurvivorCompanion
+    local okId, id = pcall(function()
+        return SC.Registry and SC.Registry.idOf and SC.Registry.idOf(actor) or nil
+    end)
+    local rec = nil
+    if okId and id and SC.Registry and type(SC.Registry.byId) == "function" then
+        rec = select(1, pcall(SC.Registry.byId, id)) and SC.Registry.byId(id) or nil
+    end
+    local isActive = nil
+    if okId and id and SC.Registry and type(SC.Registry.isActive) == "function" then
+        isActive = SC.Registry.isActive(actor, id)
+    end
+    return "regid=" .. tostring(okId and id or "err")
+        .. " iscomp=" .. tostring(SC.Actor and SC.Actor.isCompanion and SC.Actor.isCompanion(actor))
+        .. " rec=" .. tostring(rec ~= nil)
+        .. " inactive=" .. tostring(rec and type(rec.runtime) == "table" and rec.runtime.inactive)
+        .. " active=" .. tostring(isActive)
+        .. " dead=" .. tostring(select(1, SC.GameplayUtil.call(actor, "isDead")))
+end
+
 local function probeRangedFire(current)
     local SC = SurvivorCompanion
     local U = SC.GameplayUtil
@@ -1128,6 +1151,10 @@ local function probeRangedFire(current)
                 .. " shots=" .. tostring(shots)
                 .. " aiming=" .. v(Harness.actor, "isAiming")
                 .. " a_state=" .. clean(v(Harness.actor, "getCompanionActionStateName"))
+                .. " reject=" .. clean(Harness.rangedLastReject or "none")
+                .. " canattack=" .. v(Harness.actor, "CanAttack")
+                .. " equipped=" .. v(Harness.actor, "getPrimaryHandItem")
+                .. " " .. companionStateBreakdown(Harness.actor)
                 .. " dist=" .. v(Harness.actor, "DistTo", zombie))
         endRangedProbe(current, zombie); return
     end
@@ -1141,10 +1168,14 @@ local function probeRangedFire(current)
     if current >= (Harness.rangedNextAt or 0) then
         local performing = select(1, U.call(Harness.actor, "isPerformingAttackAnimation"))
         if performing ~= true then
-            local accepted = SC.Actor.setMovement(Harness.actor, "walk", {
+            local accepted, reason = SC.Actor.setMovement(Harness.actor, "walk", {
                 action = "attack_firearm", target = zombie, weapon = gun,
                 urgent = true, emergency = true, supervisorToken = Harness.rangedControl })
-            if accepted == true then Harness.rangedShots = (Harness.rangedShots or 0) + 1 end
+            if accepted == true then
+                Harness.rangedShots = (Harness.rangedShots or 0) + 1
+            else
+                Harness.rangedLastReject = reason
+            end
             Harness.rangedNextAt = current + 800
         end
     end
