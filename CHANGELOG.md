@@ -25,6 +25,7 @@
 - Replaced partial save copies with strict path-aware copies. Uncopyable envelopes block overwrite, while copyable invalid records and failed subsystem documents remain quarantined and recoverable without losing their untouched raw value.
 - Added bounded restore backoff and manual retry for deterministic incompatibilities.
 - Kept failed native cleanup actors reachable and retryable, and hard-gated every reflection-dependent Build 42.20.4 method before spawning.
+- Fixed the standalone `Install.bat`/`Uninstall.bat` failing with "Illegal characters in the path" no matter where the zip was unpacked: `%~dp0` ends with a backslash, so passing a bare `"%~dp0"` made the trailing `\"` an escaped quote, and PowerShell swallowed the rest of the line into `-ProjectRoot`. The wrappers now strip the trailing backslash before handing the path to the installer, and a test guards the wrappers against reintroducing the pattern.
 - Rebuilt local/native installation as one hash-verified transaction with rollback at every commit boundary and safe refusal of ambiguous legacy launcher state.
 - Unified configuration views, provider identifiers, scheduler metrics, faction limits, Java/Lua list access, and checked transaction helpers.
 - Bounded the dynamic perception cache with incremental expiry sweeping, and added source-only CI plus a trusted real-JAR compatibility workflow.

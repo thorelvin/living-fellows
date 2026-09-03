@@ -31,6 +31,24 @@ $Uninstall = Join-Path $ProjectRoot 'scripts\Uninstall-Local.ps1'
 $NativeInstall = Join-Path $ProjectRoot 'scripts\Install-NativeBridge.ps1'
 $StandaloneUninstall = Join-Path $ProjectRoot 'scripts\Uninstall-Standalone.ps1'
 
+# The standalone .bat wrappers must not hand PowerShell a bare "%~dp0": %~dp0 ends
+# with a backslash, so the trailing \" is parsed as an escaped quote and the rest
+# of the command line is swallowed into the argument, which then trips
+# [System.IO.Path]::GetFullPath with "Illegal characters in the path" -- a hard
+# install failure for every standalone unzip-and-run. Wrappers must strip the
+# trailing backslash before passing the directory as an argument.
+foreach ($bat in @('Install.bat', 'Uninstall.bat')) {
+    $batPath = Join-Path $ProjectRoot $bat
+    if (-not (Test-Path -LiteralPath $batPath -PathType Leaf)) {
+        throw "Standalone wrapper missing: $bat"
+    }
+    foreach ($line in (Get-Content -LiteralPath $batPath)) {
+        if ($line -match '(?i)^\s*powershell' -and $line -match '"%~dp0"') {
+            throw "$bat passes a bare `"%~dp0`" as a PowerShell argument; the trailing backslash escapes the closing quote and corrupts the argument. Strip the trailing backslash first."
+        }
+    }
+}
+
 function Get-TreeSnapshot([hashtable]$Paths) {
     $snapshot = [ordered]@{}
     foreach ($label in @($Paths.Keys | Sort-Object)) {
@@ -500,7 +518,7 @@ try {
     }
     if (-not $legacyRefused) { throw 'Installer did not reject the legacy loose actor class.' }
 
-    Write-Output 'INSTALLER_TRANSACTION_PASS ownership=true rollback=all-boundaries standalone-atomic=true deep-chain-preflight=true derived-bridge=true exact-target=true no-duplicate-id=true legacy-preflight=true native-launcher=true manifestless-refusal=true stale-protocol=true'
+    Write-Output 'INSTALLER_TRANSACTION_PASS ownership=true rollback=all-boundaries standalone-atomic=true deep-chain-preflight=true derived-bridge=true exact-target=true no-duplicate-id=true legacy-preflight=true native-launcher=true manifestless-refusal=true stale-protocol=true bat-wrapper-safe=true'
 }
 finally {
     if (Test-Path -LiteralPath $Sandbox) {
