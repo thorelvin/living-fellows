@@ -47,6 +47,8 @@ local originalSelectContainer = nil
 local originalSetNewContainer = nil
 local selectContainerWrapper = nil
 local setNewContainerWrapper = nil
+local unpackReturns = table.unpack or unpack
+local function packReturns(...) return { n = select("#", ...), ... } end
 local lastDisabledNoticeAt = -math.huge
 local lastDebugSpawnReportAt = -math.huge
 local lastDebugSpawnReason = nil
@@ -587,21 +589,28 @@ local function installContainerHook()
     end
     originalSelectContainer = ISInventoryPage.selectContainer
     originalSetNewContainer = ISInventoryPage.setNewContainer
-    selectContainerWrapper = function(self, button)
-        local result = originalSelectContainer(self, button)
+    -- Forward every argument and every return value verbatim: a Build update or
+    -- another mod may add parameters or return multiple values, so a fixed
+    -- (self, button)/(self, inventory) single-return wrapper would silently drop
+    -- them and corrupt the inventory/hotbar chain. We only read the first
+    -- argument to emit our narrow "container opened" signal.
+    selectContainerWrapper = function(self, ...)
+        local button = ...
+        local result = packReturns(originalSelectContainer(self, ...))
         if self ~= nil and self.onCharacter ~= true and button ~= nil
             and self.inventoryPane ~= nil and self.inventoryPane.inventory == button.inventory then
             markOpened(button.inventory)
         end
-        return result
+        return unpackReturns(result, 1, result.n)
     end
-    setNewContainerWrapper = function(self, inventory)
-        local result = originalSetNewContainer(self, inventory)
+    setNewContainerWrapper = function(self, ...)
+        local inventory = ...
+        local result = packReturns(originalSetNewContainer(self, ...))
         if self ~= nil and self.onCharacter ~= true and inventory ~= nil
             and self.inventoryPane ~= nil and self.inventoryPane.inventory == inventory then
             markOpened(inventory)
         end
-        return result
+        return unpackReturns(result, 1, result.n)
     end
     local ok, reason = pcall(function()
         ISInventoryPage.selectContainer = selectContainerWrapper

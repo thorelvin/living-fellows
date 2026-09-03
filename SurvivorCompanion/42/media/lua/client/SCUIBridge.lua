@@ -8,6 +8,14 @@ local Bridge = SC.UIBridge
 
 Bridge.NEARBY_DISTANCE = 4
 
+-- When we borrow the local player's loot pane to show a companion's inventory we
+-- must be able to put it back exactly as it was. Single-player, so one snapshot:
+-- { page, playerNum, container, visible, collapsed, collapseCounter, ourContainer }.
+-- ourContainer is the companion inventory we set, so a restore only reverts the
+-- pane while it still shows what we put there (never clobbers a container the
+-- player deliberately selected afterwards).
+local ownedLootPane = nil
+
 local function safeMethod(object, methodName, ...)
     if not object then
         return nil
@@ -82,6 +90,25 @@ function Bridge.openInventory(actor, player)
     if not okPage or not lootPage or type(lootPage.setNewContainer) ~= "function" or type(lootPage.setVisible) ~= "function" then
         return failure("UI_SC_Disabled_NoInventoryUI")
     end
+    -- Snapshot the pane's prior state the first time we borrow it, so it can be
+    -- restored later. If we already own it (switching companions), keep the
+    -- original snapshot and just update which container is "ours".
+    if ownedLootPane == nil then
+        local priorVisible = safeMethod(lootPage, "getIsVisible")
+        if priorVisible == nil then priorVisible = safeMethod(lootPage, "isVisible") end
+        ownedLootPane = {
+            page = lootPage,
+            playerNum = playerNum,
+            container = lootPage.inventoryPane and lootPage.inventoryPane.inventory or nil,
+            visible = priorVisible,
+            collapsed = lootPage.isCollapsed,
+            collapseCounter = lootPage.collapseCounter,
+            ourContainer = inventory,
+        }
+    else
+        ownedLootPane.page = lootPage
+        ownedLootPane.ourContainer = inventory
+    end
     local shown = pcall(function()
         -- This mirrors vanilla B42 ISOpenContainerTimedAction on the existing
         -- player loot page, keeping transfer behavior inside the normal UI.
@@ -111,6 +138,32 @@ function Bridge.openInventory(actor, player)
         return failure("UI_SC_Disabled_NoInventoryUI")
     end
     return true
+end
+
+-- Put the local player's loot pane back the way it was before we borrowed it for
+-- a companion's inventory. Safe to call any time; a no-op if we never borrowed it
+-- or if the player has since selected a different container in that pane.
+function Bridge.restoreInventory()
+    local snap = ownedLootPane
+    if snap == nil then return true, "not_owned" end
+    ownedLootPane = nil
+    local lootPage = snap.page
+    if type(lootPage) ~= "table" then return true, "page_unavailable" end
+    -- Only revert while the pane still shows the companion container we set. If
+    -- the player opened another container afterwards, leave their choice alone.
+    local current = lootPage.inventoryPane and lootPage.inventoryPane.inventory or nil
+    if current ~= snap.ourContainer then return true, "player_changed_container" end
+    pcall(function()
+        if snap.container ~= nil and type(lootPage.setNewContainer) == "function" then
+            lootPage:setNewContainer(snap.container)
+        end
+        if type(lootPage.setVisible) == "function" then
+            lootPage:setVisible(snap.visible == true)
+        end
+        lootPage.isCollapsed = snap.collapsed
+        lootPage.collapseCounter = snap.collapseCounter
+    end)
+    return true, "restored"
 end
 
 function Bridge.openHealth(actor, player, openFunction, describeFunction)

@@ -95,4 +95,22 @@ check(SC.Runtime.reset(true) == true
     and SC.Actor.resetCalls == actorResetsBeforeFailure + 1,
     "verified cleanup retry allows the reset transaction to commit")
 
+-- Vararg/return safety (review 1.3): the wrappers must forward every argument and
+-- preserve every return value, so a Build update or another mod that adds
+-- parameters or returns multiple values is never silently corrupted.
+ISInventoryPage.selectContainer = function(self, a, b, c)
+    self.echoArgs = { a, b, c }
+    return "r1", "r2", nil, 4
+end
+SC.Runtime.start()
+local varargWrapper = ISInventoryPage.selectContainer
+local echoPage = { onCharacter = true, inventoryPane = {} }
+local r1, r2, r3, r4 = varargWrapper(echoPage, "A", "B", "C")
+check(echoPage.echoArgs ~= nil and echoPage.echoArgs[1] == "A"
+        and echoPage.echoArgs[2] == "B" and echoPage.echoArgs[3] == "C",
+    "wrapper forwards every extra argument to the original method")
+check(r1 == "r1" and r2 == "r2" and r3 == nil and r4 == 4,
+    "wrapper preserves every return value, including a nil among trailing values")
+SC.Runtime.reset(true)
+
 print("RUNTIME_HOOK_KAHLUA_PASS checks=" .. tostring(checks))

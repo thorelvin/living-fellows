@@ -3157,7 +3157,13 @@ function SCUIRoot:updateTabButtons()
 end
 
 function SCUIRoot:setSelectedTab(tab)
+    local previous = self.selectedTab
     self.selectedTab = UI.normalizeTab(tab) or "status"
+    -- Leaving the Loadout tab (where the companion inventory is opened): hand the
+    -- player's loot pane back the way it was if we borrowed it.
+    if previous == "loadout" and self.selectedTab ~= "loadout" then
+        UI.restoreInventory()
+    end
     self.detail:setTab(self.selectedTab)
     self:updateTabButtons()
     self:saveSettings()
@@ -3188,6 +3194,8 @@ function SCUIRoot:setCollapsed(collapsed, initial)
     local requested = collapsed == true
     local sw, sh = screenSize()
     if requested then
+        -- Minimizing the panel: give the player's loot pane back if we borrowed it.
+        UI.restoreInventory()
         if not self.collapsed then
             self.settings.expandedY = self:getY()
             self.settings.width = self:getWidth()
@@ -3655,6 +3663,16 @@ function UI.openInventory(actor, player)
     return Bridge.openInventory(actor, player or playerForUI())
 end
 
+-- Put the local player's loot pane back after we borrowed it for a companion's
+-- inventory (called when the panel closes/minimizes or leaves the Loadout tab,
+-- and on companion removal / world reset).
+function UI.restoreInventory()
+    if Bridge and type(Bridge.restoreInventory) == "function" then
+        return Bridge.restoreInventory()
+    end
+    return true
+end
+
 function UI.openHealth(actor, player)
     local activePlayer = player or playerForUI()
     return Bridge.openHealth(actor, activePlayer, UI.open, function(subject, doctor)
@@ -3683,6 +3701,7 @@ function UI.close()
     if not UI.instance then
         return
     end
+    UI.restoreInventory()
     UI.instance:saveSettings()
     UI.instance:removeFromUIManager()
     UI.instance = nil

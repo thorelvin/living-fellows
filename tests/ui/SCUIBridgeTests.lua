@@ -89,6 +89,30 @@ assert(lootPage.clearedMaximum == true)
 assert(lootPage.collapseCounter == -40)
 assert(lootPage.raised == true)
 
+-- Loot-pane restore transaction (review 1.4): borrowing the player's loot pane
+-- for a companion inventory must be reversible.
+-- Case 1: while we still own the pane it is put back to its prior state (the
+-- fixture pane was hidden and collapsed before we borrowed it).
+local restored, restoreReason = Bridge.restoreInventory()
+assert(restored == true and restoreReason == "restored")
+assert(lootPage.visible == false, "restore hides the pane it found hidden")
+assert(lootPage.isCollapsed == true, "restore recollapses the pane it found collapsed")
+local noop, noopReason = Bridge.restoreInventory()
+assert(noop == true and noopReason == "not_owned", "a second restore is a no-op")
+
+-- Case 2: the player selected another container after we opened the companion
+-- inventory -> restore must leave their choice untouched.
+lootPage.inventoryPane.inventory = nil
+lootPage.visible = false
+lootPage.isCollapsed = true
+assert(Bridge.openInventory(actor, player) == true)
+local playerContainer = { name = "player_selected" }
+lootPage.inventoryPane.inventory = playerContainer
+local kept, keptReason = Bridge.restoreInventory()
+assert(kept == true and keptReason == "player_changed_container",
+    "restore never clobbers a container the player selected afterwards")
+assert(lootPage.inventoryPane.inventory == playerContainer, "the player's container is left intact")
+
 player.distance = 5
 local tooFar, tooFarReason, limit = Bridge.openInventory(actor, player)
 assert(tooFar == false)
