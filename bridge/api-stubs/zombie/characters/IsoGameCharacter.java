@@ -72,6 +72,7 @@ public class IsoGameCharacter extends IsoMovingObject {
     public void setForwardDirection(float x, float y) {}
     public boolean isAiming() { return false; }
     public void setIsAiming(boolean aiming) {}
+    public boolean isAimAtFloor() { return false; }
     public boolean getVariableBoolean(String key) { return false; }
     public boolean isPerformingAttackAnimation() { return false; }
     public void postupdate() {}

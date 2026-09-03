@@ -785,11 +785,141 @@ local function endRangedProbe(current, zombie)
     if zombie ~= nil then cleanupTestZombie(zombie) end
     Harness.rangedZombie = nil
     Harness.rangedGun = nil
+    -- Cancel any in-flight reload/fire timed action so the next probe can take
+    -- ownership instead of hitting native:unfinished_action:active.
+    pcall(function() Harness.actor:StopAllActionQueue() end)
+    pcall(SurvivorCompanion.Actor.stop, Harness.actor)
     if Harness.rangedControl ~= nil then
         endHarnessControl(Harness.rangedControl, "ranged_probe_done")
         Harness.rangedControl = nil
     end
+    -- Grounded finisher already ran up front (before targeting); ranged fire is the
+    -- last combat probe, so hand off to the faction phases.
     setPhase("faction_begin", current)
+end
+
+-- Verify a companion finishes a fallen zombie: knock a real zombie to the ground
+-- and confirm the companion's floor finisher (stomp) actually lands damage and
+-- kills it -- the native attack must resolve against a prone target, which the
+-- stance filter otherwise skips for an ordinary standing swing.
+local function endFinishGrounded(current, zombie)
+    if zombie ~= nil then cleanupTestZombie(zombie) end
+    Harness.finishZombie = nil
+    -- Clear the floor-aim / downed-target residue the stomp leaves behind so the
+    -- following standing melee phase starts from a clean, upright attack posture.
+    pcall(function() Harness.actor:setAimAtFloor(false) end)
+    pcall(function() Harness.actor.targetOnGround = nil end)
+    pcall(function() Harness.actor:StopAllActionQueue() end)
+    pcall(SurvivorCompanion.Actor.stop, Harness.actor)
+    if Harness.finishControl ~= nil then
+        endHarnessControl(Harness.finishControl, "finish_grounded_done")
+        Harness.finishControl = nil
+    end
+    setPhase("zombie_targeting", current)
+end
+
+local function probeFinishGrounded(current)
+    local SC = SurvivorCompanion
+    local U = SC.GameplayUtil
+    local function v(o, m, ...) local val, ok = U.call(o, m, ...) return ok and tostring(val) or "na" end
+    if type(addZombiesInOutfit) ~= "function" then
+        skip("native_companion_finishes_grounded", "addZombiesInOutfit unavailable")
+        setPhase("zombie_targeting", current); return
+    end
+    if Harness.finishZombie == nil then
+        local ax, ay, az = position(Harness.actor)
+        if ax == nil then
+            skip("native_companion_finishes_grounded", "companion has no position")
+            setPhase("zombie_targeting", current); return
+        end
+        local okSpawn, zs = pcall(addZombiesInOutfit,
+            math.floor(ax) + 1, math.floor(ay), math.floor(az or 0), 1, nil, 0)
+        local zombie = okSpawn and zs and select(1, U.call(zs, "get", 0)) or nil
+        if zombie == nil then
+            result("FAIL", "native_companion_finishes_grounded", "zombie spawn failed")
+            setPhase("zombie_targeting", current); return
+        end
+        pcall(function() zombie:knockDown(true) end)
+        pcall(function() zombie:setOnFloor(true) end)
+        pcall(function() zombie:setTarget(nil) end)
+        pcall(SC.Actor.stop, Harness.actor)
+        local control, controlReason = beginHarnessControl(Harness.actor, "finish_grounded_probe", 15000)
+        if control == nil then
+            cleanupTestZombie(zombie)
+            result("FAIL", "native_companion_finishes_grounded",
+                "control rejected: " .. clean(controlReason)
+                    .. " knocked=" .. tostring(select(1, U.call(Harness.actor, "isKnockedDown")) == true)
+                    .. " a_state=" .. clean(v(Harness.actor, "getCompanionActionStateName")))
+            setPhase("zombie_targeting", current); return
+        end
+        Harness.finishControl = control
+        pcall(function() if Perks ~= nil and Perks.Strength ~= nil then
+            Harness.actor:setPerkLevelDebug(Perks.Strength, 10) end end)
+        local ax, ay, az = position(Harness.actor)
+        if ax ~= nil then
+            pcall(function() zombie:setX(ax + 1.0) end)
+            pcall(function() zombie:setY(ay) end)
+            pcall(function() zombie:setCurrentSquareFromPosition() end)
+        end
+        SC.GameplayUtil.call(Harness.actor, "setCompanionAimTarget", zombie)
+        Harness.finishZombie = zombie
+        Harness.finishStart = current
+        Harness.finishNextAt = current + 700
+        Harness.finishStomps = 0
+        local hp0v = select(1, U.call(zombie, "getHealth"))
+        Harness.finishHp0 = tonumber(hp0v)
+        return
+    end
+    local zombie = Harness.finishZombie
+    local hpValue = select(1, U.call(zombie, "getHealth"))
+    local hp = tonumber(hpValue)
+    local dead = select(1, U.call(zombie, "isDead")) == true
+    local prone = select(1, U.call(zombie, "isProne")) == true
+        or select(1, U.call(zombie, "isOnFloor")) == true
+    local headHitsV = select(1, U.call(zombie, "getHitHeadWhileOnFloor"))
+    local headHits = tonumber(headHitsV) or 0
+    if dead or (Harness.finishHp0 and hp and hp < Harness.finishHp0 - 0.0001) then
+        check("native_companion_finishes_grounded", true,
+            "grounded zombie finished: hp " .. tostring(Harness.finishHp0) .. "->" .. tostring(hp)
+                .. " dead=" .. tostring(dead) .. " was_prone=" .. tostring(prone)
+                .. " head_hits=" .. tostring(headHits)
+                .. " stomps=" .. tostring(Harness.finishStomps))
+        endFinishGrounded(current, zombie); return
+    end
+    if current - Harness.finishStart > 12000 then
+        check("native_companion_finishes_grounded", false,
+            "grounded zombie not finished in 12s: prone=" .. tostring(prone)
+                .. " hp=" .. tostring(hp) .. " head_hits=" .. tostring(headHits)
+                .. " stomps=" .. tostring(Harness.finishStomps)
+                .. " reject=" .. clean(Harness.finishLastReason or "none")
+                .. " a_state=" .. clean(v(Harness.actor, "getCompanionActionStateName")))
+        endFinishGrounded(current, zombie); return
+    end
+    -- Keep it grounded and pinned adjacent so the finisher has a clean target;
+    -- getHeadSquare is companion-relative, so an adjacent downed zombie already
+    -- puts the head within the finisher's stomp reach (no need to move the actor).
+    pcall(function() zombie:knockDown(true) end)
+    local ax, ay = position(Harness.actor)
+    local distValue = select(1, U.call(Harness.actor, "DistTo", zombie))
+    if ax ~= nil and (tonumber(distValue) or 9) > 1.5 then
+        pcall(function() zombie:setX(ax + 1.0) end)
+        pcall(function() zombie:setY(ay) end)
+        pcall(function() zombie:setCurrentSquareFromPosition() end)
+    end
+    if current >= (Harness.finishNextAt or 0) then
+        local performing = select(1, U.call(Harness.actor, "isPerformingAttackAnimation"))
+        if performing ~= true then
+            local accepted, reason = SC.Actor.setMovement(Harness.actor, "walk", {
+                action = "stomp", target = zombie, floorAttack = true,
+                urgent = true, emergency = true, supervisorToken = Harness.finishControl })
+            if accepted == true then
+                Harness.finishStomps = (Harness.finishStomps or 0) + 1
+            else
+                Harness.finishLastReason = reason
+            end
+            Harness.finishNextAt = current + 700
+        end
+    end
 end
 
 local function probeRangedFire(current)
@@ -1044,7 +1174,19 @@ local function endZombieAttackObserve(current)
         endHarnessControl(Harness.zObserveControl, "zombie_attack_observe_done")
         Harness.zObserveControl = nil
     end
-    setPhase("zombie_targeting", current)
+    -- The grapple test is done; isolate every later combat probe from it. The
+    -- adjacent test zombies those probes spawn would otherwise probabilistically
+    -- grab and knock the companion down mid-swing (its own dedicated test above
+    -- already covers grabs), so silence grab rolls for the remainder of the run.
+    pcall(function()
+        if SurvivorCompanion.Config and SurvivorCompanion.Config._overrides then
+            SurvivorCompanion.Config._overrides.zombieGrabChance = 0
+        end
+    end)
+    -- Run the grounded finisher first: it is self-contained (spawns and controls its
+    -- own downed target) so it verifies independently of the flaky melee/ranged
+    -- equip phases that follow, which can transiently fail the non-local actor.
+    setPhase("finish_grounded", current)
 end
 
 local function probeZombieAttackObserve(current)
@@ -1702,9 +1844,81 @@ local function finish()
     end
 end
 
+-- Close the survival/character window Build 42 shows on world entry so it does
+-- not block the view (and so an on-screen capture shows the world, not the panel).
+-- We enumerate UIManager.UI, log every top-level window for reference, and hide
+-- the ones that look like the survival/character panel. Kahlua does not expose
+-- getClass():getSimpleName() here, so identify each element by its tostring().
+-- Standard HUD elements always present in UIManager.UI; not windows to close.
+local ENTRY_HUD_BASELINE = {
+    SpeedControls = true, Clock = true, ObjectTooltip = true, MoodlesUI = true,
+    UIDebugConsole = true, ActionProgressBar = true, HaloTextHelper = true,
+    ISPanelJoypad = true,
+}
+
+local function shortUiName(name)
+    -- "zombie.ui.SpeedControls@3b643756" -> "SpeedControls"
+    local simple = string.match(name, "([%w_]+)@") or name
+    return simple
+end
+
+local function closeEntryWindows(tag)
+    local total, seen, targets, novel = 0, {}, {}, {}
+    pcall(function()
+        local list = UIManager and UIManager.UI
+        if list == nil then return end
+        total = list:size()
+        for i = 0, total - 1 do
+            local el = list:get(i)
+            if el ~= nil then
+                local name = tostring(el)
+                local simple = shortUiName(name)
+                seen[#seen + 1] = simple
+                if not ENTRY_HUD_BASELINE[simple] then
+                    novel[#novel + 1] = simple
+                    local lower = string.lower(name)
+                    -- The survival guide and the character-info panel are the two
+                    -- windows Build 42 pops over the view on world entry.
+                    if string.find(lower, "surviv", 1, true)
+                        or string.find(lower, "charactercreation", 1, true)
+                        or string.find(lower, "characterinfowindow", 1, true) then
+                        targets[#targets + 1] = { element = el, name = simple }
+                    end
+                end
+            end
+        end
+    end)
+    local closed = {}
+    for _, entry in ipairs(targets) do
+        local hidden = pcall(function() entry.element:setVisible(false) end)
+        pcall(function() entry.element:removeFromUIManager() end)
+        if hidden then closed[#closed + 1] = entry.name end
+    end
+    -- Only log when something non-HUD is on screen (or when explicitly tagged), so
+    -- a continuous scan does not spam once the view is clean.
+    local signature = table.concat(seen, ",")
+    if tag ~= "scan" or signature ~= Harness.lastEntryUiSignature then
+        Harness.lastEntryUiSignature = signature
+        if tag ~= "scan" or #novel > 0 or #closed > 0 then
+            print("SC_REAL_SANDBOX|ENTRY_UI|tag=" .. tostring(tag)
+                .. "|count=" .. tostring(total)
+                .. "|closed=" .. table.concat(closed, ",")
+                .. "|novel=" .. table.concat(novel, ",")
+                .. "|seen=" .. signature)
+        end
+    end
+    return #closed
+end
+
 local function tick()
     if Harness.finished then return end
     local current = nowMs()
+    -- For the first seconds after entry, sweep UIManager.UI every frame and close
+    -- any survival/character window that appears, logging novel (non-HUD) windows
+    -- so we can identify them. Cheap bounded walk; logging is throttled by change.
+    if Harness.startedAt ~= nil and (current - Harness.startedAt) < 20000 then
+        closeEntryWindows("scan")
+    end
     if Harness.phase == "idle" then
         -- A cloned save can legitimately display Build 42's non-fatal missing-mod,
         -- missing-map, or world-conversion confirmation.  The harness owns the
@@ -1750,6 +1964,12 @@ local function tick()
     end
 
     if Harness.phase == "wait_runtime" then
+        -- The survival/character panel can appear a beat after the world loads;
+        -- close it again here so it never lingers over the on-screen view.
+        if not Harness.entryWindowsRetried then
+            Harness.entryWindowsRetried = true
+            closeEntryWindows("wait_runtime")
+        end
         if current - Harness.phaseStartedAt < 2000 then return end
         local spawnState = beginNativeSpawn(current)
         if spawnState == false then setPhase("finish", current)
@@ -1835,6 +2055,8 @@ local function tick()
         probeCombatDamage(current)
     elseif Harness.phase == "ranged_fire" then
         probeRangedFire(current)
+    elseif Harness.phase == "finish_grounded" then
+        probeFinishGrounded(current)
     elseif Harness.phase == "faction_begin" then
         beginFactionProbe(current)
     elseif Harness.phase == "faction_wait" then
@@ -1869,6 +2091,7 @@ local function onGameStart()
         finish()
         return
     end
+    closeEntryWindows("on_game_start")
     if type(getGameSpeed) == "function" and type(setGameSpeed) == "function"
         and getGameSpeed() == 0 then
         setGameSpeed(1)

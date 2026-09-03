@@ -57,6 +57,14 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile String bridgePostUpdateDiagnostic = "not_run";
     private volatile zombie.iso.IsoMovingObject bridgeAimTarget;
     private boolean genericUpdateActive;
+    // A recoverable exception in the vanilla update chain (e.g. an animation-
+    // variable slot that is momentarily null on this non-local actor) must not
+    // be fatal: disabling the bridge makes the runtime health gate remove and
+    // respawn the companion, dropping its gear. Tolerate a bounded window of such
+    // frames -- the local player is restored each time -- and only give up (self-
+    // healing via respawn) if the failures persist past the window.
+    private long firstUpdateFailureNanos;
+    private static final long MAX_TRANSIENT_UPDATE_NANOS = 3_000_000_000L;
 
     public SCNativeCompanion(SurvivorDesc descriptor, IsoCell cell, int x, int y, int z) {
         super(cell, descriptor, x, y, z, false);
@@ -131,25 +139,44 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     @Override
     public void postupdate() {
-        String beforeState = getCompanionActionStateName();
-        String beforeNext = getCompanionNextActionStateName();
-        boolean beforeMelee = canCompanionTransitionToMelee();
-        boolean beforeInitiate = isInitiateAttack();
-        boolean beforeVariable = getVariableBoolean("initiateAttack");
+        // Reading animation variables/state can throw on this non-local actor
+        // when a named slot is momentarily unregistered (e.g. getVariableBoolean
+        // hits a null IAnimationVariableSlot for "initiateAttack" in some idle/
+        // hit states). These reads are diagnostics only, so a failure must never
+        // reach the update chain -- it would otherwise be turned into a health-
+        // gate removal that respawns the companion without its gear.
+        String beforeState = "?";
+        String beforeNext = "?";
+        boolean beforeMelee = false;
+        boolean beforeInitiate = false;
+        boolean beforeVariable = false;
+        try {
+            beforeState = getCompanionActionStateName();
+            beforeNext = getCompanionNextActionStateName();
+            beforeMelee = canCompanionTransitionToMelee();
+            beforeInitiate = isInitiateAttack();
+            beforeVariable = getVariableBoolean("initiateAttack");
+        } catch (RuntimeException | LinkageError ignored) {
+            // diagnostics unavailable this frame
+        }
         // Re-point at the aim target immediately before the engine advances the
         // swing animation and fires its AttackCollisionCheck, so the hit arc sees
         // the companion facing the target.
         applyCompanionAim();
         super.postupdate();
         bridgePostUpdateCount++;
-        bridgePostUpdateDiagnostic = "before=" + beforeState
-                + ",next=" + beforeNext
-                + ",canMelee=" + beforeMelee
-                + ",initiate=" + beforeInitiate
-                + ",variable=" + beforeVariable
-                + ",after=" + getCompanionActionStateName()
-                + ",afterInitiate=" + isInitiateAttack()
-                + ",performing=" + isPerformingAttackAnimation();
+        try {
+            bridgePostUpdateDiagnostic = "before=" + beforeState
+                    + ",next=" + beforeNext
+                    + ",canMelee=" + beforeMelee
+                    + ",initiate=" + beforeInitiate
+                    + ",variable=" + beforeVariable
+                    + ",after=" + getCompanionActionStateName()
+                    + ",afterInitiate=" + isInitiateAttack()
+                    + ",performing=" + isPerformingAttackAnimation();
+        } catch (RuntimeException | LinkageError ignored) {
+            bridgePostUpdateDiagnostic = "diagnostic_unavailable";
+        }
     }
 
     /**
@@ -196,6 +223,13 @@ public final class SCNativeCompanion extends IsoPlayer {
             // the actor, and attackCollisionCheck rebuilds the hit-info list
             // against the actor's facing before applying the hit.
             applyCompanionAim();
+            // A stomp/floor finisher builds its hit list from targetOnGround,
+            // which the local player fills from the cursor over a downed enemy.
+            // A non-local companion has no cursor, so point the field at the aim
+            // target (the grounded zombie) or the floor attack hits nothing.
+            if (isAimAtFloor() && bridgeAimTarget instanceof IsoGameCharacter) {
+                this.targetOnGround = (IsoGameCharacter) bridgeAimTarget;
+            }
             ATTACK_COLLISION_CHECK.invoke(combatManager, this, weapon, swipeState, attackType);
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
             // Fail closed: no swing damage rather than an update-breaking throw.
@@ -496,11 +530,24 @@ public final class SCNativeCompanion extends IsoPlayer {
             boolean repaired = localState.restore();
             playerIndex = RESERVED_NON_LOCAL_PLAYER_INDEX;
             serverPlayerIndex = -1;
+            // Local-player ownership is safe again (restored above). If this is a
+            // transient hiccup, skip the rest of this frame and retry next tick
+            // rather than tearing the companion down. bridgeFailure stays empty so
+            // the health gate still sees a healthy actor.
+            long now = System.nanoTime();
+            if (firstUpdateFailureNanos == 0L) firstUpdateFailureNanos = now;
+            if (repaired && now - firstUpdateFailureNanos <= MAX_TRANSIENT_UPDATE_NANOS) {
+                bridgePostUpdateDiagnostic = "update_skipped_transient:"
+                        + failure.getClass().getSimpleName();
+                return;
+            }
             disableBridge("native update failed: " + failure.getClass().getSimpleName()
                     + cleanMessage(failure.getMessage()) + cleanLocation(failure)
                     + (repaired ? "" : "; local-player rollback failed"));
             return;
         }
+        // A clean frame clears the transient-failure window.
+        firstUpdateFailureNanos = 0L;
 
         // A generic character update must never borrow local-player ownership.
         boolean actorStateIntact = playerIndex == RESERVED_NON_LOCAL_PLAYER_INDEX

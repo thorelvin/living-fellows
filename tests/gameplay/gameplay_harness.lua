@@ -1952,6 +1952,30 @@ check(emergencyTreated and emergencyPart.isBandaged and not emergencyActor.inven
     "recruited helper tears expendable clothing for an emergency bandage")
 
 do
+-- Auto-bandaging is low priority: it must hold off in active combat and only run
+-- once the companion is at least semi-safe.
+local combatWound = bodyPart({ name = "ForeArm_R", isBleeding = true })
+local combatShirt = item("Base.Tshirt_White", "Clothing")
+local combatActor = actor("sc-combat-medic", 8, 0, {
+    body = bodyDamage(60, { combatWound }), inventory = inventory({ combatShirt }),
+})
+registry[combatActor.id] = combatActor
+local inCombat = SurvivorCompanion.Medical.update(combatActor, player, {
+    snapshot = { threats = { { actor = player } }, immediateCount = 1, escapeSquares = {} },
+})
+check(not inCombat and SurvivorCompanion.Medical.peek(combatActor) == nil
+    and combatWound.isBandaged ~= true,
+    "self-bandaging holds off while an attacker is in melee range")
+local whenSafe = SurvivorCompanion.Medical.update(combatActor, player, {
+    snapshot = { threats = {}, immediateCount = 0,
+        escapeSquares = { { square = combatActor.square } } },
+})
+check(whenSafe and combatWound.isBandaged,
+    "self-bandaging resumes once the companion is semi-safe")
+registry[combatActor.id] = nil
+end
+
+do
 local glassPart = bodyPart({ name = "Hand_L", glass = true, bullet = false })
 local glassActor = actor("sc-glass", 7, 1, { body = bodyDamage(80, { glassPart }) })
 local glassAssessment = SurvivorCompanion.Medical.assess(glassActor)

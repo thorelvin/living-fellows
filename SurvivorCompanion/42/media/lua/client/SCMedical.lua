@@ -824,6 +824,22 @@ local function rescueViable(helper, snapshot)
     return true
 end
 
+-- Self-bandaging is low priority: the companion must not stop to patch itself in
+-- active combat. Only allow it when at least semi-safe -- nothing attacking in
+-- melee range and not pinned by a crowd with no way out -- so it fights or
+-- repositions first and treats the wound once the danger eases. A truly critical
+-- wound instead drops the actor into the separate downed path.
+local function bandageSemiSafe(helper, snapshot)
+    if not rescueViable(helper, snapshot) then return false end
+    if type(snapshot) ~= "table" then return true end
+    local immediate = tonumber(snapshot.immediateCount) or #(snapshot.immediateAttackers or {})
+    if immediate >= 1 then return false end
+    local threats = tonumber(snapshot.threatCount) or #(snapshot.threats or {})
+    local escapeCount = #(snapshot.escapeSquares or {})
+    if threats >= 1 and escapeCount == 0 then return false end
+    return true
+end
+
 local function treatmentCapability(helper, patient, options)
     options = type(options) == "table" and options or {}
     local assessment = Medical.assess(patient)
@@ -938,7 +954,13 @@ continueTreatmentApproach = function(helper, state, runtime)
     end
     local rootRuntime = utility.actorState(helper, runtime)
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
-    if not rescueViable(helper, snapshot) then
+    -- Self-treatment holds to the stricter semi-safe bar so a threat closing back
+    -- in preempts a mid-combat self-bandage; rescuing another still uses the
+    -- rescue viability bar.
+    local selfTreatment = state.patient == helper
+    local stillViable = selfTreatment and bandageSemiSafe(helper, snapshot)
+        or (not selfTreatment and rescueViable(helper, snapshot))
+    if not stillViable then
         return Medical.cancel(helper, "danger_preempted")
     end
     if utility.distance(helper, state.patient) <= (utility.config("medicalRange") or 1.35) then
@@ -1093,7 +1115,7 @@ function Medical.update(actor, player, runtime)
     end
 
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
-    if assessment.needsBandage and rescueViable(actor, snapshot) then
+    if assessment.needsBandage and bandageSemiSafe(actor, snapshot) then
         local ok, reason = Medical.treat(actor, actor, rootRuntime)
         if ok then return true, reason end
     end

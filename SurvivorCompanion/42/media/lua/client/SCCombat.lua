@@ -1322,6 +1322,30 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         accepted = utility.move(actor, "walk", { action = "shove", target = targetActor })
     elseif action.kind == "stomp" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
+        -- Aim for the head: step over the zombie's head square before stomping so the
+        -- finisher lands on the skull (the lethal spot) instead of the legs. If we are
+        -- not on the head yet, close onto it; only stomp once positioned.
+        local headSquare = select(1, utility.call(targetActor, "getHeadSquare", actor))
+        local ax, ay = utility.position(actor)
+        local hxv = headSquare and select(1, utility.call(headSquare, "getX")) or nil
+        local hyv = headSquare and select(1, utility.call(headSquare, "getY")) or nil
+        local hx = tonumber(hxv)
+        local hy = tonumber(hyv)
+        if hx ~= nil and hy ~= nil and ax ~= nil and ay ~= nil then
+            local hdx = (hx + 0.5) - ax
+            local hdy = (hy + 0.5) - ay
+            local headRange = utility.config("combatHeadStompRange") or 1.1
+            if (hdx * hdx + hdy * hdy) > headRange * headRange then
+                accepted = utility.move(actor, "walk", {
+                    action = "combat_approach",
+                    dx = hdx, dy = hdy,
+                    target = targetActor, facingTarget = targetActor,
+                    keepFacing = true, weaponReady = true,
+                })
+                if not accepted then return false, "stomp_rejected" end
+                return true, "stomp_approach_head"
+            end
+        end
         accepted = utility.move(actor, "walk", { action = "stomp", target = targetActor, floorAttack = true })
     elseif action.kind == "approach" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
