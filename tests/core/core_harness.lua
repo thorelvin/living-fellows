@@ -192,6 +192,7 @@ function actor:getPrimaryHandItem() return self.primaryHand end
 function actor:setSecondaryHandItem(item) self.secondaryHand = item end
 function actor:getSecondaryHandItem() return self.secondaryHand end
 function actor:setAimAtFloor(value) self.aimAtFloor = value end
+function actor:setCompanionAimTarget(value) self.companionAimTarget = value end
 function actor:setDoShove(value) self.doShove = value == true end
 function actor:isDoShove() return self.doShove == true end
 function actor:setDoGrapple(value) self.doGrapple = value == true end
@@ -958,21 +959,27 @@ do
         "direct-native adapter equips a two-handed axe in both hands")
     AttackType = { SHOVE = {}, STOMP = {}, SHOT = {}, MELEE_SWING = {} }
     actor.attackModelReady = false
+    actor.companionAimTarget = nil
+    actor.targetOnGround = "stale"
     local warmupOk, warmupReason = SC.Actor.setMovement(actor, "walk", {
         action = "attack_melee", target = target, weapon = twoHandedWeapon,
     })
     check(not warmupOk and warmupReason == "native weapon is not attack-ready"
         and (actor.doAttackCalls or 0) == 0,
         "freshly equipped weapon waits for native CanAttack model readiness")
+    check(actor.companionAimTarget == nil and actor.aimAtFloor ~= true
+        and actor.targetOnGround == nil,
+        "a rejected attack clears the aim target, floor aim, and downed-target residue")
     actor.attackModelReady = true
     local attackOk, attackReason = SC.Actor.setMovement(actor, "walk", {
         action = "shove", target = target,
     })
     check(attackOk and attackReason == "attack_started" and actor.attackType == AttackType.SHOVE
         and actor.doShove == true and actor.doGrapple == false
+        and actor.companionAimTarget == target
         and actor.authorizedHandToHandAction ~= false
         and actor.authorizedHandToHand ~= false,
-        "direct-native adapter preflights, authorizes, starts, and restores native attack state")
+        "direct-native adapter preflights, authorizes, starts, and keeps aim on the started swing")
     actor.attackStarted = false
     local meleeOk, meleeReason = SC.Actor.setMovement(actor, "walk", {
         action = "attack_melee", target = target, weapon = twoHandedWeapon,

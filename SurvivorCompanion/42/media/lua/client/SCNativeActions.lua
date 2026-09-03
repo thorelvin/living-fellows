@@ -1632,10 +1632,25 @@ local function attack(actor, action, intent, provider)
     -- pointed at the target every frame through the swing, like a player's mouse
     -- aim; the ordinary per-frame update otherwise resets it and the swing misses.
     invoke(actor, "setCompanionAimTarget", target)
+    -- Structured cleanup for any failure after the aim target is set but before
+    -- the swing actually starts: clear the precise aim / floor-aim / downed-target
+    -- the Java actor would otherwise keep re-facing every frame (which leaves the
+    -- companion locked toward a stale target), and undo any action/authorization
+    -- state we acquired. Once DoAttack has started the swing, the animation owns
+    -- these and fail() is no longer used.
+    local restoreActionState, restoreAuthorization
+    local function fail(reason)
+        invoke(actor, "setCompanionAimTarget", nil)
+        invoke(actor, "setAimAtFloor", false)
+        pcall(function() actor.targetOnGround = nil end)
+        if restoreAuthorization then restoreAuthorization() end
+        if restoreActionState then restoreActionState() end
+        return false, reason
+    end
     if intent.weapon ~= nil then
         local equipped, equipReason = equip(actor, { item = intent.weapon }, provider)
         if not equipped then
-            return false, equipReason
+            return fail(equipReason)
         end
     end
     invoke(actor, "setAimAtFloor", action == "stomp")
@@ -1648,23 +1663,21 @@ local function attack(actor, action, intent, provider)
     end
     local shoveStateOk, previousDoShove = invoke(actor, "isDoShove")
     if not shoveStateOk then
-        return false, "native shove action state is unavailable"
+        return fail("native shove action state is unavailable")
     end
     local grappleStateOk, previousDoGrapple = invoke(actor, "isDoGrapple")
     if not grappleStateOk then
-        return false, "native grapple action state is unavailable"
+        return fail("native grapple action state is unavailable")
+    end
+    restoreActionState = function()
+        invoke(actor, "setDoShove", previousDoShove == true)
+        invoke(actor, "setDoGrapple", previousDoGrapple == true)
     end
     local shoveStateSet = invoke(actor, "setDoShove",
         action == "shove" or action == "stomp")
     local grappleStateSet = invoke(actor, "setDoGrapple", false)
     if not shoveStateSet or not grappleStateSet then
-        invoke(actor, "setDoShove", previousDoShove == true)
-        invoke(actor, "setDoGrapple", previousDoGrapple == true)
-        return false, "native hand-to-hand action state could not be selected"
-    end
-    local function restoreActionState()
-        invoke(actor, "setDoShove", previousDoShove == true)
-        invoke(actor, "setDoGrapple", previousDoGrapple == true)
+        return fail("native hand-to-hand action state could not be selected")
     end
     if action == "attack_firearm" or action == "attack_melee" then
         -- Firearms aim; a melee swing must not. Build 42's local player clears
@@ -1673,8 +1686,7 @@ local function attack(actor, action, intent, provider)
         -- the swipe state, so the swing animation and its hit never run.
         local aimOk = invoke(actor, "setIsAiming", action == "attack_firearm")
         if not aimOk then
-            restoreActionState()
-            return false, "native weapon-ready state could not be requested"
+            return fail("native weapon-ready state could not be requested")
         end
     end
 
@@ -1685,30 +1697,29 @@ local function attack(actor, action, intent, provider)
     -- pulse and let Combat retry rather than reporting a phantom swing.
     local readyOk, ready = invoke(actor, "CanAttack")
     if not readyOk then
-        restoreActionState()
-        return false, "native CanAttack preflight is unavailable"
+        return fail("native CanAttack preflight is unavailable")
     end
     if ready ~= true then
-        restoreActionState()
-        return false, "native weapon is not attack-ready"
+        return fail("native weapon is not attack-ready")
     end
 
     local meleeAuthOk, previousMeleeAuth = invoke(actor,
         "isAuthorizedHandToHandAction")
     if not meleeAuthOk then
-        restoreActionState()
-        return false, "native melee-action authorization state is unavailable"
+        return fail("native melee-action authorization state is unavailable")
     end
     local shoveAuthOk, previousShoveAuth = invoke(actor,
         "isAuthorizedHandToHand")
     if not shoveAuthOk then
-        restoreActionState()
-        return false, "native shove authorization state is unavailable"
+        return fail("native shove authorization state is unavailable")
+    end
+    restoreAuthorization = function()
+        invoke(actor, "setAuthorizedHandToHandAction", previousMeleeAuth == true)
+        invoke(actor, "setAuthorizedHandToHand", previousShoveAuth == true)
     end
     local authorized = invoke(actor, "setAuthorizedHandToHandAction", true)
     if not authorized then
-        restoreActionState()
-        return false, "native melee-action authorization could not be enabled"
+        return fail("native melee-action authorization could not be enabled")
     end
     -- Authorize the hand-to-hand (shove) path only for an explicitly selected
     -- shove/stomp. Build 42's CombatManager converts an authorized weapon attack
@@ -1718,13 +1729,7 @@ local function attack(actor, action, intent, provider)
     local wantsHandToHand = action == "shove" or action == "stomp"
     local shoveAuthorized = invoke(actor, "setAuthorizedHandToHand", wantsHandToHand)
     if not shoveAuthorized then
-        invoke(actor, "setAuthorizedHandToHandAction", previousMeleeAuth == true)
-        restoreActionState()
-        return false, "native shove authorization could not be updated"
-    end
-    local function restoreAuthorization()
-        invoke(actor, "setAuthorizedHandToHandAction", previousMeleeAuth == true)
-        invoke(actor, "setAuthorizedHandToHand", previousShoveAuth == true)
+        return fail("native shove authorization could not be updated")
     end
     local attackType = type(_G) == "table" and rawget(_G, "AttackType") or nil
     local attackTypeName = action == "attack_firearm" and "SHOT"
@@ -1737,30 +1742,26 @@ local function attack(actor, action, intent, provider)
         if selectedOk then selected = value end
     end
     if selected == nil then
-        restoreAuthorization()
-        restoreActionState()
-        return false, "native AttackType is unavailable for " .. action
+        return fail("native AttackType is unavailable for " .. action)
     end
     local typeOk = invoke(actor, "setAttackType", selected)
     if not typeOk then
-        restoreAuthorization()
-        restoreActionState()
-        return false, "native attack type could not be selected"
+        return fail("native attack type could not be selected")
     end
     local started, result = invoke(actor, "DoAttack", 0)
-    restoreAuthorization()
     local stateOk, attackStarted = invoke(actor, "isAttackStarted")
     -- Build 42's IsoPlayer.DoAttack deliberately returns false after handing
     -- the request to CombatManager.  The authoritative success signal is the
-    -- native attack-started state set by CombatManager.pressedAttack.
+    -- native attack-started state set by CombatManager.pressedAttack. A swing
+    -- that never started still clears the aim residue through fail().
     if not started or not stateOk or attackStarted ~= true then
-        restoreActionState()
-        return false, "native attack did not start"
+        return fail("native attack did not start")
     end
-    -- Do not restore doShove/aimAtFloor after success. CombatManager copied
-    -- the calculated attack variables back to the player and the animation
-    -- state owns them until clearHandToHandAttack(). The next requested attack
-    -- explicitly selects its own state before starting.
+    -- Started: revert only the temporary authorization (CombatManager copied the
+    -- calculated attack variables back). Keep doShove/aimAtFloor and the aim
+    -- target -- the animation state owns them until clearHandToHandAttack(), and
+    -- the next requested attack selects its own state before starting.
+    restoreAuthorization()
     if action == "stomp" and intent.target ~= nil then
         -- The swing has started; land the finisher's single hit now.
         applyStompFinisher(actor, intent.target)
