@@ -221,7 +221,11 @@ end
 
 local function restoreWornItem(character, item, location)
     if not location then return false end
-    local result, called = U().call(character, "setWornItem", location, item)
+    -- setWornItem needs the ItemBodyLocation object; the item carries its own, so
+    -- resolve it from the item rather than passing a location string (which finds
+    -- no matching native overload and silently leaves the item in inventory).
+    local bodyLocation = select(1, U().call(item, "getBodyLocation")) or location
+    local result, called = U().call(character, "setWornItem", bodyLocation, item)
     if not called or result == false then return false end
     return isWorn(character, item)
 end

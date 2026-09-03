@@ -1331,7 +1331,14 @@ local function applyEquipment(actor, equipment, byId, companionId)
         if item == nil then
             return false, "worn item reference is missing at " .. tostring(worn.location)
         end
-        local equipped, equipReason = invoke(actor, "setWornItem", worn.location, item)
+        -- Build 42's setWornItem takes an ItemBodyLocation object, not the
+        -- location string we persist (that string is the location's toString,
+        -- e.g. "base:pants"). The item carries its own canonical body location, so
+        -- resolve it from the item; without this the call finds no matching
+        -- overload and every companion (and faction member) reloads naked.
+        local locOk, bodyLocation = invoke(item, "getBodyLocation")
+        local location = (locOk and bodyLocation ~= nil) and bodyLocation or worn.location
+        local equipped, equipReason = invoke(actor, "setWornItem", location, item)
         if not equipped then
             -- Body-location names can disappear when Build 42 or a clothing mod
             -- changes. The item tree is already restored exactly; retaining the

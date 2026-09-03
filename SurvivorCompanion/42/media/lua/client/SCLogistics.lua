@@ -534,8 +534,10 @@ local function commitWearable(actor, record)
             if worn.location == nil then
                 restored = false
             elseif not isWorn(actor, worn.item, worn.location) then
+                local wornLocation = select(1, utility.call(worn.item, "getBodyLocation"))
+                    or worn.location
                 local restoreResult, restoreOk = utility.call(
-                    actor, "setWornItem", worn.location, worn.item)
+                    actor, "setWornItem", wornLocation, worn.item)
                 if not restoreOk or restoreResult == false
                     or not isWorn(actor, worn.item, worn.location) then
                     restored = false
@@ -558,7 +560,10 @@ local function commitWearable(actor, record)
             return false, "wearable_replacement_remove_failed"
         end
     end
-    local result, setOk = utility.call(actor, "setWornItem", record.location, record.item)
+    -- setWornItem needs the ItemBodyLocation object; resolve it from the item.
+    local recordLocation = select(1, utility.call(record.item, "getBodyLocation"))
+        or record.location
+    local result, setOk = utility.call(actor, "setWornItem", recordLocation, record.item)
     local verified = setOk and result ~= false and isWorn(actor, record.item, record.location)
     if not verified then
         if isWorn(actor, record.item, record.location) then
