@@ -2857,6 +2857,25 @@ local reloadSnapshot = {
 check(SurvivorCompanion.Combat.update(reloader, player, { snapshot = reloadSnapshot })
     and reloader.lastIntent.action == "reload", "firearm combat chooses a valid reload")
 
+-- Incompatible ammunition must never trigger a reload: a 9mm box in the pack does
+-- not reload a .223 rifle just because its type also contains "Bullets".
+local wrongRifle = item("Base.VarmintRifle", "Weapon", {
+    ranged = true, damage = 1.5, range = 10, ammo = 0, maxAmmo = 5, ammoType = "Base.223Bullets",
+})
+local wrongAmmo = item("Base.Bullets9mm", "Ammo")
+local wrongReloader = actor("sc-wrong-reloader", 0, -6, { inventory = inventory({ wrongRifle, wrongAmmo }) })
+wrongReloader.primary = wrongRifle
+registry[wrongReloader.id] = wrongReloader
+local wrongZed = zombie(4, -6, {})
+SurvivorCompanion.Combat.update(wrongReloader, player, { snapshot = {
+    threats = { { actor = wrongZed, square = wrongZed.square, distanceSq = 16, visible = true, obstructed = false, score = 30 } },
+    allies = {}, escapeSquares = {}, threatCount = 1, immediateCount = 0, pressure = 0,
+    player = { danger = 0, immediateThreats = 0 },
+} })
+check(not (wrongReloader.lastIntent and wrongReloader.lastIntent.action == "reload"),
+    "incompatible ammunition never triggers a reload attempt")
+registry[wrongReloader.id] = nil
+
 do
 -- Regression: an on-foot companion on the ranged_support doctrine must draw its
 -- firearm even when weaponPriority is stale and a zombie has closed to melee

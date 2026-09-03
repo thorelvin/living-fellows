@@ -398,21 +398,41 @@ local function inventoryWeapons(actor)
     return result, inventory
 end
 
+-- Tolerate a module prefix difference (e.g. "Base.M9Clip" vs "M9Clip") when
+-- comparing an inventory item's type against a weapon's magazine/ammo type.
+local function ammoTypeMatches(candidateType, wantedType)
+    if candidateType == nil or wantedType == nil then return false end
+    if candidateType == wantedType then return true end
+    local function short(value) return string.match(value, "%.([%w_]+)$") or value end
+    return short(candidateType) == short(wantedType)
+end
+
 local function hasReloadAmmo(inventory, weapon)
     local utility = U()
     if not inventory or not weapon or not weapon.ranged then return false end
-    local ammoType, ok = utility.call(weapon.item, "getAmmoType")
-    if ok and ammoType then
-        local contains, containsOk = utility.call(inventory, "containsTypeRecurse", tostring(ammoType))
-        if containsOk then return contains == true end
-        contains, containsOk = utility.call(inventory, "contains", tostring(ammoType))
-        if containsOk then return contains == true end
+    local item = weapon.item
+    -- Build 42 firearms reload from a magazine of the weapon's magazine type that
+    -- still holds rounds, or from loose rounds of the weapon's ammo type (revolvers,
+    -- shotguns, bolt-actions). Match ONLY by those exact types: an item whose name
+    -- merely contains "ammo"/"bullets"/"shells" is not proof of compatibility and
+    -- was driving reloads with the wrong calibre or an empty magazine (repeated
+    -- failed reload decisions).
+    local magType = select(1, utility.call(item, "getMagazineType"))
+    magType = magType ~= nil and tostring(magType) or nil
+    local ammoType = select(1, utility.call(item, "getAmmoType"))
+    ammoType = ammoType ~= nil and tostring(ammoType) or nil
+    if (magType == nil or magType == "") and (ammoType == nil or ammoType == "") then
+        return false
     end
-    for _, item in ipairs(utility.inventoryItems(inventory, 90)) do
-        local itemType = string.lower(utility.itemType(item))
-        if string.find(itemType, "ammo", 1, true)
-            or string.find(itemType, "bullets", 1, true)
-            or string.find(itemType, "shells", 1, true) then return true end
+    for _, candidate in ipairs(utility.inventoryItems(inventory, 90)) do
+        local candidateType = utility.itemType(candidate)
+        if magType and magType ~= "" and ammoTypeMatches(candidateType, magType) then
+            -- A magazine only enables a reload if it actually holds rounds.
+            local count = tonumber(select(1, utility.call(candidate, "getCurrentAmmoCount")))
+            if (count or 0) > 0 then return true end
+        elseif ammoType and ammoType ~= "" and ammoTypeMatches(candidateType, ammoType) then
+            return true
+        end
     end
     return false
 end
