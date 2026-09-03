@@ -245,7 +245,7 @@ class UISizingTests(unittest.TestCase):
         en_data = json.loads(read(TRANSLATE / "EN" / "UI.json"))
         labels = [
             en_data[f"UI_SC_Tab_{name}"]
-            for name in ("Overview", "Orders", "Gear", "Health", "Journal", "Groups")
+            for name in ("Status", "Orders", "Loadout", "Base", "More")
         ]
         layout = model_layout(410, 600, 14, 7, labels)
         content_height = orders_content_height(14)
@@ -259,7 +259,7 @@ class UISizingTests(unittest.TestCase):
         en_data = json.loads(read(TRANSLATE / "EN" / "UI.json"))
         tab_labels = [
             en_data[f"UI_SC_Tab_{name}"]
-            for name in ("Overview", "Orders", "Gear", "Health", "Journal", "Groups")
+            for name in ("Status", "Orders", "Loadout", "Base", "More")
         ]
         action_labels = [
             value
@@ -353,7 +353,8 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertNotIn("Bounds.collapsedRect", ensure)
 
     def test_required_tabs_are_present(self) -> None:
-        for tab in ("overview", "orders", "gear", "health", "journal", "groups", "factions"):
+        for tab in ("status", "orders", "loadout", "base", "more", "journal",
+                    "groups", "factions", "support"):
             self.assertRegex(self.ui, rf'\"{tab}\"')
 
     def test_debug_tab_is_private_build_only(self) -> None:
@@ -575,10 +576,8 @@ class UIStaticContractTests(unittest.TestCase):
             "set_allow_overload",
             "set_work_mode",
             "set_move_mode",
-            "set_combat_mode",
             "set_combat_doctrine",
             "set_weapon_priority",
-            "set_hold_fire",
             "move_to",
             "open_door",
             "close_door",
@@ -665,7 +664,7 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("root:setCollapsed(false)", self.ui)
         self.assertIn("root:refreshRoster(companionId or descriptionId, description, true)", self.ui)
         self.assertIn("function UI.showStatus(description)", self.ui)
-        self.assertIn('return UI.open("overview", companionId, description)', self.ui)
+        self.assertIn('return UI.open("status", companionId, description)', self.ui)
         self.assertIn("function UI.isOpen()", self.ui)
         scheduled = lua_function(self.ui, "function UI.scheduledRefresh()")
         self.assertIn("if not UI.isOpen()", scheduled)
@@ -732,10 +731,10 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("lootPage:setNewContainer(inventory)", self.bridge)
         self.assertIn("lootPage:setVisible(true)", self.bridge)
         self.assertIn("lootPage.isCollapsed = false", self.bridge)
-        self.assertIn('pcall(openFunction, "health", id, description)', self.bridge)
-        self.assertIn('root.detail.tab == "health"', self.bridge)
+        self.assertIn('pcall(openFunction, "loadout", id, description)', self.bridge)
+        self.assertIn('root.detail.tab == "loadout"', self.bridge)
         self.assertIn("root.detail.displayedCompanionId == id", self.bridge)
-        health = lua_function(self.ui, "function SCUIDetail:buildHealth(panel, row)")
+        health = lua_function(self.ui, "function SCUIDetail:buildLoadout(panel, row)")
         self.assertIn("UI.formatWounds(row.wounds)", health)
         self.assertIn("UI.formatKnox(row.knox)", health)
         mock_test = read(PROJECT / "tests" / "ui" / "SCUIBridgeTests.lua")
@@ -762,7 +761,7 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("pcall(SC.Commands.whistle, player)", callback)
         self.assertIn("pcall(SC.Commands.handSign, player, button.scSignal)", callback)
         self.assertIn("UI.signalSuccessText(reason, extra)", callback)
-        overview = lua_function(self.ui, "function SCUIDetail:buildOverview(panel, row)")
+        overview = lua_function(self.ui, "function SCUIDetail:buildStatus(panel, row)")
         for signal in (
             "whistle", "follow", "hold", "regroup", "cautious", "move_out",
             "cease_fire", "fire", "fall_back",
@@ -771,7 +770,7 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertLess(overview.index("UI_SC_Section_Signals"), overview.index("UI_SC_Section_Conversation"))
 
     def test_relationship_conversation_and_emotes_are_exposed(self) -> None:
-        overview = lua_function(self.ui, "function SCUIDetail:buildOverview(panel, row)")
+        overview = lua_function(self.ui, "function SCUIDetail:buildStatus(panel, row)")
         for command in (
             "status", "needs", "memory", "background", "opinion", "relationship",
             "encourage", "praise", "plans", "recruit", "dismiss",
@@ -792,7 +791,7 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("if row.recruited ~= true then return end", conversation)
 
     def test_recruitment_is_primary_and_hides_after_joining(self) -> None:
-        overview = lua_function(self.ui, "function SCUIDetail:buildOverview(panel, row)")
+        overview = lua_function(self.ui, "function SCUIDetail:buildStatus(panel, row)")
         self.assertIn("row.recruited ~= true", overview)
         self.assertIn("row.recruited == true", overview)
         self.assertLess(overview.index('"recruit"'), overview.index("UI_SC_Section_Status"))
@@ -842,7 +841,7 @@ class UIStaticContractTests(unittest.TestCase):
             self.assertIn(field, build)
 
     def test_grief_is_visible_in_status_journal_and_household_ui(self) -> None:
-        overview = lua_function(self.ui, "function SCUIDetail:buildOverview(panel, row)")
+        overview = lua_function(self.ui, "function SCUIDetail:buildStatus(panel, row)")
         factions = lua_function(self.ui, "function SCUIDetail:buildFactions(panel)")
         commands = read(CLIENT / "SCCommands.lua")
         relationship = read(CLIENT / "SCRelationship.lua")
@@ -894,7 +893,7 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("tickBox:setSelected(index, previous)", callback)
 
     def test_supervised_action_status_and_talk_command_are_visible(self) -> None:
-        overview = lua_function(self.ui, "function SCUIDetail:buildOverview(panel, row)")
+        overview = lua_function(self.ui, "function SCUIDetail:buildStatus(panel, row)")
         support = lua_function(self.ui, "function SCUIDetail:buildSupport(panel)")
         self.assertIn("UI_SC_Info_CurrentAction", overview)
         self.assertIn("UI_SC_Info_LastActionFailure", overview)
@@ -913,7 +912,7 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("UI_SC_Info_WorkMode", self.ui)
 
     def test_vehicle_policy_is_one_persistent_toggle_with_manifest_status(self) -> None:
-        gear = lua_function(self.ui, "function SCUIDetail:buildGear(panel, row)")
+        gear = lua_function(self.ui, "function SCUIDetail:buildLoadout(panel, row)")
         self.assertIn('"set_ride_with_player", "rideWithPlayer"', gear)
         self.assertIn("row.vehicleStatus", gear)
         self.assertIn("UI_SC_Vehicle_Assigned", gear)
@@ -932,28 +931,27 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertNotIn('"board_vehicle"', groups)
         self.assertNotIn('"exit_vehicle"', groups)
 
-    def test_combat_doctrine_is_one_team_wide_selector(self) -> None:
+    def test_combat_is_one_per_companion_selector_with_apply_to_all(self) -> None:
         orders = lua_function(self.ui, "function SCUIDetail:buildOrders(panel)")
-        self.assertIn("self:addDoctrineSelector", orders)
-        self.assertNotIn("UI_SC_Action_CombatPassive", orders)
-        self.assertNotIn("UI_SC_Action_CombatAggressive", orders)
-        callback = lua_function(self.ui, "local function onDoctrineChange(target, combo)")
-        self.assertIn('scope = "team"', callback)
-        self.assertIn('scCommand = "set_combat_doctrine"', callback)
-        selector = lua_function(self.ui, "function SCUIDetail:addDoctrineSelector(panel, y, doctrine)")
-        self.assertIn("ISComboBox:new", selector)
-        self.assertIn("COMBAT_DOCTRINES", selector)
+        # One per-companion combat selector (the doctrine cascades to the
+        # underlying stance + hold-fire), plus an apply-to-whole-squad button.
+        self.assertIn("COMBAT_DOCTRINES", orders)
+        self.assertIn('"set_combat_doctrine", "doctrine"', orders)
+        self.assertIn('scope = "team"', orders)
+        self.assertIn("UI_SC_Action_ApplyToAll", orders)
+        # The old, separate stance selector and hold-fire toggle are gone.
+        self.assertNotIn("COMBAT_STANCES", orders)
+        self.assertNotIn('"set_combat_mode"', orders)
+        self.assertNotIn('"set_hold_fire"', orders)
 
     def test_compact_policy_selectors_include_backend_modes(self) -> None:
         orders = lua_function(self.ui, "function SCUIDetail:buildOrders(panel)")
-        gear = lua_function(self.ui, "function SCUIDetail:buildGear(panel, row)")
+        gear = lua_function(self.ui, "function SCUIDetail:buildLoadout(panel, row)")
         groups = lua_function(self.ui, "function SCUIDetail:buildGroups(panel, row)")
         self.assertIn("MAIN_ORDERS", orders)
         self.assertIn("FOLLOW_DISTANCES", orders)
-        self.assertIn("COMBAT_STANCES", orders)
-        self.assertIn('"set_combat_mode", "mode"', orders)
-        self.assertIn('{ id = "defensive", key = "UI_SC_Select_StanceDefensive" }', self.ui)
-        self.assertIn('"set_hold_fire", "holdFire"', orders)
+        self.assertIn("COMBAT_DOCTRINES", orders)
+        self.assertIn('"set_combat_doctrine", "doctrine"', orders)
         self.assertIn("WEAPON_PRIORITIES", gear)
         self.assertIn('{ id = "quiet", key = "UI_SC_Select_WeaponQuiet" }', self.ui)
         self.assertIn('"set_allow_overload", "allowOverload"', gear)

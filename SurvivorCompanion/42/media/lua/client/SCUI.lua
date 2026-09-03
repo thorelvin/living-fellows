@@ -48,19 +48,22 @@ end
 
 UI._hotkeyRegistered = registerHotkey()
 
+-- Tabs shown in the main row. Base and Health (folded into Loadout) are kept
+-- prominent; Groups/Factions/Journal/Support are reached through the More
+-- launcher and so are not listed here (but remain valid views below).
 local TAB_IDS = {
-    "overview", "orders", "gear", "health", "journal", "base", "groups", "factions",
-    "support",
+    "status", "orders", "loadout", "base", "more",
 }
 local TAB_KEYS = {
-    overview = "UI_SC_Tab_Overview",
+    status = "UI_SC_Tab_Status",
     orders = "UI_SC_Tab_Orders",
-    gear = "UI_SC_Tab_Gear",
-    health = "UI_SC_Tab_Health",
-    journal = "UI_SC_Tab_Journal",
+    loadout = "UI_SC_Tab_Loadout",
     base = "UI_SC_Tab_Base",
+    more = "UI_SC_Tab_More",
+    -- Secondary views opened from the More launcher (not in the tab row):
     groups = "UI_SC_Tab_Groups",
     factions = "UI_SC_Tab_Factions",
+    journal = "UI_SC_Tab_Journal",
     support = "UI_SC_Tab_Support",
     debug = "UI_SC_Tab_Debug",
 }
@@ -881,7 +884,7 @@ local function onCommandButton(target, button)
         if description then
             UI.showStatus(description)
         else
-            UI.open("overview", row.id)
+            UI.open("status", row.id)
         end
     else
         UI.refresh()
@@ -1434,7 +1437,7 @@ function SCUIDetail:new(x, y, width, height, root)
     object.root = root
     object.background = false
     object.borderColor = { r = 0.45, g = 0.47, b = 0.41, a = 0.5 }
-    object.tab = "overview"
+    object.tab = "status"
     object.feedback = nil
     object.feedbackUntil = nil
     object.feedbackSuccess = false
@@ -1777,7 +1780,7 @@ function SCUIDetail:addTradeChoice(panel, y, side, factionId, row, selected)
     return y + math.max(metrics.buttonHeight, tick:getHeight()) + 2
 end
 
-function SCUIDetail:buildOverview(panel, row)
+function SCUIDetail:buildStatus(panel, row)
     local y = 7
     -- Recruitment is the primary action for a neutral encounter. Keep it
     -- visible without scrolling, then remove it entirely once accepted.
@@ -1795,16 +1798,6 @@ function SCUIDetail:buildOverview(panel, row)
             numericText((tonumber(row.hunger) or 0) * 100, 0) .. "%")
         y = self:addInformationLine(panel, y, "UI_SC_Info_Thirst",
             numericText((tonumber(row.thirst) or 0) * 100, 0) .. "%")
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Wounds", UI.formatWounds(row.wounds))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Supplies", UI.formatSupplies(row.supplies))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Ammunition", UI.formatAmmunition(row.ammunition))
-        local loadText = numericText(row.loadWeight, 1) .. " / "
-            .. numericText(row.loadCapacity, 1) .. " ("
-            .. numericText((tonumber(row.loadRatio) or 0) * 100, 0) .. "%)"
-        if row.loadRole then loadText = loadText .. " | " .. UI.stateText(row.loadRole) end
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Load", loadText)
-        y = self:addInformationLine(panel, y, "UI_SC_Info_AllowOverload",
-            UI.booleanText(row.allowOverload))
         y = self:addInformationLine(panel, y, "UI_SC_Info_CurrentAction",
             UI.actionSummaryText(row.actionSummary))
         local actionFailure = UI.actionFailureText(row.actionSummary)
@@ -1840,6 +1833,10 @@ function SCUIDetail:buildOverview(panel, row)
                 y = self:addInformationLine(panel, y, "UI_SC_Info_LastLoot", lastText)
             end
         end
+        -- Character and relationship readout: the heart of a Living Fellows
+        -- companion. (Carried gear/supplies/load moved to the Loadout tab, and
+        -- the combat/follow/group settings live on their own tabs, so they are
+        -- not repeated here.)
         y = self:addInformationLine(panel, y, "UI_SC_Info_WorkMode", UI.stateText(row.workMode))
         y = self:addInformationLine(panel, y, "UI_SC_Info_Background",
             row.backgroundLabel or unknownValue())
@@ -1880,13 +1877,6 @@ function SCUIDetail:buildOverview(panel, row)
         y = self:addInformationLine(panel, y, "UI_SC_Info_CurrentNeed", UI.stateText(row.currentNeed))
         y = self:addInformationLine(panel, y, "UI_SC_Info_TimeTogether", numericText(row.timeTogetherHours, 1))
         y = self:addInformationLine(panel, y, "UI_SC_Info_RecentMemory", UI.summaryText(row.recentMemory))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Knox", UI.formatKnox(row.knox))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_CombatStance",
-            UI.stateText(row.combatStance))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Combat",
-            UI.stateText(row.combatDoctrine))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_FollowDistance", UI.distanceText(row.followDistance))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Group", UI.stateText(row.group))
     end
     if row and type(row.pendingRequest) == "table"
         and row.pendingRequest.kind == "supply_run" then
@@ -1954,31 +1944,37 @@ function SCUIDetail:buildOrders(panel)
     y = self:addCommandSelector(panel, y, "UI_SC_Select_MovementMode",
         row and row.moveMode or "copy", MOVE_MODES, "set_move_mode", "mode")
     y = self:addSection(panel, y + 4, "UI_SC_Section_Combat")
-    y = self:addCommandSelector(panel, y, "UI_SC_Select_CombatStance",
-        row and row.combatStance or "defensive", COMBAT_STANCES,
-        "set_combat_mode", "mode")
-    y = self:addBooleanCommand(panel, y, "UI_SC_Toggle_HoldFire",
-        "set_hold_fire", "holdFire", row and row.holdFire == true)
-    y = self:addSection(panel, y + 4, "UI_SC_Section_CombatDoctrine")
-    y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-        UI.text("UI_SC_Doctrine_TeamScope"))
-    local doctrine = row and row.combatDoctrine or "close_defense"
-    if SC.Commands and type(SC.Commands.teamCombatDoctrine) == "function" then
-        local ok, value = pcall(SC.Commands.teamCombatDoctrine, playerForUI())
-        if ok and type(value) == "string" then doctrine = value end
-    end
-    y = self:addDoctrineSelector(panel, y, doctrine)
+    -- One per-companion combat selector. Setting a doctrine cascades to the
+    -- underlying stance + hold-fire (SCCommands.applyDoctrine), so the separate
+    -- stance selector and hold-fire toggle are no longer needed. "Apply to all"
+    -- pushes this companion's setting to the whole squad (scope = team).
+    y = self:addCommandSelector(panel, y, "UI_SC_Select_Combat",
+        row and row.combatDoctrine or "close_defense", COMBAT_DOCTRINES,
+        "set_combat_doctrine", "doctrine")
+    y = self:addCommand(panel, y, "UI_SC_Action_ApplyToAll", "set_combat_doctrine",
+        { doctrine = row and row.combatDoctrine or "close_defense", scope = "team" })
     return y
 end
 
-function SCUIDetail:buildGear(panel, row)
+function SCUIDetail:buildLoadout(panel, row)
     local y = 7
+    -- Everything a companion carries and its condition on one page: gear +
+    -- supplies/ammo/load (moved here from the old Overview) and health.
     y = self:addSection(panel, y, "UI_SC_Section_Gear")
-    if row then
-        y = self:addInformationLine(panel, y, "UI_SC_Info_WeaponPriority",
-            UI.stateText(row.weaponPriority))
+    if not row then
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_NoSelection"))
+    else
         y = self:addInformationLine(panel, y, "UI_SC_Info_EquippedWeapon",
             row.equippedWeapon or UI.text("UI_SC_State_none"))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_WeaponPriority",
+            UI.stateText(row.weaponPriority))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Supplies", UI.formatSupplies(row.supplies))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Ammunition", UI.formatAmmunition(row.ammunition))
+        local loadText = numericText(row.loadWeight, 1) .. " / "
+            .. numericText(row.loadCapacity, 1) .. " ("
+            .. numericText((tonumber(row.loadRatio) or 0) * 100, 0) .. "%)"
+        if row.loadRole then loadText = loadText .. " | " .. UI.stateText(row.loadRole) end
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Load", loadText)
     end
     y = self:addCommand(panel, y, "UI_SC_Action_OpenInventory", "open_inventory", nil)
     y = self:addSection(panel, y + 4, "UI_SC_Section_LoadPolicy")
@@ -2010,16 +2006,10 @@ function SCUIDetail:buildGear(panel, row)
                 "exit_vehicle", nil)
         end
     end
-    return y
-end
-
-function SCUIDetail:buildHealth(panel, row)
-    local y = 7
-    y = self:addSection(panel, y, "UI_SC_Section_Health")
+    y = self:addSection(panel, y + 4, "UI_SC_Section_Health")
     if not row then
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_NoSelection"))
     else
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Name", row.name)
         y = self:addInformationLine(panel, y, "UI_SC_Info_Health", UI.healthText(row.health))
         y = self:addInformationLine(panel, y, "UI_SC_Info_Wounds", UI.formatWounds(row.wounds))
         y = self:addInformationLine(panel, y, "UI_SC_Info_Knox", UI.formatKnox(row.knox))
@@ -2027,6 +2017,40 @@ function SCUIDetail:buildHealth(panel, row)
     y = self:addSection(panel, y + 4, "UI_SC_Section_HealthActions")
     y = self:addCommand(panel, y, "UI_SC_Action_OpenHealth", "open_health", nil)
     y = self:addCommand(panel, y, "UI_SC_Action_Status", "status", nil)
+    return y
+end
+
+-- Launcher handler: jump to a secondary view (Groups/Factions/Journal/Support)
+-- that is reachable from More but not shown in the main tab row.
+local function onMoreButton(target, button)
+    if target and target.root and type(target.root.setSelectedTab) == "function" then
+        target.root:setSelectedTab(button.scMoreTab)
+    end
+end
+
+function SCUIDetail:buildMore(panel, row)
+    local y = 7
+    y = self:addSection(panel, y, "UI_SC_Section_More")
+    local metrics = self.metrics or UI.layoutMetrics()
+    local width = math.max(100, panel:getWidth() - 28)
+    for _, entry in ipairs({
+        { key = "UI_SC_Tab_Groups", tab = "groups" },
+        { key = "UI_SC_Tab_Factions", tab = "factions" },
+        { key = "UI_SC_Tab_Journal", tab = "journal" },
+        { key = "UI_SC_Tab_Support", tab = "support" },
+    }) do
+        local label = UI.text(entry.key)
+        local visibleLabel = fitText(UIFont.Small, label, math.max(40, width - 16))
+        local button = ISButton:new(8, y, width, metrics.buttonHeight,
+            visibleLabel, self, onMoreButton)
+        button:initialise()
+        makeButtonTranslucent(button)
+        button:setWidth(width)
+        button.scMoreTab = entry.tab
+        button.tooltip = label
+        panel:addChild(button)
+        y = y + metrics.buttonHeight + 4
+    end
     return y
 end
 
@@ -2889,18 +2913,18 @@ function SCUIDetail:rebuild(preserveScroll)
     self.displayedTab = self.tab
     self.displayedCompanionId = row and row.id or nil
     local bottom = 0
-    if self.tab == "overview" then
-        bottom = self:buildOverview(panel, row)
+    if self.tab == "status" then
+        bottom = self:buildStatus(panel, row)
     elseif self.tab == "orders" then
         bottom = self:buildOrders(panel)
-    elseif self.tab == "gear" then
-        bottom = self:buildGear(panel, row)
-    elseif self.tab == "health" then
-        bottom = self:buildHealth(panel, row)
-    elseif self.tab == "journal" then
-        bottom = self:buildJournal(panel, row)
+    elseif self.tab == "loadout" then
+        bottom = self:buildLoadout(panel, row)
     elseif self.tab == "base" then
         bottom = self:buildBase(panel, row)
+    elseif self.tab == "more" then
+        bottom = self:buildMore(panel, row)
+    elseif self.tab == "journal" then
+        bottom = self:buildJournal(panel, row)
     elseif self.tab == "groups" then
         bottom = self:buildGroups(panel, row)
     elseif self.tab == "factions" then
@@ -2921,7 +2945,7 @@ function SCUIDetail:rebuild(preserveScroll)
 end
 
 function SCUIDetail:setTab(tab)
-    self.tab = UI.normalizeTab(tab) or "overview"
+    self.tab = UI.normalizeTab(tab) or "status"
     self.feedback = nil
     self.feedbackUntil = nil
     self:rebuild()
@@ -2987,7 +3011,7 @@ function SCUIRoot:new(rect, settings)
     -- elements. Keeping the root expanded prevents the Collapse button's
     -- mouse-up from also activating a newly shrunken root under the cursor.
     object.collapsed = false
-    object.selectedTab = UI.normalizeTab(settings.selectedTab) or "overview"
+    object.selectedTab = UI.normalizeTab(settings.selectedTab) or "status"
     object.selectedId = nil
     object.selectedRow = nil
     object.metrics = UI.layoutMetrics()
@@ -3133,7 +3157,7 @@ function SCUIRoot:updateTabButtons()
 end
 
 function SCUIRoot:setSelectedTab(tab)
-    self.selectedTab = UI.normalizeTab(tab) or "overview"
+    self.selectedTab = UI.normalizeTab(tab) or "status"
     self.detail:setTab(self.selectedTab)
     self:updateTabButtons()
     self:saveSettings()
@@ -3614,7 +3638,7 @@ function UI.open(tab, companionId, description)
     root:refreshRoster(companionId or descriptionId, description, true)
     local requestedTab = UI.normalizeTab(tab)
     if description and not requestedTab then
-        requestedTab = "overview"
+        requestedTab = "status"
     end
     if requestedTab then
         root:setSelectedTab(requestedTab)
@@ -3624,7 +3648,7 @@ end
 
 function UI.showStatus(description)
     local companionId = type(description) == "table" and (description.id or description.companionId) or nil
-    return UI.open("overview", companionId, description)
+    return UI.open("status", companionId, description)
 end
 
 function UI.openInventory(actor, player)

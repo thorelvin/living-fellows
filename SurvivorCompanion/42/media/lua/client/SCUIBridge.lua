@@ -131,7 +131,7 @@ function Bridge.openHealth(actor, player, openFunction, describeFunction)
             description.actor = description.actor or actor
         end
     end
-    local okOpen, root = pcall(openFunction, "health", id, description)
+    local okOpen, root = pcall(openFunction, "loadout", id, description)
     if not okOpen or not root then
         return failure("UI_SC_Disabled_HealthUnavailable")
     end
@@ -141,7 +141,7 @@ function Bridge.openHealth(actor, player, openFunction, describeFunction)
     end
     local selectedActor = root.selectedRow and root.selectedRow.actor or nil
     local selected = root.selectedId == id or selectedActor == actor
-    local correctTab = root.detail and root.detail.tab == "health"
+    local correctTab = root.detail and root.detail.tab == "loadout"
     local renderedForCompanion = root.detail and root.detail.displayedCompanionId == id
     if root.collapsed == true or visible == false or not selected or not correctTab or not renderedForCompanion then
         return failure("UI_SC_Disabled_HealthUnavailable")

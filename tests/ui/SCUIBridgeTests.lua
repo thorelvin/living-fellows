@@ -131,7 +131,7 @@ local healthOpened, healthReason = Bridge.openHealth(actor, player, openHealth, 
     return { name = "Mock Companion" }
 end)
 assert(healthOpened == true and healthReason == nil)
-assert(requestedTab == "health")
+assert(requestedTab == "loadout")
 assert(requestedId == "sc-bridge-test")
 assert(requestedDescription.id == "sc-bridge-test")
 assert(requestedDescription.actor == actor)
@@ -140,7 +140,7 @@ local noOpHealth, noOpReason = Bridge.openHealth(actor, player, function()
     return {
         collapsed = true,
         selectedId = "sc-bridge-test",
-        detail = { tab = "health" },
+        detail = { tab = "loadout" },
         isVisible = function() return true end,
     }
 end)
