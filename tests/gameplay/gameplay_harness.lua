@@ -1930,14 +1930,16 @@ player.vehicle = nil
 local treated, treatmentReason = SurvivorCompanion.Medical.treat(fellow, player, { snapshot = { threats = {}, immediateCount = 0, escapeSquares = { { square = fellow.square } } } })
 check(treated and woundedPart.isBandaged and helperBandage.used, "native body part bandaging consumes a real supply")
 
+-- Knox and injuries drop health but never immobilize a companion: like a player it
+-- stays mobile (and bandageable) as its health falls, and only stops when it dies
+-- at zero health or turns at terminal Knox.
 local lowActor = actor("sc-downed", 6, 0, { body = bodyDamage(10) })
 registry[lowActor.id] = lowActor
-local becameDowned = SurvivorCompanion.Medical.update(lowActor, player, { snapshot = { threats = {}, immediateCount = 0 } })
-check(becameDowned and SurvivorCompanion.Medical.isDowned(lowActor) and lowActor.lastIntent.action == "downed",
-    "critical nonzero native health enters an immobile downed state")
-lowActor.body.health = 30
-local recovered = SurvivorCompanion.Medical.update(lowActor, player, { snapshot = { threats = {}, immediateCount = 0 } })
-check(recovered and not SurvivorCompanion.Medical.isDowned(lowActor), "native recovery threshold leaves downed state")
+SurvivorCompanion.Medical.update(lowActor, player, { snapshot = { threats = {}, immediateCount = 0 } })
+check(not SurvivorCompanion.Medical.isDowned(lowActor)
+    and not (lowActor.lastIntent and lowActor.lastIntent.action == "downed"),
+    "critical nonzero native health never immobilizes a companion")
+registry[lowActor.id] = nil
 
 local emergencyPart = bodyPart({ name = "UpperArm_R", isBleeding = true })
 local spareShirt = item("Base.Tshirt_White", "Clothing")

@@ -1034,26 +1034,6 @@ function Medical.treat(helper, patient, runtime, options)
     return continueTreatmentApproach(helper, state, rootRuntime)
 end
 
-local function enterDowned(actor, assessment, runtime)
-    local utility = U()
-    local now = utility.nowMs()
-    if not utility.stop(actor) then return false, "downed_stop_rejected" end
-    if not utility.move(actor, "walk", {
-        action = "downed",
-        immobile = true,
-        canFight = false,
-        nativeHealth = assessment.health,
-        humanAnimationOnly = true,
-    }) then return false, "downed_action_rejected" end
-    downed[actor] = downed[actor] or { since = now }
-    downed[actor].health = assessment.health
-    if type(runtime) == "table" then
-        runtime.downed = true
-        runtime.needsRescue = true
-    end
-    return true, "downed"
-end
-
 local function leaveDowned(actor, runtime)
     local utility = U()
     if not utility.move(actor, "walk", { action = "recover_from_downed", immobile = false }) then
@@ -1106,16 +1086,13 @@ function Medical.update(actor, player, runtime)
         return false, assessment.terminalKnox and "terminal_knox" or "dead"
     end
 
-    local downedThreshold = utility.config("downedHealth") or 18
-    if assessment.health <= downedThreshold then
-        return enterDowned(actor, assessment, rootRuntime)
-    end
+    -- Knox and injuries lower a companion's health but never immobilize it. Like a
+    -- player, it keeps acting -- fighting, fleeing, and being bandaged -- while its
+    -- health drops, and only stops when it dies at zero health or turns at terminal
+    -- Knox (handled above). Recover any companion still in a legacy health-downed
+    -- state so it stands back up instead of lying frozen.
     if downed[actor] then
-        if assessment.health >= (utility.config("downedRecoverHealth") or 25)
-            and assessment.bleedingCount == 0 then
-            return leaveDowned(actor, rootRuntime)
-        end
-        return enterDowned(actor, assessment, rootRuntime)
+        return leaveDowned(actor, rootRuntime)
     end
 
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
