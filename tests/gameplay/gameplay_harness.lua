@@ -2376,6 +2376,34 @@ check(approached and approachReason == "approach"
         and swordActor.lastIntent.target == swordZed,
     "an equipped melee companion closes a safe gap instead of kiting forever")
 
+-- Spacing is keyed to the weapon's own reach: at the exact gap a long blade
+-- swings from, a short weapon must close first rather than swing out of range
+-- and miss. Same snapshot/distance as the sword test above, shorter weapon.
+local knife = item("Base.HuntingKnife", "Weapon", {
+    damage = 2, range = 0.9, sharpness = 1, weaponCategories = { "SmallBlade" },
+})
+local knifeActor = actor("sc-melee-shortreach", 40, 40, { inventory = inventory({ knife }) })
+knifeActor.primary = knife
+registry[knifeActor.id] = knifeActor
+local knifeZed = zombie(41, 40, { attacking = true, target = knifeActor })
+local shortSnapshot = {
+    threats = { { actor = knifeZed, square = knifeZed.square, distanceSq = 1.4 * 1.4,
+        visible = true, obstructed = false, attacking = true, score = 90 } },
+    allies = {},
+    escapeSquares = { { square = cell:getGridSquare(39, 40, 0), danger = 0,
+        nearestThreatSq = 16 } },
+    threatCount = 1, immediateCount = 0, closeImmediateCount = 0,
+    closeThreatCount = 1, occupiedThreatSectors = 1,
+    pressure = 0, encircled = false,
+    player = { danger = 0, immediateThreats = 0 },
+}
+local shortActed, shortReason = SurvivorCompanion.Combat.update(
+    knifeActor, player, { snapshot = shortSnapshot })
+check(shortActed and shortReason == "approach"
+        and knifeActor.lastIntent.action == "combat_approach",
+    "a short-reach weapon closes to its own swing range instead of swinging from a long blade's distance")
+registry[knifeActor.id] = nil
+
 -- Once inside weapon range the same engagement must produce a real attack
 -- request. A rejected pulse remains inspectable, then clears after a retry.
 swordActor.worldX = 21.6

@@ -1007,20 +1007,30 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                         + readiness.fitness - readiness.footing.crowd * 4,
                 }
             end
-        elseif distance <= (utility.config("combatMeleeDistance") or 1.7) then
+        else
+            -- Melee spacing keyed to the weapon's OWN reach on this actor, not a
+            -- fixed distance: the swing band is [swingMin, swingMax] where
+            -- swingMax sits just inside the effective max range. A short blade
+            -- must close to connect; a long blade holds a safer gap and still
+            -- lands -- so companions keep kiting distance yet actually hit.
+            local reachVal = select(1, utility.call(weapon.item, "getMaxRange", actor))
+            local reachMax = tonumber(reachVal) or tonumber(weapon.range) or 1.5
+            local modVal = select(1, utility.call(weapon.item, "getRangeMod", actor))
+            local rangeMod = tonumber(modVal) or 1.0
+            local effectiveMax = reachMax * (rangeMod > 0 and rangeMod or 1.0)
             local swingMin = (tonumber(weapon.minRange) or 0)
                 + (utility.config("combatMeleeMinMargin") or 0.15)
+            local swingMax = math.max(swingMin + 0.2,
+                effectiveMax - (utility.config("combatMeleeReachMargin") or 0.2))
             if distance < swingMin then
-                -- Too close to swing: inside the weapon's minimum reach a long
-                -- blade cannot land, and Build 42 converts a point-blank weapon
-                -- attack into a non-damaging shove. Open a small gap back to the
-                -- effective swing distance first (kept facing the target).
+                -- Inside minimum reach a swing cannot land and Build 42 degrades
+                -- it into a non-damaging shove. Open a small gap first.
                 actions[#actions + 1] = {
                     kind = "backstep",
                     score = 60 + pressure * 6 + readiness.nimble * 1.5
                         + readiness.fitness - readiness.footing.crowd * 4,
                 }
-            else
+            elseif distance <= swingMax then
                 actions[#actions + 1] = {
                     kind = "melee",
                     score = 58 + weapon.damage * 5 + readiness.combatSkill * 1.8
@@ -1028,25 +1038,37 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                         - pressure * 3 - fatiguePenalty
                         - math.max(0, readiness.weaponCost - 1.5) * 3,
                 }
+                -- Hold the outer edge: if the target has closed toward the inner
+                -- part of the swing band and there is room, favour a fighting
+                -- retreat that reopens to the far swing distance -- kiting while
+                -- still landing a hit on the next tick from range.
+                local holdPoint = swingMin
+                    + (swingMax - swingMin) * (utility.config("combatMeleeHoldFraction") or 0.5)
+                if distance < holdPoint and (tonumber(readiness.escapeClearance) or 0) > 0
+                    and readiness.staminaCritical ~= true then
+                    actions[#actions + 1] = {
+                        kind = "backstep",
+                        score = 55 + pressure * 7 + readiness.nimble * 1.5
+                            + (holdPoint - distance) * 22 - readiness.footing.crowd * 4,
+                    }
+                end
+            elseif isolatedFront and readiness.staminaCritical ~= true then
+                -- Beyond swing reach: advance to the outer swing edge under guard;
+                -- the next tick resumes the swing/kite exchange from there.
+                actions[#actions + 1] = {
+                    kind = "approach",
+                    score = 61 + weapon.damage * 3 + readiness.combatSkill * 1.2
+                        + readiness.nimble * 0.7 + readiness.confidence * 0.08
+                        - math.max(0, distance - swingMax - 1) * 2 - pressure * 3,
+                }
+            else
+                actions[#actions + 1] = {
+                    kind = "kite",
+                    score = 42 + target.score * 0.2 + readiness.nimble * 1.4
+                        + readiness.fitness * 0.7 + math.min(10, readiness.escapeClearance)
+                        - readiness.footing.crowd * 4 - (readiness.footing.tree and 8 or 0),
+                }
             end
-        elseif isolatedFront and readiness.staminaCritical ~= true then
-            -- A melee companion used to kite laterally forever whenever the
-            -- target was just outside swing range. Advance under a ready guard
-            -- when the lane is safe; the next decision tick switches to the
-            -- ordinary melee/shove exchange at combatMeleeDistance.
-            actions[#actions + 1] = {
-                kind = "approach",
-                score = 61 + weapon.damage * 3 + readiness.combatSkill * 1.2
-                    + readiness.nimble * 0.7 + readiness.confidence * 0.08
-                    - math.max(0, distance - 2) * 2 - pressure * 3,
-            }
-        else
-            actions[#actions + 1] = {
-                kind = "kite",
-                score = 42 + target.score * 0.2 + readiness.nimble * 1.4
-                    + readiness.fitness * 0.7 + math.min(10, readiness.escapeClearance)
-                    - readiness.footing.crowd * 4 - (readiness.footing.tree and 8 or 0),
-            }
         end
     else
         actions[#actions + 1] = { kind = distance <= 1.35 and "shove" or "escape", score = 58 + pressure * 8 }
