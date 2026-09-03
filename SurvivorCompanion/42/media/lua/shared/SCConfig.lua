@@ -318,6 +318,7 @@ local valueData = {
     zombieGrabThreshold = 2,
     zombieGrabReach = 1.6,
     zombieGrabChance = 0.5,
+    zombieGrabTargetGraceMs = 1200,
     zombieGrabAttemptCooldownMs = 500,
     zombieGrabEscapeChance = 0.2,
     zombieGrabMinDurationMs = 1500,

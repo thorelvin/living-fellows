@@ -1531,6 +1531,53 @@ local function equip(actor, intent, provider)
     return true, "equipped"
 end
 
+-- Land a companion stomp's damage exactly once, only after the native swing has
+-- started (see attack()). Build 42's floor attack builds an empty hit list for a
+-- non-local companion, so the engine never lands a downed-target stomp; this is
+-- the sole damage owner for a companion stomp (the Java collision driver applies
+-- nothing for the empty floor-attack list). A downed head stomp is lethal, an
+-- off-head stomp only wounds -- positioning (getHeadSquare) decides which.
+local function applyStompFinisher(actor, target)
+    local _, prone = invoke(target, "isProne")
+    local _, onFloor = invoke(target, "isOnFloor")
+    local _, crawling = invoke(target, "isCrawling")
+    local _, dead = invoke(target, "isDead")
+    if not (prone == true or onFloor == true or crawling == true) or dead == true then
+        return
+    end
+    local atHead = true
+    local okHead, headSquare = invoke(target, "getHeadSquare", actor)
+    local okMine, mySquare = invoke(actor, "getCurrentSquare")
+    if okHead and headSquare ~= nil and okMine and mySquare ~= nil then
+        local okDist, dist = invoke(mySquare, "DistTo", headSquare)
+        atHead = okDist and type(dist) == "number" and dist <= 1.5
+    end
+    local _, held = invoke(actor, "getPrimaryHandItem")
+    if atHead then
+        -- Lethal head stomp: register the head strike the engine counts and
+        -- finish a downed zombie whose remaining health the blow exceeds.
+        local _, count = invoke(target, "getHitHeadWhileOnFloor")
+        pcall(function() target:setHitHeadWhileOnFloor(
+            (type(count) == "number" and count or 0) + 1) end)
+        local damage = (SC.GameplayUtil and SC.GameplayUtil.config("combatHeadStompDamage")) or 3.0
+        pcall(function() target:Hit(held, actor, damage, true, 1.0) end)
+        local okHp, hp = invoke(target, "getHealth")
+        if okHp and type(hp) == "number" and hp <= damage then
+            pcall(function() target:setHealth(0) end)
+        end
+    else
+        -- Off the head: a body/leg stomp only wounds and keeps it pinned.
+        local damage = (SC.GameplayUtil and SC.GameplayUtil.config("combatStompDamage")) or 1.6
+        pcall(function() target:Hit(held, actor, damage, true, 1.0) end)
+    end
+    -- Once the target is down for good, drop the downed-target reference so a
+    -- stale corpse is not carried into the next native update.
+    local _, nowDead = invoke(target, "isDead")
+    if nowDead == true then
+        pcall(function() actor.targetOnGround = nil end)
+    end
+end
+
 local function attack(actor, action, intent, provider)
     local target = intent.target
     if target == nil then
@@ -1585,54 +1632,11 @@ local function attack(actor, action, intent, provider)
     end
     invoke(actor, "setAimAtFloor", action == "stomp")
     if action == "stomp" and intent.target ~= nil then
-        -- A stomp's hit list is built from targetOnGround, which the local player
-        -- fills from the cursor over a downed enemy. Point the field at the target
-        -- for the native path, but Build 42's floor attack still does not resolve
-        -- against a downed enemy for a non-local companion (empty hit list), so --
-        -- as with the incoming-bite driver -- land the finisher directly through the
-        -- same Hit() the engine uses. The caller paces these to the stomp animation.
+        -- Point the native floor attack at the downed target (it builds its hit
+        -- list from targetOnGround). The finisher's damage is NOT applied here --
+        -- it is landed once, below, only after the swing has actually started, so
+        -- a rejected or retried preflight can never damage the target.
         pcall(function() actor.targetOnGround = intent.target end)
-        local _, prone = invoke(intent.target, "isProne")
-        local _, onFloor = invoke(intent.target, "isOnFloor")
-        local _, crawling = invoke(intent.target, "isCrawling")
-        local _, dead = invoke(intent.target, "isDead")
-        if (prone == true or onFloor == true or crawling == true) and dead ~= true then
-            -- Aim for the head: a downed head stomp is the lethal finisher, a stomp
-            -- anywhere else only wounds. Positioning decides which -- the companion
-            -- must stand over the zombie's head square (getHeadSquare) to connect.
-            local atHead = true
-            local okHead, headSquare = invoke(intent.target, "getHeadSquare", actor)
-            local okMine, mySquare = invoke(actor, "getCurrentSquare")
-            if okHead and headSquare ~= nil and okMine and mySquare ~= nil then
-                local okDist, dist = invoke(mySquare, "DistTo", headSquare)
-                atHead = okDist and type(dist) == "number" and dist <= 1.5
-            end
-            local _, held = invoke(actor, "getPrimaryHandItem")
-            if atHead then
-                -- Lethal head stomp: register the head strike the engine counts and
-                -- finish a downed zombie whose remaining health the blow exceeds.
-                local okCount, count = invoke(intent.target, "getHitHeadWhileOnFloor")
-                pcall(function() intent.target:setHitHeadWhileOnFloor(
-                    (type(count) == "number" and count or 0) + 1) end)
-                local damage = (SC.GameplayUtil and SC.GameplayUtil.config("combatHeadStompDamage")) or 3.0
-                pcall(function() intent.target:Hit(held, actor, damage, true, 1.0) end)
-                local okHp, hp = invoke(intent.target, "getHealth")
-                if okHp and type(hp) == "number" and hp <= damage then
-                    pcall(function() intent.target:setHealth(0) end)
-                end
-            else
-                -- Off the head: a body/leg stomp only wounds and keeps it pinned.
-                local damage = (SC.GameplayUtil and SC.GameplayUtil.config("combatStompDamage")) or 1.6
-                pcall(function() intent.target:Hit(held, actor, damage, true, 1.0) end)
-            end
-            -- Once the target is down for good, drop the downed-target reference so a
-            -- stale corpse is not carried into the next native update, and let the
-            -- next standing swing re-aim off the floor without residue.
-            local _, nowDead = invoke(intent.target, "isDead")
-            if nowDead == true then
-                pcall(function() actor.targetOnGround = nil end)
-            end
-        end
     end
     local shoveStateOk, previousDoShove = invoke(actor, "isDoShove")
     if not shoveStateOk then
@@ -1749,6 +1753,10 @@ local function attack(actor, action, intent, provider)
     -- the calculated attack variables back to the player and the animation
     -- state owns them until clearHandToHandAttack(). The next requested attack
     -- explicitly selects its own state before starting.
+    if action == "stomp" and intent.target ~= nil then
+        -- The swing has started; land the finisher's single hit now.
+        applyStompFinisher(actor, intent.target)
+    end
     return true, "attack_started"
 end
 

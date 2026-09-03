@@ -64,6 +64,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     // frames -- the local player is restored each time -- and only give up (self-
     // healing via respawn) if the failures persist past the window.
     private long firstUpdateFailureNanos;
+    private long firstPostUpdateFailureNanos;
     private static final long MAX_TRANSIENT_UPDATE_NANOS = 3_000_000_000L;
 
     public SCNativeCompanion(SurvivorDesc descriptor, IsoCell cell, int x, int y, int z) {
@@ -139,12 +140,23 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     @Override
     public void postupdate() {
+        if (bridgeDisabled) {
+            return;
+        }
+        // The engine also runs postupdate() as its own pass, outside update()'s
+        // isolation guard. IsoPlayer.postupdate() can touch player-indexed and
+        // singleton-owned state (hotbar/attachment/hand-item/UI refresh), so it
+        // must be wrapped in the same local-player snapshot/restore as update(),
+        // or it can leak ownership onto the real player (a hotbar-disturbance
+        // cause). Capture the local player's slots/singleton/camera first.
+        LocalPlayerState localState = LocalPlayerState.capture();
+        if (localState == null) {
+            disableBridge("postupdate: unexpected local-player slot layout");
+            return;
+        }
         // Reading animation variables/state can throw on this non-local actor
-        // when a named slot is momentarily unregistered (e.g. getVariableBoolean
-        // hits a null IAnimationVariableSlot for "initiateAttack" in some idle/
-        // hit states). These reads are diagnostics only, so a failure must never
-        // reach the update chain -- it would otherwise be turned into a health-
-        // gate removal that respawns the companion without its gear.
+        // when a named slot is momentarily unregistered. These reads are
+        // diagnostics only, so a failure here must never reach the update chain.
         String beforeState = "?";
         String beforeNext = "?";
         boolean beforeMelee = false;
@@ -159,12 +171,48 @@ public final class SCNativeCompanion extends IsoPlayer {
         } catch (RuntimeException | LinkageError ignored) {
             // diagnostics unavailable this frame
         }
-        // Re-point at the aim target immediately before the engine advances the
-        // swing animation and fires its AttackCollisionCheck, so the hit arc sees
-        // the companion facing the target.
-        applyCompanionAim();
-        super.postupdate();
-        bridgePostUpdateCount++;
+        try {
+            // Re-point at the aim target immediately before the engine advances
+            // the swing animation and fires its AttackCollisionCheck.
+            applyCompanionAim();
+            super.postupdate();
+            bridgePostUpdateCount++;
+        } catch (RuntimeException | LinkageError failure) {
+            // Restore local ownership, then tolerate a bounded window of these
+            // recoverable frames (same policy as update()) instead of tearing the
+            // companion down -- which the health gate turns into a naked respawn.
+            boolean repaired = localState.restore();
+            playerIndex = RESERVED_NON_LOCAL_PLAYER_INDEX;
+            serverPlayerIndex = -1;
+            setNpc(true);
+            long now = System.nanoTime();
+            if (firstPostUpdateFailureNanos == 0L) firstPostUpdateFailureNanos = now;
+            if (!repaired) {
+                disableBridge("native postupdate failed: "
+                        + failure.getClass().getSimpleName()
+                        + cleanMessage(failure.getMessage())
+                        + "; local-player rollback failed");
+            } else if (now - firstPostUpdateFailureNanos > MAX_TRANSIENT_UPDATE_NANOS) {
+                disableBridge("native postupdate failed: "
+                        + failure.getClass().getSimpleName()
+                        + cleanMessage(failure.getMessage()));
+            } else {
+                bridgePostUpdateDiagnostic = "postupdate_skipped_transient:"
+                        + failure.getClass().getSimpleName();
+            }
+            return;
+        }
+        // A clean post-update pass mutated only non-local state. Reassert the
+        // non-local identity and restore the local player's slots/singleton/camera,
+        // undoing any player-indexed ownership the vanilla pass borrowed.
+        playerIndex = RESERVED_NON_LOCAL_PLAYER_INDEX;
+        serverPlayerIndex = -1;
+        setNpc(true);
+        if (!localState.restore()) {
+            disableBridge("postupdate local-player rollback failed");
+            return;
+        }
+        firstPostUpdateFailureNanos = 0L;
         try {
             bridgePostUpdateDiagnostic = "before=" + beforeState
                     + ",next=" + beforeNext

@@ -25,6 +25,12 @@ local ZombieAttack = SC.ZombieAttack
 local lastHitAt = setmetatable({}, { __mode = "k" })
 -- Per-companion grab/pin state for the overwhelm pull-down.
 local grabState = setmetatable({}, { __mode = "k" })
+-- Per-companion, per-attacker timestamp of the last frame that zombie was seen
+-- targeting this companion. Used to count the pull-down "pile" from zombies
+-- committed to THIS companion while tolerating the brief target flicker between
+-- perception scans -- a zombie locked onto the player or another NPC never
+-- counts toward pulling this companion down.
+local pileSeen = setmetatable({}, { __mode = "k" })
 
 local function U()
     return SC.GameplayUtil
@@ -179,7 +185,16 @@ end
 -- the pile thins below the threshold or it struggles loose. If the drag-down
 -- kills it, ordinary permadeath applies -- a swarmed companion can be lost.
 local function resolveGrapple(actor, current, attackers)
-    if select(1, U().call(actor, "getVehicle")) ~= nil then return "in_vehicle" end
+    if select(1, U().call(actor, "getVehicle")) ~= nil then
+        -- A seated companion can never be pinned. If it was grabbed and then
+        -- boarded, clear the grab and its native knockdown/drag-down flags so the
+        -- runtime does not skip its decisions for the rest of the ride.
+        if grabState[actor] ~= nil then
+            releaseCompanion(actor)
+            grabState[actor] = nil
+        end
+        return "in_vehicle"
+    end
     local grabbed = grabState[actor]
     local threshold = config("zombieGrabThreshold", 2)
     if grabbed and grabbed.pinned then
@@ -262,18 +277,34 @@ function ZombieAttack.resolve(actor, current, zombies)
         cooldowns = setmetatable({}, { __mode = "k" })
         lastHitAt[actor] = cooldowns
     end
+    local pileWindow = pileSeen[actor]
+    if not pileWindow then
+        pileWindow = setmetatable({}, { __mode = "k" })
+        pileSeen[actor] = pileWindow
+    end
 
     local holdRadius = config("zombieAttackHoldRadius", 3.0)
     local grabReach = config("zombieGrabReach", 1.6)
+    local grabGrace = config("zombieGrabTargetGraceMs", 1200)
     local applied, checked, targeting, landed, pile = 0, 0, 0, 0, 0
     U().each(zombies, maximum, function(zombie)
         checked = checked + 1
         if U().isZombie(zombie) ~= true or U().isDead(zombie) == true then return end
-        -- The "pile": zombies crowding the companion in grab range. Count them by
-        -- proximity before the target gate -- a crowded-in zombie is part of the
-        -- overwhelm even on the frames its target flickers off between scans.
-        if U().distance(zombie, actor) <= grabReach then pile = pile + 1 end
-        if select(1, U().call(zombie, "getTarget")) ~= actor then return end
+        local targetsMe = select(1, U().call(zombie, "getTarget")) == actor
+        -- The pull-down "pile": zombies in grab range committed to THIS companion.
+        -- Count one targeting us now (and remember the frame), or one that targeted
+        -- us within the grace window (its lock flickered off between perception
+        -- scans). A zombie locked onto the player or another NPC never counts.
+        if U().distance(zombie, actor) <= grabReach then
+            if targetsMe then
+                pileWindow[zombie] = current
+                pile = pile + 1
+            elseif pileWindow[zombie] ~= nil
+                and current - pileWindow[zombie] <= grabGrace then
+                pile = pile + 1
+            end
+        end
+        if not targetsMe then return end
         targeting = targeting + 1
         -- The stock vision loop only scans the local players[] array, so it never
         -- re-sees a detached companion: the zombie's "seen flesh" timer runs past
@@ -312,7 +343,13 @@ function ZombieAttack.resolve(actor, current, zombies)
 end
 
 function ZombieAttack.reset(actor)
-    if actor ~= nil then lastHitAt[actor] = nil; grabState[actor] = nil
+    if actor ~= nil then
+        lastHitAt[actor] = nil
+        -- Clear the native knockdown/drag-down flags along with the grab record,
+        -- so a companion pulled from the pile by removal, recovery or teardown
+        -- never keeps a pinned state that would skip its decisions.
+        if grabState[actor] ~= nil then releaseCompanion(actor) end
+        grabState[actor] = nil
     else
         lastHitAt = setmetatable({}, { __mode = "k" })
         grabState = setmetatable({}, { __mode = "k" })
