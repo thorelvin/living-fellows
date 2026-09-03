@@ -155,6 +155,23 @@ local function grappleEffectiveness(actor)
     return v
 end
 
+-- A grabbed companion cries out (and a pinned one being torn at is loud): the
+-- bark sells the moment and, like combat chatter, makes a modest world sound so
+-- nearby zombies can hear the struggle.
+local function grabBark(actor, topic)
+    if not SC.Dialogue or type(SC.Dialogue.say) ~= "function" then return end
+    local now = (U() and U().nowMs()) or 0
+    local spoken = SC.Dialogue.say(actor, topic, nil, nil, { recentLimit = 3, salt = tostring(now) })
+    if spoken ~= true then return end
+    local x, y, z = U().position(actor)
+    if x == nil then return end
+    local radius = config("combatBarkSoundRadius", 8)
+    if SC.Senses and type(SC.Senses.hear) == "function" then
+        pcall(SC.Senses.hear, actor, x, y, z, radius, 10, "companion_grab_bark")
+    end
+    if type(addSound) == "function" then pcall(addSound, actor, x, y, z, radius, 10) end
+end
+
 -- Zombies pile onto and pull down an overwhelmed companion, just as they grab a
 -- surrounded player. When enough are attacking it at once, roll (against the
 -- companion's grapple traits) to grab and knock it to the ground; while pinned
@@ -170,7 +187,8 @@ local function resolveGrapple(actor, current, attackers)
         -- the companion is freed -- alive, if bloodied. This is the whole point of
         -- the grace window: a downed companion is savable.
         if attackers < threshold then
-            releaseCompanion(actor); grabState[actor] = nil; return "grab_broken"
+            releaseCompanion(actor); grabState[actor] = nil
+            grabBark(actor, "grab.rescued"); return "grab_broken"
         end
         local held = current - (grabbed.pinnedAt or current)
         -- Grace expired while still pinned: the swarm drags it down for good.
@@ -185,6 +203,7 @@ local function resolveGrapple(actor, current, attackers)
         if held >= config("zombieGrabMinDurationMs", 1500) then
             local escape = config("zombieGrabEscapeChance", 0.2) * (0.5 + grappleEffectiveness(actor))
             if randChance() < escape then
+                grabBark(actor, "grab.escaped")
                 releaseCompanion(actor); grabState[actor] = nil; return "grab_escaped"
             end
         end
@@ -206,14 +225,26 @@ local function resolveGrapple(actor, current, attackers)
                 * math.max(0.2, 1.5 - grappleEffectiveness(actor))
             if randChance() < chance then
                 knockCompanionDown(actor)
+                -- Drop whatever it was doing; a pinned companion cannot act.
+                if SC.Actor and type(SC.Actor.stop) == "function" then
+                    pcall(SC.Actor.stop, actor)
+                end
                 grabState[actor] = { pinned = true, pinnedAt = current,
                     nextDragAt = current + 700 }
+                grabBark(actor, "grab.pinned")
                 return "grabbed_now"
             end
             grabState[actor] = { pinned = false, lastAttemptAt = current }
         end
     end
     return "no_grab"
+end
+
+-- True while a zombie grab holds the companion down; the runtime skips its
+-- decision so it cannot move or fight until freed.
+function ZombieAttack.isGrabbed(actor)
+    local g = grabState[actor]
+    return type(g) == "table" and g.pinned == true
 end
 
 -- Resolve incoming zombie attacks against one companion. `zombies` is the

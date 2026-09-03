@@ -180,19 +180,25 @@ local function decisionTask(current)
         return
     end
     record.runtime = type(record.runtime) == "table" and record.runtime or {}
-    local decisionStarted = nowMs()
-    local guarded, ok, reason = SC.Diagnostics.guard("decision", record.id,
-        SC.Decision.update, record.actor, currentPlayer, record.runtime)
-    if SC.Performance and type(SC.Performance.record) == "function" then
-        SC.Performance.record("decision", record.id, nowMs() - decisionStarted)
-    end
-    if not guarded then
-        record.runtime.lastDecision = reason
+    -- A companion pinned by a zombie grab cannot act until it is freed. Skip its
+    -- decision (movement/combat) and cancel any in-flight action, but still fall
+    -- through to the targeting/attack resolve below so the grab is sustained,
+    -- rescued, or dragged down.
+    if SC.ZombieAttack and type(SC.ZombieAttack.isGrabbed) == "function"
+        and SC.ZombieAttack.isGrabbed(record.actor) == true then
+        record.runtime.lastDecision = "grabbed_by_zombies"
         record.runtime.lastDecisionHandled = false
-        return
+        pcall(SC.Actor.stop, record.actor)
+    else
+        local decisionStarted = nowMs()
+        local guarded, ok, reason = SC.Diagnostics.guard("decision", record.id,
+            SC.Decision.update, record.actor, currentPlayer, record.runtime)
+        if SC.Performance and type(SC.Performance.record) == "function" then
+            SC.Performance.record("decision", record.id, nowMs() - decisionStarted)
+        end
+        record.runtime.lastDecision = reason
+        record.runtime.lastDecisionHandled = guarded and ok == true or false
     end
-    record.runtime.lastDecision = reason
-    record.runtime.lastDecisionHandled = ok == true
     if SC.ZombieTargeting and type(SC.ZombieTargeting.scan) == "function" then
         local targetingStarted = nowMs()
         local candidates = observedZombieCandidates(record.runtime)

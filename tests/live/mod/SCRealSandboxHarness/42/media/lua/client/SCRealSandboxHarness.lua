@@ -1154,9 +1154,12 @@ local function probeZombieAttackObserve(current)
     end
     if knocked and not Harness.zObserveGrappled then
         Harness.zObserveGrappled = true
+        local topic = "none"
+        if SC.Dialogue and type(SC.Dialogue.lastSpokenTopic) == "function" then
+            topic = tostring(SC.Dialogue.lastSpokenTopic(Harness.actor))
+        end
         check("native_zombie_grapples_companion", true,
-            "knocked down / pulled down by the swarm; surrounding="
-                .. tostring(num1(Harness.actor, "getSurroundingAttackingZombies")))
+            "knocked down / pulled down by the swarm; bark_topic=" .. topic)
     end
     if Harness.zObserveWounded and Harness.zObserveGrappled then
         endZombieAttackObserve(current); return

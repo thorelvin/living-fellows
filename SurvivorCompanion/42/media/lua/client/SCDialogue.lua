@@ -191,6 +191,37 @@ local pools = {
         practical = { "Target selected. Engaging!", "Closing in now!" },
         stressed = { "Fine! Let's do this!", "Get away from us!" },
     },
+    ["grab.pinned"] = {
+        common = {
+            "They've got me! Get them off!", "Help! I'm down!", "I'm pinned — help!",
+            "Get them off me!", "They're on me — help!", "I can't get up — hurry!",
+        },
+        brave = { "Get them off and I'll make them pay!", "I'm down, not done — help me up!" },
+        cautious = { "Too many! Pull them off me!", "I'm pinned — don't lose me!" },
+        caring = { "Help — I don't want to leave you like this!", "Get them off, please!" },
+        practical = { "Pinned. Clear the ones on top of me!", "I'm down — thin them out!" },
+        stressed = { "No no no — get them OFF!", "They've got me! Please!" },
+    },
+    ["grab.rescued"] = {
+        common = {
+            "Thank you — I'm up!", "That was too close.", "I owe you one.",
+            "Back on my feet. Thanks.", "You pulled me out of that — thank you.",
+        },
+        brave = { "Ha! Not today. Thanks.", "Back up. Let's finish them." },
+        cautious = { "Close. Let's not do that again.", "Up. Watch the flanks this time." },
+        caring = { "You came back for me. Thank you.", "I knew you wouldn't leave me." },
+        practical = { "Up and clear. Thanks.", "Good pull. Back to it." },
+        stressed = { "Oh thank God. Thank you.", "Never again. Please." },
+    },
+    ["grab.escaped"] = {
+        common = {
+            "Got loose!", "Off me — I'm up!", "Broke free!", "Shook them off!", "Not today.",
+        },
+        brave = { "You'll have to do better than that!", "Ha! Off me!" },
+        cautious = { "Free — regrouping.", "Up. Keeping my distance now." },
+        practical = { "Loose. Back to it.", "Free and standing." },
+        stressed = { "Off! Get off!", "Free — barely!" },
+    },
     ["combat.engage.one"] = {
         common = {
             "One contact. I'm taking it!", "I've got the lone walker!", "Just one. Moving in!",
