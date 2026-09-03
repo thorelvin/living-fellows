@@ -754,7 +754,11 @@ local function visualActionClass()
     return class
 end
 
-local function removeRejectedVisual(queue, timedAction)
+-- Cancel exactly one timed-action instance owned by Living Fellows, leaving any
+-- unrelated third-party action queued on the companion untouched. Never clear the
+-- whole queue (ISTimedActionQueue.clear(actor)) -- on a companion an unknown mod's
+-- action can be sharing the queue.
+local function cancelOwnedTimedAction(queue, timedAction)
     if timedAction ~= nil and timedAction.action ~= nil then
         pcall(timedAction.forceStop, timedAction)
     end
@@ -762,6 +766,10 @@ local function removeRejectedVisual(queue, timedAction)
         pcall(queue.removeFromQueue, queue, timedAction)
         if queue.current == timedAction then queue.current = nil end
     end
+end
+
+local function removeRejectedVisual(queue, timedAction)
+    cancelOwnedTimedAction(queue, timedAction)
 end
 
 local function startVerifiedVisual(actor, actionName, intent, provider)
@@ -1945,11 +1953,15 @@ function actions.cancelWork(actor, reason)
     local record = actor and activeWork[actor] or nil
     if not record then return true, reason or "no_tracked_work" end
     if workActionIsActive(actor, record) then
-        if type(ISTimedActionQueue) ~= "table" or type(ISTimedActionQueue.clear) ~= "function" then
+        -- Cancel only the Living Fellows work action, never the whole queue: a
+        -- broad ISTimedActionQueue.clear(actor) would also drop an unrelated
+        -- third-party action queued on the companion.
+        if type(ISTimedActionQueue) ~= "table"
+            or type(ISTimedActionQueue.getTimedActionQueue) ~= "function" then
             return false, "native timed-action cancellation is unavailable"
         end
-        local cleared, failure = pcall(ISTimedActionQueue.clear, actor)
-        if not cleared then return false, tostring(failure) end
+        local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+        cancelOwnedTimedAction(queue, record.timedAction)
         if workActionIsActive(actor, record) then
             return false, "native work action remained queued after cancellation"
         end
