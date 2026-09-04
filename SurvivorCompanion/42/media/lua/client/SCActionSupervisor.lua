@@ -623,12 +623,27 @@ function Supervisor.begin(actor, spec)
     if not owner or owner == "" or not action or action == "" then
         return nil, "action_owner_or_name_missing"
     end
+    -- Servicing the actor can dispatch a queued urgent intent, whose dispatch
+    -- callback may take ownership (a supervisor token or a native action). begin()
+    -- must not then race a normal token against -- or preempt -- the urgent it just
+    -- launched in the same call (review 2.5). Note whether an urgent was dispatched
+    -- so ownership is re-checked atomically: an urgent that just took the actor is
+    -- deferred to rather than overridden.
+    local pendingUrgent = urgentByActor[actor]
     Supervisor.update(actor)
+    local urgentJustDispatched = pendingUrgent ~= nil
+        and urgentByActor[actor] ~= pendingUrgent
+        and lastUrgentByActor[actor] == pendingUrgent
+        and pendingUrgent.state == "dispatched"
     local current = activeByActor[actor]
     local targetKey = clean(spec.targetKey, 120)
     if current then
         if current.owner == owner and current.action == action
             and current.targetKey == targetKey then return current, "already_active" end
+        if urgentJustDispatched then
+            return nil, "actor_owned_after_urgent_dispatch:" .. tostring(current.owner)
+                .. ":" .. tostring(current.action)
+        end
         local incomingPriority = tonumber(spec.priority) or Supervisor.Priority.WORK
         if incomingPriority <= (tonumber(current.priority) or 0) then
             return nil, "actor_owned_by:" .. tostring(current.owner) .. ":" .. tostring(current.action)
@@ -638,6 +653,12 @@ function Supervisor.begin(actor, spec)
         if not cancelled then return nil, cancelReason or "preemption_rejected" end
     end
     local native = nativeActivity(actor)
+    if current == nil and urgentJustDispatched and native == nil then
+        -- The urgent dispatched without leaving a live owner to observe; the actor
+        -- is committed to that urgent's effect this cycle, so do not stack a normal
+        -- token on top of it. The caller re-begins next cycle if still needed.
+        return nil, "urgent_dispatched:" .. tostring(pendingUrgent.reason or "urgent")
+    end
     if native ~= nil then
         local prefix = native.external == true and "external_action_owned:"
             or "compatibility_action_owned:"

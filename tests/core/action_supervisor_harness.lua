@@ -137,6 +137,40 @@ check(urgentDispatches == 1 and dispatchedUrgent.state == "dispatched"
         and dispatchedUrgent.reason == "retreat_dispatched",
     "the queued urgent intent is eventually dispatched and observable")
 
+do
+    -- Review 2.5: when begin() itself services a queued urgent (its update() pass
+    -- dispatches it), begin must defer to that urgent instead of stacking a normal
+    -- token in the same call.
+    local urgentBeginActor = testActor("supervisor-urgent-begin")
+    local originalStatus = SC.NativeActions.activityStatus
+    local nativeHeld = true
+    SC.NativeActions.activityStatus = function(candidate)
+        if candidate == urgentBeginActor and nativeHeld then
+            return "active", "native", "held_action", SC_TEST_CLOCK, {}
+        end
+        return originalStatus(candidate)
+    end
+    local urgentRan = 0
+    local queuedWaiting = Supervisor.queueUrgent(urgentBeginActor, {
+        owner = "locomotion", action = "combat_retreat",
+        priority = Supervisor.Priority.SURVIVAL,
+        dispatch = function() urgentRan = urgentRan + 1 return true, "retreat_dispatched" end,
+    })
+    check(queuedWaiting == true and urgentRan == 0
+            and Supervisor.urgentStatus(urgentBeginActor).state == "queued",
+        "a queued urgent waits while a native activity owns the actor")
+    nativeHeld = false
+    local racedToken, racedReason = Supervisor.begin(urgentBeginActor, {
+        owner = "work", action = "loot_container", priority = Supervisor.Priority.WORK,
+        ignoreRetry = true,
+    })
+    SC.NativeActions.activityStatus = originalStatus
+    check(racedToken == nil and urgentRan == 1
+            and string.find(tostring(racedReason), "urgent_dispatched", 1, true) == 1
+            and Supervisor.current(urgentBeginActor) == nil,
+        "begin dispatches the queued urgent and defers instead of stacking a normal token")
+end
+
 local externalActor = testActor("supervisor-external")
 local originalActivityStatus = SC.NativeActions.activityStatus
 SC.NativeActions.activityStatus = function(candidate)
