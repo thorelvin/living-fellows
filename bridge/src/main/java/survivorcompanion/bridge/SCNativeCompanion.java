@@ -423,6 +423,18 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     /**
+     * Set (or clear, with a null target) the downed target the native floor attack
+     * builds its stomp hit list from. Kahlua cannot assign the targetOnGround field
+     * directly -- a raw field write throws "attempted index of non-table" every
+     * time and spams the log -- so the stomp path drives it through this setter.
+     */
+    public boolean setCompanionFloorTarget(Object target) {
+        this.targetOnGround = (target instanceof IsoGameCharacter)
+                ? (IsoGameCharacter) target : null;
+        return true;
+    }
+
+    /**
      * Test a short manual movement against the same continuous polygon map used
      * by Build 42 for players and vehicles. IsoGameCharacter.canStandAt() uses
      * the ignore-doors flag, so it is not sufficient for a companion step.

@@ -194,6 +194,7 @@ function actor:setSecondaryHandItem(item) self.secondaryHand = item end
 function actor:getSecondaryHandItem() return self.secondaryHand end
 function actor:setAimAtFloor(value) self.aimAtFloor = value end
 function actor:setCompanionAimTarget(value) self.companionAimTarget = value end
+function actor:setCompanionFloorTarget(value) self.targetOnGround = value end
 function actor:setDoShove(value) self.doShove = value == true end
 function actor:isDoShove() return self.doShove == true end
 function actor:setDoGrapple(value) self.doGrapple = value == true end

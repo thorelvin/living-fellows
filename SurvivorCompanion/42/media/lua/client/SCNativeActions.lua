@@ -1590,7 +1590,7 @@ local function applyStompFinisher(actor, target)
     -- stale corpse is not carried into the next native update.
     local _, nowDead = invoke(target, "isDead")
     if nowDead == true then
-        pcall(function() actor.targetOnGround = nil end)
+        invoke(actor, "setCompanionFloorTarget", nil)
     end
 end
 
@@ -1650,7 +1650,7 @@ local function attack(actor, action, intent, provider)
     local function fail(reason)
         invoke(actor, "setCompanionAimTarget", nil)
         invoke(actor, "setAimAtFloor", false)
-        pcall(function() actor.targetOnGround = nil end)
+        invoke(actor, "setCompanionFloorTarget", nil)
         if restoreAuthorization then restoreAuthorization() end
         if restoreActionState then restoreActionState() end
         return false, reason
@@ -1667,7 +1667,7 @@ local function attack(actor, action, intent, provider)
         -- list from targetOnGround). The finisher's damage is NOT applied here --
         -- it is landed once, below, only after the swing has actually started, so
         -- a rejected or retried preflight can never damage the target.
-        pcall(function() actor.targetOnGround = intent.target end)
+        invoke(actor, "setCompanionFloorTarget", intent.target)
     end
     local shoveStateOk, previousDoShove = invoke(actor, "isDoShove")
     if not shoveStateOk then
