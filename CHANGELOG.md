@@ -4,6 +4,7 @@
 
 ## 0.22.8 - Reliability playtest candidate
 
+- Fixed a survivor household coming up a member short when a gear item could not be created. A faction member's starting gear failed the whole member if any single item type would not instantiate (a real save could not add `Base.Book`). The member now spawns with the gear that is available and records the items it could not add, instead of aborting.
 - Stopped a companion locking into a "trying to rip bandages, never doing it" loop when a treatment could not complete. With supplies present a repeatedly failing treatment had no retry cooldown, so it re-attempted every tick forever; it now backs off and gives the wound up (clearing the action) instead of looping, and logs why the treatment animation did not complete so the underlying cause is diagnosable.
 - Dead companions no longer linger in the infection-crisis list. A crisis whose subject has died or turned is resolved, and the active list now hides resolved crises (they remain in the crisis history), so only ongoing infections show.
 - Leaving base duty now cancels any in-flight base job. A companion switched from base duty to follow no longer carries a queued, blocked base task (such as a barricade) around in the field -- the claim is released and the queued action cleared.

@@ -6238,6 +6238,24 @@ check(not canRepair and repairReason == "murder_is_not_forgiven",
 local exported = Factions.export()
 check(exported.schema == 1 and exported.groups["faction-test"].standing == "Hostile",
     "faction standing and territory export transactionally")
+do
+    -- Report 6: a faction member's gear-add must tolerate an item that cannot
+    -- instantiate (a real save failed to add Base.Book), so the member still spawns
+    -- with the gear it could get instead of aborting the whole household.
+    local addedTypes = {}
+    local gearInventory = {}
+    function gearInventory:AddItem(itemType)
+        if itemType == "Base.Book" then return nil end
+        addedTypes[#addedTypes + 1] = itemType
+        return { __type = itemType }
+    end
+    local gearActor = actor("sc-faction-gear", 30, 30, {})
+    gearActor.getInventory = function() return gearInventory end
+    local geared = Factions._addGearForTests(gearActor, "leader", {})
+    check(geared == true and #addedTypes > 0,
+        "a faction leader still equips when one gear item (Base.Book) cannot instantiate")
+    registry[gearActor.id] = nil
+end
 local debugSpawned, debugReason = Factions.debugSpawnHousehold(player, 2)
 check(not debugSpawned and debugReason == "debug_tools_disabled",
     "manual faction spawning remains fail-closed outside debug builds")

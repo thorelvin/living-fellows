@@ -558,20 +558,34 @@ local function addGear(actor, role, group)
     if not group or group.shortageKind ~= "water" then required[#required + 1] = "Base.WaterBottle" end
     if not group or group.shortageKind ~= "food" then required[#required + 1] = "Base.CannedSardines" end
     if not group or group.shortageKind ~= "medicine" then required[#required + 1] = "Base.Bandage" end
-    for _, itemType in ipairs(required) do
+    -- A single item type that Build 42 renamed or that a mod removed (seen in a
+    -- real save: Base.Book would not instantiate) must not abort the whole faction
+    -- member's initialization. Add what is available, and record the rest so the
+    -- member still spawns instead of the household coming up short.
+    local missing
+    local function tryAdd(itemType)
         local _, added = invoke(inventory, "AddItem", itemType)
-        if added == nil then return false, "gear_add_failed:" .. itemType end
+        if added == nil then
+            missing = missing or {}
+            missing[#missing + 1] = tostring(itemType)
+        end
     end
+    for _, itemType in ipairs(required) do tryAdd(itemType) end
     if role == "leader" and type(group) == "table" and type(group.request) == "table" then
         for _, reward in ipairs(group.request.reward or {}) do
             for _ = 1, math.max(0, math.floor(tonumber(reward.count) or 0)) do
-                local _, added = invoke(inventory, "AddItem", reward.type)
-                if added == nil then return false, "reward_reservation_failed:" .. tostring(reward.type) end
+                tryAdd(reward.type)
             end
         end
     end
+    if missing and SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+        SC.Diagnostics.report("faction", tostring(U().idOf(actor)),
+            "faction member gear items unavailable", table.concat(missing, ","))
+    end
     return true
 end
+-- Test seam: a member's gear-add must tolerate an item that cannot instantiate.
+Factions._addGearForTests = addGear
 
 local function profileFor(group, member, snapshot)
     local identity = snapshot and snapshot.identity or member.identity
