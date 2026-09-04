@@ -4,6 +4,8 @@
 
 ## 0.22.8 - Reliability playtest candidate
 
+- Dead companions no longer linger in the infection-crisis list. A crisis whose subject has died or turned is resolved, and the active list now hides resolved crises (they remain in the crisis history), so only ongoing infections show.
+- Leaving base duty now cancels any in-flight base job. A companion switched from base duty to follow no longer carries a queued, blocked base task (such as a barricade) around in the field -- the claim is released and the queued action cleared.
 - Stopped the stomp/floor-attack path from spamming the log with a caught "attempted index of non-table" error every time it aimed at or cleared a downed target. It assigned the native targetOnGround field directly, which Kahlua cannot do; it now drives that field through a bridge setter (the same pattern used for the other native fields), so the downed-target reference is set and cleared cleanly.
 - Fixed companions moonwalking -- playing the forward walk/run cycle while sliding backward or sideways -- when strafing, kiting, or backpedaling. The stock directional strafe animation was only used when a caller explicitly flagged the move as tactical; it now engages whenever the companion travels off its facing axis, which is the actual condition for backward/side animation.
 - Fixed companions running off the map when retreating. A combat retreat preferred a remembered egress route (its far map-entry point) with no distance limit, so a single retreat could sprint clear across the map. A retreat now caps its distance and falls back to the nearby escape square when the remembered target is too far, keeping it a local break-contact move.

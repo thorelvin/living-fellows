@@ -5319,6 +5319,29 @@ end
 check(crisisRow and crisisRow.subjectId == bitten.id and crisisRow.finalAuthorized == false,
     "bite crisis identifies its subject and begins behind the irreversible safety gate; first="
         .. tostring(Crisis.summary().rows[1] and Crisis.summary().rows[1].subjectId))
+do
+    -- Playtest 6: a companion whose infection crisis ends in death must drop out of
+    -- the active infection-crisis list instead of lingering as a dead entry.
+    local dyingBitten = actor("sc-crisis-dead", 4, 3, {
+        body = bodyDamage(70, { bodyPart({ name = "Torso", isBitten = true }) }),
+    })
+    dyingBitten.body.infected, dyingBitten.body.infectionLevel = true, 40
+    registry[dyingBitten.id] = dyingBitten
+    Crisis.pulse(player, clock)
+    local before = 0
+    for _, row in ipairs(Crisis.summary().rows) do
+        if row.subjectId == dyingBitten.id then before = before + 1 end
+    end
+    dyingBitten.dead = true
+    Crisis.pulse(player, clock)
+    local after = 0
+    for _, row in ipairs(Crisis.summary().rows) do
+        if row.subjectId == dyingBitten.id then after = after + 1 end
+    end
+    check(before == 1 and after == 0,
+        "a dead companion's resolved infection crisis drops out of the active list")
+    registry[dyingBitten.id] = nil
+end
 check(Crisis.choose(crisisRow.id, "quarantine")
     and BaseLife.restriction(bitten.id) == "quarantine",
     "player can resolve a known crisis as quarantine without lethal side effects")

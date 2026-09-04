@@ -613,6 +613,12 @@ local function setOrder(actor, entry, state, order, anchor)
     if not groupStaging and state.order == "base_duty" and order ~= "base_duty" and SC.BaseLife
         and type(SC.BaseLife.setDuty) == "function" then
         pcall(SC.BaseLife.setDuty, id, false)
+        -- Leaving base duty must also cancel any in-flight base job (e.g. a queued
+        -- barricade), or it lingers blocked in a following companion's work queue
+        -- out in the field. setDuty releases the claim; this clears the queued action.
+        if SC.BaseWork and type(SC.BaseWork.cancel) == "function" then
+            pcall(SC.BaseWork.cancel, actor, "left_base_duty")
+        end
     end
     clearWorkState(state)
     state.order = order

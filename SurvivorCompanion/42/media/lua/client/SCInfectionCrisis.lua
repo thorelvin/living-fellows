@@ -603,8 +603,12 @@ function Crisis.summary(viewer)
         local knowledge = viewerId and crisis.participants[viewerId] or nil
         local visible = viewer == nil or crisis.subjectId == viewerId
             or (knowledge and knowledge.knowledge ~= "unaware")
-        if visible then
-            if crisis.phase ~= "closed" then result.active = result.active + 1 end
+        -- A resolved crisis -- the subject died/turned ("terminal") or its fate was
+        -- decided ("closed") -- is no longer an ongoing crisis and must not linger in
+        -- the active list (playtest: dead companions still shown under infection
+        -- crises). Its record stays in history for the record.
+        if visible and crisis.phase ~= "terminal" and crisis.phase ~= "closed" then
+            result.active = result.active + 1
             result.rows[#result.rows + 1] = {
                 id = crisis.id, subjectId = crisis.subjectId, subjectName = crisis.subjectName,
                 subjectIsPlayer = crisis.subjectId == "player:local",
