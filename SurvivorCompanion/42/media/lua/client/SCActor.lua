@@ -612,6 +612,30 @@ function actorService.bridgeStatus(force)
         elseif status.provider == providerKinds.test then
             status.code = "test_provider"
         end
+        -- Surface the swing/floor collision capability (review 4.3). The bridge can
+        -- report ready while the combat collision reflection is missing, which
+        -- silently leaves a combat companion swinging without ever landing a hit.
+        -- Report it (and warn once) so the support view and combat gate can see a
+        -- degraded state instead of a phantom-ready one.
+        local bridge = globalValue("SCBridge")
+        if bridge ~= nil then
+            local combatOk, combatReady = staticInvoke(bridge, "isCombatCollisionReady")
+            if combatOk then status.combatCollision = combatReady == true end
+            local floorOk, floorReady = staticInvoke(bridge, "isFloorAttackReady")
+            if floorOk then status.floorAttack = floorReady == true end
+            if combatOk and combatReady ~= true then
+                status.combatCapability = "degraded"
+                if not actorService._combatCapabilityWarned then
+                    actorService._combatCapabilityWarned = true
+                    local failOk, failure = staticInvoke(bridge, "getCombatCapabilityFailure")
+                    if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+                        pcall(SC.Diagnostics.report, "actor-provider", "combat",
+                            "native combat collision capability is degraded",
+                            failOk and tostring(failure) or "unknown")
+                    end
+                end
+            end
+        end
         return status
     end
 

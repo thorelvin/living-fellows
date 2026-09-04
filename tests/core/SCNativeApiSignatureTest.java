@@ -118,6 +118,22 @@ public final class SCNativeApiSignatureTest {
         require("".equals(runtimeContract.invoke(null)),
                 "native private-method runtime contract failed: "
                         + runtimeContract.invoke(null));
+        Method combatCollisionFailure = companion.getDeclaredMethod("combatCollisionFailure");
+        combatCollisionFailure.setAccessible(true);
+        Method combatCollisionReady = companion.getDeclaredMethod("combatCollisionReady");
+        combatCollisionReady.setAccessible(true);
+        require(Boolean.TRUE.equals(combatCollisionReady.invoke(null)),
+                "native combat collision capability is unavailable (review 4.3): "
+                        + combatCollisionFailure.invoke(null));
+        Method floorAttackReady = companion.getDeclaredMethod("floorAttackReady");
+        floorAttackReady.setAccessible(true);
+        require(Boolean.TRUE.equals(floorAttackReady.invoke(null)),
+                "native floor-attack (stomp) capability is unavailable (review 4.3)");
+        require(method(bridge, "isCombatCollisionReady").getReturnType() == boolean.class
+                        && method(bridge, "isFloorAttackReady").getReturnType() == boolean.class
+                        && method(bridge, "getCombatCapabilityFailure").getReturnType()
+                                == String.class,
+                "combat capability bridge signatures changed (review 4.3)");
         for (String reflected : new String[] {
                 "updateInternal", "updateWhileInVehicle", "checkActionGroup" }) {
             Class<?> owner = reflected.equals("updateInternal") ? character : player;

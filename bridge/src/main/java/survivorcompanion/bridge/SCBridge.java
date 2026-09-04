@@ -192,6 +192,26 @@ public final class SCBridge {
         return lastFailure;
     }
 
+    /**
+     * Swing collision capability (review 4.3). The bridge can be ready while the
+     * combat collision reflection is missing, which silently leaves a combat
+     * companion swinging without landing hits; surface it so the Lua combat gate
+     * and the support report can report a degraded state instead of guessing.
+     */
+    public static boolean isCombatCollisionReady() {
+        return SCNativeCompanion.combatCollisionReady();
+    }
+
+    /** Downed-target stomp capability; when false only the stomp is disabled. */
+    public static boolean isFloorAttackReady() {
+        return SCNativeCompanion.floorAttackReady();
+    }
+
+    /** "" when the swing collision path is fully wired, else the missing handle. */
+    public static String getCombatCapabilityFailure() {
+        return SCNativeCompanion.combatCollisionFailure();
+    }
+
     public static boolean isCompanion(Object candidate) {
         return candidate instanceof SCNativeCompanion actor && isOwned(actor);
     }

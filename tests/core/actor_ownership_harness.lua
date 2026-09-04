@@ -315,6 +315,14 @@ local function fakeBridge(mode, state, candidate)
     end
     function bridge.removeAll() return true end
     function bridge.getLastFailure() return bridge.lastFailure end
+    function bridge.isCombatCollisionReady() return bridge.combatDegraded ~= true end
+    function bridge.isFloorAttackReady()
+        return bridge.combatDegraded ~= true and bridge.floorDegraded ~= true
+    end
+    function bridge.getCombatCapabilityFailure()
+        return bridge.combatDegraded == true
+            and "injected combat collision failure" or ""
+    end
     return bridge
 end
 
@@ -448,6 +456,27 @@ check(resetOk == false and contains(resetReason, "ownership remains")
 function resetProvider:cancelSpawn() return true end
 check(SC.Actor.cancelSpawn(resetTicket) == true, "reset fixture could not cancel ticket")
 check(SC.Actor.reset() == true, "clean actor service reset was rejected")
+
+do
+    -- Review 4.3: bridgeStatus surfaces the swing/floor collision capability, so a
+    -- combat companion is never silently left swinging without landing hits while
+    -- the bridge otherwise reports ready.
+    resetActorService()
+    SC.Actor._combatCapabilityWarned = nil
+    SCBridge = fakeBridge("false", "ready", newActor())
+    check(SC.Actor.checkBridge(true) == true, "capability fixture bridge was not selected")
+    local readyStatus = SC.Actor.bridgeStatus(true)
+    check(readyStatus.ready == true and readyStatus.combatCollision == true
+            and readyStatus.floorAttack == true and readyStatus.combatCapability == nil,
+        "a fully wired bridge reports combat and floor-attack capability ready")
+    SCBridge.combatDegraded = true
+    local degradedStatus = SC.Actor.bridgeStatus(true)
+    check(degradedStatus.combatCollision == false
+            and degradedStatus.floorAttack == false
+            and degradedStatus.combatCapability == "degraded",
+        "a missing combat collision reflection surfaces as a degraded capability")
+    SCBridge = nil
+end
 
 SCBridge = nil
 SC.Registry.reset()

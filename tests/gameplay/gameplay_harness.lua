@@ -501,7 +501,12 @@ local function zombie(x, y, options)
     function value:isDead() return self.dead end
     function value:isOnFloor() return self.onFloor end
     function value:isProne() return self.onFloor end
-    function value:isAttacking() return settings.attacking == true end
+    value.attacking = settings.attacking == true
+    function value:isAttacking() return self.attacking == true end
+    function value:isZombieAttacking(target)
+        if target ~= nil and target ~= self.target then return false end
+        return self.attacking == true
+    end
     function value:getTarget() return self.target end
     function value:setTargetSeenTime(seconds)
         self.targetSeenTimeSet = seconds
@@ -716,6 +721,52 @@ do
             and seenRefreshZombie.targetSeenTimeSet == 0,
         "incoming-attack resolve refreshes a targeting zombie's seen-time via the native setter")
     seenRefreshZombie.dead = true
+end
+
+do
+    -- 4.7: incoming zombie attacks are edge-triggered -- one wound per swing
+    -- episode. A zombie's attack state (and its "success" outcome afterwards) stays
+    -- true across many frames, so the old level check re-applied the same swing
+    -- every tick, bounded only by a time cooldown that in turn swallowed a genuine
+    -- fast second swing. Each distinct swing must now land exactly one wound.
+    local function woundableBody()
+        local part = { health = 100 }
+        function part:getHealth() return self.health end
+        function part:SetHealth(value) self.health = value return true end
+        function part:setBleeding(value) self.bleeding = value == true end
+        function part:SetBitten(value) self.bitten = value == true end
+        function part:setScratched(value) self.scratched = value == true end
+        function part:setDeepWounded(value) self.deep = value == true end
+        function part:setWoundInfectionLevel(value) self.infection = value end
+        local parts = { part }
+        local partList = {}
+        function partList:size() return #parts end
+        function partList:get(index) return parts[index + 1] end
+        local body = {}
+        function body:getBodyParts() return partList end
+        return body
+    end
+    SurvivorCompanion.ZombieAttack.reset()
+    local edgeVictim = actor("sc-edge-victim", 20, 20, { body = woundableBody() })
+    local edgeZombie = zombie(21, 20, { target = edgeVictim, attacking = true })
+    local clockE = 500000
+    local _, _, s1 = SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
+    check(s1.landed == 1 and s1.applied == 1,
+        "the rising edge of a swing lands exactly one wound")
+    clockE = clockE + 50
+    local _, _, s2 = SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
+    check(s2.landed == 1 and s2.applied == 0,
+        "the same ongoing swing does not re-apply while the zombie stays committed")
+    edgeZombie.attacking = false
+    clockE = clockE + 50
+    SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
+    edgeZombie.attacking = true
+    clockE = clockE + 400
+    local _, _, s4 = SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
+    check(s4.applied == 1,
+        "a fresh swing after the zombie leaves and re-enters its attack lands another wound")
+    SurvivorCompanion.ZombieAttack.reset()
+    edgeZombie.dead = true
 end
 
 do
@@ -4000,6 +4051,39 @@ local describedAfterDecision = SurvivorCompanion.Commands.describe(fellow.id, pl
 check(describedAfterDecision.intent == decision.intent, "read-only description exposes decision intent")
 check(type(fellow.lastSpeech) == "string" and worldSoundCount == soundsBeforeThreatWarning + 1,
     "the accepted close-combat choice emits one action-specific bark and bounded local sound")
+
+do
+    -- 2.4: self-medicine and rescue-medicine share kind "medical" but must be
+    -- distinct decision identities, so hysteresis and fallback treat them as
+    -- separate decisions (self-medicine with no action can now fall back to a
+    -- rescue instead of being blocked as the same kind).
+    local savedAssess = SurvivorCompanion.Medical.assess
+    local rescuePatient = { __rescuePatient = true }
+    SurvivorCompanion.Medical.assess = function(target)
+        if target == rescuePatient then
+            return { critical = true, bleedingCount = 2, downed = true, wounds = {} }
+        end
+        return { wounds = {} }
+    end
+    local identityCandidates = SurvivorCompanion.Decision._evaluateForTests(
+        fellow, rescuePatient,
+        { threats = {}, threatCount = 0, immediateCount = 0, allies = {} },
+        { recruited = true },
+        { downed = true, health = 8, wounds = {} }, {}, {}, 1000)
+    SurvivorCompanion.Medical.assess = savedAssess
+    local selfKey, rescueKey, medicalCount = nil, nil, 0
+    for _, candidate in ipairs(identityCandidates) do
+        if candidate.kind == "medical" then
+            medicalCount = medicalCount + 1
+            if candidate.detail and candidate.detail.rescue then rescueKey = candidate.key
+            else selfKey = candidate.key end
+        end
+    end
+    check(medicalCount == 2 and selfKey == "medical"
+            and rescueKey ~= nil and rescueKey ~= selfKey
+            and string.sub(rescueKey, 1, 14) == "medical:rescue",
+        "self-medicine and rescue-medicine share a kind but are distinct decision keys (review 2.4)")
+end
 
 function SurvivorCompanion.__testSharedThreatAlert()
     local alertListener = actor("sc-alert-listener", 0, 3, {})

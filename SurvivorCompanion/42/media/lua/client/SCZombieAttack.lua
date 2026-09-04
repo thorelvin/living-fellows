@@ -268,14 +268,14 @@ function ZombieAttack.resolve(actor, current, zombies)
     if not eligible(actor) then return false, "invalid_actor" end
     if zombies == nil then return false, "zombie_candidates_unavailable" end
     current = tonumber(current) or (U() and U().nowMs()) or 0
-    local cooldown = config("zombieAttackCooldownMs", 1600)
+    local reswingFloor = config("zombieAttackReswingMinMs", 300)
     local maximum = config("zombieAttackMaxChecks", 64)
     local biteChance = config("zombieBiteChance", 0.25)
 
-    local cooldowns = lastHitAt[actor]
-    if not cooldowns then
-        cooldowns = setmetatable({}, { __mode = "k" })
-        lastHitAt[actor] = cooldowns
+    local swings = lastHitAt[actor]
+    if not swings then
+        swings = setmetatable({}, { __mode = "k" })
+        lastHitAt[actor] = swings
     end
     local pileWindow = pileSeen[actor]
     if not pileWindow then
@@ -323,12 +323,30 @@ function ZombieAttack.resolve(actor, current, zombies)
             -- old refresh never actually landed and zombies never bit companions.
             U().call(zombie, "setTargetSeenTime", 0)
         end
-        if not isLandingAttack(zombie, actor) then return end
-        landed = landed + 1
-        local last = tonumber(cooldowns[zombie]) or -math.huge
-        if current - last < cooldown then return end
-        cooldowns[zombie] = current
-        if applyWound(actor, rollWound(biteChance)) then applied = applied + 1 end
+        -- Edge-triggered wound application: one wound per swing episode.
+        -- isLandingAttack is level-true for the whole time the zombie is mid-swing
+        -- (and while its "success" outcome lingers afterwards), so a level check
+        -- re-applied the same swing every frame -- bounded only by a time cooldown,
+        -- which in turn swallowed a genuine fast second swing that arrived inside
+        -- the window. Instead, resolve one wound on the rising edge into an attack
+        -- and hold it until the zombie leaves the attack, so each distinct swing
+        -- lands exactly once. A short reswing floor absorbs sub-swing state flicker
+        -- without suppressing a real follow-up swing.
+        local swing = swings[zombie]
+        if isLandingAttack(zombie, actor) then
+            landed = landed + 1
+            if not swing then swing = {} swings[zombie] = swing end
+            if swing.resolved ~= true
+                and (swing.at == nil or current - swing.at >= reswingFloor) then
+                swing.resolved = true
+                swing.at = current
+                if applyWound(actor, rollWound(biteChance)) then applied = applied + 1 end
+            end
+        elseif swing ~= nil then
+            -- Episode closed: the zombie left the attack, so the next commit is a
+            -- fresh swing that resolves its own wound.
+            swing.resolved = false
+        end
     end)
 
     -- Overwhelm pull-down: the crowd size (zombies in grab range targeting the

@@ -867,6 +867,37 @@ public final class SCNativeCompanion extends IsoPlayer {
                 IsoPlayer.class, "checkActionGroup");
     }
 
+    /**
+     * Capability contract for the swing/floor collision driver (review 4.3).
+     * Unlike {@link #runtimeContractFailure()}, a missing combat reflection does
+     * NOT fail the whole bridge -- a non-combat companion is still valid -- but it
+     * must be surfaced, because {@link #driveCompanionAttackCollision(String)}
+     * fails closed silently, which otherwise leaves a combat companion swinging
+     * without ever landing a hit while the bridge reports ready. Returns "" when
+     * the swing collision path is fully wired, else the first missing handle.
+     */
+    static String combatCollisionFailure() {
+        if (COMBAT_MANAGER_INSTANCE == null) return "CombatManager.getInstance is unavailable";
+        if (SWIPE_STATE_INSTANCE == null) return "SwipeStatePlayer.instance is unavailable";
+        if (ATTACK_COLLISION_CHECK == null) return "CombatManager.attackCollisionCheck is unavailable";
+        if (GET_USE_HAND_WEAPON == null) return "IsoGameCharacter.getUseHandWeapon is unavailable";
+        if (GET_ATTACK_TYPE == null) return "IsoPlayer.getAttackType is unavailable";
+        return "";
+    }
+
+    static boolean combatCollisionReady() {
+        return combatCollisionFailure().isEmpty();
+    }
+
+    /**
+     * The stomp finisher additionally needs the STOMP AttackType enum constant to
+     * resolve. A missing floor attack disables only the downed-target stomp, not
+     * general melee/ranged combat.
+     */
+    static boolean floorAttackReady() {
+        return combatCollisionReady() && resolveAttackType("STOMP") != null;
+    }
+
     private static String reflectedMethodFailure(Method method, Class<?> owner, String name) {
         if (method == null) return owner.getSimpleName() + "." + name + " is unavailable";
         if (method.getDeclaringClass() != owner || !method.getName().equals(name)

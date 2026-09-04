@@ -61,13 +61,14 @@ local function medicalAssessment(actor)
 end
 
 local function rescueNeed(player, snapshot)
-    local score = 0
+    local score, target = 0, nil
     if player and SC.Medical and type(SC.Medical.assess) == "function" then
         local ok, assessment = pcall(SC.Medical.assess, player)
         if ok and assessment then
-            if assessment.critical then score = score + 35 end
-            score = score + (assessment.bleedingCount or 0) * 22
-            if assessment.downed then score = score + 45 end
+            local playerScore = (assessment.critical and 35 or 0)
+                + (assessment.bleedingCount or 0) * 22
+                + (assessment.downed and 45 or 0)
+            if playerScore > 0 then score, target = playerScore, player end
         end
     end
     if snapshot and type(snapshot.allies) == "table" then
@@ -76,10 +77,10 @@ local function rescueNeed(player, snapshot)
             local allyScore = (assessment.critical and 25 or 0)
                 + (assessment.bleedingCount or 0) * 18
                 + (assessment.downed and 40 or 0)
-            if allyScore > score then score = allyScore end
+            if allyScore > score then score, target = allyScore, ally.actor end
         end
     end
-    return score
+    return score, target
 end
 
 local function recentSharedAlert(actor, snapshot, state, current)
@@ -116,8 +117,18 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
                 score = score + SC.Autonomy.decisionBonus(actor, kind)
             end
         end
+        -- Stable decision identity (review 2.4): `kind` is the category used for
+        -- interrupt/cancel policy; `key` distinguishes candidates that share a kind
+        -- but are different decisions (e.g. self- vs rescue-medicine, or rescuing
+        -- different subjects), so hysteresis and fallback act on the exact decision.
+        local mode = type(detail) == "table" and detail.mode or nil
+        local targetId = type(detail) == "table" and detail.targetId or nil
+        local key = kind
+        if mode ~= nil then key = key .. ":" .. tostring(mode) end
+        if targetId ~= nil then key = key .. ":" .. tostring(targetId) end
         candidates[#candidates + 1] = {
             kind = kind,
+            key = key,
             score = score,
             emergency = emergency == true,
             detail = detail,
@@ -129,9 +140,17 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     elseif assessment.needsBandage or assessment.critical then
         add("medical", 96 + (assessment.bleedingCount or 0) * 8, assessment.bleedingCount and assessment.bleedingCount > 0)
     end
-    local rescue = rescueNeed(player, snapshot)
+    local rescue, rescueTarget = rescueNeed(player, snapshot)
     if rescue > 0 and (snapshot.immediateCount or 0) == 0 then
-        add("medical", 64 + rescue, rescue >= 40, { rescue = true })
+        -- Rescue medicine is a distinct decision identity from self-medicine (and
+        -- from rescuing a different subject): carry the mode/target so hysteresis
+        -- and fallback treat "patch myself", "patch the player" and "patch ally X"
+        -- as separate candidates that can fall back to one another (review 2.4).
+        add("medical", 64 + rescue, rescue >= 40, {
+            rescue = true,
+            mode = "rescue",
+            targetId = rescueTarget and U().idOf(rescueTarget) or nil,
+        })
     end
 
     local threatCount = snapshot.threatCount or #(snapshot.threats or {})
@@ -246,14 +265,22 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     return candidates
 end
 
+-- Read-only test seam (review 2.4): expose the scored candidate list so tests can
+-- assert decision identity (`key`) without driving the whole update/delegate path.
+function Decision._evaluateForTests(actor, player, snapshot, commands, assessment,
+        needs, state, current)
+    return evaluate(actor, player, snapshot, commands, assessment, needs,
+        state or {}, current or 0)
+end
+
 local function selectWithHysteresis(state, candidates, now)
     local best = candidates[1]
     if not best then return nil end
     if best.emergency then return best end
-    if state.current and now < (state.minimumUntil or 0) then
+    if state.currentKey and now < (state.minimumUntil or 0) then
         local currentCandidate
         for _, candidate in ipairs(candidates) do
-            if candidate.kind == state.current then currentCandidate = candidate break end
+            if candidate.key == state.currentKey then currentCandidate = candidate break end
         end
         if currentCandidate and best.score < currentCandidate.score + (U().config("decisionHysteresis") or 8) then
             return currentCandidate
@@ -1486,13 +1513,14 @@ function Decision.update(actor, player, runtime)
             state.intent = "idle_stop_rejected"
             return false, state.intent
         end
-        state.current, state.intent = "idle", "stable_idle"
+        state.current, state.currentKey, state.intent = "idle", nil, "stable_idle"
         return false, "no_candidate"
     end
 
     if not candidateDue(actor, selected, current) then return false, "deferred" end
 
     local previous = state.current
+    local previousKey = state.currentKey
     if selected.kind ~= "mental_episode" and selected.kind ~= "social_participant"
         and (selected.kind == "combat" or selected.kind == "retreat"
             or selected.kind == "medical" and selected.emergency) then
@@ -1543,7 +1571,7 @@ function Decision.update(actor, player, runtime)
         -- A preferred subsystem may have no concrete action (for example no
         -- bandage). Try lower utilities once, without recursive subsystem calls.
         for _, fallback in ipairs(candidates) do
-            if fallback ~= selected and fallback.kind ~= selected.kind
+            if fallback ~= selected and fallback.key ~= selected.key
                 and candidateDue(actor, fallback, current) then
                 local fallbackHandled, fallbackReason = delegate(
                     fallback,
@@ -1564,11 +1592,12 @@ function Decision.update(actor, player, runtime)
     end
 
     if handled then
-        if previous ~= selected.kind then
+        if previousKey ~= selected.key then
             state.enteredAt = current
             state.minimumUntil = current + (utility.config("decisionMinStateMs") or 900)
         end
         state.current = selected.kind
+        state.currentKey = selected.key
         state.intent = reason or selected.kind
         state.score = selected.score
         state.lastHandledAt = current
