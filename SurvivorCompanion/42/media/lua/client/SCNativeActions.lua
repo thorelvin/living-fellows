@@ -550,10 +550,18 @@ local function directMove(actor, mode, dx, dy, intent)
         end
     end
 
-    local tactical = type(intent) == "table" and facingTarget ~= nil
-        and (intent.tacticalStrafe == true or intent.tacticalStair == true
-            or intent.tacticalRetreat == true or intent.keepFacing == true
-            or intent.weaponReady == true)
+    -- The stock directional strafe blend must drive the animation whenever the
+    -- actor travels off its facing axis (strafing, backpedaling, kiting). The real
+    -- condition is simply that facing differs from the travel direction; relying on
+    -- a caller to flag it left off-axis moves playing the forward walk/run cycle
+    -- while the body slid backward or sideways -- the moonwalk. Detect the angle
+    -- directly (facing == travel gives dot 1; only an overridden facing can differ),
+    -- and keep the explicit flags for the aligned-advance-with-weapon-ready case.
+    local facingDot = facingX * nx + facingY * ny
+    local tactical = type(intent) == "table" and (facingDot < 0.985
+        or (facingTarget ~= nil and (intent.tacticalStrafe == true
+            or intent.tacticalStair == true or intent.tacticalRetreat == true
+            or intent.keepFacing == true or intent.weaponReady == true)))
     local ready, readyReason = setWeaponReady(actor, intent.weaponReady == true, facingTarget)
     if not ready then return false, readyReason end
     if tactical then

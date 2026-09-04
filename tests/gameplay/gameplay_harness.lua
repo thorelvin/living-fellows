@@ -2777,6 +2777,43 @@ check(fallbackHandled and fallbackOverrunActor.lastIntent
         and fallbackOverrunActor.lastIntent.targetSquare == overrunSnapshot.escapeSquares[1].square,
     "combat escape keeps a concrete native destination when the Lua navigator is unavailable")
 SurvivorCompanion.Combat.reset(fallbackOverrunActor)
+do
+    -- Report 5: a combat retreat must break contact locally and never sprint to a
+    -- distant remembered egress (its far map-entry route), which ran companions
+    -- clean off the map when retreating. Beyond the cap it falls back to the nearby
+    -- escape square.
+    local capActor = actor("sc-retreat-cap", -4, -5, { inventory = inventory({ overrunBat }) })
+    capActor.primary = overrunBat
+    registry[capActor.id] = capActor
+    local nearEscape = squares[squareKey(-4, -4, 0)]
+    local farEgress = cell:getGridSquare(60, 60, 0)
+    local capSnapshot = {
+        threats = overrunSnapshot.threats,
+        immediateAttackers = {}, allies = {}, threatCount = 3, immediateCount = 3,
+        closeThreatCount = 3, occupiedThreatSectors = 3, pressure = 4.5,
+        directionalPressure = 7.2, encircled = true,
+        escapeSquares = { { square = nearEscape, danger = 0, score = 20 } },
+        player = { available = false, danger = 0, immediateThreats = 0 },
+    }
+    local savedRetreatTarget = SurvivorCompanion.Navigation.retreatTarget
+    local savedRequest = SurvivorCompanion.Navigation.request
+    local requestedTarget
+    SurvivorCompanion.Navigation.retreatTarget = function()
+        return farEgress, { source = "entry_route", danger = 0 }
+    end
+    SurvivorCompanion.Navigation.request = function(_, target)
+        requestedTarget = target
+        return true, "retreating"
+    end
+    SurvivorCompanion.Combat.reset()
+    SurvivorCompanion.Combat.update(capActor, player, { snapshot = capSnapshot })
+    SurvivorCompanion.Navigation.retreatTarget = savedRetreatTarget
+    SurvivorCompanion.Navigation.request = savedRequest
+    check(requestedTarget == nearEscape,
+        "a combat retreat caps its distance and falls back to the nearby escape square instead of a far egress")
+    SurvivorCompanion.Combat.reset(capActor)
+    registry[capActor.id] = nil
+end
 registry[fallbackOverrunActor.id] = nil
 overrunZedEast.dead, overrunZedWest.dead, overrunZedNorth.dead = true, true, true
 registry[overrunActor.id] = nil

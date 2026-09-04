@@ -215,6 +215,7 @@ local valueData = {
     combatRetreatCounterCooldownMs = 1100,
     combatRetreatCoverFireMinDistance = 3.0,
     combatRetreatCoverFireMaxRisk = 76,
+    combatRetreatMaxDistance = 14,
     -- Combat barks are event-driven. The actor and group gates keep a squad
     -- from becoming a constant wall of speech, while the per-event cooldowns
     -- preserve rare high-value calls such as retreat and confirmed kills.

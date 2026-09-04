@@ -946,6 +946,13 @@ local strafeOk = SC.Actor.setMovement(actor, "walk", {
 check(strafeOk and actor.tacticalMovement == true and math.abs(actor.strafeX) > 0.9
         and math.abs(actor.strafeY) < 0.1 and actor.forwardX > 0.9,
     "combat kite uses a lateral player strafe without turning away from the threat")
+actor.px, actor.py = 0.5, 0.5
+local moonwalkOk, moonwalkReason = SC.Actor.setMovement(actor, "walk", {
+    action = "move", dx = 0, dy = 1, facingTarget = target,
+})
+check(moonwalkOk and moonwalkReason == "moving" and actor.tacticalMovement == true
+        and actor.forwardX > 0.9,
+    "traveling off the facing axis uses the directional strafe blend even without a tactical flag (moonwalk fix)")
 local lowerOk, lowerReason = SC.Actor.setMovement(actor, "walk", { action = "lower_weapon" })
 check(lowerOk and lowerReason == "weapon_lowered" and actor.aiming == false
         and actor.tacticalMovement == false and actor.strafeX == 0 and actor.strafeY == 0,

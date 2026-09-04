@@ -1243,6 +1243,14 @@ local function executeRetreat(actor, snapshot, target, survivalCritical)
     local escape = snapshot.escapeSquares and snapshot.escapeSquares[1]
     if remembered and retreatPlan and (tonumber(retreatPlan.danger) or 0) >= 5
         and escape and (tonumber(escape.danger) or 0) == 0 then remembered = nil end
+    -- A combat retreat breaks contact locally; it must never send the companion
+    -- sprinting to a distant remembered egress (its far map-entry route), which ran
+    -- companions clean off the map when retreating. Cap the retreat distance and
+    -- fall back to the nearby escape square when the remembered target is beyond it.
+    if remembered then
+        local retreatCap = utility.config("combatRetreatMaxDistance") or 14
+        if utility.distance(actor, remembered) > retreatCap then remembered = nil end
+    end
     if remembered and SC.Navigation and type(SC.Navigation.request) == "function" then
         return SC.Navigation.request(actor, remembered, "jog", {
             action = "combat_retreat",
