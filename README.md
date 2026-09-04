@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 
 <p align="center">
-  <img src="assets/preview-512.png" width="720" alt="Living Fellows survivors protecting and treating one another in the rain">
+  <img src="assets/banner.png" width="100%" alt="Living Fellows survivors protecting and treating one another in the rain">
 </p>
 
 # Living Fellows
