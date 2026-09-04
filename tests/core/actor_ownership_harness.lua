@@ -81,6 +81,11 @@ local function providerFor(candidate, failures)
         self.cancelCalls = self.cancelCalls + 1
         return true
     end
+    function provider:recover(actor, recoverSquare)
+        self.recoverCalls = (self.recoverCalls or 0) + 1
+        self.recoverSquare = recoverSquare
+        return true
+    end
     return provider
 end
 
@@ -476,6 +481,24 @@ do
             and degradedStatus.combatCapability == "degraded",
         "a missing combat collision reflection surfaces as a degraded capability")
     SCBridge = nil
+end
+
+do
+    -- A teleport recovery must drop the actor's stale navigation state, or the
+    -- companion walks its pre-teleport path from the new square ("ran away in a
+    -- straight line" / "does not move well" after teleporting to follow).
+    resetActorService()
+    local candidate = newActor()
+    local provider = providerFor(candidate)
+    local ticket = begin(provider, candidate, "recover-nav")
+    check(SC.Actor.pollSpawn(ticket) == candidate, "recover fixture did not finalize spawn")
+    local navResetActor = nil
+    local savedNavigation = SC.Navigation
+    SC.Navigation = { reset = function(actor) navResetActor = actor end }
+    local recovered = SC.Actor.recover(candidate, square)
+    SC.Navigation = savedNavigation
+    check(recovered == true and provider.recoverCalls == 1 and navResetActor == candidate,
+        "a teleport recovery resets the companion's stale navigation state")
 end
 
 SCBridge = nil

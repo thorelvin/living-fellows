@@ -2258,9 +2258,33 @@ local function nativeTargets(targets)
     return { targets }
 end
 
+-- A moving target (following the player) must not commit to a long native path
+-- toward a goal captured when the lease began: when the leader turns, the actor
+-- otherwise keeps running toward the stale goal until it drifts far enough away or
+-- the lease times out (seen in playtests as "I turn, the companion keeps running
+-- straight into a wall"). Such a lease re-aims on a much smaller goal drift and
+-- expires much sooner so it tracks the leader instead of overshooting.
+local function isMovingTargetIntent(context)
+    return type(context) == "table"
+        and (context.movingTarget == true or context.followRecovery == true
+            or context.player ~= nil)
+end
+
+local function goalResetDistance(context)
+    if isMovingTargetIntent(context) then
+        return U().config("navigationMovingGoalResetDistance") or 1.5
+    end
+    return U().config("navigationGoalResetDistance") or 3.0
+end
+-- Test seam (follow tracking): a moving target must re-plan on a much smaller goal
+-- drift than a static goal so a following companion turns with the leader.
+Navigation._goalResetDistanceForTests = goalResetDistance
+
 local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGoal,
-        now, reason, multiGoal)
+        now, reason, multiGoal, movingTarget)
     local list = nativeTargets(targets)
+    local leaseMs = movingTarget and (U().config("navigationMovingLeaseMs") or 2500)
+        or (U().config("navigationNativeLeaseMs") or 6500)
     state.nativeLease = {
         targets = list,
         fromSquare = fromSquare,
@@ -2268,9 +2292,10 @@ local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGo
         ultimateGoal = ultimateGoal,
         ultimateGoalKey = squareKey(ultimateGoal),
         startedAt = now,
-        expires = now + (U().config("navigationNativeLeaseMs") or 6500),
+        expires = now + leaseMs,
         reason = reason or "native_corridor",
         multiGoal = multiGoal == true,
+        movingTarget = movingTarget == true,
     }
 end
 
@@ -2289,7 +2314,7 @@ local function maintainNativeLease(actor, state, goalSquare, now)
     if not lease then return nil, nil end
     if lease.ultimateGoalKey and squareKey(goalSquare) ~= lease.ultimateGoalKey
         and lease.ultimateGoal and U().distance(lease.ultimateGoal, goalSquare)
-            >= (U().config("navigationGoalResetDistance") or 3.0) then
+            >= goalResetDistance(lease) then
         state.nativeLease = nil
         return "cancelled", "native_goal_changed"
     end
@@ -3097,7 +3122,7 @@ function Navigation.request(actor, target, movementMode, intent)
             end
         end
         beginNativeLease(state, { goalSquare }, sourceSquare, goalSquare,
-            goalSquare, now, "engine_goal", false)
+            goalSquare, now, "engine_goal", false, isMovingTargetIntent(requestIntent))
         return true, "engine_path"
     end
 
@@ -3267,7 +3292,8 @@ function Navigation.request(actor, target, movementMode, intent)
     if requestIntent.enginePath == true then
         beginNativeLease(state, { nextSquare }, sourceSquare, nextSquare,
             goalSquare, now, requestIntent.vegetationClearance
-                and "vegetation_corridor" or "native_edge", false)
+                and "vegetation_corridor" or "native_edge", false,
+            isMovingTargetIntent(requestIntent))
         extendChoke(state, actor, state.nativeLease and state.nativeLease.expires)
     end
     return true, "moving"

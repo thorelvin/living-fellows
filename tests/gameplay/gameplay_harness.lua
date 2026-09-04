@@ -1207,6 +1207,21 @@ registry[driftingGoalActor.id] = nil
 end
 
 do
+    -- A moving (follow) target must re-plan its committed native path on a much
+    -- smaller goal drift than a static goal, so a following companion turns with
+    -- the leader instead of running its stale straight path into a wall. A native
+    -- lease carries its own movingTarget flag; a request intent is moving when it
+    -- is a follow/regroup (followRecovery or a bound player).
+    local resetDistance = SurvivorCompanion.Navigation._goalResetDistanceForTests
+    local followReset = resetDistance({ followRecovery = true })
+    local leaseReset = resetDistance({ movingTarget = true })
+    local staticReset = resetDistance({ action = "move" })
+    check(followReset < staticReset and leaseReset < staticReset
+            and followReset <= 1.5 and staticReset >= 3.0,
+        "a moving follow target re-plans on a tighter goal drift than a static goal")
+end
+
+do
 local failedEdgeActor = actor("sc-failed-edge", -7, -7, {})
 registry[failedEdgeActor.id] = failedEdgeActor
 failedEdgeActor.rejectMovement = true

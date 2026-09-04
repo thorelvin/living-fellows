@@ -1417,6 +1417,15 @@ function actorService.recover(actor, square)
     if not ok or recovered ~= true then
         return false, tostring(reason or recovered)
     end
+    -- A teleport recovery drops the actor onto a new square, but its navigation
+    -- state (native path lease, computed path, goal square, route memory, blocked
+    -- edges) still targets the pre-teleport route. Left in place, the companion
+    -- walks that stale path from its new position -- seen in playtests as a
+    -- teleport-recovered follower that "ran away in a straight line" or "does not
+    -- move well." Drop the navigation state so the next decision replans fresh.
+    if SC.Navigation and type(SC.Navigation.reset) == "function" then
+        pcall(SC.Navigation.reset, actor)
+    end
     return true
 end
 
