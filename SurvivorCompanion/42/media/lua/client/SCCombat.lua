@@ -216,7 +216,29 @@ local function emitCombatBark(actor, state, commands, topic, now, survivalCritic
     return true, "combat_bark_spoken"
 end
 
-local function clearEngagement(state)
+-- Drop this actor's engagement lease(s) when it abandons a target, so the longer
+-- lease (review 4.4) does not keep deterring the rest of the squad from a target
+-- its owner has left. Only the owner can release its own claim. releaseActorClaims
+-- is keyed on ownership, not on engagementTarget, because a claim can be taken on a
+-- committed action whose engagement bookkeeping did not run.
+local function releaseClaim(target, actor)
+    local claim = target and targetClaims[target] or nil
+    if type(claim) == "table" and claim.actor == actor then
+        targetClaims[target] = nil
+    end
+end
+
+local function releaseActorClaims(actor)
+    if actor == nil then return end
+    for target, claim in pairs(targetClaims) do
+        if type(claim) == "table" and claim.actor == actor then
+            targetClaims[target] = nil
+        end
+    end
+end
+
+local function clearEngagement(state, actor)
+    releaseActorClaims(actor)
     state.engagementTarget = nil
     state.engagementStartedAt = nil
     state.engagementActionCount = 0
@@ -224,8 +246,9 @@ local function clearEngagement(state)
     state.struggleAnnounced = false
 end
 
-local function prepareEngagement(state, target, now)
+local function prepareEngagement(state, actor, target, now)
     if state.engagementTarget == target then return end
+    if state.engagementTarget ~= nil then releaseClaim(state.engagementTarget, actor) end
     state.engagementTarget = target
     state.engagementStartedAt = now
     state.engagementActionCount = 0
@@ -235,7 +258,7 @@ end
 
 local function recordOffensiveAction(actor, state, commands, target, now, announceEngage, snapshot)
     if target == nil then return end
-    prepareEngagement(state, target, now)
+    prepareEngagement(state, actor, target, now)
     state.engagementActionCount = (tonumber(state.engagementActionCount) or 0) + 1
     state.lastOffensiveTarget = target
     state.lastOffensiveAt = now
@@ -283,7 +306,7 @@ local function confirmRecentKill(actor, state, commands, now)
     local credited = now - attackedAt <= creditWindow
     state.lastOffensiveTarget = nil
     state.lastOffensiveAt = nil
-    if state.engagementTarget == target then clearEngagement(state) end
+    if state.engagementTarget == target then clearEngagement(state, actor) end
     if credited and state.lastConfirmedKill ~= target then
         state.lastConfirmedKill = target
         emitCombatBark(actor, state, commands, "combat.kill", now, false)
@@ -305,7 +328,8 @@ end
 local function activeClaim(target, actor, now)
     local claim = target and targetClaims[target] or nil
     if type(claim) ~= "table" then return nil end
-    if (tonumber(claim.untilAt) or 0) <= now or U().isDead(claim.actor) then
+    if (tonumber(claim.untilAt) or 0) <= now or U().isDead(claim.actor)
+        or U().isDead(target) then
         targetClaims[target] = nil
         return nil
     end
@@ -313,11 +337,18 @@ local function activeClaim(target, actor, now)
     return claim
 end
 
+-- Combat engagement lease (review 4.4). A brief claim (~450ms) expired between an
+-- actor's combat decisions once a party grew, so companions oscillated targets:
+-- the claim lapsed, a peer grabbed the same zombie, then the original owner
+-- re-claimed it, and so on. The lease now spans the worst-case revisit latency
+-- (~2s) and is refreshed on every offensive action against the target, so a
+-- committed attacker holds its target while it is engaging and alive, and the
+-- lease is released the moment the owner switches away, disengages, or dies.
 local function claimTarget(target, actor, now)
     if target == nil then return end
     targetClaims[target] = {
         actor = actor,
-        untilAt = now + (U().config("combatTargetClaimMs") or 450),
+        untilAt = now + (U().config("combatEngagementLeaseMs") or 2000),
     }
 end
 
@@ -1491,7 +1522,7 @@ function Combat.update(actor, player, runtime)
         clearAimPreparation(state)
         utility.call(actor, "setCompanionAimTarget", nil)
         state.lastOffensiveTarget, state.lastOffensiveAt = nil, nil
-        clearEngagement(state)
+        clearEngagement(state, actor)
         rootRuntime.combatTarget = nil
         rootRuntime.combatOverrun = nil
         rootRuntime.combatReadiness = nil
@@ -1513,7 +1544,7 @@ function Combat.update(actor, player, runtime)
         clearAimPreparation(state)
         utility.call(actor, "setCompanionAimTarget", nil)
         state.readiness, state.overrun = nil, nil
-        clearEngagement(state)
+        clearEngagement(state, actor)
         return false, "no_credible_target"
     end
     -- Continuously point the actor at the engaged target so the native swing's

@@ -1337,7 +1337,17 @@ local function applyEquipment(actor, equipment, byId, companionId)
         -- resolve it from the item; without this the call finds no matching
         -- overload and every companion (and faction member) reloads naked.
         local locOk, bodyLocation = invoke(item, "getBodyLocation")
-        local location = (locOk and bodyLocation ~= nil) and bodyLocation or worn.location
+        local location = (locOk and bodyLocation ~= nil) and bodyLocation or nil
+        if location == nil then
+            -- Bags and other equippable containers have no getBodyLocation() (that
+            -- is for worn clothing); their worn slot comes from canBeEquipped().
+            -- Without this a companion reloaded with its backpack (e.g. base:back)
+            -- left in inventory instead of on its back, and setWornItem was handed
+            -- the persisted location string, which finds no matching overload.
+            local equipOk, equipLocation = invoke(item, "canBeEquipped")
+            if equipOk and equipLocation ~= nil then location = equipLocation end
+        end
+        location = location or worn.location
         local equipped, equipReason = invoke(actor, "setWornItem", location, item)
         if not equipped then
             -- Body-location names can disappear when Build 42 or a clothing mod

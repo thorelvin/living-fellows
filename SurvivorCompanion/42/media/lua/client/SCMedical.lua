@@ -48,7 +48,13 @@ local function inspectPart(part, index)
     local bleeding = booleanMethod(part, { "bleeding", "isBleeding" })
         or numberMethod(part, { "getBleedingTime" }, 0) > 0
     local bitten = booleanMethod(part, { "bitten", "isBitten" })
-    local infected = booleanMethod(part, { "IsInfected", "isInfected", "isInfectedWound" })
+    -- Local, treatable WOUND infection only -- never the character's Knox (zombie)
+    -- infection. BodyPart.IsInfected() returns the Knox flag, which the engine
+    -- propagates to EVERY body part, so a Knox-infected companion read every part as
+    -- infected (severity 30 each) and tried to change bandages over its whole body
+    -- forever, filling its work queue and locking it in place. Knox is assessed
+    -- separately at the character level (knoxInfected).
+    local infected = booleanMethod(part, { "isInfectedWound" })
     local bandaged = booleanMethod(part, { "bandaged", "isBandaged" })
     local dirtyBandage = booleanMethod(part, { "isBandageDirty" })
     local scratched = booleanMethod(part, { "scratched", "isScratched" })

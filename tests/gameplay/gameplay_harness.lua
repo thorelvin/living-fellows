@@ -196,6 +196,7 @@ local function bodyPart(options)
     function value:getBleedingTime() return self.isBleeding and 10 or 0 end
     function value:bitten() return self.isBitten == true end
     function value:IsInfected() return self.infected == true end
+    function value:isInfectedWound() return self.infectedWound == true end
     function value:bandaged() return self.isBandaged == true end
     function value:isBandageDirty() return self.dirty == true end
     function value:scratched() return self.isScratched == true end
@@ -1968,6 +1969,26 @@ do
         "What are you doing reports the supervised target over the selected companion")
     SurvivorCompanion.ActionSupervisor.cancel(fellow, "fixture_done", nil, true)
 end
+do
+    -- Playtest 4: every companion had wounds on all body parts at severity 30 and
+    -- tried to change bandages over its whole body forever. BodyPart.IsInfected()
+    -- reports the character's Knox (zombie) infection, which the engine propagates
+    -- to every part; wound assessment must read only the local, treatable wound
+    -- infection (isInfectedWound) and leave Knox to the character-level check.
+    local knoxParts = {}
+    for index = 1, 6 do knoxParts[index] = bodyPart({ name = "knoxpart" .. index }) end
+    local knoxBody = bodyDamage(80, knoxParts)
+    knoxBody.infected = true
+    local knoxActor = actor("sc-knox-body", 40, 40, { body = knoxBody })
+    local knoxAssessment = SurvivorCompanion.Medical.assess(knoxActor)
+    check(knoxAssessment.knoxInfected == true and knoxAssessment.woundCount == 0
+            and knoxAssessment.needsBandage == false,
+        "a Knox-infected companion does not read its whole body as wounded (playtest 4)")
+    knoxParts[1].infectedWound = true
+    local woundedAssessment = SurvivorCompanion.Medical.assess(knoxActor)
+    check(woundedAssessment.woundCount == 1 and woundedAssessment.wounds[1].infected == true,
+        "a local treatable wound infection is still assessed as a wound needing care")
+end
 local bondBeforeBackground = SurvivorCompanion.Commands.peek(fellow).bond
 check(SurvivorCompanion.Commands.conversation(fellow.id, "background", player)
     and SurvivorCompanion.Commands.peek(fellow).bond > bondBeforeBackground,
@@ -2860,6 +2881,60 @@ SurvivorCompanion.Combat.reset(readyActor)
 SurvivorCompanion.Combat.reset(spentActor)
 SurvivorCompanion.Combat.reset(claimActor)
 SurvivorCompanion.Combat.reset(wingActor)
+end
+
+do
+    -- 4.4: the combat engagement lease spans the worst-case gap between an actor's
+    -- combat decisions so a large party stops oscillating targets, is refreshed on
+    -- every offensive action, and is released when the owner disengages.
+    local leaseClock = 900000
+    local leaseOwner = actor("sc-lease-owner", 30, 30, { inventory = inventory({ tacticalBat }) })
+    leaseOwner.primary = tacticalBat
+    local leaseZed = zombie(31, 30, { attacking = true, target = leaseOwner })
+    local leaseSnapshot = {
+        threats = { { actor = leaseZed, square = leaseZed.square, distanceSq = 1,
+            visible = true, obstructed = false, attacking = true } },
+        immediateAttackers = {}, allies = {}, threatCount = 1, immediateCount = 0,
+        closeImmediateCount = 0, closeThreatCount = 1, occupiedThreatSectors = 1,
+        directionalPressure = 1, pressure = 0.5,
+        escapeSquares = { { square = squares[squareKey(29, 30, 0)], danger = 0,
+            nearestThreatSq = 4 } },
+        player = { available = false, danger = 0, immediateThreats = 0 },
+    }
+    local emptyLeaseSnapshot = {
+        threats = {}, immediateAttackers = {}, allies = {}, threatCount = 0,
+        immediateCount = 0, closeThreatCount = 0, pressure = 0,
+        player = { available = false, danger = 0, immediateThreats = 0 },
+    }
+    local leasePeer = actor("sc-lease-peer", 30, 31, { inventory = inventory({ tacticalBat }) })
+
+    clock = leaseClock
+    SurvivorCompanion.Combat.update(leaseOwner, player, { snapshot = leaseSnapshot })
+    clock = leaseClock + 1000
+    local heldScores = SurvivorCompanion.Combat.scoreTargets(leasePeer, player, leaseSnapshot, nil)
+    check(#heldScores == 1 and heldScores[1].claimedByAlly == true,
+        "the engagement lease still holds the target 1s after the owner last engaged (would lapse at 450ms)")
+
+    clock = leaseClock + 2100
+    local lapsedScores = SurvivorCompanion.Combat.scoreTargets(leasePeer, player, leaseSnapshot, nil)
+    check(#lapsedScores == 1 and lapsedScores[1].claimedByAlly ~= true,
+        "an unrefreshed engagement lease lapses after its window so the target frees up")
+
+    clock = leaseClock + 3000
+    SurvivorCompanion.Combat.update(leaseOwner, player, { snapshot = leaseSnapshot })
+    local reheldScores = SurvivorCompanion.Combat.scoreTargets(leasePeer, player, leaseSnapshot, nil)
+    check(reheldScores[1].claimedByAlly == true,
+        "re-engaging refreshes the lease")
+    -- The lease is released when its owner is gone, so a peer reclaims the target
+    -- instead of avoiding it for the rest of the lease window.
+    leaseOwner.dead = true
+    local freedScores = SurvivorCompanion.Combat.scoreTargets(leasePeer, player, leaseSnapshot, nil)
+    check(freedScores[1].claimedByAlly ~= true,
+        "the engagement lease is released when its owner is gone so a peer can take the target")
+
+    leaseZed.dead = true
+    SurvivorCompanion.Combat.reset(leaseOwner)
+    SurvivorCompanion.Combat.reset(leasePeer)
 end
 
 local upperZed = zombie(1, 0, { z = 1, attacking = true, target = fellow })

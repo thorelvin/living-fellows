@@ -534,7 +534,11 @@ local function commitWearable(actor, record)
             if worn.location == nil then
                 restored = false
             elseif not isWorn(actor, worn.item, worn.location) then
-                local wornLocation = select(1, utility.call(worn.item, "getBodyLocation"))
+                local resolved, resolvedOk = utility.call(worn.item, "getBodyLocation")
+                if not resolvedOk or resolved == nil then
+                    resolved, resolvedOk = utility.call(worn.item, "canBeEquipped")
+                end
+                local wornLocation = (resolvedOk and resolved ~= nil) and resolved
                     or worn.location
                 local restoreResult, restoreOk = utility.call(
                     actor, "setWornItem", wornLocation, worn.item)
@@ -561,7 +565,13 @@ local function commitWearable(actor, record)
         end
     end
     -- setWornItem needs the ItemBodyLocation object; resolve it from the item.
-    local recordLocation = select(1, utility.call(record.item, "getBodyLocation"))
+    -- Clothing exposes getBodyLocation(); bags and equippable containers use
+    -- canBeEquipped() instead. Fall back to the persisted string only if neither.
+    local recordLocation, recordLocationOk = utility.call(record.item, "getBodyLocation")
+    if not recordLocationOk or recordLocation == nil then
+        recordLocation, recordLocationOk = utility.call(record.item, "canBeEquipped")
+    end
+    recordLocation = (recordLocationOk and recordLocation ~= nil) and recordLocation
         or record.location
     local result, setOk = utility.call(actor, "setWornItem", recordLocation, record.item)
     local verified = setOk and result ~= false and isWorn(actor, record.item, record.location)
