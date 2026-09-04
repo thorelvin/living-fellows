@@ -769,6 +769,14 @@ local function advanceTreatment(helper, state)
     end
     if visualState ~= "completed" then
         if visualState ~= "different" then SC.NativeActions.clearVisual(helper) end
+        -- Surface why a treatment animation ended without completing (e.g. a rip
+        -- that never finishes), so a repeated failure is diagnosable instead of
+        -- silent. Bounded by the diagnostics circuit breaker.
+        if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+            SC.Diagnostics.report("medical", U().idOf(helper),
+                "treatment animation did not complete",
+                tostring(state.phase) .. ":" .. tostring(visualState))
+        end
         return clearTreatment(helper, state, "treatment_animation_" .. tostring(visualState))
     end
     SC.NativeActions.clearVisual(helper)
@@ -922,7 +930,12 @@ local function beginTreatmentState(helper, patient, capability)
             targetLabel = tostring(U().nameOf(patient)) .. " " .. tostring(wound.name),
             priority = priority,
             interruptible = true, requiresVisual = false,
-            retryCategory = capability.available and nil or "resources",
+            -- With supplies present a repeatedly-failing treatment (e.g. a rip that
+            -- never completes) previously had no retry cooldown, so it re-attempted
+            -- every tick and locked the companion in a "trying to rip, never doing
+            -- it" loop. Give it a bounded backoff so it gives up and clears instead
+            -- of looping; the resources category still resets when supplies return.
+            retryCategory = capability.available and "treatment" or "resources",
             allowedActions = {
                 move_to_treat = true, kneel_treat = true, replace_bandage = true,
                 rip_clothing_for_bandage = true,

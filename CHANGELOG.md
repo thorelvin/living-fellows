@@ -4,6 +4,7 @@
 
 ## 0.22.8 - Reliability playtest candidate
 
+- Stopped a companion locking into a "trying to rip bandages, never doing it" loop when a treatment could not complete. With supplies present a repeatedly failing treatment had no retry cooldown, so it re-attempted every tick forever; it now backs off and gives the wound up (clearing the action) instead of looping, and logs why the treatment animation did not complete so the underlying cause is diagnosable.
 - Dead companions no longer linger in the infection-crisis list. A crisis whose subject has died or turned is resolved, and the active list now hides resolved crises (they remain in the crisis history), so only ongoing infections show.
 - Leaving base duty now cancels any in-flight base job. A companion switched from base duty to follow no longer carries a queued, blocked base task (such as a barricade) around in the field -- the claim is released and the queued action cleared.
 - Stopped the stomp/floor-attack path from spamming the log with a caught "attempted index of non-table" error every time it aimed at or cleared a downed target. It assigned the native targetOnGround field directly, which Kahlua cannot do; it now drives that field through a bridge setter (the same pattern used for the other native fields), so the downed-target reference is set and cleared cleanly.
