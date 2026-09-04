@@ -19,6 +19,21 @@ Living Fellows turns isolated survivors into persistent people who can become te
 
 This is a public playtest release. Back up important saves, expect balance and compatibility work, and include logs when reporting a problem.
 
+## Contents
+
+- [Highlights](#highlights)
+- [Requirements](#requirements) · [Install (Workshop)](#install-from-steam-workshop) · [Install (standalone)](#install-with-installbat)
+- [First five minutes](#first-five-minutes)
+- [Companion panel](#companion-panel) · [Orders and policies](#orders-and-policies)
+- [How companions behave](#how-companions-behave)
+- [Survivor households and factions](#survivor-households-and-factions)
+- [Saves, updates, and backups](#saves-updates-and-backups) · [Compatibility](#compatibility)
+- [Troubleshooting](#troubleshooting) · [Reporting a bug](#reporting-a-bug)
+- [Building from source](#building-and-testing-from-source) · [Repository layout](#repository-layout)
+- [Clean-room status and license](#clean-room-status-and-license)
+
+New to Living Fellows? Jump to **[First five minutes](#first-five-minutes)**. Full change history lives in [CHANGELOG.md](CHANGELOG.md).
+
 ## Highlights
 
 - Persistent companions with names, professions, traits, personalities, relationships, memories, needs, wounds, equipment, and permanent death.
@@ -93,7 +108,7 @@ To remove the standalone edition, close the game and run **Uninstall.bat** from 
 3. Explore until you meet a neutral survivor. A neutral survivor does not join automatically.
 4. Select the survivor in the panel and use the prominent **Recruit** action when it is available.
 5. Open **Orders** and choose a main order. New recruits default to **Follow**, **Copy player** movement, and **Ride with player**.
-6. Open **Support** if actors are missing, a button fails, or the panel behaves unexpectedly.
+6. If actors are missing, a button fails, or the panel behaves unexpectedly, open **More → Support** for runtime health and a copyable diagnostic report.
 
 Public builds do not automatically spawn a test companion every minute. Manual spawning and destructive state controls are available only in the debug build.
 
@@ -101,18 +116,15 @@ Public builds do not automatically spawn a test companion every minute. Manual s
 
 The panel is translucent so the world remains visible while commands are open. It can be docked left or right, collapsed to a compact launcher, or cycled with F7.
 
+The everyday controls live on five primary tabs. Deeper views open from the **More** tab so the common actions stay uncluttered.
+
 | Tab | Purpose |
 | --- | --- |
-| Overview | Health, needs, current intent, order, distance, relationship, mood, profession, carry state, and recent verified work |
+| Status | Health, needs, current intent, order, distance, relationship, mood, profession, carry state, and recent verified work |
 | Orders | Main order, follow distance, movement, work, scavenging, combat, weapon, vehicle, overload, group, regroup, and retreat controls |
-| Gear | Inventory, equipped items, carrying policy, weapon preference, clothing and vehicle status |
-| Health | Wounds, treatment state, infection symptoms, medicine, hunger, and thirst |
-| Journal | Revealed history, personality, objectives, relationships, memories, grief, and keepsakes |
+| Loadout | Inventory, equipped items, carrying policy and weapon preference, and clothing/vehicle status — plus wounds, treatment, infection symptoms, medicine, hunger, and thirst |
 | Base | Camp roles, storage, watches, readiness, maintenance, work queues, and ambient routines |
-| Groups | Companion groups, selected-team orders, and squad organization |
-| Factions | Known households, attitude, needs, trade, promises, rumors, access, and standing |
-| Support | Runtime and bridge health, bounded diagnostics, report copying, and subsystem retry |
-| Debug | Manual test spawning, faction controls, profiling, and recorder tools; hidden in public builds |
+| More | Opens Groups (squad orders), Factions (households, trade, standing), Journal (history, personality, relationships, memories, grief, keepsakes), Support (runtime/bridge health and diagnostics), and — in development builds — Debug |
 
 Buttons show a confirmation message when an order is accepted. Selectors and checkboxes display the persistent policy that will be used after saving and reloading.
 
@@ -170,7 +182,7 @@ Safe companions can read, sit, wash, maintain gear, craft supplies, sort storage
 
 The first faction archetype is a household of one to three survivors occupying a suitable house. They carry appropriate supplies, barricade secondary doors and windows while preserving an entrance, and remain separate from the companion roster.
 
-Residents warn unknown players, defend their territory, react to trespass, theft, damage, and murder, and remember what happened. A household can expose a genuine shortage, offer conditional barter, pass imperfect rumors, negotiate a social contract, grant temporary access, or eventually consider one nonessential resident for a recruitment trial. Discovered groups, needs, standing, relations, news, promises, rumors, and access appear in the Factions tab.
+Residents warn unknown players, defend their territory, react to trespass, theft, damage, and murder, and remember what happened. A household can expose a genuine shortage, offer conditional barter, pass imperfect rumors, negotiate a social contract, grant temporary access, or eventually consider one nonessential resident for a recruitment trial. Discovered groups, needs, standing, relations, news, promises, rumors, and access appear in the Factions view, opened from the **More** tab.
 
 ## Saves, updates, and backups
 
@@ -198,11 +210,11 @@ Lowering a sandbox limit does not delete existing companions or households. Do n
 
 ### The panel is missing
 
-Press F7 once, then look for the small LF launcher near the edge of the screen. Confirm Living Fellows is enabled for the current save. Workshop users must also confirm ZombieBuddy is enabled and current. Standalone users should rerun `Install.bat` after a game update and inspect the Support tab after launch.
+Press F7 once, then look for the small LF launcher near the edge of the screen. Confirm Living Fellows is enabled for the current save. Workshop users must also confirm ZombieBuddy is enabled and current. Standalone users should rerun `Install.bat` after a game update and inspect **More → Support** after launch.
 
 ### A companion is only a moving shadow
 
-This normally means the native actor bridge did not load or failed its health check. Open Support and copy its report. Do not continue a valuable save until the actor is rendering correctly.
+This normally means the native actor bridge did not load or failed its health check. Open **More → Support** and copy its report. Do not continue a valuable save until the actor is rendering correctly.
 
 ### A companion is stuck or moonwalking
 
