@@ -236,6 +236,7 @@ local valueData = {
     downedRecoverHealth = 25,
     medicalRange = 1.35,
     medicalCriticalHealth = 35,
+    medicalApproachTimeoutMs = 8000,
 
     encounterIntervalMs = 1000,
     encounterActiveRadius = 75,

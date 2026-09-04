@@ -594,6 +594,7 @@ SurvivorCompanion.Config = {
         navigationEmergencyVegetationScale = 0.2,
         navigationWeaponReadyHoldMs = 1200,
         medicalRange = 1.5,
+        medicalApproachTimeoutMs = 8000,
         encounterIntervalMs = 1,
         scavengeRadius = 6,
         scavengeSquareBudget = 70,
@@ -2290,6 +2291,56 @@ check(stagedFinished and stagedFinishReason == "bandaged"
         and stagedPart.isBandaged and stagedBandage.used
         and resultNotes[#resultNotes].source == "medical_treatment",
     "completed medical animation commits and verifies exactly one bandage result")
+
+do
+-- A treatment that can never settle within medical range must give up after the
+-- approach budget instead of navigating forever. In the live sandbox an
+-- unavailable patient position made the distance read math.huge, so the treatment
+-- returned "arrived" every tick (observed x529) and never bandaged.
+local approachTimeoutClock = clock
+local strandedPart = bodyPart({ name = "ForeArm_L", isBleeding = true })
+local strandedPatient = actor("sc-approach-timeout-patient", 5, 5, {
+    body = bodyDamage(70, { strandedPart }),
+})
+registry[strandedPatient.id] = strandedPatient
+local strandedBandage = item("Base.Bandage", "Medical")
+local strandedMedic = actor("sc-approach-timeout-medic", 0, 0, {
+    inventory = inventory({ strandedBandage }),
+})
+registry[strandedMedic.id] = strandedMedic
+local previousNativeActions = SurvivorCompanion.NativeActions
+SurvivorCompanion.NativeActions = {
+    pathToNearest = function() return true, "stranded_path_started" end,
+    pathTelemetry = function()
+        return { available = true, active = true, shouldBeMoving = true,
+            hasStartedMoving = false, pending = true }
+    end,
+    stopDirect = function() return true end,
+}
+local approachSnapshot = { threats = {}, immediateCount = 0,
+    escapeSquares = { { square = strandedMedic.square } } }
+local approachStart = SurvivorCompanion.Medical.treat(
+    strandedMedic, strandedPatient, { snapshot = approachSnapshot })
+local approachPeek = SurvivorCompanion.Medical.peek(strandedMedic)
+check(approachStart and approachPeek ~= nil and approachPeek.phase == "approaching",
+    "a distant rescue treatment enters the approach phase while the path stays pending")
+clock = clock + 4000
+local approachMid = SurvivorCompanion.Medical.treat(strandedMedic, strandedPatient, {})
+check(approachMid and SurvivorCompanion.Medical.peek(strandedMedic) ~= nil
+        and not strandedPart.isBandaged,
+    "an in-budget approach keeps navigating without abandoning the treatment")
+clock = clock + SurvivorCompanion.Config.values.medicalApproachTimeoutMs + 1
+local approachDone, approachDoneReason =
+    SurvivorCompanion.Medical.treat(strandedMedic, strandedPatient, {})
+check(not approachDone and approachDoneReason == "approach_timeout"
+        and SurvivorCompanion.Medical.peek(strandedMedic) == nil
+        and not strandedPart.isBandaged and not strandedBandage.used,
+    "an approach that never settles times out, clears the treatment, and spends no supply")
+SurvivorCompanion.NativeActions = previousNativeActions
+registry[strandedPatient.id] = nil
+registry[strandedMedic.id] = nil
+clock = approachTimeoutClock
+end
 
 local unavailableDirtyPart = bodyPart({
     name = "LowerLeg_R", isBandaged = true, dirty = true, bandageLife = 0,

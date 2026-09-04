@@ -986,6 +986,16 @@ continueTreatmentApproach = function(helper, state, runtime)
     if not stillViable then
         return Medical.cancel(helper, "danger_preempted")
     end
+    -- Bound the approach: if the helper can never settle within medical range (an
+    -- unreachable or position-unavailable patient makes the distance read math.huge),
+    -- the treatment would otherwise navigate forever, returning "arrived" every tick
+    -- (observed in the sandbox as arrived x529). Give up after a budget so it clears
+    -- instead of looping.
+    if state.phase == "approaching" and state.approachStartedAt
+        and utility.nowMs() - state.approachStartedAt
+            > (utility.config("medicalApproachTimeoutMs") or 8000) then
+        return clearTreatment(helper, state, "approach_timeout")
+    end
     if utility.distance(helper, state.patient) <= (utility.config("medicalRange") or 1.35) then
         utility.stop(helper)
         local settled, settleReason = supervisedTransition(state, "settling", {
@@ -1026,6 +1036,7 @@ continueTreatmentApproach = function(helper, state, runtime)
     if transitioned ~= true then return clearTreatment(helper, state,
         transitionReason or "approach_rejected") end
     state.phase = "approaching"
+    state.approachStartedAt = state.approachStartedAt or utility.nowMs()
     local ok, status = navigation.requestAny(helper, targets, "walk", {
         action = "move_to_treat", patient = state.patient, snapshot = snapshot,
         arrivalDistance = 0.9, supervisorToken = state.supervisorToken,

@@ -1857,7 +1857,7 @@ local function probeFactionHostility(current)
         "hostile residents selected the player through the native faction decision path")
     SC.Factions.forceStanding(Harness.factionId, "Wary")
     for _, record in ipairs(Harness.factionActors or {}) do pcall(SC.Actor.stop, record.actor) end
-    setPhase("finish", current)
+    setPhase("medical_probe", current)
 end
 
 local function finish()
@@ -1939,6 +1939,97 @@ local function closeEntryWindows(tag)
         end
     end
     return #closed
+end
+
+-- Diagnostic probe for the reported "trying to rip bandages, never doing it" loop:
+-- dump every restored companion's medical/supply state, then drive Medical.treat on
+-- a wounded one over a time budget and report the reason histogram (the loop shows
+-- up as one reason repeating). Runs on the actual restored save companions.
+local function companionName(actor)
+    local ok, desc = pcall(function() return actor:getDescriptor() end)
+    if ok and desc ~= nil then
+        local nameOk, full = pcall(function()
+            return tostring(desc:getForename()) .. "_" .. tostring(desc:getSurname())
+        end)
+        if nameOk and type(full) == "string" then return full end
+    end
+    return "companion"
+end
+
+local function describeMedical(actor)
+    local SC = SurvivorCompanion
+    local ok, a = pcall(SC.Medical.assess, actor)
+    if not ok or type(a) ~= "table" then return "assess_failed", nil end
+    local bandages, clothing = 0, 0
+    local invOk, inv = pcall(function() return actor:getInventory() end)
+    if invOk and inv ~= nil then
+        pcall(function()
+            local items = inv:getItems()
+            for i = 0, items:size() - 1 do
+                local item = items:get(i)
+                local t = tostring(item:getFullType() or "")
+                if t:find("Bandage", 1, true) or t:find("RippedSheets", 1, true) then
+                    bandages = bandages + 1
+                end
+                if item.IsClothing and item:IsClothing() then clothing = clothing + 1 end
+            end
+        end)
+    end
+    return string.format(
+        "health=%.0f wounds=%d needsBandage=%s bites=%d knox=%s bandages=%d clothing=%d",
+        tonumber(a.health) or -1, #(a.wounds or {}), tostring(a.needsBandage),
+        a.bites or 0, tostring(a.knoxInfected), bandages, clothing), a
+end
+
+local function medicalProbe(current)
+    local SC = SurvivorCompanion
+    if Harness.medicalTarget == nil and Harness.medicalDone ~= true then
+        local living = (SC.Registry and type(SC.Registry.living) == "function"
+            and SC.Registry.living()) or {}
+        local wounded
+        for _, actor in ipairs(living) do
+            local desc, assessment = describeMedical(actor)
+            result("PASS", "medical_state:" .. companionName(actor), desc)
+            if wounded == nil and type(assessment) == "table"
+                and (assessment.needsBandage == true or #(assessment.wounds or {}) > 0) then
+                wounded = actor
+            end
+        end
+        if wounded == nil then
+            skip("medical_treat_probe", "no restored companion needs treatment")
+            Harness.medicalDone = true
+            setPhase("finish", current)
+            return
+        end
+        Harness.medicalTarget = wounded
+        Harness.medicalStart = current
+        Harness.medicalReasons = {}
+        Harness.medicalCalls = 0
+    end
+    if Harness.medicalTarget ~= nil then
+        local runtime = { snapshot = { threats = {}, immediateCount = 0, allies = {},
+            escapeSquares = { { square = Harness.medicalTarget:getSquare() } } } }
+        local ok, _, reason = pcall(SC.Medical.treat, Harness.medicalTarget,
+            Harness.medicalTarget, runtime)
+        local key = ok and tostring(reason) or ("error:" .. tostring(reason))
+        Harness.medicalReasons[key] = (Harness.medicalReasons[key] or 0) + 1
+        Harness.medicalCalls = Harness.medicalCalls + 1
+        if ok and type(reason) == "string" and reason:find("bandaged", 1, true) then
+            result("PASS", "medical_treat_probe",
+                "completed=" .. reason .. " calls=" .. Harness.medicalCalls)
+            Harness.medicalTarget, Harness.medicalDone = nil, true
+            setPhase("finish", current)
+            return
+        end
+        if current - (Harness.medicalStart or current) >= 9000 then
+            local summary = ""
+            for k, v in pairs(Harness.medicalReasons) do summary = summary .. k .. "=" .. v .. ";" end
+            result("FAIL", "medical_treat_probe", "no completion in 9s over "
+                .. Harness.medicalCalls .. " calls: " .. summary)
+            Harness.medicalTarget, Harness.medicalDone = nil, true
+            setPhase("finish", current)
+        end
+    end
 end
 
 local function tick()
@@ -2096,6 +2187,8 @@ local function tick()
         probeFactionFortification(current)
     elseif Harness.phase == "faction_hostile" then
         probeFactionHostility(current)
+    elseif Harness.phase == "medical_probe" then
+        medicalProbe(current)
     elseif Harness.phase == "finish" then
         finish()
     end
