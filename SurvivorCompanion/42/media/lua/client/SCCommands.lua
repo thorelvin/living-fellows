@@ -1505,7 +1505,13 @@ function Commands.describe(companionId, player)
         background = stableSummaryCopy(relationship.background or state.background,
             "$.commands.summary.background"),
         timeTogetherHours = relationship.timeTogetherHours or 0,
-        memories = stableSummaryCopy(state.memories, "$.commands.summary.memories"),
+        -- Only a bounded count belongs in the roster summary: the full memories
+        -- array is nested one level deeper than the summary's maxDepth and grows
+        -- past its value budget, so copying it threw "stable value limit exceeded"
+        -- on every UI refresh once a companion had ~13 memories (breaking that
+        -- roster entry). No summary consumer read the array -- the memory view uses
+        -- state.memories directly -- so expose just the count.
+        memoryCount = type(state.memories) == "table" and #state.memories or 0,
         lastDowntime = stableSummaryCopy(state.lastDowntime,
             "$.commands.summary.lastDowntime"),
         objectives = nil,

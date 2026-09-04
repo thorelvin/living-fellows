@@ -155,4 +155,28 @@ SC.Decision.resetMode = "success"
 check(SC.Runtime.reset(true) == true,
     "exceptional subsystem teardown remains retryable")
 
+do
+    -- A transient native-health dip must be tolerated for a bounded window so a
+    -- teleport-recovered companion is not despawned before its native state settles
+    -- (playtest: "teleported to me, then a health-check despawned her, body never
+    -- came back"). Only a persistent failure past the grace window removes the actor.
+    local decide = SC.Runtime._healthGateDecisionForTests
+    check(type(decide) == "function", "runtime exposes the health-gate decision seam")
+    local runtimeState = {}
+    check(decide(runtimeState, 1000, 1500) == "defer"
+            and runtimeState.healthFailingSince == 1000,
+        "first native-health failure is deferred, not an immediate removal")
+    check(decide(runtimeState, 2000, 1500) == "defer"
+            and runtimeState.healthFailingSince == 1000,
+        "a native-health failure within the grace window keeps deferring")
+    check(decide(runtimeState, 2600, 1500) == "remove"
+            and runtimeState.healthFailingSince == nil,
+        "a native-health failure that persists past the grace window removes the actor")
+    local recovering = { healthFailingSince = 500 }
+    recovering.healthFailingSince = nil
+    check(decide(recovering, 3000, 1500) == "defer"
+            and recovering.healthFailingSince == 3000,
+        "a cleared failure marker restarts the tolerance window on the next dip")
+end
+
 print("RUNTIME_TRANSACTION_KAHLUA_PASS checks=" .. tostring(checks))

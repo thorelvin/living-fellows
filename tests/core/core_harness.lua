@@ -179,6 +179,7 @@ function actor:setCompanionTacticalMovement(enabled, strafeX, strafeY)
     return true
 end
 function actor:setReading(value) self.reading = value == true end
+function actor:resetModelNextFrame() self.modelResetCount = (self.modelResetCount or 0) + 1 end
 function actor:faceThisObject(value)
     if value and value.getX and value.getY then return self:faceLocationF(value:getX(), value:getY()) end
     return false
@@ -1224,6 +1225,35 @@ check(readOk and string.find(readReason, "visual_timed_action_started", 1, true)
     "reading uses the exact CharacterActionAnims enum and vanilla ReadType state")
 check(SC.NativeActions.cancelVisual(actor, "test_visual_complete"),
     "reading visual fixture cancels cleanly")
+do
+    -- A visual timed action that is INTERRUPTED (dropped from the queue without a
+    -- completed/stopped flag) must not linger as a phantom native owner. Before,
+    -- activityStatus kept returning "interrupted", which made the urgent-decision
+    -- path re-queue forever ("Urgent already queued") and blocked urgent dispatch,
+    -- freezing companions in the kneel/rip pose they never left. activityStatus now
+    -- self-heals the dead visual and reports the true state, resetting the pose.
+    ISTimedActionQueue.queues[actor] = nil
+    actor.modelResetCount = 0
+    local startedInterrupt = SC.Actor.setMovement(actor, "walk", {
+        action = "read", item = { getReadType = function() return "book" end },
+    })
+    check(startedInterrupt and SC.NativeActions.visualStatus(actor) == "active",
+        "interrupted-visual fixture starts an active reading animation")
+    local interruptQueue = ISTimedActionQueue.getTimedActionQueue(actor)
+    if interruptQueue.current and interruptQueue.current.forceStop then
+        interruptQueue.current:forceStop()
+    end
+    interruptQueue.queue = {}
+    interruptQueue.current = nil
+    check(SC.NativeActions.visualStatus(actor) == "interrupted",
+        "a visual dropped from the queue with no completion flag reads as interrupted")
+    local healedPhase = SC.NativeActions.activityStatus(actor)
+    check(healedPhase == "none"
+            and SC.NativeActions.visualStatus(actor) == "none"
+            and actor.modelResetCount >= 1,
+        "activityStatus self-heals a dead interrupted visual and resets the kneel/read pose")
+end
+ISTimedActionQueue.queues[actor] = nil
 local barricadeOk, barricadeReason = SC.Actor.setMovement(actor, "walk", {
     action = "barricade", object = barricadeObject,
 })

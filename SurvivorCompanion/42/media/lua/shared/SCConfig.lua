@@ -61,6 +61,7 @@ local valueData = {
     actionWaitingTimeoutMs = 15000,
     actionRecoveryTimeoutMs = 15000,
     actionPoseMaximumDisplacement = 0.25,
+    runtimeHealthGraceMs = 1500,
 
     movementIntervalMs = 100,
     combatDecisionIntervalMs = 125,

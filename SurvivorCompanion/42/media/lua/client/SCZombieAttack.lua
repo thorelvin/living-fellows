@@ -314,11 +314,14 @@ function ZombieAttack.resolve(actor, current, zombies)
         -- values continuous vision itself keeps -- exactly what "keep seeing this
         -- flesh" means -- without touching AI, damage or decisions.
         if U().distance(zombie, actor) <= holdRadius then
-            pcall(function()
-                zombie.timeSinceSeenFlesh = 0
-                local floor = config("zombieTargetMemoryFrames", 200)
-                if (tonumber(zombie.memory) or -1) < floor then zombie.memory = floor end
-            end)
+            -- Refresh the zombie's "recently seen target" clock so it commits to a
+            -- swing. Stock continuous vision only refreshes this against the local
+            -- players[] array, so a non-local companion's target-seen time runs out
+            -- and the zombie approaches without ever attacking. Drive the native
+            -- setter: a raw Java-field write (zombie.timeSinceSeenFlesh = 0) throws
+            -- "attempted index of non-table" every frame in this Kahlua build, so the
+            -- old refresh never actually landed and zombies never bit companions.
+            U().call(zombie, "setTargetSeenTime", 0)
         end
         if not isLandingAttack(zombie, actor) then return end
         landed = landed + 1

@@ -503,6 +503,11 @@ local function zombie(x, y, options)
     function value:isProne() return self.onFloor end
     function value:isAttacking() return settings.attacking == true end
     function value:getTarget() return self.target end
+    function value:setTargetSeenTime(seconds)
+        self.targetSeenTimeSet = seconds
+        self.targetSeenCalls = (self.targetSeenCalls or 0) + 1
+    end
+    function value:getSurroundingAttackingZombies() return 0 end
     function value:isUseless() return false end
     function value:spotted(target, forced)
         self.spottedCalls = (self.spottedCalls or 0) + 1
@@ -697,6 +702,21 @@ local zed = zombie(1, 0, { attacking = true, target = fellow })
 
 local defaultsChanged = pcall(function() SurvivorCompanion.GameplayUtil.Defaults.perceptionRadius = 999 end)
 check(not defaultsChanged, "gameplay defaults must be immutable")
+
+do
+    -- A zombie that already targets a non-local companion, standing within hold
+    -- radius but outside grab reach, must have its "recently seen" clock refreshed
+    -- through the native setTargetSeenTime setter so it commits to a swing. The old
+    -- code wrote zombie.timeSinceSeenFlesh directly, which throws in Kahlua and never
+    -- landed, so zombies approached companions without ever attacking.
+    local seenRefreshZombie = zombie(2, 0, { target = fellow })
+    local resolveOk = pcall(SurvivorCompanion.ZombieAttack.resolve, fellow, 100000, { seenRefreshZombie })
+    check(resolveOk
+            and seenRefreshZombie.targetSeenCalls == 1
+            and seenRefreshZombie.targetSeenTimeSet == 0,
+        "incoming-attack resolve refreshes a targeting zombie's seen-time via the native setter")
+    seenRefreshZombie.dead = true
+end
 
 do
     local explicitNilCount = -1
@@ -1222,6 +1242,29 @@ check(SurvivorCompanion.Navigation.request(
 SurvivorCompanion.Config.values.navigationActorStateGraceMs = nil
 SurvivorCompanion.Navigation.reset(wallStateActor)
 registry[wallStateActor.id] = nil
+end
+
+do
+local climbStateActor = actor("sc-climb-state-blocker", -7, -1, {})
+registry[climbStateActor.id] = climbStateActor
+climbStateActor.climbing = true
+SurvivorCompanion.Config.values.navigationActorStateGraceMs = 100
+SurvivorCompanion.Config.values.navigationActorStateTimeoutMs = 100
+check(SurvivorCompanion.Navigation.request(
+        climbStateActor, cell:getGridSquare(-5, -1, 0), "walk", {})
+        and SurvivorCompanion.Navigation.peek(climbStateActor).lastBlocker.actorState
+            == "climbing",
+    "a fresh climb animation waits through its native grace period")
+clock = clock + 2001
+check(SurvivorCompanion.Navigation.request(
+        climbStateActor, cell:getGridSquare(-5, -1, 0), "walk", {})
+        and SurvivorCompanion.Navigation.peek(climbStateActor).lastBlocker.recoveryResult
+            == "cancelled_stuck_climb",
+    "a companion stuck climbing past the timeout cancels and reroutes instead of freezing for minutes")
+SurvivorCompanion.Config.values.navigationActorStateGraceMs = nil
+SurvivorCompanion.Config.values.navigationActorStateTimeoutMs = nil
+SurvivorCompanion.Navigation.reset(climbStateActor)
+registry[climbStateActor.id] = nil
 end
 
 do
@@ -5242,6 +5285,26 @@ local griefAnswer = SurvivorCompanion.Relationship.respond(
 check(type(griefAnswer) == "string"
     and string.find(griefAnswer, "Glenn Rhee", 1, true),
     "How are you reports the active named grief instead of a generic good mood")
+do
+    -- A companion that has accumulated many relationship memories must still produce
+    -- a roster summary. The old summary copied the whole memories array, nested past
+    -- the summary depth budget, so it threw "stable value limit exceeded" on every UI
+    -- refresh once ~13 memories built up -- breaking that companion's roster entry.
+    local memoryHeavy = SurvivorCompanion.Commands.peek(closeFriend)
+    memoryHeavy.memories = type(memoryHeavy.memories) == "table" and memoryHeavy.memories or {}
+    for index = 1, 20 do
+        memoryHeavy.memories[#memoryHeavy.memories + 1] = {
+            kind = "event", impact = index, subjectName = "friend-" .. index,
+            text = "shared moment " .. index,
+        }
+    end
+    local expectedCount = #memoryHeavy.memories
+    local describedOk, memoryRich = pcall(SurvivorCompanion.Commands.describe, closeFriend.id, player)
+    check(describedOk and type(memoryRich) == "table"
+            and memoryRich.memoryCount == expectedCount
+            and memoryRich.memories == nil,
+        "a companion with many memories still yields a valid roster summary via a bounded memory count")
+end
 local griefCount = #Community.mindFor(closeFriend).grief
 local duplicateDeath, duplicateReason = Community.noteCompanionDeath({
     id = lost.id, actor = lost, recruited = true,

@@ -2009,7 +2009,14 @@ function actions.activityStatus(actor)
     elseif visualState == "completed" then
         return "result_pending", "visual", visualName, visualAt
     elseif visualState ~= "none" then
-        return "interrupted", "visual", visualName, visualAt
+        -- A stopped/interrupted visual is a DEAD owned action, not a live owner.
+        -- Left in place it kept reporting as an active native activity, so the
+        -- urgent-decision path re-queued forever (SCDecision "urgent_queued") and
+        -- the supervisor's urgent dispatch stayed blocked -- freezing the companion
+        -- in the interrupted kneel/rip pose it never left. Clear it (cancelVisual
+        -- also resets the model pose and reading flag) and fall through to report
+        -- the true current state instead of a phantom owner.
+        actions.cancelVisual(actor, "visual_" .. tostring(visualState))
     end
 
     local needs = activeNeeds[actor]

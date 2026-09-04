@@ -2546,15 +2546,30 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         local timeout = math.max(grace,
             utility.config("navigationActorStateTimeoutMs") or 12000)
         local recovery = "waiting_for_native_animation"
-        if actorState == "wall_collision_state" and elapsed >= grace
+        local activelyRecovered = false
+        -- A native locomotion state that outlives its edge otherwise loops
+        -- waiting_for_native_animation -> actor_state_timeout forever:
+        -- CollideWithWallState survives after its failed edge was discarded, and a
+        -- non-local companion teleported mid-climb never finishes the climb, so
+        -- isClimbing() stays true and it stands frozen at the obstacle (seen in
+        -- playtests as a companion stuck for minutes after teleporting to follow).
+        -- Cancel the stale movement owner and force a repath. Wall collisions clear
+        -- quickly (short grace); a genuine fence/wall climb is longer, so only
+        -- intervene for "climbing" after the full timeout, and blacklist the
+        -- unfinished climb edge (temporary) so the repath routes around it instead
+        -- of re-queuing the same stuck climb.
+        local stuckThreshold = actorState == "climbing" and timeout or grace
+        if (actorState == "wall_collision_state" or actorState == "climbing")
+            and elapsed >= stuckThreshold
             and now >= (state.nextActorStateRecoveryAt or 0) then
-            -- CollideWithWallState can survive after its failed edge has been
-            -- discarded. Cancel the stale movement owner once, then give the
-            -- vanilla state machine time to return to ordinary player control.
             if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
                 pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
             else
                 utility.stop(actor)
+            end
+            if actorState == "climbing" and actorSquare and state.lastAttemptTo then
+                blacklistEdge(state, actorSquare, state.lastAttemptTo,
+                    "actor_state", nil, now, false)
             end
             state.path = nil
             state.pathGoalSquare = nil
@@ -2562,7 +2577,9 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
             state.pathIndex = 1
             state.nextRepathAt = 0
             state.nextActorStateRecoveryAt = now + grace
-            recovery = "cancelled_stale_wall_collision"
+            activelyRecovered = true
+            recovery = actorState == "climbing" and "cancelled_stuck_climb"
+                or "cancelled_stale_wall_collision"
         elseif elapsed >= timeout then
             recovery = "actor_state_timeout"
         end
@@ -2571,7 +2588,7 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
                 actorState, recovery, now)
             state.nextActorStateDiagnosticAt = now + 2000
         end
-        if elapsed >= timeout then
+        if elapsed >= timeout and not activelyRecovered then
             return true, false, "actor_state_timeout:" .. tostring(actorState)
         end
         return true, true, "waiting_" .. tostring(actorState)

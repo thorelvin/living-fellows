@@ -236,6 +236,27 @@ local function decisionTask(current)
     end
 end
 
+-- Decide whether an unhealthy native companion should be removed now or tolerated
+-- for a bounded settling window. Native validity dips transiently (notably in the
+-- frames after a teleport-recovery re-seats the actor), and removing on the first
+-- failed check deleted a follower that would have recovered. Returns "defer" until
+-- the failure persists past the grace window, then "remove". Pure aside from the
+-- runtime.healthFailingSince bookkeeping so it can be unit-tested directly.
+local function healthGateDecision(runtimeState, current, grace)
+    grace = tonumber(grace) or 1500
+    local firstFailAt = runtimeState.healthFailingSince
+    if firstFailAt == nil then
+        runtimeState.healthFailingSince = current
+        return "defer"
+    end
+    if current - firstFailAt < grace then
+        return "defer"
+    end
+    runtimeState.healthFailingSince = nil
+    return "remove"
+end
+runtime._healthGateDecisionForTests = healthGateDecision
+
 local function vitalsTask(current)
     local record
     record, vitalsCursor = nextRecord(vitalsCursor)
@@ -373,7 +394,22 @@ local function vitalsTask(current)
     elseif healthy then
         record.runtime.nativeSquareMissingAt = nil
     end
+    if healthy then
+        record.runtime.healthFailingSince = nil
+    end
     if not healthy then
+        -- A genuinely dead actor is already retired by the death path above; here
+        -- native validity has merely dipped, which happens transiently (notably in
+        -- the handful of frames after a teleport-recovery re-seats the actor on a
+        -- fresh square). Removing on the first failed check deleted a follower that
+        -- would have settled a moment later (playtest: "teleported to me, then a
+        -- health-check despawned her, body never came back"). Tolerate a bounded
+        -- window so only a persistently broken actor is torn down.
+        local grace = (SC.Config and type(SC.Config.get) == "function"
+            and tonumber(SC.Config.get("runtimeHealthGraceMs"))) or 1500
+        if healthGateDecision(record.runtime, current, grace) ~= "remove" then
+            return
+        end
         SC.Diagnostics.report("actor-provider", record.id,
             "native companion failed its runtime health gate", healthReason)
         local debugDescription = SC.Spawn ~= nil
