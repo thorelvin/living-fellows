@@ -2280,6 +2280,11 @@ end
 -- drift than a static goal so a following companion turns with the leader.
 Navigation._goalResetDistanceForTests = goalResetDistance
 
+-- Test seam (occupied-goal handling, review 3.2): static traversability and dynamic
+-- occupancy are separate -- a mover adds crowd cost (and none when the goal is
+-- allowed to be occupied), while a static blocker is always impassable.
+Navigation._passableEdgeForTests = passableEdge
+
 local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGoal,
         now, reason, multiGoal, movingTarget)
     local list = nativeTargets(targets)

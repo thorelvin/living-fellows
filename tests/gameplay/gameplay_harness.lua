@@ -1191,6 +1191,46 @@ clock = nearestStartClock
 end
 
 do
+-- review 3.2: occupancy is a cost, not a hard rejection. Static traversability
+-- (a solid/blocked square) and dynamic occupancy (a mover standing on the square)
+-- are separate concerns: a mover-occupied goal the search allows is reachable,
+-- while a statically blocked square is never traversable.
+local passableEdge = SurvivorCompanion.Navigation._passableEdgeForTests
+local fromSquare = cell:getGridSquare(45, 12, 0)
+local openGoal = cell:getGridSquare(46, 12, 0)
+local occupiedGoal = cell:getGridSquare(45, 13, 0)
+local blockedGoal = cell:getGridSquare(44, 12, 0)
+local mover = actor("sc-occupied-goal-mover", 45, 12, {})
+local occupant = actor("sc-occupied-goal-occupant", 45, 13, {})
+occupiedGoal.moving = { occupant }
+blockedGoal.solid = true
+local crowdPenalty = SurvivorCompanion.Config.values.navigationCrowdPenalty or 9
+
+local openPassable, openCost = passableEdge(fromSquare, openGoal, 1, { actor = mover })
+check(openPassable and openCost < crowdPenalty,
+    "an unobstructed adjacent edge is cheaply passable")
+
+local crowdPassable, crowdCost = passableEdge(fromSquare, occupiedGoal, 1, { actor = mover })
+check(crowdPassable and crowdCost >= crowdPenalty,
+    "a mover on the square adds crowd cost rather than blocking the edge")
+
+local goalPassable, goalCost = passableEdge(fromSquare, occupiedGoal, 1,
+    { actor = mover, allowOccupiedGoal = true })
+check(goalPassable and goalCost < crowdCost,
+    "an occupied goal the search allows is passable with no crowd penalty -- occupied goals stay reachable")
+
+local blockedPassable = passableEdge(fromSquare, blockedGoal, 1,
+    { actor = mover, allowOccupiedGoal = true })
+check(not blockedPassable,
+    "a statically blocked square stays impassable even when the goal is allowed to be occupied")
+
+occupiedGoal.moving = {}
+blockedGoal.solid = nil
+registry[mover.id] = nil
+registry[occupant.id] = nil
+end
+
+do
 local driftingGoalActor = actor("sc-drifting-goal", -8, 8, {})
 registry[driftingGoalActor.id] = driftingGoalActor
 for targetX = -5, -2 do
