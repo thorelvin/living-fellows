@@ -690,6 +690,21 @@ function persistence.captureRecord(record, vehicleState)
                 and order.workTarget.kind or "barricade",
         }
     end
+    -- The guard/stay post lives in the actor's SC_Anchor* mod-data (kept current by
+    -- the command writeStable), separate from the actor's current world position.
+    -- Persist it as order.anchor so a reloaded guard returns to its post rather than
+    -- to wherever it happened to be standing when saved (R2-03).
+    local orderAnchor
+    local anchorDataOk, anchorData = invoke(actor, "getModData")
+    if anchorDataOk and type(anchorData) == "table"
+        and finite(anchorData.SC_AnchorX, nil) ~= nil
+        and finite(anchorData.SC_AnchorY, nil) ~= nil then
+        orderAnchor = {
+            x = finite(anchorData.SC_AnchorX, 0),
+            y = finite(anchorData.SC_AnchorY, 0),
+            z = finite(anchorData.SC_AnchorZ, 0),
+        }
+    end
     local profile, copyReason = stableCopy(personality.profile, 3, 64,
         "$.personality.profile")
     if copyReason ~= nil then return nil, copyReason end
@@ -730,6 +745,7 @@ function persistence.captureRecord(record, vehicleState)
         order = {
             current = text(order.current, SC.Config.get("defaultOrder"), 32),
             followDistance = finite(order.followDistance, SC.Config.get("defaultFollowDistance")),
+            anchor = orderAnchor,
             scavenge = order.scavenge ~= false,
             allowOverload = order.allowOverload == true,
             rideWithPlayer = order.rideWithPlayer ~= false,

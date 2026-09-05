@@ -696,4 +696,30 @@ check(workRecord ~= nil and workRecord.order == "work"
 SC.Registry.unregister(workActor)
 end
 
+do
+-- R2-03: the guard/stay post (anchor) is a distinct fact from the actor position
+-- and must survive restore. A freshly restored actor has no SC_Anchor* mod-data, so
+-- the anchor is reconstructed from the saved order and re-mirrored on restore.
+local guardActor = makeActor(square)
+local guardRecord = SC.Registry.register(guardActor, {
+    id = "sc-guard-anchor", recruited = true,
+    identity = { forename = "Iris", surname = "Kane", gender = "female" },
+    state = { order = { current = "guard", anchor = { x = 42, y = 17, z = 0 } } },
+})
+check(guardRecord ~= nil and type(guardRecord.state.order.anchor) == "table"
+        and guardRecord.state.order.anchor.x == 42 and guardRecord.state.order.anchor.y == 17,
+    "the registry preserves the guard anchor through normalization")
+check(SC.Commands.restore(guardActor, guardRecord), "guard command state restores")
+local guardCommand = SC.Commands.peek(guardActor)
+check(type(guardCommand.anchor) == "table" and guardCommand.anchor.x == 42
+        and guardCommand.anchor.y == 17,
+    "restore reconstructs the guard post from the saved anchor, not the actor's current position")
+-- Round-trip: capture reads the anchor back from the mod-data writeStable mirrored.
+local capturedGuard = SC.Persistence.captureRecord(guardRecord)
+check(capturedGuard ~= nil and type(capturedGuard.order.anchor) == "table"
+        and capturedGuard.order.anchor.x == 42 and capturedGuard.order.anchor.y == 17,
+    "save capture stores the guard anchor from the actor's mod-data: " .. tostring(capturedGuard))
+SC.Registry.unregister(guardActor)
+end
+
 print("CHARACTER_DEPTH_PERSISTENCE_PASS checks=" .. tostring(checks))

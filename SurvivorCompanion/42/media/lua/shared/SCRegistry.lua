@@ -227,6 +227,17 @@ local function defaultState(source, recruited)
         }
     end
     if workMode == "build" and workTarget == nil then workMode = "auto" end
+    -- The guard/stay post is a distinct fact from the actor's current position, so
+    -- carry the saved order anchor through normalization (R2-03).
+    local anchor
+    if type(order.anchor) == "table" and finite(tonumber(order.anchor.x))
+        and finite(tonumber(order.anchor.y)) then
+        anchor = {
+            x = boundedNumber(order.anchor.x, 0, -1000000, 1000000, false),
+            y = boundedNumber(order.anchor.y, 0, -1000000, 1000000, false),
+            z = boundedNumber(order.anchor.z, 0, -128, 128, false),
+        }
+    end
     local defaultOrder = recruited == true
         and SC.Config.get("orders", "defaultOrder") or "wander"
     local defaultScavenge = recruited == true
@@ -278,6 +289,7 @@ local function defaultState(source, recruited)
             current = currentOrder,
             followDistance = followDistance,
             allowOverload = order.allowOverload == true,
+            anchor = anchor,
             scavenge = order.scavenge == nil and defaultScavenge or order.scavenge == true,
             rideWithPlayer = order.rideWithPlayer == nil
                 and SC.Config.get("defaultRideWithPlayer") ~= false

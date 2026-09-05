@@ -287,6 +287,14 @@ local function snapshotState(actor, entry)
     local anchorX = valueFrom(data, { "SC_AnchorX" }, nil)
     local anchorY = valueFrom(data, { "SC_AnchorY" }, nil)
     local anchorZ = valueFrom(data, { "SC_AnchorZ" }, nil)
+    if type(anchorX) ~= "number" or type(anchorY) ~= "number" then
+        -- Restore path: a freshly created actor has no SC_Anchor* mod-data yet, so
+        -- fall back to the saved order anchor before defaulting to no post (R2-03).
+        local savedAnchor = type(persistedOrder.anchor) == "table" and persistedOrder.anchor or nil
+        if savedAnchor and type(savedAnchor.x) == "number" and type(savedAnchor.y) == "number" then
+            anchorX, anchorY, anchorZ = savedAnchor.x, savedAnchor.y, savedAnchor.z
+        end
+    end
     if type(anchorX) == "number" and type(anchorY) == "number" then
         state.anchor = { x = anchorX, y = anchorY, z = anchorZ or 0 }
     end
