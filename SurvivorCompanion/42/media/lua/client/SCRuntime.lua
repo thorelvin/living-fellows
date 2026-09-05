@@ -41,6 +41,7 @@ local restoreCommitted = false
 local startupFailureReason = "runtime has not started"
 local teardownPending = false
 local decisionCursor = 1
+local criticalCursor = 1
 local vitalsCursor = 1
 local lastPlayerVehicle = nil
 local originalSelectContainer = nil
@@ -290,12 +291,20 @@ local function decisionTask(current, budgetRemaining)
     end
     local serviced = {}
 
+    -- Critical lane, serviced from a rotating cursor (LF-03). Scanning from a fixed
+    -- prefix every callback let a permanently-critical actor early in the id order
+    -- consume the per-callback cap (or frame budget) and starve later critical
+    -- actors forever. The cursor resumes where the previous callback stopped, so
+    -- critical service rotates fairly across the whole set; each critical actor is
+    -- reached within one rotation regardless of where the cap or budget cut off.
     local criticalCap = tonumber(SC.Config.get("decisionCriticalPerTick")) or 6
     local criticalInterval = tonumber(SC.Config.get("decisionCriticalIntervalMs")) or 50
     local criticalDone = 0
-    for index = 1, total do
-        if criticalDone >= criticalCap or overBudget() then break end
-        local record = records[index]
+    local criticalScanned = 0
+    while criticalDone < criticalCap and criticalScanned < total and not overBudget() do
+        local record
+        record, criticalCursor = nextRecord(criticalCursor)
+        criticalScanned = criticalScanned + 1
         if recordServiceable(record) and recordIsCritical(record)
             and SC.Scheduler.dueFor(record.id, "decision-critical", criticalInterval, current) then
             serviceRecord(record, current, currentPlayer)

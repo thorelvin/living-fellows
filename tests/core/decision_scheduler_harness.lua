@@ -211,5 +211,39 @@ do
         "a roster with a missing id, an inactive, and a dying record services only the valid actors without crashing")
 end
 
+-- Scenario 7 (LF-03): the critical lane rotates so a permanently-critical actor
+-- early in id order cannot starve later ones. With more critical actors than the
+-- per-callback cap and the ordinary lane disabled (so it cannot mask the critical
+-- rotation), successive callbacks must still cover every critical actor -- a
+-- fixed-prefix scan would service only the first six forever.
+do
+    SC.Scheduler.reset(true)
+    services = {}
+    grabbed = {}
+    records = {}
+    for index = 1, 10 do
+        records[index] = makeRecord(index)
+        grabbed[records[index].actor] = true
+    end
+    local realGet = SC.Config.get
+    SC.Config.get = function(section, key)
+        if section == "decisionOrdinaryPerTick" then return 0 end
+        return realGet(section, key)
+    end
+    local base = prime(1400000)
+    services = {}
+    for step = 0, 3 do
+        decisionTask(base + step * 60, 1000000)
+    end
+    SC.Config.get = realGet
+    local covered = 0
+    for index = 1, 10 do
+        if (services[records[index].id] or 0) >= 1 then covered = covered + 1 end
+    end
+    check(covered == 10,
+        "the critical lane rotates so every critical actor is serviced across callbacks (no fixed-prefix starvation)")
+end
+
 print("DECISION_SCHEDULER_PASS checks=" .. tostring(checks)
-    .. " multi-actor=true critical-lane=true starvation-capped=true schedule-repair=pulsed hardened=true")
+    .. " multi-actor=true critical-lane=true starvation-capped=true schedule-repair=pulsed"
+    .. " hardened=true critical-fairness=rotating")
