@@ -1900,6 +1900,41 @@ function persistence.quarantineSnapshot()
     return result
 end
 
+-- Recoverable retirement (LF-01): before the runtime health gate tears down a
+-- still-living recruit whose native instance has failed validation past the grace
+-- window, durably preserve the companion so a successful native removal cannot
+-- silently delete it. A fresh capture is preferred; if the actor is already too
+-- broken to capture, fall back to the last verified snapshot taken while it was
+-- healthy. With neither available this refuses, so the caller blocks the
+-- destructive step rather than reporting a false recovery. The preserved record is
+-- placed in the restore-pending queue: the next save keeps it and restorePulse
+-- re-spawns it once its square loads and the provider is ready (with the normal
+-- attempt/backoff/quarantine ceiling preventing a respawn loop).
+function persistence.retainForRecovery(record)
+    if type(record) ~= "table" or not SC.Registry.isValidId(record.id) then
+        return false, "valid_record_required"
+    end
+    local id = record.id
+    local document = select(1, persistence.captureRecord(record))
+    if type(document) ~= "table" then
+        local snapshot = type(record.runtime) == "table" and record.runtime.lastStableSnapshot or nil
+        if type(snapshot) == "table" then document = snapshot end
+    end
+    if type(document) ~= "table" then return false, "no_recoverable_snapshot" end
+    local clean, cleanReason = validateRecord(id, document)
+    if clean == nil then return false, cleanReason or "unrecoverable_snapshot" end
+    local bucket = type(clean.factionId) == "string" and "factionActors" or "companions"
+    if pending[id] == nil then pendingOrder[#pendingOrder + 1] = id end
+    pending[id] = {
+        record = clean, raw = document, bucket = bucket,
+        nextAt = 0, attempts = 0, status = "pending",
+        vehicle = clean.vehicle ~= nil, recovered = true,
+    }
+    SC.Diagnostics.report("persistence", id,
+        "recruit retained for recovery after health-gate retirement", cleanReason)
+    return true, "retained"
+end
+
 function persistence.retry(id)
     if type(id) ~= "string" then return false, "companion id is required" end
     local entry = pending[id]

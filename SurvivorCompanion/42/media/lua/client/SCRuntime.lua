@@ -492,10 +492,43 @@ local function vitalsTask(current)
         -- would have settled a moment later (playtest: "teleported to me, then a
         -- health-check despawned her, body never came back"). Tolerate a bounded
         -- window so only a persistently broken actor is torn down.
+        -- Snapshot a recruited/faction companion on the first failed check, while
+        -- it is still mostly intact, so a later retirement can recover it even if
+        -- the native instance degrades further before the grace window elapses.
+        local recruitState = commandState(record)
+        local recoverable = recruitState.recruited == true
+            or (SC.Factions and type(SC.Factions.isFactionRecord) == "function"
+                and SC.Factions.isFactionRecord(record) == true)
+        if recoverable and record.runtime.healthFailingSince == nil
+            and SC.Persistence and type(SC.Persistence.captureRecord) == "function" then
+            local okCapture, snapshot = pcall(SC.Persistence.captureRecord, record)
+            if okCapture and type(snapshot) == "table" then
+                record.runtime.lastStableSnapshot = snapshot
+            end
+        end
         local grace = (SC.Config and type(SC.Config.get) == "function"
             and tonumber(SC.Config.get("runtimeHealthGraceMs"))) or 1500
         if healthGateDecision(record.runtime, current, grace) ~= "remove" then
             return
+        end
+        -- Recoverable retirement (LF-01): a still-living recruit must never be
+        -- silently deleted. Preserve it into the persistence recovery queue before
+        -- native cleanup; if it cannot be preserved (no capture and no prior
+        -- snapshot), keep it registered and retry rather than destroying it.
+        if recoverable then
+            local retained, retainReason = false, nil
+            if SC.Persistence and type(SC.Persistence.retainForRecovery) == "function" then
+                local okRetain, ok, reason = pcall(SC.Persistence.retainForRecovery, record)
+                retained = okRetain and ok == true
+                retainReason = okRetain and reason or ok
+            end
+            if not retained then
+                SC.Diagnostics.report("actor-provider", record.id,
+                    "recoverable retirement blocked; recruit kept to avoid permanent loss",
+                    retainReason)
+                record.runtime.healthFailingSince = nil
+                return
+            end
         end
         SC.Diagnostics.report("actor-provider", record.id,
             "native companion failed its runtime health gate", healthReason)

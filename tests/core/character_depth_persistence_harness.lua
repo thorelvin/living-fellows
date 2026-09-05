@@ -404,6 +404,34 @@ check(captured.possessions.keepsake.status == "carried"
     and type(captured.possessions.keepsake.nestedCarried) == "table"
     and captured.possessions.keepsake.nestedCarried.personal.key == initialKeepsakeKey,
     "save capture stores one narrow nested-carried keepsake snapshot")
+
+do
+-- LF-01: recoverable retirement. A still-living recruit whose native instance
+-- fails the health gate must be preserved into the restore-pending queue (kept by
+-- the next save, re-spawned by restorePulse) rather than silently deleted.
+local retained, retainReason = SC.Persistence.retainForRecovery(record)
+check(retained == true and type(SC.Persistence.pendingSnapshot()[record.id]) == "table",
+    "a capturable recruit is retained for recovery in the restore-pending set: " .. tostring(retainReason))
+
+-- Fallback: an actor too broken to capture is recovered from its last verified
+-- snapshot instead. Reuse the known-good captured document under a fresh id.
+local snapshotDoc = {}
+for key, value in pairs(captured) do snapshotDoc[key] = value end
+snapshotDoc.id = "sc-recovery-snapshot"
+local snapRetained = SC.Persistence.retainForRecovery(
+    { id = "sc-recovery-snapshot", recruited = true,
+        runtime = { lastStableSnapshot = snapshotDoc } })
+check(snapRetained == true
+        and type(SC.Persistence.pendingSnapshot()["sc-recovery-snapshot"]) == "table",
+    "an uncapturable recruit is recovered from its last verified snapshot")
+
+-- Refusal: with neither a capture nor a snapshot, recovery refuses so the caller
+-- blocks the destructive removal instead of losing the companion.
+local bareRetained, bareReason = SC.Persistence.retainForRecovery(
+    { id = "sc-recovery-none", recruited = true, runtime = {} })
+check(bareRetained == false and bareReason == "no_recoverable_snapshot",
+    "with no capture and no snapshot, recovery refuses so the caller blocks deletion")
+end
 check(captured.inventory.schema == 2 and captured.inventory.complete == true
     and captured.inventory.count == 7
     and captured.inventory.equipment.primary ~= nil
