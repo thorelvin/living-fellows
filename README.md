@@ -1,7 +1,7 @@
 <!-- SPDX-License-Identifier: MIT -->
 
 <p align="center">
-  <img src="assets/banner.png" width="100%" alt="Living Fellows survivors protecting and treating one another in the rain">
+  <img src="assets/banner.png" width="100%" alt="Living Fellows — a group of armed survivors moving together down a dusk street as zombies approach">
 </p>
 
 # Living Fellows

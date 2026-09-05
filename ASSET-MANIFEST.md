@@ -42,12 +42,12 @@ Variant 02 was selected because it best matches the intended isometric geometry,
 
 ## Selected source and derivatives
 
-The source was resized with nearest-neighbor sampling only, and the README banner is a rectangular crop of the selected source. No sharpening, repainting, compositing, color adjustment, or reference image was used.
+The poster and preview derivatives were resized from the selected source with nearest-neighbor sampling only; no sharpening, repainting, compositing, color adjustment, or reference image was used on them. The README banner is a separate wide title-card image supplied for the project (a dusk isometric street scene of the survivor group), replacing the earlier crop of the selected source.
 
 | Purpose | Path | Dimensions | SHA-256 |
 | --- | --- | --- | --- |
 | Selected source | `assets/poster-selected-source.png` | 1254×1254 RGB | `c8589795be5607409b46fde9469e635ca5835c28be108cd67bf8011d0f0b24fb` |
-| README banner | `assets/banner.png` | 1254×800 RGB | `9d1f7cd2e74a7f5424f49cdd6cf764ef4b596c33fddbd00d6b829184c9732a9f` |
+| README banner | `assets/banner.png` | 2172×724 RGB | `09dfb2b08aa8b89b9f13ffed821166ba33f6847db25655d5463bd42c99bd23e1` |
 | Workshop image | `assets/preview-512.png` | 512×512 RGB | `4733a0c1a6d1253516e691b07ee4252332abd418bd413d3e2eacc640e1fabdba` |
 | Mod poster | `assets/poster-256.png` | 256×256 RGB | `394943ab5257d57cfe72e11fd0a2e5266173160cc9dcac892bbf96acc194faec` |
 | Workshop preview | `Workshop/preview.png` | 512×512 RGB | `4733a0c1a6d1253516e691b07ee4252332abd418bd413d3e2eacc640e1fabdba` |
