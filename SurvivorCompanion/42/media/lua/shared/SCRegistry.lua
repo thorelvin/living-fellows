@@ -33,8 +33,13 @@ local function migratedDoctrine(order)
     return "close_defense"
 end
 
+-- Every durable order the command layer can assign. base_duty, work and
+-- faction_duty are real orders (SCCommands sets them), so the normalizer must
+-- preserve them across restore instead of silently collapsing them to the default
+-- (R2-01). A work order keeps its validated workTarget; if that target is no
+-- longer valid the work system transitions it to its returnOrder at runtime.
 local orders = { follow = true, stay = true, guard = true, regroup = true,
-    retreat = true, wander = true }
+    retreat = true, wander = true, base_duty = true, work = true, faction_duty = true }
 local combatStances = { passive = true, defensive = true, aggressive = true }
 local weaponPriorities = { best = true, melee = true, firearm = true, quiet = true }
 local followDistances = { [2] = true, [3] = true, [5] = true, [8] = true }
@@ -272,6 +277,7 @@ local function defaultState(source, recruited)
         order = {
             current = currentOrder,
             followDistance = followDistance,
+            allowOverload = order.allowOverload == true,
             scavenge = order.scavenge == nil and defaultScavenge or order.scavenge == true,
             rideWithPlayer = order.rideWithPlayer == nil
                 and SC.Config.get("defaultRideWithPlayer") ~= false
@@ -377,6 +383,7 @@ function registry.register(actor, record)
         -- persistence reads the canonical nested state transactionally.
         order = state.order.current,
         followDistance = state.order.followDistance,
+        allowOverload = state.order.allowOverload,
         scavenge = state.order.scavenge,
         rideWithPlayer = state.order.rideWithPlayer,
         moveMode = state.order.movementMode,

@@ -641,4 +641,36 @@ check(completedRestore ~= nil and completedRecord.id == captured.id
     and SC.Registry.byId(captured.id).actor == completedRestore,
     "persistence finalizes a deferred native actor through the normal restore transaction")
 
+do
+-- R2-01: durable orders (base_duty/work/faction_duty) and the overload permission
+-- must survive the restore normalizer instead of collapsing to the default order.
+local dutyActor = makeActor(square)
+local dutyRecord = SC.Registry.register(dutyActor, {
+    id = "sc-duty-restore", recruited = true,
+    identity = { forename = "Dana", surname = "Ward", gender = "female" },
+    state = { order = { current = "base_duty", allowOverload = true,
+        returnOrder = "base_duty", workMode = "auto" } },
+})
+check(dutyRecord ~= nil and dutyRecord.order == "base_duty"
+        and dutyRecord.allowOverload == true and dutyRecord.returnOrder == "base_duty",
+    "the registry preserves base_duty, its return order, and the overload permission through normalization")
+check(SC.Commands.restore(dutyActor, dutyRecord), "a base_duty command state restores")
+local dutyCommand = SC.Commands.peek(dutyActor)
+check(dutyCommand.order == "base_duty" and dutyCommand.allowOverload == true,
+    "restored command state keeps base_duty and allowOverload instead of defaulting to follow")
+SC.Registry.unregister(dutyActor)
+
+local workActor = makeActor(square)
+local workRecord = SC.Registry.register(workActor, {
+    id = "sc-work-restore", recruited = true,
+    identity = { forename = "Eli", surname = "Vance", gender = "male" },
+    state = { order = { current = "work", allowOverload = false, returnOrder = "guard",
+        workMode = "auto" } },
+})
+check(workRecord ~= nil and workRecord.order == "work"
+        and workRecord.allowOverload == false and workRecord.returnOrder == "guard",
+    "the registry preserves a work order, its guard return order, and overload=false")
+SC.Registry.unregister(workActor)
+end
+
 print("CHARACTER_DEPTH_PERSISTENCE_PASS checks=" .. tostring(checks))
