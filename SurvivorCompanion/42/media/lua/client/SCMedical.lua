@@ -192,22 +192,51 @@ local function bandageRank(item)
     return 5
 end
 
+-- Bounded recursive bandage search (LF-06). The old scan looked only at the first
+-- 100 items of the actor's root inventory, so a bandage carried in a bag or a
+-- first-aid container -- or past the 100th root item -- was invisible, making a
+-- companion tear clothing (or the player-care preflight report no_bandage) despite
+-- carrying supplies. This descends into nested containers up to a depth/item
+-- budget, detects container cycles, and returns the item together with its ACTUAL
+-- source container so consumption and rollback operate where the bandage lives.
 local function findBandage(character)
     local utility = U()
-    local inventory = utility.inventory(character)
-    local best, bestRank
-    for _, item in ipairs(utility.inventoryItems(inventory, 100)) do
-        local protected = SC.PersonalItems and SC.PersonalItems.isProtected(
-            item, character, "medical_consume")
-        local rank = not protected and bandageRank(item) or nil
-        if rank and (not bestRank or rank < bestRank) then
-            best, bestRank = item, rank
-            if rank == 1 then break end
+    local rootInventory = utility.inventory(character)
+    local maxDepth = tonumber(utility.config("medicalBandageSearchDepth")) or 3
+    local maxItems = tonumber(utility.config("medicalBandageSearchLimit")) or 400
+    local best, bestRank, bestContainer
+    local scanned = 0
+    local seen = {}
+    local function scan(inventory, depth)
+        if inventory == nil or seen[inventory] or depth > maxDepth or bestRank == 1 then return end
+        seen[inventory] = true
+        for _, item in ipairs(utility.inventoryItems(inventory, maxItems)) do
+            if bestRank == 1 or scanned >= maxItems then return end
+            scanned = scanned + 1
+            local protected = SC.PersonalItems and SC.PersonalItems.isProtected(
+                item, character, "medical_consume")
+            if not protected then
+                local rank = bandageRank(item)
+                if rank and (not bestRank or rank < bestRank) then
+                    best, bestRank, bestContainer = item, rank, inventory
+                end
+                -- Only a real InventoryContainer item exposes getInventory(); a
+                -- plain item returns an error string through SCCall, which must not
+                -- be mistaken for a nested container.
+                if bestRank ~= 1 then
+                    local nested, ok = utility.call(item, "getInventory")
+                    if ok and (type(nested) == "userdata" or type(nested) == "table") then
+                        scan(nested, depth + 1)
+                    end
+                end
+            end
         end
     end
-    return best, inventory
+    scan(rootInventory, 1)
+    return best, bestContainer or rootInventory
 end
 Medical._bandageRankForTests = bandageRank
+Medical._findBandageForTests = findBandage
 
 local essentialClothingTerms = {
     "coat", "jacket", "parka", "trouser", "pants", "shoe", "boot",

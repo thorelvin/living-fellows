@@ -2258,6 +2258,38 @@ check(rank(item("Base.Bandage", "Medical", { alcoholic = true }))
 end
 
 do
+-- LF-06: bandages carried in a bag, or past the first 100 root items, must be
+-- found -- and returned with their actual source container so consumption operates
+-- where the bandage lives, not blindly on the root inventory.
+local findBandage = SurvivorCompanion.Medical._findBandageForTests
+
+local rootBandage = item("Base.Bandage", "Medical")
+local rootCarrier = actor("sc-find-root", 0, 0, { inventory = inventory({ rootBandage }) })
+local rootFound, rootContainer = findBandage(rootCarrier)
+check(rootFound == rootBandage and rootContainer == rootCarrier.inventory,
+    "a bandage in the root inventory is found with the root as its container")
+
+local bagBandage = item("Base.Bandage", "Medical")
+local bagInventory = inventory({ bagBandage })
+local bag = item("Base.Bag_Schoolbag", "Container", { nestedInventory = bagInventory })
+local bagCarrier = actor("sc-find-bag", 0, 0, { inventory = inventory({ bag }) })
+local bagFound, bagContainer = findBandage(bagCarrier)
+check(bagFound == bagBandage and bagContainer == bagInventory,
+    "a bandage inside a carried bag is found and its source container is the bag, not the root")
+
+local deepBandage = item("Base.Bandage", "Medical")
+local manyItems = {}
+for index = 1, 120 do manyItems[index] = item("Base.Junk" .. tostring(index), "Item") end
+manyItems[121] = deepBandage
+local deepCarrier = actor("sc-find-deep", 0, 0, { inventory = inventory(manyItems) })
+check(findBandage(deepCarrier) == deepBandage,
+    "a bandage past the first 100 root items is still found")
+
+local emptyCarrier = actor("sc-find-none", 0, 0, { inventory = inventory({ item("Base.Junk", "Item") }) })
+check(findBandage(emptyCarrier) == nil, "no bandage anywhere returns nil")
+end
+
+do
 -- The "bandage" command preflights the hand-bandage, then hands off to
 -- SC.PlayerCare (the native timed-action layer) which is absent in the harness.
 local careWound = bodyPart({ name = "UpperArm_R", isBleeding = true })

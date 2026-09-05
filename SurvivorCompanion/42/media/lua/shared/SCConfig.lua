@@ -254,6 +254,10 @@ local valueData = {
     medicalRange = 1.35,
     medicalCriticalHealth = 35,
     medicalApproachTimeoutMs = 8000,
+    -- Bounded recursive bandage search: how deep into carried bags/first-aid
+    -- containers to look, and the total item budget across all containers.
+    medicalBandageSearchDepth = 3,
+    medicalBandageSearchLimit = 400,
     -- How close the player must be to hand-bandage a companion, and how long the
     -- player's bandaging timed action takes (game ticks).
     medicalPlayerBandageRange = 2.0,
