@@ -76,7 +76,7 @@ local stableDataKeys = {
     "SC_CommandSerial", "SC_LastDowntime", "SC_AnchorX", "SC_AnchorY", "SC_AnchorZ",
     "SC_WorkMode", "SC_WorkX", "SC_WorkY", "SC_WorkZ", "SC_WorkObjectIndex",
     "SC_WorkInitialPlanks",
-    "SC_WorkBaseJobId",
+    "SC_WorkBaseJobId", "SC_WorkKind", "SC_WorkBarricadeSide",
     "SC_ReturnOrder", "SC_ReturnWorkMode",
 }
 
@@ -1853,9 +1853,16 @@ local function issueMemberSetAtomic(members, command, payload, player)
             return false, "group_rollback:persistence_failed", results
         end
         states[plan.actor] = plan.staged
-        if plan.before.order == "base_duty" and plan.staged.order ~= "base_duty"
-            and SC.BaseLife and type(SC.BaseLife.setDuty) == "function" then
-            SC.BaseLife.setDuty(plan.id, false)
+    end
+    -- All members persisted; only now apply the cross-subsystem base-duty release.
+    -- Doing it inside the commit loop above meant a later member's write failure
+    -- rolled back command state and storage but left an earlier member's BaseLife
+    -- resident duty cleared -- order=base_duty with resident duty=false (R2-04).
+    if SC.BaseLife and type(SC.BaseLife.setDuty) == "function" then
+        for _, plan in ipairs(plans) do
+            if plan.before.order == "base_duty" and plan.staged.order ~= "base_duty" then
+                pcall(SC.BaseLife.setDuty, plan.id, false)
+            end
         end
     end
     if SC.Downtime and type(SC.Downtime.cancel) == "function" then

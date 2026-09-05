@@ -3457,6 +3457,45 @@ check(SurvivorCompanion.Commands.issue(shooter.id, "set_group", "Alpha", player)
 local groupFollow = SurvivorCompanion.Commands.issue(fellow.id, "follow", { scope = "group", group = "Alpha" }, player)
 check(groupFollow and SurvivorCompanion.Commands.peek(fellow).order == "follow"
     and SurvivorCompanion.Commands.peek(shooter).order == "follow", "group payload targets a fixed member snapshot")
+
+do
+-- R2-04: a group command that fails mid-commit must roll back completely -- command
+-- state AND work-target metadata (SC_WorkKind/SC_WorkBarricadeSide) -- and must not
+-- apply the cross-subsystem base-duty release for any member (that release now runs
+-- only after every member has persisted).
+SurvivorCompanion.BaseLife.reset()
+SurvivorCompanion.BaseLife.create(cell:getGridSquare(0, 0, 0), "Rollback Camp")
+check(SurvivorCompanion.Commands.issue(fellow.id, "base_duty", nil, player)
+        and SurvivorCompanion.Commands.peek(fellow).order == "base_duty",
+    "fellow is placed on base duty for the rollback fixture")
+fellow.modData.SC_WorkKind = "barricade"
+fellow.modData.SC_WorkBarricadeSide = "same"
+shooter.modDataProxy = setmetatable({}, {
+    __newindex = function() error("injected stable write failure") end,
+    __index = function(_, key) return shooter.modData[key] end,
+})
+local dutyReleases = 0
+local realSetDuty = SurvivorCompanion.BaseLife.setDuty
+SurvivorCompanion.BaseLife.setDuty = function(...)
+    dutyReleases = dutyReleases + 1
+    return realSetDuty(...)
+end
+local rolledOk, rolledReason = SurvivorCompanion.Commands.issue(fellow.id, "follow",
+    { scope = "group", group = "Alpha" }, player)
+SurvivorCompanion.BaseLife.setDuty = realSetDuty
+shooter.modDataProxy = nil
+check(not rolledOk and string.find(tostring(rolledReason), "rollback", 1, true) ~= nil
+        and SurvivorCompanion.Commands.peek(fellow).order == "base_duty"
+        and fellow.modData.SC_WorkKind == "barricade"
+        and fellow.modData.SC_WorkBarricadeSide == "same"
+        and dutyReleases == 0,
+    "a failed group commit rolls back command state and work metadata and releases no base duty")
+fellow.modData.SC_WorkKind = nil
+fellow.modData.SC_WorkBarricadeSide = nil
+SurvivorCompanion.BaseLife.reset()
+SurvivorCompanion.Commands.issue(fellow.id, "follow", nil, player)
+end
+
 player.vehicle = livePlayerVehicle
 shooter.rejectActions = { board_vehicle = true }
 local groupBoarded, groupBoardReason, groupBoardResults = SurvivorCompanion.Commands.issue(
