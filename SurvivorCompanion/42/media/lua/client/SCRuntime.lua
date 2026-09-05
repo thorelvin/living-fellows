@@ -493,6 +493,17 @@ local function vitalsTask(current)
     end
     if healthy then
         record.runtime.healthFailingSince = nil
+        -- Sustained healthy activation clears the repeated-retirement history so a
+        -- single transient dip does not accumulate toward the recovery quarantine
+        -- ceiling (R2-02). Only a spawn that stays healthy long enough counts.
+        if record.runtime.healthySince == nil then record.runtime.healthySince = current end
+        if SC.Persistence and type(SC.Persistence.clearRecoveryHistory) == "function"
+            and current - record.runtime.healthySince
+                >= ((SC.Config and tonumber(SC.Config.get("recoverySustainedHealthMs"))) or 30000) then
+            SC.Persistence.clearRecoveryHistory(record.id)
+        end
+    else
+        record.runtime.healthySince = nil
     end
     if not healthy then
         -- A genuinely dead actor is already retired by the death path above; here

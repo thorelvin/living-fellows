@@ -435,6 +435,29 @@ local bareRetained, bareReason = SC.Persistence.retainForRecovery(
     { id = "sc-recovery-none", recruited = true, runtime = {} })
 check(bareRetained == false and bareReason == "no_recoverable_snapshot",
     "with no capture and no snapshot, recovery refuses so the caller blocks deletion")
+
+-- R2-02: repeated create -> native-fail -> retire cycles accumulate a bounded
+-- retirement history (not reset by successful construction) and quarantine instead
+-- of respawning forever; sustained healthy activation clears the history.
+local retireDoc = {}
+for key, value in pairs(captured) do retireDoc[key] = value end
+retireDoc.id = "sc-recovery-retire"
+local retireRecord = { id = "sc-recovery-retire", recruited = true,
+    runtime = { lastStableSnapshot = retireDoc } }
+local maxRetirements = SC.Config.get("recoveryMaxRetirements")
+for _ = 1, maxRetirements do
+    check(select(1, SC.Persistence.retainForRecovery(retireRecord)) == true,
+        "each retirement within the ceiling is retained for recovery")
+end
+check(SC.Persistence.recoveryRetirements("sc-recovery-retire") == maxRetirements,
+    "the retirement history accumulates across cycles and is not reset by construction success")
+local quarOk, quarReason = SC.Persistence.retainForRecovery(retireRecord)
+check(quarOk == true and quarReason == "quarantined"
+        and SC.Persistence.pendingSnapshot()["sc-recovery-retire"].status == "quarantined",
+    "exceeding the retirement ceiling quarantines the recovery instead of looping forever")
+SC.Persistence.clearRecoveryHistory("sc-recovery-retire")
+check(SC.Persistence.recoveryRetirements("sc-recovery-retire") == 0,
+    "sustained healthy activation clears the retirement history")
 end
 check(captured.inventory.schema == 2 and captured.inventory.complete == true
     and captured.inventory.count == 8

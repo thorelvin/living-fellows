@@ -62,6 +62,12 @@ local valueData = {
     actionRecoveryTimeoutMs = 15000,
     actionPoseMaximumDisplacement = 0.25,
     runtimeHealthGraceMs = 1500,
+    -- Recoverable-retirement lifecycle limits (R2-02): how many create -> native
+    -- health-failure -> retire cycles a single companion may go through before its
+    -- recovery is quarantined (stops the auto-respawn loop), and how long it must
+    -- stay healthy after a spawn before that failure history is cleared.
+    recoveryMaxRetirements = 5,
+    recoverySustainedHealthMs = 30000,
 
     movementIntervalMs = 100,
     -- Multi-actor decision scheduling. One decision callback services several

@@ -1608,8 +1608,16 @@ function persistence.restorePulse(player)
         local entry = pending[id]
         if entry ~= nil and entry.status ~= "quarantined" and processed < maximum
             and current >= (entry.nextAt or 0) then
-            if SC.Registry.byId(id) ~= nil then
-                pending[id] = nil
+            local active = SC.Registry.byId(id)
+            if active ~= nil then
+                -- A registered record only counts as recovered when it is a healthy
+                -- active actor. An inactive/removal-pending record means native
+                -- cleanup has not finished, so keep the recovery entry (and never
+                -- spawn a duplicate) until the cleanup owner resolves it (R2-02).
+                local awaitingCleanup = type(active.runtime) == "table"
+                    and (active.runtime.inactive == true
+                        or active.runtime.removalPending == true)
+                if not awaitingCleanup then pending[id] = nil end
             elseif entry.vehicle == true then
                 processed = processed + 1
                 local imported, reason = importVehicleRecord(entry.record)
@@ -1925,6 +1933,22 @@ end
 -- placed in the restore-pending queue: the next save keeps it and restorePulse
 -- re-spawns it once its square loads and the provider is ready (with the normal
 -- attempt/backoff/quarantine ceiling preventing a respawn loop).
+-- Repeated-retirement history keyed by stable companion id, independent of the
+-- short-lived spawn ticket and NOT reset by a successful construction. It survives
+-- the create -> native-failure -> retire cycle so a recurring native fault
+-- eventually quarantines instead of respawning forever (R2-02). Cleared only by
+-- sustained healthy activation (clearRecoveryHistory) or a game reload.
+local recoveryHistory = {}
+
+-- Ensure an id appears exactly once in the ordered pending queue, compacting any
+-- stale duplicates a prior recovery cycle left behind.
+local function pendingOrderEnsure(id)
+    for index = #pendingOrder, 1, -1 do
+        if pendingOrder[index] == id then table.remove(pendingOrder, index) end
+    end
+    pendingOrder[#pendingOrder + 1] = id
+end
+
 function persistence.retainForRecovery(record)
     if type(record) ~= "table" or not SC.Registry.isValidId(record.id) then
         return false, "valid_record_required"
@@ -1939,15 +1963,39 @@ function persistence.retainForRecovery(record)
     local clean, cleanReason = validateRecord(id, document)
     if clean == nil then return false, cleanReason or "unrecoverable_snapshot" end
     local bucket = type(clean.factionId) == "string" and "factionActors" or "companions"
-    if pending[id] == nil then pendingOrder[#pendingOrder + 1] = id end
+    local retirements = (recoveryHistory[id] or 0) + 1
+    recoveryHistory[id] = retirements
+    local maxRetirements = math.max(1,
+        tonumber(SC.Config.get("recoveryMaxRetirements")) or 5)
+    -- A companion that keeps failing its native health check shortly after each
+    -- successful spawn is quarantined once it exceeds the retirement ceiling: it is
+    -- still saved and manually retryable, but restorePulse stops auto-respawning it
+    -- so the fault does not loop indefinitely.
+    local quarantined = retirements > maxRetirements
+    local now = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0
+    pendingOrderEnsure(id)
     pending[id] = {
         record = clean, raw = document, bucket = bucket,
-        nextAt = 0, attempts = 0, status = "pending",
-        vehicle = clean.vehicle ~= nil, recovered = true,
+        nextAt = quarantined and nil or 0, attempts = 0,
+        status = quarantined and "quarantined" or "pending",
+        quarantinedAt = quarantined and now or nil,
+        vehicle = clean.vehicle ~= nil, recovered = true, retirements = retirements,
     }
-    SC.Diagnostics.report("persistence", id,
-        "recruit retained for recovery after health-gate retirement", cleanReason)
-    return true, "retained"
+    SC.Diagnostics.report("persistence", id, quarantined
+        and "recovery quarantined after repeated native retirement"
+        or "recruit retained for recovery after health-gate retirement",
+        quarantined and tostring(retirements) or cleanReason)
+    return true, quarantined and "quarantined" or "retained"
+end
+
+-- Sustained healthy activation clears the repeated-retirement history so a single
+-- transient dip does not accumulate toward the quarantine ceiling.
+function persistence.clearRecoveryHistory(id)
+    if type(id) == "string" then recoveryHistory[id] = nil end
+end
+
+function persistence.recoveryRetirements(id)
+    return type(id) == "string" and (recoveryHistory[id] or 0) or 0
 end
 
 function persistence.retry(id)
@@ -2034,6 +2082,7 @@ function persistence.reset()
     pending = {}
     pendingOrder = {}
     quarantined = { companions = {}, factionActors = {}, subsystems = {} }
+    recoveryHistory = {}
     lastDocument = nil
     saveBlockedReason = nil
     restoreCommitted = false
