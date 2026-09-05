@@ -638,6 +638,29 @@ local function captureSkills(actor)
     return result
 end
 
+-- Canonical bounded schema for the latest-downtime record (R2-06). The command
+-- layer stores a structured fact {kind, label, detail, at}; capturing it as text()
+-- turned the table into an opaque "table: ..." address. Preserve the structured
+-- fields, keep a legacy plain string, and drop anything else.
+local function captureLastDowntime(value)
+    if type(value) == "string" then
+        return value ~= "" and text(value, "", 64) or nil
+    end
+    if type(value) ~= "table" then return nil end
+    local at = tonumber(value.at)
+    local downtimeRecord = {
+        kind = type(value.kind) == "string" and text(value.kind, "", 32) or nil,
+        label = type(value.label) == "string" and text(value.label, "", 64) or nil,
+        detail = type(value.detail) == "string" and text(value.detail, "", 64) or nil,
+        at = at ~= nil and finite(at, nil) or nil,
+    }
+    if downtimeRecord.kind == nil and downtimeRecord.label == nil
+        and downtimeRecord.detail == nil and downtimeRecord.at == nil then
+        return nil
+    end
+    return downtimeRecord
+end
+
 function persistence.captureRecord(record, vehicleState)
     if type(record) ~= "table" or not SC.Registry.isValidId(record.id) then
         return nil, "valid registry record is required"
@@ -786,8 +809,7 @@ function persistence.captureRecord(record, vehicleState)
         vitals = vitals,
         knox = vitals.infected == true,
         downtime = {
-            lastCompleted = downtime.lastCompleted ~= nil
-                and text(downtime.lastCompleted, "", 64) or nil,
+            lastCompleted = captureLastDowntime(downtime.lastCompleted),
             facts = downtimeFacts,
         },
         vehicle = vehicleCopy,

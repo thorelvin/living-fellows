@@ -63,6 +63,26 @@ local function boundedText(value, maximumLength)
     return string.sub(value, 1, maximumLength)
 end
 
+-- Canonical bounded schema for the latest-downtime record (R2-06). A structured
+-- fact {kind, label, detail, at} is preserved field by field; a legacy plain
+-- string is kept as-is. Anything else (including a stray table address) yields nil.
+local function normalizeLastDowntime(value)
+    if type(value) == "string" then return boundedText(value, 64) end
+    if type(value) ~= "table" then return nil end
+    local at = tonumber(value.at)
+    local record = {
+        kind = boundedText(value.kind, 32),
+        label = boundedText(value.label, 64),
+        detail = boundedText(value.detail, 64),
+        at = finite(at) and at or nil,
+    }
+    if record.kind == nil and record.label == nil and record.detail == nil
+        and record.at == nil then
+        return nil
+    end
+    return record
+end
+
 local function ownedCopy(value, label, maximumDepth, maximumValues, fallback)
     if value == nil then return fallback end
     local copied, reason = SC.StableValue.copyStrict(value, {
@@ -327,7 +347,7 @@ local function defaultState(source, recruited)
         objectives = objectives,
         possessions = possessions,
         downtime = {
-            lastCompleted = boundedText(downtime.lastCompleted, 64),
+            lastCompleted = normalizeLastDowntime(downtime.lastCompleted),
             facts = facts,
         },
     }

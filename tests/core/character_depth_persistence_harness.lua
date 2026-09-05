@@ -722,4 +722,37 @@ check(capturedGuard ~= nil and type(capturedGuard.order.anchor) == "table"
 SC.Registry.unregister(guardActor)
 end
 
+do
+-- R2-06: a structured last-downtime fact must survive save/load with its fields
+-- intact rather than becoming an opaque table-address string; a legacy plain
+-- string is preserved.
+local downtimeActor = makeActor(square)
+local downtimeRecord = SC.Registry.register(downtimeActor, {
+    id = "sc-downtime-record", recruited = true,
+    identity = { forename = "Nia", surname = "Cole", gender = "female" },
+    state = { downtime = { lastCompleted = { kind = "read", label = "Read a book", at = 1234 } } },
+})
+check(downtimeRecord ~= nil and type(downtimeRecord.state.downtime.lastCompleted) == "table"
+        and downtimeRecord.state.downtime.lastCompleted.kind == "read"
+        and downtimeRecord.state.downtime.lastCompleted.label == "Read a book"
+        and downtimeRecord.state.downtime.lastCompleted.at == 1234,
+    "the registry preserves a structured last-downtime fact through normalization")
+local capturedDowntime = SC.Persistence.captureRecord(downtimeRecord)
+check(capturedDowntime ~= nil and type(capturedDowntime.downtime.lastCompleted) == "table"
+        and capturedDowntime.downtime.lastCompleted.label == "Read a book"
+        and capturedDowntime.downtime.lastCompleted.at == 1234,
+    "save capture keeps the structured last-downtime fact instead of stringifying the table")
+SC.Registry.unregister(downtimeActor)
+
+local legacyActor = makeActor(square)
+local legacyRecord = SC.Registry.register(legacyActor, {
+    id = "sc-downtime-legacy", recruited = true,
+    identity = { forename = "Omar", surname = "Diaz", gender = "male" },
+    state = { downtime = { lastCompleted = "Rested" } },
+})
+check(legacyRecord ~= nil and legacyRecord.state.downtime.lastCompleted == "Rested",
+    "the registry preserves a legacy plain-string last-downtime value")
+SC.Registry.unregister(legacyActor)
+end
+
 print("CHARACTER_DEPTH_PERSISTENCE_PASS checks=" .. tostring(checks))
