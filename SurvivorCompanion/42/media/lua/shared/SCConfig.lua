@@ -76,6 +76,10 @@ local valueData = {
     -- rescue) is serviced first every callback at a tighter interval, capped so a
     -- permanently-threatened actor cannot starve the ordinary round-robin.
     decisionOrdinaryPerTick = 3,
+    -- Guaranteed ordinary services per callback even when the critical lane has
+    -- already consumed the frame budget, so ordinary actors cannot be starved
+    -- indefinitely under sustained emergencies (R2-05).
+    decisionOrdinaryReservedPerTick = 1,
     decisionCriticalPerTick = 6,
     decisionCriticalIntervalMs = 50,
     -- Native cell-object schedule repair runs as a bounded integrity pulse instead

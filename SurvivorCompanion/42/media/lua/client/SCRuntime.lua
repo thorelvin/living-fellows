@@ -315,18 +315,34 @@ local function decisionTask(current, budgetRemaining)
     end
 
     local ordinaryCap = tonumber(SC.Config.get("decisionOrdinaryPerTick")) or 3
+    -- Guarantee a minimum ordinary service per callback even if the critical lane
+    -- has already consumed the frame budget, so ordinary actors are not starved
+    -- indefinitely under sustained emergencies (R2-05). The budget is only enforced
+    -- once that reserved minimum has been met.
+    local ordinaryReserved = tonumber(SC.Config.get("decisionOrdinaryReservedPerTick")) or 1
     local movementInterval = SC.Config.get("movementIntervalMs")
     local ordinaryDone = 0
     local scanned = 0
-    while ordinaryDone < ordinaryCap and scanned < total and not overBudget() do
+    while ordinaryDone < ordinaryCap and scanned < total do
+        -- The frame budget is enforced only once the reserved ordinary minimum has
+        -- been serviced.
+        if ordinaryDone >= ordinaryReserved and overBudget() then break end
         local record
         record, decisionCursor = nextRecord(decisionCursor)
         scanned = scanned + 1
-        if recordServiceable(record) and not serviced[record.id]
-            and SC.Scheduler.dueFor(record.id, "decision", movementInterval, current) then
-            serviceRecord(record, current, currentPlayer)
-            serviced[record.id] = true
-            ordinaryDone = ordinaryDone + 1
+        if recordServiceable(record) and not serviced[record.id] then
+            -- While filling the reserved minimum under budget pressure, skip critical
+            -- actors (the critical lane already services those) so the guaranteed slot
+            -- goes to a genuine ordinary actor and is not absorbed by an emergency
+            -- one. Without budget pressure the ordinary lane still overflow-services
+            -- any due actor, so an all-critical party is unaffected.
+            local reservedPhase = ordinaryDone < ordinaryReserved and overBudget()
+            if not (reservedPhase and recordIsCritical(record))
+                and SC.Scheduler.dueFor(record.id, "decision", movementInterval, current) then
+                serviceRecord(record, current, currentPlayer)
+                serviced[record.id] = true
+                ordinaryDone = ordinaryDone + 1
+            end
         end
     end
 end

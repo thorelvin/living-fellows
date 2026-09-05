@@ -244,6 +244,41 @@ do
         "the critical lane rotates so every critical actor is serviced across callbacks (no fixed-prefix starvation)")
 end
 
+-- Scenario 8 (R2-05): under sustained overload the critical lane can consume the
+-- whole frame budget, but the ordinary lane must still get a reserved service so a
+-- genuine ordinary actor is not starved indefinitely.
+do
+    SC.Scheduler.reset(true)
+    services = {}
+    grabbed = {}
+    records = {}
+    for index = 1, 8 do
+        records[index] = makeRecord(index)
+        grabbed[records[index].actor] = true
+    end
+    records[9] = makeRecord(9)
+    -- Simulate a 1 ms cost per serviced actor through a controllable frame clock so
+    -- a tight budget is actually reached mid-callback.
+    local frameClock = 0
+    local realTimestamp = getTimestampMs
+    getTimestampMs = function() return frameClock end
+    local realResolve = SC.ZombieAttack.resolve
+    SC.ZombieAttack.resolve = function(actor)
+        if actor ~= nil then services[actor.id] = (services[actor.id] or 0) + 1 end
+        frameClock = frameClock + 1
+        return true, "resolved", {}
+    end
+    local base = prime(1600000)
+    services = {}
+    for step = 0, 4 do
+        decisionTask(base + step * 150, 4)
+    end
+    SC.ZombieAttack.resolve = realResolve
+    getTimestampMs = realTimestamp
+    check((services[records[9].id] or 0) >= 4,
+        "the lone ordinary actor still receives its reserved service every callback even while the critical lane consumes the frame budget (no ordinary starvation)")
+end
+
 print("DECISION_SCHEDULER_PASS checks=" .. tostring(checks)
     .. " multi-actor=true critical-lane=true starvation-capped=true schedule-repair=pulsed"
     .. " hardened=true critical-fairness=rotating")
