@@ -449,6 +449,17 @@ local function commitBandage(patient, assessment, wound, bandage, inventory,
         local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction)
         return false, rolledBack and "native_bandage_failed" or "treatment_rollback_failed"
     end
+    -- Read back the wound before consuming the dressing (R2-07). The call-success
+    -- flag above only proves the native setter returned normally; a no-op setter
+    -- would report success without actually bandaging the part, and consuming the
+    -- item then would silently waste it. Verify the postcondition here -- in the
+    -- shared commit -- so both the companion and player-care callers get one
+    -- verified result, and roll back (never consume) when it is unmet.
+    if booleanMethod(wound.part, { "bandaged", "isBandaged" }) ~= true then
+        local nativeRestored = restoreBandage(assessment.bodyDamage, wound, previous)
+        local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction) and nativeRestored
+        return false, rolledBack and "native_bandage_unverified" or "treatment_rollback_failed"
+    end
     if not utility.consumeItem(inventory, bandage) then
         local nativeRestored = restoreBandage(assessment.bodyDamage, wound, previous)
         local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction) and nativeRestored

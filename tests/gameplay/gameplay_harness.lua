@@ -2290,6 +2290,31 @@ check(findBandage(emptyCarrier) == nil, "no bandage anywhere returns nil")
 end
 
 do
+-- R2-07: the shared bandage commit verifies the wound actually changed before
+-- consuming the dressing. A no-op native setter (returns success without bandaging)
+-- must fail verification and leave the item unspent; an effectful setter applies
+-- and consumes exactly once.
+local noopWound = bodyPart({ name = "ForeArm_R", isBleeding = true })
+local noopBody = bodyDamage(70, { noopWound })
+function noopBody:SetBandaged(index, enabled, life, alcoholic, itemType) return true end
+local noopCompanion = actor("sc-verify-noop-patient", 12, 12, { body = noopBody })
+local noopBandage = item("Base.Bandage", "Medical")
+local noopPlayer = actor("sc-verify-noop-player", 12, 13, { inventory = inventory({ noopBandage }) })
+local noopOk, noopReason = SurvivorCompanion.Medical.applyPlayerBandage(noopCompanion, noopPlayer)
+check(not noopOk and noopReason == "native_bandage_unverified"
+        and not noopWound.isBandaged and not noopBandage.used,
+    "a no-op native setter fails read-back verification and the dressing is not consumed")
+
+local goodWound = bodyPart({ name = "Hand_L", isBleeding = true })
+local goodCompanion = actor("sc-verify-good-patient", 12, 12, { body = bodyDamage(70, { goodWound }) })
+local goodBandage = item("Base.Bandage", "Medical")
+local goodPlayer = actor("sc-verify-good-player", 12, 13, { inventory = inventory({ goodBandage }) })
+local goodOk, goodReason = SurvivorCompanion.Medical.applyPlayerBandage(goodCompanion, goodPlayer)
+check(goodOk and goodReason == "bandaged" and goodWound.isBandaged and goodBandage.used,
+    "an effectful native setter applies the bandage and consumes the dressing once")
+end
+
+do
 -- The "bandage" command preflights the hand-bandage, then hands off to
 -- SC.PlayerCare (the native timed-action layer) which is absent in the harness.
 local careWound = bodyPart({ name = "UpperArm_R", isBleeding = true })
