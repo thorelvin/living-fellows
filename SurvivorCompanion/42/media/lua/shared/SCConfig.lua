@@ -110,6 +110,9 @@ local valueData = {
     navigationStealthClosePenalty = 90,
     navigationStealthNodeBudget = 320,
     navigationStealthRepathMs = 1800,
+    -- Cadence for pruning dead/departed threats from a stealth search's danger
+    -- overlay while a long multi-frame search is running.
+    navigationStealthOverlayRefreshMs = 250,
     navigationBushPenalty = 5.5,
     navigationTreePenalty = 12,
     navigationTreeClearancePenalty = 4,

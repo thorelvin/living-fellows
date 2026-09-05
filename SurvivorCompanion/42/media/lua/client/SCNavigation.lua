@@ -821,6 +821,47 @@ local function stealthThreatPenalty(square, snapshot)
     return total
 end
 
+-- review 3.5: a stealth-avoidance search runs across several frames on a snapshot
+-- captured once at request time. The threat entries carry live actor references, so
+-- their positions stay current, but a contact that dies or leaves mid-search would
+-- otherwise keep bending the route until the search finishes. Keep a small overlay
+-- of just those threats and refresh it on a bounded cadence during the search,
+-- dropping any whose actor is no longer a valid, living danger. A remembered or
+-- square-only contact (no live actor) is retained as recorded.
+local function buildStealthOverlay(snapshot)
+    local overlay = { threats = {}, refreshedAt = nil }
+    local source = type(snapshot) == "table"
+        and (type(snapshot.stealthThreats) == "table" and snapshot.stealthThreats
+            or (type(snapshot.threats) == "table" and snapshot.threats or {}))
+        or {}
+    for index = 1, math.min(#source, 24) do
+        overlay.threats[#overlay.threats + 1] = source[index]
+    end
+    if type(snapshot) == "table" then overlay.lastKnownDanger = snapshot.lastKnownDanger end
+    return overlay
+end
+
+local function refreshStealthOverlay(overlay, now)
+    if type(overlay) ~= "table" or type(overlay.threats) ~= "table" then return false end
+    local numericNow = tonumber(now)
+    if numericNow ~= nil and overlay.refreshedAt ~= nil
+        and numericNow - overlay.refreshedAt
+            < (U().config("navigationStealthOverlayRefreshMs") or 250) then
+        return false
+    end
+    if numericNow ~= nil then overlay.refreshedAt = numericNow end
+    local utility = U()
+    local kept = {}
+    for _, threat in ipairs(overlay.threats) do
+        local actor = type(threat) == "table" and threat.actor or nil
+        if actor == nil or (utility.isValidActor(actor) and not utility.isDead(actor)) then
+            kept[#kept + 1] = threat
+        end
+    end
+    overlay.threats = kept
+    return true
+end
+
 -- Binary min-heap for the A* open set (review 3.3), replacing the O(N) lowest-f
 -- linear scan + O(N) table.remove that made each expansion O(N) and the search
 -- O(N^2). Entries are { key, f, h, seq } and are ordered by f, then h, then a
@@ -1326,6 +1367,11 @@ local function resumeRouteSearch(job, expansionQuota)
     if job.complete then
         return job.path and "complete" or "failed", job.path, job.reason,
             job.totalExpanded or 0, job.report, 0
+    end
+    -- Refresh the stealth danger overlay before this slice so later-expanded nodes
+    -- score against threats that are still live (review 3.5). Bounded and throttled.
+    if type(job.pathOptions) == "table" and job.pathOptions.stealthOverlay ~= nil then
+        refreshStealthOverlay(job.pathOptions.stealthOverlay, U().nowMs())
     end
     local remaining = math.max(1, math.floor(tonumber(expansionQuota) or 1))
     local totalUsed, transitions = 0, 0
@@ -2350,6 +2396,12 @@ Navigation._passableEdgeForTests = passableEdge
 Navigation._heapPushForTests = heapPush
 Navigation._heapPopForTests = heapPop
 
+-- Test seams (stealth danger overlay, review 3.5): a long search's overlay prunes
+-- dead/departed threats on a throttled cadence instead of scoring a frozen snapshot.
+Navigation._buildStealthOverlayForTests = buildStealthOverlay
+Navigation._refreshStealthOverlayForTests = refreshStealthOverlay
+Navigation._stealthThreatPenaltyForTests = stealthThreatPenalty
+
 local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGoal,
         now, reason, multiGoal, movingTarget)
     local list = nativeTargets(targets)
@@ -3050,8 +3102,13 @@ function Navigation.request(actor, target, movementMode, intent)
         if requestIntent.stealthAvoidance then
             pathOptions.stealthAvoidance = true
             pathOptions.nodeBudget = utility.config("navigationStealthNodeBudget") or 320
+            -- Score against a small refreshable overlay rather than the frozen
+            -- request snapshot, so a threat that dies or leaves during this
+            -- multi-frame search stops distorting the route (review 3.5).
+            local overlay = buildStealthOverlay(requestIntent.snapshot)
+            pathOptions.stealthOverlay = overlay
             pathOptions.squarePenalty = function(square)
-                return stealthThreatPenalty(square, requestIntent.snapshot)
+                return stealthThreatPenalty(square, overlay)
             end
         end
         local planningGoal = goalSquare

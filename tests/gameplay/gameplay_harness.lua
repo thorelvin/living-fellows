@@ -1297,6 +1297,38 @@ cell:getGridSquare(48, 21, 0).solid = nil
 end
 
 do
+-- review 3.5: a stealth search scores against a small refreshable overlay, not the
+-- frozen request snapshot, so a threat that dies or leaves during a long
+-- multi-frame search is pruned and stops bending the route.
+local buildOverlay = SurvivorCompanion.Navigation._buildStealthOverlayForTests
+local refreshOverlay = SurvivorCompanion.Navigation._refreshStealthOverlayForTests
+local stealthPenalty = SurvivorCompanion.Navigation._stealthThreatPenaltyForTests
+local scoreSquare = cell:getGridSquare(50, 0, 0)
+local nearThreat = actor("sc-stealth-near", 51, 0, {})
+local farThreat = actor("sc-stealth-far", 50, 30, {})
+local overlay = buildOverlay({ threats = { { actor = nearThreat }, { actor = farThreat } } })
+check(#overlay.threats == 2, "the stealth overlay copies the snapshot's threat list")
+local penaltyBefore = stealthPenalty(scoreSquare, overlay)
+check(penaltyBefore > 0, "a live nearby threat contributes a stealth penalty")
+
+nearThreat.dead = true
+local pruned = refreshOverlay(overlay, 100000)
+check(pruned == true and #overlay.threats == 1 and overlay.threats[1].actor == farThreat,
+    "refreshing the overlay drops a threat whose actor died mid-search")
+check(stealthPenalty(scoreSquare, overlay) < penaltyBefore,
+    "the pruned threat no longer bends the stealth route cost")
+
+farThreat.dead = true
+check(refreshOverlay(overlay, 100100) == false and #overlay.threats == 1,
+    "an overlay refresh inside the throttle window does not re-prune")
+check(refreshOverlay(overlay, 101000) == true and #overlay.threats == 0,
+    "past the throttle window the overlay prunes newly departed threats")
+
+registry[nearThreat.id] = nil
+registry[farThreat.id] = nil
+end
+
+do
 local driftingGoalActor = actor("sc-drifting-goal", -8, 8, {})
 registry[driftingGoalActor.id] = driftingGoalActor
 for targetX = -5, -2 do
