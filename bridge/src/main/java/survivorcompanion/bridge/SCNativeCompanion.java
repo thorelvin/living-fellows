@@ -43,6 +43,12 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile boolean bridgeMoving;
     private volatile boolean bridgeMoveRequested;
     private volatile boolean bridgePathActive;
+    // review 3.1: reconcile a phantom-active path. Track whether the current path
+    // request has actually started moving and when it began, so a path that ends
+    // naturally (reached goal / failed / cancelled) clears bridgePathActive instead
+    // of leaving isMoving()/hasPendingMovement() reporting movement indefinitely.
+    private volatile boolean bridgePathStartedThisRun;
+    private volatile long bridgePathStartNanos;
     private volatile float bridgeMoveDistance;
     private volatile float bridgeMoveX;
     private volatile float bridgeMoveY;
@@ -66,6 +72,10 @@ public final class SCNativeCompanion extends IsoPlayer {
     private long firstUpdateFailureNanos;
     private long firstPostUpdateFailureNanos;
     private static final long MAX_TRANSIENT_UPDATE_NANOS = 3_000_000_000L;
+    // A path request that has not begun moving via pathfind within this window is
+    // treated as failed to start, so a phantom-active path clears rather than
+    // pinning the movement flags forever.
+    private static final long PATH_START_GRACE_NANOS = 600_000_000L;
 
     public SCNativeCompanion(SurvivorDesc descriptor, IsoCell cell, int x, int y, int z) {
         super(cell, descriptor, x, y, z, false);
@@ -332,28 +342,41 @@ public final class SCNativeCompanion extends IsoPlayer {
         super.setMoving(moving && getVehicle() == null);
     }
 
+    /**
+     * Mark a native path request active and start its start-grace/observed-moving
+     * tracking so {@link #reconcileBridgePathState()} can later clear a path that
+     * ends naturally instead of leaving the movement flags pinned.
+     */
+    private void beginBridgePath(boolean active) {
+        bridgePathActive = active;
+        if (active) {
+            bridgePathStartedThisRun = false;
+            bridgePathStartNanos = System.nanoTime();
+        }
+    }
+
     @Override
     public void pathToLocationF(float x, float y, float z) {
         super.pathToLocationF(x, y, z);
-        bridgePathActive = getVehicle() == null && !bridgeDisabled;
+        beginBridgePath(getVehicle() == null && !bridgeDisabled);
     }
 
     @Override
     public void pathToLocation(int x, int y, int z) {
         super.pathToLocation(x, y, z);
-        bridgePathActive = getVehicle() == null && !bridgeDisabled;
+        beginBridgePath(getVehicle() == null && !bridgeDisabled);
     }
 
     @Override
     public void pathToCharacter(IsoGameCharacter target) {
         super.pathToCharacter(target);
-        bridgePathActive = target != null && getVehicle() == null && !bridgeDisabled;
+        beginBridgePath(target != null && getVehicle() == null && !bridgeDisabled);
     }
 
     @Override
     public void pathToSound(int x, int y, int z) {
         super.pathToSound(x, y, z);
-        bridgePathActive = getVehicle() == null && !bridgeDisabled;
+        beginBridgePath(getVehicle() == null && !bridgeDisabled);
     }
 
     /**
@@ -587,6 +610,9 @@ public final class SCNativeCompanion extends IsoPlayer {
             }
             updateGenericCharacter();
             genericUpdateActive = false;
+            // The generic update advanced the native pathfinder; clear a path that
+            // finished on its own so the movement flags do not stay pinned (3.1).
+            reconcileBridgePathState();
             // The vanilla visibility fade never raises this non-local actor's
             // render alpha, so it stays 0: the companion is invisible even while
             // present on the map (seen only on the minimap), and the
@@ -679,6 +705,50 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     /**
+     * Pure decision for {@link #reconcileBridgePathState()} (review 3.1): a path
+     * that is no longer moving via pathfind has terminated once it has actually
+     * moved this run, or once the start grace elapsed without it ever moving (a
+     * route that failed to start). A path still moving, or still pending within the
+     * grace window, is not terminal. Package-private and side-effect free so the
+     * transition table is unit-testable without a live engine.
+     */
+    static boolean pathHasTerminated(boolean movingViaPathFind, boolean startedThisRun,
+            boolean startGraceElapsed) {
+        if (movingViaPathFind) return false;
+        return startedThisRun || startGraceElapsed;
+    }
+
+    /**
+     * After the generic character update advances the native pathfinder, clear
+     * bridgePathActive if the path has ended on its own (reached goal / failed /
+     * cancelled). Without this, a path that finishes during a generic update leaves
+     * isMoving()/isPlayerMoving()/hasPendingMovement() reporting a phantom active
+     * path. Reads the version-pinned PathFindBehavior2 state directly and never
+     * routes back through isMoving()/isPlayerMoving().
+     */
+    private void reconcileBridgePathState() {
+        if (bridgeDisabled || getVehicle() != null || !bridgePathActive) return;
+        PathFindBehavior2 behavior = getPathFindBehavior2();
+        if (behavior == null) return;
+        boolean movingViaPathFind;
+        try {
+            movingViaPathFind = behavior.isMovingUsingPathFind();
+        } catch (RuntimeException | LinkageError failure) {
+            // Can't read the terminal status this frame; leave the flag untouched.
+            return;
+        }
+        if (movingViaPathFind) {
+            bridgePathStartedThisRun = true;
+            return;
+        }
+        boolean startGraceElapsed = System.nanoTime() - bridgePathStartNanos > PATH_START_GRACE_NANOS;
+        if (pathHasTerminated(false, bridgePathStartedThisRun, startGraceElapsed)) {
+            bridgePathActive = false;
+            bridgePathStartedThisRun = false;
+        }
+    }
+
+    /**
      * Start a native nearest-of-many request without exposing PolygonalMap2 or
      * Kahlua internals to gameplay Lua.  A nearest request cannot safely use
      * pathToAux()'s single-target direct-line shortcut, so it always enters the
@@ -693,7 +763,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             behavior.pathToNearestTable(locations);
             setVariable("bPathfind", true);
             super.setMoving(false);
-            bridgePathActive = true;
+            beginBridgePath(true);
             return true;
         } catch (RuntimeException | LinkageError failure) {
             return false;

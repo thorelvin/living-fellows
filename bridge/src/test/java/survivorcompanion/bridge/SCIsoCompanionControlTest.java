@@ -233,6 +233,17 @@ public final class SCIsoCompanionControlTest {
         require((Boolean) invoke(actor, "isPlayerMoving"),
                 "native path state recursed through IsoPlayer movement callbacks");
         pathActive.setBoolean(actor, false);
+        // review 3.1: the pure path-termination decision clears a phantom active
+        // path once it has moved and stopped, or if it never started within the
+        // grace window, while a still-moving or still-pending path stays active.
+        require(SCNativeCompanion.pathHasTerminated(false, true, false),
+                "a path that moved and then stopped is terminal");
+        require(SCNativeCompanion.pathHasTerminated(false, false, true),
+                "a path that never started within the grace window is terminal");
+        require(!SCNativeCompanion.pathHasTerminated(true, true, true),
+                "a path still moving via pathfind is not terminal");
+        require(!SCNativeCompanion.pathHasTerminated(false, false, false),
+                "a path still pending within the grace window is not terminal");
         require(((Number) invoke(actor, "getPlayerNum")).intValue() == 3,
                 "companion did not retain reserved non-local index");
         require(((Number) invoke(secondActor, "getPlayerNum")).intValue() == 3
