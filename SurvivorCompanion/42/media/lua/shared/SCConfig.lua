@@ -64,6 +64,17 @@ local valueData = {
     runtimeHealthGraceMs = 1500,
 
     movementIntervalMs = 100,
+    -- Multi-actor decision scheduling. One decision callback services several
+    -- actors instead of one, so reaction time no longer scales with party size.
+    -- The critical lane (grabbed, adjacent/immediate threat, downed, needing
+    -- rescue) is serviced first every callback at a tighter interval, capped so a
+    -- permanently-threatened actor cannot starve the ordinary round-robin.
+    decisionOrdinaryPerTick = 3,
+    decisionCriticalPerTick = 6,
+    decisionCriticalIntervalMs = 50,
+    -- Native cell-object schedule repair runs as a bounded integrity pulse instead
+    -- of a per-frame roster scan; a roster-size change forces it immediately.
+    scheduleRepairIntervalMs = 250,
     combatDecisionIntervalMs = 125,
     followIntervalMs = 167,
     perceptionIntervalMs = 500,

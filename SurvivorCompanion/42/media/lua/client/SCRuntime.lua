@@ -168,19 +168,44 @@ local function recoverySquare(currentPlayer)
     return nil
 end
 
-local function decisionTask(current)
-    local record
-    record, decisionCursor = nextRecord(decisionCursor)
-    if record == nil or record.actor == nil
-        or (type(record.runtime) == "table"
-            and (record.runtime.inactive == true or record.runtime.dying == true)) then return end
-    if not SC.Scheduler.dueFor(record.id, "decision", SC.Config.get("movementIntervalMs"), current) then
-        return
+local function recordServiceable(record)
+    if record == nil or record.actor == nil then return false end
+    local rt = record.runtime
+    if type(rt) == "table" and (rt.inactive == true or rt.dying == true) then return false end
+    return true
+end
+
+-- Cheap emergency probe used to route an actor into the critical decision lane.
+-- A zombie grab is read live (always fresh, and the most time-critical case); the
+-- rest come from the actor's last decision/senses pass. Once an actor senses a
+-- threat it stays critical and keeps getting fast service until the danger clears,
+-- while first detection of a brand-new threat still comes from the (now
+-- multi-actor) ordinary round-robin below.
+local function recordIsCritical(record)
+    if SC.ZombieAttack and type(SC.ZombieAttack.isGrabbed) == "function"
+        and SC.ZombieAttack.isGrabbed(record.actor) == true then
+        return true
     end
-    local currentPlayer = player()
-    if currentPlayer == nil or SC.Decision == nil or type(SC.Decision.update) ~= "function" then
-        return
+    local rt = type(record.runtime) == "table" and record.runtime or nil
+    if rt == nil then return false end
+    if rt.downed == true or rt.needsRescue == true then return true end
+    local snapshot = type(rt.senses) == "table" and rt.senses.current or rt.snapshot
+    if type(snapshot) == "table" then
+        if (tonumber(snapshot.immediateCount) or 0) >= 1 then return true end
+        if (tonumber(snapshot.threatCount) or 0) >= 1 then return true end
+        local playerState = snapshot.player
+        if type(playerState) == "table" and (tonumber(playerState.danger) or 0) > 0 then
+            return true
+        end
     end
+    return false
+end
+
+-- Service one companion for a decision beat: run its decision (or sustain a grab),
+-- then resolve zombie targeting and the incoming attacks the engine will not write
+-- to a non-local body. Assumes the caller has already verified the record is
+-- serviceable and the local player is present.
+local function serviceRecord(record, current, currentPlayer)
     record.runtime = type(record.runtime) == "table" and record.runtime or {}
     -- A companion pinned by a zombie grab cannot act until it is freed. Skip its
     -- decision (movement/combat) and cancel any in-flight action, but still fall
@@ -235,6 +260,65 @@ local function decisionTask(current)
         end
     end
 end
+
+-- One decision callback services several actors instead of one, so reaction time
+-- stops scaling with party size (review 2.1/2.2/2.3). It runs two passes within
+-- the frame budget the scheduler hands it:
+--   1. Critical lane -- every actor in an emergency (grab/threat/downed/rescue) is
+--      serviced this callback at a tight interval, capped so a permanently
+--      threatened actor can't starve the rest.
+--   2. Ordinary round-robin -- multiple actors per callback (not one), each still
+--      held to its own per-actor cadence so a single companion never thrashes.
+-- The scheduler owns *when* an actor gets CPU; per-actor dueFor only enforces a
+-- minimum cadence and is bypassed for the critical lane so an emergency is never
+-- gated behind it.
+local function decisionTask(current, budgetRemaining)
+    local records = SC.Registry.records()
+    local total = #records
+    if total == 0 then return end
+    local currentPlayer = player()
+    if currentPlayer == nil or SC.Decision == nil or type(SC.Decision.update) ~= "function" then
+        return
+    end
+    local startedAt = nowMs()
+    local softBudget = tonumber(budgetRemaining)
+    local function overBudget()
+        return softBudget ~= nil and (nowMs() - startedAt) >= softBudget
+    end
+    local serviced = {}
+
+    local criticalCap = tonumber(SC.Config.get("decisionCriticalPerTick")) or 6
+    local criticalInterval = tonumber(SC.Config.get("decisionCriticalIntervalMs")) or 50
+    local criticalDone = 0
+    for index = 1, total do
+        if criticalDone >= criticalCap or overBudget() then break end
+        local record = records[index]
+        if recordServiceable(record) and recordIsCritical(record)
+            and SC.Scheduler.dueFor(record.id, "decision-critical", criticalInterval, current) then
+            serviceRecord(record, current, currentPlayer)
+            serviced[record.id] = true
+            criticalDone = criticalDone + 1
+        end
+    end
+
+    local ordinaryCap = tonumber(SC.Config.get("decisionOrdinaryPerTick")) or 3
+    local movementInterval = SC.Config.get("movementIntervalMs")
+    local ordinaryDone = 0
+    local scanned = 0
+    while ordinaryDone < ordinaryCap and scanned < total and not overBudget() do
+        local record
+        record, decisionCursor = nextRecord(decisionCursor)
+        scanned = scanned + 1
+        if record ~= nil and not serviced[record.id] and recordServiceable(record)
+            and SC.Scheduler.dueFor(record.id, "decision", movementInterval, current) then
+            serviceRecord(record, current, currentPlayer)
+            serviced[record.id] = true
+            ordinaryDone = ordinaryDone + 1
+        end
+    end
+end
+runtime._decisionTaskForTests = decisionTask
+runtime._recordIsCriticalForTests = recordIsCritical
 
 -- Decide whether an unhealthy native companion should be removed now or tolerated
 -- for a bounded settling window. Native validity dips transiently (notably in the
@@ -572,10 +656,33 @@ local function ensureCompanionsScheduled()
     end
 end
 
-local function productionTick()
-    ensureCompanionsScheduled()
+-- ensureScheduled is idempotent and cheap -- it re-adds a companion to the cell's
+-- object Set only if it is missing, and membership then persists until a cell
+-- transition or removal drops it. Re-verifying every single frame (review 2.6) is
+-- almost always a no-op that still pays for a full roster scan. Run it instead as a
+-- bounded integrity pulse, forced immediately whenever the roster size changes
+-- (add/recover/removal) so a newly placed or re-seated actor is scheduled at once.
+local scheduleRepairAt = -math.huge
+local scheduleRepairKey = nil
+local function scheduleRepairRosterKey()
+    if type(SC.Registry) ~= "table" or type(SC.Registry.records) ~= "function" then return 0 end
+    local ok, records = pcall(SC.Registry.records)
+    if not ok or type(records) ~= "table" then return 0 end
+    return #records
+end
+
+local function productionTick(current)
+    local now = tonumber(current) or nowMs()
+    local key = scheduleRepairRosterKey()
+    if key ~= scheduleRepairKey
+        or (now - scheduleRepairAt) >= SC.Config.get("scheduleRepairIntervalMs") then
+        ensureCompanionsScheduled()
+        scheduleRepairAt = now
+        scheduleRepairKey = key
+    end
     SC.Scheduler.tick()
 end
+runtime._productionTickForTests = productionTick
 
 local function attachTick()
     if tickAttached then return true end
