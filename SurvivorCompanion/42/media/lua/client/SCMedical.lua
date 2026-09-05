@@ -172,13 +172,24 @@ local function bandageRank(item)
     local dirty = booleanMethod(item, { "isDirty", "isBloody" })
         or string.find(itemType, "dirty", 1, true) ~= nil
     if dirty then return nil end
-    local alcoholic = booleanMethod(item, { "isAlcoholic" })
-    if string.find(itemType, "steril", 1, true) or alcoholic then return 1 end
-    if string.find(itemType, "bandage", 1, true) then return 2 end
-    if string.find(itemType, "rippedsheet", 1, true)
-        or string.find(itemType, "ripped_sheet", 1, true) then return 3 end
-    if utility.itemHasTag(item, "CanBandage") then return 4 end
-    return nil
+    -- Eligibility BEFORE quality (LF-05): the item must actually be a dressing. An
+    -- isAlcoholic() flag (whiskey, disinfectant) or a "steril" substring in an
+    -- unrelated name is NOT proof of a dressing, so those only modify the ranking
+    -- of an item already shown to be bandage-capable -- they never make one
+    -- eligible on their own.
+    local isBandageType = string.find(itemType, "bandage", 1, true) ~= nil
+    local isRippedSheet = string.find(itemType, "rippedsheet", 1, true) ~= nil
+        or string.find(itemType, "ripped_sheet", 1, true) ~= nil
+    local canBandage = utility.itemHasTag(item, "CanBandage") == true
+    if not (isBandageType or isRippedSheet or canBandage) then return nil end
+    -- Quality among eligible dressings (lower rank = preferred): sterile, then
+    -- alcohol-treated, then a plain bandage, then a tagged dressing, then a ripped
+    -- sheet.
+    if string.find(itemType, "steril", 1, true) then return 1 end
+    if booleanMethod(item, { "isAlcoholic" }) then return 2 end
+    if isBandageType then return 3 end
+    if canBandage then return 4 end
+    return 5
 end
 
 local function findBandage(character)
@@ -196,6 +207,7 @@ local function findBandage(character)
     end
     return best, inventory
 end
+Medical._bandageRankForTests = bandageRank
 
 local essentialClothingTerms = {
     "coat", "jacket", "parka", "trouser", "pants", "shoe", "boot",

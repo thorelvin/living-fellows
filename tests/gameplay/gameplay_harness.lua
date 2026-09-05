@@ -2239,6 +2239,25 @@ check(not farOk and farReason == "out_of_range",
 end
 
 do
+-- LF-05: a dressing's eligibility is proven before its quality is ranked. An
+-- isAlcoholic() flag (whiskey) or a "steril" substring in an unrelated name must
+-- not make a non-dressing outrank a real bandage.
+local rank = SurvivorCompanion.Medical._bandageRankForTests
+check(rank(item("Base.Bandage", "Medical")) ~= nil, "a real bandage is an eligible dressing")
+check(rank(item("Base.WhiskeyFull", "Food", { alcoholic = true })) == nil,
+    "an alcoholic non-dressing (whiskey) is not selectable as a bandage")
+check(rank(item("Base.SterileWipe", "Item")) == nil,
+    "an unrelated item whose name merely contains 'steril' is not selectable as a bandage")
+check(rank(item("Base.MysteryDressing", "Item", { tags = { CanBandage = true } })) ~= nil,
+    "an item tagged CanBandage is an eligible dressing")
+check(rank(item("Base.SterilizedBandage", "Medical")) == 1,
+    "a sterile dressing ranks best among eligible dressings")
+check(rank(item("Base.Bandage", "Medical", { alcoholic = true }))
+        < rank(item("Base.Bandage", "Medical")),
+    "an alcohol-treated bandage outranks a plain one, but only because it is already a dressing")
+end
+
+do
 -- The "bandage" command preflights the hand-bandage, then hands off to
 -- SC.PlayerCare (the native timed-action layer) which is absent in the harness.
 local careWound = bodyPart({ name = "UpperArm_R", isBleeding = true })
