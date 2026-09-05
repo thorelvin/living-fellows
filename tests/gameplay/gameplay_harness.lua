@@ -2199,6 +2199,77 @@ player.vehicle = nil
 local treated, treatmentReason = SurvivorCompanion.Medical.treat(fellow, player, { snapshot = { threats = {}, immediateCount = 0, escapeSquares = { { square = fellow.square } } } })
 check(treated and woundedPart.isBandaged and helperBandage.used, "native body part bandaging consumes a real supply")
 
+do
+-- Player-initiated care: the local player hand-bandages a companion using a
+-- bandage from the player's own inventory (feature: "I can bandage them too").
+local patientWound = bodyPart({ name = "ForeArm_R", isBleeding = true })
+local woundedCompanion = actor("sc-hand-bandage-patient", 12, 12, {
+    body = bodyDamage(70, { patientWound }),
+})
+local playerBandage = item("Base.Bandage", "Medical")
+local caretaker = actor("sc-hand-bandage-player", 12, 13, { inventory = inventory({ playerBandage }) })
+local ready, readyReason, context = SurvivorCompanion.Medical.playerBandagePreflight(
+    woundedCompanion, caretaker)
+check(ready and readyReason == "ready" and context.wound.part == patientWound
+        and context.bandage == playerBandage,
+    "player-bandage preflight resolves the companion's wound and a bandage from the player's inventory")
+local applied, applyReason = SurvivorCompanion.Medical.applyPlayerBandage(woundedCompanion, caretaker)
+check(applied and applyReason == "bandaged" and patientWound.isBandaged and playerBandage.used,
+    "the player's bandage is applied to the companion's wound and consumed from the player's inventory")
+local healedOk, healedReason = SurvivorCompanion.Medical.playerBandagePreflight(woundedCompanion, caretaker)
+check(not healedOk and healedReason == "no_treatable_wound",
+    "a companion with no treatable wound cannot be hand-bandaged")
+
+local secondWound = bodyPart({ name = "Hand_L", isBleeding = true })
+local secondCompanion = actor("sc-hand-bandage-patient2", 12, 12, {
+    body = bodyDamage(70, { secondWound }),
+})
+local emptyHanded = actor("sc-hand-bandage-empty", 12, 13, { inventory = inventory({}) })
+local noBandageOk, noBandageReason = SurvivorCompanion.Medical.playerBandagePreflight(
+    secondCompanion, emptyHanded)
+check(not noBandageOk and noBandageReason == "no_bandage",
+    "a player with no bandage cannot hand-bandage a companion")
+
+local farPlayer = actor("sc-hand-bandage-far", 40, 40, {
+    inventory = inventory({ item("Base.Bandage", "Medical") }),
+})
+local farOk, farReason = SurvivorCompanion.Medical.playerBandagePreflight(secondCompanion, farPlayer)
+check(not farOk and farReason == "out_of_range",
+    "a player out of reach cannot hand-bandage a companion")
+end
+
+do
+-- The "bandage" command preflights the hand-bandage, then hands off to
+-- SC.PlayerCare (the native timed-action layer) which is absent in the harness.
+local careWound = bodyPart({ name = "UpperArm_R", isBleeding = true })
+local careCompanion = actor("sc-care-cmd", 0, 2, { body = bodyDamage(70, { careWound }) })
+registry[careCompanion.id] = careCompanion
+local careBandage = item("Base.Bandage", "Medical")
+player.inventory:AddItem(careBandage)
+
+local noCareOk, noCareReason = SurvivorCompanion.Commands.issue(careCompanion.id, "bandage", nil, player)
+check(not noCareOk and noCareReason == "ui_unavailable",
+    "the bandage command fails closed when the native timed-action layer is unavailable")
+
+local queuedWith = nil
+SurvivorCompanion.PlayerCare = {
+    queueBandage = function(p, c) queuedWith = { p = p, c = c } return true, "bandage_started" end,
+}
+local careOk, careReason = SurvivorCompanion.Commands.issue(careCompanion.id, "bandage", nil, player)
+check(careOk and careReason == "bandage_started"
+        and queuedWith and queuedWith.p == player and queuedWith.c == careCompanion,
+    "the bandage command preflights then queues the player's timed action via SC.PlayerCare")
+SurvivorCompanion.PlayerCare = nil
+
+careWound.isBandaged = true
+local healedOk, healedReason = SurvivorCompanion.Commands.issue(careCompanion.id, "bandage", nil, player)
+check(not healedOk and healedReason == "no_treatable_wound",
+    "the bandage command refuses a companion with no treatable wound")
+
+player.inventory:Remove(careBandage)
+registry[careCompanion.id] = nil
+end
+
 -- Knox and injuries drop health but never immobilize a companion: like a player it
 -- stays mobile (and bandageable) as its health falls, and only stops when it dies
 -- at zero health or turns at terminal Knox.

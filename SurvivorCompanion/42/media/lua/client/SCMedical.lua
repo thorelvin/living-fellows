@@ -1064,6 +1064,41 @@ function Medical.treat(helper, patient, runtime, options)
     return continueTreatmentApproach(helper, state, rootRuntime)
 end
 
+-- Player-initiated care: the local player treats a companion's wound with a
+-- bandage from the player's own inventory. Preflight validates a treatable wound,
+-- an available bandage, and range without changing any state, so the context menu
+-- can gate the option and a timed action can re-check on completion. Returns
+-- (ok, reason, context) where context carries the resolved wound/bandage.
+function Medical.playerBandagePreflight(companion, player)
+    local utility = U()
+    if not utility.isValidActor(companion) then return false, "invalid_companion" end
+    if not utility.isValidActor(player) then return false, "invalid_player" end
+    local assessment = Medical.assess(companion)
+    local wound = chooseWound(assessment, true)
+    if not wound then return false, "no_treatable_wound" end
+    local bandage, inventory = findBandage(player)
+    if not bandage then return false, "no_bandage" end
+    local range = tonumber(utility.config("medicalPlayerBandageRange")) or 2.0
+    if utility.distance(player, companion) > range then return false, "out_of_range" end
+    return true, "ready", {
+        assessment = assessment, wound = wound, bandage = bandage, inventory = inventory,
+    }
+end
+
+-- Commit the player's bandage onto the companion's wound. Re-runs the preflight so
+-- a timed action that started while valid still refuses if the wound was already
+-- treated, the bandage was consumed, or the player walked away; then applies the
+-- same transactional, verified bandage the companion's own care uses, consuming
+-- the item from the player's inventory.
+function Medical.applyPlayerBandage(companion, player)
+    local ok, reason, context = Medical.playerBandagePreflight(companion, player)
+    if not ok then return false, reason end
+    local applied, applyReason = commitBandage(companion, context.assessment, context.wound,
+        context.bandage, context.inventory, nil)
+    if not applied then return false, applyReason or "bandage_failed" end
+    return true, "bandaged"
+end
+
 local function leaveDowned(actor, runtime)
     local utility = U()
     if not utility.move(actor, "walk", { action = "recover_from_downed", immobile = false }) then

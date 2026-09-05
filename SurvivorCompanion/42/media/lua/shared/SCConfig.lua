@@ -251,6 +251,10 @@ local valueData = {
     medicalRange = 1.35,
     medicalCriticalHealth = 35,
     medicalApproachTimeoutMs = 8000,
+    -- How close the player must be to hand-bandage a companion, and how long the
+    -- player's bandaging timed action takes (game ticks).
+    medicalPlayerBandageRange = 2.0,
+    medicalPlayerBandageActionTicks = 220,
 
     encounterIntervalMs = 1000,
     encounterActiveRadius = 75,

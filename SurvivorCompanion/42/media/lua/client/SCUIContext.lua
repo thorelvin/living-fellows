@@ -432,6 +432,19 @@ local function addViews(menu, row, player)
     addCommand(menu, "UI_SC_Action_Dismiss", row.id, "dismiss", nil, player)
 end
 
+-- Show a Bandage option only when the player can actually treat this companion now
+-- (it has a treatable wound, the player is holding a bandage, and it is in range),
+-- so the option is never a dead click.
+local function addCare(menu, row, player)
+    if not SC.Medical or type(SC.Medical.playerBandagePreflight) ~= "function" then return end
+    if not SC.Registry or type(SC.Registry.byId) ~= "function" then return end
+    local ok, record = pcall(SC.Registry.byId, row.id)
+    if not ok or type(record) ~= "table" or not record.actor then return end
+    local ready = SC.Medical.playerBandagePreflight(record.actor, player)
+    if ready ~= true then return end
+    addCommand(menu, "UI_SC_Action_Bandage", row.id, "bandage", nil, player)
+end
+
 function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, test)
     if test and ISWorldObjectContextMenu and ISWorldObjectContextMenu.Test then
         return true
@@ -465,6 +478,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             local companionOption = rootMenu:addOption(row.name, nil, nil)
             local companionMenu = ISContextMenu:getNew(rootMenu)
             rootMenu:addSubMenu(companionOption, companionMenu)
+            addCare(companionMenu, row, player)
             addConversation(addCategory(companionMenu, "UI_SC_Context_Talk"), row, player)
             addDirectOrders(addCategory(companionMenu, "UI_SC_Context_Orders"), row, player)
             local targetMenu = addCategory(companionMenu, "UI_SC_Context_TargetActions")

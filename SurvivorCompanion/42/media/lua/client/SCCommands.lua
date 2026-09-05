@@ -1201,7 +1201,28 @@ local function handleSetGroup(actor, entry, state, payload)
     return true, "group_set"
 end
 
+-- Player-initiated care: preflight the hand-bandage here (a treatable wound, a
+-- bandage in the player's inventory, and range), then hand off to SC.PlayerCare to
+-- walk the player in and run the timed action. The native queueing lives in
+-- SC.PlayerCare (loaded only in-game); without it -- e.g. a headless harness -- the
+-- command fails closed rather than pretending to treat.
+local function handleBandage(actor, entry, state, payload, player)
+    if not player then return false, "player_unavailable" end
+    if not SC.Medical or type(SC.Medical.playerBandagePreflight) ~= "function" then
+        return false, "medical_unavailable"
+    end
+    local ready, reason = SC.Medical.playerBandagePreflight(actor, player)
+    if not ready then return false, reason or "cannot_bandage" end
+    if SC.PlayerCare and type(SC.PlayerCare.queueBandage) == "function" then
+        local queued, queueReason = SC.PlayerCare.queueBandage(player, actor)
+        return queued == true, queued == true and (queueReason or "bandage_started")
+            or (queueReason or "bandage_not_started")
+    end
+    return false, "ui_unavailable"
+end
+
 local handlers = {
+    bandage = handleBandage,
     follow = handleFollow,
     cautious_follow = handleCautiousFollow,
     stay = handleStay,

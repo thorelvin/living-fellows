@@ -255,6 +255,7 @@
     "UI_SC_VehicleStatus_in_vehicle": "In vehicle",
     "UI_SC_VehicleStatus_waiting_safe_exit": "Waiting for safe exit",
     "UI_SC_Action_OpenHealth":  "Open companion health",
+    "UI_SC_Action_Bandage":  "Bandage companion",
     "UI_SC_Action_GroupNone":  "Remove from group",
     "UI_SC_Action_GroupAlpha":  "Assign to Alpha group",
     "UI_SC_Action_GroupBravo":  "Assign to Bravo group",
