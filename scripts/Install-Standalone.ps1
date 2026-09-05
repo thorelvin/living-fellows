@@ -5,7 +5,13 @@ param(
     [string]$ProjectRoot = '',
     [string]$GameRoot = '',
     [string]$ModsRoot = (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Zomboid\mods'),
-    [string]$InstallDataRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'LivingFellows')
+    [string]$InstallDataRoot = (Join-Path ([Environment]::GetFolderPath('LocalApplicationData')) 'LivingFellows'),
+    # Public installs ship debug controls disabled. Install-Debug.bat passes
+    # -DebugMenu to stage the private-playtest payload instead (in-game Debug tab +
+    # manual spawn on) and activate it through the same reversible launcher entry,
+    # so the existing Uninstall.bat still removes it. (Named -DebugMenu, not -Debug,
+    # because CmdletBinding already reserves the common -Debug parameter.)
+    [switch]$DebugMenu
 )
 
 $ErrorActionPreference = 'Stop'
@@ -66,15 +72,30 @@ $stageRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
     ('LivingFellowsStandalone-' + [guid]::NewGuid().ToString('N'))
 $tempPrefix = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd('\') + '\'
 try {
-    & (Join-Path $ProjectRoot 'scripts\New-StandalonePayload.ps1') `
+    # Both payload builders emit an identically structured $stageRoot\SurvivorCompanion
+    # (ZombieBuddy dependency dropped, exactly one owned bridge JAR). The private
+    # builder additionally flips debugSpawnEnabled/movementRecorderEnabled on and
+    # writes the PRIVATE-NATIVE-BRIDGE.txt marker; -NativeBridge is the matching
+    # install mode that expects that marker and reports the debug tab as enabled.
+    $payloadBuilder = if ($DebugMenu) {
+        'scripts\New-PrivatePlaytestPayload.ps1'
+    } else {
+        'scripts\New-StandalonePayload.ps1'
+    }
+    & (Join-Path $ProjectRoot $payloadBuilder) `
         -ProjectRoot $ProjectRoot -OutputRoot $stageRoot -AllowExternalOutput | Out-Null
-    & (Join-Path $ProjectRoot 'scripts\Install-Local.ps1') `
-        -ProjectRoot $ProjectRoot -ModsRoot $ModsRoot -GameRoot $GameRoot `
-        -BackupRoot (Join-Path $InstallDataRoot 'mod-backups') `
-        -BridgeRoot (Join-Path $InstallDataRoot 'bridge') `
-        -ConfigBackupRoot (Join-Path $InstallDataRoot 'config-backups') `
-        -PreparedPayloadRoot (Join-Path $stageRoot 'SurvivorCompanion') `
-        -PrebuiltBridgeJar $bridgeJar -Standalone
+    $installLocalArgs = @{
+        ProjectRoot         = $ProjectRoot
+        ModsRoot            = $ModsRoot
+        GameRoot            = $GameRoot
+        BackupRoot          = (Join-Path $InstallDataRoot 'mod-backups')
+        BridgeRoot          = (Join-Path $InstallDataRoot 'bridge')
+        ConfigBackupRoot    = (Join-Path $InstallDataRoot 'config-backups')
+        PreparedPayloadRoot = (Join-Path $stageRoot 'SurvivorCompanion')
+        PrebuiltBridgeJar   = $bridgeJar
+    }
+    if ($DebugMenu) { $installLocalArgs.NativeBridge = $true } else { $installLocalArgs.Standalone = $true }
+    & (Join-Path $ProjectRoot 'scripts\Install-Local.ps1') @installLocalArgs
 }
 finally {
     if (Test-Path -LiteralPath $stageRoot) {
@@ -91,3 +112,9 @@ Write-Output ''
 Write-Output 'INSTALL COMPLETE'
 Write-Output 'Start Project Zomboid and enable Living Fellows: Companion for the save.'
 Write-Output 'Do not enable a second Workshop copy at the same time.'
+if ($DebugMenu) {
+    Write-Output ''
+    Write-Output 'DEBUG BUILD: the in-game Debug tab and manual companion spawn are enabled.'
+    Write-Output 'This is a playtest configuration - do not use it for a public/streamed build.'
+    Write-Output 'Run Uninstall.bat to remove it and restore the original launcher.'
+}

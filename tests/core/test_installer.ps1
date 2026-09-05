@@ -37,7 +37,7 @@ $StandaloneUninstall = Join-Path $ProjectRoot 'scripts\Uninstall-Standalone.ps1'
 # [System.IO.Path]::GetFullPath with "Illegal characters in the path" -- a hard
 # install failure for every standalone unzip-and-run. Wrappers must strip the
 # trailing backslash before passing the directory as an argument.
-foreach ($bat in @('Install.bat', 'Uninstall.bat')) {
+foreach ($bat in @('Install.bat', 'Install-Debug.bat', 'Uninstall.bat')) {
     $batPath = Join-Path $ProjectRoot $bat
     if (-not (Test-Path -LiteralPath $batPath -PathType Leaf)) {
         throw "Standalone wrapper missing: $bat"

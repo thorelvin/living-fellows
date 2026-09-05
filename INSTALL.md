@@ -6,6 +6,7 @@ For normal installation, use exactly one of these supported paths:
 
 - **Steam Workshop:** subscribe to ZombieBuddy 2.3.3 or newer and Living Fellows, then enable both for the save.
 - **Standalone Windows release:** extract the release ZIP, close Project Zomboid, and run `Install.bat`. Run `Uninstall.bat` to remove it and restore the original launcher configuration.
+- **Standalone with the in-game Debug menu (playtesters):** run `Install-Debug.bat` instead of `Install.bat`. It installs the same build with the in-game Debug tab and manual companion spawn enabled. It is a playtest configuration, not for public or streamed play. The same `Uninstall.bat` removes it and restores the original launcher.
 
 Do not enable Workshop and standalone copies together. See the main [README](README.md) for the complete new-user guide, non-standard Steam library instructions, save backup guidance, and troubleshooting.
 
