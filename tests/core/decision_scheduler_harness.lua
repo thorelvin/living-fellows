@@ -187,5 +187,29 @@ do
     check(ensureCalls == 3, "a roster-size change forces an immediate schedule repair within the interval")
 end
 
+-- Scenario 6 (hardening): a messy roster -- a record with no id, an inactive
+-- record, a dying record, plus valid actors -- is serviced safely. Only the valid
+-- actors run, nothing crashes on the nil-key path, and the caps still hold.
+do
+    SC.Scheduler.reset(true)
+    services = {}
+    grabbed = {}
+    records = {}
+    records[1] = { id = nil, actor = { id = "noid" } }
+    records[2] = makeRecord(2, { inactive = true })
+    records[3] = makeRecord(3, { dying = true })
+    records[4] = makeRecord(4)
+    records[5] = makeRecord(5)
+    local base = prime(1200000)
+
+    services = {}
+    decisionTask(base, 1000000)
+    check(uniqueServiced() == 2
+            and (services[records[4].id] or 0) >= 1
+            and (services[records[5].id] or 0) >= 1
+            and (services["noid"] or 0) == 0,
+        "a roster with a missing id, an inactive, and a dying record services only the valid actors without crashing")
+end
+
 print("DECISION_SCHEDULER_PASS checks=" .. tostring(checks)
-    .. " multi-actor=true critical-lane=true starvation-capped=true schedule-repair=pulsed")
+    .. " multi-actor=true critical-lane=true starvation-capped=true schedule-repair=pulsed hardened=true")

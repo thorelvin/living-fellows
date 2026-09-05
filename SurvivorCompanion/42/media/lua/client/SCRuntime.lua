@@ -170,6 +170,9 @@ end
 
 local function recordServiceable(record)
     if record == nil or record.actor == nil then return false end
+    -- A valid string id is required: it keys the serviced set and every dueFor
+    -- clock, so a malformed record is skipped rather than risking a nil-key write.
+    if type(record.id) ~= "string" or record.id == "" then return false end
     local rt = record.runtime
     if type(rt) == "table" and (rt.inactive == true or rt.dying == true) then return false end
     return true
@@ -309,7 +312,7 @@ local function decisionTask(current, budgetRemaining)
         local record
         record, decisionCursor = nextRecord(decisionCursor)
         scanned = scanned + 1
-        if record ~= nil and not serviced[record.id] and recordServiceable(record)
+        if recordServiceable(record) and not serviced[record.id]
             and SC.Scheduler.dueFor(record.id, "decision", movementInterval, current) then
             serviceRecord(record, current, currentPlayer)
             serviced[record.id] = true
