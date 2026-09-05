@@ -458,6 +458,20 @@ function actions.pathToNearest(actor, targets, mode)
     return true, "nearest_path_started"
 end
 
+-- Decide whether a native path/face target must be centred on its tile (review
+-- 3.4). A tile/square reports integer corner coords and needs +0.5; a world
+-- position is already exact and must never be shifted. An explicit
+-- intent.targetKind = "square" | "world" is authoritative; otherwise the caller's
+-- own inference (whether the resolved target is the world-position field) decides,
+-- so existing callers keep their current behaviour.
+local function centerTargetOnTile(intent, inferredDefault)
+    local kind = type(intent) == "table" and intent.targetKind or nil
+    if kind == "square" then return true end
+    if kind == "world" then return false end
+    return inferredDefault == true
+end
+actions._centerTargetOnTileForTests = centerTargetOnTile
+
 local function directPath(actor, target, mode, intent)
     local stateReady, stateReason = movementReady(actor)
     if not stateReady then return false, stateReason end
@@ -465,8 +479,16 @@ local function directPath(actor, target, mode, intent)
     if x == nil then
         return false, "path target position is unavailable"
     end
-    x = x + 0.5
-    y = y + 0.5
+    -- Center on the tile unless the resolved target is an exact world position
+    -- (a fractional world coord must not be pushed half a tile off). targetOf()
+    -- returns intent.targetPosition only when no square field was set, so a square
+    -- target still centers exactly as before.
+    local worldTarget = type(intent) == "table" and intent.targetPosition ~= nil
+        and target == intent.targetPosition
+    if centerTargetOnTile(intent, not worldTarget) then
+        x = x + 0.5
+        y = y + 0.5
+    end
     local behaviorOk, behavior = invoke(actor, "getPathFindBehavior2")
     if not behaviorOk or behavior == nil then
         return false, "native path behavior is unavailable"
@@ -1452,7 +1474,9 @@ local function faceTarget(actor, intent, provider, successReason)
     local target = intent.targetPosition or intent.targetSquare or intent
     local x, y = position(target)
     if x == nil then return false, "alert facing target is unavailable" end
-    if intent.targetSquare ~= nil and intent.targetPosition == nil then x, y = x + 0.5, y + 0.5 end
+    if centerTargetOnTile(intent, intent.targetSquare ~= nil and intent.targetPosition == nil) then
+        x, y = x + 0.5, y + 0.5
+    end
     if intent.weaponReady ~= nil then
         local ready, readyReason = setWeaponReady(actor, intent.weaponReady == true, target)
         if not ready then return false, readyReason end

@@ -1762,4 +1762,20 @@ end
 runSupportReportChecks()
 runSupportReportChecks = nil
 
+do
+-- review 3.4: the native target-coord contract. An explicit targetKind is
+-- authoritative; otherwise the caller's inference decides, so a tile centers on
+-- +0.5 while an exact world position is never shifted.
+local centerTargetOnTile = SC.NativeActions._centerTargetOnTileForTests
+check(type(centerTargetOnTile) == "function", "target-centring contract seam is exposed")
+check(centerTargetOnTile({ targetKind = "square" }, false) == true,
+    "an explicit square target kind forces tile centring regardless of inference")
+check(centerTargetOnTile({ targetKind = "world" }, true) == false,
+    "an explicit world target kind suppresses tile centring regardless of inference")
+check(centerTargetOnTile({}, true) == true and centerTargetOnTile({}, false) == false,
+    "with no explicit kind the caller's inference is used unchanged")
+check(centerTargetOnTile(nil, true) == true,
+    "a missing intent falls back to the caller's inference")
+end
+
 print("CORE_KAHLUA_PASS checks=" .. tostring(checks))
