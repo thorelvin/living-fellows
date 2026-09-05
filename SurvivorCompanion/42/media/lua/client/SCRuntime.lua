@@ -44,6 +44,7 @@ local decisionCursor = 1
 local criticalCursor = 1
 local vitalsCursor = 1
 local lastPlayerVehicle = nil
+local vehicleRestoreDeadline = nil
 local originalSelectContainer = nil
 local originalSetNewContainer = nil
 local selectContainerWrapper = nil
@@ -640,8 +641,20 @@ local function vehicleTask()
     local ok, currentVehicle = invoke(currentPlayer, "getVehicle")
     if not ok then return end
     if lastPlayerVehicle ~= nil and currentVehicle == nil then
-        SC.Vehicle.restoreForVehicle(lastPlayerVehicle, currentPlayer)
+        -- Retry the just-exited vehicle's stranded passengers on later pulses within
+        -- a bounded window, instead of consuming the exit after a single attempt: a
+        -- missing exit square or a temporary spawn rejection is recoverable (LF-04).
+        local _, remaining = SC.Vehicle.restoreForVehicle(lastPlayerVehicle, currentPlayer)
+        if type(remaining) == "number" and remaining > 0 then
+            local now = nowMs()
+            if vehicleRestoreDeadline == nil then
+                vehicleRestoreDeadline = now
+                    + (tonumber(SC.Config.get("vehicleRestoreRetryWindowMs")) or 30000)
+            end
+            if now < vehicleRestoreDeadline then return end
+        end
     end
+    vehicleRestoreDeadline = nil
     lastPlayerVehicle = currentVehicle
 end
 

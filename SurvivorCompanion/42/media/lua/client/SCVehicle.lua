@@ -935,16 +935,34 @@ function vehicleService.exit(actor, vehicle, requestedSeat, intent)
     })
 end
 
+-- Number of virtual passengers still stored for a vehicle key. The runtime uses
+-- this to keep retrying placement instead of consuming the exit after one attempt
+-- (a missing exit square or a temporary spawn rejection is not permanent). (LF-04)
+local function storedRemainingForKey(key)
+    if key == nil then return 0 end
+    local remaining = 0
+    for _, stored in pairs(storedById) do
+        if keyFor(stored.vehicle) == key then remaining = remaining + 1 end
+    end
+    return remaining
+end
+
+function vehicleService.storedCountFor(vehicle)
+    return storedRemainingForKey(keyFor(vehicleIdentity(vehicle)))
+end
+
 function vehicleService.restoreForVehicle(vehicle, player)
     local identity = vehicleIdentity(vehicle)
     local key = keyFor(identity)
-    if key == nil then return 0, "vehicle identity is unavailable" end
+    if key == nil then return 0, 0 end
     vehicleService.invalidateManifests(vehicle)
     if SC.Persistence == nil or type(SC.Persistence.restoreAt) ~= "function" then
-        return 0, "persistence restore adapter is unavailable"
+        return 0, storedRemainingForKey(key)
     end
     local square = exitSquare(vehicle, player, nil)
-    if square == nil then return 0, "no safe loaded exit square" end
+    -- No safe loaded exit square is a temporary condition: leave the passengers
+    -- stored and report how many still await placement so the caller retries.
+    if square == nil then return 0, storedRemainingForKey(key) end
     local restored = 0
     local ids = {}
     for id, stored in pairs(storedById) do
@@ -953,7 +971,13 @@ function vehicleService.restoreForVehicle(vehicle, player)
     table.sort(ids)
     for _, id in ipairs(ids) do
         local stored = storedById[id]
-        if SC.Registry.byId(id) == nil then
+        if SC.Registry.byId(id) ~= nil then
+            storedById[id] = nil
+            reservations[stored.reservation] = nil
+        elseif stored.spawnTicket ~= nil then
+            -- Placement is already in flight; restorePulse owns this ticket. Do not
+            -- launch a second spawn for the same passenger.
+        else
             local actor, reason, ticket = SC.Persistence.restoreAt(stored.record, square)
             if actor ~= nil then
                 storedById[id] = nil
@@ -964,12 +988,9 @@ function vehicleService.restoreForVehicle(vehicle, player)
             else
                 SC.Diagnostics.report("vehicle", id, "virtual-seat restore deferred", reason)
             end
-        else
-            storedById[id] = nil
-            reservations[stored.reservation] = nil
         end
     end
-    return restored
+    return restored, storedRemainingForKey(key)
 end
 
 function vehicleService.restorePulse()

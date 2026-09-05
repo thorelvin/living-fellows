@@ -846,6 +846,26 @@ check(importedNative and importNativeReason ~= nil and exportedNative ~= nil
     "native-seated save is distinguished and converted to a correct-vehicle reservation")
 SC.Vehicle.reset()
 
+do
+-- LF-04: a temporary virtual-seat restore failure must be retried, not consumed
+-- after one attempt. restoreForVehicle reports how many stored passengers still
+-- await placement so the runtime keeps retrying instead of stranding them.
+local passengerRecord = {
+    id = "sc-vseat-retry",
+    vehicle = { stored = true, vehicle = { id = vehicle.id, script = vehicle.script }, seat = 2 },
+}
+check(SC.Vehicle.importStored(passengerRecord) == true
+        and SC.Vehicle.storedCountFor(vehicle) == 1,
+    "a stored virtual passenger is counted for its vehicle key")
+local realRestoreAt = SC.Persistence.restoreAt
+SC.Persistence.restoreAt = function() return nil, "no loaded spawn square" end
+local restored, remaining = SC.Vehicle.restoreForVehicle(vehicle, manifestPlayer)
+SC.Persistence.restoreAt = realRestoreAt
+check(restored == 0 and remaining == 1,
+    "a temporary restore failure leaves the passenger stored and reports it as remaining, so the runtime retries the exit instead of consuming it")
+SC.Vehicle.reset()
+end
+
 local targetSquare = { x = 1, y = 0, z = 0 }
 function targetSquare:getX() return self.x end
 function targetSquare:getY() return self.y end

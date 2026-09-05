@@ -178,6 +178,9 @@ local valueData = {
     -- which do not exist.  Unseated followers wait for the player to stop and
     -- leave the vehicle; they are never teleported after a moving car.
     vehicleManifestLimit = 32,
+    -- How long the runtime keeps retrying placement of a just-exited vehicle's
+    -- stranded virtual passengers before giving up (they stay stored and saved).
+    vehicleRestoreRetryWindowMs = 30000,
     vehicleRangedSupportMaxSpeedKph = 15,
     vehicleWeaponsFreeMaxSpeedKph = 30,
     vehicleFireSpacingMs = 240,
