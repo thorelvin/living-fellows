@@ -383,11 +383,15 @@ local weapon = makeItem("Base.VarmintRifle", {
 })
 local jacket = makeItem("Base.Jacket_Police", { condition = 6, bloodLevel = 0.45 })
 local knife = makeItem("Base.HuntingKnife", { condition = 8 })
+-- A loaded spare magazine (LF-02): not a HandWeapon, but it tracks its rounds via
+-- getCurrentAmmoCount/setCurrentAmmoCount and must keep them across save/restore.
+local magazine = makeItem("Base.556Clip", { currentAmmo = 15 })
 -- Build 42's base InventoryItem does not expose getInventory(); only real
 -- InventoryContainer items do. A failed method lookup returns an error string
 -- through SCCall and must never be mistaken for a nested container object.
 knife.getInventory = nil
 original.inventory:AddItem(weapon)
+original.inventory:AddItem(magazine)
 original.inventory:AddItem(jacket)
 original.inventory:AddItem(knife)
 original:setPrimaryHandItem(weapon)
@@ -433,7 +437,7 @@ check(bareRetained == false and bareReason == "no_recoverable_snapshot",
     "with no capture and no snapshot, recovery refuses so the caller blocks deletion")
 end
 check(captured.inventory.schema == 2 and captured.inventory.complete == true
-    and captured.inventory.count == 7
+    and captured.inventory.count == 8
     and captured.inventory.equipment.primary ~= nil
     and captured.inventory.equipment.primary == captured.inventory.equipment.secondary
     and #captured.inventory.equipment.worn == 2
@@ -553,6 +557,9 @@ check(restoredWeapon.condition == 4 and restoredWeapon.repairs == 2
     and restoredWeapon.weaponParts[1]:getFullType() == "Base.x4Scope"
     and restoredWeapon.weaponParts[1]:getModData().zeroed == true,
     "weapon state and detached attachment items survive restore")
+local restoredMagazine = findType(restored.inventory, "Base.556Clip")
+check(restoredMagazine ~= nil and restoredMagazine.currentAmmo == 15,
+    "a loaded spare magazine (not a HandWeapon) keeps its rounds across save/restore (LF-02)")
 check(restoredBottle.uses == 3 and math.abs(restoredBottle.usedDelta - 0.65) < 0.001
     and math.abs(restoredBottle.age - 1.25) < 0.001 and restoredBottle.cooked == true
     and math.abs(restoredBottle.fluid:getAmount() - 0.9) < 0.001

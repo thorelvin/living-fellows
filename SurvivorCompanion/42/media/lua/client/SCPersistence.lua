@@ -413,6 +413,15 @@ local function captureItem(item)
                 entry.firearm[key] = value
             end
         end
+    elseif method(item, "getCurrentAmmoCount") ~= nil and method(item, "setCurrentAmmoCount") ~= nil then
+        -- A spare magazine is an InventoryItem (not a HandWeapon) but still tracks
+        -- its loaded rounds. Persist them via a verified getter/setter so a saved
+        -- magazine keeps its ammunition and stays usable reload supply after load
+        -- (hasReloadAmmo checks the current count), instead of rebuilding empty (LF-02).
+        local ammoOk, ammoCount = invoke(item, "getCurrentAmmoCount")
+        if ammoOk and type(ammoCount) == "number" then
+            entry.magazine = { currentAmmo = math.max(0, math.floor(ammoCount)) }
+        end
     end
     local fluid, fluidReason = captureFluid(item)
     if fluidReason then return nil, fluidReason end
@@ -982,6 +991,9 @@ local function copyInventoryNode(source, context, depth)
     clean.firearm, copyReason = stableCopy(source.firearm, 3, 64,
         "$.inventory[].firearm")
     if copyReason ~= nil then return nil, copyReason end
+    clean.magazine, copyReason = stableCopy(source.magazine, 3, 64,
+        "$.inventory[].magazine")
+    if copyReason ~= nil then return nil, copyReason end
     clean.fluid, copyReason = stableCopy(source.fluid, 4, 128,
         "$.inventory[].fluid")
     if copyReason ~= nil then return nil, copyReason end
@@ -1213,6 +1225,9 @@ local function applyItemState(item, entry, restoredKeys)
         if firearm.roundChambered ~= nil then invoke(item, "setRoundChambered", firearm.roundChambered == true) end
         if firearm.jammed ~= nil then invoke(item, "setJammed", firearm.jammed == true) end
         if firearm.fireMode ~= nil then invoke(item, "setFireMode", tostring(firearm.fireMode)) end
+    end
+    if type(entry.magazine) == "table" and entry.magazine.currentAmmo ~= nil then
+        invoke(item, "setCurrentAmmoCount", math.max(0, math.floor(finite(entry.magazine.currentAmmo, 0))))
     end
     local fluidApplied, fluidReason = applyFluid(item, entry.fluid)
     if not fluidApplied then return false, fluidReason end
