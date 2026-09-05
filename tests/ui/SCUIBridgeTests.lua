@@ -169,3 +169,17 @@ local noOpHealth, noOpReason = Bridge.openHealth(actor, player, function()
     }
 end)
 assert(noOpHealth == false and noOpReason == "UI_SC_Disabled_HealthUnavailable")
+
+-- The read-only health view is not gated to inventory's arm's-reach distance: a
+-- normally-following companion (beyond NEARBY_DISTANCE) can still have its health
+-- opened, while its inventory -- which borrows the loot pane -- still cannot. This
+-- is the "Open companion health does nothing at follow distance" fix.
+assert(Bridge.NEARBY_DISTANCE < 20 and 20 <= Bridge.VIEW_DISTANCE)
+player.distance = 20
+local farHealth, farHealthReason = Bridge.openHealth(actor, player, openHealth, function(subject, doctor)
+    return { name = "Mock Companion" }
+end)
+assert(farHealth == true and farHealthReason == nil)
+local farInventory, farInventoryReason = Bridge.openInventory(actor, player)
+assert(farInventory == false and farInventoryReason == "UI_SC_Disabled_TooFar")
+player.distance = 3

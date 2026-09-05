@@ -7,6 +7,12 @@ SC.UIBridge = SC.UIBridge or {}
 local Bridge = SC.UIBridge
 
 Bridge.NEARBY_DISTANCE = 4
+-- Opening a companion's read-only health/loadout view does not borrow the loot
+-- pane (only the explicit Open Inventory action does), so it must not be gated to
+-- the same arm's-reach distance as inventory. The context menu already only offers
+-- it for companions within ~16 tiles; this generous bound keeps a sane "loaded and
+-- with you" limit while letting a normally-following companion's health open.
+Bridge.VIEW_DISTANCE = 64
 
 -- When we borrow the local player's loot pane to show a companion's inventory we
 -- must be able to put it back exactly as it was. Single-player, so one snapshot:
@@ -167,7 +173,7 @@ function Bridge.restoreInventory()
 end
 
 function Bridge.openHealth(actor, player, openFunction, describeFunction)
-    local valid, reason, argument = Bridge.validateNearbyActor(actor, player, Bridge.NEARBY_DISTANCE)
+    local valid, reason, argument = Bridge.validateNearbyActor(actor, player, Bridge.VIEW_DISTANCE)
     if not valid then
         return false, reason, argument
     end
