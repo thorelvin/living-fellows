@@ -821,6 +821,57 @@ local function stealthThreatPenalty(square, snapshot)
     return total
 end
 
+-- Binary min-heap for the A* open set (review 3.3), replacing the O(N) lowest-f
+-- linear scan + O(N) table.remove that made each expansion O(N) and the search
+-- O(N^2). Entries are { key, f, h, seq } and are ordered by f, then h, then a
+-- stable insertion sequence so ties resolve exactly as the old scan did (the
+-- earliest-inserted node among equal f/h wins), keeping produced paths identical.
+-- Improvements push a fresh entry that reuses the node's original seq and leave the
+-- superseded entry in place (lazy deletion); the popper drops any entry whose
+-- priority no longer matches its node, or whose node is already closed.
+local function heapEntryLess(a, b)
+    if a.f ~= b.f then return a.f < b.f end
+    if a.h ~= b.h then return a.h < b.h end
+    return a.seq < b.seq
+end
+
+local function heapPush(heap, entry)
+    heap[#heap + 1] = entry
+    local child = #heap
+    while child > 1 do
+        local parent = math.floor(child / 2)
+        if heapEntryLess(heap[child], heap[parent]) then
+            heap[child], heap[parent] = heap[parent], heap[child]
+            child = parent
+        else
+            break
+        end
+    end
+end
+
+local function heapPop(heap)
+    local size = #heap
+    if size == 0 then return nil end
+    local top = heap[1]
+    local last = heap[size]
+    heap[size] = nil
+    size = size - 1
+    if size > 0 then
+        heap[1] = last
+        local parent = 1
+        while true do
+            local left, right = parent * 2, parent * 2 + 1
+            local smallest = parent
+            if left <= size and heapEntryLess(heap[left], heap[smallest]) then smallest = left end
+            if right <= size and heapEntryLess(heap[right], heap[smallest]) then smallest = right end
+            if smallest == parent then break end
+            heap[parent], heap[smallest] = heap[smallest], heap[parent]
+            parent = smallest
+        end
+    end
+    return top
+end
+
 local function newBoundedPathJob(startSquare, goalSquare, options)
     if sameSquare(startSquare, goalSquare) then
         return {
@@ -841,9 +892,10 @@ local function newBoundedPathJob(startSquare, goalSquare, options)
             startSquare = startSquare, goalSquare = goalSquare, options = options,
         }
     end
+    local startH = heuristic(startSquare, goalSquare)
     local nodes = {
-        [startKey] = { square = startSquare, g = 0, h = heuristic(startSquare, goalSquare),
-            f = heuristic(startSquare, goalSquare), parent = nil },
+        [startKey] = { square = startSquare, g = 0, h = startH, f = startH,
+            parent = nil, seq = 0 },
     }
     return {
         complete = false,
@@ -857,8 +909,8 @@ local function newBoundedPathJob(startSquare, goalSquare, options)
         options = options,
         penalties = penalties,
         nodes = nodes,
-        open = { startKey },
-        inOpen = { [startKey] = true },
+        open = { { key = startKey, f = startH, h = startH, seq = 0 } },
+        seqCounter = 0,
         closed = {},
         expanded = 0,
     }
@@ -872,55 +924,63 @@ local function resumeBoundedPathJob(job, expansionQuota)
     local quota = math.max(1, math.floor(tonumber(expansionQuota) or job.nodeBudget or 1))
     local used = 0
     while #job.open > 0 and job.expanded < job.nodeBudget and used < quota do
-        local bestIndex, bestKey, bestF, bestH = 1, job.open[1], math.huge, math.huge
-        for index, key in ipairs(job.open) do
-            local f, h = job.nodes[key].f, job.nodes[key].h
-            if f < bestF or (f == bestF and h < bestH) then
-                bestIndex, bestKey, bestF, bestH = index, key, f, h
+        local entry = heapPop(job.open)
+        if entry == nil then break end
+        local bestKey = entry.key
+        local node = job.nodes[bestKey]
+        -- Drop a stale/duplicate heap entry: one whose node was closed already, or
+        -- whose priority the node has since improved past (a superseded entry left
+        -- behind by lazy deletion). Skipping does not consume the expansion quota.
+        if node ~= nil and not job.closed[bestKey]
+            and entry.f == node.f and entry.h == node.h then
+            if bestKey == job.goalKey then
+                job.complete = true
+                job.path = reconstruct(job.nodes, bestKey)
+                return "complete", job.path, nil, job.expanded, used
             end
-        end
-        table.remove(job.open, bestIndex)
-        job.inOpen[bestKey] = nil
-        if bestKey == job.goalKey then
-            job.complete = true
-            job.path = reconstruct(job.nodes, bestKey)
-            return "complete", job.path, nil, job.expanded, used
-        end
-        job.closed[bestKey] = true
-        job.expanded = job.expanded + 1
-        used = used + 1
-        local current = job.nodes[bestKey]
-        for _, otherSquare in ipairs(neighbors(
-            current.square, job.goalSquare, job.options.neighborRotation)) do
-            local otherKey = squareKey(otherSquare)
-            if otherKey and not job.closed[otherKey] then
-                local edgeOptions = job.options
-                edgeOptions.allowOccupiedGoal = otherKey == job.goalKey
-                local passable, cost = passableEdge(
-                    current.square, otherSquare, job.options.vegetationScale, edgeOptions)
-                if passable then
-                    local dynamicPenalty = 0
-                    if type(job.options.squarePenalty) == "function" then
-                        local value = tonumber(job.options.squarePenalty(otherSquare, current.square))
-                        if value and value == value and value > 0 and value < math.huge then
-                            dynamicPenalty = value
+            job.closed[bestKey] = true
+            job.expanded = job.expanded + 1
+            used = used + 1
+            local current = node
+            for _, otherSquare in ipairs(neighbors(
+                current.square, job.goalSquare, job.options.neighborRotation)) do
+                local otherKey = squareKey(otherSquare)
+                if otherKey and not job.closed[otherKey] then
+                    local edgeOptions = job.options
+                    edgeOptions.allowOccupiedGoal = otherKey == job.goalKey
+                    local passable, cost = passableEdge(
+                        current.square, otherSquare, job.options.vegetationScale, edgeOptions)
+                    if passable then
+                        local dynamicPenalty = 0
+                        if type(job.options.squarePenalty) == "function" then
+                            local value = tonumber(job.options.squarePenalty(otherSquare, current.square))
+                            if value and value == value and value > 0 and value < math.huge then
+                                dynamicPenalty = value
+                            end
                         end
-                    end
-                    local tentative = current.g + cost + (tonumber(job.penalties[otherKey]) or 0)
-                        + dynamicPenalty
-                    local known = job.nodes[otherKey]
-                    if not known or tentative < known.g then
-                        local h = heuristic(otherSquare, job.goalSquare)
-                        job.nodes[otherKey] = {
-                            square = otherSquare,
-                            g = tentative,
-                            h = h,
-                            f = tentative + h,
-                            parent = bestKey,
-                        }
-                        if not job.inOpen[otherKey] then
-                            job.open[#job.open + 1] = otherKey
-                            job.inOpen[otherKey] = true
+                        local tentative = current.g + cost + (tonumber(job.penalties[otherKey]) or 0)
+                            + dynamicPenalty
+                        local known = job.nodes[otherKey]
+                        if not known or tentative < known.g then
+                            -- Reuse the node's original insertion sequence on an
+                            -- improvement so ties keep resolving by first-seen order
+                            -- (parity with the previous linear scan).
+                            local seq = known and known.seq
+                            if seq == nil then
+                                job.seqCounter = job.seqCounter + 1
+                                seq = job.seqCounter
+                            end
+                            local h = heuristic(otherSquare, job.goalSquare)
+                            local fScore = tentative + h
+                            job.nodes[otherKey] = {
+                                square = otherSquare,
+                                g = tentative,
+                                h = h,
+                                f = fScore,
+                                parent = bestKey,
+                                seq = seq,
+                            }
+                            heapPush(job.open, { key = otherKey, f = fScore, h = h, seq = seq })
                         end
                     end
                 end
@@ -2284,6 +2344,11 @@ Navigation._goalResetDistanceForTests = goalResetDistance
 -- occupancy are separate -- a mover adds crowd cost (and none when the goal is
 -- allowed to be occupied), while a static blocker is always impassable.
 Navigation._passableEdgeForTests = passableEdge
+
+-- Test seams (heap A*, review 3.3): the open-set min-heap must drain in exact
+-- (f, h, seq) order so the search keeps producing the same paths as the old scan.
+Navigation._heapPushForTests = heapPush
+Navigation._heapPopForTests = heapPop
 
 local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGoal,
         now, reason, multiGoal, movingTarget)

@@ -1231,6 +1231,72 @@ registry[occupant.id] = nil
 end
 
 do
+-- review 3.3: the A* open set is a binary min-heap. It must drain in exact
+-- (f, h, seq) order so the search expands nodes identically to the old linear scan.
+local heapPush = SurvivorCompanion.Navigation._heapPushForTests
+local heapPop = SurvivorCompanion.Navigation._heapPopForTests
+local heap = {}
+for _, entry in ipairs({
+    { key = "a", f = 5, h = 2, seq = 1 },
+    { key = "b", f = 3, h = 9, seq = 2 },
+    { key = "c", f = 3, h = 1, seq = 3 },
+    { key = "d", f = 3, h = 1, seq = 0 },
+    { key = "e", f = 5, h = 2, seq = 4 },
+    { key = "f", f = 1, h = 7, seq = 5 },
+    { key = "g", f = 5, h = 1, seq = 6 },
+}) do heapPush(heap, entry) end
+local drained = {}
+while true do
+    local top = heapPop(heap)
+    if top == nil then break end
+    drained[#drained + 1] = top.key
+end
+local expected = { "f", "d", "c", "b", "g", "a", "e" }
+local ordered = #drained == #expected
+for index = 1, #expected do if drained[index] ~= expected[index] then ordered = false end end
+check(ordered, "the A* open-set heap drains in exact (f, h, seq) priority order")
+check(heapPop({}) == nil, "popping an empty heap returns nil")
+
+-- End-to-end: the heap search still produces optimal, contiguous, deterministic
+-- paths, and resolves a forced straight route to its unique optimal path.
+local findPath = SurvivorCompanion.Navigation.findPath
+local openSource = cell:getGridSquare(50, 0, 0)
+local openGoalSquare = cell:getGridSquare(53, 2, 0)
+local pathA = findPath(openSource, openGoalSquare)
+check(pathA ~= nil and #pathA == 6 and pathA[1] == openSource and pathA[#pathA] == openGoalSquare,
+    "open-field heap search returns an optimal-length (manhattan + 1) path with correct endpoints")
+local contiguous = true
+for index = 2, #pathA do
+    if math.abs(pathA[index]:getX() - pathA[index - 1]:getX())
+            + math.abs(pathA[index]:getY() - pathA[index - 1]:getY()) ~= 1 then
+        contiguous = false
+    end
+end
+check(contiguous, "the heap search path steps one cardinal square at a time")
+local pathB = findPath(openSource, openGoalSquare)
+local deterministic = pathB ~= nil and #pathA == #pathB
+for index = 1, #pathA do if pathA[index] ~= pathB[index] then deterministic = false end end
+check(deterministic, "the heap search is deterministic across repeated calls")
+
+local corridor = findPath(cell:getGridSquare(50, 5, 0), cell:getGridSquare(52, 5, 0))
+check(corridor ~= nil and #corridor == 3
+        and corridor[2]:getX() == 51 and corridor[2]:getY() == 5,
+    "a forced straight shortest route resolves to its unique optimal path")
+
+local walledGoal = cell:getGridSquare(48, 20, 0)
+cell:getGridSquare(47, 20, 0).solid = true
+cell:getGridSquare(49, 20, 0).solid = true
+cell:getGridSquare(48, 19, 0).solid = true
+cell:getGridSquare(48, 21, 0).solid = true
+check(findPath(cell:getGridSquare(45, 20, 0), walledGoal) == nil,
+    "a fully walled-off goal is unreachable and the heap search fails cleanly (no crash)")
+cell:getGridSquare(47, 20, 0).solid = nil
+cell:getGridSquare(49, 20, 0).solid = nil
+cell:getGridSquare(48, 19, 0).solid = nil
+cell:getGridSquare(48, 21, 0).solid = nil
+end
+
+do
 local driftingGoalActor = actor("sc-drifting-goal", -8, 8, {})
 registry[driftingGoalActor.id] = driftingGoalActor
 for targetX = -5, -2 do
