@@ -143,10 +143,29 @@ require("pcall(MainScreen.continueLatestSave" in lua,
 require("Actor.beginSpawn" in lua and "Actor.pollSpawn" in lua,
         "spawn test must exercise the deferred production API")
 require("Harness.factionProgressAt" in lua
-        and "stalledFor > 20000" in lua and "elapsed > 45000" in lua
+        and "stalledFor > 35000" in lua and "elapsed > 60000" in lua
         and '"queued=" .. tostring(member.spawnQueued == true)' in lua
         and 'if task.name == "factions"' in lua,
         "faction registration must tolerate healthy deferred spawning and diagnose a real stall")
+require("zombieGrabGraceMs = 60000" in lua
+        and "zombieScratchDamage = 1" in lua
+        and "zombieGrabChance = 0" in lua
+        and "zombieGrabChance = 10" in lua,
+        "incoming-attack probe must not randomly kill the actor needed by later phases")
+require('"setAttackOutcome", "success"' in lua
+        and "current - Harness.zObserveStart > 8000" in lua,
+        "incoming-attack probe must bound Build 42 zombie idle-state flakiness")
+require('group.lifecycle == "alert"' in lua
+        and "group.lastThreatAt = nil" in lua,
+        "fortification probe must clear only its own expired synthetic threat cooldown")
+require('"live_hostility_probe"' in lua
+        and "current - Harness.phaseStartedAt < 12000" in lua,
+        "hostility probe must release prior work and allow a bounded scheduler decision window")
+require("assessment.needsBandage == true" in lua
+        and 'SC.Medical.cancel, wounded, "live_medical_probe", true' in lua,
+        "medical probe must select an untreated wound and clear only stale prior care state")
+require("medicalStart or current) >= 15000" in lua,
+        "medical probe must allow both emergency-rip and bandage animations to finish")
 require("beginHarnessControl" in lua
         and "supervisorToken = Harness.roomSupervisorToken" in lua
         and "supervisorToken = Harness.combatSupervisorToken" in lua

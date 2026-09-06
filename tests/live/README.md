@@ -48,6 +48,13 @@ are placed in its isolated mod list; no local/Vortex mod junctions are created:
 .\scripts\Invoke-LiveSandboxTests.ps1 -LivingFellowsOnly
 ```
 
+When a seed needs its map mods but an unrelated gameplay mod interferes with a
+focused diagnostic, exclude only that mod from the disposable clone:
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -ExcludeModId ExampleModId
+```
+
 Use `-PrepareOnly` to inspect the clone without launching the game. Every run is
 retained with a manifest, isolated console, event log, and terminal summary.
 `PASS` means every applicable assertion passed; environment-dependent geometry

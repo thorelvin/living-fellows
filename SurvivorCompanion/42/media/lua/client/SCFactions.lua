@@ -1723,10 +1723,18 @@ function Factions.export()
     if orderCopy == nil then return nil, orderReason end
     local result = {
         schema = SCHEMA, sequence = sequence,
-        lastWorldSpawnDay = lastWorldSpawnDay == -math.huge and nil or lastWorldSpawnDay,
-        lastProductionCheckDay = lastProductionCheckDay == -math.huge and nil or lastProductionCheckDay,
         order = orderCopy, groups = {},
     }
+    -- Lua's common `condition and value or fallback` idiom cannot produce nil:
+    -- the nil immediately selects the fallback and used to leak -math.huge into
+    -- the JSON save document. Omit unset days explicitly so persistence remains
+    -- finite and restore can map the absent fields back to its internal sentinel.
+    if lastWorldSpawnDay ~= -math.huge then
+        result.lastWorldSpawnDay = lastWorldSpawnDay
+    end
+    if lastProductionCheckDay ~= -math.huge then
+        result.lastProductionCheckDay = lastProductionCheckDay
+    end
     for _, id in ipairs(groupOrder) do
         local group = groups[id]
         if group then

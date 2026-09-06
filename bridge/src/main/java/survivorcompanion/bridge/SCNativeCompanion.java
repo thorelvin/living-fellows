@@ -5,12 +5,16 @@ import se.krka.kahlua.vm.KahluaTable;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.RejectedExecutionException;
 
 import zombie.Lua.LuaEventManager;
 import zombie.ai.AIBrainPlayerControlVars;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.SurvivorDesc;
+import zombie.characters.CharacterTimedActions.BaseAction;
 import zombie.characters.component.AIComponent;
 import zombie.characters.action.ActionState;
 import zombie.iso.IsoCamera;
@@ -63,6 +67,8 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile String bridgePostUpdateDiagnostic = "not_run";
     private volatile zombie.iso.IsoMovingObject bridgeAimTarget;
     private boolean genericUpdateActive;
+    private final Set<BaseAction> bridgePendingActionStarts = ConcurrentHashMap.newKeySet();
+    private volatile String bridgeActionStartFailure = "";
     // A recoverable exception in the vanilla update chain (e.g. an animation-
     // variable slot that is momentarily null on this non-local actor) must not
     // be fatal: disabling the bridge makes the runtime health gate remove and
@@ -84,6 +90,51 @@ public final class SCNativeCompanion extends IsoPlayer {
         setNpc(true);
         descriptor.setInstance(this);
         addOnDiedListener((character, body) -> corpseReady = body != null, false);
+    }
+
+    /**
+     * Vanilla's Lua timed-action queue calls StartAction while Kahlua is still
+     * inside the Lua -> Java invocation that enqueued the action. StartAction
+     * immediately calls back into Lua and corrupts Kahlua's pooled return frame
+     * for this non-local IsoPlayer (ReturnValues.put then dereferences a null
+     * callFrame). Defer only the native start; the Lua queue already owns and
+     * tracks the action synchronously.
+     */
+    @Override
+    public void StartAction(BaseAction action) {
+        if (action == null || bridgeDisabled) return;
+        bridgeActionStartFailure = "";
+        if (!bridgePendingActionStarts.add(action)) return;
+        try {
+            SCBridge.queueCompanionActionStart(this, action);
+        } catch (RejectedExecutionException failure) {
+            bridgePendingActionStarts.remove(action);
+            bridgeActionStartFailure = "native action start hand-off is unavailable";
+        }
+    }
+
+    void completeDeferredActionStart(BaseAction action) {
+        if (!bridgePendingActionStarts.remove(action) || bridgeDisabled) return;
+        try {
+            super.StartAction(action);
+        } catch (RuntimeException | LinkageError failure) {
+            bridgeActionStartFailure = "native action start failed: "
+                    + failure.getClass().getSimpleName() + cleanMessage(failure.getMessage());
+        }
+    }
+
+    /** Kahlua-safe ownership probe used during the deferred-start frame. */
+    public boolean isCompanionActionStartPending(BaseAction action) {
+        return action != null && bridgePendingActionStarts.contains(action);
+    }
+
+    /** Prevent a cancelled Lua action from starting after its hand-off arrives. */
+    public boolean cancelCompanionPendingAction(BaseAction action) {
+        return action != null && bridgePendingActionStarts.remove(action);
+    }
+
+    public String getCompanionActionStartFailure() {
+        return bridgeActionStartFailure;
     }
 
     @Override

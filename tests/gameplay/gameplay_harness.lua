@@ -737,7 +737,11 @@ do
         function part:SetHealth(value) self.health = value return true end
         function part:setBleeding(value) self.bleeding = value == true end
         function part:SetBitten(value) self.bitten = value == true end
-        function part:setScratched(value) self.scratched = value == true end
+        function part:setScratched(...)
+            self.scratchArgumentCount = select("#", ...)
+            self.scratched = select(1, ...) == true
+            self.scratchFromWeapon = select(2, ...)
+        end
         function part:setDeepWounded(value) self.deep = value == true end
         function part:setWoundInfectionLevel(value) self.infection = value end
         local parts = { part }
@@ -746,15 +750,23 @@ do
         function partList:get(index) return parts[index + 1] end
         local body = {}
         function body:getBodyParts() return partList end
-        return body
+        return body, part
     end
     SurvivorCompanion.ZombieAttack.reset()
-    local edgeVictim = actor("sc-edge-victim", 20, 20, { body = woundableBody() })
+    local edgeBody, edgePart = woundableBody()
+    local edgeVictim = actor("sc-edge-victim", 20, 20, { body = edgeBody })
     local edgeZombie = zombie(21, 20, { target = edgeVictim, attacking = true })
     local clockE = 500000
+    local originalZombRand = ZombRand
+    ZombRand = function(maximum)
+        -- 0.300 is above the 0.25 bite threshold and inside the scratch band.
+        return maximum == 1000 and 300 or 0
+    end
     local _, _, s1 = SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
-    check(s1.landed == 1 and s1.applied == 1,
-        "the rising edge of a swing lands exactly one wound")
+    check(s1.landed == 1 and s1.applied == 1
+            and edgePart.scratched == true and edgePart.scratchArgumentCount == 2
+            and edgePart.scratchFromWeapon == false,
+        "the rising edge applies a scratch with Build 42's two-argument setter")
     clockE = clockE + 50
     local _, _, s2 = SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
     check(s2.landed == 1 and s2.applied == 0,
@@ -768,6 +780,7 @@ do
     check(s4.applied == 1,
         "a fresh swing after the zombie leaves and re-enters its attack lands another wound")
     SurvivorCompanion.ZombieAttack.reset()
+    ZombRand = originalZombRand
     edgeZombie.dead = true
 end
 
@@ -2200,6 +2213,25 @@ local treated, treatmentReason = SurvivorCompanion.Medical.treat(fellow, player,
 check(treated and woundedPart.isBandaged and helperBandage.used, "native body part bandaging consumes a real supply")
 
 do
+-- Navigation legitimately selects diagonal interaction squares. Medical's
+-- acceptance range must include sqrt(2), otherwise requestAny reports "arrived"
+-- forever while treatment never leaves its approach phase.
+local diagonalWound = bodyPart({ name = "UpperArm_L", isBleeding = true })
+local diagonalPatient = actor("sc-diagonal-patient", 14, 14, {
+    body = bodyDamage(70, { diagonalWound }),
+})
+local diagonalBandage = item("Base.Bandage", "Medical")
+local diagonalMedic = actor("sc-diagonal-medic", 13, 13, {
+    inventory = inventory({ diagonalBandage }),
+})
+local diagonalTreated = SurvivorCompanion.Medical.treat(diagonalMedic,
+    diagonalPatient, { snapshot = { threats = {}, immediateCount = 0,
+        escapeSquares = { { square = diagonalMedic.square } } } })
+check(diagonalTreated and diagonalWound.isBandaged and diagonalBandage.used,
+    "a medic arrived on a diagonal interaction square begins treatment")
+end
+
+do
 -- Player-initiated care: the local player hand-bandages a companion using a
 -- bandage from the player's own inventory (feature: "I can bandage them too").
 local patientWound = bodyPart({ name = "ForeArm_R", isBleeding = true })
@@ -2564,6 +2596,20 @@ local stagedStarted, stagedStartReason = SurvivorCompanion.Medical.treat(
 check(stagedStarted and stagedStartReason == "treatment_animation_started"
         and not stagedPart.isBandaged and not stagedBandage.used,
     "medical effects remain unchanged while the verified bandage animation is active")
+check(SurvivorCompanion.Decision._ownerNeedsImmediatePreemptionForTests(
+        "medical", { immediateCount = 0, pressure = 0, player = { danger = 0 } },
+        { bleedingCount = 1, critical = false, downed = false }, {}, { order = "stay" }) == false
+        and SurvivorCompanion.Decision._ownerNeedsImmediatePreemptionForTests(
+            "downtime", { immediateCount = 0, pressure = 0, player = { danger = 0 } },
+            { bleedingCount = 1, critical = false, downed = false }, {}, { order = "stay" }) == true
+        and SurvivorCompanion.Decision._ownerNeedsImmediatePreemptionForTests(
+            "medical", { immediateCount = 1, pressure = 0, player = { danger = 0 } },
+            { bleedingCount = 1, critical = false, downed = false }, {}, { order = "stay" }) == true
+        and SurvivorCompanion.Decision._ownerNeedsImmediatePreemptionForTests(
+            "medical", { immediateCount = 0, pressure = 0, player = { danger = 0 } },
+            { bleedingCount = 1, critical = false, downed = false }, {}, { order = "stay" },
+            true) == true,
+    "an active medical owner ignores its own wound urgency but still yields to external danger")
 local stagedActive, stagedActiveReason = SurvivorCompanion.Medical.treat(
     stagedMedic, stagedMedic, {})
 check(stagedActive and stagedActiveReason == "treatment_animation_active"
@@ -5964,6 +6010,18 @@ local Contracts = SurvivorCompanion.FactionContracts
 local World = SurvivorCompanion.FactionWorld
 Factions.reset()
 do
+    local pristine = Factions.export()
+    local serializable, serialReason = SurvivorCompanion.StableValue.copyStrict(pristine, {
+        maxDepth = 16, maxEntries = 131072, path = "$.factions",
+    })
+    check(type(pristine) == "table"
+            and pristine.lastWorldSpawnDay == nil
+            and pristine.lastProductionCheckDay == nil
+            and serializable ~= nil,
+        "a fresh faction export omits internal infinite day sentinels: "
+            .. tostring(serialReason))
+end
+do
     local sliceClock = clock
     SurvivorCompanion.Performance.reset()
     SurvivorCompanion.Performance.beginFrame(2, clock)
@@ -6106,12 +6164,36 @@ local residentTwo = actor("faction-resident-2", 3, 2, {
 })
 local group = Factions.group("faction-test")
 group.members[1].actorId, group.members[2].actorId = residentOne.id, residentTwo.id
-registry[residentOne.id], registry[residentTwo.id] = { actor = residentOne }, { actor = residentTwo }
+registry[residentOne.id] = { id = residentOne.id, actor = residentOne,
+    factionId = group.id, factionRole = group.members[1].role }
+registry[residentTwo.id] = { id = residentTwo.id, actor = residentTwo,
+    factionId = group.id, factionRole = group.members[2].role }
 local audited = Life.debugAuditResources("faction-test")
 local auditedSummary = Factions.summary("faction-test").life.resources
 check(audited and auditedSummary.source == "inventory"
     and group.life.resources.counts.food == 1 and group.life.resources.counts.tools == 1,
     "bounded faction resource audit includes supplies inside carried bags")
+
+do
+    -- Faction builders carry intentionally heavy household stock. That must not
+    -- create the generic logistics candidate which outranks their faction work.
+    local previousCapacity = residentTwo.inventory.capacity
+    residentTwo.inventory.capacity = 1
+    local candidates = SurvivorCompanion.Decision._evaluateForTests(
+        residentTwo, player,
+        { threats = {}, threatCount = 0, immediateCount = 0, allies = {},
+            player = { danger = 0 } },
+        { recruited = false },
+        { alive = true, health = 100, wounds = {} }, {}, {}, clock)
+    residentTwo.inventory.capacity = previousCapacity
+    local factionCandidate, logisticsCandidate = false, false
+    for _, candidate in ipairs(candidates) do
+        if candidate.kind == "faction" then factionCandidate = true end
+        if candidate.kind == "logistics" then logisticsCandidate = true end
+    end
+    check(factionCandidate and not logisticsCandidate,
+        "faction residents retain heavy construction stock for household policy")
+end
 
 for _, contractKind in ipairs({ "supply", "medical", "local_threat" }) do
     local offered, offeredKind = Contracts.debugOffer("faction-test", contractKind)

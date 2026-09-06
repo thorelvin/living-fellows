@@ -109,7 +109,10 @@ local function applyWound(actor, kind)
         U().call(part, "setDeepWounded", true)
         U().call(part, "setWoundInfectionLevel", 0.0)
     else
-        U().call(part, "setScratched", true)
+        -- Build 42 requires the second `weapon` flag. Calling the old one-argument
+        -- shape throws from Kahlua after health loss, leaving attack resolution in
+        -- a partially-applied state and spamming the console on subsequent swings.
+        U().call(part, "setScratched", true, false)
         U().call(part, "setWoundInfectionLevel", 0.0)
     end
     return true, kind

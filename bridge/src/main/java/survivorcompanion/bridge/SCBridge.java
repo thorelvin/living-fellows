@@ -20,6 +20,7 @@ import zombie.Lua.Event;
 import zombie.Lua.LuaEventManager;
 import zombie.characters.IsoPlayer;
 import zombie.characters.SurvivorDesc;
+import zombie.characters.CharacterTimedActions.BaseAction;
 import zombie.characters.SurvivorFactory;
 import zombie.core.Core;
 import zombie.core.skinnedmodel.ModelManager;
@@ -300,6 +301,17 @@ public final class SCBridge {
 
     private static void queueAfterLua(Runnable task) throws RejectedExecutionException {
         SPAWN_HANDOFF.execute(() -> MainThread.queueInvokeOnMainThread(task));
+    }
+
+    /**
+     * Hand a companion timed-action start to the main loop after the exposing
+     * LuaJavaInvoker has returned. IsoGameCharacter.StartAction synchronously
+     * enters Lua callbacks; doing that inside the original Lua -> Java call
+     * corrupts Kahlua's pooled ReturnValues frame for a non-local companion.
+     */
+    static void queueCompanionActionStart(SCNativeCompanion actor, BaseAction action)
+            throws RejectedExecutionException {
+        queueAfterLua(() -> actor.completeDeferredActionStart(action));
     }
 
     private static void queueSpawnAfterLua(long requestId) throws RejectedExecutionException {

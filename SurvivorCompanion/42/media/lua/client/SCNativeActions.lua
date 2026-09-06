@@ -789,6 +789,12 @@ end
 -- whole queue (ISTimedActionQueue.clear(actor)) -- on a companion an unknown mod's
 -- action can be sharing the queue.
 local function cancelOwnedTimedAction(queue, timedAction)
+    if timedAction ~= nil and timedAction.character ~= nil and timedAction.action ~= nil then
+        -- SCNativeCompanion defers StartAction until the originating Lua call has
+        -- unwound. Cancellation must revoke that hand-off as well as stopping an
+        -- action which has already entered the native stack.
+        invoke(timedAction.character, "cancelCompanionPendingAction", timedAction.action)
+    end
     if timedAction ~= nil and timedAction.action ~= nil then
         pcall(timedAction.forceStop, timedAction)
     end
@@ -874,10 +880,12 @@ local function startVerifiedVisual(actor, actionName, intent, provider)
     local nativeActionsOk, nativeActions = invoke(actor, "getCharacterActions")
     local containedOk, contained = invoke(nativeActions, "contains", timedAction.action)
     local startedOk, started = pcall(timedAction.isStarted, timedAction)
+    local pendingOk, pending = invoke(actor, "isCompanionActionStartPending", timedAction.action)
     local retained = type(queue) == "table" and queue.current == timedAction
         and type(queue.queue) == "table" and queue.queue[1] == timedAction
     local nativeStarted = timedAction.action ~= nil and nativeActionsOk and containedOk
         and contained == true and startedOk and started == true
+    nativeStarted = nativeStarted or (pendingOk and pending == true)
     if not retained or not nativeStarted then
         removeRejectedVisual(queue, timedAction)
         return false, "native visual timed action did not start"

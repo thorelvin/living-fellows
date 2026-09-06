@@ -261,7 +261,10 @@ local valueData = {
 
     downedHealth = 18,
     downedRecoverHealth = 25,
-    medicalRange = 1.35,
+    -- Interaction routing includes diagonal neighbour squares (sqrt(2) tiles).
+    -- Keep treatment range above that boundary so an actor which Navigation has
+    -- truthfully marked arrived can enter the treatment animation next tick.
+    medicalRange = 1.5,
     medicalCriticalHealth = 35,
     medicalApproachTimeoutMs = 8000,
     -- Bounded recursive bandage search: how deep into carried bags/first-aid

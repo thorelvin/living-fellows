@@ -20,6 +20,7 @@ public final class SCNativeApiSignatureTest {
     public static void main(String[] args) throws Exception {
         Class<?> player = Class.forName("zombie.characters.IsoPlayer");
         Class<?> character = Class.forName("zombie.characters.IsoGameCharacter");
+        Class<?> zombie = Class.forName("zombie.characters.IsoZombie");
         Class<?> survivor = Class.forName("zombie.characters.IsoSurvivor");
         Class<?> cell = Class.forName("zombie.iso.IsoCell");
         Class<?> descriptor = Class.forName("zombie.characters.SurvivorDesc");
@@ -58,6 +59,8 @@ public final class SCNativeApiSignatureTest {
         Class<?> worldMapTextSymbolV2 = Class.forName(
                 "zombie.worldMap.symbols.WorldMapSymbolsV2$WorldMapTextSymbolV2");
         Class<?> kahluaTable = Class.forName("se.krka.kahlua.vm.KahluaTable");
+        Class<?> baseAction = Class.forName(
+                "zombie.characters.CharacterTimedActions.BaseAction");
 
         require(Modifier.isFinal(survivor.getModifiers()), "stock IsoSurvivor must remain final");
         require(player.isAssignableFrom(companion) && Modifier.isFinal(companion.getModifiers()),
@@ -82,6 +85,12 @@ public final class SCNativeApiSignatureTest {
                 "SCNativeCompanion deferred movement override changed");
         require(companion.getDeclaredMethod("update").getReturnType() == void.class,
                 "SCNativeCompanion guarded update override changed");
+        require(companion.getDeclaredMethod("StartAction", baseAction).getReturnType() == void.class
+                        && companion.getDeclaredMethod("isCompanionActionStartPending", baseAction)
+                                .getReturnType() == boolean.class
+                        && companion.getDeclaredMethod("cancelCompanionPendingAction", baseAction)
+                                .getReturnType() == boolean.class,
+                "SCNativeCompanion deferred timed-action contract changed");
         require(companion.getDeclaredMethod("setIsAiming", boolean.class).getReturnType()
                         == void.class
                         && companion.getDeclaredMethod("setCompanionTacticalMovement",
@@ -356,6 +365,11 @@ public final class SCNativeApiSignatureTest {
                 "BodyPart.SetHealth(float) signature changed");
         require(method(bodyPart, "SetBitten", boolean.class).getReturnType() == void.class,
                 "BodyPart.SetBitten(boolean) signature changed");
+        require(method(bodyPart, "setScratched", boolean.class, boolean.class).getReturnType() == void.class,
+                "BodyPart.setScratched(boolean,boolean) signature changed");
+        require(method(zombie, "setAttackOutcome", String.class).getReturnType() == void.class
+                        && method(zombie, "getAttackOutcome").getReturnType() == String.class,
+                "IsoZombie attack-outcome signature changed");
         require(method(bodyPart, "setBandaged", boolean.class, float.class,
                 boolean.class, String.class).getReturnType() == void.class,
                 "BodyPart.setBandaged(boolean,float,boolean,String) signature changed");

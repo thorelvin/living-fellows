@@ -196,7 +196,21 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         end
     end
 
-    if threatCount == 0 and SC.Logistics and type(SC.Logistics.status) == "function" then
+    local factionIntent
+    if not commands.recruited and SC.FactionBehavior
+        and type(SC.FactionBehavior.intentFor) == "function" then
+        local ok, value = pcall(SC.FactionBehavior.intentFor, actor, player, snapshot)
+        if ok and type(value) == "table" and tonumber(value.priority) then
+            factionIntent = value
+        end
+    end
+
+    -- A resident's carried planks and nails are household construction stock.
+    -- Generic companion logistics sees that weight as overload and otherwise
+    -- preempts the faction policy forever, repeatedly trying to pack/deposit the
+    -- exact materials the resident needs for barricade jobs.
+    if threatCount == 0 and factionIntent == nil
+        and SC.Logistics and type(SC.Logistics.status) == "function" then
         local ok, load = pcall(SC.Logistics.status, actor)
         if ok and load and load.shouldManage then
             -- Overload beats routine follow/work, but never urgent medicine,
@@ -205,14 +219,9 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         end
     end
 
-    local factionIntent
-    if not commands.recruited and SC.FactionBehavior
-        and type(SC.FactionBehavior.intentFor) == "function" then
-        local ok, value = pcall(SC.FactionBehavior.intentFor, actor, player, snapshot)
-        if ok and type(value) == "table" and tonumber(value.priority) then
-            factionIntent = value
-            add("faction", tonumber(value.priority), value.mode == "hostile", value)
-        end
+    if factionIntent then
+        add("faction", tonumber(factionIntent.priority),
+            factionIntent.mode == "hostile", factionIntent)
     end
 
     if factionIntent then
@@ -1294,6 +1303,40 @@ local function survivalNeedsImmediateControl(snapshot, assessment, needs, comman
         or type(needs) == "table" and needs.emergency == true
 end
 
+local function nonMedicalSurvivalNeedsImmediateControl(snapshot, needs, commands)
+    snapshot = type(snapshot) == "table" and snapshot or {}
+    local immediate = tonumber(snapshot.immediateCount)
+        or #(snapshot.immediateAttackers or {})
+    local playerDanger = type(snapshot.player) == "table"
+        and tonumber(snapshot.player.danger) or 0
+    return immediate > 0 or (tonumber(snapshot.pressure) or 0) >= 1.5
+        or playerDanger > 0 or commands.order == "retreat"
+        or type(needs) == "table" and needs.emergency == true
+end
+
+local function ownerNeedsImmediatePreemption(owner, snapshot, assessment, needs, commands,
+        policyEmergency)
+    local urgent = survivalNeedsImmediateControl(snapshot, assessment, needs, commands)
+    -- Bleeding/critical assessment is the reason a medical owner exists. Treating
+    -- it as a fresh survival interrupt made emergency self-care cancel its own rip
+    -- and bandage animations every decision tick. Only independent pressure may
+    -- preempt an already-active medical transaction.
+    if urgent and owner == "medical" and policyEmergency ~= true
+        and not nonMedicalSurvivalNeedsImmediateControl(snapshot, needs, commands) then
+        return false
+    end
+    return urgent or policyEmergency == true
+end
+
+Decision._ownerNeedsImmediatePreemptionForTests = ownerNeedsImmediatePreemption
+
+local function factionNeedsImmediateControl(actor, player, snapshot, commands)
+    if commands.recruited or not SC.FactionBehavior
+        or type(SC.FactionBehavior.intentFor) ~= "function" then return false end
+    local ok, intent = pcall(SC.FactionBehavior.intentFor, actor, player, snapshot)
+    return ok and type(intent) == "table" and intent.mode == "hostile"
+end
+
 local function pacingFollowMustMove(actor, player, commands)
     if commands.order ~= "follow" and commands.order ~= "regroup" then return false end
     if not player then return false end
@@ -1331,10 +1374,18 @@ end
 local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
         needs, commands, state, current)
     local native = SC.NativeActions
+    -- A hostile household policy is an immediate combat order even before the
+    -- ordinary candidate pass. Without this early check, an existing medical
+    -- owner can indefinitely hide the hostile candidate behind the activity gate.
+    local factionEmergency = factionNeedsImmediateControl(
+        actor, player, snapshot, commands)
     local urgent = survivalNeedsImmediateControl(snapshot, assessment, needs, commands)
+        or factionEmergency
     if SC.ActionSupervisor and type(SC.ActionSupervisor.current) == "function" then
         local token = SC.ActionSupervisor.current(actor)
         if token then
+            urgent = ownerNeedsImmediatePreemption(
+                token.owner, snapshot, assessment, needs, commands, factionEmergency)
             local serialChanged = token.owner == "downtime"
                 and type(token.metadata) == "table"
                 and tonumber(token.metadata.commandSerial) ~= (tonumber(commands.commandSerial) or 0)

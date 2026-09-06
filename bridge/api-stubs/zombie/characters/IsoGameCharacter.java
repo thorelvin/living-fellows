@@ -11,11 +11,13 @@ import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.skinnedmodel.advancedanimation.IAnimationVariableSlot;
 import zombie.characters.ecs.ECSComponent;
 import zombie.characters.action.ActionContext;
+import zombie.characters.CharacterTimedActions.BaseAction;
 import zombie.pathfind.PathFindBehavior2;
 import zombie.vehicles.BaseVehicle;
 
 public class IsoGameCharacter extends IsoMovingObject {
     private String sayLine;
+    private final java.util.Stack<BaseAction> characterActions = new java.util.Stack<>();
 
     public static class XP {
         public XP(IsoGameCharacter owner, IsoGameCharacter remoteOwner) {}
@@ -30,6 +32,8 @@ public class IsoGameCharacter extends IsoMovingObject {
     public IsoCell getCell() { return null; }
     public BodyDamage getBodyDamage() { return null; }
     public ActionContext getActionContext() { return null; }
+    public java.util.Stack<BaseAction> getCharacterActions() { return characterActions; }
+    public void StartAction(BaseAction action) { characterActions.add(action); }
     public IsoGridSquare getCurrentSquare() { return null; }
     public BaseCharacterSoundEmitter getEmitter() { return null; }
     public Moodles getMoodles() { return null; }
