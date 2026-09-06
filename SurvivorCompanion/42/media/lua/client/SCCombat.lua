@@ -459,7 +459,8 @@ local function hasReloadAmmo(inventory, weapon)
         local candidateType = utility.itemType(candidate)
         if magType and magType ~= "" and ammoTypeMatches(candidateType, magType) then
             -- A magazine only enables a reload if it actually holds rounds.
-            local count = tonumber(select(1, utility.call(candidate, "getCurrentAmmoCount")))
+            local countValue = select(1, utility.call(candidate, "getCurrentAmmoCount"))
+            local count = tonumber(countValue)
             if (count or 0) > 0 then return true end
         elseif ammoType and ammoType ~= "" and ammoTypeMatches(candidateType, ammoType) then
             return true
@@ -1497,6 +1498,12 @@ end
 function Combat.update(actor, player, runtime)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
+    -- Commit a pending stomp only after the native animation reports its impact
+    -- event. Do this before scoring so a just-finished zombie is excluded from
+    -- the current decision instead of receiving a second attack request.
+    if SC.NativeActions and type(SC.NativeActions.pollCombatEvents) == "function" then
+        SC.NativeActions.pollCombatEvents(actor)
+    end
     local rootRuntime = utility.actorState(actor, runtime)
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
     local state = stateFor(actor)
@@ -1733,8 +1740,14 @@ function Combat.reset(actor)
     if actor then
         local state = states[actor]
         if state and state.active then U().stop(actor) end
+        if SC.NativeActions and type(SC.NativeActions.resetCombatEvents) == "function" then
+            SC.NativeActions.resetCombatEvents(actor)
+        end
         states[actor] = nil
     else
+        if SC.NativeActions and type(SC.NativeActions.resetCombatEvents) == "function" then
+            SC.NativeActions.resetCombatEvents(nil)
+        end
         states = setmetatable({}, { __mode = "k" })
         targetClaims = setmetatable({}, { __mode = "k" })
         lastGroupCombatBarkAt = -math.huge

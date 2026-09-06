@@ -23,6 +23,7 @@ local activeFinal = setmetatable({}, { __mode = "k" })
 local activeVisual = setmetatable({}, { __mode = "k" })
 local pacingStates = setmetatable({}, { __mode = "k" })
 local resultHistory = setmetatable({}, { __mode = "k" })
+local pendingStomps = setmetatable({}, { __mode = "k" })
 local pacingSequence = 0
 local humanEmotes = {
     wavehi = true, wavebye = true, clap = true, thumbsup = true, thankyou = true,
@@ -1580,7 +1581,8 @@ local function equip(actor, intent, provider)
 end
 
 -- Land a companion stomp's damage exactly once, only after the native swing has
--- started (see attack()). Build 42's floor attack builds an empty hit list for a
+-- reached AttackCollisionCheck (see pollCombatEvents()). Build 42's floor attack
+-- builds an empty hit list for a
 -- non-local companion, so the engine never lands a downed-target stomp; this is
 -- the sole damage owner for a companion stomp (the Java collision driver applies
 -- nothing for the empty floor-attack list). A downed head stomp is lethal, an
@@ -1626,6 +1628,50 @@ local function applyStompFinisher(actor, target)
     end
 end
 
+-- DoAttack/isAttackStarted proves only that the state machine accepted a stomp;
+-- it runs before the visible animation. The Java actor increments a serial at the
+-- animation's actual AttackCollisionCheck event. Delay the floor-hit fallback
+-- until that evidence arrives, otherwise a one-health zombie dies at swing start
+-- and the stomp appears to be an animationless instant kill.
+function actions.pollCombatEvents(actor)
+    local record = actor and pendingStomps[actor] or nil
+    if type(record) ~= "table" then return false, "no_pending_stomp" end
+    local serialOk, serialValue = invoke(actor, "getCompanionAttackCollisionSerial")
+    local serial = serialOk and tonumber(serialValue) or nil
+    if serial ~= nil and serial ~= record.collisionSerial then
+        pendingStomps[actor] = nil
+        -- A future engine build may start populating the companion floor-attack
+        -- hit list itself. If native collision already damaged this target, do
+        -- not stack our Build 42 empty-list fallback on top of that native hit.
+        local _, dead = invoke(record.target, "isDead")
+        local hpOk, health = invoke(record.target, "getHealth")
+        local nativeDamage = dead == true or (record.healthBefore ~= nil and hpOk
+            and type(health) == "number" and health < record.healthBefore - 0.0001)
+        if nativeDamage then
+            if dead == true then invoke(actor, "setCompanionFloorTarget", nil) end
+            return true, "stomp_collision_native"
+        end
+        applyStompFinisher(actor, record.target)
+        return true, "stomp_collision_applied"
+    end
+    if nowMs() - record.startedAt >= 4000 then
+        pendingStomps[actor] = nil
+        invoke(actor, "setCompanionFloorTarget", nil)
+        return false, serial == nil and "stomp_collision_serial_unavailable"
+            or "stomp_collision_timeout"
+    end
+    return false, "stomp_collision_pending"
+end
+
+function actions.resetCombatEvents(actor)
+    if actor ~= nil then
+        pendingStomps[actor] = nil
+        invoke(actor, "setCompanionFloorTarget", nil)
+    else
+        pendingStomps = setmetatable({}, { __mode = "k" })
+    end
+end
+
 local function attack(actor, action, intent, provider)
     local target = intent.target
     if target == nil then
@@ -1637,6 +1683,15 @@ local function attack(actor, action, intent, provider)
     end
     if not provider.directNative then
         return false, reason
+    end
+
+    local stompCollisionSerial
+    if action == "stomp" then
+        local serialOk, serialValue = invoke(actor, "getCompanionAttackCollisionSerial")
+        stompCollisionSerial = serialOk and tonumber(serialValue) or nil
+        if stompCollisionSerial == nil then
+            return false, "native attack collision serial is unavailable"
+        end
     end
 
     local activeOk, alreadyActive = invoke(actor, "isAttackStarted")
@@ -1696,9 +1751,8 @@ local function attack(actor, action, intent, provider)
     invoke(actor, "setAimAtFloor", action == "stomp")
     if action == "stomp" and intent.target ~= nil then
         -- Point the native floor attack at the downed target (it builds its hit
-        -- list from targetOnGround). The finisher's damage is NOT applied here --
-        -- it is landed once, below, only after the swing has actually started, so
-        -- a rejected or retried preflight can never damage the target.
+        -- list from targetOnGround). The finisher's damage is applied later by
+        -- pollCombatEvents(), after the animation reaches its collision event.
         invoke(actor, "setCompanionFloorTarget", intent.target)
     end
     local shoveStateOk, previousDoShove = invoke(actor, "isDoShove")
@@ -1803,8 +1857,13 @@ local function attack(actor, action, intent, provider)
     -- the next requested attack selects its own state before starting.
     restoreAuthorization()
     if action == "stomp" and intent.target ~= nil then
-        -- The swing has started; land the finisher's single hit now.
-        applyStompFinisher(actor, intent.target)
+        local hpOk, targetHealth = invoke(intent.target, "getHealth")
+        pendingStomps[actor] = {
+            target = intent.target,
+            collisionSerial = stompCollisionSerial,
+            startedAt = nowMs(),
+            healthBefore = hpOk and tonumber(targetHealth) or nil,
+        }
     end
     return true, "attack_started"
 end
@@ -2279,7 +2338,8 @@ function actions.performEndOfLife(actor, outcome, target)
         if utility then
             for _, item in ipairs(utility.inventoryItems(utility.inventory(actor), 128)) do
                 local category = select(1, utility.call(item, "getCategory"))
-                local range = tonumber(select(1, utility.call(item, "getMaxRange"))) or 0
+                local rangeValue = select(1, utility.call(item, "getMaxRange"))
+                local range = tonumber(rangeValue) or 0
                 local ammo, ammoOk = utility.call(item, "getCurrentAmmoCount")
                 local ready = range <= 2 or not ammoOk or (tonumber(ammo) or 0) > 0
                 if tostring(category) == "Weapon" and ready then

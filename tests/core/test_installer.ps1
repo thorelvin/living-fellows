@@ -143,6 +143,12 @@ try {
     if (-not $experimentalDisabled -or -not $debugEnabled -or -not $markerPresent) {
         throw 'Private install did not carry its explicit configuration and marker.'
     }
+    $defaultProfile = Join-Path $ModsRoot 'default.txt'
+    $profileText = Get-Content -LiteralPath $defaultProfile -Raw -Encoding utf8
+    if (@([regex]::Matches($profileText,
+            '(?m)^\s*mod\s*=\s*SurvivorCompanion\s*,?\s*$')).Count -ne 1) {
+        throw 'Installer did not activate Living Fellows exactly once in the default mod profile.'
+    }
     $installedJars = @(Get-ChildItem -LiteralPath $Target -Recurse -File -Filter '*.jar')
     $jarOwnershipFailed = $installedJars.Count -ne 1
     if (-not $jarOwnershipFailed) {
@@ -175,6 +181,11 @@ try {
     & $Install -ProjectRoot $ProjectRoot -ModsRoot $ModsRoot -GameRoot $GameRoot `
         -BackupRoot $BackupRoot -BridgeRoot $BridgeRoot `
         -ConfigBackupRoot $ConfigBackupRoot -NativeBridge | Out-Null
+    $profileText = Get-Content -LiteralPath $defaultProfile -Raw -Encoding utf8
+    if (@([regex]::Matches($profileText,
+            '(?m)^\s*mod\s*=\s*SurvivorCompanion\s*,?\s*$')).Count -ne 1) {
+        throw 'Installer duplicated Living Fellows in the default mod profile during update.'
+    }
     $duplicateIds = @(Get-ChildItem -LiteralPath $ModsRoot -Force -Directory | Where-Object {
         $info = Join-Path $_.FullName 'mod.info'
         (Test-Path -LiteralPath $info) -and (Get-Content -LiteralPath $info -Raw) -match '(?m)^id=SurvivorCompanion\s*$'
@@ -518,7 +529,7 @@ try {
     }
     if (-not $legacyRefused) { throw 'Installer did not reject the legacy loose actor class.' }
 
-    Write-Output 'INSTALLER_TRANSACTION_PASS ownership=true rollback=all-boundaries standalone-atomic=true deep-chain-preflight=true derived-bridge=true exact-target=true no-duplicate-id=true legacy-preflight=true native-launcher=true manifestless-refusal=true stale-protocol=true bat-wrapper-safe=true'
+    Write-Output 'INSTALLER_TRANSACTION_PASS ownership=true rollback=all-boundaries standalone-atomic=true deep-chain-preflight=true derived-bridge=true exact-target=true no-duplicate-id=true legacy-preflight=true native-launcher=true manifestless-refusal=true stale-protocol=true bat-wrapper-safe=true default-profile=true'
 }
 finally {
     if (Test-Path -LiteralPath $Sandbox) {

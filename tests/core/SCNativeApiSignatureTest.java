@@ -102,6 +102,9 @@ public final class SCNativeApiSignatureTest {
         require(companion.getDeclaredMethod("isCompanionMovementClear",
                         float.class, float.class, float.class).getReturnType() == boolean.class,
                 "SCNativeCompanion continuous collision contract changed");
+        require(companion.getDeclaredMethod("getCompanionAttackCollisionSerial")
+                        .getReturnType() == int.class,
+                "SCNativeCompanion attack-impact evidence contract changed");
         require(companion.getDeclaredMethod("addLineChatElement", String.class).getReturnType()
                         == void.class
                         && companion.getDeclaredMethod("setCompanionSpeechDisplayMillis", int.class)

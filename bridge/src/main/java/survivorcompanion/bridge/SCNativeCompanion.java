@@ -66,6 +66,11 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile long bridgePostUpdateCount;
     private volatile String bridgePostUpdateDiagnostic = "not_run";
     private volatile zombie.iso.IsoMovingObject bridgeAimTarget;
+    // Monotonic evidence that a native swing reached its animation-owned impact
+    // frame. Lua snapshots this before a stomp and applies its Build 42 floor-hit
+    // fallback only after the serial advances; starting DoAttack is too early and
+    // made the zombie die before the player could see the stomp animation.
+    private volatile int bridgeAttackCollisionSerial;
     private boolean genericUpdateActive;
     private final Set<BaseAction> bridgePendingActionStarts = ConcurrentHashMap.newKeySet();
     private volatile String bridgeActionStartFailure = "";
@@ -315,6 +320,7 @@ public final class SCNativeCompanion extends IsoPlayer {
         super.OnAnimEvent(layer, track, event);
         if (event != null && "AttackCollisionCheck".equals(event.eventName)) {
             driveCompanionAttackCollision(event.parameterValue);
+            bridgeAttackCollisionSerial++;
         }
     }
 
@@ -506,6 +512,15 @@ public final class SCNativeCompanion extends IsoPlayer {
         this.targetOnGround = (target instanceof IsoGameCharacter)
                 ? (IsoGameCharacter) target : null;
         return true;
+    }
+
+    /**
+     * Return animation-owned impact evidence for Lua's downed-target fallback.
+     * The value is deliberately an opaque serial: callers compare it for change
+     * and do not depend on its absolute value or eventual integer wraparound.
+     */
+    public int getCompanionAttackCollisionSerial() {
+        return bridgeAttackCollisionSerial;
     }
 
     /**

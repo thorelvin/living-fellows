@@ -22,6 +22,8 @@ def require(value: bool, message: str) -> None:
 
 lua_files = sorted(LUA.rglob("*.lua"))
 all_lua = "\n".join(path.read_text(encoding="utf-8") for path in lua_files)
+require(re.search(r"tonumber\s*\(\s*select\s*\(", all_lua) is None,
+        "tonumber(select(...)) forwards utility.call's success flag as a numeric base in Kahlua")
 tick_adds = [
     (path, match.start())
     for path in lua_files
@@ -333,6 +335,8 @@ require((PAYLOAD / "mod.info").read_bytes() == (PAYLOAD / "42" / "mod.info").rea
 metadata_text = (PAYLOAD / "mod.info").read_text(encoding="utf-8")
 require("require=\\ZombieBuddy" in metadata_text and "ZBVersionMin=2.3.3" in metadata_text,
         "public metadata does not declare its ZombieBuddy dependency/version floor")
+require("poster=poster.png" in metadata_text and "icon=poster.png" in metadata_text,
+        "mod metadata does not expose its artwork in both poster and in-game icon slots")
 build_text = (PROJECT / "scripts" / "Build-Workshop.ps1").read_text(encoding="utf-8")
 metadata_version = re.search(r"(?m)^modversion=([^\r\n]+)$", metadata_text)
 namespace_version = re.search(r'release\s*=\s*"([^"]+)"', namespace_text)

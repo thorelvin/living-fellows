@@ -5286,6 +5286,20 @@ check(signalActor.lastIntent and signalActor.lastIntent.action == "hand_signal"
     and string.sub(signalActor.lastSpeech, 1, 1) == "*"
     and SurvivorCompanion.Dialogue.lastSpokenTopic(signalActor) == "signal.one",
     "visible distant danger displays an emoted freeze signal without attracting zombies")
+clock = clock + 4000
+signalActor.lastEmote = nil
+local alternateDistantThreat = zombie(46, 21, {})
+SurvivorCompanion.Decision.update(signalActor, signalPlayer, {
+    snapshot = {
+        threats = { { actor = alternateDistantThreat, distanceSq = 37,
+            visible = true, score = 21 } },
+        immediateAttackers = {}, threatCount = 1, immediateCount = 0, pressure = 0.35,
+        escapeSquares = {}, allies = {}, player = { actor = signalPlayer, danger = 0 },
+    },
+})
+check(signalActor.lastEmote == nil
+        and SurvivorCompanion.Dialogue.lastSpokenTopic(signalActor) == "signal.one",
+    "a different top-ranked zombie cannot restart the same warning hand signal during cooldown")
 SurvivorCompanion.Decision.update(signalActor, signalPlayer, {
     snapshot = {
         threats = { { actor = distantThreat, distanceSq = 36, visible = true, score = 90 } },

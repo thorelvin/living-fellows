@@ -829,6 +829,7 @@ end
 local function endFinishGrounded(current, zombie)
     if zombie ~= nil then cleanupTestZombie(zombie) end
     Harness.finishZombie = nil
+    Harness.finishTimingChecked = nil
     -- Clear the floor-aim / downed-target residue the stomp leaves behind so the
     -- following standing melee phase starts from a clean, upright attack posture.
     pcall(function() Harness.actor:setAimAtFloor(false) end)
@@ -891,11 +892,15 @@ local function probeFinishGrounded(current)
         Harness.finishStart = current
         Harness.finishNextAt = current + 700
         Harness.finishStomps = 0
+        Harness.finishTimingChecked = false
         local hp0v = select(1, U.call(zombie, "getHealth"))
         Harness.finishHp0 = tonumber(hp0v)
         return
     end
     local zombie = Harness.finishZombie
+    if SC.NativeActions and type(SC.NativeActions.pollCombatEvents) == "function" then
+        SC.NativeActions.pollCombatEvents(Harness.actor)
+    end
     local hpValue = select(1, U.call(zombie, "getHealth"))
     local hp = tonumber(hpValue)
     local dead = select(1, U.call(zombie, "isDead")) == true
@@ -939,6 +944,16 @@ local function probeFinishGrounded(current)
                 urgent = true, emergency = true, supervisorToken = Harness.finishControl })
             if accepted == true then
                 Harness.finishStomps = (Harness.finishStomps or 0) + 1
+                if Harness.finishTimingChecked ~= true then
+                    local immediateHpValue = select(1, U.call(zombie, "getHealth"))
+                    local immediateHp = tonumber(immediateHpValue)
+                    Harness.finishTimingChecked = true
+                    check("native_stomp_waits_for_collision_event",
+                        Harness.finishHp0 ~= nil and immediateHp ~= nil
+                            and math.abs(immediateHp - Harness.finishHp0) < 0.0001,
+                        "hp immediately after DoAttack " .. tostring(Harness.finishHp0)
+                            .. "->" .. tostring(immediateHp))
+                end
             else
                 Harness.finishLastReason = reason
             end

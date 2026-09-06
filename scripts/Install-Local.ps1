@@ -86,6 +86,43 @@ function Test-InstallSamePath([string]$Left, [string]$Right) {
         [System.StringComparison]::OrdinalIgnoreCase)
 }
 
+function Enable-LivingFellowsModProfile([string]$ProfilePath) {
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $profile = if (Test-Path -LiteralPath $ProfilePath -PathType Leaf) {
+        Get-Content -LiteralPath $ProfilePath -Raw -Encoding utf8
+    } else {
+        "VERSION = 1,`r`n`r`nmods`r`n{`r`n}`r`n`r`nmaps`r`n{`r`n}`r`n"
+    }
+    if ($profile -match '(?m)^\s*mod\s*=\s*SurvivorCompanion\s*,?\s*$') {
+        return $false
+    }
+    $block = [regex]::Match($profile, '(?ms)(^\s*mods\s*\{)(.*?)(^\s*\})')
+    if (-not $block.Success) {
+        throw "Project Zomboid mod profile has no readable mods block: $ProfilePath"
+    }
+    $body = $block.Groups[2].Value
+    $separator = if ($body.EndsWith("`r`n")) { '' } elseif ($body.EndsWith("`n")) { '' }
+        else { [Environment]::NewLine }
+    $newBody = $body + $separator + '    mod = SurvivorCompanion,' + [Environment]::NewLine
+    $bodyStart = [int]$block.Groups[2].Index
+    $bodyEnd = $bodyStart + [int]$block.Groups[2].Length
+    $updated = $profile.Substring(0, $bodyStart) + $newBody + $profile.Substring($bodyEnd)
+    $temporary = $ProfilePath + '.living-fellows-' + [guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        [System.IO.File]::WriteAllText($temporary, $updated, $utf8NoBom)
+        Move-Item -LiteralPath $temporary -Destination $ProfilePath -Force
+    } finally {
+        if (Test-Path -LiteralPath $temporary -PathType Leaf) {
+            Remove-Item -LiteralPath $temporary -Force
+        }
+    }
+    $verified = Get-Content -LiteralPath $ProfilePath -Raw -Encoding utf8
+    if ($verified -notmatch '(?m)^\s*mod\s*=\s*SurvivorCompanion\s*,?\s*$') {
+        throw "Living Fellows was not retained in the Project Zomboid mod profile: $ProfilePath"
+    }
+    return $true
+}
+
 $ModsRoot = [System.IO.Path]::GetFullPath($ModsRoot)
 New-Item -ItemType Directory -Path $ModsRoot -Force | Out-Null
 $Target = Join-Path $ModsRoot 'SurvivorCompanion'
@@ -429,10 +466,26 @@ finally {
     }
 }
 
+$profilePath = Join-Path $ModsRoot 'default.txt'
+$profileUpdated = $false
+$profileActivationFailed = $false
+try {
+    $profileUpdated = Enable-LivingFellowsModProfile $profilePath
+} catch {
+    $profileActivationFailed = $true
+    Write-Warning ("Living Fellows installed, but the default Project Zomboid mod profile " +
+        "could not be activated automatically: $($_.Exception.Message) Enable it manually before loading a save.")
+}
+
 if ($Standalone) {
     Write-Output "Installed Living Fellows standalone build at $Target"
     Write-Output 'Public gameplay settings are active; the private Debug tab remains disabled.'
 } else {
     Write-Output "Installed PRIVATE NATIVE BRIDGE build at $Target"
     Write-Output 'The debug-only in-game tab and manual spawn controls are enabled in the copied configuration.'
+}
+if (-not $profileActivationFailed -and $profileUpdated) {
+    Write-Output 'Living Fellows was enabled in the default Project Zomboid mod profile.'
+} elseif (-not $profileActivationFailed) {
+    Write-Output 'Living Fellows is already present in the default Project Zomboid mod profile.'
 }

@@ -195,6 +195,9 @@ function actor:getSecondaryHandItem() return self.secondaryHand end
 function actor:setAimAtFloor(value) self.aimAtFloor = value end
 function actor:setCompanionAimTarget(value) self.companionAimTarget = value end
 function actor:setCompanionFloorTarget(value) self.targetOnGround = value end
+function actor:getCompanionAttackCollisionSerial()
+    return self.companionAttackCollisionSerial or 0
+end
 function actor:setDoShove(value) self.doShove = value == true end
 function actor:isDoShove() return self.doShove == true end
 function actor:setDoGrapple(value) self.doGrapple = value == true end
@@ -1015,6 +1018,60 @@ do
     })
     check(meleeOk and meleeReason == "attack_started" and actor.doShove == false,
         "a weapon swing clears stale shove state before the native attack starts")
+    actor.attackStarted = false
+    actor.companionAttackCollisionSerial = 0
+    local stompTarget = {
+        health = 1, headHits = 0,
+        getX = function() return 1.5 end,
+        getY = function() return 0.5 end,
+        getZ = function() return 0 end,
+        isProne = function() return true end,
+        isOnFloor = function() return true end,
+        isCrawling = function() return false end,
+        isDead = function(self) return self.health <= 0 end,
+        getHealth = function(self) return self.health end,
+        setHealth = function(self, value) self.health = value end,
+        getHitHeadWhileOnFloor = function(self) return self.headHits end,
+        setHitHeadWhileOnFloor = function(self, value) self.headHits = value end,
+        Hit = function(self, _, _, damage) self.health = self.health - damage end,
+    }
+    local stompOk, stompReason = SC.Actor.setMovement(actor, "walk", {
+        action = "stomp", target = stompTarget, floorAttack = true,
+    })
+    check(stompOk and stompReason == "attack_started" and stompTarget.health == 1,
+        "a started stomp does not damage its target before the visible impact frame")
+    actor.companionAttackCollisionSerial = 1
+    local landed, landedReason = SC.NativeActions.pollCombatEvents(actor)
+    check(landed and landedReason == "stomp_collision_applied"
+            and stompTarget.health == 0 and stompTarget.headHits == 1
+            and actor.targetOnGround == nil,
+        "the stomp finisher lands once when the native animation reaches AttackCollisionCheck")
+    actor.attackStarted = false
+    actor.companionAttackCollisionSerial = 1
+    local nativeStompTarget = {
+        health = 4, headHits = 0,
+        getX = function() return 1.5 end,
+        getY = function() return 0.5 end,
+        getZ = function() return 0 end,
+        isProne = function() return true end,
+        isOnFloor = function() return true end,
+        isCrawling = function() return false end,
+        isDead = function(self) return self.health <= 0 end,
+        getHealth = function(self) return self.health end,
+        setHealth = function(self, value) self.health = value end,
+        getHitHeadWhileOnFloor = function(self) return self.headHits end,
+        setHitHeadWhileOnFloor = function(self, value) self.headHits = value end,
+        Hit = function(self, _, _, damage) self.health = self.health - damage end,
+    }
+    local nativeStompOk = SC.Actor.setMovement(actor, "walk", {
+        action = "stomp", target = nativeStompTarget, floorAttack = true,
+    })
+    nativeStompTarget.health = 3.5
+    actor.companionAttackCollisionSerial = 2
+    local nativeLanded, nativeLandedReason = SC.NativeActions.pollCombatEvents(actor)
+    check(nativeStompOk and nativeLanded and nativeLandedReason == "stomp_collision_native"
+            and nativeStompTarget.health == 3.5 and nativeStompTarget.headHits == 0,
+        "the stomp fallback does not stack damage on a native collision hit")
 end
 
 ISReloadWeaponAction = {}

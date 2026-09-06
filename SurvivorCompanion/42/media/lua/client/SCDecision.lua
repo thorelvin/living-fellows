@@ -1229,9 +1229,11 @@ local function warnAboutThreat(actor, snapshot, state, current)
         dangerTopic, band, bandRank = SC.Dialogue.threatTopic("danger", count)
     end
     local escalated = bandRank > (tonumber(state.lastThreatBandRank) or 0)
-    if current < (state.nextThreatWarningAt or 0)
-        and state.lastWarnedThreat == threat and state.lastThreatBand == band
-        and not escalated then return end
+    -- The senses ranking can swap the first entry between nearby zombies every
+    -- perception tick. Cool down the warning category, not the object identity;
+    -- otherwise each swap restarts the same freeze hand signal and looks like an
+    -- endless raised-hand loop. A genuinely higher danger band still bypasses it.
+    if current < (state.nextThreatWarningAt or 0) and not escalated then return end
     local immediate = tonumber(snapshot.immediateCount) or #(snapshot.immediateAttackers or {})
     state.lastWarnedThreat = threat
     state.lastThreatBand = band

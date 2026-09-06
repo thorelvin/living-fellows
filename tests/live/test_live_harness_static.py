@@ -25,6 +25,9 @@ def require(condition: bool, message: str) -> None:
         raise AssertionError(message)
 
 
+require(re.search(r"tonumber\s*\(\s*select\s*\(", lua) is None,
+        "harness must isolate a selected Java number before passing it to Kahlua tonumber")
+
 for info in (root_info, version_info):
     require("id=SCRealSandboxHarness" in info, "harness mod id must be isolated")
     require("require=SurvivorCompanion" in info, "harness must load after the production mod")
