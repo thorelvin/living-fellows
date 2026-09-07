@@ -1205,7 +1205,9 @@ Decision._delegateForTests = delegate
 
 local function candidateInterval(candidate)
     if candidate.kind == "combat" then
-        return candidate.emergency and 100 or (U().config("combatDecisionIntervalMs") or 125)
+        return candidate.emergency
+            and (U().config("combatReflexIntervalMs") or 50)
+            or (U().config("combatDecisionIntervalMs") or 100)
     elseif candidate.kind == "medical" then
         return candidate.emergency and 100 or 250
     elseif candidate.kind == "retreat" then
@@ -1572,6 +1574,12 @@ function Decision.update(actor, player, runtime)
         threatCount = 0, immediateCount = 0, pressure = 0,
         player = { danger = 0 },
     }
+    if SC.Senses and type(SC.Senses.refreshImmediate) == "function" then
+        local safe, value = utility.safeSubsystem("senses-reflex", actor, function()
+            return SC.Senses.refreshImmediate(actor, player, snapshot, rootRuntime)
+        end)
+        if safe and type(value) == "table" then snapshot = value end
+    end
     rootRuntime.snapshot = snapshot
 
     if SC.Commands and type(SC.Commands.observeRelationship) == "function" then

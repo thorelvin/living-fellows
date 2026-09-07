@@ -469,6 +469,43 @@ local function squareNearTree(square)
     return false
 end
 
+local function squareVehicle(square)
+    if not square then return nil end
+    local vehicle, ok = U().call(square, "getVehicleContainer")
+    return ok and vehicle or nil
+end
+
+local function vehicleClearanceCost(square)
+    if not square then return 0 end
+    local utility = U()
+    local x, y, z = utility.position(square)
+    if x == nil then return 0 end
+    local cacheKey = squareKey(square)
+    local cached = cacheKey and SC.Performance
+        and type(SC.Performance.cacheGet) == "function"
+        and SC.Performance.cacheGet("navigation-vehicle-clearance", cacheKey,
+            utility.nowMs()) or nil
+    if cached ~= nil then return cached end
+    local count = 0
+    for _, offset in ipairs(treeNeighborOffsets) do
+        if squareVehicle(utility.gridSquare(x + offset[1], y + offset[2], z)) then
+            count = count + 1
+        end
+    end
+    local cost = count * (utility.config("navigationVehicleClearancePenalty") or 2)
+    if cacheKey and SC.Performance and type(SC.Performance.cachePut) == "function" then
+        SC.Performance.cachePut("navigation-vehicle-clearance", cacheKey, cost,
+            utility.config("navigationClearanceCacheMs") or 500, utility.nowMs())
+    end
+    return cost
+end
+
+local function squareNearVehicle(square)
+    if not square then return false end
+    if squareVehicle(square) then return true end
+    return vehicleClearanceCost(square) > 0
+end
+
 local function treeEscapeDirection(actorSquare, actor, goalSquare)
     if not actorSquare then return nil end
     local utility = U()
@@ -663,6 +700,7 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
     if edgeBlacklistEntry(options.blockedEdges, fromSquare, toSquare, options.now) then
         return false, math.huge, "blacklisted_edge"
     end
+    if squareVehicle(toSquare) then return false, math.huge, "vehicle_footprint" end
     if not utility.isSquareFree(toSquare) then return false, math.huge end
     if utility.safehouseBlocker(toSquare, options.actor) then
         return false, math.huge, "safehouse_boundary"
@@ -712,7 +750,7 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
     end
     return true, math.max(0.25, baseCost
         + squareVegetationCost(toSquare) * math.max(0, scale)
-        + treeClearanceCost(toSquare) + crowdCost
+        + treeClearanceCost(toSquare) + vehicleClearanceCost(toSquare) + crowdCost
         + routeMemoryAdjustment(options.routeMemory, fromSquare, toSquare, options.now))
 end
 
@@ -724,15 +762,17 @@ local function heuristic(square, goal)
     return math.abs(x - gx) + math.abs(y - gy) + math.abs((z or 0) - (gz or 0)) * 4
 end
 
+local cardinalOffsets = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+local verticalOffsets = { -1, 1 }
+
 local function neighbors(square, goal, rotation)
     local utility = U()
     local x, y, z = utility.position(square)
     if not x then return {} end
     local result = {}
-    local cardinal = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
-    local offset = math.floor(tonumber(rotation) or 0) % #cardinal
-    for step = 1, #cardinal do
-        local delta = cardinal[((step - 1 + offset) % #cardinal) + 1]
+    local offset = math.floor(tonumber(rotation) or 0) % #cardinalOffsets
+    for step = 1, #cardinalOffsets do
+        local delta = cardinalOffsets[((step - 1 + offset) % #cardinalOffsets) + 1]
         local other = utility.gridSquare(x + delta[1], y + delta[2], z)
         if other then result[#result + 1] = other end
     end
@@ -741,7 +781,7 @@ local function neighbors(square, goal, rotation)
         local direction = goalZ > z and 1 or -1
         local vertical = utility.gridSquare(x, y, z + direction)
         if vertical then result[#result + 1] = vertical end
-        for _, delta in ipairs(cardinal) do
+        for _, delta in ipairs(cardinalOffsets) do
             vertical = utility.gridSquare(x + delta[1], y + delta[2], z + direction)
             if vertical then result[#result + 1] = vertical end
         end
@@ -1048,16 +1088,15 @@ local function egressNeighbors(square)
     local x, y, z = utility.position(square)
     if not x then return {} end
     local result = {}
-    local cardinal = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
-    for _, delta in ipairs(cardinal) do
+    for _, delta in ipairs(cardinalOffsets) do
         local other = utility.gridSquare(x + delta[1], y + delta[2], z)
         if other then result[#result + 1] = other end
     end
     if squareHasStairs(square) then
-        for _, dz in ipairs({ -1, 1 }) do
+        for _, dz in ipairs(verticalOffsets) do
             local vertical = utility.gridSquare(x, y, z + dz)
             if vertical then result[#result + 1] = vertical end
-            for _, delta in ipairs(cardinal) do
+            for _, delta in ipairs(cardinalOffsets) do
                 vertical = utility.gridSquare(x + delta[1], y + delta[2], z + dz)
                 if vertical then result[#result + 1] = vertical end
             end
@@ -1080,38 +1119,48 @@ local function boundedOutdoorPath(startSquare, vegetationScale)
     if squareIsOutdoor(startSquare) then return { startSquare }, nil, 0 end
     local startKey = squareKey(startSquare)
     if not startKey then return nil, "invalid_square", 0 end
-    local nodes = { [startKey] = { square = startSquare, g = 0, parent = nil } }
-    local open, inOpen, closed = { startKey }, { [startKey] = true }, {}
+    local nodes = {
+        [startKey] = { square = startSquare, g = 0, f = 0, h = 0, parent = nil, seq = 0 },
+    }
+    local open, closed = { { key = startKey, f = 0, h = 0, seq = 0 } }, {}
+    local seqCounter = 0
     local expanded = 0
     local nodeBudget = U().config("navigationEgressNodeBudget") or 160
 
     while #open > 0 and expanded < nodeBudget do
-        local bestIndex, bestKey, bestCost = 1, open[1], math.huge
-        for index, key in ipairs(open) do
-            local cost = nodes[key].g
-            if cost < bestCost then bestIndex, bestKey, bestCost = index, key, cost end
-        end
-        table.remove(open, bestIndex)
-        inOpen[bestKey] = nil
-        local current = nodes[bestKey]
-        if bestKey ~= startKey and squareIsOutdoor(current.square) then
-            return reconstruct(nodes, bestKey), nil, expanded
-        end
-        closed[bestKey] = true
-        expanded = expanded + 1
-        for _, otherSquare in ipairs(egressNeighbors(current.square)) do
-            local otherKey = squareKey(otherSquare)
-            if otherKey and not closed[otherKey] and withinEgressRadius(startSquare, otherSquare) then
-                local passable, cost = passableEdge(
-                    current.square, otherSquare, vegetationScale)
-                if passable then
-                    local tentative = current.g + cost
-                    local known = nodes[otherKey]
-                    if not known or tentative < known.g then
-                        nodes[otherKey] = { square = otherSquare, g = tentative, parent = bestKey }
-                        if not inOpen[otherKey] then
-                            open[#open + 1] = otherKey
-                            inOpen[otherKey] = true
+        local entry = heapPop(open)
+        local bestKey = entry and entry.key or nil
+        local current = bestKey and nodes[bestKey] or nil
+        -- Dijkstra is still the right search for "nearest outdoor square"; use the
+        -- same heap/lazy-deletion machinery as A* so the bounded scan is O(E log V)
+        -- instead of repeatedly linearly scanning and removing from the open list.
+        if current and not closed[bestKey] and entry.f == current.g then
+            if bestKey ~= startKey and squareIsOutdoor(current.square) then
+                return reconstruct(nodes, bestKey), nil, expanded
+            end
+            closed[bestKey] = true
+            expanded = expanded + 1
+            for _, otherSquare in ipairs(egressNeighbors(current.square)) do
+                local otherKey = squareKey(otherSquare)
+                if otherKey and not closed[otherKey] and withinEgressRadius(startSquare, otherSquare) then
+                    local passable, cost = passableEdge(
+                        current.square, otherSquare, vegetationScale)
+                    if passable then
+                        local tentative = current.g + cost
+                        local known = nodes[otherKey]
+                        if not known or tentative < known.g then
+                            local seq = known and known.seq
+                            if seq == nil then
+                                seqCounter = seqCounter + 1
+                                seq = seqCounter
+                            end
+                            nodes[otherKey] = {
+                                square = otherSquare, g = tentative, f = tentative,
+                                h = 0, parent = bestKey, seq = seq,
+                            }
+                            heapPush(open, {
+                                key = otherKey, f = tentative, h = 0, seq = seq,
+                            })
                         end
                     end
                 end
@@ -2250,6 +2299,7 @@ local function configureTacticalRetreat(actor, sourceSquare, nextSquare, afterSq
     local unsafe = kind ~= "open" or squareHasStairs(sourceSquare) or squareHasStairs(nextSquare)
         or squareHasBush(sourceSquare) or squareHasBush(nextSquare)
         or squareNearTree(sourceSquare) or squareNearTree(nextSquare)
+        or squareNearVehicle(sourceSquare) or squareNearVehicle(nextSquare)
         or snapshot.encircled == true
         or immediate > (U().config("combatTacticalRetreatMaxImmediate") or 1)
     local distance = threat and U().distance(actor, threat) or math.huge
@@ -2302,8 +2352,22 @@ local function clearMovementTransients(actor, state)
     state.stairSpacingSince = nil
     state.onStairSequence = false
     state.pathSearch = nil
+    state.pathSearchHolding = nil
     state.pathGoalSquare = nil
     state.nativeLease = nil
+end
+
+local function holdForPathSearch(actor, state)
+    if state.pathSearchHolding == true then return true end
+    local stopped = false
+    if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
+        local ok, result = pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
+        stopped = ok and result == true
+    else
+        stopped = U().stop(actor) == true
+    end
+    state.pathSearchHolding = stopped
+    return stopped
 end
 
 local function updateProgress(actor, state, now)
@@ -2373,7 +2437,8 @@ end
 local function isMovingTargetIntent(context)
     return type(context) == "table"
         and (context.movingTarget == true or context.followRecovery == true
-            or context.player ~= nil)
+            or context.player ~= nil or context.action == "follow_formation"
+            or context.action == "regroup")
 end
 
 local function goalResetDistance(context)
@@ -2382,6 +2447,140 @@ local function goalResetDistance(context)
     end
     return U().config("navigationGoalResetDistance") or 3.0
 end
+
+-- A formation destination moves a little on nearly every leader sample. Rebuilding
+-- a complete A* frontier for each small drift wastes the already-valid route and
+-- creates visible search pauses. Safely extend the old endpoint with a very short
+-- cardinal tail when both destinations remain in the same forward region.
+local function tryRepairMovingPath(actor, state, sourceSquare, goalSquare, context, now)
+    if not isMovingTargetIntent(context) or type(state.path) ~= "table"
+        or #state.path == 0 or not state.pathGoalSquare then return false end
+    local utility = U()
+    local oldX, oldY, oldZ = utility.position(state.pathGoalSquare)
+    local goalX, goalY, goalZ = utility.position(goalSquare)
+    local sourceX, sourceY = utility.position(sourceSquare)
+    if oldX == nil or goalX == nil or sourceX == nil
+        or math.floor(oldZ or 0) ~= math.floor(goalZ or 0) then return false end
+    oldX, oldY = math.floor(oldX), math.floor(oldY)
+    goalX, goalY = math.floor(goalX), math.floor(goalY)
+    local manhattan = math.abs(goalX - oldX) + math.abs(goalY - oldY)
+    local limit = math.max(1,
+        math.floor(utility.config("navigationMovingRouteRepairDistance") or 4))
+    if manhattan == 0 or manhattan > limit then return false end
+
+    local oldVectorX, oldVectorY = oldX - sourceX, oldY - sourceY
+    local newVectorX, newVectorY = goalX - sourceX, goalY - sourceY
+    local oldLength = math.sqrt(oldVectorX * oldVectorX + oldVectorY * oldVectorY)
+    local newLength = math.sqrt(newVectorX * newVectorX + newVectorY * newVectorY)
+    if oldLength > 0.75 and newLength > 0.75
+        and oldVectorX * newVectorX + oldVectorY * newVectorY < 0 then return false end
+
+    local startedAt = utility.nowMs()
+    local current = state.path[#state.path]
+    if not sameSquare(current, state.pathGoalSquare) then return false end
+    local tail, seen = {}, {}
+    for index = 1, #state.path - 1 do
+        local key = squareKey(state.path[index])
+        if key then seen[key] = true end
+    end
+    for _ = 1, limit do
+        if sameSquare(current, goalSquare) then break end
+        local cx, cy, cz = utility.position(current)
+        if cx == nil then return false end
+        cx, cy = math.floor(cx), math.floor(cy)
+        local candidates = {}
+        if goalX ~= cx then
+            candidates[#candidates + 1] = utility.gridSquare(
+                cx + (goalX > cx and 1 or -1), cy, cz)
+        end
+        if goalY ~= cy then
+            candidates[#candidates + 1] = utility.gridSquare(
+                cx, cy + (goalY > cy and 1 or -1), cz)
+        end
+        local best, bestScore
+        for _, candidate in ipairs(candidates) do
+            local key = squareKey(candidate)
+            if candidate and (not seen[key] or sameSquare(candidate, goalSquare)) then
+                local passable, cost = passableEdge(current, candidate,
+                    context.urgent == true
+                        and (utility.config("navigationEmergencyVegetationScale") or 0.2) or 1, {
+                        actor = actor,
+                        blockedEdges = state.blockedEdges,
+                        routeMemory = state.routeMemory,
+                        now = now,
+                        allowOccupiedGoal = sameSquare(candidate, goalSquare),
+                    })
+                local score = passable and (cost + heuristic(candidate, goalSquare)) or math.huge
+                if score < (bestScore or math.huge) then best, bestScore = candidate, score end
+            end
+        end
+        if not best then return false end
+        tail[#tail + 1] = best
+        seen[squareKey(best)] = true
+        current = best
+    end
+    if not sameSquare(current, goalSquare) then return false end
+    for _, square in ipairs(tail) do state.path[#state.path + 1] = square end
+    state.pathGoalSquare = goalSquare
+    state.routeRepairCount = (state.routeRepairCount or 0) + 1
+    state.lastRouteRepairAt = now
+    recordMovement(actor, "route_repaired", {
+        appended = #tail, goal = squareKey(goalSquare),
+    })
+    if SC.Performance and type(SC.Performance.record) == "function" then
+        SC.Performance.record("navigation.repair", utility.idOf(actor),
+            utility.nowMs() - startedAt, #tail, false)
+    end
+    return true
+end
+
+-- Native collision steering may place the actor beside (or farther along) the
+-- Lua path. Rejoin a validated nearby suffix instead of discarding the route and
+-- starting another whole search.
+local function tryReusePathSuffix(actor, state, sourceSquare, context, now)
+    if type(state.path) ~= "table" then return false end
+    local startIndex = math.max(2, tonumber(state.pathIndex) or 2)
+    local finishIndex = math.min(#state.path, startIndex
+        + math.max(1, math.floor(U().config("navigationRouteSuffixLookahead") or 8)))
+    local selected, exact
+    for index = startIndex, finishIndex do
+        if sameSquare(sourceSquare, state.path[index]) then
+            selected, exact = index + 1, true
+            break
+        end
+    end
+    if not selected then
+        for index = startIndex, finishIndex do
+            local candidate = state.path[index]
+            if adjacentStep(sourceSquare, candidate) then
+                local passable = passableEdge(sourceSquare, candidate,
+                    context.urgent == true
+                        and (U().config("navigationEmergencyVegetationScale") or 0.2) or 1, {
+                        actor = actor,
+                        blockedEdges = state.blockedEdges,
+                        routeMemory = state.routeMemory,
+                        now = now,
+                        allowOccupiedGoal = index == #state.path,
+                    })
+                if passable then selected = index break end
+            end
+        end
+    end
+    if not selected then return false end
+    releaseStep(state, actor)
+    state.pathIndex = selected
+    state.routeReuseCount = (state.routeReuseCount or 0) + 1
+    state.lastRouteReuseAt = now
+    recordMovement(actor, "route_suffix_reused", {
+        index = selected, exact = exact == true,
+    })
+    if SC.Performance and type(SC.Performance.record) == "function" then
+        SC.Performance.record("navigation.reuse", U().idOf(actor), 0, 1, false)
+    end
+    return true
+end
+Navigation._repairMovingPathForTests = tryRepairMovingPath
+Navigation._reusePathSuffixForTests = tryReusePathSuffix
 -- Test seam (follow tracking): a moving target must re-plan on a much smaller goal
 -- drift than a static goal so a following companion turns with the leader.
 Navigation._goalResetDistanceForTests = goalResetDistance
@@ -2401,6 +2600,70 @@ Navigation._heapPopForTests = heapPop
 Navigation._buildStealthOverlayForTests = buildStealthOverlay
 Navigation._refreshStealthOverlayForTests = refreshStealthOverlay
 Navigation._stealthThreatPenaltyForTests = stealthThreatPenalty
+
+local function rotatedVector(x, y, radians)
+    local cosine, sine = math.cos(radians), math.sin(radians)
+    return x * cosine - y * sine, x * sine + y * cosine
+end
+
+-- Combat spacing runs on a player-like reflex cadence and must not wait for A*.
+-- Probe a short continuous step, then try deterministic nearby headings. The
+-- actor's stable side preference prevents alternating left/right around the same
+-- obstacle on consecutive combat ticks.
+function Navigation.combatVector(actor, target, kind)
+    local utility = U()
+    local ax, ay, az = utility.position(actor)
+    local tx, ty = utility.position(target)
+    if ax == nil or tx == nil then return nil, nil, false, "position_unavailable" end
+    local towardX, towardY = tx - ax, ty - ay
+    local length = math.sqrt(towardX * towardX + towardY * towardY)
+    if length < 0.001 then return nil, nil, false, "overlapping_target" end
+    towardX, towardY = towardX / length, towardY / length
+    local side = utility.stableHash(utility.idOf(actor)) % 2 == 0 and 1 or -1
+    local baseX, baseY = towardX, towardY
+    if kind == "backstep" then
+        baseX, baseY = -towardX, -towardY
+    elseif kind == "kite" then
+        baseX, baseY = -towardY * side, towardX * side
+    end
+    local angles = kind == "kite"
+        and { 0, math.rad(45), -math.rad(45), math.pi }
+        or { 0, side * math.rad(45), -side * math.rad(45),
+            side * math.rad(90), -side * math.rad(90) }
+    local probeDistance = math.max(0.1,
+        tonumber(utility.config("combatSteeringProbeDistance")) or 0.45)
+    local sourceSquare = utility.squareOf(actor)
+    local nativeProbeAvailable = utility.hasMethod(actor, "isCompanionMovementClear")
+    for index, angle in ipairs(angles) do
+        local dx, dy = rotatedVector(baseX, baseY, angle)
+        local toX, toY = ax + dx * probeDistance, ay + dy * probeDistance
+        local clear = true
+        if nativeProbeAvailable then
+            local nativeClear, called = utility.call(
+                actor, "isCompanionMovementClear", toX, toY, az or 0)
+            clear = called and nativeClear == true
+        end
+        local destination = utility.gridSquare(math.floor(toX), math.floor(toY), az or 0)
+        if clear and sourceSquare and destination and not sameSquare(sourceSquare, destination) then
+            clear = select(1, passableEdge(sourceSquare, destination, 1, {
+                actor = actor, now = utility.nowMs(), allowOccupiedGoal = false,
+            })) == true
+        end
+        if clear then
+            if index > 1 then
+                local state = stateFor(actor)
+                state.combatSteerCount = (state.combatSteerCount or 0) + 1
+                state.lastCombatSteerAt = utility.nowMs()
+                state.lastCombatSteerKind = kind
+                recordMovement(actor, "combat_micro_steer", {
+                    action = kind, candidate = index,
+                })
+            end
+            return dx, dy, index > 1, index > 1 and "steered" or "direct"
+        end
+    end
+    return baseX, baseY, false, "no_clear_alternative"
+end
 
 local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGoal,
         now, reason, multiGoal, movingTarget)
@@ -3071,6 +3334,10 @@ function Navigation.request(actor, target, movementMode, intent)
     local pathGoalDrifted = state.path and state.pathGoalSquare
         and utility.distance(state.pathGoalSquare, goalSquare)
             >= goalResetDistance(requestIntent)
+    if pathGoalDrifted and tryRepairMovingPath(
+        actor, state, sourceSquare, goalSquare, requestIntent, now) then
+        pathGoalDrifted = false
+    end
     if pathGoalDrifted then
         -- Follow targets commonly move by less than the reset threshold per AI
         -- update. Compare against the destination this route was actually built
@@ -3102,6 +3369,10 @@ function Navigation.request(actor, target, movementMode, intent)
     if not state.path and now >= (state.nextRepathAt or 0) then
         local followRouting = requestIntent.followRecovery == true
             or requestIntent.action == "follow_formation" or requestIntent.action == "regroup"
+        -- A moving formation goal values first response over route diversity. The
+        -- old code waited for up to two optional alternatives after the primary
+        -- route was already usable, adding several follow ticks of visible delay.
+        local evaluateAlternatives = followRouting and not isMovingTargetIntent(requestIntent)
         local pathOptions = {
             actor = actor,
             blockedEdges = state.blockedEdges,
@@ -3128,22 +3399,31 @@ function Navigation.request(actor, target, movementMode, intent)
             and utility.distance(state.pathSearch.route.goalSquare, goalSquare)
                 < goalResetDistance(requestIntent)
             and state.pathSearch.stealthAvoidance == (requestIntent.stealthAvoidance == true)
-            and state.pathSearch.followRouting == (followRouting == true) then
+            and state.pathSearch.followRouting == (followRouting == true)
+            and state.pathSearch.alternatives == (evaluateAlternatives == true) then
             planningGoal = state.pathSearch.route.goalSquare
         end
         local searchKey = tostring(squareKey(sourceSquare)) .. ">" .. tostring(squareKey(planningGoal))
             .. ":" .. tostring(requestIntent.stealthAvoidance == true)
             .. ":" .. tostring(followRouting == true)
+            .. ":" .. tostring(evaluateAlternatives == true)
         if not state.pathSearch or state.pathSearch.key ~= searchKey then
             state.pathSearch = {
                 key = searchKey,
                 route = newRouteSearchJob(sourceSquare, planningGoal, requestIntent.snapshot,
-                    pathOptions, followRouting),
+                    pathOptions, evaluateAlternatives),
                 startedAt = now,
                 stealthAvoidance = requestIntent.stealthAvoidance == true,
                 followRouting = followRouting == true,
+                alternatives = evaluateAlternatives == true,
             }
+            state.routeReplanCount = (state.routeReplanCount or 0) + 1
+            state.pathSearchHolding = nil
         end
+        -- A direct MoveForward pulse from the discarded route otherwise remains
+        -- active while this Lua search yields. Acquire a stationary, posture-safe
+        -- hold once per search; the first completed route can start immediately.
+        holdForPathSearch(actor, state)
         local requestedNodes = tonumber(pathOptions.nodeBudget)
             or utility.config("navigationNodeBudget") or 220
         local grantedNodes = requestedNodes
@@ -3180,6 +3460,7 @@ function Navigation.request(actor, target, movementMode, intent)
         end
 
         state.pathSearch = nil
+        state.pathSearchHolding = nil
         state.path = path
         state.pathGoalSquare = path and planningGoal or nil
         state.pathStealthAvoidance = requestIntent.stealthAvoidance
@@ -3202,6 +3483,15 @@ function Navigation.request(actor, target, movementMode, intent)
         end
         nextSquare = state.path[state.pathIndex]
         afterSquare = state.path[state.pathIndex + 1]
+        if nextSquare and not adjacentStep(sourceSquare, nextSquare)
+            and tryReusePathSuffix(actor, state, sourceSquare, requestIntent, now) then
+            while state.pathIndex <= #state.path
+                and sameSquare(sourceSquare, state.path[state.pathIndex]) do
+                state.pathIndex = state.pathIndex + 1
+            end
+            nextSquare = state.path[state.pathIndex]
+            afterSquare = state.path[state.pathIndex + 1]
+        end
         if nextSquare and not adjacentStep(sourceSquare, nextSquare) then
             -- A native local detour can move the actor off the Lua path while
             -- clearing a collision capsule. Discard that stale edge instead of
@@ -3385,12 +3675,16 @@ function Navigation.request(actor, target, movementMode, intent)
     else
         requestIntent.direct = false
     end
-    if kind == "open" and (squareNearTree(sourceSquare) or squareNearTree(nextSquare)) then
+    if kind == "open" and (squareNearTree(sourceSquare) or squareNearTree(nextSquare)
+        or squareNearVehicle(sourceSquare) or squareNearVehicle(nextSquare)) then
         -- Let Build 42's path behavior steer the collision capsule through the
         -- remaining clearance instead of manually pushing toward the tile centre.
         requestIntent.direct = false
         requestIntent.enginePath = true
-        requestIntent.vegetationClearance = true
+        requestIntent.vegetationClearance = squareNearTree(sourceSquare)
+            or squareNearTree(nextSquare)
+        requestIntent.vehicleClearance = squareNearVehicle(sourceSquare)
+            or squareNearVehicle(nextSquare)
     end
     if kind == "door" or kind == "stairs" or kind == "fence" then
         -- Once Lua has approved the affordance and any explicit door action,
@@ -3430,7 +3724,9 @@ function Navigation.request(actor, target, movementMode, intent)
     if requestIntent.enginePath == true then
         beginNativeLease(state, { nextSquare }, sourceSquare, nextSquare,
             goalSquare, now, requestIntent.vegetationClearance
-                and "vegetation_corridor" or "native_edge", false,
+                and "vegetation_corridor"
+                or requestIntent.vehicleClearance and "vehicle_corridor"
+                or "native_edge", false,
             isMovingTargetIntent(requestIntent))
         extendChoke(state, actor, state.nativeLease and state.nativeLease.expires)
     end

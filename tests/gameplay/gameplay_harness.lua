@@ -1002,6 +1002,45 @@ do
     end
 end
 
+do
+    local reflexActor = actor("sc-reflex-senses", -6, -7, {})
+    local reflexRuntime = {}
+    local broadSnapshot = SurvivorCompanion.Senses.snapshot(
+        reflexActor, player, reflexRuntime)
+    local broadTime = broadSnapshot.time
+    local reflexZombie = zombie(-5, -7, { moving = true })
+    clock = clock + 101
+    local reflexSnapshot = SurvivorCompanion.Senses.refreshImmediate(
+        reflexActor, player, broadSnapshot, reflexRuntime)
+    check(reflexSnapshot.time == broadTime and reflexSnapshot.reflexTime == clock
+            and reflexSnapshot.threatCount == 1
+            and reflexSnapshot.reflexAddedThreats == 1
+            and reflexRuntime.senses.reflexCount == 1,
+        "a zombie entering melee range is acquired by the reflex pass before the broad scan restarts")
+
+    reflexZombie.square.losBlocked = true
+    clock = clock + 101
+    local heardReflex = SurvivorCompanion.Senses.refreshImmediate(
+        reflexActor, player, reflexSnapshot, reflexRuntime)
+    check(heardReflex.threatCount == 0 and heardReflex.heardThreatCount == 1
+            and heardReflex.lastHeardDanger.actor == nil
+            and heardReflex.lastHeardDanger.square == nil,
+        "the reflex pass demotes a wall-hidden walker to uncertain sound instead of targeting it")
+    reflexZombie.dead = true
+    reflexZombie.square.losBlocked = false
+    for index = #reflexZombie.square.moving, 1, -1 do
+        if reflexZombie.square.moving[index] == reflexZombie then
+            table.remove(reflexZombie.square.moving, index)
+        end
+    end
+    SurvivorCompanion.Senses.reset(reflexActor)
+    for index = #reflexActor.square.moving, 1, -1 do
+        if reflexActor.square.moving[index] == reflexActor then
+            table.remove(reflexActor.square.moving, index)
+        end
+    end
+end
+
 local zedIndex
 for index, value in ipairs(zed.square.moving) do if value == zed then zedIndex = index end end
 table.remove(zed.square.moving, zedIndex)
@@ -1069,6 +1108,109 @@ do
     end
     check(status == "complete" and slicedPath and #slicedPath >= 4,
         "resumable path search continues from its prior frontier")
+end
+
+do
+    local routeActor = actor("sc-route-repair", 30, 28, {})
+    local source = cell:getGridSquare(30, 28, 0)
+    local oldGoal = cell:getGridSquare(34, 28, 0)
+    local movedGoal = cell:getGridSquare(34, 30, 0)
+    local oldPath = SurvivorCompanion.Navigation.findPath(source, oldGoal)
+    local routeState = {
+        path = oldPath, pathGoalSquare = oldGoal, pathIndex = 2,
+        blockedEdges = {}, routeMemory = {},
+    }
+    local oldLength = #oldPath
+    check(SurvivorCompanion.Navigation._repairMovingPathForTests(
+            routeActor, routeState, source, movedGoal,
+            { action = "follow_formation", followRecovery = true }, clock)
+            and routeState.pathGoalSquare == movedGoal
+            and #routeState.path == oldLength + 2
+            and routeState.routeRepairCount == 1,
+        "a nearby moving formation goal extends the valid A* route without a full replan")
+
+    local suffixPath = SurvivorCompanion.Navigation.findPath(
+        source, cell:getGridSquare(35, 28, 0))
+    local suffixState = {
+        path = suffixPath, pathGoalSquare = suffixPath[#suffixPath], pathIndex = 2,
+        blockedEdges = {}, routeMemory = {},
+    }
+    local detourSquare = cell:getGridSquare(32, 29, 0)
+    check(SurvivorCompanion.Navigation._reusePathSuffixForTests(
+            routeActor, suffixState, detourSquare,
+            { action = "follow_formation", followRecovery = true }, clock)
+            and suffixState.pathIndex == 3 and suffixState.routeReuseCount == 1,
+        "a short native detour rejoins a validated later route edge instead of restarting A-star")
+    for index = #routeActor.square.moving, 1, -1 do
+        if routeActor.square.moving[index] == routeActor then
+            table.remove(routeActor.square.moving, index)
+        end
+    end
+end
+
+do
+    local savedUnits = SurvivorCompanion.Config.values.performanceNavigationNodesPerFrame
+    local savedNativeActions = SurvivorCompanion.NativeActions
+    local searchStops = 0
+    SurvivorCompanion.Config.values.performanceNavigationNodesPerFrame = 1
+    SurvivorCompanion.NativeActions = {
+        stopDirect = function(value)
+            searchStops = searchStops + 1
+            value.moving = false
+            return true
+        end,
+    }
+    SurvivorCompanion.Performance.reset()
+    SurvivorCompanion.Performance.beginFrame(2, clock)
+    local responsiveFollower = actor("sc-responsive-follow-search", -10, 18,
+        { moving = true })
+    registry[responsiveFollower.id] = responsiveFollower
+    local accepted, reason = SurvivorCompanion.Navigation.request(
+        responsiveFollower, cell:getGridSquare(-4, 18, 0), "walk", {
+            action = "follow_formation", followRecovery = true, player = player,
+            snapshot = { threats = {}, allies = {} },
+        })
+    local searchState = SurvivorCompanion.Navigation.peek(responsiveFollower)
+    check(accepted and reason == "path_searching" and searchStops == 1
+            and responsiveFollower.moving == false and searchState.pathSearchHolding == true,
+        "a yielded replacement route stops stale forward input exactly once")
+    check(searchState.pathSearch and searchState.pathSearch.alternatives == false
+            and searchState.pathSearch.route.alternatives == false,
+        "a moving formation goal uses its primary route without waiting for alternatives")
+    SurvivorCompanion.Performance.endFrame(1, false)
+    SurvivorCompanion.Navigation.reset(responsiveFollower)
+    registry[responsiveFollower.id] = nil
+    SurvivorCompanion.NativeActions = savedNativeActions
+    SurvivorCompanion.Config.values.performanceNavigationNodesPerFrame = savedUnits
+    SurvivorCompanion.Performance.reset()
+end
+
+do
+    -- Egress has no fixed destination, so it remains a weighted Dijkstra search.
+    -- Verify the heap-backed implementation prefers two clean indoor steps over
+    -- the geometrically nearer but expensive tree square.
+    local egressStart = cell:getGridSquare(8, 6, 0)
+    local egressEast = cell:getGridSquare(9, 6, 0)
+    local egressGoal = cell:getGridSquare(10, 6, 0)
+    local egressWest = cell:getGridSquare(7, 6, 0)
+    local egressNorth = cell:getGridSquare(8, 5, 0)
+    local egressSouth = cell:getGridSquare(8, 7, 0)
+    local egressNorth2 = cell:getGridSquare(8, 4, 0)
+    local egressSouth2 = cell:getGridSquare(8, 8, 0)
+    local room = { name = "egress-test" }
+    egressStart.room, egressEast.room = room, room
+    egressNorth.room, egressSouth.room = room, room
+    egressNorth2.room, egressSouth2.room = room, room
+    egressGoal.room, egressWest.room = nil, nil
+    egressWest.hasTree = true
+    local outdoorPath, outdoorReason = SurvivorCompanion.Navigation.findOutdoorPath(egressStart)
+    check(outdoorPath and outdoorReason == nil and #outdoorPath == 3
+            and outdoorPath[2] == egressEast and outdoorPath[3] == egressGoal,
+        "heap-backed Dijkstra egress selects the least-cost outdoor route")
+    egressStart.room, egressEast.room = nil, nil
+    egressNorth.room, egressSouth.room = nil, nil
+    egressNorth2.room, egressSouth2.room = nil, nil
+    egressWest.hasTree = false
 end
 
 do
@@ -1378,6 +1520,18 @@ local blockedPassable = passableEdge(fromSquare, blockedGoal, 1,
 check(not blockedPassable,
     "a statically blocked square stays impassable even when the goal is allowed to be occupied")
 
+local vehicleBody = cell:getGridSquare(50, 12, 0)
+local vehicleNear = cell:getGridSquare(49, 12, 0)
+local vehicleFarFrom = cell:getGridSquare(48, 14, 0)
+local vehicleFar = cell:getGridSquare(49, 14, 0)
+vehicleBody.vehicleContainer = { id = "clearance-test-car" }
+local nearPassable, nearCost = passableEdge(fromSquare, vehicleNear, 1, { actor = mover })
+local farPassable, farCost = passableEdge(vehicleFarFrom, vehicleFar, 1, { actor = mover })
+local footprintPassable = passableEdge(vehicleNear, vehicleBody, 1, { actor = mover })
+check(nearPassable and farPassable and nearCost > farCost and not footprintPassable,
+    "parked-car footprint is blocked while adjacent path edges carry bounded clearance cost")
+vehicleBody.vehicleContainer = nil
+
 occupiedGoal.moving = {}
 blockedGoal.solid = nil
 registry[mover.id] = nil
@@ -1607,6 +1761,31 @@ end
 check(vehicleRoute ~= nil and crossedVehicle == false,
     "Lua path search routes around a parked vehicle footprint before collision")
 vehicleFootprint.vehicleContainer = nil
+end
+
+do
+local steeringActor = actor("sc-combat-micro-steer", 52, 10, {})
+local steeringTarget = zombie(54, 10, {})
+function steeringActor:isCompanionMovementClear(toX, toY, z)
+    return math.abs(toY - self:getY()) > 0.05
+end
+local firstX, firstY, firstSteered = SurvivorCompanion.Navigation.combatVector(
+    steeringActor, steeringTarget, "approach")
+local secondX, secondY, secondSteered = SurvivorCompanion.Navigation.combatVector(
+    steeringActor, steeringTarget, "approach")
+check(firstSteered and secondSteered and math.abs(firstY) > 0.1
+        and firstX == secondX and firstY == secondY,
+    "combat micro-positioning chooses a stable clear side when the direct approach is blocked")
+for index = #steeringTarget.square.moving, 1, -1 do
+    if steeringTarget.square.moving[index] == steeringTarget then
+        table.remove(steeringTarget.square.moving, index)
+    end
+end
+for index = #steeringActor.square.moving, 1, -1 do
+    if steeringActor.square.moving[index] == steeringActor then
+        table.remove(steeringActor.square.moving, index)
+    end
+end
 end
 
 do
@@ -1876,6 +2055,37 @@ local settledHeadingTarget = SurvivorCompanion.Positioning.formationTarget(
     formationLeft, positioningLeader, SurvivorCompanion.Commands.peek(formationLeft), formationSnapshot)
 check(settledHeadingTarget and settledHeadingTarget ~= leftTarget,
     "a sustained leader heading eventually rotates the travel formation")
+
+local predictionLeader = actor("prediction-player", 30, 20, {
+    className = "IsoPlayer", recruited = false, forwardX = 1, forwardY = 0,
+})
+predictionLeader.modData.SC_Recruited = false
+local predictionFollower = actor("sc-prediction-follower", 26, 20, {})
+registry[predictionFollower.id] = predictionFollower
+SurvivorCompanion.Commands.issue(predictionFollower.id, "follow", nil, predictionLeader)
+SurvivorCompanion.Positioning.formationTarget(predictionFollower, predictionLeader,
+    SurvivorCompanion.Commands.peek(predictionFollower), formationSnapshot)
+predictionLeader.moving = true
+predictionLeader.worldX = predictionLeader:getX() + 0.6
+clock = clock + 100
+local predictedTarget = SurvivorCompanion.Positioning.formationTarget(
+    predictionFollower, predictionLeader, SurvivorCompanion.Commands.peek(predictionFollower),
+    { threats = {}, allies = {}, player = { actor = predictionLeader, danger = 0 } })
+local predictionDebug = SurvivorCompanion.Positioning.debug(predictionFollower)
+check(predictedTarget and predictionDebug.predictionDistance > 0
+        and predictionDebug.predictionDistance
+            <= (SurvivorCompanion.GameplayUtil.config("formationPredictionMaxDistance") or 1.25),
+    "moving formation targets lead the player's smoothed motion by a bounded distance")
+SurvivorCompanion.Positioning.reset(predictionFollower)
+SurvivorCompanion.Commands.reset(predictionFollower)
+registry[predictionFollower.id] = nil
+for _, value in ipairs({ predictionFollower, predictionLeader }) do
+    for index = #value.square.moving, 1, -1 do
+        if value.square.moving[index] == value then
+            table.remove(value.square.moving, index)
+        end
+    end
+end
 
 formationLeft.square = settledHeadingTarget
 check(SurvivorCompanion.Positioning.shouldHold(formationLeft, settledHeadingTarget),
@@ -3217,6 +3427,64 @@ registry[swordActor.id] = nil
 swordZed.dead = true
 approachConfig.combatShoveDistance = savedShoveDistance
 clock = approachClock
+end
+
+do
+local liveConfig = SurvivorCompanion.Config.values
+local savedLiveShoveDistance = liveConfig.combatShoveDistance
+liveConfig.combatShoveDistance = 0.1
+local responsiveBlade = item("Base.ResponsiveBlade", "Weapon", {
+    damage = 2, range = 1.0, minRange = 0.61, sharpness = 1,
+    weaponCategories = { "SmallBlade" },
+})
+local responsiveFighter = actor("sc-live-combat-geometry", 51, 24, {
+    inventory = inventory({ responsiveBlade }),
+})
+responsiveFighter.primary = responsiveBlade
+responsiveFighter.worldX = 51.5
+responsiveFighter.worldY = 24.5
+registry[responsiveFighter.id] = responsiveFighter
+local responsiveZed = zombie(53, 24, { attacking = true, target = responsiveFighter })
+local liveSnapshot = {
+    time = clock,
+    -- Deliberately stale contact distance: timestamped production snapshots must
+    -- refresh it from the actors before choosing close-combat spacing.
+    threats = { { actor = responsiveZed, square = responsiveZed.square,
+        distanceSq = 0.2 * 0.2, visible = true, obstructed = false,
+        attacking = true, score = 90 } },
+    allies = {}, escapeSquares = {}, threatCount = 1, immediateCount = 0,
+    closeImmediateCount = 0, closeThreatCount = 1, occupiedThreatSectors = 1,
+    pressure = 0, encircled = false,
+    player = { danger = 0, immediateThreats = 0 },
+}
+local liveApproach, liveApproachReason = SurvivorCompanion.Combat.update(
+    responsiveFighter, player, { snapshot = liveSnapshot })
+check(liveApproach and liveApproachReason == "approach"
+        and responsiveFighter.lastIntent.action == "combat_approach",
+    "timestamped combat snapshots use live target distance instead of stale spacing data")
+
+responsiveFighter.worldX = 53.3
+local closeLiveScore = SurvivorCompanion.Combat.scoreTargets(
+    responsiveFighter, player, liveSnapshot, responsiveZed)[1]
+local backed, backReason = SurvivorCompanion.Combat.update(
+    responsiveFighter, player, { snapshot = liveSnapshot })
+check(backed and backReason == "backstep"
+        and responsiveFighter.lastIntent.action == "backstep",
+    "live geometry permits an immediate safety backstep when contact becomes too close: "
+        .. tostring(backReason) .. "/"
+        .. tostring(responsiveFighter.lastIntent and responsiveFighter.lastIntent.action)
+        .. " d2=" .. tostring(closeLiveScore and closeLiveScore.distanceSq))
+responsiveFighter.worldX = 51.5
+clock = clock + 50
+local held, heldReason = SurvivorCompanion.Combat.update(
+    responsiveFighter, player, { snapshot = liveSnapshot })
+check(held and heldReason == "hold_range"
+        and responsiveFighter.lastIntent.action == "ready_weapon",
+    "combat spacing holds aim briefly instead of reversing a backstep into an approach loop")
+SurvivorCompanion.Combat.reset(responsiveFighter)
+registry[responsiveFighter.id] = nil
+responsiveZed.dead = true
+liveConfig.combatShoveDistance = savedLiveShoveDistance
 end
 
 do

@@ -68,13 +68,27 @@ local function leaderHeading(actor, leader, current)
     if not x then return state.headingX or 0, state.headingY or -1 end
 
     if state.leaderX ~= nil then
-        local velocityX, velocityY = normalized(x - state.leaderX, y - state.leaderY)
+        local elapsed = current - (state.leaderSampleAt or current)
+        local deltaX, deltaY = x - state.leaderX, y - state.leaderY
+        local velocityX, velocityY = normalized(deltaX, deltaY)
         if velocityX ~= nil then
             state.headingX, state.headingY = velocityX, velocityY
             state.headingAt = current
+            if elapsed > 0 and elapsed <= 1000 then
+                local sampleX, sampleY = deltaX / elapsed, deltaY / elapsed
+                -- Smooth one noisy world-position sample without lagging far behind
+                -- a genuine turn. Values are tiles/ms and are capped below when used.
+                state.velocityX = state.velocityX == nil and sampleX
+                    or state.velocityX * 0.35 + sampleX * 0.65
+                state.velocityY = state.velocityY == nil and sampleY
+                    or state.velocityY * 0.35 + sampleY * 0.65
+            end
+        elseif elapsed > 0 then
+            state.velocityX = (state.velocityX or 0) * 0.35
+            state.velocityY = (state.velocityY or 0) * 0.35
         end
     end
-    state.leaderX, state.leaderY = x, y
+    state.leaderX, state.leaderY, state.leaderSampleAt = x, y, current
 
     -- Turning to aim while standing still must not make the whole formation
     -- orbit the player. Native facing is only adopted before a travel heading
@@ -90,7 +104,8 @@ local function leaderHeading(actor, leader, current)
             end
         end
     end
-    return state.headingX or 0, state.headingY or -1
+    return state.headingX or 0, state.headingY or -1,
+        state.velocityX or 0, state.velocityY or 0
 end
 
 local function reservationKey(square)
@@ -167,20 +182,37 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     local px, py, pz = utility.position(leader)
     if not px then return nil end
     local current = utility.nowMs()
-    local forwardX, forwardY = leaderHeading(actor, leader, current)
+    local forwardX, forwardY, velocityX, velocityY = leaderHeading(actor, leader, current)
     local rightX, rightY = -forwardY, forwardX
     local slot = followerSlot(actor)
     local localOffset = formationOffsets[((slot - 1) % #formationOffsets) + 1]
     local scale = commands.order == "regroup" and 0.75
         or math.max(0.75, (tonumber(commands.followDistance) or 3) / 3)
-    local targetX = px + rightX * localOffset[1] * scale - forwardX * localOffset[2] * scale
-    local targetY = py + rightY * localOffset[1] * scale - forwardY * localOffset[2] * scale
+    local predictionX, predictionY = 0, 0
+    local moving, movingOk = utility.call(leader, "isMoving")
+    if movingOk and moving == true then
+        local leadMs = math.max(0, tonumber(utility.config("formationPredictionMs")) or 250)
+        predictionX, predictionY = velocityX * leadMs, velocityY * leadMs
+        local predictionLength = math.sqrt(predictionX * predictionX + predictionY * predictionY)
+        local maximumLead = math.max(0,
+            tonumber(utility.config("formationPredictionMaxDistance")) or 1.25)
+        if predictionLength > maximumLead and predictionLength > 0.001 then
+            local scaleDown = maximumLead / predictionLength
+            predictionX, predictionY = predictionX * scaleDown, predictionY * scaleDown
+        end
+    end
+    local targetX = px + predictionX
+        + rightX * localOffset[1] * scale - forwardX * localOffset[2] * scale
+    local targetY = py + predictionY
+        + rightY * localOffset[1] * scale - forwardY * localOffset[2] * scale
     local minimum = utility.config("formationSeparation") or 1.25
     local target = availableTarget(actor, targetX, targetY, pz, snapshot, minimum)
     if target then
         local state = stateFor(actor)
         state.slot = slot
         state.targetKey = reservationKey(target)
+        state.predictionX, state.predictionY = predictionX, predictionY
+        state.predictionDistance = math.sqrt(predictionX * predictionX + predictionY * predictionY)
     end
     return target
 end
@@ -415,6 +447,9 @@ function Positioning.debug(actor)
         slot = state.slot,
         targetKey = state.targetKey,
         holdingFormation = state.holdingFormation == true,
+        predictionDistance = state.predictionDistance or 0,
+        velocityX = state.velocityX or 0,
+        velocityY = state.velocityY or 0,
         conversation = state.conversation and {
             action = state.conversation.action,
             posed = state.conversation.posed == true,

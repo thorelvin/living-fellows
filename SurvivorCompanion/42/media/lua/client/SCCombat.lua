@@ -524,6 +524,45 @@ local function chooseWeapon(actor, preference, distance, pressure)
     return best, inventory
 end
 
+local function responsiveWeapon(actor, state, preference, distance, pressure, snapshot, now)
+    local snapshotTime = tonumber(snapshot and snapshot.reflexTime)
+        or tonumber(snapshot and snapshot.time)
+    if snapshotTime == nil then return chooseWeapon(actor, preference, distance, pressure) end
+    local primary = select(1, U().call(actor, "getPrimaryHandItem"))
+    local firearmMinimum = U().config("combatFirearmMinDistance") or 2.2
+    local distanceBand = distance <= 2 and 1 or (distance < firearmMinimum and 2 or 3)
+    local pressureBand = pressure >= 3 and 3 or (pressure >= 2 and 2 or 1)
+    local cache = state.weaponCache
+    if type(cache) == "table" and now < (cache.expires or 0)
+        and cache.snapshotTime == snapshotTime and cache.preference == preference
+        and cache.distanceBand == distanceBand and cache.pressureBand == pressureBand
+        and cache.primary == primary then
+        state.weaponCacheHits = (state.weaponCacheHits or 0) + 1
+        if cache.item == nil then return nil, cache.inventory end
+        local current = weaponRecord(cache.item)
+        if current and current.condition > 0 and current.ammo == cache.ammo
+            and current.jammed == cache.jammed then
+            current.equipped = primary == cache.item
+            return current, cache.inventory
+        end
+    end
+    state.weaponCacheMisses = (state.weaponCacheMisses or 0) + 1
+    local weapon, inventory = chooseWeapon(actor, preference, distance, pressure)
+    state.weaponCache = {
+        snapshotTime = snapshotTime,
+        preference = preference,
+        distanceBand = distanceBand,
+        pressureBand = pressureBand,
+        primary = primary,
+        item = weapon and weapon.item or nil,
+        ammo = weapon and weapon.ammo or nil,
+        jammed = weapon and weapon.jammed or nil,
+        inventory = inventory,
+        expires = now + (U().config("combatTacticalIntervalMs") or 250),
+    }
+    return weapon, inventory
+end
+
 function Combat.equipPreferred(actor, preference)
     if not U().isValidActor(actor) then return false, "invalid_actor" end
     local weapon = chooseWeapon(actor, preference or "best", 3, 0)
@@ -612,10 +651,14 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
             and utility.sameFloor(actor, threat.actor) and utility.canSee(actor, threat.actor) then
             local record = utility.copyShallow(threat)
             record.square = utility.squareOf(threat.actor)
-            -- Preserve the snapshot distance for the existing combat cadence; the
-            -- dedicated fast live-geometry/reflex pass is a separate change. LOS,
-            -- however, must be current on every pulse so walls revoke targeting now.
-            record.distanceSq = tonumber(threat.distanceSq)
+            -- Perception snapshots are timestamped and may be up to one scan old.
+            -- Use them only as the bounded candidate list: close-combat spacing must
+            -- use current geometry or a moving zombie makes the motor alternate
+            -- between approach and backstep. Untimestamped synthetic snapshots keep
+            -- their explicit distance so external/unit callers retain that contract.
+            record.distanceSq = tonumber(snapshot.time) ~= nil
+                and utility.distanceSq(actor, threat.actor)
+                or tonumber(threat.distanceSq)
                 or utility.distanceSq(actor, threat.actor)
             record.distance = math.sqrt(record.distanceSq)
             record.visible = true
@@ -1192,6 +1235,55 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
     return utility.sortByScoreDescending(actions), distance
 end
 
+local function tacticalAssessment(actor, state, snapshot, target, weapon, commands, now)
+    local snapshotTime = tonumber(snapshot and snapshot.reflexTime)
+        or tonumber(snapshot and snapshot.time)
+    local commandKey = table.concat({
+        tostring(commands.combatMode), tostring(commands.combatDoctrine),
+        tostring(commands.morale), tostring(commands.stress),
+        tostring(commands.personalityProfile),
+    }, "|")
+    local cache = state.tacticalCache
+    local weaponItem = weapon and weapon.item or nil
+    if snapshotTime ~= nil and type(cache) == "table"
+        and cache.snapshotTime == snapshotTime and cache.target == target.actor
+        and cache.weaponItem == weaponItem and cache.commandKey == commandKey
+        and now < (cache.expires or 0) then
+        state.tacticalCacheHits = (state.tacticalCacheHits or 0) + 1
+        return cache.overrun
+    end
+    state.tacticalCacheMisses = (state.tacticalCacheMisses or 0) + 1
+    local overrun = Combat.assessOverrun(actor, snapshot, weapon, commands)
+    if snapshotTime ~= nil then
+        state.tacticalCache = {
+            snapshotTime = snapshotTime,
+            target = target.actor,
+            weaponItem = weaponItem,
+            commandKey = commandKey,
+            expires = now + (U().config("combatTacticalIntervalMs") or 250),
+            overrun = overrun,
+        }
+    else
+        -- Synthetic callers commonly mutate their fixtures between calls without
+        -- advancing a snapshot clock. Never let the production cache hide that.
+        state.tacticalCache = nil
+    end
+    return overrun
+end
+
+local function stabilizeSpacingAction(state, chosen, target, now)
+    if not chosen or chosen.kind ~= "approach" then return chosen end
+    local guard = U().config("combatSpacingReversalGuardMs") or 225
+    if state.lastSpacingAction == "backstep" and state.lastSpacingTarget == target.actor
+        and now - (state.lastSpacingAt or -math.huge) < guard then
+        -- A safety backstep may interrupt an approach immediately, but do not
+        -- reverse it again on the next reflex pulse. Hold aim for one short player-
+        -- sized input window while live geometry settles.
+        return { kind = "hold_range", score = chosen.score }
+    end
+    return chosen
+end
+
 local function passiveMayFight(target, player, snapshot)
     local emergency = U().config("combatStealthEmergencyRadius") or 1.5
     if target.attacking or (target.distanceSq or math.huge) <= emergency * emergency then return true end
@@ -1476,20 +1568,49 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         local ax, ay = utility.position(actor)
         local tx, ty = utility.position(targetActor)
         if ax == nil or tx == nil then return false, "approach_position_unavailable" end
+        local moveX, moveY, steered
+        if SC.Navigation and type(SC.Navigation.combatVector) == "function" then
+            moveX, moveY, steered = SC.Navigation.combatVector(
+                actor, targetActor, "approach")
+        end
         accepted, nativeReason = utility.move(actor, "walk", {
             action = "combat_approach",
-            dx = tx - ax,
-            dy = ty - ay,
+            dx = moveX or (tx - ax),
+            dy = moveY or (ty - ay),
             target = targetActor,
             facingTarget = targetActor,
             keepFacing = true,
             weaponReady = true,
             tacticalStrafe = true,
+            microSteered = steered == true,
         })
     elseif action.kind == "backstep" then
-        accepted, nativeReason = utility.move(actor, "walk", { action = "backstep", target = targetActor, keepFacing = true })
+        local moveX, moveY, steered
+        if SC.Navigation and type(SC.Navigation.combatVector) == "function" then
+            moveX, moveY, steered = SC.Navigation.combatVector(
+                actor, targetActor, "backstep")
+        end
+        accepted, nativeReason = utility.move(actor, "walk", {
+            action = "backstep", target = targetActor, awayFrom = targetActor,
+            dx = moveX, dy = moveY, keepFacing = true,
+            microSteered = steered == true,
+        })
     elseif action.kind == "kite" then
-        accepted, nativeReason = utility.move(actor, "walk", { action = "lateral_kite", target = targetActor, keepFacing = true })
+        local moveX, moveY, steered
+        if SC.Navigation and type(SC.Navigation.combatVector) == "function" then
+            moveX, moveY, steered = SC.Navigation.combatVector(
+                actor, targetActor, "kite")
+        end
+        accepted, nativeReason = utility.move(actor, "walk", {
+            action = "lateral_kite", target = targetActor, awayFrom = targetActor,
+            lateral = true, dx = moveX, dy = moveY, keepFacing = true,
+            microSteered = steered == true,
+        })
+    elseif action.kind == "hold_range" then
+        accepted, nativeReason = utility.move(actor, "walk", {
+            action = "ready_weapon", target = targetActor, facingTarget = targetActor,
+            keepFacing = true, weaponReady = true, combatSpacingHold = true,
+        })
     else
         return false, "unknown_action"
     end
@@ -1609,6 +1730,8 @@ function Combat.update(actor, player, runtime)
         rootRuntime.combatOverrun = nil
         rootRuntime.combatReadiness = nil
         state.readiness = nil
+        state.tacticalCache = nil
+        state.weaponCache = nil
         return false, "no_threat"
     end
     if SC.Medical and type(SC.Medical.isDowned) == "function" and SC.Medical.isDowned(actor) then
@@ -1626,6 +1749,8 @@ function Combat.update(actor, player, runtime)
         clearAimPreparation(state)
         utility.call(actor, "setCompanionAimTarget", nil)
         state.readiness, state.overrun = nil, nil
+        state.tacticalCache = nil
+        state.weaponCache = nil
         clearEngagement(state, actor)
         return false, "no_credible_target"
     end
@@ -1636,6 +1761,21 @@ function Combat.update(actor, player, runtime)
     local distance = math.sqrt(target.distanceSq or utility.distanceSq(actor, target.actor))
     local vehicle, vehicleOk = utility.call(actor, "getVehicle")
     local seated = vehicleOk and vehicle ~= nil
+    -- Preserve the target/facing but do not run inventory or locomotion work while
+    -- a native on-foot swing owns the actor. This mirrors player input ownership
+    -- and keeps the 50 ms reflex cadence cheap during the animation itself.
+    if not seated and attackInProgress(actor) then
+        clearRejection(state, rootRuntime)
+        state.active = true
+        state.target = target.actor
+        state.targetScore = target.score
+        state.lastActionAt = now
+        state.lastAction = "attack_in_progress"
+        state.retreating = false
+        rootRuntime.combatTarget = target.actor
+        rootRuntime.combatAction = "attack_in_progress"
+        return true, "attack_in_progress"
+    end
     -- The ranged_support doctrine means "prefer the firearm" whether or not the
     -- companion is seated. Previously only the seated branch honored the
     -- doctrine, so an on-foot companion fell back to weaponPriority. When that
@@ -1651,7 +1791,8 @@ function Combat.update(actor, player, runtime)
     elseif seated and commands.combatDoctrine == "weapons_free" then
         preference = "firearm"
     end
-    local weapon, inventory = chooseWeapon(actor, preference, distance, snapshot.pressure or 0)
+    local weapon, inventory = responsiveWeapon(actor, state, preference, distance,
+        snapshot.pressure or 0, snapshot, now)
     if seated then
         clearAimPreparation(state)
         local ok, reason = vehicleCombat(
@@ -1671,23 +1812,7 @@ function Combat.update(actor, player, runtime)
         end
         return ok, reason
     end
-    -- Preserve the target/facing but do not ask locomotion to interrupt the
-    -- current native swing. This is deliberately before retreat/spacing scoring:
-    -- a normal player also finishes the committed attack frame before the next
-    -- movement input can take effect.
-    if attackInProgress(actor) then
-        clearRejection(state, rootRuntime)
-        state.active = true
-        state.target = target.actor
-        state.targetScore = target.score
-        state.lastActionAt = now
-        state.lastAction = "attack_in_progress"
-        state.retreating = false
-        rootRuntime.combatTarget = target.actor
-        rootRuntime.combatAction = "attack_in_progress"
-        return true, "attack_in_progress"
-    end
-    local overrun = Combat.assessOverrun(actor, snapshot, weapon, commands)
+    local overrun = tacticalAssessment(actor, state, snapshot, target, weapon, commands, now)
     rootRuntime.combatOverrun = overrun
     rootRuntime.combatReadiness = overrun.readiness
     state.readiness = overrun.readiness
@@ -1756,6 +1881,7 @@ function Combat.update(actor, player, runtime)
     end
     local chosen = actions[1]
     if not chosen then return false, "no_action" end
+    chosen = stabilizeSpacingAction(state, chosen, target, now)
 
     if chosen.kind == "shoot" then
         local aiming, aimReason = prepareRangedShot(actor, state, snapshot, target,
@@ -1800,6 +1926,11 @@ function Combat.update(actor, player, runtime)
     state.targetScore = target.score
     state.lastActionAt = now
     state.lastAction = reason
+    if chosen.kind == "approach" or chosen.kind == "backstep" or chosen.kind == "kite" then
+        state.lastSpacingAction = chosen.kind
+        state.lastSpacingTarget = target.actor
+        state.lastSpacingAt = now
+    end
     if chosen.kind == "shove" then
         state.shoveFollowUp = {
             target = target.actor,

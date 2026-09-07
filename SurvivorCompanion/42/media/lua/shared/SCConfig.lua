@@ -85,9 +85,18 @@ local valueData = {
     -- Native cell-object schedule repair runs as a bounded integrity pulse instead
     -- of a per-frame roster scan; a roster-size change forces it immediately.
     scheduleRepairIntervalMs = 250,
-    combatDecisionIntervalMs = 125,
+    -- Close combat needs the same short feedback loop as player input. Expensive
+    -- readiness work is cached separately, so reflex pulses do not multiply the
+    -- inventory/body/footing scan cost.
+    combatDecisionIntervalMs = 100,
+    combatReflexIntervalMs = 50,
+    combatTacticalIntervalMs = 250,
+    combatSpacingReversalGuardMs = 225,
+    combatSteeringProbeDistance = 0.45,
     followIntervalMs = 167,
     perceptionIntervalMs = 500,
+    perceptionReflexIntervalMs = 100,
+    perceptionReflexRadius = 2.25,
     slowIntervalMs = 1000,
     persistenceIntervalMs = 30000,
     walkDistance = 0.045,
@@ -130,6 +139,8 @@ local valueData = {
     navigationBushPenalty = 5.5,
     navigationTreePenalty = 12,
     navigationTreeClearancePenalty = 4,
+    navigationVehicleClearancePenalty = 2,
+    navigationClearanceCacheMs = 500,
     navigationEmergencyVegetationScale = 0.2,
     navigationRepathMs = 900,
     navigationStuckMs = 2200,
@@ -151,6 +162,8 @@ local valueData = {
     navigationTerminalRetryMs = 8000,
     navigationGoalResetDistance = 3.0,
     navigationMovingGoalResetDistance = 1.5,
+    navigationMovingRouteRepairDistance = 4,
+    navigationRouteSuffixLookahead = 8,
     navigationReservationMs = 8000,
     navigationBreadcrumbLimit = 64,
     navigationEgressNodeBudget = 160,
@@ -385,6 +398,8 @@ local valueData = {
     formationSeparation = 1.25,
     formationArrivalDistance = 0.9,
     formationReleaseDistance = 1.55,
+    formationPredictionMs = 250,
+    formationPredictionMaxDistance = 1.25,
     rearScanIntervalMs = 8500,
     rearScanHoldMs = 550,
     positioningReservationMs = 650,

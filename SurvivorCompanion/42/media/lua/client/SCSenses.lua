@@ -675,6 +675,178 @@ function Senses.snapshot(actor, player, runtime)
     return snapshot
 end
 
+-- The broad perception scan is deliberately sliced and cached, but a zombie can
+-- enter melee range while that scan is still walking its outer frontier. This
+-- bounded reflex pass revalidates known contacts and inspects only squares whose
+-- bounds overlap the immediate radius. It never promotes an audible contact into
+-- an actor target, preserving the wall/LOS contract.
+function Senses.refreshImmediate(actor, player, snapshot, runtime)
+    local U = util()
+    if not U or not U.isValidActor(actor) or type(snapshot) ~= "table" then
+        return snapshot
+    end
+    -- Negative counts are an explicit synthetic/no-candidate sentinel used by
+    -- diagnostic callers; do not replace that contract with a world scan.
+    if tonumber(snapshot.threatCount) and tonumber(snapshot.threatCount) < 0 then
+        return snapshot
+    end
+    -- Untimestamped tables are caller-owned synthetic assessments. Production
+    -- snapshots always carry a scan/reflex clock; preserving this distinction
+    -- keeps tests, tools and scripted encounters deterministic.
+    if tonumber(snapshot.time) == nil and tonumber(snapshot.reflexTime) == nil then
+        return snapshot
+    end
+    local rootRuntime = U.actorState(actor, runtime)
+    rootRuntime.senses = rootRuntime.senses or {}
+    local state = rootRuntime.senses
+    local now = U.nowMs()
+    if now < (state.nextReflexAt or 0) and state.current then return state.current end
+    if state.lastHeardDanger == nil and type(snapshot.lastHeardDanger) == "table" then
+        state.lastHeardDanger = U.copyShallow(snapshot.lastHeardDanger)
+    end
+    if state.lastKnownDanger == nil and type(snapshot.lastKnownDanger) == "table" then
+        state.lastKnownDanger = U.copyShallow(snapshot.lastKnownDanger)
+    end
+    state.nextReflexAt = now + math.max(25,
+        tonumber(U.config("perceptionReflexIntervalMs")) or 100)
+    local startedAt = now
+    local actorSquare = U.squareOf(actor)
+    local ax, ay, az = U.position(actor)
+    if ax == nil or not actorSquare then return snapshot end
+    local radius = math.max(0.5, tonumber(U.config("perceptionReflexRadius")) or 2.25)
+    local radiusSq = radius * radius
+    local immediateRadiusSq = (U.config("immediateThreatRadius") or 2.25) ^ 2
+    local threatLimit = U.config("perceptionThreatLimit") or 32
+    local threats, immediate, fenced, stealthThreats = {}, {}, {}, {}
+    local seen = setmetatable({}, { __mode = "k" })
+    local heard
+    local added = 0
+
+    local function consider(zombie, discovered)
+        if seen[zombie] or not isActiveZombie(zombie) then return end
+        seen[zombie] = true
+        local record = threatRecord(actor, player, zombie, actorSquare)
+        record.prone = not isStandingZombie(zombie)
+        if record.visible and not record.obstructed then
+            if #stealthThreats < threatLimit then
+                stealthThreats[#stealthThreats + 1] = record
+            end
+            if not record.prone and #threats < threatLimit then
+                threats[#threats + 1] = record
+                if record.attacking or record.distanceSq <= immediateRadiusSq then
+                    immediate[#immediate + 1] = record
+                end
+                if record.fenced then fenced[#fenced + 1] = record end
+                if discovered then added = added + 1 end
+            end
+        else
+            local audible, activity = zombieAudible(actor, zombie, record)
+            if audible then
+                local candidate = heardThreatRecord(actor, zombie, record, now, activity)
+                if not heard or candidate.strength > heard.strength then heard = candidate end
+            end
+        end
+    end
+
+    for _, prior in ipairs(snapshot.stealthThreats or {}) do consider(prior.actor, false) end
+    for _, prior in ipairs(snapshot.threats or {}) do consider(prior.actor, false) end
+
+    local originX, originY = math.floor(ax), math.floor(ay)
+    local reach = math.ceil(radius) + 1
+    local scanned = 0
+    for dx = -reach, reach do
+        for dy = -reach, reach do
+            local sx, sy = originX + dx, originY + dy
+            local nearestX = math.max(sx, math.min(ax, sx + 1))
+            local nearestY = math.max(sy, math.min(ay, sy + 1))
+            local boundsDx, boundsDy = nearestX - ax, nearestY - ay
+            if boundsDx * boundsDx + boundsDy * boundsDy <= radiusSq then
+                local square = U.gridSquare(sx, sy, az)
+                if square then
+                    scanned = scanned + 1
+                    U.squareMovingObjects(square, function(value)
+                        if U.distanceSq(actor, value) <= radiusSq then
+                            consider(value, true)
+                        end
+                    end, threatLimit)
+                end
+            end
+        end
+    end
+
+    table.sort(threats, function(a, b)
+        if a.score == b.score then return a.distanceSq < b.distanceSq end
+        return a.score > b.score
+    end)
+    table.sort(stealthThreats, function(a, b)
+        if a.distanceSq == b.distanceSq then return a.score > b.score end
+        return a.distanceSq < b.distanceSq
+    end)
+    table.sort(immediate, function(a, b) return a.distanceSq < b.distanceSq end)
+    local sectors, occupied, closeCount, closeImmediate =
+        directionalThreats(actor, threats, immediate)
+    local strongest = threats[1]
+    if strongest then
+        local tx, ty, tz = U.position(strongest.actor)
+        state.lastKnownDanger = {
+            x = tx, y = ty, z = tz, square = strongest.square,
+            score = strongest.score, seenAt = now,
+            visible = true, obstructed = false,
+        }
+    elseif state.lastKnownDanger
+        and now - (tonumber(state.lastKnownDanger.seenAt) or 0)
+            > (U.config("lastKnownThreatMs") or 5000) then
+        state.lastKnownDanger = nil
+    end
+    if heard then
+        state.lastHeardDanger = heard
+    elseif state.lastHeardDanger
+        and now - (tonumber(state.lastHeardDanger.heardAt) or 0)
+            > (U.config("heardThreatMemoryMs") or 5000) then
+        state.lastHeardDanger = nil
+    end
+    local heardThreats = {}
+    if state.lastHeardDanger then
+        local remembered = U.copyShallow(state.lastHeardDanger)
+        remembered.ageMs = now - (tonumber(remembered.heardAt) or now)
+        heardThreats[1] = remembered
+    end
+
+    snapshot.reflexTime = now
+    snapshot.reflexScannedSquares = scanned
+    snapshot.reflexAddedThreats = added
+    snapshot.threats = threats
+    snapshot.stealthThreats = stealthThreats
+    snapshot.immediateAttackers = immediate
+    snapshot.fencedThreats = fenced
+    snapshot.threatCount = #threats
+    snapshot.immediateCount = #immediate
+    snapshot.pressure = #immediate * 1.5 + math.max(0, #threats - #immediate) * 0.35
+    snapshot.directionalPressure = closeImmediate * 1.8
+        + math.max(0, closeCount - closeImmediate) * 0.55
+        + math.max(0, occupied - 1) * 0.6
+    snapshot.closeThreatCount = closeCount
+    snapshot.closeImmediateCount = closeImmediate
+    snapshot.threatSectors = sectors
+    snapshot.occupiedThreatSectors = occupied
+    snapshot.nearestThreat = threats[1]
+    snapshot.lastKnownDanger = state.lastKnownDanger
+    snapshot.heardThreats = heardThreats
+    snapshot.heardThreatCount = #heardThreats
+    snapshot.lastHeardDanger = heardThreats[1]
+    snapshot.player = playerCondition(player, threats)
+    snapshot.encircled = closeImmediate >= 3 or occupied >= 3
+        or (#(snapshot.escapeSquares or {}) == 0 and #threats >= 2)
+    state.current = snapshot
+    state.reflexCount = (state.reflexCount or 0) + 1
+    state.reflexAddedThreats = (state.reflexAddedThreats or 0) + added
+    if SC.Performance and type(SC.Performance.record) == "function" then
+        SC.Performance.record("perception.reflex", U.idOf(actor),
+            U.nowMs() - startedAt, scanned, false)
+    end
+    return snapshot
+end
+
 function Senses.cached(actor, runtime)
     local U = util()
     if not U or not actor then return nil end
