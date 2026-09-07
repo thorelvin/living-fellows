@@ -222,6 +222,51 @@ local function heldWeapon(actor)
     return nil
 end
 
+local function nativeAttackRange(actor, action, intent)
+    if action == "attack_firearm" then return true end
+    local ax, ay, az = position(actor)
+    local tx, ty, tz = position(intent and intent.target)
+    if ax == nil or tx == nil then return false, "attack target position is unavailable" end
+    if math.floor(az or 0) ~= math.floor(tz or 0) then
+        return false, "attack target is on another floor"
+    end
+    local dx, dy = tx - ax, ty - ay
+    local distance = math.sqrt(dx * dx + dy * dy)
+    local tolerance = tonumber(SC.Config.get("combatMeleeOuterTolerance")) or 0.08
+
+    if action == "attack_melee" then
+        local weapon = intent.weapon or heldWeapon(actor)
+        local minimum, maximum
+        if SC.Combat and type(SC.Combat.meleeRange) == "function" then
+            local ok, minValue, maxValue = pcall(SC.Combat.meleeRange, actor, weapon)
+            if ok then minimum, maximum = tonumber(minValue), tonumber(maxValue) end
+        end
+        if maximum == nil then
+            local rangeOk, range = invoke(weapon, "getMaxRange", actor)
+            maximum = rangeOk and tonumber(range) or 1.5
+            local modOk, rangeMod = invoke(weapon, "getRangeMod", actor)
+            rangeMod = modOk and tonumber(rangeMod) or 1.0
+            maximum = maximum * (rangeMod and rangeMod > 0 and rangeMod or 1.0) + tolerance
+            local minOk, minRange = invoke(weapon, "getMinRange")
+            minimum = math.max(0.15, (minOk and tonumber(minRange) or 0)
+                - (tonumber(SC.Config.get("combatMeleeInnerTolerance")) or 0.15))
+        end
+        if distance < (minimum or 0) then
+            return false, "attack target is inside minimum melee range"
+        end
+        if distance > maximum then return false, "attack target is outside melee range" end
+        return true
+    end
+
+    local maximum = action == "stomp"
+        and (tonumber(SC.Config.get("combatStompDistance")) or 1.55)
+        or (tonumber(SC.Config.get("combatShoveDistance")) or 1.35)
+    if distance > maximum + tolerance then
+        return false, "attack target is outside " .. tostring(action) .. " range"
+    end
+    return true
+end
+
 local function setTacticalMovement(actor, enabled, strafeX, strafeY)
     if method(actor, "setCompanionTacticalMovement") == nil then
         return nil, "native tactical movement is unavailable"
@@ -1682,6 +1727,8 @@ local function attack(actor, action, intent, provider)
     if target == nil then
         return false, "attack intent has no target"
     end
+    local inRange, rangeReason = nativeAttackRange(actor, action, intent)
+    if not inRange then return false, rangeReason end
     local handled, reason = useProvider(provider, "attack", actor, action, intent)
     if handled ~= nil then
         return handled, reason

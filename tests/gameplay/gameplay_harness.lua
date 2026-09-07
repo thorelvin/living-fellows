@@ -1650,10 +1650,35 @@ check(driftingState.pathGoalSquare
         and SurvivorCompanion.GameplayUtil.distance(driftingState.pathGoalSquare,
             cell:getGridSquare(-2, 8, 0))
             < SurvivorCompanion.Navigation._goalResetDistanceForTests(
-                { followRecovery = true }),
-    "cumulative small follow-goal shifts keep the built route inside the moving-target reset bound")
+                { followRecovery = true })
+        and (driftingState.routeRepairCount or 0) >= 1,
+    "each adjacent follow-goal shift repairs the current route instead of walking a stale endpoint")
 SurvivorCompanion.Navigation.reset(driftingGoalActor)
 registry[driftingGoalActor.id] = nil
+end
+
+do
+    local doorwayArrival = SurvivorCompanion.Navigation._nativeLeaseArrivalForTests
+    check(type(doorwayArrival) == "function",
+        "navigation exposes the continuous doorway-arrival seam")
+    local doorwayActor = actor("sc-doorway-clearance", 1, 10, {})
+    local fromSquare = cell:getGridSquare(0, 10, 0)
+    local toSquare = cell:getGridSquare(1, 10, 0)
+    local lease = {
+        targets = { toSquare }, fromSquare = fromSquare, toSquare = toSquare,
+        affordance = "door",
+    }
+    doorwayActor.worldX, doorwayActor.worldY = 1.08, 10.5
+    check(doorwayArrival(doorwayActor, lease) == nil,
+        "entering the destination tile does not finish a door path while the collision capsule is still in the leaf")
+    doorwayActor.worldX = 1.5
+    check(doorwayArrival(doorwayActor, lease) == toSquare,
+        "a door path finishes after continuous world position clears the doorway")
+    for index = #doorwayActor.square.moving, 1, -1 do
+        if doorwayActor.square.moving[index] == doorwayActor then
+            table.remove(doorwayActor.square.moving, index)
+        end
+    end
 end
 
 do
@@ -1886,42 +1911,85 @@ check(SurvivorCompanion.Navigation.request(cornerActor, cornerGoal, "walk", {
 cornerBlocker.solid = false
 cornerGoal.losBlocked = false
 
-local stairSource = squares[squareKey(7, 5, 0)]
-local stairLanding = cell:getGridSquare(7, 5, 1)
+do
+local upperGoal = cell:getGridSquare(11, 5, 1)
+local upperFloorActor = actor("sc-upper-floor", 7, 5, {})
+registry[upperFloorActor.id] = upperFloorActor
+local upperAccepted, upperReason = SurvivorCompanion.Navigation.request(
+    upperFloorActor, upperGoal, "jog", {
+        action = "follow_formation",
+        movingTarget = true,
+        snapshot = { threats = {}, allies = {}, player = { available = false } },
+    })
+local upperState = SurvivorCompanion.Navigation.peek(upperFloorActor)
+check(upperAccepted and upperReason == "multi_level_path"
+        and upperFloorActor.lastIntent and upperFloorActor.lastIntent.enginePath == true
+        and upperFloorActor.lastIntent.multiLevelPath == true
+        and upperFloorActor.lastIntent.nextSquare == upperGoal
+        and upperState.path == nil and upperState.pathSearch == nil
+        and upperState.nativeLease and upperState.nativeLease.affordance == "multi_level"
+        and upperState.nativeLease.reason == "multi_level_goal",
+    "an upper-floor goal bypasses synthetic Lua stair edges and gives the complete 3D route to PathFindBehavior2")
+check(upperState.nativeLease.expires - clock == 30000,
+    "a multi-floor route has a progress-refreshable lease long enough to reach a distant staircase")
+local previousStairNativeActions = SurvivorCompanion.NativeActions
+SurvivorCompanion.NativeActions = {
+    pathTelemetry = function()
+        return { available = true, active = true, shouldBeMoving = true,
+            movingUsingPathFind = true, hasStartedMoving = true }
+    end,
+    stopDirect = function() return true end,
+}
+upperFloorActor.square = cell:getGridSquare(8, 5, 0)
+clock = clock + 29900
+local leaseState, leaseStatus = SurvivorCompanion.Navigation._maintainNativeLeaseForTests(
+    upperFloorActor, upperState, upperGoal, clock)
+check(leaseState == "active" and leaseStatus == "native_path_owned"
+        and upperState.nativeLease.expires - clock == 30000,
+    "real tile progress renews a long multi-floor route instead of timing it out halfway to the stairs")
+SurvivorCompanion.NativeActions = previousStairNativeActions
+
+local basementGoal = cell:getGridSquare(11, 6, -1)
+local basementActor = actor("sc-basement", 7, 6, {})
+registry[basementActor.id] = basementActor
+local basementAccepted, basementReason = SurvivorCompanion.Navigation.request(
+    basementActor, basementGoal, "walk", {
+        action = "move_to",
+        snapshot = { threats = {}, allies = {}, player = { available = false } },
+    })
+check(basementAccepted and basementReason == "multi_level_path"
+        and basementActor.lastIntent.enginePath == true
+        and basementActor.lastIntent.targetSquare == basementGoal
+        and SurvivorCompanion.Navigation.peek(basementActor).nativeLease.affordance == "multi_level",
+    "a loaded basement destination uses the same native 3D path contract as an upper floor or attic")
+SurvivorCompanion.Navigation.reset(upperFloorActor)
+SurvivorCompanion.Navigation.reset(basementActor)
+registry[upperFloorActor.id], registry[basementActor.id] = nil, nil
+end
+
+-- Same-floor travel that is already at a staircase retains the cautious choke
+-- behavior; only discovery of the oriented cross-floor route is delegated.
+local stairSource = squares[squareKey(7, 7, 0)]
+local stairNext = cell:getGridSquare(8, 7, 0)
+local stairGoal = cell:getGridSquare(9, 7, 0)
 function stairSource:HasStairs() return true end
-function stairLanding:HasStairs() return true end
-local stairActor = actor("sc-stair", 7, 5, {})
+function stairNext:HasStairs() return true end
+local stairActor = actor("sc-stair-choke", 7, 7, {})
 registry[stairActor.id] = stairActor
-local stairHeld, stairHeldReason = SurvivorCompanion.Navigation.request(stairActor, stairLanding, "jog", {
-    snapshot = { threats = {}, allies = {}, player = { available = false } },
-})
+local stairHeld, stairHeldReason = SurvivorCompanion.Navigation.request(
+    stairActor, stairGoal, "jog", {
+        snapshot = { threats = {}, allies = {}, player = { available = false } },
+    })
 check(stairHeld and stairHeldReason == "checking_stair_landing"
         and stairActor.lastIntent and stairActor.lastIntent.action == "ready_weapon",
-    "stair transition checks the blind landing with a ready weapon before moving")
+    "an actor already entering a staircase still checks the landing before committing")
 clock = clock + 500
-check(SurvivorCompanion.Navigation.request(stairActor, stairLanding, "jog", {
-    snapshot = { threats = {}, allies = {}, player = { available = false } },
-}) and stairActor.lastIntent.tacticalStair and stairActor.lastIntent.mode == "walk"
-    and stairActor.lastIntent.facingTarget == stairLanding,
-    "stairs force a spaced walking step that keeps attention on the landing")
-
-local spacedSource = squares[squareKey(8, 5, 0)]
-local spacedLanding = cell:getGridSquare(8, 5, 1)
-function spacedSource:HasStairs() return true end
-function spacedLanding:HasStairs() return true end
-local stairLeader = actor("sc-stair-leader", 8, 5, { z = 1 })
-local stairFollower = actor("sc-stair-follower", 8, 5, {})
-registry[stairLeader.id], registry[stairFollower.id] = stairLeader, stairFollower
-SurvivorCompanion.Navigation.request(stairFollower, spacedLanding, "walk", {
-    snapshot = { threats = {}, allies = { { actor = stairLeader } }, player = { available = false } },
-})
-clock = clock + 500
-local spacedHeld, spacedReason = SurvivorCompanion.Navigation.request(stairFollower, spacedLanding, "walk", {
-    snapshot = { threats = {}, allies = { { actor = stairLeader } }, player = { available = false } },
-})
-check(spacedHeld and spacedReason == "holding_stair_spacing",
-    "a follower waits instead of crowding a teammate on the stair landing")
-registry[stairLeader.id], registry[stairFollower.id] = nil, nil
+check(SurvivorCompanion.Navigation.request(stairActor, stairGoal, "jog", {
+        snapshot = { threats = {}, allies = {}, player = { available = false } },
+    }) and stairActor.lastIntent.tacticalStair and stairActor.lastIntent.mode == "walk",
+    "the local stair choke is crossed at a controlled walk under native steering")
+SurvivorCompanion.Navigation.reset(stairActor)
+registry[stairActor.id] = nil
 
 local entrySource = cell:getGridSquare(13, 0, 0)
 local entryStep = cell:getGridSquare(14, 0, 0)
@@ -2084,6 +2152,38 @@ for _, value in ipairs({ predictionFollower, predictionLeader }) do
         if value.square.moving[index] == value then
             table.remove(value.square.moving, index)
         end
+    end
+end
+
+
+local stickyLeader = actor("sticky-player", 40, 20, {
+    className = "IsoPlayer", recruited = false, forwardX = 1, forwardY = 0,
+})
+stickyLeader.modData.SC_Recruited = false
+local stickyFollower = actor("sc-sticky-follower", 35, 20, {})
+registry[stickyFollower.id] = stickyFollower
+SurvivorCompanion.Commands.issue(stickyFollower.id, "follow", nil, stickyLeader)
+local stickySnapshot = {
+    threats = {}, allies = {}, player = { actor = stickyLeader, danger = 0 },
+}
+local stickyFirst = SurvivorCompanion.Positioning.formationTarget(
+    stickyFollower, stickyLeader, SurvivorCompanion.Commands.peek(stickyFollower), stickySnapshot)
+stickyLeader.worldX = stickyLeader:getX() + 0.65
+clock = clock + 100
+local stickyNeighbour = SurvivorCompanion.Positioning.formationTarget(
+    stickyFollower, stickyLeader, SurvivorCompanion.Commands.peek(stickyFollower), stickySnapshot)
+stickyLeader.worldX = stickyLeader.worldX + 1.1
+clock = clock + 100
+local stickyMoved = SurvivorCompanion.Positioning.formationTarget(
+    stickyFollower, stickyLeader, SurvivorCompanion.Commands.peek(stickyFollower), stickySnapshot)
+check(stickyFirst and stickyNeighbour == stickyFirst and stickyMoved ~= stickyFirst,
+    "formation target hysteresis ignores one neighbouring tile of jitter but follows a material leader move")
+SurvivorCompanion.Positioning.reset(stickyFollower)
+SurvivorCompanion.Commands.reset(stickyFollower)
+registry[stickyFollower.id] = nil
+for _, value in ipairs({ stickyFollower, stickyLeader }) do
+    for index = #value.square.moving, 1, -1 do
+        if value.square.moving[index] == value then table.remove(value.square.moving, index) end
     end
 end
 
@@ -2361,6 +2461,27 @@ end
 function doorFrom:isDoorTo(other) return other == doorTo end
 function doorTo:isDoorTo(other) return other == doorFrom end
 function doorTo:getDoor(north) if north == false then return testDoor end end
+do
+    local angledDoorActor = actor("sc-door-angled", 0, 2, {})
+    angledDoorActor.worldX, angledDoorActor.worldY = 0.5, 2.9
+    registry[angledDoorActor.id] = angledDoorActor
+    local angledDoorAccepted, angledDoorReason = SurvivorCompanion.Navigation.request(
+        angledDoorActor, doorTo, "walk", {})
+    check(angledDoorAccepted and angledDoorReason == "aligning_door_approach"
+            and angledDoorActor.lastIntent.action == "door_approach"
+            and angledDoorActor.lastIntent.doorwayAlignment == true
+            and math.abs(angledDoorActor.lastIntent.dx) < 0.001
+            and angledDoorActor.lastIntent.dy < 0
+            and math.abs(angledDoorActor.lastIntent.targetPosition.y - 2.5) < 0.001,
+        "an angled doorway approach centres the capsule before native crossing")
+    local classifiedDoor = SurvivorCompanion.Navigation._classifyMovementBlockerForTests(
+        angledDoorActor, doorFrom, doorTo, "native_path_failed")
+    check(classifiedDoor.type == "door" and classifiedDoor.object == testDoor,
+        "a failed known door edge remains a door blocker without a transient collision flag")
+    SurvivorCompanion.Navigation.reset(angledDoorActor)
+    registry[angledDoorActor.id] = nil
+    testDoor.open = false
+end
 local doorActor = actor("sc-door", 0, 2, {})
 registry[doorActor.id] = doorActor
 check(SurvivorCompanion.Navigation.request(doorActor, doorTo, "walk", {}), "door interaction begins")
@@ -6710,6 +6831,50 @@ do
             .. tostring(serialReason))
 end
 do
+    local function fakeStreet(name, points)
+        local street = { name = name, points = points }
+        function street:getTranslatedText() return self.name end
+        function street:getUntranslatedText() return self.name end
+        function street:getNumPoints() return #self.points end
+        function street:getPointX(index) return self.points[index + 1].x end
+        function street:getPointY(index) return self.points[index + 1].y end
+        function street:getMinX()
+            local result = math.huge
+            for _, point in ipairs(self.points) do result = math.min(result, point.x) end
+            return result
+        end
+        function street:getMinY()
+            local result = math.huge
+            for _, point in ipairs(self.points) do result = math.min(result, point.y) end
+            return result
+        end
+        function street:getMaxX()
+            local result = -math.huge
+            for _, point in ipairs(self.points) do result = math.max(result, point.x) end
+            return result
+        end
+        function street:getMaxY()
+            local result = -math.huge
+            for _, point in ipairs(self.points) do result = math.max(result, point.y) end
+            return result
+        end
+        return street
+    end
+    local data = { streets = {
+        fakeStreet("Far Road", { { x = 50, y = 50 }, { x = 100, y = 50 } }),
+        fakeStreet("Knox Avenue", { { x = 0, y = 5 }, { x = 10, y = 5 } }),
+    } }
+    function data:getStreetCount() return #self.streets end
+    function data:getStreetByIndex(index) return self.streets[index + 1] end
+    local api = { data = { data } }
+    function api:getStreetDataCount() return #self.data end
+    function api:getStreetDataByIndex(index) return self.data[index + 1] end
+    local nearest = Factions._nearestStreetFromApiForTests(api, 2, 2)
+    check(nearest and nearest.name == "Knox Avenue" and nearest.distance == 3
+        and nearest.x == 2 and nearest.y == 5,
+        "faction locations select the nearest named map street by polyline distance")
+end
+do
     local sliceClock = clock
     SurvivorCompanion.Performance.reset()
     SurvivorCompanion.Performance.beginFrame(2, clock)
@@ -6740,7 +6905,7 @@ local document = {
     groups = {
         ["faction-test"] = {
             id = "faction-test", archetype = "barricaded_household",
-            name = "Test household", lifecycle = "settled", standing = "Tolerated",
+            name = "Household near 2, 2", lifecycle = "settled", standing = "Tolerated",
             reputation = 10, discovered = true, barterUnlocked = true,
             permanentHostility = false,
             house = {
@@ -6769,6 +6934,18 @@ local document = {
 local restoredFactions, factionCount = Factions.restore(document)
 check(restoredFactions and factionCount == 1 and #Factions.list(true) == 1,
     "persistent faction document restores one discovered household")
+local migratedIdentity = Factions.summary("faction-test")
+local migratedName = migratedIdentity and migratedIdentity.name
+check(type(migratedName) == "string" and string.sub(migratedName, 1, 4) == "The "
+    and not string.find(migratedName, "2, 2", 1, true)
+    and migratedIdentity.location.coordinates.x == 2
+    and migratedIdentity.location.coordinates.y == 2
+    and migratedIdentity.location.coordinates.z == 0,
+    "legacy coordinate names migrate to thematic names with separate coordinates")
+local exportedIdentity = Factions.export().groups["faction-test"]
+check(exportedIdentity.name == migratedName
+    and exportedIdentity.location.coordinates.x == 2,
+    "migrated faction identity and location persist in the save document")
 local secondHousehold = {}
 for key, value in pairs(document.groups["faction-test"]) do secondHousehold[key] = value end
 secondHousehold.id, secondHousehold.name = "faction-test-two", "Second test household"
@@ -6779,6 +6956,9 @@ document.order[2] = secondHousehold.id
 local preservedFactions, preservedCount = Factions.restore(document)
 check(preservedFactions and preservedCount == 2 and #Factions.list(true) == 2,
     "lowering the sandbox household maximum never prunes existing saved groups")
+check(Factions.summary("faction-test").name == migratedName
+    and Factions.summary("faction-test-two").name == "Second test household",
+    "generated faction names are deterministic and custom names remain untouched")
 World.reset()
 check(World.reconcile() and World.relation("faction-test", "faction-test-two") ~= nil,
     "faction world deterministically connects persistent living households")
@@ -6856,6 +7036,103 @@ registry[residentOne.id] = { id = residentOne.id, actor = residentOne,
     factionId = group.id, factionRole = group.members[1].role }
 registry[residentTwo.id] = { id = residentTwo.id, actor = residentTwo,
     factionId = group.id, factionRole = group.members[2].role }
+
+do
+    local entrySquare = cell:getGridSquare(1, 2, 0)
+    local outsideSquare = cell:getGridSquare(0, 2, 0)
+    local previousObjects = entrySquare.objects
+    local entryDoor = { square = entrySquare }
+    function entryDoor:getOppositeSquare() return outsideSquare end
+    entrySquare.objects = { entryDoor }
+    local previousStanding, previousLifecycle = group.standing, group.lifecycle
+    local previousPersonality = group.life.personality.primary
+    group.standing, group.lifecycle = "Wary", "settled"
+    group.life.personality.primary = "Paranoid"
+    group.life.nextPulseAt = 0
+    local meetingPoint = Life._entryPositionForTests(group)
+    local pulsed = Life.pulseGroup(group, player, clock)
+    local representativeIntent = Life.intentFor(residentOne, group, player, {})
+    local previousSquare = residentOne.square
+    residentOne.square = outsideSquare
+    local heldAtEntry = Life.updateActor(residentOne, player, {}, representativeIntent,
+        group, Factions.affiliation(residentOne))
+    local canTalk, representativeActor = Life.canTalk(group, player)
+    check(pulsed and meetingPoint and meetingPoint.x == 0 and meetingPoint.y == 2
+        and representativeIntent and representativeIntent.mode == "life_representative"
+        and heldAtEntry and group.life.representative.state == "at_entry"
+        and canTalk and representativeActor == residentOne,
+        "even a wary paranoid faction sends a reachable representative outside its primary door")
+    residentOne.square = previousSquare
+    entrySquare.objects = previousObjects
+    group.standing, group.lifecycle = previousStanding, previousLifecycle
+    group.life.personality.primary = previousPersonality
+    group.life.representative.requested = false
+    group.life.representative.state = "inside"
+    group.life.representative.memberKey = nil
+end
+
+do
+    local hostileCleaver = item("Base.MeatCleaver", "Weapon", {
+        damage = 1.6, range = 1.0, minRange = 0.61, sharpness = 1,
+    })
+    residentOne.primary = hostileCleaver
+    residentOne.square = cell:getGridSquare(3, 1, 0)
+    residentOne.worldX, residentOne.worldY, residentOne.lastIntent = nil, nil, nil
+    SurvivorCompanion.Navigation.reset(residentOne)
+    local approached = SurvivorCompanion.FactionBehavior.update(
+        residentOne, player, { snapshot = {} }, { mode = "hostile" })
+    check(approached and residentOne.lastIntent
+            and residentOne.lastIntent.action ~= "attack_melee",
+        "a hostile faction resident at three tiles approaches instead of playing a phantom melee attack")
+
+    SurvivorCompanion.Navigation.reset(residentOne)
+    residentOne.square = cell:getGridSquare(1, 1, 0)
+    residentOne.lastIntent = nil
+    local attacked = SurvivorCompanion.FactionBehavior.update(
+        residentOne, player, { snapshot = {} }, { mode = "hostile" })
+    check(attacked and residentOne.lastIntent
+            and residentOne.lastIntent.action == "attack_melee"
+            and residentOne.lastIntent.weapon == hostileCleaver,
+        "the same hostile resident attacks only after entering the cleaver's real swing range")
+    SurvivorCompanion.Navigation.reset(residentOne)
+    residentOne.square = cell:getGridSquare(2, 2, 0)
+    residentOne.primary = nil
+end
+do
+    local factionWalker = zombie(3, 2)
+    local previousStanding, previousLifecycle = group.standing, group.lifecycle
+    local previousSustainedThreatAt, previousLastThreatAt =
+        group.sustainedThreatAt, group.lastThreatAt
+    group.standing, group.lifecycle = "Hostile", "hostile"
+    local threatSnapshot = {
+        threats = { { actor = factionWalker, distance = 1 } }, threatCount = 1,
+        immediateAttackers = {}, immediateCount = 0, closeThreatCount = 1,
+        pressure = 0.35, allies = {}, player = { danger = 0 },
+    }
+    local commands = { recruited = false, combatDoctrine = "close_defense" }
+    local candidates = SurvivorCompanion.Decision._evaluateForTests(
+        residentOne, player, threatSnapshot, commands,
+        { alive = true, health = 100, wounds = {} }, {}, {}, clock)
+    local originalCombatUpdate = SurvivorCompanion.Combat.update
+    local delegatedActor, delegatedPlayer
+    SurvivorCompanion.Combat.update = function(combatActor, combatPlayer)
+        delegatedActor, delegatedPlayer = combatActor, combatPlayer
+        return true, "shared_faction_zombie_combat"
+    end
+    local delegated, delegateReason = SurvivorCompanion.Decision._delegateForTests(
+        candidates[1], residentOne, player, {}, commands, threatSnapshot, {})
+    SurvivorCompanion.Combat.update = originalCombatUpdate
+    local calmIntent = SurvivorCompanion.FactionBehavior.intentFor(
+        residentOne, player, { threats = {}, threatCount = 0 })
+    check(candidates[1] and candidates[1].kind == "combat"
+        and delegated and delegateReason == "shared_faction_zombie_combat"
+        and delegatedActor == residentOne and delegatedPlayer == player
+        and calmIntent and calmIntent.mode == "hostile",
+        "faction residents yield player hostility to the shared companion zombie-combat engine and resume afterward")
+    group.standing, group.lifecycle = previousStanding, previousLifecycle
+    group.sustainedThreatAt, group.lastThreatAt =
+        previousSustainedThreatAt, previousLastThreatAt
+end
 local audited = Life.debugAuditResources("faction-test")
 local auditedSummary = Factions.summary("faction-test").life.resources
 check(audited and auditedSummary.source == "inventory"

@@ -32,6 +32,7 @@ public final class SCNativeApiSignatureTest {
         Class<?> bodyDamage = Class.forName("zombie.characters.BodyDamage.BodyDamage");
         Class<?> bodyPart = Class.forName("zombie.characters.BodyDamage.BodyPart");
         Class<?> movingObject = Class.forName("zombie.iso.IsoMovingObject");
+        Class<?> combatManager = Class.forName("zombie.CombatManager");
         Class<?> isoObject = Class.forName("zombie.iso.IsoObject");
         Class<?> stats = Class.forName("zombie.characters.Stats");
         Class<?> characterStat = Class.forName("zombie.characters.CharacterStat");
@@ -55,6 +56,12 @@ public final class SCNativeApiSignatureTest {
         Class<?> worldMapTextSymbol = Class.forName("zombie.worldMap.symbols.WorldMapTextSymbol");
         Class<?> uiWorldMap = Class.forName("zombie.worldMap.UIWorldMap");
         Class<?> uiWorldMapV3 = Class.forName("zombie.worldMap.UIWorldMapV3");
+        Class<?> worldMapStreetsV1 = Class.forName(
+                "zombie.worldMap.streets.WorldMapStreetsV1");
+        Class<?> worldMapStreets = Class.forName(
+                "zombie.worldMap.streets.WorldMapStreets");
+        Class<?> worldMapStreet = Class.forName(
+                "zombie.worldMap.streets.WorldMapStreet");
         Class<?> worldMapSymbolsV2 = Class.forName("zombie.worldMap.symbols.WorldMapSymbolsV2");
         Class<?> worldMapTextSymbolV2 = Class.forName(
                 "zombie.worldMap.symbols.WorldMapSymbolsV2$WorldMapTextSymbolV2");
@@ -106,6 +113,12 @@ public final class SCNativeApiSignatureTest {
         require(companion.getDeclaredMethod("getCompanionAttackCollisionSerial")
                         .getReturnType() == int.class,
                 "SCNativeCompanion attack-impact evidence contract changed");
+        require(method(player, "getCoopPVP").getReturnType() == boolean.class
+                        && method(player, "setCoopPVP", boolean.class).getReturnType()
+                                == void.class
+                        && method(combatManager, "checkPVP", movingObject, movingObject,
+                                boolean.class).getReturnType() == boolean.class,
+                "Build 42 player-versus-native-NPC hit-gate signatures changed");
         require(companion.getDeclaredMethod("addLineChatElement", String.class).getReturnType()
                         == void.class
                         && companion.getDeclaredMethod("setCompanionSpeechDisplayMillis", int.class)
@@ -220,6 +233,22 @@ public final class SCNativeApiSignatureTest {
                                 String.class, float.class, float.class).getReturnType()
                                 == worldMapTextSymbolV2,
                 "Kahlua-visible world-map rumour bridge signatures changed");
+        require(method(uiWorldMapV3, "getStreetsAPI").getReturnType() == worldMapStreetsV1
+                        && method(worldMapStreetsV1, "getStreetDataCount").getReturnType()
+                                == int.class
+                        && method(worldMapStreetsV1, "getStreetDataByIndex", int.class)
+                                .getReturnType() == worldMapStreets
+                        && method(worldMapStreets, "getStreetCount").getReturnType() == int.class
+                        && method(worldMapStreets, "getStreetByIndex", int.class).getReturnType()
+                                == worldMapStreet
+                        && method(worldMapStreet, "getTranslatedText").getReturnType()
+                                == String.class
+                        && method(worldMapStreet, "getNumPoints").getReturnType() == int.class
+                        && method(worldMapStreet, "getPointX", int.class).getReturnType()
+                                == float.class
+                        && method(worldMapStreet, "getPointY", int.class).getReturnType()
+                                == float.class,
+                "world-map nearest-street signatures changed");
         require(method(worldMapBaseSymbol, "setAnchor", float.class, float.class).getReturnType()
                         == void.class
                         && method(worldMapBaseSymbol, "setRGBA", float.class, float.class,
@@ -411,7 +440,8 @@ public final class SCNativeApiSignatureTest {
                 + " IsoPlayer-NPC-constructor=true AttackType=true room-facing=true"
                 + " player-accessors=true descriptor=true direct-native=true removal=true vitals=true"
                 + " needs=true water-source=true emote=true fatal-injury=true deferred-spawn=true"
-                + " faction-life=true world-map-rumours=true readable-speech=true"
+                + " faction-life=true world-map-rumours=true world-map-streets=true"
+                + " readable-speech=true"
                 + " reflection-contract=true cleanup-retry=true");
     }
 }

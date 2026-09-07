@@ -115,6 +115,8 @@ public final class SCIsoCompanionControlTest {
         visual.getClass().getMethod("setSkinTextureName", String.class).invoke(visual, "MaleBody01");
 
         Class<?> playerClass = Class.forName("zombie.characters.IsoPlayer");
+        boolean coopPvpBefore = (Boolean) playerClass.getMethod("getCoopPVP").invoke(null);
+        playerClass.getMethod("setCoopPVP", boolean.class).invoke(null, false);
         Object localPlayer = playerClass.getConstructor(cellClass, descriptorClass,
                         int.class, int.class, int.class, boolean.class)
                 .newInstance(cell, localDescriptor, 0, 0, 0, false);
@@ -358,6 +360,14 @@ public final class SCIsoCompanionControlTest {
         require(SCBridge.getOwnedCount() == 2
                         && SCBridge.isCompanion(actor) && SCBridge.isCompanion(secondActor),
                 "bridge identity ownership did not retain two companions");
+        require((Boolean) playerClass.getMethod("getCoopPVP").invoke(null),
+                "owned NPCs did not enable the vanilla IsoPlayer hit gate");
+        Class<?> movingObjectClass = Class.forName("zombie.iso.IsoMovingObject");
+        boolean playerMayHitCompanion = (Boolean) Class.forName("zombie.CombatManager")
+                .getMethod("checkPVP", movingObjectClass, movingObjectClass, boolean.class)
+                .invoke(null, localPlayer, actor, true);
+        require(playerMayHitCompanion,
+                "CombatManager still rejected player weapon hits against an owned companion");
         Object deathSquare = invoke(actor, "getCurrentSquare");
         actor.getClass().getMethod("setHealth", float.class).invoke(actor, 0.0f);
         actor.getClass().getMethod("setOnDeathDone", boolean.class).invoke(actor, true);
@@ -368,6 +378,8 @@ public final class SCIsoCompanionControlTest {
                         && SCBridge.getOwnedCount() == 1 && !SCBridge.isCompanion(actor)
                         && invoke(actor, "getCurrentSquare") == deathSquare,
                 "finalized death retirement removed the corpse actor from its world square");
+        require((Boolean) playerClass.getMethod("getCoopPVP").invoke(null),
+                "retiring one NPC disabled player damage while another remained owned");
         Object cleanupDescriptor = companionDescriptor(false, "Cleanup");
         SCNativeCompanion cleanupActor = SCBridge.constructCompanion(
                 (SurvivorDesc) cleanupDescriptor, (IsoCell) cell, 0, 0, 0);
@@ -391,8 +403,11 @@ public final class SCIsoCompanionControlTest {
                         && !SCBridge.isCompanion(secondActor),
                 "bridge teardown did not clear all owned companion references: "
                         + SCBridge.getLastFailure());
+        require(!(Boolean) playerClass.getMethod("getCoopPVP").invoke(null),
+                "last NPC teardown did not restore the previous vanilla hit-gate state");
+        playerClass.getMethod("setCoopPVP", boolean.class).invoke(null, coopPvpBefore);
         System.out.println("ISO_COMPANION_CONTROL_PASS actors=2 index=3 components=true local-state=unchanged"
-                + " movement=true animation-scalars=true rollback=true transient-ownership=true ownership=true permadeath=true teardown=true"
+                + " movement=true animation-scalars=true rollback=true transient-ownership=true ownership=true pvp-hit-gate=true permadeath=true teardown=true"
                 + " cleanup-retry=true update="
                 + (updateReachedRenderBoundary ? "contained-render-boundary" : "complete"));
     }

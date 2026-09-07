@@ -539,11 +539,26 @@ class UIStaticContractTests(unittest.TestCase):
     def test_household_entrance_context_opens_real_conversation(self) -> None:
         finder = lua_function(self.context, "local function talkableFactions(player)")
         builder = lua_function(self.context, "local function addFactionConversations(context, factions, player)")
+        contracts = lua_function(
+            self.context,
+            "local function addFactionContractMenu(menu, group, summary, player)",
+        )
+        action = lua_function(
+            self.context,
+            "local function factionConversationAction(target, factionId, action, topic, player)",
+        )
         self.assertIn("SC.FactionContracts.canTalk", finder)
         self.assertIn('SC.UI.open(\"factions\")', self.context)
         for topic in ("status", "needs", "members", "trade", "danger", "rumours"):
             self.assertIn(f'topic = \"{topic}\"', builder)
         self.assertIn('group.id, \"access\"', builder)
+        for contract_action in ("accept_contract", "fulfill_contract", "withdraw_contract"):
+            self.assertIn(f'\"{contract_action}\"', contracts)
+            self.assertIn(f'action == \"{contract_action}\"', action)
+        self.assertIn("pendingContractWithdrawal", contracts)
+        self.assertIn("untilMs = contextNowMs() + 8000", action)
+        self.assertIn("UI_SC_Faction_WithdrawConfirmAction", contracts)
+        self.assertIn("UI_SC_Faction_WithdrawConfirmAction", self.translations)
 
     def test_detail_scroll_is_instantiated_in_b42_order(self) -> None:
         block = lua_function(self.ui, "function SCUIDetail:rebuild(preserveScroll)")
@@ -733,7 +748,8 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("if not UI.isOpen()", scheduled)
         self.assertIn("isUserInteracting()", scheduled)
         self.assertIn("refreshPending = true", scheduled)
-        self.assertIn("refreshRoster(nil, nil, true)", scheduled)
+        self.assertIn('local deferDetailRefresh = UI.instance.selectedTab == "debug"', scheduled)
+        self.assertIn("refreshRoster(nil, nil, true, deferDetailRefresh)", scheduled)
 
     def test_periodic_refresh_never_replaces_a_captured_scrollbar(self) -> None:
         interaction = lua_function(self.ui, "function SCUIRoot:isUserInteracting()")
@@ -751,7 +767,10 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertNotIn("next(", selector + change)
 
     def test_roster_extent_is_reset_and_scroll_is_clamped(self) -> None:
-        block = lua_function(self.ui, "function SCUIRoot:refreshRoster(preferredId, description, preserveScroll)")
+        block = lua_function(
+            self.ui,
+            "function SCUIRoot:refreshRoster(preferredId, description, preserveScroll, deferDetailRefresh)",
+        )
         clear_index = block.index("self.roster:clear()")
         reset_positions = [match.start() for match in re.finditer(r"self\.roster:setScrollHeight\(0\)", block)]
         self.assertGreaterEqual(len(reset_positions), 2)
@@ -882,10 +901,18 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("if row.recruited == true and", fill)
 
     def test_stable_roster_refresh_avoids_full_rebuild_flicker(self) -> None:
-        refresh = lua_function(self.ui, "function SCUIRoot:refreshRoster(preferredId, description, preserveScroll)")
+        refresh = lua_function(
+            self.ui,
+            "function SCUIRoot:refreshRoster(preferredId, description, preserveScroll, deferDetailRefresh)",
+        )
         self.assertIn("local canReuse = #entries == #(self.roster.items or {})", refresh)
         self.assertIn("item.item = row", refresh)
+        self.assertIn("if deferDetailRefresh == true then return end", refresh)
         self.assertIn("local signature = detailRowSignature(self.selectedRow)", refresh)
+        self.assertLess(
+            refresh.index("if deferDetailRefresh == true then return end"),
+            refresh.index("local signature = detailRowSignature(self.selectedRow)"),
+        )
         self.assertLess(refresh.index("if canReuse then"), refresh.index("self.roster:clear()"))
 
     def test_companion_names_prefer_survivor_identity_over_player_display_name(self) -> None:

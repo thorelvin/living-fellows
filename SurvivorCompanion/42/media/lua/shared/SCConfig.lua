@@ -28,7 +28,11 @@ local valueData = {
     performanceScavengeContainersPerFrame = 2,
     performanceFactionSamplesPerFrame = 12,
     performanceUrgentUnitFloor = 96,
-    performanceCacheTtlMs = 75,
+    -- Broad perception scans share square contents between nearby companions.
+    -- 75 ms expired before staggered actors normally reached the same square;
+    -- 250 ms remains shorter than an ordinary perception beat, while the
+    -- separate 100 ms close-range reflex scan preserves combat responsiveness.
+    performanceCacheTtlMs = 250,
     performanceCacheNamespaceLimit = 512,
     performanceCacheTotalLimit = 1024,
     performanceCacheSweepPerFrame = 24,
@@ -148,6 +152,10 @@ local valueData = {
     navigationBlockedEdgeMs = 4500,
     navigationDynamicBlockedEdgeMs = 1100,
     navigationNativeLeaseMs = 6500,
+    -- Whole-building routes to another floor stay owned by PathFindBehavior2.
+    -- Unlike a one-tile native affordance, reaching the staircase may itself take
+    -- several seconds; this is a no-progress timeout and is refreshed per tile.
+    navigationMultiLevelLeaseMs = 30000,
     navigationMovingLeaseMs = 2500,
     navigationNativeStartGraceMs = 650,
     navigationNativeTurnGraceMs = 3200,
@@ -186,6 +194,10 @@ local valueData = {
     movementRecorderEnabled = false,
     doorCloseDelayMs = 700,
     doorClearanceDistance = 0.38,
+    -- Centre the collision capsule before handing a one-tile door crossing to
+    -- PathFindBehavior2.  A small tolerance avoids needless shuffling while
+    -- keeping the crossing angle clear of both sides of the frame.
+    navigationDoorApproachLateralTolerance = 0.18,
     curtainCooldownMs = 45000,
     curtainDecisionIntervalMs = 12000,
     curtainTaskTimeoutMs = 30000,
@@ -400,6 +412,7 @@ local valueData = {
     formationReleaseDistance = 1.55,
     formationPredictionMs = 250,
     formationPredictionMaxDistance = 1.25,
+    formationTargetHysteresisDistance = 1.1,
     rearScanIntervalMs = 8500,
     rearScanHoldMs = 550,
     positioningReservationMs = 650,

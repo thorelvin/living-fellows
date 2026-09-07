@@ -70,6 +70,27 @@ local requestDefinitions = {
 
 local roles = { "leader", "watch", "builder" }
 
+-- Grounded names that sound like survivor groups could have coined them in
+-- rural Kentucky.  Pairing the pools yields enough unique names for every
+-- persistent household allowed by the sandbox settings.
+local factionLandmarks = {
+    "Ashwood", "Blacktop", "Bluegrass", "Briar", "Cedar", "County Line",
+    "Creekside", "Crossroads", "Depot", "Hilltop", "Ironwood", "Lantern",
+    "Last Stop", "Old Mill", "Orchard", "Pine Ridge", "Quarry", "Rail Yard",
+    "Red Oak", "Riverbend", "Sawmill", "Southbound", "Water Tower", "West Fork",
+}
+
+local factionCollectives = {
+    "Circle", "Co-op", "Crew", "Guard", "Holdouts", "Household",
+    "Neighbors", "Refuge", "Survivors", "Union", "Ward", "Watch",
+}
+
+local streetLookup = {
+    api = nil,
+    bridge = nil,
+    retryAt = 0,
+}
+
 local function U()
     return SC.GameplayUtil
 end
@@ -132,6 +153,236 @@ end
 
 local listSize = SC.NativeList.size
 local listGet = SC.NativeList.get
+
+local function trimmed(value)
+    return tostring(value or ""):match("^%s*(.-)%s*$") or ""
+end
+
+local function isCoordinateFactionName(value)
+    if type(value) ~= "string" then return false end
+    return value:match("^%s*Household near%s+%-?%d+%.?%d*,%s*%-?%d+%.?%d*%s*$") ~= nil
+end
+
+local function occupiedFactionNames(source)
+    local occupied = {}
+    for _, group in pairs(type(source) == "table" and source or groups) do
+        if type(group) == "table" and trimmed(group.name) ~= "" then
+            occupied[group.name] = true
+        end
+    end
+    return occupied
+end
+
+local function generatedFactionName(group, occupied)
+    local anchor = type(group.house) == "table" and group.house.anchor or {}
+    local seed = table.concat({
+        tostring(group.id or "faction"), tostring(anchor.x or 0),
+        tostring(anchor.y or 0), tostring(anchor.z or 0),
+    }, ":")
+    local total = #factionLandmarks * #factionCollectives
+    local first = U().stableHash(seed .. ":name") % total
+    -- 73 is coprime to 288, so probing visits every pair before repeating.
+    for attempt = 0, total - 1 do
+        local pair = (first + attempt * 73) % total
+        local landmark = factionLandmarks[(pair % #factionLandmarks) + 1]
+        local collective = factionCollectives[(math.floor(pair / #factionLandmarks)
+            % #factionCollectives) + 1]
+        local candidate = "The " .. landmark .. " " .. collective
+        if not occupied[candidate] then return candidate end
+    end
+    return "The " .. factionLandmarks[(first % #factionLandmarks) + 1] .. " "
+        .. factionCollectives[(math.floor(first / #factionLandmarks)
+            % #factionCollectives) + 1] .. " " .. tostring(U().stableHash(seed) % 1000)
+end
+
+local function ensureFactionIdentity(group, occupied)
+    if type(group) ~= "table" then return false end
+    occupied = type(occupied) == "table" and occupied or occupiedFactionNames()
+    local currentName = trimmed(group.name)
+    if currentName == "" or isCoordinateFactionName(currentName) then
+        group.name = generatedFactionName(group, occupied)
+    else
+        group.name = currentName
+    end
+    occupied[group.name] = true
+
+    if group.location == nil then group.location = {} end
+    if type(group.location) == "table" and group.location.coordinates == nil
+        and type(group.house) == "table" and type(group.house.anchor) == "table" then
+        group.location.coordinates = {
+            x = math.floor(tonumber(group.house.anchor.x) or 0),
+            y = math.floor(tonumber(group.house.anchor.y) or 0),
+            z = math.floor(tonumber(group.house.anchor.z) or 0),
+        }
+    end
+    return true
+end
+
+local function streetDataApi()
+    local current = nowMs()
+    if streetLookup.api ~= nil then return streetLookup.api end
+    if current < (tonumber(streetLookup.retryAt) or 0) then return nil end
+    streetLookup.retryAt = current + 10000
+
+    local mapApi, mapUI
+    local existing = type(_G) == "table" and rawget(_G, "ISWorldMap_instance") or nil
+    if existing ~= nil then
+        local okay, value = pcall(function() return existing.mapAPI end)
+        if okay then mapApi = value end
+        mapUI = existing
+        if mapApi == nil then
+            local javaObject
+            okay, javaObject = pcall(function() return existing.javaObject end)
+            if okay and javaObject ~= nil then
+                mapApi = select(1, U().call(javaObject, "getAPIv3"))
+            end
+        end
+    end
+
+    if mapApi == nil then
+        local uiType = type(_G) == "table" and rawget(_G, "UIWorldMap") or nil
+        if uiType ~= nil and type(uiType.new) == "function" then
+            local owner = {}
+            local created, javaObject = pcall(uiType.new, owner)
+            if created and javaObject ~= nil then
+                mapUI = { owner = owner, javaObject = javaObject }
+                mapApi = select(1, U().call(javaObject, "getAPIv3"))
+                streetLookup.bridge = mapUI
+            end
+        end
+    end
+    if mapApi == nil then return nil end
+
+    local api, apiCalled = U().call(mapApi, "getStreetsAPI")
+    if not apiCalled or api == nil then return nil end
+    local count, countCalled = U().call(api, "getStreetDataCount")
+    if not countCalled or (tonumber(count) or 0) <= 0 then
+        local mapUtils = type(_G) == "table" and rawget(_G, "MapUtils") or nil
+        if (type(mapUtils) ~= "table" or type(mapUtils.initDefaultStreetData) ~= "function")
+            and type(require) == "function" then
+            pcall(require, "ISUI/Maps/ISMapDefinitions")
+            mapUtils = type(_G) == "table" and rawget(_G, "MapUtils") or nil
+        end
+        if mapUI ~= nil and type(mapUtils) == "table"
+            and type(mapUtils.initDefaultStreetData) == "function" then
+            pcall(mapUtils.initDefaultStreetData, mapUI)
+            count, countCalled = U().call(api, "getStreetDataCount")
+        end
+    end
+    if not countCalled or (tonumber(count) or 0) <= 0 then return nil end
+    streetLookup.api = api
+    return api
+end
+
+local function closestPointOnSegment(px, py, x1, y1, x2, y2)
+    local dx, dy = x2 - x1, y2 - y1
+    local lengthSq = dx * dx + dy * dy
+    local factor = 0
+    if lengthSq > 0 then
+        factor = ((px - x1) * dx + (py - y1) * dy) / lengthSq
+        factor = math.max(0, math.min(1, factor))
+    end
+    local x, y = x1 + factor * dx, y1 + factor * dy
+    local offsetX, offsetY = px - x, py - y
+    return offsetX * offsetX + offsetY * offsetY, x, y
+end
+
+local function streetLowerBoundSq(street, x, y)
+    local minX, minXCalled = U().call(street, "getMinX")
+    local minY, minYCalled = U().call(street, "getMinY")
+    local maxX, maxXCalled = U().call(street, "getMaxX")
+    local maxY, maxYCalled = U().call(street, "getMaxY")
+    minX, minY, maxX, maxY = tonumber(minX), tonumber(minY), tonumber(maxX), tonumber(maxY)
+    if not minXCalled or not minYCalled or not maxXCalled or not maxYCalled
+        or minX == nil or minY == nil or maxX == nil or maxY == nil then return nil end
+    local dx = x < minX and minX - x or x > maxX and x - maxX or 0
+    local dy = y < minY and minY - y or y > maxY and y - maxY or 0
+    return dx * dx + dy * dy
+end
+
+local function streetName(street)
+    local name, called = U().call(street, "getTranslatedText")
+    name = called and trimmed(name) or ""
+    if name == "" then
+        name, called = U().call(street, "getUntranslatedText")
+        name = called and trimmed(name) or ""
+    end
+    return name
+end
+
+local function nearestStreetFromApi(api, x, y)
+    x, y = tonumber(x), tonumber(y)
+    if api == nil or x == nil or y == nil then return nil end
+    local dataCount, dataCountCalled = U().call(api, "getStreetDataCount")
+    if not dataCountCalled then return nil end
+    local bestDistanceSq, bestName, bestX, bestY = math.huge, nil, nil, nil
+    for dataIndex = 0, math.min(127, math.max(0, tonumber(dataCount) or 0) - 1) do
+        local data, dataCalled = U().call(api, "getStreetDataByIndex", dataIndex)
+        local streetCount, streetCountCalled = U().call(data, "getStreetCount")
+        if dataCalled and streetCountCalled then
+            for streetIndex = 0, math.min(65535,
+                math.max(0, tonumber(streetCount) or 0) - 1) do
+                local street, streetCalled = U().call(data, "getStreetByIndex", streetIndex)
+                local name = streetCalled and streetName(street) or ""
+                local lowerBound = name ~= "" and streetLowerBoundSq(street, x, y) or nil
+                if name ~= "" and (lowerBound == nil or lowerBound <= bestDistanceSq) then
+                    local pointCount, pointsCalled = U().call(street, "getNumPoints")
+                    pointCount = pointsCalled and math.min(4096,
+                        math.max(0, tonumber(pointCount) or 0)) or 0
+                    local previousX, previousY
+                    for pointIndex = 0, pointCount - 1 do
+                        local pointX, xCalled = U().call(street, "getPointX", pointIndex)
+                        local pointY, yCalled = U().call(street, "getPointY", pointIndex)
+                        pointX, pointY = tonumber(pointX), tonumber(pointY)
+                        if xCalled and yCalled and pointX ~= nil and pointY ~= nil then
+                            local distanceSq, closestX, closestY
+                            if previousX == nil then
+                                local dx, dy = x - pointX, y - pointY
+                                distanceSq, closestX, closestY = dx * dx + dy * dy, pointX, pointY
+                            else
+                                distanceSq, closestX, closestY = closestPointOnSegment(
+                                    x, y, previousX, previousY, pointX, pointY)
+                            end
+                            if distanceSq < bestDistanceSq then
+                                bestDistanceSq, bestName = distanceSq, name
+                                bestX, bestY = closestX, closestY
+                            end
+                            previousX, previousY = pointX, pointY
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if bestName == nil then return nil end
+    local function tenth(value)
+        return math.floor(value * 10 + 0.5) / 10
+    end
+    return {
+        name = bestName,
+        distance = tenth(math.sqrt(bestDistanceSq)),
+        x = tenth(bestX), y = tenth(bestY),
+        source = "world_map_streets",
+    }
+end
+
+local function ensureNearestStreet(group)
+    if type(group) ~= "table" then return nil end
+    ensureFactionIdentity(group)
+    local location = group.location
+    if type(location) ~= "table" then return nil end
+    if type(location.nearestStreet) == "table" then return location.nearestStreet end
+    if location.streetLookupComplete == true then return nil end
+    local coordinates = location.coordinates
+    if type(coordinates) ~= "table" then return nil end
+    local api = streetDataApi()
+    if api == nil then return nil end
+    location.nearestStreet = nearestStreetFromApi(api, coordinates.x, coordinates.y)
+    location.streetLookupComplete = true
+    return location.nearestStreet
+end
+
+Factions._nearestStreetFromApiForTests = nearestStreetFromApi
 
 local function objectKind(object)
     if object == nil then return nil end
@@ -728,7 +979,6 @@ local function createGroup(house, size, debugCreated)
     end
     local group = {
         id = nextGroupId(), archetype = "barricaded_household",
-        name = "Household near " .. tostring(house.anchor.x) .. ", " .. tostring(house.anchor.y),
         lifecycle = "forming", standing = "Wary", reputation = -20,
         discovered = debugCreated == true, debugCreated = debugCreated == true,
         createdDay = worldDay(), lastInteractionDay = worldDay(),
@@ -737,6 +987,7 @@ local function createGroup(house, size, debugCreated)
         house = stableCopy(house, 5, { count = 4096 }),
         members = {}, jobs = buildJobs(house), offenses = {}, history = {},
     }
+    ensureFactionIdentity(group)
     local finalJobs = 0
     for _, job in ipairs(group.jobs) do
         if job.phase == "final" then finalJobs = finalJobs + 1 end
@@ -1218,6 +1469,8 @@ end
 function Factions.summary(id)
     local group = groups[id]
     if not group then return nil end
+    ensureFactionIdentity(group)
+    ensureNearestStreet(group)
     local unresolved, restitution = 0, 0
     for _, offense in ipairs(group.offenses or {}) do
         if offense.forgiven ~= true then
@@ -1232,6 +1485,7 @@ function Factions.summary(id)
         barterUnlocked = group.barterUnlocked == true,
         alive = aliveCount(group), active = activeCount(group),
         request = stableCopy(group.request, 4), house = stableCopy(group.house, 3),
+        location = stableCopy(group.location, 3),
         unresolvedOffenses = unresolved, restitutionRequired = restitution,
         permanentHostility = group.permanentHostility == true,
         debugCreated = group.debugCreated == true,
@@ -1256,6 +1510,7 @@ function Factions.markDiscovered(id)
     if not group then return false, "faction_unavailable" end
     group.discovered = true
     group.lastInteractionDay = worldDay()
+    ensureNearestStreet(group)
     return true
 end
 
@@ -1831,14 +2086,35 @@ local function validGroup(source, id, path)
     path = path or ("$.factions.groups[" .. tostring(id) .. "]")
     if type(source) ~= "table" or source.id ~= id
         or type(id) ~= "string" or #id < 8 or #id > 96
+        or type(source.name) ~= "string" or #source.name < 1 or #source.name > 96
         or source.archetype ~= "barricaded_household"
         or not lifecycleValues[source.lifecycle]
         or not standingValues[source.standing]
-        or type(source.house) ~= "table" then
+        or type(source.house) ~= "table" or type(source.location) ~= "table" then
         return restoreFailure(path, "invalid group header")
     end
     local okay, reason = validPosition(source.house.anchor, path .. ".house.anchor", false)
     if not okay then return false, reason end
+    okay, reason = validPosition(source.location.coordinates,
+        path .. ".location.coordinates", false)
+    if not okay then return false, reason end
+    if source.location.streetLookupComplete ~= nil
+        and type(source.location.streetLookupComplete) ~= "boolean" then
+        return restoreFailure(path .. ".location.streetLookupComplete",
+            "expected boolean")
+    end
+    local nearestStreet = source.location.nearestStreet
+    if nearestStreet ~= nil then
+        if type(nearestStreet) ~= "table" or type(nearestStreet.name) ~= "string"
+            or #nearestStreet.name < 1 or #nearestStreet.name > 128
+            or not finiteNumber(nearestStreet.distance)
+            or tonumber(nearestStreet.distance) < 0
+            or not finiteNumber(nearestStreet.x) or not finiteNumber(nearestStreet.y)
+            or (nearestStreet.source ~= nil and type(nearestStreet.source) ~= "string") then
+            return restoreFailure(path .. ".location.nearestStreet",
+                "invalid nearest-street record")
+        end
+    end
     if type(source.house.bounds) ~= "table" then
         return restoreFailure(path .. ".house.bounds", "expected bounds")
     end
@@ -2017,7 +2293,16 @@ function Factions.restore(document)
         and tonumber(document.lastWorldSpawnDay) or -math.huge
     candidateCheckDay = document.lastProductionCheckDay ~= nil
         and tonumber(document.lastProductionCheckDay) or -math.huge
-    local seenGroups, seenActors = {}, {}
+    local seenGroups, seenActors, occupiedNames = {}, {}, {}
+    -- Reserve every authored name before migrating legacy entries so a
+    -- generated name can never displace a custom name that appears later.
+    for orderIndex = 1, orderCount do
+        local source = document.groups[sourceOrder[orderIndex]]
+        local sourceName = type(source) == "table" and trimmed(source.name) or ""
+        if sourceName ~= "" and not isCoordinateFactionName(sourceName) then
+            occupiedNames[sourceName] = true
+        end
+    end
     for orderIndex = 1, orderCount do
         local id = sourceOrder[orderIndex]
         local source = document.groups[id]
@@ -2032,6 +2317,7 @@ function Factions.restore(document)
             return restoreFailure("$.factions.groups[" .. tostring(id) .. "]",
                 groupCopyReason or "copy failed")
         end
+        ensureFactionIdentity(group, occupiedNames)
         local groupOkay, groupReason = validGroup(group, id,
             "$.factions.groups[" .. tostring(id) .. "]")
         if groupOkay then
@@ -2148,6 +2434,7 @@ function Factions.reset()
     observedContainers = setmetatable({}, { __mode = "k" })
     recentPlayerAttacks = {}
     fallbackRandomSequence = 0
+    streetLookup = { api = nil, bridge = nil, retryAt = 0 }
     Factions._nextProductionAt = nil
     if SC.FactionContracts and type(SC.FactionContracts.reset) == "function" then
         SC.FactionContracts.reset()

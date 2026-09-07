@@ -53,6 +53,13 @@ public final class SCBridge {
             new IdentityHashMap<>();
     private static final Map<Long, SpawnRequest> SPAWN_REQUESTS = new LinkedHashMap<>();
     private static final AtomicLong NEXT_SPAWN_REQUEST = new AtomicLong(1L);
+    // CombatManager.checkPVP treats every IsoPlayer subclass as a co-op player,
+    // including our non-local NPCs. In single-player it rejects that target when
+    // IsoPlayer.coopPvp is false, before melee and firearm hit-info is created.
+    // The bridge already rejects split-screen/multiple local players, so retain
+    // and enable the vanilla flag only while at least one owned NPC exists.
+    private static boolean coopPvpOverrideActive;
+    private static boolean coopPvpBeforeOwnership;
     /**
      * MainThread.queueInvokeOnMainThread executes inline when called by the game
      * thread. Lua also runs on that thread, so calling it directly from the
@@ -1063,6 +1070,11 @@ public final class SCBridge {
 
     private static void addOwned(SCNativeCompanion actor) {
         synchronized (OWNED) {
+            if (OWNED.isEmpty() && !coopPvpOverrideActive) {
+                coopPvpBeforeOwnership = IsoPlayer.getCoopPVP();
+                IsoPlayer.setCoopPVP(true);
+                coopPvpOverrideActive = true;
+            }
             OWNED.add(actor);
         }
     }
@@ -1070,6 +1082,10 @@ public final class SCBridge {
     private static void removeOwned(SCNativeCompanion actor) {
         synchronized (OWNED) {
             OWNED.remove(actor);
+            if (OWNED.isEmpty() && coopPvpOverrideActive) {
+                IsoPlayer.setCoopPVP(coopPvpBeforeOwnership);
+                coopPvpOverrideActive = false;
+            }
         }
     }
 

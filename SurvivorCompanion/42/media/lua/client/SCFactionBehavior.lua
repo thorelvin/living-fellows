@@ -322,6 +322,48 @@ local function friendlyInLine(actor, player, group)
     return false
 end
 
+local function approachHostile(actor, player, swingMax)
+    local distance = U().distance(actor, player)
+    -- Inside the short reaction envelope, use the same continuous, obstacle-
+    -- probed step as ordinary companion combat. This closes the last fraction of
+    -- a tile without asking A* to path onto the player's occupied square.
+    if U().sameFloor(actor, player) and U().canSee(actor, player)
+        and distance <= math.max(2.5, (tonumber(swingMax) or 1.0) + 1.25) then
+        local ax, ay = U().position(actor)
+        local tx, ty = U().position(player)
+        if ax ~= nil and tx ~= nil then
+            local dx, dy, steered
+            if SC.Navigation and type(SC.Navigation.combatVector) == "function" then
+                dx, dy, steered = SC.Navigation.combatVector(actor, player, "approach")
+            end
+            return U().move(actor, "walk", {
+                action = "combat_approach",
+                dx = dx or (tx - ax), dy = dy or (ty - ay),
+                target = player, facingTarget = player, keepFacing = true,
+                weaponReady = true, tacticalStrafe = true,
+                microSteered = steered == true, factionCombat = true,
+            })
+        end
+    end
+
+    -- For walls, doors and longer pursuit, route to one of the free attack-ring
+    -- squares. Never route to the player's occupied tile: doing so made crowd
+    -- avoidance fight the hostile approach and produced repeated forward/back
+    -- steps at entrances.
+    if SC.Navigation and type(SC.Navigation.interactionTargets) == "function"
+        and type(SC.Navigation.requestAny) == "function" then
+        local targets = SC.Navigation.interactionTargets(actor, player, { maximum = 8 })
+        if #targets > 0 then
+            return SC.Navigation.requestAny(actor, targets, "jog", {
+                action = "faction_defend_territory", target = player,
+                player = player, movingTarget = true, arrivalDistance = 0.85,
+                factionCombat = true,
+            })
+        end
+    end
+    return false, "hostile_path_unavailable"
+end
+
 local function hostile(actor, player, group, state)
     local leash = tonumber(SC.Config.get("factionPursuitLeash")) or 15
     if territoryDistance(group, player) > leash then
@@ -333,39 +375,47 @@ local function hostile(actor, player, group, state)
         end
         return false, "hostile_target_outside_leash"
     end
-    if U().distance(actor, player) > 1.65 then
-        local primary, primaryOk = U().call(actor, "getPrimaryHandItem")
-        local ranged = false
-        if primaryOk and primary then
-            local rangedValue, rangedOk = U().call(primary, "isRanged")
-            ranged = rangedOk and rangedValue == true
-        end
-        if ranged and U().distance(actor, player) <= 12 and not friendlyInLine(actor, player, group) then
-            return U().move(actor, "walk", {
-                action = "attack_firearm", weapon = primary, target = player,
-                factionCombat = true,
-            })
-        end
-        if SC.Combat and type(SC.Combat.equipPreferred) == "function"
-            and U().nowMs() >= (state.nextEquipAt or 0) then
-            state.nextEquipAt = U().nowMs() + 2500
-            SC.Combat.equipPreferred(actor, "best")
-        end
-        local square = U().squareOf(player)
-        if square and SC.Navigation then
-            return SC.Navigation.request(actor, square, "jog", {
-                action = "faction_defend_territory", targetSquare = square,
-            })
-        end
-        return false, "hostile_path_unavailable"
-    end
     local primary, primaryOk = U().call(actor, "getPrimaryHandItem")
+    if (not primaryOk or primary == nil) and SC.Combat
+        and type(SC.Combat.equipPreferred) == "function"
+        and U().nowMs() >= (state.nextEquipAt or 0) then
+        state.nextEquipAt = U().nowMs() + 2500
+        local equipped, equipReason = SC.Combat.equipPreferred(actor, "best")
+        if equipped then return true, equipReason or "equipping_for_faction_combat" end
+        primary, primaryOk = U().call(actor, "getPrimaryHandItem")
+    end
+
+    local distance = U().distance(actor, player)
+    local visible = U().sameFloor(actor, player) and U().canSee(actor, player)
+    local ranged = false
     if primaryOk and primary then
+        local rangedValue, rangedOk = U().call(primary, "isRanged")
+        ranged = rangedOk and rangedValue == true
+    end
+    if ranged and visible and distance <= 12 and not friendlyInLine(actor, player, group) then
+        return U().move(actor, "walk", {
+            action = "attack_firearm", weapon = primary, target = player,
+            factionCombat = true,
+        })
+    end
+
+    local swingMin, swingMax
+    if primaryOk and primary and SC.Combat
+        and type(SC.Combat.meleeRange) == "function" then
+        swingMin, swingMax = SC.Combat.meleeRange(actor, primary)
+    end
+    if swingMax and visible and distance >= swingMin and distance <= swingMax then
         return U().move(actor, "walk", {
             action = "attack_melee", weapon = primary, target = player, factionCombat = true,
         })
     end
-    return U().move(actor, "walk", { action = "shove", target = player, factionCombat = true })
+    local shoveDistance = tonumber(SC.Config.get("combatShoveDistance")) or 1.35
+    if visible and distance <= shoveDistance and (not swingMin or distance < swingMin) then
+        return U().move(actor, "walk", {
+            action = "shove", target = player, factionCombat = true,
+        })
+    end
+    return approachHostile(actor, player, swingMax)
 end
 
 local function entryGuardPosition(group)
@@ -457,8 +507,20 @@ end
 function Behavior.intentFor(actor, player, snapshot)
     local group = groupFor(actor)
     if not group then return nil end
+    local threatCount = type(snapshot) == "table"
+        and (tonumber(snapshot.threatCount) or #(snapshot.threats or {})) or 0
+    ensureEmergencyJobs(group, threatCount)
+    if threatCount > 0 then
+        -- Keep a faction candidate in the list so residents never fall through
+        -- to the generic recruitable encounter, but score it below even the
+        -- companion engine's cautious/last-seen combat candidate. This makes
+        -- every household resident use SCCombat against zombies, including a
+        -- hostile resident who resumes attacking the player after the walkers
+        -- are dealt with.
+        return { priority = 18, kind = "faction", mode = "zombie_defense",
+            factionId = group.id }
+    end
     updateTerritory(group, player)
-    ensureEmergencyJobs(group, type(snapshot) == "table" and snapshot.threatCount or 0)
     if group.lifecycle == "hostile" or group.standing == "Hostile" then
         local canReconcile = group.permanentHostility ~= true
             and SC.Factions.canReconcile(group.id) == true

@@ -2356,6 +2356,20 @@ function SCUIDetail:buildFactions(panel)
         if index > 1 then y = y + 6 end
         y = self:addSection(panel, y, "UI_SC_Factions_Household")
         y = self:addInformationLine(panel, y, "UI_SC_Faction_Name", summary.name)
+        local location = type(summary.location) == "table" and summary.location or {}
+        local coordinates = type(location.coordinates) == "table"
+            and location.coordinates or {}
+        y = self:addInformationLine(panel, y, "UI_SC_Faction_Coordinates",
+            UI.text("UI_SC_Faction_CoordinatesValue", tostring(coordinates.x or "?"),
+                tostring(coordinates.y or "?"), tostring(coordinates.z or 0)))
+        local street = type(location.nearestStreet) == "table"
+            and location.nearestStreet or nil
+        local streetValue = UI.text("UI_SC_Faction_StreetUnavailable")
+        if street and street.name then
+            streetValue = UI.text("UI_SC_Faction_StreetValue", tostring(street.name),
+                tostring(math.floor((tonumber(street.distance) or 0) + 0.5)))
+        end
+        y = self:addInformationLine(panel, y, "UI_SC_Faction_NearestStreet", streetValue)
         y = self:addInformationLine(panel, y, "UI_SC_Faction_Standing", summary.standing)
         y = self:addInformationLine(panel, y, "UI_SC_Faction_Lifecycle",
             UI.stateText(summary.lifecycle))
@@ -3334,7 +3348,7 @@ function SCUIRoot:saveSettings()
     self.settings = settings
 end
 
-function SCUIRoot:refreshRoster(preferredId, description, preserveScroll)
+function SCUIRoot:refreshRoster(preferredId, description, preserveScroll, deferDetailRefresh)
     if not self.roster then
         return
     end
@@ -3407,6 +3421,14 @@ function SCUIRoot:refreshRoster(preferredId, description, preserveScroll)
         self.roster.selected = selectedIndex or 0
         self.selectedRow = selectedIndex and entries[selectedIndex] or nil
         self.selectedId = self.selectedRow and self.selectedRow.id or nil
+        -- The debug panel can contain hundreds of controls once several
+        -- households exist.  Rebuilding it on every scheduled roster pulse made
+        -- merely leaving Debug open cost 190-600 ms.  Its movement/performance
+        -- sections already have explicit Refresh buttons, so scheduled work may
+        -- update the cheap roster rows while leaving the diagnostic snapshot
+        -- stable until the user requests it.  Membership changes still take the
+        -- full rebuild path below so selection never points at a removed actor.
+        if deferDetailRefresh == true then return end
         local signature = detailRowSignature(self.selectedRow)
         if self.selectedTab == "factions" or self.selectedTab == "debug" then
             signature = signature .. ":" .. factionDetailSignature()
@@ -3770,7 +3792,8 @@ function UI.scheduledRefresh()
         return false
     end
     UI.instance.refreshPending = false
-    UI.instance:refreshRoster(nil, nil, true)
+    local deferDetailRefresh = UI.instance.selectedTab == "debug"
+    UI.instance:refreshRoster(nil, nil, true, deferDetailRefresh)
     return true
 end
 

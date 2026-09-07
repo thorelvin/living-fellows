@@ -429,6 +429,25 @@ local function weaponRecord(item)
     }
 end
 
+-- Return the same tolerant melee band used by the combat decision loop. Other
+-- combat owners (notably hostile faction residents and the final native attack
+-- gate) must not fall back to one generic distance: a cleaver, spear and axe do
+-- not begin a valid player swing from the same range.
+function Combat.meleeRange(actor, item)
+    local weapon = weaponRecord(item)
+    if not weapon or weapon.ranged then return nil, nil, weapon end
+    local reachVal = select(1, U().call(item, "getMaxRange", actor))
+    local reachMax = tonumber(reachVal) or tonumber(weapon.range) or 1.5
+    local modVal = select(1, U().call(item, "getRangeMod", actor))
+    local rangeMod = tonumber(modVal) or 1.0
+    local effectiveMax = reachMax * (rangeMod > 0 and rangeMod or 1.0)
+    local swingMin = math.max(0.15, (tonumber(weapon.minRange) or 0)
+        - (U().config("combatMeleeInnerTolerance") or 0.15))
+    local swingMax = math.max(swingMin + 0.2,
+        effectiveMax + (U().config("combatMeleeOuterTolerance") or 0.08))
+    return swingMin, swingMax, weapon
+end
+
 local function inventoryWeapons(actor)
     local utility = U()
     local result = {}
@@ -1177,15 +1196,9 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
             -- one decision approached, the next backstepped, and neither behaved
             -- like a player. The tolerant band accepts a valid swing before a
             -- moving target crosses the boundary between 125 ms decisions.
-            local reachVal = select(1, utility.call(weapon.item, "getMaxRange", actor))
-            local reachMax = tonumber(reachVal) or tonumber(weapon.range) or 1.5
-            local modVal = select(1, utility.call(weapon.item, "getRangeMod", actor))
-            local rangeMod = tonumber(modVal) or 1.0
-            local effectiveMax = reachMax * (rangeMod > 0 and rangeMod or 1.0)
-            local swingMin = math.max(0.15, (tonumber(weapon.minRange) or 0)
-                - (utility.config("combatMeleeInnerTolerance") or 0.15))
-            local swingMax = math.max(swingMin + 0.2,
-                effectiveMax + (utility.config("combatMeleeOuterTolerance") or 0.08))
+            local swingMin, swingMax = Combat.meleeRange(actor, weapon.item)
+            swingMin = swingMin or 0.15
+            swingMax = swingMax or (utility.config("combatMeleeDistance") or 1.7)
             if distance < swingMin then
                 -- Inside the weapon's true minimum reach, use the same defensive
                 -- shove a player gets at body contact. It creates space and feeds

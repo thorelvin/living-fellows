@@ -120,6 +120,29 @@ local function addNamedCategory(menu, labelKey, value)
     return category
 end
 
+local pendingContractWithdrawals = {}
+
+local function contextNowMs()
+    if SC.GameplayUtil and type(SC.GameplayUtil.nowMs) == "function" then
+        return SC.GameplayUtil.nowMs()
+    end
+    if type(getTimestampMs) == "function" then
+        local ok, value = pcall(getTimestampMs)
+        if ok and tonumber(value) then return tonumber(value) end
+    end
+    return 0
+end
+
+local function pendingContractWithdrawal(factionId, contractId)
+    local pending = pendingContractWithdrawals[factionId]
+    if not pending or pending.contractId ~= contractId
+        or contextNowMs() > (tonumber(pending.untilMs) or 0) then
+        pendingContractWithdrawals[factionId] = nil
+        return false
+    end
+    return true
+end
+
 local function factionConversationAction(target, factionId, action, topic, player)
     if not SC.FactionContracts then return end
     local ok, accepted, detail
@@ -134,6 +157,35 @@ local function factionConversationAction(target, factionId, action, topic, playe
     elseif action == "access" then
         ok, accepted, detail = pcall(
             SC.FactionContracts.requestAccess, factionId, player, false)
+    elseif action == "accept_contract" then
+        pendingContractWithdrawals[factionId] = nil
+        ok, accepted, detail = pcall(
+            SC.FactionContracts.accept, factionId, player, false)
+    elseif action == "fulfill_contract" then
+        ok, accepted, detail = pcall(
+            SC.FactionContracts.fulfill, factionId, player, false)
+        if ok and accepted == true then pendingContractWithdrawals[factionId] = nil end
+    elseif action == "withdraw_contract" then
+        local summary = SC.Factions and SC.Factions.summary(factionId) or nil
+        local contract = summary and summary.social and summary.social.active or nil
+        local contractId = contract and contract.id or nil
+        if contractId and pendingContractWithdrawal(factionId, contractId) then
+            pendingContractWithdrawals[factionId] = nil
+            ok, accepted, detail = pcall(
+                SC.FactionContracts.withdraw, factionId, player, false)
+        else
+            if contractId then
+                pendingContractWithdrawals[factionId] = {
+                    contractId = contractId, untilMs = contextNowMs() + 8000,
+                }
+                if player then
+                    safeMethod(player, "setHaloNote", text("UI_SC_Faction_WithdrawConfirm"))
+                end
+                if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+                return
+            end
+            ok, accepted, detail = true, false, "no_active_contract"
+        end
     elseif action == "recruitment_ask" then
         ok, accepted, detail = pcall(
             SC.FactionRecruitment.ask, factionId, player, false)
@@ -154,6 +206,45 @@ local function factionConversationAction(target, factionId, action, topic, playe
             or text("UI_SC_Base_ActionFailed", tostring(detail or accepted)))
     end
     if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+end
+
+local function addUnavailableOption(menu, label)
+    local option = menu:addOption(label, nil, nil)
+    if option then option.notAvailable = true end
+    return option
+end
+
+local function addFactionContractMenu(menu, group, summary, player)
+    local contractMenu = addCategory(menu, "UI_SC_Faction_Contract")
+    local social = summary and summary.social or nil
+    local active = social and social.active or nil
+    local offer = social and social.offer or nil
+    local contract = active or offer
+    if not contract then
+        addUnavailableOption(contractMenu, text("UI_SC_Faction_NoContract"))
+        return
+    end
+    if offer and offer.revealed ~= true then
+        addUnavailableOption(contractMenu, text("UI_SC_Faction_AskNeedFirst"))
+        contractMenu:addOption(text("UI_SC_Faction_AskNeeds"), nil,
+            factionConversationAction, group.id, "talk", "needs", player)
+        return
+    end
+    addUnavailableOption(contractMenu,
+        text("UI_SC_Faction_ContractTitle", tostring(contract.title or contract.kind)))
+    addUnavailableOption(contractMenu,
+        text("UI_SC_Faction_ContractStatus", tostring(contract.status or "offered")))
+    if offer then
+        contractMenu:addOption(text("UI_SC_Faction_AcceptContract"), nil,
+            factionConversationAction, group.id, "accept_contract", nil, player)
+        return
+    end
+    contractMenu:addOption(text("UI_SC_Faction_FulfillContract"), nil,
+        factionConversationAction, group.id, "fulfill_contract", nil, player)
+    local withdrawKey = pendingContractWithdrawal(group.id, active.id)
+        and "UI_SC_Faction_WithdrawConfirmAction" or "UI_SC_Faction_WithdrawContract"
+    contractMenu:addOption(text(withdrawKey), nil,
+        factionConversationAction, group.id, "withdraw_contract", nil, player)
 end
 
 local function talkableFactions(player)
@@ -190,6 +281,7 @@ local function addFactionConversations(context, factions, player)
         menu:addOption(text("UI_SC_Faction_RequestAccess"), nil,
             factionConversationAction, group.id, "access", nil, player)
         local summary = SC.Factions.summary(group.id)
+        addFactionContractMenu(menu, group, summary, player)
         local recruitment = summary and summary.recruitment or nil
         if recruitment and recruitment.canAsk then
             menu:addOption(text("UI_SC_Faction_RecruitmentAsk"), nil,

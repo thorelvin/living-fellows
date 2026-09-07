@@ -206,11 +206,24 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     local targetY = py + predictionY
         + rightY * localOffset[1] * scale - forwardY * localOffset[2] * scale
     local minimum = utility.config("formationSeparation") or 1.25
+    local state = stateFor(actor)
     local target = availableTarget(actor, targetX, targetY, pz, snapshot, minimum)
+    local previous = state.targetSquare
+    local retainDistance = tonumber(utility.config("formationTargetHysteresisDistance")) or 1.1
+    if target and previous and reservationKey(previous) ~= reservationKey(target)
+        and utility.sameFloor(previous, target)
+        and utility.distance(previous, target) <= retainDistance
+        and utility.isSquareFree(previous) and allyClear(actor, previous, snapshot, minimum)
+        and canReserve(actor, previous, current) then
+        -- The continuous ideal point often straddles a tile boundary as a player
+        -- slows or turns. Keep the previous valid slot across one neighbouring
+        -- tile; release it once the formation has genuinely moved farther away.
+        target = previous
+    end
     if target then
-        local state = stateFor(actor)
         state.slot = slot
         state.targetKey = reservationKey(target)
+        state.targetSquare = target
         state.predictionX, state.predictionY = predictionX, predictionY
         state.predictionDistance = math.sqrt(predictionX * predictionX + predictionY * predictionY)
     end

@@ -565,10 +565,10 @@ local function updateRepresentative(group, player)
     local outer = tonumber(SC.Config.get("factionRepresentativeApproachRadius")) or 26
     local distance = territoryDistance(group, player)
     local aiming, aimingOk = U().call(player, "isAiming")
-    local primary = group.life.personality.primary
-    local guarded = (primary == "Isolationist" or primary == "Paranoid")
-        and group.standing == "Wary"
-    local canMeet = group.discovered == true and group.standing ~= "Hostile" and not guarded
+    -- Even cautious households need a reachable person at the door. Personality
+    -- changes what that person says and what access they grant; it must not make
+    -- the entire social system inaccessible behind a closed exterior door.
+    local canMeet = group.discovered == true and group.standing ~= "Hostile"
         and group.lifecycle ~= "hostile" and not playerInside(group, player)
         and not (aimingOk and aiming == true)
     if canMeet and distance <= outer then
@@ -609,6 +609,48 @@ local function entryPosition(group)
     local primary, interior = group.house and group.house.primaryEntry,
         group.house and group.house.interior or {}
     if not primary then return group.house and group.house.anchor end
+
+    -- Exterior openings are recorded from their interior square. Resolve the
+    -- live door's opposite square first so the representative walks through the
+    -- door and waits where a visitor can see and reach them even after it closes.
+    local entrySquare = U().gridSquare(primary.x, primary.y, primary.z or 0)
+    if entrySquare and SC.NativeList then
+        local objects = select(1, U().call(entrySquare, "getObjects"))
+        local object = objects and select(1,
+            SC.NativeList.get(objects, tonumber(primary.objectIndex) or 0)) or nil
+        local opposite, oppositeOk = U().call(object, "getOppositeSquare")
+        if oppositeOk and opposite then
+            local x, y, z = U().position(opposite)
+            if x ~= nil and U().isSquareFree(opposite) then
+                return { x = x, y = y, z = z or 0 }
+            end
+        end
+    end
+
+    -- The object can be unavailable for one streaming frame. A deterministic
+    -- outside-boundary fallback keeps the meeting point on the visitor's side
+    -- instead of silently reverting to the former unreachable interior tile.
+    local bounds = group.house and group.house.bounds
+    if bounds then
+        local candidates = {}
+        if primary.x <= bounds.x1 then
+            candidates[#candidates + 1] = { x = primary.x - 1, y = primary.y, z = primary.z or 0 }
+        end
+        if primary.x >= bounds.x2 then
+            candidates[#candidates + 1] = { x = primary.x + 1, y = primary.y, z = primary.z or 0 }
+        end
+        if primary.y <= bounds.y1 then
+            candidates[#candidates + 1] = { x = primary.x, y = primary.y - 1, z = primary.z or 0 }
+        end
+        if primary.y >= bounds.y2 then
+            candidates[#candidates + 1] = { x = primary.x, y = primary.y + 1, z = primary.z or 0 }
+        end
+        for _, candidate in ipairs(candidates) do
+            local square = U().gridSquare(candidate.x, candidate.y, candidate.z)
+            if square and U().isSquareFree(square) then return candidate end
+        end
+    end
+
     local best, bestDistance
     for _, position in ipairs(interior) do
         local distance = math.abs(position.x - primary.x) + math.abs(position.y - primary.y)
@@ -618,6 +660,8 @@ local function entryPosition(group)
     end
     return best or group.house.anchor
 end
+
+Life._entryPositionForTests = entryPosition
 
 local function approach(actor, target, action, mode)
     if target == nil then return false, "life_target_unavailable" end

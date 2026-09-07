@@ -194,6 +194,10 @@ def main() -> int:
             and "checking_blind_corner" in sources["SCNavigation.lua"]
             and "holding_stair_spacing" in sources["SCNavigation.lua"],
             "tactical blind-corner or stair-spacing navigation missing")
+    require('differentFloor(sourceSquare, goalSquare)' in sources["SCNavigation.lua"]
+            and 'requestIntent.multiLevelPath = true' in sources["SCNavigation.lua"]
+            and '"navigationMultiLevelLeaseMs"' in sources["SCNavigation.lua"],
+            "cross-floor destinations do not use a native progress-leased 3D path")
     require("checking_room_entry_" in sources["SCNavigation.lua"]
             and 'phase == 0 and "left" or "right"' in sources["SCNavigation.lua"]
             and "navigationRoomEntryObserveMs" in sources["SCNavigation.lua"],

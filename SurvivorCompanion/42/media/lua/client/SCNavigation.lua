@@ -98,6 +98,12 @@ local function sameSquare(a, b)
         and math.floor(az or 0) == math.floor(bz or 0)
 end
 
+local function differentFloor(a, b)
+    local _, _, az = U().position(a)
+    local _, _, bz = U().position(b)
+    return az ~= nil and bz ~= nil and math.floor(az) ~= math.floor(bz)
+end
+
 local function adjacentStep(a, b)
     local ax, ay, az = U().position(a)
     local bx, by, bz = U().position(b)
@@ -776,16 +782,10 @@ local function neighbors(square, goal, rotation)
         local other = utility.gridSquare(x + delta[1], y + delta[2], z)
         if other then result[#result + 1] = other end
     end
-    local _, _, goalZ = utility.position(goal)
-    if goalZ and math.floor(goalZ) ~= math.floor(z or 0) and squareHasStairs(square) then
-        local direction = goalZ > z and 1 or -1
-        local vertical = utility.gridSquare(x, y, z + direction)
-        if vertical then result[#result + 1] = vertical end
-        for _, delta in ipairs(cardinalOffsets) do
-            vertical = utility.gridSquare(x + delta[1], y + delta[2], z + direction)
-            if vertical then result[#result + 1] = vertical end
-        end
-    end
+    -- Do not invent vertical graph edges. Build 42 stairs occupy several tiles and
+    -- their upper endpoint depends on orientation; a same-X/Y z+1 edge is not a
+    -- reliable representation. Production hands every cross-floor goal to the
+    -- native PathFindBehavior2 route below, which owns the real stair affordance.
     return result
 end
 
@@ -1736,6 +1736,53 @@ local function actorClearOfDoorway(actor, entry)
         and progress >= (U().config("doorClearanceDistance") or 0.38)
 end
 
+-- A square-to-square native request normally aims at the destination centre,
+-- but the actor may begin near a side of its current tile after formation or
+-- collision steering.  For a one-tile door path that produces a diagonal line
+-- through the frame.  Move only as far as the door centreline on the approach
+-- side first; the following request then crosses perpendicular to the leaf.
+local function alignDoorApproach(actor, fromSquare, toSquare, intent)
+    local utility = U()
+    local entry = { fromSquare = fromSquare, toSquare = toSquare }
+    local progress, lateral, forwardX, forwardY = doorGeometry(entry, actor)
+    if progress == nil then return false, "door_geometry_unavailable" end
+    local tolerance = utility.config("navigationDoorApproachLateralTolerance") or 0.18
+    if lateral <= tolerance then return true, "door_approach_aligned" end
+
+    local fromX, fromY, fromZ = utility.position(fromSquare)
+    local toX, toY = utility.position(toSquare)
+    local actorX, actorY = utility.position(actor)
+    if fromX == nil or toX == nil or actorX == nil then
+        return false, "door_approach_position_unavailable"
+    end
+    local thresholdX = (fromX + toX) * 0.5 + 0.5
+    local thresholdY = (fromY + toY) * 0.5 + 0.5
+    local setback = utility.config("doorClearanceDistance") or 0.38
+    local desiredProgress = math.min(progress, -setback)
+    local targetX = thresholdX + forwardX * desiredProgress
+    local targetY = thresholdY + forwardY * desiredProgress
+    local alignmentIntent = {
+        action = "door_approach",
+        dx = targetX - actorX,
+        dy = targetY - actorY,
+        targetPosition = { x = targetX, y = targetY, z = fromZ or 0 },
+        targetKind = "world",
+        direct = true,
+        collisionValidated = true,
+        doorwayAlignment = true,
+        weaponReady = false,
+        supervisorToken = intent and intent.supervisorToken,
+    }
+    local accepted, reason = utility.move(actor, "walk", alignmentIntent)
+    if accepted ~= true then return false, reason or "door_approach_rejected" end
+    recordMovement(actor, "door_approach", {
+        targetSquare = alignmentIntent.targetPosition,
+        nextSquare = toSquare,
+        status = "aligning_to_threshold",
+    })
+    return nil, "aligning_door_approach"
+end
+
 local function occupiesDoorway(value, entry)
     local progress, lateral = doorGeometry(entry, value)
     if progress == nil then return false end
@@ -2666,10 +2713,12 @@ function Navigation.combatVector(actor, target, kind)
 end
 
 local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGoal,
-        now, reason, multiGoal, movingTarget)
+        now, reason, multiGoal, movingTarget, affordance)
     local list = nativeTargets(targets)
-    local leaseMs = movingTarget and (U().config("navigationMovingLeaseMs") or 2500)
-        or (U().config("navigationNativeLeaseMs") or 6500)
+    local leaseMs = affordance == "multi_level"
+        and (U().config("navigationMultiLevelLeaseMs") or 30000)
+        or (movingTarget and (U().config("navigationMovingLeaseMs") or 2500)
+            or (U().config("navigationNativeLeaseMs") or 6500))
     state.nativeLease = {
         targets = list,
         fromSquare = fromSquare,
@@ -2681,13 +2730,25 @@ local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGo
         reason = reason or "native_corridor",
         multiGoal = multiGoal == true,
         movingTarget = movingTarget == true,
+        affordance = affordance,
+        progressSquareKey = squareKey(fromSquare),
+        progressAt = now,
+        leaseMs = leaseMs,
     }
 end
 
 local function nativeLeaseArrival(actor, lease)
     local arrival = U().config("navigationArrivalDistance") or 0.6
     for _, target in ipairs(lease and lease.targets or {}) do
-        if U().distance(actor, target) <= arrival or sameSquare(U().squareOf(actor), target) then
+        local reached = U().distance(actor, target) <= arrival
+            or sameSquare(U().squareOf(actor), target)
+        -- getSquare() changes immediately as the character centre crosses the
+        -- tile boundary. At a door that is too early: stopping PathFindBehavior2
+        -- there leaves half the collision capsule in the leaf and the next pulse
+        -- walks back to retry. Require continuous clearance through the door plane.
+        if reached and lease.affordance == "door"
+            and not actorClearOfDoorway(actor, lease) then reached = false end
+        if reached then
             return target
         end
     end
@@ -2721,6 +2782,19 @@ local function maintainNativeLease(actor, state, goalSquare, now)
         state.nativeLease = nil
         state.lastProgressAt = now
         return "arrived", arrived
+    end
+    local currentSquare = U().squareOf(actor)
+    local currentKey = squareKey(currentSquare)
+    if currentKey and currentKey ~= lease.progressSquareKey then
+        lease.progressSquareKey = currentKey
+        lease.progressAt = now
+        -- A multi-floor route can legitimately be long, but it must keep making
+        -- tile progress. Refresh its stall deadline instead of cancelling a valid
+        -- native path halfway to a distant staircase or while climbing it.
+        if lease.affordance == "multi_level" then
+            lease.expires = now + (tonumber(lease.leaseMs)
+                or U().config("navigationMultiLevelLeaseMs") or 30000)
+        end
     end
     local actorState = U().movementStateBlocker(actor)
     local telemetry = pathTelemetry(actor)
@@ -2756,6 +2830,7 @@ local function maintainNativeLease(actor, state, goalSquare, now)
     return "failed", now > lease.expires and "native_path_timeout" or "native_path_failed"
 end
 Navigation._maintainNativeLeaseForTests = maintainNativeLease
+Navigation._nativeLeaseArrivalForTests = nativeLeaseArrival
 
 local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReason)
     local utility = U()
@@ -2787,6 +2862,13 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
         end
         return { type = "world_object", object = object, square = toSquare or fromSquare }
     end
+    -- Collision flags are transient.  If the failed edge itself is a known door,
+    -- retain that stronger topology evidence instead of publishing `unknown` and
+    -- applying generic recovery to a doorway problem.
+    local barrier, barrierKind = barrierBetween(fromSquare, toSquare)
+    if barrierKind == "door" then
+        return { type = "door", object = barrier, square = toSquare or fromSquare }
+    end
     local static, staticKind = utility.squareStaticBlocker(toSquare)
     if static then return { type = staticKind, object = static, square = toSquare } end
     local thumpable, thumpableKind = edgeThumpableBlocker(fromSquare, toSquare, actor)
@@ -2804,6 +2886,7 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
     if ok and collided == true then return { type = "world_collision", square = toSquare } end
     return { type = "unknown", square = toSquare or fromSquare }
 end
+Navigation._classifyMovementBlockerForTests = classifyMovementBlocker
 
 local function rememberFailure(actor, state, fromSquare, toSquare, reason, now, recovery)
     local blocker = classifyMovementBlocker(actor, fromSquare, toSquare, reason)
@@ -3178,6 +3261,54 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
     return true, false, "recovery_action_rejected"
 end
 
+local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
+        requestIntent, now, service, token)
+    if not differentFloor(sourceSquare, goalSquare) then return nil end
+    local utility = U()
+    -- The native engine, also used by zombies' PathFindState, knows the actual
+    -- oriented multi-tile stair geometry. The bounded Lua planner deliberately
+    -- stays two-dimensional here: synthetic z edges selected false landings and
+    -- caused approach/replan loops at basements, upper floors and attics.
+    releaseStep(state, actor)
+    releaseChoke(state, actor)
+    state.path = nil
+    state.pathGoalSquare = nil
+    state.pathSearch = nil
+    state.pathIndex = 1
+    state.pathReason = "native_multi_level"
+    requestIntent.targetSquare = goalSquare
+    requestIntent.nextSquare = goalSquare
+    requestIntent.enginePath = true
+    requestIntent.multiLevelPath = true
+    requestIntent.nativeAffordance = "multi_level"
+    requestIntent.weaponReady = false
+    state.lastAttemptFrom, state.lastAttemptTo = sourceSquare, goalSquare
+    local moved, movementReason = utility.move(actor, requestIntent.mode, requestIntent)
+    state.lastMovementReason = movementReason
+    if not moved then
+        rememberFailure(actor, state, sourceSquare, goalSquare,
+            movementReason or "multi_level_path_rejected", now,
+            "native_multi_level_replan")
+        return true, false, "multi_level_path_rejected"
+    end
+    if service and token then
+        if token.phase == "recovering" and type(service.transition) == "function" then
+            service.transition(token, "approaching", { strategy = "native_multi_level" })
+        end
+        if type(service.progress) == "function" then
+            service.progress(token, "multi_level:" .. tostring(squareKey(sourceSquare))
+                .. ">" .. tostring(squareKey(goalSquare)), {
+                    strategy = "native_multi_level",
+                })
+        end
+    end
+    beginNativeLease(state, { goalSquare }, sourceSquare, goalSquare,
+        goalSquare, now, "multi_level_goal", false,
+        isMovingTargetIntent(requestIntent), "multi_level")
+    return true, true, "multi_level_path"
+end
+Navigation._requestMultiLevelPath = requestMultiLevelPath
+
 function Navigation.request(actor, target, movementMode, intent)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
@@ -3224,8 +3355,12 @@ function Navigation.request(actor, target, movementMode, intent)
         end
     end
 
-    if utility.distance(actor, goalSquare) <= (utility.config("navigationArrivalDistance") or 0.6)
-        or sameSquare(sourceSquare, goalSquare) then
+    local reachedGoal = utility.distance(actor, goalSquare)
+            <= (utility.config("navigationArrivalDistance") or 0.6)
+        or sameSquare(sourceSquare, goalSquare)
+    if reachedGoal and state.nativeLease and state.nativeLease.affordance == "door"
+        and not actorClearOfDoorway(actor, state.nativeLease) then reachedGoal = false end
+    if reachedGoal then
         state.goalSquare = goalSquare
         state.goalAction = requestIntent.action
         state.path = nil
@@ -3324,6 +3459,11 @@ function Navigation.request(actor, target, movementMode, intent)
         return recoveryAccepted == true, recoveryStatus or "recovering"
     end
 
+    local multiLevelHandled, multiLevelAccepted, multiLevelStatus =
+        SC.Navigation._requestMultiLevelPath(
+        actor, state, sourceSquare, goalSquare, requestIntent, now, service, token)
+    if multiLevelHandled then return multiLevelAccepted, multiLevelStatus end
+
     local snapshot = requestIntent.snapshot
     local currentThreats = type(snapshot) == "table" and type(snapshot.stealthThreats) == "table"
         and #snapshot.stealthThreats
@@ -3331,12 +3471,21 @@ function Navigation.request(actor, target, movementMode, intent)
             and #snapshot.threats or 0)
     local rememberedThreat = type(snapshot) == "table"
         and type(snapshot.lastKnownDanger) == "table"
+    local movingPathChanged = state.path and state.pathGoalSquare
+        and isMovingTargetIntent(requestIntent)
+        and not sameSquare(state.pathGoalSquare, goalSquare)
+    local movingPathRepaired = movingPathChanged and tryRepairMovingPath(
+        actor, state, sourceSquare, goalSquare, requestIntent, now)
     local pathGoalDrifted = state.path and state.pathGoalSquare
         and utility.distance(state.pathGoalSquare, goalSquare)
             >= goalResetDistance(requestIntent)
-    if pathGoalDrifted and tryRepairMovingPath(
-        actor, state, sourceSquare, goalSquare, requestIntent, now) then
-        pathGoalDrifted = false
+    if movingPathChanged and not movingPathRepaired and not pathGoalDrifted
+        and utility.distance(actor, state.pathGoalSquare)
+            <= goalResetDistance(requestIntent) + 0.75 then
+        -- Near the old endpoint, a one-tile reversal/turn that cannot be safely
+        -- appended is already material. Following the stale tail here creates the
+        -- visible "one step back, one step forward" loop.
+        pathGoalDrifted = true
     end
     if pathGoalDrifted then
         -- Follow targets commonly move by less than the reset threshold per AI
@@ -3591,6 +3740,17 @@ function Navigation.request(actor, target, movementMode, intent)
     )
     if tacticalAccepted == false then return false, tacticalStatus end
     if tacticalAccepted == nil then return true, tacticalStatus end
+    if kind == "door" then
+        local aligned, alignmentStatus = alignDoorApproach(
+            actor, sourceSquare, nextSquare, requestIntent)
+        if aligned == false then
+            rememberFailure(actor, state, sourceSquare, nextSquare,
+                alignmentStatus or "door_approach_rejected", now, "door_alignment_replan")
+            return false, alignmentStatus or "door_approach_rejected"
+        elseif aligned == nil then
+            return true, alignmentStatus or "aligning_door_approach"
+        end
+    end
     configureTacticalRetreat(actor, sourceSquare, nextSquare, afterSquare, kind, requestIntent)
 
     local blocker = not requestIntent.urgent
@@ -3727,7 +3887,7 @@ function Navigation.request(actor, target, movementMode, intent)
                 and "vegetation_corridor"
                 or requestIntent.vehicleClearance and "vehicle_corridor"
                 or "native_edge", false,
-            isMovingTargetIntent(requestIntent))
+            isMovingTargetIntent(requestIntent), requestIntent.nativeAffordance)
         extendChoke(state, actor, state.nativeLease and state.nativeLease.expires)
     end
     return true, "moving"

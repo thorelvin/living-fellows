@@ -18,6 +18,8 @@ public class IsoPlayer extends IsoLivingCharacter {
     public final int getPlayerNum() { return playerIndex; }
     public static IsoPlayer getInstance() { return null; }
     public static void setInstance(IsoPlayer player) {}
+    public static boolean getCoopPVP() { return false; }
+    public static void setCoopPVP(boolean enabled) {}
     public boolean isLocalPlayer() { return false; }
     public boolean isPlayerMoving() { return false; }
     public boolean isNpc() { return false; }

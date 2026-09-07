@@ -1035,6 +1035,18 @@ do
     check(meleeOk and meleeReason == "attack_started" and actor.doShove == false,
         "a weapon swing clears stale shove state before the native attack starts")
     actor.attackStarted = false
+    local farAttackTarget = {
+        getX = function() return 4.5 end,
+        getY = function() return 0.5 end,
+        getZ = function() return 0 end,
+    }
+    local attackCallsBeforeRangeGate = actor.doAttackCalls or 0
+    local farMeleeOk, farMeleeReason = SC.Actor.setMovement(actor, "walk", {
+        action = "attack_melee", target = farAttackTarget, weapon = twoHandedWeapon,
+    })
+    check(not farMeleeOk and farMeleeReason == "attack target is outside melee range"
+            and (actor.doAttackCalls or 0) == attackCallsBeforeRangeGate,
+        "the final native attack gate rejects a melee swing before DoAttack when the target is metres away")
     actor.companionAttackCollisionSerial = 0
     local stompTarget = {
         health = 1, headHits = 0,
