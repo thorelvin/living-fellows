@@ -265,6 +265,14 @@ public final class SCIsoCompanionControlTest {
                 "a path's stopping frame is not terminal before bPathfind clears");
         require(!SCNativeCompanion.pathHasTerminated(true, false, false, false),
                 "a path still pending within the grace window is not terminal");
+        require(!SCNativeCompanion.shouldApplyCompanionAim(true, false, false),
+                "ordinary forward locomotion can be reversed by a stale combat aim target");
+        require(SCNativeCompanion.shouldApplyCompanionAim(true, true, false),
+                "tactical strafe lost its target-facing ownership");
+        require(SCNativeCompanion.shouldApplyCompanionAim(true, false, true),
+                "an active attack lost the target angle required by its hit arc");
+        require(SCNativeCompanion.shouldApplyCompanionAim(false, false, false),
+                "a stationary companion no longer tracks its combat target");
         require(((Number) invoke(actor, "getPlayerNum")).intValue() == 3,
                 "companion did not retain reserved non-local index");
         require(((Number) invoke(secondActor, "getPlayerNum")).intValue() == 3

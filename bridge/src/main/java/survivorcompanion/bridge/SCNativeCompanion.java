@@ -676,12 +676,31 @@ public final class SCNativeCompanion extends IsoPlayer {
             bridgeAimTarget = null;
             return;
         }
+        // A stock non-local IsoPlayer can never use PathFindBehavior2's strafe
+        // branch (isStrafing() explicitly returns false for non-local players).
+        // Re-facing an ordinary path/run toward the combat target after its
+        // forward locomotion clip was selected therefore makes the model run
+        // backward while playing Bob_Walk/Bob_Run. Preserve the route-facing
+        // direction during non-tactical locomotion. Manual tactical movement has
+        // DeltaX/DeltaY and a proper strafe blend, while a started attack still
+        // needs the exact target angle for CombatManager's hit arc.
+        boolean attackOwnsFacing = isAttackStarted() || isPerformingAttackAnimation();
+        if (!shouldApplyCompanionAim(isBridgeLocomotionActive(),
+                bridgeTacticalMovement, attackOwnsFacing)) {
+            return;
+        }
         float dx = target.getX() - getX();
         float dy = target.getY() - getY();
         float length = (float) Math.sqrt(dx * dx + dy * dy);
         if (length > 0.0001f) {
             setForwardDirection(dx / length, dy / length);
         }
+    }
+
+    /** Pure facing/locomotion ownership rule used by the real-JAR test. */
+    static boolean shouldApplyCompanionAim(boolean locomotionActive,
+            boolean tacticalMovement, boolean attackOwnsFacing) {
+        return !locomotionActive || tacticalMovement || attackOwnsFacing;
     }
 
     private void applyCompanionTacticalMovement() {

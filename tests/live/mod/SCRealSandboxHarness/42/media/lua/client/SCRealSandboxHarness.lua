@@ -373,7 +373,7 @@ local function finishNativeLocomotionProbe(current, timedOut)
     SC.Navigation.reset(actor)
     endHarnessControl(Harness.nativePathControl, "native_locomotion_probe_complete")
     Harness.nativePathControl = nil
-    setPhase("begin_room", current)
+    setPhase("begin_backward_strafe", current)
 end
 
 local function beginNativeLocomotionProbe(current)
@@ -391,7 +391,7 @@ local function beginNativeLocomotionProbe(current)
         skip("native_player_walk_clip", "no straight loaded corridor of two tiles")
         skip("native_pathfinder_owns_direct_corridor", "no straight loaded corridor of two tiles")
         skip("native_path_state_released", "no straight loaded corridor of two tiles")
-        setPhase("begin_room", current)
+        setPhase("begin_backward_strafe", current)
         return
     end
     local control, controlReason = beginHarnessControl(
@@ -399,7 +399,7 @@ local function beginNativeLocomotionProbe(current)
     if control == nil then
         result("FAIL", "native_direct_path_progress",
             "control ownership rejected: " .. clean(controlReason))
-        setPhase("begin_room", current)
+        setPhase("begin_backward_strafe", current)
         return
     end
     local sx, sy = position(Harness.actor)
@@ -413,7 +413,7 @@ local function beginNativeLocomotionProbe(current)
     if accepted ~= true then
         endHarnessControl(control, "native_locomotion_probe_rejected")
         result("FAIL", "native_direct_path_progress", clean(reason))
-        setPhase("begin_room", current)
+        setPhase("begin_backward_strafe", current)
         return
     end
     Harness.nativePathControl = control
@@ -480,6 +480,213 @@ local function probeNativeLocomotion(current)
     elseif current - Harness.phaseStartedAt > 10000 then
         finishNativeLocomotionProbe(current, true)
     end
+end
+
+local function findClearManualDirection(actor)
+    local utility = SurvivorCompanion.GameplayUtil
+    local x, y, z = position(actor)
+    if x == nil then return nil end
+    for _, direction in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+        local clear, called = utility.call(actor, "isCompanionMovementClear",
+            x + direction[1] * 1.25, y + direction[2] * 1.25, z or 0)
+        if called and clear == true then return direction[1], direction[2] end
+    end
+    return nil
+end
+
+local function beginBackwardStrafeProbe(current)
+    local SC = SurvivorCompanion
+    pcall(SC.Actor.stop, Harness.actor)
+    local moveX, moveY = findClearManualDirection(Harness.actor)
+    if moveX == nil then
+        skip("native_backward_strafe_motion", "no clear cardinal manual-movement lane")
+        skip("native_backward_strafe_blend", "no clear cardinal manual-movement lane")
+        skip("native_backward_strafe_clip", "no clear cardinal manual-movement lane")
+        setPhase("begin_room", current)
+        return
+    end
+    local control, reason = beginHarnessControl(
+        Harness.actor, "native_backward_strafe_probe", 5000)
+    if control == nil then
+        result("FAIL", "native_backward_strafe_motion",
+            "control ownership rejected: " .. clean(reason))
+        setPhase("begin_room", current)
+        return
+    end
+    local x, y, z = position(Harness.actor)
+    local facingTarget = {
+        x = x - moveX * 4,
+        y = y - moveY * 4,
+        z = z or 0,
+    }
+    local accepted, moveReason = SC.Actor.setMovement(Harness.actor, "walk", {
+        action = "backstep",
+        dx = moveX,
+        dy = moveY,
+        facingTarget = facingTarget,
+        keepFacing = true,
+        weaponReady = false,
+        supervisorToken = control,
+    })
+    if accepted ~= true then
+        endHarnessControl(control, "native_backward_strafe_rejected")
+        result("FAIL", "native_backward_strafe_motion", clean(moveReason))
+        setPhase("begin_room", current)
+        return
+    end
+    Harness.backwardStrafeControl = control
+    Harness.backwardStrafeStartX = x
+    Harness.backwardStrafeStartY = y
+    Harness.backwardStrafeMoveX = moveX
+    Harness.backwardStrafeMoveY = moveY
+    Harness.backwardStrafeLastDeltaX = 0
+    Harness.backwardStrafeLastDeltaY = 0
+    Harness.backwardStrafeLastState = ""
+    Harness.backwardStrafeAnimationNames = ""
+    Harness.backwardStrafeBwdClipSeen = false
+    setPhase("backward_strafe", current)
+end
+
+local function probeBackwardStrafe(current)
+    local SC = SurvivorCompanion
+    local utility = SC.GameplayUtil
+    local actor = Harness.actor
+    local deltaX = select(1, utility.call(actor, "getVariableFloat", "DeltaX", 0))
+    local deltaY = select(1, utility.call(actor, "getVariableFloat", "DeltaY", 0))
+    local state = select(1, utility.call(actor, "getCompanionActionStateName"))
+    local names = select(1, utility.call(actor, "getCompanionActiveAnimationNames"))
+    Harness.backwardStrafeLastDeltaX = tonumber(deltaX) or 0
+    Harness.backwardStrafeLastDeltaY = tonumber(deltaY) or 0
+    Harness.backwardStrafeLastState = tostring(state or "")
+    local lowered = string.lower(tostring(names or ""))
+    if lowered:find("walkbwd", 1, true) ~= nil then
+        Harness.backwardStrafeBwdClipSeen = true
+        Harness.backwardStrafeAnimationNames = names
+    elseif Harness.backwardStrafeAnimationNames == "" and lowered ~= "" then
+        Harness.backwardStrafeAnimationNames = names
+    end
+    if current - Harness.phaseStartedAt < 1400 then return end
+    local x, y = position(actor)
+    local dx = (x or Harness.backwardStrafeStartX) - Harness.backwardStrafeStartX
+    local dy = (y or Harness.backwardStrafeStartY) - Harness.backwardStrafeStartY
+    local along = dx * Harness.backwardStrafeMoveX + dy * Harness.backwardStrafeMoveY
+    local forwardX = select(1, utility.call(actor, "getForwardDirectionX"))
+    local forwardY = select(1, utility.call(actor, "getForwardDirectionY"))
+    local facingDot = (tonumber(forwardX) or 0) * Harness.backwardStrafeMoveX
+        + (tonumber(forwardY) or 0) * Harness.backwardStrafeMoveY
+    check("native_backward_strafe_motion", along >= 0.05 and facingDot <= -0.75,
+        "along=" .. string.format("%.2f", along)
+            .. " facing_dot=" .. string.format("%.2f", facingDot))
+    check("native_backward_strafe_blend",
+        Harness.backwardStrafeLastDeltaY <= -0.50,
+        "state=" .. clean(Harness.backwardStrafeLastState)
+            .. " DeltaX=" .. string.format("%.2f", Harness.backwardStrafeLastDeltaX)
+            .. " DeltaY=" .. string.format("%.2f", Harness.backwardStrafeLastDeltaY))
+    check("native_backward_strafe_clip", Harness.backwardStrafeBwdClipSeen == true,
+        "active_clips=" .. clean(Harness.backwardStrafeAnimationNames))
+    pcall(SC.Actor.stop, actor)
+    endHarnessControl(Harness.backwardStrafeControl,
+        "native_backward_strafe_probe_complete")
+    Harness.backwardStrafeControl = nil
+    setPhase("begin_aimed_escape", current)
+end
+
+local function findClearEscapeDirection(actor, threat)
+    local utility = SurvivorCompanion.GameplayUtil
+    local x, y, z = position(actor)
+    local tx, ty = position(threat)
+    if x == nil or tx == nil then return nil end
+    local awayX, awayY = x - tx, y - ty
+    local candidates = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+    table.sort(candidates, function(a, b)
+        return a[1] * awayX + a[2] * awayY > b[1] * awayX + b[2] * awayY
+    end)
+    for _, direction in ipairs(candidates) do
+        local clear, called = utility.call(actor, "isCompanionMovementClear",
+            x + direction[1] * 1.25, y + direction[2] * 1.25, z or 0)
+        if called and clear == true then return direction[1], direction[2] end
+    end
+    return nil
+end
+
+local function beginAimedEscapeProbe(current)
+    local SC = SurvivorCompanion
+    pcall(SC.Actor.stop, Harness.actor)
+    local moveX, moveY = findClearEscapeDirection(Harness.actor, Harness.player)
+    if moveX == nil then
+        skip("native_aimed_escape_facing", "no clear cardinal escape lane")
+        skip("native_aimed_escape_player_clip", "no clear cardinal escape lane")
+        setPhase("begin_room", current)
+        return
+    end
+    local control, reason = beginHarnessControl(Harness.actor,
+        "native_aimed_escape_probe", 5000)
+    if control == nil then
+        result("FAIL", "native_aimed_escape_facing",
+            "control ownership rejected: " .. clean(reason))
+        setPhase("begin_room", current)
+        return
+    end
+    local x, y = position(Harness.actor)
+    SC.GameplayUtil.call(Harness.actor, "setCompanionAimTarget", Harness.player)
+    local accepted, moveReason = SC.Actor.setMovement(Harness.actor, "run", {
+        action = "move",
+        dx = moveX,
+        dy = moveY,
+        weaponReady = false,
+        supervisorToken = control,
+    })
+    if accepted ~= true then
+        SC.GameplayUtil.call(Harness.actor, "setCompanionAimTarget", nil)
+        endHarnessControl(control, "native_aimed_escape_rejected")
+        result("FAIL", "native_aimed_escape_facing", clean(moveReason))
+        setPhase("begin_room", current)
+        return
+    end
+    Harness.aimedEscapeControl = control
+    Harness.aimedEscapeStartX = x
+    Harness.aimedEscapeStartY = y
+    Harness.aimedEscapeMoveX = moveX
+    Harness.aimedEscapeMoveY = moveY
+    Harness.aimedEscapeAnimationNames = ""
+    Harness.aimedEscapeForwardClipSeen = false
+    setPhase("aimed_escape", current)
+end
+
+local function probeAimedEscape(current)
+    local SC = SurvivorCompanion
+    local utility = SC.GameplayUtil
+    local names = select(1,
+        utility.call(Harness.actor, "getCompanionActiveAnimationNames"))
+    local lowered = string.lower(tostring(names or ""))
+    if (lowered:find("bob_run", 1, true) ~= nil
+        or lowered:find("bob_walk", 1, true) ~= nil)
+        and lowered:find("bwd", 1, true) == nil then
+        Harness.aimedEscapeForwardClipSeen = true
+        Harness.aimedEscapeAnimationNames = names
+    elseif Harness.aimedEscapeAnimationNames == "" and lowered ~= "" then
+        Harness.aimedEscapeAnimationNames = names
+    end
+    if current - Harness.phaseStartedAt < 900 then return end
+    local x, y = position(Harness.actor)
+    local dx = (x or Harness.aimedEscapeStartX) - Harness.aimedEscapeStartX
+    local dy = (y or Harness.aimedEscapeStartY) - Harness.aimedEscapeStartY
+    local along = dx * Harness.aimedEscapeMoveX + dy * Harness.aimedEscapeMoveY
+    local forwardX = select(1, utility.call(Harness.actor, "getForwardDirectionX"))
+    local forwardY = select(1, utility.call(Harness.actor, "getForwardDirectionY"))
+    local facingDot = (tonumber(forwardX) or 0) * Harness.aimedEscapeMoveX
+        + (tonumber(forwardY) or 0) * Harness.aimedEscapeMoveY
+    check("native_aimed_escape_facing", along >= 0.20 and facingDot >= 0.75,
+        "along=" .. string.format("%.2f", along)
+            .. " facing_dot=" .. string.format("%.2f", facingDot))
+    check("native_aimed_escape_player_clip",
+        Harness.aimedEscapeForwardClipSeen == true,
+        "active_clips=" .. clean(Harness.aimedEscapeAnimationNames))
+    utility.call(Harness.actor, "setCompanionAimTarget", nil)
+    pcall(SC.Actor.stop, Harness.actor)
+    endHarnessControl(Harness.aimedEscapeControl, "native_aimed_escape_probe_complete")
+    Harness.aimedEscapeControl = nil
+    setPhase("begin_room", current)
 end
 
 local function findRoomEntryPair(player)
@@ -2596,6 +2803,14 @@ local function tick()
         beginNativeLocomotionProbe(current)
     elseif Harness.phase == "native_locomotion" then
         probeNativeLocomotion(current)
+    elseif Harness.phase == "begin_backward_strafe" then
+        beginBackwardStrafeProbe(current)
+    elseif Harness.phase == "backward_strafe" then
+        probeBackwardStrafe(current)
+    elseif Harness.phase == "begin_aimed_escape" then
+        beginAimedEscapeProbe(current)
+    elseif Harness.phase == "aimed_escape" then
+        probeAimedEscape(current)
     elseif Harness.phase == "begin_room" then
         beginRoomProbe(current)
     elseif Harness.phase == "room_probe" then

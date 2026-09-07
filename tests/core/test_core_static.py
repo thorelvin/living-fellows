@@ -436,6 +436,11 @@ require("public String getCompanionActiveAnimationNames()" in native_companion
         and "track.isPlaying" in native_companion
         and "track.getBlendWeight() <= 0.001f" in native_companion,
         "native companion lacks direct diagnostics for visibly weighted animation clips")
+require("shouldApplyCompanionAim" in native_companion
+        and "isBridgeLocomotionActive()," in native_companion
+        and "bridgeTacticalMovement, attackOwnsFacing" in native_companion
+        and "return !locomotionActive || tacticalMovement || attackOwnsFacing" in native_companion,
+        "ordinary forward locomotion can be re-faced backward after clip selection")
 require('"actor_state_busy:" .. tostring(blocker)' in native
         and 'movementStateBlocker(actor)' in native
         and '"action_animation_state"' in gameplay_util,
