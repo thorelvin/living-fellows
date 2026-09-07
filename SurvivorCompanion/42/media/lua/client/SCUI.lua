@@ -1969,6 +1969,8 @@ end
 
 function SCUIDetail:buildLoadout(panel, row)
     local y = 7
+    -- Keep the primary inventory action visible even in the smallest detail pane.
+    y = self:addCommand(panel, y, "UI_SC_Action_OpenInventory", "open_inventory", nil)
     y = self:addSection(panel, y, "UI_SC_Section_Health")
     if not row then
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_NoSelection"))
@@ -1995,7 +1997,6 @@ function SCUIDetail:buildLoadout(panel, row)
         if row.loadRole then loadText = loadText .. " | " .. UI.stateText(row.loadRole) end
         y = self:addInformationLine(panel, y, "UI_SC_Info_Load", loadText)
     end
-    y = self:addCommand(panel, y, "UI_SC_Action_OpenInventory", "open_inventory", nil)
     y = self:addSection(panel, y + 4, "UI_SC_Section_WeaponPriority")
     y = self:addCommandSelector(panel, y, "UI_SC_Select_WeaponPriority",
         row and row.weaponPriority or "best", WEAPON_PRIORITIES,
@@ -3760,6 +3761,9 @@ end
 function UI.scheduledRefresh()
     if not UI.isOpen() then
         return false
+    end
+    if Bridge and type(Bridge.maintainInventory) == "function" then
+        Bridge.maintainInventory()
     end
     if UI.instance:isUserInteracting() then
         UI.instance.refreshPending = true

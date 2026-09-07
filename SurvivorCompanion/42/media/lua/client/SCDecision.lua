@@ -25,8 +25,11 @@ local function stateFor(actor, runtime)
 end
 
 local function commandsFor(actor)
-    if SC.Commands and type(SC.Commands.peek) == "function" then
-        local ok, value = pcall(SC.Commands.peek, actor)
+    if SC.Commands and (type(SC.Commands.effective) == "function"
+        or type(SC.Commands.peek) == "function") then
+        local reader = type(SC.Commands.effective) == "function"
+            and SC.Commands.effective or SC.Commands.peek
+        local ok, value = pcall(reader, actor)
         if ok and type(value) == "table" then return value end
     end
     return {
@@ -189,7 +192,8 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         add("combat", combatScore, immediate > 0 or snapshot.encircled)
     end
 
-    if commands.recruited and SC.Autonomy and type(SC.Autonomy.intentFor) == "function" then
+    if commands.recruited and commands.temporaryStay ~= true
+        and SC.Autonomy and type(SC.Autonomy.intentFor) == "function" then
         local okay, intent = pcall(SC.Autonomy.intentFor, actor, player, snapshot, commands)
         if okay and type(intent) == "table" and tonumber(intent.priority) then
             add(intent.kind, tonumber(intent.priority), false, intent)
@@ -264,7 +268,31 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             add("base_work", 58, false)
         end
         if commands.scavenge and threatCount == 0 and commands.order ~= "regroup"
-            and commands.order ~= "retreat" then add("scavenge", 32, false) end
+            and commands.order ~= "retreat" then
+            local scavengeScore = 32
+            local ongoing
+            if SC.Encounter and type(SC.Encounter.peek) == "function" then
+                local ok, value = pcall(SC.Encounter.peek, actor)
+                if ok and type(value) == "table" then ongoing = value end
+            end
+            if ongoing and (ongoing.task or ongoing.selectionJob or ongoing.containerSearch) then
+                -- Once a bounded search/loot transaction has begun, let it reach
+                -- its visual/verified conclusion unless a real need or danger wins.
+                scavengeScore = 76
+            elseif commands.order == "follow" and player then
+                local playerMoving, movingOk = U().call(player, "isMoving")
+                local close = U().distance(actor, player)
+                    <= math.max(3, (commands.followDistance or 3) + 1.5)
+                if close and (not movingOk or playerMoving ~= true) then
+                    -- Opportunistic looting beats a no-op formation hold when the
+                    -- leader has stopped, but never pulls a follower off a moving leader.
+                    scavengeScore = 58
+                end
+            elseif commands.order == "stay" or commands.order == "guard" then
+                scavengeScore = 40
+            end
+            add("scavenge", scavengeScore, false)
+        end
         if threatCount == 0 and not downtimeAdded
             and (commands.order ~= "follow" or snapshot.indoors == true) then
             add("downtime", 10, false)

@@ -36,6 +36,21 @@ SurvivorCompanion.Actor = {
     end,
 }
 
+local stayBegins = 0
+local stayEnds = 0
+SurvivorCompanion.Commands = {
+    beginTemporaryStay = function(subject, reason)
+        assert(subject == actor and reason == "companion_inventory")
+        stayBegins = stayBegins + 1
+        return { actor = subject, serial = stayBegins }
+    end,
+    endTemporaryStay = function(subject, token)
+        assert(subject == actor and type(token) == "table")
+        stayEnds = stayEnds + 1
+        return true
+    end,
+}
+
 local player = { distance = 3 }
 
 function player:DistTo(subject)
@@ -88,6 +103,8 @@ assert(lootPage.isCollapsed == false)
 assert(lootPage.clearedMaximum == true)
 assert(lootPage.collapseCounter == -40)
 assert(lootPage.raised == true)
+assert(stayBegins == 1 and stayEnds == 0,
+    "opening inventory places the companion on one temporary Stay hold")
 
 -- Loot-pane restore transaction (review 1.4): borrowing the player's loot pane
 -- for a companion inventory must be reversible.
@@ -97,6 +114,7 @@ local restored, restoreReason = Bridge.restoreInventory()
 assert(restored == true and restoreReason == "restored")
 assert(lootPage.visible == false, "restore hides the pane it found hidden")
 assert(lootPage.isCollapsed == true, "restore recollapses the pane it found collapsed")
+assert(stayEnds == 1, "restoring the pane releases the temporary Stay hold")
 local noop, noopReason = Bridge.restoreInventory()
 assert(noop == true and noopReason == "not_owned", "a second restore is a no-op")
 
@@ -108,10 +126,24 @@ lootPage.isCollapsed = true
 assert(Bridge.openInventory(actor, player) == true)
 local playerContainer = { name = "player_selected" }
 lootPage.inventoryPane.inventory = playerContainer
-local kept, keptReason = Bridge.restoreInventory()
+local kept, keptReason = Bridge.maintainInventory()
 assert(kept == true and keptReason == "player_changed_container",
-    "restore never clobbers a container the player selected afterwards")
+    "maintenance releases ownership without clobbering a container the player selected")
 assert(lootPage.inventoryPane.inventory == playerContainer, "the player's container is left intact")
+assert(stayBegins == 2 and stayEnds == 2,
+    "the temporary Stay is released even when the player changed containers")
+
+-- Case 3: closing the vanilla loot pane while staying on the Loadout tab must
+-- release the companion immediately on the next UI maintenance pass.
+lootPage.inventoryPane.inventory = nil
+lootPage.visible = false
+lootPage.isCollapsed = true
+assert(Bridge.openInventory(actor, player) == true)
+lootPage.visible = false
+local closed, closedReason = Bridge.maintainInventory()
+assert(closed == true and closedReason == "restored")
+assert(stayBegins == 3 and stayEnds == 3,
+    "closing the vanilla pane releases the temporary Stay hold")
 
 player.distance = 5
 local tooFar, tooFarReason, limit = Bridge.openInventory(actor, player)

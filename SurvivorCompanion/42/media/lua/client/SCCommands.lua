@@ -16,6 +16,11 @@ if not SC.StableValue and type(require) == "function" then pcall(require, "SCSta
 SC.Commands = SC.Commands or {}
 local Commands = SC.Commands
 local states = setmetatable({}, { __mode = "k" })
+-- Inventory inspection borrows control of one companion without changing the
+-- saved order. Keeping this outside command state prevents an autosave/persist
+-- while the pane is open from turning a temporary hold into a permanent Stay.
+local temporaryStays = setmetatable({}, { __mode = "k" })
+local temporaryStaySerial = 0
 
 local function U()
     return SC.GameplayUtil
@@ -583,6 +588,13 @@ local function positionTable(value)
 end
 
 local function markCommand(actor, entry, state)
+    local temporary = temporaryStays[actor]
+    if temporary and (state.order ~= temporary.originalOrder
+        or state.anchor ~= temporary.originalAnchor) then
+        -- A real movement/order command supersedes the inventory hold. Settings
+        -- changes leave the underlying order untouched and therefore keep it.
+        temporaryStays[actor] = nil
+    end
     state.commandSerial = (state.commandSerial or 0) + 1
     state.lastCommandAt = U().nowMs()
     if groupStaging then return end
@@ -2066,6 +2078,85 @@ function Commands.peek(actor)
     return states[actor] or stateFor(actor)
 end
 
+-- Return the command view used by the decision loop. The stable state itself is
+-- never mutated: only the effective order becomes Stay while inventory is open.
+function Commands.effective(actor)
+    local state = Commands.peek(actor)
+    if type(state) ~= "table" then return state end
+    local temporary = temporaryStays[actor]
+    if not temporary then return state end
+    local copy = U().copyShallow(state)
+    copy.order = "stay"
+    copy.anchor = temporary.anchor
+    copy.scavenge = false
+    copy.tacticalTarget = nil
+    copy.pendingInteraction = nil
+    copy.temporaryStay = true
+    return copy
+end
+
+local function stopForTemporaryStay(actor, opening)
+    if opening then
+        if SC.Downtime and type(SC.Downtime.cancel) == "function" then
+            pcall(SC.Downtime.cancel, actor, "inventory_opened")
+        end
+        if SC.Decision and type(SC.Decision.cancelWork) == "function" then
+            pcall(SC.Decision.cancelWork, actor, "inventory_opened")
+        end
+        if SC.Encounter and type(SC.Encounter.cancelScavenge) == "function" then
+            pcall(SC.Encounter.cancelScavenge, actor, "inventory_opened")
+        end
+        if SC.Logistics and type(SC.Logistics.reset) == "function" then
+            pcall(SC.Logistics.reset, actor)
+        end
+        if SC.BaseWork and type(SC.BaseWork.cancel) == "function" then
+            pcall(SC.BaseWork.cancel, actor, "inventory_opened")
+        end
+        if SC.Autonomy and type(SC.Autonomy.interrupt) == "function" then
+            pcall(SC.Autonomy.interrupt, actor, "inventory_opened")
+        end
+    end
+    if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+        pcall(SC.Navigation.cancel, actor, opening and "inventory_opened" or "inventory_closed")
+    end
+    U().stop(actor)
+end
+
+function Commands.beginTemporaryStay(actor, reason)
+    if not actor or not U().isValidActor(actor) then return nil, "invalid_actor" end
+    local existing = temporaryStays[actor]
+    if existing then return existing, "already_held" end
+    local state = Commands.peek(actor)
+    if type(state) ~= "table" then return nil, "command_state_unavailable" end
+    temporaryStaySerial = temporaryStaySerial + 1
+    local token = {
+        actor = actor,
+        serial = temporaryStaySerial,
+        reason = reason or "temporary_stay",
+        originalOrder = state.order,
+        originalAnchor = state.anchor,
+        anchor = positionTable(actor),
+    }
+    temporaryStays[actor] = token
+    stopForTemporaryStay(actor, true)
+    return token, "temporary_stay"
+end
+
+function Commands.endTemporaryStay(actor, token)
+    actor = actor or (type(token) == "table" and token.actor or nil)
+    if not actor then return false, "invalid_actor" end
+    local current = temporaryStays[actor]
+    if current == nil then return true, "superseded_by_command" end
+    if token ~= nil and token ~= current then return false, "temporary_stay_token_mismatch" end
+    temporaryStays[actor] = nil
+    stopForTemporaryStay(actor, false)
+    return true, "temporary_stay_released"
+end
+
+function Commands.isTemporaryStay(actor)
+    return actor ~= nil and temporaryStays[actor] ~= nil
+end
+
 function Commands.persist(actor)
     if not actor then return false, "invalid_actor" end
     local state = states[actor] or stateFor(actor)
@@ -2327,7 +2418,13 @@ function Commands.restore(actor, record)
 end
 
 function Commands.reset(actor)
-    if actor then states[actor] = nil else states = setmetatable({}, { __mode = "k" }) end
+    if actor then
+        states[actor] = nil
+        temporaryStays[actor] = nil
+    else
+        states = setmetatable({}, { __mode = "k" })
+        temporaryStays = setmetatable({}, { __mode = "k" })
+    end
     if SC.Relationship and type(SC.Relationship.reset) == "function" then
         SC.Relationship.reset(actor)
     end

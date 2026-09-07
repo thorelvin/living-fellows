@@ -16,7 +16,8 @@ Bridge.VIEW_DISTANCE = 64
 
 -- When we borrow the local player's loot pane to show a companion's inventory we
 -- must be able to put it back exactly as it was. Single-player, so one snapshot:
--- { page, playerNum, container, visible, collapsed, collapseCounter, ourContainer }.
+-- { page, playerNum, container, visible, collapsed, collapseCounter, ourContainer,
+--   heldActor, stayToken }.
 -- ourContainer is the companion inventory we set, so a restore only reverts the
 -- pane while it still shows what we put there (never clobbers a container the
 -- player deliberately selected afterwards).
@@ -96,6 +97,23 @@ function Bridge.openInventory(actor, player)
     if not okPage or not lootPage or type(lootPage.setNewContainer) ~= "function" or type(lootPage.setVisible) ~= "function" then
         return failure("UI_SC_Disabled_NoInventoryUI")
     end
+    local priorActor = ownedLootPane and ownedLootPane.heldActor or nil
+    if priorActor ~= nil and priorActor ~= actor and SC.Commands
+        and type(SC.Commands.endTemporaryStay) == "function" then
+        pcall(SC.Commands.endTemporaryStay, priorActor, ownedLootPane.stayToken)
+        ownedLootPane.heldActor, ownedLootPane.stayToken = nil, nil
+    end
+    local stayToken = ownedLootPane and ownedLootPane.heldActor == actor
+        and ownedLootPane.stayToken or nil
+    if stayToken == nil and SC.Commands
+        and type(SC.Commands.beginTemporaryStay) == "function" then
+        local okStay, value = pcall(SC.Commands.beginTemporaryStay,
+            actor, "companion_inventory")
+        if not okStay or type(value) ~= "table" then
+            return failure("UI_SC_Disabled_NoInventoryUI")
+        end
+        stayToken = value
+    end
     -- Snapshot the pane's prior state the first time we borrow it, so it can be
     -- restored later. If we already own it (switching companions), keep the
     -- original snapshot and just update which container is "ours".
@@ -110,10 +128,14 @@ function Bridge.openInventory(actor, player)
             collapsed = lootPage.isCollapsed,
             collapseCounter = lootPage.collapseCounter,
             ourContainer = inventory,
+            heldActor = actor,
+            stayToken = stayToken,
         }
     else
         ownedLootPane.page = lootPage
         ownedLootPane.ourContainer = inventory
+        ownedLootPane.heldActor = actor
+        ownedLootPane.stayToken = stayToken
     end
     local shown = pcall(function()
         -- This mirrors vanilla B42 ISOpenContainerTimedAction on the existing
@@ -133,6 +155,7 @@ function Bridge.openInventory(actor, player)
         end
     end)
     if not shown then
+        Bridge.restoreInventory()
         return failure("UI_SC_Disabled_NoInventoryUI")
     end
     local selected = not lootPage.inventoryPane or lootPage.inventoryPane.inventory == inventory
@@ -141,6 +164,7 @@ function Bridge.openInventory(actor, player)
         visible = safeMethod(lootPage, "isVisible")
     end
     if not selected or visible == false or lootPage.isCollapsed == true then
+        Bridge.restoreInventory()
         return failure("UI_SC_Disabled_NoInventoryUI")
     end
     return true
@@ -153,6 +177,12 @@ function Bridge.restoreInventory()
     local snap = ownedLootPane
     if snap == nil then return true, "not_owned" end
     ownedLootPane = nil
+    -- Release the companion even if the player replaced our container or the UI
+    -- page disappeared; pane ownership and movement ownership are independent.
+    if snap.heldActor and SC.Commands
+        and type(SC.Commands.endTemporaryStay) == "function" then
+        pcall(SC.Commands.endTemporaryStay, snap.heldActor, snap.stayToken)
+    end
     local lootPage = snap.page
     if type(lootPage) ~= "table" then return true, "page_unavailable" end
     -- Only revert while the pane still shows the companion container we set. If
@@ -170,6 +200,23 @@ function Bridge.restoreInventory()
         lootPage.collapseCounter = snap.collapseCounter
     end)
     return true, "restored"
+end
+
+-- The vanilla pane can be closed or switched independently of our panel. Release
+-- the borrowed movement hold as soon as that happens, instead of waiting for the
+-- user to leave Loadout or close Living Fellows itself.
+function Bridge.maintainInventory()
+    local snap = ownedLootPane
+    if snap == nil then return true, "not_owned" end
+    local lootPage = snap.page
+    if type(lootPage) ~= "table" then return Bridge.restoreInventory() end
+    local current = lootPage.inventoryPane and lootPage.inventoryPane.inventory or nil
+    local visible = safeMethod(lootPage, "getIsVisible")
+    if visible == nil then visible = safeMethod(lootPage, "isVisible") end
+    if current ~= snap.ourContainer or visible == false or lootPage.isCollapsed == true then
+        return Bridge.restoreInventory()
+    end
+    return true, "owned"
 end
 
 function Bridge.openHealth(actor, player, openFunction, describeFunction)

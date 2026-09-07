@@ -509,10 +509,15 @@ local function zombie(x, y, options)
         return self.attacking == true
     end
     function value:getTarget() return self.target end
+    function value:getTargetSeenTime() return self.targetSeenTimeSet or 0 end
     function value:setTargetSeenTime(seconds)
         self.targetSeenTimeSet = seconds
         self.targetSeenCalls = (self.targetSeenCalls or 0) + 1
     end
+    function value:getAttackOutcome() return self.attackOutcome end
+    function value:getAttackDidDamage() return self.attackDidDamage == true end
+    value.attackOutcome = settings.attackOutcome
+    value.attackDidDamage = settings.attackDidDamage == true
     function value:getSurroundingAttackingZombies() return 0 end
     function value:isUseless() return false end
     function value:spotted(target, forced)
@@ -703,6 +708,38 @@ do
             and SurvivorCompanion.Commands.peek(recruitedRestore).rideWithPlayer == true
             and recruitedRestore.modData.SC_Recruited == true,
         "explicit recruited save state remains authoritative and old saves default Ride with player on")
+
+    registry[recruitedRestore.id] = recruitedRestore
+    local stableOrder = SurvivorCompanion.Commands.peek(recruitedRestore).order
+    local stableDataOrder = recruitedRestore.modData.SC_Order
+    local stayToken = SurvivorCompanion.Commands.beginTemporaryStay(
+        recruitedRestore, "inventory_test")
+    local effectiveStay = SurvivorCompanion.Commands.effective(recruitedRestore)
+    check(type(stayToken) == "table" and effectiveStay.order == "stay"
+            and effectiveStay.scavenge == false
+            and SurvivorCompanion.Commands.peek(recruitedRestore).order == stableOrder
+            and recruitedRestore.modData.SC_Order == stableDataOrder,
+        "temporary inventory Stay changes only the effective order, never saved command state")
+    check(SurvivorCompanion.Commands.issue(
+            recruitedRestore.id, "set_scavenge", false, player)
+            and SurvivorCompanion.Commands.isTemporaryStay(recruitedRestore),
+        "a non-movement setting does not accidentally release the inventory hold")
+    local releasedStay, releasedStayReason = SurvivorCompanion.Commands.endTemporaryStay(
+        recruitedRestore, stayToken)
+    check(releasedStay and releasedStayReason == "temporary_stay_released"
+            and SurvivorCompanion.Commands.effective(recruitedRestore).order == stableOrder,
+        "closing inventory releases the hold back to the unchanged original order")
+    local supersededToken = SurvivorCompanion.Commands.beginTemporaryStay(
+        recruitedRestore, "inventory_test")
+    check(SurvivorCompanion.Commands.issue(recruitedRestore.id, "stay", nil, player),
+        "a real Stay command can supersede a temporary inventory hold")
+    local superseded, supersededReason = SurvivorCompanion.Commands.endTemporaryStay(
+        recruitedRestore, supersededToken)
+    check(superseded and supersededReason == "superseded_by_command"
+            and SurvivorCompanion.Commands.peek(recruitedRestore).order == "stay",
+        "closing inventory never overwrites an order issued while the pane was open")
+    SurvivorCompanion.Commands.reset(recruitedRestore)
+    registry[recruitedRestore.id] = nil
 end
 
 local zed = zombie(1, 0, { attacking = true, target = fellow })
@@ -711,17 +748,16 @@ local defaultsChanged = pcall(function() SurvivorCompanion.GameplayUtil.Defaults
 check(not defaultsChanged, "gameplay defaults must be immutable")
 
 do
-    -- A zombie that already targets a non-local companion, standing within hold
-    -- radius but outside grab reach, must have its "recently seen" clock refreshed
-    -- through the native setTargetSeenTime setter so it commits to a swing. The old
-    -- code wrote zombie.timeSinceSeenFlesh directly, which throws in Kahlua and never
-    -- landed, so zombies approached companions without ever attacking.
+    -- A zombie that already targets a non-local companion must accumulate the
+    -- stock target-seen grace period. Resetting this value to zero every frame held
+    -- the zombie forever in the arms-out grace pose and applied invisible damage.
     local seenRefreshZombie = zombie(2, 0, { target = fellow })
     local resolveOk = pcall(SurvivorCompanion.ZombieAttack.resolve, fellow, 100000, { seenRefreshZombie })
+    SurvivorCompanion.ZombieAttack.resolve(fellow, 100600, { seenRefreshZombie })
     check(resolveOk
-            and seenRefreshZombie.targetSeenCalls == 1
-            and seenRefreshZombie.targetSeenTimeSet == 0,
-        "incoming-attack resolve refreshes a targeting zombie's seen-time via the native setter")
+            and seenRefreshZombie.targetSeenCalls == 2
+            and seenRefreshZombie.targetSeenTimeSet >= 0.6,
+        "incoming-attack resolve advances the native attack-animation grace timer")
     seenRefreshZombie.dead = true
 end
 
@@ -755,7 +791,9 @@ do
     SurvivorCompanion.ZombieAttack.reset()
     local edgeBody, edgePart = woundableBody()
     local edgeVictim = actor("sc-edge-victim", 20, 20, { body = edgeBody })
-    local edgeZombie = zombie(21, 20, { target = edgeVictim, attacking = true })
+    local edgeZombie = zombie(21, 20, {
+        target = edgeVictim, attacking = true, attackOutcome = "success",
+    })
     local clockE = 500000
     local originalZombRand = ZombRand
     ZombRand = function(maximum)
@@ -779,6 +817,18 @@ do
     local _, _, s4 = SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
     check(s4.applied == 1,
         "a fresh swing after the zombie leaves and re-enters its attack lands another wound")
+    edgeZombie.attacking = false
+    edgeZombie.attackOutcome = nil
+    SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE + 50, { edgeZombie })
+    edgeZombie.attacking = true
+    edgeZombie.attackOutcome = "success"
+    edgeZombie.attackDidDamage = true
+    local healthBeforeNative = edgePart.health
+    local _, _, nativeSwing = SurvivorCompanion.ZombieAttack.resolve(
+        edgeVictim, clockE + 400, { edgeZombie })
+    check(nativeSwing.landed == 1 and nativeSwing.applied == 0
+            and edgePart.health == healthBeforeNative,
+        "a native Build 42 attack collision is not followed by a duplicate fallback wound")
     SurvivorCompanion.ZombieAttack.reset()
     ZombRand = originalZombRand
     edgeZombie.dead = true
@@ -2923,6 +2973,41 @@ local fought, combatAction = SurvivorCompanion.Combat.update(fellow, player, com
 check(fought and fellow.lastIntent and (fellow.lastIntent.action == "shove" or fellow.lastIntent.action == "attack_melee"), "combat selects a close self-preservation action")
 
 do
+local cleaver = item("Base.MeatCleaver", "Weapon", {
+    damage = 1.6, range = 1.25, sharpness = 1,
+    weaponCategories = { "SmallBlade" },
+})
+local cleaverActor = actor("sc-cleaver-primary", 30, 30, {
+    inventory = inventory({ cleaver }),
+})
+cleaverActor.primary = cleaver
+registry[cleaverActor.id] = cleaverActor
+local cleaverZed = zombie(31, 30, { attacking = true, target = cleaverActor })
+local cleaverSnapshot = {
+    threats = { { actor = cleaverZed, square = cleaverZed.square, distanceSq = 1,
+        visible = true, obstructed = false, attacking = true, score = 90 } },
+    allies = {}, escapeSquares = {}, threatCount = 1, immediateCount = 1,
+    closeImmediateCount = 1, closeThreatCount = 1, occupiedThreatSectors = 1,
+    pressure = 1, encircled = false, player = { danger = 0, immediateThreats = 0 },
+}
+local cleaverActed, cleaverReason = SurvivorCompanion.Combat.update(
+    cleaverActor, player, { snapshot = cleaverSnapshot })
+check(cleaverActed and cleaverReason == "melee"
+        and cleaverActor.lastIntent.action == "attack_melee"
+        and cleaverActor.lastIntent.weapon == cleaver,
+    "an equipped meat cleaver attacks instead of losing the close-range choice to shove")
+cleaverZed.onFloor = true
+local cleaverStomped, cleaverStompReason = SurvivorCompanion.Combat.update(
+    cleaverActor, player, { snapshot = cleaverSnapshot })
+check(cleaverStomped and cleaverStompReason == "stomp"
+        and cleaverActor.lastIntent.action == "stomp",
+    "a safe grounded zombie is stomped even while the companion carries a melee weapon")
+SurvivorCompanion.Combat.reset(cleaverActor)
+registry[cleaverActor.id] = nil
+cleaverZed.dead = true
+end
+
+do
 local approachClock = clock
 local approachConfig = SurvivorCompanion.Config.values
 local savedShoveDistance = approachConfig.combatShoveDistance
@@ -3013,6 +3098,13 @@ end
 do
 local stompStartClock = clock
 local stompActor = actor("sc-shove-stomp", 8, -7, { inventory = inventory() })
+-- Keep this fixture genuinely unarmed; normal command initialization may assign
+-- a keepsake, and the deliberately broad table mock gives every item weapon-like
+-- accessors even though the live Photo/Journal classes are not HandWeapons.
+local savedPersonalEnsure = SurvivorCompanion.PersonalItems.ensure
+SurvivorCompanion.PersonalItems.ensure = function(_, source) return source or {} end
+SurvivorCompanion.Commands.peek(stompActor)
+SurvivorCompanion.PersonalItems.ensure = savedPersonalEnsure
 local stompZed = zombie(9, -7, { attacking = true, target = stompActor })
 registry[stompActor.id] = stompActor
 local stompSnapshot = {
@@ -3028,6 +3120,15 @@ check(shoved and stompActor.lastIntent and stompActor.lastIntent.action == "shov
     "an unarmed companion shoves a single close zombie")
 clock = clock + 350
 stompZed.onFloor = true
+stompZed.square = cell:getGridSquare(10, -7, 0)
+local approachedStomp, approachedStompReason = SurvivorCompanion.Combat.update(
+    stompActor, player, { snapshot = stompSnapshot })
+check(approachedStomp and approachedStompReason == "approach_stomp_after_shove"
+        and stompActor.lastIntent.action == "combat_approach"
+        and stompActor.lastIntent.stompFollowUp == true,
+    "a shove-displaced grounded zombie is approached instead of losing the stomp follow-up")
+clock = clock + 100
+stompZed.square = cell:getGridSquare(9, -7, 0)
 local stomped, stompReason = SurvivorCompanion.Combat.update(
     stompActor, player, { snapshot = stompSnapshot })
 check(stomped and stompReason == "stomp_after_shove"
@@ -3746,6 +3847,48 @@ check(scavenged and not openedFood.used, "scavenging ignores player-opened conta
 local foundSafeFood = false
 for _, value in ipairs(fellow.inventory.items) do if value == safeFood then foundSafeFood = true end end
 check(foundSafeFood, "scavenging transfers a needed item from an unvisited reserved container")
+
+do
+    local decisionScavenger = actor("sc-decision-scavenger", 0, 2, {})
+    registry[decisionScavenger.id] = decisionScavenger
+    SurvivorCompanion.Commands.issue(decisionScavenger.id, "set_scavenge", true, player)
+    local commandView = SurvivorCompanion.Commands.peek(decisionScavenger)
+    local safeSnapshot = {
+        threats = {}, immediateAttackers = {}, allies = {}, escapeSquares = {},
+        threatCount = 0, immediateCount = 0, pressure = 0, indoors = false,
+        player = { danger = 0, immediateThreats = 0 },
+    }
+    local savedAutonomy = SurvivorCompanion.Autonomy
+    SurvivorCompanion.Autonomy = nil
+    player.moving = false
+    local stoppedCandidates = SurvivorCompanion.Decision._evaluateForTests(
+        decisionScavenger, player, safeSnapshot, commandView,
+        { alive = true, health = 100, wounds = {} }, {}, {}, clock)
+    check(stoppedCandidates[1] and stoppedCandidates[1].kind == "scavenge",
+        "checked scavenging beats a no-op formation hold while the player is stopped")
+    player.moving = true
+    local movingCandidates = SurvivorCompanion.Decision._evaluateForTests(
+        decisionScavenger, player, safeSnapshot, commandView,
+        { alive = true, health = 100, wounds = {} }, {}, {}, clock)
+    check(movingCandidates[1] and movingCandidates[1].kind == "follow",
+        "opportunistic scavenging never pulls a companion away from a moving leader")
+    player.moving = false
+    local originalEncounterPeek = SurvivorCompanion.Encounter.peek
+    SurvivorCompanion.Encounter.peek = function(subject)
+        if subject == decisionScavenger then return { containerSearch = {} } end
+        return originalEncounterPeek(subject)
+    end
+    local activeCandidates = SurvivorCompanion.Decision._evaluateForTests(
+        decisionScavenger, player, safeSnapshot, commandView,
+        { alive = true, health = 100, wounds = {} }, {}, {}, clock)
+    SurvivorCompanion.Encounter.peek = originalEncounterPeek
+    SurvivorCompanion.Autonomy = savedAutonomy
+    check(activeCandidates[1] and activeCandidates[1].kind == "scavenge"
+            and activeCandidates[1].score >= 76,
+        "an active bounded scavenging search retains enough priority to finish")
+    SurvivorCompanion.Commands.reset(decisionScavenger)
+    registry[decisionScavenger.id] = nil
+end
 
 do
 local stagedFood = item("Base.CannedChili", "Food")

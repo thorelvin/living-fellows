@@ -994,8 +994,35 @@ local function tryShoveFollowUp(actor, state, snapshot, now)
     end
     local maximum = U().config("combatStompDistance") or 1.55
     if U().distanceSq(actor, target) > maximum * maximum then
-        state.shoveFollowUp = nil
-        return nil, "stomp_followup_out_of_range"
+        -- A successful shove commonly leaves the zombie just beyond immediate
+        -- stomp range. Keep the short-lived follow-up and close on its head rather
+        -- than discarding the finisher at the exact moment it becomes available.
+        local pursuit = U().config("combatStompPursuitDistance") or 3.25
+        if U().distanceSq(actor, target) > pursuit * pursuit then
+            state.shoveFollowUp = nil
+            return nil, "stomp_followup_out_of_range"
+        end
+        local headSquare = select(1, U().call(target, "getHeadSquare", actor))
+        local ax, ay = U().position(actor)
+        local hxValue = headSquare and select(1, U().call(headSquare, "getX")) or nil
+        local hyValue = headSquare and select(1, U().call(headSquare, "getY")) or nil
+        local hx = tonumber(hxValue)
+        local hy = tonumber(hyValue)
+        local tx, ty = U().position(target)
+        hx, hy = hx or tx, hy or ty
+        if ax == nil or ay == nil or hx == nil or hy == nil then
+            state.shoveFollowUp = nil
+            return nil, "stomp_followup_position_unavailable"
+        end
+        local accepted = U().move(actor, "walk", {
+            action = "combat_approach",
+            dx = (hx + (headSquare and 0.5 or 0)) - ax,
+            dy = (hy + (headSquare and 0.5 or 0)) - ay,
+            target = target, facingTarget = target, keepFacing = true,
+            weaponReady = true, stompFollowUp = true,
+        })
+        if not accepted then return nil, "stomp_followup_approach_rejected" end
+        return true, "approach_stomp_after_shove"
     end
     local accepted = U().move(actor, "walk", {
         action = "stomp", target = target, floorAttack = true,
@@ -1018,7 +1045,13 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
     local actions = {}
     local retreat = retreatUtility(actor, snapshot, weapon, readiness)
     actions[#actions + 1] = { kind = "retreat", score = retreat }
-    if distance <= (utility.config("combatShoveDistance") or 1.35) then
+    local grounded = findGroundedThreat(
+        { target }, utility.config("combatStompDistance") or 1.55)
+    -- A carried melee weapon is the normal close-range answer. Offering the
+    -- generic shove beside it made shove's higher base score beat axes/cleavers.
+    -- Firearms may still shove at contact, and unarmed combat still relies on it.
+    if not grounded and (not weapon or weapon.ranged)
+        and distance <= (utility.config("combatShoveDistance") or 1.35) then
         actions[#actions + 1] = {
             kind = "shove",
             score = 62 + pressure * 7 + readiness.strength * 1.3
@@ -1026,14 +1059,15 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                 + (isolatedFront and 10 or -8),
         }
     end
-    local grounded = findGroundedThreat({ target }, 1.45)
     if grounded and readiness.immediate <= 1 and isolatedFront then
         actions[#actions + 1] = {
             kind = "stomp",
-            score = 68 + readiness.strength * 0.8 - fatiguePenalty * 0.45,
+            -- A safe grounded target is a fleeting opportunity. Make the finisher
+            -- decisive so spacing/retreat utilities cannot moonwalk away from it.
+            score = 108 + readiness.strength * 0.8 - fatiguePenalty * 0.45,
         }
     end
-    if weapon then
+    if weapon and not grounded then
         if weapon.ranged then
             if weapon.jammed then
                 -- A jammed firearm must be racked clear before it can fire or
@@ -1122,7 +1156,7 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                 }
             end
         end
-    else
+    elseif not weapon and not grounded then
         actions[#actions + 1] = { kind = distance <= 1.35 and "shove" or "escape", score = 58 + pressure * 8 }
     end
     return utility.sortByScoreDescending(actions), distance

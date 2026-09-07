@@ -118,29 +118,25 @@ local function applyWound(actor, kind)
     return true, kind
 end
 
--- Is this zombie mid-attack on the companion right now? A zombie standing in its
--- AttackState/LungeState adjacent to its target is exactly the moment a regular
--- player takes the hit, so we key the wound to that (one per attacker per
--- cooldown). attackOutcome "success" and isZombieAttacking are looser fallbacks;
--- the swing lunge can carry the zombie a little past melee reach as it resolves,
--- so the completed-swing signal uses the wider hold radius.
+-- Has this zombie's visible attack animation reached its impact phase? Entering
+-- AttackState is too early: its first half-second is a grace pose with arms held
+-- out. Damage at state entry looked like an invisible bite. Build 42 changes the
+-- outcome to "success" from the animation's SetAttackOutcome event, and records
+-- whether the native collision already wrote damage.
 local function isLandingAttack(zombie, actor)
     if U().isZombie(zombie) ~= true or U().isDead(zombie) == true then return false end
     if select(1, U().call(zombie, "getTarget")) ~= actor then return false end
     local distance = U().distance(zombie, actor)
     if distance == math.huge then return false end
-    local reach = config("zombieAttackReach", 1.3)
-    if distance <= reach then
-        local state = tostring(select(1, U().call(zombie, "getCurrentState")))
-        if state:find("AttackState") or state:find("LungeState") then return true end
-        if select(1, U().call(zombie, "isZombieAttacking", actor)) == true then return true end
-        if select(1, U().call(zombie, "isZombieAttacking")) == true then return true end
+    if distance > config("zombieAttackHoldRadius", 3.0) then return false end
+    local stateName = tostring(select(1, U().call(zombie, "getCurrentState")))
+    local attacking = stateName:find("AttackState") ~= nil
+        or select(1, U().call(zombie, "isZombieAttacking", actor)) == true
+    if not attacking then return false end
+    if tostring(select(1, U().call(zombie, "getAttackOutcome"))) ~= "success" then
+        return false
     end
-    if distance <= config("zombieAttackHoldRadius", 3.0)
-        and tostring(select(1, U().call(zombie, "getAttackOutcome"))) == "success" then
-        return true
-    end
-    return false
+    return true, select(1, U().call(zombie, "getAttackDidDamage")) == true
 end
 
 -- Knock the companion to the ground the way an overwhelming zombie grab does,
@@ -307,24 +303,29 @@ function ZombieAttack.resolve(actor, current, zombies)
                 pile = pile + 1
             end
         end
-        if not targetsMe then return end
+        local swing = swings[zombie]
+        if not targetsMe then
+            if swing then
+                swing.resolved = false
+                swing.lastSightAt = nil
+            end
+            return
+        end
         targeting = targeting + 1
         -- The stock vision loop only scans the local players[] array, so it never
-        -- re-sees a detached companion: the zombie's "seen flesh" timer runs past
-        -- its memory and it drops the lock between targeting scans, lapsing out of
-        -- the swing. Out-of-band spotted() would hold the lock but re-faces the
-        -- zombie mid-swing and interrupts it. So we refresh only the two sight
-        -- values continuous vision itself keeps -- exactly what "keep seeing this
-        -- flesh" means -- without touching AI, damage or decisions.
+        -- re-sees a detached companion. Out-of-band spotted() can re-face a zombie
+        -- mid-swing, so advance only targetSeenTime here. Critically, do not reset
+        -- it to zero: the stock attack animset deliberately holds its grace pose
+        -- while targetSeenTime < 0.5 and starts the visible bite only afterwards.
         if U().distance(zombie, actor) <= holdRadius then
-            -- Refresh the zombie's "recently seen target" clock so it commits to a
-            -- swing. Stock continuous vision only refreshes this against the local
-            -- players[] array, so a non-local companion's target-seen time runs out
-            -- and the zombie approaches without ever attacking. Drive the native
-            -- setter: a raw Java-field write (zombie.timeSinceSeenFlesh = 0) throws
-            -- "attempted index of non-table" every frame in this Kahlua build, so the
-            -- old refresh never actually landed and zombies never bit companions.
-            U().call(zombie, "setTargetSeenTime", 0)
+            if not swing then swing = {} swings[zombie] = swing end
+            local previous = tonumber(swing.lastSightAt) or current
+            local elapsed = math.max(0, current - previous) / 1000
+            local seen = number(zombie, "getTargetSeenTime") or 0
+            U().call(zombie, "setTargetSeenTime", math.min(10, seen + elapsed))
+            swing.lastSightAt = current
+        elseif swing then
+            swing.lastSightAt = nil
         end
         -- Edge-triggered wound application: one wound per swing episode.
         -- isLandingAttack is level-true for the whole time the zombie is mid-swing
@@ -335,15 +336,20 @@ function ZombieAttack.resolve(actor, current, zombies)
         -- and hold it until the zombie leaves the attack, so each distinct swing
         -- lands exactly once. A short reswing floor absorbs sub-swing state flicker
         -- without suppressing a real follow-up swing.
-        local swing = swings[zombie]
-        if isLandingAttack(zombie, actor) then
+        local landing, nativeDamage = isLandingAttack(zombie, actor)
+        if landing then
             landed = landed + 1
             if not swing then swing = {} swings[zombie] = swing end
             if swing.resolved ~= true
                 and (swing.at == nil or current - swing.at >= reswingFloor) then
                 swing.resolved = true
                 swing.at = current
-                if applyWound(actor, rollWound(biteChance)) then applied = applied + 1 end
+                -- The stock collision may now work for this IsoPlayer subtype. Do
+                -- not double-wound it; retain the fallback only when the visible
+                -- impact event succeeded without native body-damage application.
+                if not nativeDamage and applyWound(actor, rollWound(biteChance)) then
+                    applied = applied + 1
+                end
             end
         elseif swing ~= nil then
             -- Episode closed: the zombie left the attack, so the next commit is a
