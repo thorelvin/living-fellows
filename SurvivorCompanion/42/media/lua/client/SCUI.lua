@@ -6,6 +6,7 @@ require "ISUI/ISTickBox"
 require "ISUI/ISComboBox"
 require "ISUI/ISLabel"
 require "ISUI/ISScrollingListBox"
+require "ISUI/ISModalDialog"
 require "SCUIBounds"
 require "SCUIBridge"
 require "SCUIFormat"
@@ -48,20 +49,19 @@ end
 
 UI._hotkeyRegistered = registerHotkey()
 
--- Tabs shown in the main row. Base and Health (folded into Loadout) are kept
--- prominent; Groups/Factions/Journal/Support are reached through the More
--- launcher and so are not listed here (but remain valid views below).
+-- Keep the main navigation stable and task-oriented. Less frequently used
+-- management and support screens remain valid views reached through More.
 local TAB_IDS = {
-    "status", "orders", "loadout", "base", "more",
+    "status", "orders", "groups", "loadout", "more",
 }
 local TAB_KEYS = {
     status = "UI_SC_Tab_Status",
     orders = "UI_SC_Tab_Orders",
+    groups = "UI_SC_Tab_Squad",
     loadout = "UI_SC_Tab_Loadout",
     base = "UI_SC_Tab_Base",
     more = "UI_SC_Tab_More",
-    -- Secondary views opened from the More launcher (not in the tab row):
-    groups = "UI_SC_Tab_Groups",
+    -- Secondary views opened from the More launcher (not in the tab row).
     factions = "UI_SC_Tab_Factions",
     journal = "UI_SC_Tab_Journal",
     support = "UI_SC_Tab_Support",
@@ -71,12 +71,16 @@ local TAB_KEYS = {
 function UI.tabIds()
     local result = {}
     for _, id in ipairs(TAB_IDS) do result[#result + 1] = id end
-    if SC.Config and type(SC.Config.get) == "function"
-        and SC.Config.get("debugSpawnEnabled") == true then
-        result[#result + 1] = "debug"
-    end
     return result
 end
+
+local MORE_TABS = {
+    base = true,
+    factions = true,
+    journal = true,
+    support = true,
+    debug = true,
+}
 
 local COMBAT_DOCTRINES = {
     { id = "stealth", key = "UI_SC_Doctrine_Stealth" },
@@ -123,6 +127,45 @@ local GROUPS = {
     { id = "alpha", key = "UI_SC_Select_GroupAlpha" },
     { id = "bravo", key = "UI_SC_Select_GroupBravo" },
     { id = "charlie", key = "UI_SC_Select_GroupCharlie" },
+}
+
+-- Shared descriptors keep panel and context-menu vocabulary in sync while
+-- allowing each surface to choose the depth appropriate to it.
+UI.commandGroups = {
+    essentialTalk = {
+        { key = "UI_SC_Action_Doing", command = "doing" },
+        { key = "UI_SC_Action_Status", command = "status" },
+        { key = "UI_SC_Action_Needs", command = "needs" },
+        { key = "UI_SC_Action_Encourage", command = "encourage" },
+        { key = "UI_SC_Action_Praise", command = "praise" },
+    },
+    journalTalk = {
+        { key = "UI_SC_Action_Memory", command = "memory" },
+        { key = "UI_SC_Action_Background", command = "background" },
+        { key = "UI_SC_Action_Opinion", command = "opinion" },
+        { key = "UI_SC_Action_Relationship", command = "relationship" },
+        { key = "UI_SC_Action_Plans", command = "plans" },
+    },
+    personalOrders = {
+        { key = "UI_SC_Action_Follow", command = "follow" },
+        { key = "UI_SC_Action_Stay", command = "stay" },
+        { key = "UI_SC_Action_Guard", command = "guard" },
+        { key = "UI_SC_Action_Regroup", command = "regroup" },
+        { key = "UI_SC_Action_Retreat", command = "retreat" },
+    },
+    squadMovementSignals = {
+        { key = "UI_SC_Action_WhistleRegroup", signal = "whistle" },
+        { key = "UI_SC_Action_HandSignFollow", signal = "follow" },
+        { key = "UI_SC_Action_HandSignHold", signal = "hold" },
+        { key = "UI_SC_Action_HandSignRegroup", signal = "regroup" },
+        { key = "UI_SC_Action_HandSignCautious", signal = "cautious" },
+        { key = "UI_SC_Action_HandSignMoveOut", signal = "move_out" },
+        { key = "UI_SC_Action_HandSignFallBack", signal = "fall_back" },
+    },
+    squadFireSignals = {
+        { key = "UI_SC_Action_HandSignCeaseFire", signal = "cease_fire" },
+        { key = "UI_SC_Action_HandSignFire", signal = "fire" },
+    },
 }
 
 function UI.normalizeTab(tab)
@@ -777,6 +820,19 @@ function UI.commandAvailability(row, command, payload)
     return true, nil
 end
 
+function UI.bandageAvailability(row, activePlayer)
+    if not row or row.recruited ~= true or not row.id or not SC.Medical
+        or type(SC.Medical.playerBandagePreflight) ~= "function"
+        or not SC.Registry or type(SC.Registry.byId) ~= "function" then
+        return false
+    end
+    local ok, record = pcall(SC.Registry.byId, row.id)
+    if not ok or type(record) ~= "table" or not record.actor then return false end
+    local checked, ready = pcall(SC.Medical.playerBandagePreflight,
+        record.actor, activePlayer or playerForUI())
+    return checked and ready == true
+end
+
 function UI.signalAvailability(root, signal, activePlayer)
     local player = activePlayer or playerForUI()
     if not player then
@@ -849,8 +905,28 @@ local function setButtonFeedback(target, message, success)
     target.feedbackUntil = now + 4500
 end
 
-local function onCommandButton(target, button)
-    local row = target.root and target.root.selectedRow or nil
+local function dismissDialogAnswer(request, answer)
+    if answer and answer.internal == "YES" and request
+        and type(request.execute) == "function" then
+        request.execute()
+    end
+end
+
+function UI.confirmDismiss(companionName, execute)
+    if type(execute) ~= "function" or not ISModalDialog then return false end
+    local request = { execute = execute }
+    local modal = ISModalDialog:new(0, 0, 350, 150,
+        UI.text("UI_SC_Dismiss_Confirm", companionName or unknownValue()),
+        true, request, dismissDialogAnswer, nil)
+    modal:initialise()
+    modal.moveWithMouse = true
+    modal:addToUIManager()
+    if type(modal.setAlwaysOnTop) == "function" then modal:setAlwaysOnTop(true) end
+    return true
+end
+
+local function issueCommandButton(target, button, requestedRow)
+    local row = requestedRow or target.root and target.root.selectedRow or nil
     local available = UI.commandAvailability(row, button.scCommand, button.scPayload)
     if not available then
         return false
@@ -890,6 +966,21 @@ local function onCommandButton(target, button)
         UI.refresh()
     end
     return ok and accepted ~= false
+end
+
+local function onCommandButton(target, button)
+    local row = target.root and target.root.selectedRow or nil
+    local available = UI.commandAvailability(row, button.scCommand, button.scPayload)
+    if not available then return false end
+    if button.scCommand == "dismiss" then
+        UI.confirmDismiss(row.name, function()
+            -- Bind the confirmation to the companion named in the prompt even
+            -- if selection changes while the modal is open.
+            issueCommandButton(target, button, row)
+        end)
+        return false
+    end
+    return issueCommandButton(target, button)
 end
 
 local function onBooleanCommand(target, index, selected, command, payloadKey, tickBox)
@@ -1782,10 +1873,20 @@ end
 
 function SCUIDetail:buildStatus(panel, row)
     local y = 7
-    -- Recruitment is the primary action for a neutral encounter. Keep it
-    -- visible without scrolling, then remove it entirely once accepted.
     if row and row.recruited ~= true then
         y = self:addCommand(panel, y, "UI_SC_Action_Recruit", "recruit", nil)
+        y = y + 4
+    end
+    -- Requests are time-sensitive, so they stay above the general readout.
+    if row and type(row.pendingRequest) == "table"
+        and row.pendingRequest.kind == "supply_run" then
+        y = self:addSection(panel, y, "UI_SC_Section_Request")
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Request",
+            UI.text("UI_SC_Request_SupplyRun"))
+        y = self:addAutonomyAction(panel, y, "UI_SC_Request_Soon", "soon")
+        y = self:addAutonomyAction(panel, y, "UI_SC_Request_ComeWithMe", "come_with_me")
+        y = self:addAutonomyAction(panel, y, "UI_SC_Request_NotNow", "not_now")
+        y = self:addAutonomyAction(panel, y, "UI_SC_Request_CannotSpare", "cannot_spare")
         y = y + 4
     end
     y = self:addSection(panel, y, "UI_SC_Section_Status")
@@ -1807,59 +1908,16 @@ function SCUIDetail:buildStatus(panel, row)
         y = self:addInformationLine(panel, y, "UI_SC_Info_Order", UI.stateText(row.order))
         y = self:addInformationLine(panel, y, "UI_SC_Info_Intent", UI.stateText(row.intent or row.activity))
         y = self:addInformationLine(panel, y, "UI_SC_Info_Distance", UI.distanceText(row.distance))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Scavenging", UI.booleanText(row.scavenge))
-        if type(row.scavengeStatus) == "table" then
-            if row.scavengeStatus.phase then
-                local statusText = row.scavengeStatus.itemName
-                    and (UI.stateText(row.scavengeStatus.phase) .. ": "
-                        .. tostring(row.scavengeStatus.itemName))
-                    or UI.stateText(row.scavengeStatus.phase)
-                if row.scavengeStatus.progress and row.scavengeStatus.total then
-                    statusText = statusText .. " " .. tostring(row.scavengeStatus.progress)
-                        .. "/" .. tostring(row.scavengeStatus.total)
-                end
-                if row.scavengeStatus.destinationName then
-                    statusText = statusText .. " -> " .. tostring(row.scavengeStatus.destinationName)
-                elseif row.scavengeStatus.destination then
-                    statusText = statusText .. " -> " .. UI.stateText(row.scavengeStatus.destination)
-                end
-                y = self:addInformationLine(panel, y, "UI_SC_Info_ScavengeStatus", statusText)
-            end
-            local lastLoot = row.scavengeStatus.lastLoot
-            if type(lastLoot) == "table" and lastLoot.name then
-                local destination = lastLoot.destinationName or lastLoot.destination
-                local lastText = tostring(lastLoot.name)
-                if destination then lastText = lastText .. " -> " .. UI.stateText(destination) end
-                y = self:addInformationLine(panel, y, "UI_SC_Info_LastLoot", lastText)
-            end
-        end
-        -- Character and relationship readout: the heart of a Living Fellows
-        -- companion. (Carried gear/supplies/load moved to the Loadout tab, and
-        -- the combat/follow/group settings live on their own tabs, so they are
-        -- not repeated here.)
-        y = self:addInformationLine(panel, y, "UI_SC_Info_WorkMode", UI.stateText(row.workMode))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Background",
-            row.backgroundLabel or unknownValue())
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Personality", UI.summaryText(row.personality))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Trust", numericText(row.trust, 0))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Bond", numericText(row.bond, 0))
+        y = self:addSection(panel, y + 4, "UI_SC_Section_RelationshipSummary")
         y = self:addInformationLine(panel, y, "UI_SC_Info_Mood", UI.stateText(row.mood))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Relationship", UI.stateText(row.relationshipTier))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_CurrentNeed", UI.stateText(row.currentNeed))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_RecentMemory", UI.summaryText(row.recentMemory))
         if type(row.grief) == "table" then
             y = self:addInformationLine(panel, y, "UI_SC_Info_Grief",
                 UI.text("UI_SC_Info_GriefValue", row.grief.subjectName or unknownValue(),
                     UI.stateText(row.grief.stage),
                     numericText(row.grief.currentIntensity, 0)))
-        end
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Morale", numericText(row.morale, 0))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Stress", numericText(row.stress, 0))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_StressResponse",
-            row.stressResponseLabel or unknownValue())
-        y = self:addInformationLine(panel, y, "UI_SC_Info_JoyResponse",
-            row.joyResponseLabel or unknownValue())
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Boredom", numericText(row.boredom, 0))
-        if type(row.topThoughts) == "table" and #row.topThoughts > 0 then
-            y = self:addInformationLine(panel, y, "UI_SC_Info_Thoughts",
-                table.concat(row.topThoughts, "; "))
         end
         if row.currentExpectation then
             y = self:addInformationLine(panel, y, "UI_SC_Info_Expectation",
@@ -1869,56 +1927,11 @@ function SCUIDetail:buildStatus(panel, row)
             y = self:addInformationLine(panel, y, "UI_SC_Info_MentalEpisode",
                 UI.stateText(row.activeEpisode))
         end
-        if row.inspiration then
-            y = self:addInformationLine(panel, y, "UI_SC_Info_Inspiration",
-                UI.stateText(row.inspiration))
-        end
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Relationship", UI.stateText(row.relationshipTier))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_CurrentNeed", UI.stateText(row.currentNeed))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_TimeTogether", numericText(row.timeTogetherHours, 1))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_RecentMemory", UI.summaryText(row.recentMemory))
     end
-    if row and type(row.pendingRequest) == "table"
-        and row.pendingRequest.kind == "supply_run" then
-        y = self:addSection(panel, y + 4, "UI_SC_Section_Request")
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Request",
-            UI.text("UI_SC_Request_SupplyRun"))
-        y = self:addAutonomyAction(panel, y, "UI_SC_Request_Soon", "soon")
-        y = self:addAutonomyAction(panel, y, "UI_SC_Request_ComeWithMe", "come_with_me")
-        y = self:addAutonomyAction(panel, y, "UI_SC_Request_NotNow", "not_now")
-        y = self:addAutonomyAction(panel, y, "UI_SC_Request_CannotSpare", "cannot_spare")
+    y = self:addSection(panel, y + 4, "UI_SC_Section_Talk")
+    for _, descriptor in ipairs(UI.commandGroups.essentialTalk) do
+        y = self:addCommand(panel, y, descriptor.key, descriptor.command, descriptor.payload)
     end
-    y = self:addSection(panel, y + 4, "UI_SC_Section_Signals")
-    y = self:addSignal(panel, y, "UI_SC_Action_WhistleRegroup", "whistle")
-    y = self:addSignal(panel, y, "UI_SC_Action_HandSignFollow", "follow")
-    y = self:addSignal(panel, y, "UI_SC_Action_HandSignHold", "hold")
-    y = self:addSignal(panel, y, "UI_SC_Action_HandSignRegroup", "regroup")
-    y = self:addSignal(panel, y, "UI_SC_Action_HandSignCautious", "cautious")
-    y = self:addSignal(panel, y, "UI_SC_Action_HandSignMoveOut", "move_out")
-    y = self:addSignal(panel, y, "UI_SC_Action_HandSignCeaseFire", "cease_fire")
-    y = self:addSignal(panel, y, "UI_SC_Action_HandSignFire", "fire")
-    y = self:addSignal(panel, y, "UI_SC_Action_HandSignFallBack", "fall_back")
-    y = self:addSection(panel, y + 4, "UI_SC_Section_Conversation")
-    y = self:addCommand(panel, y, "UI_SC_Action_Doing", "doing", nil)
-    y = self:addCommand(panel, y, "UI_SC_Action_Status", "status", nil)
-    y = self:addCommand(panel, y, "UI_SC_Action_Needs", "needs", nil)
-    y = self:addCommand(panel, y, "UI_SC_Action_Memory", "memory", nil)
-    y = self:addCommand(panel, y, "UI_SC_Action_Background", "background", nil)
-    y = self:addCommand(panel, y, "UI_SC_Action_Opinion", "opinion", nil)
-    y = self:addCommand(panel, y, "UI_SC_Action_Relationship", "relationship", nil)
-    y = self:addCommand(panel, y, "UI_SC_Action_Encourage", "encourage", nil)
-    y = self:addCommand(panel, y, "UI_SC_Action_Praise", "praise", nil)
-    y = self:addCommand(panel, y, "UI_SC_Action_Plans", "plans", nil)
-    if row and row.recruited == true then
-        y = self:addCommand(panel, y, "UI_SC_Action_Dismiss", "dismiss", nil)
-    end
-    y = self:addSection(panel, y + 4, "UI_SC_Section_Emotes")
-    y = self:addCommand(panel, y, "UI_SC_Action_EmoteGreet", "emote", { emote = "wavehi" })
-    y = self:addCommand(panel, y, "UI_SC_Action_EmoteAcknowledge", "emote", { emote = "signalok" })
-    y = self:addCommand(panel, y, "UI_SC_Action_EmoteThank", "emote", { emote = "thankyou" })
-    y = self:addCommand(panel, y, "UI_SC_Action_EmoteCelebrate", "emote", { emote = "clap" })
-    y = self:addCommand(panel, y, "UI_SC_Action_EmoteSalute", "emote", { emote = "salute" })
-    y = self:addCommand(panel, y, "UI_SC_Action_EmoteUnsure", "emote", { emote = "shrug" })
     return y
 end
 
@@ -1930,17 +1943,10 @@ function SCUIDetail:buildOrders(panel)
         row and row.order or nil, MAIN_ORDERS)
     y = self:addCommand(panel, y, "UI_SC_Action_Regroup", "regroup", nil)
     y = self:addCommand(panel, y, "UI_SC_Action_Retreat", "retreat", nil)
-    y = self:addSection(panel, y + 4, "UI_SC_Section_FollowDistance")
+    y = self:addSection(panel, y + 4, "UI_SC_Section_Movement")
     y = self:addCommandSelector(panel, y, "UI_SC_Select_FollowDistance",
         row and tonumber(row.followDistance) or 3, FOLLOW_DISTANCES,
         "set_follow_distance", "distance")
-    y = self:addSection(panel, y + 4, "UI_SC_Section_Scavenging")
-    y = self:addBooleanCommand(panel, y, "UI_SC_Toggle_Scavenging",
-        "set_scavenge", "scavenge", row and row.scavenge == true)
-    y = self:addSection(panel, y + 4, "UI_SC_Section_Work")
-    y = self:addCommandSelector(panel, y, "UI_SC_Select_WorkMode",
-        row and row.workMode or "auto", WORK_MODES, "set_work_mode", "mode")
-    y = self:addSection(panel, y + 4, "UI_SC_Section_Movement")
     y = self:addCommandSelector(panel, y, "UI_SC_Select_MovementMode",
         row and row.moveMode or "copy", MOVE_MODES, "set_move_mode", "mode")
     y = self:addSection(panel, y + 4, "UI_SC_Section_Combat")
@@ -1953,17 +1959,30 @@ function SCUIDetail:buildOrders(panel)
         "set_combat_doctrine", "doctrine")
     y = self:addCommand(panel, y, "UI_SC_Action_ApplyToAll", "set_combat_doctrine",
         { doctrine = row and row.combatDoctrine or "close_defense", scope = "team" })
+    y = self:addSection(panel, y + 4, "UI_SC_Section_WorkAutonomy")
+    y = self:addBooleanCommand(panel, y, "UI_SC_Toggle_Scavenging",
+        "set_scavenge", "scavenge", row and row.scavenge == true)
+    y = self:addCommandSelector(panel, y, "UI_SC_Select_WorkMode",
+        row and row.workMode or "auto", WORK_MODES, "set_work_mode", "mode")
     return y
 end
 
 function SCUIDetail:buildLoadout(panel, row)
     local y = 7
-    -- Everything a companion carries and its condition on one page: gear +
-    -- supplies/ammo/load (moved here from the old Overview) and health.
-    y = self:addSection(panel, y, "UI_SC_Section_Gear")
+    y = self:addSection(panel, y, "UI_SC_Section_Health")
     if not row then
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_NoSelection"))
     else
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Health", UI.healthText(row.health))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Wounds", UI.formatWounds(row.wounds))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Knox", UI.formatKnox(row.knox))
+    end
+    y = self:addCommand(panel, y, "UI_SC_Action_OpenHealth", "open_health", nil)
+    if UI.bandageAvailability(row, playerForUI()) then
+        y = self:addCommand(panel, y, "UI_SC_Action_Bandage", "bandage", nil)
+    end
+    y = self:addSection(panel, y + 4, "UI_SC_Section_Gear")
+    if row then
         y = self:addInformationLine(panel, y, "UI_SC_Info_EquippedWeapon",
             row.equippedWeapon or UI.text("UI_SC_State_none"))
         y = self:addInformationLine(panel, y, "UI_SC_Info_WeaponPriority",
@@ -1977,13 +1996,13 @@ function SCUIDetail:buildLoadout(panel, row)
         y = self:addInformationLine(panel, y, "UI_SC_Info_Load", loadText)
     end
     y = self:addCommand(panel, y, "UI_SC_Action_OpenInventory", "open_inventory", nil)
-    y = self:addSection(panel, y + 4, "UI_SC_Section_LoadPolicy")
-    y = self:addBooleanCommand(panel, y, "UI_SC_Toggle_AllowOverload",
-        "set_allow_overload", "allowOverload", row and row.allowOverload == true)
     y = self:addSection(panel, y + 4, "UI_SC_Section_WeaponPriority")
     y = self:addCommandSelector(panel, y, "UI_SC_Select_WeaponPriority",
         row and row.weaponPriority or "best", WEAPON_PRIORITIES,
         "set_weapon_priority", "priority")
+    y = self:addSection(panel, y + 4, "UI_SC_Section_LoadPolicy")
+    y = self:addBooleanCommand(panel, y, "UI_SC_Toggle_AllowOverload",
+        "set_allow_overload", "allowOverload", row and row.allowOverload == true)
     y = self:addSection(panel, y + 4, "UI_SC_Section_Vehicle")
     y = self:addBooleanCommand(panel, y, "UI_SC_Toggle_RideWithPlayer",
         "set_ride_with_player", "rideWithPlayer", row and row.rideWithPlayer ~= false)
@@ -2006,26 +2025,41 @@ function SCUIDetail:buildLoadout(panel, row)
                 "exit_vehicle", nil)
         end
     end
-    y = self:addSection(panel, y + 4, "UI_SC_Section_Health")
-    if not row then
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_NoSelection"))
-    else
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Health", UI.healthText(row.health))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Wounds", UI.formatWounds(row.wounds))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Knox", UI.formatKnox(row.knox))
-    end
-    y = self:addSection(panel, y + 4, "UI_SC_Section_HealthActions")
-    y = self:addCommand(panel, y, "UI_SC_Action_OpenHealth", "open_health", nil)
-    y = self:addCommand(panel, y, "UI_SC_Action_Status", "status", nil)
     return y
 end
 
--- Launcher handler: jump to a secondary view (Groups/Factions/Journal/Support)
--- that is reachable from More but not shown in the main tab row.
+-- Launcher handler: jump to a secondary view reachable from More.
 local function onMoreButton(target, button)
     if target and target.root and type(target.root.setSelectedTab) == "function" then
         target.root:setSelectedTab(button.scMoreTab)
     end
+end
+
+local function onMoreBackButton(target)
+    if target and target.root and type(target.root.setSelectedTab) == "function" then
+        target.root:setSelectedTab("more")
+    end
+end
+
+function SCUIDetail:addMoreNavigation(panel, y, titleKey)
+    local metrics = self.metrics or UI.layoutMetrics()
+    local width = math.max(100, panel:getWidth() - 28)
+    local title = UI.text(titleKey)
+    local breadcrumb = ISLabel:new(8, y, metrics.fontHeight,
+        UI.text("UI_SC_More_Breadcrumb", title), 0.79, 0.73, 0.48, 1,
+        UIFont.Small, true)
+    breadcrumb:initialise()
+    panel:addChild(breadcrumb)
+    y = y + metrics.sectionHeight
+    local label = UI.text("UI_SC_More_Back")
+    local button = ISButton:new(8, y, width, metrics.buttonHeight,
+        fitText(UIFont.Small, label, math.max(40, width - 16)), self,
+        onMoreBackButton)
+    button:initialise()
+    makeButtonTranslucent(button)
+    button.tooltip = label
+    panel:addChild(button)
+    return y + metrics.buttonHeight + 8
 end
 
 function SCUIDetail:buildMore(panel, row)
@@ -2034,10 +2068,10 @@ function SCUIDetail:buildMore(panel, row)
     local metrics = self.metrics or UI.layoutMetrics()
     local width = math.max(100, panel:getWidth() - 28)
     for _, entry in ipairs({
-        { key = "UI_SC_Tab_Groups", tab = "groups" },
-        { key = "UI_SC_Tab_Factions", tab = "factions" },
-        { key = "UI_SC_Tab_Journal", tab = "journal" },
-        { key = "UI_SC_Tab_Support", tab = "support" },
+        { key = "UI_SC_Tab_Base", tab = "base", description = "UI_SC_More_Base" },
+        { key = "UI_SC_Tab_Factions", tab = "factions", description = "UI_SC_More_Factions" },
+        { key = "UI_SC_Tab_Journal", tab = "journal", description = "UI_SC_More_Journal" },
+        { key = "UI_SC_Tab_Support", tab = "support", description = "UI_SC_More_Support" },
     }) do
         local label = UI.text(entry.key)
         local visibleLabel = fitText(UIFont.Small, label, math.max(40, width - 16))
@@ -2050,12 +2084,29 @@ function SCUIDetail:buildMore(panel, row)
         button.tooltip = label
         panel:addChild(button)
         y = y + metrics.buttonHeight + 4
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text(entry.description))
+    end
+    if SC.Config and type(SC.Config.get) == "function"
+        and SC.Config.get("debugSpawnEnabled") == true then
+        local label = UI.text("UI_SC_Tab_Debug")
+        local button = ISButton:new(8, y, width, metrics.buttonHeight,
+            fitText(UIFont.Small, label, math.max(40, width - 16)), self,
+            onMoreButton)
+        button:initialise()
+        makeButtonTranslucent(button)
+        button.scMoreTab = "debug"
+        button.tooltip = label
+        panel:addChild(button)
+        y = y + metrics.buttonHeight + 4
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_More_Debug"))
     end
     return y
 end
 
 function SCUIDetail:buildBase(panel, row)
-    local y = 7
+    local y = self:addMoreNavigation(panel, 7, "UI_SC_Tab_Base")
     local base = SC.BaseLife and SC.BaseLife.summary and SC.BaseLife.summary() or { configured = false }
     y = self:addSection(panel, y, "UI_SC_Base_Section_Status")
     if not base.configured then
@@ -2167,7 +2218,7 @@ function SCUIDetail:buildBase(panel, row)
 end
 
 function SCUIDetail:buildJournal(panel, row)
-    local y = 7
+    local y = self:addMoreNavigation(panel, 7, "UI_SC_Tab_Journal")
     if not row or type(row.journal) ~= "table" then
         y = self:addSection(panel, y, "UI_SC_Section_Journal")
         return self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_NoSelection"))
@@ -2243,6 +2294,10 @@ function SCUIDetail:buildJournal(panel, row)
         UI.text("UI_SC_Journal_CareValues", tonumber(care.treatment) or 0,
             tonumber(care.meals) or 0, tonumber(care.rescues) or 0,
             tonumber(care.goalsCompleted) or 0))
+    y = self:addSection(panel, y + 4, "UI_SC_Section_PersonalConversation")
+    for _, descriptor in ipairs(UI.commandGroups.journalTalk) do
+        y = self:addCommand(panel, y, descriptor.key, descriptor.command, descriptor.payload)
+    end
     return y
 end
 
@@ -2257,6 +2312,22 @@ function SCUIDetail:buildGroups(panel, row)
     y = self:addCommand(panel, y, "UI_SC_Action_GroupStay", "stay", { scope = "group", group = group })
     y = self:addCommand(panel, y, "UI_SC_Action_GroupGuard", "guard", { scope = "group", group = group })
     y = self:addCommand(panel, y, "UI_SC_Action_GroupRegroup", "regroup", { scope = "group", group = group })
+    y = self:addCommand(panel, y, "UI_SC_Action_GroupRetreat", "retreat", { scope = "group", group = group })
+    y = self:addSection(panel, y + 4, "UI_SC_Section_SquadMovementSignals")
+    for _, descriptor in ipairs(UI.commandGroups.squadMovementSignals) do
+        y = self:addSignal(panel, y, descriptor.key, descriptor.signal)
+    end
+    y = self:addSection(panel, y + 4, "UI_SC_Section_SquadFireSignals")
+    for _, descriptor in ipairs(UI.commandGroups.squadFireSignals) do
+        y = self:addSignal(panel, y, descriptor.key, descriptor.signal)
+    end
+    y = self:addSection(panel, y + 4, "UI_SC_Section_Membership")
+    if row and row.recruited == true then
+        y = self:addCommand(panel, y, "UI_SC_Action_Dismiss", "dismiss", nil)
+    else
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_NoSelection"))
+    end
     return y
 end
 
@@ -2271,7 +2342,7 @@ local function requestItemsText(items)
 end
 
 function SCUIDetail:buildFactions(panel)
-    local y = 7
+    local y = self:addMoreNavigation(panel, 7, "UI_SC_Tab_Factions")
     y = self:addSection(panel, y, "UI_SC_Factions_Discovered")
     local factions = SC.Factions and type(SC.Factions.list) == "function"
         and SC.Factions.list(true) or {}
@@ -2638,7 +2709,7 @@ function SCUIDetail:buildFactions(panel)
 end
 
 function SCUIDetail:buildDebug(panel)
-    local y = 7
+    local y = self:addMoreNavigation(panel, 7, "UI_SC_Tab_Debug")
     if not SC.Config or type(SC.Config.get) ~= "function"
         or SC.Config.get("debugSpawnEnabled") ~= true then
         return self:addInformationLine(panel, y, "UI_SC_Info_Message",
@@ -2833,7 +2904,8 @@ function SCUIDetail:buildDebug(panel)
 end
 
 function SCUIDetail:buildSupport(panel)
-    local y = self:addSection(panel, 4, "UI_SC_Support_Health")
+    local y = self:addMoreNavigation(panel, 7, "UI_SC_Tab_Support")
+    y = self:addSection(panel, y, "UI_SC_Support_Health")
     if not SC.Support or type(SC.Support.snapshot) ~= "function" then
         return self:addInformationLine(panel, y, "UI_SC_Info_Message",
             UI.text("UI_SC_Support_Unavailable"))
@@ -3146,7 +3218,8 @@ end
 
 function SCUIRoot:updateTabButtons()
     for _, button in ipairs(self.tabButtons or {}) do
-        if button.scTab == self.selectedTab then
+        if button.scTab == self.selectedTab
+            or (button.scTab == "more" and MORE_TABS[self.selectedTab] == true) then
             button.backgroundColor = { r = 0.34, g = 0.38, b = 0.27,
                 a = configuredOpacity(1.15, 0.46, 0.88) }
         else

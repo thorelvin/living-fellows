@@ -17,8 +17,12 @@ the keybinding options. Hunger and thirst advance at half speed. Companions use
 real food/water actions, visited camp storage, and nearby clean water sources.
 Right-click a barricadeable door or window to order a selected companion to
 fetch a hammer + plank + two nails from visited storage and barricade it.
-The recruited-companion context menu is grouped into Talk, Orders, Target
-actions and Companion. Target actions can also remove every plank from the
+The world context menu has one Living Fellows root. The companion selected in
+the panel gets at most two top-level shortcuts (Move here plus one relevant
+object action); its remaining commands are grouped into Talk, Target actions,
+and Care and inspect. Other nearby companions, squad signals, relevant base
+work, and survivor households stay below that root. Target actions can also
+remove every plank from the
 selected side of a barricade with an appropriate pry tool (or a fueled
 blowtorch for metal), or dismantle a player-built object with an unbroken saw
 and screwdriver. These use the game's native timed actions and recovered items.
@@ -33,10 +37,12 @@ bond, morale, stress, time-together, care history, and semantic memories. Their
 answers reflect real wounds, hunger, thirst, supplies, mood, recent treatment,
 shared escapes, rescues, and useful work. Background details open gradually as
 trust grows; reassurance and praise are contextual and cooldown/achievement
-gated. The roster and right-click conversation menu expose the new topics.
+gated. The concise Status view and Journal expose these topics without crowding
+the right-click menu.
 Validated Build 42 player hand signs cover follow, hold, regroup, cautious
 follow, move out, fire discipline, and fallback, with visible NPC acknowledgement.
-Six safe human companion emotes are also available from the roster.
+Companion emotes are selected automatically from context; players no longer
+manually trigger NPC emotes from the roster.
 
 Safe downtime now includes a bounded curtain habit. A companion may reserve a
 curtain in the same building, walk to it, and toggle it after arriving. Stealth

@@ -93,20 +93,20 @@
 - [ ] Reading, repair, bandage replacement, supply crafting and seating cancel on danger/orders.
 - [ ] Bandaging, emergency cloth tearing, scavenging, clothing changes and camp work apply no result before their full animation completes; interruption leaves each item and wound in exactly one valid pre-action state.
 - [ ] During Loot, Bandage, Craft, sitting, climbing and one unrelated vanilla timed action, ordinary Follow never changes the actor's pose or position. Retreat/combat may interrupt only through the owned rollback contract, then returns to a clean locomotion state.
-- [ ] In the private Debug tab, select a moving companion and refresh Movement recorder: state, owner, action, requested/effective speed, override, target, next square, native path, queue, blocker and recovery are coherent. Copy produces only the selected companion's last 30 seconds; Clear removes its history without affecting movement.
+- [ ] In More > Debug, select a moving companion and refresh Movement recorder: state, owner, action, requested/effective speed, override, target, next square, native path, queue, blocker and recovery are coherent. Copy produces only the selected companion's last 30 seconds; Clear removes its history without affecting movement.
 - [ ] After safe successful work, companions sometimes pause briefly or look around without requesting another path; danger, bleeding, a new order, vehicle movement or a departing followed player cancels the pause immediately.
 - [ ] During safe Stealth downtime indoors, a companion occasionally reserves an open curtain in the same building, sneaks to it, and closes it only after arriving; it never reopens one while Stealth remains active.
 - [ ] Ordinary daytime companions only rarely open/close curtains, nighttime favors closing, multiple companions do not crowd or flip the same curtain, and danger/new orders cancel the approach immediately.
-- [ ] Inventory, health, conversations, groups, context commands and roster controls work.
+- [ ] Status, Orders, Squad, Loadout and More all open without a Lua error; Base, Factions, Journal, Support and private Debug open from More, keep More highlighted, and return through Back to More.
 - [ ] Ask Status, Needs, Opinion, Relationship, Encourage and Plans repeatedly; the same companion avoids its recent lines while answers remain factually consistent.
 - [ ] Compare brave, cautious, caring and practical companions in the same situation; phrasing varies without changing the command, need or safety decision.
 - [ ] Trigger repeated zombie warnings, work failures, supply requests, stress, joy and grief; line pools vary, names remain correct, and no speech appears over the player.
 - [ ] Time a short and a long overhead line at normal and accelerated game speed: each stays fully readable over its companion for its 8-15-second length target before fading, creates no duplicate rows, and yields immediately when a different line is spoken.
 - [ ] Stop outdoors with a nearby companion on Follow: it remains alert/standing and never starts reading, crafting, washing or sitting. Repeat indoors, let downtime begin, then walk away; the NPC cancels the pose before following and never moonwalks, slides or retains a kneel. In Debug, confirm `[SurvivorCompanion][downtime]` names each start/finish/cancel kind.
-- [ ] Opening Orders, Gear and Groups creates every selector without a Lua error; changing each selector applies once and shows feedback.
+- [ ] Opening Orders, Squad and Loadout creates every selector without a Lua error; changing each selector applies once and shows feedback.
 - [ ] Holding and dragging either roster or detail scrollbar for at least five seconds is uninterrupted by scheduled UI refreshes; the view catches up after release without jumping.
-- [ ] A Debug household spawn reports its house coordinates, direction and distance, and creates a visible yellow house marker plus HUD direction arrow; Locate and Clear work for every listed household.
-- [ ] Support reports Ready with the expected bridge protocol, copies a bounded report to the clipboard, explains a deliberately missing/outdated bridge, and retries a tripped test subsystem without restarting the save.
+- [ ] A More > Debug household spawn reports its house coordinates, direction and distance, and creates a visible yellow house marker plus HUD direction arrow; Locate and Clear work for every listed household.
+- [ ] More > Support reports Ready with the expected bridge protocol, copies a bounded report to the clipboard, explains a deliberately missing/outdated bridge, and retries a tripped test subsystem without restarting the save.
 - [ ] Two discovered households show one persistent Faction World relation; forced warning, trade, aid and dispute events update bounded news and survive save/reload.
 - [ ] Helping or harming one known household causes only a small relation-weighted word-of-mouth standing change in another known household; unknown groups remain hidden and no off-screen event kills actors or damages a base.
 - [ ] A trusted household with the required completed contracts nominates a nonessential resident; an ineligible, hostile, offended, or one-survivor household explains why recruitment is unavailable.
@@ -114,14 +114,17 @@
 - [ ] Trial extension, return home, permanent join and death each produce the correct persistent household consequence; a failed transfer rolls both faction and roster state back.
 - [ ] The minimap shows a moving red dot and first-name label for every living recruited companion, including a trial follower, and shows none for neutral encounters, dead actors, or unrecruited household residents.
 - [ ] A recruited death creates one named grief record per living teammate; repeating the terminal update does not duplicate the memory or mood penalty.
-- [ ] A nearby witness or close friend grieves more intensely than a new distant teammate; Overview, Journal and How are you? all name the deceased.
+- [ ] A nearby witness or close friend grieves more intensely than a new distant teammate; Status, Journal and How are you? all name the deceased.
 - [ ] Mourning begins only in safety, may use a quiet standing or ground-sitting response, and is interrupted immediately by zombies, injury or a survival order.
 - [ ] Save/reload preserves acute grief and its pending response; after sufficient game days the mood penalty decays while the named death memory remains.
 - [ ] A household mourning a dead resident reports the loss in status conversation, retains a watch, and uses only bounded off-watch mourning routines.
 - [ ] Classified camp stores report loaded stock against resident-scaled targets; unloaded stores are explicitly marked unknown instead of counted as empty.
 - [ ] Rotating, role-based and all-hands watch policies select the expected residents, while workload, routine and automatic-maintenance policies survive save/reload.
 - [ ] Safe on-duty residents without a job read, sit, wash or perform another valid downtime activity; automatic sort, repair and craft jobs are never queued without a real actionable item and capable worker.
-- [ ] Each recruited companion's context submenu is grouped into Talk, Orders, Target actions and Companion; no submenu becomes taller than the screen.
+- [ ] World right-click shows one Living Fellows root. The panel-selected nearby companion gets Move here plus at most one relevant object shortcut; its root entry has shallow direct orders plus Talk, Target actions, and Care and inspect. Other companions, Squad, relevant Base work, and households remain grouped and no submenu becomes taller than the screen.
+- [ ] Outside an established camp the Base submenu is absent (except Set camp before a base exists or Finish/Cancel during a zone draft); storage, maintenance, and construction appear only on valid in-camp targets.
+- [ ] Manual companion emote controls are absent from Status and the context menu, while automatic greetings, acknowledgements, thanks and reactions still occur naturally.
+- [ ] Dismiss from Squad and from the context menu opens a named Yes/No confirmation. No leaves membership unchanged; Yes dismisses exactly the named companion even if roster selection changes while the dialog is open.
 - [ ] Remove this barricade approaches the player-selected side, uses a pry tool or fueled blowtorch, removes every plank/metal section through native actions, recovers materials, and resumes the prior order.
 - [ ] Dismantle this object appears only for dismantlable thumpables, requires an unbroken saw and screwdriver, drops vanilla recovered materials, and resumes the prior order.
 - [ ] Save/load during either destructive target order preserves the object, work kind and selected barricade side without duplicating the action.
@@ -129,7 +132,7 @@
 - [ ] On both docks, one Collapse click hides the full panel and leaves exactly one LF launcher without reopening; LF and F7 restore the saved full panel, launcher dragging/resolution changes stay on-screen, and reload while collapsed creates no duplicate or partial panel.
 - [ ] Save while collapsed, quit completely, and reload: the LF launcher is drawn as soon as gameplay starts, before any F7 input.
 - [ ] Enable scavenging and watch a companion approach containers and corpses from several tiles away: the approach path stops completely before Loot begins, the full rummage animation finishes, the item transfers once, and only then may pathing resume.
-- [ ] With a worn backpack, Overview and the roster name the approached/looted item, then report the exact verified pickup destination; the source loses that same object and the backpack gains it.
+- [ ] With a worn backpack, a completed scavenging action removes the exact item from its source and adds it to the selected destination once; Loadout reflects the changed supplies/load and no duplicate transfer occurs.
 - [ ] Danger, a new order, selected-item removal, full load, and quit/reload before Loot completion each preserve exactly one item location and never commit late.
 - [ ] Two companions cannot own one container simultaneously; unchanged unhelpful containers are not repeatedly searched, while changed contents become eligible immediately.
 - [ ] After native recovery or controlled relocation, the companion remains a fully rendered human rather than a moving shadow, does not resume an old path, and completes the left/right room-entry sweep through a normal doorway.

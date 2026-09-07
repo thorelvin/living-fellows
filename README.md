@@ -120,11 +120,11 @@ The everyday controls live on five primary tabs. Deeper views open from the **Mo
 
 | Tab | Purpose |
 | --- | --- |
-| Status | Health, needs, current intent, order, distance, relationship, mood, profession, carry state, and recent verified work |
-| Orders | Main order, follow distance, movement, work, scavenging, combat, weapon, vehicle, overload, group, regroup, and retreat controls |
-| Loadout | Inventory, equipped items, carrying policy and weapon preference, and clothing/vehicle status — plus wounds, treatment, infection symptoms, medicine, hunger, and thirst |
-| Base | Camp roles, storage, watches, readiness, maintenance, work queues, and ambient routines |
-| More | Opens Groups (squad orders), Factions (households, trade, standing), Journal (history, personality, relationships, memories, grief, keepsakes), Support (runtime/bridge health and diagnostics), and — in development builds — Debug |
+| Status | Immediate health and needs, current action, order, distance, a short relationship summary, and essential conversation |
+| Orders | Direct orders, movement and follow distance, combat doctrine, and persistent work/autonomy policy |
+| Squad | Group assignment and orders, movement/fire signals, and companion membership |
+| Loadout | Wounds and treatment, inventory and carried supplies, weapon/carry policy, and vehicle status |
+| More | Opens Base (camp operations), Factions (households, trade, standing), Journal (history, relationships, memories, goals, and deeper conversation), Support (runtime/bridge health), and — in development builds — Debug |
 
 Buttons show a confirmation message when an order is accepted. Selectors and checkboxes display the persistent policy that will be used after saving and reloading.
 
@@ -142,7 +142,7 @@ Buttons show a confirmation message when an order is accepted. Selectors and che
 - **Ride with player:** Uses available passenger seats, follows the player into a vehicle, exits with the player, and leaves excess companions safely on foot.
 - **Allow overload:** Lets the selected companion exceed its normal mobility-first carry policy within a bounded limit.
 
-World context commands are grouped under **Talk**, **Orders**, **Target actions**, and **Companion**. Only recruited teammates appear in the Companion commands list. Contextual target actions can open or close doors, check rooms, remove barricades, dismantle eligible objects, and assign movement or base work.
+World context commands use one **Living Fellows** root. The companion selected in the panel gets at most two top-level shortcuts: **Move here** and one action relevant to the clicked object (for example open a door or remove a barricade). Its full menu keeps direct orders shallow, with separate **Talk**, **Target actions**, and **Care and inspect** groups. Other nearby companions, squad signals, relevant base work, and survivor households are grouped below it. Only authoritative recruited teammates appear, base construction is offered only inside camp, and dismissing a companion requires confirmation.
 
 ## How companions behave
 

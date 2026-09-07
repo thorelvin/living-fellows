@@ -41,7 +41,7 @@ local function hasMethod(object, methodName)
     return ok and type(value) == "function"
 end
 
-local function issueFromContext(target, companionId, command, payload, player)
+local function executeFromContext(companionId, command, payload, player)
     if SC.Commands and type(SC.Commands.issue) == "function" then
         local ok, first, second, third = pcall(SC.Commands.issue, companionId, command, payload, player)
         if command == "status" and ok and first ~= false and SC.UI then
@@ -52,12 +52,54 @@ local function issueFromContext(target, companionId, command, payload, player)
             if description and type(SC.UI.showStatus) == "function" then
                 SC.UI.showStatus(description)
             elseif type(SC.UI.open) == "function" then
-                SC.UI.open("overview", companionId)
+                SC.UI.open("status", companionId)
             end
         elseif SC.UI and type(SC.UI.refresh) == "function" then
             SC.UI.refresh()
         end
     end
+end
+
+local function companionName(companionId)
+    if SC.UI and SC.UI.instance and SC.UI.instance.selectedRow
+        and SC.UI.instance.selectedRow.id == companionId then
+        return SC.UI.instance.selectedRow.name
+    end
+    if SC.Registry and type(SC.Registry.byId) == "function" then
+        local ok, record = pcall(SC.Registry.byId, companionId)
+        if ok and type(record) == "table" and record.actor then
+            local name = safeMethod(record.actor, "getFullName")
+                or safeMethod(record.actor, "getDisplayName")
+            if name and name ~= "" then return name end
+        end
+    end
+    return companionId
+end
+
+local function issueFromContext(target, companionId, command, payload, player)
+    if command == "dismiss" and SC.UI and type(SC.UI.confirmDismiss) == "function" then
+        SC.UI.confirmDismiss(companionName(companionId), function()
+            executeFromContext(companionId, command, payload, player)
+        end)
+        return
+    end
+    executeFromContext(companionId, command, payload, player)
+end
+
+local function issueSignalFromContext(target, signal, player)
+    if not SC.Commands then return end
+    local ok, accepted, reason
+    if signal == "whistle" and type(SC.Commands.whistle) == "function" then
+        ok, accepted, reason = pcall(SC.Commands.whistle, player)
+    elseif type(SC.Commands.handSign) == "function" then
+        ok, accepted, reason = pcall(SC.Commands.handSign, player, signal)
+    end
+    if player then
+        safeMethod(player, "setHaloNote", ok and accepted ~= false
+            and text("UI_SC_CommandAccepted")
+            or text("UI_SC_CommandRejectedDetail", tostring(reason or signal)))
+    end
+    if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
 end
 
 local function addCommand(menu, labelKey, id, command, payload, player)
@@ -66,6 +108,13 @@ end
 
 local function addCategory(menu, labelKey)
     local option = menu:addOption(text(labelKey), nil, nil)
+    local category = ISContextMenu:getNew(menu)
+    menu:addSubMenu(option, category)
+    return category
+end
+
+local function addNamedCategory(menu, labelKey, value)
+    local option = menu:addOption(text(labelKey, value), nil, nil)
     local category = ISContextMenu:getNew(menu)
     menu:addSubMenu(option, category)
     return category
@@ -283,8 +332,21 @@ local function baseAction(target, action, payload, player)
     if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
 end
 
+local function baseMenuRelevant(square)
+    if not square or not SC.BaseLife or type(SC.BaseLife.active) ~= "function" then
+        return false
+    end
+    if not SC.BaseLife.active() then return true end
+    if type(SC.BaseLife.zoneDraft) == "function" and SC.BaseLife.zoneDraft() then
+        return true
+    end
+    return type(SC.BaseLife.isInside) == "function"
+        and SC.BaseLife.isInside(square) == true
+end
+
 local function addBaseMenu(context, square, containerTarget, barricadeTarget, player)
     if not square or not SC.BaseLife then return false end
+    if not baseMenuRelevant(square) then return false end
     local rootOption = context:addOption(text("UI_SC_Context_BaseLife"), nil, nil)
     local menu = ISContextMenu:getNew(context)
     context:addSubMenu(rootOption, menu)
@@ -294,6 +356,8 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
         return true
     end
     local draft = SC.BaseLife.zoneDraft()
+    local inside = type(SC.BaseLife.isInside) == "function"
+        and SC.BaseLife.isInside(square) == true
     if draft then
         menu:addOption(text("UI_SC_Base_FinishZone"), nil, baseAction, "zone_finish",
             { square = square, name = draft.kind }, player)
@@ -307,7 +371,7 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
                 { square = square, kind = kind }, player)
         end
     end
-    if containerTarget then
+    if inside and containerTarget then
         local storageOption = menu:addOption(text("UI_SC_Base_MarkStorage"), nil, nil)
         local storageMenu = ISContextMenu:getNew(menu)
         menu:addSubMenu(storageOption, storageMenu)
@@ -317,20 +381,22 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
                 "storage", { object = containerTarget, category = category }, player)
         end
     end
-    if barricadeTarget then
+    if inside and barricadeTarget then
         menu:addOption(text("UI_SC_Base_MaintainBarricade"), nil, baseAction, "maintenance",
             { object = barricadeTarget, kind = "barricade" }, player)
     end
-    local buildOption = menu:addOption(text("UI_SC_Base_QueueBuild"), nil, nil)
-    local buildMenu = ISContextMenu:getNew(menu)
-    menu:addSubMenu(buildOption, buildMenu)
-    for _, kind in ipairs({ "wall_frame", "wall", "floor", "door_frame", "door" }) do
-        local kindOption = buildMenu:addOption(text("UI_SC_Base_Build_" .. kind), nil, nil)
-        local faceMenu = ISContextMenu:getNew(buildMenu)
-        buildMenu:addSubMenu(kindOption, faceMenu)
-        for face = 1, 4 do
-            faceMenu:addOption(text("UI_SC_Base_Face_" .. tostring(face)), nil, baseAction,
-                "build", { square = squarePayload(square), kind = kind, face = face }, player)
+    if inside then
+        local buildOption = menu:addOption(text("UI_SC_Base_QueueBuild"), nil, nil)
+        local buildMenu = ISContextMenu:getNew(menu)
+        menu:addSubMenu(buildOption, buildMenu)
+        for _, kind in ipairs({ "wall_frame", "wall", "floor", "door_frame", "door" }) do
+            local kindOption = buildMenu:addOption(text("UI_SC_Base_Build_" .. kind), nil, nil)
+            local faceMenu = ISContextMenu:getNew(buildMenu)
+            buildMenu:addSubMenu(kindOption, faceMenu)
+            for face = 1, 4 do
+                faceMenu:addOption(text("UI_SC_Base_Face_" .. tostring(face)), nil, baseAction,
+                    "build", { square = squarePayload(square), kind = kind, face = face }, player)
+            end
         end
     end
     return true
@@ -367,32 +433,38 @@ local function nearbyRows(player)
     return rows
 end
 
+local function descriptorGroup(name, fallback)
+    local groups = SC.UI and SC.UI.commandGroups or nil
+    return type(groups) == "table" and type(groups[name]) == "table"
+        and groups[name] or fallback
+end
+
+local function addDescriptorCommands(menu, row, player, descriptors)
+    for _, descriptor in ipairs(descriptors or {}) do
+        addCommand(menu, descriptor.key, row.id, descriptor.command,
+            descriptor.payload, player)
+    end
+end
+
 local function addConversation(menu, row, player)
     if row.recruited ~= true then return end
-    addCommand(menu, "UI_SC_Action_Doing", row.id, "doing", nil, player)
-    addCommand(menu, "UI_SC_Action_Status", row.id, "status", nil, player)
-    addCommand(menu, "UI_SC_Action_Needs", row.id, "needs", nil, player)
-    addCommand(menu, "UI_SC_Action_Memory", row.id, "memory", nil, player)
-    addCommand(menu, "UI_SC_Action_Background", row.id, "background", nil, player)
-    addCommand(menu, "UI_SC_Action_Opinion", row.id, "opinion", nil, player)
-    addCommand(menu, "UI_SC_Action_Plans", row.id, "plans", nil, player)
-    addCommand(menu, "UI_SC_Action_Relationship", row.id, "relationship", nil, player)
-    addCommand(menu, "UI_SC_Action_Encourage", row.id, "encourage", nil, player)
-    addCommand(menu, "UI_SC_Action_Praise", row.id, "praise", nil, player)
-    addCommand(menu, "UI_SC_Action_EmoteGreet", row.id, "emote", { emote = "wavehi" }, player)
-    addCommand(menu, "UI_SC_Action_EmoteThank", row.id, "emote", { emote = "thankyou" }, player)
-    addCommand(menu, "UI_SC_Action_EmoteCelebrate", row.id, "emote", { emote = "clap" }, player)
+    addDescriptorCommands(menu, row, player, descriptorGroup("essentialTalk", {
+        { key = "UI_SC_Action_Doing", command = "doing" },
+        { key = "UI_SC_Action_Status", command = "status" },
+        { key = "UI_SC_Action_Needs", command = "needs" },
+        { key = "UI_SC_Action_Encourage", command = "encourage" },
+        { key = "UI_SC_Action_Praise", command = "praise" },
+    }))
 end
 
 local function addDirectOrders(menu, row, player)
-    addCommand(menu, "UI_SC_Action_Follow", row.id, "follow", nil, player)
-    addCommand(menu, "UI_SC_Action_Stay", row.id, "stay", nil, player)
-    addCommand(menu, "UI_SC_Action_Guard", row.id, "guard", nil, player)
-    addCommand(menu, "UI_SC_Action_Regroup", row.id, "regroup", nil, player)
-    addCommand(menu, "UI_SC_Action_Retreat", row.id, "retreat", nil, player)
-    addCommand(menu, "UI_SC_Action_WorkAuto", row.id, "set_work_mode", { mode = "auto" }, player)
-    addCommand(menu, "UI_SC_Action_WorkIdle", row.id, "set_work_mode", { mode = "idle" }, player)
-    addCommand(menu, "UI_SC_Action_WorkCraft", row.id, "set_work_mode", { mode = "craft" }, player)
+    addDescriptorCommands(menu, row, player, descriptorGroup("personalOrders", {
+        { key = "UI_SC_Action_Follow", command = "follow" },
+        { key = "UI_SC_Action_Stay", command = "stay" },
+        { key = "UI_SC_Action_Guard", command = "guard" },
+        { key = "UI_SC_Action_Regroup", command = "regroup" },
+        { key = "UI_SC_Action_Retreat", command = "retreat" },
+    }))
     if type(row.vehicleStatus) == "table"
         and row.vehicleStatus.status == "in_vehicle"
         and row.vehicleStatus.canExitNow == true then
@@ -429,7 +501,6 @@ end
 local function addViews(menu, row, player)
     addCommand(menu, "UI_SC_Action_OpenInventory", row.id, "open_inventory", nil, player)
     addCommand(menu, "UI_SC_Action_OpenHealth", row.id, "open_health", nil, player)
-    addCommand(menu, "UI_SC_Action_Dismiss", row.id, "dismiss", nil, player)
 end
 
 -- Show a Bandage option only when the player can actually treat this companion now
@@ -443,6 +514,67 @@ local function addCare(menu, row, player)
     local ready = SC.Medical.playerBandagePreflight(record.actor, player)
     if ready ~= true then return end
     addCommand(menu, "UI_SC_Action_Bandage", row.id, "bandage", nil, player)
+end
+
+local function selectedNearbyRow(rows)
+    local selectedId = SC.UI and SC.UI.instance and SC.UI.instance.selectedId or nil
+    if not selectedId then return nil end
+    for _, row in ipairs(rows or {}) do
+        if row.id == selectedId then return row end
+    end
+    return nil
+end
+
+local function addNamedShortcut(context, row, labelKey, command, payload, player)
+    local label = text("UI_SC_Context_NamedAction", row.name, text(labelKey))
+    return context:addOption(label, nil, issueFromContext,
+        row.id, command, payload, player)
+end
+
+local function addPriorityShortcut(context, row, targetSquare, door, doorPayload,
+        barricadeTarget, barricadePayload, removeBarricadeTarget,
+        removeBarricadePayload, dismantleTarget, dismantlePayload, player)
+    if removeBarricadeTarget and removeBarricadePayload then
+        return addNamedShortcut(context, row, "UI_SC_Action_RemoveBarricade",
+            "remove_barricade", removeBarricadePayload, player)
+    end
+    if door and doorPayload then
+        local isOpen = safeMethod(door, "IsOpen")
+        return addNamedShortcut(context, row,
+            isOpen and "UI_SC_Action_CloseDoor" or "UI_SC_Action_OpenDoor",
+            isOpen and "close_door" or "open_door", doorPayload, player)
+    end
+    if barricadeTarget and barricadePayload then
+        return addNamedShortcut(context, row, "UI_SC_Action_Barricade",
+            "barricade", barricadePayload, player)
+    end
+    if dismantleTarget and dismantlePayload then
+        return addNamedShortcut(context, row, "UI_SC_Action_Dismantle",
+            "dismantle", dismantlePayload, player)
+    end
+    if targetSquare and safeMethod(targetSquare, "getRoom") ~= nil then
+        return addNamedShortcut(context, row, "UI_SC_Action_CheckRoom",
+            "check_room", squarePayload(targetSquare), player)
+    end
+    return nil
+end
+
+local function addCompanionCare(menu, row, player)
+    addCare(menu, row, player)
+    addViews(menu, row, player)
+end
+
+local function addSquadMenu(menu, player)
+    for _, descriptor in ipairs({
+        { key = "UI_SC_Action_WhistleRegroup", signal = "whistle" },
+        { key = "UI_SC_Action_HandSignHold", signal = "hold" },
+        { key = "UI_SC_Action_HandSignFallBack", signal = "fall_back" },
+        { key = "UI_SC_Action_HandSignCeaseFire", signal = "cease_fire" },
+        { key = "UI_SC_Action_HandSignFire", signal = "fire" },
+    }) do
+        menu:addOption(text(descriptor.key), nil, issueSignalFromContext,
+            descriptor.signal, player)
+    end
 end
 
 function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, test)
@@ -461,32 +593,67 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         dismantleTarget, dismantlePayload = findTarget(worldObjects, player)
     local rows = nearbyRows(player)
     local factions = talkableFactions(player)
-    if #rows == 0 and #factions == 0 and not square then return end
+    local baseRelevant = baseMenuRelevant(square)
+    if #rows == 0 and #factions == 0 and not baseRelevant then return end
     if test and ISWorldObjectContextMenu and ISWorldObjectContextMenu.setTest then
         return ISWorldObjectContextMenu.setTest()
     end
-    addBaseMenu(context, square, containerTarget, barricadeTarget, player)
-    addFactionConversations(context, factions, player)
-    if #rows == 0 then return end
-    local rootOption = context:addOption(text("UI_SC_Context_Companions"), nil, nil)
+    local selected = selectedNearbyRow(rows)
+    if selected and targetPayload then
+        addNamedShortcut(context, selected, "UI_SC_Action_MoveHere",
+            "move_to", targetPayload, player)
+        addPriorityShortcut(context, selected, square, door, doorPayload,
+            barricadeTarget, barricadePayload, removeBarricadeTarget,
+            removeBarricadePayload, dismantleTarget, dismantlePayload, player)
+    end
+
+    local rootOption = context:addOption(text("UI_SC_Context_LivingFellows"), nil, nil)
     local rootMenu = ISContextMenu:getNew(context)
     context:addSubMenu(rootOption, rootMenu)
+
+    if selected and selected.recruited == true then
+        local selectedMenu = addNamedCategory(rootMenu,
+            "UI_SC_Context_SelectedCompanion", selected.name)
+        addDirectOrders(selectedMenu, selected, player)
+        addConversation(addCategory(selectedMenu, "UI_SC_Context_Talk"), selected, player)
+        local targetMenu = addCategory(selectedMenu, "UI_SC_Context_TargetActions")
+        addWorldOrders(targetMenu, selected, targetPayload, door, doorPayload,
+            barricadeTarget, barricadePayload, removeBarricadeTarget,
+            removeBarricadePayload, dismantleTarget, dismantlePayload, player)
+        addCompanionCare(addCategory(selectedMenu, "UI_SC_Context_Care"), selected, player)
+        addCommand(selectedMenu, "UI_SC_Action_Dismiss", selected.id,
+            "dismiss", nil, player)
+    end
+
+    local otherRows = {}
     for _, row in ipairs(rows) do
-        -- Re-check immediately before building the submenu so a survivor who
-        -- was dismissed during this UI frame cannot retain team commands.
-        if row.recruited == true then
-            local companionOption = rootMenu:addOption(row.name, nil, nil)
-            local companionMenu = ISContextMenu:getNew(rootMenu)
-            rootMenu:addSubMenu(companionOption, companionMenu)
-            addCare(companionMenu, row, player)
-            addConversation(addCategory(companionMenu, "UI_SC_Context_Talk"), row, player)
-            addDirectOrders(addCategory(companionMenu, "UI_SC_Context_Orders"), row, player)
-            local targetMenu = addCategory(companionMenu, "UI_SC_Context_TargetActions")
-            addWorldOrders(targetMenu, row, targetPayload, door, doorPayload,
-                barricadeTarget, barricadePayload, removeBarricadeTarget,
-                removeBarricadePayload, dismantleTarget, dismantlePayload, player)
-            addViews(addCategory(companionMenu, "UI_SC_Context_Companion"), row, player)
+        if row.recruited == true and (not selected or row.id ~= selected.id) then
+            otherRows[#otherRows + 1] = row
         end
+    end
+    if #otherRows > 0 then
+        local otherMenu = addCategory(rootMenu, "UI_SC_Context_OtherCompanions")
+        for _, row in ipairs(otherRows) do
+            local companionOption = otherMenu:addOption(row.name, nil, nil)
+            local companionMenu = ISContextMenu:getNew(otherMenu)
+            otherMenu:addSubMenu(companionOption, companionMenu)
+            addDirectOrders(companionMenu, row, player)
+            addConversation(addCategory(companionMenu, "UI_SC_Context_Talk"), row, player)
+            addCompanionCare(addCategory(companionMenu, "UI_SC_Context_Care"), row, player)
+            addCommand(companionMenu, "UI_SC_Action_Dismiss", row.id,
+                "dismiss", nil, player)
+        end
+    end
+
+    if #rows > 0 then
+        addSquadMenu(addCategory(rootMenu, "UI_SC_Context_Squad"), player)
+    end
+    if baseRelevant then
+        addBaseMenu(rootMenu, square, containerTarget, barricadeTarget, player)
+    end
+    if #factions > 0 then
+        addFactionConversations(addCategory(rootMenu, "UI_SC_Context_Households"),
+            factions, player)
     end
 end
 

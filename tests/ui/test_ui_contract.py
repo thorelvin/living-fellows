@@ -245,7 +245,7 @@ class UISizingTests(unittest.TestCase):
         en_data = json.loads(read(TRANSLATE / "EN" / "UI.json"))
         labels = [
             en_data[f"UI_SC_Tab_{name}"]
-            for name in ("Status", "Orders", "Loadout", "Base", "More")
+            for name in ("Status", "Orders", "Squad", "Loadout", "More")
         ]
         layout = model_layout(410, 600, 14, 7, labels)
         content_height = orders_content_height(14)
@@ -259,7 +259,7 @@ class UISizingTests(unittest.TestCase):
         en_data = json.loads(read(TRANSLATE / "EN" / "UI.json"))
         tab_labels = [
             en_data[f"UI_SC_Tab_{name}"]
-            for name in ("Status", "Orders", "Loadout", "Base", "More")
+            for name in ("Status", "Orders", "Squad", "Loadout", "More")
         ]
         action_labels = [
             value
@@ -359,9 +359,67 @@ class UIStaticContractTests(unittest.TestCase):
 
     def test_debug_tab_is_private_build_only(self) -> None:
         tab_ids = lua_function(self.ui, "function UI.tabIds()")
-        self.assertIn('SC.Config.get("debugSpawnEnabled") == true', tab_ids)
-        self.assertIn('result[#result + 1] = "debug"', tab_ids)
+        more = lua_function(self.ui, "function SCUIDetail:buildMore(panel, row)")
+        self.assertNotIn('"debug"', tab_ids)
+        self.assertIn('SC.Config.get("debugSpawnEnabled") == true', more)
+        self.assertIn('button.scMoreTab = "debug"', more)
         self.assertNotRegex(self.ui, r'local TAB_IDS\s*=\s*\{[^}]*"debug"')
+
+    def test_primary_tabs_and_more_navigation_match_the_usability_contract(self) -> None:
+        tab_block = re.search(r"local TAB_IDS\s*=\s*\{(.*?)\}", self.ui, re.S)
+        self.assertIsNotNone(tab_block)
+        self.assertEqual(
+            re.findall(r'"([a-z_]+)"', tab_block.group(1)),
+            ["status", "orders", "groups", "loadout", "more"],
+        )
+        self.assertIn('groups = "UI_SC_Tab_Squad"', self.ui)
+        more = lua_function(self.ui, "function SCUIDetail:buildMore(panel, row)")
+        for tab in ("base", "factions", "journal", "support"):
+            self.assertIn(f'tab = "{tab}"', more)
+        self.assertNotIn('tab = "groups"', more)
+        for signature in (
+            "function SCUIDetail:buildBase(panel, row)",
+            "function SCUIDetail:buildJournal(panel, row)",
+            "function SCUIDetail:buildFactions(panel)",
+            "function SCUIDetail:buildDebug(panel)",
+            "function SCUIDetail:buildSupport(panel)",
+        ):
+            self.assertIn("self:addMoreNavigation", lua_function(self.ui, signature))
+        active = lua_function(self.ui, "function SCUIRoot:updateTabButtons()")
+        self.assertIn('button.scTab == "more" and MORE_TABS[self.selectedTab]', active)
+
+    def test_context_shortcuts_are_selected_bounded_and_situation_specific(self) -> None:
+        fill = lua_function(
+            self.context,
+            "function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, test)",
+        )
+        self.assertIn("local selected = selectedNearbyRow(rows)", fill)
+        self.assertEqual(fill.count("addNamedShortcut(context, selected"), 1)
+        self.assertEqual(fill.count("addPriorityShortcut(context, selected"), 1)
+        priority = lua_function(self.context, "local function addPriorityShortcut(")
+        for command in ("remove_barricade", "close_door", "open_door",
+                        "barricade", "dismantle", "check_room"):
+            self.assertIn(f'"{command}"', priority)
+        self.assertGreaterEqual(priority.count("return addNamedShortcut"), 5)
+
+    def test_base_context_is_hidden_outside_camp_and_dismiss_is_confirmed(self) -> None:
+        relevant = lua_function(self.context, "local function baseMenuRelevant(square)")
+        self.assertIn("if not SC.BaseLife.active() then return true end", relevant)
+        self.assertIn("SC.BaseLife.zoneDraft()", relevant)
+        self.assertIn("SC.BaseLife.isInside(square) == true", relevant)
+        base = lua_function(
+            self.context,
+            "local function addBaseMenu(context, square, containerTarget, barricadeTarget, player)",
+        )
+        self.assertIn("if not baseMenuRelevant(square) then return false end", base)
+        self.assertIn("if inside then", base)
+        button = lua_function(self.ui, "local function onCommandButton(target, button)")
+        self.assertIn('button.scCommand == "dismiss"', button)
+        self.assertIn("UI.confirmDismiss(row.name", button)
+        self.assertIn("issueCommandButton(target, button, row)", button)
+        context = lua_function(self.context, "local function issueFromContext(")
+        self.assertIn('command == "dismiss"', context)
+        self.assertIn("SC.UI.confirmDismiss", context)
 
     def test_debug_spawn_exposes_house_coordinates_and_world_locator(self) -> None:
         debug = lua_function(self.ui, "function SCUIDetail:buildDebug(panel)")
@@ -602,6 +660,7 @@ class UIStaticContractTests(unittest.TestCase):
         )
         command_literals.update(re.findall(r'scCommand\s*=\s*\"([a-z_]+)\"', self.ui))
         command_literals.update(re.findall(r'\"(set_[a-z_]+)\"', self.ui))
+        command_literals.update(re.findall(r'command\s*=\s*\"([a-z_]+)\"', self.ui))
         self.assertFalse(required - command_literals, f"missing commands: {sorted(required - command_literals)}")
         self.assertIn("pcall(SC.Commands.issue", self.ui)
         self.assertIn("pcall(SC.Commands.issue, companionId, command, payload, player)", self.context)
@@ -646,13 +705,17 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn('"barricade", barricadePayload', self.context)
 
     def test_context_commands_are_grouped_and_targeted_work_uses_live_objects(self) -> None:
-        for key in (
-            "UI_SC_Context_Talk",
-            "UI_SC_Context_Orders",
-            "UI_SC_Context_TargetActions",
-            "UI_SC_Context_Companion",
-        ):
-            self.assertIn(f'addCategory(companionMenu, "{key}")', self.context)
+        fill = lua_function(
+            self.context,
+            "function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, test)",
+        )
+        self.assertIn('text("UI_SC_Context_LivingFellows")', fill)
+        self.assertIn('"UI_SC_Context_SelectedCompanion", selected.name', fill)
+        self.assertIn('addCategory(selectedMenu, "UI_SC_Context_Talk")', fill)
+        self.assertIn('addCategory(selectedMenu, "UI_SC_Context_TargetActions")', fill)
+        self.assertIn('addCategory(selectedMenu, "UI_SC_Context_Care")', fill)
+        self.assertIn('addCategory(rootMenu, "UI_SC_Context_OtherCompanions")', fill)
+        self.assertIn('addCategory(rootMenu, "UI_SC_Context_Squad")', fill)
         self.assertIn('removeBarricadePayload.object = removeBarricadeTarget', self.context)
         self.assertIn('dismantlePayload.object = dismantleTarget', self.context)
         self.assertIn('"remove_barricade", removeBarricadePayload', self.context)
@@ -761,41 +824,47 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("pcall(SC.Commands.whistle, player)", callback)
         self.assertIn("pcall(SC.Commands.handSign, player, button.scSignal)", callback)
         self.assertIn("UI.signalSuccessText(reason, extra)", callback)
-        overview = lua_function(self.ui, "function SCUIDetail:buildStatus(panel, row)")
+        squad = lua_function(self.ui, "function SCUIDetail:buildGroups(panel, row)")
+        descriptors = self.ui[self.ui.index("UI.commandGroups = {"):self.ui.index("function UI.normalizeTab(tab)")]
         for signal in (
             "whistle", "follow", "hold", "regroup", "cautious", "move_out",
             "cease_fire", "fire", "fall_back",
         ):
-            self.assertIn(f'"{signal}"', overview)
-        self.assertLess(overview.index("UI_SC_Section_Signals"), overview.index("UI_SC_Section_Conversation"))
+            self.assertIn(f'signal = "{signal}"', descriptors)
+        self.assertIn("UI.commandGroups.squadMovementSignals", squad)
+        self.assertIn("UI.commandGroups.squadFireSignals", squad)
 
-    def test_relationship_conversation_and_emotes_are_exposed(self) -> None:
-        overview = lua_function(self.ui, "function SCUIDetail:buildStatus(panel, row)")
-        for command in (
-            "status", "needs", "memory", "background", "opinion", "relationship",
-            "encourage", "praise", "plans", "recruit", "dismiss",
-        ):
-            self.assertIn(f'"{command}"', overview)
-        for emote in ("wavehi", "signalok", "thankyou", "clap", "salute", "shrug"):
-            self.assertIn(f'emote = "{emote}"', overview)
-        for key in (
-            "UI_SC_Info_Bond", "UI_SC_Info_Mood", "UI_SC_Info_Morale", "UI_SC_Info_Stress",
-            "UI_SC_Info_Relationship", "UI_SC_Info_CurrentNeed", "UI_SC_Info_TimeTogether",
-            "UI_SC_Info_RecentMemory", "UI_SC_Info_Background",
-        ):
-            self.assertIn(key, overview)
-        self.assertLess(overview.index("UI_SC_Section_Conversation"), overview.index("UI_SC_Section_Emotes"))
+    def test_relationship_detail_moves_to_journal_and_manual_emotes_are_hidden(self) -> None:
+        status = lua_function(self.ui, "function SCUIDetail:buildStatus(panel, row)")
+        journal = lua_function(self.ui, "function SCUIDetail:buildJournal(panel, row)")
+        groups = self.ui[self.ui.index("UI.commandGroups = {"):self.ui.index("function UI.normalizeTab(tab)")]
+        for command in ("doing", "status", "needs", "encourage", "praise"):
+            self.assertIn(f'command = "{command}"', groups)
+        for command in ("memory", "background", "opinion", "relationship", "plans"):
+            self.assertIn(f'command = "{command}"', groups)
+        for key in ("UI_SC_Info_Mood", "UI_SC_Info_Relationship",
+                    "UI_SC_Info_CurrentNeed", "UI_SC_Info_RecentMemory"):
+            self.assertIn(key, status)
+        for key in ("UI_SC_Journal_Who", "UI_SC_Journal_Relationship",
+                    "UI_SC_Journal_Memories", "UI_SC_Section_PersonalConversation"):
+            self.assertIn(key, journal)
+        self.assertNotIn('command = "emote"', groups)
+        self.assertNotIn('"emote"', lua_function(
+            self.context, "local function addConversation(menu, row, player)"))
         conversation = lua_function(self.context, "local function addConversation(menu, row, player)")
-        for command in ("needs", "background", "opinion", "plans", "relationship", "encourage", "praise", "emote"):
-            self.assertIn(f'"{command}"', conversation)
+        self.assertIn('descriptorGroup("essentialTalk"', conversation)
         self.assertIn("if row.recruited ~= true then return end", conversation)
 
     def test_recruitment_is_primary_and_hides_after_joining(self) -> None:
         overview = lua_function(self.ui, "function SCUIDetail:buildStatus(panel, row)")
+        squad = lua_function(self.ui, "function SCUIDetail:buildGroups(panel, row)")
         self.assertIn("row.recruited ~= true", overview)
-        self.assertIn("row.recruited == true", overview)
         self.assertLess(overview.index('"recruit"'), overview.index("UI_SC_Section_Status"))
-        self.assertGreater(overview.index('"dismiss"'), overview.index("UI_SC_Section_Conversation"))
+        self.assertIn("row.recruited == true", squad)
+        self.assertIn('"dismiss"', squad)
+        confirm = lua_function(self.ui, "function UI.confirmDismiss(companionName, execute)")
+        self.assertIn("ISModalDialog:new", confirm)
+        self.assertIn("dismissDialogAnswer", confirm)
         context = lua_function(self.context, "local function addConversation(menu, row, player)")
         self.assertIn("if row.recruited ~= true then return end", context)
         self.assertNotIn('"recruit"', context)
@@ -809,7 +878,8 @@ class UIStaticContractTests(unittest.TestCase):
             self.context,
             "function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, test)",
         )
-        self.assertIn("if row.recruited == true then", fill)
+        self.assertIn("if selected and selected.recruited == true then", fill)
+        self.assertIn("if row.recruited == true and", fill)
 
     def test_stable_roster_refresh_avoids_full_rebuild_flicker(self) -> None:
         refresh = lua_function(self.ui, "function SCUIRoot:refreshRoster(preferredId, description, preserveScroll)")
@@ -897,9 +967,10 @@ class UIStaticContractTests(unittest.TestCase):
         support = lua_function(self.ui, "function SCUIDetail:buildSupport(panel)")
         self.assertIn("UI_SC_Info_CurrentAction", overview)
         self.assertIn("UI_SC_Info_LastActionFailure", overview)
-        self.assertIn('"UI_SC_Action_Doing", "doing"', overview)
+        self.assertIn("UI.commandGroups.essentialTalk", overview)
+        self.assertIn('{ key = "UI_SC_Action_Doing", command = "doing" }', self.ui)
         self.assertIn("UI_SC_Support_ActionSupervisor", support)
-        self.assertIn('addCommand(menu, "UI_SC_Action_Doing"', self.context)
+        self.assertIn('descriptorGroup("essentialTalk"', self.context)
         for key in ("UI_SC_Action_Doing", "UI_SC_Info_CurrentAction",
                     "UI_SC_Info_LastActionFailure", "UI_SC_Support_ActionSupervisor"):
             self.assertIn(key, self.translations)
@@ -909,7 +980,7 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn('WORK_MODES, "set_work_mode", "mode"', orders)
         for mode in ("auto", "idle", "craft"):
             self.assertIn(f'{{ id = "{mode}", key = "UI_SC_Select_Work', self.ui)
-        self.assertIn("UI_SC_Info_WorkMode", self.ui)
+        self.assertIn("UI_SC_Section_WorkAutonomy", orders)
 
     def test_vehicle_policy_is_one_persistent_toggle_with_manifest_status(self) -> None:
         gear = lua_function(self.ui, "function SCUIDetail:buildLoadout(panel, row)")
@@ -961,7 +1032,9 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertNotIn("UI_SC_Action_Guard", orders)
 
     def test_every_menu_button_produces_visible_result_feedback(self) -> None:
-        callback = lua_function(self.ui, "local function onCommandButton(target, button)")
+        callback = lua_function(
+            self.ui, "local function issueCommandButton(target, button, requestedRow)"
+        )
         self.assertIn("setButtonFeedback(target", callback)
         self.assertIn("UI_SC_CommandAcceptedDetail", callback)
         self.assertIn("UI_SC_CommandRejectedDetail", callback)
