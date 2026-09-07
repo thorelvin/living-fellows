@@ -308,24 +308,30 @@ function ZombieAttack.resolve(actor, current, zombies)
             if swing then
                 swing.resolved = false
                 swing.lastSightAt = nil
+                swing.seenSince = nil
             end
             return
         end
         targeting = targeting + 1
         -- The stock vision loop only scans the local players[] array, so it never
-        -- re-sees a detached companion. Out-of-band spotted() can re-face a zombie
-        -- mid-swing, so advance only targetSeenTime here. Critically, do not reset
-        -- it to zero: the stock attack animset deliberately holds its grace pose
-        -- while targetSeenTime < 0.5 and starts the visible bite only afterwards.
+        -- re-sees a detached companion. Worse, IsoZombie.update() resets native
+        -- targetSeenTime to zero every frame because visibility slot 3 has no local
+        -- camera. Accumulating from that native value therefore never crossed the
+        -- attack animset's 0.5-second threshold: the zombie remained forever in
+        -- Zombie_Idle_Lunge with its arms out. Track continuous same-target time
+        -- ourselves and mirror that absolute duration back every tick. This keeps
+        -- the vanilla half-second warning, then lets Zombie_Bite_Start/Success,
+        -- AttackCollisionCheck and the victim reaction run normally.
         if U().distance(zombie, actor) <= holdRadius then
             if not swing then swing = {} swings[zombie] = swing end
-            local previous = tonumber(swing.lastSightAt) or current
-            local elapsed = math.max(0, current - previous) / 1000
+            if swing.seenSince == nil then swing.seenSince = current end
+            local elapsed = math.max(0, current - swing.seenSince) / 1000
             local seen = number(zombie, "getTargetSeenTime") or 0
-            U().call(zombie, "setTargetSeenTime", math.min(10, seen + elapsed))
+            U().call(zombie, "setTargetSeenTime", math.min(10, math.max(seen, elapsed)))
             swing.lastSightAt = current
         elseif swing then
             swing.lastSightAt = nil
+            swing.seenSince = nil
         end
         -- Edge-triggered wound application: one wound per swing episode.
         -- isLandingAttack is level-true for the whole time the zombie is mid-swing

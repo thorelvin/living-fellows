@@ -84,6 +84,7 @@ local function item(itemType, category, options)
     end
     function value:getMaxDamage() return self.damage or 1 end
     function value:getMaxRange() return self.range or (self.ranged and 8 or 1.5) end
+    function value:getMinRange() return self.minRange or 0 end
     function value:getSwingTime() return self.swing or 1 end
     function value:getEnduranceMod() return self.enduranceMod or 1 end
     function value:getSharpness() return self.sharpness == nil and 1 or self.sharpness end
@@ -753,11 +754,18 @@ do
     -- the zombie forever in the arms-out grace pose and applied invisible damage.
     local seenRefreshZombie = zombie(2, 0, { target = fellow })
     local resolveOk = pcall(SurvivorCompanion.ZombieAttack.resolve, fellow, 100000, { seenRefreshZombie })
+    -- Simulate IsoZombie.update() clearing the non-local visibility slot between
+    -- every Lua decision. Continuous adapter time must still cross 0.5 seconds.
+    seenRefreshZombie.targetSeenTimeSet = 0
+    SurvivorCompanion.ZombieAttack.resolve(fellow, 100200, { seenRefreshZombie })
+    seenRefreshZombie.targetSeenTimeSet = 0
+    SurvivorCompanion.ZombieAttack.resolve(fellow, 100400, { seenRefreshZombie })
+    seenRefreshZombie.targetSeenTimeSet = 0
     SurvivorCompanion.ZombieAttack.resolve(fellow, 100600, { seenRefreshZombie })
     check(resolveOk
-            and seenRefreshZombie.targetSeenCalls == 2
+            and seenRefreshZombie.targetSeenCalls == 4
             and seenRefreshZombie.targetSeenTimeSet >= 0.6,
-        "incoming-attack resolve advances the native attack-animation grace timer")
+        "incoming-attack resolve preserves the native bite timer across visibility-slot resets")
     seenRefreshZombie.dead = true
 end
 
@@ -2974,7 +2982,7 @@ check(fought and fellow.lastIntent and (fellow.lastIntent.action == "shove" or f
 
 do
 local cleaver = item("Base.MeatCleaver", "Weapon", {
-    damage = 1.6, range = 1.25, sharpness = 1,
+    damage = 1.6, range = 1.0, minRange = 0.61, sharpness = 1,
     weaponCategories = { "SmallBlade" },
 })
 local cleaverActor = actor("sc-cleaver-primary", 30, 30, {
@@ -3002,6 +3010,14 @@ local cleaverStomped, cleaverStompReason = SurvivorCompanion.Combat.update(
 check(cleaverStomped and cleaverStompReason == "stomp"
         and cleaverActor.lastIntent.action == "stomp",
     "a safe grounded zombie is stomped even while the companion carries a melee weapon")
+cleaverZed.onFloor = false
+cleaverActor.worldX = 31.25
+cleaverSnapshot.threats[1].distanceSq = 0.25 * 0.25
+local cleaverContact, cleaverContactReason = SurvivorCompanion.Combat.update(
+    cleaverActor, player, { snapshot = cleaverSnapshot })
+check(cleaverContact and cleaverContactReason == "shove"
+        and cleaverActor.lastIntent.action == "shove",
+    "a melee wielder only uses the defensive shove inside the weapon's true minimum reach")
 SurvivorCompanion.Combat.reset(cleaverActor)
 registry[cleaverActor.id] = nil
 cleaverZed.dead = true
@@ -3088,6 +3104,17 @@ check(attacked and attackReason == "melee"
         and swordActor.lastIntent.action == "attack_melee"
         and rejectedRuntime.combatRejectedReason == nil,
     "the companion retries and attacks with its equipped melee weapon once ready")
+function swordActor:isAttackStarted() return self.attackStarted == true end
+function swordActor:isPerformingAttackAnimation() return self.attackStarted == true end
+swordActor.attackStarted = true
+local callsBeforeLease = swordActor.movementCalls
+approachSnapshot.threats[1].distanceSq = 0.25 * 0.25
+local leased, leaseReason = SurvivorCompanion.Combat.update(
+    swordActor, player, rejectedRuntime)
+check(leased and leaseReason == "attack_in_progress"
+        and swordActor.movementCalls == callsBeforeLease,
+    "an active native swing leases the actor and suppresses approach/backstep reevaluation")
+swordActor.attackStarted = false
 SurvivorCompanion.Combat.reset(swordActor)
 registry[swordActor.id] = nil
 swordZed.dead = true

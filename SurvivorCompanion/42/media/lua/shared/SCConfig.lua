@@ -207,8 +207,10 @@ local valueData = {
     combatHeadStompRange = 1.1,
     combatStompMaxImmediate = 1,
     combatMeleeDistance = 1.7,
-    combatMeleeReachMargin = 0.2,
-    combatMeleeHoldFraction = 0.5,
+    -- A small deadband around native weapon MinRange/MaxRange prevents a moving
+    -- target crossing both thresholds between combat decisions.
+    combatMeleeInnerTolerance = 0.15,
+    combatMeleeOuterTolerance = 0.08,
     friendlyFire = false,
     friendlyFireCorridor = 0.8,
     combatAllySupportRadius = 6,

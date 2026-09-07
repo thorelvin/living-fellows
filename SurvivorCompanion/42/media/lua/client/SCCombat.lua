@@ -357,6 +357,24 @@ local function boolCall(value, methodName, ...)
     return ok and result == true
 end
 
+-- A native player swing owns locomotion until its animation exits. Re-running
+-- spacing utility during that window made the companion submit approach and
+-- backstep pulses that the actor correctly rejected as movement_locked. Apart
+-- from noisy logs, the next accepted pulse could reverse the previous one and
+-- create the observed approach/backstep loop. Treat the swing as a short action
+-- lease, just as keyboard input is ignored while a normal player's attack plays.
+local function attackInProgress(actor)
+    if boolCall(actor, "isAttackStarted")
+        or boolCall(actor, "isPerformingAttackAnimation") then return true end
+    local stateName, stateOk = U().call(actor, "getCompanionActionStateName")
+    if not stateOk or stateName == nil then return false end
+    local lower = string.lower(tostring(stateName))
+    return string.find(lower, "melee", 1, true) ~= nil
+        or string.find(lower, "attack", 1, true) ~= nil
+        or string.find(lower, "shove", 1, true) ~= nil
+        or string.find(lower, "stomp", 1, true) ~= nil
+end
+
 local function numberCall(value, methodName, fallback, ...)
     local result, ok = U().call(value, methodName, ...)
     if ok and type(result) == "number" then return result end
@@ -1094,23 +1112,34 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                 }
             end
         else
-            -- Melee spacing keyed to the weapon's OWN reach on this actor, not a
-            -- fixed distance: the swing band is [swingMin, swingMax] where
-            -- swingMax sits just inside the effective max range. A short blade
-            -- must close to connect; a long blade holds a safer gap and still
-            -- lands -- so companions keep kiting distance yet actually hit.
+            -- Melee spacing is keyed to the weapon's own reach, with a small
+            -- hysteresis on both boundaries. The previous implementation added
+            -- 0.15 to MinRange and subtracted 0.20 from MaxRange. For a meat
+            -- cleaver (0.61..1.00) that left a swing band only ~0.04 tiles wide:
+            -- one decision approached, the next backstepped, and neither behaved
+            -- like a player. The tolerant band accepts a valid swing before a
+            -- moving target crosses the boundary between 125 ms decisions.
             local reachVal = select(1, utility.call(weapon.item, "getMaxRange", actor))
             local reachMax = tonumber(reachVal) or tonumber(weapon.range) or 1.5
             local modVal = select(1, utility.call(weapon.item, "getRangeMod", actor))
             local rangeMod = tonumber(modVal) or 1.0
             local effectiveMax = reachMax * (rangeMod > 0 and rangeMod or 1.0)
-            local swingMin = (tonumber(weapon.minRange) or 0)
-                + (utility.config("combatMeleeMinMargin") or 0.15)
+            local swingMin = math.max(0.15, (tonumber(weapon.minRange) or 0)
+                - (utility.config("combatMeleeInnerTolerance") or 0.15))
             local swingMax = math.max(swingMin + 0.2,
-                effectiveMax - (utility.config("combatMeleeReachMargin") or 0.2))
+                effectiveMax + (utility.config("combatMeleeOuterTolerance") or 0.08))
             if distance < swingMin then
-                -- Inside minimum reach a swing cannot land and Build 42 degrades
-                -- it into a non-damaging shove. Open a small gap first.
+                -- Inside the weapon's true minimum reach, use the same defensive
+                -- shove a player gets at body contact. It creates space and feeds
+                -- the existing stomp follow-up even when a wall makes backstep
+                -- impossible. Backstep remains an option when clearance exists.
+                if distance <= (utility.config("combatShoveDistance") or 1.35) then
+                    actions[#actions + 1] = {
+                        kind = "shove",
+                        score = 96 + pressure * 7 + readiness.strength
+                            - fatiguePenalty * 0.35,
+                    }
+                end
                 actions[#actions + 1] = {
                     kind = "backstep",
                     score = 60 + pressure * 6 + readiness.nimble * 1.5
@@ -1124,20 +1153,6 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                         - pressure * 3 - fatiguePenalty
                         - math.max(0, readiness.weaponCost - 1.5) * 3,
                 }
-                -- Hold the outer edge: if the target has closed toward the inner
-                -- part of the swing band and there is room, favour a fighting
-                -- retreat that reopens to the far swing distance -- kiting while
-                -- still landing a hit on the next tick from range.
-                local holdPoint = swingMin
-                    + (swingMax - swingMin) * (utility.config("combatMeleeHoldFraction") or 0.5)
-                if distance < holdPoint and (tonumber(readiness.escapeClearance) or 0) > 0
-                    and readiness.staminaCritical ~= true then
-                    actions[#actions + 1] = {
-                        kind = "backstep",
-                        score = 55 + pressure * 7 + readiness.nimble * 1.5
-                            + (holdPoint - distance) * 22 - readiness.footing.crowd * 4,
-                    }
-                end
             elseif isolatedFront and readiness.staminaCritical ~= true then
                 -- Beyond swing reach: advance to the outer swing edge under guard;
                 -- the next tick resumes the swing/kite exchange from there.
@@ -1396,24 +1411,24 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         end
         return true, "equip"
     end
-    local accepted
+    local accepted, nativeReason
     if action.kind == "unjam" then
-        accepted = utility.move(actor, "walk", { action = "unjam", weapon = weapon.item, target = targetActor })
+        accepted, nativeReason = utility.move(actor, "walk", { action = "unjam", weapon = weapon.item, target = targetActor })
     elseif action.kind == "reload" then
-        accepted = utility.move(actor, "walk", { action = "reload", weapon = weapon.item, target = targetActor })
+        accepted, nativeReason = utility.move(actor, "walk", { action = "reload", weapon = weapon.item, target = targetActor })
     elseif action.kind == "shoot" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
-        accepted = utility.move(actor, "walk", {
+        accepted, nativeReason = utility.move(actor, "walk", {
             action = "attack_firearm", weapon = weapon.item, target = targetActor,
             friendlyFireChecked = true, lineOfSightChecked = true,
             combatDoctrine = commands and commands.combatDoctrine,
         })
     elseif action.kind == "melee" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
-        accepted = utility.move(actor, "walk", { action = "attack_melee", weapon = weapon.item, target = targetActor })
+        accepted, nativeReason = utility.move(actor, "walk", { action = "attack_melee", weapon = weapon.item, target = targetActor })
     elseif action.kind == "shove" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
-        accepted = utility.move(actor, "walk", { action = "shove", target = targetActor })
+        accepted, nativeReason = utility.move(actor, "walk", { action = "shove", target = targetActor })
     elseif action.kind == "stomp" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
         -- Aim for the head: step over the zombie's head square before stomping so the
@@ -1430,7 +1445,7 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             local hdy = (hy + 0.5) - ay
             local headRange = utility.config("combatHeadStompRange") or 1.1
             if (hdx * hdx + hdy * hdy) > headRange * headRange then
-                accepted = utility.move(actor, "walk", {
+                accepted, nativeReason = utility.move(actor, "walk", {
                     action = "combat_approach",
                     dx = hdx, dy = hdy,
                     target = targetActor, facingTarget = targetActor,
@@ -1440,13 +1455,13 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
                 return true, "stomp_approach_head"
             end
         end
-        accepted = utility.move(actor, "walk", { action = "stomp", target = targetActor, floorAttack = true })
+        accepted, nativeReason = utility.move(actor, "walk", { action = "stomp", target = targetActor, floorAttack = true })
     elseif action.kind == "approach" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
         local ax, ay = utility.position(actor)
         local tx, ty = utility.position(targetActor)
         if ax == nil or tx == nil then return false, "approach_position_unavailable" end
-        accepted = utility.move(actor, "walk", {
+        accepted, nativeReason = utility.move(actor, "walk", {
             action = "combat_approach",
             dx = tx - ax,
             dy = ty - ay,
@@ -1457,13 +1472,16 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             tacticalStrafe = true,
         })
     elseif action.kind == "backstep" then
-        accepted = utility.move(actor, "walk", { action = "backstep", target = targetActor, keepFacing = true })
+        accepted, nativeReason = utility.move(actor, "walk", { action = "backstep", target = targetActor, keepFacing = true })
     elseif action.kind == "kite" then
-        accepted = utility.move(actor, "walk", { action = "lateral_kite", target = targetActor, keepFacing = true })
+        accepted, nativeReason = utility.move(actor, "walk", { action = "lateral_kite", target = targetActor, keepFacing = true })
     else
         return false, "unknown_action"
     end
-    if not accepted then return false, action.kind .. "_rejected" end
+    if not accepted then
+        local prefix = action.kind .. "_rejected"
+        return false, nativeReason and (prefix .. ":" .. tostring(nativeReason)) or prefix
+    end
     return true, action.kind
 end
 
@@ -1637,6 +1655,22 @@ function Combat.update(actor, player, runtime)
             rootRuntime.combatAction = reason
         end
         return ok, reason
+    end
+    -- Preserve the target/facing but do not ask locomotion to interrupt the
+    -- current native swing. This is deliberately before retreat/spacing scoring:
+    -- a normal player also finishes the committed attack frame before the next
+    -- movement input can take effect.
+    if attackInProgress(actor) then
+        clearRejection(state, rootRuntime)
+        state.active = true
+        state.target = target.actor
+        state.targetScore = target.score
+        state.lastActionAt = now
+        state.lastAction = "attack_in_progress"
+        state.retreating = false
+        rootRuntime.combatTarget = target.actor
+        rootRuntime.combatAction = "attack_in_progress"
+        return true, "attack_in_progress"
     end
     local overrun = Combat.assessOverrun(actor, snapshot, weapon, commands)
     rootRuntime.combatOverrun = overrun
