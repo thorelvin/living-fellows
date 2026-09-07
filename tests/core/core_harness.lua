@@ -138,6 +138,9 @@ function actor:getEmitter() return {} end
 function actor:getVisual() return {} end
 function actor:getForwardDirectionX() return self.forwardX end
 function actor:getForwardDirectionY() return self.forwardY end
+function actor:CanSee(target)
+    return target ~= nil and target.hidden ~= true
+end
 function actor:faceLocationF(x, y)
     local dx, dy = x - self:getX(), y - self:getY()
     local length = math.sqrt(dx * dx + dy * dy)

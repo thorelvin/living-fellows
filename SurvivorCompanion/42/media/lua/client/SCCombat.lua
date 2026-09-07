@@ -600,16 +600,30 @@ end
 
 function Combat.scoreTargets(actor, player, snapshot, previousTarget)
     local scored = {}
-    local now = U().nowMs()
+    local utility = U()
+    local now = utility.nowMs()
     if type(snapshot) ~= "table" or type(snapshot.threats) ~= "table" then return scored end
-    for index = 1, math.min(#snapshot.threats, U().config("perceptionThreatLimit") or 32) do
+    for index = 1, math.min(#snapshot.threats, utility.config("perceptionThreatLimit") or 32) do
         local threat = snapshot.threats[index]
-        if threat.actor and not U().isDead(threat.actor) and U().sameFloor(actor, threat.actor) then
-            local score, bearing, facingDot = threatScore(threat, actor, player, snapshot)
+        -- Treat the snapshot as a candidate list, not continuing permission to
+        -- attack. Revalidate LOS and position every combat pulse so a target that
+        -- turns a corner or crosses a closed doorway immediately leaves combat.
+        if threat.actor and not utility.isDead(threat.actor)
+            and utility.sameFloor(actor, threat.actor) and utility.canSee(actor, threat.actor) then
+            local record = utility.copyShallow(threat)
+            record.square = utility.squareOf(threat.actor)
+            -- Preserve the snapshot distance for the existing combat cadence; the
+            -- dedicated fast live-geometry/reflex pass is a separate change. LOS,
+            -- however, must be current on every pulse so walls revoke targeting now.
+            record.distanceSq = tonumber(threat.distanceSq)
+                or utility.distanceSq(actor, threat.actor)
+            record.distance = math.sqrt(record.distanceSq)
+            record.visible = true
+            record.obstructed = false
+            local score, bearing, facingDot = threatScore(record, actor, player, snapshot)
             if threat.actor == previousTarget then score = score + 8 end
             local claimed = activeClaim(threat.actor, actor, now) ~= nil
-            if claimed then score = score - (U().config("combatTargetClaimPenalty") or 42) end
-            local record = U().copyShallow(threat)
+            if claimed then score = score - (utility.config("combatTargetClaimPenalty") or 42) end
             record.score = score
             record.bearing = bearing
             record.facingDot = facingDot
@@ -636,14 +650,15 @@ local function addNearbyGrounded(actor, scored)
             utility.squareMovingObjects(square, function(value)
                 if not seen[value] and utility.isZombie(value) and not utility.isDead(value)
                     and utility.sameFloor(actor, value)
+                    and utility.canSee(actor, value)
                     and (boolCall(value, "isOnFloor") or boolCall(value, "isProne")) then
                     seen[value] = true
                     scored[#scored + 1] = {
                         actor = value,
                         square = square,
                         distanceSq = utility.distanceSq(actor, value),
-                        visible = utility.canSee(actor, value),
-                        obstructed = utility.edgeBlocked(utility.squareOf(actor), square),
+                        visible = true,
+                        obstructed = false,
                         attacking = false,
                         grounded = true,
                         score = 42,
@@ -987,7 +1002,7 @@ local function tryShoveFollowUp(actor, state, snapshot, now)
     if type(followUp) ~= "table" then return nil, nil end
     local target = followUp.target
     if not target or U().isDead(target) or not U().isZombie(target)
-        or not U().sameFloor(actor, target) then
+        or not U().sameFloor(actor, target) or not U().canSee(actor, target) then
         state.shoveFollowUp = nil
         return nil, "shove_followup_invalid"
     end

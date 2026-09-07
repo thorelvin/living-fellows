@@ -1324,6 +1324,34 @@ local function warnAboutThreat(actor, snapshot, state, current)
     end
 end
 
+local function warnAboutHeardThreat(actor, snapshot, state, current)
+    local visibleCount = tonumber(snapshot.threatCount) or #(snapshot.threats or {})
+    if visibleCount > 0 then return end
+    local heard = type(snapshot.lastHeardDanger) == "table" and snapshot.lastHeardDanger
+        or type(snapshot.heardThreats) == "table" and snapshot.heardThreats[1]
+        or nil
+    if not heard then return end
+    local heardAt = tonumber(heard.heardAt) or (current - (tonumber(heard.ageMs) or 0))
+    if current - heardAt > (U().config("heardThreatMemoryMs") or 5000) then return end
+    if SC.Dialogue and type(SC.Dialogue.lastSpokenAt) == "function"
+        and current - SC.Dialogue.lastSpokenAt(actor) < 3000 then return end
+    if current < (state.nextHeardThreatWarningAt or 0) then return end
+    if heardAt <= (state.lastWarnedHeardAt or -math.huge) then return end
+
+    state.lastWarnedHeardAt = heardAt
+    state.nextHeardThreatWarningAt = current
+        + (U().config("heardThreatWarningCooldownMs") or 15000)
+    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+        SC.Dialogue.say(actor, "danger.heard", nil, nil, {
+            fallback = "*listens* I heard a walker.",
+            recentLimit = 4,
+            salt = tostring(current) .. ":" .. tostring(heard.direction or "unknown"),
+        })
+    else
+        U().say(actor, "*listens* I heard a walker.")
+    end
+end
+
 local function survivalNeedsImmediateControl(snapshot, assessment, needs, commands)
     snapshot = type(snapshot) == "table" and snapshot or {}
     local immediate = tonumber(snapshot.immediateCount)
@@ -1602,6 +1630,7 @@ function Decision.update(actor, player, runtime)
     end
 
     warnAboutThreat(actor, snapshot, state, current)
+    warnAboutHeardThreat(actor, snapshot, state, current)
     if SC.Dialogue and type(SC.Dialogue.ambientPulse) == "function" then
         utility.safeSubsystem("ambient-dialogue", actor, function()
             return SC.Dialogue.ambientPulse(actor, player, snapshot, commands, current)

@@ -103,6 +103,21 @@ local pools = {
         practical = { "Zombie spotted!", "Contact, close range!" },
         stressed = { "Oh hell, zombie!", "Damn it, one of them is here!" },
     },
+    ["danger.heard"] = {
+        common = {
+            "*listens* I heard a walker.",
+            "*goes quiet* Something dead is moving nearby.",
+            "Quiet. I can hear one of them.",
+            "*tilts head* There's a walker close. I can't see it.",
+            "I heard shuffling. Stay alert.",
+            "Something's moving on the other side. Walker, I think.",
+        },
+        brave = { "I hear one. Let it come into view.", "Walker nearby. We wait until we see it." },
+        cautious = { "I heard a walker. Don't rush the corner.", "Something's close, but I don't have eyes on it." },
+        caring = { "Stay close. I heard one nearby.", "I can hear a walker. Watch the blind side." },
+        practical = { "Audible contact. No visual.", "Walker heard nearby. Position uncertain." },
+        stressed = { "I heard one. Where is it?", "Something's right there. I can't see it." },
+    },
     ["danger.one"] = {
         common = {
             "One zombie ahead.", "Single walker, up ahead.", "I've got one moving out there.",

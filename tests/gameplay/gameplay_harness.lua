@@ -499,6 +499,7 @@ local function zombie(x, y, options)
         __class = "IsoZombie",
         square = cell:getGridSquare(x, y, z),
         onFloor = settings.onFloor == true,
+        moving = settings.moving == true,
         dead = false,
         target = settings.target,
     }
@@ -511,6 +512,7 @@ local function zombie(x, y, options)
     function value:isDead() return self.dead end
     function value:isOnFloor() return self.onFloor end
     function value:isProne() return self.onFloor end
+    function value:isMoving() return self.moving == true end
     value.attacking = settings.attacking == true
     function value:isAttacking() return self.attacking == true end
     function value:isZombieAttacking(target)
@@ -926,6 +928,79 @@ check(SurvivorCompanion.GameplayUtil.canSee(fellow, blockedLosSquare),
     "square LOS accepts the validated clear-through-window result")
 blockedLosSquare.losResult = nil
 check(not SurvivorCompanion.GameplayUtil.canSee(fellow, cell:getGridSquare(0, 0, 1)), "square LOS rejects a different floor")
+
+do
+    local hearingActor = actor("sc-wall-hearing", 10, 10, {})
+    local hiddenZombie = zombie(12, 10, { moving = true })
+    hiddenZombie.square.losBlocked = true
+    check(not SurvivorCompanion.GameplayUtil.canSee(hearingActor, hiddenZombie),
+        "actor LOS rejects a zombie behind blocked native sight")
+
+    local hearingRuntime = {}
+    local hiddenSnapshot = SurvivorCompanion.Senses.snapshot(
+        hearingActor, player, hearingRuntime)
+    check(hiddenSnapshot.threatCount == 0 and hiddenSnapshot.immediateCount == 0
+            and hiddenSnapshot.heardThreatCount == 1
+            and hiddenSnapshot.lastHeardDanger
+            and hiddenSnapshot.lastHeardDanger.kind == "zombie"
+            and hiddenSnapshot.lastKnownDanger == nil,
+        "a moving zombie behind a closed wall is heard but never promoted to a visual threat")
+    check(#SurvivorCompanion.Combat.scoreTargets(hearingActor, player, {
+            threats = { {
+                actor = hiddenZombie, distanceSq = 4, visible = false,
+                obstructed = true, attacking = true, score = 999,
+            } },
+            allies = {},
+        }, nil) == 0,
+        "combat rejects an unseen wall-obstructed zombie even when a stale snapshot scores it highly")
+
+    hiddenZombie.square.losBlocked = false
+    clock = clock + 100
+    local visibleSnapshot = SurvivorCompanion.Senses.snapshot(
+        hearingActor, player, hearingRuntime)
+    local lastSeenX = visibleSnapshot.lastKnownDanger and visibleSnapshot.lastKnownDanger.x
+    check(visibleSnapshot.threatCount == 1 and lastSeenX ~= nil
+            and visibleSnapshot.lastKnownDanger.actor == nil,
+        "visual contact creates a fixed last-seen position without exposing a live target reference")
+
+    for index = #hiddenZombie.square.moving, 1, -1 do
+        if hiddenZombie.square.moving[index] == hiddenZombie then
+            table.remove(hiddenZombie.square.moving, index)
+        end
+    end
+    local movedHiddenSquare = cell:getGridSquare(13, 10, 0)
+    movedHiddenSquare.losBlocked = true
+    hiddenZombie.square = movedHiddenSquare
+    movedHiddenSquare.moving[#movedHiddenSquare.moving + 1] = hiddenZombie
+    clock = clock + 100
+    local lostSnapshot = SurvivorCompanion.Senses.snapshot(
+        hearingActor, player, hearingRuntime)
+    check(lostSnapshot.threatCount == 0 and lostSnapshot.lastKnownDanger
+            and lostSnapshot.lastKnownDanger.x == lastSeenX,
+        "last-seen memory stays at the observed square when the zombie moves behind a wall")
+
+    local heardWarningActor = actor("sc-heard-warning", 10, 12, {})
+    SurvivorCompanion.Decision.update(heardWarningActor, player, {
+        snapshot = {
+            threats = {}, immediateAttackers = {}, threatCount = 0, immediateCount = 0,
+            pressure = 0, escapeSquares = {}, allies = {},
+            heardThreats = lostSnapshot.heardThreats,
+            heardThreatCount = lostSnapshot.heardThreatCount,
+            lastHeardDanger = lostSnapshot.lastHeardDanger,
+            player = { actor = player, danger = 0 },
+        },
+    })
+    check(type(heardWarningActor.lastSpeech) == "string"
+            and SurvivorCompanion.Dialogue.lastSpokenTopic(heardWarningActor) == "danger.heard",
+        "an unseen audible walker produces uncertain heard-contact dialogue")
+
+    hiddenZombie.dead = true
+    for index = #movedHiddenSquare.moving, 1, -1 do
+        if movedHiddenSquare.moving[index] == hiddenZombie then
+            table.remove(movedHiddenSquare.moving, index)
+        end
+    end
+end
 
 local zedIndex
 for index, value in ipairs(zed.square.moving) do if value == zed then zedIndex = index end end

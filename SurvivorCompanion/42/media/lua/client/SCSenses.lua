@@ -134,7 +134,11 @@ local function threatRecord(actor, player, zombie, actorSquare)
     local zombieSquare = U.squareOf(zombie)
     local distanceSq = U.distanceSq(actor, zombie)
     local visible = U.canSee(actor, zombie)
-    local blocked = zombieSquare and U.edgeBlocked(actorSquare, zombieSquare) or true
+    -- isBlockedTo() only describes one adjacent edge and cannot establish LOS to
+    -- a distant square. canSee() delegates actor sight to Build 42's character LOS,
+    -- so an unconfirmed contact is obstructed by definition and must never enter
+    -- the combat target list.
+    local blocked = not visible
     local fenced = false
     if zombieSquare and distanceSq <= 12 then
         local hop, hopOk = U.call(actorSquare, "isHoppableTo", zombieSquare)
@@ -159,6 +163,44 @@ local function threatRecord(actor, player, zombie, actorSquare)
         attacking = attacking,
         playerDistanceSq = playerDistanceSq,
         score = score,
+    }
+end
+
+local function zombieAudible(actor, zombie, record)
+    local U = util()
+    local distanceSq = tonumber(record and record.distanceSq) or U.distanceSq(actor, zombie)
+    local attacking = record and record.attacking == true
+        or truthyCall(zombie, "isAttacking")
+    local moving = truthyCall(zombie, "isMoving")
+    local radius = attacking and (U.config("zombieHearingAttackingRadius") or 9)
+        or moving and (U.config("zombieHearingMovingRadius") or 6)
+        or (U.config("zombieHearingIdleRadius") or 2.25)
+    return distanceSq <= radius * radius, attacking and 3 or moving and 2 or 1
+end
+
+local function heardDirection(dx, dy)
+    local horizontal = math.abs(dx) >= 0.75 and (dx > 0 and "east" or "west") or nil
+    local vertical = math.abs(dy) >= 0.75 and (dy > 0 and "south" or "north") or nil
+    if horizontal and vertical then return vertical .. "_" .. horizontal end
+    return horizontal or vertical or "nearby"
+end
+
+-- An auditory contact deliberately contains no zombie actor or exact square.
+-- Hearing may inform dialogue and caution, but it must not become an omniscient
+-- combat target or a path request to the other side of a wall.
+local function heardThreatRecord(actor, zombie, record, current, activity)
+    local ax, ay, az = util().position(actor)
+    local zx, zy, zz = util().position(zombie)
+    local dx, dy = (zx or ax or 0) - (ax or 0), (zy or ay or 0) - (ay or 0)
+    local distance = math.sqrt(math.max(0, tonumber(record.distanceSq) or 0))
+    return {
+        kind = "zombie",
+        heardAt = current,
+        direction = heardDirection(dx, dy),
+        distanceBand = distance <= 2.5 and "very_close" or distance <= 6 and "near" or "distant",
+        floor = math.floor(tonumber(zz or az) or 0),
+        activity = activity,
+        strength = activity * 10 / (1 + distance),
     }
 end
 
@@ -403,25 +445,34 @@ local function scanJobInvalid(job, originX, originY, originZ, radius, squareBudg
     return dx * dx + dy * dy > 16
 end
 
-local function liveThreatLists(actor, player, actorSquare, job, threatLimit, immediateRadiusSq)
+local function liveThreatLists(actor, player, actorSquare, job, threatLimit, immediateRadiusSq, current)
     local threats, immediate, fenced, stealth = {}, {}, {}, {}
+    local heard
     for _, prior in ipairs(job.stealthThreats or {}) do
         local zombie = prior.actor
         if #stealth >= threatLimit then break end
         if isActiveZombie(zombie) then
             local record = threatRecord(actor, player, zombie, actorSquare)
             record.prone = not isStandingZombie(zombie)
-            stealth[#stealth + 1] = record
-            if not record.prone and #threats < threatLimit then
-                threats[#threats + 1] = record
-                if record.attacking or record.distanceSq <= immediateRadiusSq then
-                    immediate[#immediate + 1] = record
+            if record.visible and not record.obstructed then
+                stealth[#stealth + 1] = record
+                if not record.prone and #threats < threatLimit then
+                    threats[#threats + 1] = record
+                    if record.attacking or record.distanceSq <= immediateRadiusSq then
+                        immediate[#immediate + 1] = record
+                    end
+                    if record.fenced then fenced[#fenced + 1] = record end
                 end
-                if record.fenced then fenced[#fenced + 1] = record end
+            else
+                local audible, activity = zombieAudible(actor, zombie, record)
+                if audible then
+                    local candidate = heardThreatRecord(actor, zombie, record, current, activity)
+                    if not heard or candidate.strength > heard.strength then heard = candidate end
+                end
             end
         end
     end
-    return threats, immediate, fenced, stealth
+    return threats, immediate, fenced, stealth, heard
 end
 
 function Senses.snapshot(actor, player, runtime)
@@ -430,6 +481,7 @@ function Senses.snapshot(actor, player, runtime)
         return {
             valid = false,
             threats = {}, immediateAttackers = {}, fencedThreats = {},
+            heardThreats = {}, heardThreatCount = 0,
             sounds = {}, exits = {}, escapeSquares = {}, allies = {},
             player = { available = false, danger = 0 },
         }
@@ -483,10 +535,14 @@ function Senses.snapshot(actor, player, runtime)
                     job.seen[movingObject] = true
                     local record = threatRecord(actor, player, movingObject, actorSquare)
                     record.prone = not isStandingZombie(movingObject)
-                    if #job.stealthThreats < threatLimit then
+                    local audible = zombieAudible(actor, movingObject, record)
+                    -- Keep only contacts the companion could actually perceive.
+                    -- A silent zombie hidden in another room is reconsidered on a
+                    -- later scan, but does not consume the current threat budget.
+                    if (record.visible or audible) and #job.stealthThreats < threatLimit then
                         job.stealthThreats[#job.stealthThreats + 1] = record
                     end
-                    if not record.prone then
+                    if record.visible and not record.obstructed and not record.prone then
                         job.threats[#job.threats + 1] = record
                         if record.attacking or record.distanceSq <= immediateRadiusSq then
                             job.immediate[#job.immediate + 1] = record
@@ -508,8 +564,8 @@ function Senses.snapshot(actor, player, runtime)
     end
 
     local complete = job.index > #job.offsets or #job.stealthThreats >= threatLimit
-    local threats, immediate, fenced, stealthThreats = liveThreatLists(
-        actor, player, actorSquare, job, threatLimit, immediateRadiusSq)
+    local threats, immediate, fenced, stealthThreats, heard = liveThreatLists(
+        actor, player, actorSquare, job, threatLimit, immediateRadiusSq, now)
 
     table.sort(threats, function(a, b)
         if a.score == b.score then return a.distanceSq < b.distanceSq end
@@ -534,14 +590,31 @@ function Senses.snapshot(actor, player, runtime)
     local strongest = threats[1]
     if strongest then
         local tx, ty, tz = U.position(strongest.actor)
+        -- Store the observed square, not the live actor. Otherwise a zombie that
+        -- walks behind a wall drags its "last seen" marker along in real time.
         state.lastKnownDanger = {
-            actor = strongest.actor,
             x = tx, y = ty, z = tz,
+            square = strongest.square,
             score = strongest.score,
             seenAt = now,
+            visible = true,
+            obstructed = false,
         }
     elseif state.lastKnownDanger and now - state.lastKnownDanger.seenAt > (U.config("lastKnownThreatMs") or 5000) then
         state.lastKnownDanger = nil
+    end
+    if heard then
+        state.lastHeardDanger = heard
+    elseif state.lastHeardDanger
+        and now - (tonumber(state.lastHeardDanger.heardAt) or 0)
+            > (U.config("heardThreatMemoryMs") or 5000) then
+        state.lastHeardDanger = nil
+    end
+    local heardThreats = {}
+    if state.lastHeardDanger then
+        local remembered = U.copyShallow(state.lastHeardDanger)
+        remembered.ageMs = now - (tonumber(remembered.heardAt) or now)
+        heardThreats[1] = remembered
     end
 
     local actorRoom, actorRoomOk = U.call(actorSquare, "getRoom")
@@ -571,6 +644,9 @@ function Senses.snapshot(actor, player, runtime)
         occupiedThreatSectors = occupiedThreatSectors,
         nearestThreat = threats[1],
         lastKnownDanger = state.lastKnownDanger,
+        heardThreats = heardThreats,
+        heardThreatCount = #heardThreats,
+        lastHeardDanger = heardThreats[1],
         sounds = recentSounds,
         strongestSound = recentSounds[1],
         exits = exits,
