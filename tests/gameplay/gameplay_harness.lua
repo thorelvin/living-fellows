@@ -9,11 +9,18 @@ end
 local clock = 100000
 function getTimestampMs() return clock end
 local worldHour = 12
+local rainIntensity, fogIntensity = 0, 0
 function getGameTime()
     return {
         getHour = function() return worldHour end,
         getTimeOfDay = function() return worldHour end,
         getWorldAgeHours = function() return 240 + clock / 3600000 end,
+    }
+end
+function getClimateManager()
+    return {
+        getPrecipitationIntensity = function() return rainIntensity end,
+        getFogIntensity = function() return fogIntensity end,
     }
 end
 local worldSoundCount = 0
@@ -253,6 +260,7 @@ local function makeSquare(x, y, z)
     function value:getStaticMovingObjects() return self.staticMoving end
     function value:getObjects() return self.objects end
     function value:getSpecialObjects() return self.specialObjects end
+    function value:getVehicleContainer() return self.vehicleContainer end
     function value:AddWorldInventoryItem(added, xOffset, yOffset, zOffset, transmit)
         local worldItem = { item = added, square = self, xOffset = xOffset, yOffset = yOffset,
             zOffset = zOffset }
@@ -1510,6 +1518,20 @@ check(not accepted and vehicleState.lastBlocker.type == "vehicle"
     "vehicle collision evidence selects dedicated vehicle recovery diagnostics")
 SurvivorCompanion.Navigation.reset(vehicleActor)
 registry[vehicleActor.id] = nil
+end
+
+do
+local vehicleFootprint = cell:getGridSquare(-6, 4, 0)
+vehicleFootprint.vehicleContainer = { id = "parked-car" }
+local vehicleRoute = SurvivorCompanion.Navigation.findPath(
+    cell:getGridSquare(-7, 4, 0), cell:getGridSquare(-5, 4, 0))
+local crossedVehicle = false
+for _, routeSquare in ipairs(vehicleRoute or {}) do
+    if routeSquare == vehicleFootprint then crossedVehicle = true break end
+end
+check(vehicleRoute ~= nil and crossedVehicle == false,
+    "Lua path search routes around a parked vehicle footprint before collision")
+vehicleFootprint.vehicleContainer = nil
 end
 
 do
@@ -3917,6 +3939,41 @@ do
     registry[decisionScavenger.id] = nil
 end
 
+
+do
+    local formationClock = clock
+    local formationFood = item("Base.CannedCarrots2", "Food")
+    local formationLooter = actor("sc-formation-looter", 1, 3, {})
+    registry[formationLooter.id] = formationLooter
+    formationLooter.hunger = 0.95
+    containerObject(formationLooter.square, { formationFood })
+    SurvivorCompanion.Commands.issue(formationLooter.id, "set_scavenge", true, player)
+    SurvivorCompanion.Performance.reset()
+    SurvivorCompanion.Performance.beginFrame(2, clock)
+    SurvivorCompanion.Encounter.tryScavenge(formationLooter, player, {
+        snapshot = { threats = {}, immediateCount = 0, threatCount = 0,
+            pressure = 0, escapeSquares = {} },
+    })
+    clock = clock + 16
+    SurvivorCompanion.Performance.endFrame(1, false)
+    local searching = SurvivorCompanion.Encounter.peek(formationLooter)
+    player.moving = true
+    local rejoin, rejoinReason = SurvivorCompanion.Encounter.formationRejoinRequired(
+        formationLooter, player, SurvivorCompanion.Commands.peek(formationLooter))
+    SurvivorCompanion.Encounter.cancelScavenge(formationLooter, rejoinReason)
+    searching = SurvivorCompanion.Encounter.peek(formationLooter)
+    check(rejoin and rejoinReason == "formation_leader_moving"
+            and searching.task == nil and searching.selectionJob == nil
+            and searching.containerSearch == nil,
+        "a moving formation leader immediately cancels an in-progress scavenging search")
+    player.moving = false
+    SurvivorCompanion.Encounter.reset(formationLooter)
+    SurvivorCompanion.Commands.reset(formationLooter)
+    registry[formationLooter.id] = nil
+    SurvivorCompanion.Performance.reset()
+    clock = formationClock
+end
+
 do
 local stagedFood = item("Base.CannedChili", "Food")
 local stagedLootActor = actor("sc-loot-transaction", -20, 4, {})
@@ -4411,6 +4468,17 @@ check(clothingLooted and not clothingCorpse:contains(betterShirt)
     and clothingEquipped and clothingLooter:getWornItem("Shirt") == betterShirt,
     "outside combat, companions loot and equip a materially better zombie garment: "
         .. tostring(clothingReason))
+
+local redDigitalWatch = item("Base.WristWatch_Left_DigitalRed", "Clothing", {
+    bodyLocation = "LeftWrist", condition = 10, conditionMax = 10,
+})
+local watchScore = SurvivorCompanion.Logistics.itemNeedScore(
+    clothingLooter, redDigitalWatch)
+local watchAccepted, watchReason = SurvivorCompanion.Logistics.canTake(
+    clothingLooter, redDigitalWatch, "clothing")
+check(SurvivorCompanion.Logistics.clothingScore(redDigitalWatch) == -math.huge
+        and watchScore == 0 and not watchAccepted and watchReason == "cosmetic_wearable",
+    "cosmetic watches never become clothing-upgrade scavenging targets")
 
 local protectiveCoat = item("Base.Coat_Long", "Clothing", {
     bodyLocation = "JacketSuit", condition = 10, conditionMax = 10,
@@ -6017,7 +6085,7 @@ local Dialogue = SurvivorCompanion.Dialogue
 local peerId = "sc-community-peer"
 Community.reset()
 LifeEvents.reset()
-Dialogue.reset(fellow)
+Dialogue.reset()
 local oneBand, oneRank = Dialogue.threatBand(1)
 local pairBand, pairRank = Dialogue.threatBand(2)
 local groupBand, groupRank = Dialogue.threatBand(4)
@@ -6050,6 +6118,55 @@ for _ in pairs(variedLines) do variedCount = variedCount + 1 end
 check(variedCount == 4 and dialogueDetail.poolSize >= 6
     and dialogueDetail.voice == "practical",
     "dialogue pools avoid recent lines and include personality-specific wording")
+do
+    local savedHour, savedRain, savedFog, savedClock = worldHour,
+        rainIntensity, fogIntensity, clock
+    local settings = SurvivorCompanion.Config.values
+    local savedPulse, savedActorCooldown, savedGroupCooldown =
+        settings.ambientDialoguePulseMs, settings.ambientDialogueActorCooldownMs,
+        settings.ambientDialogueGroupCooldownMs
+    settings.ambientDialoguePulseMs = 1
+    settings.ambientDialogueActorCooldownMs = 0
+    settings.ambientDialogueGroupCooldownMs = 0
+    local quiet = { threats = {}, immediateAttackers = {}, threatCount = 0,
+        immediateCount = 0, pressure = 0, player = { danger = 0 } }
+    local commands = SurvivorCompanion.Commands.peek(fellow)
+    local function speakAmbient()
+        local spoken, topic, line = Dialogue.ambientPulse(
+            fellow, player, quiet, commands, clock)
+        if not spoken and topic == "ambient_not_due" then
+            clock = clock + 2
+            spoken, topic, line = Dialogue.ambientPulse(
+                fellow, player, quiet, commands, clock)
+        end
+        return spoken, topic, line
+    end
+    worldHour, rainIntensity, fogIntensity = 7, 0, 0
+    local morning, morningTopic = speakAmbient()
+    clock, worldHour = clock + 2, 19
+    local dusk, duskTopic = speakAmbient()
+    clock, worldHour, rainIntensity = clock + 2, 12, 0.5
+    local rain, rainTopic = speakAmbient()
+    clock, fogIntensity = clock + 2, 0.7
+    local fog, fogTopic = speakAmbient()
+    clock = clock + 2
+    local duplicate, duplicateReason = speakAmbient()
+    check(morning and morningTopic == "ambient.morning"
+            and dusk and duskTopic == "ambient.dusk"
+            and rain and rainTopic == "ambient.rain"
+            and fog and fogTopic == "ambient.fog"
+            and not duplicate and duplicateReason == "ambient_nothing_new"
+            and Dialogue.poolSize("ambient.morning", fellow, commands) >= 7
+            and Dialogue.poolSize("ambient.dusk", fellow, commands) >= 7
+            and Dialogue.poolSize("ambient.rain", fellow, commands) >= 7
+            and Dialogue.poolSize("ambient.fog", fellow, commands) >= 7,
+        "safe companions make varied once-per-event morning, dusk, rain, and fog observations")
+    settings.ambientDialoguePulseMs = savedPulse
+    settings.ambientDialogueActorCooldownMs = savedActorCooldown
+    settings.ambientDialogueGroupCooldownMs = savedGroupCooldown
+    worldHour, rainIntensity, fogIntensity, clock = savedHour, savedRain, savedFog, savedClock
+    Dialogue.reset()
+end
 local namedGriefLine = Dialogue.choose(fellow, "grief.mourn", nil, { "Glenn Rhee" }, {
     state = { personalityProfile = { archetype = "caring" }, stress = 55, morale = 30 },
 })
@@ -6202,7 +6319,9 @@ check(Community.restore(griefDocument) and Community.activeGrief(closeFriend)
 Community.mindFor(closeFriend).grief[1].nextReactionAt = 0
 local griefIntent = Autonomy.intentFor(closeFriend, player, { threatCount = 0 }, closeState)
 check(griefIntent and griefIntent.kind == "grief_response"
-    and Autonomy.update(closeFriend, player, { snapshot = { threatCount = 0 } }, griefIntent)
+    and SurvivorCompanion.Decision._delegateForTests(
+        { kind = griefIntent.kind, detail = griefIntent }, closeFriend, player,
+        { snapshot = { threatCount = 0 } }, closeState, { threatCount = 0 }, {})
     and string.find(tostring(closeFriend.lastSpeech), "Glenn Rhee", 1, true)
     and Community.summary(closeFriend).activeEpisode == "mourning",
     "safe autonomy visibly acknowledges the named death and starts mourning")

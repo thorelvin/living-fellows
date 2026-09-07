@@ -283,6 +283,11 @@ local valueData = {
     encounterActiveRadius = 75,
     encounterDespawnRadius = 95,
     scavengeRadius = 14,
+    -- Follow-order scavenging is a short opportunistic excursion, not a new
+    -- formation order. Search locally and abandon the excursion as soon as the
+    -- leader resumes travel or leaves this leash.
+    scavengeFormationSearchRadius = 6,
+    scavengeFormationLeash = 7,
     scavengeSquareBudget = 100,
     scavengeItemBudget = 40,
     scavengeReservationMs = 12000,
@@ -388,6 +393,10 @@ local valueData = {
     downtimeReservationMs = 30000,
     downtimeActivityMs = 6000,
     ambientRepeatCooldownMs = 60000,
+    ambientDialoguePulseMs = 5000,
+    ambientDialogueActorCooldownMs = 90000,
+    ambientDialogueGroupCooldownMs = 30000,
+    ambientDialogueDistance = 10,
     -- Vanilla overhead chat fades too quickly for full companion sentences.
     -- Use real-time, length-aware display targets; the native companion keeps
     -- the actor-owned line alive without routing speech through the player.

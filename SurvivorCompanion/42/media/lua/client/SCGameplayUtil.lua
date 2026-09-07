@@ -133,6 +133,8 @@ local fallbackValues = {
     encounterActiveRadius = 75,
     encounterDespawnRadius = 95,
     scavengeRadius = 14,
+    scavengeFormationSearchRadius = 6,
+    scavengeFormationLeash = 7,
     scavengeSquareBudget = 100,
     scavengeItemBudget = 40,
     scavengeReservationMs = 12000,
@@ -196,6 +198,10 @@ local fallbackValues = {
     downtimeReservationMs = 30000,
     downtimeActivityMs = 6000,
     ambientRepeatCooldownMs = 60000,
+    ambientDialoguePulseMs = 5000,
+    ambientDialogueActorCooldownMs = 90000,
+    ambientDialogueGroupCooldownMs = 30000,
+    ambientDialogueDistance = 10,
     dialogueDisplayMinMs = 8000,
     dialogueDisplayBaseMs = 5000,
     dialogueDisplayPerCharacterMs = 70,
@@ -636,6 +642,13 @@ end
 
 function U.squareStaticBlocker(square)
     if not square then return nil, "missing_square" end
+    -- Vehicles occupy a polygon rather than an IsoObject slot. Build 42 exposes
+    -- the overlapping vehicle through the square, so include it in the same
+    -- passability test used by the Lua A* planner. Without this, routes are drawn
+    -- through parked cars and only discover the collision after Rick reaches the
+    -- bodywork.
+    local vehicle, vehicleOk = U.call(square, "getVehicleContainer")
+    if vehicleOk and vehicle ~= nil then return vehicle, "vehicle" end
     local solid, solidOk = U.call(square, "isSolid")
     if solidOk and solid then return square, "solid_square" end
     local found, kind

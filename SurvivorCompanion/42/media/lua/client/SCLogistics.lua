@@ -305,8 +305,27 @@ local function numericMethod(item, methodName, fallback)
     return ok and tonumber(value) or fallback or 0
 end
 
+local function cosmeticWearable(item)
+    local location = lower(wearableLocation(item))
+    local itemType = lower(U().itemType(item))
+    local cosmeticLocation = location == "leftwrist" or location == "rightwrist"
+        or string.find(location, "wristwatch", 1, true) ~= nil
+        or string.find(location, "necklace", 1, true) ~= nil
+        or string.find(location, "earring", 1, true) ~= nil
+        or string.find(location, "ring", 1, true) ~= nil
+        or string.find(location, "bellybutton", 1, true) ~= nil
+        or location == "nose" or location == "makeup"
+    local cosmeticType = typeContains(itemType, {
+        "wristwatch", "digitalred", "digitalblack", "bracelet", "necklace",
+        "earring", "nosering", "nosepiercing", "bellybutton", "ring_",
+        "brief", "underpants", "underwear", "bikini",
+    })
+    return cosmeticLocation or cosmeticType
+end
+
 function Logistics.clothingScore(item)
-    if not item or not isClothingItem(item) or not wearableLocation(item) then
+    if not item or not isClothingItem(item) or not wearableLocation(item)
+        or cosmeticWearable(item) then
         return -math.huge
     end
     local broken, brokenOk = U().call(item, "isBroken")
@@ -399,6 +418,7 @@ function Logistics.canTake(actor, item, category, audit)
     audit = audit or Logistics.audit(actor)
     category = category or Logistics.itemCategory(item)
     if category == "clothing" then
+        if cosmeticWearable(item) then return false, "cosmetic_wearable" end
         local upgrade = Logistics.clothingUpgrade(actor, item)
         if upgrade then
             if audit.capacity > 0 and audit.weight + U().itemWeight(item)

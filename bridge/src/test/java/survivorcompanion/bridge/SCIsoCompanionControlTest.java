@@ -236,10 +236,10 @@ public final class SCIsoCompanionControlTest {
         pathMoveRequested.setAccessible(true);
         require((Boolean) actor.getClass().getMethod("getVariableBoolean", String.class)
                         .invoke(actor, "bPathfind")
-                        && (Boolean) invoke(actor, "isPlayerMoving")
+                        && !(Boolean) invoke(actor, "isPlayerMoving")
                         && ((SCNativeCompanion) actor).hasPendingMovement()
                         && !pathMoveRequested.getBoolean(actor),
-                "clear-line companion path did not remain pathfinder-owned");
+                "a pathfinder-owned search animated forward before movement began");
         invoke(invoke(actor, "getPathFindBehavior2"), "cancel");
         actor.getClass().getMethod("setMoving", boolean.class).invoke(actor, false);
         require(!(Boolean) actor.getClass().getMethod("getVariableBoolean", String.class)
@@ -247,9 +247,15 @@ public final class SCIsoCompanionControlTest {
                 "external path stop retained vanilla's bPathfind animation state");
         var pathActive = SCNativeCompanion.class.getDeclaredField("bridgePathActive");
         pathActive.setAccessible(true);
+        var pathStarted = SCNativeCompanion.class.getDeclaredField("bridgePathStartedThisRun");
+        pathStarted.setAccessible(true);
         pathActive.setBoolean(actor, true);
+        require(!(Boolean) invoke(actor, "isPlayerMoving"),
+                "pending native path search reported player locomotion");
+        pathStarted.setBoolean(actor, true);
         require((Boolean) invoke(actor, "isPlayerMoving"),
-                "native path state recursed through IsoPlayer movement callbacks");
+                "started native path state recursed through IsoPlayer movement callbacks");
+        pathStarted.setBoolean(actor, false);
         pathActive.setBoolean(actor, false);
         // review 3.1: bPathfind is the terminal handshake from PathFindState.
         // PathFindBehavior2 briefly reports not-moving while applying its final

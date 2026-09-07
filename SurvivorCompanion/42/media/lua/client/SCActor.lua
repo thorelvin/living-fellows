@@ -1350,11 +1350,13 @@ function actorService.setMovement(actor, mode, intent)
             effectiveIntent = {}
             for key, value in pairs(intent) do effectiveIntent[key] = value end
         end
-        local resolvedMode, overrideReason = SC.Locomotion.resolveMovementMode(mode, effectiveIntent)
+        local resolvedMode, overrideReason, distanceScale = SC.Locomotion.resolveMovementMode(
+            mode, effectiveIntent, actor)
         effectiveMode = resolvedMode or mode
         effectiveIntent.requestedMovementMode = mode
         effectiveIntent.mode = effectiveMode
         effectiveIntent.movementSpeedOverride = overrideReason
+        effectiveIntent.movementDistanceScale = distanceScale
         if overrideReason == "escape_speed_override" then
             -- Running away owns the lower body. Drop aim/corner-strafe flags
             -- which make vanilla deliberately walk even when setRunning(true).

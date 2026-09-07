@@ -619,12 +619,19 @@ local function containerSearchInvalid(job, actor, allowCorpses, radius, budget)
     return dx * dx + dy * dy > 16
 end
 
-local function candidateContainers(actor, player, state, allowCorpses, current)
+local function candidateContainers(actor, player, state, allowCorpses, current, commands)
     local utility = U()
     local ax, ay, az = utility.position(actor)
     if not ax then return {}, true end
     local radius = math.floor(math.min(math.max(utility.config("scavengeRadius") or 14,
         allowCorpses and (utility.config("corpseLootRadius") or 10) or 0), 18))
+    if player and type(commands) == "table" and commands.recruited == true
+        and commands.order == "follow" then
+        local localRadius = math.max(3, tonumber(utility.config(
+            "scavengeFormationSearchRadius")) or 6)
+        radius = math.floor(math.min(radius,
+            math.max(localRadius, (tonumber(commands.followDistance) or 3) + 1.5)))
+    end
     local budget = math.max(utility.config("scavengeSquareBudget") or 100,
         allowCorpses and (utility.config("corpseLootSquareBudget") or 80) or 0)
     local job = state.containerSearch
@@ -898,7 +905,7 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
     end
     if not selection then
         local candidates, complete, progress, total = candidateContainers(
-            actor, player, state, allowCorpses, time)
+            actor, player, state, allowCorpses, time, commands)
         if not complete then
             state.lastStatus = {
                 phase = "search", reason = "searching_containers",
@@ -1099,6 +1106,17 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             time = time, status = state.task ~= nil,
         })
         return false, "scavenge_disabled_or_unsafe"
+    end
+    local mustRejoin, formationReason = Encounter.formationRejoinRequired(
+        actor, player, commands)
+    if mustRejoin == true then
+        resetScavengeTarget(actor, state, {
+            cancelVisual = true, stopMovement = state.task ~= nil,
+            reason = formationReason, phase = "cancelled",
+            memoryResult = state.task and "interrupted" or nil,
+            time = time, status = state.task ~= nil,
+        })
+        return false, formationReason
     end
     local radius = utility.config("scavengeRadius") or 14
     if player and utility.distanceSq(actor, player) > radius * radius then
@@ -1311,6 +1329,28 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         return commitTask(actor, state, task, commands, audit, time)
     end
     return true, task.phase or "scavenging"
+end
+
+-- A checked Scavenge option supplements Follow; it never suspends formation.
+-- This read-only predicate is shared with Decision so an existing approach owner
+-- can be cancelled before normal follow movement asks for locomotion ownership.
+function Encounter.formationRejoinRequired(actor, player, suppliedCommands)
+    local commands = type(suppliedCommands) == "table"
+        and suppliedCommands or commandState(actor)
+    if not actor or not player or commands.recruited ~= true
+        or commands.order ~= "follow" then return false end
+    local state = states[actor]
+    local active = state and (state.task or state.selectionJob or state.containerSearch)
+    if not active then return false end
+    local moving, movingOk = U().call(player, "isMoving")
+    if movingOk and moving == true then return true, "formation_leader_moving" end
+    local leash = math.max(3, tonumber(U().config("scavengeFormationLeash")) or 7,
+        (tonumber(commands.followDistance) or 3) + 2.5)
+    if U().distance(actor, player) > leash then return true, "formation_leash_exceeded" end
+    if state.task and state.task.owner and U().distance(state.task.owner, player) > leash then
+        return true, "scavenge_target_outside_formation"
+    end
+    return false
 end
 
 local function zombieDensity(square, radius, limit)

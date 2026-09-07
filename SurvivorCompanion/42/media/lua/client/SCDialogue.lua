@@ -39,6 +39,58 @@ local pools = {
         caring = { "I wish it had gone differently. Be safe.", "Take care. I mean that." },
         practical = { "Understood. I'll take only what is mine.", "All right. We both know where we stand." },
     },
+    ["ambient.morning"] = {
+        common = {
+            "Morning. We made it through another night.",
+            "Good morning. Let's see what today gives us.",
+            "Morning. Quiet so far. I hope it stays that way.",
+            "New day. Same rules: stay sharp and stay alive.",
+            "Good morning. It is almost strange how normal that sounds.",
+        },
+        brave = { "Morning. Let's make today count.", "Another sunrise. I'm still ready." },
+        cautious = { "Morning. Let's check the exits before we settle in.", "Daylight helps. We should use it." },
+        caring = { "Good morning. I'm glad you're still here.", "Morning. How are you holding up?" },
+        practical = { "Morning. Daylight means we can cover more ground.", "New day. We should review our supplies." },
+    },
+    ["ambient.dusk"] = {
+        common = {
+            "Dusk is coming. We should decide where we're spending the night.",
+            "Light is going. Let's not get caught outside without a plan.",
+            "It will be dark soon. Time to think about shelter.",
+            "Sun's getting low. We should check our way back.",
+            "Evening already. Keep an eye on the shadows.",
+        },
+        brave = { "Dusk is coming. One more job, then we get inside.", "Night doesn't own the road, but we shouldn't tempt it." },
+        cautious = { "We're losing daylight. I want walls around us soon.", "Dusk. Let's mark the safest route home." },
+        caring = { "It is getting dark. I'd rather have everyone inside.", "Dusk is coming. Stay close, all right?" },
+        practical = { "Daylight is nearly gone. Shelter should be the next objective.", "Dusk. We should finish up and secure a room." },
+    },
+    ["ambient.rain"] = {
+        common = {
+            "Rain's setting in. The noise will hide more than our footsteps.",
+            "Here comes the rain. Watch the corners; hearing will be worse.",
+            "Rain. Good cover for us, and for anything nearby.",
+            "We're getting wet. Let's keep an eye out for somewhere dry.",
+            "That rain could last. We should protect anything that needs to stay dry.",
+        },
+        brave = { "Rain won't stop us. Just keep your footing.", "A little rain beats a street full of dead." },
+        cautious = { "Rain cuts visibility. Slow down around blind corners.", "I don't like what this does to our hearing." },
+        caring = { "You're getting soaked. Let's find cover when we can.", "Rain's coming down. Tell me if you get cold." },
+        practical = { "Rain will mask sound in both directions.", "Wet roads and poor visibility. We adjust our pace." },
+    },
+    ["ambient.fog"] = {
+        common = {
+            "Fog's getting thick. Stay where we can see each other.",
+            "I don't like this fog. Anything could be ten steps away.",
+            "Visibility is going. Let's keep the spacing tight.",
+            "Fog like this makes every corner a blind corner.",
+            "Keep your voice low, but don't disappear on me in this fog.",
+        },
+        brave = { "Fog or not, we keep each other in sight.", "Can't fight what we can't see. Stay close." },
+        cautious = { "This fog is bad. Short steps, frequent checks.", "Visibility's poor. I want a clear retreat line." },
+        caring = { "Stay close in this fog. I don't want to lose sight of you.", "Let me know before you change direction in this." },
+        practical = { "Fog has cut our useful sight range. Tight formation.", "Low visibility. We should avoid open-ended searches." },
+    },
     ["danger.zombie"] = {
         common = {
             "Zombie! Watch out!", "Dead ahead!", "Contact! Zombie!",
@@ -877,6 +929,7 @@ local pools = {
 
 local actorHistory = setmetatable({}, { __mode = "k" })
 local idHistory = {}
+local lastAmbientGroupAt = -math.huge
 
 local function U() return SC.GameplayUtil end
 
@@ -1060,12 +1113,121 @@ function Dialogue.lastSpokenTopic(actor)
     return runtimeFor(actor).lastSpokenTopic
 end
 
+local function ambientWorldState()
+    local hour, age
+    if type(getGameTime) == "function" then
+        local ok, gameTime = pcall(getGameTime)
+        if ok and gameTime ~= nil then
+            local value, called = U().call(gameTime, "getTimeOfDay")
+            if called then hour = tonumber(value) end
+            value, called = U().call(gameTime, "getWorldAgeHours")
+            if called then age = tonumber(value) end
+        end
+    end
+    hour = hour and hour % 24 or nil
+    age = age or (hour and hour or 0)
+
+    local rain, fog = 0, 0
+    if type(getClimateManager) == "function" then
+        local ok, climate = pcall(getClimateManager)
+        if ok and climate ~= nil then
+            local value, called = U().call(climate, "getPrecipitationIntensity")
+            if called then rain = math.max(0, tonumber(value) or 0) end
+            value, called = U().call(climate, "getFogIntensity")
+            if called then fog = math.max(0, tonumber(value) or 0) end
+        end
+    end
+    return hour, math.floor(age / 24), rain, fog
+end
+
+local function ambientTopic(runtime, hour, day, rain, fog)
+    runtime.ambient = type(runtime.ambient) == "table" and runtime.ambient or {
+        spoken = {}, rainEpisode = 0, fogEpisode = 0,
+        rainActive = false, fogActive = false,
+    }
+    local ambient = runtime.ambient
+    local raining = rain >= 0.15
+    local foggy = fog >= 0.40
+    if raining and not ambient.rainActive then ambient.rainEpisode = ambient.rainEpisode + 1 end
+    if foggy and not ambient.fogActive then ambient.fogEpisode = ambient.fogEpisode + 1 end
+    ambient.rainActive, ambient.fogActive = raining, foggy
+
+    local candidates = {}
+    if foggy then candidates[#candidates + 1] = {
+        topic = "ambient.fog", key = "fog:" .. tostring(ambient.fogEpisode), priority = 4,
+    } end
+    if raining then candidates[#candidates + 1] = {
+        topic = "ambient.rain", key = "rain:" .. tostring(ambient.rainEpisode), priority = 3,
+    } end
+    if hour and hour >= 6 and hour < 9.5 then candidates[#candidates + 1] = {
+        topic = "ambient.morning", key = "morning:" .. tostring(day), priority = 2,
+    } end
+    if hour and hour >= 18 and hour < 21 then candidates[#candidates + 1] = {
+        topic = "ambient.dusk", key = "dusk:" .. tostring(day), priority = 1,
+    } end
+    table.sort(candidates, function(first, second) return first.priority > second.priority end)
+    for _, candidate in ipairs(candidates) do
+        if ambient.spoken[candidate.key] ~= true then return candidate end
+    end
+    return nil
+end
+
+-- Low-frequency observations make companions acknowledge the world without
+-- stealing control from combat, work or navigation. Time remarks are once per
+-- game day; rain and fog are once per continuous weather episode. A party-wide
+-- cooldown prevents several companions from speaking over one another.
+function Dialogue.ambientPulse(actor, player, snapshot, suppliedCommands, current)
+    local utility = U()
+    if actor == nil or player == nil or not utility
+        or utility.isDead(actor) or utility.isDead(player) then return false, "ambient_invalid_actor" end
+    local commands = commandState(actor, suppliedCommands)
+    if commands.recruited ~= true then return false, "ambient_not_recruited" end
+    snapshot = type(snapshot) == "table" and snapshot or {}
+    local threatCount = tonumber(snapshot.threatCount) or #(snapshot.threats or {})
+    local immediate = tonumber(snapshot.immediateCount) or #(snapshot.immediateAttackers or {})
+    local playerDanger = type(snapshot.player) == "table"
+        and tonumber(snapshot.player.danger) or 0
+    if threatCount > 0 or immediate > 0 or (tonumber(snapshot.pressure) or 0) > 0
+        or playerDanger > 0 then return false, "ambient_unsafe" end
+    if utility.distance(actor, player) > (utility.config("ambientDialogueDistance") or 10) then
+        return false, "ambient_too_far"
+    end
+    current = tonumber(current) or utility.nowMs()
+    if not utility.isDue(actor, "ambient_dialogue",
+        utility.config("ambientDialoguePulseMs") or 5000, current) then
+        return false, "ambient_not_due"
+    end
+    local runtime = runtimeFor(actor)
+    if current - (tonumber(runtime.lastSpokenAt) or -math.huge)
+        < (utility.config("ambientDialogueActorCooldownMs") or 90000) then
+        return false, "ambient_actor_cooldown"
+    end
+    if current - lastAmbientGroupAt
+        < (utility.config("ambientDialogueGroupCooldownMs") or 30000) then
+        return false, "ambient_group_cooldown"
+    end
+    if SC.ActionSupervisor and type(SC.ActionSupervisor.current) == "function"
+        and SC.ActionSupervisor.current(actor) ~= nil then return false, "ambient_action_owned" end
+
+    local hour, day, rain, fog = ambientWorldState()
+    local candidate = ambientTopic(runtime, hour, day, rain, fog)
+    if not candidate then return false, "ambient_nothing_new" end
+    local spoken, line = Dialogue.say(actor, candidate.topic, nil, nil, { state = commands })
+    if spoken == true then
+        runtime.ambient.spoken[candidate.key] = true
+        lastAmbientGroupAt = current
+        return true, candidate.topic, line
+    end
+    return false, line or "ambient_speech_rejected"
+end
+
 function Dialogue.reset(actor)
     if actor ~= nil then
         actorHistory[actor] = nil
     else
         actorHistory = setmetatable({}, { __mode = "k" })
         idHistory = {}
+        lastAmbientGroupAt = -math.huge
     end
     return true
 end

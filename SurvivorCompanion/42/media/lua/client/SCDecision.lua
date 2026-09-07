@@ -1127,7 +1127,8 @@ local function callSubsystem(name, actor, callback)
 end
 
 local function delegate(candidate, actor, player, rootRuntime, commands, snapshot, state)
-    if candidate.kind == "mental_episode" or candidate.kind == "purposeful_idle"
+    if candidate.kind == "mental_episode" or candidate.kind == "grief_response"
+        or candidate.kind == "purposeful_idle"
         or candidate.kind == "joy_response" or candidate.kind == "social_participant" then
         if not SC.Autonomy or type(SC.Autonomy.update) ~= "function" then
             return false, "autonomy_unavailable"
@@ -1200,6 +1201,8 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
     return false, "unknown_decision"
 end
 
+Decision._delegateForTests = delegate
+
 local function candidateInterval(candidate)
     if candidate.kind == "combat" then
         return candidate.emergency and 100 or (U().config("combatDecisionIntervalMs") or 125)
@@ -1212,7 +1215,8 @@ local function candidateInterval(candidate)
         return U().config("followIntervalMs") or 167
     elseif candidate.kind == "alert" then
         return 167
-    elseif candidate.kind == "mental_episode" or candidate.kind == "social_participant" then
+    elseif candidate.kind == "mental_episode" or candidate.kind == "grief_response"
+        or candidate.kind == "social_participant" then
         return 167
     elseif candidate.kind == "purposeful_idle" or candidate.kind == "joy_response" then
         return 250
@@ -1549,6 +1553,17 @@ function Decision.update(actor, player, runtime)
     end
 
     local commands = commandsFor(actor)
+    if SC.Encounter and type(SC.Encounter.formationRejoinRequired) == "function"
+        and type(SC.Encounter.cancelScavenge) == "function" then
+        local rejoin, rejoinReason = SC.Encounter.formationRejoinRequired(
+            actor, player, commands)
+        if rejoin == true then
+            utility.safeSubsystem("scavenge-formation", actor, function()
+                return SC.Encounter.cancelScavenge(actor,
+                    rejoinReason or "formation_rejoin")
+            end)
+        end
+    end
     if SC.Combat and type(SC.Combat.observe) == "function" then
         utility.safeSubsystem("combat-observe", actor, function()
             return SC.Combat.observe(actor)
@@ -1587,6 +1602,11 @@ function Decision.update(actor, player, runtime)
     end
 
     warnAboutThreat(actor, snapshot, state, current)
+    if SC.Dialogue and type(SC.Dialogue.ambientPulse) == "function" then
+        utility.safeSubsystem("ambient-dialogue", actor, function()
+            return SC.Dialogue.ambientPulse(actor, player, snapshot, commands, current)
+        end)
+    end
     local candidates = evaluate(actor, player, snapshot, commands, assessment, needs, state, current)
     local selected = selectWithHysteresis(state, candidates, current)
     if not selected then

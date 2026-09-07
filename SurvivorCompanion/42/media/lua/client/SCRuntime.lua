@@ -441,21 +441,23 @@ local function vitalsTask(current)
             and type(SC.Spawn.isDebugProtected) == "function"
             and SC.Spawn.isDebugProtected(record.actor) == true
 
-        -- If the actor still has a loaded square, first repair that exact actor at
-        -- that exact location. This is an object-list reseat, not a respawn, so it
-        -- preserves appearance, inventory, action state, and identity.
+        -- If the actor still has a loaded square, repair the two native membership
+        -- lists in place before considering relocation. ensureScheduled() calls the
+        -- companion's idempotent ensureWorldMembership() and therefore preserves
+        -- its exact position, appearance, inventory, path and action state. A
+        -- previous fallback also unpacked SC.Call.method backwards here, passing
+        -- the success Boolean as an IsoGridSquare; after that failed, the follower
+        -- branch moved the actor beside the player and looked like a one-tile wall
+        -- teleport.
         if detachedFromMovingList then
-            local currentSquare, squareOk = invoke(record.actor, "getCurrentSquare")
-            if squareOk and currentSquare ~= nil then
-                local recovered = SC.Actor.recover(record.actor, currentSquare)
-                if recovered == true then
-                    healthy, healthReason = SC.Actor.validateNative(record.actor)
-                    if healthy then
-                        record.runtime.nativeSquareMissingAt = nil
-                        record.runtime.vehicleRecoveryDeferred = nil
-                        record.runtime.postedRecoveryDeferred = nil
-                        print("[SurvivorCompanion][recovery] repaired companion world membership in place.")
-                    end
+            local scheduledOk, scheduled = invoke(record.actor, "ensureScheduled")
+            if scheduledOk and scheduled == true then
+                healthy, healthReason = SC.Actor.validateNative(record.actor)
+                if healthy then
+                    record.runtime.nativeSquareMissingAt = nil
+                    record.runtime.vehicleRecoveryDeferred = nil
+                    record.runtime.postedRecoveryDeferred = nil
+                    print("[SurvivorCompanion][recovery] repaired companion world membership in place.")
                 end
             end
         end

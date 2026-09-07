@@ -978,7 +978,14 @@ public final class SCNativeCompanion extends IsoPlayer {
         // which reaches IsoPlayer.isPlayerMoving() and therefore this method
         // again. Own path activity explicitly instead of querying either the
         // behavior or its callback-backed animation variable here.
-        return bridgeMoving || bridgeMoveRequested || bridgePathActive;
+        // bridgePathActive is ownership, not proof of translation. While
+        // PolygonalMap2 is still searching, reporting movement makes the player
+        // animation graph play its forward run cycle in place. The first native
+        // path step flips bridgePathStartedThisRun in reconcileBridgePathState();
+        // from then on we retain movement through the normal one-frame stopping
+        // phase until bPathfind clears.
+        return bridgeMoving || bridgeMoveRequested
+                || (bridgePathActive && bridgePathStartedThisRun);
     }
 
     /**

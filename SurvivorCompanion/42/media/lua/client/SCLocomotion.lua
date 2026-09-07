@@ -156,8 +156,31 @@ end
 -- at the Actor boundary so Copy player, Sneak, weapon-ready corner handling and
 -- formation logic cannot silently slow a retreat after Combat chose it. Native
 -- transitions that require precise foot placement keep ordinary walking speed.
-function Locomotion.resolveMovementMode(mode, intent)
+local function injuryMovementScale(actor)
+    local u = utility()
+    if actor == nil or not u or type(u.call) ~= "function" then return nil end
+    local injured, injuredOk = u.call(actor, "hasFootInjury")
+    local scale, scaleOk = u.call(actor, "getSneakLimpSpeedScale")
+    scale = scaleOk and tonumber(scale) or nil
+    if injuredOk then
+        if injured ~= true then return nil end
+        return math.max(0.25, math.min(0.85,
+            scale and scale > 0 and scale or 0.65))
+    end
+    -- Build 42 may expose the calculated limp scalar before hasFootInjury() is
+    -- available to Kahlua. Treat a meaningful sub-one value as the same state.
+    if scale and scale > 0 and scale < 0.98 then
+        return math.max(0.25, math.min(0.85, scale))
+    end
+    return nil
+end
+
+function Locomotion.resolveMovementMode(mode, intent, actor)
     intent = type(intent) == "table" and intent or {}
+    local injuryScale = injuryMovementScale(actor)
+    if injuryScale ~= nil and (mode == "run" or mode == "jog" or mode == "sprint") then
+        return "walk", "injury_limp_cap", injuryScale
+    end
     if not escapeAction(intent.action, intent) then return mode, nil end
     local constraint = escapeConstraint(intent)
     if constraint ~= nil then return "walk", "escape_constrained:" .. constraint end

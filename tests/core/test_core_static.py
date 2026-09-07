@@ -394,6 +394,9 @@ require("public static boolean recover(SCNativeCompanion actor, IsoGridSquare sq
         and "function actorService.recover(actor, square)" in actor
         and "nativeSquareMissingAt" in runtime,
         "unloaded persistent companion recovery contract is missing")
+require('local scheduledOk, scheduled = invoke(record.actor, "ensureScheduled")' in runtime
+        and "repaired companion world membership in place" in runtime,
+        "moving-list repair must reseat the same companion in place before relocation")
 require("setSceneCulled(false)" in native_bridge
         and "ModelManager.instance.Add(actor)" in native_bridge
         and "ModelManager.instance.Remove(actor)" in native_bridge
@@ -462,8 +465,9 @@ require("ensureUnscheduled()" in native_companion
         "native removal can report success while a scheduled speaking shadow remains")
 require("_isRecoverablePlacementFailureForTests" in runtime
         and "absent from its square moving-object list" in runtime
-        and "SC.Actor.recover(record.actor, currentSquare)" in runtime,
-        "missing moving-list membership can still retire/recreate a live companion")
+        and 'invoke(record.actor, "ensureScheduled")' in runtime
+        and "repaired companion world membership in place" in runtime,
+        "missing moving-list membership can still relocate/recreate a live companion")
 require("_maintainNativeLeaseForTests" in navigation
         and '"native_goal_changed"' in navigation
         and "goalShift >= goalResetDistance(requestIntent)" in navigation,

@@ -167,6 +167,8 @@ end
 function actor:isRunning() return self.running == true end
 function actor:isSprinting() return self.sprinting == true end
 function actor:isSneaking() return self.sneaking == true end
+function actor:hasFootInjury() return self.footInjury == true end
+function actor:getSneakLimpSpeedScale() return self.limpSpeedScale or 1 end
 function actor:setMoving(value) self.moving = value end
 function actor:isMoving() return self.moving == true end
 function actor:setIsAiming(value) self.aiming = value == true end
@@ -921,8 +923,19 @@ check(SC.Actor._setProviderForTests(directProvider),
 
 actor.px, actor.py = 0.5, 0.5
 local moved, moveReason = SC.Actor.setMovement(actor, "jog", { action = "move", dx = 1, dy = 0 })
+actor.healthyJogDistanceForTest = actor.px - 0.5
 check(moved and moveReason == "moving" and actor.running == true and actor.px > 0.5,
     "direct-native adapter starts and verifies normalized movement")
+do
+actor.px, actor.py, actor.footInjury, actor.limpSpeedScale = 0.5, 0.5, true, 0.55
+local limpMoved, limpReason = SC.Actor.setMovement(
+    actor, "jog", { action = "move", dx = 1, dy = 0 })
+check(limpMoved and limpReason == "moving" and actor.running == false
+        and actor.px > 0.5 and actor.px - 0.5 < actor.healthyJogDistanceForTest * 0.7,
+    "a Run command caps an injured companion to visibly matching limp speed")
+end
+actor.footInjury, actor.limpSpeedScale = false, 1
+actor.healthyJogDistanceForTest = nil
 local utilityRejected, utilityRejectReason = SC.GameplayUtil.move(actor, "walk", {
     action = "unsupported_test_action",
 })

@@ -539,6 +539,11 @@ local function directMove(actor, mode, dx, dy, intent)
     if not finite(distance) or distance <= 0 then
         return false, "movement distance is invalid"
     end
+    local distanceScale = type(intent) == "table"
+        and tonumber(intent.movementDistanceScale) or nil
+    if finite(distanceScale) then
+        distance = distance * math.max(0.25, math.min(1, distanceScale))
+    end
 
     local x, y, z = position(actor)
     if x == nil then
