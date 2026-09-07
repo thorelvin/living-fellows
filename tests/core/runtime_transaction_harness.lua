@@ -177,6 +177,16 @@ do
     check(decide(recovering, 3000, 1500) == "defer"
             and recovering.healthFailingSince == 3000,
         "a cleared failure marker restarts the tolerance window on the next dip")
+
+    local placementFailure = SC.Runtime._isRecoverablePlacementFailureForTests
+    check(type(placementFailure) == "function",
+        "runtime exposes the recoverable world-placement classification seam")
+    check(placementFailure("living native companion has no current world square")
+            and placementFailure(
+                "living native companion is absent from its square moving-object list"),
+        "both missing-square and missing moving-list membership are recoverable placement failures")
+    check(not placementFailure("native companion occupied a local-player slot"),
+        "a non-placement native contract failure still uses the ordinary health gate")
 end
 
 print("RUNTIME_TRANSACTION_KAHLUA_PASS checks=" .. tostring(checks))

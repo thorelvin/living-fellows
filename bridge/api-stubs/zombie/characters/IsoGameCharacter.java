@@ -16,6 +16,7 @@ import zombie.characters.CharacterTimedActions.BaseAction;
 import zombie.pathfind.PathFindBehavior2;
 import zombie.ai.StateMachine;
 import zombie.vehicles.BaseVehicle;
+import zombie.chat.ChatElement;
 
 public class IsoGameCharacter extends IsoMovingObject {
     private String sayLine;
@@ -28,6 +29,11 @@ public class IsoGameCharacter extends IsoMovingObject {
     public void MoveForward(float dist, float x, float y, float soundDelta) {}
     public void addLineChatElement(String line) { sayLine = line; }
     public String getSayLine() { return sayLine; }
+    public void setSayLine(String line) { sayLine = line; }
+    public void setLastSpokenLine(String line) {}
+    public void setSpeaking(boolean speaking) {}
+    public void setSpeakTime(int milliseconds) {}
+    public ChatElement getChatElement() { return null; }
     public void SayDebug(int channel, String line) { sayLine = line; }
     public void addToWorld() {}
     public boolean canStandAt(float x, float y, float z) { return false; }

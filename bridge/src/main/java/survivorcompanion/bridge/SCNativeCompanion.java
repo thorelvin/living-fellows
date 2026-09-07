@@ -18,6 +18,7 @@ import zombie.characters.SurvivorDesc;
 import zombie.characters.CharacterTimedActions.BaseAction;
 import zombie.characters.component.AIComponent;
 import zombie.characters.action.ActionState;
+import zombie.chat.ChatElement;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.pathfind.PathFindBehavior2;
@@ -69,6 +70,10 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile long bridgePostUpdateCount;
     private volatile String bridgePostUpdateDiagnostic = "not_run";
     private volatile zombie.iso.IsoMovingObject bridgeAimTarget;
+    // Keep the construction cell independently of mutable square references so
+    // a cleanup retry can still remove scheduler membership after an earlier
+    // attempt already cleared current/render/moving squares.
+    private final IsoCell bridgeCell;
     // Monotonic evidence that a native swing reached its animation-owned impact
     // frame. Lua snapshots this before a stomp and applies its Build 42 floor-hit
     // fallback only after the serial advances; starting DoAttack is too early and
@@ -93,6 +98,7 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     public SCNativeCompanion(SurvivorDesc descriptor, IsoCell cell, int x, int y, int z) {
         super(cell, descriptor, x, y, z, false);
+        bridgeCell = cell;
         playerIndex = RESERVED_NON_LOCAL_PLAYER_INDEX;
         serverPlayerIndex = -1;
         setNpc(true);
@@ -222,12 +228,64 @@ public final class SCNativeCompanion extends IsoPlayer {
     public boolean ensureScheduled() {
         if (bridgeDisabled) return false;
         try {
-            zombie.iso.IsoCell cell = getCell();
+            zombie.iso.IsoCell cell = bridgeCell;
             if (cell == null) return false;
+            if (!isDead() && getVehicle() == null && !ensureWorldMembership()) return false;
             java.util.Set<zombie.iso.IsoMovingObject> list = cell.getObjectList();
             if (list == null) return false;
             if (!list.contains(this)) list.add(this);
             return list.contains(this);
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    /**
+     * Maintain the square-list half of live world ownership. Build 42 can drop
+     * this manually constructed non-local IsoPlayer from its render square's
+     * moving-object list while retaining all three square references. Repairing
+     * that one list directly is idempotent and avoids a destructive retire/
+     * persistence-respawn cycle (and avoids replaying addToWorld side effects).
+     */
+    public boolean ensureWorldMembership() {
+        if (bridgeDisabled || isDead() || getVehicle() != null) return true;
+        try {
+            zombie.iso.IsoGridSquare square = getSquare();
+            if (square == null || square.getCell() != bridgeCell || square.getChunk() == null) {
+                return false;
+            }
+            java.util.ArrayList<zombie.iso.IsoMovingObject> moving = square.getMovingObjects();
+            if (moving == null) return false;
+            if (!moving.contains(this)) moving.add(this);
+            return isExistInTheWorld();
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    /** Whether this actor is still present in the cell-wide update scheduler. */
+    public boolean isScheduled() {
+        try {
+            IsoCell cell = bridgeCell;
+            return cell != null && cell.getObjectList() != null
+                    && cell.getObjectList().contains(this);
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    /**
+     * Explicitly remove this actor from the cell-wide update scheduler. The
+     * ordinary world/square removal paths do not reliably do this for a
+     * manually constructed non-local IsoPlayer, which leaves a renderable
+     * "shadow" continuing to update after bridge ownership has ended.
+     */
+    public boolean ensureUnscheduled() {
+        try {
+            IsoCell cell = bridgeCell;
+            if (cell == null || cell.getObjectList() == null) return true;
+            cell.getObjectList().remove(this);
+            return !cell.getObjectList().contains(this);
         } catch (RuntimeException | LinkageError failure) {
             return false;
         }
@@ -651,6 +709,55 @@ public final class SCNativeCompanion extends IsoPlayer {
         // SayDebug detects the identical newest line and only refreshes its
         // internal clock; it neither adds duplicate rows nor changes its font.
         super.SayDebug(0, line);
+    }
+
+    /**
+     * Clear both the bridge-owned refresh lease and the engine's visible chat
+     * state before teardown. Otherwise an orphan actor can keep its last speech
+     * bubble alive even after registry ownership has moved to a replacement.
+     */
+    public boolean clearCompanionSpeech() {
+        bridgeSpeechLine = null;
+        bridgeSpeechRefreshUntilNanos = 0L;
+        bridgeNextSpeechDisplayMillis = 0;
+        boolean cleared = true;
+        try {
+            setSayLine(null);
+            setLastSpokenLine(null);
+            setSpeaking(false);
+            setSpeakTime(0);
+        } catch (RuntimeException | LinkageError failure) {
+            cleared = false;
+        }
+        try {
+            ChatElement chat = getChatElement();
+            if (chat != null) {
+                for (int playerIndex = 0; playerIndex < 4; playerIndex++) {
+                    chat.clear(playerIndex);
+                }
+            }
+        } catch (RuntimeException | LinkageError failure) {
+            cleared = false;
+        }
+        return cleared && !hasCompanionSpeech();
+    }
+
+    /** Postcondition used by transactional cleanup and its real-JAR test. */
+    public boolean hasCompanionSpeech() {
+        if (bridgeSpeechLine != null || bridgeSpeechRefreshUntilNanos != 0L
+                || bridgeNextSpeechDisplayMillis != 0) {
+            return true;
+        }
+        try {
+            String line = getSayLine();
+            if (line != null && !line.isBlank()) return true;
+            ChatElement chat = getChatElement();
+            return chat != null && (chat.IsSpeaking() || chat.getHasChatToDisplay());
+        } catch (RuntimeException | LinkageError failure) {
+            // If the engine state cannot be read back, teardown must retain the
+            // actor for a checked retry instead of declaring a ghost-free success.
+            return true;
+        }
     }
 
     /**

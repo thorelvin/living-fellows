@@ -342,13 +342,21 @@ public final class SCNativeCleanupTransactionTest {
                         + SCBridge.getLastFailure());
         assertCleanBridge("cancel/during-construction race");
 
-        IsoGridSquare cleanupSquare = newSquare(cell, 30, 30);
+        IsoGridSquare cleanupSquare = newSafeGrid(cell, 30, 30)[1][1];
         String[] cleanupSteps = {
-                "model", "world", "square-list", "moving-square",
+                "speech", "scheduler", "model", "world", "square-list", "moving-square",
                 "current-square", "render-square"
         };
         for (String step : cleanupSteps) {
             SCNativeCompanion actor = newActor(cell, cleanupSquare, "Cleanup-" + step);
+            require(actor.ensureScheduled() && actor.isScheduled(),
+                    "cleanup fixture could not establish cell-scheduler membership at " + step);
+            if ("speech".equals(step)) {
+                actor.setCompanionSpeechDisplayMillis(30_000);
+                actor.addLineChatElement("cleanup speech fixture");
+                require(actor.hasCompanionSpeech(),
+                        "cleanup fixture could not establish visible speech state");
+            }
             addOwned(actor);
             SCBridge.failNextCleanupStepForTests(step);
             require(!SCBridge.remove(actor)
@@ -366,11 +374,35 @@ public final class SCNativeCleanupTransactionTest {
                             && actor.getSquare() == null
                             && actor.getMovingSquare() == null
                             && !actor.isExistInTheWorld()
-                            && !actor.isAddedToModelManager(),
+                            && !actor.isAddedToModelManager()
+                            && !actor.isScheduled()
+                            && !actor.hasCompanionSpeech(),
                     "cleanup retry did not verify complete detachment at " + step + ": "
                             + SCBridge.getLastFailure());
         }
         assertCleanBridge("cleanup fault matrix");
+
+        SCNativeCompanion membershipActor = newActor(cell, cleanupSquare,
+                "Membership-Repair");
+        addOwned(membershipActor);
+        require(membershipActor.ensureScheduled()
+                        && membershipActor.isExistInTheWorld()
+                        && membershipActor.isScheduled(),
+                "preventive membership fixture could not establish a live actor");
+        cleanupSquare.getMovingObjects().remove(membershipActor);
+        require(!membershipActor.isExistInTheWorld()
+                        && membershipActor.ensureScheduled()
+                        && membershipActor.isExistInTheWorld()
+                        && membershipActor.isScheduled()
+                        && SCBridge.isCompanion(membershipActor),
+                "runtime pulse did not repair the same actor's lost square membership in place");
+        // The headless GameEntityManager cannot complete removeFromWorld();
+        // detach only the square membership first so this final cleanup verifies
+        // bridge scheduler/square ownership without crossing that absent renderer.
+        membershipActor.removeFromSquare();
+        require(SCBridge.remove(membershipActor),
+                "preventively repaired actor could not be removed: " + SCBridge.getLastFailure());
+        assertCleanBridge("preventive square-membership repair");
 
         SCNativeCompanion first = newActor(cell, cleanupSquare, "RemoveAll-First");
         SCNativeCompanion second = newActor(cell, cleanupSquare, "RemoveAll-Second");
@@ -455,8 +487,8 @@ public final class SCNativeCleanupTransactionTest {
         assertCleanBridge("recovery rollback");
 
         SCBridge.failNextBridgeStepsForTests();
-        System.out.println("NATIVE_CLEANUP_TRANSACTION_PASS cleanup-steps=6"
+        System.out.println("NATIVE_CLEANUP_TRANSACTION_PASS cleanup-steps=8"
                 + " spawn-rollback=true request-race=true construction-race=true remove-all-partial=true"
-                + " recovery-rollback=true ownership=true retry=true");
+                + " recovery-rollback=true membership-repair=true ownership=true retry=true");
     }
 }

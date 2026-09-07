@@ -402,7 +402,7 @@ require("setSceneCulled(false)" in native_bridge
         and "hasActiveModel" in native_bridge,
         "native actor spawn must explicitly join Build 42's model renderer")
 require("ModelManager.instance.Remove(actor)" in native_bridge
-        and "world, model, or square membership remains" in native_bridge,
+        and "world, model, scheduler, speech, or square membership remains" in native_bridge,
         "native actor teardown must release Build 42 model-renderer ownership")
 require("getDeclaredMethod(\"updateInternal\")" in native_companion
         and "GENERIC_CHARACTER_UPDATE.invoke(this)" in native_companion
@@ -450,8 +450,24 @@ require("A competing decision may observe an activity owned by another" in nativ
         "a rejected competing decision can stop another subsystem owner's activity")
 require("setCompanionSpeechDisplayMillis" in native_companion
         and "refreshCompanionSpeech()" in native_companion
+        and "clearCompanionSpeech()" in native_companion
+        and "chat.clear(playerIndex)" in native_companion
         and 'U.call(actor, "setCompanionSpeechDisplayMillis", duration)' in gameplay_util,
         "length-aware actor-owned overhead speech duration is missing")
+require("ensureUnscheduled()" in native_companion
+        and "ensureWorldMembership()" in native_companion
+        and "square.getMovingObjects()" in native_companion
+        and "!actor.isScheduled()" in native_bridge
+        and "!actor.hasCompanionSpeech()" in native_bridge,
+        "native removal can report success while a scheduled speaking shadow remains")
+require("_isRecoverablePlacementFailureForTests" in runtime
+        and "absent from its square moving-object list" in runtime
+        and "SC.Actor.recover(record.actor, currentSquare)" in runtime,
+        "missing moving-list membership can still retire/recreate a live companion")
+require("_maintainNativeLeaseForTests" in navigation
+        and '"native_goal_changed"' in navigation
+        and "goalShift >= goalResetDistance(requestIntent)" in navigation,
+        "moving-goal replanning does not consistently cancel the stale native path")
 require('invoke(actor, "pathToLocationF", x, y, z)' in native
         and 'invoke(behavior, "cancel")' in native,
         "native pathing bypasses or retains vanilla player locomotion state")

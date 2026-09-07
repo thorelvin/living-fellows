@@ -906,6 +906,22 @@ public final class SCBridge {
             failures.add("stop=" + failure.getClass().getSimpleName());
         }
         try {
+            failCleanupStepForTests("speech");
+            if (!actor.clearCompanionSpeech()) {
+                failures.add("speech=visible chat state remains");
+            }
+        } catch (RuntimeException | LinkageError failure) {
+            failures.add("speech=" + failure.getClass().getSimpleName());
+        }
+        try {
+            failCleanupStepForTests("scheduler");
+            if (!actor.ensureUnscheduled()) {
+                failures.add("scheduler=cell update membership remains");
+            }
+        } catch (RuntimeException | LinkageError failure) {
+            failures.add("scheduler=" + failure.getClass().getSimpleName());
+        }
+        try {
             failCleanupStepForTests("model");
             detachRenderModel(actor);
         } catch (RuntimeException | LinkageError failure) {
@@ -943,8 +959,11 @@ public final class SCBridge {
         }
         boolean removed = !actor.isExistInTheWorld() && !actor.isAddedToModelManager()
                 && actor.getCurrentSquare() == null && actor.getSquare() == null
-                && actor.getMovingSquare() == null;
-        if (!removed) failures.add("world, model, or square membership remains");
+                && actor.getMovingSquare() == null && !actor.isScheduled()
+                && !actor.hasCompanionSpeech();
+        if (!removed) {
+            failures.add("world, model, scheduler, speech, or square membership remains");
+        }
         if (!failures.isEmpty()) {
             return failBoolean("native companion removal failed: " + String.join(", ", failures));
         }

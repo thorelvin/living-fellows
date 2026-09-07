@@ -2437,6 +2437,13 @@ local function maintainNativeLease(actor, state, goalSquare, now)
     if lease.ultimateGoalKey and squareKey(goalSquare) ~= lease.ultimateGoalKey
         and lease.ultimateGoal and U().distance(lease.ultimateGoal, goalSquare)
             >= goalResetDistance(lease) then
+        -- Cancelling only the Lua lease leaves PathFindBehavior2 running toward
+        -- its old destination while the replacement A* search yields over later
+        -- frames. Stop the engine-owned path first so a follower cannot walk far
+        -- away in a straight line during recalculation.
+        if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
+            pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
+        end
         state.nativeLease = nil
         return "cancelled", "native_goal_changed"
     end
@@ -2479,9 +2486,13 @@ local function maintainNativeLease(actor, state, goalSquare, now)
         state.lastProgressAt = now
         return "active", "native_path_starting"
     end
+    if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
+        pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
+    end
     state.nativeLease = nil
     return "failed", now > lease.expires and "native_path_timeout" or "native_path_failed"
 end
+Navigation._maintainNativeLeaseForTests = maintainNativeLease
 
 local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReason)
     local utility = U()
@@ -2992,7 +3003,7 @@ function Navigation.request(actor, target, movementMode, intent)
         local goalShift = previousGoal and utility.distance(previousGoal, goalSquare) or math.huge
         local materialGoalChange = previousGoal == nil
             or previousAction ~= requestedAction
-            or goalShift >= (utility.config("navigationGoalResetDistance") or 3.0)
+            or goalShift >= goalResetDistance(requestIntent)
             or ownershipChanged
         state.goalSquare = goalSquare
         state.goalAction = requestIntent.action
@@ -3059,7 +3070,7 @@ function Navigation.request(actor, target, movementMode, intent)
         and type(snapshot.lastKnownDanger) == "table"
     local pathGoalDrifted = state.path and state.pathGoalSquare
         and utility.distance(state.pathGoalSquare, goalSquare)
-            >= (utility.config("navigationGoalResetDistance") or 3.0)
+            >= goalResetDistance(requestIntent)
     if pathGoalDrifted then
         -- Follow targets commonly move by less than the reset threshold per AI
         -- update. Compare against the destination this route was actually built
@@ -3115,7 +3126,7 @@ function Navigation.request(actor, target, movementMode, intent)
         if state.pathSearch and state.pathSearch.route
             and state.pathSearch.route.startKey == squareKey(sourceSquare)
             and utility.distance(state.pathSearch.route.goalSquare, goalSquare)
-                < (utility.config("navigationGoalResetDistance") or 3.0)
+                < goalResetDistance(requestIntent)
             and state.pathSearch.stealthAvoidance == (requestIntent.stealthAvoidance == true)
             and state.pathSearch.followRouting == (followRouting == true) then
             planningGoal = state.pathSearch.route.goalSquare

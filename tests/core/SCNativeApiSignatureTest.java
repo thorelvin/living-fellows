@@ -61,6 +61,7 @@ public final class SCNativeApiSignatureTest {
         Class<?> kahluaTable = Class.forName("se.krka.kahlua.vm.KahluaTable");
         Class<?> baseAction = Class.forName(
                 "zombie.characters.CharacterTimedActions.BaseAction");
+        Class<?> chatElement = Class.forName("zombie.chat.ChatElement");
 
         require(Modifier.isFinal(survivor.getModifiers()), "stock IsoSurvivor must remain final");
         require(player.isAssignableFrom(companion) && Modifier.isFinal(companion.getModifiers()),
@@ -108,8 +109,34 @@ public final class SCNativeApiSignatureTest {
         require(companion.getDeclaredMethod("addLineChatElement", String.class).getReturnType()
                         == void.class
                         && companion.getDeclaredMethod("setCompanionSpeechDisplayMillis", int.class)
-                                .getReturnType() == boolean.class,
-                "SCNativeCompanion readable overhead speech contract changed");
+                                .getReturnType() == boolean.class
+                        && companion.getDeclaredMethod("clearCompanionSpeech").getReturnType()
+                                == boolean.class
+                        && companion.getDeclaredMethod("hasCompanionSpeech").getReturnType()
+                                == boolean.class,
+                "SCNativeCompanion readable/clearable overhead speech contract changed");
+        require(companion.getDeclaredMethod("isScheduled").getReturnType() == boolean.class
+                        && companion.getDeclaredMethod("ensureScheduled").getReturnType()
+                                == boolean.class
+                        && companion.getDeclaredMethod("ensureWorldMembership").getReturnType()
+                                == boolean.class
+                        && companion.getDeclaredMethod("ensureUnscheduled").getReturnType()
+                                == boolean.class,
+                "SCNativeCompanion cell scheduler ownership contract changed");
+        require(method(character, "getChatElement").getReturnType() == chatElement
+                        && method(character, "setSayLine", String.class).getReturnType()
+                                == void.class
+                        && method(character, "setLastSpokenLine", String.class).getReturnType()
+                                == void.class
+                        && method(character, "setSpeaking", boolean.class).getReturnType()
+                                == void.class
+                        && method(character, "setSpeakTime", int.class).getReturnType()
+                                == void.class
+                        && method(chatElement, "clear", int.class).getReturnType() == void.class
+                        && method(chatElement, "IsSpeaking").getReturnType() == boolean.class
+                        && method(chatElement, "getHasChatToDisplay").getReturnType()
+                                == boolean.class,
+                "Build 42 overhead-chat cleanup signatures changed");
         require(method(bridge, "requestSpawn", square, String.class, String.class,
                 boolean.class, String.class).getReturnType() == long.class,
                 "deferred bridge requestSpawn signature changed");
@@ -333,6 +360,9 @@ public final class SCNativeApiSignatureTest {
                 "isGlassRemoved signature changed");
         require(method(movingObject, "isExistInTheWorld").getReturnType() == boolean.class,
                 "isExistInTheWorld signature changed");
+        require(method(square, "getMovingObjects").getReturnType()
+                        == java.util.ArrayList.class,
+                "IsoGridSquare moving-object membership signature changed");
         require(method(movingObject, "removeFromSquare").getReturnType() == void.class,
                 "removeFromSquare signature changed");
         require(method(movingObject, "removeFromWorld").getReturnType() == void.class,

@@ -1352,8 +1352,11 @@ for targetX = -5, -2 do
 end
 local driftingState = SurvivorCompanion.Navigation.peek(driftingGoalActor)
 check(driftingState.pathGoalSquare
-        and driftingState.pathGoalSquare:getX() == -2,
-    "cumulative small follow-goal shifts eventually rebuild the route for the current destination")
+        and SurvivorCompanion.GameplayUtil.distance(driftingState.pathGoalSquare,
+            cell:getGridSquare(-2, 8, 0))
+            < SurvivorCompanion.Navigation._goalResetDistanceForTests(
+                { followRecovery = true }),
+    "cumulative small follow-goal shifts keep the built route inside the moving-target reset bound")
 SurvivorCompanion.Navigation.reset(driftingGoalActor)
 registry[driftingGoalActor.id] = nil
 end
@@ -1371,6 +1374,45 @@ do
     check(followReset < staticReset and leaseReset < staticReset
             and followReset <= 1.5 and staticReset >= 3.0,
         "a moving follow target re-plans on a tighter goal drift than a static goal")
+end
+
+do
+    -- Replanning a moving goal must cancel the engine's old PathFindBehavior2,
+    -- not merely forget the Lua lease. Otherwise that native path keeps walking
+    -- straight toward its stale endpoint while the new route search is pending.
+    local maintainLease = SurvivorCompanion.Navigation._maintainNativeLeaseForTests
+    check(type(maintainLease) == "function",
+        "navigation exposes the native-lease maintenance seam")
+    local leaseActor = actor("sc-native-replan-stop", -8, 9, {})
+    local oldGoal = cell:getGridSquare(-5, 9, 0)
+    local newGoal = cell:getGridSquare(-2, 9, 0)
+    local leaseState = {
+        nativeLease = {
+            ultimateGoal = oldGoal,
+            ultimateGoalKey = SurvivorCompanion.GameplayUtil.squareKey(oldGoal),
+            movingTarget = true,
+            startedAt = 1000,
+            expires = 5000,
+            targets = { oldGoal },
+        },
+    }
+    local previousNativeActions = SurvivorCompanion.NativeActions
+    local stopped = 0
+    local stopOptions
+    SurvivorCompanion.NativeActions = {
+        stopDirect = function(value, options)
+            check(value == leaseActor, "native replan stops the actor that owns the stale lease")
+            stopped = stopped + 1
+            stopOptions = options
+            return true
+        end,
+    }
+    local leaseResult, leaseReason = maintainLease(leaseActor, leaseState, newGoal, 2000)
+    SurvivorCompanion.NativeActions = previousNativeActions
+    check(leaseResult == "cancelled" and leaseReason == "native_goal_changed"
+            and leaseState.nativeLease == nil and stopped == 1
+            and type(stopOptions) == "table" and stopOptions.preservePosture == true,
+        "moving-goal replanning stops and releases the stale native path before searching again")
 end
 
 do

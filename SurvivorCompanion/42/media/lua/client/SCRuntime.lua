@@ -370,6 +370,17 @@ local function healthGateDecision(runtimeState, current, grace)
 end
 runtime._healthGateDecisionForTests = healthGateDecision
 
+-- Both failures describe a living actor whose world placement has detached and
+-- can be repaired in place. Treating the second reason as a generic native-health
+-- failure caused the runtime to retire a perfectly live recruit and persistence
+-- to create/reclothe a replacement (while the old render/chat shell remained).
+local function isRecoverablePlacementFailure(reason)
+    reason = tostring(reason or "")
+    return reason == "living native companion has no current world square"
+        or reason == "living native companion is absent from its square moving-object list"
+end
+runtime._isRecoverablePlacementFailureForTests = isRecoverablePlacementFailure
+
 local function vitalsTask(current)
     local record
     record, vitalsCursor = nextRecord(vitalsCursor)
@@ -403,8 +414,10 @@ local function vitalsTask(current)
     end
     local healthy, healthReason = SC.Actor.validateNative(record.actor)
     record.runtime = type(record.runtime) == "table" and record.runtime or {}
-    local missingSquare = not healthy
-        and tostring(healthReason) == "living native companion has no current world square"
+    local missingSquare = not healthy and isRecoverablePlacementFailure(healthReason)
+    local detachedFromMovingList = not healthy
+        and tostring(healthReason)
+            == "living native companion is absent from its square moving-object list"
     if missingSquare and SC.Vehicle ~= nil and type(SC.Vehicle.isNativeSeated) == "function"
         and SC.Vehicle.isNativeSeated(record.actor) == true then
         -- Vehicle passengers legitimately leave the square moving-object list.
@@ -421,8 +434,33 @@ local function vitalsTask(current)
         end
         if current - record.runtime.nativeSquareMissingAt < 1200 then return end
         local state = commandState(record)
-        if SC.Factions and type(SC.Factions.isFactionRecord) == "function"
-            and SC.Factions.isFactionRecord(record) then
+        local factionRecord = SC.Factions
+            and type(SC.Factions.isFactionRecord) == "function"
+            and SC.Factions.isFactionRecord(record) == true
+        local debugProtected = SC.Spawn ~= nil
+            and type(SC.Spawn.isDebugProtected) == "function"
+            and SC.Spawn.isDebugProtected(record.actor) == true
+
+        -- If the actor still has a loaded square, first repair that exact actor at
+        -- that exact location. This is an object-list reseat, not a respawn, so it
+        -- preserves appearance, inventory, action state, and identity.
+        if detachedFromMovingList then
+            local currentSquare, squareOk = invoke(record.actor, "getCurrentSquare")
+            if squareOk and currentSquare ~= nil then
+                local recovered = SC.Actor.recover(record.actor, currentSquare)
+                if recovered == true then
+                    healthy, healthReason = SC.Actor.validateNative(record.actor)
+                    if healthy then
+                        record.runtime.nativeSquareMissingAt = nil
+                        record.runtime.vehicleRecoveryDeferred = nil
+                        record.runtime.postedRecoveryDeferred = nil
+                        print("[SurvivorCompanion][recovery] repaired companion world membership in place.")
+                    end
+                end
+            end
+        end
+
+        if not healthy and factionRecord then
             local handled, factionReason = SC.Factions.handleMissingSquare(record, player())
             if handled then
                 record.runtime.nativeSquareMissingAt = nil
@@ -431,7 +469,7 @@ local function vitalsTask(current)
             SC.Diagnostics.report("faction", record.id,
                 "faction actor missing-square recovery deferred", factionReason)
             return
-        elseif state.recruited == true then
+        elseif not healthy and state.recruited == true then
             local currentPlayer = player()
             -- Only a following companion catches up to the player. A posted
             -- companion (stay, guard, base duty, or working) must never be yanked
@@ -464,8 +502,7 @@ local function vitalsTask(current)
                     print("[SurvivorCompanion][recovery] recruited companion rejoined the loaded world.")
                 end
             end
-        elseif SC.Spawn ~= nil and type(SC.Spawn.isDebugProtected) == "function"
-            and SC.Spawn.isDebugProtected(record.actor) == true then
+        elseif not healthy and debugProtected then
             local currentPlayer = player()
             local square, squareReason = SC.Spawn.chooseDebugSquare(currentPlayer)
             if square == nil then
@@ -486,7 +523,7 @@ local function vitalsTask(current)
                     recoverReason or squareReason or "no recovery square")
                 return
             end
-        else
+        elseif not healthy then
             local debugDescription = SC.Spawn ~= nil
                 and type(SC.Spawn.debugDescription) == "function"
                 and SC.Spawn.debugDescription(record.actor, player()) or nil
@@ -502,6 +539,17 @@ local function vitalsTask(current)
                     print("[SurvivorCompanion][encounter] unloaded neutral companion retired.")
                 end
             end
+            return
+        end
+
+        -- Recruited/faction/debug-protected actors are never destructively
+        -- retired for a placement-only failure. If repair did not settle on this
+        -- pulse, preserve the same native actor and retry; persistence must not
+        -- manufacture a replacement body for this condition.
+        if not healthy and (state.recruited == true or factionRecord or debugProtected) then
+            record.runtime.nativeSquareMissingAt = current
+            SC.Diagnostics.report("actor-provider", record.id,
+                "companion placement recovery retained for retry", healthReason)
             return
         end
     elseif healthy then
@@ -722,13 +770,11 @@ local function registerTasks()
     return true
 end
 
--- Keep every live native companion in the cell's object list so Build 42's
--- MovingObjectUpdateScheduler simulates it every frame. A manually constructed
--- non-local actor is only placed in the cell's deferred add list by
--- addToWorld/movement, so a stationary companion otherwise falls out of the
--- scheduler and stops being updated (frozen animation, attacks that start but
--- never resolve a hit). This runs on the always-live player tick, so it can
--- re-register a companion even while that companion is not itself being ticked.
+-- Keep every live native companion in both its square's moving-object list and
+-- the cell's update list. A manually constructed non-local actor can fall out of
+-- either Build 42 collection; the former triggered destructive health recovery,
+-- while the latter stopped simulation. This runs on the always-live player tick,
+-- so it can repair the same actor even while that actor is not itself being ticked.
 local function ensureCompanionsScheduled()
     local registry = SC.Registry
     if type(registry) ~= "table" or type(registry.living) ~= "function" then return end
@@ -741,12 +787,11 @@ local function ensureCompanionsScheduled()
     end
 end
 
--- ensureScheduled is idempotent and cheap -- it re-adds a companion to the cell's
--- object Set only if it is missing, and membership then persists until a cell
--- transition or removal drops it. Re-verifying every single frame (review 2.6) is
--- almost always a no-op that still pays for a full roster scan. Run it instead as a
--- bounded integrity pulse, forced immediately whenever the roster size changes
--- (add/recover/removal) so a newly placed or re-seated actor is scheduled at once.
+-- ensureScheduled is idempotent and cheap -- it repairs only missing memberships.
+-- Re-verifying every single frame (review 2.6) is almost always a no-op that still
+-- pays for a full roster scan. Run it instead as a bounded integrity pulse, forced
+-- immediately whenever the roster size changes (add/recover/removal) so a newly
+-- placed or re-seated actor is fully registered at once.
 local scheduleRepairAt = -math.huge
 local scheduleRepairKey = nil
 local function scheduleRepairRosterKey()
