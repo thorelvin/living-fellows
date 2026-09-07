@@ -9,10 +9,12 @@ import zombie.characters.BodyDamage.BodyDamage;
 import zombie.core.skinnedmodel.visual.BaseVisual;
 import zombie.core.skinnedmodel.ModelManager;
 import zombie.core.skinnedmodel.advancedanimation.IAnimationVariableSlot;
+import zombie.core.skinnedmodel.animation.AnimationPlayer;
 import zombie.characters.ecs.ECSComponent;
 import zombie.characters.action.ActionContext;
 import zombie.characters.CharacterTimedActions.BaseAction;
 import zombie.pathfind.PathFindBehavior2;
+import zombie.ai.StateMachine;
 import zombie.vehicles.BaseVehicle;
 
 public class IsoGameCharacter extends IsoMovingObject {
@@ -38,7 +40,9 @@ public class IsoGameCharacter extends IsoMovingObject {
     public BaseCharacterSoundEmitter getEmitter() { return null; }
     public Moodles getMoodles() { return null; }
     public BaseVisual getVisual() { return null; }
+    public AnimationPlayer getAnimationPlayer() { return null; }
     public PathFindBehavior2 getPathFindBehavior2() { return null; }
+    public StateMachine getStateMachine() { return null; }
     public void pathToLocationF(float x, float y, float z) {}
     public void pathToLocation(int x, int y, int z) {}
     public void pathToCharacter(IsoGameCharacter target) {}

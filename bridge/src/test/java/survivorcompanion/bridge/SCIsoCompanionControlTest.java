@@ -227,22 +227,43 @@ public final class SCIsoCompanionControlTest {
                 "player animation graph retained movement after stop");
         require(!((SCNativeCompanion) actor).hasPendingMovement(),
                 "stopping the companion left a stale native movement request");
+        // A clear-line vanilla path normally selects input-owned player movement.
+        // The companion has no local input, so its override must retain the native
+        // path state instead of walking in place with only animation flags set.
+        actor.getClass().getMethod("pathToLocationF", float.class, float.class, float.class)
+                .invoke(actor, 2.5f, 0.5f, 0.0f);
+        var pathMoveRequested = SCNativeCompanion.class.getDeclaredField("bridgeMoveRequested");
+        pathMoveRequested.setAccessible(true);
+        require((Boolean) actor.getClass().getMethod("getVariableBoolean", String.class)
+                        .invoke(actor, "bPathfind")
+                        && (Boolean) invoke(actor, "isPlayerMoving")
+                        && ((SCNativeCompanion) actor).hasPendingMovement()
+                        && !pathMoveRequested.getBoolean(actor),
+                "clear-line companion path did not remain pathfinder-owned");
+        invoke(invoke(actor, "getPathFindBehavior2"), "cancel");
+        actor.getClass().getMethod("setMoving", boolean.class).invoke(actor, false);
+        require(!(Boolean) actor.getClass().getMethod("getVariableBoolean", String.class)
+                        .invoke(actor, "bPathfind"),
+                "external path stop retained vanilla's bPathfind animation state");
         var pathActive = SCNativeCompanion.class.getDeclaredField("bridgePathActive");
         pathActive.setAccessible(true);
         pathActive.setBoolean(actor, true);
         require((Boolean) invoke(actor, "isPlayerMoving"),
                 "native path state recursed through IsoPlayer movement callbacks");
         pathActive.setBoolean(actor, false);
-        // review 3.1: the pure path-termination decision clears a phantom active
-        // path once it has moved and stopped, or if it never started within the
-        // grace window, while a still-moving or still-pending path stays active.
-        require(SCNativeCompanion.pathHasTerminated(false, true, false),
-                "a path that moved and then stopped is terminal");
-        require(SCNativeCompanion.pathHasTerminated(false, false, true),
+        // review 3.1: bPathfind is the terminal handshake from PathFindState.
+        // PathFindBehavior2 briefly reports not-moving while applying its final
+        // deferred step; that stopping frame must survive until the next update
+        // clears bPathfind.
+        require(SCNativeCompanion.pathHasTerminated(false, true, true, false),
+                "a path whose native state cleared is terminal");
+        require(SCNativeCompanion.pathHasTerminated(true, false, false, true),
                 "a path that never started within the grace window is terminal");
-        require(!SCNativeCompanion.pathHasTerminated(true, true, true),
+        require(!SCNativeCompanion.pathHasTerminated(true, true, true, true),
                 "a path still moving via pathfind is not terminal");
-        require(!SCNativeCompanion.pathHasTerminated(false, false, false),
+        require(!SCNativeCompanion.pathHasTerminated(true, false, true, true),
+                "a path's stopping frame is not terminal before bPathfind clears");
+        require(!SCNativeCompanion.pathHasTerminated(true, false, false, false),
                 "a path still pending within the grace window is not terminal");
         require(((Number) invoke(actor, "getPlayerNum")).intValue() == 3,
                 "companion did not retain reserved non-local index");

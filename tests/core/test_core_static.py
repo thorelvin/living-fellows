@@ -416,14 +416,33 @@ require("public boolean isPlayerMoving()" in native_companion
         and "bridgePathActive" in native_companion
         and "return behavior.shouldBeMoving()" not in native_companion,
         "native companion does not drive the complete player locomotion animation state")
+require("forceBridgePathfindingState" in native_companion
+        and 'setVariable("bPathfind", true)' in native_companion
+        and "bridgeMoveRequested = false" in native_companion
+        and "bridgeMoving = false" in native_companion
+        and "PathFindState.instance().execute(this)" in native_companion
+        and "getStateMachine().getCurrent() != PathFindState.instance()" in native_companion
+        and 'getVariableBoolean("bPathfind")' in native_companion
+        and 'setVariable("bPathfind", false)' in native_companion
+        and "if (startedThisRun) return false" in native_companion,
+        "clear-line companion paths can fall back to input-owned player movement")
 require("public String getCompanionActionGroupName()" in native_companion
         and "public String getCompanionActionStateName()" in native_companion
         and "getActionContext().getCurrentStateName()" in native_companion,
         "native companion lacks Kahlua-safe ActionContext diagnostics")
+require("public String getCompanionActiveAnimationNames()" in native_companion
+        and "getAnimationPlayer()" in native_companion
+        and "getMultiTrack()" in native_companion
+        and "track.isPlaying" in native_companion
+        and "track.getBlendWeight() <= 0.001f" in native_companion,
+        "native companion lacks direct diagnostics for visibly weighted animation clips")
 require('"actor_state_busy:" .. tostring(blocker)' in native
         and 'movementStateBlocker(actor)' in native
         and '"action_animation_state"' in gameplay_util,
         "movement can translate an untracked native timed-action pose")
+require("A competing decision may observe an activity owned by another" in native
+        and 'actions.stopDirect(actor)\n            if activityOwner == "visual"' not in native,
+        "a rejected competing decision can stop another subsystem owner's activity")
 require("setCompanionSpeechDisplayMillis" in native_companion
         and "refreshCompanionSpeech()" in native_companion
         and 'U.call(actor, "setCompanionSpeechDisplayMillis", duration)' in gameplay_util,

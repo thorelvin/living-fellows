@@ -1308,6 +1308,21 @@ check(readOk and string.find(readReason, "visual_timed_action_started", 1, true)
         and actor.lastAnimation == CharacterActionAnims.Read and actor.reading == true
         and actor.lastAnimVariable.key == "ReadType" and actor.lastAnimVariable.value == "book",
     "reading uses the exact CharacterActionAnims enum and vanilla ReadType state")
+do
+    local originalStop = SC.NativeActions.stopDirect
+    local foreignStops = 0
+    SC.NativeActions.stopDirect = function(...)
+        foreignStops = foreignStops + 1
+        return originalStop(...)
+    end
+    local accepted, reason = SC.NativeActions.dispatch(actor, "walk", {
+        action = "follow_formation", targetSquare = square,
+    }, directProvider)
+    SC.NativeActions.stopDirect = originalStop
+    check(not accepted and reason == "visual_action_active:read"
+            and foreignStops == 0,
+        "a rejected competing decision cannot cancel another activity owner's path")
+end
 check(SC.NativeActions.cancelVisual(actor, "test_visual_complete"),
     "reading visual fixture cancels cleanly")
 do

@@ -297,6 +297,191 @@ local function isWalkableRoomThreshold(source, destination)
     return not utility.edgeBlocked(source, destination)
 end
 
+local function findStraightNativePathTarget(actor)
+    local SC = SurvivorCompanion
+    local utility = SC.GameplayUtil
+    local source = utility.squareOf(actor)
+    local sx, sy, sz = position(source)
+    if sx == nil or type(getCell) ~= "function" then return nil end
+    local cell = getCell()
+    local directions = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+    -- A straight, cardinal run makes the engine's direct-line optimization
+    -- deterministic. Every intermediate tile and edge must be traversable.
+    for distanceInTiles = 4, 2, -1 do
+        for _, direction in ipairs(directions) do
+            local previous = source
+            local valid = true
+            for step = 1, distanceInTiles do
+                local square = cell:getGridSquare(math.floor(sx + direction[1] * step),
+                    math.floor(sy + direction[2] * step), math.floor(sz or 0))
+                if square == nil or not utility.isSquareFree(square)
+                    or utility.edgeBlocked(previous, square) then
+                    valid = false
+                    break
+                end
+                previous = square
+            end
+            if valid then return previous end
+        end
+    end
+    return nil
+end
+
+local function finishNativeLocomotionProbe(current, timedOut)
+    local SC = SurvivorCompanion
+    local actor = Harness.actor
+    local ax, ay = position(actor)
+    local displacement = ax ~= nil and math.sqrt(
+        (ax - Harness.nativePathStartX) ^ 2 + (ay - Harness.nativePathStartY) ^ 2) or 0
+    local remaining = distance(actor, Harness.nativePathTarget)
+    check("native_direct_path_progress",
+        displacement >= 0.35 or remaining <= 0.8,
+        "displacement=" .. string.format("%.2f", displacement)
+            .. " remaining=" .. string.format("%.2f", remaining)
+            .. (timedOut and " timeout=true" or ""))
+    check("native_direct_path_arrival",
+        timedOut ~= true and remaining <= 0.8,
+        "remaining=" .. string.format("%.2f", remaining)
+            .. " pending=" .. tostring(Harness.nativePathLastPending)
+            .. (timedOut and " timeout=true" or ""))
+    check("native_player_locomotion_graph",
+        Harness.nativePathPlayerGroupSeen == true
+            and Harness.nativePathMovementStateSeen == true
+            and Harness.nativePathMovingSeen == true,
+        "group=" .. tostring(Harness.nativePathLastGroup)
+            .. " state=" .. tostring(Harness.nativePathLastState)
+            .. " moving=" .. tostring(Harness.nativePathMovingSeen))
+    check("native_locomotion_animation_rates",
+        Harness.nativePathAnimationSeen == true
+            and (Harness.nativePathWalkSpeed or -1) > 0,
+        "anim_updating=" .. tostring(Harness.nativePathAnimationSeen)
+            .. " WalkSpeed=" .. tostring(Harness.nativePathWalkSpeed))
+    check("native_player_walk_clip",
+        Harness.nativePathWalkClipSeen == true,
+        "active_clips=" .. clean(Harness.nativePathAnimationNames))
+    check("native_pathfinder_owns_direct_corridor",
+        Harness.nativePathfindStateSeen == true,
+        "seen=" .. tostring(Harness.nativePathfindStateSeen)
+            .. " final=" .. tostring(Harness.nativePathLastPathfind)
+            .. " telemetry=" .. clean(Harness.nativePathTelemetryStatus))
+    check("native_path_state_released",
+        Harness.nativePathLastPending ~= true
+            and Harness.nativePathLastPathfind ~= true,
+        "pending=" .. tostring(Harness.nativePathLastPending)
+            .. " bPathfind=" .. tostring(Harness.nativePathLastPathfind))
+    pcall(SC.Actor.stop, actor)
+    SC.Navigation.reset(actor)
+    endHarnessControl(Harness.nativePathControl, "native_locomotion_probe_complete")
+    Harness.nativePathControl = nil
+    setPhase("begin_room", current)
+end
+
+local function beginNativeLocomotionProbe(current)
+    local SC = SurvivorCompanion
+    local id = SC.Registry.idOf(Harness.actor)
+    if id then pcall(SC.Commands.issue, id, "stay", nil, Harness.player) end
+    SC.Navigation.reset(Harness.actor)
+    pcall(SC.Actor.stop, Harness.actor)
+    local target = findStraightNativePathTarget(Harness.actor)
+    if target == nil then
+        skip("native_direct_path_progress", "no straight loaded corridor of two tiles")
+        skip("native_direct_path_arrival", "no straight loaded corridor of two tiles")
+        skip("native_player_locomotion_graph", "no straight loaded corridor of two tiles")
+        skip("native_locomotion_animation_rates", "no straight loaded corridor of two tiles")
+        skip("native_player_walk_clip", "no straight loaded corridor of two tiles")
+        skip("native_pathfinder_owns_direct_corridor", "no straight loaded corridor of two tiles")
+        skip("native_path_state_released", "no straight loaded corridor of two tiles")
+        setPhase("begin_room", current)
+        return
+    end
+    local control, controlReason = beginHarnessControl(
+        Harness.actor, "native_locomotion_probe", 10000)
+    if control == nil then
+        result("FAIL", "native_direct_path_progress",
+            "control ownership rejected: " .. clean(controlReason))
+        setPhase("begin_room", current)
+        return
+    end
+    local sx, sy = position(Harness.actor)
+    local accepted, reason = SC.Actor.setMovement(Harness.actor, "walk", {
+        action = "path",
+        targetSquare = target,
+        targetKind = "square",
+        enginePath = true,
+        supervisorToken = control,
+    })
+    if accepted ~= true then
+        endHarnessControl(control, "native_locomotion_probe_rejected")
+        result("FAIL", "native_direct_path_progress", clean(reason))
+        setPhase("begin_room", current)
+        return
+    end
+    Harness.nativePathControl = control
+    Harness.nativePathTarget = target
+    Harness.nativePathStartX = sx
+    Harness.nativePathStartY = sy
+    Harness.nativePathStartDistance = distance(Harness.actor, target)
+    Harness.nativePathPlayerGroupSeen = false
+    Harness.nativePathMovementStateSeen = false
+    Harness.nativePathMovingSeen = false
+    Harness.nativePathAnimationSeen = false
+    Harness.nativePathWalkClipSeen = false
+    Harness.nativePathfindStateSeen = false
+    Harness.nativePathWalkSpeed = -1
+    Harness.nativePathAnimationNames = ""
+    Harness.nativePathTelemetryStatus = reason
+    setPhase("native_locomotion", current)
+end
+
+local function probeNativeLocomotion(current)
+    local SC = SurvivorCompanion
+    local utility = SC.GameplayUtil
+    local actor = Harness.actor
+    local group = select(1, utility.call(actor, "getCompanionActionGroupName"))
+    local state = select(1, utility.call(actor, "getCompanionActionStateName"))
+    local moving = select(1, utility.call(actor, "isPlayerMoving"))
+    local updating = select(1, utility.call(actor, "isAnimationUpdatingThisFrame"))
+    local pathfind = select(1, utility.call(actor, "getVariableBoolean", "bPathfind"))
+    local pending = select(1, utility.call(actor, "hasPendingMovement"))
+    local walkSpeed = select(1, utility.call(actor, "getVariableFloat", "WalkSpeed", -1))
+    local animationNames = select(1,
+        utility.call(actor, "getCompanionActiveAnimationNames"))
+    Harness.nativePathLastGroup = group
+    Harness.nativePathLastState = state
+    Harness.nativePathLastPathfind = pathfind
+    Harness.nativePathLastPending = pending
+    Harness.nativePathPlayerGroupSeen = Harness.nativePathPlayerGroupSeen
+        or string.lower(tostring(group or "")) == "player"
+    local stateName = string.lower(tostring(state or ""))
+    Harness.nativePathMovementStateSeen = Harness.nativePathMovementStateSeen
+        or stateName == "movement" or stateName == "run" or stateName == "sprint"
+    Harness.nativePathMovingSeen = Harness.nativePathMovingSeen or moving == true
+    Harness.nativePathAnimationSeen = Harness.nativePathAnimationSeen or updating == true
+    local loweredAnimations = string.lower(tostring(animationNames or ""))
+    Harness.nativePathWalkClipSeen = Harness.nativePathWalkClipSeen
+        or loweredAnimations:find("walk", 1, true) ~= nil
+        or loweredAnimations:find("run", 1, true) ~= nil
+    if loweredAnimations:find("walk", 1, true) ~= nil
+        or loweredAnimations:find("run", 1, true) ~= nil then
+        Harness.nativePathAnimationNames = animationNames
+    elseif Harness.nativePathAnimationNames == "" and loweredAnimations ~= "" then
+        Harness.nativePathAnimationNames = animationNames
+    end
+    if tonumber(walkSpeed) and tonumber(walkSpeed) > Harness.nativePathWalkSpeed then
+        Harness.nativePathWalkSpeed = tonumber(walkSpeed)
+    end
+    Harness.nativePathfindStateSeen = Harness.nativePathfindStateSeen or pathfind == true
+    local remaining = distance(actor, Harness.nativePathTarget)
+    -- Observe the whole route. Progress alone allowed an actor that moved one
+    -- tile and then wedged itself to pass; completion also has to release both
+    -- the bridge pending state and vanilla's bPathfind variable.
+    if remaining <= 0.8 and pending ~= true and pathfind ~= true then
+        finishNativeLocomotionProbe(current, false)
+    elseif current - Harness.phaseStartedAt > 10000 then
+        finishNativeLocomotionProbe(current, true)
+    end
+end
+
 local function findRoomEntryPair(player)
     local SC = SurvivorCompanion
     local utility = SC.GameplayUtil
@@ -2165,9 +2350,10 @@ local function describeMedical(actor)
         end)
     end
     return string.format(
-        "health=%.0f wounds=%d needsBandage=%s bites=%d knox=%s bandages=%d clothing=%d",
+        "health=%.0f wounds=%d needsBandage=%s needsChange=%s bites=%d knox=%s bandages=%d clothing=%d",
         tonumber(a.health) or -1, #(a.wounds or {}), tostring(a.needsBandage),
-        a.bites or 0, tostring(a.knoxInfected), bandages, clothing), a
+        tostring(a.needsBandageChange), a.bites or 0, tostring(a.knoxInfected),
+        bandages, clothing), a
 end
 
 local function medicalProbe(current)
@@ -2175,21 +2361,27 @@ local function medicalProbe(current)
     if Harness.medicalTarget == nil and Harness.medicalDone ~= true then
         local living = (SC.Registry and type(SC.Registry.living) == "function"
             and SC.Registry.living()) or {}
-        local wounded, fallbackWounded
+        local wounded, replaceableDirty
         for _, actor in ipairs(living) do
             local desc, assessment = describeMedical(actor)
             result("PASS", "medical_state:" .. companionName(actor), desc)
             if wounded == nil and type(assessment) == "table"
                 and assessment.needsBandage == true then
                 wounded = actor
-            elseif fallbackWounded == nil and type(assessment) == "table"
-                and #(assessment.wounds or {}) > 0 then
-                fallbackWounded = actor
+            elseif replaceableDirty == nil and type(assessment) == "table"
+                and assessment.needsBandageChange == true
+                and type(SC.Medical.canReplaceDirtyBandage) == "function" then
+                local ready = SC.Medical.canReplaceDirtyBandage(actor)
+                if ready == true then replaceableDirty = actor end
             end
         end
-        wounded = wounded or fallbackWounded
+        -- Old scars and clean bandages remain in assessment.wounds, but neither is
+        -- a treatable wound. Selecting one merely to force this probe made a
+        -- correctly bounded no-bandage retry look like a treatment failure.
+        wounded = wounded or replaceableDirty
         if wounded == nil then
-            skip("medical_treat_probe", "no restored companion needs treatment")
+            skip("medical_treat_probe",
+                "no restored companion has a treatable wound with usable supplies")
             Harness.medicalDone = true
             setPhase("finish", current)
             return
@@ -2213,15 +2405,46 @@ local function medicalProbe(current)
         Harness.medicalStart = current
         Harness.medicalReasons = {}
         Harness.medicalCalls = 0
+        local baseline = SC.Medical.assess(wounded)
+        Harness.medicalBaselineBleeding = tonumber(baseline.bleedingCount) or 0
+        Harness.medicalBaselineDirty = tonumber(baseline.dirtyBandages) or 0
     end
     if Harness.medicalTarget ~= nil then
         local runtime = { snapshot = { threats = {}, immediateCount = 0, allies = {},
             escapeSquares = { { square = Harness.medicalTarget:getSquare() } } } }
-        local ok, _, reason = pcall(SC.Medical.treat, Harness.medicalTarget,
+        local ok, accepted, reason = pcall(SC.Medical.treat, Harness.medicalTarget,
             Harness.medicalTarget, runtime)
         local key = ok and tostring(reason) or ("error:" .. tostring(reason))
         Harness.medicalReasons[key] = (Harness.medicalReasons[key] or 0) + 1
         Harness.medicalCalls = Harness.medicalCalls + 1
+        -- The production scheduler and this diagnostic intentionally exercise the
+        -- same Medical state machine. Either caller may observe the completion
+        -- frame. Verify the body-damage postcondition as the authority instead of
+        -- requiring this particular caller to receive the transient "bandaged"
+        -- return value.
+        local after = SC.Medical.assess(Harness.medicalTarget)
+        local afterBleeding = tonumber(after.bleedingCount) or 0
+        local afterDirty = tonumber(after.dirtyBandages) or 0
+        if afterBleeding < (Harness.medicalBaselineBleeding or 0)
+            or afterDirty < (Harness.medicalBaselineDirty or 0) then
+            result("PASS", "medical_treat_probe",
+                "verified wound improvement: bleeding="
+                    .. tostring(Harness.medicalBaselineBleeding) .. "->"
+                    .. tostring(afterBleeding) .. " dirty="
+                    .. tostring(Harness.medicalBaselineDirty) .. "->"
+                    .. tostring(afterDirty) .. " calls=" .. Harness.medicalCalls)
+            Harness.medicalTarget, Harness.medicalDone = nil, true
+            setPhase("finish", current)
+            return
+        end
+        if ok and accepted ~= true
+            and (reason == "no_bandage" or reason == "no_clean_bandage") then
+            skip("medical_treat_probe", "treatment need has no usable supplies: "
+                .. tostring(reason))
+            Harness.medicalTarget, Harness.medicalDone = nil, true
+            setPhase("finish", current)
+            return
+        end
         if ok and type(reason) == "string" and reason:find("bandaged", 1, true) then
             result("PASS", "medical_treat_probe",
                 "completed=" .. reason .. " calls=" .. Harness.medicalCalls)
@@ -2345,12 +2568,12 @@ local function tick()
         local currentDistance = distance(Harness.actor, Harness.player)
         if Harness.followThreatened then
             skip("real_follow_progress", "nearby threat makes deterministic formation movement unsafe to assert")
-            setPhase("begin_room", current)
+            setPhase("begin_native_locomotion", current)
         elseif currentDistance <= 4.5
             or currentDistance <= Harness.followInitialDistance - 0.75 then
             result("PASS", "real_follow_progress", "distance="
                 .. string.format("%.2f->%.2f", Harness.followInitialDistance, currentDistance))
-            setPhase("begin_room", current)
+            setPhase("begin_native_locomotion", current)
         elseif current - Harness.phaseStartedAt > 12000 then
             local SC = SurvivorCompanion
             local record = SC.Registry.byId(SC.Registry.idOf(Harness.actor))
@@ -2367,8 +2590,12 @@ local function tick()
                 .. " state=" .. tostring(decision.current)
                 .. " intent=" .. tostring(decision.intent)
                 .. " nav=" .. tostring(navigation.pathReason))
-            setPhase("begin_room", current)
+            setPhase("begin_native_locomotion", current)
         end
+    elseif Harness.phase == "begin_native_locomotion" then
+        beginNativeLocomotionProbe(current)
+    elseif Harness.phase == "native_locomotion" then
+        probeNativeLocomotion(current)
     elseif Harness.phase == "begin_room" then
         beginRoomProbe(current)
     elseif Harness.phase == "room_probe" then

@@ -554,12 +554,15 @@ local function addGear(actor, role, group)
     if role == "leader" and group and group.shortageKind == "ammunition" then
         required[#required + 1] = "Base.Pistol"
     end
-    if role == "leader" then required[#required + 1] = "Base.Book" end
+    -- Build 42's randomized book entries returned nil from
+    -- ItemContainer:AddItem in a real sandbox.  A notebook is concrete
+    -- literature, needs no OnCreate randomization, and fits a leader's gear.
+    if role == "leader" then required[#required + 1] = "Base.Notebook" end
     if not group or group.shortageKind ~= "water" then required[#required + 1] = "Base.WaterBottle" end
     if not group or group.shortageKind ~= "food" then required[#required + 1] = "Base.CannedSardines" end
     if not group or group.shortageKind ~= "medicine" then required[#required + 1] = "Base.Bandage" end
     -- A single item type that Build 42 renamed or that a mod removed (seen in a
-    -- real save: Base.Book would not instantiate) must not abort the whole faction
+    -- real save: a literature template would not instantiate) must not abort the whole faction
     -- member's initialization. Add what is available, and record the rest so the
     -- member still spawns instead of the household coming up short.
     local missing

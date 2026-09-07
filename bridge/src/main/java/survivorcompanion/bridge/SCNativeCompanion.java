@@ -11,6 +11,7 @@ import java.util.concurrent.RejectedExecutionException;
 
 import zombie.Lua.LuaEventManager;
 import zombie.ai.AIBrainPlayerControlVars;
+import zombie.ai.states.PathFindState;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.SurvivorDesc;
@@ -23,6 +24,8 @@ import zombie.pathfind.PathFindBehavior2;
 import zombie.pathfind.PolygonalMap2;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
 import zombie.core.skinnedmodel.advancedanimation.AnimLayer;
+import zombie.core.skinnedmodel.animation.AnimationMultiTrack;
+import zombie.core.skinnedmodel.animation.AnimationPlayer;
 import zombie.core.skinnedmodel.animation.AnimationTrack;
 
 /** A non-local human actor backed by Build 42's complete player character runtime. */
@@ -166,6 +169,36 @@ public final class SCNativeCompanion extends IsoPlayer {
         if (getActionContext() == null) return "";
         ActionState state = getActionContext().peekNextState();
         return state == null || state.getName() == null ? "" : state.getName();
+    }
+
+    /**
+     * Kahlua-safe names of the animation clips that are visibly contributing this
+     * frame. This lets the live harness prove that the stock player graph selected
+     * Bob_Walk/Bob_Run clips, rather than inferring animation solely from flags.
+     */
+    public String getCompanionActiveAnimationNames() {
+        try {
+            AnimationPlayer player = getAnimationPlayer();
+            if (player == null) return "";
+            AnimationMultiTrack multiTrack = player.getMultiTrack();
+            if (multiTrack == null) return "";
+            StringBuilder names = new StringBuilder();
+            int added = 0;
+            for (AnimationTrack track : multiTrack.getTracks()) {
+                if (track == null || !track.isPlaying || !track.hasClip()
+                        || track.getBlendWeight() <= 0.001f) {
+                    continue;
+                }
+                String name = track.getName();
+                if (name == null || name.isBlank()) continue;
+                if (names.length() > 0) names.append('|');
+                names.append(name);
+                if (++added >= 16) break;
+            }
+            return names.toString();
+        } catch (RuntimeException | LinkageError failure) {
+            return "";
+        }
     }
 
     /** Whether all Build 42 transition conditions currently permit melee. */
@@ -394,6 +427,17 @@ public final class SCNativeCompanion extends IsoPlayer {
             if (!bridgeMoving) {
                 bridgeMoveRequested = false;
                 bridgePathActive = false;
+                bridgePathStartedThisRun = false;
+                // External stop/cancel requests run outside the generic physics
+                // pass. Vanilla's PathFindBehavior2.cancel() does not clear the
+                // animation variable, so without this handshake the actor reaches
+                // idle with bPathfind pinned true indefinitely.
+                try {
+                    setVariable("bPathfind", false);
+                } catch (RuntimeException | LinkageError ignored) {
+                    // The superclass constructor can call setMoving before the
+                    // animation-variable registry is fully initialized.
+                }
             }
         }
         super.setMoving(moving && getVehicle() == null);
@@ -409,31 +453,54 @@ public final class SCNativeCompanion extends IsoPlayer {
         if (active) {
             bridgePathStartedThisRun = false;
             bridgePathStartNanos = System.nanoTime();
+        } else {
+            bridgePathStartedThisRun = false;
         }
+    }
+
+    /**
+     * Vanilla's clear-line shortcut changes a path request into ordinary player
+     * movement ({@code bPathfind=false, bMoving=true}). A local IsoPlayer then
+     * supplies a movement vector from keyboard/mouse input. This non-local actor
+     * deliberately has no local input, so accepting that shortcut leaves it
+     * animating in place forever. Keep PathFindBehavior2 as the owner for every
+     * companion path, including a straight corridor; its normal update supplies
+     * direction, deferred movement, collision handling and arrival semantics.
+     */
+    private void forceBridgePathfindingState(boolean active) {
+        if (!active) {
+            beginBridgePath(false);
+            return;
+        }
+        bridgeMoveRequested = false;
+        bridgeMoving = false;
+        setVariable("bPathfind", true);
+        super.setMoving(false);
+        beginBridgePath(true);
     }
 
     @Override
     public void pathToLocationF(float x, float y, float z) {
         super.pathToLocationF(x, y, z);
-        beginBridgePath(getVehicle() == null && !bridgeDisabled);
+        forceBridgePathfindingState(getVehicle() == null && !bridgeDisabled);
     }
 
     @Override
     public void pathToLocation(int x, int y, int z) {
         super.pathToLocation(x, y, z);
-        beginBridgePath(getVehicle() == null && !bridgeDisabled);
+        forceBridgePathfindingState(getVehicle() == null && !bridgeDisabled);
     }
 
     @Override
     public void pathToCharacter(IsoGameCharacter target) {
         super.pathToCharacter(target);
-        beginBridgePath(target != null && getVehicle() == null && !bridgeDisabled);
+        forceBridgePathfindingState(target != null && getVehicle() == null && !bridgeDisabled);
     }
 
     @Override
     public void pathToSound(int x, int y, int z) {
         super.pathToSound(x, y, z);
-        beginBridgePath(getVehicle() == null && !bridgeDisabled);
+        forceBridgePathfindingState(getVehicle() == null && !bridgeDisabled);
     }
 
     /**
@@ -675,6 +742,7 @@ public final class SCNativeCompanion extends IsoPlayer {
                 updatePlayerActionGroup();
             }
             updateGenericCharacter();
+            advanceBridgePath();
             genericUpdateActive = false;
             // The generic update advanced the native pathfinder; clear a path that
             // finished on its own so the movement flags do not stay pinned (3.1).
@@ -737,6 +805,23 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     /**
+     * The player action group has movement/run states but no pathfind state. A
+     * normal local player advances a click-to-walk request through its input/timed
+     * action controller, which this non-local actor must not run. Execute Build
+     * 42's stock PathFindState body inside the generic physics window instead;
+     * this preserves its route, collision, facing and terminal cleanup behavior
+     * while the ordinary player graph remains responsible for the visible walk.
+     */
+    private void advanceBridgePath() {
+        if (bridgeDisabled || getVehicle() != null || !bridgePathActive) return;
+        // Avoid a double step if a future Build 42 player graph gains a native
+        // pathfind state and the generic update has already executed it.
+        if (getStateMachine().getCurrent() != PathFindState.instance()) {
+            PathFindState.instance().execute(this);
+        }
+    }
+
+    /**
      * Mirror the part of IsoPlayer.updateInternal2() that owns the player
      * locomotion animation variables. WalkSpeed, RunSpeed and IdleSpeed all
      * default to zero, so omitting this call enters the right state but freezes
@@ -771,17 +856,25 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     /**
-     * Pure decision for {@link #reconcileBridgePathState()} (review 3.1): a path
-     * that is no longer moving via pathfind has terminated once it has actually
-     * moved this run, or once the start grace elapsed without it ever moving (a
-     * route that failed to start). A path still moving, or still pending within the
-     * grace window, is not terminal. Package-private and side-effect free so the
-     * transition table is unit-testable without a live engine.
+     * Pure decision for {@link #reconcileBridgePathState()} (review 3.1):
+     * PathFindState clearing bPathfind is the normal terminal handshake. A request
+     * that never starts is also terminal after the grace window, but a path that
+     * already moved retains ownership through PathFindBehavior2's one-frame
+     * "stopping" phase. Package-private and side-effect free so the transition
+     * table is unit-testable without a live engine.
      */
-    static boolean pathHasTerminated(boolean movingViaPathFind, boolean startedThisRun,
+    static boolean pathHasTerminated(boolean pathfindRequested,
+            boolean movingViaPathFind, boolean startedThisRun,
             boolean startGraceElapsed) {
+        if (!pathfindRequested) return true;
         if (movingViaPathFind) return false;
-        return startedThisRun || startGraceElapsed;
+        // PathFindBehavior2 temporarily reports not-moving while it applies the
+        // final deferred movement ("stopping"). bPathfind remains true until the
+        // following update returns Succeeded. Once movement has begun, retain the
+        // bridge owner for that terminal update rather than freezing one frame
+        // short of completion with bPathfind pinned.
+        if (startedThisRun) return false;
+        return startGraceElapsed;
     }
 
     /**
@@ -797,8 +890,10 @@ public final class SCNativeCompanion extends IsoPlayer {
         PathFindBehavior2 behavior = getPathFindBehavior2();
         if (behavior == null) return;
         boolean movingViaPathFind;
+        boolean pathfindRequested;
         try {
             movingViaPathFind = behavior.isMovingUsingPathFind();
+            pathfindRequested = getVariableBoolean("bPathfind");
         } catch (RuntimeException | LinkageError failure) {
             // Can't read the terminal status this frame; leave the flag untouched.
             return;
@@ -808,7 +903,16 @@ public final class SCNativeCompanion extends IsoPlayer {
             return;
         }
         boolean startGraceElapsed = System.nanoTime() - bridgePathStartNanos > PATH_START_GRACE_NANOS;
-        if (pathHasTerminated(false, bridgePathStartedThisRun, startGraceElapsed)) {
+        if (pathHasTerminated(pathfindRequested, false,
+                bridgePathStartedThisRun, startGraceElapsed)) {
+            // The grace branch represents a request that never became live; make
+            // its native state as terminal as the bridge state. On normal success
+            // PathFindState already performed these operations.
+            if (pathfindRequested) {
+                behavior.cancel();
+                setVariable("bPathfind", false);
+                super.setMoving(false);
+            }
             bridgePathActive = false;
             bridgePathStartedThisRun = false;
         }
@@ -827,9 +931,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             PathFindBehavior2 behavior = getPathFindBehavior2();
             if (behavior == null) return false;
             behavior.pathToNearestTable(locations);
-            setVariable("bPathfind", true);
-            super.setMoving(false);
-            beginBridgePath(true);
+            forceBridgePathfindingState(true);
             return true;
         } catch (RuntimeException | LinkageError failure) {
             return false;
@@ -1074,7 +1176,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     /** Package-private real-JAR test seam for the deferred physics request. */
-    boolean hasPendingMovement() {
+    public boolean hasPendingMovement() {
         return bridgeMoveRequested || bridgePathActive;
     }
 

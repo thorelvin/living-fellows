@@ -6711,12 +6711,12 @@ check(exported.schema == 1 and exported.groups["faction-test"].standing == "Host
     "faction standing and territory export transactionally")
 do
     -- Report 6: a faction member's gear-add must tolerate an item that cannot
-    -- instantiate (a real save failed to add Base.Book), so the member still spawns
+    -- instantiate, so the member still spawns
     -- with the gear it could get instead of aborting the whole household.
     local addedTypes = {}
     local gearInventory = {}
     function gearInventory:AddItem(itemType)
-        if itemType == "Base.Book" then return nil end
+        if itemType == "Base.Notebook" then return nil end
         addedTypes[#addedTypes + 1] = itemType
         return { __type = itemType }
     end
@@ -6724,7 +6724,7 @@ do
     gearActor.getInventory = function() return gearInventory end
     local geared = Factions._addGearForTests(gearActor, "leader", {})
     check(geared == true and #addedTypes > 0,
-        "a faction leader still equips when one gear item (Base.Book) cannot instantiate")
+        "a faction leader still equips when one gear item cannot instantiate")
     registry[gearActor.id] = nil
 end
 local debugSpawned, debugReason = Factions.debugSpawnHousehold(player, 2)

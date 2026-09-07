@@ -2412,7 +2412,10 @@ function actions.dispatch(actor, mode, intent, provider)
                 actor, "survival_priority:" .. action)
             if not interrupted then return false, interruptReason end
         else
-            actions.stopDirect(actor)
+            -- A competing decision may observe an activity owned by another
+            -- subsystem. Reject it without mutating the current owner's native
+            -- movement/path state; only that owner (or an authorized urgent
+            -- interrupt above) may stop or cancel the actor.
             if activityOwner == "visual" then
                 return false, (activityPhase == "active" and "visual_action_active:"
                     or "visual_effect_pending:") .. tostring(activityName)
