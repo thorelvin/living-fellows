@@ -289,6 +289,265 @@ local pools = {
         practical = { "Loose. Back to it.", "Free and standing." },
         stressed = { "Off! Get off!", "Free — barely!" },
     },
+    ["lastwords.pinned"] = {
+        common = {
+            "%1! They've got me!", "%1, please! Get them off!",
+            "Don't let this be where you lose me!", "Help me! I can't get my arms free!",
+            "They're pulling me down! I need you now!", "Get them off me - please!",
+            "Not like this! We were supposed to make it home!", "I'm still here! Fight your way to me!",
+            "Don't make me a memory yet!", "I can't get up! %1, hurry!",
+            "They have my legs! Don't let them take me!", "Look at me, %1! I need your help!",
+            "I don't want to leave you like this!", "Please, I still have things to say!",
+            "I'm pinned! Clear the ones on top!", "Don't turn away! I'm not gone yet!",
+            "I can feel them biting! Get me out!", "We survived too much for it to end here!",
+            "You're the reason I kept going - don't stop now!", "I can still hear you! Keep coming!",
+        },
+        brave = {
+            "Pull them off and I'll stand back up!", "I'm down, not finished! Come get me!",
+            "Give me one opening, %1!", "I can still fight - just clear my arms!",
+            "Make them pay for touching one of us!",
+        },
+        cautious = {
+            "Thin the pile, then pull me out!", "Don't rush straight in - but don't leave me!",
+            "Take the one at my shoulders first!", "Keep your exit, %1! Just get me loose!",
+            "Too many on top of me! Break the pile!",
+        },
+        caring = {
+            "%1, I don't want our last moment to be this!", "You always came back for me. Come back now!",
+            "Please don't get yourself killed reaching me!", "I can't leave you alone out here!",
+            "Stay alive - but please, try to reach me!",
+        },
+        practical = {
+            "Pinned! Clear the closest two!", "Hit the one over my shoulders first!",
+            "I need space on my left!", "Break their grip, then pull me up!",
+            "No footing, no weapon - I need assistance!",
+        },
+        stressed = {
+            "No, no, no - %1, HELP!", "I can't breathe! Get them OFF!",
+            "Please! Don't let me die here!", "They're tearing me apart!",
+            "%1! Where are you? I need you!",
+        },
+        bond_cautious = {
+            "%1, I know we barely know each other - but please don't leave me!",
+            "I took a chance following you. Make it mean something - get me up!",
+            "We haven't had enough time for this to be goodbye!",
+        },
+        bond_ally = {
+            "%1, we work better together! I need my partner now!",
+            "You said we'd watch each other's backs - they're on mine!",
+            "This team still needs both of us. Pull me out!",
+        },
+        bond_trusted = {
+            "I trusted you with my life, %1! I'm trusting you now!",
+            "You've never left me behind. Please don't start today!",
+            "We have survived worse together. Reach me!",
+        },
+        bond_close = {
+            "%1, you are the reason I still fight! Don't lose me here!",
+            "I can't leave you alone in this world. Get me back up!",
+            "You know I'd crawl through them for you. Please try for me!",
+        },
+        bond_family = {
+            "%1! Family doesn't end under a pile of corpses - come get me!",
+            "I found a family with you. Don't let them take it away!",
+            "Come back for me, %1! I need my family!",
+        },
+    },
+    ["lastwords.zombies"] = {
+        common = {
+            "%1... don't watch. Just live.", "You gave me more days than I thought I had. Thank you.",
+            "Go. Please make losing me mean something.", "We were a good team, weren't we?",
+            "I thought we'd get one more morning.", "Don't let the last thing I see be you dying too.",
+            "You came back for me every time. You can't this time.", "Remember me standing, not like this.",
+            "Keep my bag. Keep moving.", "Tell the others I stayed human to the end.",
+            "Don't carry the guilt, %1. Carry what we built.", "I'm glad I didn't face this world alone.",
+            "There was still so much road left.", "I know your face. I won't forget it.",
+            "If there is somewhere after this, I'll wait for you - but not soon.",
+            "You found me when I had nobody. That mattered.", "Don't waste another bullet on revenge.",
+            "Promise me this doesn't make you stop trusting people.",
+            "I was scared before I met you. I'm less scared now.", "Say my name once when you get somewhere safe.",
+        },
+        brave = {
+            "They got me, not the fight. Finish it.", "No fear now. Get out of here.",
+            "I held as long as I could, %1.", "Make the next swing count for both of us.",
+            "I said I'd watch your back. I meant it to the end.",
+        },
+        cautious = {
+            "Don't come closer. The numbers are wrong.", "Use the route we marked. Go now.",
+            "Break sight, cross the fence, don't look back.", "This position is lost. You are not.",
+            "Promise me you'll check the next corner twice.",
+        },
+        caring = {
+            "You made the end of the world feel less lonely.", "Please eat. Sleep. Keep being a person.",
+            "I need you to forgive yourself, %1.", "Thank you for making me part of something again.",
+            "Take care of them the way you took care of me.",
+        },
+        practical = {
+            "Leave the gear. Take only what keeps you alive.", "The opening is behind you. Use it.",
+            "No rescue possible. Withdraw, %1.", "Save your strength. I am already spent.",
+            "One survivor leaving is better than two bodies here.",
+        },
+        stressed = {
+            "I don't want to die! %1, I don't want to die!", "Please don't let them eat me alive.",
+            "Stay with me - no, go! Go!", "I can't feel my hands anymore.",
+            "Tell me we mattered. Please.",
+        },
+        bond_cautious = {
+            "We barely had time to know each other, %1. I'm sorry it ends here.",
+            "Thank you for taking a chance on me. Now take your chance to run.",
+            "I wish I'd trusted you sooner. Go.",
+        },
+        bond_ally = {
+            "You were a good partner, %1. Find another reason to keep going.",
+            "We made a strong team. One of us can still make it home.",
+            "I was lucky to have you beside me. Don't die beside me now.",
+        },
+        bond_trusted = {
+            "I trusted you with every bad road. Trust me when I tell you to go.",
+            "You always came back for me, %1. This time, live with walking away.",
+            "Knowing you would be there made me brave. Be brave enough to leave.",
+        },
+        bond_close = {
+            "You gave me a reason to call somewhere home, %1.",
+            "The worst part is leaving you to face tomorrow without me.",
+            "I need my last thought to be you getting away safely.",
+        },
+        bond_family = {
+            "%1, you became my family. That is the life I want remembered.",
+            "I lost one world and found a family in you. Thank you.",
+            "Tell our family I loved them. You already know I loved you.",
+        },
+    },
+    ["lastwords.health"] = {
+        common = {
+            "%1... sit with me a moment.", "I'm sorry. My body gave up before I did.",
+            "Don't call this failure. We made a life in impossible days.", "I'm so tired now.",
+            "Open the curtains. I want to see the sky once more.", "Promise me you'll eat something tomorrow.",
+            "I kept thinking there would be more time.", "You don't have to fix this one, %1.",
+            "Stay until it gets quiet. Then keep going.", "I don't hurt anymore. I think that's bad.",
+            "Thank you for every ordinary morning.", "Take the things in my bag. I chose them for us.",
+            "I wish we had met before the world ended.", "Don't remember the sickness. Remember the road.",
+            "I can hear you. Keep talking.", "I was someone again when I was with you.",
+            "Tell me about somewhere safe, even if you have to invent it.",
+            "The end feels smaller with someone beside you.", "Don't let this room become my whole story.",
+            "When you think of me, make it one of the good days.",
+        },
+        brave = {
+            "I've fought this long enough. It's all right.", "No more battles for me. You still have yours.",
+            "I am not afraid of the quiet.", "Stand up when I can't, %1.",
+            "This body is done. I am not ashamed of it.",
+        },
+        cautious = {
+            "Check the doors after. Grief makes people careless.", "Don't stay here after dark for my sake.",
+            "Burn what needs burning. Keep the room safe.", "Take the south exit if you have to leave quickly.",
+            "You need rest too. Promise me you'll remember that.",
+        },
+        caring = {
+            "You were family when I thought family was gone.", "Hold my hand, %1. Just for a little while.",
+            "I hope you know how much your kindness mattered.", "You made me want tomorrow again.",
+            "Keep a place for new people. Don't close your heart with me.",
+        },
+        practical = {
+            "My medicine won't help me now. Save it.", "Take inventory when this is over. Nothing gets wasted.",
+            "You know what has to be done afterward.", "The supplies are labeled. You'll manage.",
+            "No more treatment, %1. Spend it on someone who has time.",
+        },
+        stressed = {
+            "I thought I was ready. I'm not.", "Please don't leave the room yet.",
+            "I can't catch my breath, %1.", "Tell me I'm not disappearing alone.",
+            "I'm scared. Just say my name.",
+        },
+        bond_cautious = {
+            "We did not know each other long, %1, but I am glad we met.",
+            "Thank you for giving a stranger somewhere safe to stop.",
+            "Maybe with more time I would have told you more. I wanted to.",
+        },
+        bond_ally = {
+            "You were a good partner, %1. I could not have asked for fairer.",
+            "We kept each other alive longer than either of us expected.",
+            "Keep doing the work we started. It mattered to me.",
+        },
+        bond_trusted = {
+            "I knew I was safe whenever you took the watch, %1.",
+            "You earned every piece of trust I had left to give.",
+            "I could close my eyes because I knew you were here.",
+        },
+        bond_close = {
+            "You made this broken world feel like a life again, %1.",
+            "I hate that I will miss all your tomorrows.",
+            "You knew me as I became, not only as I was. Thank you.",
+        },
+        bond_family = {
+            "Stay close, %1. I want to leave this world beside my family.",
+            "You were home to me after every other home was gone.",
+            "I need you to hear it once more: you are my family, and I love you.",
+        },
+    },
+    ["lastwords.turning"] = {
+        common = {
+            "%1, if I stop knowing you, remember that I know you now.",
+            "When I get back up, that won't be me.", "Don't use my name for whatever comes after.",
+            "Let me say goodbye while the words are still mine.", "Remember my voice, not the sound I'll make later.",
+            "If I reach for you afterward, don't hesitate.", "You have to leave before my face lies to you.",
+            "I can feel pieces of me going missing.", "Soon I won't know why you matter. Right now, you do.",
+            "Tie the door. Then walk away before I change my mind.", "Don't let me hurt you, %1. I couldn't bear that.",
+            "The fever is taking the room away from me.", "Say something true. I need one last true thing.",
+            "Keep the photograph. I won't be able to remember it.",
+            "Whatever wears my face next is not your friend.", "I wanted more time as myself.",
+            "Look at me now, while I can still look back.", "I am still here. Please remember this version.",
+            "When the eyes change, go. Promise me.", "Don't wait for proof. This is me giving you permission.",
+        },
+        brave = {
+            "I'll hold on to my name as long as I can.", "I won't give it an easy body to inherit.",
+            "Do what I would do for you, %1.", "One clean end. No hesitation.",
+            "The infection wins my body, not who I was.",
+        },
+        cautious = {
+            "Secure both doors before the fever takes me.", "Keep your distance from now on.",
+            "Count to ten after I stop breathing. Then be certain.", "Don't sleep anywhere near this room.",
+            "Take no chances with me, %1. None.",
+        },
+        caring = {
+            "I love that I got to know you before I forgot everything.",
+            "Please remember I would never choose to hurt you.", "You gave me people worth saying goodbye to.",
+            "Tell everyone my last thought was of home.", "Don't let my face make you feel guilty afterward.",
+        },
+        practical = {
+            "The restraints need checking before I lose control.", "Use one round. Make it certain.",
+            "Move the supplies out before you seal the room.", "My pulse will stop before the danger does.",
+            "Record the time, lock the door, and leave, %1.",
+        },
+        stressed = {
+            "I can feel it behind my eyes!", "I'm forgetting something - don't let it be you.",
+            "Please, %1, don't let me wake up hungry.", "I don't want my last face to be that thing's face.",
+            "Tell me who I am. Quickly.",
+        },
+        bond_cautious = {
+            "We did not have long, %1. Remember that I chose to trust you at the end.",
+            "You took in a stranger. Do not let what I become punish you for that kindness.",
+            "I wish you had met the version of me that had more time.",
+        },
+        bond_ally = {
+            "You were my partner while I was human. Keep that part of me.",
+            "We had each other's backs, %1. Mine belongs behind a locked door now.",
+            "Thank you for every mile we walked as a team.",
+        },
+        bond_trusted = {
+            "I trust you to know when I am gone, %1.",
+            "You knew the real me. Do not let the infection rewrite that memory.",
+            "The last person I trust is the one who may have to stop me.",
+        },
+        bond_close = {
+            "Losing your face from my memory frightens me more than dying.",
+            "You made me myself again, %1. Remember me that way.",
+            "If I say your name after I turn, please know it is only an echo.",
+        },
+        bond_family = {
+            "%1, my last human certainty is that you are my family.",
+            "Whatever wakes in this body, it cannot have what we were.",
+            "Tell our family I remembered every one of them at the end.",
+        },
+    },
     ["combat.engage.one"] = {
         common = {
             "One contact. I'm taking it!", "I've got the lone walker!", "Just one. Moving in!",
@@ -1131,6 +1390,137 @@ end
 
 function Dialogue.lastSpokenTopic(actor)
     return runtimeFor(actor).lastSpokenTopic
+end
+
+local lastWordTopics = {
+    pinned = "lastwords.pinned",
+    zombies = "lastwords.zombies",
+    health = "lastwords.health",
+    turning = "lastwords.turning",
+}
+
+local function lastWordsPlayer(player)
+    if player ~= nil then return player end
+    if type(getPlayer) ~= "function" then return nil end
+    local ok, value = pcall(getPlayer)
+    return ok and value or nil
+end
+
+local function lastWordsPlayerName(player)
+    if player ~= nil and U() then
+        local descriptor = select(1, U().call(player, "getDescriptor"))
+        local forename = descriptor and select(1, U().call(descriptor, "getForename")) or nil
+        if forename ~= nil and tostring(forename) ~= "" then return tostring(forename) end
+        local name = U().nameOf(player)
+        if name and name ~= "" and name ~= "Survivor" then return tostring(name) end
+    end
+    return "my friend"
+end
+
+local function mortalityState(actor)
+    local runtime = runtimeFor(actor)
+    runtime.mortality = type(runtime.mortality) == "table" and runtime.mortality or {}
+    return runtime.mortality
+end
+
+local function lastWordCandidates(topic, state)
+    local voice, mood = styleFor(state, {})
+    local result = candidatesFor(pools[topic], voice, mood)
+    local seen = {}
+    for _, line in ipairs(result) do seen[line] = true end
+    local tier
+    if SC.Relationship and type(SC.Relationship.tier) == "function" then
+        local ok, value = pcall(SC.Relationship.tier, state)
+        if ok then tier = value end
+    end
+    if tier == nil then
+        local trust, bond = tonumber(state.trust) or 0, tonumber(state.bond) or 0
+        local score = trust * 0.55 + bond * 0.45
+        tier = score >= 80 and "family" or score >= 55 and "close"
+            or score >= 30 and "trusted" or score >= 10 and "ally" or "cautious"
+    end
+    appendUnique(result, pools[topic] and pools[topic]["bond_" .. tostring(tier)], seen)
+    return result, tier
+end
+
+-- Speak while the native actor is still alive, because once permanent-death
+-- cleanup starts the actor can no longer reliably own a chat bubble. Pinned
+-- pleas use a cooldown; terminal lines are one per critical episode, with a
+-- separate one-time turning line when Knox infection becomes irreversible.
+function Dialogue.sayLastWords(actor, circumstance, player, options)
+    local topic = lastWordTopics[circumstance]
+    if actor == nil or topic == nil then return false, "invalid_last_words" end
+    local state = commandState(actor)
+    if state.recruited ~= true then return false, "not_recruited" end
+    options = type(options) == "table" and options or {}
+    local current = U() and U().nowMs() or 0
+    local mortality = mortalityState(actor)
+    if circumstance == "pinned" then
+        local cooldown = U().config("lastWordsPinnedCooldownMs") or 30000
+        if current - (tonumber(mortality.lastPinnedAt) or -math.huge) < cooldown then
+            return false, "pinned_words_on_cooldown"
+        end
+    elseif circumstance == "turning" then
+        if mortality.turningSpoken == true then return false, "turning_words_already_spoken" end
+    elseif options.force ~= true and mortality.criticalEpisodeSpoken == true then
+        return false, "critical_words_already_spoken"
+    elseif options.force == true and current - (tonumber(mortality.lastFinalAt) or -math.huge)
+        < (U().config("lastWordsFinalRepeatGuardMs") or 6000) then
+        return false, "final_words_repeat_guard"
+    end
+    player = lastWordsPlayer(player)
+    local candidates, relationshipTier = lastWordCandidates(topic, state)
+    local spoken, line = Dialogue.say(actor, topic, candidates,
+        { lastWordsPlayerName(player) }, {
+            state = state, recentLimit = circumstance == "pinned" and 8 or 12,
+            salt = tostring(current) .. ":" .. tostring(circumstance),
+        })
+    if spoken ~= true then return false, line end
+    if circumstance == "pinned" then
+        mortality.lastPinnedAt = current
+    else
+        mortality.lastFinalAt = current
+        if circumstance == "turning" then mortality.turningSpoken = true
+        else mortality.criticalEpisodeSpoken = true end
+    end
+    return true, line, {
+        topic = topic,
+        relationshipTier = relationshipTier,
+        poolSize = #candidates,
+    }
+end
+
+-- Called from the one-second vitals lane and immediately after a companion is
+-- wounded by a zombie. Recovery opens a future critical episode; terminal Knox
+-- infection never resets and therefore receives exactly one farewell.
+function Dialogue.monitorMortality(actor, player, source)
+    if actor == nil or not U() or U().isDead(actor) then return false, "actor_unavailable" end
+    local state = commandState(actor)
+    if state.recruited ~= true then return false, "not_recruited" end
+    local current = U().nowMs()
+    local mortality = mortalityState(actor)
+    if source == "zombie" then mortality.lastZombieWoundAt = current end
+    local body = select(1, U().call(actor, "getBodyDamage"))
+    local infected = body and (select(1, U().call(body, "IsInfected")) == true) or false
+    if body and infected ~= true then
+        infected = select(1, U().call(body, "isInfected")) == true
+    end
+    local infectionLevelValue = body and select(1,
+        U().call(body, "getApparentInfectionLevel")) or 0
+    local infectionLevel = tonumber(infectionLevelValue) or 0
+    if infected and infectionLevel >= (U().config("lastWordsTurningThreshold") or 97) then
+        return Dialogue.sayLastWords(actor, "turning", player)
+    end
+    local health = tonumber(U().nativeHealth(actor)) or 100
+    if health >= (U().config("lastWordsRecoveryThreshold") or 35) then
+        mortality.criticalEpisodeSpoken = false
+    end
+    if health > (U().config("lastWordsHealthThreshold") or 15) then
+        return false, "health_not_terminal"
+    end
+    local recentZombie = current - (tonumber(mortality.lastZombieWoundAt) or -math.huge)
+        <= (U().config("lastWordsZombieMemoryMs") or 12000)
+    return Dialogue.sayLastWords(actor, recentZombie and "zombies" or "health", player)
 end
 
 local function ambientWorldState()

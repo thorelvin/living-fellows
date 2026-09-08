@@ -542,6 +542,30 @@ class UIStaticContractTests(unittest.TestCase):
         for key in required:
             self.assertTrue(translations[key].strip(), key)
 
+    def test_generated_quests_use_an_explicit_offer_and_reward_choice_window(self) -> None:
+        dialog = lua_function(self.ui, "function SCUIQuestDialog:createChildren()")
+        callback = lua_function(self.ui, "function SCUIQuestDialog:onButton(button)")
+        faction_handler = lua_function(self.ui, "local function onFactionButton(target, button)")
+        context_action = lua_function(
+            self.context, "local function factionConversationAction(target, factionId, action, topic, player)"
+        )
+        self.assertIn('scQuestAction = "accept"', dialog)
+        self.assertIn('scQuestAction = "decline"', dialog)
+        self.assertIn('"select_reward", index', dialog)
+        self.assertIn('scQuestAction = "complete"', dialog)
+        self.assertIn("SC.FactionContracts.chooseReward", callback)
+        self.assertIn('playUISound("UIActivatePlayButton")', callback)
+        self.assertIn('playUISound("UIAchievement")', callback)
+        self.assertIn("UI.openQuestOffer", faction_handler + context_action)
+        self.assertIn("UI.openQuestTurnIn", faction_handler + context_action)
+        required = {
+            "UI_SC_Quest_Accept", "UI_SC_Quest_Decline", "UI_SC_Quest_Complete",
+            "UI_SC_Quest_Objective", "UI_SC_Quest_Location", "UI_SC_Quest_Coordinates",
+            "UI_SC_Quest_SelectReward", "UI_SC_Quest_RetrieveProgress",
+            "UI_SC_Quest_HordeProgress",
+        }
+        self.assertFalse(required - set(self.translations))
+
     def test_household_entrance_context_opens_real_conversation(self) -> None:
         finder = lua_function(self.context, "local function talkableFactions(player)")
         builder = lua_function(self.context, "local function addFactionConversations(context, factions, player)")
@@ -1101,14 +1125,31 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("settings.collapsed = false", ensure)
         self.assertIn("UI.SETTINGS_VISIBILITY_REVISION", ensure)
 
-    def test_f7_hotkey_is_registered_and_toggles_the_menu(self) -> None:
-        self.assertIn('UI.HOTKEY_ACTION = "Toggle Living Fellows menu"', self.ui)
-        self.assertIn("UI.DEFAULT_HOTKEY = Keyboard.KEY_F7", self.ui)
+    def test_home_hotkey_is_registered_and_toggles_the_menu(self) -> None:
+        self.assertIn('UI.HOTKEY_ACTION = "Toggle Living Fellows panel"', self.ui)
+        self.assertIn("UI.DEFAULT_HOTKEY = Keyboard.KEY_HOME", self.ui)
+        self.assertNotIn("Keyboard.KEY_F7", self.ui)
         self.assertIn("table.insert(keyBinding", self.ui)
         hotkey = lua_function(self.ui, "function UI.onKeyPressed(key)")
         self.assertIn("UI.toggle()", hotkey)
         self.assertIn("getKey", hotkey)
         self.assertIn('self:drawTextCentre("LF"', self.ui)
+
+    def test_menu_toggle_uses_paired_vanilla_ui_sounds(self) -> None:
+        self.assertIn('UI.MENU_OPEN_SOUND = "UIVehicleMenuOpen"', self.ui)
+        self.assertIn('UI.MENU_CLOSE_SOUND = "UIVehicleMenuClose"', self.ui)
+        collapse = lua_function(
+            self.ui, "function SCUIRoot:setCollapsed(collapsed, initial)"
+        )
+        self.assertIn("local changed = self.collapsed ~= requested", collapse)
+        self.assertIn("if not initial then", collapse)
+        self.assertIn("if changed then", collapse)
+        self.assertIn(
+            "playUISound(requested and UI.MENU_CLOSE_SOUND or UI.MENU_OPEN_SOUND)",
+            collapse,
+        )
+        toggle = lua_function(self.ui, "function UI.toggle()")
+        self.assertIn("playUISound(UI.MENU_OPEN_SOUND)", toggle)
 
     def test_saved_collapsed_launcher_is_restored_after_game_ui_startup(self) -> None:
         startup = lua_function(self.ui, "function UI.onGameStart()")

@@ -38,9 +38,9 @@ For 0.21.2, first load a copy of a schema-1 save and complete two save/reload cy
 
 For 0.21.3, stop outdoors with a nearby recruited companion on Follow and confirm no calm downtime begins. Repeat indoors, allow reading, repair, crafting, washing or sitting to start, then walk away. The visual action must cancel before follow movement begins, without sliding or retaining a kneeling pose. Debug output should name the activity in a bounded `[SurvivorCompanion][downtime]` start, finish or cancel line. An unrelated native timed action must likewise hold movement until its queue and pose clear.
 
-For 0.21.4, press Collapse on each dock side. The expanded panel must be hidden and replaced by exactly one compact LF launcher without immediately reopening. Clicking LF or pressing F7 restores the saved expanded panel; pressing F7 again returns to the launcher. Dragging the launcher, changing resolution, and reloading while collapsed must keep it fully on-screen and must never create a duplicate or partial panel.
+For 0.21.4, press Collapse on each dock side. The expanded panel must be hidden and replaced by exactly one compact LF launcher without immediately reopening. Clicking LF or pressing Home restores the saved expanded panel; pressing Home again returns to the launcher. Dragging the launcher, changing resolution, and reloading while collapsed must keep it fully on-screen and must never create a duplicate or partial panel.
 
-For 0.21.5, save while the LF launcher is visible, quit completely, and load the save again. The launcher must be visible immediately when gameplay starts, without pressing F7. It must still open on its first click and preserve its dock and vertical position.
+For 0.21.5, save while the LF launcher is visible, quit completely, and load the save again. The launcher must be visible immediately when gameplay starts, without pressing Home. It must still open on its first click and preserve its dock and vertical position.
 
 For 0.21.6, enable scavenging and let a companion approach a container or zombie corpse from several tiles away. Its native path must stop before Loot starts; the complete rummage animation must finish before exactly one item transfers, and movement may resume only afterwards. Repeat with an immediately adjacent container and with several useful containers nearby.
 

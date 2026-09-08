@@ -236,10 +236,16 @@ end
 -- A grabbed companion cries out (and a pinned one being torn at is loud): the
 -- bark sells the moment and, like combat chatter, makes a modest world sound so
 -- nearby zombies can hear the struggle.
-local function grabBark(actor, topic)
+local function grabBark(actor, topic, lastWordsCircumstance)
     if not SC.Dialogue or type(SC.Dialogue.say) ~= "function" then return end
     local now = (U() and U().nowMs()) or 0
-    local spoken = SC.Dialogue.say(actor, topic, nil, nil, { recentLimit = 3, salt = tostring(now) })
+    local spoken
+    if lastWordsCircumstance and type(SC.Dialogue.sayLastWords) == "function" then
+        spoken = SC.Dialogue.sayLastWords(actor, lastWordsCircumstance)
+    else
+        spoken = SC.Dialogue.say(actor, topic, nil, nil,
+            { recentLimit = 3, salt = tostring(now) })
+    end
     if spoken ~= true then return end
     local x, y, z = U().position(actor)
     if x == nil then return end
@@ -270,6 +276,22 @@ local function resolveGrapple(actor, current, attackers)
     local grabbed = grabState[actor]
     local threshold = config("zombieGrabThreshold", 2)
     if grabbed and grabbed.pinned then
+        -- Once the grace window has expired, the drag-down is fatal. Keep the
+        -- living actor in the native death pose just long enough to own its
+        -- final chat bubble; thinning the pile during this farewell cannot turn
+        -- it into a false-alarm death speech.
+        if grabbed.finalWordsAt ~= nil then
+            if current - grabbed.finalWordsAt < config("lastWordsDeathDelayMs", 3000) then
+                U().call(actor, "setDeathDragDown", true)
+                U().call(actor, "setKnockedDown", true)
+                return "grab_farewell"
+            end
+            releaseCompanion(actor); grabState[actor] = nil
+            if SC.Actor and type(SC.Actor.endLife) == "function" then
+                pcall(SC.Actor.endLife, actor)
+            end
+            return "grab_killed"
+        end
         -- RESCUE: thin the pile below the threshold (kill/pull off attackers) and
         -- the companion is freed -- alive, if bloodied. This is the whole point of
         -- the grace window: a downed companion is savable.
@@ -280,11 +302,15 @@ local function resolveGrapple(actor, current, attackers)
         local held = current - (grabbed.pinnedAt or current)
         -- Grace expired while still pinned: the swarm drags it down for good.
         if held >= config("zombieGrabGraceMs", 9000) then
-            releaseCompanion(actor); grabState[actor] = nil
-            if SC.Actor and type(SC.Actor.endLife) == "function" then
-                pcall(SC.Actor.endLife, actor)
+            -- Give the final line a living chat owner before permanent
+            -- death cleanup removes the actor from the world.
+            if SC.Dialogue and type(SC.Dialogue.sayLastWords) == "function" then
+                SC.Dialogue.sayLastWords(actor, "zombies", nil, { force = true })
             end
-            return "grab_killed"
+            grabbed.finalWordsAt = current
+            U().call(actor, "setDeathDragDown", true)
+            U().call(actor, "setKnockedDown", true)
+            return "grab_farewell"
         end
         -- SELF-ESCAPE: a tougher companion can struggle loose after a moment.
         if held >= config("zombieGrabMinDurationMs", 1500) then
@@ -318,7 +344,7 @@ local function resolveGrapple(actor, current, attackers)
                 end
                 grabState[actor] = { pinned = true, pinnedAt = current,
                     nextDragAt = current + 700 }
-                grabBark(actor, "grab.pinned")
+                grabBark(actor, nil, "pinned")
                 return "grabbed_now"
             end
             grabState[actor] = { pinned = false, lastAttemptAt = current }
@@ -456,6 +482,10 @@ function ZombieAttack.resolve(actor, current, zombies)
     local nativeValue = select(1, U().call(actor, "getSurroundingAttackingZombies"))
     local native = tonumber(nativeValue)
     if native and native > attackers then attackers = native end
+    if (applied > 0 or landed > 0) and SC.Dialogue
+        and type(SC.Dialogue.monitorMortality) == "function" then
+        SC.Dialogue.monitorMortality(actor, nil, "zombie")
+    end
     local grapple = resolveGrapple(actor, current, attackers)
 
     return true, applied > 0 and "companion_wounded" or "no_landed_attack",

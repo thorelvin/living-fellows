@@ -35,6 +35,7 @@ OWNED = [
     "SCFactionWorld.lua",
     "SCFactionBehavior.lua",
     "SCZombieTargeting.lua",
+    "SCZombieAttack.lua",
     "SCInfectionCrisis.lua",
     "SCAutonomy.lua",
     "SCCommands.lua",
@@ -43,7 +44,8 @@ OWNED = [
 ]
 
 REQUIRED_EXPORTS = {
-    "SCDialogue.lua": ["register", "has", "choose", "say", "reset", "poolSize", "topics"],
+    "SCDialogue.lua": ["register", "has", "choose", "say", "sayLastWords",
+                       "monitorMortality", "reset", "poolSize", "topics"],
     "SCLifeEvents.lua": ["emit", "drain", "reset"],
     "SCCommunity.lua": ["mindFor", "peekMind", "processEvents", "noteCompanionDeath",
                          "activeGrief", "finishGriefReaction", "export", "restore"],
@@ -68,11 +70,13 @@ REQUIRED_EXPORTS = {
     "SCBaseWork.lua": ["update", "auditMaintenance"],
     "SCFactions.lua": ["productionPulse", "banditProductionPulse", "debugSpawnHousehold",
                         "debugSpawnBanditCamp", "hostileTargetFor", "isHostileBetween",
-                        "noteOffense", "fulfillRequest", "export", "restore", "pulse"],
-    "SCTrade.lua": ["completeRequest", "catalog", "barter", "payRestitution"],
+                        "noteOffense", "fulfillRequest", "describeLocation",
+                        "resolveQuestContainer", "export", "restore", "pulse"],
+    "SCTrade.lua": ["completeRequest", "catalog", "barter", "payRestitution",
+                    "prepareQuestRewards", "completeQuest", "questItemProgress"],
     "SCFactionLife.lua": ["initialize", "auditResources", "pulseGroup", "intentFor",
                           "updateActor", "shareRumour", "resolveCrisis", "summary", "validate"],
-    "SCFactionContracts.lua": ["initialize", "talk", "accept", "fulfill", "withdraw",
+    "SCFactionContracts.lua": ["initialize", "talk", "accept", "chooseReward", "fulfill", "withdraw",
                                "requestAccess", "tradePolicy", "pulseGroup", "summary",
                                "validate"],
     "SCFactionWorld.lua": ["reconcile", "relation", "pulse", "onStandingChanged",
@@ -80,6 +84,7 @@ REQUIRED_EXPORTS = {
     "SCFactionBehavior.lua": ["intentFor", "humanThreatFor", "updateHumanCombat",
                                "update", "reset"],
     "SCZombieTargeting.lua": ["consider", "scan", "reset"],
+    "SCZombieAttack.lua": ["resolve", "isGrabbed", "reset"],
     "SCInfectionCrisis.lua": ["pulse", "updateActor", "export", "restore"],
     "SCCommands.lua": ["issue", "describe"],
     "SCFactionRecruitment.lua": ["initialize", "ask", "startTrial", "decide",
@@ -332,6 +337,27 @@ def main() -> int:
             "relationship history, shared-event, or anti-spam contract missing")
     require("validEmotes" in relationship_source and "function Relationship.isEmote" in relationship_source,
             "validated Build 42 human emote contract missing")
+    dialogue_source = sources["SCDialogue.lua"]
+    zombie_attack_source = sources["SCZombieAttack.lua"]
+    runtime_source = (CLIENT / "SCRuntime.lua").read_text(encoding="utf-8")
+    require(all(f'"lastwords.{circumstance}"' in dialogue_source
+                for circumstance in ("pinned", "zombies", "health", "turning"))
+            and all(f"bond_{tier}" in dialogue_source
+                    for tier in ("cautious", "ally", "trusted", "close", "family")),
+            "cause- and relationship-specific last-word pools missing")
+    require("function Dialogue.monitorMortality" in dialogue_source
+            and "SC.Dialogue.monitorMortality" in runtime_source
+            and "SC.Dialogue.monitorMortality" in zombie_attack_source
+            and "SC.Dialogue.sayLastWords" in sources["SCInfectionCrisis.lua"],
+            "last-word mortality probes are not wired to health, zombie wounds, and Knox conversion")
+    require('return "grab_farewell"' in zombie_attack_source
+            and "lastWordsDeathDelayMs" in zombie_attack_source
+            and zombie_attack_source.index("grabbed.finalWordsAt ~= nil")
+                < zombie_attack_source.index("if attackers < threshold"),
+            "fatal zombie drag-down does not preserve a living farewell beat")
+    require("function U.playUISound" in sources["SCGameplayUtil.lua"]
+            and command_source.count('U().playUISound("UIAchievement")') == 2,
+            "successful neutral and faction recruitment do not share one vanilla UI cue")
     require("publicBackground" in relationship_source and "revealedBackground" in relationship_source,
             "Commands.describe relationship projection may leak unrevealed background")
     require("result.objectives = stableSummaryCopy(result.journal.objective" in command_source
@@ -382,6 +408,22 @@ def main() -> int:
             and "containerBelongsTo" in trade_source
             and "protected_trade_item" in trade_source,
             "atomic ownership-validated faction transaction contract missing")
+    contract_source = sources["SCFactionContracts.lua"]
+    quest_script = CLIENT.parents[1] / "scripts" / "LivingFellows_QuestItems.txt"
+    require(quest_script.is_file()
+            and "LivingFellows.SealedMedicalCase" in contract_source
+            and "retrieve_item = true" in contract_source
+            and "clear_horde = true" in contract_source,
+            "generated retrieval items or horde quest kinds missing")
+    require("LF_QuestInstanceId" in contract_source
+            and "resolveQuestContainer" in faction_source
+            and "factionQuestHouseSampleBudget" in contract_source
+            and "LF_QuestReward" in trade_source,
+            "persistent quest target, identity, or reserved reward contract missing")
+    require("addZombiesInOutfit" in contract_source
+            and "LF_QuestDeathCounted" in contract_source
+            and "factionQuestHordeActivationRadius" in contract_source,
+            "deferred, de-duplicated horde materialization contract missing")
     require("allowHostile = true" in trade_source
             and "restitutionRequired" in faction_source
             and 'kind == "theft" or kind == "damage"' in faction_source,

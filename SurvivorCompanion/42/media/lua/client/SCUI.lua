@@ -23,8 +23,12 @@ local Pixels = SC.UIPixels
 
 UI.SETTINGS_KEY = "SC_UISettings"
 UI.SETTINGS_VISIBILITY_REVISION = 1
-UI.HOTKEY_ACTION = "Toggle Living Fellows menu"
-UI.DEFAULT_HOTKEY = Keyboard.KEY_F7
+-- The action name deliberately differs from the former "menu" binding so an
+-- existing saved F7 default cannot follow the upgrade into Build 42 debug mode.
+UI.HOTKEY_ACTION = "Toggle Living Fellows panel"
+UI.DEFAULT_HOTKEY = Keyboard.KEY_HOME
+UI.MENU_OPEN_SOUND = "UIVehicleMenuOpen"
+UI.MENU_CLOSE_SOUND = "UIVehicleMenuClose"
 UI.instance = UI.instance or nil
 UI.launcher = UI.launcher or nil
 UI._hooksInstalled = UI._hooksInstalled or false
@@ -216,7 +220,7 @@ function UI.hotkeyName()
         local ok, name = pcall(getKeyName, key)
         if ok and name and name ~= "" then return tostring(name) end
     end
-    return "F7"
+    return "Home"
 end
 
 local function screenSize()
@@ -1279,6 +1283,179 @@ function UI.locateDebugFactionHouse(factionId)
         location.z, location.direction, numericText(location.distance, 1))
 end
 
+local function questTextLines(value, maximumWidth, font)
+    local result, line = {}, ""
+    for word in string.gmatch(tostring(value or ""), "%S+") do
+        local candidate = line == "" and word or line .. " " .. word
+        if line ~= "" and UI.textWidth(font or UIFont.Small, candidate) > maximumWidth then
+            result[#result + 1], line = line, word
+        else line = candidate end
+    end
+    if line ~= "" then result[#result + 1] = line end
+    return result
+end
+
+local function playUISound(soundName)
+    local utility = SC.GameplayUtil
+    if not utility or type(utility.playUISound) ~= "function" then return false end
+    return utility.playUISound(soundName)
+end
+
+local SCUIQuestDialog = ISPanel:derive("SCUIQuestDialog")
+
+function SCUIQuestDialog:new(factionId, mode, contract)
+    local screenWidth, screenHeight = screenSize()
+    local width, height = math.min(620, screenWidth - 32), math.min(440, screenHeight - 32)
+    local object = ISPanel.new(self, math.floor((screenWidth - width) / 2),
+        math.floor((screenHeight - height) / 2), width, height)
+    object.factionId, object.mode, object.contract = factionId, mode, contract
+    object.selectedReward, object.feedback = nil, nil
+    object.background = false
+    object.moveWithMouse = true
+    return object
+end
+
+function SCUIQuestDialog:createChildren()
+    ISPanel.createChildren(self)
+    local buttonY, buttonHeight = self:getHeight() - 46, 30
+    if self.mode == "offer" then
+        self.acceptButton = ISButton:new(self:getWidth() - 250, buttonY, 112, buttonHeight,
+            UI.text("UI_SC_Quest_Accept"), self, SCUIQuestDialog.onButton)
+        self.acceptButton.scQuestAction = "accept"
+        self.acceptButton:initialise()
+        self.acceptButton.enable = self.contract.preparation == nil
+            or self.contract.preparation == "ready"
+        self:addChild(self.acceptButton)
+        self.declineButton = ISButton:new(self:getWidth() - 130, buttonY, 112, buttonHeight,
+            UI.text("UI_SC_Quest_Decline"), self, SCUIQuestDialog.onButton)
+        self.declineButton.scQuestAction = "decline"
+        self.declineButton:initialise()
+        self:addChild(self.declineButton)
+    else
+        local choices = self.contract.rewardChoices or {}
+        for index = 1, 2 do
+            local choice = choices[index] or {}
+            local button = ISButton:new(22 + (index - 1) * math.floor((self:getWidth() - 54) / 2),
+                self:getHeight() - 116, math.floor((self:getWidth() - 62) / 2), 38,
+                tostring(choice.title or ("Reward " .. tostring(index))), self,
+                SCUIQuestDialog.onButton)
+            button.scQuestAction, button.scRewardChoice = "select_reward", index
+            button:initialise()
+            self:addChild(button)
+            self["rewardButton" .. tostring(index)] = button
+        end
+        self.completeButton = ISButton:new(self:getWidth() - 250, buttonY, 112, buttonHeight,
+            UI.text("UI_SC_Quest_Complete"), self, SCUIQuestDialog.onButton)
+        self.completeButton.scQuestAction = "complete"
+        self.completeButton:initialise()
+        self.completeButton.enable = false
+        self:addChild(self.completeButton)
+        self.cancelButton = ISButton:new(self:getWidth() - 130, buttonY, 112, buttonHeight,
+            UI.text("UI_SC_Quest_Cancel"), self, SCUIQuestDialog.onButton)
+        self.cancelButton.scQuestAction = "cancel"
+        self.cancelButton:initialise()
+        self:addChild(self.cancelButton)
+    end
+end
+
+function SCUIQuestDialog:close()
+    self:removeFromUIManager()
+    if UI._questDialog == self then UI._questDialog = nil end
+end
+
+function SCUIQuestDialog:onButton(button)
+    local action = button.scQuestAction
+    if action == "decline" or action == "cancel" then self:close(); return end
+    if action == "select_reward" then
+        self.selectedReward = button.scRewardChoice
+        if self.completeButton then self.completeButton.enable = true end
+        return
+    end
+    local ok, accepted, reason
+    if action == "accept" then
+        ok, accepted, reason = pcall(SC.FactionContracts.accept, self.factionId,
+            playerForUI(), false)
+    elseif action == "complete" then
+        ok, accepted, reason = pcall(SC.FactionContracts.chooseReward, self.factionId,
+            playerForUI(), self.selectedReward, false)
+    end
+    if ok and accepted == true then
+        if action == "accept" then playUISound("UIActivatePlayButton")
+        elseif action == "complete" then playUISound("UIAchievement") end
+        self:close()
+        if type(UI.refresh) == "function" then UI.refresh() end
+    else
+        self.feedback = UI.text("UI_SC_Quest_ActionFailed", tostring(reason or accepted))
+    end
+end
+
+function SCUIQuestDialog:prerender()
+    ISPanel.prerender(self)
+    self:drawRect(0, 0, self:getWidth(), self:getHeight(), 0.96, 0.08, 0.09, 0.08)
+    self:drawRectBorder(0, 0, self:getWidth(), self:getHeight(), 0.95, 0.63, 0.57, 0.38)
+    self:drawText(tostring(self.contract.title or UI.text("UI_SC_Quest_Title")), 22, 18,
+        0.96, 0.90, 0.70, 1, UIFont.Medium)
+    local y, textWidth = 58, self:getWidth() - 44
+    local body = self.contract.narrative or UI.text("UI_SC_Quest_DefaultNarrative")
+    for _, line in ipairs(questTextLines(body, textWidth, UIFont.Small)) do
+        self:drawText(line, 22, y, 0.88, 0.88, 0.84, 1, UIFont.Small); y = y + 18
+    end
+    y = y + 10
+    self:drawText(UI.text("UI_SC_Quest_Objective"), 22, y, 0.94, 0.73, 0.28, 1, UIFont.Small)
+    y = y + 20
+    for _, line in ipairs(questTextLines(self.contract.objective
+        or UI.text("UI_SC_Quest_TargetPreparing"), textWidth, UIFont.Small)) do
+        self:drawText(line, 22, y, 0.92, 0.92, 0.90, 1, UIFont.Small); y = y + 18
+    end
+    local location = self.contract.location or {}
+    y = y + 8
+    self:drawText(UI.text("UI_SC_Quest_Location", tostring(location.address
+        or UI.text("UI_SC_Quest_TargetPreparing"))), 22, y, 0.72, 0.84, 0.91, 1, UIFont.Small)
+    y = y + 20
+    self:drawText(UI.text("UI_SC_Quest_Coordinates", tostring(location.coordinates or "-")),
+        22, y, 0.64, 0.67, 0.64, 1, UIFont.Small)
+    if self.mode == "offer" then
+        y = y + 30
+        self:drawText(UI.text("UI_SC_Quest_ChooseRewardLater"), 22, y,
+            0.88, 0.78, 0.49, 1, UIFont.Small)
+    else
+        y = y + 28
+        self:drawText(UI.text("UI_SC_Quest_SelectReward"), 22, y,
+            0.94, 0.73, 0.28, 1, UIFont.Small)
+        local choices = self.contract.rewardChoices or {}
+        for index = 1, 2 do
+            local choice = choices[index] or {}
+            self:drawText(tostring(choice.description or ""),
+                28 + (index - 1) * math.floor((self:getWidth() - 54) / 2),
+                self:getHeight() - 73, self.selectedReward == index and 0.98 or 0.70,
+                self.selectedReward == index and 0.87 or 0.72, 0.48, 1, UIFont.Small)
+        end
+    end
+    if self.feedback then
+        self:drawText(self.feedback, 22, self:getHeight() - 40, 0.96, 0.38, 0.32, 1, UIFont.Small)
+    end
+end
+
+local function openQuestDialog(factionId, mode)
+    if not SC.FactionContracts or type(SC.FactionContracts.summary) ~= "function" then
+        return false, "quest_service_unavailable"
+    end
+    local summary, reason = SC.FactionContracts.summary(factionId)
+    local contract = summary and (mode == "offer" and summary.offer or summary.active) or nil
+    if not contract then return false, reason or "quest_unavailable" end
+    if UI._questDialog then UI._questDialog:close() end
+    local dialog = SCUIQuestDialog:new(factionId, mode, contract)
+    dialog:initialise()
+    dialog:instantiate()
+    dialog:addToUIManager()
+    dialog:setAlwaysOnTop(true)
+    UI._questDialog = dialog
+    return true, "quest_dialog_opened"
+end
+
+function UI.openQuestOffer(factionId) return openQuestDialog(factionId, "offer") end
+function UI.openQuestTurnIn(factionId) return openQuestDialog(factionId, "turnin") end
+
 local function onFactionButton(target, button)
     if not SC.Factions then return end
     local action, factionId = button.scFactionAction, button.scFactionId
@@ -1310,9 +1487,30 @@ local function onFactionButton(target, button)
         ok, accepted, reason = pcall(SC.FactionRecruitment.debugDecision,
             factionId, playerForUI(), string.sub(action, 28))
     elseif action == "accept_contract" then
+        local contractSummary = SC.FactionContracts.summary(factionId)
+        local offer = contractSummary and contractSummary.offer or nil
+        if offer and (offer.kind == "retrieve_item" or offer.kind == "clear_horde") then
+            local opened, openReason = UI.openQuestOffer(factionId)
+            setButtonFeedback(target, opened and UI.text("UI_SC_Quest_OfferOpened")
+                or UI.text("UI_SC_Quest_ActionFailed", tostring(openReason)), opened)
+            return
+        end
         ok, accepted, reason = pcall(SC.FactionContracts.accept,
             factionId, playerForUI(), false)
     elseif action == "fulfill_contract" then
+        local contractSummary = SC.FactionContracts.summary(factionId)
+        local active = contractSummary and contractSummary.active or nil
+        if active and (active.kind == "retrieve_item" or active.kind == "clear_horde") then
+            local progress = contractSummary.progress
+            if not progress or progress.ready ~= true then
+                setButtonFeedback(target, UI.text("UI_SC_Quest_ObjectiveIncomplete"), false)
+                return
+            end
+            local opened, openReason = UI.openQuestTurnIn(factionId)
+            setButtonFeedback(target, opened and UI.text("UI_SC_Quest_TurnInOpened")
+                or UI.text("UI_SC_Quest_ActionFailed", tostring(openReason)), opened)
+            return
+        end
         ok, accepted, reason = pcall(SC.FactionContracts.fulfill,
             factionId, playerForUI(), false)
     elseif action == "withdraw_contract" then
@@ -2487,6 +2685,13 @@ function SCUIDetail:buildFactions(panel)
                     if contract.requirements then
                         y = self:addInformationLine(panel, y, "UI_SC_Faction_ContractTerms",
                             requestItemsText(contract.requirements))
+                    elseif contract.kind == "retrieve_item" or contract.kind == "clear_horde" then
+                        y = self:addInformationLine(panel, y, "UI_SC_Faction_ContractTerms",
+                            tostring(contract.objective or UI.text("UI_SC_Quest_TargetPreparing")))
+                        if contract.location then
+                            y = self:addInformationLine(panel, y, "UI_SC_Quest_Location",
+                                tostring(contract.location.address or contract.location.coordinates))
+                        end
                     elseif contract.target then
                         y = self:addInformationLine(panel, y, "UI_SC_Faction_ContractTerms",
                             UI.text("UI_SC_Faction_ThreatTerms", contract.target.x,
@@ -2496,9 +2701,15 @@ function SCUIDetail:buildFactions(panel)
                     y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                         UI.text("UI_SC_Faction_AskNeedFirst"))
                 end
-                if contract.status == "offered" and contract.revealed and canTalk then
+                local generatedQuest = contract.kind == "retrieve_item"
+                    or contract.kind == "clear_horde"
+                if contract.status == "offered" and contract.revealed and canTalk
+                    and (not generatedQuest or contract.preparation == "ready") then
                     y = self:addFactionAction(panel, y, "UI_SC_Faction_AcceptContract",
                         "accept_contract", summary.id)
+                elseif contract.status == "offered" and contract.revealed and generatedQuest then
+                    y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                        UI.text("UI_SC_Quest_TargetPreparing"))
                 elseif contract.status == "active" then
                     y = self:addInformationLine(panel, y, "UI_SC_Faction_Deadline",
                         UI.text("UI_SC_Faction_DeadlineValue",
@@ -2514,6 +2725,14 @@ function SCUIDetail:buildFactions(panel)
                                     or tostring(progress.remainingThreats),
                                 progress.loadedSquares or 0,
                                 progress.minimumLoadedSquares or 0))
+                    elseif progress and contract.kind == "retrieve_item" then
+                        y = self:addInformationLine(panel, y, "UI_SC_Faction_Progress",
+                            UI.text("UI_SC_Quest_RetrieveProgress", progress.questItemCount or 0,
+                                tostring(progress.questItemLabel or "quest item")))
+                    elseif progress and contract.kind == "clear_horde" then
+                        y = self:addInformationLine(panel, y, "UI_SC_Faction_Progress",
+                            UI.text("UI_SC_Quest_HordeProgress", progress.kills or 0,
+                                progress.requiredKills or 0, UI.stateText(progress.hordeState)))
                     elseif progress then
                         for _, requirement in ipairs(progress.requirements or {}) do
                             y = self:addInformationLine(panel, y, "UI_SC_Faction_Progress",
@@ -2921,6 +3140,10 @@ function SCUIDetail:buildDebug(panel)
             "contract_offer_medical", id)
         y = self:addFactionAction(panel, y, "UI_SC_Debug_ContractThreat",
             "contract_offer_local_threat", id)
+        y = self:addFactionAction(panel, y, "UI_SC_Debug_ContractRetrieve",
+            "contract_offer_retrieve_item", id)
+        y = self:addFactionAction(panel, y, "UI_SC_Debug_ContractHorde",
+            "contract_offer_clear_horde", id)
         for _, complication in ipairs({
             { id = "none", key = "UI_SC_Debug_Complication_none" },
             { id = "hidden_severity", key = "UI_SC_Debug_Complication_hidden_severity" },
@@ -3334,6 +3557,7 @@ end
 
 function SCUIRoot:setCollapsed(collapsed, initial)
     local requested = collapsed == true
+    local changed = self.collapsed ~= requested
     local sw, sh = screenSize()
     if requested then
         -- Minimizing the panel: give the player's loot pane back if we borrowed it.
@@ -3368,6 +3592,9 @@ function SCUIRoot:setCollapsed(collapsed, initial)
     end
     if not initial then
         self:saveSettings()
+        if changed then
+            playUISound(requested and UI.MENU_CLOSE_SOUND or UI.MENU_OPEN_SOUND)
+        end
     end
 end
 
@@ -3852,6 +4079,7 @@ function UI.scheduledRefresh()
 end
 
 function UI.close()
+    if UI._questDialog then UI._questDialog:close() end
     if not UI.instance then
         return
     end
@@ -3867,7 +4095,9 @@ end
 
 function UI.toggle()
     if not UI.instance then
-        return UI.open()
+        local root = UI.open()
+        playUISound(UI.MENU_OPEN_SOUND)
+        return root
     end
     UI.instance:setCollapsed(not UI.instance.collapsed)
     return UI.instance

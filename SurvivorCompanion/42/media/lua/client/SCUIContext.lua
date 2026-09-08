@@ -159,9 +159,24 @@ local function factionConversationAction(target, factionId, action, topic, playe
             SC.FactionContracts.requestAccess, factionId, player, false)
     elseif action == "accept_contract" then
         pendingContractWithdrawals[factionId] = nil
+        local contractSummary = SC.FactionContracts.summary(factionId)
+        local offer = contractSummary and contractSummary.offer or nil
+        if offer and (offer.kind == "retrieve_item" or offer.kind == "clear_horde")
+            and SC.UI and type(SC.UI.openQuestOffer) == "function" then
+            SC.UI.openQuestOffer(factionId)
+            return
+        end
         ok, accepted, detail = pcall(
             SC.FactionContracts.accept, factionId, player, false)
     elseif action == "fulfill_contract" then
+        local contractSummary = SC.FactionContracts.summary(factionId)
+        local active = contractSummary and contractSummary.active or nil
+        if active and (active.kind == "retrieve_item" or active.kind == "clear_horde")
+            and contractSummary.progress and contractSummary.progress.ready == true
+            and SC.UI and type(SC.UI.openQuestTurnIn) == "function" then
+            SC.UI.openQuestTurnIn(factionId)
+            return
+        end
         ok, accepted, detail = pcall(
             SC.FactionContracts.fulfill, factionId, player, false)
         if ok and accepted == true then pendingContractWithdrawals[factionId] = nil end
@@ -235,6 +250,11 @@ local function addFactionContractMenu(menu, group, summary, player)
     addUnavailableOption(contractMenu,
         text("UI_SC_Faction_ContractStatus", tostring(contract.status or "offered")))
     if offer then
+        if (offer.kind == "retrieve_item" or offer.kind == "clear_horde")
+            and offer.preparation ~= "ready" then
+            addUnavailableOption(contractMenu, text("UI_SC_Quest_TargetPreparing"))
+            return
+        end
         contractMenu:addOption(text("UI_SC_Faction_AcceptContract"), nil,
             factionConversationAction, group.id, "accept_contract", nil, player)
         return

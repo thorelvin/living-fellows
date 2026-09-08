@@ -1178,6 +1178,7 @@ local function handleRecruit(actor, entry, state, payload, player)
     else
         U().say(actor, U().text("IGUI_SC_Recruit_Response", "All right. I will come with you."))
     end
+    if type(U().playUISound) == "function" then U().playUISound("UIAchievement") end
     return true, "recruited"
 end
 
@@ -2300,6 +2301,7 @@ function Commands.completeFactionTrial(actor, origin, player)
         })
         Commands.persist(actor)
     end
+    if type(U().playUISound) == "function" then U().playUISound("UIAchievement") end
     return true, "joined_permanently"
 end
 

@@ -129,8 +129,8 @@
 - [ ] Dismantle this object appears only for dismantlable thumpables, requires an unbroken saw and screwdriver, drops vanilla recovered materials, and resumes the prior order.
 - [ ] Save/load during either destructive target order preserves the object, work kind and selected barricade side without duplicating the action.
 - [ ] UI fits 1280x720, 1920x1080 and 2560x1440 with long names and large fonts.
-- [ ] On both docks, one Collapse click hides the full panel and leaves exactly one LF launcher without reopening; LF and F7 restore the saved full panel, launcher dragging/resolution changes stay on-screen, and reload while collapsed creates no duplicate or partial panel.
-- [ ] Save while collapsed, quit completely, and reload: the LF launcher is drawn as soon as gameplay starts, before any F7 input.
+- [ ] On both docks, one Collapse click hides the full panel and leaves exactly one LF launcher without reopening; LF and Home restore the saved full panel, launcher dragging/resolution changes stay on-screen, and reload while collapsed creates no duplicate or partial panel.
+- [ ] Save while collapsed, quit completely, and reload: the LF launcher is drawn as soon as gameplay starts, before any Home input.
 - [ ] Enable scavenging and watch a companion approach containers and corpses from several tiles away: the approach path stops completely before Loot begins, the full rummage animation finishes, the item transfers once, and only then may pathing resume.
 - [ ] With a worn backpack, a completed scavenging action removes the exact item from its source and adds it to the selected destination once; Loadout reflects the changed supplies/load and no duplicate transfer occurs.
 - [ ] Danger, a new order, selected-item removal, full load, and quit/reload before Loot completion each preserve exactly one item location and never commit late.

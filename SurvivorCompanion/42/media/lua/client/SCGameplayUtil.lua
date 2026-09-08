@@ -1195,6 +1195,18 @@ function U.say(actor, textValue)
     return lowerOk
 end
 
+-- UI-category sounds obey the player's UI volume and never create an audible
+-- world event for zombies. Callers use this only after the associated state
+-- transition commits, so a rejected action retains only the ordinary button click.
+function U.playUISound(soundName)
+    if type(soundName) ~= "string" or soundName == ""
+        or type(getSoundManager) ~= "function" then return false end
+    local ok, manager = pcall(getSoundManager)
+    if not ok or manager == nil then return false end
+    local played = pcall(function() manager:playUISound(soundName) end)
+    return played == true
+end
+
 function U.text(key, fallback, ...)
     if type(getText) == "function" then
         local args = { ... }

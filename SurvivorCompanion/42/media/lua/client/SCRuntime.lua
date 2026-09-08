@@ -483,6 +483,14 @@ local function vitalsTask(current)
         end
         return
     end
+    if SC.Dialogue and type(SC.Dialogue.monitorMortality) == "function" then
+        local farewellOk, farewellReason = pcall(
+            SC.Dialogue.monitorMortality, record.actor, player(), nil)
+        if not farewellOk then
+            SC.Diagnostics.report("last-words", record.id,
+                "mortality dialogue probe failed", farewellReason)
+        end
+    end
     local healthy, healthReason = SC.Actor.validateNative(record.actor)
     record.runtime = type(record.runtime) == "table" and record.runtime or {}
     local missingSquare = not healthy and isRecoverablePlacementFailure(healthReason)

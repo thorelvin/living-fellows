@@ -104,7 +104,7 @@ To remove the standalone edition, close the game and run **Uninstall.bat** from 
 ## First five minutes
 
 1. Load a single-player save in Build 42.20.4.
-2. Press **F7** to cycle the companion panel, or use the small **LF** launcher when the panel is collapsed.
+2. Press **Home** to cycle the companion panel, or use the small **LF** launcher when the panel is collapsed.
 3. Explore until you meet a neutral survivor. A neutral survivor does not join automatically.
 4. Select the survivor in the panel and use the prominent **Recruit** action when it is available.
 5. Open **Orders** and choose a main order. New recruits default to **Follow**, **Copy player** movement, and **Ride with player**.
@@ -114,7 +114,7 @@ Public builds do not automatically spawn a test companion every minute. Manual s
 
 ## Companion panel
 
-The panel is translucent so the world remains visible while commands are open. It can be docked left or right, collapsed to a compact launcher, or cycled with F7.
+The panel is translucent so the world remains visible while commands are open. It can be docked left or right, collapsed to a compact launcher, or cycled with Home.
 
 The everyday controls live on five primary tabs. Deeper views open from the **More** tab so the common actions stay uncluttered.
 
@@ -170,7 +170,7 @@ Companions understand nested bags and prefer suitable worn backpacks. They keep 
 
 Hunger and thirst advance at half the vanilla rate. Companions can eat, drink, seek clean sinks or wells, fetch from player-accessible camp storage, tear cloth into emergency bandages, treat themselves, and help an injured player when doing so does not become suicidal.
 
-Companions are vulnerable to wounds and Knox infection. Death is permanent and is left to the game's native corpse and reanimation systems. A known bite can create concealment, confession, quarantine, exile, mercy, or farewell conflicts based on personality and relationships. Lethal group decisions require explicit player authorization.
+Companions are vulnerable to wounds and Knox infection. Death is permanent and is left to the game's native corpse and reanimation systems. A known bite can create concealment, confession, quarantine, exile, mercy, or farewell conflicts based on personality and relationships. A pinned companion calls for help, while terminal zombie wounds, failing health, and imminent conversion draw from separate last-word pools keyed to personality, relationship tier, and the player's name. Lethal group decisions require explicit player authorization.
 
 ### Personality, relationships, and base life
 
@@ -183,6 +183,8 @@ Safe companions can read, sit, wash, maintain gear, craft supplies, sort storage
 One faction archetype is a household of one to three survivors occupying a suitable house. They carry appropriate supplies, barricade secondary doors and windows while preserving an entrance, and remain separate from the companion roster.
 
 Residents warn unknown players, defend their territory, react to trespass, theft, damage, and murder, and remember what happened. A household can expose a genuine shortage, offer conditional barter, pass imperfect rumors, negotiate a social contract, grant temporary access, or eventually consider one nonessential resident for a recruitment trial. Discovered groups, needs, standing, relations, news, promises, rumors, and access appear in the Factions view, opened from the **More** tab.
+
+Households can also offer generated quests through an explicit **ACCEPT / DECLINE** window. Retrieval quests place one uniquely tagged story item in a real container inside a nearby house; horde quests materialize a tagged group only when the marked area is loaded. The offer shows a map-derived nearest-street description plus exact coordinates, the active target is marked on the world map, and completion requires returning to the representative to choose one of two reserved reward bundles. Quest targets, spawn receipts, progress, and reward choices persist with the faction save, while quest items and rewards stay out of ordinary barter until the quest closes.
 
 Bandit camps are a separate, permanently hostile archetype. They begin appearing rarely after day four, use their own sandbox enable/chance/cap controls, scale from melee-only groups toward occasional pistols or shotguns as the world ages, and keep at least one member guarding while another patrols. They need direct same-floor sight to target a player or companion, investigate recent hostile sounds without gaining wall vision, and search only the fixed last-seen position after contact is lost. Once engaged, recruited companions treat them as human combat threats. A discovered camp is identified by a stronger red house marker and its generated name on the world map; bandits do not trade, offer contracts, or recruit.
 
@@ -205,14 +207,14 @@ Lowering a sandbox limit does not delete existing companions or households. Do n
 - Workshop installation requires **ZombieBuddy 2.3.3 or newer**.
 - Standalone installation is Windows-only and uses the bundled bridge.
 - Mods that replace player actor construction, animation ownership, pathfinding, vehicle passenger state, UI key bindings, or the same launcher `mainClass` may conflict.
-- The default panel key is **F7**. Rebind or report a conflict if another mod claims it.
+- The default panel key is **Home**. Rebind or report a conflict if another mod claims it.
 - No Project Zomboid game file is redistributed or patched in place.
 
 ## Troubleshooting
 
 ### The panel is missing
 
-Press F7 once, then look for the small LF launcher near the edge of the screen. Confirm Living Fellows is enabled for the current save. Workshop users must also confirm ZombieBuddy is enabled and current. Standalone users should rerun `Install.bat` after a game update and inspect **More → Support** after launch.
+Press Home once, then look for the small LF launcher near the edge of the screen. Confirm Living Fellows is enabled for the current save. Workshop users must also confirm ZombieBuddy is enabled and current. Standalone users should rerun `Install.bat` after a game update and inspect **More → Support** after launch.
 
 ### A companion is only a moving shadow
 

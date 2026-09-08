@@ -1,0 +1,76 @@
+module LivingFellows
+{
+    item SealedMedicalCase
+    {
+        DisplayCategory = Quest,
+        DisplayName = Sealed Medical Case,
+        ItemType = base:normal,
+        Weight = 0.8,
+        Icon = FirstAid,
+        StaticModel = FirstAidKit,
+        WorldStaticModel = FirstAidKit,
+    }
+
+    item FamilyPhoto
+    {
+        DisplayCategory = Quest,
+        DisplayName = Family Photograph,
+        ItemType = base:literature,
+        Weight = 0.1,
+        IconsForTexture = Photo_Landscape1;Photo_People1;Photo_People2,
+        ReadType = photo,
+        StaticModelsByIndex = Photo_Landscape1;Photo_People1;Photo_People2,
+        WorldStaticModelsByIndex = Photo_Landscape1;Photo_People1;Photo_People2,
+        OnCreate = ItemCodeOnCreate.onCreatePhoto,
+        Tags = base:picture;base:ismemento;base:fastread,
+    }
+
+    item SurvivorLedger
+    {
+        DisplayCategory = Quest,
+        DisplayName = Survivor Ledger,
+        ItemType = base:literature,
+        Weight = 0.5,
+        Icon = Notebook,
+        StaticModel = EmptyNotebook,
+        WorldStaticModel = EmptyNotebook,
+        ReadType = newspaper,
+        Tags = base:magazine,
+    }
+
+    item MilitaryDispatch
+    {
+        DisplayCategory = Quest,
+        DisplayName = Sealed Military Dispatch,
+        ItemType = base:literature,
+        Weight = 0.2,
+        Icon = Paper,
+        StaticModel = SheetOfPaper,
+        WorldStaticModel = SheetOfPaper,
+        ReadType = newspaper,
+        Tags = base:magazine,
+    }
+
+    item EvacuationMap
+    {
+        DisplayCategory = Quest,
+        DisplayName = Marked Evacuation Map,
+        ItemType = base:literature,
+        Weight = 0.2,
+        Icon = Map,
+        StaticModel = MapInHand,
+        WorldStaticModel = Map,
+        ReadType = newspaper,
+        Tags = base:magazine,
+    }
+
+    item RecordedMessage
+    {
+        DisplayCategory = Quest,
+        DisplayName = Recorded Message,
+        ItemType = base:normal,
+        Weight = 0.1,
+        Icon = Cassette3,
+        WorldStaticModel = VHSBox3,
+    }
+}

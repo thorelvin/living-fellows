@@ -452,6 +452,40 @@ end
 
 Factions._nearestStreetFromApiForTests = nearestStreetFromApi
 
+local function compassDirection(dx, dy)
+    local horizontal = math.abs(dx) >= 0.38 * math.max(0.001, math.abs(dy))
+    local vertical = math.abs(dy) >= 0.38 * math.max(0.001, math.abs(dx))
+    local northSouth = dy < 0 and "N" or "S"
+    local eastWest = dx < 0 and "W" or "E"
+    if horizontal and vertical then return northSouth .. eastWest end
+    if horizontal then return eastWest end
+    return northSouth
+end
+
+-- Returns a stable, player-readable location without inventing a house number.
+-- Map street data is optional, so coordinates always remain the final fallback.
+function Factions.describeLocation(position)
+    if type(position) ~= "table" then return nil, "position_unavailable" end
+    local x, y, z = tonumber(position.x), tonumber(position.y), tonumber(position.z) or 0
+    if x == nil or y == nil then return nil, "position_unavailable" end
+    local result = {
+        x = math.floor(x), y = math.floor(y), z = math.floor(z),
+        coordinates = math.floor(x) .. ", " .. math.floor(y) .. ", " .. math.floor(z),
+    }
+    local api = streetDataApi()
+    local street = api and nearestStreetFromApi(api, x, y) or nil
+    if street then
+        result.nearestStreet = street
+        result.direction = compassDirection(x - street.x, y - street.y)
+        result.distance = math.max(0, math.floor((tonumber(street.distance) or 0) + 0.5))
+        result.address = "House " .. tostring(result.distance) .. " tiles "
+            .. result.direction .. " of " .. street.name
+    else
+        result.address = "House near " .. result.coordinates
+    end
+    return result
+end
+
 local function objectKind(object)
     if object == nil then return nil end
     if type(instanceof) == "function" then
@@ -567,8 +601,31 @@ local function openingExterior(object, square, building)
     return hereInside ~= thereInside
 end
 
-local function descriptorFor(building, bounds, allowSeen)
+local questContainerPreference = {
+    crate = 1, counter = 2, cabinet = 2, wardrobe = 3, dresser = 3,
+    desk = 4, filingcabinet = 4, metal_shelves = 5, shelves = 5,
+}
+
+local function containerType(container)
+    local value, called = U().call(container, "getType")
+    return called and tostring(value or "") or ""
+end
+
+local function sortQuestContainers(choices)
+    table.sort(choices, function(left, right)
+        if left.preference ~= right.preference then return left.preference < right.preference end
+        if left.z ~= right.z then return left.z < right.z end
+        if left.x ~= right.x then return left.x < right.x end
+        return left.y < right.y
+    end)
+    local selected = choices[1]
+    if selected then selected.preference = nil end
+    return selected
+end
+
+local function descriptorFor(building, bounds, allowSeen, collectQuestContainer)
     local openings, interior, seen, burned = {}, {}, false, false
+    local questContainers = {}
     local budget = 0
     for z = 0, 2 do
         for x = bounds.x1, bounds.x2 do
@@ -593,6 +650,17 @@ local function descriptorFor(building, bounds, allowSeen)
                                     kind = kind,
                                 }
                             end
+                            if collectQuestContainer then
+                                local container, called = U().call(object, "getContainer")
+                                if called and container ~= nil then
+                                    local containerKind = string.lower(containerType(container))
+                                    questContainers[#questContainers + 1] = {
+                                        x = x, y = y, z = z,
+                                        objectIndex = index, containerType = containerKind,
+                                        preference = questContainerPreference[containerKind] or 20,
+                                    }
+                                end
+                            end
                         end
                     end
                 end
@@ -616,7 +684,7 @@ local function descriptorFor(building, bounds, allowSeen)
         return ac < bc
     end)
     local anchor = interior[1]
-    return {
+    local descriptor = {
         id = table.concat({ bounds.x1, bounds.y1, bounds.x2, bounds.y2 }, ":"),
         bounds = bounds,
         anchor = { x = anchor.x, y = anchor.y, z = anchor.z },
@@ -625,6 +693,10 @@ local function descriptorFor(building, bounds, allowSeen)
         primaryEntry = openings[1],
         squareCount = budget,
     }
+    if collectQuestContainer then
+        descriptor.questContainer = sortQuestContainers(questContainers)
+    end
+    return descriptor
 end
 
 local function distanceSqPosition(a, b)
@@ -677,23 +749,113 @@ local function safehouseAt(anchor)
     return false
 end
 
-local function candidateAt(square, player, allowSeen)
+local function exactHouseClaimed(house)
+    for _, id in ipairs(groupOrder) do
+        local group = groups[id]
+        if group and group.lifecycle ~= "destroyed"
+            and group.house and group.house.id == house.id then return true end
+    end
+    return false
+end
+
+local function replacementQuestContainer(bounds, expectedBuilding)
+    if type(bounds) ~= "table" or expectedBuilding == nil then return nil, nil end
+    local choices = {}
+    for z = 0, 2 do
+        for x = tonumber(bounds.x1) or 0, tonumber(bounds.x2) or -1 do
+            for y = tonumber(bounds.y1) or 0, tonumber(bounds.y2) or -1 do
+                local square = U().gridSquare(x, y, z)
+                if sameBuilding(square, expectedBuilding) then
+                    U().squareObjects(square, function(object, index)
+                        local container, called = U().call(object, "getContainer")
+                        if called and container ~= nil then
+                            local kind = string.lower(containerType(container))
+                            choices[#choices + 1] = {
+                                x = x, y = y, z = z, objectIndex = index,
+                                containerType = kind,
+                                preference = questContainerPreference[kind] or 20,
+                                value = container,
+                            }
+                        end
+                    end, 64)
+                end
+            end
+        end
+    end
+    local selected = sortQuestContainers(choices)
+    if selected == nil then return nil, nil end
+    local container = selected.value
+    selected.value = nil
+    return container, selected
+end
+
+function Factions.resolveQuestContainer(locator, bounds, anchor)
+    if type(locator) ~= "table" then return nil, "container_locator_unavailable" end
+    local square = U().gridSquare(locator.x, locator.y, locator.z or 0)
+    if not square then return nil, "container_square_unloaded" end
+    local selected
+    U().squareObjects(square, function(object, index)
+        if selected ~= nil then return end
+        local container, called = U().call(object, "getContainer")
+        if called and container ~= nil then
+            local exactIndex = tonumber(locator.objectIndex)
+            local sameType = locator.containerType == nil
+                or string.lower(containerType(container)) == string.lower(tostring(locator.containerType))
+            if (exactIndex ~= nil and index == exactIndex and sameType)
+                or (exactIndex == nil and sameType) then
+                selected = container
+            end
+        end
+    end, 64)
+    if selected == nil and locator.containerType ~= nil then
+        U().squareObjects(square, function(object)
+            if selected ~= nil then return end
+            local container, called = U().call(object, "getContainer")
+            if called and container ~= nil and string.lower(containerType(container))
+                == string.lower(tostring(locator.containerType)) then selected = container end
+        end, 64)
+    end
+    if selected ~= nil then return selected, nil, locator end
+    local anchorSquare = type(anchor) == "table"
+        and U().gridSquare(anchor.x, anchor.y, anchor.z or 0) or nil
+    local expectedBuilding = buildingAt(anchorSquare) or buildingAt(square)
+    local replacement, replacementLocator = replacementQuestContainer(bounds, expectedBuilding)
+    if replacement ~= nil then
+        return replacement, "quest_container_relocated", replacementLocator
+    end
+    return nil, "quest_container_missing"
+end
+
+local function candidateAt(square, player, allowSeen, options)
+    options = type(options) == "table" and options or {}
     local building = buildingAt(square)
     if building == nil or building == playerBuilding(player) then return nil, "not_a_candidate_house" end
     local bounds = boundsFor(building)
     if bounds == nil then return nil, "house_bounds_unavailable" end
     if overlapsPlayerBase(bounds) then return nil, "player_base_house" end
-    local descriptor, reason = descriptorFor(building, bounds, allowSeen)
+    local descriptor, reason = descriptorFor(building, bounds, allowSeen,
+        options.purpose == "quest")
     if descriptor == nil then return nil, reason end
     if safehouseAt(descriptor.anchor) then return nil, "safehouse_reserved" end
-    if conflictsWithExisting(descriptor) then return nil, "house_too_close_to_faction" end
+    if options.purpose == "quest" then
+        if exactHouseClaimed(descriptor) then
+            return nil, "house_claimed_by_faction"
+        end
+        if descriptor.questContainer == nil then return nil, "house_has_no_quest_container" end
+    elseif conflictsWithExisting(descriptor) then return nil, "house_too_close_to_faction" end
     return descriptor
 end
 
 local function newHouseSearch(player, options)
     options = type(options) == "table" and options or {}
     if player == nil then return nil, "player_unavailable" end
-    local px, py, pz = U().position(player)
+    local px, py, pz
+    if type(options.origin) == "table" then
+        px, py, pz = tonumber(options.origin.x), tonumber(options.origin.y),
+            tonumber(options.origin.z) or 0
+    else
+        px, py, pz = U().position(player)
+    end
     if px == nil then return nil, "player_position_unavailable" end
     local minimum = tonumber(options.minimumDistance)
         or tonumber(SC.Config.get("factionSpawnMinDistance")) or 35
@@ -707,6 +869,8 @@ local function newHouseSearch(player, options)
         px = px, py = py, pz = pz or 0,
         minimum = minimum, maximum = maximum, budget = budget,
         allowSeen = allowSeen,
+        purpose = options.purpose,
+        sourceFactionId = options.sourceFactionId,
         attempt = 1,
         visited = {},
         best = nil,
@@ -731,7 +895,7 @@ local function resumeHouseSearch(job, quota)
         local building = buildingAt(square)
         if building ~= nil and not job.visited[building] then
             job.visited[building] = true
-            local house = candidateAt(square, job.player, job.allowSeen)
+            local house = candidateAt(square, job.player, job.allowSeen, job)
             if house then
                 local actual = math.sqrt(distanceSqPosition(
                     house.anchor, { x = job.px, y = job.py }))

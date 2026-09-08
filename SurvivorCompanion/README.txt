@@ -12,7 +12,7 @@ without substituting a zombie or an unguarded IsoPlayer.
 The persistent roster supports up to sixteen companions. Orders include follow,
 stay, base guard/patrol, scavenging, useful chores, varied idle activities,
 and supply crafting. The roster opens automatically once after the visibility
-update; F7 collapses or reopens it and is configurable under Living Fellows in
+update; Home collapses or reopens it and is configurable under Living Fellows in
 the keybinding options. Hunger and thirst advance at half speed. Companions use
 real food/water actions, visited camp storage, and nearby clean water sources.
 Right-click a barricadeable door or window to order a selected companion to
@@ -260,12 +260,12 @@ clear. Debug builds log the exact downtime kind at start, finish and cancel.
 companion window is hidden instead of being resized under the active mouse
 event, and a separate edge launcher is shown. The launcher opens only after its
 own mouse-down, so the Collapse button's release cannot click through and reopen
-the menu. F7 and the LF launcher restore the saved expanded size and dock.
+the menu. Home and the LF launcher restore the saved expanded size and dock.
 
 0.21.5 restores the saved launcher after Build 42 completes its in-game UI
 startup. Menu construction no longer races the early OnCreatePlayer UI reset;
 OnGameStart performs the final visibility transition, so a save that starts
-collapsed immediately displays its LF launcher without requiring an F7 cycle.
+collapsed immediately displays its LF launcher without requiring a Home cycle.
 
 0.21.6 gives interaction animations exclusive movement ownership. Before Loot,
 Bandage, Craft, Read, Wear Clothing, Wash, or another verified visual action is

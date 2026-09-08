@@ -5,11 +5,43 @@ if not SC.StableValue and type(require) == "function" then pcall(require, "SCSta
 SC.FactionContracts = SC.FactionContracts or {}
 
 local Contracts = SC.FactionContracts
-local SOCIAL_SCHEMA = 2
+local SOCIAL_SCHEMA = 3
 local actorStates = setmetatable({}, { __mode = "k" })
 local zombieHookInstalled = false
+local targetSearchJobs = {}
+local targetRetryAt = {}
 
-local contractKinds = { supply = true, medical = true, local_threat = true }
+local contractKinds = {
+    supply = true, medical = true, local_threat = true,
+    retrieve_item = true, clear_horde = true,
+}
+local questKinds = { retrieve_item = true, clear_horde = true }
+local questItems = {
+    { type = "LivingFellows.SealedMedicalCase", label = "sealed medical case" },
+    { type = "LivingFellows.FamilyPhoto", label = "family photograph" },
+    { type = "LivingFellows.SurvivorLedger", label = "survivor ledger" },
+    { type = "LivingFellows.MilitaryDispatch", label = "sealed military dispatch" },
+    { type = "LivingFellows.EvacuationMap", label = "marked evacuation map" },
+    { type = "LivingFellows.RecordedMessage", label = "recorded message" },
+}
+local rewardBundles = {
+    { title = "Medical cache", items = {
+        { type = "Base.Bandage", count = 2, label = "2 bandages" },
+        { type = "Base.Disinfectant", count = 1, label = "disinfectant" },
+    } },
+    { title = "Travel supplies", items = {
+        { type = "Base.WaterBottle", count = 1, label = "water bottle" },
+        { type = "Base.CannedSardines", count = 2, label = "2 cans of food" },
+    } },
+    { title = "Repair kit", items = {
+        { type = "Base.Hammer", count = 1, label = "hammer" },
+        { type = "Base.NailsBox", count = 1, label = "box of nails" },
+    } },
+    { title = "Field tools", items = {
+        { type = "Base.HandAxe", count = 1, label = "hand axe" },
+        { type = "Base.Lighter", count = 1, label = "lighter" },
+    } },
+}
 local complications = {
     "none", "hidden_severity", "diverted_delivery", "rival_objection",
     "broken_reward", "private_dissent",
@@ -28,6 +60,13 @@ local tones = {
 
 local function U()
     return SC.GameplayUtil
+end
+
+local function existingModData(value)
+    if type(value) == "table" then return value.modData or value.__modData end
+    local hasData, called = U().call(value, "hasModData")
+    if called and hasData ~= true then return nil end
+    return U().modData and U().modData(value) or nil
 end
 
 local function worldHour()
@@ -222,8 +261,159 @@ local function contractTarget(group, serial)
     }
 end
 
+local function rewardChoices(contractId)
+    local first = (hash(contractId .. ":reward:a") % #rewardBundles) + 1
+    local second = (hash(contractId .. ":reward:b") % (#rewardBundles - 1)) + 1
+    if second >= first then second = second + 1 end
+    local result = {}
+    for _, bundleIndex in ipairs({ first, second }) do
+        local source = rewardBundles[bundleIndex]
+        local row = { title = source.title, items = {} }
+        local labels = {}
+        for _, item in ipairs(source.items) do
+            row.items[#row.items + 1] = {
+                type = item.type, count = item.count, label = item.label,
+            }
+            labels[#labels + 1] = item.label
+        end
+        row.description = table.concat(labels, ", ")
+        result[#result + 1] = row
+    end
+    return result
+end
+
+local function questTargetReady(contract)
+    return type(contract) == "table" and questKinds[contract.kind] == true
+        and contract.preparation == "ready" and type(contract.target) == "table"
+end
+
+local function prepareQuestTarget(group, contract, player)
+    if not contract or not questKinds[contract.kind] then return true, "target_not_required" end
+    if questTargetReady(contract) then return true, "quest_target_ready" end
+    if U().nowMs() < (tonumber(targetRetryAt[contract.id]) or 0) then
+        return false, "quest_target_search_deferred"
+    end
+    player = player or localPlayer()
+    if not player or not SC.Factions or type(SC.Factions.pollHouseSearch) ~= "function" then
+        return false, "quest_target_waiting_for_player"
+    end
+    local status, house, reason, nextJob = SC.Factions.pollHouseSearch(player, {
+        origin = group.house and group.house.anchor or nil,
+        minimumDistance = tonumber(SC.Config.get("factionQuestTargetMinDistance")) or 28,
+        maximumDistance = tonumber(SC.Config.get("factionQuestTargetMaxDistance")) or 85,
+        sampleBudget = tonumber(SC.Config.get("factionQuestHouseSampleBudget")) or 112,
+        allowSeen = true, purpose = "quest", sourceFactionId = group.id,
+    }, targetSearchJobs[contract.id])
+    targetSearchJobs[contract.id] = nextJob
+    if status == "pending" then
+        contract.preparation = "searching"
+        return false, reason or "quest_target_searching"
+    end
+    if status ~= "complete" or type(house) ~= "table" then
+        contract.preparation = "pending"
+        contract.preparationAttempts = (tonumber(contract.preparationAttempts) or 0) + 1
+        targetRetryAt[contract.id] = U().nowMs() + 30000
+        return false, reason or "quest_target_unavailable"
+    end
+    targetRetryAt[contract.id] = nil
+    contract.houseId = house.id
+    contract.target = { x = house.anchor.x, y = house.anchor.y, z = house.anchor.z or 0 }
+    contract.targetBounds = {
+        x1 = house.bounds.x1, y1 = house.bounds.y1,
+        x2 = house.bounds.x2, y2 = house.bounds.y2,
+    }
+    contract.location = SC.Factions.describeLocation and SC.Factions.describeLocation(contract.target)
+        or { address = "House near " .. tostring(contract.target.x) .. ", "
+            .. tostring(contract.target.y), coordinates = tostring(contract.target.x)
+            .. ", " .. tostring(contract.target.y) .. ", " .. tostring(contract.target.z) }
+    if contract.kind == "retrieve_item" then
+        contract.container = house.questContainer
+        if type(contract.container) ~= "table" then
+            contract.preparation = "pending"
+            return false, "quest_container_unavailable"
+        end
+        contract.objective = "Recover the " .. tostring(contract.questItem.label)
+            .. " from a container in the marked house."
+    else
+        contract.objective = "Clear the marked horde and return to the faction representative."
+    end
+    contract.preparation = "ready"
+    return true, "quest_target_ready"
+end
+
+local function questItemInContainer(container, contractId)
+    for _, item in ipairs(U().inventoryItems(container,
+        tonumber(SC.Config.get("factionQuestInventoryScanLimit")) or 4096)) do
+        local data = existingModData(item)
+        if type(data) == "table" and data.LF_QuestItem == true
+            and data.LF_QuestId == contractId then return item end
+    end
+    return nil
+end
+
+local function materializeQuestItem(group, contract)
+    if contract.kind ~= "retrieve_item" then return true, "quest_item_not_required" end
+    contract.progress.spawn = type(contract.progress.spawn) == "table" and contract.progress.spawn
+        or { state = "pending", attempts = 0 }
+    if contract.progress.spawn.state == "spawned" then return true, "quest_item_already_spawned" end
+    if not SC.Factions or type(SC.Factions.resolveQuestContainer) ~= "function" then
+        return false, "quest_container_resolver_unavailable"
+    end
+    local container, reason, resolvedLocator = SC.Factions.resolveQuestContainer(
+        contract.container, contract.targetBounds, contract.target)
+    if not container then return false, reason end
+    if type(resolvedLocator) == "table" then contract.container = resolvedLocator end
+    local existing = questItemInContainer(container, contract.id)
+    if existing then
+        contract.progress.spawn.state = "spawned"
+        return true, "quest_item_already_present"
+    end
+    local item, addReason = U().addItem(container, contract.questItem.type)
+    if not item then return false, "quest_item_add_failed:" .. tostring(addReason) end
+    local data = U().modData(item)
+    if type(data) ~= "table" then
+        U().call(container, "Remove", item)
+        return false, "quest_item_metadata_unavailable"
+    end
+    data.LF_QuestItem, data.LF_QuestId = true, contract.id
+    data.LF_QuestFactionId = group.id
+    data.LF_QuestInstanceId = contract.id .. ":objective:1"
+    contract.progress.spawn = {
+        state = "spawned", hour = worldHour(), attempts = contract.progress.spawn.attempts,
+        itemType = contract.questItem.type, instanceId = data.LF_QuestInstanceId,
+    }
+    return true, "quest_item_spawned"
+end
+
+local function validateRetrievalTarget(contract)
+    if type(contract) ~= "table" or contract.kind ~= "retrieve_item" then
+        return true, "retrieval_target_not_required"
+    end
+    if not SC.Factions or type(SC.Factions.resolveQuestContainer) ~= "function" then
+        return false, "quest_container_resolver_unavailable"
+    end
+    local container, reason, resolvedLocator = SC.Factions.resolveQuestContainer(
+        contract.container, contract.targetBounds, contract.target)
+    if container ~= nil then
+        if type(resolvedLocator) == "table" then contract.container = resolvedLocator end
+        return true, reason or "quest_container_ready"
+    end
+    if reason == "container_square_unloaded" then
+        return true, "quest_container_materialization_deferred"
+    end
+    if reason == "quest_container_missing" then
+        contract.preparation = "pending"
+        contract.target, contract.targetBounds, contract.houseId = nil, nil, nil
+        contract.container, contract.location, contract.objective = nil, nil, nil
+        targetSearchJobs[contract.id], targetRetryAt[contract.id] = nil, nil
+        return false, "quest_target_changed_retry_offer"
+    end
+    return false, reason or "quest_container_unavailable"
+end
+
 local function markerPosition(group, contract)
-    if contract.kind == "local_threat" and type(contract.target) == "table" then
+    if (contract.kind == "local_threat" or questKinds[contract.kind])
+        and type(contract.target) == "table" then
         return contract.target
     end
     return group.house and group.house.anchor or { x = 0, y = 0, z = 0 }
@@ -293,12 +483,13 @@ local function chooseContractKind(group, serial, forcedKind)
     local crisis = group.life and group.life.crisis and group.life.crisis.active or nil
     if crisis and crisis.kind == "illness" then return "medical" end
     if crisis and crisis.kind == "supply_collapse" then return "supply" end
-    local order = { "supply", "medical", "local_threat" }
+    local order = { "supply", "medical", "retrieve_item", "clear_horde", "local_threat" }
     return order[(hash(group.id .. ":contract:" .. tostring(serial)) % #order) + 1]
 end
 
 local function chooseComplication(group, kind, serial, forced)
     if complicationValues[forced] then return forced end
+    if questKinds[kind] then return "none" end
     local primary = personality(group).primary
     if primary == "Desperate" and (kind == "supply" or kind == "medical") then
         return "hidden_severity"
@@ -322,7 +513,8 @@ local function makeContract(group, forcedKind, forcedComplication)
         status = "offered", createdHour = worldHour(), revealed = false,
         complication = complication, hiddenSeverity = complication == "hidden_severity",
         reward = { barter = true, access = true, rumour = true,
-            safeRest = kind ~= "local_threat", futureRecruitConsideration = true },
+            safeRest = kind ~= "local_threat" and kind ~= "clear_horde",
+            futureRecruitConsideration = true },
         progress = {},
     }
     if kind == "supply" then
@@ -345,6 +537,33 @@ local function makeContract(group, forcedKind, forcedComplication)
                 types = { "Base.Disinfectant", "Base.AlcoholWipes" } },
         }
         contract.progress.delivered = false
+    elseif kind == "retrieve_item" then
+        local item = questItems[(hash(contract.id .. ":item") % #questItems) + 1]
+        contract.title = "Recover " .. item.label
+        contract.narrative = "A resident left something irreplaceable in another house. "
+            .. "Bring it back unopened."
+        contract.questItem = { type = item.type, label = item.label }
+        contract.rewardChoices = rewardChoices(contract.id)
+        contract.preparation = "pending"
+        contract.progress.recovered = false
+        contract.progress.spawn = { state = "pending", attempts = 0 }
+    elseif kind == "clear_horde" then
+        local minimum = math.max(1, math.floor(tonumber(
+            SC.Config.get("factionQuestHordeMinSize")) or 8))
+        local maximum = math.max(minimum, math.floor(tonumber(
+            SC.Config.get("factionQuestHordeMaxSize")) or 14))
+        contract.title = "Break the nearby horde"
+        contract.narrative = "A concentrated group of dead is cutting off the nearby houses. "
+            .. "Thin it out before it drifts toward us."
+        contract.rewardChoices = rewardChoices(contract.id)
+        contract.preparation = "pending"
+        contract.radius = tonumber(SC.Config.get("factionContractThreatRadius")) or 18
+        contract.horde = {
+            state = "dormant", total = minimum + (hash(contract.id .. ":horde")
+                % (maximum - minimum + 1)), spawned = 0, dead = 0,
+        }
+        contract.progress.kills = 0
+        contract.progress.visited = false
     else
         contract.title = "Clear a local threat"
         contract.target = contractTarget(group, serial)
@@ -472,6 +691,14 @@ local function visibleOfferText(group, offer)
     elseif offer.kind == "medical" then
         local patient = memberName(memberByKey(group, offer.targetMemberKey))
         return patient .. " is ill. We need clean bandages and disinfectant."
+    elseif offer.kind == "retrieve_item" then
+        if not questTargetReady(offer) then return "We have a job, but we are still confirming the house." end
+        return tostring(offer.narrative) .. " " .. tostring(offer.objective) .. " Location: "
+            .. tostring(offer.location and offer.location.address or "marked on the map") .. "."
+    elseif offer.kind == "clear_horde" then
+        if not questTargetReady(offer) then return "We heard about a horde, but we are still confirming where it is." end
+        return tostring(offer.narrative) .. " " .. tostring(offer.objective) .. " Location: "
+            .. tostring(offer.location and offer.location.address or "marked on the map") .. "."
     end
     return "There is a dangerous pocket of dead near " .. tostring(offer.target.x)
         .. ", " .. tostring(offer.target.y) .. ". We need someone to make it safe."
@@ -527,7 +754,9 @@ local function membersResponse(group)
 end
 
 local function dangerResponse(group, offer)
-    if offer.kind == "local_threat" then return visibleOfferText(group, offer) end
+    if offer.kind == "local_threat" or offer.kind == "clear_horde" then
+        return visibleOfferText(group, offer)
+    end
     local crisis = group.life and group.life.crisis and group.life.crisis.active or nil
     if crisis then return "Our immediate danger is the " .. tostring(crisis.kind)
         .. " inside this house." end
@@ -555,6 +784,9 @@ function Contracts.talk(groupOrId, player, topic, forced)
     local speakerKey = speaker and speaker.key or nil
     local response
     if topic == "needs" then
+        if questKinds[offer.kind] and not questTargetReady(offer) then
+            prepareQuestTarget(group, offer, player)
+        end
         offer.revealed = true
         response = visibleOfferText(group, offer)
     elseif topic == "members" then response = membersResponse(group)
@@ -622,10 +854,23 @@ function Contracts.accept(groupOrId, player, forced)
         return false, "contract_offer_copy_failed:" .. tostring(offerReason)
     end
     if not offer.revealed and forced ~= true then return false, "ask_about_need_first" end
+    if questKinds[offer.kind] and not questTargetReady(offer) then
+        local prepared, preparedReason = prepareQuestTarget(group, offer, player)
+        if not prepared then return false, preparedReason end
+    end
+    local validTarget, targetReason = validateRetrievalTarget(offer)
+    if not validTarget then return false, targetReason end
     local activeOffer, activeCopyReason = strictCopy(offer, copyLimits.contract,
         "$.factionContracts.active")
     if not activeOffer then
         return false, "contract_accept_copy_failed:" .. tostring(activeCopyReason)
+    end
+    if questKinds[activeOffer.kind] then
+        if not SC.Trade or type(SC.Trade.prepareQuestRewards) ~= "function" then
+            return false, "quest_reward_service_unavailable"
+        end
+        local rewardsReady, rewardReason = SC.Trade.prepareQuestRewards(group, activeOffer)
+        if not rewardsReady then return false, rewardReason end
     end
     social.contract.offer = nil
     social.contract.active = activeOffer
@@ -636,6 +881,12 @@ function Contracts.accept(groupOrId, player, forced)
     addPromise(group, offer, "active")
     addMemory(group, "promise_made", offer.kind, nil)
     ensureContractMarker(group, offer)
+    if offer.kind == "retrieve_item" then
+        local spawned, spawnReason = materializeQuestItem(group, offer)
+        offer.progress.spawn.lastResult = spawnReason
+        if not spawned then offer.progress.spawn.attempts =
+            (tonumber(offer.progress.spawn.attempts) or 0) + 1 end
+    end
     notify(group, player, "accepted", "Contract accepted: " .. tostring(offer.title) .. ".",
         offer.id .. ":accepted")
     if offer.complication == "private_dissent" then
@@ -701,6 +952,30 @@ function Contracts.progress(groupOrId, player, scanThreat)
         ready = false, requirements = {}, marker = marker,
     }
     result.hoursRemaining, result.urgency = deadlineProgress(contract)
+    if contract.kind == "retrieve_item" then
+        if player == nil then player = localPlayer() end
+        local count, reason = 0, "player_inventory_unavailable"
+        if player and SC.Trade and type(SC.Trade.questItemProgress) == "function" then
+            count, reason = SC.Trade.questItemProgress(player, contract.id)
+        end
+        result.questItemCount = tonumber(count) or 0
+        result.questItemLabel = contract.questItem and contract.questItem.label or "quest item"
+        result.ready = contract.status == "active" and result.questItemCount >= 1
+        result.reason = result.ready and nil or reason or "quest_item_not_recovered"
+        result.location = contract.location
+        result.objective = contract.objective
+        return result
+    elseif contract.kind == "clear_horde" then
+        local horde = contract.horde or {}
+        result.kills = tonumber(horde.dead) or tonumber(contract.progress.kills) or 0
+        result.requiredKills = tonumber(horde.spawned) > 0 and tonumber(horde.spawned)
+            or tonumber(horde.total) or 0
+        result.hordeState = horde.state or "dormant"
+        result.ready = contract.status == "active" and horde.state == "cleared"
+        result.location = contract.location
+        result.objective = contract.objective
+        return result
+    end
     if contract.kind == "local_threat" then
         result.kills = tonumber(contract.progress and contract.progress.kills) or 0
         result.requiredKills = tonumber(contract.requiredKills) or 0
@@ -840,6 +1115,41 @@ local function completeContract(group, contract, forced)
     return true, contract.outcome
 end
 
+function Contracts.chooseReward(groupOrId, player, choiceIndex, forced)
+    local group = groupFor(groupOrId)
+    if not group then return false, "faction_unavailable" end
+    local social = Contracts.initialize(group)
+    local contract = social.contract.active
+    if not contract or not questKinds[contract.kind] then return false, "quest_unavailable" end
+    choiceIndex = math.floor(tonumber(choiceIndex) or 0)
+    if choiceIndex < 1 or choiceIndex > 2 then return false, "select_quest_reward" end
+    if forced == true then
+        if contract.kind == "retrieve_item" then contract.progress.recovered = true
+        else
+            contract.horde.state, contract.horde.dead = "cleared", contract.horde.total
+            contract.progress.kills = contract.horde.total
+        end
+        if SC.Trade and type(SC.Trade.releaseQuestRewards) == "function" then
+            SC.Trade.releaseQuestRewards(group, contract)
+        end
+        return completeContract(group, contract, true)
+    end
+    local ready, reason = canTalk(group, player, false)
+    if not ready then return false, reason end
+    local progress, progressReason = Contracts.progress(group, player, false)
+    if not progress or progress.ready ~= true then
+        return false, progressReason or progress and progress.reason or "quest_objective_incomplete"
+    end
+    if not SC.Trade or type(SC.Trade.completeQuest) ~= "function" then
+        return false, "quest_reward_service_unavailable"
+    end
+    contract.selectedReward = choiceIndex
+    local completed, completeReason = SC.Trade.completeQuest(group, player, contract,
+        choiceIndex, function() return completeContract(group, contract, false) end)
+    if not completed then contract.selectedReward = nil end
+    return completed, completeReason
+end
+
 function Contracts.fulfill(groupOrId, player, forced)
     local group = groupFor(groupOrId)
     if not group then return false, "faction_unavailable" end
@@ -851,6 +1161,17 @@ function Contracts.fulfill(groupOrId, player, forced)
         "$.factionContracts.history.completed")
     if not ignoredHistory then
         return false, "contract_fulfill_copy_failed:" .. tostring(contractCopyReason)
+    end
+    if questKinds[contract.kind] then
+        if forced == true then return Contracts.chooseReward(group, player, 1, true) end
+        local ready, reason = canTalk(group, player, false)
+        if not ready then return false, reason end
+        local progress, progressReason = Contracts.progress(group, player, false)
+        if not progress or progress.ready ~= true then
+            return false, progressReason or progress and progress.reason
+                or "quest_objective_incomplete"
+        end
+        return false, "reward_choice_required"
     end
     if forced ~= true then
         local ready, reason = canTalk(group, player, false)
@@ -907,6 +1228,10 @@ function Contracts.withdraw(groupOrId, player, forced)
     contract.status, contract.failedHour, contract.outcome =
         "failed", failedHour, "promise_withdrawn"
     closeContractMarker(contract, "withdrawn")
+    if questKinds[contract.kind] and SC.Trade
+        and type(SC.Trade.releaseQuestRewards) == "function" then
+        SC.Trade.releaseQuestRewards(group, contract)
+    end
     appendBounded(social.contract.history, historyRow,
         configuredLimit("factionContractHistoryLimit", 32))
     social.contract.active = nil
@@ -1119,6 +1444,10 @@ local function failExpiredContract(group, contract)
     contract.status, contract.failedHour, contract.outcome =
         "failed", failedHour, "promise_expired"
     closeContractMarker(contract, "expired")
+    if questKinds[contract.kind] and SC.Trade
+        and type(SC.Trade.releaseQuestRewards) == "function" then
+        SC.Trade.releaseQuestRewards(group, contract)
+    end
     local social = group.social
     appendBounded(social.contract.history, historyRow,
         configuredLimit("factionContractHistoryLimit", 32))
@@ -1134,6 +1463,62 @@ local function failExpiredContract(group, contract)
     return true
 end
 
+local hordeOffsets = {
+    { -4, -2 }, { 4, 2 }, { -2, 4 }, { 2, -4 }, { -5, 1 }, { 5, -1 },
+    { -1, -5 }, { 1, 5 }, { -4, 4 }, { 4, -4 }, { -6, 0 }, { 6, 0 },
+    { 0, -6 }, { 0, 6 }, { -3, -5 }, { 3, 5 },
+}
+
+local function spawnQuestHorde(group, contract, player)
+    local horde = contract and contract.horde
+    if type(horde) ~= "table" or contract.kind ~= "clear_horde" then
+        return false, "horde_plan_unavailable"
+    end
+    if horde.state == "active" or horde.state == "cleared" then
+        return true, "horde_already_materialized"
+    end
+    local activation = tonumber(SC.Config.get("factionQuestHordeActivationRadius")) or 32
+    if not player or U().distance(player, contract.target) > activation then
+        return false, "horde_waiting_for_player"
+    end
+    if U().gridSquare(contract.target.x, contract.target.y, contract.target.z or 0) == nil then
+        return false, "horde_area_unloaded"
+    end
+    if type(addZombiesInOutfit) ~= "function" then return false, "horde_spawn_api_unavailable" end
+    horde.state = "spawning"
+    local wanted, spawned = math.max(1, math.floor(tonumber(horde.total) or 1)), 0
+    for index = 1, math.min(wanted, #hordeOffsets) do
+        local offset = hordeOffsets[index]
+        local x, y, z = contract.target.x + offset[1], contract.target.y + offset[2],
+            contract.target.z or 0
+        local square = U().gridSquare(x, y, z)
+        if square and U().isSafeSpawnSquare(square) then
+            local ok, zombies = pcall(addZombiesInOutfit, x, y, z, 1, nil, 50)
+            if ok and zombies ~= nil then
+                U().each(zombies, 2, function(zombie)
+                    local data = U().modData(zombie)
+                    if type(data) == "table" then
+                        data.LF_QuestHorde, data.LF_QuestId = true, contract.id
+                        data.LF_QuestFactionId = group.id
+                        spawned = spawned + 1
+                    end
+                end)
+            end
+        end
+    end
+    if spawned <= 0 then
+        horde.state = "dormant"
+        horde.spawnAttempts = (tonumber(horde.spawnAttempts) or 0) + 1
+        return false, "no_safe_horde_spawn_square"
+    end
+    horde.spawned, horde.total, horde.dead = spawned, spawned, tonumber(horde.dead) or 0
+    horde.state, horde.spawnedHour = "active", worldHour()
+    contract.progress.visited = true
+    notify(group, player, "progress", "The marked horde is active: " .. tostring(spawned)
+        .. " dead to clear.", contract.id .. ":horde_spawned")
+    return true, "quest_horde_spawned"
+end
+
 function Contracts.pulseGroup(group, player, current)
     local social = Contracts.initialize(group)
     current = tonumber(current) or U().nowMs()
@@ -1145,6 +1530,11 @@ function Contracts.pulseGroup(group, player, current)
             "threshold", "invitation_expired", false
     end
     local active = social.contract.active
+    local pendingOffer = social.contract.offer
+    if not active and pendingOffer and questKinds[pendingOffer.kind]
+        and not questTargetReady(pendingOffer) then
+        prepareQuestTarget(group, pendingOffer, player)
+    end
     if active and worldHour() > (tonumber(active.deadlineHour) or math.huge) then
         local expired, expireReason = failExpiredContract(group, active)
         if not expired then return false, expireReason end
@@ -1158,7 +1548,25 @@ function Contracts.pulseGroup(group, player, current)
             notify(group, player, "deadline", "Contract deadline is under 12 hours away.",
                 active.id .. ":deadline_soon")
         end
-        if active.kind ~= "local_threat" and player then
+        if active.kind == "retrieve_item" then
+            local spawned, spawnReason = materializeQuestItem(group, active)
+            active.progress.spawn.lastResult = spawnReason
+            if not spawned then active.progress.spawn.attempts =
+                (tonumber(active.progress.spawn.attempts) or 0) + 1 end
+            local progress = player and Contracts.progress(group, player, false) or nil
+            if progress and progress.ready then
+                active.progress.recovered = true
+                notify(group, player, "progress", "Quest item recovered. Return for your reward.",
+                    active.id .. ":objective_ready")
+            end
+        elseif active.kind == "clear_horde" then
+            spawnQuestHorde(group, active, player)
+            local progress = player and Contracts.progress(group, player, false) or nil
+            if progress and progress.ready then
+                notify(group, player, "progress", "Horde cleared. Return for your reward.",
+                    active.id .. ":objective_ready")
+            end
+        elseif active.kind ~= "local_threat" and player then
             local progress = Contracts.progress(group, player, false)
             local available, required = 0, 0
             for _, row in ipairs(progress and progress.requirements or {}) do
@@ -1190,6 +1598,28 @@ end
 
 function Contracts.onZombieDead(zombie)
     if zombie == nil then return end
+    local data = existingModData(zombie)
+    if type(data) == "table" and data.LF_QuestHorde == true
+        and data.LF_QuestDeathCounted ~= true then
+        local group = groupFor(data.LF_QuestFactionId)
+        local active = group and group.social and group.social.contract
+            and group.social.contract.active or nil
+        if active and active.id == data.LF_QuestId and active.kind == "clear_horde"
+            and active.status == "active" then
+            data.LF_QuestDeathCounted = true
+            active.horde.dead = math.min(tonumber(active.horde.spawned) or 0,
+                (tonumber(active.horde.dead) or 0) + 1)
+            active.progress.kills = active.horde.dead
+            if active.horde.dead >= (tonumber(active.horde.spawned) or math.huge) then
+                active.horde.state, active.progress.visited = "cleared", true
+            end
+            local questPlayer = localPlayer()
+            notify(group, questPlayer, "progress", "Horde progress: "
+                .. tostring(active.horde.dead) .. "/" .. tostring(active.horde.spawned)
+                .. " confirmed.", active.id .. ":kill:" .. tostring(active.horde.dead))
+        end
+        return
+    end
     local attacker, attackerOk = U().call(zombie, "getAttackedBy")
     local player = localPlayer()
     if not attackerOk or attacker ~= player then return end
@@ -1463,7 +1893,11 @@ function Contracts.validate(group)
         if contract and (type(contract.id) ~= "string" or #contract.id > 160
             or (contract.requirements ~= nil and (type(contract.requirements) ~= "table"
                 or #contract.requirements > 8))
-            or (contract.kind == "local_threat" and type(contract.target) ~= "table")) then
+            or (contract.kind == "local_threat" and type(contract.target) ~= "table")
+            or (questKinds[contract.kind] and contract.preparation == "ready"
+                and type(contract.target) ~= "table")
+            or (questKinds[contract.kind] and (type(contract.rewardChoices) ~= "table"
+                or #contract.rewardChoices ~= 2))) then
             return false
         end
     end
@@ -1489,7 +1923,11 @@ end
 
 function Contracts.reset(actor)
     if actor then actorStates[actor] = nil
-    else actorStates = setmetatable({}, { __mode = "k" }) end
+    else
+        actorStates = setmetatable({}, { __mode = "k" })
+        targetSearchJobs = {}
+        targetRetryAt = {}
+    end
 end
 
 return Contracts

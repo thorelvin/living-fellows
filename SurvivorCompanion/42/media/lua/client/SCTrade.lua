@@ -111,8 +111,35 @@ local function isEquipped(actor, item)
     return false
 end
 
+local function clearQuestTags(item)
+    local data = U().modData(item)
+    if type(data) ~= "table" then return end
+    data.LF_QuestItem, data.LF_QuestReward = nil, nil
+    data.LF_QuestId, data.LF_QuestInstanceId = nil, nil
+    data.LF_QuestFactionId, data.LF_QuestRewardChoice = nil, nil
+end
+
+local function existingModData(item)
+    if type(item) == "table" then return item.modData or item.__modData end
+    local hasData, called = invoke(item, "hasModData")
+    if called and hasData ~= true then return nil end
+    return U().modData(item)
+end
+
 local function protected(actor, item)
     if isEquipped(actor, item) then return true end
+    local data = existingModData(item)
+    if type(data) == "table" and (data.LF_QuestItem == true or data.LF_QuestReward == true) then
+        local group = data.LF_QuestFactionId and SC.Factions
+            and type(SC.Factions.group) == "function"
+            and SC.Factions.group(data.LF_QuestFactionId) or nil
+        local active = group and group.social and group.social.contract
+            and group.social.contract.active or nil
+        if active and active.id == data.LF_QuestId and active.status == "active" then return true end
+        -- A withdrawn/expired quest must not leave permanent protected junk in
+        -- a world or resident inventory. Unknown factions stay protected.
+        if group then clearQuestTags(item) else return true end
+    end
     if SC.PersonalItems and type(SC.PersonalItems.isProtected) == "function" then
         local ok, result = pcall(SC.PersonalItems.isProtected, item, actor, "trade")
         if ok and result == true then return true end
@@ -341,9 +368,11 @@ local function transaction(group, player, playerRows, factionRows, options)
     if not ready then return false, reason end
     local playerInventory, factionInventory = actorInventory(player), actorInventory(trader)
     if not playerInventory or not factionInventory then return false, "inventory_unavailable" end
-    local valid, validationReason = validateRows(playerRows, player, playerInventory, false)
+    local valid, validationReason = validateRows(playerRows, player, playerInventory,
+        options.allowProtectedPlayer == true)
     if not valid then return false, validationReason end
-    valid, validationReason = validateRows(factionRows, trader, factionInventory, false)
+    valid, validationReason = validateRows(factionRows, trader, factionInventory,
+        options.allowProtectedFaction == true)
     if not valid then return false, validationReason end
     if not destinationAcceptsAll(factionInventory, trader, playerRows) then
         return false, "faction_inventory_full"
@@ -414,6 +443,122 @@ function Trade.deliverRequirements(group, player, requirements)
     end
     table.sort(receipt.items, function(left, right) return left.type < right.type end)
     return true, reason, receipt
+end
+
+local function matchingQuestRows(actor, contractId, rewardChoice)
+    local inventory = actorInventory(actor)
+    if not inventory then return nil, "inventory_unavailable" end
+    local rows, selected = {}, {}
+    collect(inventory, rows, 0, {
+        count = tonumber(SC.Config.get("factionQuestInventoryScanLimit")) or 4096,
+    })
+    for _, row in ipairs(rows) do
+        local data = existingModData(row.item)
+        if type(data) == "table" and data.LF_QuestId == contractId then
+            if rewardChoice == nil and data.LF_QuestItem == true then
+                selected[#selected + 1] = row
+            elseif rewardChoice ~= nil and data.LF_QuestReward == true
+                and tonumber(data.LF_QuestRewardChoice) == tonumber(rewardChoice) then
+                selected[#selected + 1] = row
+            end
+        end
+    end
+    return selected
+end
+
+function Trade.questItemProgress(player, contractId)
+    if player == nil or type(contractId) ~= "string" then return 0, nil end
+    local rows, reason = matchingQuestRows(player, contractId, nil)
+    return rows and #rows or 0, reason
+end
+
+function Trade.prepareQuestRewards(group, contract)
+    if type(group) ~= "table" or type(contract) ~= "table"
+        or type(contract.rewardChoices) ~= "table" then return false, "reward_plan_unavailable" end
+    local trader = actorForGroup(group)
+    local inventory = actorInventory(trader)
+    if not inventory then return false, "trader_inventory_unavailable" end
+    local existing = matchingQuestRows(trader, contract.id, 1) or {}
+    local second = matchingQuestRows(trader, contract.id, 2) or {}
+    if #existing > 0 and #second > 0 then
+        contract.rewardMaterialization = { state = "ready", itemCount = #existing + #second }
+        return true, "quest_rewards_already_ready"
+    end
+    if #existing > 0 or #second > 0 then return false, "partial_quest_reward_materialization" end
+    local created = {}
+    for choiceIndex, choice in ipairs(contract.rewardChoices) do
+        for _, spec in ipairs(choice.items or {}) do
+            local count = math.max(1, math.floor(tonumber(spec.count) or 1))
+            for itemIndex = 1, count do
+                local item, reason = U().addItem(inventory, spec.type)
+                if item == nil then
+                    for _, createdItem in ipairs(created) do invoke(inventory, "Remove", createdItem) end
+                    return false, "quest_reward_add_failed:" .. tostring(reason)
+                end
+                local data = U().modData(item)
+                if type(data) ~= "table" then
+                    invoke(inventory, "Remove", item)
+                    for _, createdItem in ipairs(created) do invoke(inventory, "Remove", createdItem) end
+                    return false, "quest_reward_metadata_unavailable"
+                end
+                data.LF_QuestReward, data.LF_QuestId = true, contract.id
+                data.LF_QuestFactionId = group.id
+                data.LF_QuestRewardChoice = choiceIndex
+                data.LF_QuestInstanceId = contract.id .. ":reward:" .. tostring(choiceIndex)
+                    .. ":" .. tostring(itemIndex)
+                created[#created + 1] = item
+            end
+        end
+    end
+    contract.rewardMaterialization = { state = "ready", itemCount = #created }
+    return true, "quest_rewards_ready"
+end
+
+function Trade.releaseQuestRewards(group, contract)
+    local trader = actorForGroup(group)
+    if not trader or type(contract) ~= "table" then return false, "trader_unavailable" end
+    for choiceIndex = 1, 2 do
+        for _, row in ipairs(matchingQuestRows(trader, contract.id, choiceIndex) or {}) do
+            clearQuestTags(row.item)
+        end
+    end
+    return true, "quest_rewards_released"
+end
+
+function Trade.completeQuest(group, player, contract, choiceIndex, finalize)
+    choiceIndex = math.floor(tonumber(choiceIndex) or 0)
+    if type(group) ~= "table" or type(contract) ~= "table" then
+        return false, "quest_unavailable"
+    end
+    local choice = type(contract.rewardChoices) == "table" and contract.rewardChoices[choiceIndex] or nil
+    if choiceIndex < 1 or choiceIndex > 2 or type(choice) ~= "table" then
+        return false, "select_quest_reward"
+    end
+    local trader = actorForGroup(group)
+    local playerRows = {}
+    if contract.kind == "retrieve_item" then
+        local found, reason = matchingQuestRows(player, contract.id, nil)
+        if not found or #found == 0 then return false, reason or "quest_item_missing" end
+        playerRows[1] = found[1]
+    end
+    local factionRows, rewardReason = matchingQuestRows(trader, contract.id, choiceIndex)
+    local expected = 0
+    for _, spec in ipairs(choice.items or {}) do
+        expected = expected + math.max(1, math.floor(tonumber(spec.count) or 1))
+    end
+    if not factionRows or #factionRows ~= expected then
+        return false, rewardReason or "selected_quest_reward_missing"
+    end
+    local completed, reason = transaction(group, player, playerRows, factionRows, {
+        allowProtectedPlayer = true,
+        allowProtectedFaction = true,
+        finalize = finalize,
+    })
+    if not completed then return false, reason end
+    for _, row in ipairs(playerRows) do clearQuestTags(row.item) end
+    for _, row in ipairs(factionRows) do clearQuestTags(row.item) end
+    Trade.releaseQuestRewards(group, contract)
+    return true, reason or "quest_complete"
 end
 
 local function baseValue(item)

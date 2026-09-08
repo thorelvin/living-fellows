@@ -25,6 +25,14 @@ function getClimateManager()
 end
 local worldSoundCount = 0
 function addSound(source, x, y, z, radius, volume) worldSoundCount = worldSoundCount + 1 end
+local uiSounds = {}
+function getSoundManager()
+    return {
+        playUISound = function(_, soundName)
+            uiSounds[#uiSounds + 1] = tostring(soundName)
+        end,
+    }
+end
 function instanceof(value, className)
     return type(value) == "table" and (value.__class == className or value.className == className)
 end
@@ -911,9 +919,13 @@ do
     local priorThreshold = values.zombieGrabThreshold
     local priorChance = values.zombieGrabChance
     local priorEscape = values.zombieGrabEscapeChance
+    local priorGrace = values.zombieGrabGraceMs
+    local priorFarewellDelay = values.lastWordsDeathDelayMs
     values.zombieGrabThreshold = 2
     values.zombieGrabChance = 1
     values.zombieGrabEscapeChance = 0
+    values.zombieGrabGraceMs = 100
+    values.lastWordsDeathDelayMs = 200
     local originalZombRand = ZombRand
     ZombRand = function() return 0 end
 
@@ -935,10 +947,42 @@ do
             and not SurvivorCompanion.ZombieAttack.isGrabbed(grappleVictim),
         "removing the zombie pile releases the companion and clears native grapple flags")
 
+    firstGrabber.dead, secondGrabber.dead = false, false
+    SurvivorCompanion.ZombieAttack.reset(grappleVictim)
+    SurvivorCompanion.Dialogue.reset(grappleVictim)
+    local originalEndLife = SurvivorCompanion.Actor.endLife
+    SurvivorCompanion.Actor.endLife = function(victim)
+        victim.dead = true
+        victim.fatalInjuryApplied = true
+        return true
+    end
+    SurvivorCompanion.ZombieAttack.resolve(
+        grappleVictim, 601000, { firstGrabber, secondGrabber })
+    local _, _, farewell = SurvivorCompanion.ZombieAttack.resolve(
+        grappleVictim, 601100, { firstGrabber, secondGrabber })
+    check(farewell.grapple == "grab_farewell" and grappleVictim.dead == false
+            and grappleVictim.knockedDown == true
+            and SurvivorCompanion.Dialogue.lastSpokenTopic(grappleVictim)
+                == "lastwords.zombies",
+        "an unrecoverable drag-down speaks through the still-living companion before cleanup")
+    firstGrabber.dead, secondGrabber.dead = true, true
+    local _, _, farewellHeld = SurvivorCompanion.ZombieAttack.resolve(
+        grappleVictim, 601299, { firstGrabber, secondGrabber })
+    check(farewellHeld.grapple == "grab_farewell" and grappleVictim.dead == false,
+        "the fatal farewell beat cannot become a false rescue when the pile thins")
+    local _, _, killed = SurvivorCompanion.ZombieAttack.resolve(
+        grappleVictim, 601300, { firstGrabber, secondGrabber })
+    check(killed.grapple == "grab_killed" and grappleVictim.dead == true
+            and grappleVictim.fatalInjuryApplied == true,
+        "fatal injury is committed only after the configured last-words display delay")
+    SurvivorCompanion.Actor.endLife = originalEndLife
+
     ZombRand = originalZombRand
     values.zombieGrabThreshold = priorThreshold
     values.zombieGrabChance = priorChance
     values.zombieGrabEscapeChance = priorEscape
+    values.zombieGrabGraceMs = priorGrace
+    values.lastWordsDeathDelayMs = priorFarewellDelay
     SurvivorCompanion.ZombieAttack.reset()
 end
 
@@ -5144,6 +5188,28 @@ local spawnSquare = SurvivorCompanion.Encounter.chooseSpawnSquare(player, {})
 check(spawnSquare ~= nil and spawnSquare.hidden == true and SurvivorCompanion.GameplayUtil.isSquareFree(spawnSquare),
     "production spawn chooser returns a loaded, unseen, valid square")
 
+do
+    local recruit = actor("sc-recruit-sound", -3, 4, { recruited = false })
+    recruit.modData.SC_Recruited = false
+    local record = { id = recruit.id, actor = recruit, recruited = false,
+        state = { order = { current = "wander" } } }
+    registry[recruit.id] = record
+    check(SurvivorCompanion.Commands.restore(recruit, record),
+        "recruitment-sound fixture restores a neutral survivor")
+    local before = #uiSounds
+    local accepted, reason = SurvivorCompanion.Commands.issue(
+        recruit.id, "recruit", nil, player)
+    check(accepted and reason == "recruited" and #uiSounds == before + 1
+            and uiSounds[#uiSounds] == "UIAchievement",
+        "successful permanent recruitment plays one vanilla UI achievement cue")
+    local again, againReason = SurvivorCompanion.Commands.issue(
+        recruit.id, "recruit", nil, player)
+    check(again and againReason == "already_recruited" and #uiSounds == before + 1,
+        "an already-recruited survivor cannot replay the recruitment cue")
+    SurvivorCompanion.Commands.reset(recruit)
+    registry[recruit.id] = nil
+end
+
 local book = item("Base.BookFirstAid1", "Literature", { pages = 220 })
 local idleActor = actor("sc-idle", -2, 0, { inventory = inventory({ book }) })
 idleActor.modData.SC_Order = "stay"
@@ -6721,6 +6787,62 @@ do
     worldHour, rainIntensity, fogIntensity, clock = savedHour, savedRain, savedFog, savedClock
     Dialogue.reset()
 end
+do
+    local savedHealth = fellow.body.health
+    local savedInfected = fellow.body.infected
+    local savedInfectionLevel = fellow.body.infectionLevel
+    local mortalityCommands = SurvivorCompanion.Commands.peek(fellow)
+    local savedTrust, savedBond = mortalityCommands.trust, mortalityCommands.bond
+    mortalityCommands.trust, mortalityCommands.bond = 100, 100
+    check(Dialogue.poolSize("lastwords.pinned", fellow, {}) >= 25
+            and Dialogue.poolSize("lastwords.zombies", fellow, {}) >= 25
+            and Dialogue.poolSize("lastwords.health", fellow, {}) >= 25
+            and Dialogue.poolSize("lastwords.turning", fellow, {}) >= 25,
+        "every mortality circumstance has at least twenty-five voice-matched lines")
+
+    Dialogue.reset(fellow)
+    local pinned, pinnedLine, pinnedDetail = Dialogue.sayLastWords(fellow, "pinned", player)
+    local pinnedAgain, pinnedReason = Dialogue.sayLastWords(fellow, "pinned", player)
+    check(pinned and type(pinnedLine) == "string"
+            and Dialogue.lastSpokenTopic(fellow) == "lastwords.pinned"
+            and pinnedDetail.relationshipTier == "family" and pinnedDetail.poolSize >= 28
+            and not pinnedAgain and pinnedReason == "pinned_words_on_cooldown",
+        "a pinned companion uses relationship-specific pleas without repeating every combat tick")
+
+    Dialogue.reset(fellow)
+    fellow.body.health, fellow.body.infected, fellow.body.infectionLevel = 10, false, 0
+    local failing, failingLine = Dialogue.monitorMortality(fellow, player)
+    local failingAgain, failingReason = Dialogue.monitorMortality(fellow, player)
+    check(failing and type(failingLine) == "string"
+            and string.find(failingLine, "%1", 1, true) == nil
+            and Dialogue.lastSpokenTopic(fellow) == "lastwords.health"
+            and not failingAgain and failingReason == "critical_words_already_spoken",
+        "terminal non-zombie health loss receives one personalized farewell per episode")
+
+    fellow.body.health = 50
+    Dialogue.monitorMortality(fellow, player)
+    fellow.body.health = 10
+    clock = clock + 1
+    local bitten, bittenLine = Dialogue.monitorMortality(fellow, player, "zombie")
+    check(bitten and type(bittenLine) == "string"
+            and Dialogue.lastSpokenTopic(fellow) == "lastwords.zombies",
+        "a recent zombie wound selects the distinct zombie-death farewell pool")
+
+    Dialogue.reset(fellow)
+    fellow.body.health, fellow.body.infected, fellow.body.infectionLevel = 100, true, 98
+    local turning, turningLine = Dialogue.monitorMortality(fellow, player)
+    local turningAgain, turningReason = Dialogue.monitorMortality(fellow, player)
+    check(turning and type(turningLine) == "string"
+            and Dialogue.lastSpokenTopic(fellow) == "lastwords.turning"
+            and not turningAgain and turningReason == "turning_words_already_spoken",
+        "terminal Knox conversion has its own one-time goodbye while identity remains intact")
+
+    fellow.body.health = savedHealth
+    fellow.body.infected = savedInfected
+    fellow.body.infectionLevel = savedInfectionLevel
+    mortalityCommands.trust, mortalityCommands.bond = savedTrust, savedBond
+    Dialogue.reset(fellow)
+end
 local namedGriefLine = Dialogue.choose(fellow, "grief.mourn", nil, { "Glenn Rhee" }, {
     state = { personalityProfile = { archetype = "caring" }, stress = 55, morale = 30 },
 })
@@ -7287,6 +7409,145 @@ for _, contractKind in ipairs({ "supply", "medical", "local_threat" }) do
         and Factions.summary("faction-test").social.active == nil,
         "forced harness completion resolves " .. contractKind .. " without inventory side effects")
 end
+
+do
+    local questSquare = cell:getGridSquare(10, 6, 0)
+    local questChest = inventory()
+    function questChest:getType() return "crate" end
+    local questChestObject = {}
+    function questChestObject:getContainer() return questChest end
+    questSquare.objects = { questChestObject }
+
+    check(Contracts.debugOffer("faction-test", "retrieve_item"),
+        "debug controls create a generated-item retrieval quest")
+    group = Factions.group("faction-test")
+    local offer = group.social.contract.offer
+    offer.preparation = "ready"
+    offer.target = { x = 10, y = 6, z = 0 }
+    offer.targetBounds = { x1 = 9, y1 = 5, x2 = 11, y2 = 7 }
+    offer.location = { address = "House 4 tiles NE of Harness Road",
+        coordinates = "10, 6, 0" }
+    offer.container = { x = 10, y = 6, z = 0, objectIndex = 0, containerType = "crate" }
+    offer.objective = "Recover the marked quest item from the test chest."
+    check(Contracts.accept("faction-test", player, true),
+        "accepting a retrieval quest reserves rewards and materializes its exact item")
+    local activeQuest = group.social.contract.active
+    local questObject = questChest.items[1]
+    local questData = questObject and questObject:getModData() or nil
+    local rewardChoiceOne, rewardChoiceTwo = {}, {}
+    for _, reward in ipairs(residentOne.inventory.items) do
+        local data = reward:getModData()
+        if data.LF_QuestId == activeQuest.id and data.LF_QuestRewardChoice == 1 then
+            rewardChoiceOne[#rewardChoiceOne + 1] = reward
+        elseif data.LF_QuestId == activeQuest.id and data.LF_QuestRewardChoice == 2 then
+            rewardChoiceTwo[#rewardChoiceTwo + 1] = reward
+        end
+    end
+    check(questData and questData.LF_QuestItem == true and questData.LF_QuestId == activeQuest.id
+            and #rewardChoiceOne > 0 and #rewardChoiceTwo > 0,
+        "quest objective and both reward choices carry collision-safe persistent identities")
+    group.members[1].actorId, group.members[2].actorId = nil, nil
+    local questDocument = Factions.export()
+    check(Factions.restore(questDocument),
+        "an accepted retrieval quest survives faction save and restore")
+    group = Factions.group("faction-test")
+    group.members[1].actorId, group.members[2].actorId = residentOne.id, residentTwo.id
+    activeQuest = group.social.contract.active
+    check(activeQuest and activeQuest.kind == "retrieve_item"
+            and activeQuest.progress.spawn.state == "spawned"
+            and activeQuest.location.address == "House 4 tiles NE of Harness Road"
+            and #activeQuest.rewardChoices == 2,
+        "quest restore keeps the exact target, item receipt, address, and immutable rewards")
+    group.social.nextPulseAt = 0
+    Contracts.pulseGroup(group, player, clock)
+    check(#questChest.items == 1,
+        "a persisted spawn receipt prevents duplicate quest items on later pulses")
+    local questCatalog = Trade.playerCatalog(player)
+    questChest:Remove(questObject)
+    player.inventory:AddItem(questObject)
+    local protectedCatalog = Trade.playerCatalog(player)
+    local questTradable = false
+    for _, row in ipairs(protectedCatalog or {}) do
+        if row.item == questObject then questTradable = true end
+    end
+    local retrieveProgress = Contracts.progress(group, player, false)
+    check(type(questCatalog) == "table" and not questTradable and retrieveProgress
+            and retrieveProgress.ready and retrieveProgress.questItemCount == 1,
+        "the uniquely tagged retrieved item completes progress but stays out of ordinary barter")
+    local originalQuestSnapshot = SurvivorCompanion.Senses.snapshot
+    SurvivorCompanion.Senses.snapshot = function() return { threatCount = 0 } end
+    local completedRetrieve, completedRetrieveReason = Contracts.chooseReward(
+        group, player, 2, false)
+    local selectedReceived = true
+    for _, reward in ipairs(rewardChoiceTwo) do
+        selectedReceived = selectedReceived and player.inventory:contains(reward)
+            and reward:getModData().LF_QuestReward == nil
+    end
+    local unselectedReleased = true
+    for _, reward in ipairs(rewardChoiceOne) do
+        unselectedReleased = unselectedReleased and residentOne.inventory:contains(reward)
+            and reward:getModData().LF_QuestReward == nil
+    end
+    check(completedRetrieve and selectedReceived and unselectedReleased
+            and residentOne.inventory:contains(questObject)
+            and questObject:getModData().LF_QuestItem == nil
+            and group.social.contract.history[#group.social.contract.history].selectedReward == 2,
+        "turn-in atomically exchanges the quest item for only the chosen reward and releases the other: "
+            .. tostring(completedRetrieveReason))
+    for _, reward in ipairs(rewardChoiceOne) do residentOne.inventory:Remove(reward) end
+    for _, reward in ipairs(rewardChoiceTwo) do player.inventory:Remove(reward) end
+
+    check(Contracts.debugOffer("faction-test", "clear_horde"),
+        "debug controls create a persistent horde-clearing quest")
+    offer = group.social.contract.offer
+    offer.preparation = "ready"
+    offer.target = { x = 5, y = 5, z = 0 }
+    offer.targetBounds = { x1 = 4, y1 = 4, x2 = 6, y2 = 6 }
+    offer.location = { address = "House 2 tiles E of Harness Road",
+        coordinates = "5, 5, 0" }
+    offer.objective = "Clear the tagged test horde."
+    offer.horde.total = 3
+    check(Contracts.accept("faction-test", player, true),
+        "accepting a horde quest reserves two reward choices")
+    local spawnedHorde = {}
+    local originalAddZombies = addZombiesInOutfit
+    addZombiesInOutfit = function(x, y, z, count)
+        local candidate = zombie(x, y, { z = z })
+        spawnedHorde[#spawnedHorde + 1] = candidate
+        return { candidate }
+    end
+    group.social.nextPulseAt = 0
+    Contracts.pulseGroup(group, player, clock + 1)
+    addZombiesInOutfit = originalAddZombies
+    activeQuest = group.social.contract.active
+    check(activeQuest.horde.state == "active" and activeQuest.horde.spawned == 3
+            and #spawnedHorde == 3,
+        "the horde materializes once only after the player enters its activation radius")
+    for _, candidate in ipairs(spawnedHorde) do
+        candidate.dead = true
+        Contracts.onZombieDead(candidate)
+        Contracts.onZombieDead(candidate)
+    end
+    local hordeProgress = Contracts.progress(group, player, false)
+    check(hordeProgress and hordeProgress.ready and hordeProgress.kills == 3
+            and activeQuest.horde.state == "cleared",
+        "tagged horde deaths count once regardless of attacker and unlock faction turn-in")
+    local hordeRewards = {}
+    for _, reward in ipairs(residentOne.inventory.items) do
+        if reward:getModData().LF_QuestId == activeQuest.id then
+            hordeRewards[#hordeRewards + 1] = reward
+        end
+    end
+    check(Contracts.chooseReward(group, player, 1, false)
+            and group.social.contract.active == nil,
+        "a cleared horde returns through the same two-choice reward transaction")
+    for _, reward in ipairs(hordeRewards) do
+        if player.inventory:contains(reward) then player.inventory:Remove(reward)
+        elseif residentOne.inventory:contains(reward) then residentOne.inventory:Remove(reward) end
+    end
+    SurvivorCompanion.Senses.snapshot = originalQuestSnapshot
+    questSquare.objects = {}
+end
 local firstMilestone = Factions.summary("faction-test").social
 check(firstMilestone.futureRecruitConsideration == true,
     "successful help records later recruitment consideration")
@@ -7372,11 +7633,14 @@ local joinedCandidate = Recruitment.summary(group)
 local joinedKey, joinedActorId = joinedCandidate.candidateKey, joinedCandidate.actorId
 local joinedRecord = registry[joinedActorId]
 local joinedActor, joinedInventory = joinedRecord.actor, joinedRecord.actor.inventory
+local joinSoundBaseline = #uiSounds
 local joined, joinReason = Recruitment.debugDecision(group, player, "join")
 local joinedMember = Factions.member(group, joinedKey)
 check(joined and joinedMember.departed == true and joinedMember.actorId == nil
     and joinedMember.departedActorId == joinedActorId
-    and joinedRecord.recruited == true and joinedRecord.factionId == nil,
+    and joinedRecord.recruited == true and joinedRecord.factionId == nil
+    and #uiSounds == joinSoundBaseline + 1
+    and uiSounds[#uiSounds] == "UIAchievement",
     "permanent decision removes the resident from household duties without deleting the companion: "
         .. tostring(joinReason))
 check(joinedRecord.actor == joinedActor and joinedRecord.actor.inventory == joinedInventory
@@ -7515,11 +7779,11 @@ local originalSnapshot = SurvivorCompanion.Senses.snapshot
 SurvivorCompanion.Senses.snapshot = function() return { threatCount = 0 } end
 local deliveredAlternative, deliveryOutcome = Contracts.fulfill("faction-test", player, false)
 SurvivorCompanion.Senses.snapshot = originalSnapshot
-check(deliveredAlternative and not player.inventory:contains(cleanSheetA)
-    and not player.inventory:contains(cleanSheetB) and not player.inventory:contains(alcoholWipes)
-    and residentOne.inventory:contains(cleanSheetA) and residentOne.inventory:contains(alcoholWipes),
-    "real delivery transaction accepts clean ripped sheets and alcohol wipes, removes them from the player, and transfers them to the household: "
-        .. tostring(deliveryOutcome))
+    check(deliveredAlternative and not player.inventory:contains(cleanSheetA)
+        and not player.inventory:contains(cleanSheetB) and not player.inventory:contains(alcoholWipes)
+        and residentOne.inventory:contains(cleanSheetA) and residentOne.inventory:contains(alcoholWipes),
+        "real delivery transaction accepts clean ripped sheets and alcohol wipes, removes them from the player, and transfers them to the household: "
+            .. tostring(deliveryOutcome))
 for _, junk in ipairs(deepInventoryJunk) do player.inventory:Remove(junk) end
 local reserves = Trade.reserveSummary("faction-test")
 check(type(reserves) == "table" and #reserves >= 5

@@ -375,6 +375,10 @@ local function advance(crisis, subject, player, medical, current)
     crisis.updatedAt = current
     crisis.infectionLevel = math.max(crisis.infectionLevel or 0, medical.infectionLevel or 0)
     crisis.biteCount = math.max(crisis.biteCount or 0, medical.bites or 0)
+    if crisis.infectionLevel >= (U().config("lastWordsTurningThreshold") or 97)
+        and SC.Dialogue and type(SC.Dialogue.sayLastWords) == "function" then
+        SC.Dialogue.sayLastWords(subject, "turning", player)
+    end
     if crisis.phase == "resolved" or crisis.phase == "terminal" then return end
     symptomDiscovery(crisis, subject, player, crisis.infectionLevel)
     medicInspection(crisis, subject, player)
