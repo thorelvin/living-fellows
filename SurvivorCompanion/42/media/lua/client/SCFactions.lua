@@ -7,7 +7,8 @@ if not SC.NativeList and type(require) == "function" then pcall(require, "SCNati
 SC.Factions = SC.Factions or {}
 
 local Factions = SC.Factions
-local SCHEMA = 1
+local SCHEMA = 2
+local LEGACY_SCHEMA = 1
 local groups = {}
 local groupOrder = {}
 local memberToGroup = {}
@@ -15,6 +16,9 @@ local sequence = 0
 local lastWorldSpawnDay = -math.huge
 local lastProductionCheckDay = -math.huge
 local productionHouseSearch = nil
+local banditHouseSearch = nil
+local lastBanditSpawnDay = -math.huge
+local lastBanditCheckDay = -math.huge
 local spawnQueue = {}
 local spawnTicket = nil
 local spawnEntry = nil
@@ -22,6 +26,7 @@ local restored = false
 local observedContainers = setmetatable({}, { __mode = "k" })
 local recentPlayerAttacks = {}
 local hitHookInstalled = false
+local swingHookInstalled = false
 local fallbackRandomSequence = 0
 
 local lifecycleValues = {
@@ -31,6 +36,17 @@ local lifecycleValues = {
 
 local standingValues = {
     Wary = true, Tolerated = true, Trusted = true, Hostile = true,
+}
+
+local archetypeProfiles = {
+    barricaded_household = {
+        social = true, trade = true, recruitment = true,
+        patrol = false, permanentlyHostile = false,
+    },
+    bandit_camp = {
+        social = false, trade = false, recruitment = false,
+        patrol = true, permanentlyHostile = true,
+    },
 }
 
 local requestKinds = { "food", "water", "medicine", "tools", "materials", "ammunition" }
@@ -83,6 +99,16 @@ local factionLandmarks = {
 local factionCollectives = {
     "Circle", "Co-op", "Crew", "Guard", "Holdouts", "Household",
     "Neighbors", "Refuge", "Survivors", "Union", "Ward", "Watch",
+}
+
+local banditLandmarks = {
+    "Ash Creek", "Blacktop", "Briar", "County Line", "Dead End",
+    "Ironwood", "Quarry", "Rail Yard", "Red River", "West Fork",
+}
+
+local banditCollectives = {
+    "Jackals", "Marauders", "Outlaws", "Raiders",
+    "Rattlers", "Reavers", "Runners", "Wolves",
 }
 
 local streetLookup = {
@@ -179,20 +205,62 @@ local function generatedFactionName(group, occupied)
         tostring(group.id or "faction"), tostring(anchor.x or 0),
         tostring(anchor.y or 0), tostring(anchor.z or 0),
     }, ":")
-    local total = #factionLandmarks * #factionCollectives
+    local landmarks = group.archetype == "bandit_camp" and banditLandmarks or factionLandmarks
+    local collectives = group.archetype == "bandit_camp" and banditCollectives or factionCollectives
+    local total = #landmarks * #collectives
     local first = U().stableHash(seed .. ":name") % total
-    -- 73 is coprime to 288, so probing visits every pair before repeating.
+    local stride = group.archetype == "bandit_camp" and 37 or 73
     for attempt = 0, total - 1 do
-        local pair = (first + attempt * 73) % total
-        local landmark = factionLandmarks[(pair % #factionLandmarks) + 1]
-        local collective = factionCollectives[(math.floor(pair / #factionLandmarks)
-            % #factionCollectives) + 1]
+        local pair = (first + attempt * stride) % total
+        local landmark = landmarks[(pair % #landmarks) + 1]
+        local collective = collectives[(math.floor(pair / #landmarks)
+            % #collectives) + 1]
         local candidate = "The " .. landmark .. " " .. collective
         if not occupied[candidate] then return candidate end
     end
-    return "The " .. factionLandmarks[(first % #factionLandmarks) + 1] .. " "
-        .. factionCollectives[(math.floor(first / #factionLandmarks)
-            % #factionCollectives) + 1] .. " " .. tostring(U().stableHash(seed) % 1000)
+    return "The " .. landmarks[(first % #landmarks) + 1] .. " "
+        .. collectives[(math.floor(first / #landmarks)
+            % #collectives) + 1] .. " " .. tostring(U().stableHash(seed) % 1000)
+end
+
+local function archetypeProfile(groupOrArchetype)
+    local archetype = type(groupOrArchetype) == "table" and groupOrArchetype.archetype
+        or groupOrArchetype
+    return archetypeProfiles[archetype] or archetypeProfiles.barricaded_household
+end
+
+function Factions.supports(groupOrId, capability)
+    local group = type(groupOrId) == "table" and groupOrId or groups[groupOrId]
+    if not group or type(capability) ~= "string" then return false end
+    return archetypeProfile(group)[capability] == true
+end
+
+function Factions.archetypeProfile(archetype)
+    return stableCopy(archetypeProfile(archetype), 2)
+end
+
+local function ensureBanditState(group)
+    if type(group) ~= "table" or group.archetype ~= "bandit_camp" then return nil end
+    local state = type(group.bandit) == "table" and group.bandit or {}
+    group.bandit = state
+    state.schema = 1
+    if state.threatTier ~= "mixed" and state.threatTier ~= "armed"
+        and state.threatTier ~= "melee" then state.threatTier = "melee" end
+    state.armed = state.armed == true
+    if state.firearmKind ~= "pistol" and state.firearmKind ~= "shotgun" then
+        state.firearmKind = nil
+    end
+    if not state.armed then state.firearmKind, state.firearmMemberKey = nil, nil end
+    state.nextPatrolHour = math.max(0, tonumber(state.nextPatrolHour) or worldAgeHours() + 1)
+    state.patrolSerial = math.max(0, math.floor(tonumber(state.patrolSerial) or 0))
+    if state.engagement ~= "challenging" and state.engagement ~= "attacking" then
+        state.engagement = "unaware"
+    end
+    if state.patrolMemberKey ~= nil then state.patrolMemberKey = tostring(state.patrolMemberKey) end
+    -- Pre-schema prototypes stored process-relative millisecond clocks here.
+    -- They are deliberately discarded because they are invalid after reload.
+    state.attackedAt, state.challengeStartedAt, state.engagedAt = nil, nil, nil
+    return state
 end
 
 local function ensureFactionIdentity(group, occupied)
@@ -715,10 +783,11 @@ function Factions.pollHouseSearch(player, options, job)
     return status, house, searchReason, status == "pending" and job or nil
 end
 
-local function nextGroupId()
+local function nextGroupId(archetype)
     sequence = sequence + 1
     local stamp = math.floor(worldAgeHours() * 1000)
-    return "faction-household-" .. tostring(stamp) .. "-" .. tostring(sequence)
+    local kind = archetype == "bandit_camp" and "bandit" or "household"
+    return "faction-" .. kind .. "-" .. tostring(stamp) .. "-" .. tostring(sequence)
 end
 
 local function standingForReputation(reputation, permanentHostility)
@@ -788,30 +857,72 @@ local function makeRequest(group)
     }
 end
 
+local function banditTierForDay(day, forced)
+    if forced == "armed" then return "armed", true end
+    if forced == "melee" then return "melee", false end
+    day = math.max(0, math.floor(tonumber(day) or worldDay()))
+    if day < 14 then return "melee", false end
+    if day < 30 then return "mixed", random(100) < 20 end
+    return "armed", random(100) < 40
+end
+
+Factions._banditTierForDayForTests = banditTierForDay
+
+local banditMeleeWeapons = {
+    "Base.Crowbar", "Base.BaseballBat", "Base.HandAxe", "Base.HuntingKnife",
+}
+
 local function addGear(actor, role, group)
     local inventory, inventoryOk = U().call(actor, "getInventory")
     if not inventoryOk or inventory == nil then return false, "inventory_unavailable" end
-    local required = { "Base.Hammer" }
+    local required = {}
+    if group and group.archetype == "bandit_camp" then
+        local memberIndex = 1
+        for index, member in ipairs(group.members or {}) do
+            if member.role == role then memberIndex = index break end
+        end
+        required[#required + 1] = banditMeleeWeapons[
+            (U().stableHash(group.id .. ":" .. tostring(memberIndex)) % #banditMeleeWeapons) + 1]
+        required[#required + 1] = "Base.WaterBottle"
+        required[#required + 1] = "Base.Bandage"
+        required[#required + 1] = "Base.CannedSardines"
+        if group.bandit and group.bandit.firearmMemberKey
+            and group.bandit.firearmMemberKey == "member-" .. tostring(memberIndex) then
+            if group.bandit.firearmKind == "shotgun" then
+                required[#required + 1] = "Base.DoubleBarrelShotgun"
+                for _ = 1, 4 do required[#required + 1] = "Base.ShotgunShells" end
+            else
+                required[#required + 1] = "Base.Pistol"
+                for _ = 1, 15 do required[#required + 1] = "Base.Bullets9mm" end
+            end
+        end
+    else
+        required[#required + 1] = "Base.Hammer"
+    end
     local materialShortage = type(group) == "table" and group.shortageKind == "materials"
     local planks = materialShortage and 1
         or math.max(4, math.floor(tonumber(group and group.materialsPerMemberPlanks) or 4))
     local nails = materialShortage and 2
         or math.max(8, math.floor(tonumber(group and group.materialsPerMemberNails) or 8))
-    for _ = 1, planks do required[#required + 1] = "Base.Plank" end
-    for _ = 1, nails do required[#required + 1] = "Base.Nails" end
-    if role == "watch" then required[#required + 1] = "Base.BaseballBat"
-    elseif role == "leader" then required[#required + 1] = "Base.KitchenKnife"
-    else required[#required + 1] = "Base.HandAxe" end
-    if role == "leader" and group and group.shortageKind == "ammunition" then
-        required[#required + 1] = "Base.Pistol"
+    if not group or group.archetype ~= "bandit_camp" then
+        for _ = 1, planks do required[#required + 1] = "Base.Plank" end
+        for _ = 1, nails do required[#required + 1] = "Base.Nails" end
+        if role == "watch" then required[#required + 1] = "Base.BaseballBat"
+        elseif role == "leader" then required[#required + 1] = "Base.KitchenKnife"
+        else required[#required + 1] = "Base.HandAxe" end
+        if role == "leader" and group and group.shortageKind == "ammunition" then
+            required[#required + 1] = "Base.Pistol"
+        end
     end
     -- Build 42's randomized book entries returned nil from
     -- ItemContainer:AddItem in a real sandbox.  A notebook is concrete
     -- literature, needs no OnCreate randomization, and fits a leader's gear.
-    if role == "leader" then required[#required + 1] = "Base.Notebook" end
-    if not group or group.shortageKind ~= "water" then required[#required + 1] = "Base.WaterBottle" end
-    if not group or group.shortageKind ~= "food" then required[#required + 1] = "Base.CannedSardines" end
-    if not group or group.shortageKind ~= "medicine" then required[#required + 1] = "Base.Bandage" end
+    if not group or group.archetype ~= "bandit_camp" then
+        if role == "leader" then required[#required + 1] = "Base.Notebook" end
+        if not group or group.shortageKind ~= "water" then required[#required + 1] = "Base.WaterBottle" end
+        if not group or group.shortageKind ~= "food" then required[#required + 1] = "Base.CannedSardines" end
+        if not group or group.shortageKind ~= "medicine" then required[#required + 1] = "Base.Bandage" end
+    end
     -- A single item type that Build 42 renamed or that a mod removed (seen in a
     -- real save: a literature template would not instantiate) must not abort the whole faction
     -- member's initialization. Add what is available, and record the rest so the
@@ -825,7 +936,8 @@ local function addGear(actor, role, group)
         end
     end
     for _, itemType in ipairs(required) do tryAdd(itemType) end
-    if role == "leader" and type(group) == "table" and type(group.request) == "table" then
+    if role == "leader" and type(group) == "table" and group.archetype ~= "bandit_camp"
+        and type(group.request) == "table" then
         for _, reward in ipairs(group.request.reward or {}) do
             for _ = 1, math.max(0, math.floor(tonumber(reward.count) or 0)) do
                 tryAdd(reward.type)
@@ -851,8 +963,10 @@ local function profileFor(group, member, snapshot)
         state = snapshot or {
             order = {
                 current = "faction_duty", scavenge = false,
-                movementMode = "walk", combatStance = "defensive",
-                combatDoctrine = "close_defense", weaponPriority = "best",
+                movementMode = group.archetype == "bandit_camp" and "jog" or "walk",
+                combatStance = group.archetype == "bandit_camp" and "aggressive" or "defensive",
+                combatDoctrine = group.archetype == "bandit_camp" and "weapons_free"
+                    or "close_defense", weaponPriority = "best",
                 workMode = "build",
             },
         },
@@ -967,7 +1081,8 @@ local function rollbackGroupCreation(group)
     end
 end
 
-local function createGroup(house, size, debugCreated)
+local function createGroup(house, size, debugCreated, archetype, loadoutOverride)
+    archetype = archetypeProfiles[archetype] and archetype or "barricaded_household"
     size = math.max(tonumber(SC.Config.get("factionMemberMin")) or 1,
         math.min(tonumber(SC.Config.get("factionMemberMax")) or 3, math.floor(tonumber(size) or 1)))
     local active = SC.Registry and type(SC.Registry.living) == "function"
@@ -977,16 +1092,28 @@ local function createGroup(house, size, debugCreated)
     if active + stored + size > (tonumber(SC.Config.get("maxCompanions")) or 16) then
         return nil, "native_actor_capacity_reached"
     end
+    local profile = archetypeProfile(archetype)
     local group = {
-        id = nextGroupId(), archetype = "barricaded_household",
-        lifecycle = "forming", standing = "Wary", reputation = -20,
+        id = nextGroupId(archetype), archetype = archetype,
+        lifecycle = "forming", standing = profile.permanentlyHostile and "Hostile" or "Wary",
+        reputation = profile.permanentlyHostile and -100 or -20,
         discovered = debugCreated == true, debugCreated = debugCreated == true,
         createdDay = worldDay(), lastInteractionDay = worldDay(),
-        permanentHostility = false, barterUnlocked = false,
+        permanentHostility = profile.permanentlyHostile == true, barterUnlocked = false,
         shortageKind = requestKinds[((sequence + size) % #requestKinds) + 1],
         house = stableCopy(house, 5, { count = 4096 }),
         members = {}, jobs = buildJobs(house), offenses = {}, history = {},
     }
+    if archetype == "bandit_camp" then
+        local tier, armed = banditTierForDay(worldDay(), loadoutOverride)
+        group.bandit = {
+            schema = 1, threatTier = tier, armed = armed == true,
+            firearmKind = armed and (random(4) == 0 and "shotgun" or "pistol") or nil,
+            nextPatrolHour = worldAgeHours() + 1, patrolSerial = 0,
+            engagement = "unaware",
+        }
+        if armed then group.bandit.firearmMemberKey = "member-1" end
+    end
     ensureFactionIdentity(group)
     local finalJobs = 0
     for _, job in ipairs(group.jobs) do
@@ -1205,6 +1332,22 @@ local function activeCount(group)
     return count
 end
 
+local function livingGroupCount(archetype)
+    local count = 0
+    for _, id in ipairs(groupOrder) do
+        local group = groups[id]
+        if group and group.lifecycle ~= "destroyed"
+            and (archetype == nil or group.archetype == archetype) then
+            count = count + 1
+        end
+    end
+    return count
+end
+
+function Factions.count(archetype)
+    return livingGroupCount(archetype)
+end
+
 local function groupAtPosition(position)
     if type(position) ~= "table" then return nil end
     for _, id in ipairs(groupOrder) do
@@ -1290,11 +1433,33 @@ function Factions.onWeaponHitCharacter(attacker, target, weapon, damage)
     end
     if type(factionId) ~= "string" then return end
     local current = nowMs()
+    local group = groups[factionId]
+    if group and group.archetype == "bandit_camp" and type(group.bandit) == "table" then
+        group.bandit.engagement = "attacking"
+        group.bandit.attackedHour = worldAgeHours()
+    end
     local prior = recentPlayerAttacks[id]
     recentPlayerAttacks[id] = current
     if prior == nil or current - prior > 3000 then
         Factions.noteOffense(factionId, "damage", 1)
     end
+end
+
+function Factions.onWeaponSwingHitPoint(attacker, weapon)
+    local currentPlayer = localPlayer()
+    if attacker == nil or attacker ~= currentPlayer or not SC.Senses
+        or type(SC.Senses.hear) ~= "function" then return end
+    local x, y, z = U().position(attacker)
+    if x == nil then return end
+    local ranged, rangedOk = nil, false
+    if weapon then ranged, rangedOk = U().call(weapon, "isRanged") end
+    local radius = 8
+    if rangedOk and ranged == true then
+        local nativeRadius, radiusOk = U().call(weapon, "getSoundRadius")
+        radius = radiusOk and math.max(12, math.min(100, tonumber(nativeRadius) or 24)) or 24
+    end
+    SC.Senses.hear(attacker, x, y, z, radius,
+        rangedOk and ranged == true and 30 or 8, "player_attack")
 end
 
 function Factions.installHooks()
@@ -1306,6 +1471,12 @@ function Factions.installHooks()
     local ok, reason = pcall(Events.OnWeaponHitCharacter.Add, Factions.onWeaponHitCharacter)
     if not ok then return false, tostring(reason) end
     hitHookInstalled = true
+    if Events.OnWeaponSwingHitPoint
+        and type(Events.OnWeaponSwingHitPoint.Add) == "function" then
+        local swingOk = pcall(Events.OnWeaponSwingHitPoint.Add,
+            Factions.onWeaponSwingHitPoint)
+        swingHookInstalled = swingOk == true
+    end
     return true
 end
 
@@ -1314,6 +1485,16 @@ function Factions.removeHooks()
     if type(Events) ~= "table" or not Events.OnWeaponHitCharacter
         or type(Events.OnWeaponHitCharacter.Remove) ~= "function" then
         return false, "OnWeaponHitCharacter removal is unavailable"
+    end
+    if swingHookInstalled then
+        if not Events.OnWeaponSwingHitPoint
+            or type(Events.OnWeaponSwingHitPoint.Remove) ~= "function" then
+            return false, "OnWeaponSwingHitPoint removal is unavailable"
+        end
+        local swingOk, swingReason = pcall(Events.OnWeaponSwingHitPoint.Remove,
+            Factions.onWeaponSwingHitPoint)
+        if not swingOk then return false, tostring(swingReason) end
+        swingHookInstalled = false
     end
     local ok, reason = pcall(Events.OnWeaponHitCharacter.Remove, Factions.onWeaponHitCharacter)
     if not ok then return false, tostring(reason) end
@@ -1345,6 +1526,87 @@ function Factions.affiliation(subject)
         factionId = factionId, group = group, role = record.factionRole,
         standing = group.standing, reputation = group.reputation,
     }
+end
+
+local function recordForSubject(subject)
+    if subject == nil or not SC.Registry or type(SC.Registry.byId) ~= "function" then return nil end
+    local id = type(subject) == "table" and subject.id or U().idOf(subject)
+    return id and SC.Registry.byId(id) or nil
+end
+
+local function isPlayerPartyMember(subject, player)
+    if subject == nil then return false end
+    if player ~= nil and subject == player then return true end
+    local record = recordForSubject(subject)
+    return record ~= nil and record.recruited == true and record.factionId == nil
+end
+
+function Factions.isHostileBetween(source, target, player)
+    if source == nil or target == nil or source == target then return false end
+    player = player or localPlayer()
+    local sourceAffiliation = Factions.affiliation(source)
+    local targetAffiliation = Factions.affiliation(target)
+    if sourceAffiliation and isPlayerPartyMember(target, player) then
+        local group = sourceAffiliation.group
+        return group ~= nil and (group.archetype == "bandit_camp"
+            or group.standing == "Hostile" or group.lifecycle == "hostile")
+    end
+    if targetAffiliation and isPlayerPartyMember(source, player) then
+        local group = targetAffiliation.group
+        if not group then return false end
+        if group.archetype == "bandit_camp" then
+            return type(group.bandit) == "table" and group.bandit.engagement ~= "unaware"
+        end
+        return group.standing == "Hostile" or group.lifecycle == "hostile"
+    end
+    return false
+end
+
+local function visibleHumanCandidate(observer, candidate, maximumDistance)
+    if candidate == nil or candidate == observer or U().isDead(candidate)
+        or not U().sameFloor(observer, candidate) then return nil end
+    local distance = U().distance(observer, candidate)
+    if distance > maximumDistance or not U().canSee(observer, candidate) then return nil end
+    return { actor = candidate, id = U().idOf(candidate), distance = distance,
+        visible = true }
+end
+
+function Factions.hostileTargetFor(actor, player)
+    if actor == nil then return nil end
+    player = player or localPlayer()
+    local sourceAffiliation = Factions.affiliation(actor)
+    local candidates = {}
+    if sourceAffiliation then
+        if player then candidates[#candidates + 1] = player end
+        if SC.Registry and type(SC.Registry.living) == "function" then
+            for _, record in ipairs(SC.Registry.living() or {}) do
+                if record.recruited == true and record.actor and record.actor ~= actor then
+                    candidates[#candidates + 1] = record.actor
+                end
+            end
+        end
+    elseif isPlayerPartyMember(actor, player) and SC.Registry
+        and type(SC.Registry.living) == "function" then
+        for _, record in ipairs(SC.Registry.living() or {}) do
+            if record.actor and type(record.factionId) == "string" then
+                local group = groups[record.factionId]
+                if group and group.archetype == "bandit_camp"
+                    and type(group.bandit) == "table"
+                    and group.bandit.engagement ~= "unaware" then
+                    candidates[#candidates + 1] = record.actor
+                end
+            end
+        end
+    end
+    local best
+    for _, candidate in ipairs(candidates) do
+        if Factions.isHostileBetween(actor, candidate, player) then
+            local row = visibleHumanCandidate(actor, candidate,
+                tonumber(SC.Config.get("banditFactionAwarenessRadius")) or 24)
+            if row and (not best or row.distance < best.distance) then best = row end
+        end
+    end
+    return best
 end
 
 function Factions.group(id)
@@ -1480,6 +1742,7 @@ function Factions.summary(id)
     end
     local summary = {
         id = group.id, name = group.name, archetype = group.archetype,
+        capabilities = stableCopy(archetypeProfile(group), 2),
         lifecycle = group.lifecycle, standing = group.standing,
         reputation = group.reputation, discovered = group.discovered == true,
         barterUnlocked = group.barterUnlocked == true,
@@ -1490,16 +1753,21 @@ function Factions.summary(id)
         permanentHostility = group.permanentHostility == true,
         debugCreated = group.debugCreated == true,
     }
+    if group.archetype == "bandit_camp" then
+        summary.bandit = stableCopy(group.bandit, 4)
+    end
     if SC.FactionLife and type(SC.FactionLife.summary) == "function" then
         summary.life = SC.FactionLife.summary(group)
     end
-    if SC.FactionContracts and type(SC.FactionContracts.summary) == "function" then
+    if Factions.supports(group, "social") and SC.FactionContracts
+        and type(SC.FactionContracts.summary) == "function" then
         summary.social = SC.FactionContracts.summary(group)
     end
     if SC.FactionWorld and type(SC.FactionWorld.summary) == "function" then
         summary.world = SC.FactionWorld.summary(group.id)
     end
-    if SC.FactionRecruitment and type(SC.FactionRecruitment.summary) == "function" then
+    if Factions.supports(group, "recruitment") and SC.FactionRecruitment
+        and type(SC.FactionRecruitment.summary) == "function" then
         summary.recruitment = SC.FactionRecruitment.summary(group.id)
     end
     return summary
@@ -1534,6 +1802,9 @@ end
 function Factions.forceStanding(id, standing)
     local group = groups[id]
     if not group or not standingValues[standing] then return false, "invalid_standing" end
+    if group.permanentHostility == true and standing ~= "Hostile" then
+        return false, "permanent_hostility"
+    end
     group.permanentHostility = standing == "Hostile" and group.permanentHostility or false
     group.reputation = standing == "Trusted" and 40 or standing == "Tolerated" and 10
         or standing == "Hostile" and -70 or -20
@@ -1545,7 +1816,8 @@ end
 function Factions.noteOffense(id, kind, severity)
     local group = groups[id]
     if not group then return false, "faction_unavailable" end
-    if SC.FactionContracts and type(SC.FactionContracts.noteAction) == "function" then
+    if Factions.supports(group, "social") and SC.FactionContracts
+        and type(SC.FactionContracts.noteAction) == "function" then
         pcall(SC.FactionContracts.noteAction, group, kind, tostring(severity or 1))
     end
     local deltas = { trespass = -12, aim = -28, theft = -40, damage = -55, barricade = -45, murder = -100 }
@@ -1626,6 +1898,7 @@ end
 function Factions.fulfillRequest(id, player)
     local group = groups[id]
     if not group or type(group.request) ~= "table" then return false, "request_unavailable" end
+    if not Factions.supports(group, "trade") then return false, "faction_does_not_trade" end
     if group.request.status == "completed" then return false, "request_already_completed" end
     if not SC.Trade or type(SC.Trade.completeRequest) ~= "function" then
         return false, "trade_unavailable"
@@ -1696,12 +1969,15 @@ function Factions.memberDied(record)
         SC.FactionLife.noteEvent(group, "member_died", deadMemberKey or record.id)
     end
     if householdLivingCount(group) == 0 then group.lifecycle = "destroyed" end
-    if SC.FactionContracts and type(SC.FactionContracts.memberDied) == "function" then
+    if Factions.supports(group, "social") and SC.FactionContracts
+        and type(SC.FactionContracts.memberDied) == "function" then
         SC.FactionContracts.memberDied(group, deadMemberKey or record.id)
-    elseif SC.FactionContracts and type(SC.FactionContracts.noteAction) == "function" then
+    elseif Factions.supports(group, "social") and SC.FactionContracts
+        and type(SC.FactionContracts.noteAction) == "function" then
         SC.FactionContracts.noteAction(group, "member_died", record.id)
     end
-    if SC.FactionRecruitment and type(SC.FactionRecruitment.actorDied) == "function" then
+    if Factions.supports(group, "recruitment") and SC.FactionRecruitment
+        and type(SC.FactionRecruitment.actorDied) == "function" then
         pcall(SC.FactionRecruitment.actorDied, record.id, factionId)
     end
     return true
@@ -1711,6 +1987,9 @@ local function actorHiddenFromPlayer(actor, player)
     if player == nil then return false end
     local visible = U().canSee and U().canSee(player, actor)
     if visible == true then return false end
+    -- The player may be far away while a recruited companion is in contact with
+    -- this resident. Never hibernate an actor out from under active human combat.
+    if Factions.hostileTargetFor(actor, player) ~= nil then return false end
     local threatCount = 0
     if SC.Senses and type(SC.Senses.snapshot) == "function" then
         local ok, snapshot = pcall(SC.Senses.snapshot, actor, player)
@@ -1815,7 +2094,8 @@ function Factions.productionPulse(player)
     end
     local ready, providerReason = SC.Actor.checkBridge(false)
     if ready ~= true then return false, providerReason or "actor_provider_unavailable" end
-    if #groupOrder >= (tonumber(SC.Config.get("factionMaxHouseholds")) or 3) then
+    if livingGroupCount("barricaded_household")
+        >= (tonumber(SC.Config.get("factionMaxHouseholds")) or 3) then
         productionHouseSearch = nil
         return false, "faction_cap_reached"
     end
@@ -1860,6 +2140,75 @@ function Factions.productionPulse(player)
     return true, group.id
 end
 
+local function banditMemberCount(day)
+    day = math.max(0, math.floor(tonumber(day) or worldDay()))
+    if day < 14 then return 1 + random(2) end
+    return 2 + random(2)
+end
+
+Factions._banditMemberCountForTests = banditMemberCount
+
+function Factions.banditProductionPulse(player)
+    if SC.Config.get("banditFactionEnabled") ~= true then
+        banditHouseSearch = nil
+        return false, "bandit_factions_disabled"
+    end
+    if not SC.Actor or type(SC.Actor.checkBridge) ~= "function" then
+        return false, "actor_provider_unavailable"
+    end
+    local ready, providerReason = SC.Actor.checkBridge(false)
+    if ready ~= true then return false, providerReason or "actor_provider_unavailable" end
+    if livingGroupCount("bandit_camp")
+        >= (tonumber(SC.Config.get("banditFactionMaxCamps")) or 1) then
+        banditHouseSearch = nil
+        return false, "bandit_camp_cap_reached"
+    end
+    if banditHouseSearch then
+        local status, house, searchReason, nextJob = Factions.pollHouseSearch(player, {
+            allowSeen = false,
+            minimumDistance = tonumber(SC.Config.get("banditFactionSpawnMinDistance")) or 55,
+            maximumDistance = tonumber(SC.Config.get("banditFactionSpawnMaxDistance")) or 90,
+        }, banditHouseSearch.job)
+        banditHouseSearch.job = nextJob or banditHouseSearch.job
+        if status == "pending" then return false, searchReason or "house_searching" end
+        local pending = banditHouseSearch
+        banditHouseSearch = nil
+        if status ~= "complete" or not house then return false, searchReason end
+        local group, createReason = createGroup(house, pending.memberCount, false, "bandit_camp")
+        if not group then return false, createReason end
+        lastBanditSpawnDay = pending.day
+        return true, group.id
+    end
+    local day = worldDay()
+    if day < (tonumber(SC.Config.get("banditFactionFirstEligibleDay")) or 4) then
+        return false, "world_too_young_for_bandits"
+    end
+    if day - lastBanditSpawnDay
+        < (tonumber(SC.Config.get("banditFactionSpawnCooldownDays")) or 10) then
+        return false, "bandit_spawn_cooldown"
+    end
+    if day == lastBanditCheckDay then return false, "bandit_daily_roll_already_made" end
+    lastBanditCheckDay = day
+    if random(100) >= (tonumber(SC.Config.get("banditFactionDailySpawnChancePercent")) or 4) then
+        return false, "bandit_daily_roll_missed"
+    end
+    local memberCount = banditMemberCount(day)
+    local status, house, reason, job = Factions.pollHouseSearch(player, {
+        allowSeen = false,
+        minimumDistance = tonumber(SC.Config.get("banditFactionSpawnMinDistance")) or 55,
+        maximumDistance = tonumber(SC.Config.get("banditFactionSpawnMaxDistance")) or 90,
+    }, nil)
+    if status == "pending" then
+        banditHouseSearch = { job = job, day = day, memberCount = memberCount }
+        return false, reason or "house_searching"
+    end
+    if status ~= "complete" or not house then return false, reason end
+    local group, createReason = createGroup(house, memberCount, false, "bandit_camp")
+    if not group then return false, createReason end
+    lastBanditSpawnDay = day
+    return true, group.id
+end
+
 function Factions.debugSpawnHousehold(player, size)
     if SC.Config.get("debugSpawnEnabled") ~= true then return false, "debug_tools_disabled" end
     if not SC.Actor or type(SC.Actor.checkBridge) ~= "function" then
@@ -1867,7 +2216,8 @@ function Factions.debugSpawnHousehold(player, size)
     end
     local ready, providerReason = SC.Actor.checkBridge(false)
     if ready ~= true then return false, providerReason or "actor_provider_unavailable" end
-    if #groupOrder >= (tonumber(SC.Config.get("factionMaxHouseholds")) or 3) then
+    if livingGroupCount("barricaded_household")
+        >= (tonumber(SC.Config.get("factionMaxHouseholds")) or 3) then
         return false, "faction_cap_reached"
     end
     local house, reason = Factions.findHouse(player, {
@@ -1879,6 +2229,60 @@ function Factions.debugSpawnHousehold(player, size)
     if size == "random" or size == nil then size = minimum + random(maximum - minimum + 1) end
     local group, createReason = createGroup(house, size, true)
     return group ~= nil, group and group.id or createReason
+end
+
+function Factions.debugSpawnBanditCamp(player, size, loadoutOverride)
+    if SC.Config.get("debugSpawnEnabled") ~= true then return false, "debug_tools_disabled" end
+    if not SC.Actor or type(SC.Actor.checkBridge) ~= "function" then
+        return false, "actor_provider_unavailable"
+    end
+    local ready, providerReason = SC.Actor.checkBridge(false)
+    if ready ~= true then return false, providerReason or "actor_provider_unavailable" end
+    if livingGroupCount("bandit_camp")
+        >= (tonumber(SC.Config.get("banditFactionMaxCamps")) or 1) then
+        return false, "bandit_camp_cap_reached"
+    end
+    local house, reason = Factions.findHouse(player, {
+        allowSeen = true, minimumDistance = 8, maximumDistance = 55, sampleBudget = 160,
+    })
+    if not house then return false, reason end
+    if size == "random" or size == nil then size = banditMemberCount(worldDay()) end
+    local group, createReason = createGroup(
+        house, size, true, "bandit_camp", loadoutOverride)
+    return group ~= nil, group and group.id or createReason
+end
+
+function Factions.debugSetBanditEngagement(id, engagement)
+    if SC.Config.get("debugSpawnEnabled") ~= true then return false, "debug_tools_disabled" end
+    local group = groups[id]
+    if not group or group.archetype ~= "bandit_camp" then
+        return false, "bandit_camp_unavailable"
+    end
+    if engagement ~= "unaware" and engagement ~= "challenging"
+        and engagement ~= "attacking" then return false, "invalid_bandit_engagement" end
+    ensureBanditState(group)
+    group.bandit.engagement = engagement
+    if engagement == "unaware" then
+        group.bandit.attackedHour, group.bandit.engagedHour = nil, nil
+    elseif engagement == "attacking" then
+        group.bandit.engagedHour = worldAgeHours()
+    end
+    return true, engagement
+end
+
+function Factions.debugStartBanditPatrol(id)
+    if SC.Config.get("debugSpawnEnabled") ~= true then return false, "debug_tools_disabled" end
+    local group = groups[id]
+    if not group or group.archetype ~= "bandit_camp" then
+        return false, "bandit_camp_unavailable"
+    end
+    ensureBanditState(group)
+    group.bandit.patrolMemberKey = nil
+    group.bandit.patrolStartedHour = nil
+    group.bandit.patrolReturnHour = nil
+    group.bandit.patrolPhase = nil
+    group.bandit.nextPatrolHour = 0
+    return true, "bandit_patrol_due"
 end
 
 function Factions.debugSpawnLone(player)
@@ -1940,6 +2344,7 @@ function Factions.debugSetBarter(id, unlocked)
     if SC.Config.get("debugSpawnEnabled") ~= true then return false, "debug_tools_disabled" end
     local group = groups[id]
     if not group then return false, "faction_unavailable" end
+    if not Factions.supports(group, "trade") then return false, "faction_does_not_trade" end
     group.barterUnlocked = unlocked == true
     if unlocked == true and group.request then group.request.status = "completed" end
     return true, unlocked == true and "barter_unlocked" or "barter_locked"
@@ -1956,11 +2361,12 @@ function Factions.pulse(player, current)
             and type(SC.FactionLife.pulseGroup) == "function" then
             SC.FactionLife.pulseGroup(group, player, current)
         end
-        if group and group.lifecycle ~= "destroyed" and SC.FactionContracts
+        if group and group.lifecycle ~= "destroyed" and Factions.supports(group, "social")
+            and SC.FactionContracts
             and type(SC.FactionContracts.pulseGroup) == "function" then
             SC.FactionContracts.pulseGroup(group, player, current)
         end
-        if group and SC.FactionRecruitment
+        if group and Factions.supports(group, "recruitment") and SC.FactionRecruitment
             and type(SC.FactionRecruitment.pulseGroup) == "function" then
             SC.FactionRecruitment.pulseGroup(group, player, current)
         end
@@ -1969,6 +2375,7 @@ function Factions.pulse(player, current)
         Factions._nextProductionAt = current
             + (tonumber(SC.Config.get("factionProductionCheckIntervalMs")) or 30000)
         Factions.productionPulse(player)
+        Factions.banditProductionPulse(player)
     end
     if SC.FactionWorld and type(SC.FactionWorld.pulse) == "function" then
         SC.FactionWorld.pulse(worldAgeHours())
@@ -1993,6 +2400,8 @@ function Factions.export()
     if lastProductionCheckDay ~= -math.huge then
         result.lastProductionCheckDay = lastProductionCheckDay
     end
+    if lastBanditSpawnDay ~= -math.huge then result.lastBanditSpawnDay = lastBanditSpawnDay end
+    if lastBanditCheckDay ~= -math.huge then result.lastBanditCheckDay = lastBanditCheckDay end
     for _, id in ipairs(groupOrder) do
         local group = groups[id]
         if group then
@@ -2087,11 +2496,23 @@ local function validGroup(source, id, path)
     if type(source) ~= "table" or source.id ~= id
         or type(id) ~= "string" or #id < 8 or #id > 96
         or type(source.name) ~= "string" or #source.name < 1 or #source.name > 96
-        or source.archetype ~= "barricaded_household"
+        or archetypeProfiles[source.archetype] == nil
         or not lifecycleValues[source.lifecycle]
         or not standingValues[source.standing]
         or type(source.house) ~= "table" or type(source.location) ~= "table" then
         return restoreFailure(path, "invalid group header")
+    end
+    if source.archetype == "bandit_camp" then
+        local bandit = source.bandit
+        if type(bandit) ~= "table" or bandit.schema ~= 1
+            or (bandit.threatTier ~= "melee" and bandit.threatTier ~= "mixed"
+                and bandit.threatTier ~= "armed")
+            or (bandit.engagement ~= "unaware" and bandit.engagement ~= "challenging"
+                and bandit.engagement ~= "attacking")
+            or not finiteNumber(bandit.nextPatrolHour)
+            or not finiteNumber(bandit.patrolSerial) then
+            return restoreFailure(path .. ".bandit", "invalid bandit state")
+        end
     end
     local okay, reason = validPosition(source.house.anchor, path .. ".house.anchor", false)
     if not okay then return false, reason end
@@ -2213,7 +2634,8 @@ local function captureRestoreState()
         groups = groups, order = groupOrder, members = memberToGroup,
         sequence = sequence, worldDay = lastWorldSpawnDay,
         checkDay = lastProductionCheckDay,
-        houseSearch = productionHouseSearch,
+        banditWorldDay = lastBanditSpawnDay, banditCheckDay = lastBanditCheckDay,
+        houseSearch = productionHouseSearch, banditHouseSearch = banditHouseSearch,
         queue = spawnQueue, ticket = spawnTicket, entry = spawnEntry,
         restored = restored,
         observed = observedContainers, attacks = recentPlayerAttacks,
@@ -2226,7 +2648,8 @@ local function reinstateRestoreState(previous)
     groups, groupOrder, memberToGroup = previous.groups, previous.order, previous.members
     sequence, lastWorldSpawnDay, lastProductionCheckDay = previous.sequence,
         previous.worldDay, previous.checkDay
-    productionHouseSearch = previous.houseSearch
+    lastBanditSpawnDay, lastBanditCheckDay = previous.banditWorldDay, previous.banditCheckDay
+    productionHouseSearch, banditHouseSearch = previous.houseSearch, previous.banditHouseSearch
     spawnQueue, spawnTicket, spawnEntry = previous.queue, previous.ticket, previous.entry
     restored = previous.restored
     observedContainers, recentPlayerAttacks = previous.observed, previous.attacks
@@ -2248,7 +2671,7 @@ local function cancelRestoreSpawn(ticket)
 end
 
 local function commitRestoredTransients()
-    productionHouseSearch = nil
+    productionHouseSearch, banditHouseSearch = nil, nil
     spawnQueue, spawnTicket, spawnEntry = {}, nil, nil
     observedContainers = setmetatable({}, { __mode = "k" })
     recentPlayerAttacks = {}
@@ -2259,17 +2682,21 @@ end
 function Factions.restore(document)
     local candidateGroups, candidateOrder, candidateMembers = {}, {}, {}
     local candidateSequence, candidateWorldDay, candidateCheckDay = 0, -math.huge, -math.huge
+    local candidateBanditWorldDay, candidateBanditCheckDay = -math.huge, -math.huge
     if document == nil then
         local previous = captureRestoreState()
         local cancelled, cancelReason = cancelRestoreSpawn(previous.ticket)
         if not cancelled then return false, cancelReason end
         groups, groupOrder, memberToGroup = candidateGroups, candidateOrder, candidateMembers
         sequence, lastWorldSpawnDay, lastProductionCheckDay = 0, -math.huge, -math.huge
+        lastBanditSpawnDay, lastBanditCheckDay = -math.huge, -math.huge
         restored = true
         commitRestoredTransients()
         return true, "no_faction_state"
     end
-    if type(document) ~= "table" or document.schema ~= SCHEMA or type(document.groups) ~= "table" then
+    if type(document) ~= "table"
+        or (document.schema ~= SCHEMA and document.schema ~= LEGACY_SCHEMA)
+        or type(document.groups) ~= "table" then
         return false, "invalid_faction_state"
     end
     local sourceOrder, copyReason = stableCopy(document.order, 3, { count = 256 })
@@ -2288,11 +2715,21 @@ function Factions.restore(document)
         and not finiteNumber(document.lastProductionCheckDay) then
         return restoreFailure("$.factions.lastProductionCheckDay", "expected finite number")
     end
+    if document.lastBanditSpawnDay ~= nil and not finiteNumber(document.lastBanditSpawnDay) then
+        return restoreFailure("$.factions.lastBanditSpawnDay", "expected finite number")
+    end
+    if document.lastBanditCheckDay ~= nil and not finiteNumber(document.lastBanditCheckDay) then
+        return restoreFailure("$.factions.lastBanditCheckDay", "expected finite number")
+    end
     candidateSequence = math.max(0, math.floor(tonumber(document.sequence)))
     candidateWorldDay = document.lastWorldSpawnDay ~= nil
         and tonumber(document.lastWorldSpawnDay) or -math.huge
     candidateCheckDay = document.lastProductionCheckDay ~= nil
         and tonumber(document.lastProductionCheckDay) or -math.huge
+    candidateBanditWorldDay = document.lastBanditSpawnDay ~= nil
+        and tonumber(document.lastBanditSpawnDay) or -math.huge
+    candidateBanditCheckDay = document.lastBanditCheckDay ~= nil
+        and tonumber(document.lastBanditCheckDay) or -math.huge
     local seenGroups, seenActors, occupiedNames = {}, {}, {}
     -- Reserve every authored name before migrating legacy entries so a
     -- generated name can never displace a custom name that appears later.
@@ -2318,6 +2755,7 @@ function Factions.restore(document)
                 groupCopyReason or "copy failed")
         end
         ensureFactionIdentity(group, occupiedNames)
+        ensureBanditState(group)
         local groupOkay, groupReason = validGroup(group, id,
             "$.factions.groups[" .. tostring(id) .. "]")
         if groupOkay then
@@ -2395,6 +2833,7 @@ function Factions.restore(document)
     groups, groupOrder, memberToGroup = candidateGroups, candidateOrder, candidateMembers
     sequence, lastWorldSpawnDay, lastProductionCheckDay = candidateSequence,
         candidateWorldDay, candidateCheckDay
+    lastBanditSpawnDay, lastBanditCheckDay = candidateBanditWorldDay, candidateBanditCheckDay
     restored = true
 
     local function reconcileAndCancel()
@@ -2430,6 +2869,8 @@ function Factions.reset()
     end
     groups, groupOrder, memberToGroup = {}, {}, {}
     sequence, lastWorldSpawnDay, lastProductionCheckDay = 0, -math.huge, -math.huge
+    lastBanditSpawnDay, lastBanditCheckDay = -math.huge, -math.huge
+    productionHouseSearch, banditHouseSearch = nil, nil
     spawnQueue, spawnTicket, spawnEntry = {}, nil, nil
     observedContainers = setmetatable({}, { __mode = "k" })
     recentPlayerAttacks = {}

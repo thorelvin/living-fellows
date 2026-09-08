@@ -74,6 +74,7 @@ function CompanionMap.factionRows()
                 rows[#rows + 1] = {
                     id = group.id,
                     name = tostring(group.name or "Faction"),
+                    archetype = group.archetype,
                     standing = group.standing,
                     x = x, y = y, z = z,
                 }
@@ -146,7 +147,11 @@ local function drawFactionMarker(map, row, occupied)
     if factionHouseTexture == nil then return false end
 
     local red, green, blue = 0.18, 0.16, 0.13
-    if row.standing == "Hostile" then red, green, blue = 0.68, 0.08, 0.06 end
+    if row.archetype == "bandit_camp" then
+        red, green, blue = 0.78, 0.04, 0.03
+    elseif row.standing == "Hostile" then
+        red, green, blue = 0.68, 0.08, 0.06
+    end
     map:drawTextureScaled(factionHouseTexture, uiX - 8, uiY - 8, 16, 16,
         1.00, red, green, blue)
 

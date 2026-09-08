@@ -845,6 +845,11 @@ local pools = {
         "You were warned!", "Get away from our home!", "Back off, now!",
         "That is it! Get out!", "You chose this, stranger!",
     } },
+    ["faction.bandit.challenge"] = { common = {
+        "Stop right there. Turn around.", "That's close enough. Walk away.",
+        "Hold it. Leave now and you keep what you have.",
+        "Wrong road, stranger. Back up.", "Don't take another step.",
+    } },
     ["faction.recruit.candidate"] = { common = {
         "I can try one run with you. Then I decide.", "One trip. I want to see how you handle yourself.",
         "I will come for a trial run, nothing more yet.", "Let me test the road with you before I promise anything.",

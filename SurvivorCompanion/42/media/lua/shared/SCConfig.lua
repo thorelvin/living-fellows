@@ -586,6 +586,25 @@ local valueData = {
     factionHouseSampleBudget = 96,
     factionMemberMin = 1,
     factionMemberMax = 3,
+    -- Hostile camps use a separate production roll so peaceful households do
+    -- not starve them (or vice versa). Their patrol and contact memories remain
+    -- local, bounded and driven by confirmed sight or registered sound.
+    banditFactionEnabled = true,
+    banditFactionFirstEligibleDay = 4,
+    banditFactionSpawnCooldownDays = 10,
+    banditFactionDailySpawnChancePercent = 4,
+    banditFactionMaxCamps = 1,
+    banditFactionSpawnMinDistance = 55,
+    banditFactionSpawnMaxDistance = 90,
+    banditFactionAwarenessRadius = 24,
+    banditFactionLastSeenMs = 6000,
+    banditFactionHeardMemoryMs = 8000,
+    banditFactionChallengeMs = 2000,
+    banditFactionPursuitLeash = 24,
+    banditFactionFirearmMaxRange = 8,
+    banditFactionPatrolIntervalHours = 2,
+    banditFactionPatrolMinRadius = 8,
+    banditFactionPatrolMaxRadius = 24,
     factionWarningOuterRadius = 18,
     factionWarningInnerRadius = 10,
     factionPursuitLeash = 15,
@@ -739,6 +758,22 @@ local aliases = {
         sampleBudget = "factionHouseSampleBudget",
         memberMin = "factionMemberMin",
         memberMax = "factionMemberMax",
+        banditsEnabled = "banditFactionEnabled",
+        banditFirstEligibleDay = "banditFactionFirstEligibleDay",
+        banditCooldownDays = "banditFactionSpawnCooldownDays",
+        banditDailyChancePercent = "banditFactionDailySpawnChancePercent",
+        maxBanditCamps = "banditFactionMaxCamps",
+        banditSpawnMinDistance = "banditFactionSpawnMinDistance",
+        banditSpawnMaxDistance = "banditFactionSpawnMaxDistance",
+        banditAwarenessRadius = "banditFactionAwarenessRadius",
+        banditLastSeenMs = "banditFactionLastSeenMs",
+        banditHeardMemoryMs = "banditFactionHeardMemoryMs",
+        banditChallengeMs = "banditFactionChallengeMs",
+        banditPursuitLeash = "banditFactionPursuitLeash",
+        banditFirearmMaxRange = "banditFactionFirearmMaxRange",
+        banditPatrolIntervalHours = "banditFactionPatrolIntervalHours",
+        banditPatrolMinRadius = "banditFactionPatrolMinRadius",
+        banditPatrolMaxRadius = "banditFactionPatrolMaxRadius",
         warningOuterRadius = "factionWarningOuterRadius",
         warningInnerRadius = "factionWarningInnerRadius",
         pursuitLeash = "factionPursuitLeash",
@@ -862,6 +897,15 @@ function SC.Config.refreshSandbox(source)
     end
     local households = clamp(sandbox.MaxHouseholds, 0, 12)
     if households then runtimeOverrides.factionMaxHouseholds = math.floor(households) end
+    if type(sandbox.BanditCampsEnabled) == "boolean" then
+        runtimeOverrides.banditFactionEnabled = sandbox.BanditCampsEnabled
+    end
+    local banditChance = clamp(sandbox.BanditCampDailyChance, 0, 100)
+    if banditChance then
+        runtimeOverrides.banditFactionDailySpawnChancePercent = math.floor(banditChance)
+    end
+    local banditCamps = clamp(sandbox.MaxBanditCamps, 0, 3)
+    if banditCamps then runtimeOverrides.banditFactionMaxCamps = math.floor(banditCamps) end
     local opacity = clamp(sandbox.UIOpacity, 0.25, 0.85)
     if opacity then runtimeOverrides.uiPanelOpacity = opacity end
     return true

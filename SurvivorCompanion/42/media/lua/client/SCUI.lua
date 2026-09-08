@@ -1376,6 +1376,13 @@ local function onFactionButton(target, button)
             tonumber(string.sub(action, -1)))
     elseif action == "spawn_random" then
         ok, accepted, reason = pcall(SC.Factions.debugSpawnHousehold, playerForUI(), "random")
+    elseif action == "spawn_bandits_random" then
+        ok, accepted, reason = pcall(SC.Factions.debugSpawnBanditCamp,
+            playerForUI(), "random")
+    elseif action == "spawn_bandits_melee" or action == "spawn_bandits_armed" then
+        ok, accepted, reason = pcall(SC.Factions.debugSpawnBanditCamp,
+            playerForUI(), "random",
+            action == "spawn_bandits_armed" and "armed" or "melee")
     elseif action == "locate_house" then
         local located, message = UI.locateDebugFactionHouse(factionId or newestFactionId(false))
         setButtonFeedback(target, message, located == true)
@@ -1389,6 +1396,13 @@ local function onFactionButton(target, button)
             string.sub(action, 13))
     elseif action == "advance_job" then
         ok, accepted, reason = pcall(SC.Factions.debugAdvanceJob,
+            factionId or newestFactionId(false))
+    elseif action == "bandit_unaware" or action == "bandit_attacking" then
+        ok, accepted, reason = pcall(SC.Factions.debugSetBanditEngagement,
+            factionId or newestFactionId(false),
+            action == "bandit_attacking" and "attacking" or "unaware")
+    elseif action == "bandit_patrol_due" then
+        ok, accepted, reason = pcall(SC.Factions.debugStartBanditPatrol,
             factionId or newestFactionId(false))
     elseif action == "force_wary" or action == "force_trusted" or action == "force_hostile" then
         local standing = action == "force_wary" and "Wary"
@@ -1445,7 +1459,9 @@ local function onFactionButton(target, button)
     end
     local successful = ok and accepted == true
     if successful and (action == "spawn_1" or action == "spawn_2"
-        or action == "spawn_3" or action == "spawn_random") then
+        or action == "spawn_3" or action == "spawn_random"
+        or action == "spawn_bandits_random" or action == "spawn_bandits_melee"
+        or action == "spawn_bandits_armed") then
         local located, locationText = UI.locateDebugFactionHouse(reason)
         if located then reason = locationText end
     end
@@ -2354,8 +2370,14 @@ function SCUIDetail:buildFactions(panel)
     for index, faction in ipairs(factions) do
         local summary = SC.Factions.summary(faction.id)
         if index > 1 then y = y + 6 end
-        y = self:addSection(panel, y, "UI_SC_Factions_Household")
+        local isBandit = summary.archetype == "bandit_camp"
+        local capabilities = type(summary.capabilities) == "table"
+            and summary.capabilities or {}
+        y = self:addSection(panel, y, isBandit
+            and "UI_SC_Factions_BanditCamp" or "UI_SC_Factions_Household")
         y = self:addInformationLine(panel, y, "UI_SC_Faction_Name", summary.name)
+        y = self:addInformationLine(panel, y, "UI_SC_Faction_Type",
+            UI.stateText(summary.archetype or "barricaded_household"))
         local location = type(summary.location) == "table" and summary.location or {}
         local coordinates = type(location.coordinates) == "table"
             and location.coordinates or {}
@@ -2375,6 +2397,12 @@ function SCUIDetail:buildFactions(panel)
             UI.stateText(summary.lifecycle))
         y = self:addInformationLine(panel, y, "UI_SC_Faction_Members",
             tostring(summary.alive) .. " alive | " .. tostring(summary.active) .. " active")
+        if isBandit and type(summary.bandit) == "table" then
+            y = self:addInformationLine(panel, y, "UI_SC_Faction_Threat",
+                UI.stateText(summary.bandit.threatTier or "melee"))
+            y = self:addInformationLine(panel, y, "UI_SC_Faction_Patrol",
+                UI.stateText(summary.bandit.patrolPhase or "guarding"))
+        end
         local world = summary.world
         if world then
             y = self:addSection(panel, y + 4, "UI_SC_FactionWorld_Section")
@@ -2574,15 +2602,18 @@ function SCUIDetail:buildFactions(panel)
         end
         local life = summary.life
         if life then
-            y = self:addSection(panel, y + 4, "UI_SC_Faction_Life")
+            y = self:addSection(panel, y + 4, isBandit
+                and "UI_SC_Faction_BanditLife" or "UI_SC_Faction_Life")
             y = self:addInformationLine(panel, y, "UI_SC_Faction_Personality",
                 life.personality)
             y = self:addInformationLine(panel, y, "UI_SC_Faction_Resources",
                 UI.text("UI_SC_Faction_ResourceValue",
                     UI.stateText(life.resources.level),
                     UI.humanize(life.resources.shortage or "none")))
-            y = self:addInformationLine(panel, y, "UI_SC_Faction_Representative",
-                UI.stateText(life.representative.state or "inside"))
+            if not isBandit then
+                y = self:addInformationLine(panel, y, "UI_SC_Faction_Representative",
+                    UI.stateText(life.representative.state or "inside"))
+            end
             if type(life.mourning) == "table" then
                 y = self:addInformationLine(panel, y, "UI_SC_Faction_Mourning",
                     UI.text("UI_SC_Faction_MourningValue",
@@ -2606,16 +2637,18 @@ function SCUIDetail:buildFactions(panel)
                 y = self:addInformationLine(panel, y, "UI_SC_Faction_Crisis",
                     UI.text("UI_SC_Value_None"))
             end
-            y = self:addInformationLine(panel, y, "UI_SC_Faction_Rumours",
-                UI.text("UI_SC_Faction_RumoursValue",
-                    life.rumoursShared, life.rumoursTotal))
-            if (summary.standing == "Tolerated" or summary.standing == "Trusted")
-                and life.rumoursShared < life.rumoursTotal then
-                y = self:addFactionAction(panel, y, "UI_SC_Faction_AskRumour",
-                    "ask_rumour", summary.id)
+            if not isBandit then
+                y = self:addInformationLine(panel, y, "UI_SC_Faction_Rumours",
+                    UI.text("UI_SC_Faction_RumoursValue",
+                        life.rumoursShared, life.rumoursTotal))
+                if (summary.standing == "Tolerated" or summary.standing == "Trusted")
+                    and life.rumoursShared < life.rumoursTotal then
+                    y = self:addFactionAction(panel, y, "UI_SC_Faction_AskRumour",
+                        "ask_rumour", summary.id)
+                end
             end
         end
-        if summary.request and not social then
+        if summary.request and not social and not isBandit then
             y = self:addInformationLine(panel, y, "UI_SC_Faction_Request",
                 summary.request.label .. ": " .. requestItemsText(summary.request.required))
             y = self:addInformationLine(panel, y, "UI_SC_Faction_Reward",
@@ -2625,7 +2658,8 @@ function SCUIDetail:buildFactions(panel)
                     "request", summary.id)
             end
         end
-        if (tonumber(summary.unresolvedOffenses) or 0) > 0 then
+        if (tonumber(summary.unresolvedOffenses) or 0) > 0
+            and not isBandit then
             y = self:addSection(panel, y + 4, "UI_SC_Faction_Restitution")
             if summary.permanentHostility then
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
@@ -2664,10 +2698,13 @@ function SCUIDetail:buildFactions(panel)
                 end
             end
         end
-        y = self:addInformationLine(panel, y, "UI_SC_Faction_Barter",
-            summary.barterUnlocked and UI.text("UI_SC_Faction_BarterUnlocked")
-                or UI.text("UI_SC_Faction_BarterLocked"))
-        if social and type(social.reserveSummary) == "table" and #social.reserveSummary > 0 then
+        if capabilities.trade == true then
+            y = self:addInformationLine(panel, y, "UI_SC_Faction_Barter",
+                summary.barterUnlocked and UI.text("UI_SC_Faction_BarterUnlocked")
+                    or UI.text("UI_SC_Faction_BarterLocked"))
+        end
+        if capabilities.trade == true and social
+            and type(social.reserveSummary) == "table" and #social.reserveSummary > 0 then
             y = self:addSection(panel, y + 4, "UI_SC_Faction_Reserves")
             for _, reserve in ipairs(social.reserveSummary) do
                 y = self:addInformationLine(panel, y, "UI_SC_Faction_Reserve",
@@ -2678,7 +2715,7 @@ function SCUIDetail:buildFactions(panel)
                             UI.humanize(reserve.category), reserve.reason))
             end
         end
-        if summary.barterUnlocked and SC.Trade then
+        if capabilities.trade == true and summary.barterUnlocked and SC.Trade then
             local canOpen, unavailable = SC.Trade.canOpen(summary.id, playerForUI())
             if not canOpen then
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
@@ -2802,6 +2839,12 @@ function SCUIDetail:buildDebug(panel)
     y = self:addFactionAction(panel, y, "UI_SC_Debug_SpawnTwo", "spawn_2")
     y = self:addFactionAction(panel, y, "UI_SC_Debug_SpawnThree", "spawn_3")
     y = self:addFactionAction(panel, y, "UI_SC_Debug_SpawnRandom", "spawn_random")
+    y = self:addFactionAction(panel, y, "UI_SC_Debug_SpawnBandits",
+        "spawn_bandits_random")
+    y = self:addFactionAction(panel, y, "UI_SC_Debug_SpawnBanditsMelee",
+        "spawn_bandits_melee")
+    y = self:addFactionAction(panel, y, "UI_SC_Debug_SpawnBanditsArmed",
+        "spawn_bandits_armed")
     if UI._debugHouseLocator then
         y = self:addFactionAction(panel, y, "UI_SC_Debug_ClearHouseMarker",
             "clear_house_marker")
@@ -2836,6 +2879,7 @@ function SCUIDetail:buildDebug(panel)
                 "locate_house", id)
         end
         y = self:addFactionAction(panel, y, "UI_SC_Debug_Inspect", "inspect", id)
+        if faction.archetype ~= "bandit_camp" then
         y = self:addFactionAction(panel, y, "UI_SC_Debug_ForceWary", "force_wary", id)
         y = self:addFactionAction(panel, y, "UI_SC_Debug_ForceTrusted", "force_trusted", id)
         y = self:addFactionAction(panel, y, "UI_SC_Debug_ForceHostile", "force_hostile", id)
@@ -2911,6 +2955,16 @@ function SCUIDetail:buildDebug(panel)
             "recruitment_debug_decision_join", id)
         y = self:addFactionAction(panel, y, "UI_SC_Debug_RecruitmentReturn",
             "recruitment_debug_decision_return", id)
+        end
+        if faction.archetype == "bandit_camp" then
+            y = self:addSection(panel, y + 4, "UI_SC_Debug_BanditControls")
+            y = self:addFactionAction(panel, y, "UI_SC_Debug_BanditUnaware",
+                "bandit_unaware", id)
+            y = self:addFactionAction(panel, y, "UI_SC_Debug_BanditAttacking",
+                "bandit_attacking", id)
+            y = self:addFactionAction(panel, y, "UI_SC_Debug_BanditPatrol",
+                "bandit_patrol_due", id)
+        end
         if faction.debugCreated == true then
             y = self:addFactionAction(panel, y, "UI_SC_Debug_Delete", "delete", id)
         end

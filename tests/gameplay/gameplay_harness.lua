@@ -7748,8 +7748,151 @@ local canRepair, repairReason = Factions.canReconcile("faction-test")
 check(not canRepair and repairReason == "murder_is_not_forgiven",
     "permanent hostility cannot be erased by a reconciliation parcel")
 local exported = Factions.export()
-check(exported.schema == 1 and exported.groups["faction-test"].standing == "Hostile",
+check(exported.schema == 2 and exported.groups["faction-test"].standing == "Hostile",
     "faction standing and territory export transactionally")
+do
+    local banditGroup = SurvivorCompanion.StableValue.copyStrict(
+        exported.groups["faction-test"], {
+            maxDepth = 16, maxEntries = 131072, path = "$.banditFixture",
+        })
+    banditGroup.id = "faction-bandit-test"
+    banditGroup.name = "The Ash Creek Jackals"
+    banditGroup.archetype = "bandit_camp"
+    banditGroup.lifecycle = "settled"
+    banditGroup.standing = "Hostile"
+    banditGroup.reputation = -100
+    banditGroup.permanentHostility = true
+    banditGroup.discovered = true
+    banditGroup.bandit = {
+        schema = 1, threatTier = "melee", armed = false,
+        nextPatrolHour = getGameTime():getWorldAgeHours() + 1,
+        patrolSerial = 0, engagement = "unaware",
+    }
+    for _, member in ipairs(banditGroup.members) do member.actorId = nil end
+    local banditDocument = {
+        schema = 2, sequence = 5, order = { banditGroup.id },
+        groups = { [banditGroup.id] = banditGroup },
+    }
+    local restoredBandits, restoredBanditCount = Factions.restore(banditDocument)
+    local banditSummary = Factions.summary(banditGroup.id)
+    check(restoredBandits and restoredBanditCount == 1 and banditSummary
+            and banditSummary.archetype == "bandit_camp"
+            and banditSummary.capabilities.patrol == true
+            and banditSummary.capabilities.social == false
+            and banditSummary.social == nil and banditSummary.recruitment == nil
+            and banditSummary.bandit.engagement == "unaware",
+        "bandit camps persist as a distinct permanently-hostile faction archetype without social services")
+    local earlyTier, earlyArmed = Factions._banditTierForDayForTests(5)
+    local middleTier = Factions._banditTierForDayForTests(20)
+    local forcedTier, forcedArmed = Factions._banditTierForDayForTests(5, "armed")
+    local earlyCount = Factions._banditMemberCountForTests(5)
+    local lateCount = Factions._banditMemberCountForTests(35)
+    check(earlyTier == "melee" and earlyArmed == false and middleTier == "mixed"
+            and forcedTier == "armed" and forcedArmed == true
+            and earlyCount >= 1 and earlyCount <= 2
+            and lateCount >= 2 and lateCount <= 3,
+        "bandit population and firearms scale within the intended day-based bounds")
+
+    local savedPlayerSquare = player.square
+    player.square = cell:getGridSquare(0, 0, 0)
+    player.aiming = false
+    local banditActor = actor("bandit-test-actor", 2, 0, { recruited = false })
+    local companionActor = actor("bandit-test-companion", 0, 1, { recruited = true })
+    local liveBanditGroup = Factions.group(banditGroup.id)
+    liveBanditGroup.members[1].actorId = banditActor.id
+    registry[banditActor.id] = {
+        id = banditActor.id, actor = banditActor,
+        factionId = liveBanditGroup.id, factionRole = liveBanditGroup.members[1].role,
+    }
+    registry[companionActor.id] = {
+        id = companionActor.id, actor = companionActor,
+        recruited = true, factionId = nil,
+    }
+    SurvivorCompanion.FactionBehavior.reset()
+    local banditIntent = SurvivorCompanion.FactionBehavior.intentFor(
+        banditActor, player, { threats = {}, threatCount = 0, sounds = {} })
+    local challenged = SurvivorCompanion.FactionBehavior.update(
+        banditActor, player, {}, banditIntent)
+    check(banditIntent and banditIntent.mode == "bandit_human" and challenged
+            and liveBanditGroup.bandit.engagement == "challenging"
+            and banditActor.lastIntent and banditActor.lastIntent.action == "face_alert",
+        "a bandit with direct sight warns the player before escalating to combat")
+
+    local heardAttack
+    local originalHear = SurvivorCompanion.Senses.hear
+    SurvivorCompanion.Senses.hear = function(source, x, y, z, radius, volume, kind)
+        heardAttack = { source = source, x = x, y = y, z = z,
+            radius = radius, volume = volume, kind = kind }
+        return true
+    end
+    local firearm = {
+        isRanged = function() return true end,
+        getSoundRadius = function() return 40 end,
+    }
+    local originalGetPlayer = getPlayer
+    getPlayer = function() return player end
+    Factions.onWeaponSwingHitPoint(player, firearm)
+    getPlayer = originalGetPlayer
+    SurvivorCompanion.Senses.hear = originalHear
+    check(heardAttack and heardAttack.source == player and heardAttack.radius == 40
+            and heardAttack.kind == "player_attack",
+        "player weapon swings enter the bounded sound memory used by bandit hearing")
+
+    player.square.losBlocked = true
+    companionActor.square.losBlocked = true
+    SurvivorCompanion.FactionBehavior.reset(banditActor)
+    local heardIntent = SurvivorCompanion.FactionBehavior.intentFor(
+        banditActor, player, { threats = {}, threatCount = 0, sounds = {
+            { source = player, x = player:getX(), y = player:getY(), z = player:getZ(),
+                radius = 20, volume = 20, time = clock },
+        } })
+    player.square.losBlocked = false
+    companionActor.square.losBlocked = false
+    check(heardIntent and heardIntent.mode == "bandit_investigate"
+            and heardIntent.sound.source == player,
+        "a wall-hidden hostile sound produces investigation without target acquisition: "
+            .. tostring(heardIntent and heardIntent.mode))
+
+    banditActor.square.losBlocked = true
+    SurvivorCompanion.FactionBehavior.reset(companionActor)
+    check(SurvivorCompanion.FactionBehavior.humanThreatFor(companionActor, player) == nil,
+        "companions never acquire a wall-hidden bandit without prior visual contact")
+    banditActor.square.losBlocked = false
+    local visibleBandit = SurvivorCompanion.FactionBehavior.humanThreatFor(
+        companionActor, player)
+    local seenX, seenY = visibleBandit and visibleBandit.x, visibleBandit and visibleBandit.y
+    banditActor.square = cell:getGridSquare(4, 0, 0)
+    banditActor.square.losBlocked = true
+    local rememberedBandit = SurvivorCompanion.FactionBehavior.humanThreatFor(
+        companionActor, player)
+    check(visibleBandit and visibleBandit.visible == true and rememberedBandit
+            and rememberedBandit.visible == false
+            and rememberedBandit.x == seenX and rememberedBandit.y == seenY,
+        "human-threat memory keeps the last seen square instead of tracking a bandit through walls")
+
+    banditActor.square.losBlocked = false
+    SurvivorCompanion.FactionBehavior.reset(companionActor)
+    local reacquiredBandit = SurvivorCompanion.FactionBehavior.humanThreatFor(
+        companionActor, player)
+    local combatCandidates = SurvivorCompanion.Decision._evaluateForTests(
+        companionActor, player,
+        { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0,
+            allies = {}, player = { danger = 0 }, humanThreat = reacquiredBandit },
+        { recruited = true, combatDoctrine = "close_defense" },
+        { alive = true, health = 100, wounds = {} }, {}, {}, clock)
+    check(combatCandidates[1] and combatCandidates[1].kind == "combat"
+            and combatCandidates[1].detail
+            and combatCandidates[1].detail.humanThreat.actor == banditActor,
+        "an engaged visible bandit enters the companion combat decision at survival priority")
+
+    local savedBandits = Factions.export()
+    check(savedBandits.schema == 2
+            and savedBandits.groups[banditGroup.id].bandit.engagement == "challenging",
+        "bandit engagement state survives the faction persistence boundary")
+    player.square = savedPlayerSquare
+    registry[banditActor.id], registry[companionActor.id] = nil, nil
+    SurvivorCompanion.FactionBehavior.reset()
+end
 do
     -- Report 6: a faction member's gear-add must tolerate an item that cannot
     -- instantiate, so the member still spawns

@@ -19,6 +19,7 @@ local limits = {
 
 local function noOwnedHooks()
     return (Events.OnWeaponHitCharacter == nil or Events.OnWeaponHitCharacter.count() == 0)
+        and (Events.OnWeaponSwingHitPoint == nil or Events.OnWeaponSwingHitPoint.count() == 0)
         and (Events.OnZombieDead == nil or Events.OnZombieDead.count() == 0)
         and not SC.Factions.hooksInstalled()
         and not SC.FactionContracts.hooksInstalled()
@@ -51,6 +52,7 @@ check(SC.Bootstrap.isInstalled()
         and Events.OnGameStart.count() == 1 and Events.OnSave.count() == 1
         and Events.OnMainMenuEnter.count() == 1
         and Events.OnWeaponHitCharacter.count() == 1
+        and Events.OnWeaponSwingHitPoint.count() == 1
         and Events.OnZombieDead.count() == 1,
     "production modules bootstrap with exactly one copy of every owned hook")
 check(SC.Factions.hooksInstalled() and SC.FactionContracts.hooksInstalled(),
@@ -91,7 +93,7 @@ check(removed and removeReason == "" and noOwnedHooks()
 check(SC.Bootstrap.install(), "bootstrap reinstalls after complete removal")
 Events.OnGameStart.fire()
 check(Events.OnZombieDead.count() == 1 and Events.OnWeaponHitCharacter.count() == 1
-        and Events.OnTick.count() == 1,
+        and Events.OnWeaponSwingHitPoint.count() == 1 and Events.OnTick.count() == 1,
     "a subsequent bootstrap and game start restore exactly one callback")
 check(SC.Bootstrap.remove() and noOwnedHooks(),
     "second bootstrap removal returns every long-lived hook to zero")
@@ -105,18 +107,22 @@ check(installed == false
     "faction hook installation reports a missing event and remains uninstalled")
 Events.OnWeaponHitCharacter = hitEvent
 check(SC.Factions.installHooks() and SC.Factions.hooksInstalled()
-        and hitEvent.count() == 1 and SC.Factions.installHooks() and hitEvent.count() == 1,
+        and hitEvent.count() == 1 and Events.OnWeaponSwingHitPoint.count() == 1
+        and SC.Factions.installHooks() and hitEvent.count() == 1
+        and Events.OnWeaponSwingHitPoint.count() == 1,
     "faction hook installation is truthful, queryable, and idempotent")
 local hitRemove = hitEvent.Remove
 hitEvent.Remove = nil
 local hitRemoved, hitRemoveReason = SC.Factions.removeHooks()
 check(hitRemoved == false
         and string.find(tostring(hitRemoveReason), "unavailable", 1, true) ~= nil
-        and SC.Factions.hooksInstalled() and hitEvent.count() == 1,
+        and SC.Factions.hooksInstalled() and hitEvent.count() == 1
+        and Events.OnWeaponSwingHitPoint.count() == 1,
     "failed faction hook removal preserves ownership state")
 hitEvent.Remove = hitRemove
 check(SC.Factions.removeHooks() and not SC.Factions.hooksInstalled()
-        and hitEvent.count() == 0 and SC.Factions.removeHooks(),
+        and hitEvent.count() == 0 and Events.OnWeaponSwingHitPoint.count() == 0
+        and SC.Factions.removeHooks(),
     "faction hook removal clears its callback and is idempotent")
 
 local zombieEvent = Events.OnZombieDead

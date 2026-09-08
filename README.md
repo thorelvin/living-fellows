@@ -42,7 +42,7 @@ New to Living Fellows? Jump to **[First five minutes](#first-five-minutes)**. Fu
 - Scavenging, nested bag management, armor and weapon upgrades, washing, eating, drinking, bandaging, supply crafting, and role-aware carry limits.
 - Follow, stay, guard, patrol, regroup, retreat, work, vehicle, weapon, combat, stealth, and Rules of Engagement policies.
 - Living-base routines, camp storage, readiness, watches, chores, repair, crafting, downtime, boredom, stress responses, conflict, and morale boosts.
-- Survivor households that barricade homes, warn strangers, defend territory, expose shortages, trade conditionally, remember player conduct, and offer social contracts.
+- Survivor households that barricade homes, warn strangers, defend territory, expose shortages, trade conditionally, remember player conduct, and offer social contracts, plus rare hostile bandit camps that patrol and fight both the player group and zombies.
 - Debug and profiling tools in development builds, with fail-closed runtime health checks in public builds.
 - A translucent companion panel, compact collapsed launcher, context commands, Support diagnostics, and recruited-teammate minimap markers.
 
@@ -180,9 +180,11 @@ Safe companions can read, sit, wash, maintain gear, craft supplies, sort storage
 
 ## Survivor households and factions
 
-The first faction archetype is a household of one to three survivors occupying a suitable house. They carry appropriate supplies, barricade secondary doors and windows while preserving an entrance, and remain separate from the companion roster.
+One faction archetype is a household of one to three survivors occupying a suitable house. They carry appropriate supplies, barricade secondary doors and windows while preserving an entrance, and remain separate from the companion roster.
 
 Residents warn unknown players, defend their territory, react to trespass, theft, damage, and murder, and remember what happened. A household can expose a genuine shortage, offer conditional barter, pass imperfect rumors, negotiate a social contract, grant temporary access, or eventually consider one nonessential resident for a recruitment trial. Discovered groups, needs, standing, relations, news, promises, rumors, and access appear in the Factions view, opened from the **More** tab.
+
+Bandit camps are a separate, permanently hostile archetype. They begin appearing rarely after day four, use their own sandbox enable/chance/cap controls, scale from melee-only groups toward occasional pistols or shotguns as the world ages, and keep at least one member guarding while another patrols. They need direct same-floor sight to target a player or companion, investigate recent hostile sounds without gaining wall vision, and search only the fixed last-seen position after contact is lost. Once engaged, recruited companions treat them as human combat threats. A discovered camp is identified by a stronger red house marker and its generated name on the world map; bandits do not trade, offer contracts, or recruit.
 
 ## Saves, updates, and backups
 

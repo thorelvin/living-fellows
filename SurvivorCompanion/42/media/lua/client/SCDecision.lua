@@ -174,7 +174,8 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         local pressure = math.max(needs.hunger or 0, needs.thirst or 0)
         add("needs", needs.active and 112 or (62 + pressure * 42), needs.emergency)
     end
-    if threatCount > 0 then
+    local humanThreat = type(snapshot) == "table" and snapshot.humanThreat or nil
+    if threatCount > 0 or humanThreat then
         local combatScore = 72 + immediate * 17 + (snapshot.pressure or 0) * 5
         local doctrine = commands.combatDoctrine
             or (commands.combatMode == "aggressive" and "weapons_free")
@@ -189,7 +190,16 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             and (snapshot.player and snapshot.player.immediateThreats or 0) == 0 then
             combatScore = 28
         end
-        add("combat", combatScore, immediate > 0 or snapshot.encircled)
+        if humanThreat and threatCount == 0 then
+            combatScore = humanThreat.visible == true and 106 or 84
+        end
+        add("combat", combatScore,
+            immediate > 0 or snapshot.encircled or humanThreat and humanThreat.visible == true,
+            threatCount == 0 and humanThreat and {
+                mode = "human_hostile",
+                targetId = humanThreat.id,
+                humanThreat = humanThreat,
+            } or nil)
     end
 
     if commands.recruited and commands.temporaryStay ~= true
@@ -225,7 +235,8 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
 
     if factionIntent then
         add("faction", tonumber(factionIntent.priority),
-            factionIntent.mode == "hostile", factionIntent)
+            factionIntent.mode == "hostile" or factionIntent.mode == "bandit_human",
+            factionIntent)
     end
 
     if factionIntent then
@@ -1140,6 +1151,14 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
         if not SC.Medical or type(SC.Medical.update) ~= "function" then return false, "medical_unavailable" end
         return callSubsystem("medical", actor, function() return SC.Medical.update(actor, player, rootRuntime) end)
     elseif candidate.kind == "combat" then
+        if type(candidate.detail) == "table" and candidate.detail.humanThreat
+            and SC.FactionBehavior
+            and type(SC.FactionBehavior.updateHumanCombat) == "function" then
+            return callSubsystem("human-combat", actor, function()
+                return SC.FactionBehavior.updateHumanCombat(actor, player, rootRuntime,
+                    candidate.detail.humanThreat)
+            end)
+        end
         if not SC.Combat or type(SC.Combat.update) ~= "function" then return false, "combat_unavailable" end
         return callSubsystem("combat", actor, function() return SC.Combat.update(actor, player, rootRuntime) end)
     elseif candidate.kind == "encounter" then
@@ -1360,7 +1379,8 @@ local function survivalNeedsImmediateControl(snapshot, assessment, needs, comman
         or #(snapshot.immediateAttackers or {})
     local playerDanger = type(snapshot.player) == "table"
         and tonumber(snapshot.player.danger) or 0
-    return immediate > 0 or (tonumber(snapshot.pressure) or 0) >= 1.5
+    return immediate > 0 or snapshot.humanThreat ~= nil
+        or (tonumber(snapshot.pressure) or 0) >= 1.5
         or playerDanger > 0 or commands.order == "retreat"
         or assessment.downed == true or assessment.critical == true
         or (tonumber(assessment.bleedingCount) or 0) > 0
@@ -1373,7 +1393,8 @@ local function nonMedicalSurvivalNeedsImmediateControl(snapshot, needs, commands
         or #(snapshot.immediateAttackers or {})
     local playerDanger = type(snapshot.player) == "table"
         and tonumber(snapshot.player.danger) or 0
-    return immediate > 0 or (tonumber(snapshot.pressure) or 0) >= 1.5
+    return immediate > 0 or snapshot.humanThreat ~= nil
+        or (tonumber(snapshot.pressure) or 0) >= 1.5
         or playerDanger > 0 or commands.order == "retreat"
         or type(needs) == "table" and needs.emergency == true
 end
@@ -1398,7 +1419,8 @@ local function factionNeedsImmediateControl(actor, player, snapshot, commands)
     if commands.recruited or not SC.FactionBehavior
         or type(SC.FactionBehavior.intentFor) ~= "function" then return false end
     local ok, intent = pcall(SC.FactionBehavior.intentFor, actor, player, snapshot)
-    return ok and type(intent) == "table" and intent.mode == "hostile"
+    return ok and type(intent) == "table"
+        and (intent.mode == "hostile" or intent.mode == "bandit_human")
 end
 
 local function pacingFollowMustMove(actor, player, commands)
@@ -1589,6 +1611,13 @@ function Decision.update(actor, player, runtime)
     end
 
     local commands = commandsFor(actor)
+    if commands.recruited and SC.FactionBehavior
+        and type(SC.FactionBehavior.humanThreatFor) == "function" then
+        local ok, humanThreat = pcall(SC.FactionBehavior.humanThreatFor, actor, player)
+        snapshot.humanThreat = ok and humanThreat or nil
+    else
+        snapshot.humanThreat = nil
+    end
     if SC.Encounter and type(SC.Encounter.formationRejoinRequired) == "function"
         and type(SC.Encounter.cancelScavenge) == "function" then
         local rejoin, rejoinReason = SC.Encounter.formationRejoinRequired(

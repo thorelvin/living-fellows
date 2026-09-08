@@ -18,6 +18,12 @@
     "Sandbox_LivingFellows_HouseholdDailyChance_tooltip": "Chance checked on an eligible day after the household cooldown and distance rules are satisfied.",
     "Sandbox_LivingFellows_MaxHouseholds": "Maximum new households",
     "Sandbox_LivingFellows_MaxHouseholds_tooltip": "Stops additional household spawning at this count. Lowering the value never removes households already saved.",
+    "Sandbox_LivingFellows_BanditCampsEnabled": "Spawn bandit camps",
+    "Sandbox_LivingFellows_BanditCampsEnabled_tooltip": "Allows rare persistent hostile camps to appear from day four. Existing camps remain when this is disabled.",
+    "Sandbox_LivingFellows_BanditCampDailyChance": "Bandit camp daily spawn chance",
+    "Sandbox_LivingFellows_BanditCampDailyChance_tooltip": "Chance checked once per eligible day. Successful camps observe a ten-day cooldown.",
+    "Sandbox_LivingFellows_MaxBanditCamps": "Maximum bandit camps",
+    "Sandbox_LivingFellows_MaxBanditCamps_tooltip": "Stops additional bandit camp spawning at this count. Lowering the value never removes camps already saved.",
     "Sandbox_LivingFellows_UIOpacity": "Companion menu opacity",
     "Sandbox_LivingFellows_UIOpacity_tooltip": "Adjusts the background opacity of the companion menu while preserving visibility of approaching threats."
 }

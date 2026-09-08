@@ -30,6 +30,7 @@ Events = {
     OnMainMenuEnter = event("OnMainMenuEnter"),
     OnTick = event("OnTick"),
     OnWeaponHitCharacter = event("OnWeaponHitCharacter"),
+    OnWeaponSwingHitPoint = event("OnWeaponSwingHitPoint"),
     OnZombieDead = event("OnZombieDead"),
 }
 

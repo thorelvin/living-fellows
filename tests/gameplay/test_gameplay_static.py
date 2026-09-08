@@ -66,8 +66,9 @@ REQUIRED_EXPORTS = {
     "SCBaseLife.lua": ["create", "enqueueJob", "claimJob", "setPolicy", "guardStatus",
                        "auditOperations", "export", "restore"],
     "SCBaseWork.lua": ["update", "auditMaintenance"],
-    "SCFactions.lua": ["productionPulse", "debugSpawnHousehold", "noteOffense", "fulfillRequest",
-                        "export", "restore", "pulse"],
+    "SCFactions.lua": ["productionPulse", "banditProductionPulse", "debugSpawnHousehold",
+                        "debugSpawnBanditCamp", "hostileTargetFor", "isHostileBetween",
+                        "noteOffense", "fulfillRequest", "export", "restore", "pulse"],
     "SCTrade.lua": ["completeRequest", "catalog", "barter", "payRestitution"],
     "SCFactionLife.lua": ["initialize", "auditResources", "pulseGroup", "intentFor",
                           "updateActor", "shareRumour", "resolveCrisis", "summary", "validate"],
@@ -76,7 +77,8 @@ REQUIRED_EXPORTS = {
                                "validate"],
     "SCFactionWorld.lua": ["reconcile", "relation", "pulse", "onStandingChanged",
                            "notePlayerAction", "summary", "export", "restore"],
-    "SCFactionBehavior.lua": ["intentFor", "update", "reset"],
+    "SCFactionBehavior.lua": ["intentFor", "humanThreatFor", "updateHumanCombat",
+                               "update", "reset"],
     "SCZombieTargeting.lua": ["consider", "scan", "reset"],
     "SCInfectionCrisis.lua": ["pulse", "updateActor", "export", "restore"],
     "SCCommands.lua": ["issue", "describe"],
@@ -365,6 +367,11 @@ def main() -> int:
             and "factionMaxHouseholds" in faction_source
             and "factionMinHouseDistance" in faction_source,
             "bounded generic household faction production contract missing")
+    require("bandit_camp" in faction_source
+            and "banditFactionDailySpawnChancePercent" in faction_source
+            and "banditFactionMaxCamps" in faction_source
+            and "banditTierForDay" in faction_source,
+            "bounded, day-scaled bandit faction production contract missing")
     require("member.spawnQueued = false" in faction_source
             and "SC.Persistence.isPending(member.actorId)" in faction_source
             and "Only hibernated snapshots live" in faction_source,
@@ -383,6 +390,11 @@ def main() -> int:
             and "friendlyInLine" in faction_behavior
             and "emergency_seal" in faction_behavior,
             "territorial combat leash, friendly-fire, or emergency seal policy missing")
+    require("rememberHumanThreat" in faction_behavior
+            and "banditFactionLastSeenMs" in faction_behavior
+            and "hostileSound" in faction_behavior
+            and "banditPatrol" in faction_behavior,
+            "bandit LOS memory, sound investigation, or patrol policy missing")
     require("MAX_RELATIONS" in faction_world and "MAX_NEWS" in faction_world
             and "nextEventHour" in faction_world and "word_travels:" in faction_world,
             "bounded persistent faction-world relations or consequence propagation missing")

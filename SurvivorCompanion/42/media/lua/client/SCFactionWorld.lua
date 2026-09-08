@@ -98,6 +98,9 @@ local function textHash(value)
 end
 
 local function initialScore(leftId, rightId)
+    local left, right = group(leftId), group(rightId)
+    if left and right and (left.archetype == "bandit_camp"
+        or right.archetype == "bandit_camp") then return -60 end
     return (textHash(leftId .. ":" .. rightId) % 25) - 12
 end
 
@@ -172,6 +175,15 @@ local function allowedEvents(status)
         return { "supply_exchange", "medical_aid", "shared_warning" }
     end
     return { "uneasy_contact", "shared_warning", "supply_exchange", "boundary_dispute" }
+end
+
+local function eventsForRelation(relation)
+    local left, right = group(relation.leftId), group(relation.rightId)
+    if left and right and (left.archetype == "bandit_camp"
+        or right.archetype == "bandit_camp") then
+        return { "boundary_dispute", "uneasy_contact" }
+    end
+    return allowedEvents(relation.status)
 end
 
 local function applyEvent(kind, relation, hour)
@@ -281,7 +293,7 @@ function World.pulse(currentHour)
     table.sort(candidates, function(left, right) return left.key < right.key end)
     if #candidates == 0 then return false, "faction_pair_unavailable" end
     local relation = candidates[((state.serial + math.floor(currentHour)) % #candidates) + 1]
-    local kinds = allowedEvents(relation.status)
+    local kinds = eventsForRelation(relation)
     local kind = kinds[((textHash(relation.key) + state.serial + math.floor(currentHour)) % #kinds) + 1]
     return applyEvent(kind, relation, currentHour)
 end

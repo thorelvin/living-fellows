@@ -66,6 +66,34 @@ option LivingFellows.MaxHouseholds
     translation = LivingFellows_MaxHouseholds,
 }
 
+option LivingFellows.BanditCampsEnabled
+{
+    type = boolean,
+    default = true,
+    page = LivingFellows,
+    translation = LivingFellows_BanditCampsEnabled,
+}
+
+option LivingFellows.BanditCampDailyChance
+{
+    type = integer,
+    min = 0,
+    max = 100,
+    default = 4,
+    page = LivingFellows,
+    translation = LivingFellows_BanditCampDailyChance,
+}
+
+option LivingFellows.MaxBanditCamps
+{
+    type = integer,
+    min = 0,
+    max = 3,
+    default = 1,
+    page = LivingFellows,
+    translation = LivingFellows_MaxBanditCamps,
+}
+
 option LivingFellows.UIOpacity
 {
     type = double,
