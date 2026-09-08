@@ -48,6 +48,20 @@ are placed in its isolated mod list; no local/Vortex mod junctions are created:
 .\scripts\Invoke-LiveSandboxTests.ps1 -LivingFellowsOnly
 ```
 
+To verify the faction overlay visually, provide a PNG destination. The runner
+waits for a discovered test faction, focuses the real client, presses `M`, waits
+for the in-game world-map draw assertion, captures the client area, then presses
+`M` again so the remaining live assertions can finish:
+
+```powershell
+.\scripts\Invoke-LiveSandboxTests.ps1 -LivingFellowsOnly `
+    -FactionMapScreenshot .\build\faction-map.png
+```
+
+Add `-FactionMapOnly` for a fast visual check that skips unrelated movement and
+combat probes. If the cloned save is already at its faction cap, this mode uses
+an existing living faction as the disposable map fixture.
+
 When a seed needs its map mods but an unrelated gameplay mod interferes with a
 focused diagnostic, exclude only that mod from the disposable clone:
 

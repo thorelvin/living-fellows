@@ -993,10 +993,15 @@ local moonwalkOk, moonwalkReason = SC.Actor.setMovement(actor, "walk", {
 check(moonwalkOk and moonwalkReason == "moving" and actor.tacticalMovement == true
         and actor.forwardX > 0.9,
     "traveling off the facing axis uses the directional strafe blend even without a tactical flag (moonwalk fix)")
+actor.companionAimTarget = target
+actor.targetOnGround = target
+actor.aimAtFloor = true
 local lowerOk, lowerReason = SC.Actor.setMovement(actor, "walk", { action = "lower_weapon" })
 check(lowerOk and lowerReason == "weapon_lowered" and actor.aiming == false
-        and actor.tacticalMovement == false and actor.strafeX == 0 and actor.strafeY == 0,
-    "weapon-ready posture lowers through the native player state")
+        and actor.tacticalMovement == false and actor.strafeX == 0 and actor.strafeY == 0
+        and actor.companionAimTarget == nil and actor.targetOnGround == nil
+        and actor.aimAtFloor == false,
+    "weapon-ready posture lowers and clears stale combat-facing state")
 do
     local twoHandedWeapon = { isTwoHandWeapon = function() return true end }
     local twoHandedOk, twoHandedReason = SC.Actor.setMovement(actor, "walk", {

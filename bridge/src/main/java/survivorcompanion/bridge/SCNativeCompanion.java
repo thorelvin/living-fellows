@@ -338,6 +338,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             // will catch/tolerate any exception from this chain.
             applyCompanionAim();
             super.postupdate();
+            applyBridgeMovementFacing();
             bridgePostUpdateCount++;
         } else {
             try {
@@ -345,6 +346,7 @@ public final class SCNativeCompanion extends IsoPlayer {
                 // the swing animation and fires its AttackCollisionCheck.
                 applyCompanionAim();
                 super.postupdate();
+                applyBridgeMovementFacing();
                 bridgePostUpdateCount++;
             } catch (RuntimeException | LinkageError failure) {
                 // Restore local ownership, then tolerate a bounded window of these
@@ -926,8 +928,37 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     private void applyBridgeMovement() {
         if (getVehicle() != null || !bridgeMoveRequested || !bridgeMoving) return;
+        applyBridgeMovementFacing();
         super.setMoving(true);
         super.MoveForward(bridgeMoveDistance, bridgeMoveX, bridgeMoveY, bridgeMoveSoundDelta);
+        // MoveForward/action variables may rotate a non-local player during the
+        // same update. Leave the render-facing direction authoritative too.
+        applyBridgeMovementFacing();
+    }
+
+    /**
+     * Non-tactical manual locomotion faces its travel vector, just like keyboard
+     * movement for a local player. Reassert it after the action graph advances:
+     * that graph can otherwise restore the previous backward-strafe or combat
+     * angle even though {@link #applyCompanionAim()} correctly yielded ownership.
+     */
+    private void applyBridgeMovementFacing() {
+        boolean attackOwnsFacing = isAttackStarted() || isPerformingAttackAnimation();
+        if (!shouldBridgeMovementOwnFacing(isBridgeLocomotionActive(),
+                bridgeTacticalMovement, attackOwnsFacing)) {
+            return;
+        }
+        float length = (float) Math.sqrt(
+                bridgeMoveX * bridgeMoveX + bridgeMoveY * bridgeMoveY);
+        if (length > 0.0001f) {
+            setForwardDirection(bridgeMoveX / length, bridgeMoveY / length);
+        }
+    }
+
+    /** Pure ownership rule kept testable against the installed game JAR. */
+    static boolean shouldBridgeMovementOwnFacing(boolean locomotionActive,
+            boolean tacticalMovement, boolean attackOwnsFacing) {
+        return locomotionActive && !tacticalMovement && !attackOwnsFacing;
     }
 
     /**

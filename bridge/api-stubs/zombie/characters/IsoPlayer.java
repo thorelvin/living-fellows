@@ -25,6 +25,7 @@ public class IsoPlayer extends IsoLivingCharacter {
     public boolean isNpc() { return false; }
     public boolean isInitiateAttack() { return false; }
     public boolean isAttackStarted() { return false; }
+    public boolean isZombiesDontAttack() { return false; }
     public void StopAllActionQueue() {}
     public void setNpc(boolean npc) {}
     public void updateMovementRates() {}

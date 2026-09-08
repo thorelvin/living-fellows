@@ -14,6 +14,8 @@ param(
     [int]$TimeoutSeconds = 300,
     [switch]$LivingFellowsOnly,
     [string[]]$ExcludeModId = @(),
+    [string]$FactionMapScreenshot = '',
+    [switch]$FactionMapOnly,
     [switch]$PrepareOnly
 )
 
@@ -25,6 +27,18 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
 $GameRoot = [System.IO.Path]::GetFullPath($GameRoot)
 $UserCache = [System.IO.Path]::GetFullPath($UserCache)
+$captureFactionMap = -not [string]::IsNullOrWhiteSpace($FactionMapScreenshot)
+if ($captureFactionMap) {
+    $FactionMapScreenshot = [System.IO.Path]::GetFullPath($FactionMapScreenshot)
+    $screenshotDirectory = Split-Path -Parent $FactionMapScreenshot
+    if ([string]::IsNullOrWhiteSpace($screenshotDirectory)) {
+        throw 'Faction-map screenshot needs an explicit parent directory.'
+    }
+    New-Item -ItemType Directory -Path $screenshotDirectory -Force | Out-Null
+}
+if ($FactionMapOnly -and -not $captureFactionMap) {
+    throw '-FactionMapOnly requires -FactionMapScreenshot.'
+}
 $RunsRoot = [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot 'build\live-sandbox-runs'))
 $runsPrefix = $RunsRoot.TrimEnd('\') + '\'
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
@@ -56,7 +70,7 @@ function Remove-ModEntry([string]$Text, [string]$ModId) {
     return $pattern.Replace($Text, '')
 }
 
-function Invoke-LoadingScreenClick([System.Diagnostics.Process]$Process) {
+function Initialize-WindowInput {
     if ($null -eq ('SCLiveHarness.WindowInput' -as [type])) {
         Add-Type -TypeDefinition @'
 using System;
@@ -97,6 +111,35 @@ namespace SCLiveHarness {
         private static extern void mouse_event(uint flags, uint dx, uint dy,
             uint data, UIntPtr extraInfo);
 
+        [DllImport("user32.dll")]
+        private static extern void keybd_event(byte virtualKey, byte scanCode,
+            uint flags, UIntPtr extraInfo);
+
+        public static bool GetClientScreenRect(IntPtr hWnd, out Rect rect) {
+            rect = new Rect();
+            if (hWnd == IntPtr.Zero) return false;
+            if (!GetClientRect(hWnd, out rect)) return false;
+            Point topLeft = new Point { X = rect.Left, Y = rect.Top };
+            Point bottomRight = new Point { X = rect.Right, Y = rect.Bottom };
+            if (!ClientToScreen(hWnd, ref topLeft) ||
+                !ClientToScreen(hWnd, ref bottomRight)) return false;
+            rect.Left = topLeft.X;
+            rect.Top = topLeft.Y;
+            rect.Right = bottomRight.X;
+            rect.Bottom = bottomRight.Y;
+            return rect.Right > rect.Left && rect.Bottom > rect.Top;
+        }
+
+        public static bool PressVirtualKey(IntPtr hWnd, byte virtualKey) {
+            const uint KEYEVENTF_KEYUP = 0x0002;
+            if (hWnd == IntPtr.Zero || !SetForegroundWindow(hWnd)) return false;
+            System.Threading.Thread.Sleep(250);
+            keybd_event(virtualKey, 0, 0, UIntPtr.Zero);
+            System.Threading.Thread.Sleep(120);
+            keybd_event(virtualKey, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            return true;
+        }
+
         public static bool ClickClientCentre(IntPtr hWnd) {
             const uint MOUSEEVENTF_LEFTDOWN = 0x0002;
             const uint MOUSEEVENTF_LEFTUP = 0x0004;
@@ -122,9 +165,47 @@ namespace SCLiveHarness {
 }
 '@
     }
+}
+
+function Invoke-LoadingScreenClick([System.Diagnostics.Process]$Process) {
+    Initialize-WindowInput
     $Process.Refresh()
     if ($Process.HasExited -or $Process.MainWindowHandle -eq [IntPtr]::Zero) { return $false }
     return [SCLiveHarness.WindowInput]::ClickClientCentre($Process.MainWindowHandle)
+}
+
+function Invoke-WindowKey([System.Diagnostics.Process]$Process, [byte]$VirtualKey) {
+    Initialize-WindowInput
+    $Process.Refresh()
+    if ($Process.HasExited -or $Process.MainWindowHandle -eq [IntPtr]::Zero) { return $false }
+    return [SCLiveHarness.WindowInput]::PressVirtualKey(
+        $Process.MainWindowHandle, $VirtualKey)
+}
+
+function Save-ClientScreenshot(
+    [System.Diagnostics.Process]$Process,
+    [string]$Destination
+) {
+    Initialize-WindowInput
+    Add-Type -AssemblyName System.Drawing
+    $Process.Refresh()
+    if ($Process.HasExited -or $Process.MainWindowHandle -eq [IntPtr]::Zero) { return $false }
+    $rect = New-Object 'SCLiveHarness.WindowInput+Rect'
+    if (-not [SCLiveHarness.WindowInput]::GetClientScreenRect(
+        $Process.MainWindowHandle, [ref]$rect)) { return $false }
+    $width = $rect.Right - $rect.Left
+    $height = $rect.Bottom - $rect.Top
+    $bitmap = New-Object System.Drawing.Bitmap($width, $height)
+    $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
+    try {
+        $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0,
+            (New-Object System.Drawing.Size($width, $height)))
+        $bitmap.Save($Destination, [System.Drawing.Imaging.ImageFormat]::Png)
+    } finally {
+        $graphics.Dispose()
+        $bitmap.Dispose()
+    }
+    return Test-Path -LiteralPath $Destination -PathType Leaf
 }
 
 if (Test-ProjectZomboidRunning) {
@@ -270,6 +351,8 @@ $config = @(
     ('run_id=' + $runId),
     ('world=' + $runId),
     ('mode=' + $GameMode),
+    ('capture_faction_map=' + $captureFactionMap.ToString().ToLowerInvariant()),
+    ('faction_map_only=' + $FactionMapOnly.IsPresent.ToString().ToLowerInvariant()),
     ('internal_timeout_ms=' + (($TimeoutSeconds - 15) * 1000))
 ) -join [Environment]::NewLine
 [System.IO.File]::WriteAllText((Join-Path $SandboxLua 'config.ini'),
@@ -288,6 +371,8 @@ $manifest = [ordered]@{
     sourceSaveIsReadOnlyInput = $true
     livingFellowsOnly = $LivingFellowsOnly.IsPresent
     excludedModIds = @($ExcludeModId)
+    factionMapScreenshot = if ($captureFactionMap) { $FactionMapScreenshot } else { $null }
+    factionMapOnly = $FactionMapOnly.IsPresent
     autoCleanup = $false
 }
 [System.IO.File]::WriteAllText((Join-Path $RunRoot 'run-manifest.json'),
@@ -296,6 +381,9 @@ $manifest = [ordered]@{
 $summaryPath = Join-Path $SandboxLua 'summary.txt'
 $eventsPath = Join-Path $SandboxLua 'events.log'
 $consolePath = Join-Path $CacheRoot 'console.txt'
+$factionMapReadyPath = Join-Path $SandboxLua 'faction-map-ready.txt'
+$factionMapVisiblePath = Join-Path $SandboxLua 'faction-map-visible.txt'
+$factionMapCapturedPath = Join-Path $SandboxLua 'faction-map-captured.txt'
 Write-Output "Prepared isolated live sandbox: $RunRoot"
 Write-Output "Source save remains untouched: $SeedSave"
 if ($PrepareOnly) {
@@ -323,6 +411,7 @@ try {
     $nextLoadingClick = [DateTime]::MaxValue
     $loadingReadyObserved = $false
     $clickAttempts = 0
+    $factionMapCaptureCompleted = $false
     while ([DateTime]::UtcNow -lt $deadline -and -not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
         $process.Refresh()
         if ($process.HasExited) {
@@ -343,6 +432,36 @@ try {
                 Write-Output "Sent isolated click-to-start attempt $clickAttempts to pid=$($process.Id)"
             }
             $nextLoadingClick = [DateTime]::UtcNow.AddSeconds(3)
+        }
+        if ($captureFactionMap -and -not $factionMapCaptureCompleted -and
+            (Test-Path -LiteralPath $factionMapReadyPath -PathType Leaf)) {
+            # 0x4D is the physical M key. Keep the map open until the in-game
+            # harness has observed ISWorldMap and at least one faction-house draw.
+            if (-not (Invoke-WindowKey $process 0x4D)) {
+                throw 'Could not focus the client and send the M key.'
+            }
+            Write-Output 'Sent M to open the player map for faction-marker verification.'
+            $visibleDeadline = [DateTime]::UtcNow.AddSeconds(10)
+            while ([DateTime]::UtcNow -lt $visibleDeadline -and
+                -not (Test-Path -LiteralPath $factionMapVisiblePath -PathType Leaf)) {
+                $process.Refresh()
+                if ($process.HasExited) { break }
+                Start-Sleep -Milliseconds 200
+            }
+            if (-not (Test-Path -LiteralPath $factionMapVisiblePath -PathType Leaf)) {
+                throw 'The game did not confirm a rendered faction house after M was pressed.'
+            }
+            Start-Sleep -Milliseconds 750
+            if (-not (Save-ClientScreenshot $process $FactionMapScreenshot)) {
+                throw "Could not capture the Project Zomboid client to $FactionMapScreenshot"
+            }
+            Write-Output "Captured faction player-map screenshot: $FactionMapScreenshot"
+            if (-not (Invoke-WindowKey $process 0x4D)) {
+                throw 'Could not send M to close the player map after capture.'
+            }
+            [System.IO.File]::WriteAllText($factionMapCapturedPath,
+                ('captured=true' + [Environment]::NewLine), $utf8NoBom)
+            $factionMapCaptureCompleted = $true
         }
         Start-Sleep -Milliseconds 500
     }
@@ -371,6 +490,9 @@ if (-not $process.HasExited) {
 Get-Content -LiteralPath $eventsPath -ErrorAction SilentlyContinue
 Write-Output "Live sandbox run retained for audit: $RunRoot"
 Write-Output "Live console: $consolePath"
+if ($captureFactionMap) {
+    Write-Output "Faction map screenshot: $FactionMapScreenshot"
+}
 if ($status -ne 'PASS') {
     throw "LIVE_SANDBOX_FAIL run=$runId results=$eventsPath"
 }

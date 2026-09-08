@@ -7,4 +7,5 @@ public final class ActionContext {
     public String getCurrentStateName() { return ""; }
     public ActionState peekNextState() { return null; }
     public boolean canTransitionToState(String name) { return false; }
+    public void setCurrentState(ActionState state) {}
 }

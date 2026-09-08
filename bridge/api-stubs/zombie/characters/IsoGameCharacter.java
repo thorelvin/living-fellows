@@ -15,6 +15,7 @@ import zombie.characters.action.ActionContext;
 import zombie.characters.CharacterTimedActions.BaseAction;
 import zombie.pathfind.PathFindBehavior2;
 import zombie.ai.StateMachine;
+import zombie.ai.State;
 import zombie.vehicles.BaseVehicle;
 import zombie.chat.ChatElement;
 
@@ -49,6 +50,7 @@ public class IsoGameCharacter extends IsoMovingObject {
     public AnimationPlayer getAnimationPlayer() { return null; }
     public PathFindBehavior2 getPathFindBehavior2() { return null; }
     public StateMachine getStateMachine() { return null; }
+    public void changeState(State state) {}
     public void pathToLocationF(float x, float y, float z) {}
     public void pathToLocation(int x, int y, int z) {}
     public void pathToCharacter(IsoGameCharacter target) {}
@@ -60,6 +62,7 @@ public class IsoGameCharacter extends IsoMovingObject {
     public float getY() { return 0; }
     public float getZ() { return 0; }
     public boolean isDead() { return false; }
+    public boolean isOnFloor() { return false; }
     public void OnAnimEvent(zombie.core.skinnedmodel.advancedanimation.AnimLayer layer,
             zombie.core.skinnedmodel.animation.AnimationTrack track,
             zombie.core.skinnedmodel.advancedanimation.AnimEvent event) {}

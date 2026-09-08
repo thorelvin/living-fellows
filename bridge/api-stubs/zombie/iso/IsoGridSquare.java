@@ -13,6 +13,7 @@ public class IsoGridSquare {
     public int getZ() { return 0; }
     public ArrayList<IsoMovingObject> getMovingObjects() { return null; }
     public boolean isBlockedTo(IsoGridSquare other) { return false; }
+    public boolean isSomethingTo(IsoGridSquare other) { return false; }
     public boolean isFree(boolean ignoreMovingObjects) { return false; }
     public boolean isSafeToSpawn() { return false; }
     public boolean isSolid() { return false; }

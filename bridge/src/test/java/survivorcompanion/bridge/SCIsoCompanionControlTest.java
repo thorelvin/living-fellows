@@ -281,6 +281,12 @@ public final class SCIsoCompanionControlTest {
                 "an active attack lost the target angle required by its hit arc");
         require(SCNativeCompanion.shouldApplyCompanionAim(false, false, false),
                 "a stationary companion no longer tracks its combat target");
+        require(SCNativeCompanion.shouldBridgeMovementOwnFacing(true, false, false),
+                "ordinary manual movement did not own its forward direction");
+        require(!SCNativeCompanion.shouldBridgeMovementOwnFacing(true, true, false),
+                "manual movement stole facing from tactical strafe");
+        require(!SCNativeCompanion.shouldBridgeMovementOwnFacing(true, false, true),
+                "manual movement stole facing from an active attack");
         require(((Number) invoke(actor, "getPlayerNum")).intValue() == 3,
                 "companion did not retain reserved non-local index");
         require(((Number) invoke(secondActor, "getPlayerNum")).intValue() == 3

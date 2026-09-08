@@ -76,6 +76,14 @@ require("game loading took" in runner,
         "runner must wait for the real world load before clicking")
 require("-not (Test-Path -LiteralPath $eventsPath" in runner,
         "loading clicks must stop when the live assertions begin")
+require("[string]$FactionMapScreenshot" in runner
+        and "[switch]$FactionMapOnly" in runner
+        and "Invoke-WindowKey $process 0x4D" in runner
+        and "Save-ClientScreenshot" in runner,
+        "runner must open the real player map with M and capture its client area")
+require("faction-map-ready.txt" in runner and "faction-map-visible.txt" in runner
+        and "faction-map-captured.txt" in runner,
+        "runner must handshake with the in-game faction-map assertion")
 
 for token in (
     "Events.OnMainMenuEnter",
@@ -130,11 +138,18 @@ for test_name in (
     "territorial_warning_state",
     "faction_save_document",
     "native_human_targeting",
+    "faction_world_map_overlay",
 ):
     require(f'"{test_name}"' in lua, f"live assertion missing: {test_name}")
 
 require("internal_timeout_ms" in lua and "harness_timeout" in lua,
         "in-game harness needs its own fail-safe timeout")
+require('Harness.phase == "faction_map_capture"' in lua
+        and "ISWorldMap_instance:isVisible()" in lua
+        and "lastFactionDrawCount" in lua
+        and 'Harness.config.faction_map_only == "true"' in lua
+        and 'factionId == "faction_cap_reached"' in lua,
+        "live map capture must prove the real world-map hook drew a faction house")
 require("MainScreen.instance.checkSavefileModal" in lua and "modal:onClick(modal.yes)" in lua
         and "autoloadConfirmations" in lua and "modal ~= Harness.autoloadModal" in lua
         and "autoloadPromptSignatures" in lua and '"autoload_prompt_loop"' in lua,

@@ -280,7 +280,16 @@ end
 
 local function setWeaponReady(actor, enabled, target)
     enabled = enabled == true and heldWeapon(actor) ~= nil
-    if not enabled then setTacticalMovement(actor, false, 0, 0) end
+    if not enabled then
+        setTacticalMovement(actor, false, 0, 0)
+        -- A completed/interrupted swing can leave the bridge's precise combat
+        -- target alive after the player aiming flag has lowered. Ordinary
+        -- forward movement must own facing completely; otherwise postupdate can
+        -- turn the body back toward that stale target and select WalkBwdAim.
+        invoke(actor, "setCompanionAimTarget", nil)
+        invoke(actor, "setAimAtFloor", false)
+        invoke(actor, "setCompanionFloorTarget", nil)
+    end
     if enabled and target ~= nil then
         local x, y = position(target)
         if x ~= nil then

@@ -5,6 +5,9 @@
 local CONFIG_FILE = "SurvivorCompanionHarness/config.ini"
 local EVENTS_FILE = "SurvivorCompanionHarness/events.log"
 local SUMMARY_FILE = "SurvivorCompanionHarness/summary.txt"
+local FACTION_MAP_READY_FILE = "SurvivorCompanionHarness/faction-map-ready.txt"
+local FACTION_MAP_VISIBLE_FILE = "SurvivorCompanionHarness/faction-map-visible.txt"
+local FACTION_MAP_CAPTURED_FILE = "SurvivorCompanionHarness/faction-map-captured.txt"
 
 local Harness = {
     config = {},
@@ -80,6 +83,26 @@ local function writeSnapshot(done)
         writer:writeln("release=" .. clean(Harness.release))
         writer:close()
     end
+end
+
+local function fileExists(path)
+    if type(getFileReader) ~= "function" then return false end
+    local reader = getFileReader(path, true)
+    if reader == nil then return false end
+    -- Build 42 may create an empty sandbox file while opening a missing path.
+    -- A signal is present only after the other side writes at least one line.
+    local firstLine = reader:readLine()
+    reader:close()
+    return firstLine ~= nil
+end
+
+local function writeSignal(path, rows)
+    if type(getFileWriter) ~= "function" then return false end
+    local writer = getFileWriter(path, true, false)
+    if writer == nil then return false end
+    for _, row in ipairs(rows or {}) do writer:writeln(clean(row)) end
+    writer:close()
+    return true
 end
 
 local function result(status, name, detail)
@@ -1719,6 +1742,11 @@ local function probeZombieAttackObserve(current)
         Harness.zObserveEngaged = false
         Harness.zObserveWounded = false
         Harness.zObserveGrappled = false
+        Harness.zObservePile = 0
+        Harness.zObserveAtk = 0
+        Harness.zObserveAssists = 0
+        Harness.zObserveNativeStarts = 0
+        Harness.zObserveReacquisitions = 0
         return
     end
     local zombies = Harness.zObserveZombies
@@ -1758,6 +1786,12 @@ local function probeZombieAttackObserve(current)
         if rok and type(rd) == "table" then
             Harness.zObservePile = math.max(Harness.zObservePile or 0, tonumber(rd.pile) or 0)
             Harness.zObserveAtk = math.max(Harness.zObserveAtk or 0, tonumber(rd.attackers) or 0)
+            Harness.zObserveAssists = (Harness.zObserveAssists or 0)
+                + (tonumber(rd.engagementAssists) or 0)
+            Harness.zObserveNativeStarts = (Harness.zObserveNativeStarts or 0)
+                + (tonumber(rd.nativeAttackStarts) or 0)
+            Harness.zObserveReacquisitions = (Harness.zObserveReacquisitions or 0)
+                + (tonumber(rd.targetReacquisitions) or 0)
             Harness.zObserveGrappleResult = tostring(rd.grapple)
         elseif not rok then
             Harness.zObserveGrappleResult = "resolve_error"
@@ -1813,6 +1847,9 @@ local function probeZombieAttackObserve(current)
             check("native_zombie_attacks_companion", false,
                 "no wound in 18s with " .. tostring(#zombies) .. " zombies: wounds="
                     .. tostring(wounds) .. " ever_engaged=" .. tostring(Harness.zObserveEngaged)
+                    .. " path_assists=" .. tostring(Harness.zObserveAssists or 0)
+                    .. " native_starts=" .. tostring(Harness.zObserveNativeStarts or 0)
+                    .. " target_reacquires=" .. tostring(Harness.zObserveReacquisitions or 0)
                     .. " nearest=" .. string.format("%.1f", nearest)
                     .. " series=[" .. (Harness.zObserveLog or "") .. "]")
         end
@@ -1950,10 +1987,33 @@ end
 
 local function beginFactionProbe(current)
     local SC = SurvivorCompanion
+    Harness.factionMapCaptureOnly = Harness.config.faction_map_only == "true"
     check("debug_faction_tools_enabled", SC.Config.get("debugSpawnEnabled") == true,
         "isolated harness uses the private debug payload")
     local spawned, factionId = SC.Factions.debugSpawnHousehold(Harness.player, 2)
     if not spawned then
+        if Harness.factionMapCaptureOnly and Harness.config.capture_faction_map == "true"
+            and factionId == "faction_cap_reached" then
+            local existing
+            for _, candidate in ipairs(SC.Factions.list(false) or {}) do
+                local coordinates = candidate.location and candidate.location.coordinates
+                    or candidate.house and candidate.house.anchor
+                if candidate.lifecycle ~= "destroyed" and type(coordinates) == "table"
+                    and tonumber(coordinates.x) and tonumber(coordinates.y) then
+                    existing = candidate
+                    break
+                end
+            end
+            if existing then
+                SC.Factions.markDiscovered(existing.id)
+                Harness.factionId = existing.id
+                result("PASS", "existing_faction_map_fixture",
+                    "reused " .. clean(existing.name)
+                        .. " because the cloned save reached its faction cap")
+                setPhase("faction_wait", current)
+                return
+            end
+        end
         skip("manual_faction_household_spawn", "no valid loaded test house: " .. clean(factionId))
         setPhase("finish", current)
         return
@@ -1963,6 +2023,84 @@ local function beginFactionProbe(current)
     Harness.factionProgressAt = current
     result("PASS", "manual_faction_household_spawn", factionId)
     setPhase("faction_wait", current)
+end
+
+local function requestFactionMapCapture(group, current)
+    if Harness.config.capture_faction_map ~= "true" or Harness.factionMapCaptured then
+        return false
+    end
+    group.discovered = true
+    -- This fixture must exercise M -> ISReadWorldMap -> ISWorldMap even when the
+    -- cloned save happens to be at night and normally requires a light source.
+    if SandboxVars and SandboxVars.Map then SandboxVars.Map.MapNeedsLight = false end
+    local coordinates = group.location and group.location.coordinates
+        or group.house and group.house.anchor or {}
+    local signaled = writeSignal(FACTION_MAP_READY_FILE, {
+        "faction_id=" .. clean(group.id),
+        "faction_name=" .. clean(group.name),
+        "x=" .. clean(coordinates.x),
+        "y=" .. clean(coordinates.y),
+    })
+    if not signaled then
+        result("FAIL", "faction_world_map_overlay", "could not write map-ready signal")
+        Harness.factionMapCaptured = true
+        return false
+    end
+    Harness.factionMapRequested = true
+    Harness.factionMapOpenObserved = false
+    Harness.factionMapMarkerObserved = false
+    setPhase("faction_map_capture", current)
+    return true
+end
+
+local function probeFactionMapCapture(current)
+    local SC = SurvivorCompanion
+    local mapVisible = ISWorldMap_instance ~= nil
+        and type(ISWorldMap_instance.isVisible) == "function"
+        and ISWorldMap_instance:isVisible()
+    if mapVisible then
+        Harness.factionMapOpenObserved = true
+        if not Harness.factionMapCentered then
+            local group = SC.Factions.group(Harness.factionId)
+            local coordinates = group and group.location and group.location.coordinates
+                or group and group.house and group.house.anchor
+            if type(coordinates) == "table" and tonumber(coordinates.x)
+                and tonumber(coordinates.y) and ISWorldMap_instance.mapAPI then
+                ISWorldMap_instance.mapAPI:centerOn(
+                    tonumber(coordinates.x), tonumber(coordinates.y))
+                ISWorldMap_instance.mapAPI:setZoom(18.0)
+                Harness.factionMapCentered = true
+            end
+        end
+        local markerFound = false
+        for _, row in ipairs(SC.CompanionMap.factionRows()) do
+            if row.id == Harness.factionId then markerFound = true break end
+        end
+        local drawn = tonumber(SC.CompanionMap.lastFactionDrawCount) or 0
+        if markerFound and drawn > 0 then
+            Harness.factionMapMarkerObserved = true
+            if not fileExists(FACTION_MAP_VISIBLE_FILE) then
+                writeSignal(FACTION_MAP_VISIBLE_FILE, {
+                    "faction_id=" .. clean(Harness.factionId),
+                    "drawn=" .. tostring(drawn),
+                })
+            end
+        end
+    end
+    if fileExists(FACTION_MAP_CAPTURED_FILE) then
+        check("faction_world_map_overlay", Harness.factionMapOpenObserved == true
+            and Harness.factionMapMarkerObserved == true,
+            "map_open=" .. tostring(Harness.factionMapOpenObserved == true)
+                .. " house_drawn=" .. tostring(Harness.factionMapMarkerObserved == true)
+                .. " draw_count=" .. tostring(SC.CompanionMap.lastFactionDrawCount))
+        Harness.factionMapCaptured = true
+        setPhase(Harness.factionMapCaptureOnly and "finish" or "faction_wait", current)
+    elseif current - Harness.phaseStartedAt > 20000 then
+        result("FAIL", "faction_world_map_overlay",
+            "runner did not complete M-key map capture within 20 seconds")
+        Harness.factionMapCaptured = true
+        setPhase("faction_wait", current)
+    end
 end
 
 local function factionActors(group)
@@ -2089,6 +2227,12 @@ local function waitForFaction(current)
         setPhase("finish", current)
         return
     end
+    if Harness.factionMapCaptureOnly then
+        local group = SC.Factions.group(Harness.factionId)
+        if requestFactionMapCapture(group, current) then return end
+        setPhase("finish", current)
+        return
+    end
     if summary.alive ~= 2 then
         result("FAIL", "persistent_faction_registration", "requested=2 alive="
             .. tostring(summary.alive))
@@ -2147,6 +2291,7 @@ local function waitForFaction(current)
     end
     local group = SC.Factions.group(Harness.factionId)
     local actors = factionActors(group)
+    if requestFactionMapCapture(group, current) then return end
     local isolated = #actors == summary.alive
     for _, record in ipairs(actors) do
         isolated = isolated and record.recruited ~= true and record.factionId == Harness.factionId
@@ -2837,6 +2982,8 @@ local function tick()
         beginFactionProbe(current)
     elseif Harness.phase == "faction_wait" then
         waitForFaction(current)
+    elseif Harness.phase == "faction_map_capture" then
+        probeFactionMapCapture(current)
     elseif Harness.phase == "faction_fortify" then
         probeFactionFortification(current)
     elseif Harness.phase == "faction_hostile" then
@@ -2892,7 +3039,11 @@ local function onGameStart()
     check("local_player_slot_zero", singletonOk, "getPlayer equals getSpecificPlayer(0)")
     Harness.playerX, Harness.playerY, Harness.playerZ = position(Harness.player)
     Harness.playerZ = Harness.playerZ or 0
-    setPhase("wait_runtime", Harness.startedAt)
+    if Harness.config.faction_map_only == "true" then
+        setPhase("faction_begin", Harness.startedAt)
+    else
+        setPhase("wait_runtime", Harness.startedAt)
+    end
 end
 
 local function onMainMenuEnter()

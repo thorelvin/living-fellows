@@ -496,7 +496,7 @@ class UIStaticContractTests(unittest.TestCase):
         }
         self.assertFalse(required - set(translations))
 
-    def test_minimap_overlay_only_reads_recruited_registry_records(self) -> None:
+    def test_companion_and_faction_map_overlays_use_the_expected_records(self) -> None:
         source = read(CLIENT / "SCCompanionMap.lua")
         self.assertIn('record.recruited == true', source)
         self.assertIn('worldToUIX', source)
@@ -505,7 +505,13 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn('map:drawRect', source)
         self.assertIn('map:drawText', source)
         self.assertNotIn('record.factionId ==', source)
-        self.assertIn('ISMiniMapInner.render = renderWrapper', source)
+        self.assertIn('ISMiniMapInner.render = miniMapRenderWrapper', source)
+        self.assertIn('ISWorldMap.render = worldMapRenderWrapper', source)
+        self.assertIn('SC.Factions.list(true)', source)
+        self.assertIn('group.discovered == true', source)
+        self.assertIn('group.lifecycle ~= "destroyed"', source)
+        self.assertIn('media/ui/LootableMaps/map_house.png', source)
+        self.assertIn('map:drawTextureScaled', source)
 
     def test_social_contract_hardening_is_visible_and_confirmed(self) -> None:
         factions = lua_function(self.ui, "function SCUIDetail:buildFactions(panel)")

@@ -343,6 +343,15 @@ local function actor(id, x, y, options)
     function value:isCollidedThisFrame() return self.collidedThisFrame == true end
     function value:getCollidedObject() return self.collidedObject end
     function value:isKnockedDown() return self.knockedDown == true end
+    function value:setFallOnFront(enabled) self.fallOnFront = enabled == true end
+    function value:setKnockedDown(enabled) self.knockedDown = enabled == true end
+    function value:setDeathDragDown(enabled) self.deathDragDown = enabled == true end
+    function value:calculateGrappleEffectivenessFromTraits()
+        return settings.grappleEffectiveness or 0.5
+    end
+    function value:getSurroundingAttackingZombies()
+        return settings.surroundingAttackers or 0
+    end
     function value:isClimbing() return self.climbing == true end
     function value:isBlockMovement() return self.blockMovement == true end
     function value:getCurrentState() return self.currentState end
@@ -527,6 +536,14 @@ local function zombie(x, y, options)
     end
     function value:getAttackOutcome() return self.attackOutcome end
     function value:getAttackDidDamage() return self.attackDidDamage == true end
+    function value:getCurrentState()
+        return self.currentState or (self.attacking and "AttackState" or "ZombieIdleState")
+    end
+    function value:pathToCharacter(target)
+        self.pathToCharacterCalls = (self.pathToCharacterCalls or 0) + 1
+        self.pathTarget = target
+        self.moving = true
+    end
     value.attackOutcome = settings.attackOutcome
     value.attackDidDamage = settings.attackDidDamage == true
     function value:getSurroundingAttackingZombies() return 0 end
@@ -762,20 +779,49 @@ do
     -- A zombie that already targets a non-local companion must accumulate the
     -- stock target-seen grace period. Resetting this value to zero every frame held
     -- the zombie forever in the arms-out grace pose and applied invisible damage.
-    local seenRefreshZombie = zombie(2, 0, { target = fellow })
+    local seenRefreshZombie = zombie(0.5, 0, { target = fellow })
+    local originalSCBridge = SCBridge
+    local bridgeAttackCalls = 0
+    SCBridge = {
+        startZombieAttack = function(candidate, target)
+            bridgeAttackCalls = bridgeAttackCalls + 1
+            check(candidate == seenRefreshZombie and target == fellow,
+                "native zombie attack bridge receives the selected pair")
+            if bridgeAttackCalls == 1 then return "not_facing_target" end
+            return bridgeAttackCalls == 2 and "attack_started" or "attack_active"
+        end,
+    }
     local resolveOk = pcall(SurvivorCompanion.ZombieAttack.resolve, fellow, 100000, { seenRefreshZombie })
     -- Simulate IsoZombie.update() clearing the non-local visibility slot between
     -- every Lua decision. Continuous adapter time must still cross 0.5 seconds.
+    seenRefreshZombie.target = nil
     seenRefreshZombie.targetSeenTimeSet = 0
     SurvivorCompanion.ZombieAttack.resolve(fellow, 100200, { seenRefreshZombie })
+    seenRefreshZombie.target = nil
     seenRefreshZombie.targetSeenTimeSet = 0
     SurvivorCompanion.ZombieAttack.resolve(fellow, 100400, { seenRefreshZombie })
+    seenRefreshZombie.target = nil
     seenRefreshZombie.targetSeenTimeSet = 0
     SurvivorCompanion.ZombieAttack.resolve(fellow, 100600, { seenRefreshZombie })
     check(resolveOk
             and seenRefreshZombie.targetSeenCalls == 4
-            and seenRefreshZombie.targetSeenTimeSet >= 0.6,
-        "incoming-attack resolve preserves the native bite timer across visibility-slot resets")
+            and seenRefreshZombie.targetSeenTimeSet >= 0.6
+            and seenRefreshZombie.pathToCharacterCalls == 1
+            and seenRefreshZombie.pathTarget == fellow
+            and bridgeAttackCalls == 1
+            and seenRefreshZombie.spottedCalls == 3,
+        "incoming-attack resolve reacquires a dropped close target, preserves its bite timer, and wakes native pathing")
+    seenRefreshZombie.target = nil
+    SurvivorCompanion.ZombieAttack.resolve(fellow, 100700, { seenRefreshZombie })
+    check(seenRefreshZombie.pathToCharacterCalls == 1 and bridgeAttackCalls == 2,
+        "path refresh is throttled while target visibility is sustained every resolver tick")
+    seenRefreshZombie.attacking = true
+    seenRefreshZombie.currentState = "AttackState"
+    seenRefreshZombie.target = nil
+    SurvivorCompanion.ZombieAttack.resolve(fellow, 101500, { seenRefreshZombie })
+    check(seenRefreshZombie.pathToCharacterCalls == 1 and bridgeAttackCalls == 3,
+        "an active native attack keeps visibility alive without restarting pathing or attack state")
+    SCBridge = originalSCBridge
     seenRefreshZombie.dead = true
 end
 
@@ -850,6 +896,50 @@ do
     SurvivorCompanion.ZombieAttack.reset()
     ZombRand = originalZombRand
     edgeZombie.dead = true
+end
+
+do
+    -- A committed pile must visibly pull the companion down, keep the runtime's
+    -- grabbed gate active, and release every native flag when the pile is gone.
+    -- This is deterministic coverage for the companion-specific part after the
+    -- stock zombie attack animation has brought the attackers into grab range.
+    SurvivorCompanion.ZombieAttack.reset()
+    local grappleVictim = actor("sc-grapple-victim", 24, 24, {})
+    local firstGrabber = zombie(25, 24, { target = grappleVictim })
+    local secondGrabber = zombie(24, 25, { target = grappleVictim })
+    local values = SurvivorCompanion.Config.values
+    local priorThreshold = values.zombieGrabThreshold
+    local priorChance = values.zombieGrabChance
+    local priorEscape = values.zombieGrabEscapeChance
+    values.zombieGrabThreshold = 2
+    values.zombieGrabChance = 1
+    values.zombieGrabEscapeChance = 0
+    local originalZombRand = ZombRand
+    ZombRand = function() return 0 end
+
+    local _, _, grabbed = SurvivorCompanion.ZombieAttack.resolve(
+        grappleVictim, 600000, { firstGrabber, secondGrabber })
+    check(grabbed.attackers == 2 and grabbed.grapple == "grabbed_now"
+            and grappleVictim.knockedDown == true
+            and grappleVictim.stopped == true
+            and SurvivorCompanion.ZombieAttack.isGrabbed(grappleVictim),
+        "two committed adjacent zombies pull a companion down and gate its decisions")
+
+    firstGrabber.dead = true
+    secondGrabber.dead = true
+    local _, _, released = SurvivorCompanion.ZombieAttack.resolve(
+        grappleVictim, 600100, { firstGrabber, secondGrabber })
+    check(released.attackers == 0 and released.grapple == "grab_broken"
+            and grappleVictim.knockedDown == false
+            and grappleVictim.deathDragDown == false
+            and not SurvivorCompanion.ZombieAttack.isGrabbed(grappleVictim),
+        "removing the zombie pile releases the companion and clears native grapple flags")
+
+    ZombRand = originalZombRand
+    values.zombieGrabThreshold = priorThreshold
+    values.zombieGrabChance = priorChance
+    values.zombieGrabEscapeChance = priorEscape
+    SurvivorCompanion.ZombieAttack.reset()
 end
 
 do

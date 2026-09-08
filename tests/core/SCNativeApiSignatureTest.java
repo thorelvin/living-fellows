@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 
 import java.lang.reflect.Constructor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
@@ -69,6 +70,13 @@ public final class SCNativeApiSignatureTest {
         Class<?> baseAction = Class.forName(
                 "zombie.characters.CharacterTimedActions.BaseAction");
         Class<?> chatElement = Class.forName("zombie.chat.ChatElement");
+        Class<?> actionContext = Class.forName("zombie.characters.action.ActionContext");
+        Class<?> actionGroup = Class.forName("zombie.characters.action.ActionGroup");
+        Class<?> actionState = Class.forName("zombie.characters.action.ActionState");
+        Class<?> vector2 = Class.forName("zombie.iso.Vector2");
+        Class<?> state = Class.forName("zombie.ai.State");
+        Class<?> stateMachine = Class.forName("zombie.ai.StateMachine");
+        Class<?> zombieAttackState = Class.forName("zombie.ai.states.AttackState");
 
         require(Modifier.isFinal(survivor.getModifiers()), "stock IsoSurvivor must remain final");
         require(player.isAssignableFrom(companion) && Modifier.isFinal(companion.getModifiers()),
@@ -432,6 +440,29 @@ public final class SCNativeApiSignatureTest {
         require(method(zombie, "setAttackOutcome", String.class).getReturnType() == void.class
                         && method(zombie, "getAttackOutcome").getReturnType() == String.class,
                 "IsoZombie attack-outcome signature changed");
+        Field zombieCanSeeTarget = zombie.getDeclaredField("canSeeTarget");
+        require(method(bridge, "startZombieAttack", zombie, companion).getReturnType()
+                        == String.class
+                        && zombieCanSeeTarget.getType() == boolean.class
+                        && Modifier.isPrivate(zombieCanSeeTarget.getModifiers())
+                        && method(zombie, "isFacingTarget").getReturnType() == boolean.class
+                        && method(player, "isZombiesDontAttack").getReturnType() == boolean.class
+                        && method(actionContext, "getGroup").getReturnType() == actionGroup
+                        && method(actionContext, "setCurrentState", actionState).getReturnType()
+                                == void.class
+                        && method(actionGroup, "findState", String.class).getReturnType()
+                                == actionState
+                        && method(square, "isSomethingTo", square).getReturnType()
+                                == boolean.class
+                        && zombie.getField("vectorToTarget").getType() == vector2
+                        && vector2.getField("x").getType() == float.class
+                        && vector2.getField("y").getType() == float.class
+                        && method(character, "changeState", state).getReturnType() == void.class
+                        && method(character, "getStateMachine").getReturnType() == stateMachine
+                        && method(stateMachine, "getCurrent").getReturnType() == state
+                        && method(zombieAttackState, "instance").getReturnType()
+                                == zombieAttackState,
+                "native zombie-to-companion attack-state bridge signatures changed");
         require(method(bodyPart, "setBandaged", boolean.class, float.class,
                 boolean.class, String.class).getReturnType() == void.class,
                 "BodyPart.setBandaged(boolean,float,boolean,String) signature changed");

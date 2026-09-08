@@ -139,6 +139,79 @@ local function isLandingAttack(zombie, actor)
     return true, select(1, U().call(zombie, "getAttackDidDamage")) == true
 end
 
+-- `spotted()` selects a non-local companion, but Build 42's stock vision loop
+-- only services entries in the local players[] array. The target can therefore
+-- remain valid while the zombie sits in ZombieIdleState forever: bMoving is
+-- never refreshed, so the animation graph never advances through lunge into
+-- AttackState. Re-issue the ordinary native path-to-character intent after the
+-- normal warning delay. This is deliberately not a movement or damage fallback;
+-- Project Zomboid still owns pathfinding, facing, attack state, animation events,
+-- collision, hit reaction, sound and the actual bite/grapple.
+local function requestNativeAttack(zombie, actor)
+    local bridge = type(_G) == "table" and rawget(_G, "SCBridge") or nil
+    if bridge == nil or not SC.Call or type(SC.Call.static) ~= "function" then
+        return false, "bridge_unavailable"
+    end
+    local ok, result = SC.Call.static(bridge, "startZombieAttack", zombie, actor)
+    if not ok then return false, "bridge_call_failed", false end
+    local reason = tostring(result or "attack_state_rejected")
+    return reason == "attack_started" or reason == "attack_active",
+        reason, reason == "attack_started"
+end
+
+local function sustainNativeEngagement(zombie, actor, swing, current, elapsed, distance)
+    local delay = config("zombieAttackEngageAssistDelayMs", 500)
+    if elapsed * 1000 < delay then return false, "warning_delay" end
+
+    -- This bridge call is intentionally NOT throttled. IsoZombie.postupdate()
+    -- clears canSeeTarget every frame for a companion outside players[], and the
+    -- native attack graph exits AttackState on the next update if the adapter
+    -- does not restore it. Java revalidates target, range, z and wall/door
+    -- obstruction on every call before touching that visibility bit.
+    local attackAccepted, attackReason, attackStarted =
+        false, "outside_native_start_range", false
+    if distance <= config("zombieAttackNativeStartRadius", 1.0) then
+        attackAccepted, attackReason, attackStarted = requestNativeAttack(zombie, actor)
+    end
+    if attackStarted then return true, attackReason, true end
+    if attackAccepted then return false, attackReason, false end
+
+    local stateName = tostring(select(1, U().call(zombie, "getCurrentState")))
+    if stateName:find("AttackState") ~= nil then return false, "attack_active", false end
+    if current < (tonumber(swing.nextEngageAssistAt) or 0) then
+        return false, attackReason == "outside_native_start_range"
+            and "assist_cooldown" or attackReason, false
+    end
+    swing.nextEngageAssistAt = current
+        + config("zombieAttackEngageAssistRetryMs", 750)
+    local _, pathOk = U().call(zombie, "pathToCharacter", actor)
+    if pathOk ~= true then return false, attackReason, false end
+    return true, "native_path_refreshed:" .. attackReason, false
+end
+
+-- The same missing local-player visibility slot can make IsoZombie.postupdate()
+-- drop a companion target between the 350 ms production targeting scans. Keep a
+-- very short memory only after THIS zombie was observed targeting THIS actor,
+-- and reacquire through the stock spotted() entry point. A living alternate
+-- target is never stolen, and the forced close notice is refused across floors,
+-- walls and closed doors.
+local function restoreRecentCloseTarget(zombie, actor, current, lastTargetAt, distance, reach)
+    if lastTargetAt == nil
+        or current - lastTargetAt > config("zombieAttackTargetMemoryMs", 1200)
+        or distance > reach then
+        return false
+    end
+    local existing = select(1, U().call(zombie, "getTarget"))
+    if existing ~= nil and U().isDead(existing) ~= true then return existing == actor end
+    if not U().sameFloor(zombie, actor)
+        or U().canSee(zombie, U().squareOf(actor)) ~= true then
+        return false
+    end
+    local _, spotted = U().call(zombie, "spotted", actor, true)
+    if spotted ~= true then return false end
+    return select(1, U().call(zombie, "getTarget")) == actor
+end
+
 -- Knock the companion to the ground the way an overwhelming zombie grab does,
 -- setting the same flags the engine's grab sequence sets on a victim so the
 -- companion's own state machine plays the fall/on-ground animation.
@@ -285,16 +358,24 @@ function ZombieAttack.resolve(actor, current, zombies)
     local holdRadius = config("zombieAttackHoldRadius", 3.0)
     local grabReach = config("zombieGrabReach", 1.6)
     local grabGrace = config("zombieGrabTargetGraceMs", 1200)
-    local applied, checked, targeting, landed, pile = 0, 0, 0, 0, 0
+    local applied, checked, targeting, landed, pile, engagementAssists = 0, 0, 0, 0, 0, 0
+    local nativeAttackStarts = 0
+    local targetReacquisitions = 0
     U().each(zombies, maximum, function(zombie)
         checked = checked + 1
         if U().isZombie(zombie) ~= true or U().isDead(zombie) == true then return end
+        local targetDistance = U().distance(zombie, actor)
         local targetsMe = select(1, U().call(zombie, "getTarget")) == actor
+        if not targetsMe and restoreRecentCloseTarget(zombie, actor, current,
+                pileWindow[zombie], targetDistance, grabReach) then
+            targetsMe = true
+            targetReacquisitions = targetReacquisitions + 1
+        end
         -- The pull-down "pile": zombies in grab range committed to THIS companion.
         -- Count one targeting us now (and remember the frame), or one that targeted
         -- us within the grace window (its lock flickered off between perception
         -- scans). A zombie locked onto the player or another NPC never counts.
-        if U().distance(zombie, actor) <= grabReach then
+        if targetDistance <= grabReach then
             if targetsMe then
                 pileWindow[zombie] = current
                 pile = pile + 1
@@ -322,12 +403,16 @@ function ZombieAttack.resolve(actor, current, zombies)
         -- ourselves and mirror that absolute duration back every tick. This keeps
         -- the vanilla half-second warning, then lets Zombie_Bite_Start/Success,
         -- AttackCollisionCheck and the victim reaction run normally.
-        if U().distance(zombie, actor) <= holdRadius then
+        if targetDistance <= holdRadius then
             if not swing then swing = {} swings[zombie] = swing end
             if swing.seenSince == nil then swing.seenSince = current end
             local elapsed = math.max(0, current - swing.seenSince) / 1000
             local seen = number(zombie, "getTargetSeenTime") or 0
             U().call(zombie, "setTargetSeenTime", math.min(10, math.max(seen, elapsed)))
+            local assisted, _, attackStarted = sustainNativeEngagement(
+                zombie, actor, swing, current, elapsed, targetDistance)
+            if assisted then engagementAssists = engagementAssists + 1 end
+            if attackStarted then nativeAttackStarts = nativeAttackStarts + 1 end
             swing.lastSightAt = current
         elseif swing then
             swing.lastSightAt = nil
@@ -375,7 +460,9 @@ function ZombieAttack.resolve(actor, current, zombies)
 
     return true, applied > 0 and "companion_wounded" or "no_landed_attack",
         { checked = checked, targeting = targeting, landed = landed, applied = applied,
-          pile = pile, attackers = attackers, grapple = grapple }
+          pile = pile, attackers = attackers, grapple = grapple,
+          engagementAssists = engagementAssists, nativeAttackStarts = nativeAttackStarts,
+          targetReacquisitions = targetReacquisitions }
 end
 
 function ZombieAttack.reset(actor)

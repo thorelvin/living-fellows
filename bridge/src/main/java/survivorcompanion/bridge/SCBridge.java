@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 package survivorcompanion.bridge;
 
+import java.lang.reflect.Field;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -18,8 +19,13 @@ import java.util.concurrent.atomic.AtomicLong;
 import zombie.MainThread;
 import zombie.Lua.Event;
 import zombie.Lua.LuaEventManager;
+import zombie.ai.states.AttackState;
 import zombie.characters.IsoPlayer;
+import zombie.characters.IsoZombie;
 import zombie.characters.SurvivorDesc;
+import zombie.characters.action.ActionContext;
+import zombie.characters.action.ActionGroup;
+import zombie.characters.action.ActionState;
 import zombie.characters.CharacterTimedActions.BaseAction;
 import zombie.characters.SurvivorFactory;
 import zombie.core.Core;
@@ -53,6 +59,15 @@ public final class SCBridge {
             new IdentityHashMap<>();
     private static final Map<Long, SpawnRequest> SPAWN_REQUESTS = new LinkedHashMap<>();
     private static final AtomicLong NEXT_SPAWN_REQUEST = new AtomicLong(1L);
+    /**
+     * Build 42's zombie action graph gates both entry to and continuation of
+     * the stock attack state on this private visibility bit. The normal player
+     * visibility pass maintains it only for entries in IsoPlayer.players[];
+     * owned companions deliberately never occupy those local-player slots.
+     * Resolve the exact 42.20.4 field once and fail closed if the installed
+     * runtime no longer matches the signature test.
+     */
+    private static final Field ZOMBIE_CAN_SEE_TARGET = resolveZombieCanSeeTarget();
     // CombatManager.checkPVP treats every IsoPlayer subclass as a co-op player,
     // including our non-local NPCs. In single-player it rejects that target when
     // IsoPlayer.coopPvp is false, before melee and firearm hit-info is created.
@@ -154,6 +169,17 @@ public final class SCBridge {
 
     private SCBridge() {}
 
+    private static Field resolveZombieCanSeeTarget() {
+        try {
+            Field field = IsoZombie.class.getDeclaredField("canSeeTarget");
+            if (field.getType() != boolean.class) return null;
+            field.setAccessible(true);
+            return field;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            return null;
+        }
+    }
+
     public static String getProtocol() {
         return PROTOCOL;
     }
@@ -227,6 +253,92 @@ public final class SCBridge {
     public static String checkActor(SCNativeCompanion actor) {
         if (!isOwned(actor)) return "native companion is not owned by SCBridge";
         return checkActorState(actor);
+    }
+
+    /**
+     * Starts Build 42's real zombie attack action against an owned companion.
+     *
+     * A detached non-local IsoPlayer is not present in the stock players[] vision
+     * loop. The zombie can consequently keep it as target and even face it while
+     * the action graph repeatedly falls back to idle instead of selecting its
+     * `attack` state. Lua calls this only after the ordinary target-seen warning
+     * interval. This method revalidates the dangerous boundary natively and then
+     * selects the existing zombie action state: the stock AttackState, animation
+     * clips, AttackCollisionCheck, victim reaction, sound and BodyDamage code do
+     * all subsequent work.
+     */
+    public static String startZombieAttack(IsoZombie zombie, SCNativeCompanion actor) {
+        if (zombie == null) return "invalid_zombie";
+        if (!isOwned(actor)) return "unowned_companion";
+        if (zombie.isDead() || actor.isDead() || actor.isOnFloor()) return "invalid_life_state";
+        if (actor.getVehicle() != null) return "companion_in_vehicle";
+        if (actor.isZombiesDontAttack()) return "companion_attack_immunity";
+        if (zombie.getTarget() != actor) return "different_target";
+
+        float dx = actor.getX() - zombie.getX();
+        float dy = actor.getY() - zombie.getY();
+        float dz = Math.abs(actor.getZ() - zombie.getZ());
+        // getShouldAttack() reads this cached vector rather than recomputing the
+        // distance. The local-player vision pass normally refreshes it; a detached
+        // companion never participates in that pass, which is the actual reason
+        // the otherwise-valid action state fell straight back to idle.
+        zombie.vectorToTarget.x = dx;
+        zombie.vectorToTarget.y = dy;
+        if (dz >= 0.2f || dx * dx + dy * dy > 0.72f * 0.72f) {
+            return "outside_attack_range";
+        }
+        IsoGridSquare zombieSquare = zombie.getCurrentSquare();
+        IsoGridSquare actorSquare = actor.getCurrentSquare();
+        if (zombieSquare == null || actorSquare == null) return "missing_square";
+        if (zombieSquare != actorSquare && zombieSquare.isSomethingTo(actorSquare)) {
+            return "attack_obstructed";
+        }
+
+        // IsoZombie.postupdate() recalculates this from isTargetVisible(), which
+        // cannot find a deliberately detached companion, after the animation
+        // graph has updated. Lua invokes this adapter after postupdate on every
+        // close-range resolver tick, keeping the bit valid for the next graph
+        // update. The target/range/z-level/obstruction checks above make this a
+        // narrow replacement for the missing local-player visibility slot, not
+        // a way for zombies to attack through walls or at a distance.
+        if (ZOMBIE_CAN_SEE_TARGET == null) return "visibility_adapter_unavailable";
+        try {
+            ZOMBIE_CAN_SEE_TARGET.setBoolean(zombie, true);
+        } catch (IllegalAccessException | IllegalArgumentException failure) {
+            return "visibility_adapter_failed";
+        }
+        if (!zombie.isFacingTarget()) return "not_facing_target";
+
+        ActionContext context = zombie.getActionContext();
+        if (context == null) return "missing_action_context";
+        String current = context.getCurrentStateName();
+        if ("attack".equalsIgnoreCase(current)
+                && zombie.getStateMachine().getCurrent() == AttackState.instance()) {
+            return "attack_active";
+        }
+        if (!("idle".equalsIgnoreCase(current)
+                || "face-target".equalsIgnoreCase(current)
+                || "walktoward".equalsIgnoreCase(current)
+                || "lunge".equalsIgnoreCase(current)
+                || "pathfind".equalsIgnoreCase(current))) {
+            return "busy_" + (current == null ? "unknown" : current);
+        }
+        ActionGroup group = context.getGroup();
+        if (group == null || group.getName() == null
+                || !group.getName().startsWith("zombie")) {
+            return "wrong_action_group";
+        }
+        ActionState attack = group.findState("attack");
+        if (attack == null) return "attack_state_unavailable";
+        zombie.setTargetSeenTime(Math.max(0.51f, zombie.getTargetSeenTime()));
+        context.setCurrentState(attack);
+        // Build 42 keeps the ActionContext animation state and legacy AI state
+        // as separate layers. Selecting only the former is overwritten before
+        // AttackState.enter() clears ZombieBiteDone and initializes the outcome.
+        zombie.changeState(AttackState.instance());
+        return "attack".equalsIgnoreCase(context.getCurrentStateName())
+                && zombie.getStateMachine().getCurrent() == AttackState.instance()
+                ? "attack_started" : "attack_state_rejected";
     }
 
     private static String checkActorState(SCNativeCompanion actor) {

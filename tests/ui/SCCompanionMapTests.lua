@@ -23,6 +23,27 @@ fixture.records[4] = {
     id = "joined-daryl", recruited = true, factionId = "departed-household",
     actor = { x = 30, y = 40, z = 0, name = "Daryl Dixon" },
 }
+fixture.factions[1] = {
+    id = "faction-rangers", name = "Ashwood Rangers", discovered = true,
+    lifecycle = "settled", standing = "Trusted",
+    location = { coordinates = { x = 60, y = 35, z = 0 } },
+    house = { anchor = { x = 1, y = 1, z = 0 } },
+}
+fixture.factions[2] = {
+    id = "faction-hidden", name = "Hidden Household", discovered = false,
+    lifecycle = "settled", standing = "Wary",
+    location = { coordinates = { x = 70, y = 45, z = 0 } },
+}
+fixture.factions[3] = {
+    id = "faction-destroyed", name = "Lost Patrol", discovered = true,
+    lifecycle = "destroyed", standing = "Wary",
+    house = { anchor = { x = 80, y = 55, z = 0 } },
+}
+fixture.factions[4] = {
+    id = "faction-hostile", name = "Red Knives", discovered = true,
+    lifecycle = "hostile", standing = "Hostile",
+    house = { anchor = { x = 95, y = 65, z = 0 } },
+}
 
 local rows = Map.rows()
 assert(#rows == 2, "only living recruited companions belong on the minimap")
@@ -38,6 +59,7 @@ local map = {
     },
     rectangles = {},
     labels = {},
+    textures = {},
 }
 
 function map:drawRect(x, y, width, height, alpha, red, green, blue)
@@ -51,6 +73,21 @@ function map:drawText(value, x, y)
     self.labels[#self.labels + 1] = { value = value, x = x, y = y }
 end
 
+
+function map:drawTextureScaled(texture, x, y, width, height, alpha, red, green, blue)
+    self.textures[#self.textures + 1] = {
+        texture = texture, x = x, y = y, width = width, height = height,
+        alpha = alpha, red = red, green = green, blue = blue,
+    }
+end
+
+local factionRows = Map.factionRows()
+assert(#factionRows == 2, "only known living factions belong on the world map")
+assert(factionRows[1].name == "Ashwood Rangers" and factionRows[1].x == 60,
+    "persisted location coordinates must take precedence over the house fallback")
+assert(factionRows[2].name == "Red Knives" and factionRows[2].x == 95,
+    "the house anchor must remain a compatibility fallback")
+
 local installed, installReason = Map.install()
 assert(installed == true and installReason == "installed")
 ISMiniMapInner.render(map)
@@ -61,6 +98,21 @@ assert(#map.labels == 4, "each recruited companion needs a shadowed first-name l
 assert(map.labels[1].value == "Alice" and map.labels[3].value == "Daryl")
 assert(#fixture.reports == 0, "the minimap overlay must render without diagnostics")
 
+ISWorldMap.render(map)
+assert(map.worldMapBaseRendered == true and fixture.worldMapBaseRenderCount == 1,
+    "the vanilla full world-map render must remain in the chain")
+assert(#map.textures == 2, "each known living faction needs one native house symbol")
+assert(map.textures[1].texture.path == "media/ui/LootableMaps/map_house.png")
+assert(map.textures[1].width == 16 and map.textures[1].height == 16)
+assert(map.textures[2].red > map.textures[2].green,
+    "hostile faction houses must be visually distinguishable")
+assert(#map.labels == 8, "faction names need the same readable small-font shadow treatment")
+assert(map.labels[5].value == "Ashwood Rangers" and map.labels[7].value == "Red Knives")
+assert(#fixture.reports == 0, "the world-map overlay must render without diagnostics")
+assert(Map.lastFactionDrawCount == 2,
+    "the live harness must be able to confirm the actual world-map draw count")
+
 local removed, removeReason = Map.remove()
 assert(removed == true and removeReason == "removed")
 assert(ISMiniMapInner.render ~= nil)
+assert(ISWorldMap.render ~= nil)

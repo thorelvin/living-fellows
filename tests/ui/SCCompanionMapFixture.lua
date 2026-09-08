@@ -1,7 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 require = function(name)
-    assert(name == "ISUI/Maps/ISMiniMap")
+    assert(name == "ISUI/Maps/ISMiniMap" or name == "ISUI/Maps/ISWorldMap")
     return true
 end
 
@@ -12,6 +12,7 @@ SCCompanionMapFixture = {
     records = records,
     baseRenderCount = 0,
     reports = {},
+    factions = {},
 }
 
 ISMiniMapInner = {
@@ -20,6 +21,19 @@ ISMiniMapInner = {
         self.baseRendered = true
     end,
 }
+
+ISWorldMap = {
+    render = function(self)
+        SCCompanionMapFixture.worldMapBaseRenderCount =
+            (SCCompanionMapFixture.worldMapBaseRenderCount or 0) + 1
+        self.worldMapBaseRendered = true
+    end,
+}
+
+getTexture = function(path)
+    assert(path == "media/ui/LootableMaps/map_house.png")
+    return { path = path }
+end
 
 getTextManager = function()
     return {
@@ -30,6 +44,12 @@ getTextManager = function()
 end
 
 SurvivorCompanion = {
+    Factions = {
+        list = function(discoveredOnly)
+            assert(discoveredOnly == true)
+            return SCCompanionMapFixture.factions
+        end,
+    },
     Registry = {
         records = function() return records end,
     },
