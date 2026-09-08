@@ -341,12 +341,28 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         and "open" or "trail"
     local target, portal
     if mode == "trail" then
-        local lag = 1.5 + math.max(0, slot - 1) * 1.1
-        target, portal = trailTarget(actor, leaderState, lag, snapshot, minimum, current)
+        local trail = leaderState.trail or {}
+        if #trail >= 2 and (leaderState.totalDistance or 0) >= 0.35 then
+            local lag = 1.5 + math.max(0, slot - 1) * 1.1
+            target, portal = trailTarget(actor, leaderState, lag, snapshot, minimum, current)
+        else
+            -- Immediately after loading, the in-memory breadcrumb trail contains
+            -- only the leader's current square. It does not describe the doorway
+            -- or corner between an outdoor follower and an indoor player. Route to
+            -- a free square beside the leader as a bootstrap goal, but keep this
+            -- distinct from open formation so Navigation never treats wall-blocked
+            -- startup as an ordinary lateral formation adjustment.
+            mode = "bootstrap"
+            target = availableTarget(actor, px, py, pz, snapshot, minimum)
+        end
     end
     if not target then
-        mode = "open"
-        target = availableTarget(actor, targetX, targetY, pz, snapshot, minimum)
+        if mode == "open" then
+            target = availableTarget(actor, targetX, targetY, pz, snapshot, minimum)
+        else
+            mode = "bootstrap"
+            target = availableTarget(actor, px, py, pz, snapshot, minimum)
+        end
     end
     local previous = state.targetSquare
     local retainDistance = tonumber(utility.config("formationTargetHysteresisDistance")) or 1.1

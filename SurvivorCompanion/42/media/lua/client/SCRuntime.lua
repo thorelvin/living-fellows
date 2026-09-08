@@ -507,6 +507,10 @@ local function vitalsTask(current)
         record.runtime.vehicleRecoveryDeferred = nil
     end
     if missingSquare then
+        -- Do not allow an OnSave pulse during a missing-membership/recovery episode
+        -- to promote the transient native coordinates into the durable save.
+        record.runtime.positionUnstableUntil = math.max(
+            tonumber(record.runtime.positionUnstableUntil) or 0, current + 5000)
         if record.runtime.nativeSquareMissingAt == nil then
             record.runtime.nativeSquareMissingAt = current
             return
@@ -638,6 +642,9 @@ local function vitalsTask(current)
     end
     if healthy then
         record.runtime.healthFailingSince = nil
+        if SC.Persistence and type(SC.Persistence.noteStablePosition) == "function" then
+            SC.Persistence.noteStablePosition(record, current)
+        end
         -- Sustained healthy activation clears the repeated-retirement history so a
         -- single transient dip does not accumulate toward the recovery quarantine
         -- ceiling (R2-02). Only a spawn that stays healthy long enough counts.

@@ -1571,6 +1571,86 @@ furnitureSquare.objects, furnitureSquare.specialObjects = {}, {}
 end
 
 do
+local binSquare = cell:getGridSquare(2, -7, 0)
+local rubbishBin = { __class = "IsoObject" }
+function rubbishBin:isThumpable() return false end
+function rubbishBin:isBlockAllTheSquare() return true end
+function rubbishBin:isStairsObject() return false end
+binSquare.objects[#binSquare.objects + 1] = rubbishBin
+local binRoute = SurvivorCompanion.Navigation.findPath(
+    cell:getGridSquare(0, -7, 0), cell:getGridSquare(4, -7, 0))
+local enteredBin = false
+for _, square in ipairs(binRoute or {}) do
+    if square == binSquare then enteredBin = true end
+end
+check(binRoute ~= nil and enteredBin == false
+        and select(2, SurvivorCompanion.GameplayUtil.squareStaticBlocker(binSquare))
+            == "full_square_object",
+    "non-thumpable full-square moveables such as rubbish bins are excluded from routes")
+binSquare.objects = {}
+end
+
+do
+local collisionActor = actor("sc-collision-memory", 6, -7, {})
+registry[collisionActor.id] = collisionActor
+local collisionFrom = cell:getGridSquare(6, -7, 0)
+local collisionTile = cell:getGridSquare(7, -7, 0)
+local collisionGoal = cell:getGridSquare(9, -7, 0)
+collisionActor.collidedVehicle = true
+local collisionState = { blockedEdges = {}, blockedSquares = {}, routeMemory = {} }
+SurvivorCompanion.Navigation._rememberFailureForTests(collisionActor, collisionState,
+    collisionFrom, collisionTile, "native_path_failed", clock, "native_edge_replan")
+collisionActor.collidedVehicle = false
+local collisionRoute = SurvivorCompanion.Navigation.findPath(
+    collisionFrom, collisionGoal, { blockedSquares = collisionState.blockedSquares, now = clock })
+local reusedCollisionTile = false
+for _, square in ipairs(collisionRoute or {}) do
+    if square == collisionTile then reusedCollisionTile = true end
+end
+check(collisionState.blockedSquares[SurvivorCompanion.GameplayUtil.squareKey(collisionTile)]
+        and collisionRoute ~= nil and reusedCollisionTile == false,
+    "a native vehicle collision blacklists the whole capsule tile for the next A-star route")
+local diagnosticLine
+local originalPrint = print
+print = function(value) diagnosticLine = tostring(value) end
+SurvivorCompanion.GameplayUtil.diagnostic(
+    "actor-id-regression", collisionActor, "type=vehicle")
+print = originalPrint
+check(diagnosticLine and string.find(diagnosticLine,
+        "actor=sc-collision-memory", 1, true) ~= nil,
+    "navigation diagnostics identify the companion that hit the blocker")
+registry[collisionActor.id] = nil
+for index = #collisionActor.square.moving, 1, -1 do
+    if collisionActor.square.moving[index] == collisionActor then
+        table.remove(collisionActor.square.moving, index)
+    end
+end
+end
+
+do
+local fenceFrom = cell:getGridSquare(5, -6, 0)
+local fenceTo = cell:getGridSquare(6, -6, 0)
+local priorHoppable = fenceFrom.isHoppableTo
+function fenceFrom:isHoppableTo(other) return other == fenceTo end
+local fenceActor = actor("sc-fence-crossing", 5, -6, {})
+registry[fenceActor.id] = fenceActor
+local fenceAccepted = SurvivorCompanion.Navigation.request(
+    fenceActor, fenceTo, "walk", { action = "follow_formation", followRecovery = true,
+        snapshot = { allies = {} } })
+check(fenceAccepted and fenceActor.lastIntent and fenceActor.lastIntent.enginePath == true
+        and fenceActor.lastIntent.nativeAffordance == "fence",
+    "a selected low-fence edge is handed to native player pathing for its climb animation")
+SurvivorCompanion.Navigation.reset(fenceActor)
+registry[fenceActor.id] = nil
+for index = #fenceActor.square.moving, 1, -1 do
+    if fenceActor.square.moving[index] == fenceActor then
+        table.remove(fenceActor.square.moving, index)
+    end
+end
+fenceFrom.isHoppableTo = priorHoppable
+end
+
+do
 local formationTree = cell:getGridSquare(3, -3, 0)
 formationTree.hasTree = true
 local treeGoalActor = actor("sc-tree-goal", 0, -3, {})
@@ -2311,8 +2391,14 @@ SurvivorCompanion.Commands.issue(trailFollower.id, "follow", nil, trailLeader)
 local trailSnapshot = {
     threats = {}, allies = {}, player = { actor = trailLeader, danger = 0 },
 }
-SurvivorCompanion.Positioning.formationTarget(trailFollower, trailLeader,
+trailLeader.square.losBlocked = true
+local bootstrapTarget, bootstrapContext = SurvivorCompanion.Positioning.formationTarget(
+    trailFollower, trailLeader,
     SurvivorCompanion.Commands.peek(trailFollower), trailSnapshot)
+check(bootstrapTarget and bootstrapContext and bootstrapContext.mode == "bootstrap"
+        and bootstrapTarget ~= trailLeader.square,
+    "a wall-blocked follower bootstraps to a free leader-adjacent square after reload")
+trailLeader.square.losBlocked = false
 local trailTarget, trailContext
 for x = 51, 53 do
     trailLeader.square = cell:getGridSquare(x, 24, 0)

@@ -426,12 +426,14 @@ local function outputDiagnostic(textValue)
 end
 
 function U.diagnostic(subsystem, actor, message)
-    local key = tostring(subsystem) .. ":" .. tostring(U.idOf(actor) or "global")
+    local actorId = U.idOf(actor) or "global"
+    local key = tostring(subsystem) .. ":" .. tostring(actorId)
     local now = U.nowMs()
     local nextAllowed = diagnostics[key] or 0
     if now < nextAllowed then return end
     diagnostics[key] = now + (U.config("diagnosticCooldownMs") or 10000)
-    outputDiagnostic("[SurvivorCompanion/" .. tostring(subsystem) .. "] " .. tostring(message))
+    outputDiagnostic("[SurvivorCompanion/" .. tostring(subsystem) .. "] actor="
+        .. tostring(actorId) .. " " .. tostring(message))
 end
 
 function U.safeSubsystem(subsystem, actor, callback)
@@ -685,9 +687,15 @@ function U.squareStaticBlocker(square)
         local blockAll, blockOk = U.call(object, "isBlockAllTheSquare")
         local thumpable, thumpOk = U.call(object, "isThumpable")
         local stairs, stairsOk = U.call(object, "isStairsObject")
-        if blockOk and blockAll == true and (not stairsOk or stairs ~= true)
-            and (not thumpOk or thumpable == true or U.instanceOf(object, "IsoThumpable")) then
-            found, kind = object, "full_square_thumpable"
+        if blockOk and blockAll == true and (not stairsOk or stairs ~= true) then
+            -- Moveable furniture such as rubbish bins can block the whole square
+            -- while explicitly reporting isThumpable() == false. Requiring a
+            -- thumpable object here made A* route through the occupied tile and
+            -- left the native collision capsule to discover it beside a car.
+            found = object
+            kind = ((thumpOk and thumpable == true)
+                or U.instanceOf(object, "IsoThumpable"))
+                and "full_square_thumpable" or "full_square_object"
             return false
         end
     end, 64)

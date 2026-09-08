@@ -402,6 +402,21 @@ original:setAttachedItem("Belt Left", knife)
 local captured, captureReason = SC.Persistence.captureRecord(record)
 check(captured ~= nil,
     "plain native items without getInventory still capture: " .. tostring(captureReason))
+local stablePosition = SC.Persistence.noteStablePosition(record, 100)
+local originalSquare = original.square
+local transientSquare = { x = 91, y = 92, z = 0 }
+function transientSquare:getX() return self.x end
+function transientSquare:getY() return self.y end
+function transientSquare:getZ() return self.z end
+original.square = transientSquare
+record.runtime.positionUnstableUntil = 1000000000000
+local protectedPosition, protectedReason = SC.Persistence._capturePositionForTests(record, original)
+check(stablePosition and stablePosition.x == 20 and stablePosition.y == 30
+        and protectedPosition and protectedPosition.x == 20 and protectedPosition.y == 30
+        and protectedReason == "last_verified_position",
+    "a settling or detached native position cannot replace the last verified save tile")
+original.square = originalSquare
+record.runtime.positionUnstableUntil = nil
 check(bottle.fluid.sampleReleased == true,
     "fluid persistence releases the pooled Build 42 sample after exact capture")
 check(captured.possessions.keepsake.status == "carried"

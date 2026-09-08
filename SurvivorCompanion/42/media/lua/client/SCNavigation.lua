@@ -18,6 +18,12 @@ local trafficSequence = 0
 local nextChokeSweepAt = 0
 local stepReservations = {}
 local nextStepSweepAt = 0
+local squareBlockerTypes = {
+    vehicle = true, moved_object = true, thumpable = true,
+    full_square_thumpable = true, full_square_object = true,
+    world_object = true, world_collision = true,
+    continuous_geometry = true, vegetation = true, unknown = true,
+}
 
 local function U()
     return SC.GameplayUtil
@@ -81,6 +87,7 @@ local function stateFor(actor)
             trailIndex = {},
             stuckAttempts = 0,
             blockedEdges = {},
+            blockedSquares = {},
             routeMemory = {},
             blockerHistory = {},
             lastProgressAt = U().nowMs(),
@@ -152,6 +159,36 @@ local function sweepBlockedEdges(state, now)
     for key, entry in pairs(state.blockedEdges or {}) do
         if (tonumber(entry.expires) or 0) <= now then state.blockedEdges[key] = nil end
     end
+    for key, entry in pairs(state.blockedSquares or {}) do
+        if (tonumber(entry.expires) or 0) <= now then state.blockedSquares[key] = nil end
+    end
+end
+
+local function blacklistSquare(state, square, blockerType, object, now, dynamic)
+    local key = squareKey(square)
+    if not key then return nil end
+    state.blockedSquares = state.blockedSquares or {}
+    local duration = dynamic and (U().config("navigationDynamicBlockedEdgeMs") or 1100)
+        or (U().config("navigationBlockedEdgeMs") or 4500)
+    state.blockedSquares[key] = {
+        type = blockerType or "unknown", object = object, expires = now + duration,
+    }
+    local count, oldestKey, oldestExpiry = 0, nil, math.huge
+    for candidateKey, candidate in pairs(state.blockedSquares) do
+        count = count + 1
+        local expiry = tonumber(candidate.expires) or 0
+        if expiry < oldestExpiry then oldestKey, oldestExpiry = candidateKey, expiry end
+    end
+    if count > 32 and oldestKey then state.blockedSquares[oldestKey] = nil end
+    return key
+end
+
+local function squareBlacklistEntry(blockedSquares, square, now)
+    local key = squareKey(square)
+    local entry = key and type(blockedSquares) == "table" and blockedSquares[key] or nil
+    if entry and (tonumber(entry.expires) or 0) > (now or U().nowMs()) then return entry end
+    if entry and key then blockedSquares[key] = nil end
+    return nil
 end
 
 local function edgeBlacklistEntry(blockedEdges, fromSquare, toSquare, now)
@@ -729,6 +766,9 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
     options = type(options) == "table" and options or {}
     if edgeBlacklistEntry(options.blockedEdges, fromSquare, toSquare, options.now) then
         return false, math.huge, "blacklisted_edge"
+    end
+    if squareBlacklistEntry(options.blockedSquares, toSquare, options.now) then
+        return false, math.huge, "blacklisted_square"
     end
     if squareVehicle(toSquare) then return false, math.huge, "vehicle_footprint" end
     if not utility.isSquareFree(toSquare) then return false, math.huge end
@@ -2763,6 +2803,7 @@ local function tryRepairMovingPath(actor, state, sourceSquare, goalSquare, conte
                         and (utility.config("navigationEmergencyVegetationScale") or 0.2) or 1, {
                         actor = actor,
                         blockedEdges = state.blockedEdges,
+                        blockedSquares = state.blockedSquares,
                         routeMemory = state.routeMemory,
                         now = now,
                         allowOccupiedGoal = sameSquare(candidate, goalSquare),
@@ -2815,6 +2856,7 @@ local function tryReusePathSuffix(actor, state, sourceSquare, context, now)
                         and (U().config("navigationEmergencyVegetationScale") or 0.2) or 1, {
                         actor = actor,
                         blockedEdges = state.blockedEdges,
+                        blockedSquares = state.blockedSquares,
                         routeMemory = state.routeMemory,
                         now = now,
                         allowOccupiedGoal = index == #state.path,
@@ -3154,6 +3196,9 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
     if barrierKind == "door" then
         return { type = "door", object = barrier, square = toSquare or fromSquare }
     end
+    if barrierKind == "fence" or barrierKind == "stairs" then
+        return { type = barrierKind, object = barrier, square = toSquare or fromSquare }
+    end
     local static, staticKind = utility.squareStaticBlocker(toSquare)
     if static then return { type = staticKind, object = static, square = toSquare } end
     local thumpable, thumpableKind = edgeThumpableBlocker(fromSquare, toSquare, actor)
@@ -3181,14 +3226,24 @@ local function rememberFailure(actor, state, fromSquare, toSquare, reason, now, 
     if blocker.type ~= "actor_state" and fromSquare and toSquare then
         blacklistEdge(state, fromSquare, toSquare, blocker.type, blocker.object, now, blocker.dynamic)
     end
+    if squareBlockerTypes[blocker.type] and adjacentStep(fromSquare, toSquare) then
+        -- A collision capsule can fail on an otherwise topologically open tile
+        -- beside a vehicle or moveable. Blocking only the directed edge lets A*
+        -- choose the same bad tile from another side on its next search.
+        blacklistSquare(state, blocker.square or toSquare, blocker.type,
+            blocker.object, now, blocker.dynamic)
+    end
     recordBlocker(actor, state, blocker.type, blocker.object, blocker.square,
         blocker.actorState, recovery or "edge_blacklisted", now)
     state.path = nil
     state.pathGoalSquare = nil
+    state.pathSearch = nil
+    state.pathSearchHolding = nil
     state.pathIndex = 1
     state.nextRepathAt = 0
     return blocker
 end
+Navigation._rememberFailureForTests = rememberFailure
 
 local function topologySignatureAt(actor, centre)
     local utility = U()
@@ -3811,6 +3866,7 @@ function Navigation.request(actor, target, movementMode, intent)
         local pathOptions = {
             actor = actor,
             blockedEdges = state.blockedEdges,
+            blockedSquares = state.blockedSquares,
             routeMemory = state.routeMemory,
             now = now,
             vegetationScale = requestIntent.urgent == true

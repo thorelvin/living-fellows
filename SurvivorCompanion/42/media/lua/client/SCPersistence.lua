@@ -196,6 +196,54 @@ local function positionOf(actor)
     }
 end
 
+local function copiedPosition(value)
+    if type(value) ~= "table" then return nil end
+    local x, y, z = finite(value.x, nil), finite(value.y, nil), finite(value.z, nil)
+    if x == nil or y == nil or z == nil then return nil end
+    return { x = x, y = y, z = z }
+end
+
+-- Only a native actor that is still attached to its current square is allowed to
+-- advance the durable position. OnSave may run after the world has begun removing
+-- moving objects; getCurrentSquare()/coordinates can still return a plausible but
+-- transient tile at that point. Keep the last position proven by the native health
+-- contract so a shutdown membership dip cannot become a load-time relocation.
+function persistence.noteStablePosition(record, current)
+    if type(record) ~= "table" or record.actor == nil then
+        return nil, "active actor is required"
+    end
+    record.runtime = type(record.runtime) == "table" and record.runtime or {}
+    current = finite(current, nil) or (type(getTimestampMs) == "function"
+        and select(2, pcall(getTimestampMs))) or 0
+    current = finite(current, 0)
+    if current < finite(record.runtime.positionUnstableUntil, 0) then
+        return nil, "native position is settling"
+    end
+    if SC.Actor and type(SC.Actor.validateNative) == "function" then
+        local called, healthy = pcall(SC.Actor.validateNative, record.actor)
+        if not called or healthy ~= true then return nil, "native position is not healthy" end
+    end
+    local squareOk, square = invoke(record.actor, "getCurrentSquare")
+    if not squareOk or square == nil then return nil, "native square is unavailable" end
+    local position = positionOf(record.actor)
+    if position == nil or position.x == nil or position.y == nil then
+        return nil, "native position is unavailable"
+    end
+    record.runtime.lastStablePosition = copiedPosition(position)
+    record.runtime.lastStablePositionAt = current
+    return copiedPosition(position)
+end
+
+local function capturePosition(record, actor)
+    local verified, reason = persistence.noteStablePosition(record)
+    if verified ~= nil then return verified end
+    local fallback = copiedPosition(type(record.runtime) == "table"
+        and record.runtime.lastStablePosition or nil)
+    if fallback ~= nil then return fallback, "last_verified_position" end
+    return nil, reason or "actor has no verified stable position"
+end
+persistence._capturePositionForTests = capturePosition
+
 local function captureIdentity(record, actor)
     local source = type(record.identity) == "table" and record.identity or {}
     local female = source.gender == "female" or source.gender == "woman"
@@ -677,7 +725,7 @@ function persistence.captureRecord(record, vehicleState)
         and type(record.factionId) ~= "string") then
         return nil, "only recruited or faction living companions are persistent"
     end
-    local position = positionOf(actor)
+    local position = capturePosition(record, actor)
     if position == nil or position.x == nil or position.y == nil then
         return nil, "actor has no stable position"
     end
