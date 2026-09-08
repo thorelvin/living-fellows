@@ -23,7 +23,7 @@ local activeFinal = setmetatable({}, { __mode = "k" })
 local activeVisual = setmetatable({}, { __mode = "k" })
 local pacingStates = setmetatable({}, { __mode = "k" })
 local resultHistory = setmetatable({}, { __mode = "k" })
-local pendingStomps = setmetatable({}, { __mode = "k" })
+local pendingCombat = setmetatable({}, { __mode = "k" })
 local pacingSequence = 0
 local humanEmotes = {
     wavehi = true, wavebye = true, clap = true, thumbsup = true, thankyou = true,
@@ -1687,18 +1687,17 @@ local function applyStompFinisher(actor, target)
     end
 end
 
--- DoAttack/isAttackStarted proves only that the state machine accepted a stomp;
+-- DoAttack/isAttackStarted proves only that the state machine accepted an attack;
 -- it runs before the visible animation. The Java actor increments a serial at the
--- animation's actual AttackCollisionCheck event. Delay the floor-hit fallback
--- until that evidence arrives, otherwise a one-health zombie dies at swing start
--- and the stomp appears to be an animationless instant kill.
+-- actual AttackCollisionCheck event. Melee and shove expose native outcome
+-- evidence to Combat; only the known empty-list floor stomp owns a fallback hit.
 function actions.pollCombatEvents(actor)
-    local record = actor and pendingStomps[actor] or nil
-    if type(record) ~= "table" then return false, "no_pending_stomp" end
+    local record = actor and pendingCombat[actor] or nil
+    if type(record) ~= "table" then return false, "no_pending_combat" end
     local serialOk, serialValue = invoke(actor, "getCompanionAttackCollisionSerial")
     local serial = serialOk and tonumber(serialValue) or nil
     if serial ~= nil and serial ~= record.collisionSerial then
-        pendingStomps[actor] = nil
+        pendingCombat[actor] = nil
         -- A future engine build may start populating the companion floor-attack
         -- hit list itself. If native collision already damaged this target, do
         -- not stack our Build 42 empty-list fallback on top of that native hit.
@@ -1708,26 +1707,59 @@ function actions.pollCombatEvents(actor)
             and type(health) == "number" and health < record.healthBefore - 0.0001)
         if nativeDamage then
             if dead == true then invoke(actor, "setCompanionFloorTarget", nil) end
-            return true, "stomp_collision_native"
+            local reason = record.action == "stomp" and "stomp_collision_native"
+                or tostring(record.action) .. "_collision_landed"
+            return true, reason, {
+                result = "landed", action = record.action, target = record.target,
+                serial = serial, healthBefore = record.healthBefore, healthAfter = health,
+                start = { x = record.actorX, y = record.actorY, z = record.actorZ },
+            }
         end
-        applyStompFinisher(actor, record.target)
-        return true, "stomp_collision_applied"
+        if record.action == "stomp" then
+            applyStompFinisher(actor, record.target)
+            local afterOk, afterHealth = invoke(record.target, "getHealth")
+            return true, "stomp_collision_applied", {
+                result = "landed", action = record.action, target = record.target,
+                serial = serial, healthBefore = record.healthBefore,
+                healthAfter = afterOk and tonumber(afterHealth) or nil,
+                start = { x = record.actorX, y = record.actorY, z = record.actorZ },
+            }
+        end
+        local grounded = select(2, invoke(record.target, "isOnFloor")) == true
+            or select(2, invoke(record.target, "isProne")) == true
+        local targetX, targetY = position(record.target)
+        local displacement = targetX and record.targetX
+            and math.sqrt((targetX - record.targetX) ^ 2 + (targetY - record.targetY) ^ 2) or 0
+        local shoveLanded = record.action == "shove"
+            and ((grounded and record.groundedBefore ~= true) or displacement >= 0.2)
+        local result = shoveLanded and "landed" or "no_effect"
+        return true, tostring(record.action) .. "_collision_" .. result, {
+            result = result, action = record.action, target = record.target,
+            serial = serial, displacement = displacement,
+            healthBefore = record.healthBefore, healthAfter = health,
+            start = { x = record.actorX, y = record.actorY, z = record.actorZ },
+        }
     end
     if nowMs() - record.startedAt >= 4000 then
-        pendingStomps[actor] = nil
+        pendingCombat[actor] = nil
         invoke(actor, "setCompanionFloorTarget", nil)
-        return false, serial == nil and "stomp_collision_serial_unavailable"
-            or "stomp_collision_timeout"
+        local reason = serial == nil and "combat_collision_serial_unavailable"
+            or tostring(record.action) .. "_collision_timeout"
+        return false, reason, {
+            result = "aborted", action = record.action, target = record.target,
+            serial = serial,
+            start = { x = record.actorX, y = record.actorY, z = record.actorZ },
+        }
     end
-    return false, "stomp_collision_pending"
+    return false, tostring(record.action) .. "_collision_pending"
 end
 
 function actions.resetCombatEvents(actor)
     if actor ~= nil then
-        pendingStomps[actor] = nil
+        pendingCombat[actor] = nil
         invoke(actor, "setCompanionFloorTarget", nil)
     else
-        pendingStomps = setmetatable({}, { __mode = "k" })
+        pendingCombat = setmetatable({}, { __mode = "k" })
     end
 end
 
@@ -1746,11 +1778,11 @@ local function attack(actor, action, intent, provider)
         return false, reason
     end
 
-    local stompCollisionSerial
-    if action == "stomp" then
+    local collisionSerial
+    if action == "stomp" or action == "shove" or action == "attack_melee" then
         local serialOk, serialValue = invoke(actor, "getCompanionAttackCollisionSerial")
-        stompCollisionSerial = serialOk and tonumber(serialValue) or nil
-        if stompCollisionSerial == nil then
+        collisionSerial = serialOk and tonumber(serialValue) or nil
+        if action == "stomp" and collisionSerial == nil then
             return false, "native attack collision serial is unavailable"
         end
     end
@@ -1917,13 +1949,25 @@ local function attack(actor, action, intent, provider)
     -- target -- the animation state owns them until clearHandToHandAttack(), and
     -- the next requested attack selects its own state before starting.
     restoreAuthorization()
-    if action == "stomp" and intent.target ~= nil then
+    if (action == "stomp" or action == "shove" or action == "attack_melee")
+        and intent.target ~= nil and collisionSerial ~= nil then
         local hpOk, targetHealth = invoke(intent.target, "getHealth")
-        pendingStomps[actor] = {
+        local targetX, targetY = position(intent.target)
+        local actorX, actorY, actorZ = position(actor)
+        local grounded = select(2, invoke(intent.target, "isOnFloor")) == true
+            or select(2, invoke(intent.target, "isProne")) == true
+        pendingCombat[actor] = {
+            action = action,
             target = intent.target,
-            collisionSerial = stompCollisionSerial,
+            collisionSerial = collisionSerial,
             startedAt = nowMs(),
             healthBefore = hpOk and tonumber(targetHealth) or nil,
+            targetX = targetX,
+            targetY = targetY,
+            actorX = actorX,
+            actorY = actorY,
+            actorZ = actorZ,
+            groundedBefore = grounded,
         }
     end
     return true, "attack_started"

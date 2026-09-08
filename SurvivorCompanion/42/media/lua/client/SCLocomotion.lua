@@ -468,6 +468,10 @@ function Locomotion.snapshot(actor)
         speedOverride = state.speedOverride,
         activityPhase = activityPhase, activityOwner = activityOwner, activityName = activityName,
         navigation = navigation, telemetry = telemetry, events = history,
+        positioning = SC.Positioning and type(SC.Positioning.debug) == "function"
+            and SC.Positioning.debug(actor) or nil,
+        combat = SC.Combat and type(SC.Combat.peek) == "function"
+            and SC.Combat.peek(actor) or nil,
     }
 end
 
@@ -480,6 +484,7 @@ function Locomotion.report(actor)
     local snapshot = Locomotion.snapshot(actor)
     if not snapshot then return "Living Fellows movement recorder\nNo companion selected." end
     local nav, telemetry = snapshot.navigation or {}, snapshot.telemetry or {}
+    local positioning, combat = snapshot.positioning or {}, snapshot.combat or {}
     local blocker = nav.lastBlocker or {}
     local lines = {
         "Living Fellows movement recorder",
@@ -503,6 +508,19 @@ function Locomotion.report(actor)
                 and #nav.chokeReservationKeys or 0)
             .. " | choke queue " .. tostring(nav.chokeQueueOwner and actorId(nav.chokeQueueOwner) or "none")
             .. " | step queue " .. tostring(nav.stepQueueOwner and actorId(nav.stepQueueOwner) or "none"),
+        "Formation: " .. tostring(positioning.formationMode or "none")
+            .. " | column " .. tostring(positioning.columnIndex or "-")
+            .. " | trail rev " .. tostring(positioning.trailRevision or 0)
+            .. " | portal " .. tostring(positioning.portalKey or "none"),
+        "Path stability: reused " .. tostring(nav.routeReuseCount or 0)
+            .. " | repaired " .. tostring(nav.routeRepairCount or 0)
+            .. " | overshoot " .. tostring(nav.routeOvershootCount or 0)
+            .. " | restarted " .. tostring(nav.routeRestartCount or 0)
+            .. " | cross-track " .. string.format("%.2f", tonumber(nav.routeCrossTrack) or 0),
+        "Combat: role " .. tostring(combat.combatRole or "none")
+            .. " | cohort " .. tostring(combat.cohortKey or "none")
+            .. " | evidence " .. tostring(combat.lastCombatEvidenceReason or "none")
+            .. " | no-effect " .. tostring(combat.noEffectCollisions or 0),
         "Blocker: " .. tostring(blocker.type or "none") .. " | square "
             .. tostring(blocker.squareKey or "none") .. " | recovery "
             .. tostring(blocker.recoveryResult or "none"),

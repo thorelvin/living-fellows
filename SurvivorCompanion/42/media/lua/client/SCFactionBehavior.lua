@@ -5,6 +5,7 @@ SC.FactionBehavior = SC.FactionBehavior or {}
 
 local Behavior = SC.FactionBehavior
 local actorStates = setmetatable({}, { __mode = "k" })
+local groupRosters = setmetatable({}, { __mode = "k" })
 
 local function U()
     return SC.GameplayUtil
@@ -51,6 +52,32 @@ local function groupFor(actor)
     local affiliation = SC.Factions and SC.Factions.affiliation(actor) or nil
     return affiliation and affiliation.group or nil, affiliation
 end
+
+local function factionNavigationIntent(group, intent)
+    local prepared = U().copyShallow(intent)
+    if not group or not group.id then return prepared end
+    prepared.cohortKey = "faction:" .. tostring(group.id)
+    local current = U().nowMs()
+    local cached = groupRosters[group]
+    if not cached or current >= (cached.expires or 0) then
+        cached = { participants = {}, expires = current + 250 }
+        for _, member in ipairs(group.members or {}) do
+            if member.alive ~= false and member.away == nil and member.departed ~= true
+                and member.actorId then
+                local record = SC.Registry and SC.Registry.byId(member.actorId) or nil
+                if record and record.actor and U().isValidActor(record.actor) then
+                    cached.participants[#cached.participants + 1] = {
+                        actor = record.actor, id = member.actorId,
+                    }
+                end
+            end
+        end
+        groupRosters[group] = cached
+    end
+    prepared.groupParticipants = cached.participants
+    return prepared
+end
+Behavior.navigationIntent = factionNavigationIntent
 
 local function memberForActor(group, actor)
     local id = U().idOf(actor)
@@ -323,9 +350,9 @@ local function fortify(actor, group, state)
         if not square or not SC.Navigation or type(SC.Navigation.request) ~= "function" then
             return false, "fortification_navigation_unavailable"
         end
-        return SC.Navigation.request(actor, square, "walk", {
+        return SC.Navigation.request(actor, square, "walk", factionNavigationIntent(group, {
             action = "faction_approach_barricade", targetSquare = square,
-        })
+        }))
     end
     local action = job.kind == "remove_barricade" and "remove_barricade" or "barricade"
     local started, reason = U().move(actor, "walk", {
@@ -368,7 +395,7 @@ local function friendlyInLine(actor, target, group, player)
     return false
 end
 
-local function approachHostile(actor, target, swingMax)
+local function approachHostile(actor, target, swingMax, group)
     local distance = U().distance(actor, target)
     -- Inside the short reaction envelope, use the same continuous, obstacle-
     -- probed step as ordinary companion combat. This closes the last fraction of
@@ -400,11 +427,11 @@ local function approachHostile(actor, target, swingMax)
         and type(SC.Navigation.requestAny) == "function" then
         local targets = SC.Navigation.interactionTargets(actor, target, { maximum = 8 })
         if #targets > 0 then
-            return SC.Navigation.requestAny(actor, targets, "jog", {
+            return SC.Navigation.requestAny(actor, targets, "jog", factionNavigationIntent(group, {
                 action = "faction_defend_territory", target = target,
                 movingTarget = true, arrivalDistance = 0.85,
                 factionCombat = true,
-            })
+            }))
         end
     end
     return false, "hostile_path_unavailable"
@@ -418,9 +445,9 @@ local function hostile(actor, target, group, state, player)
     if group and territoryDistance(group, target) > leash then
         local target = group.house and U().loadedSquare(group.house.anchor) or nil
         if target and SC.Navigation then
-            return SC.Navigation.request(actor, target, "jog", {
+            return SC.Navigation.request(actor, target, "jog", factionNavigationIntent(group, {
                 action = "faction_break_pursuit", targetSquare = target, seekOpenEscape = true,
-            })
+            }))
         end
         return false, "hostile_target_outside_leash"
     end
@@ -467,7 +494,7 @@ local function hostile(actor, target, group, state, player)
             action = "shove", target = target, factionCombat = true,
         })
     end
-    return approachHostile(actor, target, swingMax)
+    return approachHostile(actor, target, swingMax, group)
 end
 
 local function rememberHumanThreat(actor, player, state)
@@ -515,7 +542,7 @@ local function hostileSound(actor, player, snapshot)
     return newest
 end
 
-local function moveToStaticPosition(actor, position, movementMode, action)
+local function moveToStaticPosition(actor, position, movementMode, action, group)
     if type(position) ~= "table" or position.x == nil then
         return false, "search_position_missing"
     end
@@ -527,10 +554,10 @@ local function moveToStaticPosition(actor, position, movementMode, action)
     if not square or not SC.Navigation or type(SC.Navigation.request) ~= "function" then
         return false, "search_position_unavailable"
     end
-    return SC.Navigation.request(actor, square, movementMode or "walk", {
+    return SC.Navigation.request(actor, square, movementMode or "walk", factionNavigationIntent(group, {
         action = action or "faction_search_last_seen", targetSquare = square,
         seekOpenEscape = true,
-    })
+    }))
 end
 
 local function beginBanditAttack(group)
@@ -545,7 +572,7 @@ local function banditHumanCombat(actor, targetInfo, group, state, player)
     local target = targetInfo.actor
     if targetInfo.visible ~= true then
         local handled, reason = moveToStaticPosition(actor, targetInfo, "jog",
-            "bandit_search_last_seen")
+            "bandit_search_last_seen", group)
         if reason == "search_position_reached" then state.humanContact = nil end
         return handled, reason
     end
@@ -685,7 +712,7 @@ local function banditPatrol(actor, group, state)
             finishPatrol(group, state)
             return true, "bandit_patrol_complete"
         end
-        return moveToStaticPosition(actor, anchor, "jog", "bandit_patrol_return")
+        return moveToStaticPosition(actor, anchor, "jog", "bandit_patrol_return", group)
     end
     local points = patrolPoints(group, state)
     if #points == 0 then
@@ -698,10 +725,10 @@ local function banditPatrol(actor, group, state)
         target = points[state.patrolIndex]
         if not target then
             bandit.patrolPhase = "return"
-            return moveToStaticPosition(actor, anchor, "jog", "bandit_patrol_return")
+            return moveToStaticPosition(actor, anchor, "jog", "bandit_patrol_return", group)
         end
     end
-    return moveToStaticPosition(actor, target, "walk", "bandit_patrol")
+    return moveToStaticPosition(actor, target, "walk", "bandit_patrol", group)
 end
 
 function Behavior.humanThreatFor(actor, player)
@@ -740,9 +767,9 @@ local function guard(actor, group, state, role)
     if U().distance(actor, anchor) > (roleGuardsEntry(group, role) and 4 or 8) then
         local square = U().loadedSquare(anchor)
         if square and SC.Navigation then
-            return SC.Navigation.request(actor, square, "walk", {
+            return SC.Navigation.request(actor, square, "walk", factionNavigationIntent(group, {
                 action = "faction_return_home", targetSquare = square,
-            })
+            }))
         end
     end
     if U().nowMs() >= (state.nextHousekeepingAt or 0) then
@@ -760,9 +787,9 @@ local function guard(actor, group, state, role)
                     end
                     local square = U().squareOf(object)
                     if square and SC.Navigation then
-                        return SC.Navigation.request(actor, square, "walk", {
+                        return SC.Navigation.request(actor, square, "walk", factionNavigationIntent(group, {
                             action = "faction_close_door", targetSquare = square,
-                        })
+                        }))
                     end
                 end
             elseif opening.kind == "window" then
@@ -788,9 +815,9 @@ local function guard(actor, group, state, role)
     if roleGuardsEntry(group, role) and U().distance(patrol, anchor) > 4 then patrol = anchor end
     local square = U().gridSquare(patrol.x, patrol.y, patrol.z or 0)
     if square and U().isSquareFree(square) and SC.Navigation then
-        return SC.Navigation.request(actor, square, "walk", {
+        return SC.Navigation.request(actor, square, "walk", factionNavigationIntent(group, {
             action = "faction_guard_patrol", targetSquare = square,
-        })
+        }))
     end
     return false, "guard_patrol_square_blocked"
 end
@@ -893,7 +920,7 @@ function Behavior.update(actor, player, runtime, intent)
             group, state, player)
     elseif mode == "bandit_investigate" then
         return moveToStaticPosition(actor, intent and intent.sound, "walk",
-            "bandit_investigate_sound")
+            "bandit_investigate_sound", group)
     elseif mode == "bandit_patrol" then
         return banditPatrol(actor, group, state)
     elseif mode == "hostile" then
@@ -941,7 +968,10 @@ end
 
 function Behavior.reset(actor)
     if actor then actorStates[actor] = nil
-    else actorStates = setmetatable({}, { __mode = "k" }) end
+    else
+        actorStates = setmetatable({}, { __mode = "k" })
+        groupRosters = setmetatable({}, { __mode = "k" })
+    end
 end
 
 return Behavior

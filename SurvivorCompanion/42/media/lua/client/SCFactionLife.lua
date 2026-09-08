@@ -663,7 +663,7 @@ end
 
 Life._entryPositionForTests = entryPosition
 
-local function approach(actor, target, action, mode)
+local function approach(actor, target, action, mode, group)
     if target == nil then return false, "life_target_unavailable" end
     if U().distance(actor, target) <= 1.15 then return true, "life_target_reached" end
     local x, y, z = U().position(target)
@@ -672,9 +672,13 @@ local function approach(actor, target, action, mode)
     if not square or not U().isSquareFree(square) or not SC.Navigation then
         return false, "life_target_blocked"
     end
-    return SC.Navigation.request(actor, square, mode or "walk", {
+    local intent = {
         action = action, targetSquare = square,
-    })
+    }
+    if SC.FactionBehavior and type(SC.FactionBehavior.navigationIntent) == "function" then
+        intent = SC.FactionBehavior.navigationIntent(group, intent)
+    end
+    return SC.Navigation.request(actor, square, mode or "walk", intent)
 end
 
 local function visual(actor, action, state, cooldown)
@@ -720,7 +724,7 @@ end
 
 local function updateRepresentativeActor(actor, player, group, state)
     local reached, reason = approach(actor, entryPosition(group),
-        "faction_representative_approach", "walk")
+        "faction_representative_approach", "walk", group)
     if not reached or reason ~= "life_target_reached" then return reached, reason end
     group.life.representative.state = "at_entry"
     U().stop(actor)
@@ -748,7 +752,8 @@ local function updateDispute(actor, group, member, active, state)
     end
     if not other or not other.actor then return visual(actor, "repair", state, 10000) end
     if U().distance(actor, other.actor) > 2.4 then
-        return approach(actor, U().squareOf(other.actor), "faction_dispute_approach", "walk")
+        return approach(actor, U().squareOf(other.actor),
+            "faction_dispute_approach", "walk", group)
     end
     U().stop(actor)
     sayOnce(actor, state, "faction.life.dispute",
@@ -759,7 +764,8 @@ end
 local function updateRoutine(actor, group, member, routine, state)
     if not routine then return false, "routine_unavailable" end
     if routine.phase == "watch" then return false, "delegate_guard" end
-    local reached, reason = approach(actor, routine.target, "faction_routine_" .. routine.phase, "walk")
+    local reached, reason = approach(actor, routine.target,
+        "faction_routine_" .. routine.phase, "walk", group)
     if not reached or reason ~= "life_target_reached" then return reached, reason end
     U().stop(actor)
     if routine.phase == "sleep" then return visual(actor, "sit_ground", state, 22000)

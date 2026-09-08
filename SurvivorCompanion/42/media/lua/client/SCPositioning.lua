@@ -16,6 +16,7 @@ local formationOffsets = {
 }
 
 local states = setmetatable({}, { __mode = "k" })
+local leaderStates = setmetatable({}, { __mode = "k" })
 local targetReservations = {}
 local nextReservationSweepAt = 0
 
@@ -40,37 +41,85 @@ local function normalized(x, y)
     return x / length, y / length
 end
 
-local function followerSlot(actor)
+local function leaderStateFor(leader)
+    local state = leaderStates[leader]
+    if state == nil then
+        state = { trail = {}, revision = 0 }
+        leaderStates[leader] = state
+    end
+    return state
+end
+
+local function commandState(other)
+    if SC.Commands and type(SC.Commands.peek) == "function" then
+        local ok, value = pcall(SC.Commands.peek, other)
+        if ok and type(value) == "table" then return value end
+    end
+    return nil
+end
+
+local function followerRoster(leader, current)
     local utility = U()
+    local leaderState = leaderStateFor(leader)
+    if leaderState.roster and current < (leaderState.rosterExpires or 0) then
+        return leaderState.roster, leaderState.rosterSlots
+    end
     local followers = {}
     for _, other in ipairs(utility.registryLiving(utility.config("maxCompanions") or 16)) do
-        local commandState
-        if SC.Commands and type(SC.Commands.peek) == "function" then
-            local ok, value = pcall(SC.Commands.peek, other)
-            if ok and type(value) == "table" then commandState = value end
-        end
-        if commandState and commandState.recruited
-            and (commandState.order == "follow" or commandState.order == "regroup") then
+        local commands = commandState(other)
+        if commands and commands.recruited
+            and (commands.order == "follow" or commands.order == "regroup") then
             followers[#followers + 1] = { actor = other, id = utility.idOf(other) }
         end
     end
     table.sort(followers, function(a, b) return tostring(a.id) < tostring(b.id) end)
-    for index, value in ipairs(followers) do
-        if value.actor == actor then return index end
-    end
-    return (utility.stableHash(utility.idOf(actor)) % #formationOffsets) + 1
+    local slots = setmetatable({}, { __mode = "k" })
+    for index, value in ipairs(followers) do slots[value.actor] = index end
+    leaderState.roster = followers
+    leaderState.rosterSlots = slots
+    leaderState.rosterExpires = current + 250
+    return followers, slots
 end
 
-local function leaderHeading(actor, leader, current)
+local function followerSlot(actor, leader, current)
+    local followers, slots = followerRoster(leader, current)
+    if slots[actor] then return slots[actor], followers end
+    return (U().stableHash(U().idOf(actor)) % #formationOffsets) + 1, followers
+end
+
+local function cohortKey(actor, leader)
+    if SC.Factions and type(SC.Factions.affiliation) == "function" then
+        local ok, affiliation = pcall(SC.Factions.affiliation, actor)
+        if ok and type(affiliation) == "table" and affiliation.factionId then
+            return "faction:" .. tostring(affiliation.factionId)
+        end
+    end
+    return "party:" .. tostring(U().idOf(leader))
+end
+
+local function sampleLeader(leader, current, roster, cohort)
     local utility = U()
-    local state = stateFor(actor)
+    local state = leaderStateFor(leader)
     local x, y = utility.position(leader)
-    if not x then return state.headingX or 0, state.headingY or -1 end
+    local square = utility.squareOf(leader)
+    if not x or not square then return state end
+    local _, _, z = utility.position(square)
+    local vehicle = select(1, utility.call(leader, "getVehicle"))
 
     if state.leaderX ~= nil then
         local elapsed = current - (state.leaderSampleAt or current)
         local deltaX, deltaY = x - state.leaderX, y - state.leaderY
-        local velocityX, velocityY = normalized(deltaX, deltaY)
+        local jumpSq = deltaX * deltaX + deltaY * deltaY
+        local discontinuity = jumpSq > 36 or vehicle ~= state.vehicle
+        if discontinuity then
+            state.trail = {}
+            state.revision = (state.revision or 0) + 1
+            state.totalDistance = 0
+            state.latestPortal = nil
+            state.velocityX, state.velocityY = 0, 0
+        end
+        local velocityX, velocityY
+        if not discontinuity then velocityX, velocityY = normalized(deltaX, deltaY) end
         if velocityX ~= nil then
             state.headingX, state.headingY = velocityX, velocityY
             state.headingAt = current
@@ -88,7 +137,43 @@ local function leaderHeading(actor, leader, current)
             state.velocityY = (state.velocityY or 0) * 0.35
         end
     end
-    state.leaderX, state.leaderY, state.leaderSampleAt = x, y, current
+    local last = state.trail[#state.trail]
+    local shouldSample = not last
+    if last then
+        local dx, dy = x - last.x, y - last.y
+        shouldSample = current - (last.at or 0) >= 100
+            and (dx * dx + dy * dy >= 0.35 * 0.35
+                or math.floor(z or 0) ~= math.floor(last.z or 0))
+    end
+    if shouldSample then
+        local distance = 0
+        local edge
+        if last then
+            local dx, dy = x - last.x, y - last.y
+            distance = math.sqrt(dx * dx + dy * dy)
+            if SC.Navigation and type(SC.Navigation.edgeAffordance) == "function" then
+                edge = SC.Navigation.edgeAffordance(last.square, square)
+            end
+        end
+        state.totalDistance = (state.totalDistance or 0) + distance
+        local point = {
+            x = x, y = y, z = z, square = square, at = current,
+            distance = state.totalDistance, edge = edge,
+        }
+        state.trail[#state.trail + 1] = point
+        local limit = math.max(12, tonumber(utility.config("navigationBreadcrumbLimit")) or 64)
+        while #state.trail > limit do table.remove(state.trail, 1) end
+        state.revision = (state.revision or 0) + 1
+        if edge and (edge.kind == "door" or edge.kind == "stairs") then
+            state.latestPortal = edge
+            state.latestPortalAt = current
+            if SC.Navigation and type(SC.Navigation.observeGroupPassage) == "function" then
+                pcall(SC.Navigation.observeGroupPassage, leader, edge, cohort, roster, current)
+            end
+        end
+    end
+    state.leaderX, state.leaderY, state.leaderZ = x, y, z
+    state.leaderSquare, state.leaderSampleAt, state.vehicle = square, current, vehicle
 
     -- Turning to aim while standing still must not make the whole formation
     -- orbit the player. Native facing is only adopted before a travel heading
@@ -104,6 +189,12 @@ local function leaderHeading(actor, leader, current)
             end
         end
     end
+    return state
+end
+
+local function leaderHeading(actor, leader, current)
+    local roster = followerRoster(leader, current)
+    local state = sampleLeader(leader, current, roster, cohortKey(actor, leader))
     return state.headingX or 0, state.headingY or -1,
         state.velocityX or 0, state.velocityY or 0
 end
@@ -177,14 +268,43 @@ local function availableTarget(actor, x, y, z, snapshot, minimum, predicate)
     return nil
 end
 
+local function trailTarget(actor, leaderState, lagDistance, snapshot, minimum, current)
+    local utility = U()
+    local trail = leaderState.trail or {}
+    local latest = trail[#trail]
+    if not latest then return nil, nil end
+    local selectedIndex = 1
+    for index = #trail, 1, -1 do
+        selectedIndex = index
+        if (latest.distance or 0) - (trail[index].distance or 0) >= lagDistance then break end
+    end
+    -- Prefer the chosen breadcrumb itself. If another follower owns it, walk
+    -- backwards along the exact leader trail instead of cutting a corner.
+    sweepReservations(current)
+    for index = selectedIndex, math.max(1, selectedIndex - 4), -1 do
+        local point = trail[index]
+        local square = point and point.square or nil
+        if square and utility.isSquareFree(square) and allyClear(actor, square, snapshot, minimum)
+            and canReserve(actor, square, current) then
+            return square, point.edge
+        end
+    end
+    local point = trail[selectedIndex]
+    if not point then return nil, nil end
+    return availableTarget(actor, point.x, point.y, point.z, snapshot, minimum), point.edge
+end
+
 function Positioning.formationTarget(actor, leader, commands, snapshot)
     local utility = U()
     local px, py, pz = utility.position(leader)
     if not px then return nil end
     local current = utility.nowMs()
-    local forwardX, forwardY, velocityX, velocityY = leaderHeading(actor, leader, current)
+    local slot, roster = followerSlot(actor, leader, current)
+    local cohort = cohortKey(actor, leader)
+    local leaderState = sampleLeader(leader, current, roster, cohort)
+    local forwardX, forwardY = leaderState.headingX or 0, leaderState.headingY or -1
+    local velocityX, velocityY = leaderState.velocityX or 0, leaderState.velocityY or 0
     local rightX, rightY = -forwardY, forwardX
-    local slot = followerSlot(actor)
     local localOffset = formationOffsets[((slot - 1) % #formationOffsets) + 1]
     local scale = commands.order == "regroup" and 0.75
         or math.max(0.75, (tonumber(commands.followDistance) or 3) / 3)
@@ -207,10 +327,30 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         + rightY * localOffset[1] * scale - forwardY * localOffset[2] * scale
     local minimum = utility.config("formationSeparation") or 1.25
     local state = stateFor(actor)
-    local target = availableTarget(actor, targetX, targetY, pz, snapshot, minimum)
+    local distanceToLeader = utility.distance(actor, leader)
+    local clearOpenFormation = utility.sameFloor(actor, leader)
+        and distanceToLeader <= (tonumber(utility.config("formationOpenDistance")) or 6)
+        and (utility.canSee(actor, leader)
+            or utility.canSee(actor, utility.squareOf(leader)))
+    local portalHoldMs = tonumber(utility.config("formationPortalHoldMs")) or 1200
+    if leaderState.latestPortalAt and current - leaderState.latestPortalAt <= portalHoldMs then
+        clearOpenFormation = false
+    end
+    if not clearOpenFormation then state.trailModeUntil = current + portalHoldMs end
+    local mode = clearOpenFormation and current >= (state.trailModeUntil or 0)
+        and "open" or "trail"
+    local target, portal
+    if mode == "trail" then
+        local lag = 1.5 + math.max(0, slot - 1) * 1.1
+        target, portal = trailTarget(actor, leaderState, lag, snapshot, minimum, current)
+    end
+    if not target then
+        mode = "open"
+        target = availableTarget(actor, targetX, targetY, pz, snapshot, minimum)
+    end
     local previous = state.targetSquare
     local retainDistance = tonumber(utility.config("formationTargetHysteresisDistance")) or 1.1
-    if target and previous and reservationKey(previous) ~= reservationKey(target)
+    if mode == "open" and target and previous and reservationKey(previous) ~= reservationKey(target)
         and utility.sameFloor(previous, target)
         and utility.distance(previous, target) <= retainDistance
         and utility.isSquareFree(previous) and allyClear(actor, previous, snapshot, minimum)
@@ -226,8 +366,26 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         state.targetSquare = target
         state.predictionX, state.predictionY = predictionX, predictionY
         state.predictionDistance = math.sqrt(predictionX * predictionX + predictionY * predictionY)
+        state.formationMode = mode
+        state.trailRevision = leaderState.revision or 0
+        state.portalKey = portal and portal.key or nil
+        state.columnIndex = slot
+        state.cohortKey = cohort
+        state.velocityX, state.velocityY = velocityX, velocityY
     end
-    return target
+    return target, {
+        mode = mode,
+        trailRevision = leaderState.revision or 0,
+        portalKey = portal and portal.key or nil,
+        portal = portal,
+        columnIndex = slot,
+        cohortKey = cohort,
+        participants = roster,
+    }
+end
+
+function Positioning.cohortKey(actor, leader)
+    return cohortKey(actor, leader)
 end
 
 function Positioning.shouldHold(actor, target)
@@ -463,6 +621,11 @@ function Positioning.debug(actor)
         predictionDistance = state.predictionDistance or 0,
         velocityX = state.velocityX or 0,
         velocityY = state.velocityY or 0,
+        formationMode = state.formationMode,
+        trailRevision = state.trailRevision,
+        portalKey = state.portalKey,
+        columnIndex = state.columnIndex,
+        cohortKey = state.cohortKey,
         conversation = state.conversation and {
             action = state.conversation.action,
             posed = state.conversation.posed == true,
@@ -479,8 +642,10 @@ function Positioning.reset(actor)
             if reservation and reservation.actor == actor then targetReservations[state.reservationKey] = nil end
         end
         states[actor] = nil
+        leaderStates[actor] = nil
     else
         states = setmetatable({}, { __mode = "k" })
+        leaderStates = setmetatable({}, { __mode = "k" })
         targetReservations = {}
         nextReservationSweepAt = 0
     end

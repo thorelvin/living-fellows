@@ -1040,6 +1040,39 @@ do
     check(meleeOk and meleeReason == "attack_started" and actor.doShove == false,
         "a weapon swing clears stale shove state before the native attack starts")
     actor.attackStarted = false
+    actor.companionAttackCollisionSerial = 20
+    local evidenceTarget = {
+        health = 4,
+        getX = function() return 1.5 end,
+        getY = function() return 0.5 end,
+        getZ = function() return 0 end,
+        getHealth = function(self) return self.health end,
+        isDead = function(self) return self.health <= 0 end,
+        isOnFloor = function() return false end,
+        isProne = function() return false end,
+    }
+    local evidenceAttack = SC.Actor.setMovement(actor, "walk", {
+        action = "attack_melee", target = evidenceTarget, weapon = twoHandedWeapon,
+    })
+    evidenceTarget.health = 3.5
+    actor.companionAttackCollisionSerial = 21
+    local evidenceHandled, evidenceReason, evidence = SC.NativeActions.pollCombatEvents(actor)
+    check(evidenceAttack and evidenceHandled
+            and evidenceReason == "attack_melee_collision_landed"
+            and evidence and evidence.result == "landed"
+            and evidence.healthBefore == 4 and evidence.healthAfter == 3.5,
+        "melee collision evidence reports native damage without applying fallback damage")
+    actor.attackStarted = false
+    local missedAttack = SC.Actor.setMovement(actor, "walk", {
+        action = "attack_melee", target = evidenceTarget, weapon = twoHandedWeapon,
+    })
+    actor.companionAttackCollisionSerial = 22
+    local missedHandled, missedReason, missedEvidence = SC.NativeActions.pollCombatEvents(actor)
+    check(missedAttack and missedHandled
+            and missedReason == "attack_melee_collision_no_effect"
+            and missedEvidence and missedEvidence.result == "no_effect",
+        "a collision frame without damage is exposed as no-effect evidence for recovery logic")
+    actor.attackStarted = false
     local farAttackTarget = {
         getX = function() return 4.5 end,
         getY = function() return 0.5 end,

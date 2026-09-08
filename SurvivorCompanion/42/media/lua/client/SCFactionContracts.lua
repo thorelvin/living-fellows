@@ -1705,9 +1705,14 @@ function Contracts.updateActor(actor, player, runtime, intent, group)
     if distance > 2.4 then
         local square = U().squareOf(player)
         if square and SC.Navigation then
-            return SC.Navigation.request(actor, square, "walk", {
+            local movementIntent = {
                 action = "faction_private_contact", targetSquare = square,
-            })
+            }
+            if SC.FactionBehavior
+                and type(SC.FactionBehavior.navigationIntent) == "function" then
+                movementIntent = SC.FactionBehavior.navigationIntent(group, movementIntent)
+            end
+            return SC.Navigation.request(actor, square, "walk", movementIntent)
         end
         return false, "private_contact_path_unavailable"
     end

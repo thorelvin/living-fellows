@@ -526,7 +526,7 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
     if not SC.Positioning or type(SC.Positioning.formationTarget) ~= "function" then
         return false, "positioning_unavailable"
     end
-    local target = SC.Positioning.formationTarget(actor, player, commands, snapshot)
+    local target, formation = SC.Positioning.formationTarget(actor, player, commands, snapshot)
     if not target then return false, "no_formation_target" end
     local leaderDistance = utility.distance(actor, player)
     local desired = commands.followDistance or 3
@@ -560,6 +560,13 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
         urgent = leaderDistance >= (utility.config("followFarDistance") or 18),
         movementPriority = 20,
         stressPosture = posture,
+        formationMode = formation and formation.mode or nil,
+        trailRevision = formation and formation.trailRevision or nil,
+        portalKey = formation and formation.portalKey or nil,
+        portal = formation and formation.portal or nil,
+        columnIndex = formation and formation.columnIndex or nil,
+        cohortKey = formation and formation.cohortKey or nil,
+        groupParticipants = formation and formation.participants or nil,
     })
 end
 
@@ -1077,7 +1084,17 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
     return false, "no_tactical_target"
 end
 
-local function doRetreat(actor, snapshot, commands)
+local function doRetreat(actor, player, snapshot, commands)
+    if SC.Combat and type(SC.Combat.sharedRetreatTarget) == "function"
+        and type(SC.Navigation) == "table" and type(SC.Navigation.request) == "function" then
+        local shared, plan = SC.Combat.sharedRetreatTarget(actor, player, snapshot)
+        if shared then
+            return SC.Navigation.request(actor, shared, "jog", {
+                action = "ordered_retreat", snapshot = snapshot, urgent = true,
+                escapeSpeedOverride = true, sharedRetreat = plan,
+            })
+        end
+    end
     if SC.Navigation and type(SC.Navigation.retreatTarget) == "function"
         and type(SC.Navigation.request) == "function" then
         local remembered, plan = SC.Navigation.retreatTarget(actor, snapshot)
@@ -1206,7 +1223,7 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
     elseif candidate.kind == "tactical" then
         return callSubsystem("navigation", actor, function() return doTactical(actor, player, rootRuntime, commands, snapshot, state) end)
     elseif candidate.kind == "retreat" then
-        return callSubsystem("navigation", actor, function() return doRetreat(actor, snapshot, commands) end)
+        return callSubsystem("navigation", actor, function() return doRetreat(actor, player, snapshot, commands) end)
     elseif candidate.kind == "alert" then
         return callSubsystem("navigation", actor, function() return doSharedAlert(actor, candidate, state) end)
     elseif candidate.kind == "conversation" then

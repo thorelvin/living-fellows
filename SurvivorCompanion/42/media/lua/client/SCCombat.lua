@@ -8,6 +8,8 @@ SC.Combat = SC.Combat or {}
 local Combat = SC.Combat
 local states = setmetatable({}, { __mode = "k" })
 local targetClaims = setmetatable({}, { __mode = "k" })
+local actorClaims = setmetatable({}, { __mode = "k" })
+local retreatPlans = {}
 local lastGroupCombatBarkAt = -math.huge
 
 local function U()
@@ -86,7 +88,10 @@ Combat.equipWeapon = equipWeapon
 local function stateFor(actor)
     local state = states[actor]
     if not state then
-        state = { active = false, target = nil, lastActionAt = 0 }
+        state = {
+            active = false, target = nil, lastActionAt = 0,
+            motionTracks = setmetatable({}, { __mode = "k" }),
+        }
         states[actor] = state
     end
     return state
@@ -221,20 +226,45 @@ end
 -- its owner has left. Only the owner can release its own claim. releaseActorClaims
 -- is keyed on ownership, not on engagementTarget, because a claim can be taken on a
 -- committed action whose engagement bookkeeping did not run.
-local function releaseClaim(target, actor)
-    local claim = target and targetClaims[target] or nil
-    if type(claim) == "table" and claim.actor == actor then
-        targetClaims[target] = nil
+local function combatCohortKey(actor, player)
+    local commands = commandState(actor)
+    if commands.recruited == true then
+        return "party:" .. tostring(U().idOf(player or actor))
     end
+    if SC.Factions and type(SC.Factions.affiliation) == "function" then
+        local ok, affiliation = pcall(SC.Factions.affiliation, actor)
+        if ok and type(affiliation) == "table" and affiliation.factionId then
+            return "faction:" .. tostring(affiliation.factionId)
+        end
+    end
+    if player ~= nil then return "party:" .. tostring(U().idOf(player)) end
+    return "actor:" .. tostring(U().idOf(actor))
+end
+
+local function releaseClaim(target, actor)
+    local container = target and targetClaims[target] or nil
+    if type(container) == "table" and type(container.cohorts) == "table" then
+        for cohort, claim in pairs(container.cohorts) do
+            local changed = false
+            for _, role in ipairs({ "primary", "support" }) do
+                if claim[role] and claim[role].actor == actor then
+                    claim[role] = nil
+                    changed = true
+                end
+            end
+            if changed and claim.primary == nil and claim.support == nil then
+                container.cohorts[cohort] = nil
+            end
+        end
+    end
+    local reverse = actorClaims[actor]
+    if reverse and reverse.target == target then actorClaims[actor] = nil end
 end
 
 local function releaseActorClaims(actor)
     if actor == nil then return end
-    for target, claim in pairs(targetClaims) do
-        if type(claim) == "table" and claim.actor == actor then
-            targetClaims[target] = nil
-        end
-    end
+    local reverse = actorClaims[actor]
+    if reverse then releaseClaim(reverse.target, actor) end
 end
 
 local function clearEngagement(state, actor)
@@ -325,16 +355,42 @@ function Combat.observe(actor)
     return confirmRecentKill(actor, state, commandState(actor), U().nowMs())
 end
 
-local function activeClaim(target, actor, now)
-    local claim = target and targetClaims[target] or nil
+local function cohortClaim(target, cohort, now)
+    local container = target and targetClaims[target] or nil
+    local claim = type(container) == "table" and type(container.cohorts) == "table"
+        and container.cohorts[cohort] or nil
     if type(claim) ~= "table" then return nil end
-    if (tonumber(claim.untilAt) or 0) <= now or U().isDead(claim.actor)
-        or U().isDead(target) then
-        targetClaims[target] = nil
+    for _, role in ipairs({ "primary", "support" }) do
+        local value = claim[role]
+        if value and ((tonumber(value.untilAt) or 0) <= now or U().isDead(value.actor)
+            or U().isDead(target)) then
+            local reverse = value.actor and actorClaims[value.actor] or nil
+            if reverse and reverse.target == target and reverse.cohort == cohort then
+                actorClaims[value.actor] = nil
+            end
+            claim[role] = nil
+        end
+    end
+    if claim.primary == nil and claim.support ~= nil then
+        claim.primary, claim.support = claim.support, nil
+        local promoted = actorClaims[claim.primary.actor]
+        if promoted and promoted.target == target and promoted.cohort == cohort then
+            promoted.role = "primary"
+        end
+    end
+    if claim.primary == nil and claim.support == nil then
+        container.cohorts[cohort] = nil
         return nil
     end
-    if claim.actor == actor then return nil end
     return claim
+end
+
+local function activeClaim(target, actor, now, cohort)
+    local claim = cohortClaim(target, cohort or combatCohortKey(actor), now)
+    if not claim then return nil end
+    if claim.primary and claim.primary.actor ~= actor then return claim.primary end
+    if claim.support and claim.support.actor ~= actor then return claim.support end
+    return nil
 end
 
 -- Combat engagement lease (review 4.4). A brief claim (~450ms) expired between an
@@ -344,12 +400,56 @@ end
 -- (~2s) and is refreshed on every offensive action against the target, so a
 -- committed attacker holds its target while it is engaging and alive, and the
 -- lease is released the moment the owner switches away, disengages, or dies.
-local function claimTarget(target, actor, now)
-    if target == nil then return end
-    targetClaims[target] = {
+local function claimTarget(target, actor, now, cohort, requestedRole, phase, distance)
+    if target == nil then return nil end
+    cohort = cohort or (stateFor(actor).cohortKey) or combatCohortKey(actor)
+    local container = targetClaims[target]
+    if type(container) ~= "table" or type(container.cohorts) ~= "table" then
+        container = { cohorts = {} }
+        targetClaims[target] = container
+    end
+    local claim = cohortClaim(target, cohort, now)
+    if not claim then
+        claim = {}
+        container.cohorts[cohort] = claim
+    end
+    local current = actorClaims[actor]
+    if current and (current.target ~= target or current.cohort ~= cohort) then
+        releaseClaim(current.target, actor)
+    end
+    local reverse = actorClaims[actor]
+    local role = requestedRole or (reverse and reverse.target == target
+        and reverse.cohort == cohort and reverse.role or nil)
+    if role ~= "primary" and role ~= "support" then
+        if claim.primary == nil or claim.primary.actor == actor then role = "primary"
+        elseif claim.support == nil or claim.support.actor == actor then role = "support"
+        else role = "reserve" end
+    end
+    if role == "primary" and claim.primary and claim.primary.actor ~= actor then
+        local old = claim.primary
+        local advantage = (tonumber(old.distance) or math.huge) - (tonumber(distance) or math.huge)
+        local committed = old.phase == "attack" or old.phase == "committed"
+            or old.phase == "aim" or old.phase == "aiming"
+        if committed or advantage < (U().config("combatTargetPrimaryChallengeDistance") or 0.75) then
+            role = claim.support == nil and "support" or "reserve"
+        else
+            actorClaims[old.actor] = nil
+        end
+    end
+    if role == "reserve" then
+        actorClaims[actor] = { target = target, cohort = cohort, role = role }
+        return role, claim
+    end
+    local previous = claim[role]
+    if previous and previous.actor ~= actor then actorClaims[previous.actor] = nil end
+    claim[role] = {
         actor = actor,
         untilAt = now + (U().config("combatEngagementLeaseMs") or 2000),
+        phase = phase or "tracking",
+        distance = distance,
     }
+    actorClaims[actor] = { target = target, cohort = cohort, role = role }
+    return role, claim
 end
 
 local function boolCall(value, methodName, ...)
@@ -656,10 +756,45 @@ local function threatScore(threat, actor, player, snapshot)
     return score, bearing, facingDot
 end
 
+local function sampleTargetMotion(state, actor, target, distance, now)
+    state.motionTracks = state.motionTracks or setmetatable({}, { __mode = "k" })
+    local utility = U()
+    local ax, ay, az = utility.position(actor)
+    local tx, ty, tz = utility.position(target)
+    if ax == nil or tx == nil then return nil, nil end
+    local track = state.motionTracks[target]
+    local minimum = utility.config("combatMotionSampleMinimumMs") or 80
+    local maximum = utility.config("combatMotionSampleMaximumMs") or 750
+    local history = utility.config("combatMotionHistoryMs") or 1500
+    local jump = utility.config("combatMotionJumpDistance") or 4
+    local closing, tti
+    if track then
+        local elapsed = now - (track.at or now)
+        local actorJump = math.sqrt((ax - track.ax) ^ 2 + (ay - track.ay) ^ 2)
+        local targetJump = math.sqrt((tx - track.tx) ^ 2 + (ty - track.ty) ^ 2)
+        if elapsed >= minimum and elapsed <= maximum and elapsed <= history
+            and actorJump <= jump and targetJump <= jump
+            and math.floor(az or 0) == math.floor(track.az or 0)
+            and math.floor(tz or 0) == math.floor(track.tz or 0) then
+            closing = ((track.distance or distance) - distance) * 1000 / elapsed
+            if closing > 0.01 then tti = distance / closing * 1000 end
+        end
+    end
+    if not track or now - (track.at or 0) >= minimum then
+        state.motionTracks[target] = {
+            ax = ax, ay = ay, az = az, tx = tx, ty = ty, tz = tz,
+            distance = distance, at = now,
+        }
+    end
+    return closing, tti
+end
+
 function Combat.scoreTargets(actor, player, snapshot, previousTarget)
     local scored = {}
     local utility = U()
     local now = utility.nowMs()
+    local state = stateFor(actor)
+    local cohort = state.cohortKey or combatCohortKey(actor, player)
     if type(snapshot) ~= "table" or type(snapshot.threats) ~= "table" then return scored end
     for index = 1, math.min(#snapshot.threats, utility.config("perceptionThreatLimit") or 32) do
         local threat = snapshot.threats[index]
@@ -683,13 +818,32 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
             record.visible = true
             record.obstructed = false
             local score, bearing, facingDot = threatScore(record, actor, player, snapshot)
+            local closing, tti = sampleTargetMotion(
+                state, actor, threat.actor, record.distance, now)
+            local window = utility.config("combatTimeToImpactWindowMs") or 6000
+            if tti and tti <= window then
+                local maximum = utility.config("combatTimeToImpactScore") or 18
+                record.impactScore = maximum * math.max(0, 1 - tti / window)
+                score = score + record.impactScore
+            end
+            record.closingSpeed, record.timeToImpactMs = closing, tti
             if threat.actor == previousTarget then score = score + 8 end
-            local claimed = activeClaim(threat.actor, actor, now) ~= nil
-            if claimed then score = score - (utility.config("combatTargetClaimPenalty") or 42) end
+            local claim = cohortClaim(threat.actor, cohort, now)
+            local ownPrimary = claim and claim.primary and claim.primary.actor == actor
+            local ownSupport = claim and claim.support and claim.support.actor == actor
+            local claimed = activeClaim(threat.actor, actor, now, cohort) ~= nil
+            if claim and not ownPrimary and not ownSupport then
+                if claim.primary and claim.support then
+                    score = score - (utility.config("combatTargetClaimPenalty") or 42)
+                elseif claim.primary then
+                    score = score - 10
+                end
+            end
             record.score = score
             record.bearing = bearing
             record.facingDot = facingDot
             record.claimedByAlly = claimed
+            record.cohortClaim = claim
             scored[#scored + 1] = record
         end
     end
@@ -1345,11 +1499,58 @@ local function doctrineMayFight(actor, target, player, snapshot, commands)
         or (target.distanceSq or U().distanceSq(actor, target.actor)) <= radius * radius
 end
 
-local function selectDoctrineTarget(actor, scored, player, snapshot, commands)
+local function selectDoctrineTarget(actor, scored, player, snapshot, commands, state, now)
+    local best
     for _, target in ipairs(scored) do
-        if doctrineMayFight(actor, target, player, snapshot, commands) then return target end
+        if doctrineMayFight(actor, target, player, snapshot, commands) then best = target break end
     end
-    return nil
+    if not best then return nil end
+    local previous
+    if state.target then
+        for _, candidate in ipairs(scored) do
+            if candidate.actor == state.target
+                and doctrineMayFight(actor, candidate, player, snapshot, commands) then
+                previous = candidate
+                break
+            end
+        end
+    end
+    local emergency = best.attacking == true
+        or (best.distanceSq or math.huge)
+            <= (U().config("combatShoveDistance") or 1.35) ^ 2
+    local margin = U().config("combatTargetScoreMargin") or 18
+    if previous and previous.actor ~= best.actor and now < (state.targetCommitUntil or 0)
+        and not emergency and best.score < previous.score + margin then
+        return previous
+    end
+    if previous == nil or previous.actor ~= best.actor then
+        local ranged = commands.combatDoctrine == "ranged_support"
+        state.targetCommitUntil = now + (ranged
+            and (U().config("combatRangedCommitMs") or 1000)
+            or (U().config("combatMeleeCommitMs") or 650))
+    end
+    return best
+end
+
+local function roleMayAttack(actor, role, claim, chosen, target, snapshot)
+    if role == "primary" or not chosen then return true end
+    local distanceSq = target.distanceSq or U().distanceSq(actor, target.actor)
+    local emergency = target.attacking == true
+        or distanceSq <= (U().config("combatShoveDistance") or 1.35) ^ 2
+        or snapshot.encircled == true
+        or (tonumber(snapshot.closeImmediateCount) or tonumber(snapshot.immediateCount) or 0) > 1
+    if role == "reserve" then return emergency end
+    if chosen.kind == "shoot" then return true end
+    if emergency then return true end
+    local primary = claim and claim.primary and claim.primary.actor or nil
+    local primaryState = primary and states[primary] or nil
+    if primaryState and primaryState.noEffectTarget == target.actor
+        and (tonumber(primaryState.noEffectCollisions) or 0)
+        >= (U().config("combatNoEffectReapproachCount") or 2) then return true end
+    local actionState = primary and select(1, U().call(primary, "getCompanionActionStateName")) or nil
+    local lower = string.lower(tostring(actionState or ""))
+    return string.find(lower, "grapple", 1, true) ~= nil
+        or string.find(lower, "grab", 1, true) ~= nil
 end
 
 local function clearAimPreparation(state)
@@ -1404,13 +1605,93 @@ local function prepareRangedShot(actor, state, snapshot, target, weapon, readine
     return true, "aiming"
 end
 
-local function executeRetreat(actor, snapshot, target, survivalCritical)
+local function sharedRetreatSquare(actor, state, snapshot, target, now)
     local utility = U()
+    local ax, ay, az = utility.position(actor)
+    if ax == nil then return nil, nil end
+    local cohort = state and state.cohortKey or combatCohortKey(actor, nil)
+    local key = tostring(cohort) .. ":" .. tostring(math.floor(az or 0))
+    local plan = retreatPlans[key]
+    local duration = utility.config("combatSharedRetreatMs") or 1200
+    if not plan or now >= (plan.expires or 0) then
+        plan = {
+            cohort = cohort, floor = math.floor(az or 0), createdAt = now,
+            expires = now + duration,
+            assignments = setmetatable({}, { __mode = "k" }), reserved = {},
+        }
+        retreatPlans[key] = plan
+    end
+    local existing = plan.assignments[actor]
+    if existing and utility.isSquareFree(existing) then return existing, plan end
+
+    local candidates = snapshot.escapeSquares or {}
+    local bestLocal = candidates[1]
+    if plan.directionX == nil and bestLocal and bestLocal.square then
+        local tx, ty = utility.position(bestLocal.square)
+        local length = tx and math.sqrt((tx - ax) ^ 2 + (ty - ay) ^ 2) or 0
+        if length > 0.001 then
+            plan.directionX, plan.directionY = (tx - ax) / length, (ty - ay) / length
+            plan.source = target and target.actor or nil
+            plan.danger = tonumber(bestLocal.danger) or 0
+        end
+    end
+    local aligned, alignedDanger
+    for _, candidate in ipairs(candidates) do
+        local square = candidate.square
+        local squareKeyValue = square and utility.squareKey(square) or nil
+        local owner = squareKeyValue and plan.reserved[squareKeyValue] or nil
+        local tx, ty = utility.position(square)
+        if square and tx and (owner == nil or owner == actor) and utility.isSquareFree(square) then
+            local dx, dy = tx - ax, ty - ay
+            local length = math.sqrt(dx * dx + dy * dy)
+            local dot = length > 0.001 and plan.directionX
+                and (dx / length) * plan.directionX + (dy / length) * plan.directionY or 1
+            local danger = tonumber(candidate.danger) or 0
+            if dot >= (utility.config("combatSharedRetreatAlignment") or 0.35)
+                and (aligned == nil or danger < alignedDanger) then
+                aligned, alignedDanger = square, danger
+            end
+        end
+    end
+    local chosen = aligned
+    if bestLocal and bestLocal.square then
+        local localDanger = tonumber(bestLocal.danger) or 0
+        local localKey = utility.squareKey(bestLocal.square)
+        local localOwner = localKey and plan.reserved[localKey] or nil
+        if (localOwner == nil or localOwner == actor)
+            and utility.isSquareFree(bestLocal.square)
+            and (chosen == nil or localDanger + 1 < (alignedDanger or math.huge)) then
+            chosen = bestLocal.square
+        end
+    end
+    if chosen then
+        local squareKeyValue = utility.squareKey(chosen)
+        plan.assignments[actor] = chosen
+        if squareKeyValue then plan.reserved[squareKeyValue] = actor end
+        plan.expires = now + duration
+    end
+    return chosen, plan
+end
+Combat._sharedRetreatSquareForTests = sharedRetreatSquare
+
+function Combat.sharedRetreatTarget(actor, player, snapshot, target)
+    local state = stateFor(actor)
+    state.cohortKey = state.cohortKey or combatCohortKey(actor, player)
+    return sharedRetreatSquare(actor, state, snapshot or {}, target, U().nowMs())
+end
+
+local function executeRetreat(actor, snapshot, target, survivalCritical, state)
+    local utility = U()
+    local shared, sharedPlan = sharedRetreatSquare(
+        actor, state or stateFor(actor), snapshot, target, utility.nowMs())
     local remembered, retreatPlan
     if SC.Navigation and type(SC.Navigation.retreatTarget) == "function" then
         remembered, retreatPlan = SC.Navigation.retreatTarget(actor, snapshot)
     end
     local escape = snapshot.escapeSquares and snapshot.escapeSquares[1]
+    if shared then
+        escape = { square = shared, danger = sharedPlan and sharedPlan.danger or 0 }
+    end
     if remembered and retreatPlan and (tonumber(retreatPlan.danger) or 0) >= 5
         and escape and (tonumber(escape.danger) or 0) == 0 then remembered = nil end
     -- A combat retreat breaks contact locally; it must never send the companion
@@ -1430,6 +1711,7 @@ local function executeRetreat(actor, snapshot, target, survivalCritical)
             escapeSpeedOverride = true,
             survivalCritical = survivalCritical == true,
             retreatPlan = retreatPlan,
+            sharedRetreat = sharedPlan,
         })
     end
     if escape and SC.Navigation and type(SC.Navigation.request) == "function" then
@@ -1440,6 +1722,7 @@ local function executeRetreat(actor, snapshot, target, survivalCritical)
             urgent = true,
             escapeSpeedOverride = true,
             survivalCritical = survivalCritical == true,
+            sharedRetreat = sharedPlan,
         })
     end
     if escape then
@@ -1519,11 +1802,12 @@ local function executeRetreatCounter(actor, player, snapshot, target, weapon, co
     return true, action
 end
 
-local function execute(actor, player, snapshot, target, weapon, action, commands)
+local function execute(actor, player, snapshot, target, weapon, action, commands, state)
     local utility = U()
+    state = state or stateFor(actor)
     local targetActor = target and target.actor
     if action.kind == "retreat" or action.kind == "escape" then
-        return executeRetreat(actor, snapshot, target, action.kind == "escape")
+        return executeRetreat(actor, snapshot, target, action.kind == "escape", state)
     end
     if weapon and not weapon.equipped and action.kind ~= "shove" and action.kind ~= "stomp" then
         if not equipWeapon(actor, weapon.item, { nextAction = action.kind }) then
@@ -1551,10 +1835,27 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         accepted, nativeReason = utility.move(actor, "walk", { action = "shove", target = targetActor })
     elseif action.kind == "stomp" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
+        local grounded = boolCall(targetActor, "isOnFloor") or boolCall(targetActor, "isProne")
+        if not grounded or utility.isDead(targetActor) or not utility.canSee(actor, targetActor)
+            or (tonumber(snapshot.closeImmediateCount) or tonumber(snapshot.immediateCount) or 0)
+                > (utility.config("combatStompMaxImmediate") or 1) then
+            state.stompAnchor = nil
+            return false, "stomp_anchor_invalid"
+        end
         -- Aim for the head: step over the zombie's head square before stomping so the
         -- finisher lands on the skull (the lethal spot) instead of the legs. If we are
         -- not on the head yet, close onto it; only stomp once positioned.
-        local headSquare = select(1, utility.call(targetActor, "getHeadSquare", actor))
+        local current = utility.nowMs()
+        local anchor = state.stompAnchor
+        if not anchor or anchor.target ~= targetActor or current >= (anchor.expires or 0) then
+            anchor = {
+                target = targetActor,
+                square = select(1, utility.call(targetActor, "getHeadSquare", actor)),
+                expires = current + (utility.config("combatStompAnchorMs") or 850),
+            }
+            state.stompAnchor = anchor
+        end
+        local headSquare = anchor.square
         local ax, ay = utility.position(actor)
         local hxv = headSquare and select(1, utility.call(headSquare, "getX")) or nil
         local hyv = headSquare and select(1, utility.call(headSquare, "getY")) or nil
@@ -1631,6 +1932,18 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         local prefix = action.kind .. "_rejected"
         return false, nativeReason and (prefix .. ":" .. tostring(nativeReason)) or prefix
     end
+    if action.kind == "melee" or action.kind == "shove" then
+        local tx, ty = utility.position(targetActor)
+        state.attackAnchor = {
+            target = targetActor, x = tx, y = ty,
+            expires = utility.nowMs() + (utility.config("combatMeleeAnchorMs") or 900),
+        }
+    elseif action.kind == "stomp" then
+        state.stompAnchor = state.stompAnchor or {
+            target = targetActor,
+            expires = utility.nowMs() + (utility.config("combatStompAnchorMs") or 850),
+        }
+    end
     return true, action.kind
 end
 
@@ -1699,21 +2012,35 @@ end
 function Combat.update(actor, player, runtime)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
-    -- Commit a pending stomp only after the native animation reports its impact
-    -- event. Do this before scoring so a just-finished zombie is excluded from
-    -- the current decision instead of receiving a second attack request.
+    local state = stateFor(actor)
+    -- Consume the previous native collision before scoring. This both commits a
+    -- pending stomp fallback and tells spacing recovery whether melee/shove
+    -- actually affected the target.
     if SC.NativeActions and type(SC.NativeActions.pollCombatEvents) == "function" then
-        SC.NativeActions.pollCombatEvents(actor)
+        local _, eventReason, evidence = SC.NativeActions.pollCombatEvents(actor)
+        if type(evidence) == "table" then
+            state.lastCombatEvidence = evidence
+            state.lastCombatEvidenceReason = eventReason
+            state.lastCombatEvidenceAt = utility.nowMs()
+            if evidence.result == "no_effect" then
+                state.noEffectCollisions = state.noEffectTarget == evidence.target
+                    and (state.noEffectCollisions or 0) + 1 or 1
+                state.noEffectTarget = evidence.target
+            elseif evidence.result == "landed" then
+                if state.noEffectTarget == evidence.target then state.noEffectCollisions = 0 end
+                state.noEffectTarget = evidence.target
+            end
+        end
     end
     local rootRuntime = utility.actorState(actor, runtime)
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
-    local state = stateFor(actor)
     if type(snapshot) ~= "table" then snapshot = {} end
     snapshot.threats = snapshot.threats or {}
     snapshot.allies = snapshot.allies or {}
     snapshot.escapeSquares = snapshot.escapeSquares or {}
     local commands = commandState(actor)
     local now = utility.nowMs()
+    state.cohortKey = combatCohortKey(actor, player)
     confirmRecentKill(actor, state, commands, now)
     local scored = Combat.scoreTargets(actor, player, snapshot, state.target)
     addNearbyGrounded(actor, scored)
@@ -1740,21 +2067,26 @@ function Combat.update(actor, player, runtime)
         state.lastOffensiveTarget, state.lastOffensiveAt = nil, nil
         clearEngagement(state, actor)
         rootRuntime.combatTarget = nil
+        rootRuntime.combatRole = nil
+        rootRuntime.combatCohort = nil
         rootRuntime.combatOverrun = nil
         rootRuntime.combatReadiness = nil
         state.readiness = nil
         state.tacticalCache = nil
         state.weaponCache = nil
+        state.combatRole, state.combatRoleTarget = nil, nil
         return false, "no_threat"
     end
     if SC.Medical and type(SC.Medical.isDowned) == "function" and SC.Medical.isDowned(actor) then
         utility.stop(actor)
+        releaseActorClaims(actor)
+        state.combatRole, state.combatRoleTarget = nil, nil
         state.retreating = false
         clearAimPreparation(state)
         return false, "downed"
     end
 
-    local target = selectDoctrineTarget(actor, scored, player, snapshot, commands)
+    local target = selectDoctrineTarget(actor, scored, player, snapshot, commands, state, now)
     if not target then
         if state.active then utility.stop(actor) end
         state.active, state.target = false, nil
@@ -1765,6 +2097,8 @@ function Combat.update(actor, player, runtime)
         state.tacticalCache = nil
         state.weaponCache = nil
         clearEngagement(state, actor)
+        state.combatRole, state.combatRoleTarget = nil, nil
+        rootRuntime.combatRole, rootRuntime.combatCohort = nil, nil
         return false, "no_credible_target"
     end
     -- Continuously point the actor at the engaged target so the native swing's
@@ -1772,12 +2106,20 @@ function Combat.update(actor, player, runtime)
     -- when there is no credible target.
     utility.call(actor, "setCompanionAimTarget", target.actor)
     local distance = math.sqrt(target.distanceSq or utility.distanceSq(actor, target.actor))
+    local combatRole, cohortClaimRecord = claimTarget(
+        target.actor, actor, now, state.cohortKey, nil, "approach", distance)
+    state.combatRole = combatRole
+    state.combatRoleTarget = target.actor
+    rootRuntime.combatRole = combatRole
+    rootRuntime.combatCohort = state.cohortKey
     local vehicle, vehicleOk = utility.call(actor, "getVehicle")
     local seated = vehicleOk and vehicle ~= nil
     -- Preserve the target/facing but do not run inventory or locomotion work while
     -- a native on-foot swing owns the actor. This mirrors player input ownership
     -- and keeps the 50 ms reflex cadence cheap during the animation itself.
     if not seated and attackInProgress(actor) then
+        claimTarget(target.actor, actor, now, state.cohortKey, combatRole,
+            "committed", distance)
         clearRejection(state, rootRuntime)
         state.active = true
         state.target = target.actor
@@ -1848,7 +2190,10 @@ function Combat.update(actor, player, runtime)
             rootRuntime.combatAction = counterAction
             return true, counterAction
         end
-        local ok, reason = executeRetreat(actor, snapshot, target, true)
+        releaseActorClaims(actor)
+        state.combatRole = nil
+        rootRuntime.combatRole = nil
+        local ok, reason = executeRetreat(actor, snapshot, target, true, state)
         if ok then
             enterRetreat(actor, state, commands, now, true, snapshot)
             state.active = true
@@ -1863,7 +2208,10 @@ function Combat.update(actor, player, runtime)
 
     if commands.combatDoctrine == "stealth" and not passiveMayFight(target, player, snapshot) then
         if (snapshot.pressure or 0) > 0 then
-            local ok, reason = executeRetreat(actor, snapshot, target)
+            releaseActorClaims(actor)
+            state.combatRole = nil
+            rootRuntime.combatRole = nil
+            local ok, reason = executeRetreat(actor, snapshot, target, false, state)
             if ok then
                 enterRetreat(actor, state, commands, now, false, snapshot)
                 state.active = true
@@ -1895,11 +2243,41 @@ function Combat.update(actor, player, runtime)
     local chosen = actions[1]
     if not chosen then return false, "no_action" end
     chosen = stabilizeSpacingAction(state, chosen, target, now)
+    if chosen.kind == "approach" and state.attackAnchor
+        and state.attackAnchor.target == target.actor
+        and now < (state.attackAnchor.expires or 0)
+        and (state.noEffectTarget ~= target.actor
+            or (tonumber(state.noEffectCollisions) or 0)
+            < (utility.config("combatNoEffectReapproachCount") or 2)) then
+        local tx, ty = utility.position(target.actor)
+        local moved = tx and state.attackAnchor.x
+            and math.sqrt((tx - state.attackAnchor.x) ^ 2 + (ty - state.attackAnchor.y) ^ 2)
+            or math.huge
+        if moved <= 0.75 then
+            chosen = { kind = "hold_range", score = chosen.score, attackAnchor = true }
+        else
+            state.attackAnchor = nil
+        end
+    end
+    if combatRole == "reserve" and (chosen.kind == "approach" or chosen.kind == "kite")
+        and target.attacking ~= true
+        and (target.distanceSq or math.huge)
+            > (utility.config("combatShoveDistance") or 1.35) ^ 2 then
+        chosen = { kind = "hold_range", score = chosen.score, reserveGuard = true }
+    end
+    if (chosen.kind == "shoot" or chosen.kind == "melee"
+        or chosen.kind == "shove" or chosen.kind == "stomp")
+        and not roleMayAttack(actor, combatRole, cohortClaimRecord,
+            chosen, target, snapshot) then
+        chosen = { kind = "hold_range", score = chosen.score, roleHold = true }
+    end
 
     if chosen.kind == "shoot" then
         local aiming, aimReason = prepareRangedShot(actor, state, snapshot, target,
             weapon, readiness, player, commands, now)
         if aiming then
+            claimTarget(target.actor, actor, now, state.cohortKey, combatRole,
+                "aiming", distance)
             state.active = true
             state.target = target.actor
             state.targetScore = target.score
@@ -1914,7 +2292,12 @@ function Combat.update(actor, player, runtime)
         clearAimPreparation(state)
     end
 
-    local ok, reason = execute(actor, player, snapshot, target, weapon, chosen, commands)
+    if chosen.kind == "retreat" or chosen.kind == "escape" then
+        releaseActorClaims(actor)
+        state.combatRole = nil
+        rootRuntime.combatRole = nil
+    end
+    local ok, reason = execute(actor, player, snapshot, target, weapon, chosen, commands, state)
     if not ok then
         Combat.noteRejection(actor, state, rootRuntime, chosen.kind, reason,
             target.actor, distance, weapon)
@@ -1923,7 +2306,8 @@ function Combat.update(actor, player, runtime)
     clearRejection(state, rootRuntime)
     if chosen.kind == "shoot" or chosen.kind == "melee"
         or chosen.kind == "shove" or chosen.kind == "stomp" then
-        claimTarget(target.actor, actor, now)
+        claimTarget(target.actor, actor, now, state.cohortKey, combatRole,
+            "committed", distance)
         clearAimPreparation(state)
     end
     if chosen.kind == "retreat" or chosen.kind == "escape" then
@@ -1967,6 +2351,7 @@ function Combat.reset(actor)
     if actor then
         local state = states[actor]
         if state and state.active then U().stop(actor) end
+        releaseActorClaims(actor)
         if SC.NativeActions and type(SC.NativeActions.resetCombatEvents) == "function" then
             SC.NativeActions.resetCombatEvents(actor)
         end
@@ -1977,6 +2362,8 @@ function Combat.reset(actor)
         end
         states = setmetatable({}, { __mode = "k" })
         targetClaims = setmetatable({}, { __mode = "k" })
+        actorClaims = setmetatable({}, { __mode = "k" })
+        retreatPlans = {}
         lastGroupCombatBarkAt = -math.huge
     end
 end

@@ -12,6 +12,8 @@ local reservations = setmetatable({}, { __mode = "k" })
 local curtainTimes = setmetatable({}, { __mode = "k" })
 local chokeReservations = {}
 local chokeWaiters = setmetatable({}, { __mode = "k" })
+local groupPassages = {}
+local actorPassages = setmetatable({}, { __mode = "k" })
 local trafficSequence = 0
 local nextChokeSweepAt = 0
 local stepReservations = {}
@@ -416,6 +418,28 @@ local function squareHasStairs(square)
         end
     end, 24)
     return found
+end
+
+function Navigation.edgeAffordance(fromSquare, toSquare)
+    if not fromSquare or not toSquare or sameSquare(fromSquare, toSquare) then return nil end
+    local object, kind = barrierBetween(fromSquare, toSquare)
+    if kind == "open" and (squareHasStairs(fromSquare) or squareHasStairs(toSquare)
+        or differentFloor(fromSquare, toSquare)) then kind = "stairs" end
+    if kind ~= "door" and kind ~= "stairs" and kind ~= "fence" then return nil end
+    local key
+    if kind == "door" and object ~= nil then
+        key = "door:" .. tostring(object) .. ":" .. tostring(directionBetween(fromSquare, toSquare))
+    else
+        key = tostring(kind) .. ":" .. tostring(edgeKey(fromSquare, toSquare))
+    end
+    return {
+        key = key,
+        kind = kind,
+        object = object,
+        fromSquare = fromSquare,
+        toSquare = toSquare,
+        direction = directionBetween(fromSquare, toSquare),
+    }
 end
 
 local function squareIsOutdoor(square)
@@ -1574,6 +1598,7 @@ local function completeDoorInteraction(actor, state, object, action, fromSquare,
             toSquare = toSquare,
             openedAt = now,
             expires = now + (utility.config("navigationReservationMs") or 8000),
+            passageKey = state.currentPassageKey or actorPassages[actor],
         }
     else
         release(object, actor)
@@ -1790,6 +1815,186 @@ local function occupiesDoorway(value, entry)
     return math.abs(progress) < clearance and lateral <= 0.55
 end
 
+local function groupPassageKey(edge, cohort)
+    if type(edge) ~= "table" or not edge.key or not cohort then return nil end
+    return tostring(cohort) .. "|" .. tostring(edge.key)
+end
+
+local function passageTimeout(count)
+    return math.min(16000, 4000 + math.max(1, tonumber(count) or 1) * 1500)
+end
+
+local function passageActor(value)
+    return type(value) == "table" and value.actor or value
+end
+
+local function passageCrossed(passage, actor)
+    if not passage or not actor then return false end
+    if passage.crossed[actor] == true then return true end
+    if passage.kind == "door" then
+        local progress = doorGeometry(passage, actor)
+        return progress ~= nil and progress >= (U().config("doorClearanceDistance") or 0.38)
+    end
+    if passage.kind == "stairs" then
+        return sameSquare(U().squareOf(actor), passage.toSquare)
+            or (differentFloor(actor, passage.fromSquare)
+                and not differentFloor(actor, passage.toSquare))
+    end
+    return sameSquare(U().squareOf(actor), passage.toSquare)
+end
+
+local function refreshGroupPassage(passage, now)
+    if not passage then return nil end
+    local write, changed = 1, false
+    for index = 1, #(passage.participants or {}) do
+        local actor = passage.participants[index]
+        if U().isValidActor(actor) and not U().isDead(actor) and U().squareOf(actor) then
+            if passageCrossed(passage, actor) then
+                if passage.crossed[actor] ~= true then changed = true end
+                passage.crossed[actor] = true
+            end
+            passage.participants[write] = actor
+            write = write + 1
+        else
+            passage.crossed[actor] = true
+            changed = true
+        end
+    end
+    for index = #passage.participants, write, -1 do passage.participants[index] = nil end
+    local complete = true
+    for _, actor in ipairs(passage.participants) do
+        if passage.crossed[actor] ~= true then complete = false break end
+    end
+    if changed then
+        passage.lastProgressAt = now
+        passage.expires = now + passageTimeout(#passage.participants)
+    end
+    passage.complete = complete
+    if complete then passage.completedAt = passage.completedAt or now end
+    return passage
+end
+
+local function sweepGroupPassages(now)
+    for key, passage in pairs(groupPassages) do
+        refreshGroupPassage(passage, now)
+        if (passage.complete and now - (passage.completedAt or now) > 1000)
+            or now >= (passage.expires or 0) then
+            groupPassages[key] = nil
+        end
+    end
+end
+
+function Navigation.observeGroupPassage(leader, edge, cohort, roster, current)
+    if type(edge) ~= "table" or (edge.kind ~= "door" and edge.kind ~= "stairs") then
+        return nil
+    end
+    local now = tonumber(current) or U().nowMs()
+    local key = groupPassageKey(edge, cohort)
+    if not key then return nil end
+    local passage = groupPassages[key]
+    if not passage then
+        local participants, seen = {}, setmetatable({}, { __mode = "k" })
+        for _, value in ipairs(type(roster) == "table" and roster or {}) do
+            local actor = passageActor(value)
+            if actor and actor ~= leader and not seen[actor] and U().isValidActor(actor)
+                and U().sameFloor(actor, edge.fromSquare)
+                and U().distance(actor, edge.fromSquare) <= 12 then
+                participants[#participants + 1] = actor
+                seen[actor] = true
+            end
+        end
+        passage = {
+            key = key, cohort = cohort, kind = edge.kind, object = edge.object,
+            fromSquare = edge.fromSquare, toSquare = edge.toSquare,
+            owner = leader, participants = participants,
+            crossed = setmetatable({}, { __mode = "k" }),
+            startedAt = now, lastProgressAt = now,
+            expires = now + passageTimeout(#participants),
+        }
+        groupPassages[key] = passage
+    end
+    return refreshGroupPassage(passage, now)
+end
+
+local function ensureGroupPassage(actor, state, sourceSquare, nextSquare, kind, intent, now)
+    if kind == "open" and (squareHasStairs(sourceSquare) or squareHasStairs(nextSquare)
+        or differentFloor(sourceSquare, nextSquare)) then kind = "stairs" end
+    if kind ~= "door" and kind ~= "stairs" then return true end
+    local cohort = intent and intent.cohortKey
+    if not cohort then return true end
+    sweepGroupPassages(now)
+    local edge = Navigation.edgeAffordance(sourceSquare, nextSquare)
+    if not edge then return true end
+    local key = groupPassageKey(edge, cohort)
+    local passage = groupPassages[key]
+    if not passage then
+        passage = Navigation.observeGroupPassage(nil, edge, cohort,
+            intent.groupParticipants, now)
+    end
+    if not passage then return true end
+    local present = false
+    for _, member in ipairs(passage.participants) do
+        if member == actor then present = true break end
+    end
+    if not present then passage.participants[#passage.participants + 1] = actor end
+    refreshGroupPassage(passage, now)
+    state.currentPassageKey = key
+    actorPassages[actor] = key
+    if passage.crossed[actor] == true then return true end
+    local head
+    for _, member in ipairs(passage.participants) do
+        if passage.crossed[member] ~= true then head = member break end
+    end
+    if head ~= actor and intent.urgent == true then
+        local occupied = false
+        for _, member in ipairs(passage.participants) do
+            if member ~= actor and occupiesDoorway(member, passage) then occupied = true break end
+        end
+        if not occupied then
+            for index, member in ipairs(passage.participants) do
+                if member == actor then table.remove(passage.participants, index) break end
+            end
+            table.insert(passage.participants, 1, actor)
+            head = actor
+        end
+    end
+    if head ~= actor then
+        if state.passageQueueOwner ~= head then
+            recordMovement(actor, "passage_queued", {
+                status = "waiting_for:" .. tostring(U().idOf(head)), nextSquare = nextSquare,
+            })
+        end
+        state.passageQueueOwner = head
+        if not stopAndObserve(actor, nextSquare, intent) then
+            return false, "group_passage_stop_rejected"
+        end
+        return nil, "holding_group_passage"
+    end
+    if state.passageQueueOwner ~= nil then
+        recordMovement(actor, "passage_acquired", { status = passage.kind, nextSquare = nextSquare })
+    end
+    state.passageQueueOwner = nil
+    return true
+end
+
+local function markActorPassage(actor, state, now)
+    local key = state and (state.currentPassageKey or actorPassages[actor]) or actorPassages[actor]
+    local passage = key and groupPassages[key] or nil
+    if not passage then return end
+    if passageCrossed(passage, actor) then
+        passage.crossed[actor] = true
+        passage.lastProgressAt = now
+        passage.expires = now + passageTimeout(#passage.participants)
+        refreshGroupPassage(passage, now)
+        if passage.complete then
+            state.currentPassageKey = nil
+            actorPassages[actor] = nil
+        end
+    end
+end
+Navigation._ensureGroupPassageForRequest = ensureGroupPassage
+Navigation._markActorPassageForRequest = markActorPassage
+
 local function nearbyOpenedDoor(state, actor)
     for _, entry in ipairs(state.openedDoors or {}) do
         local progress, cross = doorGeometry(entry, actor)
@@ -1805,6 +2010,11 @@ local function safeToCloseDoor(entry, snapshot, actor)
     -- Keep the door open until the actor's continuous world position has cleared
     -- the leaf, otherwise it can close through the companion's collision capsule.
     if not actorClearOfDoorway(actor, entry) then return false end
+    local passage = entry.passageKey and groupPassages[entry.passageKey] or nil
+    if passage then
+        refreshGroupPassage(passage, utility.nowMs())
+        if not passage.complete and utility.nowMs() < (passage.expires or 0) then return false end
+    end
     if type(snapshot) ~= "table" then return true end
     for index = 1, math.min(#(snapshot.threats or {}), 12) do
         if utility.distanceSq(entry.object, snapshot.threats[index].actor) <= 4 then return false end
@@ -2626,8 +2836,81 @@ local function tryReusePathSuffix(actor, state, sourceSquare, context, now)
     end
     return true
 end
+
+local function correctRouteProjection(actor, state, sourceSquare, context, now)
+    if type(state.path) ~= "table" or not state.path[state.pathIndex or 2]
+        or state.nativeLease or state.pendingInteraction then return true end
+    local index = math.max(2, tonumber(state.pathIndex) or 2)
+    local previous, following = state.path[index - 1], state.path[index]
+    if Navigation.edgeAffordance(previous, following) then
+        state.crossTrackSince, state.reverseProgressSince = nil, nil
+        return true
+    end
+    local utility = U()
+    local ax, ay = utility.position(actor)
+    local px, py = utility.position(previous)
+    local nx, ny = utility.position(following)
+    if ax == nil or px == nil or nx == nil then return true end
+    px, py, nx, ny = px + 0.5, py + 0.5, nx + 0.5, ny + 0.5
+    local dx, dy = nx - px, ny - py
+    local lengthSq = dx * dx + dy * dy
+    if lengthSq < 0.01 then return true end
+    local projection = ((ax - px) * dx + (ay - py) * dy) / lengthSq
+    local clamped = math.max(0, math.min(1, projection))
+    local closestX, closestY = px + dx * clamped, py + dy * clamped
+    local crossTrack = math.sqrt((ax - closestX) ^ 2 + (ay - closestY) ^ 2)
+    state.routeCrossTrack = crossTrack
+    state.routeProjection = projection
+
+    if projection > 1.05 and index < #state.path then
+        local oldIndex = index
+        while index < #state.path do
+            local candidate = state.path[index + 1]
+            if not candidate or utility.distance(actor, candidate) > 1.15 then break end
+            index = index + 1
+        end
+        state.pathIndex = math.max(oldIndex + 1, index)
+        state.routeOvershootCount = (state.routeOvershootCount or 0) + 1
+        state.lastRouteOvershootAt = now
+        state.crossTrackSince, state.reverseProgressSince = nil, nil
+        recordMovement(actor, "route_overshoot", {
+            index = state.pathIndex, crossTrack = crossTrack, status = "advanced_suffix",
+        })
+        return true
+    end
+
+    local crossLimit = tonumber(utility.config("navigationRouteCrossTrackDistance")) or 0.75
+    if crossTrack > crossLimit then
+        state.crossTrackSince = state.crossTrackSince or now
+    else
+        state.crossTrackSince = nil
+    end
+    if state.lastRouteProjection ~= nil and projection < state.lastRouteProjection - 0.12 then
+        state.reverseProgressSince = state.reverseProgressSince or now
+    elseif projection >= (state.lastRouteProjection or -math.huge) then
+        state.reverseProgressSince = nil
+    end
+    state.lastRouteProjection = projection
+    local unstableMs = tonumber(utility.config("navigationRouteInstabilityMs")) or 350
+    if (state.crossTrackSince and now - state.crossTrackSince >= unstableMs)
+        or (state.reverseProgressSince and now - state.reverseProgressSince >= unstableMs) then
+        local reason = state.crossTrackSince and "cross_track" or "reverse_progress"
+        releaseStep(state, actor)
+        state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
+        state.pathIndex, state.nextRepathAt = 1, 0
+        state.routeRestartCount = (state.routeRestartCount or 0) + 1
+        state.lastRouteRestartAt, state.lastRouteRestartReason = now, reason
+        state.crossTrackSince, state.reverseProgressSince = nil, nil
+        recordMovement(actor, "route_restarted", {
+            status = reason, crossTrack = crossTrack,
+        })
+        return false
+    end
+    return true
+end
 Navigation._repairMovingPathForTests = tryRepairMovingPath
 Navigation._reusePathSuffixForTests = tryReusePathSuffix
+Navigation._correctRouteProjectionForTests = correctRouteProjection
 -- Test seam (follow tracking): a moving target must re-plan on a much smaller goal
 -- drift than a static goal so a following companion turns with the leader.
 Navigation._goalResetDistanceForTests = goalResetDistance
@@ -2773,6 +3056,7 @@ local function maintainNativeLease(actor, state, goalSquare, now)
     end
     local arrived = nativeLeaseArrival(actor, lease)
     if arrived then
+        markActorPassage(actor, state, now)
         rememberRouteEdge(state, lease.fromSquare,
             lease.multiGoal and arrived or lease.toSquare,
             true, lease.reason, nil, now)
@@ -2788,6 +3072,7 @@ local function maintainNativeLease(actor, state, goalSquare, now)
     if currentKey and currentKey ~= lease.progressSquareKey then
         lease.progressSquareKey = currentKey
         lease.progressAt = now
+        markActorPassage(actor, state, now)
         -- A multi-floor route can legitimately be long, but it must keep making
         -- tile progress. Refresh its stall deadline instead of cancelling a valid
         -- native path halfway to a distant staircase or while climbing it.
@@ -3322,6 +3607,7 @@ function Navigation.request(actor, target, movementMode, intent)
 
     local now = utility.nowMs()
     local state = stateFor(actor)
+    SC.Navigation._markActorPassageForRequest(actor, state, now)
     state.trafficPriority = movementPriority(intent)
     state.trafficAction = type(intent) == "table" and intent.action or "move"
     sweepBlockedEdges(state, now)
@@ -3627,6 +3913,9 @@ function Navigation.request(actor, target, movementMode, intent)
 
     local nextSquare, afterSquare
     if state.path then
+        SC.Navigation._correctRouteProjectionForTests(actor, state, sourceSquare, requestIntent, now)
+    end
+    if state.path then
         while state.pathIndex <= #state.path and sameSquare(sourceSquare, state.path[state.pathIndex]) do
             state.pathIndex = state.pathIndex + 1
         end
@@ -3704,6 +3993,12 @@ function Navigation.request(actor, target, movementMode, intent)
     end
 
     local barrier, kind = barrierBetween(sourceSquare, nextSquare)
+    local passageAccepted, passageStatus = SC.Navigation._ensureGroupPassageForRequest(
+        actor, state, sourceSquare, nextSquare, kind, requestIntent, now)
+    if passageAccepted ~= true then
+        return passageAccepted == false and false or true,
+            passageStatus or "holding_group_passage"
+    end
     if kind == "door" then
         if not barrier then return false, "missing_door" end
         local canCross, status = handleDoor(actor, state, barrier, sourceSquare, nextSquare, now)
@@ -4024,7 +4319,7 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         clearMovementTransients(actor, state)
     end
 
-    if now >= (state.nativeMultiUnavailableUntil or 0) and SC.NativeActions
+    if intent.cohortKey == nil and now >= (state.nativeMultiUnavailableUntil or 0) and SC.NativeActions
         and type(SC.NativeActions.pathToNearest) == "function" then
         local started, reason = SC.NativeActions.pathToNearest(actor, valid, movementMode or "walk")
         if started then
@@ -4123,6 +4418,10 @@ end
 function Navigation.cancel(actor, reason)
     local utility = U()
     local state = actor and states[actor]
+    local passageKey = actor and actorPassages[actor] or nil
+    local passage = passageKey and groupPassages[passageKey] or nil
+    if passage and actor then passage.crossed[actor] = true end
+    if actor then actorPassages[actor] = nil end
     if not state then return false end
     for _, entry in ipairs(state.openedDoors or {}) do release(entry.object, actor) end
     if state.pendingInteraction then release(state.pendingInteraction.object, actor) end
@@ -4240,6 +4539,8 @@ function Navigation.reset(actor)
         curtainTimes = setmetatable({}, { __mode = "k" })
         chokeReservations = {}
         chokeWaiters = setmetatable({}, { __mode = "k" })
+        groupPassages = {}
+        actorPassages = setmetatable({}, { __mode = "k" })
         trafficSequence = 0
         nextChokeSweepAt = 0
         stepReservations = {}

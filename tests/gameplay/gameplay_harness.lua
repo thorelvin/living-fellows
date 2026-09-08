@@ -1275,6 +1275,18 @@ do
             { action = "follow_formation", followRecovery = true }, clock)
             and suffixState.pathIndex == 3 and suffixState.routeReuseCount == 1,
         "a short native detour rejoins a validated later route edge instead of restarting A-star")
+    local overshootState = {
+        path = suffixPath, pathGoalSquare = suffixPath[#suffixPath], pathIndex = 2,
+        blockedEdges = {}, routeMemory = {},
+    }
+    routeActor.worldX, routeActor.worldY = 31.7, 28.5
+    check(SurvivorCompanion.Navigation._correctRouteProjectionForTests(
+            routeActor, overshootState, source,
+            { action = "follow_formation", followRecovery = true }, clock)
+            and overshootState.pathIndex >= 3
+            and overshootState.routeOvershootCount == 1
+            and #overshootState.blockedEdges == 0,
+        "passing a route segment advances to its suffix without blacklisting or rebuilding the path")
     for index = #routeActor.square.moving, 1, -1 do
         if routeActor.square.moving[index] == routeActor then
             table.remove(routeActor.square.moving, index)
@@ -2289,6 +2301,33 @@ for _, value in ipairs({ predictionFollower, predictionLeader }) do
     end
 end
 
+local trailLeader = actor("trail-player", 50, 24, {
+    className = "IsoPlayer", recruited = false, forwardX = 1, forwardY = 0,
+})
+trailLeader.modData.SC_Recruited = false
+local trailFollower = actor("000-trail-follower", 42, 24, {})
+registry[trailFollower.id] = trailFollower
+SurvivorCompanion.Commands.issue(trailFollower.id, "follow", nil, trailLeader)
+local trailSnapshot = {
+    threats = {}, allies = {}, player = { actor = trailLeader, danger = 0 },
+}
+SurvivorCompanion.Positioning.formationTarget(trailFollower, trailLeader,
+    SurvivorCompanion.Commands.peek(trailFollower), trailSnapshot)
+local trailTarget, trailContext
+for x = 51, 53 do
+    trailLeader.square = cell:getGridSquare(x, 24, 0)
+    clock = clock + 120
+    trailTarget, trailContext = SurvivorCompanion.Positioning.formationTarget(
+        trailFollower, trailLeader, SurvivorCompanion.Commands.peek(trailFollower), trailSnapshot)
+end
+check(trailTarget and trailContext and trailContext.mode == "trail"
+        and trailContext.trailRevision >= 4 and trailTarget.x < trailLeader.square.x
+        and trailContext.columnIndex >= 1,
+    "a distant follower uses the shared leader breadcrumb column instead of cutting toward a side slot")
+SurvivorCompanion.Positioning.reset(trailFollower)
+SurvivorCompanion.Commands.reset(trailFollower)
+registry[trailFollower.id] = nil
+
 
 local stickyLeader = actor("sticky-player", 40, 20, {
     className = "IsoPlayer", recruited = false, forwardX = 1, forwardY = 0,
@@ -2640,6 +2679,41 @@ check(queuedDoor and queuedDoorReason == "holding_choke_queue"
             and queuedDoorActor.lastIntent.action))
 SurvivorCompanion.Navigation.reset(queuedDoorActor)
 registry[queuedDoorActor.id] = nil
+do
+    local passageLeader = actor("passage-leader", 1, 2,
+        { className = "IsoPlayer", recruited = false })
+    local firstFollower = actor("passage-01", 0, 2, {})
+    local secondFollower = actor("passage-02", 0, 2, {})
+    local edge = SurvivorCompanion.Navigation.edgeAffordance(doorFrom, doorTo)
+    local cohort = "party:passage-test"
+    local passage = SurvivorCompanion.Navigation.observeGroupPassage(
+        passageLeader, edge, cohort,
+        { { actor = firstFollower }, { actor = secondFollower } }, clock)
+    local firstState, secondState = {}, {}
+    local firstMayCross = SurvivorCompanion.Navigation._ensureGroupPassageForRequest(
+        firstFollower, firstState, doorFrom, doorTo, "door", {
+            cohortKey = cohort,
+            groupParticipants = { { actor = firstFollower }, { actor = secondFollower } },
+        }, clock)
+    local secondMayCross, secondReason = SurvivorCompanion.Navigation._ensureGroupPassageForRequest(
+        secondFollower, secondState, doorFrom, doorTo, "door", {
+            cohortKey = cohort,
+            groupParticipants = { { actor = firstFollower }, { actor = secondFollower } },
+        }, clock)
+    firstFollower.square = doorTo
+    firstFollower.worldX, firstFollower.worldY = 1.5, 2.5
+    SurvivorCompanion.Navigation._markActorPassageForRequest(firstFollower, firstState, clock + 100)
+    local secondAfter = SurvivorCompanion.Navigation._ensureGroupPassageForRequest(
+        secondFollower, secondState, doorFrom, doorTo, "door", {
+            cohortKey = cohort,
+            groupParticipants = { { actor = firstFollower }, { actor = secondFollower } },
+        }, clock + 100)
+    check(passage and firstMayCross == true and secondMayCross == nil
+            and secondReason == "holding_group_passage" and secondAfter == true,
+        "a shared door passage admits followers in stable order and advances only after clearance")
+    SurvivorCompanion.Navigation.cancel(firstFollower, "test_done")
+    SurvivorCompanion.Navigation.cancel(secondFollower, "test_done")
+end
 doorActor.square = doorTo
 doorActor.worldX, doorActor.worldY = 1.08, 2.5
 clock = clock + 800
@@ -3586,6 +3660,48 @@ cleaverZed.dead = true
 end
 
 do
+local roleWeapon = item("Base.Axe", "Weapon", { damage = 2, range = 1.4, sharpness = 1 })
+local roleActors = {
+    actor("sc-role-01", 10, 10, { inventory = inventory({ roleWeapon }) }),
+    actor("sc-role-02", 10, 11, { inventory = inventory({ roleWeapon }) }),
+    actor("sc-role-03", 10, 9, { inventory = inventory({ roleWeapon }) }),
+}
+local roleTarget = zombie(12, 10, { attacking = false })
+local roleSnapshot = {
+    threats = { { actor = roleTarget, square = roleTarget.square, distanceSq = 4,
+        visible = true, obstructed = false, attacking = false, score = 70 } },
+    allies = {}, escapeSquares = {}, threatCount = 1, immediateCount = 0,
+    closeImmediateCount = 0, closeThreatCount = 1, occupiedThreatSectors = 1,
+    pressure = 0, encircled = false, player = { danger = 0, immediateThreats = 0 },
+    time = clock,
+}
+for _, roleActor in ipairs(roleActors) do
+    roleActor.primary = roleWeapon
+    registry[roleActor.id] = roleActor
+    SurvivorCompanion.Combat.update(roleActor, player, { snapshot = roleSnapshot })
+end
+check(SurvivorCompanion.Combat.peek(roleActors[1]).combatRole == "primary"
+        and SurvivorCompanion.Combat.peek(roleActors[2]).combatRole == "support"
+        and SurvivorCompanion.Combat.peek(roleActors[3]).combatRole == "reserve"
+        and roleActors[3].lastIntent.action == "ready_weapon",
+    "one cohort assigns one primary, one support, and a guarding reserve per target")
+roleTarget.square = cell:getGridSquare(11, 10, 0)
+clock = clock + 100
+roleSnapshot.time = clock
+local impactScored = SurvivorCompanion.Combat.scoreTargets(
+    roleActors[1], player, roleSnapshot, roleTarget)
+check(impactScored[1] and impactScored[1].closingSpeed > 0
+        and impactScored[1].timeToImpactMs <= 6000
+        and impactScored[1].impactScore > 0,
+    "live radial closing speed adds bounded time-to-impact urgency before contact")
+for _, roleActor in ipairs(roleActors) do
+    SurvivorCompanion.Combat.reset(roleActor)
+    registry[roleActor.id] = nil
+end
+roleTarget.dead = true
+end
+
+do
 local approachClock = clock
 local approachConfig = SurvivorCompanion.Config.values
 local savedShoveDistance = approachConfig.combatShoveDistance
@@ -3878,6 +3994,25 @@ local rejectCombatSnapshot = {
 check(not SurvivorCompanion.Combat.update(rejectFighter, player, { snapshot = rejectCombatSnapshot })
     and not SurvivorCompanion.Combat.peek(rejectFighter).active,
     "combat does not claim an action when the Actor executor rejects it")
+
+do
+local retreatOne = actor("sc-shared-retreat-1", -10, 10, {})
+local retreatTwo = actor("sc-shared-retreat-2", -10, 11, {})
+local retreatSnapshot = {
+    escapeSquares = {
+        { square = cell:getGridSquare(-7, 10, 0), danger = 0 },
+        { square = cell:getGridSquare(-7, 11, 0), danger = 1 },
+        { square = cell:getGridSquare(-13, 10, 0), danger = 2 },
+    },
+}
+local firstEscape, sharedPlan = SurvivorCompanion.Combat._sharedRetreatSquareForTests(
+    retreatOne, { cohortKey = "party:shared-retreat" }, retreatSnapshot, nil, clock)
+local secondEscape, samePlan = SurvivorCompanion.Combat._sharedRetreatSquareForTests(
+    retreatTwo, { cohortKey = "party:shared-retreat" }, retreatSnapshot, nil, clock)
+check(firstEscape and secondEscape and firstEscape ~= secondEscape
+        and sharedPlan == samePlan and sharedPlan.directionX > 0,
+    "a retreating cohort shares an escape direction while reserving distinct safe squares")
+end
 
 do
 local overrunBat = item("Base.Axe", "Weapon", { damage = 1.5, range = 1.5 })
