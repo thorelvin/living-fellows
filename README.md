@@ -262,6 +262,14 @@ Run the complete deterministic gate:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-Project.ps1
 ```
 
+The core gate includes a deterministic AI response/load harness for 1, 4, 8, and 16 companions. It verifies ordinary and emergency response latency, mixed-load fairness, frame-budget behavior, and that the sorted companion registry is materialized only once per decision callback.
+
+Run only that fast response profile with:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\core\run_ai_response_harness.ps1
+```
+
 Build the Workshop upload package:
 
 ```powershell

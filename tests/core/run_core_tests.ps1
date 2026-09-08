@@ -159,6 +159,21 @@ try {
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @decisionSchedulerFiles
         if ($LASTEXITCODE -ne 0) { throw 'Decision scheduler multi-actor/critical-lane harness failed.' }
 
+        $aiResponseFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Shared 'SCDiagnostics.lua'),
+            (Join-Path $TestRoot 'runtime_hook_fixture.lua'),
+            (Join-Path $Client 'SCPerformance.lua'),
+            (Join-Path $Client 'SCScheduler.lua'),
+            (Join-Path $Client 'SCRuntime.lua'),
+            (Join-Path $TestRoot 'ai_response_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @aiResponseFiles
+        if ($LASTEXITCODE -ne 0) { throw 'AI response/load harness failed.' }
+
         $registryTransactionFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),

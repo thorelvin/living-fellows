@@ -111,9 +111,9 @@ do
 end
 
 -- Scenario 3: when every actor is critical at once, one callback services exactly
--- criticalCap (6) via the critical lane plus ordinaryCap (3) via the round-robin =
--- 9 distinct actors. This bounds critical work per callback and proves the ordinary
--- lane still runs under critical saturation (starvation is capped both ways).
+-- criticalCap (6). Critical actors must not overflow into the ordinary lane: that
+-- duplicated costly combat work and defeated its reservation for genuinely
+-- ordinary actors. The rotating critical cursor provides fairness across calls.
 do
     SC.Scheduler.reset(true)
     services = {}
@@ -128,9 +128,8 @@ do
     services = {}
     decisionTask(base, 1000000)
     check(uniqueServiced() == SC.Config.get("decisionCriticalPerTick")
-                + SC.Config.get("decisionOrdinaryPerTick")
-            and uniqueServiced() == 9,
-        "one callback services criticalCap(6) + ordinaryCap(3) = 9 distinct actors when all are critical")
+            and uniqueServiced() == 6,
+        "all-critical load is bounded to criticalCap(6) with no duplicate ordinary-lane work")
 end
 
 -- Scenario 4: recordIsCritical classifies emergencies from cheap cached state

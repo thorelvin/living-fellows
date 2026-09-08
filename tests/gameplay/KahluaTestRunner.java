@@ -52,6 +52,11 @@ public final class KahluaTestRunner {
             }
             completed.add(file.getFileName().toString());
         }
+        Object report = tableType.getMethod("rawget", Object.class)
+            .invoke(environment, "SC_TEST_REPORT");
+        if (report != null) {
+            System.out.println(String.valueOf(report));
+        }
         System.out.println("Kahlua PASS: " + String.join(", ", completed));
     }
 }

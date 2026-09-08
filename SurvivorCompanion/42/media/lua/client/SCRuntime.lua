@@ -42,6 +42,8 @@ local startupFailureReason = "runtime has not started"
 local teardownPending = false
 local decisionCursor = 1
 local criticalCursor = 1
+local criticalDecisionActive = setmetatable({}, { __mode = "k" })
+local decisionServiceEstimateMs = 0.5
 local vitalsCursor = 1
 local lastPlayerVehicle = nil
 local vehicleRestoreDeadline = nil
@@ -120,8 +122,12 @@ local function notifyDisabled(reason)
     return shown
 end
 
-local function nextRecord(cursor)
-    local records = SC.Registry.records()
+local function nextRecord(cursor, snapshot)
+    -- A decision callback already owns a stable roster snapshot. Reusing it is
+    -- important: Registry.records() materializes and sorts a new list, so calling
+    -- it once per scanned actor made dispatch overhead grow quadratically with a
+    -- large party. Other callers may omit the snapshot and retain the old API.
+    local records = type(snapshot) == "table" and snapshot or SC.Registry.records()
     if #records == 0 then return nil, 1 end
     if cursor > #records then cursor = 1 end
     local record = records[cursor]
@@ -278,6 +284,7 @@ end
 -- minimum cadence and is bypassed for the critical lane so an emergency is never
 -- gated behind it.
 local function decisionTask(current, budgetRemaining)
+    local startedAt = nowMs()
     local records = SC.Registry.records()
     local total = #records
     if total == 0 then return end
@@ -285,12 +292,57 @@ local function decisionTask(current, budgetRemaining)
     if currentPlayer == nil or SC.Decision == nil or type(SC.Decision.update) ~= "function" then
         return
     end
-    local startedAt = nowMs()
     local softBudget = tonumber(budgetRemaining)
     local function overBudget()
         return softBudget ~= nil and (nowMs() - startedAt) >= softBudget
     end
+    local function predictedOver(limit)
+        return limit ~= nil
+            and (nowMs() - startedAt) + decisionServiceEstimateMs > limit
+    end
+    local function service(record)
+        local serviceStartedAt = nowMs()
+        serviceRecord(record, current, currentPlayer)
+        local elapsed = math.max(0, nowMs() - serviceStartedAt)
+        -- A decision beat is not preemptible. Retain a decaying high-water
+        -- estimate so the dispatcher does not begin another actor when that work
+        -- is likely to push the callback beyond its remaining frame budget.
+        if elapsed > 0 then
+            decisionServiceEstimateMs = math.max(elapsed,
+                decisionServiceEstimateMs * 0.8, 0.1)
+        end
+    end
     local serviced = {}
+    local criticalCache = {}
+    local function isCritical(record)
+        local actor = record and record.actor or nil
+        if actor == nil then return false end
+        local cached = criticalCache[actor]
+        if cached ~= nil then return cached end
+        local value = recordIsCritical(record) == true
+        criticalCache[actor] = value
+        return value
+    end
+
+    -- Classify the stable roster once. Apart from avoiding duplicate native grab
+    -- probes in the two lanes, this tells the critical lane whether it must leave
+    -- enough headroom for a genuine ordinary actor below.
+    local hasOrdinary = false
+    for _, record in ipairs(records) do
+        if recordServiceable(record) then
+            if isCritical(record) ~= true then
+                hasOrdinary = true
+                criticalDecisionActive[record.actor] = nil
+            end
+        end
+    end
+
+    local ordinaryCap = tonumber(SC.Config.get("decisionOrdinaryPerTick")) or 3
+    local ordinaryReserved = tonumber(SC.Config.get("decisionOrdinaryReservedPerTick")) or 1
+    local criticalBudget = softBudget
+    if criticalBudget ~= nil and hasOrdinary and ordinaryReserved > 0 then
+        criticalBudget = math.max(0, criticalBudget - decisionServiceEstimateMs)
+    end
 
     -- Critical lane, serviced from a rotating cursor (LF-03). Scanning from a fixed
     -- prefix every callback let a permanently-critical actor early in the id order
@@ -302,44 +354,56 @@ local function decisionTask(current, budgetRemaining)
     local criticalInterval = tonumber(SC.Config.get("decisionCriticalIntervalMs")) or 50
     local criticalDone = 0
     local criticalScanned = 0
-    while criticalDone < criticalCap and criticalScanned < total and not overBudget() do
+    while criticalDone < criticalCap and criticalScanned < total do
+        -- Always permit the first emergency beat. Thereafter, use the measured
+        -- service estimate rather than discovering the overrun only after another
+        -- non-preemptible actor has already executed.
+        if criticalDone > 0 and predictedOver(criticalBudget) then break end
         local record
-        record, criticalCursor = nextRecord(criticalCursor)
+        record, criticalCursor = nextRecord(criticalCursor, records)
         criticalScanned = criticalScanned + 1
-        if recordServiceable(record) and recordIsCritical(record)
-            and SC.Scheduler.dueFor(record.id, "decision-critical", criticalInterval, current) then
-            serviceRecord(record, current, currentPlayer)
-            serviced[record.id] = true
-            criticalDone = criticalDone + 1
+        if recordServiceable(record) then
+            local critical = isCritical(record)
+            if critical then
+                local entering = criticalDecisionActive[record.actor] ~= true
+                criticalDecisionActive[record.actor] = true
+                -- Prime/update the normal cadence even on entry, but do not make a
+                -- newly observed emergency wait for Scheduler.dueFor's stagger.
+                -- Follow-up service remains bounded by decisionCriticalIntervalMs.
+                local due = SC.Scheduler.dueFor(record.id,
+                    "decision-critical", criticalInterval, current)
+                if entering or due then
+                    service(record)
+                    serviced[record.id] = true
+                    criticalDone = criticalDone + 1
+                end
+            end
         end
     end
 
-    local ordinaryCap = tonumber(SC.Config.get("decisionOrdinaryPerTick")) or 3
     -- Guarantee a minimum ordinary service per callback even if the critical lane
     -- has already consumed the frame budget, so ordinary actors are not starved
     -- indefinitely under sustained emergencies (R2-05). The budget is only enforced
     -- once that reserved minimum has been met.
-    local ordinaryReserved = tonumber(SC.Config.get("decisionOrdinaryReservedPerTick")) or 1
     local movementInterval = SC.Config.get("movementIntervalMs")
     local ordinaryDone = 0
     local scanned = 0
     while ordinaryDone < ordinaryCap and scanned < total do
         -- The frame budget is enforced only once the reserved ordinary minimum has
         -- been serviced.
-        if ordinaryDone >= ordinaryReserved and overBudget() then break end
+        if ordinaryDone >= ordinaryReserved
+            and (overBudget() or predictedOver(softBudget)) then break end
         local record
-        record, decisionCursor = nextRecord(decisionCursor)
+        record, decisionCursor = nextRecord(decisionCursor, records)
         scanned = scanned + 1
         if recordServiceable(record) and not serviced[record.id] then
-            -- While filling the reserved minimum under budget pressure, skip critical
-            -- actors (the critical lane already services those) so the guaranteed slot
-            -- goes to a genuine ordinary actor and is not absorbed by an emergency
-            -- one. Without budget pressure the ordinary lane still overflow-services
-            -- any due actor, so an all-critical party is unaffected.
-            local reservedPhase = ordinaryDone < ordinaryReserved and overBudget()
-            if not (reservedPhase and recordIsCritical(record))
+            -- Critical actors have their own rotating high-frequency lane. Letting
+            -- another critical actor overflow through this lane duplicated costly
+            -- combat decisions and could consume the slot reserved for ordinary
+            -- movement. Keep both lanes disjoint.
+            if isCritical(record) ~= true
                 and SC.Scheduler.dueFor(record.id, "decision", movementInterval, current) then
-                serviceRecord(record, current, currentPlayer)
+                service(record)
                 serviced[record.id] = true
                 ordinaryDone = ordinaryDone + 1
             end
@@ -348,6 +412,13 @@ local function decisionTask(current, budgetRemaining)
 end
 runtime._decisionTaskForTests = decisionTask
 runtime._recordIsCriticalForTests = recordIsCritical
+runtime._resetDecisionDispatchForTests = function()
+    decisionCursor = 1
+    criticalCursor = 1
+    criticalDecisionActive = setmetatable({}, { __mode = "k" })
+    decisionServiceEstimateMs = 0.5
+    return true
+end
 
 -- Decide whether an unhealthy native companion should be removed now or tolerated
 -- for a bounded settling window. Native validity dips transiently (notably in the
@@ -1281,6 +1352,9 @@ function runtime.reset(detach)
     startupFailureReason = "runtime has not started"
     teardownPending = false
     decisionCursor = 1
+    criticalCursor = 1
+    criticalDecisionActive = setmetatable({}, { __mode = "k" })
+    decisionServiceEstimateMs = 0.5
     vitalsCursor = 1
     lastPlayerVehicle = nil
     lastDebugSpawnReportAt = -math.huge
