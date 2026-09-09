@@ -12,6 +12,39 @@ local lastGroupThreatWarningAt = -math.huge
 local workReservations = {}
 local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true }
 
+Decision.SafetyTier = Decision.SafetyTier or {
+    IDLE = "idle",
+    ROUTINE = "routine",
+    TACTICAL = "tactical",
+    SURVIVAL = "survival",
+}
+local safetyRank = {
+    [Decision.SafetyTier.IDLE] = 1,
+    [Decision.SafetyTier.ROUTINE] = 2,
+    [Decision.SafetyTier.TACTICAL] = 3,
+    [Decision.SafetyTier.SURVIVAL] = 4,
+}
+local idleDecisionKinds = {
+    downtime = true, conversation = true, mental_episode = true,
+    grief_response = true, purposeful_idle = true, joy_response = true,
+    social_participant = true,
+}
+local tacticalDecisionKinds = {
+    combat = true, retreat = true, medical = true, tactical = true,
+    alert = true, infection_crisis = true,
+}
+
+local function safetyTierFor(kind, emergency, detail)
+    if emergency == true then return Decision.SafetyTier.SURVIVAL end
+    if tacticalDecisionKinds[kind] then return Decision.SafetyTier.TACTICAL end
+    if kind == "faction" and type(detail) == "table"
+        and (detail.mode == "hostile" or detail.mode == "bandit_human") then
+        return Decision.SafetyTier.SURVIVAL
+    end
+    if idleDecisionKinds[kind] then return Decision.SafetyTier.IDLE end
+    return Decision.SafetyTier.ROUTINE
+end
+
 local function U()
     return SC.GameplayUtil
 end
@@ -134,8 +167,10 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             key = key,
             score = score,
             emergency = emergency == true,
+            safetyTier = safetyTierFor(kind, emergency, detail),
             detail = detail,
         }
+        candidates[#candidates].safetyRank = safetyRank[candidates[#candidates].safetyTier]
         if kind == "downtime" then downtimeAdded = true end
     end
     if assessment.downed or (assessment.health > 0 and assessment.health <= (U().config("downedHealth") or 18)) then
@@ -330,7 +365,8 @@ local function selectWithHysteresis(state, candidates, now)
         for _, candidate in ipairs(candidates) do
             if candidate.key == state.currentKey then currentCandidate = candidate break end
         end
-        if currentCandidate and best.score < currentCandidate.score + (U().config("decisionHysteresis") or 8) then
+        if currentCandidate and (currentCandidate.safetyRank or 0) >= (best.safetyRank or 0)
+            and best.score < currentCandidate.score + (U().config("decisionHysteresis") or 8) then
             return currentCandidate
         end
     end
@@ -1241,6 +1277,43 @@ end
 
 Decision._delegateForTests = delegate
 
+-- A failed high-safety candidate must never expose the actor to a routine
+-- fallback in the same decision pass. If another action already owns the
+-- actor, waiting is deliberately side-effect free; otherwise stop translation
+-- and keep a visible threat faced while fresh senses choose the next action.
+local function guardedSafetyHold(actor, snapshot, selected)
+    local supervisor = SC.ActionSupervisor
+    if type(supervisor) == "table" and type(supervisor.current) == "function" then
+        local ok, owner = pcall(supervisor.current, actor)
+        if ok and owner ~= nil then
+            return true, "safety_wait_owner:" .. tostring(owner.owner or "action")
+        end
+    end
+    local native = SC.NativeActions
+    if type(native) == "table" and type(native.activityStatus) == "function" then
+        local ok, phase, owner, action = pcall(native.activityStatus, actor)
+        if ok and (phase == "active" or phase == "result_pending") then
+            return true, "safety_wait_native:" .. tostring(owner or "native")
+                .. ":" .. tostring(action or "activity")
+        end
+    end
+    if U().stop(actor) ~= true then return false, "safety_hold_stop_rejected" end
+    local record = type(snapshot) == "table"
+        and ((snapshot.immediateAttackers or {})[1] or (snapshot.threats or {})[1]) or nil
+    local target = type(record) == "table" and (record.actor or record.target) or record
+    if target ~= nil then
+        -- Failure to raise/focus a weapon does not invalidate the stationary
+        -- safety hold; stopping translation is the important invariant.
+        U().move(actor, "walk", {
+            action = "ready_weapon", facingTarget = target,
+            target = target, stableFacing = true, survivalCritical = true,
+        })
+    end
+    return true, "safety_guarded_hold:" .. tostring(selected and selected.kind or "unknown")
+end
+
+Decision._guardedSafetyHoldForTests = guardedSafetyHold
+
 local function candidateInterval(candidate)
     if candidate.kind == "combat" then
         return candidate.emergency
@@ -1754,10 +1827,17 @@ function Decision.update(actor, player, runtime)
     local handled, reason = delegate(selected, actor, player, rootRuntime, commands, snapshot, state)
     if not handled then
         local selectedFailure = reason
+        local selectedRank = selected.safetyRank or safetyRank[selected.safetyTier] or 1
+        local strictSafetyFallback = selectedRank >= safetyRank[Decision.SafetyTier.TACTICAL]
         -- A preferred subsystem may have no concrete action (for example no
         -- bandage). Try lower utilities once, without recursive subsystem calls.
+        -- Survival/tactical decisions may only fall back within their own tier;
+        -- descending to follow, loot, or downtime during danger is unsafe.
         for _, fallback in ipairs(candidates) do
             if fallback ~= selected and fallback.key ~= selected.key
+                and (not strictSafetyFallback
+                    or (fallback.safetyRank or safetyRank[fallback.safetyTier] or 1)
+                        == selectedRank)
                 and candidateDue(actor, fallback, current) then
                 local fallbackHandled, fallbackReason = delegate(
                     fallback,
@@ -1773,6 +1853,14 @@ function Decision.update(actor, player, runtime)
                     break
                 end
             end
+        end
+        local dangerPresent = type(snapshot) == "table" and (
+            (tonumber(snapshot.threatCount) or #(snapshot.threats or {})) > 0
+            or (tonumber(snapshot.immediateCount) or #(snapshot.immediateAttackers or {})) > 0
+            or snapshot.humanThreat ~= nil)
+        if not handled and (selectedRank >= safetyRank[Decision.SafetyTier.SURVIVAL]
+            or dangerPresent) then
+            handled, reason = guardedSafetyHold(actor, snapshot, selected)
         end
         if not handled then reason = selectedFailure end
     end

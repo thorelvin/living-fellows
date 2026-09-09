@@ -3,6 +3,7 @@
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
+if not SC.Topology and type(require) == "function" then pcall(require, "SCTopology") end
 if not SC.Performance and type(require) == "function" then pcall(require, "SCPerformance") end
 
 SC.Navigation = SC.Navigation or {}
@@ -18,11 +19,9 @@ local trafficSequence = 0
 local nextChokeSweepAt = 0
 local stepReservations = {}
 local nextStepSweepAt = 0
-local squareBlockerTypes = {
-    vehicle = true, moved_object = true, thumpable = true,
-    full_square_thumpable = true, full_square_object = true,
-    world_object = true, world_collision = true,
-    continuous_geometry = true, vegetation = true, unknown = true,
+local squareEvidenceClasses = {
+    static_square = true,
+    dynamic_square = true,
 }
 
 local function U()
@@ -133,16 +132,28 @@ local function edgeKey(fromSquare, toSquare)
     return fromKey .. ">" .. toKey
 end
 
-local function blacklistEdge(state, fromSquare, toSquare, blockerType, object, now, dynamic)
+local function blockerDuration(evidenceClass)
+    if evidenceClass == "unknown" then
+        return U().config("navigationUnknownBlockedEdgeMs") or 500
+    end
+    if evidenceClass == "dynamic" or evidenceClass == "dynamic_square" then
+        return U().config("navigationDynamicBlockedEdgeMs") or 750
+    end
+    return U().config("navigationBlockedEdgeMs") or 4500
+end
+
+local function blacklistEdge(state, fromSquare, toSquare, blockerType, object, now,
+        evidenceClass, confidence)
     local key = edgeKey(fromSquare, toSquare)
     if not key then return nil end
     state.blockedEdges = state.blockedEdges or {}
-    local duration = dynamic and (U().config("navigationDynamicBlockedEdgeMs") or 1100)
-        or (U().config("navigationBlockedEdgeMs") or 4500)
+    local duration = blockerDuration(evidenceClass)
     state.blockedEdges[key] = {
         type = blockerType or "unknown",
         object = object,
         square = toSquare,
+        evidenceClass = evidenceClass or "unknown",
+        confidence = confidence or "low",
         expires = now + duration,
     }
     local count, oldestKey, oldestExpiry = 0, nil, math.huge
@@ -164,14 +175,16 @@ local function sweepBlockedEdges(state, now)
     end
 end
 
-local function blacklistSquare(state, square, blockerType, object, now, dynamic)
+local function blacklistSquare(state, square, blockerType, object, now,
+        evidenceClass, confidence)
     local key = squareKey(square)
     if not key then return nil end
     state.blockedSquares = state.blockedSquares or {}
-    local duration = dynamic and (U().config("navigationDynamicBlockedEdgeMs") or 1100)
-        or (U().config("navigationBlockedEdgeMs") or 4500)
+    local duration = blockerDuration(evidenceClass)
     state.blockedSquares[key] = {
-        type = blockerType or "unknown", object = object, expires = now + duration,
+        type = blockerType or "unknown", object = object,
+        evidenceClass = evidenceClass or "unknown",
+        confidence = confidence or "low", expires = now + duration,
     }
     local count, oldestKey, oldestExpiry = 0, nil, math.huge
     for candidateKey, candidate in pairs(state.blockedSquares) do
@@ -199,7 +212,8 @@ local function edgeBlacklistEntry(blockedEdges, fromSquare, toSquare, now)
     return nil
 end
 
-local function recordBlocker(actor, state, blockerType, object, square, actorState, recovery, now)
+local function recordBlocker(actor, state, blockerType, object, square, actorState, recovery, now,
+        evidenceClass, confidence)
     local entry = {
         type = blockerType or "unknown",
         object = object,
@@ -208,13 +222,15 @@ local function recordBlocker(actor, state, blockerType, object, square, actorSta
         squareKey = squareKey(square) or "unknown",
         actorState = actorState or "none",
         recoveryResult = recovery or "pending",
+        evidenceClass = evidenceClass or "unknown",
+        confidence = confidence or "low",
         time = now or U().nowMs(),
     }
     state.lastBlocker = entry
     recordMovement(actor, "blocker", {
         blocker = entry.type, recovery = entry.recoveryResult,
         targetSquare = entry.square, status = entry.actorState,
-        detail = entry.objectLabel,
+        detail = entry.objectLabel .. ":" .. entry.evidenceClass .. ":" .. entry.confidence,
     })
     state.blockerHistory = state.blockerHistory or {}
     state.blockerHistory[#state.blockerHistory + 1] = entry
@@ -224,6 +240,8 @@ local function recordBlocker(actor, state, blockerType, object, square, actorSta
         .. " object=" .. tostring(entry.objectLabel)
         .. " square=" .. tostring(entry.squareKey)
         .. " state=" .. tostring(entry.actorState)
+        .. " evidence=" .. tostring(entry.evidenceClass)
+        .. " confidence=" .. tostring(entry.confidence)
         .. " recovery=" .. tostring(entry.recoveryResult))
     return entry
 end
@@ -247,6 +265,9 @@ local function directionBetween(fromSquare, toSquare)
 end
 
 local function barrierBetween(fromSquare, toSquare)
+    if SC.Topology and type(SC.Topology.barrierBetween) == "function" then
+        return SC.Topology.barrierBetween(fromSquare, toSquare)
+    end
     local utility = U()
     if not fromSquare or not toSquare then return nil, "invalid" end
     local fx, fy, fz = utility.position(fromSquare)
@@ -284,6 +305,9 @@ local function barrierBetween(fromSquare, toSquare)
 end
 
 local function objectOpen(object)
+    if SC.Topology and type(SC.Topology.objectOpen) == "function" then
+        return SC.Topology.objectOpen(object)
+    end
     local utility = U()
     local value, ok = utility.call(object, "IsOpen")
     if ok then return value == true end
@@ -292,6 +316,9 @@ local function objectOpen(object)
 end
 
 local function objectLocked(object)
+    if SC.Topology and type(SC.Topology.objectLocked) == "function" then
+        return SC.Topology.objectLocked(object)
+    end
     local utility = U()
     local value, ok = utility.call(object, "isLocked")
     if ok and value == true then return true end
@@ -345,6 +372,9 @@ local function edgeThumpableBlocker(fromSquare, toSquare, actor)
 end
 
 local function objectBarricaded(object)
+    if SC.Topology and type(SC.Topology.objectBarricaded) == "function" then
+        return SC.Topology.objectBarricaded(object)
+    end
     local utility = U()
     local value, ok = utility.call(object, "isBarricaded")
     if ok and value then return true end
@@ -353,21 +383,33 @@ local function objectBarricaded(object)
 end
 
 local function windowSmashed(window)
+    if SC.Topology and type(SC.Topology.windowSmashed) == "function" then
+        return SC.Topology.windowSmashed(window)
+    end
     local value, ok = U().call(window, "isSmashed")
     return ok and value == true
 end
 
 local function windowGlassRemoved(window)
+    if SC.Topology and type(SC.Topology.windowGlassRemoved) == "function" then
+        return SC.Topology.windowGlassRemoved(window)
+    end
     local value, ok = U().call(window, "isGlassRemoved")
     return ok and value == true
 end
 
 local function windowInvincible(window)
+    if SC.Topology and type(SC.Topology.windowInvincible) == "function" then
+        return SC.Topology.windowInvincible(window)
+    end
     local value, ok = U().call(window, "isInvincible")
     return ok and value == true
 end
 
 local function canClimbThrough(object, actor)
+    if SC.Topology and type(SC.Topology.canClimbThrough) == "function" then
+        return SC.Topology.canClimbThrough(object, actor)
+    end
     local value, ok = U().call(object, "canClimbThrough", actor)
     if ok then return value == true end
     value, ok = U().call(object, "canClimbThrough", nil)
@@ -375,6 +417,9 @@ local function canClimbThrough(object, actor)
 end
 
 local function objectStateSignature(object)
+    if SC.Topology and type(SC.Topology.objectStateSignature) == "function" then
+        return SC.Topology.objectStateSignature(object)
+    end
     if object == nil then return "none" end
     return table.concat({
         objectOpen(object) and "open" or "closed",
@@ -439,6 +484,9 @@ local function release(object, actor)
 end
 
 local function squareHasStairs(square)
+    if SC.Topology and type(SC.Topology.squareHasStairs) == "function" then
+        return SC.Topology.squareHasStairs(square)
+    end
     local utility = U()
     local value, ok = utility.call(square, "HasStairs")
     if ok then return value == true end
@@ -764,52 +812,68 @@ end
 local function passableEdge(fromSquare, toSquare, vegetationScale, options)
     local utility = U()
     options = type(options) == "table" and options or {}
-    if edgeBlacklistEntry(options.blockedEdges, fromSquare, toSquare, options.now) then
-        return false, math.huge, "blacklisted_edge"
+    local blockedEdge = edgeBlacklistEntry(
+        options.blockedEdges, fromSquare, toSquare, options.now)
+    if blockedEdge then
+        return false, math.huge,
+            "blacklisted_" .. tostring(blockedEdge.evidenceClass or "edge")
     end
-    if squareBlacklistEntry(options.blockedSquares, toSquare, options.now) then
-        return false, math.huge, "blacklisted_square"
+    local blockedSquare = squareBlacklistEntry(options.blockedSquares, toSquare, options.now)
+    if blockedSquare then
+        return false, math.huge,
+            "blacklisted_" .. tostring(blockedSquare.evidenceClass or "square")
     end
-    if squareVehicle(toSquare) then return false, math.huge, "vehicle_footprint" end
-    if not utility.isSquareFree(toSquare) then return false, math.huge end
-    if utility.safehouseBlocker(toSquare, options.actor) then
-        return false, math.huge, "safehouse_boundary"
-    end
-    local object, kind = barrierBetween(fromSquare, toSquare)
-    if kind == "blocked" or kind == "invalid" then return false, math.huge end
-    local thumpable, thumpableKind = edgeThumpableBlocker(
-        fromSquare, toSquare, options.actor)
-    if thumpable then return false, math.huge, thumpableKind, thumpable end
-    local fx, fy, fz = utility.position(fromSquare)
-    local tx, ty, tz = utility.position(toSquare)
-    if fx ~= nil and tx ~= nil and utility.hasMethod(fromSquare, "testPathFindAdjacent") then
-        local nativeBlocked, nativeOk = utility.call(fromSquare, "testPathFindAdjacent",
-            options.actor, math.floor(tx - fx), math.floor(ty - fy), math.floor((tz or 0) - (fz or 0)))
-        if nativeOk and nativeBlocked == true and kind == "open" then
-            return false, math.huge, "native_directional_edge"
-        end
-    end
+    local topology = SC.Topology and type(SC.Topology.classifyEdge) == "function"
+        and SC.Topology.classifyEdge(options.actor, fromSquare, toSquare, options) or nil
     local baseCost
-    if kind == "door" then
-        if not object then return false, math.huge end
-        if objectLocked(object) and not objectOpen(object) then return false, math.huge end
-        baseCost = objectOpen(object) and 1 or 2.2
-    elseif kind == "window" then
-        if not object or objectBarricaded(object) then return false, math.huge end
-        if windowInvincible(object) and not objectOpen(object) then return false, math.huge end
-        baseCost = objectOpen(object) and 2.5 or (windowSmashed(object) and 4 or 5)
-    elseif kind == "window_frame" then
-        if not object or not canClimbThrough(object, options.actor) then return false, math.huge end
-        baseCost = 2.5
-    elseif kind == "fence" then
-        baseCost = 2.5
-    elseif kind == "stairs" then
-        if not (squareHasStairs(fromSquare) or squareHasStairs(toSquare)) then
-            return false, math.huge
+    if topology ~= nil then
+        if topology.traversable ~= true then
+            return false, math.huge, topology.reason or topology.affordance,
+                topology.object
         end
-        baseCost = 3
+        baseCost = tonumber(topology.cost) or 1
     else
-        baseCost = 1
+        -- Compatibility fallback for unusual partial-load environments. Normal
+        -- production and every supported harness load SCTopology first.
+        if squareVehicle(toSquare) then return false, math.huge, "vehicle_footprint" end
+        if not utility.isSquareFree(toSquare) then return false, math.huge, "square_blocked" end
+        if utility.safehouseBlocker(toSquare, options.actor) then
+            return false, math.huge, "safehouse_boundary"
+        end
+        local object, kind = barrierBetween(fromSquare, toSquare)
+        if kind == "blocked" or kind == "invalid" or kind == "diagonal" then
+            return false, math.huge, kind
+        end
+        local thumpable, thumpableKind = edgeThumpableBlocker(
+            fromSquare, toSquare, options.actor)
+        if thumpable then return false, math.huge, thumpableKind, thumpable end
+        if kind == "door" then
+            if not object or objectBarricaded(object)
+                or objectLocked(object) and not objectOpen(object) then
+                return false, math.huge, "door_blocked", object
+            end
+            baseCost = objectOpen(object) and 1 or 2.2
+        elseif kind == "window" then
+            if not object or objectBarricaded(object)
+                or windowInvincible(object) and not objectOpen(object) then
+                return false, math.huge, "window_blocked", object
+            end
+            baseCost = objectOpen(object) and 2.5 or (windowSmashed(object) and 4 or 5)
+        elseif kind == "window_frame" then
+            if not object or not canClimbThrough(object, options.actor) then
+                return false, math.huge, "window_frame_blocked", object
+            end
+            baseCost = 2.5
+        elseif kind == "fence" then
+            baseCost = 2.5
+        elseif kind == "stairs" then
+            if not (squareHasStairs(fromSquare) or squareHasStairs(toSquare)) then
+                return false, math.huge, "stairs_not_confirmed"
+            end
+            baseCost = 3
+        else
+            baseCost = 1
+        end
     end
     local scale = tonumber(vegetationScale)
     if scale == nil then scale = 1 end
@@ -1017,6 +1081,23 @@ local function heapPop(heap)
     return top
 end
 
+local function classifyPathFailure(job, reason)
+    if reason == "budget" then return "budget_exhausted", true end
+    local rejections = type(job) == "table" and job.rejections or {}
+    if (tonumber(rejections.safehouse_boundary) or 0) > 0 then
+        return "policy", false
+    end
+    if (tonumber(rejections.native_directional_edge) or 0) > 0 then
+        return "topology_native_required", true
+    end
+    for rejection in pairs(rejections) do
+        if string.find(tostring(rejection), "blacklisted_dynamic", 1, true) then
+            return "blocked_dynamic", false
+        end
+    end
+    return reason == "invalid_square" and "invalid" or "blocked_static", false
+end
+
 local function newBoundedPathJob(startSquare, goalSquare, options)
     if sameSquare(startSquare, goalSquare) then
         return {
@@ -1057,6 +1138,8 @@ local function newBoundedPathJob(startSquare, goalSquare, options)
         open = { { key = startKey, f = startH, h = startH, seq = 0 } },
         seqCounter = 0,
         closed = {},
+        rejections = {},
+        requiresNative = false,
         expanded = 0,
     }
 end
@@ -1093,7 +1176,7 @@ local function resumeBoundedPathJob(job, expansionQuota)
                 if otherKey and not job.closed[otherKey] then
                     local edgeOptions = job.options
                     edgeOptions.allowOccupiedGoal = otherKey == job.goalKey
-                    local passable, cost = passableEdge(
+                    local passable, cost, rejection = passableEdge(
                         current.square, otherSquare, job.options.vegetationScale, edgeOptions)
                     if passable then
                         local dynamicPenalty = 0
@@ -1127,6 +1210,11 @@ local function resumeBoundedPathJob(job, expansionQuota)
                             }
                             heapPush(job.open, { key = otherKey, f = fScore, h = h, seq = seq })
                         end
+                    elseif rejection then
+                        job.rejections[rejection] = (job.rejections[rejection] or 0) + 1
+                        if rejection == "native_directional_edge" then
+                            job.requiresNative = true
+                        end
                     end
                 end
             end
@@ -1135,6 +1223,7 @@ local function resumeBoundedPathJob(job, expansionQuota)
     if #job.open == 0 or job.expanded >= job.nodeBudget then
         job.complete = true
         job.reason = job.expanded >= job.nodeBudget and "budget" or "unreachable"
+        job.failureClass, job.nativeFallbackAllowed = classifyPathFailure(job, job.reason)
         return "failed", nil, job.reason, job.expanded, used
     end
     return "pending", nil, "searching", job.expanded, used
@@ -1501,6 +1590,11 @@ local function resumeRouteSearch(job, expansionQuota)
         job.totalExpanded = job.totalExpanded + (tonumber(expanded) or 0)
         if job.phase == "primary" then
             if status ~= "complete" or not path then
+                job.failure = {
+                    failureClass = job.search.failureClass or "blocked_static",
+                    nativeFallbackAllowed = job.search.nativeFallbackAllowed == true,
+                    rejections = job.search.rejections or {},
+                }
                 finalizeRouteSearch(job, reason or "unreachable")
             elseif not job.alternatives then
                 job.candidates[1] = routeEvaluation(path, job.snapshot, 1, job.pathOptions)
@@ -1934,12 +2028,14 @@ function Navigation.observeGroupPassage(leader, edge, cohort, roster, current)
     local passage = groupPassages[key]
     if not passage then
         local participants, seen = {}, setmetatable({}, { __mode = "k" })
+        local roles = setmetatable({}, { __mode = "k" })
         for _, value in ipairs(type(roster) == "table" and roster or {}) do
             local actor = passageActor(value)
             if actor and actor ~= leader and not seen[actor] and U().isValidActor(actor)
                 and U().sameFloor(actor, edge.fromSquare)
                 and U().distance(actor, edge.fromSquare) <= 12 then
                 participants[#participants + 1] = actor
+                roles[actor] = type(value) == "table" and value.cqbRole or nil
                 seen[actor] = true
             end
         end
@@ -1948,12 +2044,81 @@ function Navigation.observeGroupPassage(leader, edge, cohort, roster, current)
             fromSquare = edge.fromSquare, toSquare = edge.toSquare,
             owner = leader, participants = participants,
             crossed = setmetatable({}, { __mode = "k" }),
+            roles = roles,
+            yieldUntil = setmetatable({}, { __mode = "k" }),
             startedAt = now, lastProgressAt = now,
             expires = now + passageTimeout(#participants),
         }
         groupPassages[key] = passage
     end
     return refreshGroupPassage(passage, now)
+end
+
+local passageRoleOrder = {
+    point = 1, assault = 2, ranged_support = 3, rear_guard = 4,
+}
+
+local function passageHead(passage, now)
+    local approachRadius = tonumber(U().config("navigationPassageApproachRadius")) or 2.5
+    local leaseMs = tonumber(U().config("navigationPassageHeadLeaseMs")) or 1100
+    local stallMs = tonumber(U().config("navigationPassageStallMs")) or 900
+    local progressDistance = tonumber(U().config("navigationGoalProgressDistance")) or 0.05
+    local head = passage.head
+    if head and passage.crossed[head] ~= true and U().isValidActor(head) then
+        local nearby, distance = U().arrived(head, passage.fromSquare, {
+            targetKind = "square", distance = approachRadius,
+        })
+        if distance + progressDistance < (passage.headDistance or math.huge) then
+            passage.headDistance, passage.headProgressAt = distance, now
+        end
+        local stalled = now - (passage.headProgressAt or passage.headSince or now) > stallMs
+        local expired = now - (passage.headSince or now) > leaseMs
+        if nearby and not stalled and not expired then return head end
+        passage.yieldUntil[head] = now
+            + (tonumber(U().config("navigationPassageYieldMs")) or 500)
+    end
+
+    local candidates = {}
+    for index, member in ipairs(passage.participants or {}) do
+        if passage.crossed[member] ~= true and U().isValidActor(member) then
+            local nearby, distance = U().arrived(member, passage.fromSquare, {
+                targetKind = "square", distance = approachRadius,
+            })
+            if nearby and now >= (tonumber(passage.yieldUntil[member]) or 0) then
+                candidates[#candidates + 1] = {
+                    actor = member, index = index, distance = distance,
+                    rank = passageRoleOrder[passage.roles[member]] or 9,
+                }
+            end
+        end
+    end
+    -- If every nearby candidate is in its brief yield window, choose the best
+    -- one anyway; a single-member team must never deadlock itself.
+    if #candidates == 0 then
+        for index, member in ipairs(passage.participants or {}) do
+            if passage.crossed[member] ~= true and U().isValidActor(member) then
+                local nearby, distance = U().arrived(member, passage.fromSquare, {
+                    targetKind = "square", distance = approachRadius,
+                })
+                if nearby then
+                    candidates[#candidates + 1] = {
+                        actor = member, index = index, distance = distance,
+                        rank = passageRoleOrder[passage.roles[member]] or 9,
+                    }
+                end
+            end
+        end
+    end
+    table.sort(candidates, function(left, right)
+        if left.rank ~= right.rank then return left.rank < right.rank end
+        return left.index < right.index
+    end)
+    local selected = candidates[1]
+    passage.head = selected and selected.actor or nil
+    passage.headSince = selected and now or nil
+    passage.headProgressAt = selected and now or nil
+    passage.headDistance = selected and selected.distance or nil
+    return passage.head
 end
 
 -- Positioning keeps a fireteam in its ordered column until every nearby member
@@ -1991,15 +2156,15 @@ local function ensureGroupPassage(actor, state, sourceSquare, nextSquare, kind, 
         if member == actor then present = true break end
     end
     if not present then passage.participants[#passage.participants + 1] = actor end
+    passage.roles = passage.roles or setmetatable({}, { __mode = "k" })
+    passage.yieldUntil = passage.yieldUntil or setmetatable({}, { __mode = "k" })
+    if intent and intent.cqbRole then passage.roles[actor] = intent.cqbRole end
     refreshGroupPassage(passage, now)
     state.currentPassageKey = key
     actorPassages[actor] = key
     if passage.crossed[actor] == true then return true end
-    local head
-    for _, member in ipairs(passage.participants) do
-        if passage.crossed[member] ~= true then head = member break end
-    end
-    if head ~= actor and intent.urgent == true then
+    local head = passageHead(passage, now)
+    if head ~= actor and intent and intent.urgent == true then
         local occupied = false
         for _, member in ipairs(passage.participants) do
             if member ~= actor and occupiesDoorway(member, passage) then occupied = true break end
@@ -2010,6 +2175,11 @@ local function ensureGroupPassage(actor, state, sourceSquare, nextSquare, kind, 
             end
             table.insert(passage.participants, 1, actor)
             head = actor
+            passage.head = actor
+            passage.headSince, passage.headProgressAt = now, now
+            passage.headDistance = select(2, U().arrived(actor, passage.fromSquare, {
+                targetKind = "square", distance = 0,
+            }))
         end
     end
     if head ~= actor then
@@ -3048,16 +3218,20 @@ function Navigation.combatVector(actor, target, kind)
             return dx, dy, index > 1, index > 1 and "steered" or "direct"
         end
     end
-    return baseX, baseY, false, "no_clear_alternative"
+    return nil, nil, false, "no_clear_alternative"
 end
 
 local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGoal,
-        now, reason, multiGoal, movingTarget, affordance)
+        now, reason, multiGoal, movingTarget, affordance, actor, intent)
     local list = nativeTargets(targets)
     local leaseMs = affordance == "multi_level"
         and (U().config("navigationMultiLevelLeaseMs") or 30000)
         or (movingTarget and (U().config("navigationMovingLeaseMs") or 2500)
             or (U().config("navigationNativeLeaseMs") or 6500))
+    local worldX, worldY, worldZ = U().position(actor or fromSquare)
+    local _, goalDistance = U().arrived(actor or fromSquare, ultimateGoal, {
+        targetKind = "square", distance = 0,
+    })
     state.nativeLease = {
         targets = list,
         fromSquare = fromSquare,
@@ -3072,15 +3246,27 @@ local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGo
         affordance = affordance,
         progressSquareKey = squareKey(fromSquare),
         progressAt = now,
+        positionProgressAt = now,
+        activityHeartbeatAt = now,
+        lastWorldX = worldX,
+        lastWorldY = worldY,
+        lastWorldZ = worldZ,
+        lastGoalDistance = goalDistance,
         leaseMs = leaseMs,
+        cohortKey = intent and intent.cohortKey,
+        cqbRole = intent and intent.cqbRole,
+        groupParticipants = intent and intent.groupParticipants,
+        urgent = intent and intent.urgent == true,
+        supervisorToken = intent and intent.supervisorToken,
     }
 end
 
 local function nativeLeaseArrival(actor, lease)
     local arrival = U().config("navigationArrivalDistance") or 0.6
     for _, target in ipairs(lease and lease.targets or {}) do
-        local reached = U().distance(actor, target) <= arrival
-            or sameSquare(U().squareOf(actor), target)
+        local reached = U().arrived(actor, target, {
+            targetKind = "square", distance = arrival,
+        })
         -- getSquare() changes immediately as the character centre crosses the
         -- tile boundary. At a door that is too early: stopping PathFindBehavior2
         -- there leaves half the collision capsule in the leaf and the next pulse
@@ -3110,6 +3296,13 @@ local function maintainNativeLease(actor, state, goalSquare, now)
         state.nativeLease = nil
         return "cancelled", "native_goal_changed"
     end
+    if lease.nativePaused == true then
+        if now < (tonumber(lease.passagePausedUntil) or 0) then
+            return "active", "holding_stair_passage"
+        end
+        state.nativeLease = nil
+        return "cancelled", "native_stair_admission_retry"
+    end
     local arrived = nativeLeaseArrival(actor, lease)
     if arrived then
         markActorPassage(actor, state, now)
@@ -3125,17 +3318,28 @@ local function maintainNativeLease(actor, state, goalSquare, now)
     end
     local currentSquare = U().squareOf(actor)
     local currentKey = squareKey(currentSquare)
+    local progressed = false
     if currentKey and currentKey ~= lease.progressSquareKey then
         lease.progressSquareKey = currentKey
-        lease.progressAt = now
+        progressed = true
         markActorPassage(actor, state, now)
-        -- A multi-floor route can legitimately be long, but it must keep making
-        -- tile progress. Refresh its stall deadline instead of cancelling a valid
-        -- native path halfway to a distant staircase or while climbing it.
-        if lease.affordance == "multi_level" then
-            lease.expires = now + (tonumber(lease.leaseMs)
-                or U().config("navigationMultiLevelLeaseMs") or 30000)
+    end
+    local worldX, worldY, worldZ = U().position(actor)
+    local progressDistance = tonumber(U().config("navigationProgressDistance")) or 0.08
+    if worldX and lease.lastWorldX then
+        local dx, dy = worldX - lease.lastWorldX, worldY - lease.lastWorldY
+        if dx * dx + dy * dy >= progressDistance * progressDistance
+            or math.abs((worldZ or 0) - (lease.lastWorldZ or 0)) >= 0.1 then
+            progressed = true
         end
+    end
+    local _, goalDistance = U().arrived(actor, lease.ultimateGoal, {
+        targetKind = "square", distance = 0,
+    })
+    local goalProgress = tonumber(U().config("navigationGoalProgressDistance")) or 0.05
+    if goalDistance < math.huge and lease.lastGoalDistance
+        and goalDistance <= lease.lastGoalDistance - goalProgress then
+        progressed = true
     end
     local actorState = U().movementStateBlocker(actor)
     local telemetry = pathTelemetry(actor)
@@ -3147,28 +3351,82 @@ local function maintainNativeLease(actor, state, goalSquare, now)
             math.floor(telemetry.pathNextY), actorZ or 0)
         if nextSquare then
             lease.nativeNextSquare = nextSquare
+            local nextKey = squareKey(nextSquare)
+            if nextKey and nextKey ~= lease.nativeNextKey then progressed = true end
+            lease.nativeNextKey = nextKey
             state.lastAttemptFrom = U().squareOf(actor) or lease.fromSquare
             state.lastAttemptTo = nextSquare
+            if lease.affordance == "multi_level" and currentSquare
+                and nextKey ~= currentKey
+                and (squareHasStairs(currentSquare) or squareHasStairs(nextSquare)
+                    or differentFloor(currentSquare, nextSquare)) then
+                local accepted, passageStatus = ensureGroupPassage(actor, state,
+                    currentSquare, nextSquare, "stairs", {
+                        cohortKey = lease.cohortKey,
+                        cqbRole = lease.cqbRole,
+                        groupParticipants = lease.groupParticipants,
+                        urgent = lease.urgent,
+                        supervisorToken = lease.supervisorToken,
+                    }, now)
+                if accepted ~= true then
+                    if accepted == false then
+                        if SC.NativeActions
+                            and type(SC.NativeActions.stopDirect) == "function" then
+                            pcall(SC.NativeActions.stopDirect, actor, {
+                                preservePosture = true,
+                            })
+                        end
+                        state.nativeLease = nil
+                        return "failed", passageStatus or "stair_passage_stop_rejected"
+                    end
+                    lease.nativePaused = true
+                    lease.passagePausedUntil = now
+                        + (tonumber(U().config("navigationPassageYieldMs")) or 500)
+                    return "active", passageStatus or "holding_stair_passage"
+                end
+                lease.nativePaused, lease.passagePausedUntil = nil, nil
+            end
         end
     end
-    if now <= lease.expires and (actorState ~= nil or telemetry.active == true) then
+    if progressed then
+        lease.progressAt = now
+        lease.positionProgressAt = now
+        lease.lastWorldX, lease.lastWorldY, lease.lastWorldZ = worldX, worldY, worldZ
+        lease.lastGoalDistance = goalDistance
+        lease.expires = now + (tonumber(lease.leaseMs)
+            or U().config("navigationNativeLeaseMs") or 6500)
+        state.lastProgressAt = now
+    end
+    if actorState ~= nil or telemetry.active == true then
+        lease.activityHeartbeatAt = now
+    end
+    local startGrace = tonumber(U().config("navigationNativeStartGraceMs")) or 650
+    local stallMs = lease.affordance == "multi_level"
+        and (tonumber(U().config("navigationMultiLevelStallMs")) or 3000)
+        or (tonumber(U().config("navigationNativeStallMs")) or 1400)
+    if telemetry.turningToObstacle == true then
+        stallMs = math.max(stallMs,
+            tonumber(U().config("navigationNativeTurnGraceMs")) or 900)
+    end
+    local noProgressFor = now - (tonumber(lease.positionProgressAt) or lease.startedAt)
+    if now <= lease.expires and noProgressFor <= stallMs
+        and (actorState ~= nil or telemetry.active == true) then
         extendChoke(state, actor, lease.expires)
         lease.lastActiveAt = now
-        state.lastProgressAt = now
         local status = actorState and "native_animation_" .. tostring(actorState)
             or telemetry.turningToObstacle and "native_turning_to_obstacle"
             or telemetry.pending and "native_path_pending" or "native_path_owned"
         return "active", status
     end
-    if now - lease.startedAt < (U().config("navigationNativeStartGraceMs") or 650) then
-        state.lastProgressAt = now
+    if now - lease.startedAt < startGrace then
         return "active", "native_path_starting"
     end
     if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
         pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
     end
     state.nativeLease = nil
-    return "failed", now > lease.expires and "native_path_timeout" or "native_path_failed"
+    return "failed", noProgressFor > stallMs and "native_path_stalled"
+        or now > lease.expires and "native_path_timeout" or "native_path_failed"
 end
 Navigation._maintainNativeLeaseForTests = maintainNativeLease
 Navigation._nativeLeaseArrivalForTests = nativeLeaseArrival
@@ -3232,23 +3490,55 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
 end
 Navigation._classifyMovementBlockerForTests = classifyMovementBlocker
 
+local function addBlockerEvidence(blocker)
+    blocker = type(blocker) == "table" and blocker or { type = "unknown" }
+    if blocker.evidenceClass then return blocker end
+    local kind = blocker.type or "unknown"
+    local blockAllValue, blockAllOk = nil, false
+    if blocker.object then
+        blockAllValue, blockAllOk = U().call(blocker.object, "isBlockAllTheSquare")
+    end
+    local blockAll = blockAllOk and blockAllValue == true
+    if kind == "actor_state" then
+        blocker.evidenceClass, blocker.confidence = "actor_state", "high"
+    elseif kind == "vehicle" or kind == "moved_object"
+        or kind == "player" or kind == "companion" or kind == "zombie" then
+        blocker.evidenceClass, blocker.confidence = "dynamic_square", "high"
+    elseif kind == "full_square_thumpable" or kind == "full_square_object"
+        or (kind == "thumpable" and blockAll) then
+        blocker.evidenceClass, blocker.confidence = "static_square", "high"
+    elseif kind == "door" or kind == "fence" or kind == "stairs"
+        or kind == "stairs_or_slope" or kind == "thumpable"
+        or kind == "vegetation" then
+        blocker.evidenceClass, blocker.confidence = "static_edge", "high"
+    elseif kind == "safehouse" or kind == "policy" then
+        blocker.evidenceClass, blocker.confidence = "policy", "high"
+    else
+        blocker.evidenceClass, blocker.confidence = "unknown", "low"
+    end
+    return blocker
+end
+
 local function rememberFailure(actor, state, fromSquare, toSquare, reason, now, recovery)
-    local blocker = classifyMovementBlocker(actor, fromSquare, toSquare, reason)
+    local blocker = addBlockerEvidence(
+        classifyMovementBlocker(actor, fromSquare, toSquare, reason))
     local object, kind = barrierBetween(fromSquare, toSquare)
     rememberRouteEdge(state, fromSquare, toSquare, false,
         blocker.type or kind, blocker.object or object, now)
     if blocker.type ~= "actor_state" and fromSquare and toSquare then
-        blacklistEdge(state, fromSquare, toSquare, blocker.type, blocker.object, now, blocker.dynamic)
+        blacklistEdge(state, fromSquare, toSquare, blocker.type, blocker.object, now,
+            blocker.evidenceClass, blocker.confidence)
     end
-    if squareBlockerTypes[blocker.type] and adjacentStep(fromSquare, toSquare) then
+    if squareEvidenceClasses[blocker.evidenceClass] and adjacentStep(fromSquare, toSquare) then
         -- A collision capsule can fail on an otherwise topologically open tile
         -- beside a vehicle or moveable. Blocking only the directed edge lets A*
         -- choose the same bad tile from another side on its next search.
         blacklistSquare(state, blocker.square or toSquare, blocker.type,
-            blocker.object, now, blocker.dynamic)
+            blocker.object, now, blocker.evidenceClass, blocker.confidence)
     end
     recordBlocker(actor, state, blocker.type, blocker.object, blocker.square,
-        blocker.actorState, recovery or "edge_blacklisted", now)
+        blocker.actorState, recovery or "edge_blacklisted", now,
+        blocker.evidenceClass, blocker.confidence)
     state.path = nil
     state.pathGoalSquare = nil
     state.pathSearch = nil
@@ -3427,7 +3717,7 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
             end
             if actorState == "climbing" and actorSquare and state.lastAttemptTo then
                 blacklistEdge(state, actorSquare, state.lastAttemptTo,
-                    "actor_state", nil, now, false)
+                    "actor_state", nil, now, "static_edge", "medium")
             end
             state.path = nil
             state.pathGoalSquare = nil
@@ -3494,7 +3784,8 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
     end
     local failedFrom = state.lastAttemptFrom or actorSquare
     local failedTo = state.lastAttemptTo or goalSquare
-    local blocker = classifyMovementBlocker(actor, failedFrom, failedTo, state.lastMovementReason)
+    local blocker = addBlockerEvidence(
+        classifyMovementBlocker(actor, failedFrom, failedTo, state.lastMovementReason))
     local service, token = supervisedToken(intent)
     if service and token then
         if type(service.transition) == "function" then
@@ -3510,7 +3801,8 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         end
     end
     if blocker.type ~= "actor_state" then
-        blacklistEdge(state, failedFrom, failedTo, blocker.type, blocker.object, now, blocker.dynamic)
+        blacklistEdge(state, failedFrom, failedTo, blocker.type, blocker.object, now,
+            blocker.evidenceClass, blocker.confidence)
     end
     if state.stuckAttempts <= 1 then
         if nearbyDoor then
@@ -3615,6 +3907,26 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
     return true, false, "recovery_action_rejected"
 end
 
+local function nativeVerificationFailure(reason)
+    local text = string.lower(tostring(reason or ""))
+    return string.find(text, "did not retain", 1, true) ~= nil
+        or string.find(text, "did not become active", 1, true) ~= nil
+        or string.find(text, "verification", 1, true) ~= nil
+end
+
+local function scheduleNativeRetry(state, goalSquare, reason, now)
+    if not nativeVerificationFailure(reason) then return false end
+    local key = squareKey(goalSquare)
+    if state.nativeRetryGoalKey ~= key then
+        state.nativeRetryGoalKey, state.nativeRetryCount = key, 0
+    end
+    if (state.nativeRetryCount or 0) >= 1 then return false end
+    state.nativeRetryCount = (state.nativeRetryCount or 0) + 1
+    state.nativeRetryAt = now + (U().config("navigationNativeRetryMs") or 500)
+    return true
+end
+Navigation._scheduleNativeRetryForRequest = scheduleNativeRetry
+
 local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
         requestIntent, now, service, token)
     if not differentFloor(sourceSquare, goalSquare) then return nil end
@@ -3640,6 +3952,9 @@ local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
     local moved, movementReason = utility.move(actor, requestIntent.mode, requestIntent)
     state.lastMovementReason = movementReason
     if not moved then
+        if scheduleNativeRetry(state, goalSquare, movementReason, now) then
+            return true, true, "native_verification_retry"
+        end
         rememberFailure(actor, state, sourceSquare, goalSquare,
             movementReason or "multi_level_path_rejected", now,
             "native_multi_level_replan")
@@ -3658,7 +3973,7 @@ local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
     end
     beginNativeLease(state, { goalSquare }, sourceSquare, goalSquare,
         goalSquare, now, "multi_level_goal", false,
-        isMovingTargetIntent(requestIntent), "multi_level")
+        isMovingTargetIntent(requestIntent), "multi_level", actor, requestIntent)
     return true, true, "multi_level_path"
 end
 Navigation._requestMultiLevelPath = requestMultiLevelPath
@@ -3710,9 +4025,10 @@ function Navigation.request(actor, target, movementMode, intent)
         end
     end
 
-    local reachedGoal = utility.distance(actor, goalSquare)
-            <= (utility.config("navigationArrivalDistance") or 0.6)
-        or sameSquare(sourceSquare, goalSquare)
+    local reachedGoal = utility.arrived(actor, goalSquare, {
+        targetKind = "square",
+        distance = utility.config("navigationArrivalDistance") or 0.6,
+    })
     if reachedGoal and state.nativeLease and state.nativeLease.affordance == "door"
         and not actorClearOfDoorway(actor, state.nativeLease) then reachedGoal = false end
     if reachedGoal then
@@ -3790,6 +4106,10 @@ function Navigation.request(actor, target, movementMode, intent)
         actor, state, sourceSquare, goalSquare, requestIntent, now)
     if terminal then
         return false, terminalReason
+    end
+
+    if now < (tonumber(state.nativeRetryAt) or 0) then
+        return true, "native_verification_cooldown"
     end
 
     local leaseState, leaseStatus = maintainNativeLease(actor, state, goalSquare, now)
@@ -3964,9 +4284,15 @@ function Navigation.request(actor, target, movementMode, intent)
             return true, "path_searching"
         end
 
+        local completedSearch = state.pathSearch and state.pathSearch.route or nil
         state.pathSearch = nil
         state.pathSearchHolding = nil
         state.path = path
+        state.pathFailure = path and nil or (completedSearch and completedSearch.failure or {
+            failureClass = reason == "budget" and "budget_exhausted" or "blocked_static",
+            nativeFallbackAllowed = reason == "budget",
+            rejections = {},
+        })
         state.pathGoalSquare = path and planningGoal or nil
         state.pathStealthAvoidance = requestIntent.stealthAvoidance
         state.stealthRouteExposure = path and routeDanger(path, requestIntent.snapshot, pathOptions) or nil
@@ -4031,8 +4357,29 @@ function Navigation.request(actor, target, movementMode, intent)
     end
 
     if not nextSquare then
-        -- Native bridge pathing remains the bounded-search fallback for distant
-        -- goals and complex stair geometry; destination validity is still owned here.
+        if requestIntent.pathSearchReason == "path_deviation" then
+            return true, "path_deviation_replan"
+        end
+        -- Native pathing is a deliberate fallback for an exhausted bounded
+        -- search or an edge which specifically needs the engine. A proven
+        -- static/policy failure must not become an opaque engine path.
+        local failure = state.pathFailure
+        local allowNative = state.pathReason == "budget"
+            or sameSquare(sourceSquare, goalSquare)
+            or (type(failure) == "table" and failure.nativeFallbackAllowed == true)
+            or requestIntent.nativeAffordance ~= nil
+        if not allowNative then
+            local failureClass = type(failure) == "table" and failure.failureClass
+                or "blocked_static"
+            state.nextRepathAt = now
+                + (utility.config("navigationTerminalRetryMs") or 8000)
+            recordMovement(actor, "path_terminal", {
+                status = failureClass,
+                targetSquare = goalSquare,
+                detail = state.pathReason,
+            })
+            return false, "path_blocked:" .. tostring(failureClass)
+        end
         requestIntent.action = requestIntent.action or "path"
         requestIntent.targetSquare = goalSquare
         requestIntent.enginePath = true
@@ -4042,6 +4389,10 @@ function Navigation.request(actor, target, movementMode, intent)
         local moved, movementReason = utility.move(actor, requestIntent.mode, requestIntent)
         state.lastMovementReason = movementReason
         if not moved then
+            if SC.Navigation._scheduleNativeRetryForRequest(
+                state, goalSquare, movementReason, now) then
+                return true, "native_verification_retry"
+            end
             rememberFailure(actor, state, sourceSquare, goalSquare,
                 movementReason or "engine_path_rejected", now, "engine_replan")
             return false, "engine_path_rejected"
@@ -4058,7 +4409,8 @@ function Navigation.request(actor, target, movementMode, intent)
             end
         end
         beginNativeLease(state, { goalSquare }, sourceSquare, goalSquare,
-            goalSquare, now, "engine_goal", false, isMovingTargetIntent(requestIntent))
+            goalSquare, now, "engine_goal", false,
+            isMovingTargetIntent(requestIntent), nil, actor, requestIntent)
         return true, "engine_path"
     end
 
@@ -4171,9 +4523,10 @@ function Navigation.request(actor, target, movementMode, intent)
         end
         if waited >= (utility.config("navigationYieldMs") or 900)
             and lateralYield(actor, state, sourceSquare, nextSquare, requestIntent, now) then
-            blacklistEdge(state, sourceSquare, nextSquare, blockerType, blocker, now, true)
+            blacklistEdge(state, sourceSquare, nextSquare, blockerType, blocker, now,
+                "dynamic_square", "high")
             recordBlocker(actor, state, blockerType, blocker, nextSquare, nil,
-                "lateral_yield", now)
+                "lateral_yield", now, "dynamic_square", "high")
             return true, "yielding_personal_space"
         end
         if not utility.stop(actor) then return false, "personal_space_stop_rejected" end
@@ -4231,6 +4584,11 @@ function Navigation.request(actor, target, movementMode, intent)
     local moved, movementReason = utility.move(actor, requestIntent.mode, requestIntent)
     state.lastMovementReason = movementReason
     if not moved then
+        if requestIntent.enginePath == true
+            and SC.Navigation._scheduleNativeRetryForRequest(
+                state, nextSquare, movementReason, now) then
+            return true, "native_verification_retry"
+        end
         rememberFailure(actor, state, sourceSquare, nextSquare,
             movementReason or "movement_rejected", now, "direct_replan")
         return false, "movement_rejected"
@@ -4252,7 +4610,8 @@ function Navigation.request(actor, target, movementMode, intent)
                 and "vegetation_corridor"
                 or requestIntent.vehicleClearance and "vehicle_corridor"
                 or "native_edge", false,
-            isMovingTargetIntent(requestIntent), requestIntent.nativeAffordance)
+            isMovingTargetIntent(requestIntent), requestIntent.nativeAffordance,
+            actor, requestIntent)
         extendChoke(state, actor, state.nativeLease and state.nativeLease.expires)
     end
     return true, "moving"
@@ -4338,7 +4697,9 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
     if #valid == 0 then return false, "no_interaction_targets" end
     local arrival = tonumber(intent.arrivalDistance) or 0.85
     for _, square in ipairs(valid) do
-        if utility.distance(actor, square) <= arrival or sameSquare(utility.squareOf(actor), square) then
+        if utility.arrived(actor, square, {
+            targetKind = "square", distance = arrival,
+        }) then
             local existing = states[actor]
             if existing then
                 if existing.nativeLease and SC.NativeActions
@@ -4396,7 +4757,8 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
             state.goalSquare, state.goalAction = valid[1], intent.action
             state.lastAttemptFrom, state.lastAttemptTo = utility.squareOf(actor), valid[1]
             beginNativeLease(state, valid, state.lastAttemptFrom, valid[1],
-                valid[1], now, "nearest_interaction", true)
+                valid[1], now, "nearest_interaction", true, false, nil,
+                actor, intent)
             state.nativeLease.multiGoalKey = key
             if service and token then
                 if type(service.transition) == "function" then
@@ -4527,6 +4889,11 @@ function Navigation.status(actor)
             and math.max(0, state.terminalRetryAt - current) or nil,
         blockerType = blocker and blocker.type or nil,
         blockerSquare = blocker and blocker.squareKey or nil,
+        blockerEvidenceClass = blocker and blocker.evidenceClass or nil,
+        blockerConfidence = blocker and blocker.confidence or nil,
+        pathFailureClass = state.pathFailure and state.pathFailure.failureClass or nil,
+        nativeFallbackAllowed = state.pathFailure
+            and state.pathFailure.nativeFallbackAllowed == true or nil,
         actorState = blocker and blocker.actorState or state.actorStateName,
         recoveryResult = blocker and blocker.recoveryResult or nil,
     }

@@ -166,6 +166,93 @@ local function assignCqbRoles(followers)
     return followers
 end
 
+local function stableCqbRoles(leaderState, key, followers, current)
+    -- Compute the desired doctrine layout, then commit it only after roster
+    -- membership has stayed unchanged. The live layout keeps vacancies briefly
+    -- so one disconnect/death pulse cannot make everyone swap sides at once.
+    assignCqbRoles(followers)
+    leaderState.roleAssignments = leaderState.roleAssignments or {}
+    local stable = leaderState.roleAssignments[key]
+    local ids = {}
+    for _, entry in ipairs(followers) do ids[#ids + 1] = tostring(entry.id) end
+    table.sort(ids)
+    local signature = table.concat(ids, "|")
+    if not stable then
+        stable = { assignments = {}, signature = signature }
+        leaderState.roleAssignments[key] = stable
+    elseif stable.signature == signature then
+        stable.pendingSignature, stable.pendingSince = nil, nil
+    elseif stable.signature ~= signature and stable.pendingSignature ~= signature then
+        stable.pendingSignature, stable.pendingSince = signature, current
+    end
+
+    local roleStableMs = tonumber(U().config("formationRoleStableMs")) or 2000
+    local vacancyGraceMs = tonumber(U().config("formationVacancyGraceMs")) or 1000
+    local mayReflow = stable.pendingSignature == signature
+        and current - (stable.pendingSince or current) >= roleStableMs
+    local present, reservedSlots, reservedRoles = {}, {}, {}
+    for _, entry in ipairs(followers) do present[entry.actor] = true end
+    for actor, assignment in pairs(stable.assignments) do
+        if present[actor] then
+            assignment.lastSeen = current
+        elseif current - (assignment.lastSeen or current) > vacancyGraceMs then
+            stable.assignments[actor] = nil
+        end
+    end
+
+    local hasAssignments = false
+    for _ in pairs(stable.assignments) do hasAssignments = true break end
+    if mayReflow or not hasAssignments then
+        stable.assignments = {}
+        for _, entry in ipairs(followers) do
+            stable.assignments[entry.actor] = {
+                role = entry.cqbRole, slot = entry.columnIndex, lastSeen = current,
+            }
+        end
+        stable.signature = signature
+        stable.pendingSignature, stable.pendingSince = nil, nil
+    else
+        for _, assignment in pairs(stable.assignments) do
+            reservedSlots[assignment.slot] = true
+            reservedRoles[assignment.role] = true
+        end
+        for _, entry in ipairs(followers) do
+            local assignment = stable.assignments[entry.actor]
+            if not assignment then
+                local slot = 1
+                while reservedSlots[slot] do slot = slot + 1 end
+                local role = entry.cqbRole
+                if (role == "point" or role == "rear_guard") and reservedRoles[role] then
+                    role = entry.rangedCapable and "ranged_support" or "assault"
+                end
+                assignment = { role = role, slot = slot, lastSeen = current }
+                stable.assignments[entry.actor] = assignment
+                reservedSlots[slot], reservedRoles[role] = true, true
+            end
+            entry.cqbRole, entry.columnIndex = assignment.role, assignment.slot
+        end
+    end
+
+    table.sort(followers, function(left, right)
+        local leftSlot = stable.assignments[left.actor]
+        local rightSlot = stable.assignments[right.actor]
+        leftSlot = leftSlot and leftSlot.slot or math.huge
+        rightSlot = rightSlot and rightSlot.slot or math.huge
+        if leftSlot ~= rightSlot then return leftSlot < rightSlot end
+        return tostring(left.id) < tostring(right.id)
+    end)
+    local counts = {}
+    for _, entry in ipairs(followers) do
+        local assignment = stable.assignments[entry.actor]
+        entry.cqbRole = assignment and assignment.role or entry.cqbRole
+        entry.columnIndex = assignment and assignment.slot or entry.columnIndex
+        counts[entry.cqbRole] = (counts[entry.cqbRole] or 0) + 1
+        entry.roleIndex = counts[entry.cqbRole]
+        entry.fireteamSize = #followers
+    end
+    return followers
+end
+
 local function cqbOpenOffset(entry, slot)
     if type(entry) ~= "table" then
         return formationOffsets[((slot - 1) % #formationOffsets) + 1]
@@ -214,9 +301,13 @@ local function followerRoster(leader, current, group)
         end
         for key, followers in pairs(fireteams) do
             table.sort(followers, function(a, b) return tostring(a.id) < tostring(b.id) end)
-            assignCqbRoles(followers)
+            stableCqbRoles(leaderState, key, followers, current)
             local slots = setmetatable({}, { __mode = "k" })
-            for index, value in ipairs(followers) do slots[value.actor] = index end
+            for index, value in ipairs(followers) do
+                -- The dense array index is the lookup key; columnIndex may retain
+                -- a one-second vacancy by design.
+                slots[value.actor] = index
+            end
             fireteams[key] = { roster = followers, slots = slots }
         end
         leaderState.fireteams = fireteams
@@ -231,7 +322,10 @@ local function followerSlot(actor, leader, current)
     local commands = commandState(actor)
     local followers, slots = followerRoster(leader, current,
         commands and commands.group or nil)
-    if slots[actor] then return slots[actor], followers, followers[slots[actor]] end
+    if slots[actor] then
+        local entry = followers[slots[actor]]
+        return entry.columnIndex or slots[actor], followers, entry
+    end
     return (U().stableHash(U().idOf(actor)) % #formationOffsets) + 1, followers, nil
 end
 
@@ -594,21 +688,25 @@ function Positioning.cqbRole(actor, leader)
         commands and commands.group or nil)
     local slot = slots[actor]
     local entry = slot and followers[slot] or nil
-    return entry and entry.cqbRole or nil, slot, #followers
+    return entry and entry.cqbRole or nil,
+        entry and entry.columnIndex or slot, #followers
 end
 
 function Positioning.shouldHold(actor, target)
     if not actor or not target then return false end
     local state = stateFor(actor)
-    local distance = U().distance(actor, target)
     local enter = U().config("formationArrivalDistance") or 0.9
     local leave = math.max(enter + 0.25, U().config("formationReleaseDistance") or 1.55)
+    local withinLeave, distance = U().arrived(actor, target, {
+        targetKind = "square", distance = leave,
+    })
     if state.holdingFormation then
-        if distance <= leave then return true end
+        if withinLeave then return true end
         state.holdingFormation = false
         return false
     end
-    if distance <= enter then
+    local withinEnter = distance <= enter
+    if withinEnter then
         state.holdingFormation = true
         state.heldAt = U().nowMs()
         return true

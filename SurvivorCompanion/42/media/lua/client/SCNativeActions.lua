@@ -414,7 +414,6 @@ end
 local function movementReady(actor)
     local blocker = actions.inspectMovementBlocker(actor)
     if blocker then
-        actions.stopDirect(actor)
         return false, "actor_state_blocked:" .. tostring(blocker)
     end
     return true
@@ -507,7 +506,9 @@ function actions.pathToNearest(actor, targets, mode)
     end
     local telemetry = actions.pathTelemetry(actor)
     if telemetry.available and telemetry.active == false then
-        invoke(behavior, "cancel")
+        -- bridgePathToNearest already mutated native locomotion.  Roll back the
+        -- complete owned state, not just PathFindBehavior2's route.
+        actions.stopDirect(actor, { preservePosture = true })
         return false, "native nearest path request did not become active"
     end
     return true, "nearest_path_started"
@@ -566,12 +567,13 @@ local function directPath(actor, target, mode, intent)
     -- same locomotion state that the player animation graph consumes.
     local started, reason = invoke(actor, "pathToLocationF", x, y, z)
     if not started then
-        actions.stopDirect(actor)
         return false, reason
     end
     local verified, matches = invoke(behavior, "isTargetLocation", x, y, z)
     if not verified or matches ~= true then
-        invoke(behavior, "cancel")
+        -- The native entry point has already selected path locomotion and may
+        -- have changed posture/speed.  Structured cleanup is required here.
+        actions.stopDirect(actor, { preservePosture = true })
         return false, "native path request did not retain its target"
     end
     return true, "path_started"
@@ -2494,7 +2496,6 @@ function actions.dispatch(actor, mode, intent, provider)
         if urgent then
             actions.cancelPacing(actor, "survival_priority")
         else
-            actions.stopDirect(actor)
             return false, "action_pacing:" .. tostring(pace.source)
         end
     end
@@ -2644,6 +2645,8 @@ function actions.dispatch(actor, mode, intent, provider)
         return faceTarget(actor, intent, provider, "alert_facing_started")
     elseif action == "rear_scan" then
         return faceTarget(actor, intent, provider, "rear_scan_started")
+    elseif action == "rear_guard_watch" then
+        return faceTarget(actor, intent, provider, "rear_guard_watch_started")
     elseif action == "face_formation" then
         return faceTarget(actor, intent, provider, "formation_facing_restored")
     elseif action == "face_conversation" then
@@ -2666,7 +2669,6 @@ function actions.dispatch(actor, mode, intent, provider)
     if type(utility) == "table" and type(utility.movementStateBlocker) == "function" then
         local blocker = utility.movementStateBlocker(actor)
         if blocker ~= nil then
-            actions.stopDirect(actor)
             return false, "actor_state_busy:" .. tostring(blocker)
         end
     end

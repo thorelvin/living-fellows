@@ -166,7 +166,7 @@ end
 
 for _, name in ipairs({
     "Background", "Dialogue", "Trade", "FactionLife", "FactionWorld",
-    "FactionBehavior", "ZombieTargeting", "Locomotion", "Senses", "Navigation",
+    "FactionBehavior", "ZombieTargeting", "Locomotion", "Senses", "Topology", "Navigation",
     "Positioning", "Combat", "Medical", "Logistics", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal",
     "BaseLife", "BaseWork", "InfectionCrisis", "LifeEvents", "Community",

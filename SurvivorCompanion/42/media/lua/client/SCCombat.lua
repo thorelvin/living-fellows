@@ -1399,8 +1399,27 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
     elseif not weapon and not grounded then
         actions[#actions + 1] = { kind = distance <= 1.35 and "shove" or "escape", score = 58 + pressure * 8 }
     end
+    if SC.Navigation and type(SC.Navigation.combatVector) == "function" then
+        for index = #actions, 1, -1 do
+            local action = actions[index]
+            if action.kind == "approach" or action.kind == "backstep"
+                or action.kind == "kite" then
+                local moveX, moveY, steered, vectorReason =
+                    SC.Navigation.combatVector(actor, target.actor, action.kind)
+                if moveX == nil or moveY == nil then
+                    table.remove(actions, index)
+                else
+                    action.moveX, action.moveY = moveX, moveY
+                    action.microSteered = steered == true
+                    action.vectorReason = vectorReason
+                end
+            end
+        end
+    end
     return utility.sortByScoreDescending(actions), distance
 end
+
+Combat._actionUtilitiesForTests = actionUtilities
 
 local function tacticalAssessment(actor, state, snapshot, target, weapon, commands, now)
     local snapshotTime = tonumber(snapshot and snapshot.reflexTime)
@@ -1531,6 +1550,96 @@ local function selectDoctrineTarget(actor, scored, player, snapshot, commands, s
     end
     return best
 end
+
+-- Score bounded target/action pairs instead of committing to a target before
+-- discovering whether anything useful can be done to it. This prevents a prone
+-- zombie with no safe stomp from suppressing a viable swing at a standing one.
+local function selectViablePair(actor, player, snapshot, scored, commands, state,
+        now, preference, preferredTarget)
+    local targets, seen = {}, setmetatable({}, { __mode = "k" })
+    local maximum = tonumber(U().config("combatTargetActionCandidates")) or 3
+    for _, candidate in ipairs(scored or {}) do
+        if #targets >= maximum then break end
+        if doctrineMayFight(actor, candidate, player, snapshot, commands) then
+            targets[#targets + 1] = candidate
+            seen[candidate.actor] = true
+        end
+    end
+    if state.target and not seen[state.target] then
+        for _, candidate in ipairs(scored or {}) do
+            if candidate.actor == state.target
+                and doctrineMayFight(actor, candidate, player, snapshot, commands) then
+                if #targets >= maximum then targets[#targets] = candidate
+                else targets[#targets + 1] = candidate end
+                break
+            end
+        end
+    end
+
+    local pairs, retreatPair = {}, nil
+    for _, target in ipairs(targets) do
+        local distance = math.sqrt(target.distanceSq or U().distanceSq(actor, target.actor))
+        local weapon, inventory = responsiveWeapon(actor, state, preference, distance,
+            snapshot.pressure or 0, snapshot, now)
+        local readiness = Combat.readiness(actor, snapshot, weapon, commands)
+        local actions = actionUtilities(actor, player, snapshot, target, weapon,
+            inventory, commands, readiness)
+        for _, action in ipairs(actions) do
+            if commands.combatDoctrine == "weapons_free"
+                and (action.kind == "shoot" or action.kind == "melee") then
+                action.score = action.score + 12
+            elseif commands.combatDoctrine == "stealth" and action.kind == "retreat" then
+                action.score = action.score + 20
+            end
+            local pair = {
+                target = target, weapon = weapon, inventory = inventory,
+                readiness = readiness, action = action, distance = distance,
+                score = (tonumber(action.score) or 0)
+                    + (tonumber(target.score) or 0) * 0.35,
+            }
+            if action.kind == "retreat" or action.kind == "escape" then
+                if target == preferredTarget and (retreatPair == nil
+                    or pair.score > retreatPair.score) then retreatPair = pair end
+            else
+                pairs[#pairs + 1] = pair
+            end
+        end
+    end
+    if retreatPair then pairs[#pairs + 1] = retreatPair end
+    table.sort(pairs, function(a, b)
+        if a.score == b.score then
+            return (a.target.distanceSq or math.huge) < (b.target.distanceSq or math.huge)
+        end
+        return a.score > b.score
+    end)
+    local best = pairs[1]
+    if best == nil then return nil end
+
+    -- Target commitment applies only among viable pairs. It may stabilize a
+    -- close contest, but it cannot preserve a target whose only action vanished.
+    if state.target and best.target.actor ~= state.target
+        and now < (state.targetCommitUntil or 0) then
+        local previous
+        for _, pair in ipairs(pairs) do
+            if pair.target.actor == state.target then previous = pair break end
+        end
+        local emergency = best.target.attacking == true
+            or (best.target.distanceSq or math.huge)
+                <= (U().config("combatShoveDistance") or 1.35) ^ 2
+        local margin = tonumber(U().config("combatTargetPairMargin")) or 8
+        if previous and not emergency and best.score < previous.score + margin then
+            best = previous
+        end
+    end
+    if state.target ~= best.target.actor then
+        state.targetCommitUntil = now + (commands.combatDoctrine == "ranged_support"
+            and (U().config("combatRangedCommitMs") or 1000)
+            or (U().config("combatMeleeCommitMs") or 650))
+    end
+    return best
+end
+
+Combat._selectViablePairForTests = selectViablePair
 
 local function roleMayAttack(actor, role, claim, chosen, target, snapshot)
     if role == "primary" or not chosen then return true end
@@ -1882,15 +1991,19 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         local ax, ay = utility.position(actor)
         local tx, ty = utility.position(targetActor)
         if ax == nil or tx == nil then return false, "approach_position_unavailable" end
-        local moveX, moveY, steered
-        if SC.Navigation and type(SC.Navigation.combatVector) == "function" then
-            moveX, moveY, steered = SC.Navigation.combatVector(
+        local moveX, moveY, steered = action.moveX, action.moveY, action.microSteered
+        if moveX == nil and SC.Navigation and type(SC.Navigation.combatVector) == "function" then
+            local vectorReason
+            moveX, moveY, steered, vectorReason = SC.Navigation.combatVector(
                 actor, targetActor, "approach")
+            if moveX == nil then return false, "approach_blocked:" .. tostring(vectorReason) end
+        elseif moveX == nil then
+            moveX, moveY = tx - ax, ty - ay
         end
         accepted, nativeReason = utility.move(actor, "walk", {
             action = "combat_approach",
-            dx = moveX or (tx - ax),
-            dy = moveY or (ty - ay),
+            dx = moveX,
+            dy = moveY,
             target = targetActor,
             facingTarget = targetActor,
             keepFacing = true,
@@ -1899,10 +2012,12 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             microSteered = steered == true,
         })
     elseif action.kind == "backstep" then
-        local moveX, moveY, steered
-        if SC.Navigation and type(SC.Navigation.combatVector) == "function" then
-            moveX, moveY, steered = SC.Navigation.combatVector(
+        local moveX, moveY, steered = action.moveX, action.moveY, action.microSteered
+        if moveX == nil and SC.Navigation and type(SC.Navigation.combatVector) == "function" then
+            local vectorReason
+            moveX, moveY, steered, vectorReason = SC.Navigation.combatVector(
                 actor, targetActor, "backstep")
+            if moveX == nil then return false, "backstep_blocked:" .. tostring(vectorReason) end
         end
         accepted, nativeReason = utility.move(actor, "walk", {
             action = "backstep", target = targetActor, awayFrom = targetActor,
@@ -1910,10 +2025,12 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             microSteered = steered == true,
         })
     elseif action.kind == "kite" then
-        local moveX, moveY, steered
-        if SC.Navigation and type(SC.Navigation.combatVector) == "function" then
-            moveX, moveY, steered = SC.Navigation.combatVector(
+        local moveX, moveY, steered = action.moveX, action.moveY, action.microSteered
+        if moveX == nil and SC.Navigation and type(SC.Navigation.combatVector) == "function" then
+            local vectorReason
+            moveX, moveY, steered, vectorReason = SC.Navigation.combatVector(
                 actor, targetActor, "kite")
+            if moveX == nil then return false, "kite_blocked:" .. tostring(vectorReason) end
         end
         accepted, nativeReason = utility.move(actor, "walk", {
             action = "lateral_kite", target = targetActor, awayFrom = targetActor,
@@ -2226,22 +2343,21 @@ function Combat.update(actor, player, runtime)
         return false, "passive"
     end
 
-    local readiness = overrun.readiness
-    local actions = actionUtilities(actor, player, snapshot, target, weapon, inventory,
-        commands, readiness)
-    if commands.combatDoctrine == "weapons_free" then
-        for _, action in ipairs(actions) do
-            if action.kind == "shoot" or action.kind == "melee" then action.score = action.score + 12 end
-        end
-        utility.sortByScoreDescending(actions)
-    elseif commands.combatDoctrine == "stealth" then
-        for _, action in ipairs(actions) do
-            if action.kind == "retreat" then action.score = action.score + 20 end
-        end
-        utility.sortByScoreDescending(actions)
-    end
-    local chosen = actions[1]
-    if not chosen then return false, "no_action" end
+    local pair = selectViablePair(actor, player, snapshot, scored, commands, state,
+        now, preference, target)
+    if not pair then return false, "no_viable_target_action" end
+    target, weapon, inventory = pair.target, pair.weapon, pair.inventory
+    local readiness = pair.readiness or overrun.readiness
+    local chosen = pair.action
+    distance = pair.distance or math.sqrt(
+        target.distanceSq or utility.distanceSq(actor, target.actor))
+    utility.call(actor, "setCompanionAimTarget", target.actor)
+    combatRole, cohortClaimRecord = claimTarget(
+        target.actor, actor, now, state.cohortKey, nil, "approach", distance)
+    state.combatRole = combatRole
+    state.combatRoleTarget = target.actor
+    rootRuntime.combatRole = combatRole
+    rootRuntime.combatReadiness = readiness
     chosen = stabilizeSpacingAction(state, chosen, target, now)
     if chosen.kind == "approach" and state.attackAnchor
         and state.attackAnchor.target == target.actor

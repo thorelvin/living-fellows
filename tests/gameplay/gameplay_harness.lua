@@ -1189,17 +1189,45 @@ check(soundSnapshot.strongestSound and soundSnapshot.strongestSound.kind == "tes
 local stealthCrawler = zombie(3, 2, { onFloor = true })
 clock = clock + 100
 local crawlerSnapshot = SurvivorCompanion.Senses.snapshot(fellow, player, sensesRuntime)
-local crawlerAvoided = false
+local crawlerFlags = {}
 for _, threat in ipairs(crawlerSnapshot.stealthThreats or {}) do
-    if threat.actor == stealthCrawler and threat.prone == true then crawlerAvoided = true break end
+    if threat.actor == stealthCrawler and threat.prone == true then crawlerFlags.avoided = true break end
 end
-check(crawlerAvoided,
-    "stealth navigation senses living crawlers without promoting them to standing combat threats")
+for _, threat in ipairs(crawlerSnapshot.threats or {}) do
+    if threat.actor == stealthCrawler and threat.grounded == true
+        and threat.posture ~= "standing" then crawlerFlags.targetable = true break end
+end
+for _, threat in ipairs(crawlerSnapshot.groundedThreats or {}) do
+    if threat.actor == stealthCrawler then crawlerFlags.grounded = true break end
+end
+check(crawlerFlags.avoided and crawlerFlags.targetable and crawlerFlags.grounded,
+    "living crawlers remain visible combat targets with explicit grounded posture")
 for index = #stealthCrawler.square.moving, 1, -1 do
     if stealthCrawler.square.moving[index] == stealthCrawler then
         table.remove(stealthCrawler.square.moving, index)
     end
 end
+
+(function()
+    local lockActor = actor("sc-target-lock-senses", 50, 50, {})
+    local lockedZombie = zombie(53, 50, { target = lockActor, attacking = false })
+    local lockedSnapshot = SurvivorCompanion.Senses.snapshot(lockActor, player, {})
+    local record = lockedSnapshot.threats[1]
+    check(record and record.actor == lockedZombie and record.targeting == true
+            and record.attacking == false and lockedSnapshot.immediateCount == 0,
+        "a distant zombie target lock is recorded without masquerading as an attack animation")
+    lockedZombie.dead = true
+    for index = #lockedZombie.square.moving, 1, -1 do
+        if lockedZombie.square.moving[index] == lockedZombie then
+            table.remove(lockedZombie.square.moving, index)
+        end
+    end
+    for index = #lockActor.square.moving, 1, -1 do
+        if lockActor.square.moving[index] == lockActor then
+            table.remove(lockActor.square.moving, index)
+        end
+    end
+end)()
 
 do
     local sliceClock = clock
@@ -1243,6 +1271,16 @@ do
     check(status == "complete" and slicedPath and #slicedPath >= 4,
         "resumable path search continues from its prior frontier")
 end
+(function()
+    local budgetJob = SurvivorCompanion.Navigation.beginPathSearch(
+        fellow.square, squares[squareKey(3, 0, 0)], nil, { nodeBudget = 1 })
+    local status, _, reason = SurvivorCompanion.Navigation.resumePathSearch(budgetJob, 8)
+    check(status == "failed" and reason == "budget"
+            and budgetJob.failure
+            and budgetJob.failure.failureClass == "budget_exhausted"
+            and budgetJob.failure.nativeFallbackAllowed == true,
+        "an exhausted bounded search is classified for a native-path fallback")
+end)()
 
 do
     local routeActor = actor("sc-route-repair", 30, 28, {})
@@ -1694,7 +1732,7 @@ SurvivorCompanion.NativeActions = {
 }
 local nearestStarted = SurvivorCompanion.Navigation.requestAny(
     nearestActor, targets, "walk", { action = "test_nearest", arrivalDistance = 0.8 })
-clock = clock + 2500
+clock = clock + 1000
 local nearestRetained, nearestStatus = SurvivorCompanion.Navigation.requestAny(
     nearestActor, targets, "walk", { action = "test_nearest", arrivalDistance = 0.8 })
 check(nearestStarted and nearestRetained and starts == 1
@@ -1747,11 +1785,12 @@ check(not blockedPassable,
     "a statically blocked square stays impassable even when the goal is allowed to be occupied")
 
 local vehicleBody = cell:getGridSquare(50, 12, 0)
+local vehicleNearFrom = cell:getGridSquare(48, 12, 0)
 local vehicleNear = cell:getGridSquare(49, 12, 0)
 local vehicleFarFrom = cell:getGridSquare(48, 14, 0)
 local vehicleFar = cell:getGridSquare(49, 14, 0)
 vehicleBody.vehicleContainer = { id = "clearance-test-car" }
-local nearPassable, nearCost = passableEdge(fromSquare, vehicleNear, 1, { actor = mover })
+local nearPassable, nearCost = passableEdge(vehicleNearFrom, vehicleNear, 1, { actor = mover })
 local farPassable, farCost = passableEdge(vehicleFarFrom, vehicleFar, 1, { actor = mover })
 local footprintPassable = passableEdge(vehicleNear, vehicleBody, 1, { actor = mover })
 check(nearPassable and farPassable and nearCost > farCost and not footprintPassable,
@@ -1961,6 +2000,43 @@ do
         "moving-goal replanning stops and releases the stale native path before searching again")
 end
 
+(function()
+    local maintainLease = SurvivorCompanion.Navigation._maintainNativeLeaseForTests
+    local stalledActor = actor("sc-native-stall", -8, 11, {})
+    local stalledGoal = cell:getGridSquare(-4, 11, 0)
+    local stalledState = {
+        nativeLease = {
+            ultimateGoal = stalledGoal,
+            ultimateGoalKey = SurvivorCompanion.GameplayUtil.squareKey(stalledGoal),
+            fromSquare = stalledActor.square,
+            toSquare = stalledGoal,
+            targets = { stalledGoal },
+            startedAt = 0,
+            expires = 10000,
+            positionProgressAt = 0,
+            progressSquareKey = SurvivorCompanion.GameplayUtil.squareKey(stalledActor.square),
+            lastWorldX = stalledActor:getX(),
+            lastWorldY = stalledActor:getY(),
+            lastWorldZ = stalledActor:getZ(),
+            lastGoalDistance = SurvivorCompanion.GameplayUtil.distance(stalledActor, stalledGoal),
+            leaseMs = 6500,
+        },
+    }
+    local previousNativeActions = SurvivorCompanion.NativeActions
+    local stopped = 0
+    SurvivorCompanion.NativeActions = {
+        pathTelemetry = function()
+            return { available = true, active = true, shouldBeMoving = true }
+        end,
+        stopDirect = function() stopped = stopped + 1 return true end,
+    }
+    local result, reason = maintainLease(stalledActor, stalledState, stalledGoal, 2000)
+    SurvivorCompanion.NativeActions = previousNativeActions
+    check(result == "failed" and reason == "native_path_stalled"
+            and stopped == 1 and stalledState.nativeLease == nil,
+        "native active telemetry cannot hide a path with no world, tile, goal, or next-node progress")
+end)()
+
 do
 local failedEdgeActor = actor("sc-failed-edge", -7, -7, {})
 registry[failedEdgeActor.id] = failedEdgeActor
@@ -1972,10 +2048,13 @@ local failedKey = SurvivorCompanion.GameplayUtil.squareKey(cell:getGridSquare(-7
     .. ">" .. SurvivorCompanion.GameplayUtil.squareKey(cell:getGridSquare(-6, -7, 0))
 check(not accepted and reason == "movement_rejected"
         and failedState.blockedEdges[failedKey] ~= nil
+        and failedState.blockedEdges[failedKey].evidenceClass == "unknown"
+        and failedState.blockedSquares[
+            SurvivorCompanion.GameplayUtil.squareKey(cell:getGridSquare(-6, -7, 0))] == nil
         and failedState.routeMemory[failedKey]
         and failedState.routeMemory[failedKey].success == false
         and failedState.lastBlocker.type == "unknown",
-    "a rejected native step blacklists its exact edge and records short-lived route memory")
+    "unknown collision evidence blacklists only its exact short-lived edge")
 failedEdgeActor.rejectMovement = false
 check(SurvivorCompanion.Navigation.request(
         failedEdgeActor, cell:getGridSquare(-5, -7, 0), "walk", {})
@@ -1994,6 +2073,7 @@ local accepted = SurvivorCompanion.Navigation.request(
     vehicleActor, cell:getGridSquare(-5, -5, 0), "walk", {})
 local vehicleState = SurvivorCompanion.Navigation.peek(vehicleActor)
 check(not accepted and vehicleState.lastBlocker.type == "vehicle"
+        and vehicleState.lastBlocker.evidenceClass == "dynamic_square"
         and vehicleState.lastBlocker.recoveryResult == "direct_replan",
     "vehicle collision evidence selects dedicated vehicle recovery diagnostics")
 SurvivorCompanion.Navigation.reset(vehicleActor)
@@ -2193,6 +2273,53 @@ SurvivorCompanion.Navigation.reset(basementActor)
 registry[upperFloorActor.id], registry[basementActor.id] = nil, nil
 end
 
+(function()
+    local stairFrom = cell:getGridSquare(20, 20, 0)
+    local stairNext = cell:getGridSquare(21, 20, 0)
+    local stairGoal = cell:getGridSquare(21, 20, 1)
+    function stairFrom:HasStairs() return true end
+    function stairNext:HasStairs() return true end
+    local point = actor("sc-native-stair-point", 20, 20, {})
+    local rear = actor("sc-native-stair-rear", 20, 20, {})
+    registry[point.id], registry[rear.id] = point, rear
+    local participants = {
+        { actor = point, cqbRole = "point" },
+        { actor = rear, cqbRole = "rear_guard" },
+    }
+    local cohort = "party:native-stair-admission"
+    check(SurvivorCompanion.Navigation.request(point, stairGoal, "walk", {
+            action = "follow_formation", cohortKey = cohort,
+            cqbRole = "point", groupParticipants = participants,
+        }), "point member starts a native multi-floor route")
+    check(SurvivorCompanion.Navigation.request(rear, stairGoal, "walk", {
+            action = "follow_formation", cohortKey = cohort,
+            cqbRole = "rear_guard", groupParticipants = participants,
+        }), "rear guard starts a native multi-floor route")
+    local pointState = SurvivorCompanion.Navigation.peek(point)
+    local rearState = SurvivorCompanion.Navigation.peek(rear)
+    local previousNativeActions = SurvivorCompanion.NativeActions
+    SurvivorCompanion.NativeActions = {
+        pathTelemetry = function()
+            return { available = true, active = true, shouldBeMoving = true,
+                pathNextIsSet = true, pathNextX = 21, pathNextY = 20 }
+        end,
+        stopDirect = function() return true end,
+    }
+    local pointLease = SurvivorCompanion.Navigation._maintainNativeLeaseForTests(
+        point, pointState, stairGoal, clock + 10)
+    local rearLease, rearStatus =
+        SurvivorCompanion.Navigation._maintainNativeLeaseForTests(
+            rear, rearState, stairGoal, clock + 11)
+    SurvivorCompanion.NativeActions = previousNativeActions
+    check(pointLease == "active" and rearLease == "active"
+            and rearStatus == "holding_group_passage"
+            and rearState.nativeLease and rearState.nativeLease.nativePaused == true,
+        "native next-edge telemetry applies single-file stair admission before crossing")
+    SurvivorCompanion.Navigation.reset(point)
+    SurvivorCompanion.Navigation.reset(rear)
+    registry[point.id], registry[rear.id] = nil, nil
+end)()
+
 -- Same-floor travel that is already at a staircase retains the cautious choke
 -- behavior; only discovery of the oriented cross-floor route is delegated.
 local stairSource = squares[squareKey(7, 7, 0)]
@@ -2373,20 +2500,35 @@ local _, rangedContext = SurvivorCompanion.Positioning.formationTarget(
 local rearTarget, rearContext = SurvivorCompanion.Positioning.formationTarget(
     formationRight, positioningLeader, formationRightCommands, formationSnapshot)
 check(pointContext.cqbRole == "point" and pointContext.columnIndex == 1
-        and assaultContext.cqbRole == "assault" and assaultContext.columnIndex == 2
-        and rangedContext.cqbRole == "ranged_support" and rangedContext.columnIndex == 3
-        and rearContext.cqbRole == "rear_guard" and rearContext.columnIndex == 4
+        and rearContext.cqbRole == "rear_guard" and rearContext.columnIndex == 2
+        and assaultContext.cqbRole == "assault" and assaultContext.columnIndex == 3
+        and rangedContext.cqbRole == "ranged_support" and rangedContext.columnIndex == 4
         and rearContext.fireteamSize == 4
         and pointContext.participants[1].actor == formationLeft
-        and pointContext.participants[2].actor == formationAssault
-        and pointContext.participants[3].actor == formationRanged
-        and pointContext.participants[4].actor == formationRight,
-    "fireteam column orders point, assault, ranged support, then rear guard"
+        and pointContext.participants[2].actor == formationRight,
+    "fireteam preserves existing roles while a changed roster settles"
         .. " got=" .. tostring(pointContext.cqbRole) .. ":" .. tostring(pointContext.columnIndex)
         .. "," .. tostring(assaultContext.cqbRole) .. ":" .. tostring(assaultContext.columnIndex)
         .. "," .. tostring(rangedContext.cqbRole) .. ":" .. tostring(rangedContext.columnIndex)
         .. "," .. tostring(rearContext.cqbRole) .. ":" .. tostring(rearContext.columnIndex)
         .. " size=" .. tostring(rearContext.fireteamSize))
+
+clock = clock + 2100
+leftTarget, pointContext = SurvivorCompanion.Positioning.formationTarget(
+    formationLeft, positioningLeader, formationLeftCommands, formationSnapshot)
+_, assaultContext = SurvivorCompanion.Positioning.formationTarget(
+    formationAssault, positioningLeader, formationAssaultCommands, formationSnapshot)
+_, rangedContext = SurvivorCompanion.Positioning.formationTarget(
+    formationRanged, positioningLeader, formationRangedCommands, formationSnapshot)
+rearTarget, rearContext = SurvivorCompanion.Positioning.formationTarget(
+    formationRight, positioningLeader, formationRightCommands, formationSnapshot)
+check(pointContext.columnIndex == 1 and assaultContext.columnIndex == 2
+        and rangedContext.columnIndex == 3 and rearContext.columnIndex == 4
+        and pointContext.participants[1].actor == formationLeft
+        and pointContext.participants[2].actor == formationAssault
+        and pointContext.participants[3].actor == formationRanged
+        and pointContext.participants[4].actor == formationRight,
+    "settled fireteam reflows once into point, assault, ranged support, rear guard order")
 
 positioningLeader.forwardX, positioningLeader.forwardY = 0, 1
 clock = clock + 100
@@ -2531,15 +2673,38 @@ SurvivorCompanion.Config.values.rearScanHoldMs = nil
 SurvivorCompanion.Config.values.rearGuardRefreshMs = 1
 formationRight.square = rearTarget
 formationRight.lastIntent = nil
-check(SurvivorCompanion.Positioning.updateHoldAwareness(
-        formationRight, positioningLeader, formationSnapshot) == nil,
+formationRight.stopped = false
+local rearGuardMovementCalls = formationRight.movementCalls or 0
+local rearWaiting, rearWaitingReason = SurvivorCompanion.Positioning.updateHoldAwareness(
+    formationRight, positioningLeader, formationSnapshot)
+check(rearWaiting == nil and rearWaitingReason == "rear_guard_watch_not_due"
+        and (formationRight.movementCalls or 0) == rearGuardMovementCalls,
     "rear guard watch is paced instead of issuing a facing intent every frame")
 clock = clock + 2
+local rearX, rearY, rearZ = formationRight:getX(), formationRight:getY(), formationRight:getZ()
 check(SurvivorCompanion.Positioning.updateHoldAwareness(
         formationRight, positioningLeader, formationSnapshot)
     and formationRight.lastIntent.action == "rear_guard_watch"
-    and formationRight.lastIntent.cqbRole == "rear_guard",
-    "rear guard periodically holds coverage behind the fireteam")
+    and formationRight.lastIntent.cqbRole == "rear_guard"
+    and formationRight.lastIntent.stableFacing == true
+    and formationRight.lastIntent.awarenessMovement == true
+    and math.abs(formationRight.lastIntent.targetPosition.x - rearX) < 0.001
+    and math.abs(formationRight.lastIntent.targetPosition.y - (rearY - 2)) < 0.001
+    and formationRight.lastIntent.targetPosition.z == rearZ
+    and formationRight.stopped == true,
+    "rear guard stops and holds exact coverage opposite the fireteam heading")
+local rearGuardWatchCalls = formationRight.movementCalls or 0
+local rearPaced, rearPacedReason = SurvivorCompanion.Positioning.updateHoldAwareness(
+    formationRight, positioningLeader, formationSnapshot)
+check(rearPaced == nil and rearPacedReason == "rear_guard_watch_not_due"
+        and (formationRight.movementCalls or 0) == rearGuardWatchCalls,
+    "rear guard does not restart the native facing action between refresh pulses")
+clock = clock + 2
+local rearDanger, rearDangerReason = SurvivorCompanion.Positioning.updateHoldAwareness(
+    formationRight, positioningLeader, { threatCount = 1, immediateCount = 1 })
+check(rearDanger == nil and rearDangerReason == "danger_present"
+        and (formationRight.movementCalls or 0) == rearGuardWatchCalls,
+    "combat danger preempts passive rear-guard facing without consuming a movement action")
 SurvivorCompanion.Config.values.rearGuardRefreshMs = nil
 
 formationLeft.square = cell:getGridSquare(20, 18, 0)
@@ -2785,6 +2950,23 @@ end
 function doorFrom:isDoorTo(other) return other == doorTo end
 function doorTo:isDoorTo(other) return other == doorFrom end
 function doorTo:getDoor(north) if north == false then return testDoor end end
+(function()
+    testDoor.locked = true
+    local lockedEdge = SurvivorCompanion.Topology.classifyEdge(
+        fellow, doorFrom, doorTo, {})
+    local reachable = SurvivorCompanion.Topology.reachableEscapeSquares(
+        fellow, doorFrom, { radius = 1, nodeBudget = 8 })
+    local crossedLockedDoor = false
+    for _, node in ipairs(reachable or {}) do
+        if node.square == doorTo then crossedLockedDoor = true break end
+    end
+    local diagonal = SurvivorCompanion.Topology.classifyEdge(
+        fellow, doorFrom, cell:getGridSquare(1, 3, 0), {})
+    check(lockedEdge.traversable == false and lockedEdge.reason == "door_locked"
+            and crossedLockedDoor == false and diagonal.reason == "diagonal_corner",
+        "escape topology blocks locked doors and diagonal corner cutting")
+    testDoor.locked = false
+end)()
 do
     local angledDoorActor = actor("sc-door-angled", 0, 2, {})
     angledDoorActor.worldX, angledDoorActor.worldY = 0.5, 2.9
@@ -2879,10 +3061,12 @@ do
     local columnLeader = actor("column-leader", 0, 2,
         { className = "IsoPlayer", recruited = false, forwardX = 1, forwardY = 0 })
     columnLeader.modData.SC_Recruited = false
-    local columnPoint = actor("column-point", -3, 2, {})
-    local columnAssault = actor("column-assault", -4, 2, {})
-    local columnRanged = actor("column-ranged", -5, 2, {})
-    local columnRear = actor("column-rear", -6, 2, {})
+    -- All members are inside the 2.5-tile portal admission radius. Distant
+    -- followers no longer reserve the head of a doorway queue.
+    local columnPoint = actor("column-point", -2, 2, {})
+    local columnAssault = actor("column-assault", -2, 2, {})
+    local columnRanged = actor("column-ranged", -2, 2, {})
+    local columnRear = actor("column-rear", -2, 2, {})
     columnRanged.primary = item("Base.ColumnTestRifle", "Weapon", { ranged = true, ammo = 8 })
     local columnMembers = { columnPoint, columnAssault, columnRanged, columnRear }
     for _, member in ipairs(columnMembers) do
@@ -3929,6 +4113,72 @@ SurvivorCompanion.Combat.reset(cleaverActor)
 registry[cleaverActor.id] = nil
 cleaverZed.dead = true
 end
+
+(function()
+local vectorWeaponItem = item("Base.VectorAxe", "Weapon", {
+    damage = 2.2, range = 1.5, minRange = 0.3, sharpness = 1,
+})
+local vectorActor = actor("sc-vector-preflight", 34, 30, {
+    inventory = inventory({ vectorWeaponItem }),
+})
+vectorActor.primary = vectorWeaponItem
+local vectorTarget = zombie(37, 30, {})
+local vectorThreat = { actor = vectorTarget, square = vectorTarget.square,
+    distanceSq = 9, visible = true, obstructed = false, score = 80 }
+local vectorSnapshot = { threats = { vectorThreat }, immediateCount = 0,
+    closeImmediateCount = 0, closeThreatCount = 1, occupiedThreatSectors = 1,
+    pressure = 0, allies = {}, escapeSquares = {
+        { square = cell:getGridSquare(33, 30, 0), danger = 0, nearestThreatSq = 16 },
+    } }
+local vectorWeapon = { item = vectorWeaponItem, ranged = false, damage = 2.2,
+    range = 1.5, conditionRatio = 1, sharpness = 1, staminaCost = 1, weight = 1.5 }
+local priorCombatVector = SurvivorCompanion.Navigation.combatVector
+SurvivorCompanion.Navigation.combatVector = function() return nil, nil, false,
+    "no_clear_alternative" end
+local vectorActions = SurvivorCompanion.Combat._actionUtilitiesForTests(
+    vectorActor, player, vectorSnapshot, vectorThreat, vectorWeapon,
+    vectorActor.inventory, { combatDoctrine = "close_defense", morale = 70 }, nil)
+SurvivorCompanion.Navigation.combatVector = priorCombatVector
+local unsafeMovementOffered = false
+for _, action in ipairs(vectorActions or {}) do
+    if action.kind == "approach" or action.kind == "backstep" or action.kind == "kite" then
+        unsafeMovementOffered = true break
+    end
+end
+check(not unsafeMovementOffered,
+    "combat removes movement actions when every collision-validated vector is blocked")
+
+local pairGrounded = zombie(35, 35, { onFloor = true })
+local pairStanding = zombie(36, 36, {})
+local pairActor = actor("sc-target-action-pair", 35, 36, {
+    inventory = inventory({ vectorWeaponItem }),
+})
+pairActor.primary = vectorWeaponItem
+local groundedThreat = { actor = pairGrounded, square = pairGrounded.square,
+    distanceSq = 1, visible = true, obstructed = false, grounded = true, score = 100 }
+local standingThreat = { actor = pairStanding, square = pairStanding.square,
+    distanceSq = 1, visible = true, obstructed = false, grounded = false, score = 90 }
+local pairSnapshot = { threats = { groundedThreat, standingThreat },
+    immediateCount = 2, closeImmediateCount = 2, closeThreatCount = 2,
+    occupiedThreatSectors = 1, pressure = 0, allies = {}, encircled = false,
+    escapeSquares = { { square = cell:getGridSquare(34, 36, 0), danger = 0,
+        nearestThreatSq = 9 } } }
+local pair = SurvivorCompanion.Combat._selectViablePairForTests(
+    pairActor, player, pairSnapshot, { groundedThreat, standingThreat },
+    { combatDoctrine = "close_defense", morale = 75 },
+    { target = pairGrounded, targetCommitUntil = clock + 1000 },
+    clock, "best", groundedThreat)
+check(pair and pair.target.actor == pairStanding and pair.action.kind == "melee",
+    "target commitment cannot let an unsafe grounded finisher suppress a viable standing melee target")
+for _, value in ipairs({ vectorActor, vectorTarget, pairActor, pairGrounded, pairStanding }) do
+    if value.square and value.square.moving then
+        for index = #value.square.moving, 1, -1 do
+            if value.square.moving[index] == value then table.remove(value.square.moving, index) end
+        end
+    end
+end
+pairGrounded.dead, pairStanding.dead, vectorTarget.dead = true, true, true
+end)()
 
 do
 local roleWeapon = item("Base.Axe", "Weapon", { damage = 2, range = 1.4, sharpness = 1 })
@@ -6301,9 +6551,11 @@ local retreatActor = actor("sc-decision-retreat", -6, -2, {})
 retreatActor.modData.SC_Order = "retreat"
 retreatActor.rejectActions = { ordered_retreat = true }
 registry[retreatActor.id] = retreatActor
-check(not decisionAfterDue(retreatActor, player, {
+check(decisionAfterDue(retreatActor, player, {
     snapshot = { threats = {}, threatCount = 0, immediateCount = 0, escapeSquares = {}, allies = {}, player = { danger = 0 } },
-}, 101), "decision fallback retreat never masks a rejected movement action")
+}, 101) and string.find(tostring(SurvivorCompanion.Decision.peek(retreatActor).intent),
+        "safety_guarded_hold:retreat", 1, true) ~= nil,
+    "a rejected survival retreat becomes a stationary safety hold instead of routine work")
 
 local roomActor = actor("sc-room-sweep", -6, 1, {})
 registry[roomActor.id] = roomActor
@@ -6330,8 +6582,10 @@ check(not SurvivorCompanion.Decision.update(fallbackActor, player, fallbackRunti
     "medical emergency is initially deadline-staggered")
 clock = clock + 101
 local gatedFallback = SurvivorCompanion.Decision.update(fallbackActor, player, fallbackRuntime)
-check(not gatedFallback and fallbackActor.lastIntent == nil,
-    "failed medical work does not bypass the combat fallback deadline in the same frame")
+check(gatedFallback
+        and string.find(tostring(SurvivorCompanion.Decision.peek(fallbackActor).intent),
+            "safety_guarded_hold:medical", 1, true) ~= nil,
+    "failed emergency medicine holds defensively until the combat fallback is due")
 
 local function testDecisionReturnPropagation()
 local transitionPlayer = actor("transition-player", 21, 21, { className = "IsoPlayer", recruited = false })

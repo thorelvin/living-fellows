@@ -32,7 +32,7 @@ local interactionActions = {
 }
 
 local turnActions = {
-    room_sweep = true, face_alert = true, rear_scan = true,
+    room_sweep = true, face_alert = true, rear_scan = true, rear_guard_watch = true,
     face_formation = true, face_conversation = true, conversation_pose = true,
     ready_weapon = true, lower_weapon = true, hand_signal = true,
     copy_player_posture = true,
@@ -274,12 +274,6 @@ local function transition(actor, phase, owner, action, reason, intent)
     return state
 end
 
-local function stopForOwnership(actor)
-    if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
-        pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
-    end
-end
-
 local function copyIntent(intent)
     local result = {}
     for key, value in pairs(type(intent) == "table" and intent or {}) do
@@ -333,7 +327,6 @@ function Locomotion.authorize(actor, mode, intent)
             if permitted == true then
                 supervisorReason, supervisorState = nil, nil
             else
-                stopForOwnership(actor)
                 local status = supervisorReason or "action_owned"
                 if urgentIntent then
                     local queued, queueReason = queueUrgentMovement(actor, mode, action, intent)
@@ -362,7 +355,6 @@ function Locomotion.authorize(actor, mode, intent)
         if nowMs() - (tonumber(activityAt) or nowMs()) >= grace then protectedActivity = false end
     end
     if protectedActivity and activityName ~= action then
-        stopForOwnership(actor)
         local status = "protected_activity:" .. tostring(activityOwner)
             .. ":" .. tostring(activityName)
         local response = "locomotion_protected_activity:" .. tostring(activityPhase)
@@ -388,7 +380,6 @@ function Locomotion.authorize(actor, mode, intent)
         local blocker = u and type(u.movementStateBlocker) == "function"
             and u.movementStateBlocker(actor) or nil
         if blocker ~= nil then
-            stopForOwnership(actor)
             transition(actor, "interact", "native", tostring(blocker),
                 "protected_actor_state", intent)
             append(actor, "rejected", {

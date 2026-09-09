@@ -525,6 +525,34 @@ function U.distance(a, b)
     return math.sqrt(value)
 end
 
+-- Square APIs expose the north-west tile corner while characters and explicit
+-- world targets expose their collision-centre coordinates.  Keep that contract
+-- in one place so arrival checks do not disagree at doors or stop half a tile
+-- away from an exact world position.
+function U.targetPosition(target, targetKind)
+    local x, y, z = U.position(target)
+    if x == nil then return nil end
+    local kind = targetKind
+    if kind == nil then
+        local square = U.squareOf(target)
+        kind = square == target and "square" or "world"
+    end
+    if kind == "square" then
+        return math.floor(x) + 0.5, math.floor(y) + 0.5, math.floor(z or 0)
+    end
+    return x, y, z or 0
+end
+
+function U.arrived(actor, target, options)
+    options = type(options) == "table" and options or {}
+    local ax, ay, az = U.position(actor)
+    local tx, ty, tz = U.targetPosition(target, options.targetKind)
+    if ax == nil or tx == nil then return false, math.huge end
+    local dx, dy, dz = ax - tx, ay - ty, (az or 0) - (tz or 0)
+    local distance = math.sqrt(dx * dx + dy * dy + dz * dz * 9)
+    return distance <= (tonumber(options.distance) or 0.6), distance
+end
+
 function U.cell()
     if type(getCell) == "function" then
         local ok, cell = pcall(getCell)

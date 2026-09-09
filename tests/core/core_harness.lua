@@ -958,6 +958,19 @@ check(actor.moving == true and actor.running == false and actor.sneaking == fals
     "engine pathing enters ordinary player walk locomotion")
 check(SC.Actor.stop(actor) and pathBehavior.cancelled == true and actor.moving == false,
     "native stop cancels pathing and clears player locomotion")
+;(function()
+    local oldTargetCheck = pathBehavior.isTargetLocation
+    function pathBehavior:isTargetLocation() return false end
+    pathBehavior.cancelled = true
+    actor.moving = false
+    local rejected, rejectedReason = SC.Actor.setMovement(actor, "walk", {
+        action = "path", targetSquare = targetSquare, enginePath = true,
+    })
+    pathBehavior.isTargetLocation = oldTargetCheck
+    check(not rejected and rejectedReason == "native path request did not retain its target"
+            and pathBehavior.cancelled == true and actor.moving == false,
+        "a mutated native path that fails verification receives full locomotion cleanup")
+end)()
 
 local weapon = { getCategory = function() return "Weapon" end }
 local equipOk, equipReason = SC.Actor.setMovement(actor, "walk", {
@@ -1208,6 +1221,13 @@ local rearScanOk, rearScanReason = SC.Actor.setMovement(actor, "walk", {
 })
 check(rearScanOk and rearScanReason == "rear_scan_started" and actor.forwardX < -0.9,
     "rear awareness uses verified native human facing")
+actor.forwardX, actor.forwardY = 1, 0
+local rearGuardOk, rearGuardReason = SC.Actor.setMovement(actor, "walk", {
+    action = "rear_guard_watch", targetPosition = { x = actorX - 2, y = actorY, z = 0 },
+    stableFacing = true, awarenessMovement = true, cqbRole = "rear_guard",
+})
+check(rearGuardOk and rearGuardReason == "rear_guard_watch_started" and actor.forwardX < -0.9,
+    "rear guard watch reaches verified native human facing instead of an unsupported intent")
 local restoreFacingOk, restoreFacingReason = SC.Actor.setMovement(actor, "walk", {
     action = "face_formation", targetPosition = { x = actorX + 2, y = actorY, z = 0 },
 })
@@ -1286,13 +1306,15 @@ do
     local foreignAction = { source = "ISUnequipAction" }
     actor.characterActions:add(foreignAction)
     local foreignActionX = actor:getX()
+    foreignAction.wasMoving = actor:isMoving()
     local movedDuringForeignAction, foreignActionReason = SC.Actor.setMovement(actor, "walk", {
         action = "move", dx = 1, dy = 0,
     })
     check(not movedDuringForeignAction
             and string.find(tostring(foreignActionReason), "unfinished_action", 1, true) ~= nil
-            and actor:getX() == foreignActionX and actor:isMoving() == false,
-        "untracked vanilla timed actions cannot translate a kneeling/action pose: "
+            and actor:getX() == foreignActionX
+            and actor:isMoving() == foreignAction.wasMoving,
+        "untracked vanilla timed actions reject translation without mutating their locomotion owner: "
             .. tostring(foreignActionReason))
     actor.characterActions:remove(foreignAction)
 end
@@ -1863,6 +1885,12 @@ function runLocomotionRecorderChecks()
         "the locomotion state machine records one authoritative movement transition and result")
 
     local oldActivityStatus = SC.NativeActions.activityStatus
+    local oldStopDirect = SC.NativeActions.stopDirect
+    local deniedStopCalls = 0
+    SC.NativeActions.stopDirect = function(...)
+        deniedStopCalls = deniedStopCalls + 1
+        return oldStopDirect(...)
+    end
     SC.NativeActions.activityStatus = function()
         return "active", "visual", "loot", SC_TEST_CLOCK
     end
@@ -1870,9 +1898,11 @@ function runLocomotionRecorderChecks()
         action = "follow_formation", targetSquare = square,
     })
     SC.NativeActions.activityStatus = oldActivityStatus
+    SC.NativeActions.stopDirect = oldStopDirect
     check(not rejected and reason == "locomotion_protected_activity:active:visual:loot"
-            and SC.Locomotion.peek(movementActor).phase == "interact",
-        "ordinary path movement cannot override a visual animation owner")
+            and SC.Locomotion.peek(movementActor).phase == "interact"
+            and deniedStopCalls == 0,
+        "ordinary path rejection is side-effect free and cannot stop a visual owner")
 
     SC.Locomotion.recordNavigation(movementActor, "blocker", {
         blocker = "door", recovery = "lateral_clearance", targetSquare = square,
@@ -1920,7 +1950,7 @@ end
 runSupportReportChecks()
 runSupportReportChecks = nil
 
-do
+;(function()
 -- review 3.4: the native target-coord contract. An explicit targetKind is
 -- authoritative; otherwise the caller's inference decides, so a tile centers on
 -- +0.5 while an exact world position is never shifted.
@@ -1934,6 +1964,16 @@ check(centerTargetOnTile({}, true) == true and centerTargetOnTile({}, false) == 
     "with no explicit kind the caller's inference is used unchanged")
 check(centerTargetOnTile(nil, true) == true,
     "a missing intent falls back to the caller's inference")
-end
+local centreActor = { x = 10.5, y = 20.5, z = 0 }
+local tileCorner = { x = 10, y = 20, z = 0 }
+local atSquare = SC.GameplayUtil.arrived(centreActor, tileCorner, {
+    targetKind = "square", distance = 0.1,
+})
+local atWorld = SC.GameplayUtil.arrived(centreActor, tileCorner, {
+    targetKind = "world", distance = 0.1,
+})
+check(atSquare == true and atWorld == false,
+    "shared arrival centres square targets without shifting exact world coordinates")
+end)()
 
 print("CORE_KAHLUA_PASS checks=" .. tostring(checks))

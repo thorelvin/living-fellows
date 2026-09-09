@@ -8,6 +8,7 @@ import sys
 CLIENT = Path(__file__).resolve().parents[2] / "SurvivorCompanion" / "42" / "media" / "lua" / "client"
 OWNED = [
     "SCGameplayUtil.lua",
+    "SCTopology.lua",
     "SCDialogue.lua",
     "SCLifeEvents.lua",
     "SCCommunity.lua",
@@ -233,6 +234,7 @@ def main() -> int:
             "quiet/stealth zombie-buffered routing policy missing")
     positioning_source = sources["SCPositioning.lua"]
     native_actions_source = (CLIENT / "SCNativeActions.lua").read_text(encoding="utf-8")
+    locomotion_source = (CLIENT / "SCLocomotion.lua").read_text(encoding="utf-8")
     require("formationOffsets" in positioning_source and "followerSlot" in positioning_source
             and "leaderHeading" in positioning_source,
             "stable direction-relative formation contract missing")
@@ -260,6 +262,10 @@ def main() -> int:
             and 'action = "face_formation"' in positioning_source
             and 'action == "rear_scan"' in native_actions_source,
             "periodic rear awareness and formation-facing restoration missing")
+    require('action = "rear_guard_watch"' in positioning_source
+            and 'action == "rear_guard_watch"' in native_actions_source
+            and "rear_guard_watch = true" in locomotion_source,
+            "rear guard watch is not wired through positioning, native facing, and locomotion")
     bootstrap_source = (CLIENT / "SCBootstrap.lua").read_text(encoding="utf-8")
     require('require "SCPositioning"' in bootstrap_source
             and '"Positioning"' in bootstrap_source,

@@ -408,14 +408,20 @@ local function approachHostile(actor, target, swingMax, group)
             local dx, dy, steered
             if SC.Navigation and type(SC.Navigation.combatVector) == "function" then
                 dx, dy, steered = SC.Navigation.combatVector(actor, target, "approach")
+            else
+                dx, dy = tx - ax, ty - ay
             end
-            return U().move(actor, "walk", {
-                action = "combat_approach",
-                dx = dx or (tx - ax), dy = dy or (ty - ay),
-                target = target, facingTarget = target, keepFacing = true,
-                weaponReady = true, tacticalStrafe = true,
-                microSteered = steered == true, factionCombat = true,
-            })
+            if dx ~= nil and dy ~= nil then
+                return U().move(actor, "walk", {
+                    action = "combat_approach",
+                    dx = dx, dy = dy,
+                    target = target, facingTarget = target, keepFacing = true,
+                    weaponReady = true, tacticalStrafe = true,
+                    microSteered = steered == true, factionCombat = true,
+                })
+            end
+            -- A blocked micro-step is not a licence to dispatch the raw vector.
+            -- Fall through to the attack-ring path below instead.
         end
     end
 
