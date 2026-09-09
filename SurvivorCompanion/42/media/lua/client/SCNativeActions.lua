@@ -83,6 +83,7 @@ local windowActions = {
     climb_window_emergency = true,
 }
 local fenceActions = { climb_fence = true, climb_wall = true }
+local ropeActions = { climb_sheet_rope = true, climb_down_sheet_rope = true }
 
 -- These are effect-free, human animation adapters.  The gameplay subsystem owns
 -- the associated inventory/body mutation and performs it only after this native
@@ -2365,6 +2366,33 @@ local function fenceAction(actor, action, intent, provider)
     return true, action == "climb_wall" and "wall_climb_started" or "fence_climb_started"
 end
 
+local function sheetRopeAction(actor, action, intent, provider)
+    local down = action == "climb_down_sheet_rope"
+    local handled, reason = useProvider(provider, "sheetRope", actor, action, down, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if actions.stopDirect(actor) ~= true then
+        return false, "sheet-rope climb could not acquire stationary actor"
+    end
+    local squareOk, square = invoke(actor, "getCurrentSquare")
+    if not squareOk or square == nil then return false, "actor square is unavailable" end
+    local check = down and "canClimbDownSheetRope" or "canClimbSheetRope"
+    local checked, climbable = invoke(actor, check, square)
+    if not checked then return false, "native sheet-rope climb check is unavailable" end
+    if climbable ~= true then return false, "native sheet rope is not climbable" end
+    local methodName = down and "climbDownSheetRope" or "climbSheetRope"
+    local invoked, failure = invoke(actor, methodName)
+    if not invoked then return false, failure or "native sheet-rope climb failed" end
+    local climbingOk, climbing = invoke(actor, "isClimbing")
+    if not climbingOk or climbing ~= true then
+        climbingOk, climbing = invoke(actor, "isClimbingRope")
+    end
+    if not climbingOk or climbing ~= true then
+        return false, "native sheet-rope climb did not enter a climb state"
+    end
+    return true, down and "sheet_rope_descent_started" or "sheet_rope_climb_started"
+end
+
 local function setDowned(actor, downed, provider)
     local handled, reason = useProvider(provider, "setDowned", actor, downed)
     if handled ~= nil then
@@ -2878,6 +2906,8 @@ function actions.dispatch(actor, mode, intent, provider)
         return windowAction(actor, action, intent, provider)
     elseif fenceActions[action] then
         return fenceAction(actor, action, intent, provider)
+    elseif ropeActions[action] then
+        return sheetRopeAction(actor, action, intent, provider)
     elseif action == "board_vehicle" or action == "exit_vehicle" then
         if SC.Vehicle == nil then
             return false, "vehicle persistence adapter is unavailable"

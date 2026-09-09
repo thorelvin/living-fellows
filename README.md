@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.20.4-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.22.8-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.22.9-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns isolated survivors into persistent people who can become teammates, establish routines, help run a base, and make their own survival decisions. Companions use native human actors, keep real inventories and injuries, and can follow, fight, retreat, scavenge, work, travel, grieve, argue, and remember what happened to them.
@@ -151,6 +151,22 @@ World context commands use one **Living Fellows** root. The companion selected i
 Followers use formation slots instead of stacking on the player. Each active fireteam (the unassigned squad or an Alpha/Bravo/Charlie group) automatically assigns a close fighter as point, keeps firearm support in the protected middle, and places a cautious survivor at the rear. That stable role order becomes a single-file column through doors and stairs; the team stays collapsed until the last nearby follower clears the portal, then deliberately fans back out. They check blind corners and room thresholds, remember a recent route back outdoors, and replan around vehicles, furniture, crowds, vegetation, windows, gates, slopes, and player-built obstacles. Open gates remain recognized as passages, while low fences and climbable tall walls use the same native player climb states and safe perpendicular approach used by Project Zomboid. Bushes and trees are costly terrain rather than universal walls, so an emergency route may still cross vegetation.
 
 In open space the local route planner can move across all eight compass directions instead of forming a four-direction staircase. A diagonal step is accepted only when both routes around its corner are clear; it cannot cut between blocked walls, doors, fences, vehicles, or occupied geometry. Door, gate, window, stair, and fence transitions remain deliberate cardinal crossings so their native interactions and animations stay aligned.
+
+The pathing audit for 0.22.9 reduces Build 42.20.4's sprites and object states to **38 distinct collision conditions**. They are handled by one topology policy instead of scattered stuck exceptions:
+
+| Obstacle family | Conditions | Passage policy |
+| --- | ---: | --- |
+| Loaded ground and solid tiles | 4 | Wait for chunks; reject missing floors, solid tiles, and transparent-solid collision tiles |
+| Walls and corners | 3 | Detour around cardinal/non-hoppable walls; allow diagonals only when both cardinal decompositions are clear |
+| Doors and gates | 6 | Cross open doors; open unlocked doors; use a carried matching key; detour around other locks, barricades, and obstructions |
+| Windows and frames | 8 | Open, smash, remove glass, or climb only after the stock actor confirms the exact frame is usable |
+| Low fences and tall walls | 2 | Align perpendicularly, then use the native player vault or capability-checked wall climb |
+| Stairs, slopes, and sheet ropes | 3 | Give the complete transition to native player/path states; a companion already at a rope can climb or descend it |
+| Terrain and hazards | 6 | Treat water as blocked; prefer routes around fire, traps, glass, trees, and bushes; permit fire/traps only as high-cost emergency escape |
+| Vehicles, furniture, constructions, and pushables | 4 | Route around their real square or polygon footprint instead of discovering them through repeated collisions |
+| Living actors and safehouse policy | 2 | Yield/reserve space around actors and reject forbidden safehouse boundaries |
+
+Workshop objects are covered when they publish the standard `IsoGridSquare`, `IsoObject`, or `IsoThumpable` collision/affordance contracts. A custom ladder with no stock stair, slope, sheet-rope, or hoppable contract is conservatively treated as geometry rather than guessed climbable.
 
 Companions can backpedal or strafe while disengaging on safe ground. A true overrun, grab threat, blind turn, narrow transition, or poor footing makes them turn and run. Escape always outranks ordinary walking, crouching, formation, work, and animation preferences.
 

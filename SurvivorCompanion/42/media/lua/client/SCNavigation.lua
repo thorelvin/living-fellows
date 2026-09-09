@@ -339,6 +339,13 @@ local function objectLocked(object)
     return type(data) == "table" and data.CustomLock == true
 end
 
+local function actorCanUnlock(actor, object)
+    if SC.Topology and type(SC.Topology.actorCanUnlock) == "function" then
+        return SC.Topology.actorCanUnlock(actor, object)
+    end
+    return false
+end
+
 local function edgeThumpableBlocker(fromSquare, toSquare, actor)
     local utility = U()
     local found, kind
@@ -514,12 +521,24 @@ local function squareHasStairs(square)
     return found
 end
 
+local function squareHasSlope(square)
+    if SC.Topology and type(SC.Topology.squareHasSlope) == "function" then
+        return SC.Topology.squareHasSlope(square)
+    end
+    local value, ok = U().call(square, "hasSlopedSurface")
+    return ok and value == true
+end
+
 function Navigation.edgeAffordance(fromSquare, toSquare)
     if not fromSquare or not toSquare or sameSquare(fromSquare, toSquare) then return nil end
     local object, kind = barrierBetween(fromSquare, toSquare)
     if kind == "open" and (squareHasStairs(fromSquare) or squareHasStairs(toSquare)
-        or differentFloor(fromSquare, toSquare)) then kind = "stairs" end
-    if kind ~= "door" and kind ~= "stairs" and kind ~= "fence" then return nil end
+        or differentFloor(fromSquare, toSquare)) then kind = "stairs"
+    elseif kind == "open" and (squareHasSlope(fromSquare) or squareHasSlope(toSquare)) then
+        kind = "slope"
+    end
+    if kind ~= "door" and kind ~= "stairs" and kind ~= "slope"
+        and kind ~= "fence" then return nil end
     local key
     if kind == "door" and object ~= nil then
         key = "door:" .. tostring(object) .. ":" .. tostring(directionBetween(fromSquare, toSquare))
@@ -670,7 +689,19 @@ end
 local function resolveFollowGoal(sourceSquare, requestedSquare, intent)
     if not requestedSquare then return nil, false end
     local utility = U()
-    if utility.isSquareFree(requestedSquare) and not squareHasTree(requestedSquare) then
+    local function suitable(square)
+        if not square or not utility.isSquareFree(square) or squareHasTree(square) then
+            return false
+        end
+        if SC.Topology and type(SC.Topology.squareIsWater) == "function"
+            and SC.Topology.squareIsWater(square) then return false end
+        if SC.Topology and type(SC.Topology.squareHazards) == "function" then
+            local hazards = SC.Topology.squareHazards(square)
+            if hazards.fire or hazards.explosiveTrap then return false end
+        end
+        return true
+    end
+    if suitable(requestedSquare) then
         return requestedSquare, false
     end
     local action = type(intent) == "table" and tostring(intent.action or "") or ""
@@ -685,7 +716,7 @@ local function resolveFollowGoal(sourceSquare, requestedSquare, intent)
             for dy = -radius, radius do
                 if math.max(math.abs(dx), math.abs(dy)) == radius then
                     local square = utility.gridSquare(gx + dx, gy + dy, gz)
-                    if square and utility.isSquareFree(square) and not squareHasTree(square) then
+                    if suitable(square) then
                         local score = (math.abs(dx) + math.abs(dy)) * 4
                             + treeClearanceCost(square) * 2
                             + utility.distance(sourceSquare, square) * 0.05
@@ -858,7 +889,8 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
         if thumpable then return false, math.huge, thumpableKind, thumpable end
         if kind == "door" then
             if not object or objectBarricaded(object)
-                or objectLocked(object) and not objectOpen(object) then
+                or objectLocked(object) and not objectOpen(object)
+                    and not actorCanUnlock(options.actor, object) then
                 return false, math.huge, "door_blocked", object
             end
             baseCost = objectOpen(object) and 1 or 2.2
@@ -880,6 +912,8 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
                 return false, math.huge, "stairs_not_confirmed"
             end
             baseCost = 3
+        elseif kind == "slope" then
+            baseCost = 2
         else
             baseCost = 1
         end
@@ -888,7 +922,10 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
     if scale == nil then scale = 1 end
     local crowdCost = 0
     if options.allowOccupiedGoal ~= true then
-        local moving = utility.movingBlocker(toSquare, options.actor)
+        local moving, movingKind = utility.movingBlocker(toSquare, options.actor)
+        if movingKind == "pushable_object" then
+            return false, math.huge, "pushable_object", moving
+        end
         if moving then crowdCost = utility.config("navigationCrowdPenalty") or 9 end
     end
     local memoryPenalty, familiarity = routeMemoryAdjustment(
@@ -1779,7 +1816,9 @@ local function handleDoor(actor, state, door, fromSquare, toSquare, now)
     if objectOpen(door) then return true end
     local obstructed, obstructedOk = U().call(door, "isObstructed")
     if obstructedOk and obstructed == true then return false, "obstructed_door" end
-    if objectLocked(door) then return false, "locked_door" end
+    if objectLocked(door) and not actorCanUnlock(actor, door) then
+        return false, "locked_door"
+    end
     local ok, status = beginInteraction(actor, state, door, "open_door", now, {
         fromSquare = fromSquare, toSquare = toSquare,
     }, false)
@@ -2200,7 +2239,10 @@ end
 local function ensureGroupPassage(actor, state, sourceSquare, nextSquare, kind, intent, now)
     if kind == "open" and (squareHasStairs(sourceSquare) or squareHasStairs(nextSquare)
         or differentFloor(sourceSquare, nextSquare)) then kind = "stairs" end
-    if kind ~= "door" and kind ~= "stairs" then return true end
+    if kind == "open" and (squareHasSlope(sourceSquare) or squareHasSlope(nextSquare)) then
+        kind = "slope"
+    end
+    if kind ~= "door" and kind ~= "stairs" and kind ~= "slope" then return true end
     local cohort = intent and intent.cohortKey
     if not cohort then return true end
     sweepGroupPassages(now)
@@ -2592,7 +2634,13 @@ local function lateralYield(actor, state, sourceSquare, nextSquare, intent, now)
         candidates[1], candidates[2] = candidates[2], candidates[1]
     end
     for _, square in ipairs(candidates) do
-        if square and utility.isSquareFree(square) and not utility.edgeBlocked(sourceSquare, square)
+        local hazards = SC.Topology and type(SC.Topology.squareHazards) == "function"
+            and SC.Topology.squareHazards(square) or {}
+        local water = SC.Topology and type(SC.Topology.squareIsWater) == "function"
+            and SC.Topology.squareIsWater(square)
+        if square and utility.isSquareFree(square) and not water
+            and not hazards.fire and not hazards.explosiveTrap
+            and not utility.edgeBlocked(sourceSquare, square)
             and not personalSpaceBlocker(actor, square, intent.snapshot)
             and reserveStep(square, actor, state, intent, now) then
             local accepted = utility.move(actor, "walk", {
@@ -2727,7 +2775,9 @@ end
 local function tacticalStep(actor, state, sourceSquare, nextSquare, afterSquare, kind, intent, now)
     local utility = U()
     local urgent = intent.urgent == true
-    local stair = kind == "stairs" or squareHasStairs(sourceSquare) or squareHasStairs(nextSquare)
+    local stair = kind == "stairs" or kind == "slope"
+        or squareHasStairs(sourceSquare) or squareHasStairs(nextSquare)
+        or squareHasSlope(sourceSquare) or squareHasSlope(nextSquare)
     local choke = stair or kind == "door" or kind == "fence"
     local chokeAccepted, chokeOwner = true, nil
     if choke and not urgent then
@@ -3508,7 +3558,11 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
     -- the actual portal precedence so recovery does not repeatedly relabel the
     -- same fence edge as a vehicle and blacklist the wrong tile.
     local barrier, barrierKind = barrierBetween(fromSquare, toSquare)
-    if barrierKind == "door" or barrierKind == "fence" or barrierKind == "stairs" then
+    if barrierKind == "open" and (squareHasSlope(fromSquare) or squareHasSlope(toSquare)) then
+        barrierKind = "slope"
+    end
+    if barrierKind == "door" or barrierKind == "fence" or barrierKind == "stairs"
+        or barrierKind == "slope" then
         return { type = barrierKind, object = barrier, square = toSquare or fromSquare }
     end
     local collided, ok = utility.call(actor, "isCollidedWithVehicle")
@@ -3543,7 +3597,8 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
     if thumpable then return { type = thumpableKind, object = thumpable, square = toSquare } end
     local moving, movingKind = utility.movingBlocker(toSquare, actor)
     if moving then return { type = movingKind, object = moving, square = toSquare, dynamic = true } end
-    if squareHasStairs(fromSquare) or squareHasStairs(toSquare) then
+    if squareHasStairs(fromSquare) or squareHasStairs(toSquare)
+        or squareHasSlope(fromSquare) or squareHasSlope(toSquare) then
         return { type = "stairs_or_slope", square = toSquare }
     end
     local reason = string.lower(tostring(movementReason or ""))
@@ -3567,13 +3622,13 @@ local function addBlockerEvidence(blocker)
     local blockAll = blockAllOk and blockAllValue == true
     if kind == "actor_state" then
         blocker.evidenceClass, blocker.confidence = "actor_state", "high"
-    elseif kind == "vehicle" or kind == "moved_object"
+    elseif kind == "vehicle" or kind == "moved_object" or kind == "pushable_object"
         or kind == "player" or kind == "companion" or kind == "zombie" then
         blocker.evidenceClass, blocker.confidence = "dynamic_square", "high"
     elseif kind == "full_square_thumpable" or kind == "full_square_object"
         or (kind == "thumpable" and blockAll) then
         blocker.evidenceClass, blocker.confidence = "static_square", "high"
-    elseif kind == "door" or kind == "fence" or kind == "stairs"
+    elseif kind == "door" or kind == "fence" or kind == "stairs" or kind == "slope"
         or kind == "stairs_or_slope" or kind == "thumpable"
         or kind == "vegetation" then
         blocker.evidenceClass, blocker.confidence = "static_edge", "high"
@@ -4029,6 +4084,42 @@ local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
         requestIntent, now, service, token)
     if not differentFloor(sourceSquare, goalSquare) then return nil end
     local utility = U()
+    -- PathFindBehavior2 can route toward stairs, but the stock sheet-rope
+    -- transition is a character action rather than an ordinary path edge. If
+    -- the companion is already standing on a valid rope square, hand the whole
+    -- vertical move to the same native climb state a player uses.
+    if SC.Topology and type(SC.Topology.squareHasSheetRope) == "function"
+        and SC.Topology.squareHasSheetRope(sourceSquare) then
+        local _, _, sourceZ = utility.position(sourceSquare)
+        local _, _, goalZ = utility.position(goalSquare)
+        local down = tonumber(goalZ) < tonumber(sourceZ)
+        local check = down and "canClimbDownSheetRope" or "canClimbSheetRope"
+        local climbable, checked = utility.call(actor, check, sourceSquare)
+        if checked and climbable == true then
+            releaseStep(state, actor)
+            releaseChoke(state, actor)
+            state.path = nil
+            state.pathGoalSquare = nil
+            state.pathSearch = nil
+            state.pathIndex = 1
+            state.pathReason = "native_sheet_rope"
+            requestIntent.action = down and "climb_down_sheet_rope" or "climb_sheet_rope"
+            requestIntent.targetSquare = goalSquare
+            requestIntent.nextSquare = goalSquare
+            requestIntent.nativeAffordance = "sheet_rope"
+            requestIntent.mode = "walk"
+            requestIntent.weaponReady = false
+            state.lastAttemptFrom, state.lastAttemptTo = sourceSquare, sourceSquare
+            local moved, movementReason = utility.move(actor, "walk", requestIntent)
+            state.lastMovementReason = movementReason
+            if moved then
+                state.lastProgressAt = now
+                return true, true, down and "sheet_rope_descent"
+                    or "sheet_rope_climb"
+            end
+            return true, false, movementReason or "sheet_rope_action_rejected"
+        end
+    end
     -- The native engine, also used by zombies' PathFindState, knows the actual
     -- oriented multi-tile stair geometry. The bounded Lua planner deliberately
     -- stays two-dimensional here: synthetic z edges selected false landings and
@@ -4303,6 +4394,10 @@ function Navigation.request(actor, target, movementMode, intent)
             now = now,
             vegetationScale = requestIntent.urgent == true
                 and (utility.config("navigationEmergencyVegetationScale") or 0.2) or 1,
+            -- Ordinary travel never enters active fire or a live trap. A
+            -- survival-critical route may do so only at a deliberately large
+            -- cost when topology finds no safe alternative.
+            allowHazards = requestIntent.urgent == true,
         }
         if requestIntent.stealthAvoidance then
             pathOptions.stealthAvoidance = true
@@ -4513,6 +4608,10 @@ function Navigation.request(actor, target, movementMode, intent)
     end
 
     local barrier, kind = barrierBetween(sourceSquare, nextSquare)
+    if kind == "open" then
+        local edge = SC.Navigation.edgeAffordance(sourceSquare, nextSquare)
+        if edge and edge.kind == "slope" then kind = "slope" end
+    end
     if kind == "diagonal" then
         local diagonal = SC.Topology and type(SC.Topology.classifyEdge) == "function"
             and SC.Topology.classifyEdge(actor, sourceSquare, nextSquare, {
@@ -4520,6 +4619,7 @@ function Navigation.request(actor, target, movementMode, intent)
                 blockedSquares = state.blockedSquares,
                 routeMemory = state.routeMemory,
                 now = now,
+                allowHazards = requestIntent.urgent == true,
             }) or nil
         if not diagonal or diagonal.traversable ~= true
             or diagonal.affordance ~= "diagonal_open" then
@@ -4692,7 +4792,7 @@ function Navigation.request(actor, target, movementMode, intent)
         requestIntent.vehicleClearance = squareNearVehicle(sourceSquare)
             or squareNearVehicle(nextSquare)
     end
-    if kind == "door" or kind == "stairs" or kind == "fence" then
+    if kind == "door" or kind == "stairs" or kind == "slope" or kind == "fence" then
         -- Once Lua has approved the affordance and any explicit door action,
         -- let PathFindBehavior2 own the complete collision capsule transition.
         -- Reclaiming it as a one-tile MoveForward step is what caused doorway,

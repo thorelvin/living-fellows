@@ -28,6 +28,7 @@ local interactionActions = {
     smash_window = true, remove_glass = true, climb_window = true,
     climb_window_emergency = true, open_curtain = true, close_curtain = true,
     climb_fence = true, climb_wall = true,
+    climb_sheet_rope = true, climb_down_sheet_rope = true,
     board_vehicle = true, exit_vehicle = true,
     downed = true, recover_from_downed = true,
 }
@@ -149,6 +150,7 @@ local function escapeConstraint(intent)
     if affordance == "stairs" or intent.tacticalStair == true then return "stairs" end
     if affordance == "door" then return "doorway" end
     if affordance == "fence" then return "fence_transition" end
+    if affordance == "sheet_rope" then return "sheet_rope_transition" end
     if intent.tacticalRetreat == true then return "controlled_retreat_footwork" end
     return nil
 end

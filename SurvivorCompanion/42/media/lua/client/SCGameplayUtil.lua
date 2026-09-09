@@ -464,6 +464,12 @@ function U.squareStaticBlocker(square)
     if vehicleOk and vehicle ~= nil then return vehicle, "vehicle" end
     local solid, solidOk = U.call(square, "isSolid")
     if solidOk and solid then return square, "solid_square" end
+    -- Glass walls and several modded collision tiles report transparent-solid
+    -- without also reporting ordinary solid.  They are just as impassable to a
+    -- player capsule and must not be left for the native mover to discover at
+    -- the end of an otherwise-valid Lua route.
+    local solidTrans, solidTransOk = U.call(square, "isSolidTrans")
+    if solidTransOk and solidTrans then return square, "solid_transparent" end
     local found, kind
     U.squareObjects(square, function(object)
         local moved, movedOk = U.call(object, "isMovedThumpable")
@@ -495,7 +501,14 @@ end
 function U.movingBlocker(square, actor)
     local found, kind
     U.squareMovingObjects(square, function(other)
-        if other ~= actor and not U.isDead(other) then
+        if other ~= actor and U.instanceOf(other, "IsoPushableObject") then
+            -- Wheelie bins and legacy pushables live in getMovingObjects(), not
+            -- the square's IsoObject list. Companions have no authoritative
+            -- player push action, so planning through them only creates a
+            -- collision/replan loop.
+            found, kind = other, "pushable_object"
+            return false
+        elseif other ~= actor and not U.isDead(other) then
             found = other
             if U.isZombie(other) then kind = "zombie_crowd"
             elseif U.isCompanion(other) then kind = "companion_crowd"

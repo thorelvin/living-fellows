@@ -55,7 +55,11 @@ Fluid = {
     Water = { name = "Water" },
     TaintedWater = { name = "TaintedWater" },
 }
-IsoFlagType = { canBeCut = { name = "canBeCut" } }
+IsoFlagType = {
+    canBeCut = { name = "canBeCut" },
+    water = { name = "water" },
+    burning = { name = "burning" },
+}
 IsoDirections = { N = "N", S = "S", E = "E", W = "W" }
 
 local function item(itemType, category, options)
@@ -129,6 +133,7 @@ local function item(itemType, category, options)
     function value:setDirtiness(amount) self.dirtiness = amount end
     function value:setWetness(amount) self.wetness = amount end
     function value:getUses() return self.uses end
+    function value:getKeyId() return self.keyId or -1 end
     function value:getActualWeight() return self.weight or 1 end
     function value:getWeight() return self.weight or 1 end
     function value:getHungerChange() return self.hungerChange or 0 end
@@ -196,6 +201,14 @@ local function inventory(initial)
     function value:getEffectiveCapacity(character) return self.capacity end
     function value:getMaxWeight() return self.capacity end
     function value:getCapacity() return self.capacity end
+    function value:haveThisKeyId(keyId)
+        for _, candidate in ipairs(self.items) do
+            if type(candidate.getKeyId) == "function" and candidate:getKeyId() == keyId then
+                return candidate
+            end
+        end
+        return nil
+    end
     return value
 end
 
@@ -262,8 +275,8 @@ local function makeSquare(x, y, z)
     function value:getZ() return self.z end
     function value:isFree() return not self.solid end
     function value:isSolid() return self.solid == true end
-    function value:isSolidTrans() return false end
-    function value:TreatAsSolidFloor() return true end
+    function value:isSolidTrans() return self.solidTrans == true end
+    function value:TreatAsSolidFloor() return self.hasFloor ~= false end
     function value:isSafeToSpawn() return self.spawnUnsafe ~= true end
     function value:getChunk() return self.chunk or {} end
     function value:getCell() return cell end
@@ -272,6 +285,14 @@ local function makeSquare(x, y, z)
     function value:getObjects() return self.objects end
     function value:getSpecialObjects() return self.specialObjects end
     function value:getVehicleContainer() return self.vehicleContainer end
+    function value:getFire() return self.fire end
+    function value:getBrokenGlass() return self.brokenGlass end
+    function value:getSheetRope() return self.sheetRope end
+    function value:hasSlopedSurface() return self.sloped == true end
+    function value:has(flag)
+        local key = type(flag) == "table" and flag.name or tostring(flag)
+        return self.flags and self.flags[key] == true or false
+    end
     function value:AddWorldInventoryItem(added, xOffset, yOffset, zOffset, transmit)
         local worldItem = { item = added, square = self, xOffset = xOffset, yOffset = yOffset,
             zOffset = zOffset }
@@ -282,7 +303,11 @@ local function makeSquare(x, y, z)
     function value:isDoorTo(other) return false end
     function value:getDoorTo(other) return nil end
     function value:isWindowTo(other) return false end
+    function value:getWindowTo(other) return nil end
+    function value:getWindowThumpableTo(other) return nil end
+    function value:getWindowFrameTo(other) return nil end
     function value:isHoppableTo(other) return false end
+    function value:getHoppableThumpableTo(other) return nil end
     function value:getHoppableTo(other) return nil end
     function value:getWallHoppableTo(other) return nil end
     function value:getDoor(north) return nil end
@@ -382,6 +407,21 @@ local function actor(id, x, y, options)
         self.climbKind = "wall"
         return true
     end
+    function value:canClimbSheetRope(square)
+        return square == self.square and self.rejectSheetRopeClimb ~= true
+    end
+    function value:canClimbDownSheetRope(square)
+        return square == self.square and self.rejectSheetRopeDescent ~= true
+    end
+    function value:climbSheetRope()
+        self.climbing = true
+        self.climbKind = "sheet_rope_up"
+    end
+    function value:climbDownSheetRope()
+        self.climbing = true
+        self.climbKind = "sheet_rope_down"
+    end
+    function value:isClimbingRope() return self.climbing == true end
     function value:cancelCompanionStuckClimb()
         if self.rejectClimbCancel then return false end
         self.climbing = false
@@ -1902,12 +1942,19 @@ check(fenceAccepted and fenceActor.lastIntent
 lowFence.tall = true
 SurvivorCompanion.Navigation.reset(fenceActor)
 fenceActor.lastIntent = nil
-local wallAccepted = SurvivorCompanion.Navigation.request(
-    fenceActor, fenceTo, "walk", { action = "follow_formation", followRecovery = true,
-        snapshot = { allies = {} } })
+local wallAccepted, wallReason = SurvivorCompanion.Navigation._handleFenceForRequest(
+    fenceActor, lowFence, fenceFrom, fenceTo, { action = "follow_formation" })
 check(wallAccepted and fenceActor.lastIntent
         and fenceActor.lastIntent.action == "climb_wall",
-    "a tall hoppable wall selects the native player wall-climb action")
+    "a tall hoppable wall selects the native player wall-climb action: "
+        .. tostring(wallReason) .. "/"
+        .. tostring(fenceActor.lastIntent and fenceActor.lastIntent.action))
+fenceActor.rejectWallClimb = true
+local rejectedWall = SurvivorCompanion.Topology.classifyEdge(
+    fenceActor, fenceFrom, fenceTo, {})
+check(rejectedWall.traversable == false and rejectedWall.reason == "wall_not_climbable",
+    "a tall wall is rejected when the stock character climb check says it is unsafe")
+fenceActor.rejectWallClimb = nil
 SurvivorCompanion.Navigation.reset(fenceActor)
 registry[fenceActor.id] = nil
 for index = #fenceActor.square.moving, 1, -1 do
@@ -2662,6 +2709,21 @@ check(basementAccepted and basementReason == "multi_level_path"
         and basementActor.lastIntent.targetSquare == basementGoal
         and SurvivorCompanion.Navigation.peek(basementActor).nativeLease.affordance == "multi_level",
     "a loaded basement destination uses the same native 3D path contract as an upper floor or attic")
+
+local ropeSquare = cell:getGridSquare(9, 7, 0)
+ropeSquare.sheetRope = {}
+local ropeActor = actor("sc-sheet-rope", 9, 7, {})
+local ropeGoal = cell:getGridSquare(9, 7, 1)
+registry[ropeActor.id] = ropeActor
+local ropeAccepted, ropeReason = SurvivorCompanion.Navigation.request(
+    ropeActor, ropeGoal, "walk", { action = "move_to" })
+check(ropeAccepted and ropeReason == "sheet_rope_climb"
+        and ropeActor.lastIntent.action == "climb_sheet_rope"
+        and ropeActor.lastIntent.nativeAffordance == "sheet_rope",
+    "a companion already at a sheet rope uses the stock player climb transition")
+SurvivorCompanion.Navigation.reset(ropeActor)
+registry[ropeActor.id] = nil
+ropeSquare.sheetRope = nil
 SurvivorCompanion.Navigation.reset(upperFloorActor)
 SurvivorCompanion.Navigation.reset(basementActor)
 registry[upperFloorActor.id], registry[basementActor.id] = nil, nil
@@ -3360,6 +3422,111 @@ function doorTo:getDoor(north) if north == false then return testDoor end end
             and crossedLockedDoor == false and diagonal.reason == "diagonal_corner",
         "escape topology blocks locked doors and diagonal corner cutting")
     testDoor.locked = false
+end)()
+;(function()
+    local seen = {}
+    for _, obstacle in ipairs(SurvivorCompanion.Topology.OBSTACLE_CATALOG) do
+        check(type(obstacle.id) == "string" and not seen[obstacle.id],
+            "the pathing obstacle catalogue has stable unique identifiers")
+        seen[obstacle.id] = true
+    end
+    check(SurvivorCompanion.Topology.obstacleTypeCount() == 38,
+        "Build 42 pathing coverage catalogues all 38 collision conditions")
+
+    local transparentFrom = cell:getGridSquare(20, 9, 0)
+    local transparentTo = cell:getGridSquare(21, 9, 0)
+    transparentTo.solidTrans = true
+    local transparentEdge = SurvivorCompanion.Topology.classifyEdge(
+        fellow, transparentFrom, transparentTo, {})
+    check(transparentEdge.traversable == false
+            and transparentEdge.reason == "square_blocked",
+        "transparent-solid glass and mod tiles are rejected before native collision")
+    transparentTo.solidTrans = nil
+
+    local concreteFrom = cell:getGridSquare(22, 9, 0)
+    local concreteTo = cell:getGridSquare(23, 9, 0)
+    local concreteWindow = { canClimbThrough = function() return true end }
+    function concreteFrom:getWindowTo(other)
+        return other == concreteTo and concreteWindow or nil
+    end
+    local object, kind = SurvivorCompanion.Topology.barrierBetween(concreteFrom, concreteTo)
+    local concreteEdge = SurvivorCompanion.Topology.classifyEdge(
+        fellow, concreteFrom, concreteTo, {})
+    check(object == concreteWindow and kind == "window"
+            and concreteEdge.traversable == true and concreteEdge.requiresNative == true,
+        "concrete window getters detect opened and modded windows after collision flags clear")
+
+    local keyedActor = actor("sc-keyed-door", 0, 2, {
+        inventory = inventory({ item("Base.Key1", "Key", { keyId = 4102 }) }),
+    })
+    function testDoor:getKeyId() return 4102 end
+    testDoor.locked = true
+    local keyedEdge = SurvivorCompanion.Topology.classifyEdge(
+        keyedActor, doorFrom, doorTo, {})
+    check(keyedEdge.traversable == true and keyedEdge.requiresNative == true,
+        "a key-locked door is planned only when the companion carries its real key id")
+    testDoor.locked = false
+    testDoor.getKeyId = nil
+    for index = #keyedActor.square.moving, 1, -1 do
+        if keyedActor.square.moving[index] == keyedActor then
+            table.remove(keyedActor.square.moving, index)
+        end
+    end
+
+    local slopeFrom = cell:getGridSquare(24, 9, 0)
+    local slopeTo = cell:getGridSquare(25, 9, 0)
+    slopeTo.sloped = true
+    local slopeEdge = SurvivorCompanion.Topology.classifyEdge(
+        fellow, slopeFrom, slopeTo, {})
+    local slopeAffordance = SurvivorCompanion.Navigation.edgeAffordance(slopeFrom, slopeTo)
+    check(slopeEdge.traversable == true and slopeEdge.affordance == "slope"
+            and slopeEdge.requiresNative == true
+            and slopeAffordance and slopeAffordance.kind == "slope",
+        "sloped surfaces retain a native transition through planning and execution")
+
+    local hazardFrom = cell:getGridSquare(26, 9, 0)
+    local waterTo = cell:getGridSquare(27, 9, 0)
+    waterTo.flags = { water = true }
+    local waterEdge = SurvivorCompanion.Topology.classifyEdge(
+        fellow, hazardFrom, waterTo, {})
+    check(waterEdge.traversable == false and waterEdge.reason == "water_terrain",
+        "water is never accepted as ordinary foot terrain")
+    waterTo.flags = nil
+    waterTo.fire = {}
+    local safeFireEdge = SurvivorCompanion.Topology.classifyEdge(
+        fellow, hazardFrom, waterTo, {})
+    local emergencyFireEdge = SurvivorCompanion.Topology.classifyEdge(
+        fellow, hazardFrom, waterTo, { allowHazards = true })
+    check(safeFireEdge.traversable == false and safeFireEdge.reason == "fire_hazard"
+            and emergencyFireEdge.traversable == true and emergencyFireEdge.cost >= 81,
+        "fire is excluded from normal routes and heavily penalized during emergency escape")
+    waterTo.fire = nil
+    local liveTrap = { __class = "IsoTrap" }
+    waterTo.objects[#waterTo.objects + 1] = liveTrap
+    local safeTrapEdge = SurvivorCompanion.Topology.classifyEdge(
+        fellow, hazardFrom, waterTo, {})
+    local emergencyTrapEdge = SurvivorCompanion.Topology.classifyEdge(
+        fellow, hazardFrom, waterTo, { allowHazards = true })
+    check(safeTrapEdge.traversable == false
+            and safeTrapEdge.reason == "explosive_trap_hazard"
+            and emergencyTrapEdge.traversable == true and emergencyTrapEdge.cost >= 61,
+        "live traps are avoided normally and receive an emergency-only path penalty")
+    table.remove(waterTo.objects)
+    waterTo.brokenGlass = {}
+    local glassEdge = SurvivorCompanion.Topology.classifyEdge(
+        fellow, hazardFrom, waterTo, {})
+    check(glassEdge.traversable == true and glassEdge.cost >= 9,
+        "broken glass remains passable but costs enough for A-star to prefer a safe detour")
+    waterTo.brokenGlass = nil
+
+    local pushable = { __class = "IsoPushableObject" }
+    waterTo.moving[#waterTo.moving + 1] = pushable
+    local pushablePassable, _, pushableReason =
+        SurvivorCompanion.Navigation._passableEdgeForTests(
+            hazardFrom, waterTo, 1, { actor = fellow })
+    check(pushablePassable == false and pushableReason == "pushable_object",
+        "bins and other IsoPushableObjects are detoured instead of causing collision loops")
+    table.remove(waterTo.moving)
 end)()
 ;(function()
     local windowFrom = cell:getGridSquare(8, 7, 0)

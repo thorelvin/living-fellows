@@ -7,6 +7,56 @@ if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGa
 SC.Topology = SC.Topology or {}
 local Topology = SC.Topology
 
+-- Build 42.20.4 exposes many sprites, but they reduce to this finite set of
+-- pathing conditions at the player-collision boundary.  Keeping the catalogue
+-- next to the classifier makes additions auditable instead of accumulating as
+-- unrelated stuck-recovery exceptions.  "native" means that Lua may choose the
+-- edge, while the stock player/path state owns its animation and collision.
+Topology.OBSTACLE_CATALOG = {
+    { id = "unloaded_square", passage = "wait_for_chunk" },
+    { id = "missing_floor", passage = "blocked" },
+    { id = "solid_square", passage = "blocked" },
+    { id = "solid_transparent", passage = "blocked" },
+    { id = "cardinal_wall", passage = "blocked" },
+    { id = "diagonal_corner", passage = "cardinal_detour" },
+    { id = "open_door_or_gate", passage = "native" },
+    { id = "closed_unlocked_door_or_gate", passage = "open_then_native" },
+    { id = "key_locked_door_or_gate", passage = "unlock_then_native" },
+    { id = "other_locked_door_or_gate", passage = "detour" },
+    { id = "barricaded_door_or_gate", passage = "detour" },
+    { id = "obstructed_door_or_gate", passage = "detour" },
+    { id = "open_window", passage = "native_climb" },
+    { id = "closed_unlocked_window", passage = "open_then_native_climb" },
+    { id = "locked_window", passage = "smash_clear_climb" },
+    { id = "smashed_window_with_glass", passage = "clear_then_native_climb" },
+    { id = "smashed_window_clear", passage = "native_climb" },
+    { id = "barricaded_window", passage = "detour" },
+    { id = "invincible_window", passage = "detour" },
+    { id = "empty_window_frame", passage = "native_climb" },
+    { id = "low_fence", passage = "native_vault" },
+    { id = "tall_hoppable_wall", passage = "native_climb_if_capable" },
+    { id = "non_hoppable_wall_or_fence", passage = "detour" },
+    { id = "stairs", passage = "native" },
+    { id = "sloped_surface", passage = "native" },
+    { id = "sheet_rope", passage = "native_climb" },
+    { id = "water", passage = "blocked" },
+    { id = "fire", passage = "avoid_or_emergency" },
+    { id = "broken_glass", passage = "costly" },
+    { id = "explosive_trap", passage = "avoid_or_emergency" },
+    { id = "tree", passage = "costly" },
+    { id = "bush", passage = "costly" },
+    { id = "vehicle", passage = "detour_polygon" },
+    { id = "full_square_object", passage = "detour" },
+    { id = "thumpable_construction", passage = "detour" },
+    { id = "pushable_object", passage = "detour" },
+    { id = "living_actor", passage = "yield_or_detour" },
+    { id = "safehouse_boundary", passage = "policy_block" },
+}
+
+function Topology.obstacleTypeCount()
+    return #Topology.OBSTACLE_CATALOG
+end
+
 local function U()
     return SC.GameplayUtil
 end
@@ -22,12 +72,101 @@ local function callBoolean(value, methodName, ...)
     return ok and result == true
 end
 
+local function enumValue(enumName, key)
+    local root = type(_G) == "table" and rawget(_G, enumName) or nil
+    if root == nil then return nil end
+    local ok, value = pcall(function() return root[key] end)
+    return ok and value or nil
+end
+
+local function squareHasFlag(square, flagName)
+    if square == nil then return false end
+    local flag = enumValue("IsoFlagType", flagName)
+    if flag ~= nil then
+        local value, ok = U().call(square, "has", flag)
+        if ok then return value == true end
+        local properties, propertiesOk = U().call(square, "getProperties")
+        if propertiesOk and properties ~= nil then
+            value, ok = U().call(properties, "has", flag)
+            if ok then return value == true end
+        end
+    end
+    local value, ok = U().call(square, "has", flagName)
+    return ok and value == true
+end
+
+local function floorHasFlag(square, flagName)
+    if square == nil then return false end
+    local floor, floorOk = U().call(square, "getFloor")
+    local flag = enumValue("IsoFlagType", flagName)
+    if floorOk and floor ~= nil and flag ~= nil then
+        local value, ok = U().call(floor, "hasProperty", flag)
+        if ok then return value == true end
+        local properties, propertiesOk = U().call(floor, "getProperties")
+        if propertiesOk and properties ~= nil then
+            value, ok = U().call(properties, "has", flag)
+            if ok then return value == true end
+        end
+    end
+    -- Headless fixtures and older/custom squares may expose only the aggregate
+    -- flag. Production prefers the floor object above so a bridge built over
+    -- water is not confused with the water tile it covers.
+    return not floorOk and squareHasFlag(square, flagName)
+end
+
+function Topology.squareIsWater(square)
+    return floorHasFlag(square, "water")
+end
+
+function Topology.squareHasSlope(square)
+    return callBoolean(square, "hasSlopedSurface")
+end
+
+function Topology.squareHasSheetRope(square)
+    if square == nil then return false end
+    local rope, ok = U().call(square, "getSheetRope")
+    if ok then return rope ~= nil end
+    if type(square) == "table" then return square.haveSheetRope == true end
+    return false
+end
+
+function Topology.squareHazards(square)
+    local hazards = {}
+    if square == nil then return hazards end
+    if squareHasFlag(square, "burning") then hazards.fire = true end
+    local fire, fireOk = U().call(square, "getFire")
+    if fireOk and fire ~= nil then hazards.fire = true end
+    local glass, glassOk = U().call(square, "getBrokenGlass")
+    if glassOk and glass ~= nil then hazards.brokenGlass = true end
+    U().squareObjects(square, function(object)
+        if U().instanceOf(object, "IsoFire") then hazards.fire = true
+        elseif U().instanceOf(object, "IsoBrokenGlass") then hazards.brokenGlass = true
+        elseif U().instanceOf(object, "IsoTrap") then hazards.explosiveTrap = true end
+    end, 64)
+    return hazards
+end
+
 function Topology.objectOpen(object)
     if object == nil then return false end
+    if callBoolean(object, "isDestroyed") then return true end
     local value, ok = U().call(object, "IsOpen")
     if ok then return value == true end
     value, ok = U().call(object, "isOpen")
     return ok and value == true
+end
+
+function Topology.actorCanUnlock(actor, object)
+    if actor == nil or object == nil then return false end
+    if callBoolean(object, "isPermaLocked") or callBoolean(object, "isLockedByCode") then
+        return false
+    end
+    local code, codeOk = U().call(object, "getLockedByCode")
+    if codeOk and type(code) == "number" and code > 0 then return false end
+    local keyId, keyOk = U().call(object, "getKeyId")
+    if not keyOk or type(keyId) ~= "number" or keyId < 0 then return false end
+    local inventory = U().inventory(actor)
+    local key, hasKey = U().call(inventory, "haveThisKeyId", keyId)
+    return hasKey and key ~= nil and key ~= false
 end
 
 function Topology.objectLocked(object)
@@ -107,6 +246,23 @@ function Topology.squareHasStairs(square)
     return found
 end
 
+function Topology.squareHasLevelTransition(square)
+    return Topology.squareHasStairs(square) or Topology.squareHasSlope(square)
+        or Topology.squareHasSheetRope(square)
+end
+
+local function cardinalDirection(fromSquare, toSquare)
+    local fx, fy = floorPosition(fromSquare)
+    local tx, ty = floorPosition(toSquare)
+    if fx == nil or tx == nil then return nil end
+    local key
+    if tx > fx and ty == fy then key = "E"
+    elseif tx < fx and ty == fy then key = "W"
+    elseif ty > fy and tx == fx then key = "S"
+    elseif ty < fy and tx == fx then key = "N" end
+    return key and enumValue("IsoDirections", key) or nil
+end
+
 local function edgeOwner(fromSquare, toSquare)
     local fx, fy = floorPosition(fromSquare)
     local tx, ty = floorPosition(toSquare)
@@ -138,6 +294,15 @@ function Topology.barrierBetween(fromSquare, toSquare)
     local owner, north = edgeOwner(fromSquare, toSquare)
     if owner == nil then return nil, "invalid" end
 
+    -- Concrete edge getters remain authoritative for opened/modded objects even
+    -- when their collision-only predicates have already gone false.
+    local window, windowOk = U().call(fromSquare, "getWindowTo", toSquare)
+    if windowOk and window ~= nil then return window, "window" end
+    window, windowOk = U().call(fromSquare, "getWindowThumpableTo", toSquare)
+    if windowOk and window ~= nil then return window, "window" end
+    local frame, frameOk = U().call(fromSquare, "getWindowFrameTo", toSquare)
+    if frameOk and frame ~= nil then return frame, "window_frame" end
+
     -- getDoorTo() remains authoritative for an opened gate even when the
     -- collision-only isDoorTo() predicate has already gone false. Checking the
     -- concrete object first prevents an open gate from being mistaken for the
@@ -151,17 +316,20 @@ function Topology.barrierBetween(fromSquare, toSquare)
     end
     local windowTo, windowToOk = U().call(fromSquare, "isWindowTo", toSquare)
     if windowToOk and windowTo == true then
-        local window, windowOk = U().call(owner, "getWindow", north)
+        window, windowOk = U().call(owner, "getWindow", north)
         if windowOk and window ~= nil then return window, "window" end
         window, windowOk = U().call(owner, "getThumpableWindow", north)
         if windowOk and window ~= nil then return window, "window" end
-        local frame, frameOk = U().call(owner, "getWindowFrame", north)
+        frame, frameOk = U().call(owner, "getWindowFrame", north)
         if frameOk and frame ~= nil then return frame, "window_frame" end
         return nil, "window"
     end
     local hoppable, hopOk = U().call(fromSquare, "isHoppableTo", toSquare)
     if hopOk and hoppable == true then
-        local fence, fenceOk = U().call(fromSquare, "getHoppableTo", toSquare)
+        local fence, fenceOk = U().call(fromSquare, "getHoppableThumpableTo", toSquare)
+        if not fenceOk or fence == nil then
+            fence, fenceOk = U().call(fromSquare, "getHoppableTo", toSquare)
+        end
         if not fenceOk or fence == nil then
             fence, fenceOk = U().call(fromSquare, "getWallHoppableTo", toSquare)
         end
@@ -235,17 +403,25 @@ function Topology.classifyEdge(actor, fromSquare, toSquare, options)
             { fromSquare, horizontal }, { horizontal, toSquare },
             { fromSquare, vertical }, { vertical, toSquare },
         }
+        local diagonalHazardCost = 0
+        local diagonalHazards = {}
         for _, leg in ipairs(legs) do
             local edge = Topology.classifyEdge(actor, leg[1], leg[2], options)
             if edge.traversable ~= true or edge.affordance ~= "open" then
                 result.affordance, result.reason = "diagonal", "diagonal_corner"
                 return result
             end
+            diagonalHazardCost = math.max(diagonalHazardCost,
+                math.max(0, (tonumber(edge.cost) or 1) - 1))
+            for hazard, present in pairs(edge.hazards or {}) do
+                if present == true then diagonalHazards[hazard] = true end
+            end
         end
         result.traversable = true
         result.affordance = "diagonal_open"
         result.reason = "traversable"
-        result.cost = math.sqrt(2)
+        result.cost = math.sqrt(2) + diagonalHazardCost
+        result.hazards = diagonalHazards
         result.static = true
         return result
     end
@@ -255,6 +431,33 @@ function Topology.classifyEdge(actor, fromSquare, toSquare, options)
         result.reason = result.affordance == "diagonal"
             and "diagonal_corner" or "same_square"
         return result
+    end
+    if Topology.squareIsWater(toSquare) then
+        result.affordance, result.reason = "water", "water_terrain"
+        return result
+    end
+    local hazards = Topology.squareHazards(toSquare)
+    result.hazards = hazards
+    local hazardCost = 0
+    if hazards.fire then
+        if options.allowHazards ~= true then
+            result.affordance, result.reason = "fire", "fire_hazard"
+            return result
+        end
+        hazardCost = hazardCost
+            + (tonumber(U().config("navigationFireEmergencyPenalty")) or 80)
+    end
+    if hazards.explosiveTrap then
+        if options.allowHazards ~= true then
+            result.affordance, result.reason = "trap", "explosive_trap_hazard"
+            return result
+        end
+        hazardCost = hazardCost
+            + (tonumber(U().config("navigationExplosiveTrapEmergencyPenalty")) or 60)
+    end
+    if hazards.brokenGlass then
+        hazardCost = hazardCost
+            + (tonumber(U().config("navigationBrokenGlassPenalty")) or 8)
     end
     local vehicle, vehicleOk = U().call(toSquare, "getVehicleContainer")
     if vehicleOk and vehicle ~= nil then
@@ -272,6 +475,8 @@ function Topology.classifyEdge(actor, fromSquare, toSquare, options)
     end
 
     local object, kind = Topology.barrierBetween(fromSquare, toSquare)
+    if kind == "open" and (Topology.squareHasSlope(fromSquare)
+        or Topology.squareHasSlope(toSquare)) then kind = "slope" end
     result.object, result.affordance = object, kind
     if kind == "invalid" or kind == "blocked" or kind == "diagonal" then
         result.reason = kind == "diagonal" and "diagonal_corner" or "blocked_edge"
@@ -298,7 +503,12 @@ function Topology.classifyEdge(actor, fromSquare, toSquare, options)
         if Topology.objectBarricaded(object) then
             result.reason = "door_barricaded" return result
         end
-        if Topology.objectLocked(object) and not Topology.objectOpen(object) then
+        local obstructed, obstructedOk = U().call(object, "isObstructed")
+        if obstructedOk and obstructed == true then
+            result.reason = "door_obstructed" return result
+        end
+        if Topology.objectLocked(object) and not Topology.objectOpen(object)
+            and not Topology.actorCanUnlock(actor, object) then
             result.reason = "door_locked" return result
         end
         result.cost = Topology.objectOpen(object) and 1 or 2.2
@@ -322,16 +532,29 @@ function Topology.classifyEdge(actor, fromSquare, toSquare, options)
         if not climbable then result.reason = "window_frame_blocked" return result end
         result.cost, result.requiresNative = 2.5, true
     elseif kind == "fence" then
-        result.cost, result.requiresNative = 2.5, true
+        local tall, tallOk = U().call(object, "isTallHoppable")
+        if tallOk and tall == true then
+            local direction = cardinalDirection(fromSquare, toSquare)
+            local climbable, climbOk = U().call(actor, "canClimbOverWall", direction)
+            if not climbOk then result.reason = "wall_climbability_unknown" return result end
+            if climbable ~= true then result.reason = "wall_not_climbable" return result end
+            result.cost = 4.5
+        else
+            result.cost = 2.5
+        end
+        result.requiresNative = true
     elseif kind == "stairs" then
         if not (Topology.squareHasStairs(fromSquare)
             or Topology.squareHasStairs(toSquare)) then
             result.reason = "stairs_not_confirmed" return result
         end
         result.cost, result.requiresNative = 3, true
+    elseif kind == "slope" then
+        result.cost, result.requiresNative = 2, true
     else
         result.cost = 1
     end
+    result.cost = result.cost + hazardCost
     result.traversable, result.reason = true, "traversable"
     result.static = not result.dynamic
     return result

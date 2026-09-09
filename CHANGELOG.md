@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.22.9 - Pathing obstacle coverage
+
+- Audited Project Zomboid 42.20.4's grid-square, character, door, window, thumpable, pushable, stair, slope, sheet-rope, hazard, and native path contracts and consolidated them into a documented catalogue of 38 collision conditions. Standard modded objects inherit the same treatment through their published collision and affordance APIs.
+- Expanded topology detection for transparent-solid tiles, concrete window/window-frame and hoppable-thumpable getters, obstructed doors, key-locked doors a companion can actually unlock, capability-checked tall walls, slopes, water, active fire, broken glass, explosive traps, and moving-list pushable objects. Follow slots and traffic yields no longer select water, fire, or live traps.
+- Routed stairs and slopes through native path ownership, added native player sheet-rope climb/descent when a companion reaches a valid rope square, and preserved perpendicular door/fence handling. Normal paths reject fire and traps; survival-critical routes may cross them only with a large penalty, while broken glass remains possible but costly.
+- Extended stuck evidence and square blacklisting so pushables and slopes are diagnosed as their real obstacle class instead of `unknown`. Added deterministic Kahlua coverage for the 38-entry catalogue and the newly supported obstacle states.
+
 ## 0.22.8 - Reliability playtest candidate
 
 - Closed the seven correctness findings from the latest external review. Hostile-faction targeting now consumes the registry's actor contract and works in both directions for bandits and hostile households; immediate attackers reserve perception capacity ahead of stale distant contacts; the bounded perception scan advances a persistent horizontal/vertical frontier so no phase tail is omitted; and one explicit relationship contract now separates party/faction allies, protected neutrals, and hostiles across combat support, rescue, and friendly-fire checks.

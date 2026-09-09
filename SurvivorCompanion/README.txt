@@ -1,4 +1,4 @@
-Living Fellows: Companion 0.22.8 reliability playtest candidate
+Living Fellows: Companion 0.22.9 pathing coverage playtest
 
 The included native bridge supplies SCNativeCompanion, an original IsoPlayer
 subclass that remains outside the local-player slots. Workshop installations
@@ -359,6 +359,12 @@ warning without producing squad chatter. A bounded adapter also presents only
 zombies already found by shared perception to the zombie's own spotted logic,
 so zombies acquire companions normally without global zombie scans, local-
 player registration, or stealing a materially closer player target.
+
+0.22.9 audits 38 Build 42.20.4 pathing conditions. Transparent-solid tiles,
+modded windows, hoppable constructions, keyed and obstructed doors, tall walls,
+slopes, water, fire, glass, traps and pushable objects now share one topology
+policy. Stairs/slopes stay native; companions at valid sheet ropes use the stock
+player climb; dangerous terrain is avoided except as a costly emergency route.
 
 0.22.8 makes actor actions, saves, lifecycle hooks, native cleanup and local
 installation explicit transactions. Failed actions retain reservations and
