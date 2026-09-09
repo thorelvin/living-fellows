@@ -58,7 +58,7 @@ SC.Runtime = {
 local required = {
     "Call", "StableValue", "Transaction", "NativeList", "Registry", "Vitals",
     "Scheduler", "NativeActions", "Performance", "ActionSupervisor", "Actor",
-    "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Topology", "PathSearch", "NavTraffic",
+    "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Topology", "PathSearch", "NavTraffic", "NavTraversal",
     "Background", "Dialogue", "Trade", "FactionLife",
     "FactionWorld", "FactionBehavior", "ZombieTargeting", "Locomotion", "Senses",
     "Navigation", "Positioning", "Combat", "Medical", "Logistics", "Needs", "Downtime",

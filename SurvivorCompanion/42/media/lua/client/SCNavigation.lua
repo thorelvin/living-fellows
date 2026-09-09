@@ -7,11 +7,11 @@ if not SC.Topology and type(require) == "function" then pcall(require, "SCTopolo
 if not SC.Performance and type(require) == "function" then pcall(require, "SCPerformance") end
 if not SC.PathSearch and type(require) == "function" then pcall(require, "SCPathSearch") end
 if not SC.NavTraffic and type(require) == "function" then pcall(require, "SCNavTraffic") end
+if not SC.NavTraversal and type(require) == "function" then pcall(require, "SCNavTraversal") end
 
 SC.Navigation = SC.Navigation or {}
 local Navigation = SC.Navigation
 local states = setmetatable({}, { __mode = "k" })
-local reservations = setmetatable({}, { __mode = "k" })
 local curtainTimes = setmetatable({}, { __mode = "k" })
 local squareEvidenceClasses = {
     static_square = true,
@@ -28,6 +28,10 @@ end
 
 local function T()
     return SC.NavTraffic
+end
+
+local function V()
+    return SC.NavTraversal
 end
 
 local function recordMovement(actor, kind, fields)
@@ -486,19 +490,11 @@ local function routeMemoryAdjustment(memory, fromSquare, toSquare, now)
 end
 
 local function reserve(object, actor, now)
-    if not object then return true end
-    local existing = reservations[object]
-    if existing and existing.actor ~= actor and existing.expires > now then return false end
-    reservations[object] = {
-        actor = actor,
-        expires = now + (U().config("navigationReservationMs") or 8000),
-    }
-    return true
+    return V().reserve(object, actor, now)
 end
 
 local function release(object, actor)
-    local existing = object and reservations[object]
-    if existing and existing.actor == actor then reservations[object] = nil end
+    return V().release(object, actor)
 end
 
 local function squareHasStairs(square)
@@ -1586,204 +1582,8 @@ local function threatArrivalMs(intent, square)
     return math.max(0, (nearest - 0.8) / 1.05 * 1000)
 end
 
-local function beginInteraction(actor, state, object, action, now, extra, executorOwned)
-    if not reserve(object, actor, now) then return false, "reserved" end
-    local pending = state.pendingInteraction
-    if not pending or pending.object ~= object or pending.action ~= action then
-        if executorOwned then
-            local movementIntent = U().copyShallow(extra)
-            movementIntent.action = action
-            movementIntent.object = object
-            movementIntent.interaction = true
-            movementIntent.targetSquare = U().squareOf(object)
-            movementIntent.direction = directionBetween(U().squareOf(actor), movementIntent.targetSquare)
-            if not U().move(actor, "walk", movementIntent) then
-                release(object, actor)
-                return false, "action_rejected"
-            end
-        end
-        pending = { object = object, action = action, startedAt = now, extra = extra }
-        state.pendingInteraction = pending
-        return true, "interacting"
-    end
-    return true, "pending"
-end
-
-local function completeDoorInteraction(actor, state, object, action, fromSquare, toSquare, now)
-    local utility = U()
-    local pending = state.pendingInteraction
-    if not pending or pending.object ~= object then return false, "missing_interaction" end
-    if action == "open_door" and not objectOpen(object) then
-        local result, toggled = utility.call(object, "ToggleDoor", actor)
-        if not toggled or result == false or not objectOpen(object) then return false, "door_open_failed" end
-    elseif action == "close_door" and objectOpen(object) then
-        local result, toggled = utility.call(object, "ToggleDoor", actor)
-        if not toggled or result == false or objectOpen(object) then return false, "door_close_failed" end
-    end
-    if action == "open_door" then
-        state.openedDoors[#state.openedDoors + 1] = {
-            object = object,
-            fromSquare = fromSquare,
-            toSquare = toSquare,
-            openedAt = now,
-            expires = now + (utility.config("navigationReservationMs") or 8000),
-            passageKey = T().actorPassageKey(actor, state),
-        }
-    else
-        release(object, actor)
-    end
-    state.pendingInteraction = nil
-    return true, "done"
-end
-
-local function handleDoor(actor, state, door, fromSquare, toSquare, now)
-    if objectOpen(door) then return true end
-    local obstructed, obstructedOk = U().call(door, "isObstructed")
-    if obstructedOk and obstructed == true then return false, "obstructed_door" end
-    if objectLocked(door) and not actorCanUnlock(actor, door) then
-        return false, "locked_door"
-    end
-    local ok, status = beginInteraction(actor, state, door, "open_door", now, {
-        fromSquare = fromSquare, toSquare = toSquare,
-    }, false)
-    if not ok then return false, status end
-    local complete, completeStatus = completeDoorInteraction(actor, state, door, "open_door", fromSquare, toSquare, now)
-    if not complete then return false, completeStatus end
-    if completeStatus ~= "done" then return nil, completeStatus end
-    return true
-end
-
-local function completeWindowAction(actor, state, window, action, now)
-    local utility = U()
-    local pending = state.pendingInteraction
-    if not pending or pending.object ~= window then return false, "missing_interaction" end
-    local delays = {
-        open_window = utility.config("windowOpenMs") or 1300,
-        smash_window = utility.config("windowSmashMs") or 900,
-        remove_glass = utility.config("windowGlassRemovalMs") or 1400,
-    }
-    if now - pending.startedAt < (delays[action] or 500) then return nil, "interacting" end
-    if action == "open_window" and not objectOpen(window) then
-        utility.call(actor, "openWindow", window)
-        if not objectOpen(window) then
-            local _, toggled = utility.call(window, "ToggleWindow", actor)
-            if not toggled or not objectOpen(window) then
-                return false, "window_open_failed"
-            end
-        end
-    elseif action == "smash_window" and not windowSmashed(window) then
-        utility.call(actor, "smashWindow", window)
-        if not windowSmashed(window) then
-            local _, direct = utility.call(window, "smashWindow", false, false)
-            if not direct or not windowSmashed(window) then
-                return false, "window_smash_failed"
-            end
-        end
-    elseif action == "remove_glass" and windowSmashed(window) and not windowGlassRemoved(window) then
-        local _, removed = utility.call(window, "removeBrokenGlass")
-        if not removed or not windowGlassRemoved(window) then
-            return false, "glass_removal_failed"
-        end
-    end
-    state.pendingInteraction = nil
-    return true, "done"
-end
-
-local function handleWindow(actor, state, window, fromSquare, toSquare, now, intent)
-    local utility = U()
-    if objectBarricaded(window) then return false, "barricaded_window" end
-    if windowInvincible(window) and not objectOpen(window) then return false, "invincible_window" end
-    local arrival = threatArrivalMs(intent, fromSquare)
-    local action
-    if objectOpen(window) then
-        action = "climb_window"
-    elseif windowSmashed(window) then
-        if windowGlassRemoved(window) then
-            action = "climb_window"
-        elseif arrival > (utility.config("windowGlassRemovalMs") or 1400) + (utility.config("windowClimbMs") or 1300) then
-            action = "remove_glass"
-        else
-            action = "climb_window_emergency"
-        end
-    elseif not objectLocked(window)
-        and arrival > (utility.config("windowOpenMs") or 1300) + (utility.config("windowClimbMs") or 1300) then
-        action = "open_window"
-    else
-        -- An intact window is never a climb target. Even under pressure it
-        -- must first be opened or smashed; Build 42 then validates the frame.
-        action = "smash_window"
-    end
-
-    if action == "climb_window" or action == "climb_window_emergency" then
-        if not canClimbThrough(window, actor) and action ~= "climb_window_emergency" then
-            return false, "unsafe_window_frame"
-        end
-        if not reserve(window, actor, now) then return false, "reserved" end
-        local accepted = utility.move(actor, intent and intent.mode or "walk", {
-            action = action,
-            object = window,
-            fromSquare = fromSquare,
-            toSquare = toSquare,
-            nextSquare = toSquare,
-            targetSquare = toSquare,
-            direction = directionBetween(fromSquare, toSquare),
-            acceptsInjury = action == "climb_window_emergency",
-            supervisorToken = intent and intent.supervisorToken,
-        })
-        if not accepted then
-            release(window, actor)
-            return false, "action_rejected"
-        end
-        return nil, "climbing"
-    end
-
-    local ok, status = beginInteraction(actor, state, window, action, now, {
-        fromSquare = fromSquare, toSquare = toSquare,
-        supervisorToken = intent and intent.supervisorToken,
-    }, true)
-    if not ok then return false, status end
-    local complete, completeStatus = completeWindowAction(actor, state, window, action, now)
-    if complete == false then return false, completeStatus end
-    if complete == nil then return nil, completeStatus end
-    return nil, "reconsider_window"
-end
-
-local function handleWindowFrame(actor, frame, fromSquare, toSquare, now, intent)
-    local utility = U()
-    if not canClimbThrough(frame, actor) then return false, "blocked_window_frame" end
-    if not reserve(frame, actor, now) then return false, "reserved" end
-    local accepted = utility.move(actor, intent and intent.mode or "walk", {
-        action = "climb_window",
-        object = frame,
-        fromSquare = fromSquare,
-        toSquare = toSquare,
-        nextSquare = toSquare,
-        targetSquare = toSquare,
-        direction = directionBetween(fromSquare, toSquare),
-        emptyFrame = true,
-        supervisorToken = intent and intent.supervisorToken,
-    })
-    if not accepted then release(frame, actor) return false, "action_rejected" end
-    return nil, "climbing_frame"
-end
-
 local function doorGeometry(entry, value)
-    local utility = U()
-    if type(entry) ~= "table" or not entry.fromSquare or not entry.toSquare then return nil end
-    local fx, fy, fz = utility.position(entry.fromSquare)
-    local tx, ty, tz = utility.position(entry.toSquare)
-    local vx, vy, vz = utility.position(value)
-    if fx == nil or tx == nil or vx == nil or math.floor(fz or 0) ~= math.floor(tz or 0)
-        or math.floor(vz or 0) ~= math.floor(fz or 0) then return nil end
-    local dx, dy = tx - fx, ty - fy
-    local length = math.sqrt(dx * dx + dy * dy)
-    if length < 0.5 then return nil end
-    dx, dy = dx / length, dy / length
-    local thresholdX = (fx + tx) * 0.5 + 0.5
-    local thresholdY = (fy + ty) * 0.5 + 0.5
-    local offsetX, offsetY = vx - thresholdX, vy - thresholdY
-    return offsetX * dx + offsetY * dy,
-        math.abs(offsetX * -dy + offsetY * dx), dx, dy
+    return V().doorGeometry(entry, value)
 end
 
 local function actorClearOfDoorway(actor, entry)
@@ -1792,89 +1592,55 @@ local function actorClearOfDoorway(actor, entry)
         and progress >= (U().config("doorClearanceDistance") or 0.38)
 end
 
--- A square-to-square native request normally aims at the destination centre,
--- but the actor may begin near a side of its current tile after formation or
--- collision steering.  For a one-tile door path that produces a diagonal line
--- through the frame.  Move only as far as the door centreline on the approach
--- side first; the following request then crosses perpendicular to the leaf.
-local function alignDoorApproach(actor, fromSquare, toSquare, intent, affordance)
-    local utility = U()
-    local entry = { fromSquare = fromSquare, toSquare = toSquare }
-    local progress, lateral, forwardX, forwardY = doorGeometry(entry, actor)
-    if progress == nil then return false, "door_geometry_unavailable" end
-    local tolerance = utility.config("navigationDoorApproachLateralTolerance") or 0.18
-    if lateral <= tolerance then return true, "door_approach_aligned" end
+local function occupiesDoorway(value, entry)
+    return V().occupiesDoorway(value, entry)
+end
 
-    local fromX, fromY, fromZ = utility.position(fromSquare)
-    local toX, toY = utility.position(toSquare)
-    local actorX, actorY = utility.position(actor)
-    if fromX == nil or toX == nil or actorX == nil then
-        return false, "door_approach_position_unavailable"
-    end
-    local thresholdX = (fromX + toX) * 0.5 + 0.5
-    local thresholdY = (fromY + toY) * 0.5 + 0.5
-    local setback = utility.config("doorClearanceDistance") or 0.38
-    local desiredProgress = math.min(progress, -setback)
-    local targetX = thresholdX + forwardX * desiredProgress
-    local targetY = thresholdY + forwardY * desiredProgress
-    local prefix = affordance == "fence" and "fence" or "door"
-    local alignmentIntent = {
-        action = prefix .. "_approach",
-        dx = targetX - actorX,
-        dy = targetY - actorY,
-        targetPosition = { x = targetX, y = targetY, z = fromZ or 0 },
-        targetKind = "world",
-        direct = true,
-        collisionValidated = true,
-        doorwayAlignment = affordance ~= "fence",
-        fenceAlignment = affordance == "fence",
-        weaponReady = false,
-        supervisorToken = intent and intent.supervisorToken,
-    }
-    local accepted, reason = utility.move(actor, "walk", alignmentIntent)
-    if accepted ~= true then return false, reason or "door_approach_rejected" end
-    recordMovement(actor, prefix .. "_approach", {
-        targetSquare = alignmentIntent.targetPosition,
-        nextSquare = toSquare,
-        status = "aligning_to_threshold",
-    })
-    return nil, "aligning_" .. prefix .. "_approach"
+local trafficContext
+local traversalContext = {
+    objectOpen = objectOpen,
+    objectLocked = objectLocked,
+    actorCanUnlock = actorCanUnlock,
+    objectBarricaded = objectBarricaded,
+    windowSmashed = windowSmashed,
+    windowGlassRemoved = windowGlassRemoved,
+    windowInvincible = windowInvincible,
+    canClimbThrough = canClimbThrough,
+    directionBetween = directionBetween,
+    threatArrivalMs = threatArrivalMs,
+    sameSquare = sameSquare,
+    record = recordMovement,
+    actorPassageKey = function(actor, state) return T().actorPassageKey(actor, state) end,
+    passageActive = function(key, now)
+        return T().activePassageKey(key, now, trafficContext)
+    end,
+}
+
+local function handleDoor(actor, state, door, fromSquare, toSquare, now)
+    return V().handleDoor(actor, state, door, fromSquare, toSquare, now, traversalContext)
+end
+
+local function handleWindow(actor, state, window, fromSquare, toSquare, now, intent)
+    return V().handleWindow(
+        actor, state, window, fromSquare, toSquare, now, intent, traversalContext)
+end
+
+local function handleWindowFrame(actor, frame, fromSquare, toSquare, now, intent)
+    return V().handleWindowFrame(
+        actor, frame, fromSquare, toSquare, now, intent, traversalContext)
+end
+
+local function alignDoorApproach(actor, fromSquare, toSquare, intent, affordance)
+    return V().alignDoorApproach(
+        actor, fromSquare, toSquare, intent, affordance, traversalContext)
 end
 
 local function handleFence(actor, object, fromSquare, toSquare, intent)
-    local utility = U()
-    local tall, tallOk = utility.call(object, "isTallHoppable")
-    local action = tallOk and tall == true and "climb_wall" or "climb_fence"
-    local climbIntent = {
-        action = action,
-        object = object,
-        fromSquare = fromSquare,
-        targetSquare = toSquare,
-        nextSquare = toSquare,
-        direction = directionBetween(fromSquare, toSquare),
-        nativeAffordance = "fence",
-        humanAnimationOnly = true,
-        supervisorToken = intent and intent.supervisorToken,
-    }
-    local accepted, reason = utility.move(actor, "walk", climbIntent)
-    if accepted ~= true then return false, reason or (action .. "_rejected") end
-    recordMovement(actor, "fence_climb", {
-        targetSquare = toSquare,
-        nextSquare = toSquare,
-        status = action,
-    })
-    return true, action == "climb_wall" and "climbing_wall" or "climbing_fence"
+    return V().handleFence(actor, object, fromSquare, toSquare, intent, traversalContext)
 end
 Navigation._handleFenceForRequest = handleFence
 
-local function occupiesDoorway(value, entry)
-    local progress, lateral = doorGeometry(entry, value)
-    if progress == nil then return false end
-    local clearance = U().config("doorClearanceDistance") or 0.38
-    return math.abs(progress) < clearance and lateral <= 0.55
-end
-
-local trafficContext = {
+trafficContext = {
     record = recordMovement,
     doorGeometry = doorGeometry,
     occupiesDoorway = occupiesDoorway,
@@ -1915,65 +1681,11 @@ Navigation._ensureGroupPassageForRequest = ensureGroupPassage
 Navigation._markActorPassageForRequest = markActorPassage
 
 local function nearbyOpenedDoor(state, actor)
-    for _, entry in ipairs(state.openedDoors or {}) do
-        local progress, cross = doorGeometry(entry, actor)
-        if objectOpen(entry.object) and progress ~= nil and math.abs(progress) <= 1.15
-            and cross <= 1.15 then return entry end
-    end
-    return nil
-end
-
-local function safeToCloseDoor(entry, snapshot, actor)
-    local utility = U()
-    -- getSquare() changes as soon as the character centre crosses the tile edge.
-    -- Keep the door open until the actor's continuous world position has cleared
-    -- the leaf, otherwise it can close through the companion's collision capsule.
-    if not actorClearOfDoorway(actor, entry) then return false end
-    if entry.passageKey
-        and T().activePassageKey(entry.passageKey, utility.nowMs(), trafficContext) then
-        return false
-    end
-    if type(snapshot) ~= "table" then return true end
-    for index = 1, math.min(#(snapshot.threats or {}), 12) do
-        if utility.distanceSq(entry.object, snapshot.threats[index].actor) <= 4 then return false end
-    end
-    for _, ally in ipairs(snapshot.allies or {}) do
-        local other = ally and (ally.actor or ally) or nil
-        if other and other ~= actor and occupiesDoorway(other, entry) then return false end
-    end
-    local player = snapshot.player
-    player = type(player) == "table" and (player.actor or player) or nil
-    if player and player ~= actor and occupiesDoorway(player, entry) then return false end
-    return true
+    return V().nearbyOpenedDoor(state, actor, traversalContext)
 end
 
 local function closeOwnedDoors(actor, state, now, snapshot)
-    local utility = U()
-    local write = 1
-    for index = 1, #state.openedDoors do
-        local entry = state.openedDoors[index]
-        local keep = true
-        if now >= entry.expires then
-            release(entry.object, actor)
-            keep = false
-        elseif objectOpen(entry.object)
-            and not sameSquare(utility.squareOf(actor), entry.fromSquare)
-            and utility.distance(actor, entry.toSquare) <= 2.75
-            and now - entry.openedAt >= (utility.config("doorCloseDelayMs") or 700)
-            and now >= (state.recoveryDoorHoldUntil or 0)
-            and safeToCloseDoor(entry, snapshot, actor) then
-            local result, toggled = utility.call(entry.object, "ToggleDoor", actor)
-            if toggled and result ~= false and not objectOpen(entry.object) then
-                release(entry.object, actor)
-                keep = false
-            end
-        elseif not objectOpen(entry.object) then
-            release(entry.object, actor)
-            keep = false
-        end
-        if keep then state.openedDoors[write] = entry write = write + 1 end
-    end
-    for index = #state.openedDoors, write, -1 do state.openedDoors[index] = nil end
+    return V().closeOwnedDoors(actor, state, now, snapshot, traversalContext)
 end
 
 local function releaseChoke(state, actor)
@@ -4488,8 +4200,7 @@ function Navigation.cancel(actor, reason)
     local state = actor and states[actor]
     T().cancel(actor, state, trafficContext)
     if not state then return false end
-    for _, entry in ipairs(state.openedDoors or {}) do release(entry.object, actor) end
-    if state.pendingInteraction then release(state.pendingInteraction.object, actor) end
+    V().releaseState(actor, state)
     states[actor] = nil
     utility.stop(actor)
     return true, reason or "cancelled"
@@ -4603,9 +4314,9 @@ function Navigation.reset(actor)
         Navigation.cancel(actor, "reset")
     else
         states = setmetatable({}, { __mode = "k" })
-        reservations = setmetatable({}, { __mode = "k" })
         curtainTimes = setmetatable({}, { __mode = "k" })
         T().reset()
+        V().reset()
     end
 end
 

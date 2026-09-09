@@ -14,6 +14,7 @@ OWNED = [
     "SCTopology.lua",
     "SCPathSearch.lua",
     "SCNavTraffic.lua",
+    "SCNavTraversal.lua",
     "SCDialogue.lua",
     "SCLifeEvents.lua",
     "SCCommunity.lua",
@@ -55,6 +56,9 @@ REQUIRED_EXPORTS = {
     "SCNavTraffic.lua": ["observeGroupPassage", "groupPassageActive",
                          "ensureGroupPassage", "markActorPassage", "reserveChoke",
                          "releaseChoke", "reserveStep", "releaseStep", "reset"],
+    "SCNavTraversal.lua": ["reserve", "release", "handleDoor", "handleWindow",
+                            "handleWindowFrame", "doorGeometry", "occupiesDoorway",
+                            "alignDoorApproach", "handleFence", "closeOwnedDoors", "reset"],
     "SCDialogue.lua": ["register", "has", "choose", "say", "sayLastWords",
                        "monitorMortality", "reset", "poolSize", "topics"],
     "SCLifeEvents.lua": ["emit", "drain", "reset"],
@@ -170,6 +174,7 @@ def main() -> int:
         module = {"SCInfectionCrisis.lua": "Crisis", "SCFactionBehavior.lua": "Behavior",
                   "SCZombieTargeting.lua": "Targeting",
                   "SCNavTraffic.lua": "Traffic",
+                  "SCNavTraversal.lua": "Traversal",
                   "SCFactionLife.lua": "Life", "SCFactionContracts.lua": "Contracts",
                   "SCFactionWorld.lua": "World", "SCFactionRecruitment.lua": "Recruitment"}.get(
             name, name.removeprefix("SC").removesuffix(".lua"))
@@ -296,10 +301,11 @@ def main() -> int:
     require('require "SCPositioning"' in bootstrap_source
             and '"Positioning"' in bootstrap_source,
             "positioning module is not load-ordered and fail-fast validated")
-    require("not objectOpen(entry.object)" in sources["SCNavigation.lua"]
-            and "window_open_failed" in sources["SCNavigation.lua"]
-            and "window_smash_failed" in sources["SCNavigation.lua"]
-            and "glass_removal_failed" in sources["SCNavigation.lua"],
+    traversal_source = sources["SCNavTraversal.lua"]
+    require('not invoke(context, "objectOpen", entry.object)' in traversal_source
+            and "window_open_failed" in traversal_source
+            and "window_smash_failed" in traversal_source
+            and "glass_removal_failed" in traversal_source,
             "native-authoritative door/window postconditions missing")
     require("scavengeSquareBudget" in sources["SCEncounter.lua"], "scavenge budget not enforced")
     require("wasPlayerOpened" in sources["SCEncounter.lua"]
