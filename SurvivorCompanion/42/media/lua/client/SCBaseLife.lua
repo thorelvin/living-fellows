@@ -4,6 +4,7 @@ SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
 if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
+if not SC.BaseObjectRef and type(require) == "function" then pcall(require, "SCBaseObjectRef") end
 
 SC.BaseLife = SC.BaseLife or {}
 local BaseLife = SC.BaseLife
@@ -51,6 +52,10 @@ local defaultStockTargets = {
 
 local function U()
     return SC.GameplayUtil
+end
+
+local function R()
+    return SC.BaseObjectRef
 end
 
 local function now()
@@ -154,9 +159,8 @@ end
 local function normalizeStorage(source)
     if type(source) ~= "table" or not validId(source.id, "storage:")
         or not BaseLife.STORAGE_CATEGORIES[source.category] then return nil end
-    local point = normalizePoint(source)
-    local objectIndex = integer(source.objectIndex, -1)
-    if not point or objectIndex < 0 then return nil end
+    local reference = R() and R().normalize(source) or nil
+    if not reference then return nil end
     local reserves = {}
     local count = 0
     for itemType, amount in pairs(type(source.reserves) == "table" and source.reserves or {}) do
@@ -166,11 +170,9 @@ local function normalizeStorage(source)
         end
     end
     return {
-        id = source.id, x = point.x, y = point.y, z = point.z,
-        objectIndex = objectIndex, category = source.category,
-        objectId = validId(source.objectId, "object:") and source.objectId or nil,
-        objectSignature = type(source.objectSignature) == "string"
-            and cleanText(source.objectSignature, "", 192) or nil,
+        id = source.id, x = reference.x, y = reference.y, z = reference.z,
+        objectIndex = reference.objectIndex, category = source.category,
+        objectId = reference.objectId, objectSignature = reference.objectSignature,
         reserve = integer(source.reserve, 0, 0, 9999), reserves = reserves,
         withdrawals = source.withdrawals ~= false, deposits = source.deposits ~= false,
         createdAt = math.max(0, finite(source.createdAt, 0)),
@@ -179,16 +181,13 @@ end
 
 local function normalizeTarget(source)
     if type(source) ~= "table" or not validId(source.id, "target:") then return nil end
-    local point = normalizePoint(source)
-    local objectIndex = integer(source.objectIndex, -1)
-    if not point or objectIndex < 0 then return nil end
+    local reference = R() and R().normalize(source) or nil
+    if not reference then return nil end
     local kind = source.kind == "barricade" and "barricade" or "maintain"
     return {
-        id = source.id, kind = kind, x = point.x, y = point.y, z = point.z,
-        objectIndex = objectIndex, threshold = integer(source.threshold, 65, 1, 100),
-        objectId = validId(source.objectId, "object:") and source.objectId or nil,
-        objectSignature = type(source.objectSignature) == "string"
-            and cleanText(source.objectSignature, "", 192) or nil,
+        id = source.id, kind = kind, x = reference.x, y = reference.y, z = reference.z,
+        objectIndex = reference.objectIndex, threshold = integer(source.threshold, 65, 1, 100),
+        objectId = reference.objectId, objectSignature = reference.objectSignature,
         enabled = source.enabled ~= false, createdAt = math.max(0, finite(source.createdAt, 0)),
     }
 end
@@ -330,6 +329,16 @@ local function nextId(field, prefix)
     local serial = integer(state[field], 1, 1, 999999)
     state[field] = serial + 1
     return prefix .. tostring(serial)
+end
+
+local function objectReferenceContext(createIdentity)
+    return {
+        utility = U(),
+        createIdentity = createIdentity == true,
+        allocateId = createIdentity == true and function()
+            return nextId("nextObjectSerial", "object:")
+        end or nil,
+    }
 end
 
 local function activeBase()
@@ -543,86 +552,23 @@ function BaseLife.zoneCenter(kind)
     return kind == "rally" and stableCopy(base.core, 1, { count = 4 }) or nil
 end
 
-local OBJECT_ID_KEY = "LF_BaseObjectId"
-
-local function objectSignature(object)
-    local utility = U()
-    if not utility or not object then return nil end
-    local objectName, objectNameOk = utility.call(object, "getObjectName")
-    local sprite, spriteOk = utility.call(object, "getSprite")
-    local spriteName, spriteNameOk = spriteOk and utility.call(sprite, "getName") or nil, false
-    if spriteOk then spriteName, spriteNameOk = utility.call(sprite, "getName") end
-    local container, containerOk = utility.call(object, "getContainer")
-    local containerType, containerTypeOk = containerOk
-        and utility.call(container, "getType") or nil, false
-    if containerOk then containerType, containerTypeOk = utility.call(container, "getType") end
-    return cleanText(table.concat({
-        objectNameOk and tostring(objectName) or "",
-        spriteNameOk and tostring(spriteName) or "",
-        containerTypeOk and tostring(containerType) or "",
-    }, "|"), "||", 192)
-end
-
-local function objectIdentity(object, create)
-    local utility = U()
-    local modData, ok = utility and utility.call(object, "getModData") or nil, false
-    if utility then modData, ok = utility.call(object, "getModData") end
-    if not ok or type(modData) ~= "table" then return nil, "object_mod_data_unavailable" end
-    local objectId = modData[OBJECT_ID_KEY]
-    if validId(objectId, "object:") then return objectId end
-    if create ~= true then return nil, "object_identity_missing" end
-    objectId = nextId("nextObjectSerial", "object:")
-    modData[OBJECT_ID_KEY] = objectId
-    -- Single-player mutates the authoritative object immediately; multiplayer
-    -- builds that expose transmission also receive the persistent identity.
-    utility.call(object, "transmitModData")
-    return objectId
-end
-
-local function objectDescriptor(object, createIdentity)
-    local point = position(object)
-    local utility = U()
-    local index, ok
-    if utility then index, ok = utility.call(object, "getObjectIndex") end
-    if not point or not ok or finite(index, nil) == nil or tonumber(index) < 0 then
-        return nil
-    end
-    local objectId, identityReason = objectIdentity(object, createIdentity == true)
-    if not objectId then return nil, identityReason end
-    return {
-        x = point.x, y = point.y, z = point.z, objectIndex = integer(index, -1),
-        objectId = objectId, objectSignature = objectSignature(object),
-    }
-end
-
 function BaseLife.resolveObject(record)
-    if type(record) ~= "table" then return nil, "invalid_object_record" end
-    if not validId(record.objectId, "object:") then
-        -- Coordinates and a mutable square-list index are not identity. Existing
-        -- saves remain readable, but require one explicit re-registration instead
-        -- of silently binding camp work to whichever object moved into the slot.
-        return nil, "legacy_object_identity_unavailable"
-    end
-    local utility = U()
-    local square = utility and utility.gridSquare(record.x, record.y, record.z) or nil
-    if not square then return nil, "object_square_unloaded" end
-    local found, matches = nil, 0
-    utility.squareObjects(square, function(object)
-        local objectId = objectIdentity(object, false)
-        if objectId == record.objectId then
-            matches = matches + 1
-            found = object
-        end
-    end, 64)
-    if matches == 1 then return found end
-    if matches > 1 then return nil, "ambiguous_object_identity" end
-    return nil, "object_identity_mismatch"
+    local references = R()
+    if not references then return nil, "base_object_ref_unavailable" end
+    return references.resolve(record, objectReferenceContext(false))
 end
 
 function BaseLife.registerStorage(object, category)
     if not BaseLife.STORAGE_CATEGORIES[category] then return false, "invalid_storage_category" end
     local base = activeBase()
-    local descriptor, descriptorReason = objectDescriptor(object, true)
+    local references = R()
+    local descriptor, descriptorReason
+    if references then
+        descriptor, descriptorReason = references.describe(
+            object, objectReferenceContext(true))
+    else
+        descriptorReason = "base_object_ref_unavailable"
+    end
     if not base or not descriptor or not BaseLife.isInside(descriptor) then
         return false, not base and "base_missing"
             or descriptorReason or "storage_outside_base"
@@ -710,13 +656,12 @@ function BaseLife.visualRows()
         }
     end
     for _, storage in ipairs(base.storages or {}) do
-        result.storageRows[#result.storageRows + 1] = {
+        local row = {
             id = storage.id, category = storage.category,
-            x = storage.x, y = storage.y, z = storage.z,
-            objectIndex = storage.objectIndex,
-            objectId = storage.objectId,
-            objectSignature = storage.objectSignature,
         }
+        local references = R()
+        if references then references.copy(storage, row) end
+        result.storageRows[#result.storageRows + 1] = row
     end
     return result
 end
@@ -742,7 +687,14 @@ end
 
 function BaseLife.registerMaintenanceTarget(object, kind)
     local base = activeBase()
-    local descriptor, descriptorReason = objectDescriptor(object, true)
+    local references = R()
+    local descriptor, descriptorReason
+    if references then
+        descriptor, descriptorReason = references.describe(
+            object, objectReferenceContext(true))
+    else
+        descriptorReason = "base_object_ref_unavailable"
+    end
     if not base or not descriptor or not BaseLife.isInside(descriptor) then
         return false, not base and "base_missing"
             or descriptorReason or "target_outside_base"

@@ -8127,6 +8127,17 @@ campSquare.objects[#campSquare.objects + 1] = store
 check(BaseLife.registerStorage(store, "construction"),
     "world container can be designated as classified camp storage")
 local storageRow = BaseLife.storageRows()[1]
+local BaseObjectRef = SurvivorCompanion.BaseObjectRef
+local copiedStorageRef = BaseObjectRef.copy(storageRow)
+copiedStorageRef.objectId = "object:detached-copy"
+local unidentifiedObject = { modData = {} }
+function unidentifiedObject:getModData() return self.modData end
+local unidentifiedId, unidentifiedReason = BaseObjectRef.identity(
+    unidentifiedObject, nil, false)
+check(storageRow.objectId ~= copiedStorageRef.objectId
+        and unidentifiedId == nil and unidentifiedReason == "object_identity_missing"
+        and unidentifiedObject.modData[BaseObjectRef.OBJECT_ID_KEY] == nil,
+    "base object reference copies are detached and read-side identity checks never allocate")
 do
     local originalIndex, originalListIndex = store.objectIndex, nil
     for index, object in ipairs(campSquare.objects) do
@@ -8152,6 +8163,17 @@ do
     table.remove(campSquare.objects, originalListIndex)
     store.objectIndex = originalIndex
     local restoredObject = BaseLife.resolveObject(storageRow)
+    local duplicateIdentity = {
+        square = campSquare, objectIndex = #campSquare.objects,
+        modData = { [BaseObjectRef.OBJECT_ID_KEY] = storageRow.objectId },
+    }
+    function duplicateIdentity:getModData() return self.modData end
+    campSquare.objects[#campSquare.objects + 1] = duplicateIdentity
+    local ambiguousObject, ambiguousReason = BaseLife.resolveObject(storageRow)
+    table.remove(campSquare.objects, #campSquare.objects)
+    local unloadedRef = BaseObjectRef.copy(storageRow)
+    unloadedRef.x, unloadedRef.y = 999, 999
+    local unloadedObject, unloadedReason = BaseLife.resolveObject(unloadedRef)
     local legacyObject, legacyReason = BaseLife.resolveObject({
         x = storageRow.x, y = storageRow.y, z = storageRow.z,
         objectIndex = storageRow.objectIndex,
@@ -8159,7 +8181,9 @@ do
     check(type(storageRow.objectId) == "string" and reboundAfterInsert == store
             and replacement == nil and replacementReason == "object_identity_mismatch"
             and restoredObject == store and legacyObject == nil
-            and legacyReason == "legacy_object_identity_unavailable",
+            and legacyReason == "legacy_object_identity_unavailable"
+            and ambiguousObject == nil and ambiguousReason == "ambiguous_object_identity"
+            and unloadedObject == nil and unloadedReason == "object_square_unloaded",
         "base objects retain persistent identity across index shifts and fail closed for replacements or legacy index-only records")
 end
 check(BaseLife.setReserve(storageRow.id, "*", 2)
@@ -8191,6 +8215,7 @@ campSquare.objects[#campSquare.objects + 1] = maintenanceObject
 local maintenanceRegistered, maintenanceRow = BaseLife.registerMaintenanceTarget(
     maintenanceObject, "maintain")
 check(maintenanceRegistered
+        and BaseLife.resolveObject(maintenanceRow) == maintenanceObject
         and BaseLife.setMaintenanceTargetEnabled(maintenanceRow.id, false)
         and BaseLife.summary().maintenanceRows[1].enabled == false,
     "maintenance targets can be disabled without deleting their world object")
@@ -8279,6 +8304,27 @@ check(BaseLife.restore(baseSave) and BaseLife.active().name == "Test Camp"
     and BaseLife.policies().workload == "continuous"
     and BaseLife.policies().routines == false,
     "base zones, storage, policies and quarantine rules round-trip transactionally")
+local postRestoreStore = {
+    square = campSquare, objectIndex = #campSquare.objects, modData = {},
+    container = inventory({}),
+}
+function postRestoreStore:getSquare() return self.square end
+function postRestoreStore:getX() return self.square.x end
+function postRestoreStore:getY() return self.square.y end
+function postRestoreStore:getZ() return self.square.z end
+function postRestoreStore:getObjectIndex() return self.objectIndex end
+function postRestoreStore:getContainer() return self.container end
+function postRestoreStore:getModData() return self.modData end
+campSquare.objects[#campSquare.objects + 1] = postRestoreStore
+local postRestoreRegistered, postRestoreRow = BaseLife.registerStorage(
+    postRestoreStore, "general")
+local priorSerial = tonumber(string.match(storageRow.objectId, "^object:(%d+)$")) or 0
+local postRestoreSerial = postRestoreRow
+    and tonumber(string.match(postRestoreRow.objectId or "", "^object:(%d+)$")) or 0
+check(postRestoreRegistered and postRestoreSerial > priorSerial,
+    "base object identity allocation remains monotonic after a save round trip")
+if postRestoreRow then BaseLife.removeStorage(postRestoreRow.id) end
+table.remove(campSquare.objects, #campSquare.objects)
 BaseLife.setRestriction(fellow.id, nil)
 
 -- Infection Crisis starts from a real medical bite assessment, records nearby

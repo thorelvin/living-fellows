@@ -62,7 +62,7 @@ local required = {
     "Background", "Dialogue", "Trade", "FactionLife",
     "FactionWorld", "FactionBehavior", "ZombieTargeting", "Locomotion", "Senses",
     "Navigation", "Positioning", "Combat", "Medical", "Logistics", "Needs", "Downtime",
-    "Personality", "PersonalItems", "Relationship", "Objectives", "Journal", "BaseLife",
+    "Personality", "PersonalItems", "Relationship", "Objectives", "Journal", "BaseObjectRef", "BaseLife",
     "BaseVisuals",
     "BaseWork", "InfectionCrisis", "LifeEvents", "Community", "Autonomy", "Commands",
     "FactionRecruitment", "Decision", "Support", "UIContext",

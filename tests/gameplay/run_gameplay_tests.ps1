@@ -28,6 +28,7 @@ $LuaFiles = @(
 )
 $LuaFiles += @(
     'SCGameplayUtil.lua',
+    'SCBaseObjectRef.lua',
     'SCTopology.lua',
     'SCActionSupervisor.lua',
     'SCLocomotion.lua',

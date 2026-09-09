@@ -23,6 +23,7 @@ $Files = @(
     (Join-Path $Payload 'shared\SCStableValue.lua'),
     (Join-Path $Payload 'shared\SCNativeList.lua'),
     (Join-Path $TestRoot 'subsystem_restore_integrity_fixture.lua'),
+    (Join-Path $Payload 'client\SCBaseObjectRef.lua'),
     (Join-Path $Payload 'client\SCBaseLife.lua'),
     (Join-Path $Payload 'client\SCInfectionCrisis.lua'),
     (Join-Path $Payload 'client\SCCommunity.lua'),
@@ -39,4 +40,3 @@ try {
 finally {
     Pop-Location
 }
-

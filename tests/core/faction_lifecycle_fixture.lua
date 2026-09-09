@@ -169,7 +169,7 @@ for _, name in ipairs({
     "FactionBehavior", "ZombieTargeting", "Locomotion", "Senses", "Topology", "Navigation",
     "Positioning", "Combat", "Medical", "Logistics", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal",
-    "BaseLife", "BaseWork", "InfectionCrisis", "LifeEvents", "Community",
+    "BaseObjectRef", "BaseLife", "BaseWork", "InfectionCrisis", "LifeEvents", "Community",
     "Autonomy", "Commands", "FactionRecruitment", "Decision", "Support",
     "UIContext",
 }) do

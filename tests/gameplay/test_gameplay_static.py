@@ -10,6 +10,7 @@ CLIENT = PROJECT / "SurvivorCompanion" / "42" / "media" / "lua" / "client"
 SHARED = CLIENT.parent / "shared"
 OWNED = [
     "SCGameplayUtil.lua",
+    "SCBaseObjectRef.lua",
     "SCTopology.lua",
     "SCDialogue.lua",
     "SCLifeEvents.lua",
@@ -47,6 +48,7 @@ OWNED = [
 ]
 
 REQUIRED_EXPORTS = {
+    "SCBaseObjectRef.lua": ["describe", "copy", "normalize", "resolve", "identity", "signature"],
     "SCDialogue.lua": ["register", "has", "choose", "say", "sayLastWords",
                        "monitorMortality", "reset", "poolSize", "topics"],
     "SCLifeEvents.lua": ["emit", "drain", "reset"],
