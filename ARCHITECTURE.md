@@ -25,7 +25,18 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
 - `SCSpawn` performs bounded, loaded-square, unseen, collision, occupancy, and nearby-zombie validation.
 - `SCNeeds` samples positive native hunger/thirst deltas and rebates half while preserving every negative vanilla food/drink effect. It selects only conservative safe food and clean water, and dispatches the real Build 42 eat, bottle-drink, or water-source timed action.
 - `SCLogistics` inventories the companion recursively and requests one missing construction item at a time from `SCEncounter`'s reserved player-opened camp-storage boundary. Unknown world containers are never considered camp storage.
-- `SCNavigation` owns bounded pathfinding, door/window traversal, stair choke reservations, blind-corner observation, and a 64-square loop-erased indoor entry trail. Its separately bounded exterior search is refreshed on a cooldown and never scans unloaded world data without a node/radius cap. Trees and cuttable bushes are expensive but legal terrain. Full-square/moved/wall thumpables, directional stairs/slopes, actor crowds, safehouse boundaries, and native collision evidence are classified independently. Failed directed edges expire from a per-actor blacklist; blocker diagnostics retain type, object, square, actor state, and recovery result.
+- `SCPathSearch` owns the resumable A* heap, search jobs, deterministic ties,
+  bounded expansion, path reconstruction, and failure classification behind a
+  world adapter. `SCNavigation` retains geometry/cost policy, bounded outdoor
+  egress, movement ownership, door/window traversal, stair choke reservations,
+  blind-corner observation, and a 64-square loop-erased indoor entry trail. Its
+  separately bounded exterior search is refreshed on a cooldown and never scans
+  unloaded world data without a node/radius cap. Trees and cuttable bushes are
+  expensive but legal terrain. Full-square/moved/wall thumpables, directional
+  stairs/slopes, actor crowds, safehouse boundaries, and native collision
+  evidence are classified independently. Failed directed edges expire from a
+  per-actor blacklist; blocker diagnostics retain type, object, square, actor
+  state, and recovery result.
 - `SCSenses` records close threats by cardinal sector. `SCCombat` combines those sectors with immediate range, wounds, endurance, weapon readiness, and nearby healthy support; a hold/recovery threshold prevents attack-retreat oscillation. A player-persistent, team-wide Rules of Engagement doctrine selects Stealth, Close Defense, Ranged Support, or Weapons Free without bypassing retreat or friendly-fire gates. Safe break-contact decisions may alternate a bounded shove or covering shot with movement.
 - `SCNet` is an inert future authority boundary; multiplayer fails closed.
 

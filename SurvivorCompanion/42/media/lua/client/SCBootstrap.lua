@@ -22,6 +22,7 @@ require "SCSpawn"
 require "SCGameplayUtil"
 require "SCBaseObjectRef"
 require "SCTopology"
+require "SCPathSearch"
 require "SCLocomotion"
 require "SCDialogue"
 require "SCFactions"
@@ -84,7 +85,7 @@ local requiredModules = {
     "Call", "StableValue", "Transaction", "NativeList", "Config", "Diagnostics",
     "Registry", "Vitals", "Scheduler", "NativeActions", "Performance",
     "ActionSupervisor", "Actor", "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Topology",
-    "BaseObjectRef",
+    "BaseObjectRef", "PathSearch",
     "Background", "Dialogue", "Factions", "Trade", "FactionLife", "FactionContracts", "FactionWorld",
     "FactionBehavior", "ZombieTargeting",
     "Locomotion", "Senses", "Navigation", "Positioning", "Combat", "Medical", "Encounter",

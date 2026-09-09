@@ -1538,6 +1538,69 @@ end
 end)()
 
 do
+    local Search = SurvivorCompanion.PathSearch
+    local graphNodes = {
+        A = { id = "A" }, B = { id = "B" }, C = { id = "C" }, D = { id = "D" },
+    }
+    local graph = {
+        A = { B = 1, C = 3 },
+        B = { C = 0.5, D = 5 },
+        C = { D = 1 },
+        D = {},
+    }
+    local heuristicCost = { A = 2.5, B = 1.5, C = 1, D = 0 }
+    local adapterCalls = { neighbors = 0, edges = 0 }
+    local adapter = {
+        sameSquare = function(a, b) return a == b end,
+        key = function(value) return value and value.id or nil end,
+        heuristic = function(value) return heuristicCost[value.id] end,
+        neighbors = function(value)
+            adapterCalls.neighbors = adapterCalls.neighbors + 1
+            local result = {}
+            for id in pairs(graph[value.id]) do result[#result + 1] = graphNodes[id] end
+            table.sort(result, function(a, b) return a.id < b.id end)
+            return result
+        end,
+        edge = function(from, to)
+            adapterCalls.edges = adapterCalls.edges + 1
+            local cost = graph[from.id][to.id]
+            return cost ~= nil, cost or math.huge
+        end,
+        nodeBudget = 16,
+    }
+    local search = Search.new(graphNodes.A, graphNodes.D, {}, adapter)
+    local status, selectedPath = Search.resume(search, 1)
+    check(status == "pending" and search.expanded == 1,
+        "generic A-star search yields after its exact expansion quota")
+    while status == "pending" do status, selectedPath = Search.resume(search, 1) end
+
+    local distance, visited = { A = 0 }, {}
+    while true do
+        local current, best = nil, math.huge
+        for id, value in pairs(distance) do
+            if not visited[id] and value < best then current, best = id, value end
+        end
+        if current == nil or current == "D" then break end
+        visited[current] = true
+        for id, cost in pairs(graph[current]) do
+            local candidate = best + cost
+            if distance[id] == nil or candidate < distance[id] then distance[id] = candidate end
+        end
+    end
+    local selectedCost = 0
+    for index = 2, #(selectedPath or {}) do
+        selectedCost = selectedCost
+            + graph[selectedPath[index - 1].id][selectedPath[index].id]
+    end
+    check(status == "complete" and selectedPath[1] == graphNodes.A
+            and selectedPath[#selectedPath] == graphNodes.D
+            and selectedCost == distance.D and selectedCost == 2.5
+            and adapterCalls.neighbors <= search.expanded
+            and adapterCalls.edges <= 8,
+        "extracted A-star matches a test-only Dijkstra oracle with bounded adapter calls")
+end
+
+do
     local routeActor = actor("sc-route-repair", 30, 28, {})
     local source = cell:getGridSquare(30, 28, 0)
     local oldGoal = cell:getGridSquare(34, 28, 0)

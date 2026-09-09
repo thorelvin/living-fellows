@@ -12,6 +12,7 @@ OWNED = [
     "SCGameplayUtil.lua",
     "SCBaseObjectRef.lua",
     "SCTopology.lua",
+    "SCPathSearch.lua",
     "SCDialogue.lua",
     "SCLifeEvents.lua",
     "SCCommunity.lua",
@@ -49,6 +50,7 @@ OWNED = [
 
 REQUIRED_EXPORTS = {
     "SCBaseObjectRef.lua": ["describe", "copy", "normalize", "resolve", "identity", "signature"],
+    "SCPathSearch.lua": ["new", "resume", "run", "classifyFailure"],
     "SCDialogue.lua": ["register", "has", "choose", "say", "sayLastWords",
                        "monitorMortality", "reset", "poolSize", "topics"],
     "SCLifeEvents.lua": ["emit", "drain", "reset"],

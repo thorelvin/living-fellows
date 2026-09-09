@@ -30,6 +30,7 @@ $LuaFiles += @(
     'SCGameplayUtil.lua',
     'SCBaseObjectRef.lua',
     'SCTopology.lua',
+    'SCPathSearch.lua',
     'SCActionSupervisor.lua',
     'SCLocomotion.lua',
     'SCPerformance.lua',
