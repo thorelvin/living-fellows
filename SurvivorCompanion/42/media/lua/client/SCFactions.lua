@@ -4,6 +4,7 @@ local SC = SurvivorCompanion
 if not SC.Performance and type(require) == "function" then pcall(require, "SCPerformance") end
 if not SC.StableValue and type(require) == "function" then pcall(require, "SCStableValue") end
 if not SC.NativeList and type(require) == "function" then pcall(require, "SCNativeList") end
+if not SC.Allegiance and type(require) == "function" then pcall(require, "SCAllegiance") end
 SC.Factions = SC.Factions or {}
 
 local Factions = SC.Factions
@@ -1705,25 +1706,21 @@ local function isPlayerPartyMember(subject, player)
     return record ~= nil and record.recruited == true and record.factionId == nil
 end
 
+local function allegianceFacts(source, target, player)
+    return {
+        sourceExists = source ~= nil,
+        targetExists = target ~= nil,
+        same = source ~= nil and source == target,
+        sourceParty = isPlayerPartyMember(source, player),
+        targetParty = isPlayerPartyMember(target, player),
+        sourceAffiliation = Factions.affiliation(source),
+        targetAffiliation = Factions.affiliation(target),
+    }
+end
+
 function Factions.isHostileBetween(source, target, player)
-    if source == nil or target == nil or source == target then return false end
     player = player or localPlayer()
-    local sourceAffiliation = Factions.affiliation(source)
-    local targetAffiliation = Factions.affiliation(target)
-    if sourceAffiliation and isPlayerPartyMember(target, player) then
-        local group = sourceAffiliation.group
-        return group ~= nil and (group.archetype == "bandit_camp"
-            or group.standing == "Hostile" or group.lifecycle == "hostile")
-    end
-    if targetAffiliation and isPlayerPartyMember(source, player) then
-        local group = targetAffiliation.group
-        if not group then return false end
-        if group.archetype == "bandit_camp" then
-            return type(group.bandit) == "table" and group.bandit.engagement ~= "unaware"
-        end
-        return group.standing == "Hostile" or group.lifecycle == "hostile"
-    end
-    return false
+    return SC.Allegiance.isHostile(allegianceFacts(source, target, player))
 end
 
 -- One relationship contract feeds perception, support, rescue and line-of-fire
@@ -1731,31 +1728,18 @@ end
 -- household may be protected from a careless shot without contributing morale,
 -- formation support, or medical obligations.
 function Factions.relationshipBetween(source, target, player)
-    if source == nil or target == nil then return "unknown" end
-    if source == target then return "self" end
     player = player or localPlayer()
-    local sourceParty = isPlayerPartyMember(source, player)
-    local targetParty = isPlayerPartyMember(target, player)
-    if sourceParty and targetParty then return "party_ally" end
-    local sourceAffiliation = Factions.affiliation(source)
-    local targetAffiliation = Factions.affiliation(target)
-    if sourceAffiliation and targetAffiliation
-        and sourceAffiliation.factionId == targetAffiliation.factionId then
-        return "faction_ally"
-    end
-    if Factions.isHostileBetween(source, target, player) then return "hostile" end
-    return "neutral"
+    return SC.Allegiance.relationship(allegianceFacts(source, target, player))
 end
 
 function Factions.areAlliesBetween(source, target, player)
-    local relationship = Factions.relationshipBetween(source, target, player)
-    return relationship == "party_ally" or relationship == "faction_ally"
+    player = player or localPlayer()
+    return SC.Allegiance.areAllies(allegianceFacts(source, target, player))
 end
 
 function Factions.isProtectedBetween(source, target, player)
-    local relationship = Factions.relationshipBetween(source, target, player)
-    return relationship == "party_ally" or relationship == "faction_ally"
-        or relationship == "neutral"
+    player = player or localPlayer()
+    return SC.Allegiance.isProtected(allegianceFacts(source, target, player))
 end
 
 local function visibleHumanCandidate(observer, candidate, maximumDistance)

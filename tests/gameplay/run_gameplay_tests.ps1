@@ -37,6 +37,7 @@ $LuaFiles += @(
     'SCLocomotion.lua',
     'SCPerformance.lua',
     'SCDialogue.lua',
+    'SCAllegiance.lua',
     'SCLifeEvents.lua',
     'SCCommunity.lua',
     'SCBackground.lua',

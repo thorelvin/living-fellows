@@ -8785,6 +8785,49 @@ local Trade = SurvivorCompanion.Trade
 local Life = SurvivorCompanion.FactionLife
 local Contracts = SurvivorCompanion.FactionContracts
 local World = SurvivorCompanion.FactionWorld
+local Allegiance = SurvivorCompanion.Allegiance
+do
+    local household = { archetype = "household", standing = "Trusted", lifecycle = "settled" }
+    local hostileHouse = { archetype = "household", standing = "Hostile", lifecycle = "hostile" }
+    local unawareBandits = { archetype = "bandit_camp", standing = "Hostile",
+        lifecycle = "settled", bandit = { engagement = "unaware" } }
+    local engagedBandits = { archetype = "bandit_camp", standing = "Hostile",
+        lifecycle = "settled", bandit = { engagement = "challenging" } }
+    local cases = {
+        { name = "missing target", facts = { sourceExists = true }, relationship = "unknown",
+            hostile = false, protected = false },
+        { name = "self", facts = { sourceExists = true, targetExists = true, same = true },
+            relationship = "self", hostile = false, protected = false },
+        { name = "party peers", facts = { sourceExists = true, targetExists = true,
+            sourceParty = true, targetParty = true }, relationship = "party_ally",
+            hostile = false, protected = true },
+        { name = "faction peers", facts = { sourceExists = true, targetExists = true,
+            sourceAffiliation = { factionId = "same", group = household },
+            targetAffiliation = { factionId = "same", group = household } },
+            relationship = "faction_ally", hostile = false, protected = true },
+        { name = "neutral household", facts = { sourceExists = true, targetExists = true,
+            sourceParty = true, targetAffiliation = { factionId = "home", group = household } },
+            relationship = "neutral", hostile = false, protected = true },
+        { name = "unaware bandit seen by party", facts = { sourceExists = true, targetExists = true,
+            sourceParty = true, targetAffiliation = { factionId = "raid", group = unawareBandits } },
+            relationship = "neutral", hostile = false, protected = true },
+        { name = "engaged bandit seen by party", facts = { sourceExists = true, targetExists = true,
+            sourceParty = true, targetAffiliation = { factionId = "raid", group = engagedBandits } },
+            relationship = "hostile", hostile = true, protected = false },
+        { name = "party seen by unaware bandit", facts = { sourceExists = true, targetExists = true,
+            targetParty = true, sourceAffiliation = { factionId = "raid", group = unawareBandits } },
+            relationship = "hostile", hostile = true, protected = false },
+        { name = "hostile household", facts = { sourceExists = true, targetExists = true,
+            sourceParty = true, targetAffiliation = { factionId = "enemy", group = hostileHouse } },
+            relationship = "hostile", hostile = true, protected = false },
+    }
+    for _, case in ipairs(cases) do
+        check(Allegiance.relationship(case.facts) == case.relationship
+                and Allegiance.isHostile(case.facts) == case.hostile
+                and Allegiance.isProtected(case.facts) == case.protected,
+            "table-driven allegiance policy preserves " .. case.name)
+    end
+end
 Factions.reset()
 do
     local pristine = Factions.export()

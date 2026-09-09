@@ -59,7 +59,7 @@ local required = {
     "Call", "StableValue", "Transaction", "NativeList", "Registry", "Vitals",
     "Scheduler", "NativeActions", "Performance", "ActionSupervisor", "Actor",
     "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Topology", "PathSearch", "NavTraffic", "NavTraversal",
-    "Background", "Dialogue", "Trade", "FactionLife",
+    "Background", "Dialogue", "Allegiance", "Trade", "FactionLife",
     "FactionWorld", "FactionBehavior", "ZombieTargeting", "Locomotion", "Senses",
     "Navigation", "Positioning", "Combat", "Medical", "Logistics", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal", "BaseObjectRef", "BaseLife",

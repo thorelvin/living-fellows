@@ -27,6 +27,7 @@ require "SCNavTraffic"
 require "SCNavTraversal"
 require "SCLocomotion"
 require "SCDialogue"
+require "SCAllegiance"
 require "SCFactions"
 require "SCTrade"
 require "SCFactionLife"
@@ -88,7 +89,7 @@ local requiredModules = {
     "Registry", "Vitals", "Scheduler", "NativeActions", "Performance",
     "ActionSupervisor", "Actor", "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Topology",
     "BaseObjectRef", "PathSearch", "NavTraffic", "NavTraversal",
-    "Background", "Dialogue", "Factions", "Trade", "FactionLife", "FactionContracts", "FactionWorld",
+    "Background", "Dialogue", "Allegiance", "Factions", "Trade", "FactionLife", "FactionContracts", "FactionWorld",
     "FactionBehavior", "ZombieTargeting",
     "Locomotion", "Senses", "Navigation", "Positioning", "Combat", "Medical", "Encounter",
     "Logistics", "Needs", "Downtime", "Personality", "PersonalItems", "Relationship",
