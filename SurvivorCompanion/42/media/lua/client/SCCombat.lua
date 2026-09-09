@@ -606,6 +606,17 @@ local function hasReloadAmmo(inventory, weapon)
     return false
 end
 
+-- A preferred weapon is only a real option when the next combat pulse can do
+-- something useful with it. Empty firearms without compatible ammunition used
+-- to suppress carried melee weapons; broken weapons could win for the same
+-- reason. A jammed firearm remains operational because unjamming is an action.
+local function weaponUsableNow(inventory, weapon)
+    if not weapon or (tonumber(weapon.condition) or 0) <= 0 then return false end
+    if not weapon.ranged then return true end
+    return weapon.jammed == true or (tonumber(weapon.ammo) or 0) > 0
+        or hasReloadAmmo(inventory, weapon)
+end
+
 local function chooseWeapon(actor, preference, distance, pressure)
     local weapons, inventory = inventoryWeapons(actor)
     local preferredAvailable = false
@@ -613,7 +624,7 @@ local function chooseWeapon(actor, preference, distance, pressure)
         for _, weapon in ipairs(weapons) do
             local matches = (preference == "firearm" and weapon.ranged)
                 or ((preference == "melee" or preference == "quiet") and not weapon.ranged)
-            if matches and weapon.condition > 0 then
+            if matches and weaponUsableNow(inventory, weapon) then
                 preferredAvailable = true
                 break
             end
@@ -621,26 +632,31 @@ local function chooseWeapon(actor, preference, distance, pressure)
     end
     local best, bestScore
     for _, weapon in ipairs(weapons) do
-        local score = weapon.score
-        if weapon.condition <= 0 then score = -1000 end
-        local matchesPreference = (preference == "firearm" and weapon.ranged)
-            or ((preference == "melee" or preference == "quiet") and not weapon.ranged)
-        if preferredAvailable and not matchesPreference then score = score - 10000 end
-        if weapon.ranged then
-            if weapon.ammo <= 0 and not hasReloadAmmo(inventory, weapon) then score = score - 100 end
-            if distance < (U().config("combatFirearmMinDistance") or 2.2) then score = score - 32 end
-            if pressure >= 3 then score = score - 18 end
-            if preference == "firearm" then score = score + 24 end
-            if preference == "melee" or preference == "quiet" then score = score - 28 end
-        else
-            if distance <= 2 then score = score + 20 end
-            if pressure >= 2 then score = score + 10 end
-            if preference == "melee" or preference == "quiet" then score = score + 24 end
-            if preference == "firearm" then score = score - 12 end
+        if weaponUsableNow(inventory, weapon) then
+            local score = weapon.score
+            local matchesPreference = (preference == "firearm" and weapon.ranged)
+                or ((preference == "melee" or preference == "quiet") and not weapon.ranged)
+            if preferredAvailable and not matchesPreference then score = score - 10000 end
+            if weapon.ranged then
+                if distance < (U().config("combatFirearmMinDistance") or 2.2) then score = score - 32 end
+                if pressure >= 3 then score = score - 18 end
+                if preference == "firearm" then score = score + 24 end
+                if preference == "melee" or preference == "quiet" then score = score - 28 end
+            else
+                if distance <= 2 then score = score + 20 end
+                if pressure >= 2 then score = score + 10 end
+                if preference == "melee" or preference == "quiet" then score = score + 24 end
+                if preference == "firearm" then score = score - 12 end
+            end
+            if not bestScore or score > bestScore then best, bestScore = weapon, score end
         end
-        if not bestScore or score > bestScore then best, bestScore = weapon, score end
     end
     return best, inventory
+end
+
+local function weaponDistanceBand(distance)
+    local firearmMinimum = U().config("combatFirearmMinDistance") or 2.2
+    return distance <= 2 and 1 or (distance < firearmMinimum and 2 or 3)
 end
 
 local function responsiveWeapon(actor, state, preference, distance, pressure, snapshot, now)
@@ -648,8 +664,7 @@ local function responsiveWeapon(actor, state, preference, distance, pressure, sn
         or tonumber(snapshot and snapshot.time)
     if snapshotTime == nil then return chooseWeapon(actor, preference, distance, pressure) end
     local primary = select(1, U().call(actor, "getPrimaryHandItem"))
-    local firearmMinimum = U().config("combatFirearmMinDistance") or 2.2
-    local distanceBand = distance <= 2 and 1 or (distance < firearmMinimum and 2 or 3)
+    local distanceBand = weaponDistanceBand(distance)
     local pressureBand = pressure >= 3 and 3 or (pressure >= 2 and 2 or 1)
     local cache = state.weaponCache
     if type(cache) == "table" and now < (cache.expires or 0)
@@ -660,7 +675,8 @@ local function responsiveWeapon(actor, state, preference, distance, pressure, sn
         if cache.item == nil then return nil, cache.inventory end
         local current = weaponRecord(cache.item)
         if current and current.condition > 0 and current.ammo == cache.ammo
-            and current.jammed == cache.jammed then
+            and current.jammed == cache.jammed
+            and weaponUsableNow(cache.inventory, current) then
             current.equipped = primary == cache.item
             return current, cache.inventory
         end
@@ -1321,7 +1337,7 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
             if weapon.jammed then
                 -- A jammed firearm must be racked clear before it can fire or
                 -- reload; prioritise it above every other ranged action.
-                actions[#actions + 1] = { kind = "unjam", score = 80 }
+                actions[#actions + 1] = { kind = "unjam", score = 112 }
             elseif weapon.ammo <= 0 and hasReloadAmmo(inventory, weapon) then
                 actions[#actions + 1] = { kind = "reload", score = distance > 3 and 62 or 24 }
             elseif weapon.ammo > 0 and not commands.holdFire and target.visible
@@ -1557,33 +1573,57 @@ end
 local function selectViablePair(actor, player, snapshot, scored, commands, state,
         now, preference, preferredTarget)
     local targets, seen = {}, setmetatable({}, { __mode = "k" })
-    local maximum = tonumber(U().config("combatTargetActionCandidates")) or 3
+    local hardCap = math.max(1,
+        math.floor(tonumber(U().config("combatTargetActionHardCap")) or 8))
+    local desired = math.min(hardCap, math.max(1,
+        math.floor(tonumber(U().config("combatTargetActionCandidates")) or 3)))
     for _, candidate in ipairs(scored or {}) do
-        if #targets >= maximum then break end
+        if #targets >= hardCap then break end
         if doctrineMayFight(actor, candidate, player, snapshot, commands) then
             targets[#targets + 1] = candidate
             seen[candidate.actor] = true
         end
     end
-    if state.target and not seen[state.target] then
+    local committedTarget = state.target and now < (state.targetCommitUntil or 0)
+        and state.target or nil
+    if committedTarget and not seen[committedTarget] then
         for _, candidate in ipairs(scored or {}) do
-            if candidate.actor == state.target
+            if candidate.actor == committedTarget
                 and doctrineMayFight(actor, candidate, player, snapshot, commands) then
-                if #targets >= maximum then targets[#targets] = candidate
+                if #targets >= hardCap then targets[#targets] = candidate
                 else targets[#targets + 1] = candidate end
+                seen[candidate.actor] = true
                 break
             end
         end
     end
 
     local pairs, retreatPair = {}, nil
+    local viableTargets, committedEvaluated = 0, committedTarget == nil
+    -- Inventory choice depends on coarse tactical bands, not target identity.
+    -- Reuse it within this pulse so widening the bounded candidate scan does not
+    -- multiply inventory and body-state work.
+    local weaponByBand, readinessByWeapon = {}, {}
     for _, target in ipairs(targets) do
         local distance = math.sqrt(target.distanceSq or U().distanceSq(actor, target.actor))
-        local weapon, inventory = responsiveWeapon(actor, state, preference, distance,
-            snapshot.pressure or 0, snapshot, now)
-        local readiness = Combat.readiness(actor, snapshot, weapon, commands)
+        local band = weaponDistanceBand(distance)
+        local selection = weaponByBand[band]
+        if selection == nil then
+            local weapon, inventory = responsiveWeapon(actor, state, preference, distance,
+                snapshot.pressure or 0, snapshot, now)
+            selection = { weapon = weapon, inventory = inventory }
+            weaponByBand[band] = selection
+        end
+        local weapon, inventory = selection.weapon, selection.inventory
+        local readinessKey = weapon and weapon.item or "unarmed"
+        local readiness = readinessByWeapon[readinessKey]
+        if readiness == nil then
+            readiness = Combat.readiness(actor, snapshot, weapon, commands)
+            readinessByWeapon[readinessKey] = readiness
+        end
         local actions = actionUtilities(actor, player, snapshot, target, weapon,
             inventory, commands, readiness)
+        local useful = false
         for _, action in ipairs(actions) do
             if commands.combatDoctrine == "weapons_free"
                 and (action.kind == "shoot" or action.kind == "melee") then
@@ -1602,8 +1642,12 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
                     or pair.score > retreatPair.score) then retreatPair = pair end
             else
                 pairs[#pairs + 1] = pair
+                useful = true
             end
         end
+        if useful then viableTargets = viableTargets + 1 end
+        if committedTarget and target.actor == committedTarget then committedEvaluated = true end
+        if viableTargets >= desired and committedEvaluated then break end
     end
     if retreatPair then pairs[#pairs + 1] = retreatPair end
     table.sort(pairs, function(a, b)

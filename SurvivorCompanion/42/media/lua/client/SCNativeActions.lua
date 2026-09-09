@@ -2139,6 +2139,26 @@ function actions.stopDirect(actor, options)
     return not ok or moving ~= true
 end
 
+-- A path cancel does not leave Build 42's legacy Climb*State. Use the owned
+-- actor's narrow native adapter and require the isClimbing postcondition before
+-- navigation is allowed to issue another route.
+function actions.cancelStuckClimb(actor)
+    if actor == nil then return false, "invalid_actor" end
+    local utility = SC.GameplayUtil
+    local blocker = type(utility) == "table"
+        and type(utility.movementStateBlocker) == "function"
+        and utility.movementStateBlocker(actor) or nil
+    if blocker ~= "climbing" then return true, "not_climbing" end
+    local invoked, retained = invoke(actor, "cancelCompanionStuckClimb")
+    if not invoked then return false, retained or "native_climb_cancel_unavailable" end
+    if retained ~= true then return false, "native_climb_cancel_rejected" end
+    local checked, stillClimbing = invoke(actor, "isClimbing")
+    if not checked or stillClimbing == true then
+        return false, "native_climb_state_remains"
+    end
+    return true, "stuck_climb_cancelled"
+end
+
 function actions.isWorkActive(actor)
     local record = actor and activeWork[actor] or nil
     return record ~= nil and workActionIsActive(actor, record)

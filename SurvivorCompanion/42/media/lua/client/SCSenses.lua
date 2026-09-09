@@ -454,10 +454,21 @@ local function newScanJob(state, actorSquare, originX, originY, originZ, radius,
 end
 
 local function scanJobInvalid(job, originX, originY, originZ, radius, squareBudget)
-    if type(job) ~= "table" or job.index > #(job.offsets or {}) then return true end
-    if job.originZ ~= originZ or job.radius ~= radius or job.squareBudget ~= squareBudget then return true end
+    if type(job) ~= "table" or job.index > #(job.offsets or {}) then
+        return true, "complete", 0
+    end
+    if job.originZ ~= originZ then return true, "floor", 0 end
+    if job.radius ~= radius or job.squareBudget ~= squareBudget then
+        return true, "configuration", 0
+    end
     local dx, dy = (originX or 0) - (job.originX or 0), (originY or 0) - (job.originY or 0)
-    return dx * dx + dy * dy > 16
+    local distanceSq = dx * dx + dy * dy
+    local threshold = math.max(0.25,
+        tonumber(util().config("perceptionScanRebaseDistance")) or 2.0)
+    if distanceSq >= threshold * threshold then
+        return true, "movement", math.sqrt(distanceSq)
+    end
+    return false, nil, math.sqrt(distanceSq)
 end
 
 local function liveThreatLists(actor, player, actorSquare, job, threatLimit, immediateRadiusSq, current)
@@ -515,7 +526,14 @@ function Senses.snapshot(actor, player, runtime)
     local immediateRadiusSq = (U.config("immediateThreatRadius") or 2.25) ^ 2
 
     local job = state.scanJob
-    if scanJobInvalid(job, originX, originY, originZ, radius, squareBudget) then
+    local invalid, invalidReason, rebaseDistance = scanJobInvalid(
+        job, originX, originY, originZ, radius, squareBudget)
+    if invalid then
+        if invalidReason == "movement" then
+            state.scanRebaseCount = (state.scanRebaseCount or 0) + 1
+            state.lastScanRebaseDistance = rebaseDistance
+            state.lastScanRebaseAt = now
+        end
         job = newScanJob(state, actorSquare, originX, originY, originZ, radius, squareBudget)
         state.scanJob = job
     end
@@ -637,6 +655,9 @@ function Senses.snapshot(actor, player, runtime)
         outerSampled = job.outerSampled,
         scanComplete = complete,
         scanProgress = #job.offsets > 0 and math.min(1, (job.index - 1) / #job.offsets) or 1,
+        scanRebaseCount = state.scanRebaseCount or 0,
+        lastScanRebaseDistance = state.lastScanRebaseDistance,
+        lastScanRebaseAt = state.lastScanRebaseAt,
         threats = threats,
         stealthThreats = stealthThreats,
         groundedThreats = groundedThreats,

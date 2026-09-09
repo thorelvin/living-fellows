@@ -12,6 +12,7 @@ import java.util.concurrent.RejectedExecutionException;
 import zombie.Lua.LuaEventManager;
 import zombie.ai.AIBrainPlayerControlVars;
 import zombie.ai.states.PathFindState;
+import zombie.ai.states.PlayerActionsState;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.SurvivorDesc;
@@ -286,6 +287,27 @@ public final class SCNativeCompanion extends IsoPlayer {
             if (cell == null || cell.getObjectList() == null) return true;
             cell.getObjectList().remove(this);
             return !cell.getObjectList().contains(this);
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    /**
+     * End a native climb that has stopped advancing past the navigation timeout.
+     * Merely cancelling PathFindBehavior2 leaves the legacy Climb*State active;
+     * isClimbing() then remains true forever and every later route waits on the
+     * same animation. Changing to the stock player state invokes the climb
+     * state's own exit hook, which restores collision/movement flags and clears
+     * its animation variables without translating or recreating the actor.
+     */
+    public boolean cancelCompanionStuckClimb() {
+        try {
+            if (!isClimbing()) return true;
+            PathFindBehavior2 behavior = getPathFindBehavior2();
+            if (behavior != null) behavior.cancel();
+            setMoving(false);
+            changeState(PlayerActionsState.instance());
+            return !isClimbing();
         } catch (RuntimeException | LinkageError failure) {
             return false;
         }
@@ -724,8 +746,11 @@ public final class SCNativeCompanion extends IsoPlayer {
         bridgeNextSpeechDisplayMillis = 0;
         boolean cleared = true;
         try {
-            setSayLine(null);
-            setLastSpokenLine(null);
+            // Build 42.20.4 parses setSayLine immediately and dereferences its
+            // argument in ChatUtility. An empty line clears the retained text;
+            // null throws before the engine can update it, leaving ghost bubbles.
+            setSayLine("");
+            setLastSpokenLine("");
             setSpeaking(false);
             setSpeakTime(0);
         } catch (RuntimeException | LinkageError failure) {

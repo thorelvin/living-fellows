@@ -1176,6 +1176,24 @@ function actor:openWindow(value) value.opened = true end
 function actor:smashWindow(value) value.smashed = true end
 function actor:climbThroughWindow() self.climbing = true end
 function actor:isClimbing() return self.climbing == true end
+function actor:cancelCompanionStuckClimb()
+    self.climbing = false
+    return true
+end
+do
+    actor.climbing = true
+    local climbCancelled, climbCancelReason = SC.NativeActions.cancelStuckClimb(actor)
+    check(climbCancelled and climbCancelReason == "stuck_climb_cancelled"
+            and actor.climbing == false,
+        "stale-climb adapter verifies that the native climb state actually ended")
+    local stubbornClimber = {
+        isClimbing = function() return true end,
+        cancelCompanionStuckClimb = function() return true end,
+    }
+    local stubbornCancelled, stubbornReason = SC.NativeActions.cancelStuckClimb(stubbornClimber)
+    check(not stubbornCancelled and stubbornReason == "native_climb_state_remains",
+        "stale-climb adapter rejects an unverified native state transition")
+end
 local windowOk, windowReason = SC.Actor.setMovement(actor, "walk", {
     action = "open_window", object = window,
 })

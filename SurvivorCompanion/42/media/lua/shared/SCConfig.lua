@@ -1,6 +1,10 @@
 -- SPDX-License-Identifier: MIT
 
-require "SCNamespace"
+if (SurvivorCompanion == nil or SurvivorCompanion.Identity == nil)
+    and type(require) == "function" then
+    require "SCNamespace"
+end
+SurvivorCompanion = SurvivorCompanion or {}
 
 local SC = SurvivorCompanion
 SC.Config = SC.Config or {}
@@ -98,6 +102,7 @@ local valueData = {
     combatSpacingReversalGuardMs = 225,
     combatSteeringProbeDistance = 0.45,
     combatTargetActionCandidates = 3,
+    combatTargetActionHardCap = 8,
     combatTargetPairMargin = 8,
     followIntervalMs = 167,
     perceptionIntervalMs = 500,
@@ -112,6 +117,10 @@ local valueData = {
 
     perceptionRadius = 18,
     perceptionSquareBudget = 240,
+    -- Restart an unfinished broad scan once its origin is no longer local to the
+    -- moving companion. This prevents stale square work from delaying contacts
+    -- around the actor's new position.
+    perceptionScanRebaseDistance = 2.0,
     perceptionThreatLimit = 32,
     perceptionExitLimit = 16,
     perceptionAllyLimit = 16,

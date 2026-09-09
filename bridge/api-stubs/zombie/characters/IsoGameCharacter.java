@@ -30,7 +30,10 @@ public class IsoGameCharacter extends IsoMovingObject {
     public void MoveForward(float dist, float x, float y, float soundDelta) {}
     public void addLineChatElement(String line) { sayLine = line; }
     public String getSayLine() { return sayLine; }
-    public void setSayLine(String line) { sayLine = line; }
+    public void setSayLine(String line) {
+        if (line == null) throw new NullPointerException("speech line");
+        sayLine = line;
+    }
     public void setLastSpokenLine(String line) {}
     public void setSpeaking(boolean speaking) {}
     public void setSpeakTime(int milliseconds) {}
@@ -63,6 +66,7 @@ public class IsoGameCharacter extends IsoMovingObject {
     public float getZ() { return 0; }
     public boolean isDead() { return false; }
     public boolean isOnFloor() { return false; }
+    public boolean isClimbing() { return false; }
     public void OnAnimEvent(zombie.core.skinnedmodel.advancedanimation.AnimLayer layer,
             zombie.core.skinnedmodel.animation.AnimationTrack track,
             zombie.core.skinnedmodel.advancedanimation.AnimEvent event) {}

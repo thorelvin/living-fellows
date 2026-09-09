@@ -77,6 +77,7 @@ public final class SCNativeApiSignatureTest {
         Class<?> state = Class.forName("zombie.ai.State");
         Class<?> stateMachine = Class.forName("zombie.ai.StateMachine");
         Class<?> zombieAttackState = Class.forName("zombie.ai.states.AttackState");
+        Class<?> playerActionsState = Class.forName("zombie.ai.states.PlayerActionsState");
 
         require(Modifier.isFinal(survivor.getModifiers()), "stock IsoSurvivor must remain final");
         require(player.isAssignableFrom(companion) && Modifier.isFinal(companion.getModifiers()),
@@ -118,6 +119,12 @@ public final class SCNativeApiSignatureTest {
         require(companion.getDeclaredMethod("isCompanionMovementClear",
                         float.class, float.class, float.class).getReturnType() == boolean.class,
                 "SCNativeCompanion continuous collision contract changed");
+        require(companion.getDeclaredMethod("cancelCompanionStuckClimb").getReturnType()
+                        == boolean.class
+                        && method(character, "isClimbing").getReturnType() == boolean.class
+                        && method(playerActionsState, "instance").getReturnType()
+                                == playerActionsState,
+                "SCNativeCompanion stale-climb cancellation contract changed");
         require(companion.getDeclaredMethod("getCompanionAttackCollisionSerial")
                         .getReturnType() == int.class,
                 "SCNativeCompanion attack-impact evidence contract changed");

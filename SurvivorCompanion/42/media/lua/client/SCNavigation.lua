@@ -3620,6 +3620,7 @@ local function clearTerminalEpisode(actor, state, reason, now)
     state.terminalBlockerType = nil
     state.terminalAttempt = nil
     state.stuckAttempts = 0
+    state.actorStateRecoveryAttempts = 0
     state.lastProgressAt = now or U().nowMs()
 end
 
@@ -3688,6 +3689,7 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
             state.actorStateSince = now
             state.nextActorStateDiagnosticAt = 0
             state.nextActorStateRecoveryAt = 0
+            state.actorStateRecoveryAttempts = 0
         end
         local elapsed = now - (state.actorStateSince or now)
         local grace = utility.config("navigationActorStateGraceMs") or 900
@@ -3710,24 +3712,52 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         if (actorState == "wall_collision_state" or actorState == "climbing")
             and elapsed >= stuckThreshold
             and now >= (state.nextActorStateRecoveryAt or 0) then
-            if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
-                pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
+            local cancelled = false
+            if actorState == "climbing" then
+                state.actorStateRecoveryAttempts =
+                    (state.actorStateRecoveryAttempts or 0) + 1
+                if SC.NativeActions
+                    and type(SC.NativeActions.cancelStuckClimb) == "function" then
+                    local ok, result = pcall(SC.NativeActions.cancelStuckClimb, actor)
+                    cancelled = ok and result == true
+                end
             else
-                utility.stop(actor)
+                if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
+                    local ok, result = pcall(SC.NativeActions.stopDirect, actor,
+                        { preservePosture = true })
+                    cancelled = ok and result == true
+                else
+                    cancelled = utility.stop(actor) == true
+                end
             end
-            if actorState == "climbing" and actorSquare and state.lastAttemptTo then
-                blacklistEdge(state, actorSquare, state.lastAttemptTo,
-                    "actor_state", nil, now, "static_edge", "medium")
-            end
-            state.path = nil
-            state.pathGoalSquare = nil
-            state.pathSearch = nil
-            state.pathIndex = 1
-            state.nextRepathAt = 0
             state.nextActorStateRecoveryAt = now + grace
-            activelyRecovered = true
-            recovery = actorState == "climbing" and "cancelled_stuck_climb"
-                or "cancelled_stale_wall_collision"
+            if cancelled then
+                if actorState == "climbing" and actorSquare and state.lastAttemptTo then
+                    blacklistEdge(state, actorSquare, state.lastAttemptTo,
+                        "actor_state", nil, now, "static_edge", "medium")
+                end
+                state.path = nil
+                state.pathGoalSquare = nil
+                state.pathSearch = nil
+                state.pathIndex = 1
+                state.nextRepathAt = 0
+                state.lastProgressAt = now
+                activelyRecovered = true
+                recovery = actorState == "climbing" and "cancelled_stuck_climb"
+                    or "cancelled_stale_wall_collision"
+            elseif actorState == "climbing" then
+                recovery = "stuck_climb_cancel_rejected"
+                local maximum = math.max(1,
+                    tonumber(utility.config("navigationRecoveryAttempts")) or 3)
+                if state.actorStateRecoveryAttempts >= maximum then
+                    state.stuckAttempts = maximum + 1
+                    return true, false, beginTerminalEpisode(actor, state, actorSquare,
+                        goalSquare, intent, {
+                            type = "actor_state", square = actorSquare,
+                            actorState = actorState,
+                        }, now)
+                end
+            end
         elseif elapsed >= timeout then
             recovery = "actor_state_timeout"
         end
@@ -3739,6 +3769,7 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         if elapsed >= timeout and not activelyRecovered then
             return true, false, "actor_state_timeout:" .. tostring(actorState)
         end
+        if activelyRecovered then return true, true, recovery end
         return true, true, "waiting_" .. tostring(actorState)
     end
     if state.actorStateName ~= nil then
@@ -3746,6 +3777,7 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         state.actorStateSince = nil
         state.nextActorStateRecoveryAt = nil
         state.nextActorStateDiagnosticAt = nil
+        state.actorStateRecoveryAttempts = nil
         -- Clearing a native animation is genuine progress. Without this reset,
         -- the generic stuck timer can immediately fire in the same update.
         state.lastProgressAt = now

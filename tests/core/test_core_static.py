@@ -454,6 +454,8 @@ require("A competing decision may observe an activity owned by another" in nativ
 require("setCompanionSpeechDisplayMillis" in native_companion
         and "refreshCompanionSpeech()" in native_companion
         and "clearCompanionSpeech()" in native_companion
+        and 'setSayLine("")' in native_companion
+        and "setSayLine(null)" not in native_companion
         and "chat.clear(playerIndex)" in native_companion
         and 'U.call(actor, "setCompanionSpeechDisplayMillis", duration)' in gameplay_util,
         "length-aware actor-owned overhead speech duration is missing")
@@ -468,6 +470,12 @@ require("_isRecoverablePlacementFailureForTests" in runtime
         and 'invoke(record.actor, "ensureScheduled")' in runtime
         and "repaired companion world membership in place" in runtime,
         "missing moving-list membership can still relocate/recreate a live companion")
+require("public boolean cancelCompanionStuckClimb()" in native_companion
+        and "changeState(PlayerActionsState.instance())" in native_companion
+        and "actions.cancelStuckClimb" in native
+        and 'recovery = "stuck_climb_cancel_rejected"' in navigation
+        and 'type = "actor_state", square = actorSquare' in navigation,
+        "stale native climbs can still loop without a verified bounded cancellation")
 require("_maintainNativeLeaseForTests" in navigation
         and '"native_goal_changed"' in navigation
         and "goalShift >= goalResetDistance(requestIntent)" in navigation,

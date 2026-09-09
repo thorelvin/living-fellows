@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: MIT
 
 from pathlib import Path
+import json
 import re
 import zipfile
 
@@ -38,6 +39,10 @@ real_jar_workflow = (ROOT / ".github/workflows/real-jar-compatibility.yml").read
 native_installer = (ROOT / "scripts/Install-NativeBridge.ps1").read_text(
     encoding="utf-8"
 )
+project_gate = (ROOT / "scripts/Test-Project.ps1").read_text(encoding="utf-8")
+runtime_gate = (ROOT / "scripts/Test-PzRuntime.ps1").read_text(encoding="utf-8")
+runtime_manifest = json.loads((ROOT / "tests/core/pz-runtime.json").read_text(
+    encoding="utf-8"))
 
 lua_release = capture(r'release\s*=\s*"([^"]+)"', namespace, "Lua release")
 lua_game = capture(r'gameVersion\s*=\s*"([^"]+)"', namespace, "Lua game version")
@@ -71,6 +76,11 @@ require(lua_protocol == java_protocol == jar_protocol == installer_protocol,
         "Lua, Java, source JAR, and installer protocols disagree")
 require(lua_game == java_game == jar_game == installer_compiled_game,
         "Lua, Java, source JAR, and installer game versions disagree")
+require(runtime_manifest["gameVersion"] == lua_game,
+        "pinned real-JAR runtime and source game versions disagree")
+require(re.fullmatch(r"[0-9A-F]{64}", runtime_manifest["projectZomboidJarSha256"])
+        and runtime_manifest["projectZomboidJarBytes"] > 0,
+        "pinned real-JAR runtime identity is incomplete")
 require(installer_supported_game == ".".join(lua_game.split(".")[:2]),
         "installer supported game family disagrees with the pinned game version")
 require("local expectedNativeProtocol = SC.Identity.bridgeProtocol" in actor,
@@ -84,8 +94,14 @@ require("pull_request:" in source_workflow
         and "./scripts/Test-Source.ps1" in source_workflow,
         "pull requests must execute the source-only reliability gate")
 require("self-hosted" in real_jar_workflow
-        and "./scripts/Test-Project.ps1" in real_jar_workflow,
+        and "./scripts/Test-Project.ps1" in real_jar_workflow
+        and "tags:" in real_jar_workflow and "'v*'" in real_jar_workflow
+        and "github.ref_name" in real_jar_workflow,
         "trusted real-JAR compatibility workflow is missing")
+require(project_gate.index("Test-PzRuntime.ps1") < project_gate.index("Test-Source.ps1")
+        and "Get-FileHash" in runtime_gate and "projectzomboid.jar" in runtime_gate
+        and "SCNamespace.lua" in runtime_gate and "Install-NativeBridge.ps1" in runtime_gate,
+        "full project verification does not start with the pinned real-JAR identity gate")
 
 payload_jar = ROOT / "SurvivorCompanion/42/media/java/SurvivorCompanionBridge.jar"
 with zipfile.ZipFile(payload_jar) as archive:

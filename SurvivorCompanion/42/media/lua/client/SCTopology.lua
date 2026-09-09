@@ -66,12 +66,17 @@ function Topology.windowInvincible(object)
     return callBoolean(object, "isInvincible")
 end
 
-function Topology.canClimbThrough(object, actor)
-    if object == nil then return false end
+local function verifiedClimbability(object, actor)
+    if object == nil then return false, false end
     local value, ok = U().call(object, "canClimbThrough", actor)
-    if ok then return value == true end
+    if ok then return value == true, true end
     value, ok = U().call(object, "canClimbThrough", nil)
-    return not ok or value == true
+    if ok then return value == true, true end
+    return false, false
+end
+
+function Topology.canClimbThrough(object, actor)
+    return verifiedClimbability(object, actor)
 end
 
 function Topology.objectStateSignature(object)
@@ -261,17 +266,17 @@ function Topology.classifyEdge(actor, fromSquare, toSquare, options)
         if Topology.windowInvincible(object) and not Topology.objectOpen(object) then
             result.reason = "window_invincible" return result
         end
-        if not Topology.canClimbThrough(object, actor)
-            and not Topology.windowSmashed(object) and not Topology.objectOpen(object) then
-            result.reason = "window_not_climbable" return result
-        end
+        local climbable, verified = verifiedClimbability(object, actor)
+        if not verified then result.reason = "window_climbability_unknown" return result end
+        if not climbable then result.reason = "window_not_climbable" return result end
         result.cost = Topology.objectOpen(object) and 2.5
             or (Topology.windowSmashed(object) and 4 or 5)
         result.requiresNative = true
     elseif kind == "window_frame" then
-        if object == nil or not Topology.canClimbThrough(object, actor) then
-            result.reason = "window_frame_blocked" return result
-        end
+        if object == nil then result.reason = "window_frame_blocked" return result end
+        local climbable, verified = verifiedClimbability(object, actor)
+        if not verified then result.reason = "window_frame_climbability_unknown" return result end
+        if not climbable then result.reason = "window_frame_blocked" return result end
         result.cost, result.requiresNative = 2.5, true
     elseif kind == "fence" then
         result.cost, result.requiresNative = 2.5, true

@@ -23,7 +23,8 @@ $LuaFiles = @(
     (Join-Path $SharedRoot 'SCCall.lua'),
     (Join-Path $SharedRoot 'SCStableValue.lua'),
     (Join-Path $SharedRoot 'SCTransaction.lua'),
-    (Join-Path $SharedRoot 'SCNativeList.lua')
+    (Join-Path $SharedRoot 'SCNativeList.lua'),
+    (Join-Path $SharedRoot 'SCConfig.lua')
 )
 $LuaFiles += @(
     'SCGameplayUtil.lua',

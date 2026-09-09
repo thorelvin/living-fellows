@@ -106,8 +106,10 @@ local function item(itemType, category, options)
     function value:isTwoHandWeapon() return self.twoHanded == true end
     function value:getCategories() return self.weaponCategories or {} end
     function value:isRanged() return self.ranged == true end
+    function value:isJammed() return self.jammed == true end
     function value:getCurrentAmmoCount() return self.ammo or 0 end
     function value:getMaxAmmo() return self.maxAmmo or 0 end
+    function value:getMagazineType() return self.magazineType end
     function value:getAmmoType() return self.ammoType end
     function value:getNumberOfPages() return self.pages or 0 end
     function value:isAlcoholic() return self.alcoholic == true end
@@ -361,6 +363,15 @@ local function actor(id, x, y, options)
         return settings.surroundingAttackers or 0
     end
     function value:isClimbing() return self.climbing == true end
+    function value:cancelCompanionStuckClimb()
+        if self.rejectClimbCancel then return false end
+        self.climbing = false
+        if type(self.currentState) == "string"
+            and string.find(string.lower(self.currentState), "climb", 1, true) then
+            self.currentState = nil
+        end
+        return true
+    end
     function value:isBlockMovement() return self.blockMovement == true end
     function value:getCurrentState() return self.currentState end
     function value:getForwardDirectionX() return self.forwardX end
@@ -611,8 +622,8 @@ SurvivorCompanion.Registry = {
     end,
 }
 
-SurvivorCompanion.Config = {
-    values = {
+SurvivorCompanion.Config._canonicalTestGet = SurvivorCompanion.Config.get
+SurvivorCompanion.Config.values = setmetatable({
         perceptionRadius = 8,
         perceptionSquareBudget = 160,
         perceptionThreatLimit = 12,
@@ -650,9 +661,15 @@ SurvivorCompanion.Config = {
         decisionMinStateMs = 0,
         movementRecorderEnabled = true,
         maxCompanions = 64,
-    },
-    get = function(key) return SurvivorCompanion.Config.values[key] end,
-}
+    }, { __index = SurvivorCompanion.Config.defaults })
+SurvivorCompanion.Config.get = function(section, key)
+    local config = SurvivorCompanion.Config
+    if key == nil then
+        local override = rawget(config.values, section)
+        if override ~= nil then return override end
+    end
+    return config._canonicalTestGet(section, key)
+end
 
 SurvivorCompanion.UI = {
     showStatus = function(summary) SurvivorCompanion.UI.lastStatus = summary return true end,
@@ -1253,6 +1270,57 @@ do
     SurvivorCompanion.Performance.reset()
     clock = sliceClock
 end
+
+(function()
+    local rebaseClock = clock
+    local movingActor = actor("sc-perception-rebase", 13, -8, {})
+    local runtime = {}
+    SurvivorCompanion.Performance.reset()
+    SurvivorCompanion.Performance.beginFrame(2, clock)
+    local initial = SurvivorCompanion.Senses.snapshot(movingActor, player, runtime)
+    SurvivorCompanion.Performance.endFrame(1, false)
+    check(initial.scanComplete == false,
+        "moving-perception fixture begins with an unfinished bounded scan")
+
+    for index = #movingActor.square.moving, 1, -1 do
+        if movingActor.square.moving[index] == movingActor then
+            table.remove(movingActor.square.moving, index)
+        end
+    end
+    movingActor.square = cell:getGridSquare(10, -8, 0)
+    movingActor.square.moving[#movingActor.square.moving + 1] = movingActor
+    local newLocalThreat = zombie(5, -8, { moving = true })
+    local discovered, latest, discoveryPass = false, nil, nil
+    for pass = 1, 4 do
+        clock = clock + 16
+        SurvivorCompanion.Performance.beginFrame(2, clock)
+        latest = SurvivorCompanion.Senses.snapshot(movingActor, player, runtime)
+        SurvivorCompanion.Performance.endFrame(1, false)
+        for _, threat in ipairs(latest.threats or {}) do
+            if threat.actor == newLocalThreat then
+                discovered, discoveryPass = true, pass
+                break
+            end
+        end
+        if discovered then break end
+    end
+    check(latest and latest.scanRebaseCount == 1
+            and latest.lastScanRebaseDistance >= 3
+            and latest.lastScanRebaseAt ~= nil,
+        "an unfinished perception scan rebases after meaningful actor movement and records telemetry")
+    check(discovered and discoveryPass <= 4,
+        "the rebased scan discovers a new local threat within four bounded slices")
+
+    newLocalThreat.dead = true
+    for _, value in ipairs({ movingActor, newLocalThreat }) do
+        for index = #value.square.moving, 1, -1 do
+            if value.square.moving[index] == value then table.remove(value.square.moving, index) end
+        end
+    end
+    SurvivorCompanion.Senses.reset(movingActor)
+    SurvivorCompanion.Performance.reset()
+    clock = rebaseClock
+end)()
 
 local path, pathReason, expanded = SurvivorCompanion.Navigation.findPath(fellow.square, squares[squareKey(3, 0, 0)])
 check(path ~= nil and #path >= 4 and expanded <= SurvivorCompanion.Config.values.navigationNodeBudget, "bounded navigation path")
@@ -2174,6 +2242,12 @@ do
 local climbStateActor = actor("sc-climb-state-blocker", -7, -1, {})
 registry[climbStateActor.id] = climbStateActor
 climbStateActor.climbing = true
+local previousClimbNativeActions = SurvivorCompanion.NativeActions
+SurvivorCompanion.NativeActions = {
+    cancelStuckClimb = function(value)
+        return value:cancelCompanionStuckClimb(), "stuck_climb_cancelled"
+    end,
+}
 SurvivorCompanion.Config.values.navigationActorStateGraceMs = 100
 SurvivorCompanion.Config.values.navigationActorStateTimeoutMs = 100
 check(SurvivorCompanion.Navigation.request(
@@ -2182,15 +2256,62 @@ check(SurvivorCompanion.Navigation.request(
             == "climbing",
     "a fresh climb animation waits through its native grace period")
 clock = clock + 2001
-check(SurvivorCompanion.Navigation.request(
-        climbStateActor, cell:getGridSquare(-5, -1, 0), "walk", {})
+local staleClimbAccepted, staleClimbReason = SurvivorCompanion.Navigation.request(
+    climbStateActor, cell:getGridSquare(-5, -1, 0), "walk", {})
+check(staleClimbAccepted
+        and climbStateActor.climbing == false
         and SurvivorCompanion.Navigation.peek(climbStateActor).lastBlocker.recoveryResult
             == "cancelled_stuck_climb",
-    "a companion stuck climbing past the timeout cancels and reroutes instead of freezing for minutes")
+    "a companion stuck climbing past the timeout leaves the native climb state and reroutes: "
+        .. tostring(staleClimbAccepted) .. "/" .. tostring(staleClimbReason)
+        .. "/" .. tostring(climbStateActor.climbing) .. "/"
+        .. tostring(SurvivorCompanion.Navigation.peek(climbStateActor).lastBlocker
+            and SurvivorCompanion.Navigation.peek(climbStateActor).lastBlocker.recoveryResult))
+clock = clock + 1
+local resumedClimb, resumedClimbReason = SurvivorCompanion.Navigation.request(
+    climbStateActor, cell:getGridSquare(-5, -1, 0), "walk", {})
+check(resumedClimb and resumedClimbReason ~= "waiting_climbing",
+    "a cancelled stale climb cannot re-enter the actor-state wait loop")
 SurvivorCompanion.Config.values.navigationActorStateGraceMs = nil
 SurvivorCompanion.Config.values.navigationActorStateTimeoutMs = nil
 SurvivorCompanion.Navigation.reset(climbStateActor)
+SurvivorCompanion.NativeActions = previousClimbNativeActions
 registry[climbStateActor.id] = nil
+end
+
+do
+local rejectedClimbActor = actor("sc-climb-cancel-rejected", -7, 0, {})
+registry[rejectedClimbActor.id] = rejectedClimbActor
+rejectedClimbActor.climbing = true
+rejectedClimbActor.rejectClimbCancel = true
+local previousRejectedClimbNativeActions = SurvivorCompanion.NativeActions
+local previousRecoveryAttempts = SurvivorCompanion.Config.values.navigationRecoveryAttempts
+SurvivorCompanion.NativeActions = {
+    cancelStuckClimb = function(value)
+        return value:cancelCompanionStuckClimb(), "native_climb_cancel_rejected"
+    end,
+}
+SurvivorCompanion.Config.values.navigationActorStateGraceMs = 1
+SurvivorCompanion.Config.values.navigationActorStateTimeoutMs = 1
+SurvivorCompanion.Config.values.navigationRecoveryAttempts = 2
+SurvivorCompanion.Navigation.request(
+    rejectedClimbActor, cell:getGridSquare(-5, 0, 0), "walk", {})
+local rejectedReason
+for _ = 1, 2 do
+    clock = clock + 2
+    local accepted
+    accepted, rejectedReason = SurvivorCompanion.Navigation.request(
+        rejectedClimbActor, cell:getGridSquare(-5, 0, 0), "walk", {})
+end
+check(rejectedReason == "recovery_exhausted:actor_state"
+        and SurvivorCompanion.Navigation.peek(rejectedClimbActor).terminalGoalKey ~= nil,
+    "a native climb that rejects cancellation enters bounded terminal recovery")
+SurvivorCompanion.Config.values.navigationActorStateGraceMs = nil
+SurvivorCompanion.Config.values.navigationActorStateTimeoutMs = nil
+SurvivorCompanion.Config.values.navigationRecoveryAttempts = previousRecoveryAttempts
+SurvivorCompanion.Navigation.reset(rejectedClimbActor)
+SurvivorCompanion.NativeActions = previousRejectedClimbNativeActions
+registry[rejectedClimbActor.id] = nil
 end
 
 do
@@ -2967,6 +3088,47 @@ function doorTo:getDoor(north) if north == false then return testDoor end end
         "escape topology blocks locked doors and diagonal corner cutting")
     testDoor.locked = false
 end)()
+;(function()
+    local windowFrom = cell:getGridSquare(8, 7, 0)
+    local windowTo = cell:getGridSquare(9, 7, 0)
+    local activeActor = fellow
+    local actorTrue = { canClimbThrough = function(_, value) return value == activeActor end }
+    local actorFalse = { canClimbThrough = function(_, value) return value == nil end }
+    local nilFallback = { canClimbThrough = function(_, value)
+        if value ~= nil then error("actor overload unavailable") end
+        return true
+    end }
+    local unavailable = {}
+    check(SurvivorCompanion.Topology.canClimbThrough(actorTrue, activeActor) == true
+            and SurvivorCompanion.Topology.canClimbThrough(actorFalse, activeActor) == false
+            and SurvivorCompanion.Topology.canClimbThrough(nilFallback, activeActor) == true
+            and SurvivorCompanion.Topology.canClimbThrough(unavailable, activeActor) == false,
+        "climbability honors explicit actor answers, verified nil fallback, and fail-closed absence")
+
+    function windowFrom:isWindowTo(other) return other == windowTo end
+    function windowTo:isWindowTo(other) return other == windowFrom end
+    function windowTo:getWindow(north) if north == false then return unavailable end end
+    local unknownWindow = SurvivorCompanion.Topology.classifyEdge(
+        activeActor, windowFrom, windowTo, {})
+    check(unknownWindow.traversable == false
+            and unknownWindow.reason == "window_climbability_unknown",
+        "an intact window with no verified climbability is not traversable")
+
+    function windowTo:getWindow(north) return nil end
+    function windowTo:getWindowFrame(north) if north == false then return unavailable end end
+    local unsupportedFrame = SurvivorCompanion.Topology.classifyEdge(
+        activeActor, windowFrom, windowTo, {})
+    local reachable = SurvivorCompanion.Topology.reachableEscapeSquares(
+        activeActor, windowFrom, { radius = 1, nodeBudget = 8 })
+    local crossedFrame = false
+    for _, node in ipairs(reachable or {}) do
+        if node.square == windowTo then crossedFrame = true break end
+    end
+    check(unsupportedFrame.traversable == false
+            and unsupportedFrame.reason == "window_frame_climbability_unknown"
+            and crossedFrame == false,
+        "unsupported window frames are excluded from traversal and escape BFS")
+end)()
 do
     local angledDoorActor = actor("sc-door-angled", 0, 2, {})
     angledDoorActor.worldX, angledDoorActor.worldY = 0.5, 2.9
@@ -3204,6 +3366,7 @@ function testWindow:isLocked() return self.locked end
 function testWindow:isSmashed() return self.smashed end
 function testWindow:isGlassRemoved() return self.glassRemoved end
 function testWindow:isBarricaded() return false end
+function testWindow:canClimbThrough(character) return true end
 function testWindow:removeBrokenGlass() if not self.noopRemoveGlass then self.glassRemoved = true end end
 function windowFrom:isWindowTo(other) return other == windowTo end
 function windowTo:isWindowTo(other) return other == windowFrom end
@@ -4180,6 +4343,47 @@ end
 pairGrounded.dead, pairStanding.dead, vectorTarget.dead = true, true, true
 end)()
 
+;(function()
+    local scanWeapon = item("Base.TargetScanAxe", "Weapon", {
+        damage = 2.1, range = 1.5, minRange = 0.2, sharpness = 1,
+    })
+    local scanActor = actor("sc-target-action-scan", 6, 10, {
+        inventory = inventory({ scanWeapon }),
+    })
+    scanActor.primary = scanWeapon
+    local scanTargets, scanThreats = {}, {}
+    for index = 1, 4 do
+        local target = zombie(7, 9 + index, { onFloor = index <= 3 })
+        scanTargets[index] = target
+        scanThreats[index] = {
+            actor = target, square = target.square, distanceSq = 1,
+            visible = true, obstructed = false, grounded = index <= 3,
+            score = 110 - index,
+        }
+    end
+    local scanSnapshot = {
+        threats = scanThreats, immediateCount = 4, closeImmediateCount = 4,
+        closeThreatCount = 4, occupiedThreatSectors = 1, pressure = 0,
+        allies = {}, encircled = false, escapeSquares = {},
+    }
+    local selected = SurvivorCompanion.Combat._selectViablePairForTests(
+        scanActor, player, scanSnapshot, scanThreats,
+        { combatDoctrine = "close_defense", morale = 75 }, {}, clock,
+        "best", scanThreats[1])
+    check(selected and selected.target.actor == scanTargets[4]
+            and selected.action.kind == "melee",
+        "target/action search widens past three unusable targets to the fourth viable melee target")
+    for _, value in ipairs({ scanActor, scanTargets[1], scanTargets[2],
+            scanTargets[3], scanTargets[4] }) do
+        if value.square and value.square.moving then
+            for index = #value.square.moving, 1, -1 do
+                if value.square.moving[index] == value then table.remove(value.square.moving, index) end
+            end
+        end
+        if value ~= scanActor then value.dead = true end
+    end
+end)()
+
 do
 local roleWeapon = item("Base.Axe", "Weapon", { damage = 2, range = 1.4, sharpness = 1 })
 local roleActors = {
@@ -4926,6 +5130,117 @@ SurvivorCompanion.Combat.update(wrongReloader, player, { snapshot = {
 check(not (wrongReloader.lastIntent and wrongReloader.lastIntent.action == "reload"),
     "incompatible ammunition never triggers a reload attempt")
 registry[wrongReloader.id] = nil
+
+(function()
+    local function combatSnapshot(target)
+        return {
+            threats = { { actor = target, square = target.square, distanceSq = 1,
+                visible = true, obstructed = false, attacking = true, score = 80 } },
+            allies = {}, escapeSquares = {}, threatCount = 1, immediateCount = 1,
+            closeImmediateCount = 1, closeThreatCount = 1,
+            occupiedThreatSectors = 1, pressure = 1, encircled = false,
+            player = { danger = 0, immediateThreats = 0 },
+        }
+    end
+    local function rangedDoctrine(value)
+        local commands = SurvivorCompanion.Commands.peek(value)
+        commands.combatDoctrine = "ranged_support"
+        commands.holdFire = false
+    end
+
+    local fallbackAxe = item("Base.OperationalAxe", "Weapon", {
+        damage = 2, range = 1.5, condition = 10, conditionMax = 10, sharpness = 1,
+    })
+    local dryRifle = item("Base.DryRifle", "Weapon", {
+        ranged = true, damage = 2, range = 10, ammo = 0, maxAmmo = 5,
+        ammoType = "Base.308Bullets", condition = 10, conditionMax = 10,
+    })
+    local fallbackActor = actor("sc-operational-fallback", 8, -2, {
+        inventory = inventory({ dryRifle, fallbackAxe }),
+    })
+    fallbackActor.primary = dryRifle
+    rangedDoctrine(fallbackActor)
+    local fallbackZed = zombie(9, -2, { attacking = true, target = fallbackActor })
+    local fallbackHandled = SurvivorCompanion.Combat.update(
+        fallbackActor, player, { snapshot = combatSnapshot(fallbackZed) })
+    check(fallbackHandled and fallbackActor.lastIntent.action == "equip_weapon"
+            and fallbackActor.lastIntent.item == fallbackAxe,
+        "an empty firearm without compatible ammunition falls back to usable melee")
+
+    local brokenRifle = item("Base.BrokenRifle", "Weapon", {
+        ranged = true, damage = 2, range = 10, ammo = 5, maxAmmo = 5,
+        condition = 0, conditionMax = 10,
+    })
+    local brokenAxe = item("Base.BrokenFallbackAxe", "Weapon", {
+        damage = 1.8, range = 1.5, condition = 10, conditionMax = 10,
+    })
+    local brokenActor = actor("sc-broken-fallback", 8, -4, {
+        inventory = inventory({ brokenRifle, brokenAxe }),
+    })
+    brokenActor.primary = brokenRifle
+    rangedDoctrine(brokenActor)
+    local brokenZed = zombie(9, -4, { attacking = true, target = brokenActor })
+    local brokenHandled = SurvivorCompanion.Combat.update(
+        brokenActor, player, { snapshot = combatSnapshot(brokenZed) })
+    check(brokenHandled and brokenActor.lastIntent.action == "equip_weapon"
+            and brokenActor.lastIntent.item == brokenAxe,
+        "a broken firearm cannot suppress a usable melee fallback")
+
+    local jammedRifle = item("Base.JammedRifle", "Weapon", {
+        ranged = true, damage = 2, range = 10, ammo = 0, maxAmmo = 5,
+        jammed = true, condition = 10, conditionMax = 10,
+    })
+    local jamAxe = item("Base.JamFallbackAxe", "Weapon", {
+        damage = 1.8, range = 1.5, condition = 10, conditionMax = 10,
+    })
+    local jamActor = actor("sc-jammed-operational", 8, -6, {
+        inventory = inventory({ jammedRifle, jamAxe }),
+    })
+    jamActor.primary = jammedRifle
+    rangedDoctrine(jamActor)
+    local jamZed = zombie(9, -6, { attacking = true, target = jamActor })
+    local jamHandled = SurvivorCompanion.Combat.update(
+        jamActor, player, { snapshot = combatSnapshot(jamZed) })
+    check(jamHandled and jamActor.lastIntent.action == "unjam",
+        "a jammed firearm remains operational so combat can clear the jam; got "
+            .. tostring(jamActor.lastIntent and jamActor.lastIntent.action))
+
+    local loneDryRifle = item("Base.LoneDryRifle", "Weapon", {
+        ranged = true, damage = 2, range = 10, ammo = 0, maxAmmo = 5,
+        ammoType = "Base.308Bullets", condition = 10, conditionMax = 10,
+    })
+    local unarmedActor = actor("sc-firearm-only-dry", 8, -8, {
+        inventory = inventory({ loneDryRifle }),
+    })
+    unarmedActor.primary = loneDryRifle
+    rangedDoctrine(unarmedActor)
+    -- Commands.initialize may add a keepsake; the firearm-only fixture must keep
+    -- its inventory definition literal for this operational-weapon regression.
+    for index = #unarmedActor.inventory.items, 1, -1 do
+        if unarmedActor.inventory.items[index] ~= loneDryRifle then
+            table.remove(unarmedActor.inventory.items, index)
+        end
+    end
+    local unarmedZed = zombie(9, -8, { attacking = true, target = unarmedActor })
+    local defended = SurvivorCompanion.Combat.update(
+        unarmedActor, player, { snapshot = combatSnapshot(unarmedZed) })
+    check(defended and unarmedActor.lastIntent.action == "shove",
+        "a firearm-only actor with no ammunition chooses unarmed close defense; got "
+            .. tostring(unarmedActor.lastIntent and unarmedActor.lastIntent.action)
+            .. ":" .. tostring(unarmedActor.lastIntent and unarmedActor.lastIntent.item
+                and unarmedActor.lastIntent.item.itemType))
+
+    for _, value in ipairs({ fallbackActor, fallbackZed, brokenActor, brokenZed,
+            jamActor, jamZed, unarmedActor, unarmedZed }) do
+        if value.square and value.square.moving then
+            for index = #value.square.moving, 1, -1 do
+                if value.square.moving[index] == value then table.remove(value.square.moving, index) end
+            end
+        end
+        if value.__class == "IsoZombie" then value.dead = true
+        else SurvivorCompanion.Combat.reset(value) end
+    end
+end)()
 
 do
 -- Regression: an on-foot companion on the ranged_support doctrine must draw its

@@ -5,7 +5,9 @@ import re
 import sys
 
 
-CLIENT = Path(__file__).resolve().parents[2] / "SurvivorCompanion" / "42" / "media" / "lua" / "client"
+PROJECT = Path(__file__).resolve().parents[2]
+CLIENT = PROJECT / "SurvivorCompanion" / "42" / "media" / "lua" / "client"
+SHARED = CLIENT.parent / "shared"
 OWNED = [
     "SCGameplayUtil.lua",
     "SCTopology.lua",
@@ -129,6 +131,19 @@ def main() -> int:
                 f"multiplayer API bypass: {name}")
         require("ZombieWalk" not in text and "ZombieRun" not in text and "ZombieHitReaction" not in text,
                 f"zombie animation requested: {name}")
+
+    gameplay_util = sources["SCGameplayUtil.lua"]
+    config_source = (SHARED / "SCConfig.lua").read_text(encoding="utf-8")
+    gameplay_runner = (PROJECT / "tests" / "gameplay" / "run_gameplay_tests.ps1").read_text(
+        encoding="utf-8")
+    require('pcall(require, "SCConfig")' in gameplay_util
+            and "local fallbackValues" not in gameplay_util,
+            "gameplay utility does not exclusively use the canonical SCConfig service")
+    require(gameplay_runner.index("SCConfig.lua") < gameplay_runner.index("SCGameplayUtil.lua"),
+            "gameplay harness must load canonical SCConfig before SCGameplayUtil")
+    require("perceptionScanRebaseDistance = 2.0" in config_source
+            and "combatTargetActionHardCap = 8" in config_source,
+            "responsiveness controls are missing from canonical SCConfig")
 
     for name in ("SCGameplayUtil.lua", "SCNativeActions.lua", "SCSpawn.lua",
                  "SCRuntime.lua", "SCScheduler.lua"):
