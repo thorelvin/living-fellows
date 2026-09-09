@@ -133,6 +133,13 @@ local GROUPS = {
     { id = "charlie", key = "UI_SC_Select_GroupCharlie" },
 }
 
+local CQB_ROLE_KEYS = {
+    point = "UI_SC_CQB_Role_point",
+    assault = "UI_SC_CQB_Role_assault",
+    ranged_support = "UI_SC_CQB_Role_ranged_support",
+    rear_guard = "UI_SC_CQB_Role_rear_guard",
+}
+
 -- Shared descriptors keep panel and context-menu vocabulary in sync while
 -- allowing each surface to choose the depth appropriate to it.
 UI.commandGroups = {
@@ -2518,6 +2525,18 @@ end
 
 function SCUIDetail:buildGroups(panel, row)
     local y = 7
+    local cqbRole, column, fireteamSize
+    if row and row.actor and SC.Positioning
+        and type(SC.Positioning.cqbRole) == "function" then
+        cqbRole, column, fireteamSize = SC.Positioning.cqbRole(
+            row.actor, playerForUI())
+    end
+    if cqbRole then
+        local roleLabel = UI.text(CQB_ROLE_KEYS[cqbRole] or "UI_SC_Value_Unknown")
+        y = self:addInformationLine(panel, y, "UI_SC_Info_CQBRole",
+            UI.text("UI_SC_CQB_RolePosition", roleLabel,
+                tonumber(column) or 0, tonumber(fireteamSize) or 0))
+    end
     y = self:addSection(panel, y, "UI_SC_Section_GroupAssignment")
     y = self:addCommandSelector(panel, y, "UI_SC_Select_Group",
         row and (row.group or "") or "", GROUPS, "set_group", "group")

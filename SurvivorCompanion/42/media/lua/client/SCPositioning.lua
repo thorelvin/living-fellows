@@ -15,10 +15,24 @@ local formationOffsets = {
     { -2, 2 }, { 2, 2 }, { -1, 3 }, { 1, 3 },
 }
 
+-- The player remains the formation leader. These roles order the followers
+-- behind them: a close fighter takes the first portal slot, firearm users stay
+-- in the protected middle, and the rear guard crosses last. The assignment is
+-- derived from doctrine, personality and the equipped weapon on the bounded
+-- fireteam-roster pulse rather than by adding work to every frame.
+local cqbRoleOrder = {
+    point = 1,
+    assault = 2,
+    ranged_support = 3,
+    rear_guard = 4,
+}
+
 local states = setmetatable({}, { __mode = "k" })
 local leaderStates = setmetatable({}, { __mode = "k" })
 local targetReservations = {}
 local nextReservationSweepAt = 0
+local emptyFireteam = {}
+local emptyFireteamSlots = setmetatable({}, { __mode = "k" })
 
 local function U()
     return SC.GameplayUtil
@@ -58,33 +72,167 @@ local function commandState(other)
     return nil
 end
 
-local function followerRoster(leader, current)
+local function cqbMetrics(entry)
     local utility = U()
-    local leaderState = leaderStateFor(leader)
-    if leaderState.roster and current < (leaderState.rosterExpires or 0) then
-        return leaderState.roster, leaderState.rosterSlots
+    local commands = type(entry.commands) == "table" and entry.commands or {}
+    local profile = type(commands.personalityProfile) == "table"
+        and commands.personalityProfile or {}
+    local background = type(commands.background) == "table" and commands.background
+        or type(profile.background) == "table" and profile.background or {}
+    local primary = select(1, utility.call(entry.actor, "getPrimaryHandItem"))
+    local primaryRanged = primary ~= nil
+        and select(1, utility.call(primary, "isRanged")) == true
+    local armed = primary ~= nil and (utility.instanceOf(primary, "HandWeapon")
+        or utility.instanceOf(primary, "zombie.inventory.types.HandWeapon")
+        or utility.hasMethod(primary, "getMaxDamage"))
+    local ranged = primaryRanged or commands.combatDoctrine == "ranged_support"
+        or commands.weaponPriority == "firearm"
+    local courage = tonumber(profile.courage) or 50
+    local caution = tonumber(profile.caution) or 50
+    local practicality = tonumber(profile.practicality) or 50
+    local aptitude = string.lower(tostring(background.aptitude or profile.aptitude or ""))
+    entry.rangedCapable = ranged == true
+    entry.pointScore = courage * 0.65 + practicality * 0.15
+        + (ranged and -45 or 35) + (armed and 12 or 0)
+        + (commands.combatDoctrine == "close_defense" and 10 or 0)
+        + (commands.combatDoctrine == "weapons_free" and 6 or 0)
+    entry.rearScore = caution * 0.7 + practicality * 0.15
+        + (aptitude == "keen_hearing" and 28 or 0)
+        + (ranged and 5 or 0)
+    return entry
+end
+
+local function betterRoleCandidate(candidate, best, field)
+    if best == nil then return true end
+    local candidateScore = tonumber(candidate[field]) or 0
+    local bestScore = tonumber(best[field]) or 0
+    if candidateScore ~= bestScore then return candidateScore > bestScore end
+    return tostring(candidate.id) < tostring(best.id)
+end
+
+local function assignCqbRoles(followers)
+    for _, entry in ipairs(followers) do
+        cqbMetrics(entry)
+        entry.cqbRole = nil
+        entry.roleIndex = nil
     end
-    local followers = {}
-    for _, other in ipairs(utility.registryLiving(utility.config("maxCompanions") or 16)) do
-        local commands = commandState(other)
-        if commands and commands.recruited
-            and (commands.order == "follow" or commands.order == "regroup") then
-            followers[#followers + 1] = { actor = other, id = utility.idOf(other) }
+    if #followers == 0 then return followers end
+
+    local point
+    for _, entry in ipairs(followers) do
+        if betterRoleCandidate(entry, point, "pointScore") then point = entry end
+    end
+    point.cqbRole = "point"
+
+    if #followers >= 2 then
+        -- With at least three followers, preserve a firearm specialist for the
+        -- protected middle whenever a non-ranged rear candidate exists.
+        local rear, hasNonRanged = nil, false
+        if #followers >= 3 then
+            for _, entry in ipairs(followers) do
+                if entry ~= point and not entry.rangedCapable then hasNonRanged = true break end
+            end
+        end
+        for _, entry in ipairs(followers) do
+            if entry ~= point and (not hasNonRanged or not entry.rangedCapable)
+                and betterRoleCandidate(entry, rear, "rearScore") then rear = entry end
+        end
+        if rear == nil then
+            for _, entry in ipairs(followers) do
+                if entry ~= point and betterRoleCandidate(entry, rear, "rearScore") then rear = entry end
+            end
+        end
+        if rear then rear.cqbRole = "rear_guard" end
+    end
+
+    for _, entry in ipairs(followers) do
+        if entry.cqbRole == nil then
+            entry.cqbRole = entry.rangedCapable and "ranged_support" or "assault"
         end
     end
-    table.sort(followers, function(a, b) return tostring(a.id) < tostring(b.id) end)
-    local slots = setmetatable({}, { __mode = "k" })
-    for index, value in ipairs(followers) do slots[value.actor] = index end
-    leaderState.roster = followers
-    leaderState.rosterSlots = slots
-    leaderState.rosterExpires = current + 250
-    return followers, slots
+    table.sort(followers, function(first, second)
+        local firstRank = cqbRoleOrder[first.cqbRole] or 9
+        local secondRank = cqbRoleOrder[second.cqbRole] or 9
+        if firstRank ~= secondRank then return firstRank < secondRank end
+        return tostring(first.id) < tostring(second.id)
+    end)
+    local counts = {}
+    for index, entry in ipairs(followers) do
+        counts[entry.cqbRole] = (counts[entry.cqbRole] or 0) + 1
+        entry.roleIndex = counts[entry.cqbRole]
+        entry.columnIndex = index
+        entry.fireteamSize = #followers
+    end
+    return followers
+end
+
+local function cqbOpenOffset(entry, slot)
+    if type(entry) ~= "table" then
+        return formationOffsets[((slot - 1) % #formationOffsets) + 1]
+    end
+    if entry.cqbRole == "point" then return { -1, 1 } end
+    if entry.cqbRole == "rear_guard" then return { 0, 3 } end
+    if entry.cqbRole == "ranged_support" then
+        local side = (entry.roleIndex or 1) % 2 == 1 and 1 or -1
+        local rank = math.floor(((entry.roleIndex or 1) - 1) / 2)
+        return { side * (1 + rank), 2 + rank }
+    end
+    if entry.cqbRole == "assault" then
+        if (entry.roleIndex or 1) == 1 then return { 1, 1 } end
+        local side = (entry.roleIndex or 1) % 2 == 0 and -1 or 1
+        return { side * 2, 1 + math.floor((entry.roleIndex or 1) / 2) }
+    end
+    return formationOffsets[((slot - 1) % #formationOffsets) + 1]
+end
+
+local function rosterGroupKey(group)
+    return group == nil and "__ungrouped" or "group:" .. tostring(group)
+end
+
+local function followerRoster(leader, current, group)
+    local utility = U()
+    local leaderState = leaderStateFor(leader)
+    if current >= (leaderState.fireteamsExpires or 0) then
+        local fireteams = {}
+        -- Partition the whole recruited roster once per leader pulse. Selecting
+        -- Alpha, Bravo and an ungrouped follower in the same frame must not turn
+        -- into three registry scans.
+        for _, other in ipairs(utility.registryLiving(utility.config("maxCompanions") or 16)) do
+            local commands = commandState(other)
+            if commands and commands.recruited
+                and (commands.order == "follow" or commands.order == "regroup") then
+                local key = rosterGroupKey(commands.group)
+                local bucket = fireteams[key]
+                if not bucket then
+                    bucket = {}
+                    fireteams[key] = bucket
+                end
+                bucket[#bucket + 1] = {
+                    actor = other, id = utility.idOf(other), commands = commands,
+                }
+            end
+        end
+        for key, followers in pairs(fireteams) do
+            table.sort(followers, function(a, b) return tostring(a.id) < tostring(b.id) end)
+            assignCqbRoles(followers)
+            local slots = setmetatable({}, { __mode = "k" })
+            for index, value in ipairs(followers) do slots[value.actor] = index end
+            fireteams[key] = { roster = followers, slots = slots }
+        end
+        leaderState.fireteams = fireteams
+        leaderState.fireteamsExpires = current + 250
+    end
+    local cached = leaderState.fireteams and leaderState.fireteams[rosterGroupKey(group)] or nil
+    if cached then return cached.roster, cached.slots end
+    return emptyFireteam, emptyFireteamSlots
 end
 
 local function followerSlot(actor, leader, current)
-    local followers, slots = followerRoster(leader, current)
-    if slots[actor] then return slots[actor], followers end
-    return (U().stableHash(U().idOf(actor)) % #formationOffsets) + 1, followers
+    local commands = commandState(actor)
+    local followers, slots = followerRoster(leader, current,
+        commands and commands.group or nil)
+    if slots[actor] then return slots[actor], followers, followers[slots[actor]] end
+    return (U().stableHash(U().idOf(actor)) % #formationOffsets) + 1, followers, nil
 end
 
 local function cohortKey(actor, leader)
@@ -116,6 +264,9 @@ local function sampleLeader(leader, current, roster, cohort)
             state.revision = (state.revision or 0) + 1
             state.totalDistance = 0
             state.latestPortal = nil
+            state.latestPortalAt = nil
+            state.portalPassageActive = false
+            state.portalReflowUntil = nil
             state.velocityX, state.velocityY = 0, 0
         end
         local velocityX, velocityY
@@ -193,7 +344,8 @@ local function sampleLeader(leader, current, roster, cohort)
 end
 
 local function leaderHeading(actor, leader, current)
-    local roster = followerRoster(leader, current)
+    local commands = commandState(actor)
+    local roster = followerRoster(leader, current, commands and commands.group or nil)
     local state = sampleLeader(leader, current, roster, cohortKey(actor, leader))
     return state.headingX or 0, state.headingY or -1,
         state.velocityX or 0, state.velocityY or 0
@@ -299,13 +451,13 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     local px, py, pz = utility.position(leader)
     if not px then return nil end
     local current = utility.nowMs()
-    local slot, roster = followerSlot(actor, leader, current)
+    local slot, roster, fireteamMember = followerSlot(actor, leader, current)
     local cohort = cohortKey(actor, leader)
     local leaderState = sampleLeader(leader, current, roster, cohort)
     local forwardX, forwardY = leaderState.headingX or 0, leaderState.headingY or -1
     local velocityX, velocityY = leaderState.velocityX or 0, leaderState.velocityY or 0
     local rightX, rightY = -forwardY, forwardX
-    local localOffset = formationOffsets[((slot - 1) % #formationOffsets) + 1]
+    local localOffset = cqbOpenOffset(fireteamMember, slot)
     local scale = commands.order == "regroup" and 0.75
         or math.max(0.75, (tonumber(commands.followDistance) or 3) / 3)
     local predictionX, predictionY = 0, 0
@@ -333,10 +485,36 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         and (utility.canSee(actor, leader)
             or utility.canSee(actor, utility.squareOf(leader)))
     local portalHoldMs = tonumber(utility.config("formationPortalHoldMs")) or 1200
-    if leaderState.latestPortalAt and current - leaderState.latestPortalAt <= portalHoldMs then
+    local passageActive = false
+    if leaderState.latestPortal and SC.Navigation
+        and type(SC.Navigation.groupPassageActive) == "function" then
+        local ok, active = pcall(SC.Navigation.groupPassageActive,
+            leaderState.latestPortal, cohort, current)
+        passageActive = ok and active == true
+    end
+    if passageActive then
+        leaderState.portalPassageActive = true
+        leaderState.portalReflowUntil = nil
+    elseif leaderState.portalPassageActive then
+        leaderState.portalPassageActive = false
+        leaderState.portalReflowUntil = current
+            + (tonumber(utility.config("formationReflowDelayMs")) or 650)
+    end
+    local portalColumnUntil = math.max(
+        tonumber(leaderState.portalReflowUntil) or 0,
+        (tonumber(leaderState.latestPortalAt) or -portalHoldMs) + portalHoldMs)
+    local portalColumn = passageActive or current < portalColumnUntil
+    if portalColumn then
         clearOpenFormation = false
     end
-    if not clearOpenFormation then state.trailModeUntil = current + portalHoldMs end
+    if not clearOpenFormation then
+        if portalColumn then
+            state.trailModeUntil = math.max(tonumber(state.trailModeUntil) or 0,
+                portalColumnUntil)
+        else
+            state.trailModeUntil = current + portalHoldMs
+        end
+    end
     local mode = clearOpenFormation and current >= (state.trailModeUntil or 0)
         and "open" or "trail"
     local target, portal
@@ -386,6 +564,8 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         state.trailRevision = leaderState.revision or 0
         state.portalKey = portal and portal.key or nil
         state.columnIndex = slot
+        state.cqbRole = fireteamMember and fireteamMember.cqbRole or nil
+        state.fireteamSize = fireteamMember and fireteamMember.fireteamSize or #roster
         state.cohortKey = cohort
         state.velocityX, state.velocityY = velocityX, velocityY
     end
@@ -395,6 +575,8 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         portalKey = portal and portal.key or nil,
         portal = portal,
         columnIndex = slot,
+        cqbRole = fireteamMember and fireteamMember.cqbRole or nil,
+        fireteamSize = fireteamMember and fireteamMember.fireteamSize or #roster,
         cohortKey = cohort,
         participants = roster,
     }
@@ -402,6 +584,17 @@ end
 
 function Positioning.cohortKey(actor, leader)
     return cohortKey(actor, leader)
+end
+
+function Positioning.cqbRole(actor, leader)
+    if not actor or not leader then return nil end
+    local current = U().nowMs()
+    local commands = commandState(actor)
+    local followers, slots = followerRoster(leader, current,
+        commands and commands.group or nil)
+    local slot = slots[actor]
+    local entry = slot and followers[slot] or nil
+    return entry and entry.cqbRole or nil, slot, #followers
 end
 
 function Positioning.shouldHold(actor, target)
@@ -488,6 +681,26 @@ function Positioning.updateHoldAwareness(actor, leader, snapshot)
     local forwardX, forwardY = leaderHeading(actor, leader, current)
     local actorX, actorY, actorZ = utility.position(actor)
     if not actorX then return false, "awareness_position_unavailable" end
+
+    if state.cqbRole == "rear_guard" then
+        local interval = utility.config("rearGuardRefreshMs") or 2200
+        if not utility.isDue(actor, "formation_rear_guard", interval, current) then
+            return nil, "rear_guard_watch_not_due"
+        end
+        if not utility.stop(actor) then return false, "rear_guard_stop_rejected" end
+        local accepted, reason = utility.move(actor, "walk", {
+            action = "rear_guard_watch",
+            targetPosition = {
+                x = actorX - forwardX * 2,
+                y = actorY - forwardY * 2,
+                z = actorZ,
+            },
+            stableFacing = true,
+            awarenessMovement = true,
+            cqbRole = "rear_guard",
+        })
+        return accepted == true, reason or "rear_guard_watch_rejected"
+    end
 
     if state.restoreFormationFacingAt then
         if current < state.restoreFormationFacingAt then return true, "rear_scan_observing" end
@@ -641,6 +854,8 @@ function Positioning.debug(actor)
         trailRevision = state.trailRevision,
         portalKey = state.portalKey,
         columnIndex = state.columnIndex,
+        cqbRole = state.cqbRole,
+        fireteamSize = state.fireteamSize,
         cohortKey = state.cohortKey,
         conversation = state.conversation and {
             action = state.conversation.action,

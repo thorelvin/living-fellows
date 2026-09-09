@@ -148,7 +148,7 @@ World context commands use one **Living Fellows** root. The companion selected i
 
 ### Movement and awareness
 
-Followers use formation slots instead of stacking on the player. They check blind corners and room thresholds, occasionally look behind, space themselves through doors and stairs, remember a recent route back outdoors, and replan around vehicles, furniture, crowds, vegetation, windows, gates, slopes, and player-built obstacles. Bushes and trees are costly terrain rather than universal walls, so an emergency route may still cross vegetation.
+Followers use formation slots instead of stacking on the player. Each active fireteam (the unassigned squad or an Alpha/Bravo/Charlie group) automatically assigns a close fighter as point, keeps firearm support in the protected middle, and places a cautious survivor at the rear. That stable role order becomes a single-file column through doors and stairs; the team stays collapsed until the last nearby follower clears the portal, then deliberately fans back out. They check blind corners and room thresholds, remember a recent route back outdoors, and replan around vehicles, furniture, crowds, vegetation, windows, gates, slopes, and player-built obstacles. Bushes and trees are costly terrain rather than universal walls, so an emergency route may still cross vegetation.
 
 Companions can backpedal or strafe while disengaging on safe ground. A true overrun, grab threat, blind turn, narrow transition, or poor footing makes them turn and run. Escape always outranks ordinary walking, crouching, formation, work, and animation preferences.
 

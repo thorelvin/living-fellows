@@ -1956,6 +1956,20 @@ function Navigation.observeGroupPassage(leader, edge, cohort, roster, current)
     return refreshGroupPassage(passage, now)
 end
 
+-- Positioning keeps a fireteam in its ordered column until every nearby member
+-- has cleared the same portal. This query deliberately exposes only the active
+-- bit: passage ownership and mutation remain inside Navigation.
+function Navigation.groupPassageActive(edge, cohort, current)
+    if type(edge) ~= "table" or not edge.key or not cohort then return false end
+    local now = tonumber(current) or U().nowMs()
+    sweepGroupPassages(now)
+    local key = groupPassageKey(edge, cohort)
+    local passage = key and groupPassages[key] or nil
+    if not passage then return false, key end
+    refreshGroupPassage(passage, now)
+    return passage.complete ~= true and now < (passage.expires or 0), key
+end
+
 local function ensureGroupPassage(actor, state, sourceSquare, nextSquare, kind, intent, now)
     if kind == "open" and (squareHasStairs(sourceSquare) or squareHasStairs(nextSquare)
         or differentFloor(sourceSquare, nextSquare)) then kind = "stairs" end

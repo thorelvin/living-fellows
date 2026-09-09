@@ -509,7 +509,9 @@ function Locomotion.report(actor)
             .. " | choke queue " .. tostring(nav.chokeQueueOwner and actorId(nav.chokeQueueOwner) or "none")
             .. " | step queue " .. tostring(nav.stepQueueOwner and actorId(nav.stepQueueOwner) or "none"),
         "Formation: " .. tostring(positioning.formationMode or "none")
+            .. " | CQB " .. tostring(positioning.cqbRole or "none")
             .. " | column " .. tostring(positioning.columnIndex or "-")
+            .. "/" .. tostring(positioning.fireteamSize or "-")
             .. " | trail rev " .. tostring(positioning.trailRevision or 0)
             .. " | portal " .. tostring(positioning.portalKey or "none"),
         "Path stability: reused " .. tostring(nav.routeReuseCount or 0)

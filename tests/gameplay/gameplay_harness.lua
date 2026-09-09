@@ -2329,14 +2329,64 @@ registry[formationLeft.id], registry[formationRight.id] = formationLeft, formati
 check(SurvivorCompanion.Commands.issue(formationLeft.id, "follow", nil, positioningLeader)
     and SurvivorCompanion.Commands.issue(formationRight.id, "follow", nil, positioningLeader),
     "formation fixtures enter the persistent follow order")
+check(SurvivorCompanion.Commands.issue(formationLeft.id, "set_group", "alpha", positioningLeader)
+    and SurvivorCompanion.Commands.issue(formationRight.id, "set_group", "alpha", positioningLeader),
+    "formation fixtures enter one named fireteam")
+local formationLeftCommands = SurvivorCompanion.Commands.peek(formationLeft)
+local formationRightCommands = SurvivorCompanion.Commands.peek(formationRight)
+formationLeftCommands.personalityProfile = { courage = 95, caution = 25, practicality = 55 }
+formationRightCommands.personalityProfile = { courage = 35, caution = 95, practicality = 65 }
 local formationSnapshot = { threats = {}, allies = {}, player = { actor = positioningLeader, danger = 0 } }
 local leftTarget = SurvivorCompanion.Positioning.formationTarget(
-    formationLeft, positioningLeader, SurvivorCompanion.Commands.peek(formationLeft), formationSnapshot)
+    formationLeft, positioningLeader, formationLeftCommands, formationSnapshot)
 local rightTarget = SurvivorCompanion.Positioning.formationTarget(
-    formationRight, positioningLeader, SurvivorCompanion.Commands.peek(formationRight), formationSnapshot)
+    formationRight, positioningLeader, formationRightCommands, formationSnapshot)
 check(leftTarget and leftTarget.x == 19 and leftTarget.y == 19
-    and rightTarget and rightTarget.x == 19 and rightTarget.y == 21,
-    "stable identity slots rotate behind an east-facing player instead of using world axes")
+    and rightTarget and rightTarget.x == 17 and rightTarget.y == 20
+    and SurvivorCompanion.Positioning.debug(formationLeft).cqbRole == "point"
+    and SurvivorCompanion.Positioning.debug(formationRight).cqbRole == "rear_guard",
+    "stable CQB roles place point and rear guard behind an east-facing player")
+
+local formationAssault = actor("002-formation-assault", 15, 19, {})
+local formationRanged = actor("003-formation-ranged", 15, 22, {})
+formationRanged.primary = item("Base.CQBTestRifle", "Weapon", { ranged = true, ammo = 8 })
+registry[formationAssault.id], registry[formationRanged.id] = formationAssault, formationRanged
+check(SurvivorCompanion.Commands.issue(formationAssault.id, "follow", nil, positioningLeader)
+    and SurvivorCompanion.Commands.issue(formationRanged.id, "follow", nil, positioningLeader),
+    "additional CQB fixtures join the same fireteam")
+check(SurvivorCompanion.Commands.issue(formationAssault.id, "set_group", "alpha", positioningLeader)
+    and SurvivorCompanion.Commands.issue(formationRanged.id, "set_group", "alpha", positioningLeader),
+    "additional CQB fixtures use the named fireteam")
+local formationAssaultCommands = SurvivorCompanion.Commands.peek(formationAssault)
+local formationRangedCommands = SurvivorCompanion.Commands.peek(formationRanged)
+formationAssaultCommands.personalityProfile = { courage = 70, caution = 35, practicality = 55 }
+formationRangedCommands.personalityProfile = { courage = 55, caution = 50, practicality = 70 }
+formationRangedCommands.combatDoctrine = "ranged_support"
+formationRangedCommands.weaponPriority = "firearm"
+clock = clock + 300
+local _, pointContext = SurvivorCompanion.Positioning.formationTarget(
+    formationLeft, positioningLeader, formationLeftCommands, formationSnapshot)
+local _, assaultContext = SurvivorCompanion.Positioning.formationTarget(
+    formationAssault, positioningLeader, formationAssaultCommands, formationSnapshot)
+local _, rangedContext = SurvivorCompanion.Positioning.formationTarget(
+    formationRanged, positioningLeader, formationRangedCommands, formationSnapshot)
+local rearTarget, rearContext = SurvivorCompanion.Positioning.formationTarget(
+    formationRight, positioningLeader, formationRightCommands, formationSnapshot)
+check(pointContext.cqbRole == "point" and pointContext.columnIndex == 1
+        and assaultContext.cqbRole == "assault" and assaultContext.columnIndex == 2
+        and rangedContext.cqbRole == "ranged_support" and rangedContext.columnIndex == 3
+        and rearContext.cqbRole == "rear_guard" and rearContext.columnIndex == 4
+        and rearContext.fireteamSize == 4
+        and pointContext.participants[1].actor == formationLeft
+        and pointContext.participants[2].actor == formationAssault
+        and pointContext.participants[3].actor == formationRanged
+        and pointContext.participants[4].actor == formationRight,
+    "fireteam column orders point, assault, ranged support, then rear guard"
+        .. " got=" .. tostring(pointContext.cqbRole) .. ":" .. tostring(pointContext.columnIndex)
+        .. "," .. tostring(assaultContext.cqbRole) .. ":" .. tostring(assaultContext.columnIndex)
+        .. "," .. tostring(rangedContext.cqbRole) .. ":" .. tostring(rangedContext.columnIndex)
+        .. "," .. tostring(rearContext.cqbRole) .. ":" .. tostring(rearContext.columnIndex)
+        .. " size=" .. tostring(rearContext.fireteamSize))
 
 positioningLeader.forwardX, positioningLeader.forwardY = 0, 1
 clock = clock + 100
@@ -2478,6 +2528,20 @@ check(SurvivorCompanion.Positioning.updateHoldAwareness(
 SurvivorCompanion.Config.values.rearScanIntervalMs = nil
 SurvivorCompanion.Config.values.rearScanHoldMs = nil
 
+SurvivorCompanion.Config.values.rearGuardRefreshMs = 1
+formationRight.square = rearTarget
+formationRight.lastIntent = nil
+check(SurvivorCompanion.Positioning.updateHoldAwareness(
+        formationRight, positioningLeader, formationSnapshot) == nil,
+    "rear guard watch is paced instead of issuing a facing intent every frame")
+clock = clock + 2
+check(SurvivorCompanion.Positioning.updateHoldAwareness(
+        formationRight, positioningLeader, formationSnapshot)
+    and formationRight.lastIntent.action == "rear_guard_watch"
+    and formationRight.lastIntent.cqbRole == "rear_guard",
+    "rear guard periodically holds coverage behind the fireteam")
+SurvivorCompanion.Config.values.rearGuardRefreshMs = nil
+
 formationLeft.square = cell:getGridSquare(20, 18, 0)
 formationLeft.lastIntent = nil
 check(SurvivorCompanion.Positioning.beginConversation(formationLeft, positioningLeader, {
@@ -2544,7 +2608,8 @@ local yielded, yieldedReason = SurvivorCompanion.Navigation.request(
 check(yielded and yieldedReason == "yielding_right_of_way" and prioritySecond.lastIntent == nil,
     "deterministic right-of-way prevents two companions claiming one step")
 
-for _, value in ipairs({ formationLeft, formationRight, socialApproach, spaceActor, spaceBlocker,
+for _, value in ipairs({ formationLeft, formationRight, formationAssault, formationRanged,
+        socialApproach, spaceActor, spaceBlocker,
         priorityFirst, prioritySecond }) do
     SurvivorCompanion.Positioning.reset(value)
     SurvivorCompanion.Navigation.reset(value)
@@ -2794,11 +2859,131 @@ do
             cohortKey = cohort,
             groupParticipants = { { actor = firstFollower }, { actor = secondFollower } },
         }, clock + 100)
+    local activeBeforeFinal = SurvivorCompanion.Navigation.groupPassageActive(edge, cohort, clock + 100)
+    secondFollower.square = doorTo
+    secondFollower.worldX, secondFollower.worldY = 1.5, 2.5
+    SurvivorCompanion.Navigation._markActorPassageForRequest(
+        secondFollower, secondState, clock + 200)
+    local activeAfterFinal = SurvivorCompanion.Navigation.groupPassageActive(edge, cohort, clock + 200)
     check(passage and firstMayCross == true and secondMayCross == nil
-            and secondReason == "holding_group_passage" and secondAfter == true,
-        "a shared door passage admits followers in stable order and advances only after clearance")
+            and secondReason == "holding_group_passage" and secondAfter == true
+            and activeBeforeFinal == true and activeAfterFinal == false,
+        "a shared door passage admits followers in role order and stays active until final clearance")
     SurvivorCompanion.Navigation.cancel(firstFollower, "test_done")
     SurvivorCompanion.Navigation.cancel(secondFollower, "test_done")
+end
+do
+    -- Full CQB integration: an open formation follows the leader's door edge,
+    -- collapses into its role-ordered column, advances exactly one member at a
+    -- time, and does not fan out while the rear guard is still outside.
+    local columnLeader = actor("column-leader", 0, 2,
+        { className = "IsoPlayer", recruited = false, forwardX = 1, forwardY = 0 })
+    columnLeader.modData.SC_Recruited = false
+    local columnPoint = actor("column-point", -3, 2, {})
+    local columnAssault = actor("column-assault", -4, 2, {})
+    local columnRanged = actor("column-ranged", -5, 2, {})
+    local columnRear = actor("column-rear", -6, 2, {})
+    columnRanged.primary = item("Base.ColumnTestRifle", "Weapon", { ranged = true, ammo = 8 })
+    local columnMembers = { columnPoint, columnAssault, columnRanged, columnRear }
+    for _, member in ipairs(columnMembers) do
+        registry[member.id] = member
+        check(SurvivorCompanion.Commands.issue(member.id, "follow", nil, columnLeader)
+                and SurvivorCompanion.Commands.issue(
+                    member.id, "set_group", "column-test", columnLeader),
+            "single-file fixture joins the test fireteam")
+    end
+    local pointCommands = SurvivorCompanion.Commands.peek(columnPoint)
+    local assaultCommands = SurvivorCompanion.Commands.peek(columnAssault)
+    local rangedCommands = SurvivorCompanion.Commands.peek(columnRanged)
+    local rearCommands = SurvivorCompanion.Commands.peek(columnRear)
+    pointCommands.personalityProfile = { courage = 98, caution = 20, practicality = 55 }
+    assaultCommands.personalityProfile = { courage = 72, caution = 30, practicality = 55 }
+    rangedCommands.personalityProfile = { courage = 50, caution = 50, practicality = 70 }
+    rangedCommands.combatDoctrine = "ranged_support"
+    rangedCommands.weaponPriority = "firearm"
+    rearCommands.personalityProfile = { courage = 35, caution = 98, practicality = 65 }
+    local columnSnapshot = {
+        threats = {}, allies = {}, player = { actor = columnLeader, danger = 0 },
+    }
+
+    -- Seed the leader trail outside, then cross the actual harness door edge.
+    SurvivorCompanion.Positioning.formationTarget(
+        columnPoint, columnLeader, pointCommands, columnSnapshot)
+    columnLeader.square = doorTo
+    columnLeader.worldX, columnLeader.worldY = 1.5, 2.5
+    clock = clock + 300
+    local _, pointColumn = SurvivorCompanion.Positioning.formationTarget(
+        columnPoint, columnLeader, pointCommands, columnSnapshot)
+    local _, assaultColumn = SurvivorCompanion.Positioning.formationTarget(
+        columnAssault, columnLeader, assaultCommands, columnSnapshot)
+    local _, rangedColumn = SurvivorCompanion.Positioning.formationTarget(
+        columnRanged, columnLeader, rangedCommands, columnSnapshot)
+    local _, rearColumn = SurvivorCompanion.Positioning.formationTarget(
+        columnRear, columnLeader, rearCommands, columnSnapshot)
+    check(pointColumn.mode == "trail" and assaultColumn.mode == "trail"
+            and rangedColumn.mode == "trail" and rearColumn.mode == "trail"
+            and pointColumn.columnIndex == 1 and assaultColumn.columnIndex == 2
+            and rangedColumn.columnIndex == 3 and rearColumn.columnIndex == 4,
+        "all four CQB roles collapse into one ordered column at the door")
+
+    local columnEdge = SurvivorCompanion.Navigation.edgeAffordance(doorFrom, doorTo)
+    local columnStates = { {}, {}, {}, {} }
+    for index, member in ipairs(columnMembers) do
+        local accepted, reason = SurvivorCompanion.Navigation._ensureGroupPassageForRequest(
+            member, columnStates[index], doorFrom, doorTo, "door", {
+                cohortKey = pointColumn.cohortKey,
+                groupParticipants = pointColumn.participants,
+            }, clock + index)
+        check((index == 1 and accepted == true)
+                or (index > 1 and accepted == nil and reason == "holding_group_passage"),
+            "only the point member initially owns the single-file doorway")
+    end
+    for index, member in ipairs(columnMembers) do
+        member.square = doorTo
+        member.worldX, member.worldY = 1.5, 2.5
+        SurvivorCompanion.Navigation._markActorPassageForRequest(
+            member, columnStates[index], clock + index * 100)
+        if index < #columnMembers then
+            local nextMember = columnMembers[index + 1]
+            local nextAccepted = SurvivorCompanion.Navigation._ensureGroupPassageForRequest(
+                nextMember, columnStates[index + 1], doorFrom, doorTo, "door", {
+                    cohortKey = pointColumn.cohortKey,
+                    groupParticipants = pointColumn.participants,
+                }, clock + index * 100)
+            check(nextAccepted == true,
+                "single-file doorway ownership advances to the next CQB role")
+        end
+        local active = SurvivorCompanion.Navigation.groupPassageActive(
+            columnEdge, pointColumn.cohortKey, clock + index * 100)
+        check(active == (index < #columnMembers),
+            "doorway column remains active until the rear guard clears it")
+    end
+
+    clock = clock + #columnMembers * 100
+    local _, clearing = SurvivorCompanion.Positioning.formationTarget(
+        columnPoint, columnLeader, pointCommands, columnSnapshot)
+    check(clearing and clearing.mode == "trail",
+        "fireteam remains in column on the pulse that observes rear-guard clearance")
+    clock = clock + (SurvivorCompanion.GameplayUtil.config("formationPortalHoldMs") or 1200)
+        + (SurvivorCompanion.GameplayUtil.config("formationReflowDelayMs") or 650) + 10
+    local _, reopened = SurvivorCompanion.Positioning.formationTarget(
+        columnPoint, columnLeader, pointCommands, columnSnapshot)
+    check(reopened and reopened.mode == "open",
+        "fireteam fans back out only after final clearance and the reflow delay")
+
+    for _, member in ipairs(columnMembers) do
+        SurvivorCompanion.Positioning.reset(member)
+        SurvivorCompanion.Navigation.reset(member)
+        SurvivorCompanion.Commands.reset(member)
+        registry[member.id] = nil
+    end
+    SurvivorCompanion.Positioning.reset(columnLeader)
+    for _, value in ipairs({ columnLeader, columnPoint, columnAssault,
+            columnRanged, columnRear }) do
+        for index = #value.square.moving, 1, -1 do
+            if value.square.moving[index] == value then table.remove(value.square.moving, index) end
+        end
+    end
 end
 doorActor.square = doorTo
 doorActor.worldX, doorActor.worldY = 1.08, 2.5

@@ -565,6 +565,8 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
         portalKey = formation and formation.portalKey or nil,
         portal = formation and formation.portal or nil,
         columnIndex = formation and formation.columnIndex or nil,
+        cqbRole = formation and formation.cqbRole or nil,
+        fireteamSize = formation and formation.fireteamSize or nil,
         cohortKey = formation and formation.cohortKey or nil,
         groupParticipants = formation and formation.participants or nil,
     })

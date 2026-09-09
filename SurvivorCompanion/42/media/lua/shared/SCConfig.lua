@@ -202,6 +202,9 @@ local valueData = {
     navigationDoorApproachLateralTolerance = 0.18,
     formationOpenDistance = 6,
     formationPortalHoldMs = 1200,
+    -- Keep the role-ordered column intact until the final nearby follower has
+    -- cleared a door/stair, then allow a short settled pause before fanning out.
+    formationReflowDelayMs = 650,
     curtainCooldownMs = 45000,
     curtainDecisionIntervalMs = 12000,
     curtainTaskTimeoutMs = 30000,
@@ -443,6 +446,7 @@ local valueData = {
     formationTargetHysteresisDistance = 1.1,
     rearScanIntervalMs = 8500,
     rearScanHoldMs = 550,
+    rearGuardRefreshMs = 2200,
     positioningReservationMs = 650,
     conversationPreferredDistance = 1.65,
     conversationMinimumDistance = 1.2,

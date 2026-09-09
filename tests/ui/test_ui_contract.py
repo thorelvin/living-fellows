@@ -874,6 +874,8 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("pcall(SC.Commands.handSign, player, button.scSignal)", callback)
         self.assertIn("UI.signalSuccessText(reason, extra)", callback)
         squad = lua_function(self.ui, "function SCUIDetail:buildGroups(panel, row)")
+        self.assertIn("SC.Positioning.cqbRole", squad)
+        self.assertIn("UI_SC_Info_CQBRole", squad)
         descriptors = self.ui[self.ui.index("UI.commandGroups = {"):self.ui.index("function UI.normalizeTab(tab)")]
         for signal in (
             "whistle", "follow", "hold", "regroup", "cautious", "move_out",
