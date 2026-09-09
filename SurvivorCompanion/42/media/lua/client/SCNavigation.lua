@@ -6,20 +6,13 @@ if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGa
 if not SC.Topology and type(require) == "function" then pcall(require, "SCTopology") end
 if not SC.Performance and type(require) == "function" then pcall(require, "SCPerformance") end
 if not SC.PathSearch and type(require) == "function" then pcall(require, "SCPathSearch") end
+if not SC.NavTraffic and type(require) == "function" then pcall(require, "SCNavTraffic") end
 
 SC.Navigation = SC.Navigation or {}
 local Navigation = SC.Navigation
 local states = setmetatable({}, { __mode = "k" })
 local reservations = setmetatable({}, { __mode = "k" })
 local curtainTimes = setmetatable({}, { __mode = "k" })
-local chokeReservations = {}
-local chokeWaiters = setmetatable({}, { __mode = "k" })
-local groupPassages = {}
-local actorPassages = setmetatable({}, { __mode = "k" })
-local trafficSequence = 0
-local nextChokeSweepAt = 0
-local stepReservations = {}
-local nextStepSweepAt = 0
 local squareEvidenceClasses = {
     static_square = true,
     dynamic_square = true,
@@ -31,6 +24,10 @@ end
 
 local function P()
     return SC.PathSearch
+end
+
+local function T()
+    return SC.NavTraffic
 end
 
 local function recordMovement(actor, kind, fields)
@@ -1630,7 +1627,7 @@ local function completeDoorInteraction(actor, state, object, action, fromSquare,
             toSquare = toSquare,
             openedAt = now,
             expires = now + (utility.config("navigationReservationMs") or 8000),
-            passageKey = state.currentPassageKey or actorPassages[actor],
+            passageKey = T().actorPassageKey(actor, state),
         }
     else
         release(object, actor)
@@ -1877,275 +1874,42 @@ local function occupiesDoorway(value, entry)
     return math.abs(progress) < clearance and lateral <= 0.55
 end
 
-local function groupPassageKey(edge, cohort)
-    if type(edge) ~= "table" or not edge.key or not cohort then return nil end
-    return tostring(cohort) .. "|" .. tostring(edge.key)
-end
-
-local function passageTimeout(count)
-    return math.min(16000, 4000 + math.max(1, tonumber(count) or 1) * 1500)
-end
-
-local function passageActor(value)
-    return type(value) == "table" and value.actor or value
-end
-
-local function passageCrossed(passage, actor)
-    if not passage or not actor then return false end
-    if passage.crossed[actor] == true then return true end
-    if passage.kind == "door" then
-        local progress = doorGeometry(passage, actor)
-        return progress ~= nil and progress >= (U().config("doorClearanceDistance") or 0.38)
-    end
-    if passage.kind == "stairs" then
-        return sameSquare(U().squareOf(actor), passage.toSquare)
-            or (differentFloor(actor, passage.fromSquare)
-                and not differentFloor(actor, passage.toSquare))
-    end
-    return sameSquare(U().squareOf(actor), passage.toSquare)
-end
-
-local function refreshGroupPassage(passage, now)
-    if not passage then return nil end
-    local write, changed = 1, false
-    for index = 1, #(passage.participants or {}) do
-        local actor = passage.participants[index]
-        if U().isValidActor(actor) and not U().isDead(actor) and U().squareOf(actor) then
-            if passageCrossed(passage, actor) then
-                if passage.crossed[actor] ~= true then changed = true end
-                passage.crossed[actor] = true
-            end
-            passage.participants[write] = actor
-            write = write + 1
-        else
-            passage.crossed[actor] = true
-            changed = true
-        end
-    end
-    for index = #passage.participants, write, -1 do passage.participants[index] = nil end
-    local complete = true
-    for _, actor in ipairs(passage.participants) do
-        if passage.crossed[actor] ~= true then complete = false break end
-    end
-    if changed then
-        passage.lastProgressAt = now
-        passage.expires = now + passageTimeout(#passage.participants)
-    end
-    passage.complete = complete
-    if complete then passage.completedAt = passage.completedAt or now end
-    return passage
-end
-
-local function sweepGroupPassages(now)
-    for key, passage in pairs(groupPassages) do
-        refreshGroupPassage(passage, now)
-        if (passage.complete and now - (passage.completedAt or now) > 1000)
-            or now >= (passage.expires or 0) then
-            groupPassages[key] = nil
-        end
-    end
-end
-
-function Navigation.observeGroupPassage(leader, edge, cohort, roster, current)
-    if type(edge) ~= "table" or (edge.kind ~= "door" and edge.kind ~= "stairs") then
-        return nil
-    end
-    local now = tonumber(current) or U().nowMs()
-    local key = groupPassageKey(edge, cohort)
-    if not key then return nil end
-    local passage = groupPassages[key]
-    if not passage then
-        local participants, seen = {}, setmetatable({}, { __mode = "k" })
-        local roles = setmetatable({}, { __mode = "k" })
-        for _, value in ipairs(type(roster) == "table" and roster or {}) do
-            local actor = passageActor(value)
-            if actor and actor ~= leader and not seen[actor] and U().isValidActor(actor)
-                and U().sameFloor(actor, edge.fromSquare)
-                and U().distance(actor, edge.fromSquare) <= 12 then
-                participants[#participants + 1] = actor
-                roles[actor] = type(value) == "table" and value.cqbRole or nil
-                seen[actor] = true
-            end
-        end
-        passage = {
-            key = key, cohort = cohort, kind = edge.kind, object = edge.object,
-            fromSquare = edge.fromSquare, toSquare = edge.toSquare,
-            owner = leader, participants = participants,
-            crossed = setmetatable({}, { __mode = "k" }),
-            roles = roles,
-            yieldUntil = setmetatable({}, { __mode = "k" }),
-            startedAt = now, lastProgressAt = now,
-            expires = now + passageTimeout(#participants),
-        }
-        groupPassages[key] = passage
-    end
-    return refreshGroupPassage(passage, now)
-end
-
-local passageRoleOrder = {
-    point = 1, assault = 2, ranged_support = 3, rear_guard = 4,
+local trafficContext = {
+    record = recordMovement,
+    doorGeometry = doorGeometry,
+    occupiesDoorway = occupiesDoorway,
+    sameSquare = sameSquare,
+    differentFloor = differentFloor,
+    squareHasStairs = squareHasStairs,
+    squareHasSlope = squareHasSlope,
+    edgeAffordance = Navigation.edgeAffordance,
+    squareKey = squareKey,
 }
 
-local function passageHead(passage, now)
-    local approachRadius = tonumber(U().config("navigationPassageApproachRadius")) or 2.5
-    local leaseMs = tonumber(U().config("navigationPassageHeadLeaseMs")) or 1100
-    local stallMs = tonumber(U().config("navigationPassageStallMs")) or 900
-    local progressDistance = tonumber(U().config("navigationGoalProgressDistance")) or 0.05
-    local head = passage.head
-    if head and passage.crossed[head] ~= true and U().isValidActor(head) then
-        local nearby, distance = U().arrived(head, passage.fromSquare, {
-            targetKind = "square", distance = approachRadius,
-        })
-        if distance + progressDistance < (passage.headDistance or math.huge) then
-            passage.headDistance, passage.headProgressAt = distance, now
-        end
-        local stalled = now - (passage.headProgressAt or passage.headSince or now) > stallMs
-        local expired = now - (passage.headSince or now) > leaseMs
-        if nearby and not stalled and not expired then return head end
-        passage.yieldUntil[head] = now
-            + (tonumber(U().config("navigationPassageYieldMs")) or 500)
-    end
-
-    local candidates = {}
-    for index, member in ipairs(passage.participants or {}) do
-        if passage.crossed[member] ~= true and U().isValidActor(member) then
-            local nearby, distance = U().arrived(member, passage.fromSquare, {
-                targetKind = "square", distance = approachRadius,
-            })
-            if nearby and now >= (tonumber(passage.yieldUntil[member]) or 0) then
-                candidates[#candidates + 1] = {
-                    actor = member, index = index, distance = distance,
-                    rank = passageRoleOrder[passage.roles[member]] or 9,
-                }
-            end
-        end
-    end
-    -- If every nearby candidate is in its brief yield window, choose the best
-    -- one anyway; a single-member team must never deadlock itself.
-    if #candidates == 0 then
-        for index, member in ipairs(passage.participants or {}) do
-            if passage.crossed[member] ~= true and U().isValidActor(member) then
-                local nearby, distance = U().arrived(member, passage.fromSquare, {
-                    targetKind = "square", distance = approachRadius,
-                })
-                if nearby then
-                    candidates[#candidates + 1] = {
-                        actor = member, index = index, distance = distance,
-                        rank = passageRoleOrder[passage.roles[member]] or 9,
-                    }
-                end
-            end
-        end
-    end
-    table.sort(candidates, function(left, right)
-        if left.rank ~= right.rank then return left.rank < right.rank end
-        return left.index < right.index
-    end)
-    local selected = candidates[1]
-    passage.head = selected and selected.actor or nil
-    passage.headSince = selected and now or nil
-    passage.headProgressAt = selected and now or nil
-    passage.headDistance = selected and selected.distance or nil
-    return passage.head
+function Navigation.observeGroupPassage(leader, edge, cohort, roster, current)
+    return T().observeGroupPassage(
+        leader, edge, cohort, roster, current, trafficContext)
 end
 
 -- Positioning keeps a fireteam in its ordered column until every nearby member
 -- has cleared the same portal. This query deliberately exposes only the active
 -- bit: passage ownership and mutation remain inside Navigation.
 function Navigation.groupPassageActive(edge, cohort, current)
-    if type(edge) ~= "table" or not edge.key or not cohort then return false end
-    local now = tonumber(current) or U().nowMs()
-    sweepGroupPassages(now)
-    local key = groupPassageKey(edge, cohort)
-    local passage = key and groupPassages[key] or nil
-    if not passage then return false, key end
-    refreshGroupPassage(passage, now)
-    return passage.complete ~= true and now < (passage.expires or 0), key
+    return T().groupPassageActive(edge, cohort, current, trafficContext)
 end
 
 local function ensureGroupPassage(actor, state, sourceSquare, nextSquare, kind, intent, now)
-    if kind == "open" and (squareHasStairs(sourceSquare) or squareHasStairs(nextSquare)
-        or differentFloor(sourceSquare, nextSquare)) then kind = "stairs" end
-    if kind == "open" and (squareHasSlope(sourceSquare) or squareHasSlope(nextSquare)) then
-        kind = "slope"
+    local admitted = T().ensureGroupPassage(
+        actor, state, sourceSquare, nextSquare, kind, intent, now, trafficContext)
+    if admitted == true then return true end
+    if not stopAndObserve(actor, nextSquare, intent) then
+        return false, "group_passage_stop_rejected"
     end
-    if kind ~= "door" and kind ~= "stairs" and kind ~= "slope" then return true end
-    local cohort = intent and intent.cohortKey
-    if not cohort then return true end
-    sweepGroupPassages(now)
-    local edge = Navigation.edgeAffordance(sourceSquare, nextSquare)
-    if not edge then return true end
-    local key = groupPassageKey(edge, cohort)
-    local passage = groupPassages[key]
-    if not passage then
-        passage = Navigation.observeGroupPassage(nil, edge, cohort,
-            intent.groupParticipants, now)
-    end
-    if not passage then return true end
-    local present = false
-    for _, member in ipairs(passage.participants) do
-        if member == actor then present = true break end
-    end
-    if not present then passage.participants[#passage.participants + 1] = actor end
-    passage.roles = passage.roles or setmetatable({}, { __mode = "k" })
-    passage.yieldUntil = passage.yieldUntil or setmetatable({}, { __mode = "k" })
-    if intent and intent.cqbRole then passage.roles[actor] = intent.cqbRole end
-    refreshGroupPassage(passage, now)
-    state.currentPassageKey = key
-    actorPassages[actor] = key
-    if passage.crossed[actor] == true then return true end
-    local head = passageHead(passage, now)
-    if head ~= actor and intent and intent.urgent == true then
-        local occupied = false
-        for _, member in ipairs(passage.participants) do
-            if member ~= actor and occupiesDoorway(member, passage) then occupied = true break end
-        end
-        if not occupied then
-            for index, member in ipairs(passage.participants) do
-                if member == actor then table.remove(passage.participants, index) break end
-            end
-            table.insert(passage.participants, 1, actor)
-            head = actor
-            passage.head = actor
-            passage.headSince, passage.headProgressAt = now, now
-            passage.headDistance = select(2, U().arrived(actor, passage.fromSquare, {
-                targetKind = "square", distance = 0,
-            }))
-        end
-    end
-    if head ~= actor then
-        if state.passageQueueOwner ~= head then
-            recordMovement(actor, "passage_queued", {
-                status = "waiting_for:" .. tostring(U().idOf(head)), nextSquare = nextSquare,
-            })
-        end
-        state.passageQueueOwner = head
-        if not stopAndObserve(actor, nextSquare, intent) then
-            return false, "group_passage_stop_rejected"
-        end
-        return nil, "holding_group_passage"
-    end
-    if state.passageQueueOwner ~= nil then
-        recordMovement(actor, "passage_acquired", { status = passage.kind, nextSquare = nextSquare })
-    end
-    state.passageQueueOwner = nil
-    return true
+    return nil, "holding_group_passage"
 end
 
 local function markActorPassage(actor, state, now)
-    local key = state and (state.currentPassageKey or actorPassages[actor]) or actorPassages[actor]
-    local passage = key and groupPassages[key] or nil
-    if not passage then return end
-    if passageCrossed(passage, actor) then
-        passage.crossed[actor] = true
-        passage.lastProgressAt = now
-        passage.expires = now + passageTimeout(#passage.participants)
-        refreshGroupPassage(passage, now)
-        if passage.complete then
-            state.currentPassageKey = nil
-            actorPassages[actor] = nil
-        end
-    end
+    return T().markActorPassage(actor, state, now, trafficContext)
 end
 Navigation._ensureGroupPassageForRequest = ensureGroupPassage
 Navigation._markActorPassageForRequest = markActorPassage
@@ -2165,10 +1929,9 @@ local function safeToCloseDoor(entry, snapshot, actor)
     -- Keep the door open until the actor's continuous world position has cleared
     -- the leaf, otherwise it can close through the companion's collision capsule.
     if not actorClearOfDoorway(actor, entry) then return false end
-    local passage = entry.passageKey and groupPassages[entry.passageKey] or nil
-    if passage then
-        refreshGroupPassage(passage, utility.nowMs())
-        if not passage.complete and utility.nowMs() < (passage.expires or 0) then return false end
+    if entry.passageKey
+        and T().activePassageKey(entry.passageKey, utility.nowMs(), trafficContext) then
+        return false
     end
     if type(snapshot) ~= "table" then return true end
     for index = 1, math.min(#(snapshot.threats or {}), 12) do
@@ -2214,212 +1977,30 @@ local function closeOwnedDoors(actor, state, now, snapshot)
 end
 
 local function releaseChoke(state, actor)
-    local released = state and type(state.chokeReservationKeys) == "table"
-        and #state.chokeReservationKeys > 0
-    for _, key in ipairs(state and state.chokeReservationKeys or {}) do
-        local entry = chokeReservations[key]
-        if entry and entry.actor == actor then chokeReservations[key] = nil end
-    end
-    chokeWaiters[actor] = nil
-    if state then
-        state.chokeReservationKeys = nil
-        state.chokeQueueOwner = nil
-        state.chokeQueueSince = nil
-    end
-    if released then recordMovement(actor, "choke_released", { status = "corridor_clear" }) end
+    return T().releaseChoke(state, actor, trafficContext)
 end
 
 local function extendChoke(state, actor, untilAt)
-    for _, key in ipairs(state and state.chokeReservationKeys or {}) do
-        local entry = chokeReservations[key]
-        if entry and entry.actor == actor then
-            entry.expires = math.max(tonumber(entry.expires) or 0, tonumber(untilAt) or 0)
-        end
-    end
-end
-
-local function chokeEdgeKey(first, second)
-    local firstKey, secondKey = squareKey(first), squareKey(second)
-    if not firstKey or not secondKey then return nil end
-    if firstKey > secondKey then firstKey, secondKey = secondKey, firstKey end
-    return "edge:" .. firstKey .. "<>" .. secondKey
+    return T().extendChoke(state, actor, untilAt)
 end
 
 local movementPriority
 
-local function waiterOverlaps(keys, waiter)
-    if type(waiter) ~= "table" or type(waiter.keys) ~= "table" then return false end
-    local wanted = {}
-    for _, key in ipairs(keys or {}) do wanted[key] = true end
-    for _, key in ipairs(waiter.keys) do if wanted[key] then return true end end
-    return false
-end
-
-local function waiterBefore(first, second)
-    if second == nil then return true end
-    if first.priority ~= second.priority then return first.priority > second.priority end
-    if first.ticket ~= second.ticket then return first.ticket < second.ticket end
-    return tostring(first.id) < tostring(second.id)
-end
-
-local function bestChokeWaiter(keys, now)
-    local best
-    for candidate, waiter in pairs(chokeWaiters) do
-        if not waiter or waiter.expires <= now then
-            chokeWaiters[candidate] = nil
-        elseif waiterOverlaps(keys, waiter) and waiterBefore(waiter, best) then
-            best = waiter
-        end
-    end
-    return best
-end
-
 local function reserveChokeCorridor(sourceSquare, nextSquare, afterSquare, actor, state, intent, now)
-    if now >= nextChokeSweepAt then
-        for key, entry in pairs(chokeReservations) do
-            if not entry or entry.expires <= now then chokeReservations[key] = nil end
-        end
-        nextChokeSweepAt = now + 5000
-    end
-    local keys, seen = {}, {}
-    local function add(key)
-        if key and not seen[key] then seen[key] = true keys[#keys + 1] = key end
-    end
-    add(chokeEdgeKey(sourceSquare, nextSquare))
-    add(nextSquare and "square:" .. tostring(squareKey(nextSquare)) or nil)
-    if (U().config("navigationChokeCorridorNodes") or 3) >= 3 then
-        add(chokeEdgeKey(nextSquare, afterSquare))
-        add(afterSquare and "square:" .. tostring(squareKey(afterSquare)) or nil)
-    end
-    if #keys == 0 then return false end
-    local owner
-    for _, key in ipairs(keys) do
-        local existing = chokeReservations[key]
-        if existing and existing.actor ~= actor and existing.expires > now then
-            owner = existing.actor
-            break
-        end
-    end
-    local waiting = chokeWaiters[actor]
-    if owner then
-        if not waiting then
-            trafficSequence = trafficSequence + 1
-            waiting = {
-                actor = actor, id = tostring(U().idOf(actor)), ticket = trafficSequence,
-                since = now,
-            }
-        end
-        waiting.keys = keys
-        waiting.priority = movementPriority(intent)
-        waiting.expires = now + (U().config("navigationTrafficWaiterMs") or 5000)
-        chokeWaiters[actor] = waiting
-        if state.chokeQueueOwner ~= owner then
-            recordMovement(actor, "choke_queued", {
-                status = "waiting_for:" .. tostring(U().idOf(owner)),
-                nextSquare = nextSquare,
-            })
-        end
-        state.chokeQueueOwner = owner
-        state.chokeQueueSince = state.chokeQueueSince or now
-        return false, owner
-    end
-    local retained = type(state.chokeReservationKeys) == "table"
-        and #state.chokeReservationKeys == #keys
-    if retained then
-        local currentKeys = {}
-        for _, key in ipairs(state.chokeReservationKeys) do currentKeys[key] = true end
-        for _, key in ipairs(keys) do
-            local entry = chokeReservations[key]
-            if not currentKeys[key] or not entry or entry.actor ~= actor then
-                retained = false
-                break
-            end
-        end
-    end
-    if retained then
-        local expiry = now + (U().config("navigationChokeReservationMs") or 1400)
-        for _, key in ipairs(keys) do chokeReservations[key].expires = expiry end
-        chokeWaiters[actor] = nil
-        state.chokeQueueOwner, state.chokeQueueSince = nil, nil
-        return true
-    end
-    local best = bestChokeWaiter(keys, now)
-    if best and best.actor ~= actor then
-        state.chokeQueueOwner = best.actor
-        state.chokeQueueSince = state.chokeQueueSince or now
-        return false, best.actor
-    end
-    releaseChoke(state, actor)
-    local expiry = now + (U().config("navigationChokeReservationMs") or 1400)
-    local priority = movementPriority(intent)
-    local id = tostring(U().idOf(actor))
-    for _, key in ipairs(keys) do
-        chokeReservations[key] = {
-            actor = actor, id = id, priority = priority, expires = expiry,
-        }
-    end
-    state.chokeReservationKeys = keys
-    state.chokeQueueOwner = nil
-    state.chokeQueueSince = nil
-    recordMovement(actor, "choke_acquired", {
-        status = "keys:" .. tostring(#keys), nextSquare = nextSquare,
-    })
-    return true
+    return T().reserveChoke(
+        sourceSquare, nextSquare, afterSquare, actor, state, intent, now, trafficContext)
 end
 
 movementPriority = function(intent)
-    if type(intent) ~= "table" then return 10 end
-    if intent.urgent == true then return 100 end
-    if tonumber(intent.movementPriority) then return tonumber(intent.movementPriority) end
-    local action = tostring(intent.action or "")
-    if string.find(action, "retreat", 1, true) or string.find(action, "rescue", 1, true)
-        or string.find(action, "combat", 1, true) then return 80 end
-    if string.find(action, "medical", 1, true) then return 70 end
-    if string.find(action, "conversation", 1, true) then return 30 end
-    if string.find(action, "follow", 1, true) or action == "regroup" then return 20 end
-    return 40
+    return T().priority(intent)
 end
 
 local function releaseStep(state, actor)
-    local key = state and state.stepReservationKey or nil
-    local reservation = key and stepReservations[key] or nil
-    if reservation and reservation.actor == actor then stepReservations[key] = nil end
-    if state then state.stepReservationKey = nil end
+    return T().releaseStep(state, actor)
 end
 
 local function reserveStep(square, actor, state, intent, now)
-    if now >= nextStepSweepAt then
-        for key, entry in pairs(stepReservations) do
-            if not entry or entry.expires <= now then stepReservations[key] = nil end
-        end
-        nextStepSweepAt = now + 3000
-    end
-    local key = squareKey(square)
-    if not key then return false end
-    local priority = movementPriority(intent)
-    local id = tostring(U().idOf(actor))
-    local existing = stepReservations[key]
-    if existing and existing.actor ~= actor and existing.expires > now then
-        if state.stepQueueOwner ~= existing.actor then
-            recordMovement(actor, "step_queued", {
-                status = "waiting_for:" .. tostring(existing.id), nextSquare = square,
-            })
-        end
-        state.stepQueueOwner = existing.actor
-        state.stepQueueSince = state.stepQueueSince or now
-        return false, existing.actor
-    end
-    releaseStep(state, actor)
-    stepReservations[key] = {
-        actor = actor,
-        id = id,
-        priority = priority,
-        expires = now + (U().config("navigationStepReservationMs") or 450),
-    }
-    state.stepReservationKey = key
-    state.stepQueueOwner = nil
-    state.stepQueueSince = nil
-    return true
+    return T().reserveStep(square, actor, state, intent, now, trafficContext)
 end
 
 local function hasRightOfWay(actor, intent, blocker)
@@ -4905,15 +4486,10 @@ end
 function Navigation.cancel(actor, reason)
     local utility = U()
     local state = actor and states[actor]
-    local passageKey = actor and actorPassages[actor] or nil
-    local passage = passageKey and groupPassages[passageKey] or nil
-    if passage and actor then passage.crossed[actor] = true end
-    if actor then actorPassages[actor] = nil end
+    T().cancel(actor, state, trafficContext)
     if not state then return false end
     for _, entry in ipairs(state.openedDoors or {}) do release(entry.object, actor) end
     if state.pendingInteraction then release(state.pendingInteraction.object, actor) end
-    releaseStep(state, actor)
-    releaseChoke(state, actor)
     states[actor] = nil
     utility.stop(actor)
     return true, reason or "cancelled"
@@ -5029,14 +4605,7 @@ function Navigation.reset(actor)
         states = setmetatable({}, { __mode = "k" })
         reservations = setmetatable({}, { __mode = "k" })
         curtainTimes = setmetatable({}, { __mode = "k" })
-        chokeReservations = {}
-        chokeWaiters = setmetatable({}, { __mode = "k" })
-        groupPassages = {}
-        actorPassages = setmetatable({}, { __mode = "k" })
-        trafficSequence = 0
-        nextChokeSweepAt = 0
-        stepReservations = {}
-        nextStepSweepAt = 0
+        T().reset()
     end
 end
 

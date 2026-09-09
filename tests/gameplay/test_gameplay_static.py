@@ -13,6 +13,7 @@ OWNED = [
     "SCBaseObjectRef.lua",
     "SCTopology.lua",
     "SCPathSearch.lua",
+    "SCNavTraffic.lua",
     "SCDialogue.lua",
     "SCLifeEvents.lua",
     "SCCommunity.lua",
@@ -51,6 +52,9 @@ OWNED = [
 REQUIRED_EXPORTS = {
     "SCBaseObjectRef.lua": ["describe", "copy", "normalize", "resolve", "identity", "signature"],
     "SCPathSearch.lua": ["new", "resume", "run", "classifyFailure"],
+    "SCNavTraffic.lua": ["observeGroupPassage", "groupPassageActive",
+                         "ensureGroupPassage", "markActorPassage", "reserveChoke",
+                         "releaseChoke", "reserveStep", "releaseStep", "reset"],
     "SCDialogue.lua": ["register", "has", "choose", "say", "sayLastWords",
                        "monitorMortality", "reset", "poolSize", "topics"],
     "SCLifeEvents.lua": ["emit", "drain", "reset"],
@@ -165,6 +169,7 @@ def main() -> int:
         text = sources[name]
         module = {"SCInfectionCrisis.lua": "Crisis", "SCFactionBehavior.lua": "Behavior",
                   "SCZombieTargeting.lua": "Targeting",
+                  "SCNavTraffic.lua": "Traffic",
                   "SCFactionLife.lua": "Life", "SCFactionContracts.lua": "Contracts",
                   "SCFactionWorld.lua": "World", "SCFactionRecruitment.lua": "Recruitment"}.get(
             name, name.removeprefix("SC").removesuffix(".lua"))
@@ -264,7 +269,7 @@ def main() -> int:
             and "holdingFormation" in positioning_source,
             "formation arrival hysteresis contract missing")
     require("positioningReservationMs" in positioning_source
-            and "navigationStepReservationMs" in sources["SCNavigation.lua"]
+            and "navigationStepReservationMs" in sources["SCNavTraffic.lua"]
             and "yielding_right_of_way" in sources["SCNavigation.lua"]
             and "right_of_way_yield" in sources["SCNavigation.lua"],
             "personal-space reservation and right-of-way contract missing")

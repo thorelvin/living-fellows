@@ -27,7 +27,10 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
 - `SCLogistics` inventories the companion recursively and requests one missing construction item at a time from `SCEncounter`'s reserved player-opened camp-storage boundary. Unknown world containers are never considered camp storage.
 - `SCPathSearch` owns the resumable A* heap, search jobs, deterministic ties,
   bounded expansion, path reconstruction, and failure classification behind a
-  world adapter. `SCNavigation` retains geometry/cost policy, bounded outdoor
+  world adapter. `SCNavTraffic` owns group-passage queues, stable waiter order,
+  choke-corridor and next-step reservations, leases, expiry, and cancellation;
+  it admits movement but never issues it. `SCNavigation` retains geometry/cost
+  policy, bounded outdoor
   egress, movement ownership, door/window traversal, stair choke reservations,
   blind-corner observation, and a 64-square loop-erased indoor entry trail. Its
   separately bounded exterior search is refreshed on a cooldown and never scans
