@@ -25,6 +25,12 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
 - `SCAllegiance` is the pure, direction-sensitive relationship policy for party,
   faction, neutral, and hostile actors. `SCFactions` alone resolves mutable
   registry/group facts and retains the public relationship facade.
+- `SCThreatSet` owns bounded threat de-duplication, emergency-first retention,
+  deterministic ranking, posture/fence subsets, and overflow accounting.
+  `SCPerceptionScan` owns the cached horizontal/vertical frontier, persistent
+  cursors, job creation, origin rebasing, and scan-budget description.
+  `SCSenses` alone resolves live sight, hearing, world squares, and publishes
+  snapshots.
 - `SCSpawn` performs bounded, loaded-square, unseen, collision, occupancy, and nearby-zombie validation.
 - `SCNeeds` samples positive native hunger/thirst deltas and rebates half while preserving every negative vanilla food/drink effect. It selects only conservative safe food and clean water, and dispatches the real Build 42 eat, bottle-drink, or water-source timed action.
 - `SCLogistics` inventories the companion recursively and requests one missing construction item at a time from `SCEncounter`'s reserved player-opened camp-storage boundary. Unknown world containers are never considered camp storage.

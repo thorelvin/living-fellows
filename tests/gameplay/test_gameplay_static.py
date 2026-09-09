@@ -20,6 +20,8 @@ OWNED = [
     "SCLifeEvents.lua",
     "SCCommunity.lua",
     "SCBackground.lua",
+    "SCThreatSet.lua",
+    "SCPerceptionScan.lua",
     "SCSenses.lua",
     "SCNavigation.lua",
     "SCPositioning.lua",
@@ -61,6 +63,9 @@ REQUIRED_EXPORTS = {
                             "handleWindowFrame", "doorGeometry", "occupiesDoorway",
                             "alignDoorApproach", "handleFence", "closeOwnedDoors", "reset"],
     "SCAllegiance.lua": ["isHostile", "relationship", "areAllies", "isProtected"],
+    "SCThreatSet.lua": ["threatPreferred", "proximityPreferred", "isImmediate",
+                        "new", "add", "finish"],
+    "SCPerceptionScan.lua": ["nextOffsets", "newJob", "invalid", "reset"],
     "SCDialogue.lua": ["register", "has", "choose", "say", "sayLastWords",
                        "monitorMortality", "reset", "poolSize", "topics"],
     "SCLifeEvents.lua": ["emit", "drain", "reset"],
@@ -177,6 +182,7 @@ def main() -> int:
                   "SCZombieTargeting.lua": "Targeting",
                   "SCNavTraffic.lua": "Traffic",
                   "SCNavTraversal.lua": "Traversal",
+                  "SCPerceptionScan.lua": "Scan",
                   "SCFactionLife.lua": "Life", "SCFactionContracts.lua": "Contracts",
                   "SCFactionWorld.lua": "World", "SCFactionRecruitment.lua": "Recruitment"}.get(
             name, name.removeprefix("SC").removesuffix(".lua"))

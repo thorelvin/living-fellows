@@ -36,6 +36,8 @@ require "SCFactionWorld"
 require "SCFactionBehavior"
 require "SCZombieTargeting"
 require "SCZombieAttack"
+require "SCThreatSet"
+require "SCPerceptionScan"
 require "SCSenses"
 require "SCNavigation"
 require "SCPositioning"
@@ -90,7 +92,7 @@ local requiredModules = {
     "ActionSupervisor", "Actor", "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Topology",
     "BaseObjectRef", "PathSearch", "NavTraffic", "NavTraversal",
     "Background", "Dialogue", "Allegiance", "Factions", "Trade", "FactionLife", "FactionContracts", "FactionWorld",
-    "FactionBehavior", "ZombieTargeting",
+    "FactionBehavior", "ZombieTargeting", "ThreatSet", "PerceptionScan",
     "Locomotion", "Senses", "Navigation", "Positioning", "Combat", "Medical", "Encounter",
     "Logistics", "Needs", "Downtime", "Personality", "PersonalItems", "Relationship",
     "Objectives", "Journal", "BaseLife", "BaseVisuals", "BaseWork", "InfectionCrisis",

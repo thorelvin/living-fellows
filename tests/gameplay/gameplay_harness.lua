@@ -1289,6 +1289,26 @@ do
 end
 
 do
+    local ThreatSet = SurvivorCompanion.ThreatSet
+    local set = ThreatSet.new(2, 2.25 * 2.25, 1.5)
+    local distant = { actor = {}, score = 100, distanceSq = 25, grounded = true }
+    local close = { actor = {}, score = 10, distanceSq = 1, fenced = true }
+    local closer = { actor = {}, score = 9, distanceSq = 0.25, attacking = true }
+    check(ThreatSet.add(set, distant, false)
+            and ThreatSet.add(set, close, true)
+            and ThreatSet.add(set, closer, true)
+            and not ThreatSet.add(set, closer, true),
+        "threat-set accepts unique contacts and rejects actor duplicates")
+    local result = ThreatSet.finish(set)
+    check(#result.threats == 2 and result.threats[1] == close
+            and result.threats[2] == closer and #result.immediate == 2
+            and result.visibleCount == 3 and result.threatOverflow == 1
+            and result.immediateVisibleCount == 2 and result.immediateOverflow == 0
+            and result.added == 2 and #result.fenced == 1 and #result.grounded == 0,
+        "threat-set reserves bounded capacity for emergencies and reports exact overflow")
+end
+
+do
     local reflexActor = actor("sc-reflex-senses", -6, -7, {})
     local reflexRuntime = {}
     local broadSnapshot = SurvivorCompanion.Senses.snapshot(

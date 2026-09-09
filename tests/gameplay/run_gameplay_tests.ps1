@@ -41,6 +41,8 @@ $LuaFiles += @(
     'SCLifeEvents.lua',
     'SCCommunity.lua',
     'SCBackground.lua',
+    'SCThreatSet.lua',
+    'SCPerceptionScan.lua',
     'SCSenses.lua',
     'SCNavigation.lua',
     'SCPositioning.lua',
