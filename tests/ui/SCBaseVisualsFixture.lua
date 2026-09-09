@@ -123,9 +123,13 @@ fixture.summary = {
     },
     storageRows = {
         { id = "storage:food", category = "food",
-            x = 13, y = 13, z = 0, objectIndex = 2, object = fixture.foodObject },
+            x = 13, y = 13, z = 0, objectIndex = 2,
+            objectId = "object:food", objectSignature = "fixture|food|container",
+            object = fixture.foodObject },
         { id = "storage:upper", category = "medical",
-            x = 9, y = 9, z = 1, objectIndex = 3, object = fixture.upperObject },
+            x = 9, y = 9, z = 1, objectIndex = 3,
+            objectId = "object:upper", objectSignature = "fixture|upper|container",
+            object = fixture.upperObject },
     },
 }
 
@@ -141,7 +145,12 @@ SurvivorCompanion = {
     BaseLife = {
         summary = function() return fixture.summary end,
         visualRows = function() return fixture.summary end,
-        resolveObject = function(record) return record.object end,
+        resolveObject = function(record)
+            if type(record.objectId) ~= "string" then
+                return nil, "legacy_object_identity_unavailable"
+            end
+            return record.object
+        end,
         zoneDraft = function() return fixture.draft end,
         isInside = function(point)
             return point.z == 0 and point.x >= 8 and point.x <= 18

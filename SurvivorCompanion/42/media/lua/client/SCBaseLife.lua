@@ -714,6 +714,8 @@ function BaseLife.visualRows()
             id = storage.id, category = storage.category,
             x = storage.x, y = storage.y, z = storage.z,
             objectIndex = storage.objectIndex,
+            objectId = storage.objectId,
+            objectSignature = storage.objectSignature,
         }
     end
     return result

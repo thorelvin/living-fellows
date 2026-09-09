@@ -8173,7 +8173,13 @@ check(visualRows.configured == true and #visualRows.zoneRows == 2
         and #visualRows.storageRows == 1
         and visualRows.storageRows[1].category == "construction"
         and visualRows.storageRows[1].objectIndex == store.objectIndex,
-    "base visualization gets a lightweight coordinate-only read model")
+    "base visualization gets a lightweight object-reference read model")
+local visualStorage = visualRows.storageRows[1]
+local resolvedVisualStorage, resolvedVisualReason = BaseLife.resolveObject(visualStorage)
+check(visualStorage.objectId == storageRow.objectId
+        and visualStorage.objectSignature == storageRow.objectSignature
+        and resolvedVisualStorage == store and resolvedVisualReason == nil,
+    "base visualization preserves the registered storage identity required by the real resolver")
 local maintenanceObject = { square = campSquare, objectIndex = #campSquare.objects, modData = {} }
 function maintenanceObject:getSquare() return self.square end
 function maintenanceObject:getX() return self.square.x end
