@@ -1174,6 +1174,19 @@ function actor:openWindow(value) value.opened = true end
 function actor:smashWindow(value) value.smashed = true end
 function actor:climbThroughWindow() self.climbing = true end
 function actor:isClimbing() return self.climbing == true end
+function actor:climbOverFence(direction)
+    self.climbing = true
+    self.climbDirection = direction
+    self.climbKind = "fence"
+end
+function actor:canClimbOverWall(direction) return direction ~= nil end
+function actor:climbOverWall(direction)
+    if direction == nil then return false end
+    self.climbing = true
+    self.climbDirection = direction
+    self.climbKind = "wall"
+    return true
+end
 function actor:cancelCompanionStuckClimb()
     self.climbing = false
     return true
@@ -1191,6 +1204,26 @@ do
     local stubbornCancelled, stubbornReason = SC.NativeActions.cancelStuckClimb(stubbornClimber)
     check(not stubbornCancelled and stubbornReason == "native_climb_state_remains",
         "stale-climb adapter rejects an unverified native state transition")
+end
+do
+IsoDirections = IsoDirections or { N = "N", S = "S", E = "E", W = "W" }
+actor.climbing, actor.climbDirection, actor.climbKind = false, nil, nil
+local fenceOk, fenceReason = SC.Actor.setMovement(actor, "walk", {
+    action = "climb_fence", direction = "east", nativeAffordance = "fence",
+})
+check(fenceOk and fenceReason == "fence_climb_started"
+        and actor.climbing and actor.climbDirection == IsoDirections.E
+        and actor.climbKind == "fence",
+    "direct-native adapter enters the stock low-fence climb state")
+actor.climbing, actor.climbDirection, actor.climbKind = false, nil, nil
+local wallOk, wallReason = SC.Actor.setMovement(actor, "walk", {
+    action = "climb_wall", direction = "north", nativeAffordance = "fence",
+})
+check(wallOk and wallReason == "wall_climb_started"
+        and actor.climbing and actor.climbDirection == IsoDirections.N
+        and actor.climbKind == "wall",
+    "direct-native adapter validates and enters the stock tall-wall climb state")
+actor.climbing, actor.climbDirection, actor.climbKind = false, nil, nil
 end
 local windowOk, windowReason = SC.Actor.setMovement(actor, "walk", {
     action = "open_window", object = window,

@@ -78,6 +78,7 @@ public final class SCNativeApiSignatureTest {
         Class<?> stateMachine = Class.forName("zombie.ai.StateMachine");
         Class<?> zombieAttackState = Class.forName("zombie.ai.states.AttackState");
         Class<?> playerActionsState = Class.forName("zombie.ai.states.PlayerActionsState");
+        Class<?> isoDirection = Class.forName("zombie.iso.IsoDirections");
 
         require(Modifier.isFinal(survivor.getModifiers()), "stock IsoSurvivor must remain final");
         require(player.isAssignableFrom(companion) && Modifier.isFinal(companion.getModifiers()),
@@ -125,6 +126,16 @@ public final class SCNativeApiSignatureTest {
                         && method(playerActionsState, "instance").getReturnType()
                                 == playerActionsState,
                 "SCNativeCompanion stale-climb cancellation contract changed");
+        require(method(square, "getDoorTo", square).getReturnType() == isoObject
+                        && method(square, "getHoppableTo", square).getReturnType() == isoObject
+                        && method(square, "getWallHoppableTo", square).getReturnType() == isoObject
+                        && method(character, "climbOverFence", isoDirection).getReturnType()
+                                == void.class
+                        && method(player, "canClimbOverWall", isoDirection).getReturnType()
+                                == boolean.class
+                        && method(player, "climbOverWall", isoDirection).getReturnType()
+                                == boolean.class,
+                "Build 42 open-gate and low/high fence traversal signatures changed");
         require(companion.getDeclaredMethod("getCompanionAttackCollisionSerial")
                         .getReturnType() == int.class,
                 "SCNativeCompanion attack-impact evidence contract changed");
@@ -134,6 +145,12 @@ public final class SCNativeApiSignatureTest {
                         && method(combatManager, "checkPVP", movingObject, movingObject,
                                 boolean.class).getReturnType() == boolean.class,
                 "Build 42 player-versus-native-NPC hit-gate signatures changed");
+        require(method(isoObject, "setOutlineHighlight", int.class, boolean.class)
+                                .getReturnType() == void.class
+                        && method(isoObject, "setOutlineHighlightCol", int.class,
+                                float.class, float.class, float.class, float.class)
+                                .getReturnType() == void.class,
+                "Build 42 per-player base-storage outline signatures changed");
         require(companion.getDeclaredMethod("addLineChatElement", String.class).getReturnType()
                         == void.class
                         && companion.getDeclaredMethod("setCompanionSpeechDisplayMillis", int.class)

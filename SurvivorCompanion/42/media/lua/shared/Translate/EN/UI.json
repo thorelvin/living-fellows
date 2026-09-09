@@ -961,5 +961,10 @@
     "UI_SC_Quest_OfferOpened": "Quest offer opened.",
     "UI_SC_Quest_TurnInOpened": "Choose your quest reward.",
     "UI_SC_Quest_RetrieveProgress": "Recovered: %1/1 (%2)",
-    "UI_SC_Quest_HordeProgress": "Horde: %1/%2 defeated — %3"
+    "UI_SC_Quest_HordeProgress": "Horde: %1/%2 defeated — %3",
+    "UI_SC_Base_Visual_Show": "Show base layout",
+    "UI_SC_Base_Visual_Hide": "Hide base layout",
+    "UI_SC_Base_Visual_Hint": "Zones are outlined on the ground. Registered storage is outlined and labelled by category. Only the current floor and nearby loaded objects are shown.",
+    "UI_SC_Base_Visual_FocusZone": "Highlight zone: %1",
+    "UI_SC_Base_Visual_FocusStorage": "Highlight storage: %1"
 }

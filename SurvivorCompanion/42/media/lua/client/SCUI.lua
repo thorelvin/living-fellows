@@ -404,6 +404,8 @@ local function baseDetailSignature()
     if not SC.BaseLife or type(SC.BaseLife.summary) ~= "function" then return "base:none" end
     local summary = SC.BaseLife.summary()
     local operations = summary.operations or {}
+    local visuals = SC.BaseVisuals and type(SC.BaseVisuals.status) == "function"
+        and SC.BaseVisuals.status() or {}
     return "base:" .. stableSignatureValue({
         configured = summary.configured, name = summary.name, zones = summary.zones,
         storages = summary.storages, residents = summary.residents, duty = summary.duty,
@@ -416,6 +418,7 @@ local function baseDetailSignature()
             activeGuard = operations.activeGuard,
             unloadedStores = operations.unloadedStores,
         },
+        visuals = visuals,
     }, 6, { count = 480 }, {})
 end
 
@@ -1220,6 +1223,12 @@ local function runBaseManagementAction(target, action, payload)
             { payload.id, payload.enabled == true }
     elseif action == "remove_maintenance" then
         method, arguments = SC.BaseLife.removeMaintenanceTarget, { payload.id }
+    elseif action == "toggle_visuals" and SC.BaseVisuals then
+        method, arguments = SC.BaseVisuals.toggle, {}
+    elseif action == "focus_zone" and SC.BaseVisuals then
+        method, arguments = SC.BaseVisuals.focus, { "zone", payload.id }
+    elseif action == "focus_storage" and SC.BaseVisuals then
+        method, arguments = SC.BaseVisuals.focus, { "storage", payload.id }
     end
     if type(method) ~= "function" then
         setButtonFeedback(target, UI.text("UI_SC_Base_ActionFailed", "unsupported_action"), false)
@@ -1230,6 +1239,10 @@ local function runBaseManagementAction(target, action, payload)
         and UI.text("UI_SC_Base_ActionAccepted")
         or UI.text("UI_SC_Base_ActionFailed", tostring(reason or accepted)),
         ok and accepted == true)
+    if ok and accepted == true and SC.BaseVisuals
+        and type(SC.BaseVisuals.refresh) == "function" then
+        SC.BaseVisuals.refresh()
+    end
     UI.refresh()
     return ok and accepted == true
 end
@@ -2500,6 +2513,14 @@ function SCUIDetail:buildBase(panel, row)
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
             UI.text("UI_SC_Base_Summary", base.name or "Main Camp", base.zones or 0,
                 base.storages or 0, base.residents or 0, base.duty or 0))
+        local visualStatus = SC.BaseVisuals and type(SC.BaseVisuals.status) == "function"
+            and SC.BaseVisuals.status() or { enabled = false }
+        y = self:addBaseManagementAction(panel, y,
+            visualStatus.enabled and UI.text("UI_SC_Base_Visual_Hide")
+                or UI.text("UI_SC_Base_Visual_Show"),
+            "toggle_visuals", {}, nil)
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_Base_Visual_Hint"))
         local jobs = base.jobs or {}
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
             UI.text("UI_SC_Base_Jobs", jobs.pending or 0, jobs.active or 0, jobs.blocked or 0))
@@ -2561,6 +2582,9 @@ function SCUIDetail:buildBase(panel, row)
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                     UI.text("UI_SC_Base_ZoneRow", zone.name, UI.humanize(zone.kind),
                         zone.x1, zone.y1, zone.x2, zone.y2, zone.z))
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_Visual_FocusZone", zone.name), "focus_zone",
+                    { id = zone.id }, nil)
                 if zone.kind == "area" and areaCount <= 1 then
                     y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                         UI.text("UI_SC_Base_CoreZoneProtected"))
@@ -2580,6 +2604,10 @@ function SCUIDetail:buildBase(panel, row)
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                     UI.text("UI_SC_Base_StorageRow", UI.humanize(storage.category),
                         storage.x, storage.y, storage.z, storage.reserve or 0))
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_Visual_FocusStorage",
+                        UI.text("UI_SC_Base_Storage_" .. storage.category)),
+                    "focus_storage", { id = storage.id }, nil)
                 y = self:addBaseRecordSelector(panel, y,
                     "UI_SC_Base_StorageCategorySelector", storage.category,
                     BASE_STORAGE_CATEGORIES, "set_storage_category", storage.id, "category")
@@ -4340,6 +4368,9 @@ end
 
 function UI.close()
     if UI._questDialog then UI._questDialog:close() end
+    if SC.BaseVisuals and type(SC.BaseVisuals.setEnabled) == "function" then
+        SC.BaseVisuals.setEnabled(false)
+    end
     if not UI.instance then
         return
     end

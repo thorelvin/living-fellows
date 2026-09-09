@@ -119,7 +119,8 @@ local function adjacentStep(a, b)
     local dx, dy = math.abs(math.floor(ax) - math.floor(bx)),
         math.abs(math.floor(ay) - math.floor(by))
     local dz = math.abs(math.floor(az or 0) - math.floor(bz or 0))
-    return dx + dy <= 1 and dz <= 1
+    if dz == 0 then return dx <= 1 and dy <= 1 end
+    return dz == 1 and dx + dy <= 1
 end
 
 local function squareKey(square)
@@ -260,6 +261,10 @@ local function directionBetween(fromSquare, toSquare)
     if math.floor(tz or 0) > math.floor(fz or 0) then return "up" end
     if math.floor(tz or 0) < math.floor(fz or 0) then return "down" end
     local dx, dy = tx - fx, ty - fy
+    if math.abs(dx) > 0 and math.abs(dy) > 0 then
+        if dx > 0 then return dy > 0 and "southeast" or "northeast" end
+        return dy > 0 and "southwest" or "northwest"
+    end
     if math.abs(dx) >= math.abs(dy) then return dx >= 0 and "east" or "west" end
     return dy >= 0 and "south" or "north"
 end
@@ -893,10 +898,17 @@ local function heuristic(square, goal)
     local x, y, z = utility.position(square)
     local gx, gy, gz = utility.position(goal)
     if not x or not gx then return math.huge end
-    return math.abs(x - gx) + math.abs(y - gy) + math.abs((z or 0) - (gz or 0)) * 4
+    local dx, dy = math.abs(x - gx), math.abs(y - gy)
+    local diagonal = math.min(dx, dy)
+    -- Octile distance is admissible for the 8-connected grid below (cardinal
+    -- cost 1, diagonal cost sqrt(2)); Manhattan would overestimate and could
+    -- discard the natural straight diagonal route.
+    return dx + dy + (math.sqrt(2) - 2) * diagonal
+        + math.abs((z or 0) - (gz or 0)) * 4
 end
 
 local cardinalOffsets = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+local diagonalOffsets = { { 1, 1 }, { -1, 1 }, { -1, -1 }, { 1, -1 } }
 local verticalOffsets = { -1, 1 }
 
 local function neighbors(square, goal, rotation)
@@ -907,6 +919,11 @@ local function neighbors(square, goal, rotation)
     local offset = math.floor(tonumber(rotation) or 0) % #cardinalOffsets
     for step = 1, #cardinalOffsets do
         local delta = cardinalOffsets[((step - 1 + offset) % #cardinalOffsets) + 1]
+        local other = utility.gridSquare(x + delta[1], y + delta[2], z)
+        if other then result[#result + 1] = other end
+    end
+    for step = 1, #diagonalOffsets do
+        local delta = diagonalOffsets[((step - 1 + offset) % #diagonalOffsets) + 1]
         local other = utility.gridSquare(x + delta[1], y + delta[2], z)
         if other then result[#result + 1] = other end
     end
@@ -1900,7 +1917,7 @@ end
 -- collision steering.  For a one-tile door path that produces a diagonal line
 -- through the frame.  Move only as far as the door centreline on the approach
 -- side first; the following request then crosses perpendicular to the leaf.
-local function alignDoorApproach(actor, fromSquare, toSquare, intent)
+local function alignDoorApproach(actor, fromSquare, toSquare, intent, affordance)
     local utility = U()
     local entry = { fromSquare = fromSquare, toSquare = toSquare }
     local progress, lateral, forwardX, forwardY = doorGeometry(entry, actor)
@@ -1920,27 +1937,55 @@ local function alignDoorApproach(actor, fromSquare, toSquare, intent)
     local desiredProgress = math.min(progress, -setback)
     local targetX = thresholdX + forwardX * desiredProgress
     local targetY = thresholdY + forwardY * desiredProgress
+    local prefix = affordance == "fence" and "fence" or "door"
     local alignmentIntent = {
-        action = "door_approach",
+        action = prefix .. "_approach",
         dx = targetX - actorX,
         dy = targetY - actorY,
         targetPosition = { x = targetX, y = targetY, z = fromZ or 0 },
         targetKind = "world",
         direct = true,
         collisionValidated = true,
-        doorwayAlignment = true,
+        doorwayAlignment = affordance ~= "fence",
+        fenceAlignment = affordance == "fence",
         weaponReady = false,
         supervisorToken = intent and intent.supervisorToken,
     }
     local accepted, reason = utility.move(actor, "walk", alignmentIntent)
     if accepted ~= true then return false, reason or "door_approach_rejected" end
-    recordMovement(actor, "door_approach", {
+    recordMovement(actor, prefix .. "_approach", {
         targetSquare = alignmentIntent.targetPosition,
         nextSquare = toSquare,
         status = "aligning_to_threshold",
     })
-    return nil, "aligning_door_approach"
+    return nil, "aligning_" .. prefix .. "_approach"
 end
+
+local function handleFence(actor, object, fromSquare, toSquare, intent)
+    local utility = U()
+    local tall, tallOk = utility.call(object, "isTallHoppable")
+    local action = tallOk and tall == true and "climb_wall" or "climb_fence"
+    local climbIntent = {
+        action = action,
+        object = object,
+        fromSquare = fromSquare,
+        targetSquare = toSquare,
+        nextSquare = toSquare,
+        direction = directionBetween(fromSquare, toSquare),
+        nativeAffordance = "fence",
+        humanAnimationOnly = true,
+        supervisorToken = intent and intent.supervisorToken,
+    }
+    local accepted, reason = utility.move(actor, "walk", climbIntent)
+    if accepted ~= true then return false, reason or (action .. "_rejected") end
+    recordMovement(actor, "fence_climb", {
+        targetSquare = toSquare,
+        nextSquare = toSquare,
+        status = action,
+    })
+    return true, action == "climb_wall" and "climbing_wall" or "climbing_fence"
+end
+Navigation._handleFenceForRequest = handleFence
 
 local function occupiesDoorway(value, entry)
     local progress, lateral = doorGeometry(entry, value)
@@ -3032,7 +3077,10 @@ local function tryReusePathSuffix(actor, state, sourceSquare, context, now)
         end
     end
     if not selected then
-        for index = startIndex, finishIndex do
+        -- Several consecutive suffix tiles can be adjacent once diagonal steps
+        -- are legal. Prefer the furthest validated one so a collision detour does
+        -- not make the companion step backwards before resuming the route.
+        for index = finishIndex, startIndex, -1 do
             local candidate = state.path[index]
             if adjacentStep(sourceSquare, candidate) then
                 local passable = passableEdge(sourceSquare, candidate,
@@ -3438,6 +3486,14 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
         return { type = "actor_state", object = stateObject, actorState = actorState,
             square = fromSquare, dynamic = true }
     end
+    -- The selected route edge is durable evidence; collision flags may survive
+    -- one or more frames after brushing a parked car beside a gate or fence. Give
+    -- the actual portal precedence so recovery does not repeatedly relabel the
+    -- same fence edge as a vehicle and blacklist the wrong tile.
+    local barrier, barrierKind = barrierBetween(fromSquare, toSquare)
+    if barrierKind == "door" or barrierKind == "fence" or barrierKind == "stairs" then
+        return { type = barrierKind, object = barrier, square = toSquare or fromSquare }
+    end
     local collided, ok = utility.call(actor, "isCollidedWithVehicle")
     if ok and collided == true then
         return { type = "vehicle", square = toSquare or fromSquare }
@@ -3464,13 +3520,6 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
     -- Collision flags are transient.  If the failed edge itself is a known door,
     -- retain that stronger topology evidence instead of publishing `unknown` and
     -- applying generic recovery to a doorway problem.
-    local barrier, barrierKind = barrierBetween(fromSquare, toSquare)
-    if barrierKind == "door" then
-        return { type = "door", object = barrier, square = toSquare or fromSquare }
-    end
-    if barrierKind == "fence" or barrierKind == "stairs" then
-        return { type = barrierKind, object = barrier, square = toSquare or fromSquare }
-    end
     local static, staticKind = utility.squareStaticBlocker(toSquare)
     if static then return { type = staticKind, object = static, square = toSquare } end
     local thumpable, thumpableKind = edgeThumpableBlocker(fromSquare, toSquare, actor)
@@ -4447,6 +4496,25 @@ function Navigation.request(actor, target, movementMode, intent)
     end
 
     local barrier, kind = barrierBetween(sourceSquare, nextSquare)
+    if kind == "diagonal" then
+        local diagonal = SC.Topology and type(SC.Topology.classifyEdge) == "function"
+            and SC.Topology.classifyEdge(actor, sourceSquare, nextSquare, {
+                blockedEdges = state.blockedEdges,
+                blockedSquares = state.blockedSquares,
+                routeMemory = state.routeMemory,
+                now = now,
+            }) or nil
+        if not diagonal or diagonal.traversable ~= true
+            or diagonal.affordance ~= "diagonal_open" then
+            rememberFailure(actor, state, sourceSquare, nextSquare,
+                "diagonal_corner", now, "map_replan")
+            return false, "diagonal_corner"
+        end
+        -- Execution can use the ordinary normalized MoveForward vector once the
+        -- topology service has proved the whole corner clear.
+        barrier, kind = nil, "open"
+        requestIntent.diagonalStep = true
+    end
     local passageAccepted, passageStatus = SC.Navigation._ensureGroupPassageForRequest(
         actor, state, sourceSquare, nextSquare, kind, requestIntent, now)
     if passageAccepted ~= true then
@@ -4489,16 +4557,27 @@ function Navigation.request(actor, target, movementMode, intent)
     )
     if tacticalAccepted == false then return false, tacticalStatus end
     if tacticalAccepted == nil then return true, tacticalStatus end
-    if kind == "door" then
+    if kind == "door" or kind == "fence" then
         local aligned, alignmentStatus = alignDoorApproach(
-            actor, sourceSquare, nextSquare, requestIntent)
+            actor, sourceSquare, nextSquare, requestIntent, kind)
         if aligned == false then
             rememberFailure(actor, state, sourceSquare, nextSquare,
-                alignmentStatus or "door_approach_rejected", now, "door_alignment_replan")
-            return false, alignmentStatus or "door_approach_rejected"
+                alignmentStatus or (kind .. "_approach_rejected"), now,
+                kind .. "_alignment_replan")
+            return false, alignmentStatus or (kind .. "_approach_rejected")
         elseif aligned == nil then
-            return true, alignmentStatus or "aligning_door_approach"
+            return true, alignmentStatus or ("aligning_" .. kind .. "_approach")
         end
+    end
+    if kind == "fence" then
+        local climbed, climbStatus = SC.Navigation._handleFenceForRequest(
+            actor, barrier, sourceSquare, nextSquare, requestIntent)
+        if climbed ~= true then
+            rememberFailure(actor, state, sourceSquare, nextSquare,
+                climbStatus or "fence_climb_rejected", now, "fence_replan")
+            return false, climbStatus or "fence_climb_rejected"
+        end
+        return true, climbStatus
     end
     configureTacticalRetreat(actor, sourceSquare, nextSquare, afterSquare, kind, requestIntent)
 

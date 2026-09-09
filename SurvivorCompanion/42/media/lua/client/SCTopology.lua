@@ -138,9 +138,15 @@ function Topology.barrierBetween(fromSquare, toSquare)
     local owner, north = edgeOwner(fromSquare, toSquare)
     if owner == nil then return nil, "invalid" end
 
+    -- getDoorTo() remains authoritative for an opened gate even when the
+    -- collision-only isDoorTo() predicate has already gone false. Checking the
+    -- concrete object first prevents an open gate from being mistaken for the
+    -- adjacent hoppable fence segment.
+    local door, doorOk = U().call(fromSquare, "getDoorTo", toSquare)
+    if doorOk and door ~= nil then return door, "door" end
     local doorTo, doorToOk = U().call(fromSquare, "isDoorTo", toSquare)
     if doorToOk and doorTo == true then
-        local door, doorOk = U().call(owner, "getDoor", north)
+        door, doorOk = U().call(owner, "getDoor", north)
         return doorOk and door or nil, "door"
     end
     local windowTo, windowToOk = U().call(fromSquare, "isWindowTo", toSquare)
@@ -154,7 +160,13 @@ function Topology.barrierBetween(fromSquare, toSquare)
         return nil, "window"
     end
     local hoppable, hopOk = U().call(fromSquare, "isHoppableTo", toSquare)
-    if hopOk and hoppable == true then return nil, "fence" end
+    if hopOk and hoppable == true then
+        local fence, fenceOk = U().call(fromSquare, "getHoppableTo", toSquare)
+        if not fenceOk or fence == nil then
+            fence, fenceOk = U().call(fromSquare, "getWallHoppableTo", toSquare)
+        end
+        return fenceOk and fence or nil, "fence"
+    end
     if U().edgeBlocked(fromSquare, toSquare) then return nil, "blocked" end
     return nil, "open"
 end
@@ -206,8 +218,39 @@ function Topology.classifyEdge(actor, fromSquare, toSquare, options)
     local fx, fy, fz = floorPosition(fromSquare)
     local tx, ty, tz = floorPosition(toSquare)
     if fx == nil or tx == nil then return result end
-    if fz == tz and math.abs(tx - fx) + math.abs(ty - fy) ~= 1 then
-        result.affordance = math.abs(tx - fx) + math.abs(ty - fy) == 0
+    local dx, dy = math.abs(tx - fx), math.abs(ty - fy)
+    if fz == tz and dx == 1 and dy == 1 then
+        -- Diagonal movement is safe only when the complete two-tile-wide corner
+        -- is open. Requiring both possible cardinal decompositions prevents
+        -- corner cutting through walls, doors, windows, fences, vehicles or
+        -- occupied geometry while allowing a human-looking 45-degree stride in
+        -- genuinely open space.
+        local horizontal = U().gridSquare(tx, fy, fz)
+        local vertical = U().gridSquare(fx, ty, fz)
+        if horizontal == nil or vertical == nil then
+            result.affordance, result.reason = "diagonal", "diagonal_corner"
+            return result
+        end
+        local legs = {
+            { fromSquare, horizontal }, { horizontal, toSquare },
+            { fromSquare, vertical }, { vertical, toSquare },
+        }
+        for _, leg in ipairs(legs) do
+            local edge = Topology.classifyEdge(actor, leg[1], leg[2], options)
+            if edge.traversable ~= true or edge.affordance ~= "open" then
+                result.affordance, result.reason = "diagonal", "diagonal_corner"
+                return result
+            end
+        end
+        result.traversable = true
+        result.affordance = "diagonal_open"
+        result.reason = "traversable"
+        result.cost = math.sqrt(2)
+        result.static = true
+        return result
+    end
+    if fz == tz and dx + dy ~= 1 then
+        result.affordance = dx + dy == 0
             and "same" or "diagonal"
         result.reason = result.affordance == "diagonal"
             and "diagonal_corner" or "same_square"

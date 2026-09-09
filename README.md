@@ -37,13 +37,14 @@ New to Living Fellows? Jump to **[First five minutes](#first-five-minutes)**. Fu
 ## Highlights
 
 - Persistent companions with names, professions, traits, personalities, relationships, memories, needs, wounds, equipment, and permanent death.
-- Tactical movement with formations, corner checks, rear awareness, choke-point reservations, obstacle recovery, retreat routes, strafing, and player-mirroring movement.
+- Tactical movement with formations, corner checks, rear awareness, choke-point reservations, obstacle recovery, retreat routes, strafing, corner-safe diagonal travel, native low/high fence climbing, and player-mirroring movement.
 - Situational combat decisions based on health, endurance, panic, pain, skill, weapons, allies, nearby threats, footing, and escape quality.
 - Scavenging, nested bag management, armor and weapon upgrades, washing, eating, drinking, bandaging, supply crafting, and role-aware carry limits.
 - Follow, stay, guard, patrol, regroup, retreat, work, vehicle, weapon, combat, stealth, and Rules of Engagement policies.
 - Living-base routines, camp storage, readiness, watches, chores, repair, crafting, downtime, boredom, stress responses, conflict, and morale boosts.
 - Survivor households that barricade homes, warn strangers, defend territory, expose shortages, trade conditionally, remember player conduct, and offer social contracts, plus rare hostile bandit camps that patrol and fight both the player group and zombies.
-- Debug and profiling tools in development builds, with fail-closed runtime health checks in public builds.
+- An optional base-layout overlay with color-coded zone boundaries, storage outlines and live placement previews, plus faction and quest markers on the world map.
+- Debug, movement-recording, and profiling tools in development builds, with fail-closed runtime health checks in public builds.
 - A translucent companion panel, compact collapsed launcher, context commands, Support diagnostics, and recruited-teammate minimap markers.
 
 ## Requirements
@@ -147,7 +148,9 @@ World context commands use one **Living Fellows** root. The companion selected i
 
 ### Movement and awareness
 
-Followers use formation slots instead of stacking on the player. Each active fireteam (the unassigned squad or an Alpha/Bravo/Charlie group) automatically assigns a close fighter as point, keeps firearm support in the protected middle, and places a cautious survivor at the rear. That stable role order becomes a single-file column through doors and stairs; the team stays collapsed until the last nearby follower clears the portal, then deliberately fans back out. They check blind corners and room thresholds, remember a recent route back outdoors, and replan around vehicles, furniture, crowds, vegetation, windows, gates, slopes, and player-built obstacles. Bushes and trees are costly terrain rather than universal walls, so an emergency route may still cross vegetation.
+Followers use formation slots instead of stacking on the player. Each active fireteam (the unassigned squad or an Alpha/Bravo/Charlie group) automatically assigns a close fighter as point, keeps firearm support in the protected middle, and places a cautious survivor at the rear. That stable role order becomes a single-file column through doors and stairs; the team stays collapsed until the last nearby follower clears the portal, then deliberately fans back out. They check blind corners and room thresholds, remember a recent route back outdoors, and replan around vehicles, furniture, crowds, vegetation, windows, gates, slopes, and player-built obstacles. Open gates remain recognized as passages, while low fences and climbable tall walls use the same native player climb states and safe perpendicular approach used by Project Zomboid. Bushes and trees are costly terrain rather than universal walls, so an emergency route may still cross vegetation.
+
+In open space the local route planner can move across all eight compass directions instead of forming a four-direction staircase. A diagonal step is accepted only when both routes around its corner are clear; it cannot cut between blocked walls, doors, fences, vehicles, or occupied geometry. Door, gate, window, stair, and fence transitions remain deliberate cardinal crossings so their native interactions and animations stay aligned.
 
 Companions can backpedal or strafe while disengaging on safe ground. A true overrun, grab threat, blind turn, narrow transition, or poor footing makes them turn and run. Escape always outranks ordinary walking, crouching, formation, work, and animation preferences.
 
@@ -163,7 +166,7 @@ Combat barks report threat scale, engagement, prolonged effort, kills, and emerg
 
 A scavenger reserves one source and one item, approaches a safe interaction point, settles, completes the player rummage animation, transfers the exact item, verifies the destination, and only then resumes movement. Failed or unchanged containers receive a cooldown instead of being searched every second.
 
-Companions understand nested bags and prefer suitable worn backpacks. They keep role-relevant food, water, medicine, tools, weapons, ammunition, clothing, and building materials; deposit or drop unnecessary weight outside combat; freely loot useful items from dead zombies when safe; evaluate armor and clothing upgrades; and can wash themselves and dirty equipment near clean water.
+Companions understand nested bags and prefer suitable worn backpacks. They keep role-relevant food, water, medicine, tools, weapons, ammunition, clothing, and building materials; deposit or drop unnecessary weight outside combat; freely loot useful items from dead zombies when safe; evaluate armor and clothing upgrades; and can wash themselves and dirty equipment near clean water. Weapons remain in the root inventory so combat can equip a newly gifted fallback immediately. Inventory visuals are supervised transactions: if a packing action stalls, times out, or the protected actor pose moves, it rolls back and releases control instead of trapping the companion in a logistics loop.
 
 ### Needs, medicine, and death
 
@@ -175,7 +178,7 @@ Companions are vulnerable to wounds and Knox infection. Death is permanent and i
 
 Each survivor receives a deterministic profession, trait, personality profile, history, keepsake, camp role, and personal objective. Trust, bond, shared time, care, morale, stress, memories, grief, and pairwise relationships persist. Dialogue uses real context and varied line pools instead of one repeated response.
 
-Safe companions can read, sit, wash, maintain gear, craft supplies, sort storage, repair, keep watch, patrol, or ask about the next supply run. The Base view can remove non-core zones, reclassify storage and set withdrawal reserves, enable or remove maintenance targets, and retry or cancel queued work; destructive management actions ask for confirmation, and the final base area cannot be removed. Prolonged stress can produce venting, pacing, arguments, withdrawal, furniture strikes, thrown empty bottles, or depressive shutdown. Positive momentum can also improve behavior. Immediate danger interrupts every ambient activity.
+Safe companions can read, sit, wash, maintain gear, craft supplies, sort storage, repair, keep watch, patrol, or ask about the next supply run. The Base view can remove non-core zones, reclassify storage and set withdrawal reserves, enable or remove maintenance targets, and retry or cancel queued work; destructive management actions ask for confirmation, and the final base area cannot be removed. **Show base layout** draws nearby zones as color-coded ground boundaries and loaded storage as category-colored outlines with labels. Individual zone and storage controls emphasize one record, while two-corner zoning gets a live preview even when the persistent overlay is hidden. Prolonged stress can produce venting, pacing, arguments, withdrawal, furniture strikes, thrown empty bottles, or depressive shutdown. Positive momentum can also improve behavior. Immediate danger interrupts every ambient activity.
 
 ## Survivor households and factions
 
@@ -221,7 +224,7 @@ This normally means the native actor bridge did not load or failed its health ch
 
 ### A companion is stuck or moonwalking
 
-Wait briefly for bounded recovery, then issue Regroup. If the actor remains stuck, record the nearby object, current order, movement policy, animation, and exact reproduction steps. Include logs and a screenshot.
+Wait briefly for bounded recovery, then issue Regroup. If the actor remains stuck, note whether the obstruction is a door, open gate, low fence, tall fence, vehicle, stair, or movable object. Record the current order, movement policy, visible intent, animation, and whether the player changed floors. In a development build, capture the companion's 30-second movement recorder after the failure; its route edge, blocker classification, native-path state, and recovery reason are substantially more useful than a screenshot alone. Include that report, the logs, and a screenshot or short video.
 
 ### Workshop and standalone copies conflict
 
@@ -263,7 +266,7 @@ Run the complete deterministic gate:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-Project.ps1
 ```
 
-The core gate includes a deterministic AI response/load harness for 1, 4, 8, and 16 companions. It verifies ordinary and emergency response latency, mixed-load fairness, frame-budget behavior, and that the sorted companion registry is materialized only once per decision callback.
+The core gate includes a deterministic AI response/load harness for 1, 4, 8, and 16 companions. It verifies ordinary and emergency response latency, mixed-load fairness, frame-budget behavior, and that the sorted companion registry is materialized only once per decision callback. Gameplay contracts additionally cover safe diagonal routes, blocked-corner rejection, open-gate recognition, native low/high fence actions, and rollback of stalled inventory packing.
 
 Run only that fast response profile with:
 

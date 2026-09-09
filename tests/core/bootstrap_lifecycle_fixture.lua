@@ -63,6 +63,7 @@ local required = {
     "FactionWorld", "FactionBehavior", "ZombieTargeting", "Locomotion", "Senses",
     "Navigation", "Positioning", "Combat", "Medical", "Logistics", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal", "BaseLife",
+    "BaseVisuals",
     "BaseWork", "InfectionCrisis", "LifeEvents", "Community", "Autonomy", "Commands",
     "FactionRecruitment", "Decision", "Support", "UIContext",
 }
@@ -106,3 +107,21 @@ function SC.CompanionMap.remove()
     return true
 end
 function SC.CompanionMap.isInstalled() return SC.CompanionMap.installed end
+
+SC.BaseVisuals = { installed = false, installs = 0, removes = 0,
+    failRemove = false }
+function SC.BaseVisuals.install()
+    if SC.BaseVisuals.installed then return true end
+    SC.BaseVisuals.installed = true
+    SC.BaseVisuals.installs = SC.BaseVisuals.installs + 1
+    return true
+end
+function SC.BaseVisuals.remove()
+    if SC.BaseVisuals.failRemove then
+        return false, "injected base visuals remove failure"
+    end
+    if SC.BaseVisuals.installed then SC.BaseVisuals.removes = SC.BaseVisuals.removes + 1 end
+    SC.BaseVisuals.installed = false
+    return true
+end
+function SC.BaseVisuals.isInstalled() return SC.BaseVisuals.installed end

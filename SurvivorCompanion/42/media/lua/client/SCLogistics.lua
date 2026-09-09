@@ -521,6 +521,11 @@ local function selectPackMove(actor, audit)
                     and select(1, Logistics.bagUpgrade(actor, record.item)) == true
                 if record.item ~= bagRecord.item and record.source ~= bagInventory
                     and not (nestedOk and nested) and not isProtected(actor, record.item)
+                    -- Keep weapons in the root inventory. Combat/equip actions
+                    -- need immediate ownership of newly gifted fallback weapons;
+                    -- packing a BreadKnife into the worn bag both hid it from the
+                    -- native handoff and caused a pointless unpack/equip cycle.
+                    and record.category ~= "weapon"
                     and not clothingUpgrade and not bagUpgrade
                     and U().inventoryContains(record.source, record.item)
                     and containerHasRoom(bagInventory, record.item) then
@@ -1064,6 +1069,20 @@ function Logistics.update(actor, player, runtime)
     if not actor then return false, "invalid_logistics_actor" end
     local safe, snapshot = safeToManage(actor, runtime)
     local existing = states[actor]
+    if existing and existing.transaction then
+        -- Logistics owns its token for the entire asynchronous visual. Unlike a
+        -- movement request it does not naturally call movementPermission(), so
+        -- explicitly service the deadline and protected-pose invariants here.
+        -- Without this watchdog a native Loot action that never advanced could
+        -- pin the companion in "Logistics: packing" until its chunk unloaded.
+        local transaction = existing.transaction
+        local service = supervisor()
+        if service and type(service.update) == "function" then service.update(actor) end
+        if existing.transaction ~= transaction then
+            states[actor] = nil
+            return false, "logistics_action_cancelled"
+        end
+    end
     if not safe then
         cancelTransaction(actor, existing, "logistics_unsafe")
         if existing then states[actor] = nil end

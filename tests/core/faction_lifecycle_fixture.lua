@@ -201,6 +201,21 @@ function SC.CompanionMap.remove()
 end
 function SC.CompanionMap.isInstalled() return SC.CompanionMap.installed end
 
+SC.BaseVisuals = { installed = false, installs = 0, removes = 0, failInstall = false }
+function SC.BaseVisuals.install()
+    if SC.BaseVisuals.installed then return true end
+    if SC.BaseVisuals.failInstall then return false, "injected base visuals install failure" end
+    SC.BaseVisuals.installed = true
+    SC.BaseVisuals.installs = SC.BaseVisuals.installs + 1
+    return true
+end
+function SC.BaseVisuals.remove()
+    if SC.BaseVisuals.installed then SC.BaseVisuals.removes = SC.BaseVisuals.removes + 1 end
+    SC.BaseVisuals.installed = false
+    return true
+end
+function SC.BaseVisuals.isInstalled() return SC.BaseVisuals.installed end
+
 ISInventoryPage = {
     selectContainer = function() return true end,
     setNewContainer = function() return true end,

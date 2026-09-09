@@ -20,6 +20,9 @@ try {
         (Join-Path $TestRoot 'SCUIFormatTests.lua'),
         (Join-Path $Client 'SCUIBridge.lua'),
         (Join-Path $TestRoot 'SCUIBridgeTests.lua'),
+        (Join-Path $TestRoot 'SCBaseVisualsFixture.lua'),
+        (Join-Path $Client 'SCBaseVisuals.lua'),
+        (Join-Path $TestRoot 'SCBaseVisualsTests.lua'),
         (Join-Path $TestRoot 'SCCompanionMapFixture.lua'),
         (Join-Path $Client 'SCCompanionMap.lua'),
         (Join-Path $TestRoot 'SCCompanionMapTests.lua')

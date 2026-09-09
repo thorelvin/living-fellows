@@ -27,6 +27,7 @@ local interactionActions = {
     open_door = true, close_door = true, open_window = true, close_window = true,
     smash_window = true, remove_glass = true, climb_window = true,
     climb_window_emergency = true, open_curtain = true, close_curtain = true,
+    climb_fence = true, climb_wall = true,
     board_vehicle = true, exit_vehicle = true,
     downed = true, recover_from_downed = true,
 }

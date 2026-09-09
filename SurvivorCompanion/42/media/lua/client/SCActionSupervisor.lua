@@ -906,6 +906,14 @@ function Supervisor.update(actor)
             append(actor, "invariant_violation", token, "protected_pose_moved", {
                 displacement = displacement, maximum = maximum,
             })
+            -- A protected interaction pose moving this far is no longer a valid
+            -- transaction owner. Merely logging the invariant left the token in
+            -- control while the player travelled away, so packing could strand a
+            -- companion until chunk unload. Cancel through the owner's rollback
+            -- hook and record it as a retryable control failure.
+            local cancelled, reason = runCancel(token,
+                "protected_pose_moved", true, true)
+            return cancelled, reason or "protected_pose_moved"
         end
     end
     local deadline = deadlineFor(token, token.phase)

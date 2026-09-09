@@ -76,8 +76,18 @@ check(Supervisor.transition(transaction, "animating") == true,
 actor.x = actor.x + 0.4
 Supervisor.update(actor)
 local movedSnapshot = Supervisor.snapshot(actor)
-check(movedSnapshot and movedSnapshot.protectedPose == true,
-    "protected pose remains observable after displacement violation")
+check(movedSnapshot and movedSnapshot.phase == "idle"
+        and not Supervisor.isCurrent(transaction)
+        and Supervisor.reservationCount(actor) == 0,
+    "protected-pose displacement cancels its stale transaction and releases reservations")
+actor.x = actor.x - 0.4
+transaction = assert(Supervisor.begin(actor, {
+    owner = "medical", action = "replace_dirty_bandage_commit", targetKey = "arm:left",
+    priority = Supervisor.Priority.NEEDS, requiresVisual = true, ignoreRetry = true,
+}))
+check(Supervisor.reserve(transaction, resource, "bandage") == true
+        and Supervisor.transition(transaction, "animating") == true,
+    "a clean replacement transaction reacquires its protected visual phase")
 check(Supervisor.markVisualVerified(transaction) == true
     and Supervisor.transition(transaction, "committing") == true,
     "verified visual permits one commit phase")

@@ -543,6 +543,29 @@ function BaseLife.storageRows(category, withdrawals)
     return result
 end
 
+-- A deliberately narrow read model for overlays.  The full summary also audits
+-- stock, residents, guards and jobs; calling that from a render-adjacent cache
+-- refresh would do unrelated work merely because the player enabled outlines.
+function BaseLife.visualRows()
+    local base = activeBase()
+    local result = { configured = base ~= nil, zoneRows = {}, storageRows = {} }
+    if not base then return result end
+    for _, zone in ipairs(base.zones or {}) do
+        result.zoneRows[#result.zoneRows + 1] = {
+            id = zone.id, kind = zone.kind, name = zone.name,
+            x1 = zone.x1, y1 = zone.y1, x2 = zone.x2, y2 = zone.y2, z = zone.z,
+        }
+    end
+    for _, storage in ipairs(base.storages or {}) do
+        result.storageRows[#result.storageRows + 1] = {
+            id = storage.id, category = storage.category,
+            x = storage.x, y = storage.y, z = storage.z,
+            objectIndex = storage.objectIndex,
+        }
+    end
+    return result
+end
+
 function BaseLife.resolveContainer(storage)
     local object = BaseLife.resolveObject(storage)
     if not object then return nil, nil end

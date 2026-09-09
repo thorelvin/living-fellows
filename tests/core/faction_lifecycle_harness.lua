@@ -24,6 +24,7 @@ local function noOwnedHooks()
         and not SC.Factions.hooksInstalled()
         and not SC.FactionContracts.hooksInstalled()
         and SC.CompanionMap.installed == false
+        and SC.BaseVisuals.installed == false
 end
 
 local function testGroup()
@@ -53,7 +54,8 @@ check(SC.Bootstrap.isInstalled()
         and Events.OnMainMenuEnter.count() == 1
         and Events.OnWeaponHitCharacter.count() == 1
         and Events.OnWeaponSwingHitPoint.count() == 1
-        and Events.OnZombieDead.count() == 1,
+        and Events.OnZombieDead.count() == 1
+        and SC.BaseVisuals.installed == true,
     "production modules bootstrap with exactly one copy of every owned hook")
 check(SC.Factions.hooksInstalled() and SC.FactionContracts.hooksInstalled(),
     "production faction modules expose their installed hook state")
@@ -259,8 +261,18 @@ check(installed == false
         and noOwnedHooks()
         and SC.Encounter.onPlayerContainerOpened == encounterContract
         and SC.UI.scheduledRefresh == uiRefreshContract,
-    "failed final contract installation rolls back earlier hooks and preserves contracts")
+    "failed map contract installation rolls back earlier hooks and preserves contracts")
 SC.CompanionMap.failInstall = false
+
+SC.BaseVisuals.failInstall = true
+installed, installReason = SC.Bootstrap.install()
+check(installed == false
+        and string.find(tostring(installReason), "base visuals", 1, true) ~= nil
+        and noOwnedHooks()
+        and SC.Encounter.onPlayerContainerOpened == encounterContract
+        and SC.UI.scheduledRefresh == uiRefreshContract,
+    "failed final visual contract installation rolls back every earlier hook")
+SC.BaseVisuals.failInstall = false
 
 check(SC.Bootstrap.install() and SC.Bootstrap.remove() and noOwnedHooks(),
     "bootstrap remains reinstallable after every injected lifecycle failure")

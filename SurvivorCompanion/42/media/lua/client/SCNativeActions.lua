@@ -82,6 +82,7 @@ local windowActions = {
     climb_window = true,
     climb_window_emergency = true,
 }
+local fenceActions = { climb_fence = true, climb_wall = true }
 
 -- These are effect-free, human animation adapters.  The gameplay subsystem owns
 -- the associated inventory/body mutation and performs it only after this native
@@ -2103,6 +2104,44 @@ local function windowAction(actor, action, intent, provider)
     return true, "window_climb_started"
 end
 
+local function fenceDirection(intent)
+    local name = string.lower(tostring(intent and intent.direction or ""))
+    local key = ({ north = "N", south = "S", east = "E", west = "W" })[name]
+    local directions = type(_G) == "table" and rawget(_G, "IsoDirections") or nil
+    if key == nil or directions == nil then return nil end
+    local ok, value = pcall(function() return directions[key] end)
+    return ok and value or nil
+end
+
+local function fenceAction(actor, action, intent, provider)
+    local direction = fenceDirection(intent)
+    if direction == nil then return false, "fence direction is unavailable" end
+    local handled, reason = useProvider(provider, "fence", actor, action,
+        intent.object, direction, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if actions.stopDirect(actor) ~= true then
+        return false, "fence climb could not acquire stationary actor"
+    end
+
+    if action == "climb_wall" then
+        local checked, climbable = invoke(actor, "canClimbOverWall", direction)
+        if not checked then return false, "native tall-wall climb check is unavailable" end
+        if climbable ~= true then return false, "native tall wall is not climbable" end
+        local invoked, started = invoke(actor, "climbOverWall", direction)
+        if not invoked then return false, started or "native tall-wall climb failed" end
+        if started == false then return false, "native tall-wall climb was rejected" end
+    else
+        local invoked, failure = invoke(actor, "climbOverFence", direction)
+        if not invoked then return false, failure or "native fence climb failed" end
+    end
+    local climbingOk, climbing = invoke(actor, "isClimbing")
+    if not climbingOk or climbing ~= true then
+        return false, "native fence climb did not enter a climb state"
+    end
+    return true, action == "climb_wall" and "wall_climb_started" or "fence_climb_started"
+end
+
 local function setDowned(actor, downed, provider)
     local handled, reason = useProvider(provider, "setDowned", actor, downed)
     if handled ~= nil then
@@ -2614,6 +2653,8 @@ function actions.dispatch(actor, mode, intent, provider)
         movementActions[action] = true
     elseif windowActions[action] then
         return windowAction(actor, action, intent, provider)
+    elseif fenceActions[action] then
+        return fenceAction(actor, action, intent, provider)
     elseif action == "board_vehicle" or action == "exit_vehicle" then
         if SC.Vehicle == nil then
             return false, "vehicle persistence adapter is unavailable"

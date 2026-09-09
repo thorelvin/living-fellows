@@ -56,6 +56,7 @@ Fluid = {
     TaintedWater = { name = "TaintedWater" },
 }
 IsoFlagType = { canBeCut = { name = "canBeCut" } }
+IsoDirections = { N = "N", S = "S", E = "E", W = "W" }
 
 local function item(itemType, category, options)
     local value = options or {}
@@ -279,8 +280,11 @@ local function makeSquare(x, y, z)
     end
     function value:isBlockedTo(other) return self.blocked[other] == true end
     function value:isDoorTo(other) return false end
+    function value:getDoorTo(other) return nil end
     function value:isWindowTo(other) return false end
     function value:isHoppableTo(other) return false end
+    function value:getHoppableTo(other) return nil end
+    function value:getWallHoppableTo(other) return nil end
     function value:getDoor(north) return nil end
     function value:getWindow(north) return nil end
     function value:getRoom() return self.room end
@@ -363,6 +367,21 @@ local function actor(id, x, y, options)
         return settings.surroundingAttackers or 0
     end
     function value:isClimbing() return self.climbing == true end
+    function value:climbOverFence(direction)
+        self.climbing = true
+        self.climbDirection = direction
+        self.climbKind = "fence"
+    end
+    function value:canClimbOverWall(direction)
+        return self.rejectWallClimb ~= true
+    end
+    function value:climbOverWall(direction)
+        if self.rejectWallClimb then return false end
+        self.climbing = true
+        self.climbDirection = direction
+        self.climbKind = "wall"
+        return true
+    end
     function value:cancelCompanionStuckClimb()
         if self.rejectClimbCancel then return false end
         self.climbing = false
@@ -1401,7 +1420,7 @@ do
     check(SurvivorCompanion.Navigation._reusePathSuffixForTests(
             routeActor, suffixState, detourSquare,
             { action = "follow_formation", followRecovery = true }, clock)
-            and suffixState.pathIndex == 3 and suffixState.routeReuseCount == 1,
+            and suffixState.pathIndex >= 3 and suffixState.routeReuseCount == 1,
         "a short native detour rejoins a validated later route edge instead of restarting A-star")
     local overshootState = {
         path = suffixPath, pathGoalSquare = suffixPath[#suffixPath], pathIndex = 2,
@@ -1759,15 +1778,30 @@ do
 local fenceFrom = cell:getGridSquare(5, -6, 0)
 local fenceTo = cell:getGridSquare(6, -6, 0)
 local priorHoppable = fenceFrom.isHoppableTo
+local priorGetHoppable = fenceFrom.getHoppableTo
+local lowFence = { tall = false }
+function lowFence:isTallHoppable() return self.tall == true end
 function fenceFrom:isHoppableTo(other) return other == fenceTo end
+function fenceFrom:getHoppableTo(other) return other == fenceTo and lowFence or nil end
 local fenceActor = actor("sc-fence-crossing", 5, -6, {})
 registry[fenceActor.id] = fenceActor
 local fenceAccepted = SurvivorCompanion.Navigation.request(
     fenceActor, fenceTo, "walk", { action = "follow_formation", followRecovery = true,
         snapshot = { allies = {} } })
-check(fenceAccepted and fenceActor.lastIntent and fenceActor.lastIntent.enginePath == true
-        and fenceActor.lastIntent.nativeAffordance == "fence",
-    "a selected low-fence edge is handed to native player pathing for its climb animation")
+check(fenceAccepted and fenceActor.lastIntent
+        and fenceActor.lastIntent.action == "climb_fence"
+        and fenceActor.lastIntent.object == lowFence
+        and fenceActor.lastIntent.direction == "east",
+    "a selected low-fence edge starts an explicit native player fence climb")
+lowFence.tall = true
+SurvivorCompanion.Navigation.reset(fenceActor)
+fenceActor.lastIntent = nil
+local wallAccepted = SurvivorCompanion.Navigation.request(
+    fenceActor, fenceTo, "walk", { action = "follow_formation", followRecovery = true,
+        snapshot = { allies = {} } })
+check(wallAccepted and fenceActor.lastIntent
+        and fenceActor.lastIntent.action == "climb_wall",
+    "a tall hoppable wall selects the native player wall-climb action")
 SurvivorCompanion.Navigation.reset(fenceActor)
 registry[fenceActor.id] = nil
 for index = #fenceActor.square.moving, 1, -1 do
@@ -1776,6 +1810,22 @@ for index = #fenceActor.square.moving, 1, -1 do
     end
 end
 fenceFrom.isHoppableTo = priorHoppable
+fenceFrom.getHoppableTo = priorGetHoppable
+end
+
+do
+local gateFrom = cell:getGridSquare(10, -6, 0)
+local gateTo = cell:getGridSquare(11, -6, 0)
+local openGate = { open = true, locked = false }
+function openGate:IsOpen() return self.open end
+function openGate:isLocked() return self.locked end
+local priorDoorTo = gateFrom.getDoorTo
+function gateFrom:getDoorTo(other) return other == gateTo and openGate or nil end
+local gateObject, gateKind = SurvivorCompanion.Topology.barrierBetween(gateFrom, gateTo)
+check(gateObject == openGate and gateKind == "door"
+        and SurvivorCompanion.Topology.classifyEdge(nil, gateFrom, gateTo, {}).traversable,
+    "an open gate remains a traversable door affordance instead of becoming a fence")
+gateFrom.getDoorTo = priorDoorTo
 end
 
 do
@@ -1793,10 +1843,19 @@ SurvivorCompanion.Navigation.reset(treeGoalActor)
 registry[treeGoalActor.id] = nil
 end
 
-local navigationOK = SurvivorCompanion.Navigation.request(fellow, squares[squareKey(3, 0, 0)], "walk", { snapshot = snapshot })
-check(navigationOK and fellow.lastIntent and fellow.lastIntent.humanAnimationOnly, "navigation uses the actor bridge with human animation intent")
-check(fellow.lastIntent.nextSquare and fellow.lastIntent.targetSquare and fellow.lastIntent.direction,
+local basicNavigationActor = actor("sc-basic-navigation", 8, -8, {})
+registry[basicNavigationActor.id] = basicNavigationActor
+local navigationOK = SurvivorCompanion.Navigation.request(basicNavigationActor,
+    squares[squareKey(11, -8, 0)], "walk", { snapshot = { threats = {}, allies = {} } })
+check(navigationOK and basicNavigationActor.lastIntent
+        and basicNavigationActor.lastIntent.humanAnimationOnly,
+    "navigation uses the actor bridge with human animation intent")
+check(basicNavigationActor.lastIntent.nextSquare
+        and basicNavigationActor.lastIntent.targetSquare
+        and basicNavigationActor.lastIntent.direction,
     "navigation emits normalized target, next-square, and direction intent fields")
+SurvivorCompanion.Navigation.reset(basicNavigationActor)
+registry[basicNavigationActor.id] = nil
 
 do
 local nearestStartClock = clock
@@ -1926,16 +1985,19 @@ local findPath = SurvivorCompanion.Navigation.findPath
 local openSource = cell:getGridSquare(50, 0, 0)
 local openGoalSquare = cell:getGridSquare(53, 2, 0)
 local pathA = findPath(openSource, openGoalSquare)
-check(pathA ~= nil and #pathA == 6 and pathA[1] == openSource and pathA[#pathA] == openGoalSquare,
-    "open-field heap search returns an optimal-length (manhattan + 1) path with correct endpoints")
-local contiguous = true
+check(pathA ~= nil and #pathA == 4 and pathA[1] == openSource and pathA[#pathA] == openGoalSquare,
+    "open-field heap search returns an optimal octile path with correct endpoints")
+local contiguous, usedDiagonal = true, false
 for index = 2, #pathA do
-    if math.abs(pathA[index]:getX() - pathA[index - 1]:getX())
-            + math.abs(pathA[index]:getY() - pathA[index - 1]:getY()) ~= 1 then
+    local dx = math.abs(pathA[index]:getX() - pathA[index - 1]:getX())
+    local dy = math.abs(pathA[index]:getY() - pathA[index - 1]:getY())
+    if dx > 1 or dy > 1 or dx + dy == 0 then
         contiguous = false
     end
+    if dx == 1 and dy == 1 then usedDiagonal = true end
 end
-check(contiguous, "the heap search path steps one cardinal square at a time")
+check(contiguous and usedDiagonal,
+    "the heap search uses safe diagonal steps instead of a four-direction zig-zag")
 local pathB = findPath(openSource, openGoalSquare)
 local deterministic = pathB ~= nil and #pathA == #pathB
 for index = 1, #pathA do if pathA[index] ~= pathB[index] then deterministic = false end end
@@ -5925,6 +5987,26 @@ check(woreBag and bagCarrier:getWornItem("Back") == backpack
         .. tostring(woreBagReason) .. ", " .. tostring(packedBagReason))
 
 do
+local weaponBagInventory = inventory()
+weaponBagInventory.capacity = 18
+local weaponBag = item("Base.Bag_WeaponRoot", "Container", {
+    nestedInventory = weaponBagInventory, bagCapacity = 18, weightReduction = 80,
+    bodyLocation = "Back", equipLocation = "Back", weight = 1,
+})
+local giftedBreadKnife = item("Base.BreadKnife", "Weapon", { weight = 0.3 })
+local weaponCarrier = actor("sc-logistics-weapon-root", 8, 3, {
+    inventory = inventory({ weaponBag, giftedBreadKnife }),
+})
+weaponCarrier:setWornItem("Back", weaponBag)
+local weaponAudit = SurvivorCompanion.Logistics.status(weaponCarrier)
+check(weaponAudit.packMove == nil
+        and weaponCarrier.inventory:contains(giftedBreadKnife)
+        and not weaponBagInventory:contains(giftedBreadKnife),
+    "newly gifted weapons remain at inventory root instead of entering a packing loop")
+SurvivorCompanion.Logistics.reset(weaponCarrier)
+end
+
+do
 local phasedBagInventory = inventory()
 phasedBagInventory.capacity = 18
 local phasedBag = item("Base.Bag_PhasedPack", "Container", {
@@ -5995,6 +6077,34 @@ check(not cancelledPack and cancelledPackReason == "logistics_unsafe"
         and SurvivorCompanion.ActionSupervisor.snapshot(phasedActor).phase == "idle"
         and SurvivorCompanion.ActionSupervisor.reservationCount(phasedActor) == 0,
     "danger cancels post-loot packing before mutation and releases its reservation")
+
+local stalledBagInventory = inventory()
+stalledBagInventory.capacity = 18
+local stalledBag = item("Base.Bag_StalledPack", "Container", {
+    nestedInventory = stalledBagInventory, bagCapacity = 18, weightReduction = 80,
+    bodyLocation = "Back", equipLocation = "Back", weight = 1,
+})
+local stalledFood = item("Base.CannedCornStalledPack", "Food", { weight = 1 })
+local stalledActor = actor("sc-logistics-stalled-pack", 10, 3, {
+    inventory = inventory({ stalledBag, stalledFood }),
+})
+stalledActor:setWornItem("Back", stalledBag)
+phasedState = "active"
+local stalledStarted = SurvivorCompanion.Logistics.update(stalledActor, nil, { snapshot = {
+    threats = {}, immediateCount = 0, threatCount = 0, pressure = 0,
+} })
+stalledActor.worldX = stalledActor:getX() + 1
+local stalledContinued, stalledReason = SurvivorCompanion.Logistics.update(
+    stalledActor, nil, { snapshot = {
+        threats = {}, immediateCount = 0, threatCount = 0, pressure = 0,
+    } })
+check(stalledStarted and not stalledContinued and stalledReason == "logistics_action_cancelled"
+        and stalledActor.inventory:contains(stalledFood)
+        and not stalledBagInventory:contains(stalledFood)
+        and SurvivorCompanion.ActionSupervisor.snapshot(stalledActor).phase == "idle"
+        and SurvivorCompanion.ActionSupervisor.reservationCount(stalledActor) == 0,
+    "packing cancels and rolls back as soon as its protected pose moves")
+SurvivorCompanion.Logistics.reset(stalledActor)
 SurvivorCompanion.Actor.setMovement = originalSetMovement
 SurvivorCompanion.NativeActions = nil
 SurvivorCompanion.Logistics.reset(phasedActor)
@@ -7615,6 +7725,12 @@ check(BaseLife.setReserve(storageRow.id, "*", 2)
         and BaseLife.summary().storageRows[1].reserve == 2
         and BaseLife.setStorageCategory(storageRow.id, "construction"),
     "base storage management changes category and general withdrawal reserve")
+local visualRows = BaseLife.visualRows()
+check(visualRows.configured == true and #visualRows.zoneRows == 2
+        and #visualRows.storageRows == 1
+        and visualRows.storageRows[1].category == "construction"
+        and visualRows.storageRows[1].objectIndex == store.objectIndex,
+    "base visualization gets a lightweight coordinate-only read model")
 local maintenanceObject = { square = campSquare, objectIndex = #campSquare.objects }
 function maintenanceObject:getSquare() return self.square end
 function maintenanceObject:getX() return self.square.x end

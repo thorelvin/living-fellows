@@ -46,6 +46,7 @@ require "SCRelationship"
 require "SCObjectives"
 require "SCJournal"
 require "SCBaseLife"
+require "SCBaseVisuals"
 require "SCBaseWork"
 require "SCInfectionCrisis"
 require "SCLifeEvents"
@@ -86,7 +87,7 @@ local requiredModules = {
     "FactionBehavior", "ZombieTargeting",
     "Locomotion", "Senses", "Navigation", "Positioning", "Combat", "Medical", "Encounter",
     "Logistics", "Needs", "Downtime", "Personality", "PersonalItems", "Relationship",
-    "Objectives", "Journal", "BaseLife", "BaseWork", "InfectionCrisis",
+    "Objectives", "Journal", "BaseLife", "BaseVisuals", "BaseWork", "InfectionCrisis",
     "LifeEvents", "Community", "Autonomy",
     "Commands", "FactionRecruitment", "Decision", "Support", "UI", "UIContext",
     "CompanionMap",
@@ -111,6 +112,9 @@ local requiredFunctions = {
     { "CompanionMap", "install" },
     { "CompanionMap", "remove" },
     { "CompanionMap", "isInstalled" },
+    { "BaseVisuals", "install" },
+    { "BaseVisuals", "remove" },
+    { "BaseVisuals", "isInstalled" },
     { "Encounter", "onPlayerContainerOpened" },
     { "UI", "scheduledRefresh" },
 }
@@ -137,6 +141,8 @@ local contractDefinitions = {
     { name = "faction contracts", owner = function() return SC.FactionContracts end,
         install = "installHooks", remove = "removeHooks", state = "hooksInstalled" },
     { name = "companion minimap", owner = function() return SC.CompanionMap end,
+        install = "install", remove = "remove", state = "isInstalled" },
+    { name = "base visuals", owner = function() return SC.BaseVisuals end,
         install = "install", remove = "remove", state = "isInstalled" },
 }
 
