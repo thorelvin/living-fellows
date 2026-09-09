@@ -3,6 +3,11 @@
 require "SCNamespace"
 require "SCCall"
 require "SCConfig"
+require "SCNativeTraversalActions"
+require "SCNativeVisualActions"
+require "SCNativeCombatActions"
+require "SCNativeWorkActions"
+require "SCNativeMovementActions"
 require "TimedActions/ISBaseTimedAction"
 require "TimedActions/ISTimedActionQueue"
 require "TimedActions/ISBarricadeAction"
@@ -708,6 +713,23 @@ local function useProvider(provider, operation, ...)
     return true, values[3]
 end
 
+SC.NativeTraversalActions.configure({
+    invoke = invoke,
+    useProvider = useProvider,
+    stopDirect = function(actor) return actions.stopDirect(actor) end,
+})
+SC.NativeVisualActions.configure({
+    invoke = invoke,
+    useProvider = useProvider,
+    setWeaponReady = setWeaponReady,
+    position = position,
+    finite = finite,
+    centerTargetOnTile = centerTargetOnTile,
+    stopDirect = function(actor, options) return actions.stopDirect(actor, options) end,
+    humanEmotes = humanEmotes,
+    emoteAliases = emoteAliases,
+})
+
 local function visualActionClass()
     if VisualTimedAction ~= nil then
         return VisualTimedAction
@@ -1125,20 +1147,6 @@ local function startNeedsAction(actor, action, intent, provider)
     return true, reason
 end
 
-local function handSignal(actor, intent, provider)
-    local requestedEmote = intent.emote or "freeze"
-    local emote = emoteAliases[requestedEmote] or requestedEmote
-    if humanEmotes[requestedEmote] ~= true then return false, "unsupported human emote" end
-    local handled, reason = useProvider(provider, "emote", actor, emote, intent)
-    if handled ~= nil then return handled, reason end
-    if not provider.directNative then return false, reason end
-    local lowered, lowerReason = setWeaponReady(actor, false)
-    if not lowered then return false, lowerReason end
-    local played, failure = invoke(actor, "playEmote", emote)
-    if not played then return false, failure end
-    return true, "hand_signal_started"
-end
-
 local function workActionIsActive(actor, record)
     return trackedActionIsActive(actor, record)
 end
@@ -1497,108 +1505,6 @@ local function startBarricade(actor, intent, provider)
         moved = moved,
     }
     return true, "barricade_timed_action_started"
-end
-
-local function roomSweep(actor, intent, provider)
-    local handled, reason = useProvider(provider, "look", actor, intent)
-    if handled ~= nil then
-        return handled, reason
-    end
-    if not provider.directNative then
-        return false, reason
-    end
-
-    local ready, readyReason = setWeaponReady(actor, intent.weaponReady == true,
-        intent.targetSquare)
-    if not ready then return false, readyReason end
-
-    local x, y = position(actor)
-    if x == nil then return false, "actor position is unavailable for room sweep" end
-    local forwardX, forwardY = tonumber(intent.sweepForwardX), tonumber(intent.sweepForwardY)
-    local forwardXOk, forwardYOk = finite(forwardX), finite(forwardY)
-    if not forwardXOk or not forwardYOk then
-        forwardXOk, forwardX = invoke(actor, "getForwardDirectionX")
-        forwardYOk, forwardY = invoke(actor, "getForwardDirectionY")
-    end
-    if not forwardXOk or not forwardYOk or not finite(forwardX) or not finite(forwardY)
-        or (forwardX * forwardX + forwardY * forwardY) < 0.000001 then
-        forwardX, forwardY = 1, 0
-    end
-    local side = intent.sweepSide == "right" and -1 or 1
-    local lookX, lookY = -forwardY * side, forwardX * side
-    local requested, turningRequested = invoke(actor, "faceLocationF", x + lookX * 2, y + lookY * 2)
-    if not requested or turningRequested ~= true then
-        return false, "native room-check facing request was rejected"
-    end
-
-    local turningOk, turning = invoke(actor, "isTurning")
-    local afterXOk, afterX = invoke(actor, "getForwardDirectionX")
-    local afterYOk, afterY = invoke(actor, "getForwardDirectionY")
-    local facing = afterXOk and afterYOk and finite(afterX) and finite(afterY)
-        and (afterX * lookX + afterY * lookY) >= 0.75
-    if (not turningOk or turning ~= true) and not facing then
-        return false, "native room-check facing did not start"
-    end
-    return true, "room_sweep_facing_started"
-end
-
-local function faceTarget(actor, intent, provider, successReason)
-    local handled, reason = useProvider(provider, "look", actor, intent)
-    if handled ~= nil then return handled, reason end
-    if not provider.directNative then return false, reason end
-    local target = intent.targetPosition or intent.targetSquare or intent
-    local x, y = position(target)
-    if x == nil then return false, "alert facing target is unavailable" end
-    if centerTargetOnTile(intent, intent.targetSquare ~= nil and intent.targetPosition == nil) then
-        x, y = x + 0.5, y + 0.5
-    end
-    if intent.weaponReady ~= nil then
-        local ready, readyReason = setWeaponReady(actor, intent.weaponReady == true, target)
-        if not ready then return false, readyReason end
-    end
-    local requested, turningRequested = invoke(actor, "faceLocationF", x, y)
-    if not requested or turningRequested ~= true then
-        return false, "native alert facing request was rejected"
-    end
-    local actorX, actorY = position(actor)
-    if actorX == nil then return false, "actor position is unavailable for alert facing" end
-    local forwardXOk, forwardX = invoke(actor, "getForwardDirectionX")
-    local forwardYOk, forwardY = invoke(actor, "getForwardDirectionY")
-    local dx, dy = x - actorX, y - actorY
-    local length = math.sqrt(dx * dx + dy * dy)
-    local facing = length <= 0.001 or (forwardXOk and forwardYOk
-        and finite(forwardX) and finite(forwardY)
-        and (forwardX * dx + forwardY * dy) / length >= 0.75)
-    local turningOk, turning = invoke(actor, "isTurning")
-    if (not turningOk or turning ~= true) and not facing then
-        return false, "native alert facing did not start"
-    end
-    return true, successReason or "facing_started"
-end
-
-local function syncPlayerPosture(actor, intent)
-    local sneaking = intent.sneaking == true
-    local stopped = actions.stopDirect(actor, { preservePosture = true })
-    if stopped ~= true then return false, "copy_posture_stop_rejected" end
-    local checked, actual = invoke(actor, "isSneaking")
-    if not checked or actual ~= sneaking then
-        local setOk, setResult = invoke(actor, "setSneaking", sneaking)
-        if not setOk or setResult == false then return false, "copy_posture_rejected" end
-        checked, actual = invoke(actor, "isSneaking")
-    end
-    if checked and actual ~= sneaking then return false, "copy_posture_not_verified" end
-    return true, sneaking and "copy_posture_crouched" or "copy_posture_standing"
-end
-
-local function conversationPose(actor, intent, provider)
-    local faced, facingReason = faceTarget(actor, intent, provider, "conversation_facing_started")
-    if not faced then return false, facingReason end
-    if type(intent.emote) ~= "string" or intent.emote == "" then
-        return true, facingReason
-    end
-    local gestured, gestureReason = handSignal(actor, intent, provider)
-    if not gestured then return false, gestureReason end
-    return true, "conversation_pose_started"
 end
 
 local function equip(actor, intent, provider)
@@ -2272,149 +2178,6 @@ local function unjam(actor, intent, provider)
     return true, "unjam_started"
 end
 
-local function windowAction(actor, action, intent, provider)
-    local object = intent.object
-    if object == nil then
-        return false, "window action has no object"
-    end
-    local handled, reason = useProvider(provider, "window", actor, action, object, intent)
-    if handled ~= nil then
-        return handled, reason
-    end
-    if not provider.directNative then
-        return false, reason
-    end
-
-    if action == "open_window" then
-        local started, failure = invoke(actor, "openWindow", object)
-        if not started then
-            return false, failure
-        end
-        local verified, opened = invoke(object, "IsOpen")
-        if not verified or opened ~= true then
-            return false, "window open was not verified"
-        end
-        return true, "window_opened"
-    elseif action == "smash_window" then
-        local started, failure = invoke(actor, "smashWindow", object)
-        if not started then
-            return false, failure
-        end
-        local verified, smashed = invoke(object, "isSmashed")
-        if not verified or smashed ~= true then
-            return false, "window smash was not verified"
-        end
-        return true, "window_smashed"
-    elseif action == "remove_glass" then
-        local started, failure = invoke(object, "removeBrokenGlass")
-        if not started then
-            return false, failure
-        end
-        local verified, removed = invoke(object, "isGlassRemoved")
-        if not verified or removed ~= true then
-            return false, "glass removal was not verified"
-        end
-        return true, "glass_removed"
-    end
-
-    local started, failure = invoke(actor, "climbThroughWindow", object)
-    if not started then
-        return false, failure
-    end
-    local climbingOk, climbing = invoke(actor, "isClimbing")
-    if not climbingOk or climbing ~= true then
-        return false, "native window climb did not start"
-    end
-    return true, "window_climb_started"
-end
-
-local function fenceDirection(intent)
-    local name = string.lower(tostring(intent and intent.direction or ""))
-    local key = ({ north = "N", south = "S", east = "E", west = "W" })[name]
-    local directions = type(_G) == "table" and rawget(_G, "IsoDirections") or nil
-    if key == nil or directions == nil then return nil end
-    local ok, value = pcall(function() return directions[key] end)
-    return ok and value or nil
-end
-
-local function fenceAction(actor, action, intent, provider)
-    local direction = fenceDirection(intent)
-    if direction == nil then return false, "fence direction is unavailable" end
-    local handled, reason = useProvider(provider, "fence", actor, action,
-        intent.object, direction, intent)
-    if handled ~= nil then return handled, reason end
-    if not provider.directNative then return false, reason end
-    if actions.stopDirect(actor) ~= true then
-        return false, "fence climb could not acquire stationary actor"
-    end
-
-    if action == "climb_wall" then
-        local checked, climbable = invoke(actor, "canClimbOverWall", direction)
-        if not checked then return false, "native tall-wall climb check is unavailable" end
-        if climbable ~= true then return false, "native tall wall is not climbable" end
-        local invoked, started = invoke(actor, "climbOverWall", direction)
-        if not invoked then return false, started or "native tall-wall climb failed" end
-        if started == false then return false, "native tall-wall climb was rejected" end
-    else
-        local invoked, failure = invoke(actor, "climbOverFence", direction)
-        if not invoked then return false, failure or "native fence climb failed" end
-    end
-    local climbingOk, climbing = invoke(actor, "isClimbing")
-    if not climbingOk or climbing ~= true then
-        return false, "native fence climb did not enter a climb state"
-    end
-    return true, action == "climb_wall" and "wall_climb_started" or "fence_climb_started"
-end
-
-local function sheetRopeAction(actor, action, intent, provider)
-    local down = action == "climb_down_sheet_rope"
-    local handled, reason = useProvider(provider, "sheetRope", actor, action, down, intent)
-    if handled ~= nil then return handled, reason end
-    if not provider.directNative then return false, reason end
-    if actions.stopDirect(actor) ~= true then
-        return false, "sheet-rope climb could not acquire stationary actor"
-    end
-    local squareOk, square = invoke(actor, "getCurrentSquare")
-    if not squareOk or square == nil then return false, "actor square is unavailable" end
-    local check = down and "canClimbDownSheetRope" or "canClimbSheetRope"
-    local checked, climbable = invoke(actor, check, square)
-    if not checked then return false, "native sheet-rope climb check is unavailable" end
-    if climbable ~= true then return false, "native sheet rope is not climbable" end
-    local methodName = down and "climbDownSheetRope" or "climbSheetRope"
-    local invoked, failure = invoke(actor, methodName)
-    if not invoked then return false, failure or "native sheet-rope climb failed" end
-    local climbingOk, climbing = invoke(actor, "isClimbing")
-    if not climbingOk or climbing ~= true then
-        climbingOk, climbing = invoke(actor, "isClimbingRope")
-    end
-    if not climbingOk or climbing ~= true then
-        return false, "native sheet-rope climb did not enter a climb state"
-    end
-    return true, down and "sheet_rope_descent_started" or "sheet_rope_climb_started"
-end
-
-local function setDowned(actor, downed, provider)
-    local handled, reason = useProvider(provider, "setDowned", actor, downed)
-    if handled ~= nil then
-        return handled, reason
-    end
-    if not provider.directNative then
-        return false, reason
-    end
-    if downed then
-        actions.stopDirect(actor)
-    end
-    local setOk, failure = invoke(actor, "setKnockedDown", downed)
-    if not setOk then
-        return false, failure
-    end
-    local checkOk, current = invoke(actor, "isKnockedDown")
-    if not checkOk or current ~= downed then
-        return false, "native downed state was not retained"
-    end
-    return true, downed and "downed" or "recovered"
-end
-
 function actions.stopDirect(actor, options)
     options = type(options) == "table" and options or {}
     local behaviorOk, behavior = invoke(actor, "getPathFindBehavior2")
@@ -2787,6 +2550,27 @@ function actions.resetFinal(actor)
     else activeFinal = setmetatable({}, { __mode = "k" }) end
 end
 
+SC.NativeCombatActions.configure({
+    attack = attack,
+    reload = reload,
+    unjam = unjam,
+})
+
+SC.NativeWorkActions.configure({
+    barricade = startBarricade,
+    removeBarricade = startRemoveBarricade,
+    dismantle = startDismantle,
+    needs = startNeedsAction,
+})
+
+SC.NativeMovementActions.configure({
+    targetOf = targetOf,
+    vectorFor = vectorFor,
+    useProvider = useProvider,
+    directPath = directPath,
+    directMove = directMove,
+})
+
 function actions.dispatch(actor, mode, intent, provider)
     if actor == nil or type(intent) ~= "table" or type(provider) ~= "table" then
         return false, "actor, intent, and provider are required"
@@ -2892,22 +2676,18 @@ function actions.dispatch(actor, mode, intent, provider)
         return requestGroundSeat(actor, false)
     elseif action == "equip_weapon" or action == "equip" then
         return equip(actor, intent, provider)
-    elseif action == "reload" then
-        return reload(actor, intent, provider)
-    elseif action == "unjam" then
-        return unjam(actor, intent, provider)
-    elseif combatActions[action] then
-        return attack(actor, action, intent, provider)
+    elseif SC.NativeCombatActions.handles(action) then
+        return SC.NativeCombatActions.dispatch(actor, action, intent, provider)
     elseif action == "backstep" or action == "lateral_kite" then
         intent.awayFrom = intent.awayFrom or intent.target
         intent.lateral = action == "lateral_kite"
         movementActions[action] = true
     elseif windowActions[action] then
-        return windowAction(actor, action, intent, provider)
+        return SC.NativeTraversalActions.window(actor, action, intent, provider)
     elseif fenceActions[action] then
-        return fenceAction(actor, action, intent, provider)
+        return SC.NativeTraversalActions.fence(actor, action, intent, provider)
     elseif ropeActions[action] then
-        return sheetRopeAction(actor, action, intent, provider)
+        return SC.NativeTraversalActions.sheetRope(actor, action, intent, provider)
     elseif action == "board_vehicle" or action == "exit_vehicle" then
         if SC.Vehicle == nil then
             return false, "vehicle persistence adapter is unavailable"
@@ -2918,9 +2698,9 @@ function actions.dispatch(actor, mode, intent, provider)
         end
         return operation(actor, intent.vehicle, intent.seat, intent)
     elseif action == "downed" then
-        return setDowned(actor, true, provider)
+        return SC.NativeTraversalActions.setDowned(actor, true, provider)
     elseif action == "recover_from_downed" then
-        return setDowned(actor, false, provider)
+        return SC.NativeTraversalActions.setDowned(actor, false, provider)
     elseif action == "sit" and intent.object ~= nil then
         local handled, reason = useProvider(provider, "sit", actor, intent.object, intent)
         if handled ~= nil then
@@ -2936,16 +2716,10 @@ function actions.dispatch(actor, mode, intent, provider)
         invoke(actor, "setSittingOnFurniture", true)
         local verifyOk, sitting = invoke(actor, "isSittingOnFurniture")
         return verifyOk and sitting == true, verifyOk and "sitting" or "native sitting state was not verified"
-    elseif action == "barricade" then
-        return startBarricade(actor, intent, provider)
-    elseif action == "remove_barricade" then
-        return startRemoveBarricade(actor, intent, provider)
-    elseif action == "dismantle" then
-        return startDismantle(actor, intent, provider)
-    elseif action == "eat_food" or action == "drink_item" or action == "drink_source" then
-        return startNeedsAction(actor, action, intent, provider)
+    elseif SC.NativeWorkActions.handles(action) then
+        return SC.NativeWorkActions.dispatch(actor, action, intent, provider)
     elseif action == "hand_signal" then
-        return handSignal(actor, intent, provider)
+        return SC.NativeVisualActions.handSignal(actor, intent, provider)
     elseif action == "ready_weapon" then
         return setWeaponReady(actor, true,
             intent.facingTarget or intent.targetSquare or intent.targetPosition)
@@ -2954,21 +2728,26 @@ function actions.dispatch(actor, mode, intent, provider)
     elseif visualActionSpecs[action] then
         return startVerifiedVisual(actor, action, intent, provider)
     elseif action == "room_sweep" then
-        return roomSweep(actor, intent, provider)
+        return SC.NativeVisualActions.roomSweep(actor, intent, provider)
     elseif action == "face_alert" then
-        return faceTarget(actor, intent, provider, "alert_facing_started")
+        return SC.NativeVisualActions.faceTarget(
+            actor, intent, provider, "alert_facing_started")
     elseif action == "rear_scan" then
-        return faceTarget(actor, intent, provider, "rear_scan_started")
+        return SC.NativeVisualActions.faceTarget(
+            actor, intent, provider, "rear_scan_started")
     elseif action == "rear_guard_watch" then
-        return faceTarget(actor, intent, provider, "rear_guard_watch_started")
+        return SC.NativeVisualActions.faceTarget(
+            actor, intent, provider, "rear_guard_watch_started")
     elseif action == "face_formation" then
-        return faceTarget(actor, intent, provider, "formation_facing_restored")
+        return SC.NativeVisualActions.faceTarget(
+            actor, intent, provider, "formation_facing_restored")
     elseif action == "face_conversation" then
-        return faceTarget(actor, intent, provider, "conversation_facing_started")
+        return SC.NativeVisualActions.faceTarget(
+            actor, intent, provider, "conversation_facing_started")
     elseif action == "conversation_pose" then
-        return conversationPose(actor, intent, provider)
+        return SC.NativeVisualActions.conversationPose(actor, intent, provider)
     elseif action == "copy_player_posture" then
-        return syncPlayerPosture(actor, intent)
+        return SC.NativeVisualActions.syncPlayerPosture(actor, intent)
     end
 
     if not movementActions[action] and targetOf(intent) == nil
@@ -2987,30 +2766,7 @@ function actions.dispatch(actor, mode, intent, provider)
         end
     end
 
-    local target = targetOf(intent)
-    if intent.enginePath == true and target ~= nil then
-        local handled, reason = useProvider(provider, "path", actor, target, normalized, intent)
-        if handled ~= nil then
-            return handled, reason
-        end
-        if not provider.directNative then
-            return false, reason
-        end
-        return directPath(actor, target, normalized, intent)
-    end
-
-    local dx, dy, vectorReason = vectorFor(actor, intent)
-    if dx == nil then
-        return false, vectorReason
-    end
-    local handled, reason = useProvider(provider, "move", actor, normalized, dx, dy, intent)
-    if handled ~= nil then
-        return handled, reason
-    end
-    if not provider.directNative then
-        return false, reason
-    end
-    return directMove(actor, normalized, dx, dy, intent)
+    return SC.NativeMovementActions.dispatch(actor, normalized, intent, provider)
 end
 
 function actions.normalizeMode(mode)

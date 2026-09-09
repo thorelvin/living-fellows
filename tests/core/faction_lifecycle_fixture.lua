@@ -165,7 +165,9 @@ local function resettable()
 end
 
 for _, name in ipairs({
-    "Background", "Dialogue", "Trade", "FactionLife", "FactionWorld",
+    "Background", "Dialogue", "NativeTraversalActions", "NativeVisualActions",
+    "NativeCombatActions", "NativeWorkActions", "NativeMovementActions",
+    "Trade", "FactionLife", "FactionWorld",
     "FactionBehavior", "ZombieTargeting", "ThreatSet", "PerceptionScan", "Locomotion", "Senses", "Topology", "PathSearch", "NavTraffic", "NavTraversal", "Allegiance", "Navigation",
     "Positioning", "Combat", "Medical", "Logistics", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal",

@@ -13,6 +13,20 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
 - `SCActor` selects a version-pinned provider, validates native components, owns transactional spawn/removal, and is the only gameplay movement/action entry point.
 - `SCActionSupervisor` is the actor-wide owner graph for Living Fellows work. It admits one exclusive action owner, records phase/deadline/receipt history, queues urgent survival work at checked cancellation boundaries, and permits an externally owned vanilla/third-party action only as a read-only busy state. Medical, locomotion, decision, and native-action adapters publish exactly-once terminal outcomes through this graph.
 - `SCNativeActions` interprets every movement or action intent and reports success only after the native state/action was verified.
+- `SCNativeTraversalActions` implements verified window, fence, wall, sheet-rope,
+  and downed-state transitions. Every request still enters through
+  `SCNativeActions.dispatch`; pacing, activity ownership, interruption, seating,
+  and effect-claim guards remain centralized and execute before the handler.
+- `SCNativeVisualActions` implements effect-free human signals, room sweeps,
+  facing, conversation poses, and player-posture mirroring. Timed visual effect
+  ownership and cancellation remain in the guarded `SCNativeActions` facade.
+- `SCNativeCombatActions` and `SCNativeWorkActions` own action-family selection
+  after admission. Combat impact/RNG and timed work/needs state machines remain
+  colocated with their polling, cancellation, and rollback APIs in
+  `SCNativeActions`; the family handlers cannot bypass those callbacks.
+- `SCNativeMovementActions` owns the final provider-versus-direct path/vector
+  dispatch after supported-intent and native-busy validation; the guarded facade
+  retains movement admission and the verified native primitives.
 - `SCRegistry` owns UUID maps and the `sc-` identity prefix.
 - `SCBaseObjectRef` owns the persistent `LF_BaseObjectId` reference contract for
   camp storage and maintenance objects: bounded describe/copy/normalize/resolve

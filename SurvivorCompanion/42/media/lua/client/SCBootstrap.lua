@@ -11,6 +11,11 @@ require "SCNet"
 require "SCRegistry"
 require "SCVitals"
 require "SCScheduler"
+require "SCNativeTraversalActions"
+require "SCNativeVisualActions"
+require "SCNativeCombatActions"
+require "SCNativeWorkActions"
+require "SCNativeMovementActions"
 require "SCNativeActions"
 require "SCActionSupervisor"
 require "SCBackground"
@@ -88,7 +93,9 @@ end
 
 local requiredModules = {
     "Call", "StableValue", "Transaction", "NativeList", "Config", "Diagnostics",
-    "Registry", "Vitals", "Scheduler", "NativeActions", "Performance",
+    "Registry", "Vitals", "Scheduler", "NativeTraversalActions", "NativeVisualActions",
+    "NativeCombatActions", "NativeWorkActions", "NativeMovementActions",
+    "NativeActions", "Performance",
     "ActionSupervisor", "Actor", "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Topology",
     "BaseObjectRef", "PathSearch", "NavTraffic", "NavTraversal",
     "Background", "Dialogue", "Allegiance", "Factions", "Trade", "FactionLife", "FactionContracts", "FactionWorld",

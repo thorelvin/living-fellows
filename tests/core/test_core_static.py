@@ -73,6 +73,11 @@ for module in ("SCSenses", "SCNavigation", "SCCombat", "SCMedical", "SCEncounter
     require(f'require "{module}"' in bootstrap, f"bootstrap requirement missing: {module}")
 
 native = (CLIENT / "SCNativeActions.lua").read_text(encoding="utf-8")
+native_traversal = (CLIENT / "SCNativeTraversalActions.lua").read_text(encoding="utf-8")
+native_visual = (CLIENT / "SCNativeVisualActions.lua").read_text(encoding="utf-8")
+native_combat = (CLIENT / "SCNativeCombatActions.lua").read_text(encoding="utf-8")
+native_work = (CLIENT / "SCNativeWorkActions.lua").read_text(encoding="utf-8")
+native_movement = (CLIENT / "SCNativeMovementActions.lua").read_text(encoding="utf-8")
 navigation = (CLIENT / "SCNavigation.lua").read_text(encoding="utf-8")
 native_exposure = (PROJECT / "bridge" / "src" / "main" / "java"
                    / "survivorcompanion" / "bridge" / "SCExposure.java").read_text(
@@ -88,14 +93,33 @@ require('Class.forName("zombie.AttackType"' in native_exposure
         "native bridge must expose the AttackType enum absent from stock 42.20.4 Kahlua")
 require('action == "shove" or action == "stomp"' in native,
         "shove/stomp action-state selection is not scoped")
-require("room_sweep_facing_started" in native and "faceLocationF" in native
-        and "isTurning" in native, "verified human room sweep is missing")
+require("room_sweep_facing_started" in native_visual and "faceLocationF" in native_visual
+        and "isTurning" in native_visual, "verified human room sweep is missing")
 for action in ("loot_container", "kneel_treat", "rip_clothing_for_bandage",
                "read", "repair", "replace_bandage", "craft_supply"):
     require(re.search(rf"\b{action}\s*=\s*\{{\s*animation", native),
             f"verified human timed-action mapping missing: {action}")
 require("native visual timed action did not start" in native,
         "visual actions lack truthful start rejection")
+require('SC.NativeTraversalActions.window(actor, action, intent, provider)' in native
+        and "native window climb did not start" in native_traversal
+        and "native fence climb did not enter a climb state" in native_traversal
+        and "native sheet-rope climb did not enter a climb state" in native_traversal
+        and "native downed state was not retained" in native_traversal,
+        "guarded native traversal handlers are not extracted and verified")
+require("SC.NativeCombatActions.handles(action)" in native
+        and "SC.NativeCombatActions.dispatch(actor, action, intent, provider)" in native
+        and "context.attack(actor, action, intent, provider)" in native_combat,
+        "native combat family is not behind the guarded facade")
+require("SC.NativeWorkActions.handles(action)" in native
+        and "SC.NativeWorkActions.dispatch(actor, action, intent, provider)" in native
+        and "context.needs(actor, action, intent, provider)" in native_work,
+        "native work/needs family is not behind the guarded facade")
+require("SC.NativeMovementActions.dispatch(actor, normalized, intent, provider)" in native
+        and 'context.useProvider(' in native_movement
+        and 'provider, "path"' in native_movement
+        and 'provider, "move"' in native_movement,
+        "native movement family is not behind the guarded facade")
 for token in ('require "TimedActions/ISBarricadeAction"', "getFirstTagEvalRecurse",
               "getSomeTypeRecurse", "setSecondaryHandItem",
               "barricade_timed_action_started"):
@@ -112,7 +136,7 @@ for token in ('require "TimedActions/ISEatFoodAction"',
               'require "TimedActions/ISTakeWaterAction"',
               "eat_food", "drink_item", "drink_source", "needsStatus", "cancelNeeds"):
     require(token in native, f"real companion needs action contract missing: {token}")
-require("playEmote" in native and "hand_signal_started" in native,
+require("playEmote" in native_visual and "hand_signal_started" in native_visual,
         "native silent hand-signal adapter missing")
 require("tacticalStrafe" in native and "facingTarget" in native
         and "setForwardDirection\", facingX, facingY" in native,
