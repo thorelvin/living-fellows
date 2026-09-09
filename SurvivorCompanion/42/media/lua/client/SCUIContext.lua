@@ -585,11 +585,13 @@ local function addDirectOrders(menu, row, player)
     end
 end
 
-local function addWorldOrders(menu, row, targetPayload, door, doorPayload,
+local function addWorldOrders(menu, row, targetSquare, targetPayload, door, doorPayload,
         barricadeTarget, barricadePayload, removeBarricadeTarget,
         removeBarricadePayload, dismantleTarget, dismantlePayload, player)
     if targetPayload then
         addCommand(menu, "UI_SC_Action_MoveHere", row.id, "move_to", targetPayload, player)
+    end
+    if targetPayload and targetSquare and safeMethod(targetSquare, "getRoom") ~= nil then
         addCommand(menu, "UI_SC_Action_CheckRoom", row.id, "check_room", targetPayload, player)
     end
     if door and doorPayload then
@@ -729,7 +731,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         addDirectOrders(selectedMenu, selected, player)
         addConversation(addCategory(selectedMenu, "UI_SC_Context_Talk"), selected, player)
         local targetMenu = addCategory(selectedMenu, "UI_SC_Context_TargetActions")
-        addWorldOrders(targetMenu, selected, targetPayload, door, doorPayload,
+        addWorldOrders(targetMenu, selected, square, targetPayload, door, doorPayload,
             barricadeTarget, barricadePayload, removeBarricadeTarget,
             removeBarricadePayload, dismantleTarget, dismantlePayload, player)
         addCompanionCare(addCategory(selectedMenu, "UI_SC_Context_Care"), selected, player)

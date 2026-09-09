@@ -631,6 +631,53 @@ local function switchToStay(actor, player)
     return true, "stay"
 end
 
+local function reportRoomCheck(actor, target, snapshot)
+    local targetRoom, targetRoomOk = U().call(target, "getRoom")
+    local actorSquare = U().squareOf(actor)
+    local actorRoom, actorRoomOk = U().call(actorSquare, "getRoom")
+    local contacts = 0
+    if targetRoomOk and targetRoom ~= nil then
+        for _, threat in ipairs(snapshot and snapshot.threats or {}) do
+            local threatSquare = threat.square or U().squareOf(threat.actor)
+            local threatRoom, threatRoomOk = U().call(threatSquare, "getRoom")
+            if threatRoomOk and threatRoom == targetRoom and threat.visible == true
+                and threat.obstructed ~= true then contacts = contacts + 1 end
+        end
+    end
+    local topic, key, fallback
+    if contacts == 1 then
+        topic, key, fallback = "tactical.room_one", "IGUI_SC_Room_One", "Contact - one infected."
+    elseif contacts > 1 then
+        topic, key, fallback = "tactical.room_multiple", "IGUI_SC_Room_Multiple", "Multiple contacts."
+    elseif targetRoomOk and targetRoom ~= nil and actorRoomOk and actorRoom == targetRoom
+        and snapshot and snapshot.scanComplete == true
+        and (tonumber(snapshot.heardThreatCount) or 0) == 0 then
+        topic, key, fallback = "tactical.room_clear", "IGUI_SC_Room_Clear", "Room clear."
+    else
+        topic, key, fallback = "tactical.room_uncertain", "IGUI_SC_Room_Uncertain", "Can't verify the whole room."
+    end
+    local line = U().text(key, fallback)
+    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+        SC.Dialogue.say(actor, topic, nil, nil, { fallback = line, recentLimit = 2 })
+    else
+        U().say(actor, line)
+    end
+    return contacts
+end
+
+local function finishRoomCheck(actor, player)
+    if not SC.Commands or type(SC.Commands.issue) ~= "function" then
+        return false, "room_check_finish_commands_unavailable"
+    end
+    local called, accepted, reason = pcall(SC.Commands.issue, U().idOf(actor),
+        "finish_room_check", nil, player)
+    if not called then return false, "room_check_finish_error" end
+    if accepted ~= true then
+        return false, "room_check_finish_rejected:" .. tostring(reason or "unknown")
+    end
+    return true, reason or "room_check_complete"
+end
+
 local function navigationArrived(actor, target, status)
     if status == "arrived" then return true end
     local actorKey = U().squareKey(U().squareOf(actor))
@@ -1098,10 +1145,20 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
                     orderedFloor = targetZ,
                 }) then return false, "room_sweep_rejected" end
                 state.roomCheckAt = utility.nowMs()
+                state.roomCheckReported = nil
             elseif utility.nowMs() - state.roomCheckAt >= 1500 then
-                local transitioned, transitionReason = switchToStay(actor, player)
+                -- The completion command can fail transiently (for example while
+                -- persistence is unavailable). Report once, then retain the
+                -- tactical order for a later transition attempt without repeating
+                -- the same speech every decision pass.
+                if state.roomCheckReported ~= true then
+                    reportRoomCheck(actor, target, snapshot)
+                    state.roomCheckReported = true
+                end
+                local transitioned, transitionReason = finishRoomCheck(actor, player)
                 if not transitioned then return false, transitionReason end
                 state.roomCheckAt = nil
+                state.roomCheckReported = nil
             end
         end
         return ok, status

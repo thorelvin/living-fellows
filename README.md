@@ -130,19 +130,18 @@ Buttons show a confirmation message when an order is accepted. Selectors and che
 
 ## Orders and policies
 
-- **Main order:** Follow, stay, guard, patrol, or another contextual task. Regroup and Retreat remain immediate emergency actions.
+- **Main order:** Follow, stay, or guard. Guard patrols around its anchor when conditions allow; contextual tasks such as moving or checking a room temporarily take ownership and then return to the previous stable order. Regroup and Retreat remain immediate emergency actions.
 - **Follow distance:** Controls the desired formation distance without forcing companions into one exact tile.
 - **Movement:** Copy player, walk, sneak, or run. Copy player mirrors ordinary crouch, walk, and run behavior. Escape and immediate combat may override it for survival.
 - **Work mode:** Useful chores, downtime, or supply crafting when conditions are safe.
 - **Scavenging:** One persistent checkbox. A companion completes the rummage animation before committing a verified transfer.
-- **Combat stance:** Passive, defensive, or aggressive.
 - **Weapon priority:** Best available, melee, firearms, or quiet weapons.
-- **Rules of Engagement:** Stealth, Close Defense, Ranged Support, or Weapons Free for the selected team.
-- **Hold fire:** Prevents ordinary shots even when the current doctrine would permit them.
+- **Combat doctrine:** Stealth, Close Defense, Ranged Support, or Weapons Free controls engagement behavior without silently changing weapon priority or Hold Fire. The selected doctrine can be applied to the whole team.
+- **Hold fire:** A separate hard override that prevents ordinary shots even when the current doctrine would permit them.
 - **Ride with player:** Uses available passenger seats, follows the player into a vehicle, exits with the player, and leaves excess companions safely on foot.
 - **Allow overload:** Lets the selected companion exceed its normal mobility-first carry policy within a bounded limit.
 
-World context commands use one **Living Fellows** root. The companion selected in the panel gets at most two top-level shortcuts: **Move here** and one action relevant to the clicked object (for example open a door or remove a barricade). Its full menu keeps direct orders shallow, with separate **Talk**, **Target actions**, and **Care and inspect** groups. Other nearby companions, squad signals, relevant base work, and survivor households are grouped below it. Only authoritative recruited teammates appear, base construction is offered only inside camp, and dismissing a companion requires confirmation.
+World context commands use one **Living Fellows** root. The companion selected in the panel gets at most two top-level shortcuts: **Move here** and one action relevant to the clicked object (for example open a door or remove a barricade). **Check Room** appears only for a real indoor room; the companion enters cautiously, reports visible contacts or whether the room could be verified, and resumes its prior stable order. Its full menu keeps direct orders shallow, with separate **Talk**, **Target actions**, and **Care and inspect** groups. Other nearby companions, squad signals, relevant base work, and survivor households are grouped below it. Only authoritative recruited teammates appear, base construction is offered only inside camp, and dismissing a companion requires confirmation.
 
 ## How companions behave
 
@@ -176,7 +175,7 @@ Companions are vulnerable to wounds and Knox infection. Death is permanent and i
 
 Each survivor receives a deterministic profession, trait, personality profile, history, keepsake, camp role, and personal objective. Trust, bond, shared time, care, morale, stress, memories, grief, and pairwise relationships persist. Dialogue uses real context and varied line pools instead of one repeated response.
 
-Safe companions can read, sit, wash, maintain gear, craft supplies, sort storage, repair, keep watch, patrol, or ask about the next supply run. Prolonged stress can produce venting, pacing, arguments, withdrawal, furniture strikes, thrown empty bottles, or depressive shutdown. Positive momentum can also improve behavior. Immediate danger interrupts every ambient activity.
+Safe companions can read, sit, wash, maintain gear, craft supplies, sort storage, repair, keep watch, patrol, or ask about the next supply run. The Base view can remove non-core zones, reclassify storage and set withdrawal reserves, enable or remove maintenance targets, and retry or cancel queued work; destructive management actions ask for confirmation, and the final base area cannot be removed. Prolonged stress can produce venting, pacing, arguments, withdrawal, furniture strikes, thrown empty bottles, or depressive shutdown. Positive momentum can also improve behavior. Immediate danger interrupts every ambient activity.
 
 ## Survivor households and factions
 
@@ -184,7 +183,7 @@ One faction archetype is a household of one to three survivors occupying a suita
 
 Residents warn unknown players, defend their territory, react to trespass, theft, damage, and murder, and remember what happened. A household can expose a genuine shortage, offer conditional barter, pass imperfect rumors, negotiate a social contract, grant temporary access, or eventually consider one nonessential resident for a recruitment trial. Discovered groups, needs, standing, relations, news, promises, rumors, and access appear in the Factions view, opened from the **More** tab.
 
-Households can also offer generated quests through an explicit **ACCEPT / DECLINE** window. Retrieval quests place one uniquely tagged story item in a real container inside a nearby house; horde quests materialize a tagged group only when the marked area is loaded. The offer shows a map-derived nearest-street description plus exact coordinates, the active target is marked on the world map, and completion requires returning to the representative to choose one of two reserved reward bundles. Quest targets, spawn receipts, progress, and reward choices persist with the faction save, while quest items and rewards stay out of ordinary barter until the quest closes.
+Households can also offer generated quests through an explicit **ACCEPT / DECLINE** window. Declining dismisses that exact offer, records it in faction history, and applies only a short offer cooldown—there is no broken-promise or standing penalty because no promise was accepted. Retrieval quests place one uniquely tagged story item in a real container inside a nearby house; horde quests materialize a tagged group only when the marked area is loaded. Local-threat contracts credit confirmed kills by either the player or an active recruited companion exactly once. The offer shows a map-derived nearest-street description plus exact coordinates, the active target is marked on the world map, and completion requires returning to the representative to choose one of two reserved reward bundles. Quest targets, spawn receipts, progress, and reward choices persist with the faction save, while quest items and rewards stay out of ordinary barter until the quest closes.
 
 Bandit camps are a separate, permanently hostile archetype. They begin appearing rarely after day four, use their own sandbox enable/chance/cap controls, scale from melee-only groups toward occasional pistols or shotguns as the world ages, and keep at least one member guarding while another patrols. They need direct same-floor sight to target a player or companion, investigate recent hostile sounds without gaining wall vision, and search only the fixed last-seen position after contact is lost. Once engaged, recruited companions treat them as human combat threats. A discovered camp is identified by a stronger red house marker and its generated name on the world map; bandits do not trade, offer contracts, or recruit.
 

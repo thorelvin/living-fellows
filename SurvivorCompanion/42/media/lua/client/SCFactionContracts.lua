@@ -7,6 +7,7 @@ SC.FactionContracts = SC.FactionContracts or {}
 local Contracts = SC.FactionContracts
 local SOCIAL_SCHEMA = 3
 local actorStates = setmetatable({}, { __mode = "k" })
+local localThreatDeathCredits = setmetatable({}, { __mode = "k" })
 local zombieHookInstalled = false
 local targetSearchJobs = {}
 local targetRetryAt = {}
@@ -637,7 +638,11 @@ function Contracts.initialize(group)
     social.privateContact = type(social.privateContact) == "table"
         and social.privateContact or nil
     local offerReason
-    if group.lifecycle ~= "destroyed" and #livingMembers(group) > 0 then
+    local contract = social.contract
+    local cooldownComplete = worldHour()
+        >= (tonumber(contract.cooldownUntilHour) or 0)
+    if group.lifecycle ~= "destroyed" and #livingMembers(group) > 0
+        and (contract.active ~= nil or contract.offer ~= nil or cooldownComplete) then
         local ignored
         ignored, offerReason = ensureOffer(group)
     end
@@ -1209,6 +1214,36 @@ function Contracts.fulfill(groupOrId, player, forced)
     return completeContract(group, contract, forced)
 end
 
+function Contracts.declineOffer(groupOrId, player, forced)
+    local group = groupFor(groupOrId)
+    if not group then return false, "faction_unavailable" end
+    local social = Contracts.initialize(group)
+    local contract = social.contract.offer
+    if not contract or contract.status ~= "offered" then
+        return false, "no_contract_offer"
+    end
+    if forced ~= true then
+        local ready, reason = canTalk(group, player, false)
+        if not ready then return false, reason end
+    end
+    local declinedHour = worldHour()
+    local historyRow, historyReason = historyCopy(contract, "declined", "declinedHour",
+        declinedHour, "offer_declined", "$.factionContracts.history.declined")
+    if not historyRow then
+        return false, "contract_history_copy_failed:" .. tostring(historyReason)
+    end
+    contract.status, contract.declinedHour, contract.outcome =
+        "declined", declinedHour, "offer_declined"
+    closeContractMarker(contract, "declined")
+    targetSearchJobs[contract.id], targetRetryAt[contract.id] = nil, nil
+    appendBounded(social.contract.history, historyRow,
+        configuredLimit("factionContractHistoryLimit", 32))
+    social.contract.offer = nil
+    social.contract.cooldownUntilHour = declinedHour + math.min(6,
+        tonumber(SC.Config.get("factionContractCooldownHours")) or 24)
+    return true, "offer_declined"
+end
+
 function Contracts.withdraw(groupOrId, player, forced)
     local group = groupFor(groupOrId)
     if not group then return false, "faction_unavailable" end
@@ -1596,6 +1631,29 @@ function Contracts.pulseGroup(group, player, current)
     return true, "social_contract_updated"
 end
 
+local function isPlayerPartyKill(attacker, player)
+    if attacker == player then return true end
+    if attacker == nil or not SC.Registry
+        or type(SC.Registry.idOf) ~= "function"
+        or type(SC.Registry.byId) ~= "function" then return false end
+    local idOk, id = pcall(SC.Registry.idOf, attacker)
+    if not idOk or id == nil then return false end
+    local recordOk, record = pcall(SC.Registry.byId, id)
+    if not recordOk or type(record) ~= "table" or record.actor ~= attacker
+        or record.recruited ~= true then return false end
+    if type(SC.Registry.isActive) == "function" then
+        local activeOk, active = pcall(SC.Registry.isActive, attacker, id)
+        if not activeOk or active ~= true then return false end
+    end
+    if SC.Commands and type(SC.Commands.peek) == "function" then
+        local stateOk, state = pcall(SC.Commands.peek, attacker)
+        if not stateOk or type(state) ~= "table" or state.recruited ~= true then
+            return false
+        end
+    end
+    return true
+end
+
 function Contracts.onZombieDead(zombie)
     if zombie == nil then return end
     local data = existingModData(zombie)
@@ -1622,19 +1680,33 @@ function Contracts.onZombieDead(zombie)
     end
     local attacker, attackerOk = U().call(zombie, "getAttackedBy")
     local player = localPlayer()
-    if not attackerOk or attacker ~= player then return end
+    if not attackerOk or not isPlayerPartyKill(attacker, player) then return end
     for _, group in ipairs(SC.Factions and SC.Factions.list(false) or {}) do
         local active = group.social and group.social.contract and group.social.contract.active or nil
         if active and active.kind == "local_threat" and active.status == "active"
             and U().distance(zombie, active.target) <= (tonumber(active.radius) or 18) then
-            active.progress.kills = math.min(active.requiredKills,
-                (tonumber(active.progress.kills) or 0) + 1)
-            addMemory(group, "local_threat_kill", tostring(active.progress.kills)
-                .. "/" .. tostring(active.requiredKills))
-            notify(group, player, "progress", "Local threat progress: "
-                .. tostring(active.progress.kills) .. "/"
-                .. tostring(active.requiredKills) .. " confirmed kills.",
-                active.id .. ":kill:" .. tostring(active.progress.kills))
+            local deathData = U().modData and U().modData(zombie) or nil
+            deathData = type(deathData) == "table" and deathData or nil
+            local credits = deathData and deathData.LF_LocalThreatKillCredits
+                or localThreatDeathCredits[zombie]
+            if type(credits) ~= "table" then
+                credits = {}
+                if deathData then deathData.LF_LocalThreatKillCredits = credits end
+                localThreatDeathCredits[zombie] = credits
+            end
+            if credits[active.id] ~= true then
+                credits[active.id] = true
+                local before = tonumber(active.progress.kills) or 0
+                active.progress.kills = math.min(active.requiredKills, before + 1)
+                if active.progress.kills > before then
+                    addMemory(group, "local_threat_kill", tostring(active.progress.kills)
+                        .. "/" .. tostring(active.requiredKills))
+                    notify(group, player, "progress", "Local threat progress: "
+                        .. tostring(active.progress.kills) .. "/"
+                        .. tostring(active.requiredKills) .. " confirmed kills.",
+                        active.id .. ":kill:" .. tostring(active.progress.kills))
+                end
+            end
         end
     end
 end
@@ -1930,6 +2002,7 @@ function Contracts.reset(actor)
     if actor then actorStates[actor] = nil
     else
         actorStates = setmetatable({}, { __mode = "k" })
+        localThreatDeathCredits = setmetatable({}, { __mode = "k" })
         targetSearchJobs = {}
         targetRetryAt = {}
     end

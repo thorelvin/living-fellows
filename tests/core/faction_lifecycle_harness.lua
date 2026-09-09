@@ -80,9 +80,15 @@ check(ready == true and reason == "ready" and operational == true
         and Events.OnTick.count() == 1 and Events.OnZombieDead.count() == 1,
     "a second real Runtime.start is idempotent and preserves one callback")
 Events.OnZombieDead.fire(zombie)
+check(group.social.contract.active.progress.kills == 1
+        and #group.social.memories == 1,
+    "the same death object is not credited again after repeated Runtime.start")
+Events.OnZombieDead.fire({
+    getAttackedBy = function() return SC_TEST_PLAYER end,
+})
 check(group.social.contract.active.progress.kills == 2
         and #group.social.memories == 2,
-    "the callback still advances progress by exactly one after repeated start")
+    "the single callback advances a distinct matching zombie death exactly once")
 
 local removed, removeReason = SC.Bootstrap.remove()
 check(removed and removeReason == "" and noOwnedHooks()

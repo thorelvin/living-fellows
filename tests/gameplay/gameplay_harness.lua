@@ -506,6 +506,7 @@ local function actor(id, x, y, options)
     function value:addLineChatElement(text)
         self.lastSpeech = text
         self.speechMethod = "actor_chat"
+        self.speechCalls = (self.speechCalls or 0) + 1
     end
     function value:setCompanionSpeechDisplayMillis(milliseconds)
         self.speechDisplayMillis = milliseconds
@@ -514,6 +515,7 @@ local function actor(id, x, y, options)
     function value:Say(text)
         self.lastSpeech = text
         self.speechMethod = "player_chat_fallback"
+        self.speechCalls = (self.speechCalls or 0) + 1
     end
     function value:playEmote(emote) self.lastEmote = emote return true end
     value.square.moving[#value.square.moving + 1] = value
@@ -530,6 +532,8 @@ local function zombie(x, y, options)
         moving = settings.moving == true,
         dead = false,
         target = settings.target,
+        attackedBy = settings.attackedBy,
+        modData = {},
     }
     function value:getX() return self.square.x + 0.5 end
     function value:getY() return self.square.y + 0.5 end
@@ -548,6 +552,9 @@ local function zombie(x, y, options)
         return self.attacking == true
     end
     function value:getTarget() return self.target end
+    function value:getAttackedBy() return self.attackedBy end
+    function value:getModData() return self.modData end
+    function value:hasModData() return next(self.modData) ~= nil end
     function value:getTargetSeenTime() return self.targetSeenTimeSet or 0 end
     function value:setTargetSeenTime(seconds)
         self.targetSeenTimeSet = seconds
@@ -612,6 +619,21 @@ SurvivorCompanion.Actor = {
 local registry = {}
 SurvivorCompanion.Registry = {
     byId = function(id) return registry[id] end,
+    idOf = function(candidate)
+        if not candidate then return nil end
+        local id = candidate.id
+        if id and registry[id] ~= nil then return id end
+        for key, value in pairs(registry) do
+            if value == candidate or type(value) == "table" and value.actor == candidate then
+                return key
+            end
+        end
+        return nil
+    end,
+    isActive = function(candidate, id)
+        local value = registry[id]
+        return value == candidate or type(value) == "table" and value.actor == candidate
+    end,
     isValidId = function(id)
         return type(id) == "string" and #id >= 3 and #id <= 96
     end,
@@ -5145,6 +5167,7 @@ registry[wrongReloader.id] = nil
     local function rangedDoctrine(value)
         local commands = SurvivorCompanion.Commands.peek(value)
         commands.combatDoctrine = "ranged_support"
+        commands.weaponPriority = "firearm"
         commands.holdFire = false
     end
 
@@ -5243,11 +5266,9 @@ registry[wrongReloader.id] = nil
 end)()
 
 do
--- Regression: an on-foot companion on the ranged_support doctrine must draw its
--- firearm even when weaponPriority is stale and a zombie has closed to melee
--- range. Previously only a seated companion honored the doctrine, so the
--- close-range firearm penalty flipped the selection to an already-drawn melee
--- weapon and the companion swung instead of firing.
+-- Doctrine controls target eligibility and positioning; explicit weapon priority
+-- remains independent. Ranged Support with a melee priority must not silently
+-- draw a firearm behind the player's back.
 local doctrineRifle = item("Base.HuntingRifle", "Weapon", {
     ranged = true, damage = 2, range = 12, ammo = 5, maxAmmo = 5,
     condition = 10, conditionMax = 10,
@@ -5262,11 +5283,11 @@ doctrineFighter.primary = doctrineAxe
 registry[doctrineFighter.id] = doctrineFighter
 local doctrineCommands = SurvivorCompanion.Commands.peek(doctrineFighter)
 doctrineCommands.combatDoctrine = "ranged_support"
-doctrineCommands.weaponPriority = "best" -- stale priority that used to win the pick
+doctrineCommands.weaponPriority = "melee"
 doctrineCommands.holdFire = false
-local doctrineZed = zombie(0, 14, { attacking = true, target = doctrineFighter })
+local doctrineZed = zombie(0, 13, { attacking = true, target = doctrineFighter })
 local doctrineSnapshot = {
-    threats = { { actor = doctrineZed, square = doctrineZed.square, distanceSq = 2.56,
+    threats = { { actor = doctrineZed, square = doctrineZed.square, distanceSq = 1,
         visible = true, obstructed = false, attacking = true, score = 60 } },
     allies = {}, escapeSquares = {},
     threatCount = 1, immediateCount = 0, closeImmediateCount = 0,
@@ -5275,11 +5296,9 @@ local doctrineSnapshot = {
 }
 local doctrineHandled = SurvivorCompanion.Combat.update(
     doctrineFighter, player, { snapshot = doctrineSnapshot })
-check(doctrineHandled and doctrineFighter.lastIntent.action ~= "attack_melee",
-    "an on-foot ranged_support companion never swings melee when a firearm is available")
-check(doctrineFighter.lastIntent.action == "equip_weapon"
-        and doctrineFighter.lastIntent.item == doctrineRifle,
-    "an on-foot ranged_support companion draws the firearm despite a stale weaponPriority")
+check(doctrineHandled and doctrineFighter.lastIntent.action == "attack_melee"
+        and doctrineFighter.lastIntent.weapon == doctrineAxe,
+    "Ranged Support respects an explicit melee weapon priority instead of drawing a firearm")
 doctrineZed.dead = true
 SurvivorCompanion.Combat.reset(doctrineFighter)
 end
@@ -6873,6 +6892,7 @@ check(decisionAfterDue(retreatActor, player, {
     "a rejected survival retreat becomes a stationary safety hold instead of routine work")
 
 local roomActor = actor("sc-room-sweep", -6, 1, {})
+roomActor.square.room = { name = "rejected-sweep-room" }
 registry[roomActor.id] = roomActor
 check(SurvivorCompanion.Commands.issue(roomActor.id, "check_room", { square = roomActor.square }, player),
     "room-check command is accepted before sweep rejection test")
@@ -6881,6 +6901,14 @@ check(not decisionAfterDue(roomActor, player, {
     snapshot = { threats = {}, threatCount = 0, immediateCount = 0, escapeSquares = {}, allies = {}, player = { danger = 0 } },
 }, 201) and not SurvivorCompanion.Decision.peek(roomActor).roomCheckAt,
     "room sweep records no start time when its executor action is rejected")
+local outdoorRoomActor = actor("sc-room-outdoor-reject", -7, 1, {})
+outdoorRoomActor.square.room = nil
+registry[outdoorRoomActor.id] = outdoorRoomActor
+local outdoorRoomAccepted, outdoorRoomReason = SurvivorCompanion.Commands.issue(
+    outdoorRoomActor.id, "check_room", { square = outdoorRoomActor.square }, player)
+check(not outdoorRoomAccepted and outdoorRoomReason == "room_check_requires_room",
+    "Check Room is rejected outside instead of becoming a generic move order")
+registry[outdoorRoomActor.id] = nil
 
 local fallbackPart = bodyPart({ name = "ForeArm_R", isBleeding = true })
 local fallbackActor = actor("sc-decision-gates", -6, 4, { body = bodyDamage(65, { fallbackPart }) })
@@ -6958,6 +6986,7 @@ check(not moveStayAccepted and moveStayReason == "stay_transition_rejected:mock_
         .. " calls=" .. tostring(moveStayCalls))
 
 local roomStayActor = actor("sc-room-stay-reject", 22, 20, {})
+roomStayActor.square.room = { name = "return-order-room" }
 registry[roomStayActor.id] = roomStayActor
 check(SurvivorCompanion.Commands.issue(roomStayActor.id, "check_room", { square = roomStayActor.square }, transitionPlayer),
     "room check is staged for automatic stay transition")
@@ -6971,7 +7000,7 @@ roomStayState.tacticalTarget = {
     square = roomStayActor.square,
 }
 SurvivorCompanion.Commands.issue = function(id, command, payload, issuingPlayer)
-    if command == "stay" then return false, "mock_room_stay_rejected" end
+    if command == "finish_room_check" then return false, "mock_room_finish_rejected" end
     return originalCommandIssue(id, command, payload, issuingPlayer)
 end
 SurvivorCompanion.Navigation.request = function(targetActor, target, mode, intent)
@@ -6994,15 +7023,29 @@ for _ = 1, 4 do
     if reason ~= "deferred" then break end
 end
 check(roomSweepStarted and SurvivorCompanion.Decision.peek(roomStayActor).roomCheckAt,
-    "room sweep starts before its delayed stay transition")
+    "room sweep starts before its delayed return-order transition")
 clock = clock + 1601
 local roomStayAccepted, roomStayReason = SurvivorCompanion.Decision.update(roomStayActor, transitionPlayer, roomStayRuntime)
+local roomReportCalls = roomStayActor.speechCalls or 0
+local roomDecisionState = SurvivorCompanion.Decision.peek(roomStayActor)
 SurvivorCompanion.Commands.issue = originalCommandIssue
 SurvivorCompanion.Navigation.request = originalTransitionNavigation
-check(not roomStayAccepted and roomStayReason == "stay_transition_rejected:mock_room_stay_rejected"
+check(not roomStayAccepted and roomStayReason == "room_check_finish_rejected:mock_room_finish_rejected"
     and SurvivorCompanion.Commands.peek(roomStayActor).order == "check_room"
-    and SurvivorCompanion.Decision.peek(roomStayActor).roomCheckAt ~= nil,
-    "room-check completion propagates stay rejection and retains retry state")
+    and roomDecisionState.roomCheckAt ~= nil and roomDecisionState.roomCheckReported == true,
+    "room-check completion propagates return-order rejection and retains one-shot report state")
+local roomReturned, roomReturnedReason
+for _ = 1, 4 do
+    clock = clock + 201
+    roomReturned, roomReturnedReason = SurvivorCompanion.Decision.update(
+        roomStayActor, transitionPlayer, roomStayRuntime)
+    if roomReturnedReason ~= "deferred" then break end
+end
+check(roomReturned and SurvivorCompanion.Commands.peek(roomStayActor).order == "follow"
+        and SurvivorCompanion.Decision.peek(roomStayActor).roomCheckAt == nil
+        and (roomStayActor.speechCalls or 0) == roomReportCalls,
+    "completed room checks report once and restore the companion's prior stable order: "
+        .. tostring(roomReturnedReason))
 
 local terminalBody = bodyDamage(60)
 terminalBody.infected = true
@@ -7539,6 +7582,18 @@ BaseLife.reset()
 local campSquare = cell:getGridSquare(2, 2, 0)
 check(BaseLife.create(campSquare, "Test Camp") and BaseLife.active().name == "Test Camp",
     "base core creates one bounded default camp area")
+local protectedArea = BaseLife.active().zones[1]
+local areaStarted = BaseLife.beginZone("area", cell:getGridSquare(1, 1, 0))
+local areaFinished, removableArea = BaseLife.finishZone(
+    cell:getGridSquare(2, 2, 0), "Temporary extension")
+local areaRemoved = areaFinished and BaseLife.removeZone(removableArea.id)
+local lastAreaRemoved, lastAreaReason = BaseLife.removeZone(protectedArea.id)
+check(areaStarted and areaFinished and areaRemoved
+        and not lastAreaRemoved and lastAreaReason == "last_base_area",
+    "base zone management can remove an extension but protects the last camp area: "
+        .. tostring(areaStarted) .. "/" .. tostring(areaFinished) .. "/"
+        .. tostring(areaRemoved) .. "/" .. tostring(lastAreaRemoved) .. "/"
+        .. tostring(lastAreaReason))
 check(BaseLife.beginZone("quarantine", cell:getGridSquare(1, 1, 0))
     and BaseLife.finishZone(cell:getGridSquare(3, 3, 0), "Quiet room"),
     "two-corner quarantine zoning commits inside the camp boundary")
@@ -7553,6 +7608,38 @@ function store:getContainer() return self.container end
 campSquare.objects[#campSquare.objects + 1] = store
 check(BaseLife.registerStorage(store, "construction"),
     "world container can be designated as classified camp storage")
+local storageRow = BaseLife.storageRows()[1]
+check(BaseLife.setReserve(storageRow.id, "*", 2)
+        and BaseLife.setStorageCategory(storageRow.id, "tools")
+        and BaseLife.summary().storageRows[1].category == "tools"
+        and BaseLife.summary().storageRows[1].reserve == 2
+        and BaseLife.setStorageCategory(storageRow.id, "construction"),
+    "base storage management changes category and general withdrawal reserve")
+local maintenanceObject = { square = campSquare, objectIndex = #campSquare.objects }
+function maintenanceObject:getSquare() return self.square end
+function maintenanceObject:getX() return self.square.x end
+function maintenanceObject:getY() return self.square.y end
+function maintenanceObject:getZ() return self.square.z end
+function maintenanceObject:getObjectIndex() return self.objectIndex end
+campSquare.objects[#campSquare.objects + 1] = maintenanceObject
+local maintenanceRegistered, maintenanceRow = BaseLife.registerMaintenanceTarget(
+    maintenanceObject, "maintain")
+check(maintenanceRegistered
+        and BaseLife.setMaintenanceTargetEnabled(maintenanceRow.id, false)
+        and BaseLife.summary().maintenanceRows[1].enabled == false,
+    "maintenance targets can be disabled without deleting their world object")
+local removableMaintenance = { square = campSquare, objectIndex = #campSquare.objects }
+function removableMaintenance:getSquare() return self.square end
+function removableMaintenance:getX() return self.square.x end
+function removableMaintenance:getY() return self.square.y end
+function removableMaintenance:getZ() return self.square.z end
+function removableMaintenance:getObjectIndex() return self.objectIndex end
+campSquare.objects[#campSquare.objects + 1] = removableMaintenance
+local secondMaintenance, removableMaintenanceRow = BaseLife.registerMaintenanceTarget(
+    removableMaintenance, "barricade")
+check(secondMaintenance and BaseLife.removeMaintenanceTarget(removableMaintenanceRow.id)
+        and #BaseLife.summary().maintenanceRows == 1,
+    "maintenance management can remove one tracked target without altering the object")
 check(BaseLife.assign(fellow.id, "builder", true),
     "recruited resident receives a persistent base role and duty state")
 check(BaseLife.policies().defense == "rotation"
@@ -7579,6 +7666,19 @@ local queued, baseJob = BaseLife.enqueueJob({ type = "build", priority = 4,
 local claimed = queued and BaseLife.claimJob(fellow.id)
 check(claimed and claimed.id == baseJob.id and claimed.reservedBy == fellow.id,
     "role-aware work queue gives a base worker a leased job")
+local blockedJob, blockedReason = BaseLife.blockJob(
+    baseJob.id, fellow.id, "fixture_blocker", 1000)
+local retriedJob, retryReason = BaseLife.retryJob(baseJob.id)
+check(blockedJob and retriedJob and baseJob.state == "pending"
+        and baseJob.blocker == nil and baseJob.reservedBy == nil,
+    "blocked base jobs expose a retry operation that clears their blocker: "
+        .. tostring(blockedReason) .. "/" .. tostring(retryReason))
+local queuedCancel, cancelledJob = BaseLife.enqueueJob({
+    type = "repair", priority = 1, target = { x = 2, y = 2, z = 0 },
+})
+check(queuedCancel and BaseLife.cancelJob(cancelledJob.id)
+        and cancelledJob.state == "cancelled",
+    "queued base jobs can be cancelled explicitly")
 local operations = BaseLife.auditOperations(true)
 local constructionStock
 for _, stock in ipairs(operations.stock or {}) do
@@ -7592,6 +7692,8 @@ check(BaseLife.setPolicy("defense", "role_based")
     and BaseLife.setPolicy("routines", false)
     and BaseLife.policies().routines == false,
     "base policies expose explicit defense, workload and downtime controls")
+check(BaseLife.setStorageCategory(storageRow.id, "tools"),
+    "managed storage category is staged for persistence")
 BaseLife.assign(fellow.id, "guard", true)
 check(BaseLife.guardStatus(fellow.id, clock),
     "role-based defense marks an on-duty guard as the active watch")
@@ -7602,7 +7704,10 @@ local baseSave = BaseLife.export()
 BaseLife.reset()
 check(BaseLife.restore(baseSave) and BaseLife.active().name == "Test Camp"
     and BaseLife.restriction(fellow.id) == "quarantine"
-    and #BaseLife.storageRows("construction", true) == 1
+    and #BaseLife.storageRows("tools", true) == 1
+    and BaseLife.summary().storageRows[1].reserve == 2
+    and #BaseLife.summary().maintenanceRows == 1
+    and BaseLife.summary().maintenanceRows[1].enabled == false
     and BaseLife.policies().defense == "role_based"
     and BaseLife.policies().workload == "continuous"
     and BaseLife.policies().routines == false,
@@ -8347,6 +8452,38 @@ do
         "faction residents retain heavy construction stock for household policy")
 end
 
+do
+    local brokenBefore = tonumber(group.social.trade.brokenPromises) or 0
+    local standingBefore = group.standing
+    check(Contracts.debugOffer("faction-test", "supply"),
+        "decline fixture creates a real pending offer")
+    local declinedId = group.social.contract.offer.id
+    local declined, declineReason = Contracts.declineOffer(
+        "faction-test", player, true)
+    local declinedRow = group.social.contract.history[#group.social.contract.history]
+    check(declined and declineReason == "offer_declined"
+            and group.social.contract.offer == nil
+            and declinedRow and declinedRow.id == declinedId
+            and declinedRow.status == "declined"
+            and (tonumber(group.social.trade.brokenPromises) or 0) == brokenBefore
+            and group.standing == standingBefore
+            and tonumber(group.social.contract.cooldownUntilHour) > 240,
+        "Decline records the dismissed offer and a short cooldown without a broken-promise penalty")
+    local declinedDocument = Factions.export()
+    check(Factions.restore(declinedDocument),
+        "declined faction offers survive save and restore")
+    group = Factions.group("faction-test")
+    group.members[1].actorId, group.members[2].actorId = residentOne.id, residentTwo.id
+    local restoredDecline = group.social.contract.history[#group.social.contract.history]
+    check(restoredDecline and restoredDecline.id == declinedId
+            and restoredDecline.status == "declined"
+            and group.social.contract.offer == nil,
+        "restored decline history cannot reappear as an active offer: id="
+            .. tostring(restoredDecline and restoredDecline.id) .. "/" .. tostring(declinedId)
+            .. " status=" .. tostring(restoredDecline and restoredDecline.status)
+            .. " offer=" .. tostring(group.social.contract.offer))
+end
+
 for _, contractKind in ipairs({ "supply", "medical", "local_threat" }) do
     local offered, offeredKind = Contracts.debugOffer("faction-test", contractKind)
     check(offered and offeredKind == contractKind
@@ -8383,6 +8520,58 @@ for _, contractKind in ipairs({ "supply", "medical", "local_threat" }) do
     check(Contracts.debugComplete("faction-test")
         and Factions.summary("faction-test").social.active == nil,
         "forced harness completion resolves " .. contractKind .. " without inventory side effects")
+end
+
+do
+    check(Contracts.debugOffer("faction-test", "local_threat")
+            and Contracts.accept("faction-test", player, true),
+        "party-kill fixture accepts a local-threat contract")
+    group = Factions.group("faction-test")
+    local localThreat = group.social.contract.active
+    localThreat.requiredKills = 2
+    localThreat.progress.kills = 0
+    localThreat.progress.lastScanCount = 0
+    localThreat.progress.loadedSquares = 1000
+    local partyKiller = actor("sc-contract-party-killer", localThreat.target.x,
+        localThreat.target.y, {})
+    registry[partyKiller.id] = {
+        id = partyKiller.id, actor = partyKiller, recruited = true,
+        factionId = nil,
+    }
+    local neutralKiller = actor("sc-contract-neutral-killer", localThreat.target.x,
+        localThreat.target.y, { recruited = false })
+    neutralKiller.modData.SC_Recruited = false
+    registry[neutralKiller.id] = {
+        id = neutralKiller.id, actor = neutralKiller, recruited = false,
+        factionId = nil,
+    }
+    local originalGetPlayer = getPlayer
+    getPlayer = function() return player end
+    local neutralVictim = zombie(localThreat.target.x, localThreat.target.y,
+        { attackedBy = neutralKiller })
+    Contracts.onZombieDead(neutralVictim)
+    local partyVictim = zombie(localThreat.target.x, localThreat.target.y,
+        { attackedBy = partyKiller })
+    Contracts.onZombieDead(partyVictim)
+    Contracts.onZombieDead(partyVictim)
+    local playerVictim = zombie(localThreat.target.x, localThreat.target.y,
+        { attackedBy = player })
+    Contracts.onZombieDead(playerVictim)
+    Contracts.onZombieDead(playerVictim)
+    getPlayer = originalGetPlayer
+    local partyProgress = Contracts.progress(group, player, false)
+    check(localThreat.progress.kills == 2 and partyProgress and partyProgress.ready,
+        "local-threat progress counts player and active companion kills once, but rejects neutral killers")
+    group.members[1].actorId, group.members[2].actorId = nil, nil
+    local partyKillDocument = Factions.export()
+    check(Factions.restore(partyKillDocument)
+            and Factions.group("faction-test").social.contract.active.progress.kills == 2,
+        "confirmed local-threat party kills survive save and restore")
+    group = Factions.group("faction-test")
+    group.members[1].actorId, group.members[2].actorId = residentOne.id, residentTwo.id
+    check(Contracts.debugComplete("faction-test"),
+        "party-kill fixture completes without leaking an active contract")
+    registry[partyKiller.id], registry[neutralKiller.id] = nil, nil
 end
 
 do

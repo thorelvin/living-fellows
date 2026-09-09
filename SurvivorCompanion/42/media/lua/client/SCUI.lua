@@ -115,16 +115,31 @@ local MOVE_MODES = {
     { id = "sneak", key = "UI_SC_Select_MoveSneak" },
     { id = "jog", key = "UI_SC_Select_MoveRun" },
 }
-local COMBAT_STANCES = {
-    { id = "passive", key = "UI_SC_Select_StancePassive" },
-    { id = "defensive", key = "UI_SC_Select_StanceDefensive" },
-    { id = "aggressive", key = "UI_SC_Select_StanceAggressive" },
-}
 local WEAPON_PRIORITIES = {
     { id = "best", key = "UI_SC_Select_WeaponBest" },
     { id = "melee", key = "UI_SC_Select_WeaponMelee" },
     { id = "firearm", key = "UI_SC_Select_WeaponFirearm" },
     { id = "quiet", key = "UI_SC_Select_WeaponQuiet" },
+}
+local BASE_STORAGE_CATEGORIES = {
+    { id = "food", key = "UI_SC_Base_Storage_food" },
+    { id = "water", key = "UI_SC_Base_Storage_water" },
+    { id = "medical", key = "UI_SC_Base_Storage_medical" },
+    { id = "tools", key = "UI_SC_Base_Storage_tools" },
+    { id = "construction", key = "UI_SC_Base_Storage_construction" },
+    { id = "crafting", key = "UI_SC_Base_Storage_crafting" },
+    { id = "weapons", key = "UI_SC_Base_Storage_weapons" },
+    { id = "ammunition", key = "UI_SC_Base_Storage_ammunition" },
+    { id = "general", key = "UI_SC_Base_Storage_general" },
+    { id = "output", key = "UI_SC_Base_Storage_output" },
+    { id = "memorial", key = "UI_SC_Base_Storage_memorial" },
+}
+local BASE_RESERVE_LEVELS = {
+    { id = 0, key = "UI_SC_Base_Reserve_0" },
+    { id = 1, key = "UI_SC_Base_Reserve_1" },
+    { id = 2, key = "UI_SC_Base_Reserve_2" },
+    { id = 5, key = "UI_SC_Base_Reserve_5" },
+    { id = 10, key = "UI_SC_Base_Reserve_10" },
 }
 local GROUPS = {
     { id = "", key = "UI_SC_Select_GroupNone" },
@@ -392,7 +407,9 @@ local function baseDetailSignature()
     return "base:" .. stableSignatureValue({
         configured = summary.configured, name = summary.name, zones = summary.zones,
         storages = summary.storages, residents = summary.residents, duty = summary.duty,
-        jobs = summary.jobs, rows = summary.rows, residentRows = summary.residentRows,
+        jobs = summary.jobs, rows = summary.rows, zoneRows = summary.zoneRows,
+        storageRows = summary.storageRows, maintenanceRows = summary.maintenanceRows,
+        residentRows = summary.residentRows,
         operations = {
             readiness = operations.readiness, stock = operations.stock,
             alerts = operations.alerts, policies = operations.policies,
@@ -736,7 +753,6 @@ local RECRUITED_COMMANDS = {
     set_ride_with_player = true,
     set_work_mode = true,
     set_move_mode = true,
-    set_combat_mode = true,
     set_combat_doctrine = true,
     set_weapon_priority = true,
     set_hold_fire = true,
@@ -750,6 +766,7 @@ local RECRUITED_COMMANDS = {
     exit_vehicle = true,
     open_inventory = true,
     open_health = true,
+    bandage = true,
     emote = true,
     relationship = true,
     encourage = true,
@@ -771,8 +788,8 @@ local PROXIMITY_LIMITS = {
     plans = 16,
     emote = 16,
     recruit = 16,
-    open_inventory = 4,
-    open_health = 4,
+    open_inventory = tonumber(Bridge and Bridge.NEARBY_DISTANCE) or 4,
+    open_health = tonumber(Bridge and Bridge.VIEW_DISTANCE) or 64,
 }
 
 local function usableGroup(group)
@@ -821,6 +838,9 @@ function UI.commandAvailability(row, command, payload)
             return false, "UI_SC_Disabled_UnsafeVehicleExit"
         end
     end
+    if command == "bandage" then
+        return UI.bandageAvailability(row, playerForUI())
+    end
     local limit = PROXIMITY_LIMITS[command]
     if limit then
         local distance = tonumber(row.distance)
@@ -832,16 +852,35 @@ function UI.commandAvailability(row, command, payload)
 end
 
 function UI.bandageAvailability(row, activePlayer)
-    if not row or row.recruited ~= true or not row.id or not SC.Medical
-        or type(SC.Medical.playerBandagePreflight) ~= "function"
+    if not row or row.recruited ~= true or not row.id then
+        return false, "UI_SC_Disabled_RecruitedOnly"
+    end
+    if not SC.Medical or type(SC.Medical.playerBandagePreflight) ~= "function"
         or not SC.Registry or type(SC.Registry.byId) ~= "function" then
-        return false
+        return false, "UI_SC_Disabled_BandageUnavailable"
     end
     local ok, record = pcall(SC.Registry.byId, row.id)
-    if not ok or type(record) ~= "table" or not record.actor then return false end
-    local checked, ready = pcall(SC.Medical.playerBandagePreflight,
+    if not ok or type(record) ~= "table" or not record.actor then
+        return false, "UI_SC_Disabled_InvalidActor"
+    end
+    local checked, ready, reason = pcall(SC.Medical.playerBandagePreflight,
         record.actor, activePlayer or playerForUI())
-    return checked and ready == true
+    if not checked then return false, "UI_SC_Disabled_BandageUnavailable" end
+    if ready == true then return true, nil end
+    if reason == "no_treatable_wound" then
+        return false, "UI_SC_Disabled_NoTreatableWound"
+    elseif reason == "no_bandage" then
+        return false, "UI_SC_Disabled_NoBandage"
+    elseif reason == "out_of_range" then
+        local limit = SC.Config and type(SC.Config.get) == "function"
+            and tonumber(SC.Config.get("medicalPlayerBandageRange")) or 2
+        return false, "UI_SC_Disabled_TooFar", limit
+    elseif reason == "invalid_player" then
+        return false, "UI_SC_Disabled_NoPlayer"
+    elseif reason == "invalid_companion" then
+        return false, "UI_SC_Disabled_InvalidActor"
+    end
+    return false, "UI_SC_Disabled_BandageUnavailable"
 end
 
 function UI.signalAvailability(root, signal, activePlayer)
@@ -929,6 +968,18 @@ function UI.confirmDismiss(companionName, execute)
     local modal = ISModalDialog:new(0, 0, 350, 150,
         UI.text("UI_SC_Dismiss_Confirm", companionName or unknownValue()),
         true, request, dismissDialogAnswer, nil)
+    modal:initialise()
+    modal.moveWithMouse = true
+    modal:addToUIManager()
+    if type(modal.setAlwaysOnTop) == "function" then modal:setAlwaysOnTop(true) end
+    return true
+end
+
+function UI.confirmBaseAction(message, execute)
+    if type(execute) ~= "function" or not ISModalDialog then return false end
+    local request = { execute = execute }
+    local modal = ISModalDialog:new(0, 0, 390, 160, message, true,
+        request, dismissDialogAnswer, nil)
     modal:initialise()
     modal.moveWithMouse = true
     modal:addToUIManager()
@@ -1144,6 +1195,68 @@ local function onBaseToggle(target, index, selected, policyKey, tickBox)
         or UI.text("UI_SC_Base_ActionFailed", tostring(reason or accepted)),
         ok and accepted == true)
     UI.refresh()
+end
+
+local function runBaseManagementAction(target, action, payload)
+    if not SC.BaseLife then return false end
+    payload = type(payload) == "table" and payload or {}
+    local method, arguments
+    if action == "remove_zone" then
+        method, arguments = SC.BaseLife.removeZone, { payload.id }
+    elseif action == "remove_storage" then
+        method, arguments = SC.BaseLife.removeStorage, { payload.id }
+    elseif action == "set_storage_category" then
+        method, arguments = SC.BaseLife.setStorageCategory,
+            { payload.id, payload.category }
+    elseif action == "set_storage_reserve" then
+        method, arguments = SC.BaseLife.setReserve,
+            { payload.id, nil, payload.amount }
+    elseif action == "cancel_job" then
+        method, arguments = SC.BaseLife.cancelJob, { payload.id }
+    elseif action == "retry_job" then
+        method, arguments = SC.BaseLife.retryJob, { payload.id }
+    elseif action == "set_maintenance_enabled" then
+        method, arguments = SC.BaseLife.setMaintenanceTargetEnabled,
+            { payload.id, payload.enabled == true }
+    elseif action == "remove_maintenance" then
+        method, arguments = SC.BaseLife.removeMaintenanceTarget, { payload.id }
+    end
+    if type(method) ~= "function" then
+        setButtonFeedback(target, UI.text("UI_SC_Base_ActionFailed", "unsupported_action"), false)
+        return false
+    end
+    local ok, accepted, reason = pcall(method, unpack(arguments))
+    setButtonFeedback(target, ok and accepted == true
+        and UI.text("UI_SC_Base_ActionAccepted")
+        or UI.text("UI_SC_Base_ActionFailed", tostring(reason or accepted)),
+        ok and accepted == true)
+    UI.refresh()
+    return ok and accepted == true
+end
+
+local function onBaseManagementButton(target, button)
+    local execute = function()
+        runBaseManagementAction(target, button.scBaseAction, button.scBasePayload)
+    end
+    if button.scConfirm then
+        UI.confirmBaseAction(button.scConfirm, execute)
+        return
+    end
+    execute()
+end
+
+local function onBaseRecordSelector(target, combo)
+    if not combo or not combo.selected then return end
+    local option = combo:getOptionData(combo.selected)
+    if type(option) ~= "table" or option.value == combo.scValue then return end
+    local previous = combo.scValue
+    local payload = { id = combo.scRecordId }
+    payload[combo.scPayloadKey] = option.value
+    if runBaseManagementAction(target, combo.scBaseAction, payload) then
+        combo.scValue = option.value
+    else
+        selectComboValue(combo, previous)
+    end
 end
 
 local function onBasePolicySelector(target, combo)
@@ -1372,7 +1485,7 @@ end
 
 function SCUIQuestDialog:onButton(button)
     local action = button.scQuestAction
-    if action == "decline" or action == "cancel" then self:close(); return end
+    if action == "cancel" then self:close(); return end
     if action == "select_reward" then
         self.selectedReward = button.scRewardChoice
         if self.completeButton then self.completeButton.enable = true end
@@ -1381,6 +1494,9 @@ function SCUIQuestDialog:onButton(button)
     local ok, accepted, reason
     if action == "accept" then
         ok, accepted, reason = pcall(SC.FactionContracts.accept, self.factionId,
+            playerForUI(), false)
+    elseif action == "decline" then
+        ok, accepted, reason = pcall(SC.FactionContracts.declineOffer, self.factionId,
             playerForUI(), false)
     elseif action == "complete" then
         ok, accepted, reason = pcall(SC.FactionContracts.chooseReward, self.factionId,
@@ -2027,6 +2143,52 @@ function SCUIDetail:addBasePolicySelector(panel, y, labelKey, policyKey, current
     return y + metrics.buttonHeight + 4
 end
 
+function SCUIDetail:addBaseManagementAction(panel, y, label, action, payload, confirmation)
+    local metrics = self.metrics or UI.layoutMetrics()
+    local width = math.max(100, panel:getWidth() - 28)
+    local button = ISButton:new(8, y, width, metrics.buttonHeight,
+        fitText(UIFont.Small, label, math.max(40, width - 16)), self,
+        onBaseManagementButton)
+    button:initialise()
+    makeButtonTranslucent(button)
+    button.scBaseAction, button.scBasePayload = action, payload
+    button.scConfirm, button.scLabel, button.tooltip = confirmation, label, label
+    panel:addChild(button)
+    panel.scContentWidth = panel:getWidth()
+    return y + metrics.buttonHeight + 4
+end
+
+function SCUIDetail:addBaseRecordSelector(panel, y, labelKey, current, options,
+        action, recordId, payloadKey)
+    local metrics = self.metrics or UI.layoutMetrics()
+    local width = math.max(100, panel:getWidth() - 28)
+    local combo = ISComboBox:new(8, y, width, metrics.buttonHeight,
+        self, onBaseRecordSelector)
+    combo:initialise()
+    combo:instantiate()
+    combo.backgroundColor = { r = 0.035, g = 0.04, b = 0.035,
+        a = configuredOpacity(0.88, 0.22, 0.78) }
+    combo.backgroundColorMouseOver = { r = 0.28, g = 0.30, b = 0.25,
+        a = configuredOpacity(1.18, 0.48, 0.9) }
+    combo.scValue, combo.scBaseAction = current, action
+    combo.scRecordId, combo.scPayloadKey = recordId, payloadKey
+    local selected = false
+    for index, option in ipairs(options or {}) do
+        local label = UI.text(option.key)
+        combo:addOptionWithData(UI.text(labelKey, label), { value = option.id }, label)
+        if option.id == current then combo.selected, selected = index, true end
+    end
+    if not selected then
+        local label = tostring(current)
+        combo:addOptionWithData(UI.text(labelKey, label), { value = current }, label)
+        combo.selected = #(combo.options or {})
+    end
+    combo.tooltip = UI.text(labelKey, UI.stateText(current))
+    panel:addChild(combo)
+    panel.scContentWidth = panel:getWidth()
+    return y + metrics.buttonHeight + 4
+end
+
 function SCUIDetail:addAutonomyAction(panel, y, labelKey, choice)
     local metrics = self.metrics or UI.layoutMetrics()
     local label = UI.text(labelKey)
@@ -2171,15 +2333,18 @@ function SCUIDetail:buildOrders(panel)
     y = self:addCommandSelector(panel, y, "UI_SC_Select_MovementMode",
         row and row.moveMode or "copy", MOVE_MODES, "set_move_mode", "mode")
     y = self:addSection(panel, y + 4, "UI_SC_Section_Combat")
-    -- One per-companion combat selector. Setting a doctrine cascades to the
-    -- underlying stance + hold-fire (SCCommands.applyDoctrine), so the separate
-    -- stance selector and hold-fire toggle are no longer needed. "Apply to all"
-    -- pushes this companion's setting to the whole squad (scope = team).
+    -- Doctrine controls engagement behaviour. Weapon preference is configured in
+    -- Loadout, while Hold Fire remains an explicit hard override. "Apply to all"
+    -- pushes only the doctrine to the whole squad (scope = team).
     y = self:addCommandSelector(panel, y, "UI_SC_Select_Combat",
         row and row.combatDoctrine or "close_defense", COMBAT_DOCTRINES,
         "set_combat_doctrine", "doctrine")
     y = self:addCommand(panel, y, "UI_SC_Action_ApplyToAll", "set_combat_doctrine",
         { doctrine = row and row.combatDoctrine or "close_defense", scope = "team" })
+    y = self:addBooleanCommand(panel, y, "UI_SC_Toggle_HoldFire",
+        "set_hold_fire", "holdFire", row and row.holdFire == true)
+    y = self:addInformationLine(panel, y, "UI_SC_Orders_TargetHint",
+        UI.text("UI_SC_Orders_TargetHintValue"))
     y = self:addSection(panel, y + 4, "UI_SC_Section_WorkAutonomy")
     y = self:addBooleanCommand(panel, y, "UI_SC_Toggle_Scavenging",
         "set_scavenge", "scavenge", row and row.scavenge == true)
@@ -2201,9 +2366,7 @@ function SCUIDetail:buildLoadout(panel, row)
         y = self:addInformationLine(panel, y, "UI_SC_Info_Knox", UI.formatKnox(row.knox))
     end
     y = self:addCommand(panel, y, "UI_SC_Action_OpenHealth", "open_health", nil)
-    if UI.bandageAvailability(row, playerForUI()) then
-        y = self:addCommand(panel, y, "UI_SC_Action_Bandage", "bandage", nil)
-    end
+    y = self:addCommand(panel, y, "UI_SC_Action_Bandage", "bandage", nil)
     y = self:addSection(panel, y + 4, "UI_SC_Section_Gear")
     if row then
         y = self:addInformationLine(panel, y, "UI_SC_Info_EquippedWeapon",
@@ -2385,6 +2548,71 @@ function SCUIDetail:buildBase(panel, row)
                         or residentRow.duty and UI.text("UI_SC_Base_StateAvailable")
                         or UI.text("UI_SC_Base_StateOffDuty")))
         end
+        y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Zones")
+        if type(base.zoneRows) ~= "table" or #base.zoneRows == 0 then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_NoZones"))
+        else
+            local areaCount = 0
+            for _, zone in ipairs(base.zoneRows) do
+                if zone.kind == "area" then areaCount = areaCount + 1 end
+            end
+            for _, zone in ipairs(base.zoneRows) do
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_ZoneRow", zone.name, UI.humanize(zone.kind),
+                        zone.x1, zone.y1, zone.x2, zone.y2, zone.z))
+                if zone.kind == "area" and areaCount <= 1 then
+                    y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                        UI.text("UI_SC_Base_CoreZoneProtected"))
+                else
+                    y = self:addBaseManagementAction(panel, y,
+                        UI.text("UI_SC_Base_RemoveZone", zone.name), "remove_zone",
+                        { id = zone.id }, UI.text("UI_SC_Base_RemoveZoneConfirm", zone.name))
+                end
+            end
+        end
+        y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Storages")
+        if type(base.storageRows) ~= "table" or #base.storageRows == 0 then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_NoStorages"))
+        else
+            for _, storage in ipairs(base.storageRows) do
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_StorageRow", UI.humanize(storage.category),
+                        storage.x, storage.y, storage.z, storage.reserve or 0))
+                y = self:addBaseRecordSelector(panel, y,
+                    "UI_SC_Base_StorageCategorySelector", storage.category,
+                    BASE_STORAGE_CATEGORIES, "set_storage_category", storage.id, "category")
+                y = self:addBaseRecordSelector(panel, y,
+                    "UI_SC_Base_StorageReserveSelector", tonumber(storage.reserve) or 0,
+                    BASE_RESERVE_LEVELS, "set_storage_reserve", storage.id, "amount")
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_RemoveStorage", storage.x, storage.y, storage.z),
+                    "remove_storage", { id = storage.id },
+                    UI.text("UI_SC_Base_RemoveStorageConfirm"))
+            end
+        end
+        y = self:addSection(panel, y + 4, "UI_SC_Base_Section_MaintenanceTargets")
+        if type(base.maintenanceRows) ~= "table" or #base.maintenanceRows == 0 then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_NoMaintenanceTargets"))
+        else
+            for _, target in ipairs(base.maintenanceRows) do
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_MaintenanceRow", UI.humanize(target.kind),
+                        target.x, target.y, target.z, target.enabled
+                            and UI.text("UI_SC_Base_StateEnabled")
+                            or UI.text("UI_SC_Base_StateDisabled")))
+                y = self:addBaseManagementAction(panel, y, target.enabled
+                        and UI.text("UI_SC_Base_MaintenanceDisable")
+                        or UI.text("UI_SC_Base_MaintenanceEnable"),
+                    "set_maintenance_enabled",
+                    { id = target.id, enabled = target.enabled ~= true }, nil)
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_RemoveMaintenance"), "remove_maintenance",
+                    { id = target.id }, UI.text("UI_SC_Base_RemoveMaintenanceConfirm"))
+            end
+        end
     end
     y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Selected")
     if row then
@@ -2408,6 +2636,19 @@ function SCUIDetail:buildBase(panel, row)
             y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                 UI.text("UI_SC_Base_JobRow", UI.humanize(job.type), UI.humanize(job.state),
                     tostring(job.reservedBy or "-")))
+            if job.blocker then
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_JobBlocker", UI.humanize(job.blocker)))
+            end
+            if job.state == "blocked" then
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_RetryJob", UI.humanize(job.type)),
+                    "retry_job", { id = job.id }, nil)
+            end
+            y = self:addBaseManagementAction(panel, y,
+                UI.text("UI_SC_Base_CancelJob", UI.humanize(job.type)),
+                "cancel_job", { id = job.id },
+                UI.text("UI_SC_Base_CancelJobConfirm", UI.humanize(job.type)))
         end
     end
     y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Crisis")

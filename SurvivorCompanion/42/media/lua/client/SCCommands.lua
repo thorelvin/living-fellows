@@ -108,20 +108,12 @@ local function applyDoctrine(state, doctrine)
     state.combatDoctrine = doctrine
     if doctrine == "stealth" then
         state.combatMode = "passive"
-        state.weaponPriority = "quiet"
-        state.holdFire = true
     elseif doctrine == "ranged_support" then
         state.combatMode = "defensive"
-        state.weaponPriority = "firearm"
-        state.holdFire = false
     elseif doctrine == "weapons_free" then
         state.combatMode = "aggressive"
-        state.weaponPriority = "best"
-        state.holdFire = false
     else
         state.combatMode = "defensive"
-        state.weaponPriority = "best"
-        state.holdFire = false
     end
     return true
 end
@@ -949,14 +941,6 @@ local function handleMoveMode(actor, entry, state, payload)
     return true, value
 end
 
-local function handleCombatMode(actor, entry, state, payload)
-    local value = type(payload) == "table" and payload.mode or payload
-    if not combatModes[value] then return false, "invalid_combat_mode" end
-    state.combatMode = value
-    markCommand(actor, entry, state)
-    return true, value
-end
-
 local function handleCombatDoctrine(actor, entry, state, payload)
     local value = type(payload) == "table"
         and (payload.doctrine or payload.mode) or payload
@@ -964,9 +948,10 @@ local function handleCombatDoctrine(actor, entry, state, payload)
     markCommand(actor, entry, state)
     if groupStaging then return true, value end
     if SC.Combat and type(SC.Combat.equipPreferred) == "function" then
-        local preferred = value == "ranged_support" and "firearm"
-            or value == "stealth" and "quiet" or state.weaponPriority
-        pcall(SC.Combat.equipPreferred, actor, preferred)
+        -- Doctrine changes engagement behaviour only. Re-equip from the saved
+        -- loadout preference so Ranged Support/Stealth cannot silently override
+        -- an explicit melee, quiet, firearm, or best-available choice.
+        pcall(SC.Combat.equipPreferred, actor, state.weaponPriority)
     end
     return true, value
 end
@@ -993,17 +978,13 @@ local function handleWeaponPriority(actor, entry, state, payload)
 end
 
 local function handleHoldFire(actor, entry, state)
-    applyDoctrine(state, "stealth")
+    state.holdFire = true
     markCommand(actor, entry, state)
     return true, "hold_fire"
 end
 
 local function handleFireAtWill(actor, entry, state)
-    if state.combatDoctrine == "stealth" then
-        applyDoctrine(state, "close_defense")
-    else
-        state.holdFire = false
-    end
+    state.holdFire = false
     markCommand(actor, entry, state)
     return true, "fire_at_will"
 end
@@ -1080,6 +1061,8 @@ local function handleCheckRoom(actor, entry, state, payload)
     local target = commandTarget(payload)
     local square = U().loadedSquare(target)
     if not square then return false, "invalid_room_target" end
+    local room, roomChecked = U().call(square, "getRoom")
+    if not roomChecked or room == nil then return false, "room_check_requires_room" end
     local _, _, actorZ = U().position(actor)
     local _, _, targetZ = U().position(square)
     if math.floor(actorZ or 0) ~= math.floor(targetZ or 0) then return false, "room_check_wrong_floor" end
@@ -1090,11 +1073,35 @@ local function handleCheckRoom(actor, entry, state, payload)
         targetSquare = square,
     })
     if not accepted then return false, status or "room_check_rejected" end
+    local previousOrder = state.order
+    if previousOrder ~= "follow" and previousOrder ~= "stay"
+        and previousOrder ~= "guard" and previousOrder ~= "base_duty" then
+        previousOrder = "stay"
+    end
     clearWorkState(state)
+    state.returnOrder = previousOrder
     state.order = "check_room"
     state.tacticalTarget = positionTable(square)
     markCommand(actor, entry, state)
     return true, status or "checking_room"
+end
+
+local function handleFinishRoomCheck(actor, entry, state)
+    local returnOrder = state.returnOrder
+    if returnOrder ~= "follow" and returnOrder ~= "stay"
+        and returnOrder ~= "guard" and returnOrder ~= "base_duty" then
+        returnOrder = "stay"
+    end
+    state.returnOrder, state.returnWorkMode = nil, nil
+    state.tacticalTarget, state.pendingInteraction = nil, nil
+    state.order = returnOrder
+    if returnOrder == "follow" then
+        state.anchor = nil
+    elseif type(state.anchor) ~= "table" then
+        state.anchor = positionTable(actor)
+    end
+    markCommand(actor, entry, state)
+    return true, "room_check_complete_" .. returnOrder
 end
 
 local function vehicleAction(actor, entry, state, payload, player, action)
@@ -1258,7 +1265,6 @@ local handlers = {
     set_ride_with_player = handleRideWithPlayer,
     set_work_mode = handleWorkMode,
     set_move_mode = handleMoveMode,
-    set_combat_mode = handleCombatMode,
     set_combat_doctrine = handleCombatDoctrine,
     set_weapon_priority = handleWeaponPriority,
     set_hold_fire = handleHoldFirePolicy,
@@ -1272,6 +1278,7 @@ local handlers = {
         return handleDoor(actor, entry, state, payload, player, "close_door")
     end,
     check_room = handleCheckRoom,
+    finish_room_check = handleFinishRoomCheck,
     barricade = handleBarricade,
     remove_barricade = function(actor, entry, state, payload)
         return handleTargetedWork(actor, entry, state, payload, "remove_barricade")
@@ -1703,7 +1710,6 @@ local groupableCommands = {
     set_ride_with_player = true,
     set_work_mode = true,
     set_move_mode = true,
-    set_combat_mode = true,
     set_combat_doctrine = true,
     set_weapon_priority = true,
     set_hold_fire = true,
@@ -1727,9 +1733,6 @@ local function validatePayload(command, payload)
     elseif command == "set_work_mode" then
         local value = type(payload) == "table" and payload.mode or payload
         if not workModes[value] then return false, "invalid_work_mode" end
-    elseif command == "set_combat_mode" then
-        local value = type(payload) == "table" and payload.mode or payload
-        if not combatModes[value] then return false, "invalid_combat_mode" end
     elseif command == "set_combat_doctrine" then
         local value = type(payload) == "table"
             and (payload.doctrine or payload.mode) or payload
@@ -1913,12 +1916,9 @@ local function issueTeamDoctrine(payload, player)
     local stored, storeReason = storeTeamDoctrine(player, doctrine)
     if not stored then return false, storeReason, results end
     if SC.Combat and type(SC.Combat.equipPreferred) == "function" then
-        local preferred = doctrine == "ranged_support" and "firearm"
-            or doctrine == "stealth" and "quiet" or nil
-        if preferred then
-            for _, member in ipairs(members) do
-                pcall(SC.Combat.equipPreferred, member.actor, preferred)
-            end
+        for _, member in ipairs(members) do
+            pcall(SC.Combat.equipPreferred, member.actor,
+                member.state and member.state.weaponPriority or "best")
         end
     end
     return true, doctrine, results

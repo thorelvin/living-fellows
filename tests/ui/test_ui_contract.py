@@ -401,6 +401,31 @@ class UIStaticContractTests(unittest.TestCase):
                         "barricade", "dismantle", "check_room"):
             self.assertIn(f'"{command}"', priority)
         self.assertGreaterEqual(priority.count("return addNamedShortcut"), 5)
+        self.assertIn('safeMethod(targetSquare, "getRoom") ~= nil', priority)
+        target_actions = lua_function(self.context, "local function addWorldOrders(")
+        self.assertIn('safeMethod(targetSquare, "getRoom") ~= nil', target_actions)
+
+    def test_base_tab_manages_existing_zones_storage_maintenance_and_jobs(self) -> None:
+        base = lua_function(self.ui, "function SCUIDetail:buildBase(panel, row)")
+        dispatch = lua_function(self.ui, "local function runBaseManagementAction(")
+        for action in (
+            "remove_zone", "remove_storage", "set_storage_category",
+            "set_storage_reserve", "cancel_job", "retry_job",
+            "set_maintenance_enabled", "remove_maintenance",
+        ):
+            self.assertIn(f'action == "{action}"', dispatch)
+        for method in (
+            "removeZone", "removeStorage", "setStorageCategory", "setReserve",
+            "cancelJob", "retryJob", "setMaintenanceTargetEnabled",
+            "removeMaintenanceTarget",
+        ):
+            self.assertIn(f"SC.BaseLife.{method}", dispatch)
+        for rows in ("base.zoneRows", "base.storageRows", "base.maintenanceRows"):
+            self.assertIn(rows, base)
+        self.assertIn('job.state == "blocked"', base)
+        self.assertIn('"retry_job"', base)
+        self.assertIn('"cancel_job"', base)
+        self.assertIn("UI.confirmBaseAction", self.ui)
 
     def test_base_context_is_hidden_outside_camp_and_dismiss_is_confirmed(self) -> None:
         relevant = lua_function(self.context, "local function baseMenuRelevant(square)")
@@ -554,6 +579,7 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn('"select_reward", index', dialog)
         self.assertIn('scQuestAction = "complete"', dialog)
         self.assertIn("SC.FactionContracts.chooseReward", callback)
+        self.assertIn("SC.FactionContracts.declineOffer", callback)
         self.assertIn('playUISound("UIActivatePlayButton")', callback)
         self.assertIn('playUISound("UIAchievement")', callback)
         self.assertIn("UI.openQuestOffer", faction_handler + context_action)
@@ -727,6 +753,26 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("if reasonArgument ~= nil then", self.ui)
         self.assertIn("button.tooltip = UI.text(reasonKey, reasonArgument)", self.ui)
         self.assertIn("button.tooltip = UI.text(reasonKey)", self.ui)
+
+    def test_health_view_and_visible_bandage_action_use_authoritative_preflight(self) -> None:
+        self.assertIn(
+            "open_inventory = tonumber(Bridge and Bridge.NEARBY_DISTANCE) or 4",
+            self.ui,
+        )
+        self.assertIn(
+            "open_health = tonumber(Bridge and Bridge.VIEW_DISTANCE) or 64",
+            self.ui,
+        )
+        loadout = lua_function(self.ui, "function SCUIDetail:buildLoadout(panel, row)")
+        self.assertIn('"UI_SC_Action_Bandage", "bandage"', loadout)
+        availability = lua_function(self.ui, "function UI.bandageAvailability(row, activePlayer)")
+        self.assertIn("SC.Medical.playerBandagePreflight", availability)
+        for reason in (
+            "UI_SC_Disabled_NoTreatableWound", "UI_SC_Disabled_NoBandage",
+            "UI_SC_Disabled_TooFar", "UI_SC_Disabled_NoPlayer",
+            "UI_SC_Disabled_InvalidActor",
+        ):
+            self.assertIn(reason, availability)
 
     def test_remove_from_group_uses_empty_backend_value(self) -> None:
         self.assertIn('{ id = "", key = "UI_SC_Select_GroupNone" }', self.ui)
@@ -1061,18 +1107,19 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertNotIn('"board_vehicle"', groups)
         self.assertNotIn('"exit_vehicle"', groups)
 
-    def test_combat_is_one_per_companion_selector_with_apply_to_all(self) -> None:
+    def test_combat_doctrine_has_apply_to_all_and_an_independent_hold_fire_override(self) -> None:
         orders = lua_function(self.ui, "function SCUIDetail:buildOrders(panel)")
-        # One per-companion combat selector (the doctrine cascades to the
-        # underlying stance + hold-fire), plus an apply-to-whole-squad button.
+        # Doctrine is the behaviour policy and can be copied to the squad.
+        # Hold Fire is intentionally separate: changing doctrine must not
+        # silently re-enable a weapon the player explicitly disabled.
         self.assertIn("COMBAT_DOCTRINES", orders)
         self.assertIn('"set_combat_doctrine", "doctrine"', orders)
         self.assertIn('scope = "team"', orders)
         self.assertIn("UI_SC_Action_ApplyToAll", orders)
-        # The old, separate stance selector and hold-fire toggle are gone.
+        # The redundant stance selector is gone; the hard override remains.
         self.assertNotIn("COMBAT_STANCES", orders)
         self.assertNotIn('"set_combat_mode"', orders)
-        self.assertNotIn('"set_hold_fire"', orders)
+        self.assertIn('"set_hold_fire"', orders)
 
     def test_compact_policy_selectors_include_backend_modes(self) -> None:
         orders = lua_function(self.ui, "function SCUIDetail:buildOrders(panel)")

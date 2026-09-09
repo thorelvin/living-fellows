@@ -403,8 +403,16 @@ end
 
 function BaseLife.removeZone(id)
     local base = activeBase()
-    local _, index = base and findById(base.zones, id) or nil
+    local zone, index
+    if base then zone, index = findById(base.zones, id) end
     if not index then return false, "unknown_zone" end
+    if zone.kind == "area" then
+        local areaCount = 0
+        for _, candidate in ipairs(base.zones) do
+            if candidate.kind == "area" then areaCount = areaCount + 1 end
+        end
+        if areaCount <= 1 then return false, "last_base_area" end
+    end
     table.remove(base.zones, index)
     return true
 end
@@ -492,7 +500,8 @@ end
 
 function BaseLife.removeStorage(id)
     local base = activeBase()
-    local _, index = base and findById(base.storages, id) or nil
+    local _, index
+    if base then _, index = findById(base.storages, id) end
     if not index then return false, "unknown_storage" end
     table.remove(base.storages, index)
     return true
@@ -508,6 +517,17 @@ function BaseLife.setReserve(id, itemType, amount)
     else
         storage.reserves[cleanText(itemType, "", 96)] = amount
     end
+    return true, storage
+end
+
+function BaseLife.setStorageCategory(id, category)
+    if not BaseLife.STORAGE_CATEGORIES[category] then
+        return false, "invalid_storage_category"
+    end
+    local base = activeBase()
+    local storage = base and findById(base.storages, id) or nil
+    if not storage then return false, "unknown_storage" end
+    storage.category = category
     return true, storage
 end
 
@@ -564,6 +584,23 @@ function BaseLife.registerMaintenanceTarget(object, kind)
     local row = normalizeTarget(descriptor)
     base.maintenanceTargets[#base.maintenanceTargets + 1] = row
     return true, row
+end
+
+function BaseLife.setMaintenanceTargetEnabled(id, enabled)
+    local base = activeBase()
+    local target = base and findById(base.maintenanceTargets, id) or nil
+    if not target then return false, "unknown_maintenance_target" end
+    target.enabled = enabled == true
+    return true, target
+end
+
+function BaseLife.removeMaintenanceTarget(id)
+    local base = activeBase()
+    local _, index
+    if base then _, index = findById(base.maintenanceTargets, id) end
+    if not index then return false, "unknown_maintenance_target" end
+    table.remove(base.maintenanceTargets, index)
+    return true
 end
 
 function BaseLife.enqueueJob(spec)
@@ -933,7 +970,8 @@ function BaseLife.summary()
         zones = base and #base.zones or 0,
         storages = base and #base.storages or 0,
         residents = 0, duty = 0, jobs = { pending = 0, active = 0, blocked = 0 },
-        rows = {}, storageRows = {}, residentRows = {}, history = {}, operations = operations,
+        rows = {}, zoneRows = {}, storageRows = {}, maintenanceRows = {},
+        residentRows = {}, history = {}, operations = operations,
     }
     for id, resident in pairs(ensure().residents) do
         if base and resident.baseId == base.id then
@@ -951,6 +989,12 @@ function BaseLife.summary()
     end
     table.sort(result.residentRows, function(a, b) return a.id < b.id end)
     if base then
+        for _, zone in ipairs(base.zones) do
+            result.zoneRows[#result.zoneRows + 1] = {
+                id = zone.id, kind = zone.kind, name = zone.name,
+                x1 = zone.x1, y1 = zone.y1, x2 = zone.x2, y2 = zone.y2, z = zone.z,
+            }
+        end
         for _, job in ipairs(base.jobs) do
             if job.state == "pending" then result.jobs.pending = result.jobs.pending + 1
             elseif job.state == "reserved" or job.state == "active" then
@@ -966,7 +1010,16 @@ function BaseLife.summary()
         for _, storage in ipairs(base.storages) do
             result.storageRows[#result.storageRows + 1] = {
                 id = storage.id, category = storage.category, reserve = storage.reserve,
+                reserves = stableCopy(storage.reserves, 2, { count = 64 }),
                 x = storage.x, y = storage.y, z = storage.z,
+                objectIndex = storage.objectIndex,
+            }
+        end
+        for _, target in ipairs(base.maintenanceTargets) do
+            result.maintenanceRows[#result.maintenanceRows + 1] = {
+                id = target.id, kind = target.kind, enabled = target.enabled == true,
+                threshold = target.threshold, x = target.x, y = target.y, z = target.z,
+                objectIndex = target.objectIndex,
             }
         end
     end

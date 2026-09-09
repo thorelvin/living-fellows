@@ -2292,19 +2292,12 @@ function Combat.update(actor, player, runtime)
         rootRuntime.combatAction = "attack_in_progress"
         return true, "attack_in_progress"
     end
-    -- The ranged_support doctrine means "prefer the firearm" whether or not the
-    -- companion is seated. Previously only the seated branch honored the
-    -- doctrine, so an on-foot companion fell back to weaponPriority. When that
-    -- priority was stale (for example a team doctrine change that did not
-    -- resync the per-actor priority), chooseWeapon's close-range firearm
-    -- penalty made an approaching zombie flip the selection to a melee weapon,
-    -- so a companion set to ranged combat drew and swung melee instead of
-    -- firing. weapons_free stays best-weapon on foot but firearm-only seated,
-    -- where melee is not an option.
-    local preference = commands.weaponPriority
-    if commands.combatDoctrine == "ranged_support" then
-        preference = "firearm"
-    elseif seated and commands.combatDoctrine == "weapons_free" then
+    -- Doctrine determines which contacts may be engaged and how the companion
+    -- positions. Weapon priority is a separate explicit loadout choice. The only
+    -- situational override is a seated actor: melee cannot be executed from a
+    -- vehicle, so Weapons Free may select a usable firearm there.
+    local preference = commands.weaponPriority or "best"
+    if seated and commands.combatDoctrine == "weapons_free" then
         preference = "firearm"
     end
     local weapon, inventory = responsiveWeapon(actor, state, preference, distance,

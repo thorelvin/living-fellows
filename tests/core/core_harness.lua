@@ -401,12 +401,10 @@ check(SC.Commands.issue(record.id, "set_scavenge", { enabled = false }, nil),
     "command adapter accepts persistent scavenging preference")
 check(SC.Commands.issue(record.id, "set_move_mode", { mode = "jog" }, nil),
     "command adapter accepts persistent movement mode")
-check(SC.Commands.issue(record.id, "set_combat_doctrine", { doctrine = "ranged_support" }, nil),
-    "command adapter accepts a persistent rules-of-engagement doctrine")
-check(SC.Commands.issue(record.id, "set_combat_mode", { mode = "passive" }, nil)
-        and SC.Commands.issue(record.id, "set_weapon_priority", { priority = "quiet" }, nil)
-        and SC.Commands.issue(record.id, "set_hold_fire", { enabled = true }, nil),
-    "stance, weapon priority, and hold-fire remain independent policy controls")
+check(SC.Commands.issue(record.id, "set_weapon_priority", { priority = "quiet" }, nil)
+        and SC.Commands.issue(record.id, "set_hold_fire", { enabled = true }, nil)
+        and SC.Commands.issue(record.id, "set_combat_doctrine", { doctrine = "ranged_support" }, nil),
+    "doctrine, weapon priority, and hold-fire remain independent policy controls")
 check(SC.Commands.issue(record.id, "set_group", { group = "Bravo" }, nil),
     "command adapter accepts persistent group")
 check(SC.Commands.issue(record.id, "set_work_mode", { mode = "craft" }, nil),
@@ -418,7 +416,7 @@ check(commandSnapshot ~= nil and commandSnapshotReason == nil
     and commandSnapshot.order.scavenge == false
     and commandSnapshot.order.movementMode == "jog"
     and commandSnapshot.order.movementModeVersion == 2
-    and commandSnapshot.order.combatStance == "passive"
+    and commandSnapshot.order.combatStance == "defensive"
     and commandSnapshot.order.combatDoctrine == "ranged_support"
     and commandSnapshot.order.holdFire == true
     and commandSnapshot.order.weaponPriority == "quiet"
@@ -456,7 +454,7 @@ SC.Commands.reset(actor)
 local restoredCommandState = SC.Commands.peek(actor)
 check(restoredCommandState.order == "guard" and restoredCommandState.followDistance == 8
     and restoredCommandState.scavenge == false and restoredCommandState.moveMode == "jog"
-    and restoredCommandState.combatMode == "passive"
+    and restoredCommandState.combatMode == "defensive"
     and restoredCommandState.combatDoctrine == "ranged_support"
     and restoredCommandState.holdFire == true
     and restoredCommandState.weaponPriority == "quiet" and restoredCommandState.group == "Bravo"
