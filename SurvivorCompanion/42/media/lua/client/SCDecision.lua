@@ -96,7 +96,7 @@ local function medicalAssessment(actor)
     }
 end
 
-local function rescueNeed(player, snapshot)
+local function rescueNeed(actor, player, snapshot)
     local score, target = 0, nil
     if player and SC.Medical and type(SC.Medical.assess) == "function" then
         local ok, assessment = pcall(SC.Medical.assess, player)
@@ -109,11 +109,20 @@ local function rescueNeed(player, snapshot)
     end
     if snapshot and type(snapshot.allies) == "table" then
         for _, ally in ipairs(snapshot.allies) do
-            local assessment = medicalAssessment(ally.actor)
-            local allyScore = (assessment.critical and 25 or 0)
-                + (assessment.bleedingCount or 0) * 18
-                + (assessment.downed and 40 or 0)
-            if allyScore > score then score, target = allyScore, ally.actor end
+            local stillAllied = true
+            if ally.relationship ~= nil and SC.Factions
+                and type(SC.Factions.areAlliesBetween) == "function" then
+                local ok, value = pcall(SC.Factions.areAlliesBetween,
+                    actor, ally.actor, player)
+                stillAllied = ok and value == true
+            end
+            if stillAllied then
+                local assessment = medicalAssessment(ally.actor)
+                local allyScore = (assessment.critical and 25 or 0)
+                    + (assessment.bleedingCount or 0) * 18
+                    + (assessment.downed and 40 or 0)
+                if allyScore > score then score, target = allyScore, ally.actor end
+            end
         end
     end
     return score, target
@@ -178,7 +187,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     elseif assessment.needsBandage or assessment.critical then
         add("medical", 96 + (assessment.bleedingCount or 0) * 8, assessment.bleedingCount and assessment.bleedingCount > 0)
     end
-    local rescue, rescueTarget = rescueNeed(player, snapshot)
+    local rescue, rescueTarget = rescueNeed(actor, player, snapshot)
     if rescue > 0 and (snapshot.immediateCount or 0) == 0 then
         -- Rescue medicine is a distinct decision identity from self-medicine (and
         -- from rescuing a different subject): carry the mode/target so hysteresis

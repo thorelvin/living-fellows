@@ -1171,8 +1171,14 @@ end
 local function rescueCandidate(actor, player, snapshot)
     local utility = U()
     local best, bestScore
-    local function consider(candidate)
+    local function consider(candidate, relationship)
         if not candidate or candidate == actor or not utility.isValidActor(candidate) then return end
+        if relationship ~= nil and SC.Factions
+            and type(SC.Factions.areAlliesBetween) == "function" then
+            local ok, allied = pcall(SC.Factions.areAlliesBetween,
+                actor, candidate, player)
+            if not ok or allied ~= true then return end
+        end
         local assessment = Medical.assess(candidate)
         if not assessment.needsBandage and not assessment.critical and not assessment.downed then return end
         local score = (assessment.downed and 80 or 0)
@@ -1183,7 +1189,9 @@ local function rescueCandidate(actor, player, snapshot)
     end
     consider(player)
     if snapshot and type(snapshot.allies) == "table" then
-        for _, ally in ipairs(snapshot.allies) do consider(ally.actor) end
+        for _, ally in ipairs(snapshot.allies) do
+            consider(ally.actor, ally.relationship)
+        end
     end
     return best
 end

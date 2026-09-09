@@ -484,9 +484,11 @@ end
 local function weaponRecord(item)
     local utility = U()
     if not item then return nil end
+    local categoryValue = select(1, utility.call(item, "getCategory"))
     local isWeapon = utility.instanceOf(item, "HandWeapon")
         or utility.instanceOf(item, "zombie.inventory.types.HandWeapon")
-        or utility.hasMethod(item, "getMaxDamage")
+        or (tostring(categoryValue or "") == "Weapon"
+            and utility.hasMethod(item, "getMaxDamage"))
     if not isWeapon then return nil end
     local ranged = boolCall(item, "isRanged")
     local jammed = ranged and boolCall(item, "isJammed") or false
@@ -919,9 +921,18 @@ local function lineBlockedByFriendly(actor, target, player, snapshot)
         return utility.pointSegmentDistanceSq(friendly, actor, target) <= corridorSq
     end
     if blocks(player) then return true end
-    if snapshot and type(snapshot.allies) == "table" then
-        for _, ally in ipairs(snapshot.allies) do
-            if blocks(ally.actor) then return true end
+    if snapshot then
+        local protected = type(snapshot.protectedActors) == "table"
+            and snapshot.protectedActors or snapshot.allies
+        for _, row in ipairs(type(protected) == "table" and protected or {}) do
+            local stillProtected = true
+            if row.relationship ~= nil and SC.Factions
+                and type(SC.Factions.isProtectedBetween) == "function" then
+                local ok, value = pcall(SC.Factions.isProtectedBetween,
+                    actor, row.actor, player)
+                stillProtected = ok and value == true
+            end
+            if stillProtected and blocks(row.actor) then return true end
         end
     end
     return false
@@ -946,12 +957,21 @@ local function healthySupportCount(actor, snapshot)
     local radius = utility.config("combatAllySupportRadius") or 6
     local radiusSq = radius * radius
     for _, ally in ipairs(snapshot.allies or {}) do
+        local stillAllied = true
+        if ally.relationship ~= nil and SC.Factions
+            and type(SC.Factions.areAlliesBetween) == "function" then
+            local player = type(snapshot.player) == "table" and snapshot.player.actor or nil
+            local ok, value = pcall(SC.Factions.areAlliesBetween,
+                actor, ally.actor, player)
+            stillAllied = ok and value == true
+        end
         local downed = false
         if SC.Medical and type(SC.Medical.isDowned) == "function" then
             local ok, value = pcall(SC.Medical.isDowned, ally.actor)
             downed = ok and value == true
         end
-        if ally.actor and not downed and utility.sameFloor(actor, ally.actor)
+        if stillAllied and ally.actor and not downed
+            and utility.sameFloor(actor, ally.actor)
             and (tonumber(ally.distanceSq) or utility.distanceSq(actor, ally.actor)) <= radiusSq
             and (tonumber(ally.health) or utility.nativeHealth(ally.actor)) > 30 then count = count + 1 end
     end
@@ -1325,12 +1345,41 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
         }
     end
     if grounded and readiness.immediate <= 1 and isolatedFront then
+        local conditionRatio = weapon and not weapon.ranged
+            and U().clamp(tonumber(weapon.conditionRatio) or 0, 0, 1) or 0
+        local preservationPenalty = conditionRatio < 0.20 and 32
+            or conditionRatio < 0.35 and 10 or 0
+        local burdenPenalty = weapon and not weapon.ranged
+            and math.max(0, (tonumber(weapon.staminaCost) or 1) - 1.5) * 4 or 0
         actions[#actions + 1] = {
             kind = "stomp",
-            -- A safe grounded target is a fleeting opportunity. Make the finisher
-            -- decisive so spacing/retreat utilities cannot moonwalk away from it.
-            score = 108 + readiness.strength * 0.8 - fatiguePenalty * 0.45,
+            -- Stomping remains useful while unarmed, while preserving a nearly
+            -- broken weapon, or when exhaustion makes a heavy floor swing a poor
+            -- choice. The impact model still decides whether several hits are
+            -- needed; choosing this action is never a declared execution.
+            score = 102 + readiness.strength * 0.8 - fatiguePenalty * 0.45
+                + preservationPenalty * 0.75
+                + (readiness.staminaCritical and burdenPenalty + 8 or 0),
         }
+        if weapon and not weapon.ranged then
+            local _, swingMax = Combat.meleeRange(actor, weapon.item)
+            swingMax = swingMax or (utility.config("combatMeleeDistance") or 1.7)
+            if distance <= swingMax then
+                actions[#actions + 1] = {
+                    kind = "melee",
+                    floorAttack = true,
+                    -- A healthy melee weapon is the ordinary player-like answer
+                    -- to a prone zombie. Condition preservation and the stamina
+                    -- cost of a heavy weapon can still make a stomp win naturally.
+                    score = 112 + weapon.damage * 5
+                        + readiness.combatSkill * 1.8
+                        + readiness.strength * 0.6
+                        + readiness.weaponQuality * 8
+                        - pressure * 2 - fatiguePenalty * 0.65
+                        - burdenPenalty - preservationPenalty,
+                }
+            end
+        end
     end
     if weapon and not grounded then
         if weapon.ranged then
@@ -1982,7 +2031,22 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         })
     elseif action.kind == "melee" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
-        accepted, nativeReason = utility.move(actor, "walk", { action = "attack_melee", weapon = weapon.item, target = targetActor })
+        if action.floorAttack == true then
+            local grounded = boolCall(targetActor, "isOnFloor")
+                or boolCall(targetActor, "isProne") or boolCall(targetActor, "isCrawling")
+            if not grounded or utility.isDead(targetActor)
+                or not utility.canSee(actor, targetActor)
+                or (tonumber(snapshot.closeImmediateCount)
+                    or tonumber(snapshot.immediateCount) or 0)
+                    > (utility.config("combatStompMaxImmediate") or 1) then
+                return false, "ground_melee_target_invalid"
+            end
+        end
+        accepted, nativeReason = utility.move(actor, "walk", {
+            action = "attack_melee", weapon = weapon.item, target = targetActor,
+            floorAttack = action.floorAttack == true,
+            groundedAttack = action.floorAttack == true,
+        })
     elseif action.kind == "shove" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
         accepted, nativeReason = utility.move(actor, "walk", { action = "shove", target = targetActor })
@@ -1995,9 +2059,9 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             state.stompAnchor = nil
             return false, "stomp_anchor_invalid"
         end
-        -- Aim for the head: step over the zombie's head square before stomping so the
-        -- finisher lands on the skull (the lethal spot) instead of the legs. If we are
-        -- not on the head yet, close onto it; only stomp once positioned.
+        -- Prefer the head as a competent player would, but positioning only makes
+        -- head contact possible. The collision-time impact model verifies it and
+        -- applies graded damage; reaching this anchor is never an automatic kill.
         local current = utility.nowMs()
         local anchor = state.stompAnchor
         if not anchor or anchor.target ~= targetActor or current >= (anchor.expires or 0) then

@@ -229,17 +229,13 @@ end
 
 local function draftIsValid(draft, endpoint)
     if draft.kind == "area" then return true end
-    if not SC.BaseLife or type(SC.BaseLife.isInside) ~= "function" then return false end
+    if not SC.BaseLife or type(SC.BaseLife.zoneInsideAreaUnion) ~= "function" then return false end
     local x1, x2 = math.min(draft.first.x, endpoint.x), math.max(draft.first.x, endpoint.x)
     local y1, y2 = math.min(draft.first.y, endpoint.y), math.max(draft.first.y, endpoint.y)
-    for _, point in ipairs({
-        { x = x1, y = y1, z = endpoint.z }, { x = x2, y = y1, z = endpoint.z },
-        { x = x1, y = y2, z = endpoint.z }, { x = x2, y = y2, z = endpoint.z },
-    }) do
-        local ok, inside = pcall(SC.BaseLife.isInside, point)
-        if not ok or inside ~= true then return false end
-    end
-    return true
+    local ok, inside = pcall(SC.BaseLife.zoneInsideAreaUnion, {
+        x1 = x1, y1 = y1, x2 = x2, y2 = y2, z = endpoint.z,
+    })
+    return ok and inside == true
 end
 
 local function currentDraft()

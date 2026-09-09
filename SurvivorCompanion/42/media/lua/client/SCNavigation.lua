@@ -460,16 +460,20 @@ end
 local function routeMemoryAdjustment(memory, fromSquare, toSquare, now)
     local key = edgeKey(fromSquare, toSquare)
     local entry = key and type(memory) == "table" and memory[key] or nil
-    if not entry then return 0 end
+    if not entry then return 0, 0 end
     if (tonumber(entry.expires) or 0) <= (now or U().nowMs())
         or entry.objectState ~= objectStateSignature(entry.object) then
         memory[key] = nil
-        return 0
+        return 0, 0
     end
     if entry.success == true then
-        return -(U().config("navigationRouteMemorySuccessBonus") or 0.25)
+        -- Familiar routes are a secondary preference only. Discounting their G
+        -- cost made the octile heuristic overestimate the remaining discounted
+        -- path and invalidated A*'s shortest-path guarantee.
+        return 0, math.max(0,
+            tonumber(U().config("navigationRouteMemorySuccessBonus")) or 0.25)
     end
-    return U().config("navigationRouteMemoryFailurePenalty") or 4.5
+    return U().config("navigationRouteMemoryFailurePenalty") or 4.5, 0
 end
 
 local function reserve(object, actor, now)
@@ -887,10 +891,12 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
         local moving = utility.movingBlocker(toSquare, options.actor)
         if moving then crowdCost = utility.config("navigationCrowdPenalty") or 9 end
     end
+    local memoryPenalty, familiarity = routeMemoryAdjustment(
+        options.routeMemory, fromSquare, toSquare, options.now)
     return true, math.max(0.25, baseCost
         + squareVegetationCost(toSquare) * math.max(0, scale)
         + treeClearanceCost(toSquare) + vehicleClearanceCost(toSquare) + crowdCost
-        + routeMemoryAdjustment(options.routeMemory, fromSquare, toSquare, options.now))
+        + memoryPenalty), nil, nil, familiarity
 end
 
 local function heuristic(square, goal)
@@ -1049,15 +1055,18 @@ end
 
 -- Binary min-heap for the A* open set (review 3.3), replacing the O(N) lowest-f
 -- linear scan + O(N) table.remove that made each expansion O(N) and the search
--- O(N^2). Entries are { key, f, h, seq } and are ordered by f, then h, then a
--- stable insertion sequence so ties resolve exactly as the old scan did (the
--- earliest-inserted node among equal f/h wins), keeping produced paths identical.
+-- O(N^2). Entries are { key, f, h, familiarity, seq } and are ordered by f,
+-- then h, then successful route-memory familiarity, then a stable insertion
+-- sequence. Familiarity never changes the primary path cost.
 -- Improvements push a fresh entry that reuses the node's original seq and leave the
 -- superseded entry in place (lazy deletion); the popper drops any entry whose
 -- priority no longer matches its node, or whose node is already closed.
 local function heapEntryLess(a, b)
     if a.f ~= b.f then return a.f < b.f end
     if a.h ~= b.h then return a.h < b.h end
+    local aFamiliarity = tonumber(a.familiarity) or 0
+    local bFamiliarity = tonumber(b.familiarity) or 0
+    if aFamiliarity ~= bFamiliarity then return aFamiliarity > bFamiliarity end
     return a.seq < b.seq
 end
 
@@ -1138,7 +1147,7 @@ local function newBoundedPathJob(startSquare, goalSquare, options)
     local startH = heuristic(startSquare, goalSquare)
     local nodes = {
         [startKey] = { square = startSquare, g = 0, h = startH, f = startH,
-            parent = nil, seq = 0 },
+            familiarity = 0, parent = nil, seq = 0 },
     }
     return {
         complete = false,
@@ -1152,7 +1161,8 @@ local function newBoundedPathJob(startSquare, goalSquare, options)
         options = options,
         penalties = penalties,
         nodes = nodes,
-        open = { { key = startKey, f = startH, h = startH, seq = 0 } },
+        open = { { key = startKey, f = startH, h = startH,
+            familiarity = 0, seq = 0 } },
         seqCounter = 0,
         closed = {},
         rejections = {},
@@ -1177,7 +1187,8 @@ local function resumeBoundedPathJob(job, expansionQuota)
         -- whose priority the node has since improved past (a superseded entry left
         -- behind by lazy deletion). Skipping does not consume the expansion quota.
         if node ~= nil and not job.closed[bestKey]
-            and entry.f == node.f and entry.h == node.h then
+            and entry.f == node.f and entry.h == node.h
+            and (tonumber(entry.familiarity) or 0) == (tonumber(node.familiarity) or 0) then
             if bestKey == job.goalKey then
                 job.complete = true
                 job.path = reconstruct(job.nodes, bestKey)
@@ -1193,7 +1204,7 @@ local function resumeBoundedPathJob(job, expansionQuota)
                 if otherKey and not job.closed[otherKey] then
                     local edgeOptions = job.options
                     edgeOptions.allowOccupiedGoal = otherKey == job.goalKey
-                    local passable, cost, rejection = passableEdge(
+                    local passable, cost, rejection, ignoredObject, edgeFamiliarity = passableEdge(
                         current.square, otherSquare, job.options.vegetationScale, edgeOptions)
                     if passable then
                         local dynamicPenalty = 0
@@ -1205,8 +1216,12 @@ local function resumeBoundedPathJob(job, expansionQuota)
                         end
                         local tentative = current.g + cost + (tonumber(job.penalties[otherKey]) or 0)
                             + dynamicPenalty
+                        local tentativeFamiliarity = (tonumber(current.familiarity) or 0)
+                            + (tonumber(edgeFamiliarity) or 0)
                         local known = job.nodes[otherKey]
-                        if not known or tentative < known.g then
+                        if not known or tentative < known.g
+                            or (tentative == known.g and tentativeFamiliarity
+                                > (tonumber(known.familiarity) or 0)) then
                             -- Reuse the node's original insertion sequence on an
                             -- improvement so ties keep resolving by first-seen order
                             -- (parity with the previous linear scan).
@@ -1222,10 +1237,12 @@ local function resumeBoundedPathJob(job, expansionQuota)
                                 g = tentative,
                                 h = h,
                                 f = fScore,
+                                familiarity = tentativeFamiliarity,
                                 parent = bestKey,
                                 seq = seq,
                             }
-                            heapPush(job.open, { key = otherKey, f = fScore, h = h, seq = seq })
+                            heapPush(job.open, { key = otherKey, f = fScore, h = h,
+                                familiarity = tentativeFamiliarity, seq = seq })
                         end
                     elseif rejection then
                         job.rejections[rejection] = (job.rejections[rejection] or 0) + 1

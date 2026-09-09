@@ -264,8 +264,17 @@ local valueData = {
     combatShoveFollowupWindowMs = 3500,
     combatStompDistance = 1.55,
     combatStompPursuitDistance = 3.25,
-    combatStompDamage = 1.6,
-    combatHeadStompDamage = 3.0,
+    -- Build 42's non-local player floor attack currently reaches its impact
+    -- event with an empty hit list, so NativeActions supplies one bounded hit.
+    -- These values start near the stock BareHands range; verified head contact,
+    -- strength, stamina, footwear and prior head impacts modify them. Death is
+    -- never forced -- the zombie's native Hit/health path owns the outcome.
+    combatStompDamage = 0.30,
+    combatHeadStompDamage = 0.72,
+    combatStompDamageVariation = 0.12,
+    combatStompHeadHitGrowth = 0.10,
+    combatStompCriticalMultiplier = 1.65,
+    combatStompCriticalMaxChance = 0.35,
     combatHeadStompRange = 1.1,
     combatStompMaxImmediate = 1,
     combatMeleeDistance = 1.7,

@@ -1726,6 +1726,38 @@ function Factions.isHostileBetween(source, target, player)
     return false
 end
 
+-- One relationship contract feeds perception, support, rescue and line-of-fire
+-- policy. "Neutral" deliberately does not mean combat cooperation: a tolerated
+-- household may be protected from a careless shot without contributing morale,
+-- formation support, or medical obligations.
+function Factions.relationshipBetween(source, target, player)
+    if source == nil or target == nil then return "unknown" end
+    if source == target then return "self" end
+    player = player or localPlayer()
+    local sourceParty = isPlayerPartyMember(source, player)
+    local targetParty = isPlayerPartyMember(target, player)
+    if sourceParty and targetParty then return "party_ally" end
+    local sourceAffiliation = Factions.affiliation(source)
+    local targetAffiliation = Factions.affiliation(target)
+    if sourceAffiliation and targetAffiliation
+        and sourceAffiliation.factionId == targetAffiliation.factionId then
+        return "faction_ally"
+    end
+    if Factions.isHostileBetween(source, target, player) then return "hostile" end
+    return "neutral"
+end
+
+function Factions.areAlliesBetween(source, target, player)
+    local relationship = Factions.relationshipBetween(source, target, player)
+    return relationship == "party_ally" or relationship == "faction_ally"
+end
+
+function Factions.isProtectedBetween(source, target, player)
+    local relationship = Factions.relationshipBetween(source, target, player)
+    return relationship == "party_ally" or relationship == "faction_ally"
+        or relationship == "neutral"
+end
+
 local function visibleHumanCandidate(observer, candidate, maximumDistance)
     if candidate == nil or candidate == observer or U().isDead(candidate)
         or not U().sameFloor(observer, candidate) then return nil end
@@ -1739,27 +1771,25 @@ function Factions.hostileTargetFor(actor, player)
     if actor == nil then return nil end
     player = player or localPlayer()
     local sourceAffiliation = Factions.affiliation(actor)
-    local candidates = {}
-    if sourceAffiliation then
-        if player then candidates[#candidates + 1] = player end
-        if SC.Registry and type(SC.Registry.living) == "function" then
-            for _, record in ipairs(SC.Registry.living() or {}) do
-                if record.recruited == true and record.actor and record.actor ~= actor then
-                    candidates[#candidates + 1] = record.actor
-                end
-            end
+    local candidates, seen = {}, setmetatable({}, { __mode = "k" })
+    local function addCandidate(candidate)
+        if candidate ~= nil and candidate ~= actor and not seen[candidate] then
+            seen[candidate] = true
+            candidates[#candidates + 1] = candidate
         end
-    elseif isPlayerPartyMember(actor, player) and SC.Registry
+    end
+    if sourceAffiliation then
+        addCandidate(player)
+    end
+    if (sourceAffiliation or isPlayerPartyMember(actor, player)) and SC.Registry
         and type(SC.Registry.living) == "function" then
-        for _, record in ipairs(SC.Registry.living() or {}) do
-            if record.actor and type(record.factionId) == "string" then
-                local group = groups[record.factionId]
-                if group and group.archetype == "bandit_camp"
-                    and type(group.bandit) == "table"
-                    and group.bandit.engagement ~= "unaware" then
-                    candidates[#candidates + 1] = record.actor
-                end
-            end
+        -- Registry.living() deliberately returns live actors, not registry
+        -- records. Let the shared hostility predicate resolve each actor's
+        -- record/affiliation instead of reaching through a non-existent .actor
+        -- field. Considering all live actors also keeps hostile households in
+        -- the same contract as bandit camps.
+        for _, candidate in ipairs(SC.Registry.living() or {}) do
+            addCandidate(candidate)
         end
     end
     local best

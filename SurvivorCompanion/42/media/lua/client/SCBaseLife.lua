@@ -115,6 +115,7 @@ local function emptyDocument()
         nextZoneSerial = 1,
         nextStorageSerial = 1,
         nextTargetSerial = 1,
+        nextObjectSerial = 1,
         nextJobSerial = 1,
         bases = {},
         residents = {},
@@ -167,6 +168,9 @@ local function normalizeStorage(source)
     return {
         id = source.id, x = point.x, y = point.y, z = point.z,
         objectIndex = objectIndex, category = source.category,
+        objectId = validId(source.objectId, "object:") and source.objectId or nil,
+        objectSignature = type(source.objectSignature) == "string"
+            and cleanText(source.objectSignature, "", 192) or nil,
         reserve = integer(source.reserve, 0, 0, 9999), reserves = reserves,
         withdrawals = source.withdrawals ~= false, deposits = source.deposits ~= false,
         createdAt = math.max(0, finite(source.createdAt, 0)),
@@ -182,6 +186,9 @@ local function normalizeTarget(source)
     return {
         id = source.id, kind = kind, x = point.x, y = point.y, z = point.z,
         objectIndex = objectIndex, threshold = integer(source.threshold, 65, 1, 100),
+        objectId = validId(source.objectId, "object:") and source.objectId or nil,
+        objectSignature = type(source.objectSignature) == "string"
+            and cleanText(source.objectSignature, "", 192) or nil,
         enabled = source.enabled ~= false, createdAt = math.max(0, finite(source.createdAt, 0)),
     }
 end
@@ -269,10 +276,24 @@ local function normalize(source)
     result.nextZoneSerial = integer(source.nextZoneSerial, 1, 1, 999999)
     result.nextStorageSerial = integer(source.nextStorageSerial, 1, 1, 999999)
     result.nextTargetSerial = integer(source.nextTargetSerial, 1, 1, 999999)
+    result.nextObjectSerial = integer(source.nextObjectSerial, 1, 1, 999999)
     result.nextJobSerial = integer(source.nextJobSerial, 1, 1, 999999)
     for id, candidate in pairs(type(source.bases) == "table" and source.bases or {}) do
         local base = normalizeBase(candidate)
         if base and id == base.id then result.bases[id] = base end
+    end
+    -- Older version-1 documents predate object identities. Preserve them as
+    -- explicitly unavailable legacy bindings, while ensuring any newer identity
+    -- already present cannot collide with the next generated serial.
+    for _, base in pairs(result.bases) do
+        for _, rows in ipairs({ base.storages, base.maintenanceTargets }) do
+            for _, row in ipairs(rows) do
+                local serial = row.objectId and tonumber(string.match(row.objectId,
+                    "^object:(%d+)$")) or nil
+                if serial then result.nextObjectSerial = math.max(
+                    result.nextObjectSerial, serial + 1) end
+            end
+        end
     end
     result.activeBaseId = validId(source.activeBaseId, "base:")
         and result.bases[source.activeBaseId] and source.activeBaseId or nil
@@ -320,6 +341,73 @@ local function zoneContains(zone, point)
     return type(zone) == "table" and type(point) == "table" and zone.z == point.z
         and point.x >= zone.x1 and point.x <= zone.x2
         and point.y >= zone.y1 and point.y <= zone.y2
+end
+
+-- Prove rectangle containment against the union of all camp-area rectangles.
+-- The sweep checks only Y bands where area membership can change, then merges
+-- clipped integer X intervals. Runtime is bounded by baseMaxZones rather than by
+-- the physical size of a player-drawn camp.
+function BaseLife.zoneInsideAreaUnion(zone, areaZones)
+    if type(zone) ~= "table" then return false end
+    local x1, x2 = tonumber(zone.x1), tonumber(zone.x2)
+    local y1, y2, z = tonumber(zone.y1), tonumber(zone.y2), tonumber(zone.z)
+    if not x1 or not x2 or not y1 or not y2 or not z then return false end
+    x1, x2 = math.min(x1, x2), math.max(x1, x2)
+    y1, y2 = math.min(y1, y2), math.max(y1, y2)
+    local source = areaZones
+    if type(source) ~= "table" then
+        local base = activeBase()
+        source = base and base.zones or {}
+    end
+    local areas, cuts, cutSeen = {}, { y1, y2 + 1 }, {
+        [tostring(y1)] = true, [tostring(y2 + 1)] = true,
+    }
+    for _, area in ipairs(source) do
+        if type(area) == "table" and area.kind == "area" and tonumber(area.z) == z
+            and tonumber(area.x1) and tonumber(area.x2)
+            and tonumber(area.y1) and tonumber(area.y2) then
+            local ax1, ax2 = math.min(area.x1, area.x2), math.max(area.x1, area.x2)
+            local ay1, ay2 = math.min(area.y1, area.y2), math.max(area.y1, area.y2)
+            if ax2 >= x1 and ax1 <= x2 and ay2 >= y1 and ay1 <= y2 then
+                local clipped = {
+                    x1 = math.max(x1, ax1), x2 = math.min(x2, ax2),
+                    y1 = math.max(y1, ay1), y2 = math.min(y2, ay2),
+                }
+                areas[#areas + 1] = clipped
+                for _, cut in ipairs({ clipped.y1, clipped.y2 + 1 }) do
+                    local key = tostring(cut)
+                    if not cutSeen[key] then
+                        cuts[#cuts + 1], cutSeen[key] = cut, true
+                    end
+                end
+            end
+        end
+    end
+    if #areas == 0 then return false end
+    table.sort(cuts)
+    for index = 1, #cuts - 1 do
+        local sampleY = cuts[index]
+        if sampleY <= y2 then
+            local intervals = {}
+            for _, area in ipairs(areas) do
+                if sampleY >= area.y1 and sampleY <= area.y2 then
+                    intervals[#intervals + 1] = { area.x1, area.x2 }
+                end
+            end
+            table.sort(intervals, function(a, b)
+                if a[1] ~= b[1] then return a[1] < b[1] end
+                return a[2] < b[2]
+            end)
+            local covered = x1 - 1
+            for _, interval in ipairs(intervals) do
+                if interval[1] > covered + 1 then break end
+                covered = math.max(covered, interval[2])
+                if covered >= x2 then break end
+            end
+            if covered < x2 then return false end
+        end
+    end
+    return true
 end
 
 local function findById(rows, id)
@@ -383,18 +471,8 @@ function BaseLife.finishZone(square, name)
         name = name or draftZone.kind, x1 = draftZone.first.x, y1 = draftZone.first.y,
         x2 = second.x, y2 = second.y, z = second.z, createdAt = now(),
     })
-    if zone.kind ~= "area" then
-        local corners = {
-            { x = zone.x1, y = zone.y1, z = zone.z }, { x = zone.x2, y = zone.y1, z = zone.z },
-            { x = zone.x1, y = zone.y2, z = zone.z }, { x = zone.x2, y = zone.y2, z = zone.z },
-        }
-        for _, corner in ipairs(corners) do
-            local inside = false
-            for _, area in ipairs(base.zones) do
-                if area.kind == "area" and zoneContains(area, corner) then inside = true break end
-            end
-            if not inside then return false, "zone_outside_base_area" end
-        end
+    if zone.kind ~= "area" and not BaseLife.zoneInsideAreaUnion(zone, base.zones) then
+        return false, "zone_outside_base_area"
     end
     base.zones[#base.zones + 1] = zone
     draftZone = nil
@@ -407,11 +485,31 @@ function BaseLife.removeZone(id)
     if base then zone, index = findById(base.zones, id) end
     if not index then return false, "unknown_zone" end
     if zone.kind == "area" then
-        local areaCount = 0
-        for _, candidate in ipairs(base.zones) do
-            if candidate.kind == "area" then areaCount = areaCount + 1 end
+        local remaining, areaCount = {}, 0
+        for candidateIndex, candidate in ipairs(base.zones) do
+            if candidateIndex ~= index then
+                remaining[#remaining + 1] = candidate
+                if candidate.kind == "area" then areaCount = areaCount + 1 end
+            end
         end
-        if areaCount <= 1 then return false, "last_base_area" end
+        if areaCount < 1 then return false, "last_base_area" end
+        for _, candidate in ipairs(remaining) do
+            if candidate.kind ~= "area"
+                and not BaseLife.zoneInsideAreaUnion(candidate, remaining) then
+                return false, "base_area_in_use"
+            end
+        end
+        local dependants = { base.core }
+        for _, storage in ipairs(base.storages or {}) do dependants[#dependants + 1] = storage end
+        for _, target in ipairs(base.maintenanceTargets or {}) do dependants[#dependants + 1] = target end
+        for _, point in ipairs(dependants) do
+            local pointZone = point and {
+                x1 = point.x, x2 = point.x, y1 = point.y, y2 = point.y, z = point.z,
+            } or nil
+            if pointZone and not BaseLife.zoneInsideAreaUnion(pointZone, remaining) then
+                return false, "base_area_in_use"
+            end
+        end
     end
     table.remove(base.zones, index)
     return true
@@ -445,7 +543,43 @@ function BaseLife.zoneCenter(kind)
     return kind == "rally" and stableCopy(base.core, 1, { count = 4 }) or nil
 end
 
-local function objectDescriptor(object)
+local OBJECT_ID_KEY = "LF_BaseObjectId"
+
+local function objectSignature(object)
+    local utility = U()
+    if not utility or not object then return nil end
+    local objectName, objectNameOk = utility.call(object, "getObjectName")
+    local sprite, spriteOk = utility.call(object, "getSprite")
+    local spriteName, spriteNameOk = spriteOk and utility.call(sprite, "getName") or nil, false
+    if spriteOk then spriteName, spriteNameOk = utility.call(sprite, "getName") end
+    local container, containerOk = utility.call(object, "getContainer")
+    local containerType, containerTypeOk = containerOk
+        and utility.call(container, "getType") or nil, false
+    if containerOk then containerType, containerTypeOk = utility.call(container, "getType") end
+    return cleanText(table.concat({
+        objectNameOk and tostring(objectName) or "",
+        spriteNameOk and tostring(spriteName) or "",
+        containerTypeOk and tostring(containerType) or "",
+    }, "|"), "||", 192)
+end
+
+local function objectIdentity(object, create)
+    local utility = U()
+    local modData, ok = utility and utility.call(object, "getModData") or nil, false
+    if utility then modData, ok = utility.call(object, "getModData") end
+    if not ok or type(modData) ~= "table" then return nil, "object_mod_data_unavailable" end
+    local objectId = modData[OBJECT_ID_KEY]
+    if validId(objectId, "object:") then return objectId end
+    if create ~= true then return nil, "object_identity_missing" end
+    objectId = nextId("nextObjectSerial", "object:")
+    modData[OBJECT_ID_KEY] = objectId
+    -- Single-player mutates the authoritative object immediately; multiplayer
+    -- builds that expose transmission also receive the persistent identity.
+    utility.call(object, "transmitModData")
+    return objectId
+end
+
+local function objectDescriptor(object, createIdentity)
     local point = position(object)
     local utility = U()
     local index, ok
@@ -453,37 +587,56 @@ local function objectDescriptor(object)
     if not point or not ok or finite(index, nil) == nil or tonumber(index) < 0 then
         return nil
     end
-    return { x = point.x, y = point.y, z = point.z, objectIndex = integer(index, -1) }
+    local objectId, identityReason = objectIdentity(object, createIdentity == true)
+    if not objectId then return nil, identityReason end
+    return {
+        x = point.x, y = point.y, z = point.z, objectIndex = integer(index, -1),
+        objectId = objectId, objectSignature = objectSignature(object),
+    }
 end
 
 function BaseLife.resolveObject(record)
-    if type(record) ~= "table" then return nil end
+    if type(record) ~= "table" then return nil, "invalid_object_record" end
+    if not validId(record.objectId, "object:") then
+        -- Coordinates and a mutable square-list index are not identity. Existing
+        -- saves remain readable, but require one explicit re-registration instead
+        -- of silently binding camp work to whichever object moved into the slot.
+        return nil, "legacy_object_identity_unavailable"
+    end
     local utility = U()
     local square = utility and utility.gridSquare(record.x, record.y, record.z) or nil
-    if not square then return nil end
-    local found
+    if not square then return nil, "object_square_unloaded" end
+    local found, matches = nil, 0
     utility.squareObjects(square, function(object)
-        local index, ok = utility.call(object, "getObjectIndex")
-        if ok and integer(index, -2) == integer(record.objectIndex, -1) then
+        local objectId = objectIdentity(object, false)
+        if objectId == record.objectId then
+            matches = matches + 1
             found = object
-            return false
         end
     end, 64)
-    return found
+    if matches == 1 then return found end
+    if matches > 1 then return nil, "ambiguous_object_identity" end
+    return nil, "object_identity_mismatch"
 end
 
 function BaseLife.registerStorage(object, category)
     if not BaseLife.STORAGE_CATEGORIES[category] then return false, "invalid_storage_category" end
     local base = activeBase()
-    local descriptor = objectDescriptor(object)
+    local descriptor, descriptorReason = objectDescriptor(object, true)
     if not base or not descriptor or not BaseLife.isInside(descriptor) then
-        return false, base and "storage_outside_base" or "base_missing"
+        return false, not base and "base_missing"
+            or descriptorReason or "storage_outside_base"
     end
     local container, ok = U().call(object, "getContainer")
     if not ok or not container then return false, "object_has_no_container" end
     for _, storage in ipairs(base.storages) do
-        if storage.x == descriptor.x and storage.y == descriptor.y and storage.z == descriptor.z
-            and storage.objectIndex == descriptor.objectIndex then
+        if storage.objectId == descriptor.objectId
+            or (storage.objectId == nil and storage.x == descriptor.x
+                and storage.y == descriptor.y and storage.z == descriptor.z
+                and storage.objectIndex == descriptor.objectIndex) then
+            storage.x, storage.y, storage.z = descriptor.x, descriptor.y, descriptor.z
+            storage.objectIndex, storage.objectId = descriptor.objectIndex, descriptor.objectId
+            storage.objectSignature = descriptor.objectSignature
             storage.category = category
             return true, storage
         end
@@ -567,10 +720,10 @@ function BaseLife.visualRows()
 end
 
 function BaseLife.resolveContainer(storage)
-    local object = BaseLife.resolveObject(storage)
-    if not object then return nil, nil end
+    local object, reason = BaseLife.resolveObject(storage)
+    if not object then return nil, nil, reason end
     local container, ok = U().call(object, "getContainer")
-    return ok and container or nil, object
+    return ok and container or nil, object, ok and nil or "object_has_no_container"
 end
 
 function BaseLife.availableCount(storage, itemType)
@@ -586,14 +739,20 @@ function BaseLife.availableCount(storage, itemType)
 end
 
 function BaseLife.registerMaintenanceTarget(object, kind)
-    local base, descriptor = activeBase(), objectDescriptor(object)
+    local base = activeBase()
+    local descriptor, descriptorReason = objectDescriptor(object, true)
     if not base or not descriptor or not BaseLife.isInside(descriptor) then
-        return false, base and "target_outside_base" or "base_missing"
+        return false, not base and "base_missing"
+            or descriptorReason or "target_outside_base"
     end
     kind = kind == "barricade" and "barricade" or "maintain"
     for _, row in ipairs(base.maintenanceTargets) do
-        if row.x == descriptor.x and row.y == descriptor.y and row.z == descriptor.z
-            and row.objectIndex == descriptor.objectIndex then
+        if row.objectId == descriptor.objectId
+            or (row.objectId == nil and row.x == descriptor.x and row.y == descriptor.y
+                and row.z == descriptor.z and row.objectIndex == descriptor.objectIndex) then
+            row.x, row.y, row.z = descriptor.x, descriptor.y, descriptor.z
+            row.objectIndex, row.objectId = descriptor.objectIndex, descriptor.objectId
+            row.objectSignature = descriptor.objectSignature
             row.kind, row.enabled = kind, true
             return true, row
         end
@@ -1166,6 +1325,11 @@ local function validBaseSource(source, id, path)
             if type(row) ~= "table" or not normalizerCalled or normalized == nil then
                 return restoreFailure(rowPath, "invalid persisted entity")
             end
+            if (specification.key == "storages" or specification.key == "maintenanceTargets")
+                and ((row.objectId ~= nil and not validId(row.objectId, "object:"))
+                    or (row.objectSignature ~= nil and type(row.objectSignature) ~= "string")) then
+                return restoreFailure(rowPath .. ".objectId", "invalid object identity")
+            end
             if ids[row.id] then return restoreFailure(rowPath .. ".id", "duplicate entity id") end
             ids[row.id] = true
             if specification.key == "storages" then
@@ -1227,6 +1391,12 @@ local function validateRestoreSource(source)
         local value = source[field]
         if not finiteNumber(value) or value < 1 or value ~= math.floor(value) then
             return restoreFailure("$.baseLife." .. field, "expected positive integer")
+        end
+    end
+    if source.nextObjectSerial ~= nil then
+        local value = source.nextObjectSerial
+        if not finiteNumber(value) or value < 1 or value ~= math.floor(value) then
+            return restoreFailure("$.baseLife.nextObjectSerial", "expected positive integer")
         end
     end
     for id, base in pairs(source.bases) do

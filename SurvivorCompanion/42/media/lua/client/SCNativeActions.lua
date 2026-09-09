@@ -252,7 +252,10 @@ local function nativeAttackRange(actor, action, intent)
             minimum = math.max(0.15, (minOk and tonumber(minRange) or 0)
                 - (tonumber(SC.Config.get("combatMeleeInnerTolerance")) or 0.15))
         end
-        if distance < (minimum or 0) then
+        -- A player floor swing can reach a prone target beneath the weapon's
+        -- standing minimum range. Keep the real outer reach, but do not convert
+        -- that valid downward attack into a defensive shove/backstep decision.
+        if intent.floorAttack ~= true and distance < (minimum or 0) then
             return false, "attack target is inside minimum melee range"
         end
         if distance > maximum then return false, "attack target is outside melee range" end
@@ -1642,52 +1645,257 @@ local function equip(actor, intent, provider)
     return true, "equipped"
 end
 
--- Land a companion stomp's damage exactly once, only after the native swing has
--- reached AttackCollisionCheck (see pollCombatEvents()). Build 42's floor attack
--- builds an empty hit list for a
--- non-local companion, so the engine never lands a downed-target stomp; this is
--- the sole damage owner for a companion stomp (the Java collision driver applies
--- nothing for the empty floor-attack list). A downed head stomp is lethal, an
--- off-head stomp only wounds -- positioning (getHeadSquare) decides which.
-local function applyStompFinisher(actor, target)
+local function stompClamp(value, minimum, maximum)
+    value = tonumber(value) or minimum
+    return math.max(minimum, math.min(maximum, value))
+end
+
+local function stompConfig(name, fallback)
+    if SC.GameplayUtil and type(SC.GameplayUtil.config) == "function" then
+        local ok, value = pcall(SC.GameplayUtil.config, name)
+        if ok and tonumber(value) ~= nil then return tonumber(value) end
+    end
+    if SC.Config and type(SC.Config.get) == "function" then
+        local ok, value = pcall(SC.Config.get, name)
+        if ok and tonumber(value) ~= nil then return tonumber(value) end
+    end
+    return fallback
+end
+
+local function stompPerk(actor, name, fallback)
+    if SC.GameplayUtil and type(SC.GameplayUtil.perkLevel) == "function" then
+        local ok, value = pcall(SC.GameplayUtil.perkLevel, actor, name, fallback)
+        if ok and tonumber(value) ~= nil then return tonumber(value) end
+    end
+    local perks = type(_G) == "table" and rawget(_G, "Perks") or nil
+    local perk
+    if perks ~= nil then
+        local ok, value = pcall(function() return perks[name] end)
+        if ok then perk = value end
+    end
+    local valueOk, value = false, nil
+    if perk ~= nil then valueOk, value = invoke(actor, "getPerkLevel", perk) end
+    if valueOk and tonumber(value) ~= nil then return tonumber(value) end
+    return fallback
+end
+
+local function stompStat(actor, name, fallback)
+    if SC.GameplayUtil and type(SC.GameplayUtil.characterStatValue) == "function" then
+        local ok, value = pcall(SC.GameplayUtil.characterStatValue,
+            actor, name, fallback)
+        if ok and tonumber(value) ~= nil then return tonumber(value) end
+    end
+    return fallback
+end
+
+local function stompMoodle(actor, name)
+    if SC.GameplayUtil and type(SC.GameplayUtil.moodleLevel) == "function" then
+        local ok, value = pcall(SC.GameplayUtil.moodleLevel, actor, name, 0)
+        if ok and tonumber(value) ~= nil then return tonumber(value) end
+    end
+    return 0
+end
+
+local function stompRandomUnit()
+    if type(ZombRandFloat) == "function" then
+        local ok, value = pcall(ZombRandFloat, 0.0, 1.0)
+        if ok and tonumber(value) ~= nil then
+            return stompClamp(value, 0, 1)
+        end
+    end
+    if type(ZombRand) == "function" then
+        local ok, value = pcall(ZombRand, 10000)
+        if ok and tonumber(value) ~= nil then
+            return stompClamp(tonumber(value) / 9999, 0, 1)
+        end
+    end
+    -- Headless harnesses without the game RNG use the neutral midpoint.
+    return 0.5
+end
+
+local function itemType(item)
+    if item == nil then return "none" end
+    local ok, value = invoke(item, "getFullType")
+    if not ok or value == nil then ok, value = invoke(item, "getType") end
+    return ok and tostring(value) or tostring(item)
+end
+
+local function stompFootwear(actor)
+    local wornOk, worn = invoke(actor, "getWornItems")
+    local footwear
+    if wornOk and worn ~= nil then
+        local sizeOk, size = invoke(worn, "size")
+        size = sizeOk and math.min(64, math.max(0, tonumber(size) or 0)) or 0
+        for index = 0, size - 1 do
+            local entryOk, entry = invoke(worn, "get", index)
+            local candidateOk, candidate, locationOk, location = false, nil, false, nil
+            if entryOk then
+                candidateOk, candidate = invoke(entry, "getItem")
+                locationOk, location = invoke(entry, "getLocation")
+            end
+            local typeText = candidateOk and string.lower(itemType(candidate)) or ""
+            local locationText = locationOk and string.lower(tostring(location)) or ""
+            if string.find(locationText, "shoe", 1, true)
+                or string.find(locationText, "feet", 1, true)
+                or string.find(typeText, "boot", 1, true)
+                or string.find(typeText, "shoe", 1, true)
+                or string.find(typeText, "trainer", 1, true)
+                or string.find(typeText, "sneaker", 1, true)
+                or string.find(typeText, "slipper", 1, true)
+                or string.find(typeText, "sandal", 1, true)
+                or string.find(typeText, "wellie", 1, true) then
+                footwear = candidate
+                break
+            end
+        end
+    end
+
+    -- getWornItems() is the authoritative Build 42 path. The direct accessor is
+    -- retained for small harness providers and any compatible actor adapter.
+    if footwear == nil then
+        local locations = type(_G) == "table" and rawget(_G, "ItemBodyLocation") or nil
+        local shoes
+        if locations ~= nil then
+            local ok, value = pcall(function() return locations.SHOES end)
+            if ok then shoes = value end
+        end
+        local directOk, direct = invoke(actor, "getWornItem", shoes or "Shoes")
+        if directOk and direct ~= nil then footwear = direct end
+    end
+
+    if footwear == nil then
+        return nil, wornOk and "barefoot" or "unknown", wornOk and 0.65 or 1.0,
+            wornOk and -0.04 or 0, 0
+    end
+    local label = itemType(footwear)
+    local lower = string.lower(label)
+    local multiplier, criticalBonus = 1.0, 0
+    if string.find(lower, "slipper", 1, true)
+        or string.find(lower, "sandal", 1, true)
+        or string.find(lower, "flipflop", 1, true) then
+        multiplier, criticalBonus = 0.78, -0.02
+    elseif string.find(lower, "trainer", 1, true)
+        or string.find(lower, "sneaker", 1, true) then
+        multiplier = 0.92
+    elseif string.find(lower, "boot", 1, true)
+        or string.find(lower, "wellie", 1, true) then
+        multiplier, criticalBonus = 1.15, 0.05
+    end
+    local conditionOk, condition = invoke(footwear, "getCondition")
+    local maximumOk, maximum = invoke(footwear, "getConditionMax")
+    local ratio = conditionOk and maximumOk and tonumber(maximum) and tonumber(maximum) > 0
+        and stompClamp(tonumber(condition) / tonumber(maximum), 0, 1) or 1
+    multiplier = multiplier * (0.82 + ratio * 0.18)
+    return footwear, label, multiplier, criticalBonus, ratio
+end
+
+local function verifiedHeadContact(actor, target)
+    local headOk, headSquare = invoke(target, "getHeadSquare", actor)
+    if not headOk or headSquare == nil then return false, nil end
+    local ax, ay, az = position(actor)
+    local hx, hy, hz = position(headSquare)
+    if ax == nil or hx == nil or math.floor(az or 0) ~= math.floor(hz or 0) then
+        return false, nil
+    end
+    -- getHeadSquare() returns tile coordinates; compare the actor against that
+    -- tile's centre instead of accepting every point in a generous square radius.
+    local dx, dy = ax - (hx + 0.5), ay - (hy + 0.5)
+    local distance = math.sqrt(dx * dx + dy * dy)
+    return distance <= stompConfig("combatHeadStompRange", 1.1), distance
+end
+
+-- Land one bounded fallback hit only after the native swing reaches
+-- AttackCollisionCheck. Build 42.20.4 gives a non-local player an empty floor
+-- hit list, but it still supplies the animation, BareHands attack preflight and
+-- collision event. The fallback mirrors a physical stomp rather than declaring a
+-- finisher: verified contact, capability and condition determine damage, while
+-- target:Hit() remains the sole owner of damage and death.
+local function applyStompImpact(actor, target)
     local _, prone = invoke(target, "isProne")
     local _, onFloor = invoke(target, "isOnFloor")
     local _, crawling = invoke(target, "isCrawling")
     local _, dead = invoke(target, "isDead")
     if not (prone == true or onFloor == true or crawling == true) or dead == true then
-        return
+        return false, { result = "no_effect", reason = "stomp_target_not_grounded" }
     end
-    local atHead = true
-    local okHead, headSquare = invoke(target, "getHeadSquare", actor)
-    local okMine, mySquare = invoke(actor, "getCurrentSquare")
-    if okHead and headSquare ~= nil and okMine and mySquare ~= nil then
-        local okDist, dist = invoke(mySquare, "DistTo", headSquare)
-        atHead = okDist and type(dist) == "number" and dist <= 1.5
+    local atHead, headDistance = verifiedHeadContact(actor, target)
+    local countOk, count = invoke(target, "getHitHeadWhileOnFloor")
+    local priorHeadHits = countOk and math.max(0, tonumber(count) or 0) or 0
+    local strength = stompClamp(stompPerk(actor, "Strength", 5), 0, 10)
+    local fitness = stompClamp(stompPerk(actor, "Fitness", 5), 0, 10)
+    local endurance = stompClamp(stompStat(actor, "ENDURANCE", 0.65), 0, 1)
+    local tired = stompClamp(stompMoodle(actor, "TIRED"), 0, 4)
+    local pain = stompClamp(stompMoodle(actor, "PAIN"), 0, 4)
+    local heavyLoad = stompClamp(stompMoodle(actor, "HEAVY_LOAD"), 0, 4)
+    local _, footwearLabel, footwearFactor, footwearCritical, footwearCondition =
+        stompFootwear(actor)
+    local _, footInjured = invoke(actor, "hasFootInjury")
+
+    local baseDamage = atHead and stompConfig("combatHeadStompDamage", 0.72)
+        or stompConfig("combatStompDamage", 0.30)
+    local strengthFactor = 0.72 + strength * 0.056
+    local fitnessFactor = 0.92 + fitness * 0.016
+    local enduranceFactor = 0.58 + endurance * 0.42
+    local impairmentFactor = stompClamp(1 - tired * 0.055 - pain * 0.045
+        - heavyLoad * 0.04, 0.55, 1)
+    if footInjured == true then impairmentFactor = impairmentFactor * 0.82 end
+    local repeatedFactor = atHead and (1 + math.min(priorHeadHits, 3)
+        * stompConfig("combatStompHeadHitGrowth", 0.10)) or 1
+    local variation = stompConfig("combatStompDamageVariation", 0.12)
+    local randomFactor = 1 + (stompRandomUnit() * 2 - 1) * variation
+    local criticalChance = atHead and stompClamp(0.04 + strength * 0.018
+        + math.max(0, endurance - 0.6) * 0.10 + footwearCritical
+        + math.min(priorHeadHits, 3) * 0.04 - tired * 0.02 - pain * 0.015,
+        0.02, stompConfig("combatStompCriticalMaxChance", 0.35)) or 0
+    local critical = atHead and stompRandomUnit() < criticalChance
+    local criticalFactor = critical
+        and stompConfig("combatStompCriticalMultiplier", 1.65) or 1
+    local damage = baseDamage * strengthFactor * fitnessFactor * enduranceFactor
+        * impairmentFactor * footwearFactor * repeatedFactor * randomFactor
+        * criticalFactor
+    damage = stompClamp(damage, atHead and 0.18 or 0.08, atHead and 2.25 or 0.65)
+    damage = math.floor(damage * 1000 + 0.5) / 1000
+
+    -- CanAttack() selects Build 42's BareHands weapon for shove/stomp even when a
+    -- knife or axe is equipped. Use that collision contract; never derive damage
+    -- from the held weapon. The primary-hand fallback only preserves Hit's
+    -- required HandWeapon argument if a provider cannot expose useHandWeapon.
+    local weaponOk, stompWeapon = invoke(actor, "getUseHandWeapon")
+    if not weaponOk or stompWeapon == nil then
+        weaponOk, stompWeapon = invoke(actor, "getPrimaryHandItem")
     end
-    local _, held = invoke(actor, "getPrimaryHandItem")
+    local beforeOk, healthBefore = invoke(target, "getHealth")
+    local applied, failure = invoke(target, "Hit", stompWeapon, actor, damage, true, 1.0)
+    if not applied then
+        return false, {
+            result = "no_effect", reason = "stomp_hit_failed", error = failure,
+            source = "fallback", zone = atHead and "head" or "body", damage = damage,
+        }
+    end
     if atHead then
-        -- Lethal head stomp: register the head strike the engine counts and
-        -- finish a downed zombie whose remaining health the blow exceeds.
-        local _, count = invoke(target, "getHitHeadWhileOnFloor")
-        pcall(function() target:setHitHeadWhileOnFloor(
-            (type(count) == "number" and count or 0) + 1) end)
-        local damage = (SC.GameplayUtil and SC.GameplayUtil.config("combatHeadStompDamage")) or 3.0
-        pcall(function() target:Hit(held, actor, damage, true, 1.0) end)
-        local okHp, hp = invoke(target, "getHealth")
-        if okHp and type(hp) == "number" and hp <= damage then
-            pcall(function() target:setHealth(0) end)
-        end
-    else
-        -- Off the head: a body/leg stomp only wounds and keeps it pinned.
-        local damage = (SC.GameplayUtil and SC.GameplayUtil.config("combatStompDamage")) or 1.6
-        pcall(function() target:Hit(held, actor, damage, true, 1.0) end)
+        invoke(target, "setHitHeadWhileOnFloor", priorHeadHits + 1)
     end
-    -- Once the target is down for good, drop the downed-target reference so a
-    -- stale corpse is not carried into the next native update.
+    local afterOk, healthAfter = invoke(target, "getHealth")
     local _, nowDead = invoke(target, "isDead")
     if nowDead == true then
         invoke(actor, "setCompanionFloorTarget", nil)
     end
+    local affected = nowDead == true or (beforeOk and afterOk
+        and tonumber(healthAfter) ~= nil and tonumber(healthBefore) ~= nil
+        and tonumber(healthAfter) < tonumber(healthBefore) - 0.0001)
+    return true, {
+        result = affected and "landed" or "no_effect",
+        source = "fallback", zone = atHead and "head" or "body",
+        headVerified = atHead, headDistance = headDistance,
+        damage = damage, critical = critical, criticalChance = criticalChance,
+        strength = strength, fitness = fitness, endurance = endurance,
+        tired = tired, pain = pain, heavyLoad = heavyLoad,
+        footwear = footwearLabel, footwearFactor = footwearFactor,
+        footwearCondition = footwearCondition, footInjured = footInjured == true,
+        priorHeadHits = priorHeadHits, attackWeapon = itemType(stompWeapon),
+        healthBefore = beforeOk and tonumber(healthBefore) or nil,
+        healthAfter = afterOk and tonumber(healthAfter) or nil,
+    }
 end
 
 -- DoAttack/isAttackStarted proves only that the state machine accepted an attack;
@@ -1715,18 +1923,20 @@ function actions.pollCombatEvents(actor)
             return true, reason, {
                 result = "landed", action = record.action, target = record.target,
                 serial = serial, healthBefore = record.healthBefore, healthAfter = health,
+                source = "native", floorAttack = record.floorAttack == true,
                 start = { x = record.actorX, y = record.actorY, z = record.actorZ },
             }
         end
         if record.action == "stomp" then
-            applyStompFinisher(actor, record.target)
-            local afterOk, afterHealth = invoke(record.target, "getHealth")
-            return true, "stomp_collision_applied", {
-                result = "landed", action = record.action, target = record.target,
-                serial = serial, healthBefore = record.healthBefore,
-                healthAfter = afterOk and tonumber(afterHealth) or nil,
-                start = { x = record.actorX, y = record.actorY, z = record.actorZ },
-            }
+            local applied, impact = applyStompImpact(actor, record.target)
+            impact = type(impact) == "table" and impact or {}
+            impact.action, impact.target, impact.serial = record.action, record.target, serial
+            impact.healthBefore = impact.healthBefore or record.healthBefore
+            impact.start = { x = record.actorX, y = record.actorY, z = record.actorZ }
+            if not applied then return false, "stomp_collision_failed", impact end
+            local reason = impact.result == "landed" and "stomp_collision_applied"
+                or "stomp_collision_no_effect"
+            return true, reason, impact
         end
         local grounded = select(2, invoke(record.target, "isOnFloor")) == true
             or select(2, invoke(record.target, "isProne")) == true
@@ -1740,6 +1950,7 @@ function actions.pollCombatEvents(actor)
             result = result, action = record.action, target = record.target,
             serial = serial, displacement = displacement,
             healthBefore = record.healthBefore, healthAfter = health,
+            floorAttack = record.floorAttack == true,
             start = { x = record.actorX, y = record.actorY, z = record.actorZ },
         }
     end
@@ -1750,7 +1961,7 @@ function actions.pollCombatEvents(actor)
             or tostring(record.action) .. "_collision_timeout"
         return false, reason, {
             result = "aborted", action = record.action, target = record.target,
-            serial = serial,
+            serial = serial, floorAttack = record.floorAttack == true,
             start = { x = record.actorX, y = record.actorY, z = record.actorZ },
         }
     end
@@ -1779,6 +1990,17 @@ local function attack(actor, action, intent, provider)
     end
     if not provider.directNative then
         return false, reason
+    end
+
+    local floorAttack = action == "stomp" or intent.floorAttack == true
+    if floorAttack then
+        local _, prone = invoke(target, "isProne")
+        local _, onFloor = invoke(target, "isOnFloor")
+        local _, crawling = invoke(target, "isCrawling")
+        local _, dead = invoke(target, "isDead")
+        if not (prone == true or onFloor == true or crawling == true) or dead == true then
+            return false, "floor attack target is not a live grounded character"
+        end
     end
 
     local collisionSerial
@@ -1844,11 +2066,11 @@ local function attack(actor, action, intent, provider)
             return fail(equipReason)
         end
     end
-    invoke(actor, "setAimAtFloor", action == "stomp")
-    if action == "stomp" and intent.target ~= nil then
-        -- Point the native floor attack at the downed target (it builds its hit
-        -- list from targetOnGround). The finisher's damage is applied later by
-        -- pollCombatEvents(), after the animation reaches its collision event.
+    invoke(actor, "setAimAtFloor", floorAttack)
+    if floorAttack and intent.target ~= nil then
+        -- Point both stomps and melee floor swings at the downed target. Build
+        -- 42's player collision path builds its floor hit list from
+        -- targetOnGround; only stomp needs our empty-list fallback afterward.
         invoke(actor, "setCompanionFloorTarget", intent.target)
     end
     local shoveStateOk, previousDoShove = invoke(actor, "isDoShove")
@@ -1971,6 +2193,7 @@ local function attack(actor, action, intent, provider)
             actorY = actorY,
             actorZ = actorZ,
             groundedBefore = grounded,
+            floorAttack = floorAttack,
         }
     end
     return true, "attack_started"

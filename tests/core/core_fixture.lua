@@ -11,6 +11,9 @@ function ZombRand(minimum, maximum)
     if maximum == nil then return 0 end
     return minimum
 end
+function ZombRandFloat(minimum, maximum)
+    return (tonumber(minimum) + tonumber(maximum)) / 2
+end
 function instanceof(value, className)
     return type(value) == "table" and value.__class == className
 end
@@ -18,6 +21,18 @@ end
 CharacterStat = {
     HUNGER = { name = "HUNGER" },
     THIRST = { name = "THIRST" },
+    ENDURANCE = { name = "ENDURANCE" },
+}
+
+MoodleType = {
+    TIRED = { name = "TIRED" },
+    PAIN = { name = "PAIN" },
+    HEAVY_LOAD = { name = "HEAVY_LOAD" },
+}
+
+Perks = {
+    Strength = { name = "Strength" },
+    Fitness = { name = "Fitness" },
 }
 
 CharacterActionAnims = {

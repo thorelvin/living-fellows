@@ -478,6 +478,18 @@ function Locomotion.report(actor)
     local nav, telemetry = snapshot.navigation or {}, snapshot.telemetry or {}
     local positioning, combat = snapshot.positioning or {}, snapshot.combat or {}
     local blocker = nav.lastBlocker or {}
+    local evidence = type(combat.lastCombatEvidence) == "table"
+        and combat.lastCombatEvidence or {}
+    local stompLine = "Stomp impact: none"
+    if evidence.action == "stomp" then
+        stompLine = "Stomp impact: source " .. tostring(evidence.source or "unknown")
+            .. " | zone " .. tostring(evidence.zone or "native")
+            .. " | damage " .. tostring(evidence.damage or "native")
+            .. " | critical " .. boolText(evidence.critical)
+            .. " | footwear " .. tostring(evidence.footwear or "unknown")
+            .. " | health " .. tostring(evidence.healthBefore or "?")
+            .. " -> " .. tostring(evidence.healthAfter or "?")
+    end
     local lines = {
         "Living Fellows movement recorder",
         "Companion: " .. tostring(snapshot.name) .. " [" .. tostring(snapshot.id) .. "]",
@@ -515,6 +527,7 @@ function Locomotion.report(actor)
             .. " | cohort " .. tostring(combat.cohortKey or "none")
             .. " | evidence " .. tostring(combat.lastCombatEvidenceReason or "none")
             .. " | no-effect " .. tostring(combat.noEffectCollisions or 0),
+        stompLine,
         "Blocker: " .. tostring(blocker.type or "none") .. " | square "
             .. tostring(blocker.squareKey or "none") .. " | recovery "
             .. tostring(blocker.recoveryResult or "none"),

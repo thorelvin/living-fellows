@@ -658,7 +658,18 @@ SurvivorCompanion.Registry = {
     end,
     living = function()
         local result = {}
-        for _, value in pairs(registry) do result[#result + 1] = value end
+        -- Match production SCRegistry.living(): callers receive active, living
+        -- actors rather than the registry records stored by this fixture.
+        for _, value in pairs(registry) do
+            local candidate = type(value) == "table" and value.actor or nil
+            if candidate == nil and type(value) == "table"
+                and type(value.isDead) == "function" then candidate = value end
+            local inactive = type(value) == "table" and type(value.runtime) == "table"
+                and value.runtime.inactive == true
+            if candidate and not inactive and candidate:isDead() ~= true then
+                result[#result + 1] = candidate
+            end
+        end
         return result
     end,
 }
@@ -1098,6 +1109,49 @@ do
         "Build 42 tag lookup must iterate ItemTag objects without probing hasTag(String)")
 end
 
+do
+local function verifyPerceptionCoverage(radius, budget, label)
+    local state, horizontal, vertical = {}, {}, {}
+    local horizontalWrapped, verticalWrapped = false, false
+    local maximumScans = 256
+    for _ = 1, maximumScans do
+        local offsets, meta = SurvivorCompanion.Senses._nextScanOffsetsForTests(
+            state, radius, budget)
+        if #offsets > budget then break end
+        for _, offset in ipairs(offsets) do
+            local key = tostring(offset.x) .. ":" .. tostring(offset.y)
+            if (offset.z or 0) == 0 then
+                horizontal[key] = true
+            else
+                vertical[key .. ":" .. tostring(offset.z)] = true
+            end
+        end
+        horizontalWrapped = horizontalWrapped or meta.horizontalWrapped == true
+        verticalWrapped = verticalWrapped or meta.verticalWrapped == true
+        if horizontalWrapped and verticalWrapped then break end
+    end
+    local complete = horizontalWrapped and verticalWrapped
+    for dx = -radius, radius do
+        for dy = -radius, radius do
+            complete = complete and horizontal[tostring(dx) .. ":" .. tostring(dy)] == true
+        end
+    end
+    for dx = -2, 2 do
+        for dy = -2, 2 do
+            for _, dz in ipairs({ -1, 1 }) do
+                complete = complete and vertical[tostring(dx) .. ":" .. tostring(dy)
+                    .. ":" .. tostring(dz)] == true
+            end
+        end
+    end
+    check(complete and horizontal["13:-1"] == true,
+        label .. " advances a persistent frontier until every horizontal and vertical offset is sampled")
+end
+
+verifyPerceptionCoverage(18, 240, "production perception budget")
+verifyPerceptionCoverage(18, 80, "load-shed perception budget")
+end
+
 local sensesRuntime = {}
 local snapshot = SurvivorCompanion.Senses.snapshot(fellow, player, sensesRuntime)
 check(snapshot.valid and snapshot.threatCount == 1, "bounded senses should detect the nearby standing zombie")
@@ -1229,6 +1283,58 @@ do
     for index = #reflexActor.square.moving, 1, -1 do
         if reflexActor.square.moving[index] == reflexActor then
             table.remove(reflexActor.square.moving, index)
+        end
+    end
+end
+
+do
+    local priorThreatLimit = SurvivorCompanion.Config.values.perceptionThreatLimit
+    SurvivorCompanion.Config.values.perceptionThreatLimit = 3
+    local cappedActor = actor("sc-reflex-cap", 8, 5, {})
+    local oldContacts = {
+        zombie(12, 5, {}), zombie(12, 6, {}), zombie(12, 7, {}),
+    }
+    local immediateContacts = {
+        zombie(9, 5, { attacking = true, target = cappedActor }),
+        zombie(7, 5, { attacking = true, target = cappedActor }),
+        zombie(8, 6, { attacking = true, target = cappedActor }),
+        zombie(8, 4, { attacking = true, target = cappedActor }),
+    }
+    local cappedPrior = { time = clock, threats = {}, stealthThreats = {} }
+    for _, old in ipairs(oldContacts) do
+        local prior = { actor = old }
+        cappedPrior.threats[#cappedPrior.threats + 1] = prior
+        cappedPrior.stealthThreats[#cappedPrior.stealthThreats + 1] = prior
+    end
+    clock = clock + 101
+    local cappedReflex = SurvivorCompanion.Senses.refreshImmediate(
+        cappedActor, player, cappedPrior, {})
+    local retainedImmediateOnly = #cappedReflex.threats == 3
+    for _, threat in ipairs(cappedReflex.threats or {}) do
+        if (tonumber(threat.distanceSq) or math.huge) > 1.01 then
+            retainedImmediateOnly = false
+        end
+    end
+    check(retainedImmediateOnly and cappedReflex.threatCount == 3
+            and #cappedReflex.immediateAttackers == 3
+            and cappedReflex.immediateCount == 4
+            and cappedReflex.immediateOverflow == 1
+            and cappedReflex.threatOverflow == 4
+            and cappedReflex.reflexAddedThreats == 4
+            and cappedReflex.pressure > 6,
+        "new adjacent attackers displace a full distant cache while bounded overflow preserves total immediate danger")
+    SurvivorCompanion.Config.values.perceptionThreatLimit = priorThreatLimit
+    SurvivorCompanion.Senses.reset(cappedActor)
+    local cleanup = { cappedActor }
+    for _, value in ipairs(oldContacts) do cleanup[#cleanup + 1] = value end
+    for _, value in ipairs(immediateContacts) do cleanup[#cleanup + 1] = value end
+    for _, value in ipairs(cleanup) do
+        if value.square and value.square.moving then
+            for index = #value.square.moving, 1, -1 do
+                if value.square.moving[index] == value then
+                    table.remove(value.square.moving, index)
+                end
+            end
         end
     end
 end
@@ -1954,14 +2060,15 @@ end
 
 do
 -- review 3.3: the A* open set is a binary min-heap. It must drain in exact
--- (f, h, seq) order so the search expands nodes identically to the old linear scan.
+-- (f, h, familiarity, seq) order. Familiarity may settle an exact priority tie,
+-- but cannot lower a path's real G cost.
 local heapPush = SurvivorCompanion.Navigation._heapPushForTests
 local heapPop = SurvivorCompanion.Navigation._heapPopForTests
 local heap = {}
 for _, entry in ipairs({
     { key = "a", f = 5, h = 2, seq = 1 },
     { key = "b", f = 3, h = 9, seq = 2 },
-    { key = "c", f = 3, h = 1, seq = 3 },
+    { key = "c", f = 3, h = 1, familiarity = 1, seq = 3 },
     { key = "d", f = 3, h = 1, seq = 0 },
     { key = "e", f = 5, h = 2, seq = 4 },
     { key = "f", f = 1, h = 7, seq = 5 },
@@ -1973,10 +2080,10 @@ while true do
     if top == nil then break end
     drained[#drained + 1] = top.key
 end
-local expected = { "f", "d", "c", "b", "g", "a", "e" }
+local expected = { "f", "c", "d", "b", "g", "a", "e" }
 local ordered = #drained == #expected
 for index = 1, #expected do if drained[index] ~= expected[index] then ordered = false end end
-check(ordered, "the A* open-set heap drains in exact (f, h, seq) priority order")
+check(ordered, "the A* open-set heap drains in exact cost, heuristic, familiarity and sequence order")
 check(heapPop({}) == nil, "popping an empty heap returns nil")
 
 -- End-to-end: the heap search still produces optimal, contiguous, deterministic
@@ -2007,6 +2114,88 @@ local corridor = findPath(cell:getGridSquare(50, 5, 0), cell:getGridSquare(52, 5
 check(corridor ~= nil and #corridor == 3
         and corridor[2]:getX() == 51 and corridor[2]:getY() == 5,
     "a forced straight shortest route resolves to its unique optimal path")
+
+do
+    local utility = SurvivorCompanion.GameplayUtil
+    local passable = SurvivorCompanion.Navigation._passableEdgeForTests
+    local source = cell:getGridSquare(50, 0, 0)
+    local goal = cell:getGridSquare(54, 0, 0)
+    local rememberedDetour = {
+        source,
+        cell:getGridSquare(51, -1, 0),
+        cell:getGridSquare(52, -1, 0),
+        cell:getGridSquare(53, -1, 0),
+        goal,
+    }
+    local memory = {}
+    for index = 2, #rememberedDetour do
+        local from, to = rememberedDetour[index - 1], rememberedDetour[index]
+        memory[utility.squareKey(from) .. ">" .. utility.squareKey(to)] = {
+            success = true, object = nil, objectState = "none", expires = clock + 100000,
+        }
+    end
+    local ordinaryPassable, ordinaryCost = passable(
+        source, rememberedDetour[2], 1, { now = clock })
+    local memoryPassable, rememberedCost, memoryRejection, memoryObject, familiarity = passable(
+        source, rememberedDetour[2], 1, { routeMemory = memory, now = clock })
+
+    local directions = {
+        { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 },
+        { 1, 1 }, { -1, 1 }, { -1, -1 }, { 1, -1 },
+    }
+    local function dijkstraCost()
+        local distance = { [utility.squareKey(source)] = 0 }
+        local open, closed = { source }, {}
+        while #open > 0 do
+            local bestIndex, bestCost = 1, math.huge
+            for index, square in ipairs(open) do
+                local value = distance[utility.squareKey(square)] or math.huge
+                if value < bestCost then bestIndex, bestCost = index, value end
+            end
+            local current = table.remove(open, bestIndex)
+            local currentKey = utility.squareKey(current)
+            if current == goal then return bestCost end
+            if not closed[currentKey] then
+                closed[currentKey] = true
+                for _, direction in ipairs(directions) do
+                    local x, y = current:getX() + direction[1], current:getY() + direction[2]
+                    if x >= 50 and x <= 54 and y >= -2 and y <= 2 then
+                        local nextSquare = cell:getGridSquare(x, y, 0)
+                        local nextKey = utility.squareKey(nextSquare)
+                        local okay, cost = passable(current, nextSquare, 1, { now = clock })
+                        local candidate = bestCost + (okay and cost or math.huge)
+                        if not closed[nextKey] and candidate < (distance[nextKey] or math.huge) then
+                            distance[nextKey] = candidate
+                            open[#open + 1] = nextSquare
+                        end
+                    end
+                end
+            end
+        end
+        return math.huge
+    end
+    local savedBonus = SurvivorCompanion.Config.values.navigationRouteMemorySuccessBonus
+    SurvivorCompanion.Config.values.navigationRouteMemorySuccessBonus = 2
+    local rememberedPath = findPath(source, goal, {
+        routeMemory = memory, now = clock, nodeBudget = 220,
+    })
+    SurvivorCompanion.Config.values.navigationRouteMemorySuccessBonus = savedBonus
+    local aStarCost = 0
+    for index = 2, #(rememberedPath or {}) do
+        local okay, cost = passable(rememberedPath[index - 1], rememberedPath[index], 1,
+            { now = clock })
+        aStarCost = aStarCost + (okay and cost or math.huge)
+    end
+    local referenceCost = dijkstraCost()
+    check(ordinaryPassable and memoryPassable and rememberedCost == ordinaryCost
+            and type(familiarity) == "number" and familiarity > 0
+            and rememberedPath ~= nil and math.abs(aStarCost - referenceCost) < 0.0001,
+        "successful route memory is a cost-neutral tie-breaker and A-star matches Dijkstra's shortest cost: "
+            .. tostring(ordinaryPassable) .. "/" .. tostring(memoryPassable) .. "/"
+            .. tostring(ordinaryCost) .. "/" .. tostring(rememberedCost) .. "/"
+            .. tostring(familiarity) .. "/" .. tostring(rememberedPath ~= nil) .. "/"
+            .. tostring(aStarCost) .. "/" .. tostring(referenceCost))
+end
 
 local walledGoal = cell:getGridSquare(48, 20, 0)
 cell:getGridSquare(47, 20, 0).solid = true
@@ -4343,11 +4532,20 @@ check(cleaverActed and cleaverReason == "melee"
         and cleaverActor.lastIntent.weapon == cleaver,
     "an equipped meat cleaver attacks instead of losing the close-range choice to shove")
 cleaverZed.onFloor = true
-local cleaverStomped, cleaverStompReason = SurvivorCompanion.Combat.update(
+local cleaverFloored, cleaverFloorReason = SurvivorCompanion.Combat.update(
     cleaverActor, player, { snapshot = cleaverSnapshot })
-check(cleaverStomped and cleaverStompReason == "stomp"
+check(cleaverFloored and cleaverFloorReason == "melee"
+        and cleaverActor.lastIntent.action == "attack_melee"
+        and cleaverActor.lastIntent.weapon == cleaver
+        and cleaverActor.lastIntent.floorAttack == true,
+    "a healthy equipped melee weapon uses the native player floor attack on a grounded zombie")
+cleaver.condition = 1
+local preservedWeapon, preservedWeaponReason = SurvivorCompanion.Combat.update(
+    cleaverActor, player, { snapshot = cleaverSnapshot })
+check(preservedWeapon and preservedWeaponReason == "stomp"
         and cleaverActor.lastIntent.action == "stomp",
-    "a safe grounded zombie is stomped even while the companion carries a melee weapon")
+    "a nearly broken melee weapon is plausibly preserved by choosing a stomp")
+cleaver.condition = 10
 cleaverZed.onFloor = false
 cleaverActor.worldX = 31.25
 cleaverSnapshot.threats[1].distanceSq = 0.25 * 0.25
@@ -7693,6 +7891,27 @@ local campSquare = cell:getGridSquare(2, 2, 0)
 check(BaseLife.create(campSquare, "Test Camp") and BaseLife.active().name == "Test Camp",
     "base core creates one bounded default camp area")
 local protectedArea = BaseLife.active().zones[1]
+do
+    local fourCorners = {
+        { kind = "area", x1 = 0, y1 = 0, x2 = 1, y2 = 1, z = 0 },
+        { kind = "area", x1 = 4, y1 = 0, x2 = 5, y2 = 1, z = 0 },
+        { kind = "area", x1 = 0, y1 = 4, x2 = 1, y2 = 5, z = 0 },
+        { kind = "area", x1 = 4, y1 = 4, x2 = 5, y2 = 5, z = 0 },
+    }
+    local adjacent = {
+        { kind = "area", x1 = 0, y1 = 0, x2 = 2, y2 = 5, z = 0 },
+        { kind = "area", x1 = 3, y1 = 0, x2 = 5, y2 = 5, z = 0 },
+    }
+    local lShape = {
+        { kind = "area", x1 = 0, y1 = 0, x2 = 5, y2 = 1, z = 0 },
+        { kind = "area", x1 = 0, y1 = 2, x2 = 1, y2 = 5, z = 0 },
+    }
+    local target = { x1 = 0, y1 = 0, x2 = 5, y2 = 5, z = 0 }
+    check(not BaseLife.zoneInsideAreaUnion(target, fourCorners)
+            and BaseLife.zoneInsideAreaUnion(target, adjacent)
+            and not BaseLife.zoneInsideAreaUnion(target, lShape),
+        "zone containment accepts a complete adjacent union and rejects corner islands or an L-shaped hole")
+end
 local areaStarted = BaseLife.beginZone("area", cell:getGridSquare(1, 1, 0))
 local areaFinished, removableArea = BaseLife.finishZone(
     cell:getGridSquare(2, 2, 0), "Temporary extension")
@@ -7707,7 +7926,28 @@ check(areaStarted and areaFinished and areaRemoved
 check(BaseLife.beginZone("quarantine", cell:getGridSquare(1, 1, 0))
     and BaseLife.finishZone(cell:getGridSquare(3, 3, 0), "Quiet room"),
     "two-corner quarantine zoning commits inside the camp boundary")
-local store = { square = campSquare, objectIndex = #campSquare.objects,
+do
+    local extensionX = protectedArea.x2 + 1
+    local addedArea, extension = BaseLife.beginZone("area",
+        cell:getGridSquare(extensionX, 2, 0))
+    if addedArea then addedArea, extension = BaseLife.finishZone(
+        cell:getGridSquare(extensionX + 1, 3, 0), "Workshop extension") end
+    local addedWork, workZone = BaseLife.beginZone("work",
+        cell:getGridSquare(extensionX, 2, 0))
+    if addedWork then addedWork, workZone = BaseLife.finishZone(
+        cell:getGridSquare(extensionX + 1, 3, 0), "Edge workshop") end
+    local removedInUse, inUseReason = false, "missing_extension"
+    if extension then removedInUse, inUseReason = BaseLife.removeZone(extension.id) end
+    local cleaned = workZone and BaseLife.removeZone(workZone.id)
+        and BaseLife.removeZone(extension.id)
+    check(addedArea and addedWork and not removedInUse
+            and inUseReason == "base_area_in_use" and cleaned,
+        "an area cannot be removed while a configured child zone depends on its coverage: "
+            .. tostring(addedArea) .. "/" .. tostring(addedWork) .. "/"
+            .. tostring(removedInUse) .. "/" .. tostring(inUseReason) .. "/"
+            .. tostring(cleaned))
+end
+local store = { square = campSquare, objectIndex = #campSquare.objects, modData = {},
     container = inventory({ item("Base.Plank", "Material") }) }
 function store:getSquare() return self.square end
 function store:getX() return self.square.x end
@@ -7715,10 +7955,46 @@ function store:getY() return self.square.y end
 function store:getZ() return self.square.z end
 function store:getObjectIndex() return self.objectIndex end
 function store:getContainer() return self.container end
+function store:getModData() return self.modData end
 campSquare.objects[#campSquare.objects + 1] = store
 check(BaseLife.registerStorage(store, "construction"),
     "world container can be designated as classified camp storage")
 local storageRow = BaseLife.storageRows()[1]
+do
+    local originalIndex, originalListIndex = store.objectIndex, nil
+    for index, object in ipairs(campSquare.objects) do
+        if object == store then originalListIndex = index break end
+    end
+    local lookalike = {
+        square = campSquare, objectIndex = originalIndex, modData = {},
+        container = inventory({ item("Base.Plank", "Material") }),
+    }
+    function lookalike:getSquare() return self.square end
+    function lookalike:getX() return self.square.x end
+    function lookalike:getY() return self.square.y end
+    function lookalike:getZ() return self.square.z end
+    function lookalike:getObjectIndex() return self.objectIndex end
+    function lookalike:getContainer() return self.container end
+    function lookalike:getModData() return self.modData end
+    table.insert(campSquare.objects, originalListIndex, lookalike)
+    store.objectIndex = originalIndex + 1
+    local reboundAfterInsert = BaseLife.resolveObject(storageRow)
+    table.remove(campSquare.objects, originalListIndex + 1)
+    local replacement, replacementReason = BaseLife.resolveObject(storageRow)
+    table.insert(campSquare.objects, originalListIndex + 1, store)
+    table.remove(campSquare.objects, originalListIndex)
+    store.objectIndex = originalIndex
+    local restoredObject = BaseLife.resolveObject(storageRow)
+    local legacyObject, legacyReason = BaseLife.resolveObject({
+        x = storageRow.x, y = storageRow.y, z = storageRow.z,
+        objectIndex = storageRow.objectIndex,
+    })
+    check(type(storageRow.objectId) == "string" and reboundAfterInsert == store
+            and replacement == nil and replacementReason == "object_identity_mismatch"
+            and restoredObject == store and legacyObject == nil
+            and legacyReason == "legacy_object_identity_unavailable",
+        "base objects retain persistent identity across index shifts and fail closed for replacements or legacy index-only records")
+end
 check(BaseLife.setReserve(storageRow.id, "*", 2)
         and BaseLife.setStorageCategory(storageRow.id, "tools")
         and BaseLife.summary().storageRows[1].category == "tools"
@@ -7731,12 +8007,13 @@ check(visualRows.configured == true and #visualRows.zoneRows == 2
         and visualRows.storageRows[1].category == "construction"
         and visualRows.storageRows[1].objectIndex == store.objectIndex,
     "base visualization gets a lightweight coordinate-only read model")
-local maintenanceObject = { square = campSquare, objectIndex = #campSquare.objects }
+local maintenanceObject = { square = campSquare, objectIndex = #campSquare.objects, modData = {} }
 function maintenanceObject:getSquare() return self.square end
 function maintenanceObject:getX() return self.square.x end
 function maintenanceObject:getY() return self.square.y end
 function maintenanceObject:getZ() return self.square.z end
 function maintenanceObject:getObjectIndex() return self.objectIndex end
+function maintenanceObject:getModData() return self.modData end
 campSquare.objects[#campSquare.objects + 1] = maintenanceObject
 local maintenanceRegistered, maintenanceRow = BaseLife.registerMaintenanceTarget(
     maintenanceObject, "maintain")
@@ -7744,12 +8021,13 @@ check(maintenanceRegistered
         and BaseLife.setMaintenanceTargetEnabled(maintenanceRow.id, false)
         and BaseLife.summary().maintenanceRows[1].enabled == false,
     "maintenance targets can be disabled without deleting their world object")
-local removableMaintenance = { square = campSquare, objectIndex = #campSquare.objects }
+local removableMaintenance = { square = campSquare, objectIndex = #campSquare.objects, modData = {} }
 function removableMaintenance:getSquare() return self.square end
 function removableMaintenance:getX() return self.square.x end
 function removableMaintenance:getY() return self.square.y end
 function removableMaintenance:getZ() return self.square.z end
 function removableMaintenance:getObjectIndex() return self.objectIndex end
+function removableMaintenance:getModData() return self.modData end
 campSquare.objects[#campSquare.objects + 1] = removableMaintenance
 local secondMaintenance, removableMaintenanceRow = BaseLife.registerMaintenanceTarget(
     removableMaintenance, "barricade")
@@ -9361,6 +9639,110 @@ do
             and liveBanditGroup.bandit.engagement == "challenging"
             and banditActor.lastIntent and banditActor.lastIntent.action == "face_alert",
         "a bandit with direct sight warns the player before escalating to combat")
+
+    local nearbyPlayerSquare = player.square
+    player.square = cell:getGridSquare(40, 40, 0)
+    local banditPartyTarget = Factions.hostileTargetFor(banditActor, player)
+    local partyBanditTarget = Factions.hostileTargetFor(companionActor, player)
+    check(banditPartyTarget and banditPartyTarget.actor == companionActor
+            and partyBanditTarget and partyBanditTarget.actor == banditActor,
+        "production actor-returning registry selects companion-to-bandit and bandit-to-companion targets without a nearby player")
+
+    local savedArchetype, savedStanding, savedLifecycle, savedBandit =
+        liveBanditGroup.archetype, liveBanditGroup.standing,
+        liveBanditGroup.lifecycle, liveBanditGroup.bandit
+    liveBanditGroup.archetype, liveBanditGroup.standing = "household", "Hostile"
+    liveBanditGroup.lifecycle, liveBanditGroup.bandit = "hostile", nil
+    local householdPartyTarget = Factions.hostileTargetFor(banditActor, player)
+    local partyHouseholdTarget = Factions.hostileTargetFor(companionActor, player)
+    check(householdPartyTarget and householdPartyTarget.actor == companionActor
+            and partyHouseholdTarget and partyHouseholdTarget.actor == banditActor,
+        "hostile households and the player party discover each other through the same hostility predicate")
+    liveBanditGroup.standing, liveBanditGroup.lifecycle = "Trusted", "settled"
+    check(Factions.hostileTargetFor(banditActor, player) == nil
+            and Factions.hostileTargetFor(companionActor, player) == nil,
+        "a friendly household is never admitted as a hostile human target")
+
+    liveBanditGroup.archetype, liveBanditGroup.standing = savedArchetype, savedStanding
+    liveBanditGroup.lifecycle, liveBanditGroup.bandit =
+        savedLifecycle, savedBandit
+    liveBanditGroup.bandit.engagement = "unaware"
+    check(Factions.hostileTargetFor(companionActor, player) == nil,
+        "an unaware bandit camp is not yet a companion attack target")
+    liveBanditGroup.bandit.engagement = "challenging"
+    banditActor.dead = true
+    check(Factions.hostileTargetFor(companionActor, player) == nil,
+        "dead faction actors are excluded by the production registry contract")
+    banditActor.dead = false
+    registry[banditActor.id].runtime = { inactive = true }
+    check(Factions.hostileTargetFor(companionActor, player) == nil,
+        "inactive faction records are excluded by the production registry contract")
+    registry[banditActor.id].runtime = nil
+
+    local partyFriend = actor("bandit-test-party-friend", 1, 1, { recruited = true })
+    local factionWingman = actor("bandit-test-wingman", 3, 0, { recruited = false })
+    registry[partyFriend.id] = {
+        id = partyFriend.id, actor = partyFriend, recruited = true, factionId = nil,
+    }
+    registry[factionWingman.id] = {
+        id = factionWingman.id, actor = factionWingman, recruited = false,
+        factionId = liveBanditGroup.id, factionRole = "guard",
+    }
+    local function containsRelationship(rows, candidate)
+        for _, row in ipairs(rows or {}) do
+            if row.actor == candidate then return row.relationship end
+        end
+        return nil
+    end
+    local partyAllies, partyProtected =
+        SurvivorCompanion.Senses._collectRelationshipsForTests(companionActor, player)
+    local factionAllies, factionProtected =
+        SurvivorCompanion.Senses._collectRelationshipsForTests(banditActor, player)
+    check(containsRelationship(partyAllies, partyFriend) == "party_ally"
+            and containsRelationship(partyAllies, banditActor) == nil
+            and containsRelationship(partyProtected, banditActor) == nil
+            and containsRelationship(factionAllies, factionWingman) == "faction_ally"
+            and containsRelationship(factionAllies, companionActor) == nil
+            and containsRelationship(factionProtected, companionActor) == nil,
+        "mixed rosters expose only party or same-faction actors as support allies and exclude current hostiles")
+
+    liveBanditGroup.archetype, liveBanditGroup.standing = "household", "Trusted"
+    liveBanditGroup.lifecycle, liveBanditGroup.bandit = "settled", nil
+    local neutralAllies, neutralProtected =
+        SurvivorCompanion.Senses._collectRelationshipsForTests(companionActor, player)
+    check(containsRelationship(neutralAllies, banditActor) == nil
+            and containsRelationship(neutralProtected, banditActor) == "neutral",
+        "a neutral household is protected from friendly fire without contributing combat support")
+    liveBanditGroup.archetype, liveBanditGroup.standing = savedArchetype, savedStanding
+    liveBanditGroup.lifecycle, liveBanditGroup.bandit = savedLifecycle, savedBandit
+    liveBanditGroup.bandit.engagement = "challenging"
+
+    local partyFriendRow
+    for _, row in ipairs(partyAllies) do
+        if row.actor == partyFriend then partyFriendRow = row break end
+    end
+    local supportBefore = SurvivorCompanion.Combat.readiness(companionActor, {
+        allies = { partyFriendRow }, immediateCount = 0, closeThreatCount = 0,
+        occupiedThreatSectors = 0, escapeSquares = {}, pressure = 0,
+        player = { available = false },
+    }, nil, { morale = 55, stress = 0 })
+    registry[partyFriend.id].recruited = false
+    local supportAfter = SurvivorCompanion.Combat.readiness(companionActor, {
+        allies = { partyFriendRow }, immediateCount = 0, closeThreatCount = 0,
+        occupiedThreatSectors = 0, escapeSquares = {}, pressure = 0,
+        player = { available = false },
+    }, nil, { morale = 55, stress = 0 })
+    check(supportBefore.support == 1 and supportAfter.support == 0,
+        "combat revalidates a cached ally relationship before counting support")
+    registry[partyFriend.id], registry[factionWingman.id] = nil, nil
+    for _, value in ipairs({ partyFriend, factionWingman }) do
+        for index = #value.square.moving, 1, -1 do
+            if value.square.moving[index] == value then
+                table.remove(value.square.moving, index)
+            end
+        end
+    end
+    player.square = nearbyPlayerSquare
 
     local heardAttack
     local originalHear = SurvivorCompanion.Senses.hear

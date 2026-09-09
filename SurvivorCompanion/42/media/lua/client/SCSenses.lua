@@ -57,51 +57,77 @@ local function isTargeting(zombie, actor, player)
     return ok and (target == actor or target == player)
 end
 
-local function addOffset(offsets, seen, dx, dy, budget, band)
+local function addOffset(offsets, seen, dx, dy, budget, band, dz)
     if #offsets >= budget then return false end
     local key = tostring(dx) .. ":" .. tostring(dy)
+        .. ":" .. tostring(dz or 0)
     if seen[key] then return true end
     seen[key] = true
-    offsets[#offsets + 1] = { x = dx, y = dy, d2 = dx * dx + dy * dy, band = band }
+    offsets[#offsets + 1] = {
+        x = dx, y = dy, z = dz, d2 = dx * dx + dy * dy, band = band,
+    }
     return true
 end
 
-local function scanOffsets(radius, budget, phase)
-    local offsets, seen = {}, {}
+local scheduleCache = {}
+
+local function scanSchedule(radius)
+    local key = tostring(radius)
+    if scheduleCache[key] then return scheduleCache[key] end
+    local priority, buckets = {}, { {}, {}, {}, {}, {}, {}, {}, {} }
     local nearRadius = math.min(4, radius)
-    for distance = 0, nearRadius do
+    for distance = 0, radius do
         for dx = -distance, distance do
             for dy = -distance, distance do
                 if math.max(math.abs(dx), math.abs(dy)) == distance then
-                    if not addOffset(offsets, seen, dx, dy, budget, "near") then return offsets end
+                    local band = distance <= nearRadius and "near"
+                        or (dx == 0 or dy == 0) and "ray" or "outer"
+                    local entry = {
+                        x = dx, y = dy, d2 = dx * dx + dy * dy, band = band,
+                    }
+                    if band == "near" or band == "ray" then
+                        priority[#priority + 1] = entry
+                    end
+                    local selector = ((dx * 31 + dy * 17 + distance * 13) % 8 + 8) % 8
+                    buckets[selector + 1][#buckets[selector + 1] + 1] = entry
                 end
             end
         end
     end
 
-    -- Cardinal and diagonal rays keep distant approaches represented every scan.
-    for distance = nearRadius + 1, radius do
-        local rayPoints = { { distance, 0 }, { -distance, 0 }, { 0, distance }, { 0, -distance } }
-        for _, point in ipairs(rayPoints) do
-            if not addOffset(offsets, seen, point[1], point[2], budget, "ray") then return offsets end
+    -- Interleave the old spatial phases into one persistent frontier. A fixed
+    -- phase combined with a per-job budget could truncate the same tail forever;
+    -- this sequence instead advances through every offset before wrapping.
+    local coverage, index, remaining = {}, 1, (radius * 2 + 1) ^ 2
+    while remaining > 0 do
+        for bucket = 1, 8 do
+            local entry = buckets[bucket][index]
+            if entry then
+                coverage[#coverage + 1] = entry
+                remaining = remaining - 1
+            end
         end
+        index = index + 1
     end
 
-    -- Rotate a deterministic outer sample. Nearby squares are complete; distant
-    -- squares are covered over successive 2 Hz snapshots without an all-cell scan.
-    for distance = nearRadius + 1, radius do
+    local vertical = {}
+    for distance = 0, 2 do
         for dx = -distance, distance do
             for dy = -distance, distance do
                 if math.max(math.abs(dx), math.abs(dy)) == distance then
-                    local selector = (dx * 31 + dy * 17 + distance * 13) % 8
-                    if selector == phase then
-                        if not addOffset(offsets, seen, dx, dy, budget, "outer") then return offsets end
+                    for _, dz in ipairs({ -1, 1 }) do
+                        vertical[#vertical + 1] = {
+                            x = dx, y = dy, z = dz, d2 = dx * dx + dy * dy,
+                            band = "vertical",
+                        }
                     end
                 end
             end
         end
     end
-    return offsets
+    local schedule = { priority = priority, coverage = coverage, vertical = vertical }
+    scheduleCache[key] = schedule
+    return schedule
 end
 
 local function squareIsOutdoor(square)
@@ -264,24 +290,61 @@ local function relevantSounds(actor, runtimeSounds, now)
     return result
 end
 
-local function collectAllies(actor)
+local function collectRelationships(actor, player)
     local U = util()
-    local allies = {}
+    local allyCandidates, protectedCandidates = {}, {}
     local limit = U.config("perceptionAllyLimit") or 16
-    for _, ally in ipairs(U.registryLiving(limit + 1)) do
-        if ally ~= actor and U.isValidActor(ally) then
-            allies[#allies + 1] = {
-                actor = ally,
-                id = U.idOf(ally),
-                square = U.squareOf(ally),
-                distanceSq = U.distanceSq(actor, ally),
-                health = U.nativeHealth(ally),
+    -- Registry order is stable by id, not by relevance. Inspect the complete
+    -- loaded roster before applying the small snapshot cap; otherwise a few
+    -- unrelated NPCs can permanently hide a nearby party or faction member.
+    local living = nil
+    if SC.Registry and type(SC.Registry.living) == "function" then
+        local ok, value = pcall(SC.Registry.living)
+        if not ok then ok, value = pcall(SC.Registry.living, SC.Registry) end
+        if ok and type(value) == "table" then living = value end
+    end
+    living = living or U.registryLiving(limit * 2 + 1)
+    for _, candidate in ipairs(living) do
+        if candidate ~= actor and U.isValidActor(candidate) then
+            local relationship = "unknown"
+            if SC.Factions and type(SC.Factions.relationshipBetween) == "function" then
+                local ok, value = pcall(
+                    SC.Factions.relationshipBetween, actor, candidate, player)
+                if ok and type(value) == "string" then relationship = value end
+            end
+            local row = {
+                actor = candidate,
+                id = U.idOf(candidate),
+                square = U.squareOf(candidate),
+                distanceSq = U.distanceSq(actor, candidate),
+                health = U.nativeHealth(candidate),
+                relationship = relationship,
             }
-            if #allies >= limit then break end
+            if relationship == "party_ally" or relationship == "faction_ally" then
+                allyCandidates[#allyCandidates + 1] = row
+                protectedCandidates[#protectedCandidates + 1] = row
+            elseif relationship == "neutral" then
+                protectedCandidates[#protectedCandidates + 1] = row
+            end
         end
     end
-    return allies
+    local function closestFirst(a, b)
+        if a.distanceSq ~= b.distanceSq then return a.distanceSq < b.distanceSq end
+        return tostring(a.id) < tostring(b.id)
+    end
+    table.sort(allyCandidates, closestFirst)
+    table.sort(protectedCandidates, closestFirst)
+    local allies, protected = {}, {}
+    for index = 1, math.min(limit, #allyCandidates) do
+        allies[index] = allyCandidates[index]
+    end
+    for index = 1, math.min(limit, #protectedCandidates) do
+        protected[index] = protectedCandidates[index]
+    end
+    return allies, protected
 end
+
+Senses._collectRelationshipsForTests = collectRelationships
 
 local function collectEscapeSquares(actor, threats, state, current, immediateCount)
     local U = util()
@@ -403,36 +466,68 @@ local function playerCondition(player, threats)
     }
 end
 
-local offsetCache = {}
-
-local function cachedScanOffsets(radius, squareBudget, phase)
+local function nextScanOffsets(state, radius, squareBudget)
     local verticalBudget = math.min(24, math.floor(squareBudget * 0.12))
-    local horizontalBudget = squareBudget - verticalBudget
-    local key = tostring(radius) .. ":" .. tostring(squareBudget) .. ":" .. tostring(phase)
-    local cached = offsetCache[key]
-    if cached then return cached end
-    local offsets = scanOffsets(radius, horizontalBudget, phase)
-    for _, dz in ipairs({ -1, 1 }) do
-        for dx = -2, 2 do
-            for dy = -2, 2 do
-                if #offsets >= squareBudget then break end
-                if (dx + dy + phase) % 2 == 0 then
-                    offsets[#offsets + 1] = {
-                        x = dx, y = dy, z = dz, d2 = dx * dx + dy * dy,
-                        band = "vertical",
-                    }
-                end
-            end
-            if #offsets >= squareBudget then break end
-        end
-        if #offsets >= squareBudget then break end
+    local horizontalBudget = math.max(0, squareBudget - verticalBudget)
+    local schedule = scanSchedule(radius)
+    local offsets, seen = {}, {}
+
+    -- Keep the close neighbourhood and long cardinal approaches responsive,
+    -- while reserving at least thirty percent for the complete frontier.
+    local priorityBudget = math.min(#schedule.priority,
+        math.floor(horizontalBudget * 0.70))
+    for index = 1, priorityBudget do
+        local entry = schedule.priority[index]
+        addOffset(offsets, seen, entry.x, entry.y, horizontalBudget, entry.band)
     end
-    offsetCache[key] = offsets
-    return offsets
+
+    local horizontalCursor = math.floor(tonumber(state.scanCoverageCursor) or 1)
+    if horizontalCursor < 1 or horizontalCursor > #schedule.coverage then
+        horizontalCursor = 1
+    end
+    local horizontalWrapped, examined = false, 0
+    while #offsets < horizontalBudget and examined < #schedule.coverage do
+        local entry = schedule.coverage[horizontalCursor]
+        horizontalCursor = horizontalCursor + 1
+        examined = examined + 1
+        if horizontalCursor > #schedule.coverage then
+            horizontalCursor = 1
+            horizontalWrapped = true
+        end
+        addOffset(offsets, seen, entry.x, entry.y, horizontalBudget, entry.band)
+    end
+    state.scanCoverageCursor = horizontalCursor
+
+    local verticalCursor = math.floor(tonumber(state.scanVerticalCursor) or 1)
+    if verticalCursor < 1 or verticalCursor > #schedule.vertical then verticalCursor = 1 end
+    local verticalWrapped = false
+    for _ = 1, verticalBudget do
+        local entry = schedule.vertical[verticalCursor]
+        addOffset(offsets, seen, entry.x, entry.y, squareBudget, entry.band, entry.z)
+        verticalCursor = verticalCursor + 1
+        if verticalCursor > #schedule.vertical then
+            verticalCursor = 1
+            verticalWrapped = true
+        end
+    end
+    state.scanVerticalCursor = verticalCursor
+    return offsets, {
+        horizontalCursor = horizontalCursor,
+        horizontalWrapped = horizontalWrapped,
+        horizontalExamined = examined,
+        horizontalTotal = #schedule.coverage,
+        verticalCursor = verticalCursor,
+        verticalWrapped = verticalWrapped,
+        verticalTotal = #schedule.vertical,
+        priorityCount = priorityBudget,
+    }
 end
+
+Senses._nextScanOffsetsForTests = nextScanOffsets
 
 local function newScanJob(state, actorSquare, originX, originY, originZ, radius, squareBudget)
     state.scanPhase = ((state.scanPhase or -1) + 1) % 8
+    local offsets, coverage = nextScanOffsets(state, radius, squareBudget)
     return {
         phase = state.scanPhase,
         originSquare = actorSquare,
@@ -441,7 +536,8 @@ local function newScanJob(state, actorSquare, originX, originY, originZ, radius,
         originZ = originZ,
         radius = radius,
         squareBudget = squareBudget,
-        offsets = cachedScanOffsets(radius, squareBudget, state.scanPhase),
+        offsets = offsets,
+        coverage = coverage,
         index = 1,
         scannedSquares = 0,
         outerSampled = 0,
@@ -509,6 +605,7 @@ function Senses.snapshot(actor, player, runtime)
             threats = {}, immediateAttackers = {}, fencedThreats = {}, groundedThreats = {},
             heardThreats = {}, heardThreatCount = 0,
             sounds = {}, exits = {}, escapeSquares = {}, allies = {},
+            protectedActors = {},
             player = { available = false, danger = 0 },
         }
     end
@@ -594,6 +691,9 @@ function Senses.snapshot(actor, player, runtime)
         inspectSquare(U.gridSquare(job.originX + offset.x, job.originY + offset.y,
             job.originZ + (offset.z or 0)), offset.band)
     end
+    -- A saturated detail list ends this bounded job. Leaving its index parked
+    -- would replay the same offsets forever and also freeze the coverage cursor.
+    if #job.stealthThreats >= threatLimit then job.index = #job.offsets + 1 end
 
     local complete = job.index > #job.offsets or #job.stealthThreats >= threatLimit
     local threats, immediate, fenced, stealthThreats, groundedThreats, heard = liveThreatLists(
@@ -644,6 +744,12 @@ function Senses.snapshot(actor, player, runtime)
         heardThreats[1] = remembered
     end
 
+    local relationshipsFresh = not state.allies
+        or now - (state.alliesAt or 0) > 250
+    local allies, protectedActors = state.allies, state.protectedActors
+    if relationshipsFresh then
+        allies, protectedActors = collectRelationships(actor, player)
+    end
     local actorRoom, actorRoomOk = U.call(actorSquare, "getRoom")
     local snapshot = {
         valid = true,
@@ -653,6 +759,7 @@ function Senses.snapshot(actor, player, runtime)
         radius = radius,
         scannedSquares = job.scannedSquares,
         outerSampled = job.outerSampled,
+        scanCoverage = job.coverage,
         scanComplete = complete,
         scanProgress = #job.offsets > 0 and math.min(1, (job.index - 1) / #job.offsets) or 1,
         scanRebaseCount = state.scanRebaseCount or 0,
@@ -686,8 +793,8 @@ function Senses.snapshot(actor, player, runtime)
         escapeTopologySignature = escapeMeta.signature,
         escapeComputedAt = escapeMeta.computedAt,
         escapeProcessedNodes = escapeMeta.processed,
-        allies = state.allies and now - (state.alliesAt or 0) <= 250
-            and state.allies or collectAllies(actor),
+        allies = allies or {},
+        protectedActors = protectedActors or {},
         -- Follow downtime is permitted only after the actor has actually
         -- entered a room. This field was consumed by decisions but was not
         -- previously populated, so outdoor and indoor idle were indistinct.
@@ -697,7 +804,8 @@ function Senses.snapshot(actor, player, runtime)
     snapshot.encircled = closeImmediateCount >= 3 or occupiedThreatSectors >= 3
         or (#escapeSquares == 0 and #threats >= 2)
     state.current = snapshot
-    state.allies, state.alliesAt = snapshot.allies, now
+    state.allies, state.protectedActors, state.alliesAt =
+        snapshot.allies, snapshot.protectedActors, now
     if complete then
         state.scanJob = nil
         state.lastCompleteAt = now
@@ -753,27 +861,48 @@ function Senses.refreshImmediate(actor, player, snapshot, runtime)
     local immediateRadiusSq = (U.config("immediateThreatRadius") or 2.25) ^ 2
     local threatLimit = U.config("perceptionThreatLimit") or 32
     local threats, immediate, fenced, stealthThreats, groundedThreats = {}, {}, {}, {}, {}
+    local immediateCandidates, ordinaryCandidates, stealthCandidates = {}, {}, {}
     local seen = setmetatable({}, { __mode = "k" })
     local heard
     local added = 0
+    local visibleCount, immediateVisibleCount = 0, 0
+
+    local function threatPreferred(a, b)
+        if a.score == b.score then return a.distanceSq < b.distanceSq end
+        return a.score > b.score
+    end
+
+    local function proximityPreferred(a, b)
+        if a.distanceSq == b.distanceSq then return a.score > b.score end
+        return a.distanceSq < b.distanceSq
+    end
+
+    local function retainBest(list, record, preferred)
+        if #list < threatLimit then
+            list[#list + 1] = record
+            return
+        end
+        local worst = 1
+        for index = 2, #list do
+            if preferred(list[worst], list[index]) then worst = index end
+        end
+        if preferred(record, list[worst]) then list[worst] = record end
+    end
 
     local function consider(zombie, discovered)
         if seen[zombie] or not isActiveZombie(zombie) then return end
         seen[zombie] = true
         local record = threatRecord(actor, player, zombie, actorSquare)
         if record.visible and not record.obstructed then
-            if #stealthThreats < threatLimit then
-                stealthThreats[#stealthThreats + 1] = record
+            visibleCount = visibleCount + 1
+            retainBest(stealthCandidates, record, proximityPreferred)
+            if immediateThreat(record, immediateRadiusSq) then
+                immediateVisibleCount = immediateVisibleCount + 1
+                retainBest(immediateCandidates, record, proximityPreferred)
+            else
+                retainBest(ordinaryCandidates, record, threatPreferred)
             end
-            if #threats < threatLimit then
-                threats[#threats + 1] = record
-                if record.grounded then groundedThreats[#groundedThreats + 1] = record end
-                if immediateThreat(record, immediateRadiusSq) then
-                    immediate[#immediate + 1] = record
-                end
-                if record.fenced then fenced[#fenced + 1] = record end
-                if discovered then added = added + 1 end
-            end
+            if discovered then added = added + 1 end
         else
             local audible, activity = zombieAudible(actor, zombie, record)
             if audible then
@@ -809,14 +938,30 @@ function Senses.refreshImmediate(actor, player, snapshot, runtime)
         end
     end
 
-    table.sort(threats, function(a, b)
-        if a.score == b.score then return a.distanceSq < b.distanceSq end
-        return a.score > b.score
-    end)
-    table.sort(stealthThreats, function(a, b)
-        if a.distanceSq == b.distanceSq then return a.score > b.score end
-        return a.distanceSq < b.distanceSq
-    end)
+    -- Emergency contacts own capacity before ordinary cached contacts. Each
+    -- candidate pool is independently bounded while scanning, so a newly-arrived
+    -- melee attacker can evict a distant prior contact without creating an
+    -- unbounded allocation during a horde encounter.
+    table.sort(immediateCandidates, proximityPreferred)
+    table.sort(ordinaryCandidates, threatPreferred)
+    for _, record in ipairs(immediateCandidates) do
+        if #threats >= threatLimit then break end
+        threats[#threats + 1] = record
+    end
+    for _, record in ipairs(ordinaryCandidates) do
+        if #threats >= threatLimit then break end
+        threats[#threats + 1] = record
+    end
+    table.sort(threats, threatPreferred)
+    for _, record in ipairs(threats) do
+        if record.grounded then groundedThreats[#groundedThreats + 1] = record end
+        if immediateThreat(record, immediateRadiusSq) then
+            immediate[#immediate + 1] = record
+        end
+        if record.fenced then fenced[#fenced + 1] = record end
+    end
+    stealthThreats = stealthCandidates
+    table.sort(stealthThreats, proximityPreferred)
     table.sort(immediate, function(a, b) return a.distanceSq < b.distanceSq end)
     local escapeSquares, exits, escapeMeta = collectEscapeSquares(
         actor, threats, state, now, #immediate)
@@ -858,8 +1003,12 @@ function Senses.refreshImmediate(actor, player, snapshot, runtime)
     snapshot.immediateAttackers = immediate
     snapshot.fencedThreats = fenced
     snapshot.threatCount = #threats
-    snapshot.immediateCount = #immediate
-    snapshot.pressure = #immediate * 1.5 + math.max(0, #threats - #immediate) * 0.35
+    snapshot.threatOverflow = math.max(0, visibleCount - #threats)
+    snapshot.immediateCount = immediateVisibleCount
+    snapshot.immediateOverflow = math.max(0, immediateVisibleCount - #immediate)
+    snapshot.pressure = immediateVisibleCount * 1.5
+        + math.max(0, math.min(threatLimit,
+            visibleCount - immediateVisibleCount)) * 0.35
     snapshot.directionalPressure = closeImmediate * 1.8
         + math.max(0, closeCount - closeImmediate) * 0.55
         + math.max(0, occupied - 1) * 0.6

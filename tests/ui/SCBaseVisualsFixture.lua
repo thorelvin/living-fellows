@@ -147,5 +147,9 @@ SurvivorCompanion = {
             return point.z == 0 and point.x >= 8 and point.x <= 18
                 and point.y >= 8 and point.y <= 18
         end,
+        zoneInsideAreaUnion = function(zone)
+            return zone.z == 0 and zone.x1 >= 8 and zone.x2 <= 18
+                and zone.y1 >= 8 and zone.y2 <= 18
+        end,
     },
 }
