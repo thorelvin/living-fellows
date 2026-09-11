@@ -7,7 +7,8 @@ local function check(value, message)
 end
 
 local SC = SurvivorCompanion
-check(type(SC) == "table" and SC.Identity.saveKey == "SC_SaveV1", "namespace identity")
+check(type(SC) == "table" and SC.Identity.worldSaveKey == "SC_WorldV1"
+        and SC.Identity.saveSchema == 3, "namespace identity")
 do
     local values = SC.Call.pack(SC.Call.protected(function()
         return "first", nil, "third", nil
@@ -1713,15 +1714,17 @@ check(dismantleOk and dismantleReason == "provider_dismantle_started"
 -- the persistence contract correctly rejects an equipped object with no
 -- stable full item type.
 actor.primaryHand, actor.secondaryHand = nil, nil
-local priorPlayerData = {
-    SC_SaveV1 = { schema = 1, companions = { sentinel = true } },
-}
+do
+local priorPlayerData = { untouched = true }
 local transactionalPlayer = {}
 function transactionalPlayer:getModData() return priorPlayerData end
-local priorDocument = priorPlayerData.SC_SaveV1
+local priorStore = SC_TEST_SET_WORLD_STORE({
+    document = { schema = SC.Identity.saveSchema, companions = { sentinel = true } },
+})
+local priorDocument = priorStore.document
 actor.bodyUnavailable = true
 local failedSave = SC.Persistence.save(transactionalPlayer)
-check(failedSave == false and priorPlayerData.SC_SaveV1 == priorDocument,
+check(failedSave == false and priorStore.document == priorDocument,
     "active capture failure aborts the entire save and retains the prior snapshot")
 actor.bodyUnavailable = false
 local successfulSave, successfulDocument = SC.Persistence.save(transactionalPlayer)
@@ -1784,19 +1787,20 @@ check(SC.Actor.remove(actor) == true and partialRemovalProvider.removeCalls == 2
 
 SC.Persistence.reset()
 local invalidDocument = { schema = 99, companions = { untouched = true } }
-local invalidData = { SC_SaveV1 = invalidDocument }
+local invalidData = SC_TEST_SET_WORLD_STORE({ document = invalidDocument })
 local invalidPlayer = {}
 function invalidPlayer:getModData() return invalidData end
 local invalidRestored = SC.Persistence.restore(invalidPlayer)
 local invalidSaved = SC.Persistence.save(invalidPlayer)
-check(not invalidRestored and not invalidSaved and invalidData.SC_SaveV1 == invalidDocument,
+check(not invalidRestored and not invalidSaved and invalidData.document == invalidDocument,
     "unsupported save schema is retained without destructive overwrite")
 SC.Persistence.reset()
 
 local playerData = {
     OtherMod = { untouched = true },
-    SC_SaveV1 = {
-        schema = 1,
+}
+SC_TEST_SET_WORLD_STORE({ document = {
+        schema = SC.Identity.saveSchema,
         companions = {
             ["sc-pending-record"] = {
                 id = "sc-pending-record",
@@ -1807,7 +1811,7 @@ local playerData = {
             },
         },
     },
-}
+})
 local player = {}
 function player:getModData() return playerData end
 local restored = SC.Persistence.restore(player)
@@ -1822,6 +1826,22 @@ local saved, document = SC.Persistence.save(player)
 check(saved and document.companions["sc-pending-record"] ~= nil,
     "provider/square failure cannot erase a pending save record")
 check(playerData.OtherMod.untouched == true, "unrelated mod data is preserved")
+check(SC.Persistence.reset() == true, "character-death fixture resets runtime state")
+local replacementPlayerData = {}
+local replacementPlayer = { getModData = function() return replacementPlayerData end }
+local replacementRestored = SC.Persistence.restore(replacementPlayer)
+check(replacementRestored == true
+        and SC.Persistence.isPending("sc-pending-record")
+        and replacementPlayerData.SC_SaveV1 == nil,
+    "a fresh player character restores companions from unchanged world ModData")
+end
+
+local function useWorldData(data)
+    if data.document == nil and data.SC_SaveV1 ~= nil then
+        data.document, data.SC_SaveV1 = data.SC_SaveV1, nil
+    end
+    return SC_TEST_SET_WORLD_STORE(data)
+end
 
 function runPersistenceIntegrityChecks()
 SC.Persistence.reset()
@@ -1833,7 +1853,7 @@ local rawInvalid = {
         equipment = { primary = "missing", worn = {}, attached = {} } },
     skills = {}, vitals = {}, order = {},
 }
-local mixedData = { SC_SaveV1 = {
+local mixedData = useWorldData({ SC_SaveV1 = {
     schema = SC.Identity.saveSchema, companions = {
         ["sc-valid-pending"] = {
             id = "sc-valid-pending", recruited = true,
@@ -1844,7 +1864,7 @@ local mixedData = { SC_SaveV1 = {
         ["sc-invalid-raw"] = rawInvalid,
     },
     community = { version = 2, minds = "malformed", pairs = {}, history = {}, deaths = {} },
-} }
+} })
 local mixedPlayer = { getModData = function() return mixedData end }
 local priorCommunity = SC.Community
 SC.Community = {
@@ -1875,15 +1895,15 @@ local cyclicRaw = {
 cyclicRaw.identity.loop = cyclicRaw.identity
 local cyclicDocument = { schema = SC.Identity.saveSchema,
     companions = { ["sc-cyclic-raw"] = cyclicRaw } }
-local cyclicData = { SC_SaveV1 = cyclicDocument }
+local cyclicData = useWorldData({ document = cyclicDocument })
 local cyclicPlayer = { getModData = function() return cyclicData end }
 local cyclicRestored, cyclicRestoreReason = SC.Persistence.restore(cyclicPlayer)
 check(not cyclicRestored
-        and cyclicData.SC_SaveV1 == cyclicDocument
+        and cyclicData.document == cyclicDocument
         and string.find(tostring(cyclicRestoreReason), "cannot be preserved", 1, true),
     "cyclic full-envelope input is rejected before restore and retained exactly")
 local cyclicSaved, cyclicReason = SC.Persistence.save(cyclicPlayer)
-check(not cyclicSaved and cyclicData.SC_SaveV1 == cyclicDocument
+check(not cyclicSaved and cyclicData.document == cyclicDocument
         and string.find(tostring(cyclicReason), "preserved without overwrite", 1, true),
     "blocked cyclic restore keeps OnSave fail-closed and the prior document untouched")
 
@@ -1902,14 +1922,14 @@ local priorGetCell = getCell
 getCell = function()
     return { getGridSquare = function() return square end }
 end
-local terminalData = { SC_SaveV1 = { schema = SC.Identity.saveSchema, companions = {
+local terminalData = useWorldData({ SC_SaveV1 = { schema = SC.Identity.saveSchema, companions = {
     ["sc-terminal-restore"] = {
         id = "sc-terminal-restore", recruited = true,
         identity = { forename = "Terminal", surname = "Retry" },
         position = { x = 40, y = 40, z = 0 }, inventory = {},
         skills = { { id = "MissingPerk", level = 1 } }, vitals = {}, order = {},
     },
-} } }
+} } })
 local terminalPlayer = { getModData = function() return terminalData end }
 check(SC.Persistence.restore(terminalPlayer), "terminal restore document imports")
 local terminalSnapshot = SC.Persistence.pendingSnapshot()["sc-terminal-restore"]
@@ -1954,14 +1974,14 @@ end
 function startingProvider:cancelSpawn() return true end
 check(SC.Actor._setProviderForTests(startingProvider),
     "starting restore provider installed")
-local startingData = { SC_SaveV1 = { schema = SC.Identity.saveSchema, companions = {
+local startingData = useWorldData({ SC_SaveV1 = { schema = SC.Identity.saveSchema, companions = {
     ["sc-provider-starting"] = {
         id = "sc-provider-starting", recruited = true,
         identity = { forename = "Waiting", surname = "Bridge" },
         position = { x = 41, y = 41, z = 0 }, inventory = {},
         skills = {}, vitals = {}, order = {},
     },
-} } }
+} } })
 local startingPlayer = { getModData = function() return startingData end }
 check(SC.Persistence.restore(startingPlayer), "provider-starting record imports")
 local startingSnapshot = SC.Persistence.pendingSnapshot()["sc-provider-starting"]
@@ -1989,14 +2009,14 @@ function retryProvider:requestSpawn()
 end
 check(SC.Actor._setProviderForTests(retryProvider),
     "retryable restore provider installed")
-local retryData = { SC_SaveV1 = { schema = SC.Identity.saveSchema, companions = {
+local retryData = useWorldData({ SC_SaveV1 = { schema = SC.Identity.saveSchema, companions = {
     ["sc-retry-backoff"] = {
         id = "sc-retry-backoff", recruited = true,
         identity = { forename = "Retry", surname = "Bounded" },
         position = { x = 42, y = 42, z = 0 }, inventory = {},
         skills = {}, vitals = {}, order = {},
     },
-} } }
+} } })
 local retryPlayer = { getModData = function() return retryData end }
 local retryStart = SC_TEST_CLOCK
 check(SC.Persistence.restore(retryPlayer), "retryable restore record imports")

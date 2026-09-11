@@ -24,7 +24,8 @@ local function event()
 end
 
 Events = {
-    OnGameStart = event(), OnSave = event(), OnMainMenuEnter = event(),
+    OnInitGlobalModData = event(), OnGameStart = event(), OnSave = event(),
+    OnMainMenuEnter = event(),
     OnWeaponHitCharacter = event(), OnZombieDead = event(),
 }
 
@@ -70,6 +71,7 @@ local required = {
     "FactionRecruitment", "Decision", "Support", "UIContext",
 }
 for _, name in ipairs(required) do SC[name] = SC[name] or {} end
+SC.Persistence.bindWorldStore = function() return true end
 
 local function ownedHooks()
     local value = { installed = false, installs = 0, removes = 0,

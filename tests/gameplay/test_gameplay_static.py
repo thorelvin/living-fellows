@@ -160,8 +160,9 @@ def main() -> int:
                     and "function Scan.nativeCandidates" in text
                     and "sharedNative" in text
                     and "state.nativeScanCursor" in text
-                    and "processed < limit and shared.cursor < count" in text
-                    and "math.min(count, 128" in text
+                    and "processed < limit and shared.cursor < shared.cycleCount" in text
+                    and "math.min(math.max(1, shared.cycleCount), 128" in text
+                    and "shared.liveCount = count" in text
                     and "processed >= 4 and clock() >= deadline" in text
                     and "SC.NativeList.get(list, index)" in text
                     and "perceptionNativeRosterQueryPerSlice" in text
@@ -434,6 +435,11 @@ def main() -> int:
             and "scavengeLootReactionChancePercent" in sources["SCEncounter.lua"],
             "post-transfer personality-aware scavenging reactions are missing")
     quirks_source = sources["SCQuirks.lua"]
+    gameplay_util_source = sources["SCGameplayUtil.lua"]
+    require("canonical = ok and identityInList" not in gameplay_util_source
+            and "pendingWorldRecoveryByItem" in gameplay_util_source
+            and "world_item_presence_unknown_destination_preserved" in gameplay_util_source,
+            "floor-item tri-state ownership or managed recovery contract is missing")
     require('== "Base.Rubberducky"' in quirks_source
             and "Base.KeyRing_RubberDuck" not in quirks_source
             and 'phase = "recovery_pending"' in quirks_source
@@ -446,6 +452,11 @@ def main() -> int:
             and 'candidate.kind == "ritual"' in sources["SCDecision.lua"]
             and "SC.Quirks.ritualIntent" in sources["SCAutonomy.lua"],
             "persistent personality ritual catalogue is not integrated into autonomy")
+    require("duckSearches" in quirks_source
+            and "sameIdentitySet" in quirks_source
+            and 'status == "pending"' in quirks_source
+            and 'return "absent"' in quirks_source,
+            "bounded rubber-duck recovery does not distinguish pending from proven absence")
     require('SC.Dialogue.register("recognition.local"' in quirks_source
             and 'SC.Dialogue.register("recognition.grief"' in quirks_source
             and "subjectGender" in sources["SCCommunity.lua"]

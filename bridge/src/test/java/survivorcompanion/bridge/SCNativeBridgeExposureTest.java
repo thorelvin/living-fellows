@@ -2,6 +2,7 @@
 package survivorcompanion.bridge;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.Field;
 
 /** Verifies the production bootstrap against the real Project Zomboid Kahlua runtime. */
 public final class SCNativeBridgeExposureTest {
@@ -21,6 +22,14 @@ public final class SCNativeBridgeExposureTest {
                 System.getProperty("java.io.tmpdir") + "SurvivorCompanion-native-exposure-test");
         fileSystemClass.getMethod("init").invoke(fileSystem);
 
+        Class<?> mainThreadClass = Class.forName("zombie.MainThread");
+        mainThreadClass.getField("mainThread").set(null, Thread.currentThread());
+        Field initialized = mainThreadClass.getDeclaredField("isInitialized");
+        initialized.setAccessible(true);
+        initialized.setBoolean(null, true);
+        Method flushInvokeQueue = mainThreadClass.getDeclaredMethod("flushInvokeQueue");
+        flushInvokeQueue.setAccessible(true);
+
         Class<?> bootstrapClass = Class.forName("survivorcompanion.bridge.SCBootstrap");
         bootstrapClass.getMethod("start").invoke(null);
         Thread.sleep(150L);
@@ -32,6 +41,7 @@ public final class SCNativeBridgeExposureTest {
         long deadline = System.nanoTime() + 5_000_000_000L;
         while (!(Boolean) bootstrapClass.getMethod("isReady").invoke(null)
                 && System.nanoTime() < deadline) {
+            flushInvokeQueue.invoke(null);
             Thread.sleep(10L);
         }
         require((Boolean) bootstrapClass.getMethod("isReady").invoke(null),

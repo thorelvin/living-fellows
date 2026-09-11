@@ -18,6 +18,24 @@ function instanceof(value, className)
     return type(value) == "table" and value.__class == className
 end
 
+SC_TEST_GLOBAL_MOD_DATA = {}
+ModData = {
+    getOrCreate = function(key)
+        if type(SC_TEST_GLOBAL_MOD_DATA[key]) ~= "table" then
+            SC_TEST_GLOBAL_MOD_DATA[key] = {}
+        end
+        return SC_TEST_GLOBAL_MOD_DATA[key]
+    end,
+}
+function SC_TEST_SET_WORLD_STORE(store)
+    SC_TEST_GLOBAL_MOD_DATA[SurvivorCompanion.Identity.worldSaveKey] = store or {}
+    if SurvivorCompanion.Persistence
+        and type(SurvivorCompanion.Persistence.bindWorldStore) == "function" then
+        SurvivorCompanion.Persistence.bindWorldStore(false)
+    end
+    return SC_TEST_GLOBAL_MOD_DATA[SurvivorCompanion.Identity.worldSaveKey]
+end
+
 CharacterStat = {
     HUNGER = { name = "HUNGER" },
     THIRST = { name = "THIRST" },

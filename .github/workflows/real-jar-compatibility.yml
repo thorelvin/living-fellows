@@ -23,15 +23,19 @@ jobs:
       - name: Validate release tag
         if: github.ref_type == 'tag'
         shell: pwsh
+        env:
+          RELEASE_REF_NAME: ${{ github.ref_name }}
         run: |
           $version = (Get-Content -LiteralPath './VERSION.txt' -Raw).Trim()
-          if ('${{ github.ref_name }}' -ne "v$version") {
-            throw "Release tag ${{ github.ref_name }} does not match VERSION.txt v$version"
+          if ($env:RELEASE_REF_NAME -ne "v$version") {
+            throw "Release tag $env:RELEASE_REF_NAME does not match VERSION.txt v$version"
           }
       - name: Run real-JAR and packaging gates
         shell: pwsh
+        env:
+          INPUT_GAME_ROOT: ${{ inputs.gameRoot }}
         run: |
-          $gameRoot = '${{ inputs.gameRoot }}'
+          $gameRoot = $env:INPUT_GAME_ROOT
           if ([string]::IsNullOrWhiteSpace($gameRoot)) {
             $gameRoot = 'C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid'
           }

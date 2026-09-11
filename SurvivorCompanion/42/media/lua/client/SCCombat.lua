@@ -1089,20 +1089,26 @@ local function addNearbyGrounded(actor, scored)
     end)
 end
 
-local function lineBlockedByFriendly(actor, target, player, snapshot)
+function Combat.friendlyFireBlocked(actor, target, context)
     local utility = U()
     if utility.config("friendlyFire") == true then return false end
     if not utility.sameFloor(actor, target) then return true end
-    local corridor = utility.config("friendlyFireCorridor") or 0.8
+    context = type(context) == "table" and context or {}
+    local melee = context.kind == "melee"
+    local corridor = melee and (utility.config("friendlyFireMeleeCorridor") or 0.9)
+        or (utility.config("friendlyFireCorridor") or 0.8)
     local corridorSq = corridor * corridor
     local function blocks(friendly)
         if not friendly or friendly == actor or friendly == target then return false end
         if not utility.sameFloor(actor, friendly) then return false end
-        if utility.distanceSq(actor, friendly) < 0.75 * 0.75 then return false end
-        if utility.distanceSq(target, friendly) < 0.5 * 0.5 then return false end
         return utility.pointSegmentDistanceSq(friendly, actor, target) <= corridorSq
     end
+    local player = context.player
     if blocks(player) then return true end
+    for _, friendly in ipairs(type(context.allies) == "table" and context.allies or {}) do
+        if blocks(friendly) then return true end
+    end
+    local snapshot = context.snapshot
     if snapshot then
         local protected = type(snapshot.protectedActors) == "table"
             and snapshot.protectedActors or snapshot.allies
@@ -1118,6 +1124,12 @@ local function lineBlockedByFriendly(actor, target, player, snapshot)
         end
     end
     return false
+end
+
+local function lineBlockedByFriendly(actor, target, player, snapshot, kind)
+    return Combat.friendlyFireBlocked(actor, target, {
+        player = player, snapshot = snapshot, kind = kind or "ranged",
+    })
 end
 
 local function medicalPressure(actor)
@@ -2423,7 +2435,8 @@ local function executeRetreatCounter(actor, player, snapshot, target, weapon, co
     local distance = math.sqrt(target.distanceSq or utility.distanceSq(actor, target.actor))
     local accepted, action
     if distance <= (utility.config("combatShoveDistance") or 1.35)
-        and utility.sameFloor(actor, target.actor) then
+        and utility.sameFloor(actor, target.actor)
+        and not lineBlockedByFriendly(actor, target.actor, player, snapshot, "melee") then
         -- One controlled shove buys the next movement decision room to turn.
         accepted = utility.move(actor, "walk", {
             action = "shove", target = target.actor, retreatCounter = true,
@@ -2458,6 +2471,13 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
     if action.kind == "retreat" or action.kind == "escape" then
         return executeRetreat(actor, player, snapshot, target,
             action.kind == "escape", state, commands)
+    end
+    if targetActor ~= nil and (action.kind == "shoot" or action.kind == "melee"
+        or action.kind == "shove" or action.kind == "stomp")
+        and lineBlockedByFriendly(actor, targetActor, player, snapshot,
+            action.kind == "shoot" and "ranged" or "melee") then
+        utility.stop(actor)
+        return false, "friendly_in_attack_lane"
     end
     if weapon and not weapon.equipped and action.kind ~= "shove" and action.kind ~= "stomp" then
         if not equipWeapon(actor, weapon.item, { nextAction = action.kind }) then
@@ -2890,6 +2910,13 @@ function Combat.update(actor, player, runtime)
             chosen, target, snapshot) then
         chosen = { kind = "hold_range", score = chosen.score, roleHold = true }
     end
+    if (chosen.kind == "shoot" or chosen.kind == "melee"
+        or chosen.kind == "shove" or chosen.kind == "stomp")
+        and lineBlockedByFriendly(actor, target.actor, player, snapshot,
+            chosen.kind == "shoot" and "ranged" or "melee") then
+        chosen = { kind = "hold_range", score = chosen.score,
+            friendlyFireHold = true }
+    end
 
     if chosen.kind == "shoot" then
         local aiming, aimReason = prepareRangedShot(actor, state, snapshot, target,
@@ -2968,13 +2995,7 @@ end
 
 function Combat.reset(actor)
     if actor then
-        local state = states[actor]
-        if state and state.active then U().stop(actor) end
-        releaseActorClaims(actor)
-        if SC.NativeActions and type(SC.NativeActions.resetCombatEvents) == "function" then
-            SC.NativeActions.resetCombatEvents(actor)
-        end
-        states[actor] = nil
+        return Combat.releaseActor(actor)
     else
         if SC.NativeActions and type(SC.NativeActions.resetCombatEvents) == "function" then
             SC.NativeActions.resetCombatEvents(nil)
@@ -2985,6 +3006,42 @@ function Combat.reset(actor)
         retreatPlans = {}
         lastGroupCombatBarkAt = -math.huge
     end
+end
+
+function Combat.releaseActor(actor)
+    if actor == nil then return false end
+    local affected = {}
+    for owner, state in pairs(states) do
+        if owner == actor or state.target == actor or state.engagementTarget == actor
+            or state.lastOffensiveTarget == actor or state.combatRoleTarget == actor
+            or state.noEffectTarget == actor
+            or (state.shoveFollowUp and state.shoveFollowUp.target == actor) then
+            affected[#affected + 1] = owner
+        end
+    end
+    local claims = targetClaims[actor]
+    if claims and claims.cohorts then
+        for _, claim in pairs(claims.cohorts) do
+            for _, role in ipairs({ "primary", "support" }) do
+                if claim[role] and claim[role].actor then
+                    actorClaims[claim[role].actor] = nil
+                end
+            end
+        end
+    end
+    targetClaims[actor] = nil
+    releaseActorClaims(actor)
+    for _, owner in ipairs(affected) do
+        local state = states[owner]
+        if state and state.active and owner ~= actor then U().stop(owner) end
+        releaseActorClaims(owner)
+        if SC.NativeActions and type(SC.NativeActions.resetCombatEvents) == "function" then
+            SC.NativeActions.resetCombatEvents(owner)
+        end
+        states[owner] = nil
+    end
+    actorClaims[actor] = nil
+    return true
 end
 
 return Combat

@@ -965,19 +965,36 @@ end
 
 function Positioning.reset(actor)
     if actor then
-        local state = states[actor]
-        if state and state.reservationKey then
-            local reservation = targetReservations[state.reservationKey]
-            if reservation and reservation.actor == actor then targetReservations[state.reservationKey] = nil end
-        end
-        states[actor] = nil
-        leaderStates[actor] = nil
+        return Positioning.releaseActor(actor)
     else
         states = setmetatable({}, { __mode = "k" })
         leaderStates = setmetatable({}, { __mode = "k" })
         targetReservations = {}
         nextReservationSweepAt = 0
     end
+end
+
+function Positioning.releaseActor(actor)
+    if actor == nil then return false end
+    local state = states[actor]
+    if state and state.reservationKey then
+        local reservation = targetReservations[state.reservationKey]
+        if reservation and reservation.actor == actor then
+            targetReservations[state.reservationKey] = nil
+        end
+    end
+    for key, reservation in pairs(targetReservations) do
+        if reservation and reservation.actor == actor then targetReservations[key] = nil end
+    end
+    states[actor] = nil
+    leaderStates[actor] = nil
+    -- Fireteam arrays and their slot maps retain every follower strongly under
+    -- Kahlua. Invalidate all bounded roster caches when one actor retires.
+    for _, leaderState in pairs(leaderStates) do
+        leaderState.fireteams = nil
+        leaderState.fireteamsExpires = 0
+    end
+    return true
 end
 
 return Positioning

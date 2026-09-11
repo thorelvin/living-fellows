@@ -538,6 +538,43 @@ function Traffic.cancel(actor, state, context)
     Traffic.releaseChoke(state, actor, context)
 end
 
+function Traffic.releaseActor(actor)
+    if actor == nil then return false end
+    chokeWaiters[actor] = nil
+    actorPassages[actor] = nil
+    for key, entry in pairs(chokeReservations) do
+        if entry and entry.actor == actor then chokeReservations[key] = nil end
+    end
+    for key, entry in pairs(stepReservations) do
+        if entry and entry.actor == actor then stepReservations[key] = nil end
+    end
+    for key, passage in pairs(groupPassages) do
+        if passage.owner == actor then
+            groupPassages[key] = nil
+        else
+            local write = 1
+            for index = 1, #(passage.participants or {}) do
+                local participant = passage.participants[index]
+                if participant ~= actor then
+                    passage.participants[write] = participant
+                    write = write + 1
+                end
+            end
+            for index = #(passage.participants or {}), write, -1 do
+                passage.participants[index] = nil
+            end
+            if passage.crossed then passage.crossed[actor] = nil end
+            if passage.roles then passage.roles[actor] = nil end
+            if passage.yieldUntil then passage.yieldUntil[actor] = nil end
+            if passage.head == actor then
+                passage.head, passage.headDistance, passage.headSince,
+                    passage.headProgressAt = nil, nil, nil, nil
+            end
+        end
+    end
+    return true
+end
+
 function Traffic.reset()
     chokeReservations = {}
     chokeWaiters = setmetatable({}, { __mode = "k" })

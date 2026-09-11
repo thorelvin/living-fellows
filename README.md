@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.20.4-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.22.13-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.22.14-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns isolated survivors into persistent people who can become teammates, establish routines, help run a base, and make their own survival decisions. Companions use native human actors, keep real inventories and injuries, and can follow, fight, retreat, scavenge, work, travel, grieve, argue, and remember what happened to them.
@@ -216,7 +216,7 @@ Bandit camps are a separate, permanently hostile archetype. They begin appearing
 
 ## Saves, updates, and backups
 
-Living Fellows writes versioned state into the Project Zomboid save. Current records use transactional schema 2 for recursive inventories, nested bags, worn and attached equipment, weapon parts, fluid state, companions, households, relationships, contracts, bases, and bounded memories.
+Living Fellows writes versioned state into world-scoped Project Zomboid Global ModData. The current world document is schema 3; recursive inventory nodes remain schema 2 for nested bags, worn and attached equipment, weapon parts, and fluid state. Companions, households, relationships, contracts, bases, and bounded memories therefore survive replacement of a dead player character.
 
 Before installing or updating:
 

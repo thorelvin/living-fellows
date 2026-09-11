@@ -503,9 +503,11 @@ function ZombieAttack.reset(actor)
         -- never keeps a pinned state that would skip its decisions.
         if grabState[actor] ~= nil then releaseCompanion(actor) end
         grabState[actor] = nil
+        pileSeen[actor] = nil
     else
         lastHitAt = setmetatable({}, { __mode = "k" })
         grabState = setmetatable({}, { __mode = "k" })
+        pileSeen = setmetatable({}, { __mode = "k" })
     end
     return true
 end

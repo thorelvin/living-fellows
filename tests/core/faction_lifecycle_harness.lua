@@ -50,6 +50,7 @@ local function testGroup()
 end
 
 check(SC.Bootstrap.isInstalled()
+        and Events.OnInitGlobalModData.count() == 1
         and Events.OnGameStart.count() == 1 and Events.OnSave.count() == 1
         and Events.OnMainMenuEnter.count() == 1
         and Events.OnWeaponHitCharacter.count() == 1
@@ -94,6 +95,7 @@ check(group.social.contract.active.progress.kills == 2
 
 local removed, removeReason = SC.Bootstrap.remove()
 check(removed and removeReason == "" and noOwnedHooks()
+        and Events.OnInitGlobalModData.count() == 0
         and Events.OnGameStart.count() == 0 and Events.OnSave.count() == 0
         and Events.OnMainMenuEnter.count() == 0 and Events.OnTick.count() == 0,
     "bootstrap.remove releases lifecycle, tick, faction, contract, and map ownership")

@@ -9,14 +9,13 @@ local SC = SurvivorCompanion
 SC.Identity = SC.Identity or {
     displayName = "Living Fellows: Companion",
     modId = "SurvivorCompanion",
-    release = "0.22.13",
+    release = "0.22.14",
     gameVersion = "42.20.4",
     bridgeProtocol = "42.20-isocompanion-7",
-    saveKey = "SC_SaveV1",
-    -- Schema 2 stores a complete recursive inventory tree plus worn/hand
-    -- equipment.  The save key intentionally remains stable so schema 1
-    -- documents can be migrated in place by SCPersistence.
-    saveSchema = 2,
+    worldSaveKey = "SC_WorldV1",
+    -- Schema 3 moves the complete world document out of character ModData.
+    -- Inventory nodes retain their independent schema-2 representation.
+    saveSchema = 3,
 }
 SC.Identity.providers = {
     native = "iso-companion",

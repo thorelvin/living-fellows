@@ -4,6 +4,7 @@ package survivorcompanion.bridge;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Map;
+import zombie.MainThread;
 
 /** Exposes the narrow bridge into the game's Kahlua environment after LuaManager initializes. */
 final class SCExposure {
@@ -15,6 +16,9 @@ final class SCExposure {
     private SCExposure() {}
 
     static boolean exposeNow() throws ReflectiveOperationException {
+        if (Thread.currentThread() != MainThread.mainThread) {
+            throw new IllegalStateException("Kahlua exposure must run on the main thread");
+        }
         ClassLoader loader = SCExposure.class.getClassLoader();
         Class<?> manager = Class.forName("zombie.Lua.LuaManager", false, loader);
         Field environmentField = manager.getField("env");
@@ -40,7 +44,7 @@ final class SCExposure {
 
         // LuaManager.init() replaces env/exposer and exposeAll() mutates their
         // maps. Require the completed sentinels and a short stable generation
-        // before touching either structure from the bootstrap thread.
+        // before touching either structure from the queued main-thread callback.
         long now = System.nanoTime();
         if (candidateEnvironment != environment || candidateExposer != exposer) {
             candidateEnvironment = environment;

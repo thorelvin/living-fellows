@@ -316,7 +316,7 @@ require('state = "open"' in diagnostics and 'circuit.state = "half_open"' in dia
         "recoverable subsystem circuit breaker contract is missing")
 
 namespace_text = (SHARED / "SCNamespace.lua").read_text(encoding="utf-8")
-require("saveSchema = 2" in namespace_text
+require("saveSchema = 3" in namespace_text
         and "local function captureInventory" in persistence
         and "complete = true" in persistence
         and "weaponParts" in persistence and "applyEquipment" in persistence

@@ -122,6 +122,13 @@ local function finishTransaction(transaction, succeeded, reason, detail)
     elseif succeeded ~= true and type(service.fail) == "function" then
         service.fail(token, reason or "vehicle_transaction_failed", detail)
     end
+    if transaction.actor ~= nil and SC.Actor
+        and type(SC.Actor.isCompanion) == "function"
+        and not SC.Actor.isCompanion(transaction.actor)
+        and type(SC.Actor.finishDeferredRuntimeRelease) == "function" then
+        SC.Actor.finishDeferredRuntimeRelease(transaction.actor,
+            "vehicle_transaction_terminal")
+    end
     return succeeded, reason
 end
 
@@ -1083,6 +1090,27 @@ end
 
 function vehicleService.contains(id)
     return storedById[id] ~= nil
+end
+
+function vehicleService.releaseActor(actor)
+    if actor == nil then return false end
+    lastVehicleShotAt[actor] = nil
+    local transaction = transactions[actor]
+    if transaction == nil then return true end
+    local service = supervisor()
+    local token = service and type(service.current) == "function"
+        and service.current(actor) or nil
+    if token and token == transaction.supervisorToken
+        and token.owner == "vehicle" and token.action == "board_vehicle"
+        and token.phase == "committing" then
+        return true
+    end
+    if transaction.moduleReservationClaimed == true
+        and reservations[transaction.reservation] == transaction.actorId then
+        reservations[transaction.reservation] = nil
+    end
+    clearTransaction(actor, transaction)
+    return true
 end
 
 function vehicleService.reset()

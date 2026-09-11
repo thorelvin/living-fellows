@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.22.14 - Runtime safety and exact relic recovery
+
+- Closed an action-supervisor re-entrancy hole that could let a lower-priority order overwrite an urgent survival action, and added explicit per-actor retirement cleanup for Kahlua tables that cannot actually be weak.
+- Moved shared companions, households, factions, bases, and community state into world-scoped ModData, while keeping player-relative state on the character. This intentionally starts a new schema while save compatibility is not yet required.
+- Kept bounded native zombie discovery progressing when the world zombie count changes, exposed Kahlua globals only on the game thread, and made hostile native actors respect square visibility instead of rendering through walls.
+- Added ally-in-arc protection for melee and stricter firearm lanes, made trade capacity checks fail closed, and valued damaged, rotten, burnt, or depleted goods by their actual state.
+- Preserved exact floor-item ownership as a tri-state transaction. Failed pickup and rollback paths now retain one verified owner or a managed recovery record instead of losing or duplicating the item.
+- Made rubber-duck relic recovery resumable across crowded squares, object reordering, interruptions, and unloaded chunks. A duck is declared lost only after two complete matching scans prove it absent.
+- Pinned the native bridge to reproducible Java 17 bytecode, rebuilt the shipped JAR, and expanded CI and Lua regressions for the repaired runtime paths.
+
 ## 0.22.13 - Positional voices and consistent menu audio
 
 - Restored Build 42's character-owned sound-emitter update for native companions. Vanilla scratch, laceration, bite, and being-eaten vocals now start from and continue to follow the injured companion's world position without adding a duplicate Lua scream or artificial zombie-attraction event.

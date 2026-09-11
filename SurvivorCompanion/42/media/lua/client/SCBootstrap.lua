@@ -285,11 +285,21 @@ local function onSave()
     if not ok then SC.Diagnostics.report("persistence", nil, "OnSave failed", reason) end
 end
 
+local function onInitGlobalModData(isNewGame)
+    local ok, reason = SC.Persistence.bindWorldStore(isNewGame == true)
+    if not ok then
+        SC.Diagnostics.report("persistence", nil,
+            "OnInitGlobalModData failed", reason)
+    end
+end
+
 local function onMainMenuEnter()
     SC.Runtime.onMainMenuEnter()
 end
 
 local lifecycleDefinitions = {
+    { event = function() return Events and Events.OnInitGlobalModData end,
+        callback = onInitGlobalModData, name = "OnInitGlobalModData" },
     { event = function() return Events and Events.OnGameStart end,
         callback = onGameStart, name = "OnGameStart" },
     { event = function() return Events and Events.OnSave end,
@@ -337,8 +347,11 @@ function bootstrap.install()
     end
     local valid, reason = validateModules()
     if not valid then return false, reason end
-    if Events == nil or Events.OnGameStart == nil or Events.OnSave == nil
+    if Events == nil or Events.OnInitGlobalModData == nil
+        or Events.OnGameStart == nil or Events.OnSave == nil
         or Events.OnMainMenuEnter == nil
+        or type(Events.OnInitGlobalModData.Add) ~= "function"
+        or type(Events.OnInitGlobalModData.Remove) ~= "function"
         or type(Events.OnGameStart.Add) ~= "function"
         or type(Events.OnGameStart.Remove) ~= "function"
         or type(Events.OnSave.Add) ~= "function"

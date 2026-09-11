@@ -4,6 +4,7 @@
 param(
     [string]$ProjectRoot = '',
     [string]$OutputRoot = '',
+    [string]$JavaHome = '',
     [switch]$InstallIntoPayload
 )
 
@@ -22,16 +23,24 @@ if (-not $OutputRoot.StartsWith($buildPrefix, [System.StringComparison]::Ordinal
     throw "Native bridge output must stay inside the project build directory: $OutputRoot"
 }
 
-$javacCandidates = @(
-    'C:\Program Files\Java\jdk-24\bin\javac.exe',
-    'C:\Program Files\Java\jdk-17\bin\javac.exe'
-)
+$javacCandidates = @()
+if (-not [string]::IsNullOrWhiteSpace($JavaHome)) {
+    $javacCandidates += Join-Path $JavaHome 'bin\javac.exe'
+}
+if (-not [string]::IsNullOrWhiteSpace($env:JAVA_HOME)) {
+    $javacCandidates += Join-Path $env:JAVA_HOME 'bin\javac.exe'
+}
+$javacCandidates += 'C:\Program Files\Java\jdk-17\bin\javac.exe'
 $javac = $javacCandidates | Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } | Select-Object -First 1
 if (-not $javac) {
     $command = Get-Command javac.exe -ErrorAction SilentlyContinue
     if ($command) { $javac = $command.Source }
 }
-if (-not $javac) { throw 'A Java 17+ JDK with javac.exe is required to build the native bridge.' }
+if (-not $javac) { throw 'A Java 17 JDK with javac.exe is required to build the native bridge.' }
+$compilerVersion = (& $javac -version 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $compilerVersion -notmatch '^javac\s+17(?:\.|$)') {
+    throw "The native bridge requires an exact Java 17 compiler; found '$compilerVersion' at $javac"
+}
 $jar = Join-Path (Split-Path -Parent $javac) 'jar.exe'
 if (-not (Test-Path -LiteralPath $jar -PathType Leaf)) { throw "jar.exe was not found beside $javac" }
 
@@ -51,8 +60,15 @@ $sources = Get-ChildItem -LiteralPath (Join-Path $ProjectRoot 'bridge\src\main\j
     -Filter '*.java' -File -Recurse | Select-Object -ExpandProperty FullName
 if (-not $sources) { throw 'Native bridge sources were not found.' }
 
-& $javac -encoding UTF-8 -d $classes @stubs @sources
+& $javac --release 17 -encoding UTF-8 -d $classes @stubs @sources
 if ($LASTEXITCODE -ne 0) { throw "Native bridge compilation failed with exit code $LASTEXITCODE" }
+foreach ($classFile in Get-ChildItem -LiteralPath $classes -Filter '*.class' -File -Recurse) {
+    $bytes = [System.IO.File]::ReadAllBytes($classFile.FullName)
+    $major = ([int]$bytes[6] * 256) + [int]$bytes[7]
+    if ($major -ne 61) {
+        throw "Unexpected class-file major $major in $($classFile.FullName); Java 17 requires 61"
+    }
+}
 
 $bridgeJar = Join-Path $OutputRoot 'SurvivorCompanionBridge.jar'
 $manifest = Join-Path $ProjectRoot 'bridge\native\MANIFEST.MF'

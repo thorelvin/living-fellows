@@ -305,8 +305,44 @@ check(timeoutSummary.lastFailure.failureCategory ~= "unknown",
 check(supervisorHealth.active == 0 and supervisorHealth.reservations == 0
         and supervisorHealth.leakedReservations == 0
         and supervisorHealth.coolingDown >= 1
-        and supervisorHealth.invariantViolations >= 1,
-    "public supervisor health reports bounded retries, invariants, and reservation leaks")
+        and supervisorHealth.invariantViolations == 0,
+    "actor release removes retired history while health retains live retry evidence")
+
+do
+    local preemptActor = testActor("supervisor-preemption-reentrancy")
+    local rejectOnce = true
+    assert(Supervisor.begin(preemptActor, {
+        owner = "work", action = "chop", priority = Supervisor.Priority.WORK,
+        onCancel = function()
+            if rejectOnce then rejectOnce = false return false end
+            return true
+        end,
+    }))
+    local survivalToken
+    assert(Supervisor.queueUrgent(preemptActor, {
+        owner = "survival", action = "flee", priority = Supervisor.Priority.SURVIVAL,
+        dispatch = function(candidate)
+            survivalToken = assert(Supervisor.begin(candidate, {
+                owner = "survival", action = "flee",
+                priority = Supervisor.Priority.SURVIVAL, ignoreRetry = true,
+            }))
+            assert(Supervisor.reserve(survivalToken, "door:1", "door"))
+            return true, "flee_started"
+        end,
+    }))
+    local follow, followReason = Supervisor.begin(preemptActor, {
+        owner = "player", action = "follow", priority = Supervisor.Priority.PLAYER,
+        ignoreRetry = true,
+    })
+    check(follow == nil
+            and string.find(tostring(followReason), "actor_owned_after_preemption", 1, true) == 1
+            and Supervisor.current(preemptActor) == survivalToken
+            and Supervisor.reservationCount(preemptActor) == 1,
+        "preemption re-reads ownership after an urgent dispatch instead of orphaning it")
+    check(Supervisor.cancel(preemptActor, "fixture_done", nil, true) == true
+            and Supervisor.leakedReservations() == 0,
+        "the re-entrant urgent owner reaches a terminal phase and releases reservations")
+end
 
 local provider = {
     testOnly = true,
@@ -326,10 +362,13 @@ local removeToken = assert(Supervisor.begin(removeActor, {
 }))
 local removeResource = {}
 Supervisor.reserve(removeToken, removeResource, "remove-resource")
+check(Supervisor.actorStateCount(removeActor) >= 2,
+    "live actor has explicit supervisor ownership state before retirement")
 check(SC.Actor.remove(removeActor) == true
         and removeCancelled == 1 and Supervisor.current(removeActor) == nil
         and Supervisor.reservationCount(removeActor) == 0
-        and Supervisor.leakedReservations() == 0,
+        and Supervisor.leakedReservations() == 0
+        and Supervisor.actorStateCount(removeActor) == 0,
     "actor removal cancels ownership and releases reservations exactly once")
 
 local deadActor = testActor("death-cleanup")

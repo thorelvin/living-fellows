@@ -14,12 +14,15 @@ local function newSharedNative(list, count)
     return {
         generation = nativeGeneration,
         list = list,
-        count = count,
+        liveCount = count,
+        cycleCount = count,
         cursor = 0,
         cycle = nativeGeneration,
         completedCycle = 0,
         published = {},
+        publishedCount = 0,
         build = {},
+        buildSeen = {},
         nextAdvanceAt = 0,
     }
 end
@@ -35,25 +38,45 @@ local function nativeIndex(cursor, count)
 end
 
 local function advanceSharedNative(list, count, maximum, deadline, clock, now)
-    if sharedNative == nil or sharedNative.list ~= list or sharedNative.count ~= count then
+    if sharedNative == nil or sharedNative.list ~= list then
         sharedNative = newSharedNative(list, count)
     end
     local shared = sharedNative
+    shared.liveCount = count
+    if count == 0 and (shared.cycleCount ~= 0 or shared.cursor > 0
+        or #shared.build > 0) then
+        -- Zero is not ordinary churn: the engine has authoritatively emptied
+        -- the live roster, so retaining an in-flight populated snapshot would
+        -- manufacture threats that no longer exist.
+        shared.cycleCount, shared.cursor = 0, 0
+        shared.build, shared.buildSeen = {}, {}
+        shared.nextAdvanceAt = now
+    end
+    -- A completed roster may be held briefly to avoid needless rescans. If the
+    -- next cycle has not consumed anything yet, a size change is fresh work,
+    -- not churn inside a cycle, and should wake the producer immediately.
+    if shared.cursor == 0 and #shared.build == 0 and count ~= shared.cycleCount then
+        shared.cycleCount = count
+        shared.nextAdvanceAt = now
+        shared.published, shared.publishedCount = {}, 0
+        shared.completedCycle = 0
+    end
     if now < (shared.nextAdvanceAt or 0) then return 0, true, false end
 
     local processed = 0
-    local limit = math.min(count, 128,
+    local limit = math.min(math.max(1, shared.cycleCount), 128,
         math.max(1, math.floor(tonumber(maximum) or 64)))
-    while processed < limit and shared.cursor < count do
+    while processed < limit and shared.cursor < shared.cycleCount do
         -- Four entries are the bounded forward-progress floor used throughout
         -- the sliced perception/topology jobs. The wall-clock deadline is
         -- checked after that floor and after every subsequent native read.
         if deadline and processed >= 4 and clock() >= deadline then break end
-        local index = nativeIndex(shared.cursor, count)
+        local index = nativeIndex(shared.cursor, shared.cycleCount)
         local value, found = SC.NativeList.get(list, index)
         shared.cursor = shared.cursor + 1
         processed = processed + 1
-        if found and value ~= nil then
+        if found and value ~= nil and not shared.buildSeen[value] then
+            shared.buildSeen[value] = true
             local x, y, z = SC.GameplayUtil.position(value)
             shared.build[#shared.build + 1] = {
                 actor = value, index = index, x = x, y = y, z = z,
@@ -61,14 +84,17 @@ local function advanceSharedNative(list, count, maximum, deadline, clock, now)
         end
     end
 
-    local completed = shared.cursor >= count
+    local completed = shared.cursor >= shared.cycleCount
     if completed then
         shared.published = shared.build
+        shared.publishedCount = shared.cycleCount
         shared.completedCycle = shared.cycle
         nativeGeneration = nativeGeneration + 1
         shared.cycle = nativeGeneration
         shared.build = {}
+        shared.buildSeen = {}
         shared.cursor = 0
+        shared.cycleCount = count
     end
     local interval = completed
         and math.max(250, tonumber(SC.GameplayUtil.config(
@@ -83,11 +109,14 @@ local function resetActorNativeState(state, generation)
     state.nativeSharedGeneration = generation
     state.nativeRosterCycle = nil
     state.nativeRosterSource = nil
+    state.nativeRosterCount = nil
     state.nativeRosterCursor = 1
     state.nativeRosterComplete = false
     state.nativeLastCompleteCycle = nil
     state.nativePreviewCycle = nil
     state.nativePreviewCursor = 1
+    state.nativeDeliveredCycle = nil
+    state.nativeDeliveredSeen = nil
     state.nativeCandidateQueue = nil
     state.nativeCandidateIndex = nil
 end
@@ -132,6 +161,15 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     if state.nativeSharedGeneration ~= shared.generation then
         resetActorNativeState(state, shared.generation)
     end
+    if count == 0 then
+        -- An empty live list is authoritative absence. Do not make observers
+        -- drain a previously published populated roster before accepting it.
+        state.nativeRosterCycle = nil
+        state.nativeRosterSource = nil
+        state.nativeRosterCount = nil
+        state.nativeRosterComplete = true
+        state.nativeCandidateQueue, state.nativeCandidateIndex = nil, nil
+    end
 
     local queue = compactCandidateQueue(state)
     local queueCap = math.max(16, math.min(128,
@@ -144,12 +182,18 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     -- A newly published complete roster supersedes previews from that cycle.
     -- Re-reading it is Lua-local (no duplicate Java list traversal) and lets
     -- completion mean that this observer inspected the whole coherent roster.
-    if shared.completedCycle > 0 and state.nativeRosterCycle ~= shared.completedCycle
+    if count > 0 and shared.completedCycle > 0
+        and state.nativeRosterCycle ~= shared.completedCycle
         and (state.nativeRosterCycle == nil or state.nativeRosterComplete == true) then
         state.nativeRosterCycle = shared.completedCycle
         state.nativeRosterSource = shared.published
+        state.nativeRosterCount = shared.publishedCount
         state.nativeRosterCursor = 1
         state.nativeRosterComplete = false
+        if state.nativeDeliveredCycle ~= shared.completedCycle then
+            state.nativeDeliveredCycle = shared.completedCycle
+            state.nativeDeliveredSeen = {}
+        end
         state.nativeCandidateQueue, state.nativeCandidateIndex = {}, 1
         queue = state.nativeCandidateQueue
     end
@@ -157,7 +201,7 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     -- Once adopted, this observer owns an immutable roster reference.  The
     -- producer may publish several newer cycles while a slow observer drains
     -- it; that must not invalidate the observer's cursor or queued tail.
-    local coherent = state.nativeRosterComplete ~= true
+    local coherent = count > 0 and state.nativeRosterComplete ~= true
         and tonumber(state.nativeRosterCycle) ~= nil
         and type(state.nativeRosterSource) == "table"
     local source, cursor
@@ -171,8 +215,10 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         if state.nativePreviewCycle ~= shared.cycle then
             state.nativePreviewCycle = shared.cycle
             state.nativePreviewCursor = 1
+            state.nativeDeliveredCycle = shared.cycle
+            state.nativeDeliveredSeen = {}
         end
-        source = shared.build
+        source = count == 0 and {} or shared.build
         cursor = math.max(1, math.floor(tonumber(state.nativePreviewCursor) or 1))
     end
 
@@ -188,7 +234,8 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         local value = type(entry) == "table" and entry.actor or entry
         cursor = cursor + 1
         inspected = inspected + 1
-        if value ~= nil and not queued[value] then
+        if value ~= nil and not queued[value]
+            and not (state.nativeDeliveredSeen and state.nativeDeliveredSeen[value]) then
             local zx = type(entry) == "table" and entry.x or nil
             local zy = type(entry) == "table" and entry.y or nil
             local zz = type(entry) == "table" and entry.z or nil
@@ -225,6 +272,8 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     local queueIndex = math.max(1, math.floor(tonumber(state.nativeCandidateIndex) or 1))
     while #result < candidateLimit and queueIndex <= #queue do
         result[#result + 1] = queue[queueIndex]
+        state.nativeDeliveredSeen = state.nativeDeliveredSeen or {}
+        state.nativeDeliveredSeen[queue[queueIndex]] = true
         queueIndex = queueIndex + 1
     end
     state.nativeCandidateQueue, state.nativeCandidateIndex = queue, queueIndex
@@ -238,12 +287,15 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     end
 
     local observerCycle = tonumber(state.nativeRosterCycle) or 0
-    local complete = observerCycle > 0 and state.nativeRosterComplete == true
+    local complete = count == 0 or (observerCycle > 0 and state.nativeRosterComplete == true
         and state.nativeLastCompleteCycle == observerCycle
+    )
     local freshComplete = complete and observerCycle == shared.completedCycle
     local sourceRemaining = coherent and math.max(0, #source - cursor + 1) or 0
     local pending = queuePending + sourceRemaining
-    local reportedCursor = complete and count or shared.cursor
+    local reportedCursor = count == 0 and 0
+        or complete and (state.nativeRosterCount or #state.nativeRosterSource)
+        or shared.cursor
     state.nativeScanCursor = reportedCursor
     state.nativeScanList, state.nativeScanAt = list, now
     state.nativeScanCount = count
@@ -255,6 +307,9 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         freshComplete = freshComplete,
         reused = reused,
         count = count,
+        sourceCount = count == 0 and 0
+            or complete and (state.nativeRosterCount or #state.nativeRosterSource)
+            or shared.cycleCount,
         cursor = reportedCursor,
         globalCursor = shared.cursor,
         evaluated = #result,
@@ -262,7 +317,7 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         pending = pending,
         previewPending = coherent and 0 or math.max(0, #source - cursor + 1),
         listComplete = complete,
-        endReached = shared.completedCycle > 0,
+        endReached = complete or shared.completedCycle > 0,
         globalCompleted = globalCompleted,
         cycle = observerCycle,
         publishedCycle = shared.completedCycle,

@@ -538,6 +538,13 @@ function Supervisor.clearUrgent(actor, reason)
     return true, record.reason
 end
 
+function Supervisor.discardUrgent(actor)
+    if actor == nil then return false end
+    urgentByActor[actor] = nil
+    lastUrgentByActor[actor] = nil
+    return true
+end
+
 function Supervisor.retryStatus(actor, action, targetKey, category)
     local ledger = actor and retryByActor[actor] or nil
     if not ledger then return nil end
@@ -648,9 +655,33 @@ function Supervisor.begin(actor, spec)
         if incomingPriority <= (tonumber(current.priority) or 0) then
             return nil, "actor_owned_by:" .. tostring(current.owner) .. ":" .. tostring(current.action)
         end
+        local preemptionUrgent = urgentByActor[actor]
         local cancelled, cancelReason = runCancel(current,
             "preempted_by:" .. owner .. ":" .. action, false)
         if not cancelled then return nil, cancelReason or "preemption_rejected" end
+        -- finish() dispatches queued urgent work before runCancel() returns.  The
+        -- dispatch callback is allowed to claim the actor, so preemption is a
+        -- re-entrancy boundary: never overwrite the owner installed there.
+        current = activeByActor[actor]
+        local afterCancelNative = nativeActivity(actor)
+        if current ~= nil then
+            return nil, "actor_owned_after_preemption:" .. tostring(current.owner)
+                .. ":" .. tostring(current.action)
+        end
+        if afterCancelNative ~= nil then
+            local prefix = afterCancelNative.external == true
+                and "external_action_owned:" or "compatibility_action_owned:"
+            return nil, prefix .. tostring(afterCancelNative.owner) .. ":"
+                .. tostring(afterCancelNative.action) .. ":"
+                .. tostring(afterCancelNative.phase), afterCancelNative
+        end
+        if preemptionUrgent ~= nil
+            and urgentByActor[actor] ~= preemptionUrgent
+            and lastUrgentByActor[actor] == preemptionUrgent
+            and preemptionUrgent.state == "dispatched" then
+            return nil, "urgent_dispatched:"
+                .. tostring(preemptionUrgent.reason or "urgent")
+        end
     end
     local native = nativeActivity(actor)
     if current == nil and urgentJustDispatched and native == nil then
@@ -1083,20 +1114,22 @@ function Supervisor.leakedReservations()
     return count
 end
 
+function Supervisor.actorStateCount(actor)
+    if actor == nil then return 0 end
+    local count = 0
+    for _, map in ipairs({ activeByActor, historyByActor, retryByActor,
+        retryResetByActor, urgentByActor, lastUrgentByActor }) do
+        if map[actor] ~= nil then count = count + 1 end
+    end
+    for _, token in pairs(reservationOwners) do
+        if token and token.actor == actor then count = count + 1 end
+    end
+    return count
+end
+
 function Supervisor.reset(actor, reason)
     if actor ~= nil then
-        if urgentByActor[actor] then Supervisor.clearUrgent(actor,
-            reason or "reset") end
-        local token = activeByActor[actor]
-        if token then runCancel(token, reason or "reset", true) end
-        activeByActor[actor] = nil
-        retryByActor[actor] = nil
-        local prior = retryResetState(actor)
-        retryResetByActor[actor] = {
-            generation = (tonumber(prior.generation) or 0) + 1,
-            reason = clean(reason, 128) or "reset", at = nowMs(),
-        }
-        return true
+        return Supervisor.releaseActor(actor, reason or "reset")
     end
     -- A reset boundary cancels queued survival work; it must never dispatch
     -- movement while actors are being torn down.
@@ -1113,6 +1146,32 @@ function Supervisor.reset(actor, reason)
     retryByActor = setmetatable({}, { __mode = "k" })
     retryResetByActor = setmetatable({}, { __mode = "k" })
     reservationOwners = setmetatable({}, { __mode = "k" })
+    return true
+end
+
+-- Kahlua does not honour Lua's weak-table mode.  Actor retirement therefore
+-- needs an explicit, allocation-free release path that clears every supervisor
+-- map without recording new history or retry-reset state.
+function Supervisor.releaseActor(actor, reason)
+    if actor == nil then return false, "actor_missing" end
+    for _ = 1, 8 do
+        urgentByActor[actor] = nil
+        local token = activeByActor[actor]
+        if token == nil then break end
+        runCancel(token, reason or "actor_released", true)
+        -- A hostile/buggy cancellation callback must not keep reservations alive.
+        releaseReservations(token)
+        if activeByActor[actor] == token then activeByActor[actor] = nil end
+    end
+    for resource, token in pairs(reservationOwners) do
+        if token and token.actor == actor then reservationOwners[resource] = nil end
+    end
+    activeByActor[actor] = nil
+    historyByActor[actor] = nil
+    retryByActor[actor] = nil
+    retryResetByActor[actor] = nil
+    urgentByActor[actor] = nil
+    lastUrgentByActor[actor] = nil
     return true
 end
 

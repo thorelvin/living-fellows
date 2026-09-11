@@ -2611,6 +2611,26 @@ function actions.resetFinal(actor)
     else activeFinal = setmetatable({}, { __mode = "k" }) end
 end
 
+function actions.releaseActor(actor)
+    if actor == nil then return false end
+    -- Cancellation gets one chance to restore borrowed inventory/visual state;
+    -- the explicit nil assignments guarantee that Kahlua cannot retain the
+    -- native actor if the timed-action adapter is already gone.
+    pcall(actions.interruptOwnedActivity, actor, "actor_released")
+    activeWork[actor] = nil
+    activeNeeds[actor] = nil
+    activeFinal[actor] = nil
+    activeVisual[actor] = nil
+    pacingStates[actor] = nil
+    resultHistory[actor] = nil
+    pendingCombat[actor] = nil
+    if SC.NativeTraversalActions
+        and type(SC.NativeTraversalActions.reset) == "function" then
+        SC.NativeTraversalActions.reset(actor)
+    end
+    return true
+end
+
 SC.NativeCombatActions.configure({
     attack = attack,
     reload = reload,

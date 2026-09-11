@@ -367,8 +367,7 @@ local function fortify(actor, group, state)
     return true, "fortification_started"
 end
 
-local function friendlyInLine(actor, target, group, player)
-    if not U().pointSegmentDistanceSq then return false end
+local function friendlyInLine(actor, target, group, player, kind)
     local allies = {}
     if group then
         for _, member in ipairs(group.members or {}) do
@@ -388,11 +387,10 @@ local function friendlyInLine(actor, target, group, player)
             end
         end
     end
-    for _, ally in ipairs(allies) do
-        if ally ~= target and U().pointSegmentDistanceSq(ally, actor, target) <= 0.8 * 0.8
-            and U().distance(ally, actor) > 0.75 then return true end
-    end
-    return false
+    return SC.Combat and type(SC.Combat.friendlyFireBlocked) == "function"
+        and SC.Combat.friendlyFireBlocked(actor, target, {
+            player = player, allies = allies, kind = kind or "ranged",
+        }) == true
 end
 
 local function approachHostile(actor, target, swingMax, group)
@@ -477,7 +475,7 @@ local function hostile(actor, target, group, state, player)
     local rangedLimit = group and group.archetype == "bandit_camp"
         and (tonumber(SC.Config.get("banditFactionFirearmMaxRange")) or 8) or 12
     if ranged and visible and distance <= rangedLimit
-        and not friendlyInLine(actor, target, group, player) then
+        and not friendlyInLine(actor, target, group, player, "ranged") then
         return U().move(actor, "walk", {
             action = "attack_firearm", weapon = primary, target = target,
             factionCombat = true,
@@ -490,12 +488,20 @@ local function hostile(actor, target, group, state, player)
         swingMin, swingMax = SC.Combat.meleeRange(actor, primary)
     end
     if swingMax and visible and distance >= swingMin and distance <= swingMax then
+        if friendlyInLine(actor, target, group, player, "melee") then
+            U().stop(actor)
+            return true, "friendly_in_attack_lane"
+        end
         return U().move(actor, "walk", {
             action = "attack_melee", weapon = primary, target = target, factionCombat = true,
         })
     end
     local shoveDistance = tonumber(SC.Config.get("combatShoveDistance")) or 1.35
     if visible and distance <= shoveDistance and (not swingMin or distance < swingMin) then
+        if friendlyInLine(actor, target, group, player, "melee") then
+            U().stop(actor)
+            return true, "friendly_in_attack_lane"
+        end
         return U().move(actor, "walk", {
             action = "shove", target = target, factionCombat = true,
         })
@@ -973,11 +979,21 @@ function Behavior.updateHumanCombat(actor, player, runtime, threat)
 end
 
 function Behavior.reset(actor)
-    if actor then actorStates[actor] = nil
+    if actor then return Behavior.releaseActor(actor)
     else
         actorStates = setmetatable({}, { __mode = "k" })
         groupRosters = setmetatable({}, { __mode = "k" })
     end
+end
+
+
+function Behavior.releaseActor(actor)
+    if actor == nil then return false end
+    actorStates[actor] = nil
+    -- Each roster is a strong participant array; invalidate them all so a
+    -- retired native actor cannot survive through a long-lived faction group.
+    for group in pairs(groupRosters) do groupRosters[group] = nil end
+    return true
 end
 
 return Behavior

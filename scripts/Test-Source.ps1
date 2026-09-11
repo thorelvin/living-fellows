@@ -34,7 +34,17 @@ if ($parseErrors.Count -gt 0) {
 }
 
 & (Join-Path $ProjectRoot 'scripts\Build-NativeBridge.ps1') `
-    -ProjectRoot $ProjectRoot -InstallIntoPayload | Out-Null
+    -ProjectRoot $ProjectRoot | Out-Null
+$builtBridge = Join-Path $ProjectRoot 'build\native-bridge\SurvivorCompanionBridge.jar'
+$payloadBridge = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar'
+if (-not (Test-Path -LiteralPath $payloadBridge -PathType Leaf)) {
+    throw 'Committed native bridge payload is missing.'
+}
+$builtHash = (Get-FileHash -LiteralPath $builtBridge -Algorithm SHA256).Hash
+$payloadHash = (Get-FileHash -LiteralPath $payloadBridge -Algorithm SHA256).Hash
+if ($builtHash -ne $payloadHash) {
+    throw 'Committed native bridge JAR differs from the reproducible Java 17 build.'
+}
 
 New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
 try {

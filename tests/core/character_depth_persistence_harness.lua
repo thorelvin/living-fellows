@@ -536,11 +536,11 @@ do
             .. tostring(oversizedReason))
     local priorDocument = { schema = SC.Identity.saveSchema,
         companions = { untouched = { marker = "keep" } } }
-    local saveData = { [SC.Identity.saveKey] = priorDocument }
+    local saveData = SC_TEST_SET_WORLD_STORE({ document = priorDocument })
     local savePlayer = { getModData = function() return saveData end }
     local saved, saveReason = SC.Persistence.save(savePlayer)
-    check(saved == false and saveData[SC.Identity.saveKey] == priorDocument
-            and saveData[SC.Identity.saveKey].companions.untouched.marker == "keep",
+    check(saved == false and saveData.document == priorDocument
+            and saveData.document.companions.untouched.marker == "keep",
         "one-over inventory aborts save and preserves the previous document: "
             .. tostring(saveReason))
     original.inventory = originalInventory

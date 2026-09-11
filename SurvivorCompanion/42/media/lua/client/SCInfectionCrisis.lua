@@ -17,7 +17,6 @@ Crisis.OUTCOMES = {
 }
 
 local document
-local actorRuntime = setmetatable({}, { __mode = "k" })
 
 local function U() return SC.GameplayUtil end
 local function now() return U() and U().nowMs() or 0 end
@@ -805,7 +804,6 @@ function Crisis.export() return stableCopy(ensure(), 8, { count = 8192 }) end
 function Crisis.restore(source)
     if source == nil then
         document = emptyDocument()
-        actorRuntime = setmetatable({}, { __mode = "k" })
         return true, document
     end
     local stable, reason = stableCopy(source, 12, { count = 8192 })
@@ -819,10 +817,9 @@ function Crisis.restore(source)
         return restoreFailure("$.infectionCrisis", normalized and "normalization failed" or candidate)
     end
     document = candidate
-    actorRuntime = setmetatable({}, { __mode = "k" })
     return true, document
 end
-function Crisis.reset() document = emptyDocument(); actorRuntime = setmetatable({}, { __mode = "k" }) end
+function Crisis.reset() document = emptyDocument() end
 
 Crisis.reset()
 return Crisis

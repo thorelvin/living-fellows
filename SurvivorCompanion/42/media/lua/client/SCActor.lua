@@ -727,6 +727,68 @@ local function registryRecordFor(actor)
     return record, id, true
 end
 
+local function releaseActionOwnership(actor, reason, preserveVehicleBoardCommit)
+    local service = SC.ActionSupervisor
+    if actor == nil or type(service) ~= "table" then
+        return true, "action_supervisor_unavailable"
+    end
+    if preserveVehicleBoardCommit == true and type(service.current) == "function" then
+        local token = service.current(actor)
+        if token and token.owner == "vehicle" and token.action == "board_vehicle"
+            and token.phase == "committing" then
+            if type(service.discardUrgent) == "function" then service.discardUrgent(actor) end
+            return true, "vehicle_board_commit_retained", true
+        end
+    end
+    local callback = type(service.releaseActor) == "function"
+        and service.releaseActor or service.reset
+    if type(callback) == "function" then
+        local ok, released, releaseReason = pcall(callback, actor,
+            reason or "actor_removed")
+        if not ok or released == false then
+            return false, tostring(releaseReason or released)
+        end
+    end
+    return true, reason or "actor_removed", false
+end
+
+local runtimeReleaseHooks = {
+    { "BaseWork", "reset" }, { "Encounter", "reset" },
+    { "Downtime", "reset" }, { "Medical", "releaseActor" },
+    { "Combat", "releaseActor" }, { "Navigation", "reset" },
+    { "NavTraffic", "releaseActor" }, { "NavTraversal", "releaseActor" },
+    { "Decision", "reset" }, { "NativeActions", "releaseActor" },
+    { "Positioning", "releaseActor" }, { "Commands", "reset" },
+    { "Autonomy", "reset" }, { "Dialogue", "reset" },
+    { "FactionBehavior", "releaseActor" }, { "FactionLife", "reset" },
+    { "FactionContracts", "reset" }, { "ZombieAttack", "reset" },
+    { "ZombieTargeting", "reset" }, { "Senses", "reset" },
+    { "Vehicle", "releaseActor" }, { "Runtime", "releaseActor" },
+    { "GameplayUtil", "clearActorState" },
+}
+
+local function releaseRuntimeState(entry)
+    local actor = entry and entry.actor or nil
+    if actor == nil then return false, "runtime release actor is missing" end
+    local actionOk, actionReason, deferred = releaseActionOwnership(actor,
+        entry.reason or "actor_released", entry.preserveVehicleBoardCommit == true)
+    if not actionOk then return false, actionReason end
+    entry.actionOwnershipDeferred = deferred == true
+    for _, hook in ipairs(runtimeReleaseHooks) do
+        local service = SC[hook[1]]
+        local callback = type(service) == "table" and service[hook[2]] or nil
+        if type(callback) == "function" then
+            local ok, released, reason = pcall(callback, actor)
+            if not ok or released == false then
+                return false, tostring(hook[1]) .. "." .. tostring(hook[2])
+                    .. " failed: " .. tostring(reason or released)
+            end
+        end
+    end
+    entry.runtimeReleased = true
+    return true, actionReason
+end
+
 local function retainActorCleanup(actor, provider, options)
     if actor == nil or provider == nil then
         return nil, "cleanup ownership cannot be retained without actor and provider"
@@ -738,7 +800,9 @@ local function retainActorCleanup(actor, provider, options)
             actor = actor,
             provider = provider,
             operation = options.operation or "remove",
+            runtimeReleased = options.runtimeReleased == true,
             nativeReleased = options.nativeReleased == true,
+            preserveVehicleBoardCommit = options.preserveVehicleBoardCommit == true,
             unregister = options.unregister == true,
             permadead = options.permadead == true,
             record = options.record,
@@ -753,6 +817,9 @@ local function retainActorCleanup(actor, provider, options)
         entry.unregister = entry.unregister == true or options.unregister == true
         entry.permadead = entry.permadead == true or options.permadead == true
         entry.record = entry.record or options.record
+        entry.preserveVehicleBoardCommit = entry.preserveVehicleBoardCommit == true
+            or options.preserveVehicleBoardCommit == true
+        if options.runtimeReleased == true then entry.runtimeReleased = true end
         if options.nativeReleased == true then entry.nativeReleased = true end
         if options.reason ~= nil then entry.reason = tostring(options.reason) end
     end
@@ -777,6 +844,15 @@ local function attemptActorCleanup(actor)
     local entry = actorCleanupPending[actor]
     if entry == nil then return true, "no actor cleanup is pending" end
     entry.attempts = (entry.attempts or 0) + 1
+
+    if entry.runtimeReleased ~= true then
+        local released, reason = releaseRuntimeState(entry)
+        if not released then
+            entry.reason = tostring(reason or "actor runtime cleanup failed")
+            reportOwnership("actor runtime cleanup retry failed", entry.reason)
+            return false, entry.reason
+        end
+    end
 
     if entry.nativeReleased ~= true then
         local callback = entry.provider.remove
@@ -1192,31 +1268,6 @@ function actorService.cancelSpawn(ticket)
     return true
 end
 
-local function releaseActionOwnership(actor, reason, preserveVehicleBoardCommit)
-    local service = SC.ActionSupervisor
-    if actor == nil or type(service) ~= "table" or type(service.reset) ~= "function" then
-        return true, "action_supervisor_unavailable"
-    end
-    if preserveVehicleBoardCommit == true and type(service.current) == "function" then
-        local token = service.current(actor)
-        if token and token.owner == "vehicle" and token.action == "board_vehicle"
-            and token.phase == "committing" then
-            -- Virtual boarding removes the world actor as the physical effect
-            -- of the still-live vehicle transaction.  Its owner must retain
-            -- the receipt long enough to enter verifying and complete.
-            if type(service.clearUrgent) == "function" then
-                service.clearUrgent(actor, reason or "actor_removed")
-            end
-            if type(service.resetRetry) == "function" then
-                service.resetRetry(actor, reason or "actor_removed")
-            end
-            return true, "vehicle_board_commit_retained"
-        end
-    end
-    service.reset(actor, reason or "actor_removed")
-    return true, reason or "actor_removed"
-end
-
 local function releaseAllActionOwnership(reason)
     if SC.Registry == nil or type(SC.Registry.records) ~= "function" then
         local service = SC.ActionSupervisor
@@ -1233,6 +1284,13 @@ local function releaseAllActionOwnership(reason)
     if type(service) == "table" and type(service.reset) == "function" then
         service.reset(nil, reason or "actor_unload")
     end
+end
+
+function actorService.finishDeferredRuntimeRelease(actor, reason)
+    local service = SC.ActionSupervisor
+    if actor == nil or type(service) ~= "table"
+        or type(service.releaseActor) ~= "function" then return true end
+    return service.releaseActor(actor, reason or "deferred_actor_release_complete")
 end
 
 function actorService.remove(actor)
@@ -1268,10 +1326,10 @@ function actorService.remove(actor)
             activeRecord.runtime.lastStableSnapshot = snapshot
         end
     end
-    releaseActionOwnership(actor, "actor_removed", true)
     retainActorCleanup(actor, cachedProvider, {
         operation = "remove",
         unregister = true,
+        preserveVehicleBoardCommit = true,
         record = activeRecord,
         reason = "explicit actor removal",
     })
@@ -1304,24 +1362,8 @@ function actorService.retireDead(actor)
         return false, "actor provider cannot finalize a permanent death"
     end
     local id = SC.Registry.idOf(actor)
-    releaseActionOwnership(actor, "actor_death", false)
-    local retiredOk, retired, retireReason = pcall(
-        cachedProvider.retireDead, cachedProvider, actor)
-    if not retiredOk or retired ~= true then
-        local failure = tostring(retireReason or retired)
-        if retiredOk and failure == "death_pending" then return false, failure end
-        retainActorCleanup(actor, cachedProvider, {
-            operation = "retireDead",
-            unregister = true,
-            permadead = true,
-            record = id and SC.Registry.byId(id) or nil,
-            reason = failure,
-        })
-        return false, "death cleanup ownership retained for retry: " .. failure
-    end
     retainActorCleanup(actor, cachedProvider, {
         operation = "retireDead",
-        nativeReleased = true,
         unregister = true,
         permadead = true,
         record = id and SC.Registry.byId(id) or nil,
@@ -1329,7 +1371,8 @@ function actorService.retireDead(actor)
     })
     local cleaned, result = attemptActorCleanup(actor)
     if not cleaned then
-        return false, "death ownership was released but roster cleanup is pending: "
+        if tostring(result) == "death_pending" then return false, "death_pending" end
+        return false, "death cleanup ownership is retained for retry: "
             .. tostring(result or id)
     end
     return true, result
@@ -1545,6 +1588,8 @@ function actorService.ownershipSnapshot()
         cleanupDetails[#cleanupDetails + 1] = {
             actor = actor,
             operation = entry.operation,
+            runtimeReleased = entry.runtimeReleased == true,
+            actionOwnershipDeferred = entry.actionOwnershipDeferred == true,
             nativeReleased = entry.nativeReleased == true,
             unregister = entry.unregister == true,
             attempts = entry.attempts or 0,

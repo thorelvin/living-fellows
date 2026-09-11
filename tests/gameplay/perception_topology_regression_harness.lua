@@ -524,6 +524,36 @@ check(lateSeen and lateMeta.processed == 4 and list.reads - costlyReads == 4
         and lateMeta.complete == false,
     "a late relevant zombie in a 1000-entry list is acquired in one bounded costly slice")
 
+-- Busy cells change size continuously as zombies die, spawn, and unload. A
+-- cycle keeps its captured extent and clamps failed reads instead of restarting.
+Scan.reset()
+zombies = {}
+local churnHead = actor(2, 2, 0, "IsoZombie")
+local churnTail = actor(3, 2, 0, "IsoZombie")
+zombies[1] = churnHead
+for index = 2, 999 do zombies[index] = actor(300 + index, 300, 0, "IsoZombie") end
+zombies[1000] = churnTail
+local churnState, churnSeen, churnMeta = {}, {}, nil
+local churnCounts = setmetatable({}, { __mode = "k" })
+for pulse = 1, 220 do
+    if pulse % 2 == 0 then zombies[1001] = actor(9000 + pulse, 9000, 0, "IsoZombie")
+    else zombies[1001] = nil end
+    current = current + 100
+    local found
+    found, churnMeta = Scan.nativeCandidates(observer, churnState, 24, 64)
+    for _, candidate in ipairs(found) do
+        churnSeen[candidate] = true
+        churnCounts[candidate] = (churnCounts[candidate] or 0) + 1
+    end
+    if churnMeta.complete then break end
+end
+check(churnMeta.complete and churnMeta.endReached
+        and churnSeen[churnHead] and churnSeen[churnTail]
+        and (churnMeta.sourceCount == 1000 or churnMeta.sourceCount == 1001),
+    "native discovery completes a coherent cycle while the live list count oscillates")
+check((churnCounts[churnHead] or 0) == 1 and (churnCounts[churnTail] or 0) == 1,
+    "one coherent churn cycle publishes each relevant actor only once")
+
 -- Reaching the end with more candidates than one LOS window used to reset the
 -- cursor to zero before the tail drained, so completion was never observable.
 Scan.reset()

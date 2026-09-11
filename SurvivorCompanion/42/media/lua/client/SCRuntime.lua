@@ -1206,6 +1206,12 @@ function runtime.save()
     return SC.Persistence.save(player())
 end
 
+function runtime.releaseActor(actor)
+    if actor == nil then return false end
+    criticalDecisionActive[actor] = nil
+    return true
+end
+
 function runtime.reset(detach)
     local shouldDetach = detach ~= false
     local hadTick = tickAttached

@@ -214,8 +214,13 @@ public final class SCNativeCleanupTransactionTest {
         initialized.setAccessible(true);
         initialized.setBoolean(null, true);
         SCBootstrap.start();
+        Method flushInvokeQueue = MainThread.class.getDeclaredMethod("flushInvokeQueue");
+        flushInvokeQueue.setAccessible(true);
         long deadline = System.nanoTime() + 5_000_000_000L;
-        while (!SCBootstrap.isReady() && System.nanoTime() < deadline) Thread.sleep(10L);
+        while (!SCBootstrap.isReady() && System.nanoTime() < deadline) {
+            flushInvokeQueue.invoke(null);
+            Thread.sleep(10L);
+        }
         require(SCBootstrap.isReady(), "native bridge did not become ready: "
                 + SCBootstrap.getStatus());
         require(SCBridge.checkReady().isEmpty(),

@@ -10,6 +10,7 @@ local Quirks = SC.Quirks
 local episodes = setmetatable({}, { __mode = "k" })
 local recognition = setmetatable({}, { __mode = "k" })
 local shrineReservations = setmetatable({}, { __mode = "k" })
+local duckSearches = setmetatable({}, { __mode = "k" })
 
 local ritualIds = {
     spiffo_salute = true,
@@ -559,30 +560,149 @@ local function shrineSquare(actor)
     return nil
 end
 
-local function worldItems(square)
-    local result = {}
-    local list, ok = U().call(square, "getWorldObjects")
-    if ok and list then U().each(list, 64, function(value) result[#result + 1] = value end) end
-    if #result == 0 and type(square) == "table" and type(square.worldItems) == "table" then
-        for _, value in ipairs(square.worldItems) do result[#result + 1] = value end
-    end
-    return result
+local function readableListSize(list)
+    if type(list) == "table" then return #list, true end
+    local count, ok = U().call(list, "size")
+    count = tonumber(count)
+    if not ok or count == nil or count < 0 then return nil, false end
+    return math.floor(count), true
 end
 
-local function worldRelic(ritual)
+local function listIdentity(list, index)
+    if SC.NativeList and type(SC.NativeList.get) == "function" then
+        return SC.NativeList.get(list, index)
+    end
+    if type(list) == "table" then return list[index + 1], true end
+    return nil, false
+end
+
+local function sameIdentitySet(left, leftCount, right, rightCount)
+    if type(left) ~= "table" or type(right) ~= "table"
+        or leftCount ~= rightCount then return false end
+    for value in pairs(left) do
+        if right[value] ~= true then return false end
+    end
+    return true
+end
+
+local function resetDuckPass(search, list, count, discardPrior)
+    search.list = list
+    search.count = count
+    search.cursor = 0
+    search.passSeen = {}
+    search.passSeenCount = 0
+    if discardPrior then
+        search.previousSeen = nil
+        search.previousSeenCount = nil
+    end
+end
+
+local function pendingDuckRecovery(duck)
+    if not duck or duck.relicKey == ""
+        or type(U().findPendingWorldRecovery) ~= "function" then return nil end
+    return U().findPendingWorldRecovery(function(item)
+        local personal = item and personalRecord(item) or nil
+        return isDuck(item) and personal and personal.key == duck.relicKey
+    end)
+end
+
+-- Bounded exact-relic lookup. Absence is accepted only after two complete,
+-- identical identity sets. That second pass catches an item that crossed the
+-- cursor during a one-off collection reorder without turning sustained churn
+-- or an unreadable list into permanent loss.
+local function worldRelic(actor, ritual)
     local duck = ritual and ritual.duck
-    if not duck or duck.x == nil then return nil, nil end
+    if not duck or duck.x == nil then return "unavailable" end
+    local recovery = pendingDuckRecovery(duck)
+    if recovery then
+        local square = recovery.x ~= nil
+            and U().gridSquare(recovery.x, recovery.y, recovery.z) or nil
+        duckSearches[actor] = nil
+        return "managed", recovery.worldItem, recovery.item, square
+    end
+
     local square = U().gridSquare(duck.x, duck.y, duck.z)
-    if not square then return nil, nil end
-    for _, worldItem in ipairs(worldItems(square)) do
+    if not square then
+        duckSearches[actor] = nil
+        return "unavailable"
+    end
+    local list, available = U().call(square, "getWorldObjects")
+    if (not available or list == nil) and type(square) == "table"
+        and type(square.worldItems) == "table" then
+        list, available = square.worldItems, true
+    end
+    if not available or list == nil then
+        duckSearches[actor] = nil
+        return "unavailable", nil, nil, square
+    end
+    local count, countReadable = readableListSize(list)
+    if not countReadable then
+        duckSearches[actor] = nil
+        return "unavailable", nil, nil, square
+    end
+
+    local key = tostring(duck.relicKey) .. ":" .. tostring(duck.x)
+        .. ":" .. tostring(duck.y) .. ":" .. tostring(duck.z)
+    local search = duckSearches[actor]
+    if not search or search.key ~= key then
+        search = { key = key }
+        duckSearches[actor] = search
+        resetDuckPass(search, list, count, true)
+    elseif search.list ~= list or search.count ~= count then
+        resetDuckPass(search, list, count, true)
+    end
+
+    local budget = math.max(1, math.min(256,
+        math.floor(finite(U().config("duckRelicSearchBudget"), 64))))
+    local processed = 0
+    while search.cursor < search.count and processed < budget do
+        local worldItem, found = listIdentity(search.list, search.cursor)
+        if not found then
+            resetDuckPass(search, list, count, true)
+            return "unavailable", nil, nil, square
+        end
+        search.cursor = search.cursor + 1
+        processed = processed + 1
+        if worldItem ~= nil and not search.passSeen[worldItem] then
+            search.passSeen[worldItem] = true
+            search.passSeenCount = search.passSeenCount + 1
+        end
         local item = select(1, U().call(worldItem, "getItem"))
         if not item and type(worldItem) == "table" then item = worldItem.item end
         local personal = item and personalRecord(item) or nil
         if isDuck(item) and personal and personal.key == duck.relicKey then
-            return worldItem, item, square
+            duckSearches[actor] = nil
+            return "found", worldItem, item, square
         end
     end
-    return nil, nil, square
+    if search.cursor < search.count then
+        return "pending", nil, nil, square
+    end
+
+    local currentList, listReadable = U().call(square, "getWorldObjects")
+    if (not listReadable or currentList == nil) and type(square) == "table"
+        and type(square.worldItems) == "table" then
+        currentList, listReadable = square.worldItems, true
+    end
+    local currentCount, currentCountReadable = readableListSize(currentList)
+    if not listReadable or not currentCountReadable
+        or currentList ~= search.list or currentCount ~= search.count then
+        if listReadable and currentCountReadable then
+            resetDuckPass(search, currentList, currentCount, true)
+            return "pending", nil, nil, square
+        end
+        duckSearches[actor] = nil
+        return "unavailable", nil, nil, square
+    end
+    if sameIdentitySet(search.passSeen, search.passSeenCount,
+        search.previousSeen, search.previousSeenCount) then
+        duckSearches[actor] = nil
+        return "absent", nil, nil, square
+    end
+    search.previousSeen = search.passSeen
+    search.previousSeenCount = search.passSeenCount
+    resetDuckPass(search, list, count, false)
+    return "pending", nil, nil, square
 end
 
 local function dueForRitual(ritual, current)
@@ -678,22 +798,14 @@ local function beginEpisode(actor, detail, state)
                 or ritual.duck.phase == "recovery_pending")
         local square, item, worldItem
         if recovery then
-            worldItem, item, square = worldRelic(ritual)
-            if not square and ritual.duck and ritual.duck.x ~= nil then
-                return nil, "duck_square_unloaded"
-            end
-            if not worldItem then
-                local carried = relicItem(actor, ritual)
-                if carried then
-                    ritual.duck.phase = "carried"
-                    persist(actor)
-                    return nil, "duck_already_recovered"
-                end
-                ritual.duck.phase = "lost"
-                ritual.duck.x, ritual.duck.y, ritual.duck.z = nil, nil, nil
-                persist(actor)
-                return nil, "duck_relic_missing"
-            end
+            local episode = {
+                id = id, ritual = ritual, recovery = true, stage = "search",
+                objectKey = tostring(ritual.duck and ritual.duck.x or "?")
+                    .. ":" .. tostring(ritual.duck and ritual.duck.y or "?")
+                    .. ":rubber_duck",
+            }
+            episodes[actor] = episode
+            return episode
         else
             item = relicItem(actor, ritual)
             square = shrineSquare(actor)
@@ -755,6 +867,43 @@ end
 
 local function updateDuck(actor, state, episode)
     local ritual, duck = episode.ritual, episode.ritual.duck
+    if episode.stage == "search" then
+        local status, worldItem, item, square = worldRelic(actor, ritual)
+        if status == "pending" then return true, "duck_relic_search_pending" end
+        if status == "unavailable" then
+            return finishEpisode(actor, state, episode, false,
+                "duck_relic_search_unavailable")
+        end
+        if status == "absent" then
+            local carried = relicItem(actor, ritual)
+            if carried then
+                duck.phase = "carried"
+                duck.x, duck.y, duck.z = nil, nil, nil
+                duck.baseId = ""
+                persist(actor)
+                return finishEpisode(actor, state, episode, false,
+                    "duck_already_recovered")
+            end
+            duck.phase = "lost"
+            duck.x, duck.y, duck.z = nil, nil, nil
+            duck.baseId = ""
+            persist(actor)
+            return finishEpisode(actor, state, episode, false,
+                "duck_relic_missing")
+        end
+        episode.worldItem, episode.item, episode.square = worldItem, item, square
+        if status == "managed" then
+            episode.stage = "pickup"
+        else
+            if not square then
+                return finishEpisode(actor, state, episode, false,
+                    "duck_square_unloaded")
+            end
+            shrineReservations[square] = actor
+            episode.objectKey = U().squareKey(square) .. ":rubber_duck"
+            episode.stage = "approach"
+        end
+    end
     if episode.stage == "approach" then
         if U().distance(actor, episode.square) > (U().config("duckRitualApproachRange") or 1.25) then
             if SC.Navigation and type(SC.Navigation.request) == "function" then
@@ -890,7 +1039,8 @@ function Quirks.interrupt(actor, reason)
     local state = commandState(actor)
     if episode.id == "rubber_duck_oracle" and state then
         local ritual = ensureRitual(state)
-        if episode.worldItem or ritual.duck and ritual.duck.phase == "displayed" then
+        if episode.recovery or episode.stage == "search" or episode.worldItem
+            or ritual.duck and ritual.duck.phase == "displayed" then
             ritual.duck.phase = "recovery_pending"
         elseif ritual.duck then
             ritual.duck.phase = atBase(actor) and "carried" or "awaiting_base"
@@ -913,11 +1063,12 @@ end
 function Quirks.reset(actor)
     if actor then
         Quirks.interrupt(actor, "reset")
-        episodes[actor], recognition[actor] = nil, nil
+        episodes[actor], recognition[actor], duckSearches[actor] = nil, nil, nil
     else
         episodes = setmetatable({}, { __mode = "k" })
         recognition = setmetatable({}, { __mode = "k" })
         shrineReservations = setmetatable({}, { __mode = "k" })
+        duckSearches = setmetatable({}, { __mode = "k" })
     end
 end
 

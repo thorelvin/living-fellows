@@ -19,6 +19,7 @@ local lastDocument = nil
 local saveBlockedReason = nil
 local restoreCommitted = false
 local restoreFailureReason = "restore has not committed"
+local worldStore = nil
 local quarantined = { companions = {}, factionActors = {}, subsystems = {} }
 local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true }
 
@@ -874,30 +875,31 @@ function persistence.captureRecord(record, vehicleState)
     }
 end
 
-local function currentPlayer(player)
-    if player ~= nil then
-        return player
+function persistence.bindWorldStore(_)
+    if type(ModData) ~= "table" or type(ModData.getOrCreate) ~= "function" then
+        worldStore = nil
+        return false, "global ModData adapter is unavailable"
     end
-    if type(getPlayer) ~= "function" then
-        return nil
+    local ok, store = pcall(ModData.getOrCreate, SC.Identity.worldSaveKey)
+    if not ok or type(store) ~= "table" then
+        worldStore = nil
+        return false, "global ModData store is unavailable: " .. tostring(store)
     end
-    local ok, value = pcall(getPlayer)
-    return ok and value or nil
+    worldStore = store
+    return true, store
 end
 
-local function playerData(player)
-    player = currentPlayer(player)
-    local ok, data = invoke(player, "getModData")
-    if not ok or type(data) ~= "table" then
-        return nil, "player mod data is unavailable"
-    end
-    return data
+local function worldData()
+    if type(worldStore) == "table" then return worldStore end
+    local bound, store = persistence.bindWorldStore(false)
+    if not bound then return nil, store end
+    return store
 end
 
 function persistence.save(player)
-    local data, dataReason = playerData(player)
-    if data == nil then
-        return false, dataReason
+    local store, storeReason = worldData()
+    if store == nil then
+        return false, storeReason
     end
     if saveBlockedReason ~= nil then
         return false, "save document is preserved without overwrite: " .. saveBlockedReason
@@ -941,7 +943,7 @@ function persistence.save(player)
         end
         document[definition.field] = copied
     end
-    local priorDocument = data[SC.Identity.saveKey]
+    local priorDocument = store.document
     for _, record in ipairs(SC.Registry.records()) do
         if (record.recruited == true or type(record.factionId) == "string")
             and record.actor ~= nil then
@@ -1041,11 +1043,11 @@ function persistence.save(player)
         return false, "outgoing save validation failed: " .. tostring(outgoingReason)
     end
     local assigned, assignmentReason = pcall(function()
-        data[SC.Identity.saveKey] = outgoing
+        store.document = outgoing
     end)
     if not assigned then
         local rolledBack, rollbackReason = pcall(function()
-            data[SC.Identity.saveKey] = priorDocument
+            store.document = priorDocument
         end)
         if not rolledBack then
             return false, "save assignment failed: " .. tostring(assignmentReason)
@@ -1767,12 +1769,12 @@ end
 function persistence.restore(player)
     restoreCommitted = false
     restoreFailureReason = "restore is in progress"
-    local data, dataReason = playerData(player)
-    if data == nil then
-        restoreFailureReason = dataReason
-        return false, dataReason
+    local store, storeReason = worldData()
+    if store == nil then
+        restoreFailureReason = storeReason
+        return false, storeReason
     end
-    local readOk, document = pcall(function() return data[SC.Identity.saveKey] end)
+    local readOk, document = pcall(function() return store.document end)
     if not readOk then
         restoreFailureReason = "save document cannot be read: " .. tostring(document)
         return false, restoreFailureReason
@@ -1793,9 +1795,9 @@ function persistence.restore(player)
         return true, "no SurvivorCompanion save document"
     end
     if type(document) ~= "table"
-        or (document.schema ~= SC.Identity.saveSchema and document.schema ~= 1)
+        or document.schema ~= SC.Identity.saveSchema
         or type(document.companions) ~= "table" then
-        return blockSave(document, "SC_SaveV1 has an unsupported or invalid schema")
+        return blockSave(document, "SC_WorldV1 has an unsupported or invalid schema")
     end
 
     -- Prove that the complete raw envelope is preservable before any subsystem
@@ -1803,15 +1805,15 @@ function persistence.restore(player)
     local candidateDocument, documentReason = stableCopy(document,
         documentDepthLimit(), documentEntryLimit(), "$")
     if candidateDocument == nil then
-        return blockSave(document, "SC_SaveV1 cannot be preserved completely: "
+        return blockSave(document, "SC_WorldV1 cannot be preserved completely: "
             .. tostring(documentReason))
     end
     if type(candidateDocument.companions) ~= "table" then
-        return blockSave(document, "SC_SaveV1 companions bucket is malformed")
+        return blockSave(document, "SC_WorldV1 companions bucket is malformed")
     end
     if candidateDocument.factionActors ~= nil
         and type(candidateDocument.factionActors) ~= "table" then
-        return blockSave(document, "SC_SaveV1 factionActors bucket is malformed")
+        return blockSave(document, "SC_WorldV1 factionActors bucket is malformed")
     end
 
     local current = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0
@@ -2183,6 +2185,7 @@ function persistence.reset()
     saveBlockedReason = nil
     restoreCommitted = false
     restoreFailureReason = "restore has not committed"
+    worldStore = nil
     return true
 end
 

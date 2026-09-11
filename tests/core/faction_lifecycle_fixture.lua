@@ -25,6 +25,7 @@ local function event(name)
 end
 
 Events = {
+    OnInitGlobalModData = event("OnInitGlobalModData"),
     OnGameStart = event("OnGameStart"),
     OnSave = event("OnSave"),
     OnMainMenuEnter = event("OnMainMenuEnter"),

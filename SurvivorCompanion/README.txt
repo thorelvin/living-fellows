@@ -1,4 +1,4 @@
-Living Fellows: Companion 0.22.13 positional voices and consistent menu audio playtest
+Living Fellows: Companion 0.22.14 runtime safety and exact relic recovery playtest
 
 The included native bridge supplies SCNativeCompanion, an original IsoPlayer
 subclass that remains outside the local-player slots. Workshop installations
@@ -56,7 +56,8 @@ one persistent low-value keepsake, a "plans" conversation, and a sixth read-only
 Journal tab. The Journal never reveals private state by opening it. Keepsakes
 remain movable by the player, survive root/nested-carried save cases, and are
 protected from companion automation that would consume or craft with them.
-Existing 0.13.0 SC_SaveV1 companions normalize additively. This candidate has
+This development build starts a new SC_WorldV1 world document. Legacy
+character-scoped saves are intentionally not migrated yet. This candidate has
 passed headless gates but still requires the native in-game acceptance test.
 
 0.14.2 adds a persistent camp layer with drawn zones, classified storage,

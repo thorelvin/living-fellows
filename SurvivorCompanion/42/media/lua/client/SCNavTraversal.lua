@@ -420,4 +420,12 @@ function Traversal.reset()
     reservations = setmetatable({}, { __mode = "k" })
 end
 
+function Traversal.releaseActor(actor)
+    if actor == nil then return false end
+    for object, reservation in pairs(reservations) do
+        if reservation and reservation.actor == actor then reservations[object] = nil end
+    end
+    return true
+end
+
 return Traversal

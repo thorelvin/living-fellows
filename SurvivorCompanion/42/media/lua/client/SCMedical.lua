@@ -1316,17 +1316,7 @@ end
 
 function Medical.reset(actor)
     if actor then
-        local state = treatmentState[actor]
-        if state then
-            local service = supervisor()
-            if service and state.supervisorToken and service.isCurrent(state.supervisorToken) then
-                service.cancel(actor, "medical_reset", nil, true)
-            else
-                releaseTreatmentResources(actor, state, "medical_reset")
-            end
-        end
-        downed[actor] = nil
-        treatmentState[actor] = nil
+        return Medical.releaseActor(actor)
     else
         local helpers = {}
         for helper in pairs(treatmentState) do helpers[#helpers + 1] = helper end
@@ -1342,6 +1332,29 @@ function Medical.reset(actor)
         downed = setmetatable({}, { __mode = "k" })
         treatmentState = setmetatable({}, { __mode = "k" })
     end
+end
+
+function Medical.releaseActor(actor)
+    if actor == nil then return false end
+    local helpers = {}
+    for helper, state in pairs(treatmentState) do
+        if helper == actor or (state and state.patient == actor) then
+            helpers[#helpers + 1] = helper
+        end
+    end
+    for _, helper in ipairs(helpers) do
+        local state = treatmentState[helper]
+        local service = supervisor()
+        if state and service and state.supervisorToken
+            and service.isCurrent(state.supervisorToken) then
+            service.cancel(helper, "medical_actor_released", nil, true)
+        elseif state then
+            releaseTreatmentResources(helper, state, "medical_actor_released")
+        end
+        treatmentState[helper] = nil
+    end
+    downed[actor] = nil
+    return true
 end
 
 return Medical

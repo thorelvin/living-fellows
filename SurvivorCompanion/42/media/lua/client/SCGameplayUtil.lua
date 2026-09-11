@@ -31,6 +31,12 @@ local weakActorState = setmetatable({}, { __mode = "k" })
 local circuitState = setmetatable({}, { __mode = "k" })
 local globalCircuits = {}
 local diagnostics = {}
+-- A last-resort owner for an exact item whose native world removal succeeded
+-- but whose destination and world reconstruction both rejected it. Kahlua does
+-- not provide working weak tables, so records are removed explicitly as soon as
+-- either a container or the world becomes the verified owner.
+local pendingWorldRecoveryByItem = {}
+local pendingWorldRecoveryByWorld = {}
 
 local function packedArguments(...)
     return { n = select("#", ...), ... }
@@ -123,6 +129,9 @@ end
 
 function U.clearActorState(actor)
     if actor then
+        if type(U.releaseWorldRecoveryOwner) == "function" then
+            U.releaseWorldRecoveryOwner(actor)
+        end
         weakActorState[actor] = nil
         circuitState[actor] = nil
     else
@@ -130,6 +139,8 @@ function U.clearActorState(actor)
         circuitState = setmetatable({}, { __mode = "k" })
         globalCircuits = {}
         diagnostics = {}
+        pendingWorldRecoveryByItem = {}
+        pendingWorldRecoveryByWorld = {}
     end
 end
 
@@ -1026,9 +1037,15 @@ end
 
 local function identityInList(list, target)
     if list == nil then return nil end
-    local count = SC.NativeList and SC.NativeList.size(list)
-        or type(list) == "table" and #list or nil
+    local count
+    if type(list) == "table" then
+        count = #list
+    else
+        local value, readable = U.call(list, "size")
+        if readable then count = tonumber(value) end
+    end
     if count == nil or count > 4096 then return nil end
+    count = math.max(0, math.floor(count))
     for index = 0, count - 1 do
         local value, available
         if SC.NativeList then value, available = SC.NativeList.get(list, index)
@@ -1046,14 +1063,15 @@ local function worldItemPresent(square, worldItem)
     local canonical
     if U.hasMethod(square, "getWorldObjects") then
         local list, ok = U.call(square, "getWorldObjects")
-        canonical = ok and identityInList(list, worldItem) or nil
+        if ok then canonical = identityInList(list, worldItem) end
         if canonical == true then return true end
     end
     -- getObjects catches a partially detached wrapper, but getWorldObjects is
     -- the canonical ownership collection and is sufficient to prove absence.
     if U.hasMethod(square, "getObjects") then
         local list, ok = U.call(square, "getObjects")
-        local result = ok and identityInList(list, worldItem) or nil
+        local result
+        if ok then result = identityInList(list, worldItem) end
         if result == true then return true end
     end
     if canonical == false then return false end
@@ -1067,6 +1085,87 @@ local function worldItemPresent(square, worldItem)
 end
 
 U.worldItemPresent = worldItemPresent
+
+local function forgetWorldRecovery(recordOrItem)
+    local record = pendingWorldRecoveryByItem[recordOrItem]
+        or pendingWorldRecoveryByWorld[recordOrItem]
+    if record == nil and type(recordOrItem) == "table"
+        and recordOrItem.item
+        and pendingWorldRecoveryByItem[recordOrItem.item] == recordOrItem then
+        record = recordOrItem
+    end
+    if type(record) ~= "table" then return false end
+    if record.item then pendingWorldRecoveryByItem[record.item] = nil end
+    if record.worldItem then pendingWorldRecoveryByWorld[record.worldItem] = nil end
+    return true
+end
+
+local function rememberWorldRecovery(item, worldItem, square, source, destination, owner, reason)
+    local record = pendingWorldRecoveryByItem[item]
+        or pendingWorldRecoveryByWorld[worldItem] or {}
+    forgetWorldRecovery(record)
+    local x, y, z = U.position(square)
+    record.item = item
+    record.worldItem = worldItem
+    record.x, record.y, record.z = x, y, z
+    record.source = source
+    record.destination = destination
+    record.owner = owner or "managed_recovery"
+    record.reason = tostring(reason or "world_recovery_pending")
+    record.recordedAt = U.nowMs()
+    pendingWorldRecoveryByItem[item] = record
+    if worldItem then pendingWorldRecoveryByWorld[worldItem] = record end
+    return record
+end
+
+function U.pendingWorldRecovery(value)
+    return pendingWorldRecoveryByItem[value] or pendingWorldRecoveryByWorld[value]
+end
+
+function U.clearPendingWorldRecovery(value)
+    return forgetWorldRecovery(value)
+end
+
+function U.findPendingWorldRecovery(predicate)
+    if type(predicate) ~= "function" then return nil end
+    for _, record in pairs(pendingWorldRecoveryByItem) do
+        local ok, matched = pcall(predicate, record.item, record)
+        if ok and matched == true then return record end
+    end
+    return nil
+end
+
+function U.releaseWorldRecoveryOwner(actor)
+    local inventory = actor and U.inventory(actor) or nil
+    if not inventory then return 0 end
+    local matches = {}
+    for _, record in pairs(pendingWorldRecoveryByItem) do
+        if record.source == inventory or record.destination == inventory then
+            matches[#matches + 1] = record
+        end
+    end
+    local released = 0
+    for _, record in ipairs(matches) do
+        if U.inventoryContains(inventory, record.item) then
+            forgetWorldRecovery(record)
+        else
+            if record.source == inventory then record.source = nil end
+            if record.destination == inventory then record.destination = nil end
+            if record.owner == "source" or record.owner == "destination" then
+                record.owner = "managed_recovery"
+            end
+        end
+        released = released + 1
+    end
+    return released
+end
+
+local function recoverySquare(record)
+    if not record then return nil end
+    if record.x ~= nil then return U.gridSquare(record.x, record.y, record.z) end
+    local square, ok = U.call(record.worldItem, "getSquare")
+    return ok and square or nil
+end
 
 local function worldLink(item)
     local link, ok = U.call(item, "getWorldItem")
@@ -1111,10 +1210,86 @@ local function restoreWorldOwnership(square, oldWorldItem, item, source, sourceH
     end
     if sourceHadItem and source then addInventoryIdentity(source, item) end
     local linked, linkReadable = worldLink(item)
-    local restoredPresent = restoredWorld and worldItemPresent(square, restoredWorld) or nil
+    local restoredPresent
+    if restoredWorld then restoredPresent = worldItemPresent(square, restoredWorld) end
     local sourceRestored = not sourceHadItem or source and U.inventoryContains(source, item)
     return restoredPresent == true and linkReadable and linked == restoredWorld and sourceRestored,
         restoredWorld
+end
+
+
+local function resumeWorldRecovery(record, destination)
+    if type(record) ~= "table" or not record.item then
+        return false, "world_recovery_record_invalid", nil, false
+    end
+    local item, worldItem = record.item, record.worldItem
+    destination = destination or record.destination
+    local square = recoverySquare(record)
+    local present
+    if square and worldItem then present = worldItemPresent(square, worldItem) end
+    if present == true then
+        -- The world is once again the verified owner. Continue through the
+        -- ordinary removal transaction using the original wrapper.
+        record.owner, record.destination = "world", destination
+        return nil, nil, nil, true
+    end
+    if present == nil then
+        if destination and U.inventoryContains(destination, item) then
+            record.owner = "destination"
+        elseif record.source and U.inventoryContains(record.source, item) then
+            record.owner = "source"
+        else
+            record.owner = "managed_recovery"
+        end
+        return false, "world_recovery_presence_unknown", {
+            item = item, worldItem = worldItem, recovery = record,
+            owner = record.owner,
+        }, false
+    end
+
+    -- Absence is proven. Finish the interrupted detach before installing the
+    -- exact item in a container; never manufacture a replacement object.
+    U.call(worldItem, "setSquare", nil)
+    U.call(item, "setWorldItem", nil)
+    if type(item) == "table" then item.worldItem = nil end
+    local linked, linkReadable = worldLink(item)
+    local detachedSquare, squareReadable = U.call(worldItem, "getSquare")
+    if not linkReadable or linked ~= nil or squareReadable and detachedSquare ~= nil then
+        record.owner = "managed_recovery"
+        return false, "world_recovery_detach_pending", {
+            item = item, worldItem = worldItem, recovery = record,
+            owner = record.owner,
+        }, false
+    end
+    if destination and U.inventoryContains(destination, item) then
+        forgetWorldRecovery(record)
+        return true, "world_item_recovered_from_pending", {
+            item = item, destination = destination, idempotent = true,
+        }, false
+    end
+    if record.source and U.inventoryContains(record.source, item) then
+        local transferred, reason, details = U.transferItemVerified(
+            record.source, destination, item)
+        if transferred then
+            forgetWorldRecovery(record)
+            return true, "world_item_recovered_from_pending", details, false
+        end
+        record.owner, record.reason = "source", tostring(reason)
+        return false, "world_recovery_container_pending", {
+            item = item, recovery = record, owner = record.owner,
+        }, false
+    end
+    if destination and addInventoryIdentity(destination, item) then
+        forgetWorldRecovery(record)
+        return true, "world_item_recovered_from_pending", {
+            item = item, destination = destination, idempotent = false,
+        }, false
+    end
+    record.owner, record.destination = "managed_recovery", destination
+    return false, "world_recovery_container_pending", {
+        item = item, worldItem = worldItem, recovery = record,
+        owner = record.owner,
+    }, false
 end
 
 -- Transactional inverse of dropItem for one exact floor object. Build 42's
@@ -1132,22 +1307,53 @@ function U.takeWorldItemVerified(worldItem, destination, expectedItem)
     if item == nil or expectedItem ~= nil and item ~= expectedItem then
         return false, "world_item_identity_changed"
     end
+    local pending = pendingWorldRecoveryByItem[item]
+        or pendingWorldRecoveryByWorld[worldItem]
+    if pending then
+        item = pending.item or item
+        worldItem = pending.worldItem or worldItem
+        if expectedItem ~= nil and item ~= expectedItem then
+            return false, "world_recovery_identity_changed"
+        end
+    end
     local square, squareOk = U.call(worldItem, "getSquare")
     if not squareOk or square == nil then
-        square = type(worldItem) == "table" and worldItem.square or nil
+        square = pending and recoverySquare(pending)
+            or type(worldItem) == "table" and worldItem.square or nil
     end
     local linkedWorld, linkReadable = worldLink(item)
+    if pending then
+        local recovered, reason, details, continue = resumeWorldRecovery(pending, destination)
+        if continue ~= true then return recovered, reason, details end
+        square = recoverySquare(pending) or square
+        linkedWorld, linkReadable = worldLink(item)
+    end
     if U.inventoryContains(destination, item) then
-        local present = square and worldItemPresent(square, worldItem) or false
-        if present == false and linkReadable and linkedWorld == nil then
+        local present
+        if square then present = worldItemPresent(square, worldItem) end
+        local wrapperDetached = square == nil and squareOk == true
+        if (present == false or wrapperDetached)
+            and linkReadable and linkedWorld == nil then
+            forgetWorldRecovery(pending or item)
             return true, "already_recovered", { item = item, idempotent = true }
         end
         -- Preserve the world copy as the recovery owner if a prior partial call
         -- left both representations alive. A later retry can then start cleanly.
-        if not removeInventoryIdentity(destination, item) then
-            return false, "world_item_ownership_conflict"
+        if present == true or linkReadable and linkedWorld == worldItem then
+            if not removeInventoryIdentity(destination, item) then
+                return false, "world_item_ownership_conflict"
+            end
+            forgetWorldRecovery(pending or item)
+            return false, "world_item_conflict_rolled_back"
         end
-        return false, "world_item_conflict_rolled_back"
+        -- Unknown is not absence. Keep the verified destination owner intact
+        -- and retain reconciliation state instead of deleting the only copy.
+        local recovery = rememberWorldRecovery(item, worldItem, square, nil,
+            destination, "destination", "world_item_presence_unknown")
+        return false, "world_item_presence_unknown_destination_preserved", {
+            item = item, worldItem = worldItem, recovery = recovery,
+            owner = "destination",
+        }
     end
     if square == nil then
         local source = select(1, U.call(item, "getContainer"))
@@ -1173,11 +1379,21 @@ function U.takeWorldItemVerified(worldItem, destination, expectedItem)
     if present ~= false then
         local restored, restoredWorld = restoreWorldOwnership(
             square, worldItem, item, source, sourceHadItem, false)
+        local sourcePreserved = sourceHadItem and source
+            and U.inventoryContains(source, item) or false
+        local recovery
+        if restored then
+            forgetWorldRecovery(pending or item)
+        else
+            recovery = rememberWorldRecovery(item, restoredWorld or worldItem,
+                square, source, destination, sourcePreserved and "source"
+                    or "managed_recovery", "world_item_remove_rollback_failed")
+        end
         return false, restored and "world_item_remove_failed_rolled_back"
             or "world_item_remove_rollback_failed", {
             item = item, worldItem = restoredWorld or worldItem,
-            worldPresent = present, sourcePreserved = sourceHadItem
-                and source and U.inventoryContains(source, item) or false,
+            worldPresent = present, sourcePreserved = sourcePreserved,
+            recovery = recovery, owner = recovery and recovery.owner or "world",
         }
     end
     U.call(worldItem, "setSquare", nil)
@@ -1188,9 +1404,19 @@ function U.takeWorldItemVerified(worldItem, destination, expectedItem)
     if not linkReadable or linkedWorld ~= nil or detachedSquare ~= nil then
         local restored, restoredWorld = restoreWorldOwnership(
             square, worldItem, item, source, sourceHadItem, true)
+        local recovery
+        if restored then
+            forgetWorldRecovery(pending or item)
+        else
+            recovery = rememberWorldRecovery(item, restoredWorld or worldItem,
+                square, source, destination, sourceHadItem and source
+                    and U.inventoryContains(source, item) and "source"
+                    or "managed_recovery", "world_item_detach_rollback_failed")
+        end
         return false, restored and "world_item_detach_failed_rolled_back"
             or "world_item_detach_rollback_failed", {
             item = item, worldItem = restoredWorld or worldItem,
+            recovery = recovery, owner = recovery and recovery.owner or "world",
         }
     end
 
@@ -1199,6 +1425,7 @@ function U.takeWorldItemVerified(worldItem, destination, expectedItem)
         and worldItemPresent(square, worldItem) == false
         and select(1, worldLink(item)) == nil
         and (not source or source == destination or not U.inventoryContains(source, item)) then
+        forgetWorldRecovery(pending or item)
         return true, "world_item_recovered", {
             item = item, worldItem = worldItem, square = square,
             sourceEmpty = not (source and U.inventoryContains(source, item)),
@@ -1210,6 +1437,7 @@ function U.takeWorldItemVerified(worldItem, destination, expectedItem)
     local restored, restoredWorld = restoreWorldOwnership(
         square, worldItem, item, source, sourceHadItem, true)
     if restored then
+        forgetWorldRecovery(pending or item)
         return false, "pickup_add_failed_rolled_back", {
             item = item, worldItem = restoredWorld, worldPresent = true,
         }
@@ -1217,9 +1445,21 @@ function U.takeWorldItemVerified(worldItem, destination, expectedItem)
     -- Even if a hostile world adapter rejects reconstruction, retain one exact
     -- container owner so the failure is explicit and the item is not deleted.
     local sourcePreserved = sourceHadItem and source and addInventoryIdentity(source, item)
+    if not sourcePreserved and worldItemPresent(square, restoredWorld or worldItem) == false
+        and select(1, worldLink(item)) == nil
+        and addInventoryIdentity(destination, item) then
+        forgetWorldRecovery(pending or item)
+        return true, "world_item_recovered_after_rollback_rejection", {
+            item = item, destination = destination, recoveryFallback = true,
+        }
+    end
+    local recovery = rememberWorldRecovery(item, restoredWorld or worldItem,
+        square, source, destination, sourcePreserved and "source"
+            or "managed_recovery", "pickup_rollback_failed")
     return false, "pickup_rollback_failed", {
         item = item, worldItem = restoredWorld,
         sourcePreserved = sourcePreserved == true,
+        recovery = recovery, owner = recovery.owner,
     }
 end
 

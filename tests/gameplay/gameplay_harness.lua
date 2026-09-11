@@ -143,6 +143,10 @@ local function item(itemType, category, options)
     function value:getBaseHunger() return self.baseHunger or self.hungerChange or 0 end
     function value:isRotten() return self.rotten == true end
     function value:isBurnt() return self.burnt == true end
+    function value:isBroken() return self.broken == true end
+    function value:getCurrentUses() return self.currentUses end
+    function value:getMaxUses() return self.maxUses end
+    function value:getUsedDelta() return self.usedDelta end
     function value:isbDangerousUncooked() return self.dangerousUncooked == true end
     function value:isCooked() return self.cooked == true end
     function value:getPoisonPower() return self.poisonPower or 0 end
@@ -203,6 +207,12 @@ local function inventory(initial)
     function value:getEffectiveCapacity(character) return self.capacity end
     function value:getMaxWeight() return self.capacity end
     function value:getCapacity() return self.capacity end
+    function value:hasRoomFor(character, candidate)
+        if self.capacityCheckThrows then error("injected capacity check failure") end
+        if self.rejectRoom then return false end
+        return self:getCapacityWeight() + candidate:getActualWeight()
+            <= self.capacity + 0.001
+    end
     function value:haveThisKeyId(keyId)
         for _, candidate in ipairs(self.items) do
             if type(candidate.getKeyId) == "function" and candidate:getKeyId() == keyId then
@@ -5838,6 +5848,28 @@ local shotSnapshot = {
 }
 local shotHandled = SurvivorCompanion.Combat.update(shooter, lineFriendly, { snapshot = shotSnapshot })
 check(shotHandled and shooter.lastIntent.action ~= "attack_firearm", "friendly fire corridor blocks a shot through the player")
+do
+    local muzzleFriend = actor("muzzle-friend", 0, -3, { recruited = true })
+    muzzleFriend.worldX, muzzleFriend.worldY = shooter:getX() + 0.2, shooter:getY()
+    local targetFriend = actor("target-friend", 3, -3, { recruited = true })
+    targetFriend.worldX, targetFriend.worldY = distantZed:getX() - 0.2, distantZed:getY()
+    local meleeFriend = actor("melee-friend", 1, -3, { recruited = true })
+    meleeFriend.worldX, meleeFriend.worldY = shooter:getX() + 0.55, shooter:getY()
+    check(SurvivorCompanion.Combat.friendlyFireBlocked(shooter, distantZed, {
+            allies = { muzzleFriend }, kind = "ranged",
+        }) and SurvivorCompanion.Combat.friendlyFireBlocked(shooter, distantZed, {
+            allies = { targetFriend }, kind = "ranged",
+        }) and SurvivorCompanion.Combat.friendlyFireBlocked(shooter, distantZed, {
+            allies = { meleeFriend }, kind = "melee",
+        }),
+        "friendly-fire veto covers muzzle, target endpoint, and melee swing arc")
+    local priorFriendlyFire = SurvivorCompanion.Config.values.friendlyFire
+    SurvivorCompanion.Config.values.friendlyFire = true
+    check(not SurvivorCompanion.Combat.friendlyFireBlocked(shooter, distantZed, {
+            allies = { muzzleFriend, targetFriend }, kind = "ranged",
+        }), "explicit friendly-fire sandbox opt-out permits the protected lane")
+    SurvivorCompanion.Config.values.friendlyFire = priorFriendlyFire
+end
 local upperFriendly = actor("upper-player", 2, -3, { z = 1, className = "IsoPlayer", recruited = false })
 upperFriendly.modData.SC_Recruited = false
 do
@@ -8934,6 +8966,103 @@ do
     registry[duckKeeper.id] = nil
 end
 do
+    local relic = item("Base.Rubberducky", "Junk")
+    local seeker = actor("sc-duck-search", 2, 2, {
+        inventory = inventory({ relic }), square = campSquare,
+    })
+    registry[seeker.id] = seeker
+    local commands = SurvivorCompanion.Commands.peek(seeker)
+    SurvivorCompanion.Quirks.onVerifiedLoot(seeker, relic, commands)
+    local relicKey = SurvivorCompanion.PersonalItems.personalRecord(relic).key
+    campSquare.worldItems = {}
+    for index = 1, 64 do
+        campSquare:AddWorldInventoryItem(
+            item("Base.SearchClutter" .. tostring(index), "Junk"), 0.5, 0.5, 0, false)
+    end
+    local dropped, relicWorld = SurvivorCompanion.GameplayUtil.dropItem(
+        seeker.inventory, campSquare, relic, 0.5, 0.5, 0)
+    commands.ritual.duck.phase = "recovery_pending"
+    commands.ritual.duck.x, commands.ritual.duck.y, commands.ritual.duck.z =
+        campSquare.x, campSquare.y, campSquare.z
+    local safeSnapshot = { threats = {}, threatCount = 0, immediateAttackers = {},
+        immediateCount = 0, pressure = 0, player = { danger = 0 } }
+    local runtime = { snapshot = safeSnapshot }
+    local recovery = SurvivorCompanion.Quirks.ritualIntent(
+        seeker, nil, safeSnapshot, commands)
+    local firstSearch, firstSearchReason = SurvivorCompanion.Quirks.updateRitual(
+        seeker, nil, runtime, recovery)
+    check(dropped and relicWorld == campSquare.worldItems[65]
+            and firstSearch and firstSearchReason == "duck_relic_search_pending"
+            and commands.ritual.duck.phase == "recovery_pending"
+            and commands.ritual.duck.x == campSquare.x,
+        "an exact relic beyond the first 64 wrappers remains pending with its saved location")
+    local searchInterrupted = SurvivorCompanion.Quirks.interrupt(
+        seeker, "test_search_interruption")
+    recovery = SurvivorCompanion.Quirks.ritualIntent(
+        seeker, nil, safeSnapshot, commands)
+    check(searchInterrupted and recovery and recovery.recovery == true
+            and commands.ritual.duck.phase == "recovery_pending"
+            and commands.ritual.duck.x == campSquare.x,
+        "interrupting an incomplete relic search preserves its recovery evidence")
+
+    -- Move the unvisited relic behind the cursor once. The first pass can no
+    -- longer prove absence; the stable verification pass must rediscover it.
+    table.remove(campSquare.worldItems, 65)
+    table.insert(campSquare.worldItems, 1, relicWorld)
+    local reorderedSearch, reorderedReason = SurvivorCompanion.Quirks.updateRitual(
+        seeker, nil, runtime, recovery)
+    check(reorderedSearch and reorderedReason == "duck_relic_search_pending"
+            and commands.ritual.duck.phase == "recovery_pending"
+            and commands.ritual.duck.x == campSquare.x,
+        "a relic crossing the cursor during collection reorder is not declared lost")
+    for _ = 1, 10 do
+        clock = clock + 2000
+        SurvivorCompanion.Quirks.updateRitual(seeker, nil, runtime, recovery)
+        if commands.ritual.duck.phase == "carried" then break end
+    end
+    check(commands.ritual.duck.phase == "carried"
+            and seeker.inventory:contains(relic)
+            and SurvivorCompanion.PersonalItems.personalRecord(relic).key == relicKey
+            and #campSquare.worldItems == 64,
+        "the verification pass recovers the original reordered 65th relic without duplication")
+
+    local holding = inventory()
+    seeker.inventory:Remove(relic)
+    holding:AddItem(relic)
+    commands.ritual.duck.phase = "recovery_pending"
+    commands.ritual.duck.x, commands.ritual.duck.y, commands.ritual.duck.z = 400, 400, 0
+    recovery = SurvivorCompanion.Quirks.ritualIntent(
+        seeker, nil, safeSnapshot, commands)
+    local unavailable, unavailableReason = SurvivorCompanion.Quirks.updateRitual(
+        seeker, nil, runtime, recovery)
+    check(not unavailable and unavailableReason == "duck_relic_search_unavailable"
+            and commands.ritual.duck.phase == "recovery_pending"
+            and commands.ritual.duck.x == 400,
+        "an unloaded relic square preserves recovery state and coordinates")
+
+    local missingSquare = makeSquare(42, -8, 0)
+    commands.ritual.duck.x, commands.ritual.duck.y, commands.ritual.duck.z =
+        missingSquare.x, missingSquare.y, missingSquare.z
+    recovery = SurvivorCompanion.Quirks.ritualIntent(
+        seeker, nil, safeSnapshot, commands)
+    local missingPending, missingPendingReason = SurvivorCompanion.Quirks.updateRitual(
+        seeker, nil, runtime, recovery)
+    check(missingPending and missingPendingReason == "duck_relic_search_pending"
+            and commands.ritual.duck.phase == "recovery_pending"
+            and commands.ritual.duck.x == missingSquare.x,
+        "one complete empty relic pass is still pending rather than proof of loss")
+    local missing, missingReason = SurvivorCompanion.Quirks.updateRitual(
+        seeker, nil, runtime, recovery)
+    check(not missing and missingReason == "duck_relic_missing"
+            and commands.ritual.duck.phase == "lost"
+            and commands.ritual.duck.x == nil,
+        "two identical complete passes can establish genuine relic absence")
+    campSquare.worldItems = {}
+    SurvivorCompanion.Quirks.reset(seeker)
+    SurvivorCompanion.Commands.reset(seeker)
+    registry[seeker.id] = nil
+end
+do
     local function faultWorld(mode)
         local sourceItem = item("Base.Rubberducky", "Item")
         local source = inventory({ sourceItem })
@@ -9037,6 +9166,98 @@ do
             and #idempotentSquare.worldItems == 0
             and idempotentItem:getWorldItem() == nil,
         "repeated exact pickup is idempotent after one verified ownership transfer")
+
+    -- Native IsoGridSquare objects do not expose the permissive worldItems
+    -- table used by the main fixture. Keep authoritative collections private so
+    -- this exercises the production tri-state helper without that escape hatch.
+    local membershipSquare = { nativeWorld = {}, nativeObjects = {} }
+    function membershipSquare:getWorldObjects() return self.nativeWorld end
+    function membershipSquare:getObjects() return self.nativeObjects end
+    local membershipWorld = {}
+    membershipSquare.nativeWorld[1] = membershipWorld
+    check(SurvivorCompanion.GameplayUtil.worldItemPresent(
+            membershipSquare, membershipWorld) == true,
+        "native-shaped world membership reports the exact wrapper as present")
+    membershipSquare.nativeWorld, membershipSquare.nativeObjects = {}, {}
+    check(SurvivorCompanion.GameplayUtil.worldItemPresent(
+            membershipSquare, membershipWorld) == false,
+        "native-shaped readable empty collections prove exact wrapper absence")
+    function membershipSquare:getWorldObjects() error("unreadable world list") end
+    function membershipSquare:getObjects() error("unreadable object list") end
+    check(SurvivorCompanion.GameplayUtil.worldItemPresent(
+            membershipSquare, membershipWorld) == nil,
+        "unreadable native-shaped collections preserve unknown membership")
+
+    local function detachedWorldFixture(x, destinationRejects, reconstructionRejects)
+        local exact = item("Base.Rubberducky", "Item")
+        local target = inventory()
+        target.rejectAdd = destinationRejects == true
+        local nativeSquare = {
+            x = x, y = -8, z = 0, nativeWorld = {}, nativeObjects = {},
+        }
+        function nativeSquare:getX() return self.x end
+        function nativeSquare:getY() return self.y end
+        function nativeSquare:getZ() return self.z end
+        function nativeSquare:getWorldObjects() return self.nativeWorld end
+        function nativeSquare:getObjects() return self.nativeObjects end
+        local wrapper = { item = exact, square = nativeSquare }
+        function wrapper:getItem() return self.item end
+        function wrapper:getSquare() return self.square end
+        function wrapper:setSquare(value) self.square = value end
+        local function removeExact()
+            nativeSquare.nativeWorld, nativeSquare.nativeObjects = {}, {}
+            wrapper.square = nil
+        end
+        function nativeSquare:transmitRemoveItemFromSquare() removeExact() end
+        function nativeSquare:removeWorldObject() removeExact() end
+        function wrapper:removeFromWorld() self.removedFromWorld = true end
+        function wrapper:removeFromSquare() removeExact() end
+        function nativeSquare:AddWorldInventoryItem(added)
+            if reconstructionRejects then return nil end
+            local restored = { item = added, square = self }
+            function restored:getItem() return self.item end
+            function restored:getSquare() return self.square end
+            function restored:setSquare(value) self.square = value end
+            self.nativeWorld[1], self.nativeObjects[1] = restored, restored
+            added.worldItem = restored
+            return added
+        end
+        nativeSquare.nativeWorld[1], nativeSquare.nativeObjects[1] = wrapper, wrapper
+        exact.worldItem = wrapper
+        squares[squareKey(x, -8, 0)] = nativeSquare
+        return wrapper, exact, target, nativeSquare
+    end
+
+    local nativeWorld, nativeItem, nativeDestination, nativeSquare =
+        detachedWorldFixture(40, false, false)
+    local nativeRecovered, nativeReason =
+        SurvivorCompanion.GameplayUtil.takeWorldItemVerified(
+            nativeWorld, nativeDestination, nativeItem)
+    check(nativeRecovered and nativeReason == "world_item_recovered"
+            and nativeDestination:contains(nativeItem)
+            and #nativeSquare.nativeWorld == 0 and #nativeSquare.nativeObjects == 0
+            and nativeItem:getWorldItem() == nil,
+        "native-shaped pickup leaves exactly one destination-owned original item")
+
+    local pendingWorld, pendingItem, pendingDestination, pendingSquare =
+        detachedWorldFixture(41, true, true)
+    local pendingRecovered, pendingReason, pendingDetails =
+        SurvivorCompanion.GameplayUtil.takeWorldItemVerified(
+            pendingWorld, pendingDestination, pendingItem)
+    local pendingRecord = SurvivorCompanion.GameplayUtil.pendingWorldRecovery(pendingItem)
+    check(not pendingRecovered and pendingReason == "pickup_rollback_failed"
+            and pendingDetails and pendingDetails.owner == "managed_recovery"
+            and pendingRecord and pendingRecord.item == pendingItem
+            and not pendingDestination:contains(pendingItem)
+            and #pendingSquare.nativeWorld == 0,
+        "failed destination and world reconstruction retain the exact item in managed recovery")
+    pendingDestination.rejectAdd = false
+    local resumed, resumedReason = SurvivorCompanion.GameplayUtil.takeWorldItemVerified(
+        pendingWorld, pendingDestination, pendingItem)
+    check(resumed and resumedReason == "world_item_recovered_from_pending"
+            and pendingDestination:contains(pendingItem)
+            and SurvivorCompanion.GameplayUtil.pendingWorldRecovery(pendingItem) == nil,
+        "a repeated pickup resumes managed recovery without replacement or duplication")
 end
 local protectedArea = BaseLife.active().zones[1]
 do
@@ -10594,6 +10815,43 @@ local counter = Trade.quote("faction-test", {},
     { { item = item("Base.Bandage", "Medical") } })
 check(counter and counter.accepted == false and counter.counterOffer == counter.requiredOffer,
     "trade quote reports an explicit numeric counteroffer")
+do
+    local emptyFluid = { amount = 0, capacity = 1 }
+    function emptyFluid:getAmount() return self.amount end
+    function emptyFluid:getCapacity() return self.capacity end
+    local emptyBottle = item("Base.WaterBottle", "Item", { fluidContainer = emptyFluid })
+    local brokenAxe = item("Base.Axe", "Weapon", { broken = true, weight = 3 })
+    local rottenFood = item("Base.CannedCornedBeef", "Food", { rotten = true })
+    local heavyJunk = item("Base.HeavyJunk", "Item", { weight = 40 })
+    check(Trade.itemValue(emptyBottle) == 1
+            and Trade.itemValue(brokenAxe) == 0
+            and Trade.itemValue(rottenFood) == 0
+            and Trade.itemValue(heavyJunk) == 5,
+        "trade valuation prices contents and condition instead of rewarding broken heavy junk")
+end
+do
+    local offeredTool = item("Base.Hammer", "Tool")
+    local requestedLighter = item("Base.Lighter", "Item")
+    player.inventory:AddItem(offeredTool)
+    residentOne.inventory:AddItem(requestedLighter)
+    local originalSnapshot = SurvivorCompanion.Senses.snapshot
+    SurvivorCompanion.Senses.snapshot = function()
+        return { valid = true, threatCount = 0,
+            nativeDiscovery = { complete = true } }
+    end
+    player.inventory.capacityCheckThrows = true
+    local traded, capacityReason = Trade.barter("faction-test", player,
+        { { item = offeredTool, container = player.inventory } },
+        { { item = requestedLighter, container = residentOne.inventory } })
+    player.inventory.capacityCheckThrows = nil
+    SurvivorCompanion.Senses.snapshot = originalSnapshot
+    check(not traded and capacityReason == "player_capacity_check_unavailable"
+            and offeredTool:getContainer() == player.inventory
+            and requestedLighter:getContainer() == residentOne.inventory,
+        "trade fails closed before transfer when destination capacity cannot be proven")
+    player.inventory:Remove(offeredTool)
+    residentOne.inventory:Remove(requestedLighter)
+end
 
 local deepInventoryJunk = {}
 for index = 1, 600 do

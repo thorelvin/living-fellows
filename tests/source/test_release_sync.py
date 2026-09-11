@@ -47,7 +47,7 @@ runtime_manifest = json.loads((ROOT / "tests/core/pz-runtime.json").read_text(
 lua_release = capture(r'release\s*=\s*"([^"]+)"', namespace, "Lua release")
 lua_game = capture(r'gameVersion\s*=\s*"([^"]+)"', namespace, "Lua game version")
 lua_protocol = capture(r'bridgeProtocol\s*=\s*"([^"]+)"', namespace, "Lua protocol")
-save_key = capture(r'saveKey\s*=\s*"([^"]+)"', namespace, "save key")
+save_key = capture(r'worldSaveKey\s*=\s*"([^"]+)"', namespace, "world save key")
 save_schema = capture(r'saveSchema\s*=\s*(\d+)', namespace, "save schema")
 java_protocol = capture(r'PROTOCOL\s*=\s*"([^"]+)"', bridge, "Java protocol")
 java_game = capture(r'COMPILED_GAME_VERSION\s*=\s*"([^"]+)"', bridge, "Java game version")
@@ -87,8 +87,8 @@ require("local expectedNativeProtocol = SC.Identity.bridgeProtocol" in actor,
         "SCActor must read the shared protocol identity")
 require(lua_protocol in architecture and "42.20-isocompanion-4" not in architecture,
         "architecture protocol documentation drifted")
-require(save_key == "SC_SaveV1" and save_schema == "2"
-        and "stable save key `SC_SaveV1` with document schema 2" in architecture,
+require(save_key == "SC_WorldV1" and save_schema == "3"
+        and "Global ModData key `SC_WorldV1` with document schema 3" in architecture,
         "stable save key/schema documentation drifted")
 require("pull_request:" in source_workflow
         and "./scripts/Test-Source.ps1" in source_workflow,

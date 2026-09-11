@@ -7,7 +7,8 @@ local function check(value, message)
 end
 
 local SC = SurvivorCompanion
-check(SC.Bootstrap.isInstalled() and Events.OnGameStart.count() == 1
+check(SC.Bootstrap.isInstalled() and Events.OnInitGlobalModData.count() == 1
+        and Events.OnGameStart.count() == 1
         and Events.OnSave.count() == 1 and Events.OnMainMenuEnter.count() == 1,
     "bootstrap atomically owns one copy of each lifecycle hook")
 check(SC.Factions.installs == 1 and SC.FactionContracts.installs == 1
@@ -22,7 +23,8 @@ check(SC.Runtime.starts == 2 and SC.Factions.installs == 1
     "world starts do not duplicate long-lived hooks")
 
 local removed, removeReason = SC.Bootstrap.remove()
-check(removed and removeReason == "" and Events.OnGameStart.count() == 0
+check(removed and removeReason == "" and Events.OnInitGlobalModData.count() == 0
+        and Events.OnGameStart.count() == 0
         and Events.OnSave.count() == 0 and Events.OnMainMenuEnter.count() == 0
         and not SC.Factions.installed and not SC.FactionContracts.installed
         and not SC.CompanionMap.installed and not SC.BaseVisuals.installed,
@@ -64,6 +66,7 @@ check(SC.Bootstrap.install() and SC.Bootstrap.isInstalled()
 
 local function allOwned()
     return SC.Bootstrap.isInstalled()
+        and Events.OnInitGlobalModData.count() == 1
         and Events.OnGameStart.count() == 1 and Events.OnSave.count() == 1
         and Events.OnMainMenuEnter.count() == 1
         and SC.Factions.installed and SC.FactionContracts.installed
@@ -85,6 +88,7 @@ for _, entry in ipairs({
     { name = "OnMainMenuEnter", event = Events.OnMainMenuEnter },
     { name = "OnSave", event = Events.OnSave },
     { name = "OnGameStart", event = Events.OnGameStart },
+    { name = "OnInitGlobalModData", event = Events.OnInitGlobalModData },
 }) do
     check(SC.Bootstrap.install(), entry.name .. " removal fixture installs")
     SC.Runtime.worldSentinel = { value = entry.name }

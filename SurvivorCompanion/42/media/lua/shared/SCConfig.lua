@@ -321,6 +321,7 @@ local valueData = {
     combatMeleeOuterTolerance = 0.08,
     friendlyFire = false,
     friendlyFireCorridor = 0.8,
+    friendlyFireMeleeCorridor = 0.9,
     combatAllySupportRadius = 6,
     combatAllySupportMax = 12,
     combatCloseThreatRadius = 4.5,
@@ -458,6 +459,7 @@ local valueData = {
     duckRitualPickupScore = 140,
     duckRitualApproachRange = 1.25,
     duckRitualRecoveryRetryMs = 2500,
+    duckRelicSearchBudget = 64,
     -- Completed visual actions remain claimable until their gameplay owner has
     -- committed the corresponding inventory or medical transaction.
     visualEffectClaimMs = 2000,

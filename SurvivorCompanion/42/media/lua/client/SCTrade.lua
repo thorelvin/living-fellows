@@ -16,6 +16,10 @@ local values = {
     ["Base.WaterBottle"] = 10, ["Base.CannedSardines"] = 8,
     ["Base.CannedCornedBeef"] = 10, ["Base.Battery"] = 5, ["Base.Lighter"] = 7,
 }
+local categoryValues = {
+    food = 6, water = 8, ammunition = 4, medicine = 8,
+    weapon = 10, tools = 8, construction = 3, clothing = 2, other = 1,
+}
 
 local function U()
     return SC.GameplayUtil
@@ -293,7 +297,9 @@ end
 
 local function destinationAccepts(container, owner, item)
     local ok, allowed = invoke(container, "hasRoomFor", owner, item)
-    return not ok or allowed == true
+    if not ok then return false, "capacity_check_unavailable" end
+    if allowed ~= true then return false, "destination_full" end
+    return true
 end
 
 local function destinationAcceptsAll(container, owner, rows)
@@ -303,16 +309,24 @@ local function destinationAcceptsAll(container, owner, rows)
     local weightOk, currentWeight = invoke(container, "getCapacityWeight")
     local capacityOk, capacity = invoke(container, "getEffectiveCapacity", owner)
     if not capacityOk then capacityOk, capacity = invoke(container, "getCapacity") end
-    if weightOk and capacityOk and tonumber(currentWeight) and tonumber(capacity) then
-        local incoming = 0
-        for _, row in ipairs(rows or {}) do
-            local itemWeightOk, itemWeight = invoke(row.item, "getActualWeight")
-            incoming = incoming + (itemWeightOk and tonumber(itemWeight) or 0)
+    if not weightOk or not capacityOk or tonumber(currentWeight) == nil
+        or tonumber(capacity) == nil then
+        return false, "capacity_check_unavailable"
+    end
+    local incoming = 0
+    for _, row in ipairs(rows or {}) do
+        local itemWeightOk, itemWeight = invoke(row.item, "getActualWeight")
+        if not itemWeightOk or tonumber(itemWeight) == nil then
+            return false, "capacity_check_unavailable"
         end
-        if tonumber(currentWeight) + incoming > tonumber(capacity) + 0.001 then return false end
+        incoming = incoming + math.max(0, tonumber(itemWeight))
+    end
+    if tonumber(currentWeight) + incoming > tonumber(capacity) + 0.001 then
+        return false, "destination_full"
     end
     for _, row in ipairs(rows or {}) do
-        if not destinationAccepts(container, owner, row.item) then return false end
+        local accepted, reason = destinationAccepts(container, owner, row.item)
+        if not accepted then return false, reason end
     end
     return true
 end
@@ -338,9 +352,8 @@ end
 
 local function moveRows(rows, destination, destinationOwner, committed)
     for _, row in ipairs(rows or {}) do
-        if not destinationAccepts(destination, destinationOwner, row.item) then
-            return false, "destination_full"
-        end
+        local accepted, reason = destinationAccepts(destination, destinationOwner, row.item)
+        if not accepted then return false, reason end
     end
     for _, row in ipairs(rows or {}) do
         local removedOk, removed = invoke(row.container, "Remove", row.item)
@@ -399,11 +412,16 @@ local function transaction(group, player, playerRows, factionRows, options)
     valid, validationReason = validateRows(factionRows, trader, factionInventory,
         options.allowProtectedFaction == true)
     if not valid then return false, validationReason end
-    if not destinationAcceptsAll(factionInventory, trader, playerRows) then
-        return false, "faction_inventory_full"
+    local accepted, capacityReason = destinationAcceptsAll(
+        factionInventory, trader, playerRows)
+    if not accepted then
+        return false, capacityReason == "capacity_check_unavailable"
+            and "faction_capacity_check_unavailable" or "faction_inventory_full"
     end
-    if not destinationAcceptsAll(playerInventory, player, factionRows) then
-        return false, "player_inventory_full"
+    accepted, capacityReason = destinationAcceptsAll(playerInventory, player, factionRows)
+    if not accepted then
+        return false, capacityReason == "capacity_check_unavailable"
+            and "player_capacity_check_unavailable" or "player_inventory_full"
     end
     authorizationSerial = authorizationSerial + 1
     authorized = { serial = authorizationSerial, factionId = group.id }
@@ -586,16 +604,57 @@ function Trade.completeQuest(group, player, contract, choiceIndex, finalize)
     return true, reason or "quest_complete"
 end
 
-local function baseValue(item)
+function Trade.itemValue(item)
     local itemType = fullType(item)
-    if values[itemType] then return values[itemType] end
+    if itemType == "" then return 0 end
+    local brokenOk, broken = invoke(item, "isBroken")
+    local rottenOk, rotten = invoke(item, "isRotten")
+    local burntOk, burnt = invoke(item, "isBurnt")
+    if (brokenOk and broken == true) or (rottenOk and rotten == true)
+        or (burntOk and burnt == true) then return 0 end
+
+    local nominal = values[itemType]
     local weightOk, weight = invoke(item, "getActualWeight")
+    if nominal == nil then
+        local category = itemCategory(item)
+        nominal = categoryValues[category] or categoryValues.other
+        local numericWeight = weightOk and tonumber(weight) or 0
+        nominal = nominal + math.floor(math.min(2, math.max(0, numericWeight)) * 2)
+    end
+
+    local factor = 1
     local conditionOk, condition = invoke(item, "getCondition")
     local maximumOk, maximum = invoke(item, "getConditionMax")
-    local ratio = conditionOk and maximumOk and tonumber(maximum) and tonumber(maximum) > 0
-        and math.max(0.1, tonumber(condition) / tonumber(maximum)) or 1
-    return math.max(1, math.floor(((weightOk and tonumber(weight)) or 1) * 6 * ratio + 0.5))
+    if conditionOk and maximumOk and tonumber(condition) and tonumber(maximum)
+        and tonumber(maximum) > 0 then
+        factor = factor * U().clamp(tonumber(condition) / tonumber(maximum), 0, 1)
+    end
+    local currentOk, currentUses = invoke(item, "getCurrentUses")
+    local usesOk, maximumUses = invoke(item, "getMaxUses")
+    if currentOk and usesOk and tonumber(currentUses) and tonumber(maximumUses)
+        and tonumber(maximumUses) > 1 then
+        factor = factor * U().clamp(tonumber(currentUses) / tonumber(maximumUses), 0, 1)
+    else
+        local usedOk, usedDelta = invoke(item, "getUsedDelta")
+        if usedOk and tonumber(usedDelta) then
+            factor = factor * U().clamp(tonumber(usedDelta), 0, 1)
+        end
+    end
+    local fluidOk, fluid = invoke(item, "getFluidContainer")
+    if fluidOk and fluid ~= nil then
+        local amountOk, amount = invoke(fluid, "getAmount")
+        local capacityOk, fluidCapacity = invoke(fluid, "getCapacity")
+        if not amountOk or not capacityOk or tonumber(amount) == nil
+            or tonumber(fluidCapacity) == nil or tonumber(fluidCapacity) <= 0 then
+            return 0
+        end
+        local ratio = U().clamp(tonumber(amount) / tonumber(fluidCapacity), 0, 1)
+        factor = factor * math.max(0.1, ratio)
+    end
+    return math.max(0, math.floor(nominal * factor + 0.5))
 end
+
+local baseValue = Trade.itemValue
 
 function Trade.reserveSummary(groupId)
     local group = type(groupId) == "table" and groupId

@@ -23,7 +23,7 @@ end
 
 local SC = SurvivorCompanion
 local function playerFor(document)
-    local data = { SC_SaveV1 = document }
+    local data = SC_TEST_SET_WORLD_STORE({ document = document })
     return { getModData = function() return data end }, data
 end
 
@@ -65,7 +65,7 @@ check(mixedRestored == true and mixedReason ~= nil
         .. " pending=" .. tostring(SC.Persistence.isPending("sc-mixed-valid")))
 local mixedSaved, mixedOutgoing = SC.Persistence.save(mixedPlayer)
 check(mixedSaved == true and mixedOutgoing.companions[7].marker == mixedRaw.marker
-        and mixedData.SC_SaveV1.companions[7].marker == mixedRaw.marker,
+        and mixedData.document.companions[7].marker == mixedRaw.marker,
     "invalid numeric-key data is re-emitted without truncation")
 
 -- A malformed top-level actor bucket cannot be treated as empty, because the
@@ -88,8 +88,8 @@ check(malformedRestored == false
         and string.find(tostring(malformedReason), "factionActors", 1, true) ~= nil
         and subsystemCalls == 0,
     "malformed factionActors blocks before subsystem restore")
-check(malformedSaved == false and malformedData.SC_SaveV1 == malformedDocument
-        and malformedData.SC_SaveV1.community.sentinel == "untouched",
+check(malformedSaved == false and malformedData.document == malformedDocument
+        and malformedData.document.community.sentinel == "untouched",
     "malformed factionActors leaves the exact prior document assigned")
 
 check(SC.Persistence.reset() == true, "malformed bucket block resets explicitly")
