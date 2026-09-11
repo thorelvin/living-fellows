@@ -375,9 +375,13 @@ end
 function U.isDead(value)
     if value == nil then return true end
     local dead, ok = U.call(value, "isDead")
-    if ok then return dead == true end
+    if ok and dead == true then return true end
+    -- A zombie can reach zero health one update before Build 42 publishes its
+    -- terminal isDead flag. Treat that transition as dead as well so perception
+    -- and combat cannot select the corpse for one more attack.
     local health, healthOk = U.call(value, "getHealth")
-    return healthOk and type(health) == "number" and health <= 0
+    if healthOk and type(health) == "number" and health <= 0 then return true end
+    return false
 end
 
 function U.nativeHealth(value)
@@ -498,9 +502,45 @@ function U.squareStaticBlocker(square)
     return nil, nil
 end
 
-function U.movingBlocker(square, actor)
+-- Character bodies occupy a capsule, not their entire map tile. This is used
+-- by execution traffic checks; planner crowd costs can remain conservative.
+function U.bodyBlocksSegment(other, actor, toX, toY, clearance)
+    if other == nil or other == actor or not U.sameFloor(other, actor) then return false end
+    local ax, ay = U.position(actor)
+    local ox, oy = U.position(other)
+    if ax == nil or ox == nil or toX == nil or toY == nil then return true end
+    local dx, dy = toX - ax, toY - ay
+    local lengthSq = dx * dx + dy * dy
+    local projection = lengthSq > 0.000001 and ((ox - ax) * dx + (oy - ay) * dy) / lengthSq or 0
+    projection = math.max(0, math.min(1, projection))
+    local nearX, nearY = ax + dx * projection, ay + dy * projection
+    local radius = tonumber(clearance) or tonumber(U.config("navigationBodyClearance")) or 0.5
+    local distanceSq = (ox - nearX)^2 + (oy - nearY)^2
+    local startDistanceSq = (ox - ax)^2 + (oy - ay)^2
+    local endDistanceSq = (ox - toX)^2 + (oy - toY)^2
+    -- A body already touching us must not forbid a step that cleanly separates.
+    if startDistanceSq < radius * radius and projection <= 0.001
+        and endDistanceSq > startDistanceSq + 0.01 then return false end
+    return distanceSq < radius * radius
+end
+
+function U.movingBlocker(square, actor, options)
     local found, kind
     U.squareMovingObjects(square, function(other)
+        if other == actor then return end
+        local collidable, collisionKnown = U.call(other, "isCollidable")
+        if collisionKnown and collidable == false then return end
+        -- Giblets, blood drops and particles are IsoMovingObjects too. Only
+        -- physical pushables and living character bodies are traffic.
+        local character = U.isZombie(other) or U.isCompanion(other)
+            or U.instanceOf(other, "IsoPlayer") or U.instanceOf(other, "IsoGameCharacter")
+            or U.instanceOf(other, "IsoAnimal") or U.hasMethod(other, "getBodyDamage")
+        if not character and not U.instanceOf(other, "IsoPushableObject") then return end
+        if options and options.swept == true and actor then
+            local tx, ty = U.position(square)
+            tx, ty = options.toX or (tx and tx + 0.5), options.toY or (ty and ty + 0.5)
+            if not U.bodyBlocksSegment(other, actor, tx, ty, options.clearance) then return end
+        end
         if other ~= actor and U.instanceOf(other, "IsoPushableObject") then
             -- Wheelie bins and legacy pushables live in getMovingObjects(), not
             -- the square's IsoObject list. Companions have no authoritative
@@ -527,6 +567,7 @@ function U.movementStateBlocker(actor)
     if not actor then return nil end
     local checks = {
         { "isKnockedDown", "knocked_down" },
+        { "isCompanionTraversalActive", "climbing" },
         { "isClimbing", "climbing" },
         { "isBlockMovement", "movement_locked" },
     }

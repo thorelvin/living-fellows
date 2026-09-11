@@ -505,22 +505,102 @@ local function probeNativeLocomotion(current)
     end
 end
 
-local function findClearManualDirection(actor)
+local function findClearManualDirection(actor, clearance)
     local utility = SurvivorCompanion.GameplayUtil
     local x, y, z = position(actor)
     if x == nil then return nil end
     for _, direction in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
         local clear, called = utility.call(actor, "isCompanionMovementClear",
-            x + direction[1] * 1.25, y + direction[2] * 1.25, z or 0)
+            x + direction[1] * (clearance or 1.25), y + direction[2] * (clearance or 1.25), z or 0)
         if called and clear == true then return direction[1], direction[2] end
     end
     return nil
 end
 
+function Harness.findCombatArena(player)
+    local U = SurvivorCompanion.GameplayUtil
+    local px, py, pz = position(player)
+    if not px or type(getCell) ~= "function" then return nil end
+    local cell = getCell()
+    if not cell then return nil end
+    -- Prefer at least 15 tiles from the observer. Only fall back to a loaded
+    -- 10+ tile lane; ordinary single-player cannot enable invisibility cheats.
+    for _, radius in ipairs({ 16, 20, 24, 12 }) do
+        for _, direction in ipairs({ {1,0}, {-1,0}, {0,1}, {0,-1},
+            {1,1}, {-1,1}, {1,-1}, {-1,-1} }) do
+            local x, y = math.floor(px + direction[1] * radius), math.floor(py + direction[2] * radius)
+            local safe = true
+            for ox = -2, 2 do
+                for oy = -2, 2 do
+                    local square = cell:getGridSquare(x + ox, y + oy, math.floor(pz))
+                    if not square or not U.call(square, "getChunk") or not U.isSquareFree(square) then
+                        safe = false; break
+                    end
+                    local moving = U.call(square, "getMovingObjects")
+                    local size = moving and U.call(moving, "size")
+                    if not tonumber(size) or tonumber(size) > 0 then safe = false; break end
+                    if ox > -2 and U.edgeBlocked(square, cell:getGridSquare(x+ox-1, y+oy, math.floor(pz))) then
+                        safe = false; break
+                    end
+                    if oy > -2 and U.edgeBlocked(square, cell:getGridSquare(x+ox, y+oy-1, math.floor(pz))) then
+                        safe = false; break
+                    end
+                end
+                if not safe then break end
+            end
+            if safe then return {x=x+0.5, y=y+0.5, z=pz,
+                observerDistance=math.sqrt((x+0.5-px)^2+(y+0.5-py)^2)} end
+        end
+    end
+    return nil
+end
+
+function Harness.placeCombatActor(actor, point)
+    local SC, U = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    if not actor or not point or SC.Actor.stop(actor) ~= true then return false, "actor stop rejected" end
+    local placed, reason = pcall(function()
+        actor:setX(point.x); actor:setY(point.y); actor:setZ(point.z)
+        actor:setNextX(point.x); actor:setNextY(point.y)
+        actor:setLastX(point.x); actor:setLastY(point.y); actor:setLastZ(point.z)
+        actor:setCurrentSquareFromPosition()
+        actor:setSquare(actor:getCurrentSquare())
+        actor:setMovingSquare(actor:getCurrentSquare())
+    end)
+    if not placed then return false, tostring(reason) end
+    local member, checked = U.call(actor, "ensureWorldMembership")
+    local square = U.call(actor, "getCurrentSquare")
+    return checked and member == true and square ~= nil
+        and U.call(actor, "getMovingSquare") == square,
+        "member=" .. tostring(member) .. " position=" .. point.x .. "," .. point.y .. "," .. point.z
+end
+
+function Harness.restoreCombatArena()
+    if not Harness.combatArenaReturn then return true end
+    local restored, reason = Harness.placeCombatActor(Harness.actor, Harness.combatArenaReturn)
+    if restored then Harness.combatArenaReturn = nil end
+    return check("combat_arena_membership_restored", restored, reason)
+end
+
+-- Manual movement is a short input lease, just like a held player key. The
+-- production decision loop renews it; an animation probe must do the same.
+-- A single 250ms tap cannot prove a sustained gait after a 180-degree turn.
+local function refreshManualProbe(current, input)
+    if not input or input.failure or current < input.nextAt then return end
+    input.nextAt = current + 100
+    local accepted, reason = SurvivorCompanion.Actor.setMovement(
+        Harness.actor, input.mode, input.intent)
+    if accepted == true then
+        input.refreshes = input.refreshes + 1
+    else
+        input.failure = tostring(reason or "manual_input_rejected")
+        pcall(SurvivorCompanion.Actor.stop, Harness.actor)
+    end
+end
+
 local function beginBackwardStrafeProbe(current)
     local SC = SurvivorCompanion
     pcall(SC.Actor.stop, Harness.actor)
-    local moveX, moveY = findClearManualDirection(Harness.actor)
+    local moveX, moveY = findClearManualDirection(Harness.actor, 3)
     if moveX == nil then
         skip("native_backward_strafe_motion", "no clear cardinal manual-movement lane")
         skip("native_backward_strafe_blend", "no clear cardinal manual-movement lane")
@@ -542,7 +622,7 @@ local function beginBackwardStrafeProbe(current)
         y = y - moveY * 4,
         z = z or 0,
     }
-    local accepted, moveReason = SC.Actor.setMovement(Harness.actor, "walk", {
+    local intent = {
         action = "backstep",
         dx = moveX,
         dy = moveY,
@@ -550,7 +630,8 @@ local function beginBackwardStrafeProbe(current)
         keepFacing = true,
         weaponReady = false,
         supervisorToken = control,
-    })
+    }
+    local accepted, moveReason = SC.Actor.setMovement(Harness.actor, "walk", intent)
     if accepted ~= true then
         endHarnessControl(control, "native_backward_strafe_rejected")
         result("FAIL", "native_backward_strafe_motion", clean(moveReason))
@@ -558,6 +639,9 @@ local function beginBackwardStrafeProbe(current)
         return
     end
     Harness.backwardStrafeControl = control
+    Harness.backwardStrafeInput = {
+        mode = "walk", intent = intent, nextAt = current + 100, refreshes = 0,
+    }
     Harness.backwardStrafeStartX = x
     Harness.backwardStrafeStartY = y
     Harness.backwardStrafeMoveX = moveX
@@ -574,6 +658,9 @@ local function probeBackwardStrafe(current)
     local SC = SurvivorCompanion
     local utility = SC.GameplayUtil
     local actor = Harness.actor
+    if current - Harness.phaseStartedAt < 1400 then
+        refreshManualProbe(current, Harness.backwardStrafeInput)
+    end
     local deltaX = select(1, utility.call(actor, "getVariableFloat", "DeltaX", 0))
     local deltaY = select(1, utility.call(actor, "getVariableFloat", "DeltaY", 0))
     local state = select(1, utility.call(actor, "getCompanionActionStateName"))
@@ -605,12 +692,17 @@ local function probeBackwardStrafe(current)
         "state=" .. clean(Harness.backwardStrafeLastState)
             .. " DeltaX=" .. string.format("%.2f", Harness.backwardStrafeLastDeltaX)
             .. " DeltaY=" .. string.format("%.2f", Harness.backwardStrafeLastDeltaY))
-    check("native_backward_strafe_clip", Harness.backwardStrafeBwdClipSeen == true,
-        "active_clips=" .. clean(Harness.backwardStrafeAnimationNames))
+    check("native_backward_strafe_clip", Harness.backwardStrafeBwdClipSeen == true
+        and Harness.backwardStrafeInput.failure == nil
+        and Harness.backwardStrafeInput.refreshes >= 2,
+        "active_clips=" .. clean(Harness.backwardStrafeAnimationNames)
+            .. " input_refreshes=" .. tostring(Harness.backwardStrafeInput.refreshes)
+            .. " input_failure=" .. clean(Harness.backwardStrafeInput.failure))
     pcall(SC.Actor.stop, actor)
     endHarnessControl(Harness.backwardStrafeControl,
         "native_backward_strafe_probe_complete")
     Harness.backwardStrafeControl = nil
+    Harness.backwardStrafeInput = nil
     setPhase("begin_aimed_escape", current)
 end
 
@@ -626,7 +718,7 @@ local function findClearEscapeDirection(actor, threat)
     end)
     for _, direction in ipairs(candidates) do
         local clear, called = utility.call(actor, "isCompanionMovementClear",
-            x + direction[1] * 1.25, y + direction[2] * 1.25, z or 0)
+            x + direction[1] * 4, y + direction[2] * 4, z or 0)
         if called and clear == true then return direction[1], direction[2] end
     end
     return nil
@@ -652,13 +744,14 @@ local function beginAimedEscapeProbe(current)
     end
     local x, y = position(Harness.actor)
     SC.GameplayUtil.call(Harness.actor, "setCompanionAimTarget", Harness.player)
-    local accepted, moveReason = SC.Actor.setMovement(Harness.actor, "run", {
+    local intent = {
         action = "move",
         dx = moveX,
         dy = moveY,
         weaponReady = false,
         supervisorToken = control,
-    })
+    }
+    local accepted, moveReason = SC.Actor.setMovement(Harness.actor, "run", intent)
     if accepted ~= true then
         SC.GameplayUtil.call(Harness.actor, "setCompanionAimTarget", nil)
         endHarnessControl(control, "native_aimed_escape_rejected")
@@ -667,6 +760,9 @@ local function beginAimedEscapeProbe(current)
         return
     end
     Harness.aimedEscapeControl = control
+    Harness.aimedEscapeInput = {
+        mode = "run", intent = intent, nextAt = current + 100, refreshes = 0,
+    }
     Harness.aimedEscapeStartX = x
     Harness.aimedEscapeStartY = y
     Harness.aimedEscapeMoveX = moveX
@@ -679,6 +775,9 @@ end
 local function probeAimedEscape(current)
     local SC = SurvivorCompanion
     local utility = SC.GameplayUtil
+    if current - Harness.phaseStartedAt < 900 then
+        refreshManualProbe(current, Harness.aimedEscapeInput)
+    end
     local names = select(1,
         utility.call(Harness.actor, "getCompanionActiveAnimationNames"))
     local lowered = string.lower(tostring(names or ""))
@@ -703,12 +802,17 @@ local function probeAimedEscape(current)
         "along=" .. string.format("%.2f", along)
             .. " facing_dot=" .. string.format("%.2f", facingDot))
     check("native_aimed_escape_player_clip",
-        Harness.aimedEscapeForwardClipSeen == true,
-        "active_clips=" .. clean(Harness.aimedEscapeAnimationNames))
+        Harness.aimedEscapeForwardClipSeen == true
+            and Harness.aimedEscapeInput.failure == nil
+            and Harness.aimedEscapeInput.refreshes >= 2,
+        "active_clips=" .. clean(Harness.aimedEscapeAnimationNames)
+            .. " input_refreshes=" .. tostring(Harness.aimedEscapeInput.refreshes)
+            .. " input_failure=" .. clean(Harness.aimedEscapeInput.failure))
     utility.call(Harness.actor, "setCompanionAimTarget", nil)
     pcall(SC.Actor.stop, Harness.actor)
     endHarnessControl(Harness.aimedEscapeControl, "native_aimed_escape_probe_complete")
     Harness.aimedEscapeControl = nil
+    Harness.aimedEscapeInput = nil
     setPhase("begin_room", current)
 end
 
@@ -773,7 +877,7 @@ local function beginRoomProbe(current)
     local source, destination = findRoomEntryPair(Harness.player)
     if source == nil then
         skip("real_room_entry_sweep", "no loaded room threshold within 12 squares")
-        setPhase("awareness", current)
+        setPhase("begin_door_crossing", current)
         return
     end
     local id = SC.Registry.idOf(Harness.actor)
@@ -781,7 +885,7 @@ local function beginRoomProbe(current)
     local recovered, reason = SC.Actor.recover(Harness.actor, source)
     if recovered ~= true then
         result("FAIL", "real_room_entry_sweep", "native relocation failed: " .. clean(reason))
-        setPhase("awareness", current)
+        setPhase("begin_door_crossing", current)
         return
     end
     SC.Navigation.reset(Harness.actor)
@@ -790,10 +894,11 @@ local function beginRoomProbe(current)
     if control == nil then
         result("FAIL", "real_room_entry_sweep",
             "control ownership rejected: " .. clean(controlReason))
-        setPhase("awareness", nowMs())
+        setPhase("begin_door_crossing", nowMs())
         return
     end
     Harness.roomSupervisorToken = control
+    Harness.roomSource = source
     Harness.roomDestination = destination
     Harness.roomSnapshot = SC.Senses.snapshot(Harness.actor, Harness.player, {})
     Harness.roomProbeObservedAt = nil
@@ -823,7 +928,7 @@ local function runRoomProbe(current)
         endHarnessControl(Harness.roomSupervisorToken, "room_probe_failed")
         Harness.roomSupervisorToken = nil
         result("FAIL", "real_room_entry_sweep", status)
-        setPhase("awareness", current)
+        setPhase("begin_door_crossing", current)
         return
     end
     local seen = Harness.observedRoomStatuses
@@ -834,7 +939,7 @@ local function runRoomProbe(current)
         Harness.roomSupervisorToken = nil
         result("PASS", "real_room_entry_sweep",
             "observed threshold pause plus left and right native-facing requests")
-        setPhase("awareness", current)
+        setPhase("begin_door_crossing", current)
         return
     end
     local probeNow = nowMs()
@@ -860,7 +965,270 @@ local function runRoomProbe(current)
         endHarnessControl(Harness.roomSupervisorToken, "room_probe_timeout")
         Harness.roomSupervisorToken = nil
         result("FAIL", "real_room_entry_sweep", detail)
-        setPhase("awareness", current)
+        setPhase("begin_door_crossing", current)
+    end
+end
+
+-- Unlike the room-facing probe, this requires the actor's body to cross the
+-- actual door plane in both directions. Setup and travel use production
+-- navigation only: a detour reaching the far room cannot satisfy this test.
+function Harness.doorLandingFree(square)
+    local utility = SurvivorCompanion.GameplayUtil
+    return square ~= nil and utility.isSquareFree(square)
+        and utility.movingBlocker(square, Harness.actor) == nil
+end
+
+function Harness.doorLanding(source, dx, dy)
+    local utility = SurvivorCompanion.GameplayUtil
+    local sx, sy, sz = position(source)
+    -- The local player may occupy the tile directly behind the approach. A
+    -- natural side landing is equally valid, provided its two cardinal edges
+    -- are open and the actor still must cross the selected door's exact plane.
+    for _, lateral in ipairs({ 0, 1, -1 }) do
+        local bend = getCell():getGridSquare(sx - dy * lateral, sy + dx * lateral, sz)
+        local landing = getCell():getGridSquare(sx + dx - dy * lateral, sy + dy + dx * lateral, sz)
+        if Harness.doorLandingFree(bend) and Harness.doorLandingFree(landing)
+            and (lateral == 0 or not utility.edgeBlocked(source, bend))
+            and not utility.edgeBlocked(bend, landing) then
+            return landing
+        end
+    end
+    return nil
+end
+
+function Harness.afterDoorCrossingPhase()
+    return Harness.config.pathing_only == "true" and "finish" or "awareness"
+end
+
+function Harness.doorTrace(probe, current, status)
+    if current < (probe.nextTraceAt or 0) then return end
+    probe.nextTraceAt = current + 1000
+    local SC, utility = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local function point(value)
+        local x, y, z = position(value)
+        return x and string.format("%.3f,%.3f,%.1f", x, y, z or 0) or "none"
+    end
+    if not probe.geometryTraced then
+        probe.geometryTraced = true
+        local opposite = utility.call(probe.object, "getOppositeSquare")
+        print("SC_REAL_SANDBOX|DOOR_GEOMETRY|source=" .. point(probe.source)
+            .. " destination=" .. point(probe.destination)
+            .. " object=" .. utility.objectLabel(probe.object)
+            .. " objectSquare=" .. point(utility.squareOf(probe.object))
+            .. " north=" .. tostring(utility.call(probe.object, "getNorth"))
+            .. " open=" .. tostring(utility.call(probe.object, "IsOpen"))
+            .. " opposite=" .. point(opposite)
+            .. " edgeBlocked=" .. tostring(utility.edgeBlocked(probe.source, probe.destination))
+            .. "/" .. tostring(utility.edgeBlocked(probe.destination, probe.source)))
+        for _, square in ipairs({ probe.source, probe.destination }) do
+            local objects = {}
+            utility.squareObjects(square, function(object)
+                local sprite = utility.call(object, "getSprite")
+                objects[#objects + 1] = utility.objectLabel(object) .. ":"
+                    .. tostring(utility.call(sprite, "getName"))
+            end, 12)
+            print("SC_REAL_SANDBOX|DOOR_OBJECTS|square=" .. point(square)
+                .. " vehicle=" .. utility.objectLabel(utility.call(square, "getVehicleContainer"))
+                .. " objects=" .. table.concat(objects, ","))
+        end
+    end
+    local telemetry = SC.NativeActions.pathTelemetry(Harness.actor)
+    local x, y, z = position(Harness.actor)
+    local nextClear = utility.call(Harness.actor, "isCompanionMovementClear",
+        x + probe.dx * 0.6, y + probe.dy * 0.6, z)
+    local nativeState = utility.call(Harness.actor, "getCurrentState")
+    print("SC_REAL_SANDBOX|DOOR_TRACE|stage=" .. probe.stage .. " status=" .. tostring(status)
+        .. " pos=" .. point(Harness.actor) .. " fsm=" .. utility.objectLabel(nativeState)
+        .. " path=" .. tostring(telemetry.status)
+        .. " next=" .. tostring(telemetry.pathNextIsSet) .. ":"
+        .. tostring(telemetry.pathNextX) .. "," .. tostring(telemetry.pathNextY)
+        .. " target=" .. tostring(utility.call(telemetry.behavior, "getTargetX"))
+        .. "," .. tostring(utility.call(telemetry.behavior, "getTargetY"))
+        .. " moving=" .. tostring(utility.call(Harness.actor, "isMoving"))
+        .. " bPathfind=" .. tostring(utility.call(Harness.actor, "getVariableBoolean", "bPathfind"))
+        .. " clearAhead=" .. tostring(nextClear)
+        .. " polygonCorrected=" .. tostring(utility.call(Harness.actor, "isCollidedWithVehicle"))
+        .. " open=" .. tostring(utility.call(probe.object, "IsOpen")))
+    local collisionDiagnostic, collisionAvailable = utility.call(Harness.actor, "getCompanionCollisionDiagnostic")
+    if collisionAvailable then
+        print("SC_REAL_SANDBOX|DOOR_COLLISION|" .. tostring(collisionDiagnostic))
+    end
+end
+
+function Harness.doorCrossingCandidate(source, destination)
+    if source == nil or destination == nil then return nil end
+    local SC, utility = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local door, kind = SC.Topology.barrierBetween(source, destination)
+    if door == nil or kind ~= "door" then return nil end
+    local opened = utility.call(door, "IsOpen") == true
+    if not opened and (utility.call(door, "isLocked") == true
+        or utility.call(door, "isLockedByKey") == true) then return nil end
+    if utility.call(door, "isBarricaded") == true then return nil end
+    local sx, sy, sz = position(source)
+    local tx, ty = position(destination)
+    local dx, dy = tx - sx, ty - sy
+    if not Harness.doorLandingFree(source) or not Harness.doorLandingFree(destination) then return nil end
+    local nearGoal = Harness.doorLanding(source, -dx, -dy)
+    local farGoal = Harness.doorLanding(destination, dx, dy)
+    if not nearGoal or not farGoal then return nil end
+    return { object = door, source = source, destination = destination,
+        nearGoal = nearGoal, farGoal = farGoal, dx = dx, dy = dy,
+        mx = (sx + tx) * 0.5 + 0.5, my = (sy + ty) * 0.5 + 0.5,
+        z = sz, stage = "near", crossed = false }
+end
+
+function Harness.beginDoorCrossing(current)
+    local SC, utility = SurvivorCompanion, SurvivorCompanion.GameplayUtil
+    local probe = Harness.doorCrossingCandidate(Harness.roomSource, Harness.roomDestination)
+    if not probe then
+        local ax, ay, az = position(Harness.actor)
+        local directions = { { 1, 0 }, { 0, 1 } }
+        -- Bounded loaded-cell inspection; no all-world scan or path search.
+        for radius = 0, 6 do
+            for ox = -radius, radius do
+                for oy = -radius, radius do
+                    if math.max(math.abs(ox), math.abs(oy)) == radius then
+                        local x, y = math.floor(ax) + ox, math.floor(ay) + oy
+                        local source = getCell():getGridSquare(x, y, math.floor(az))
+                        for _, direction in ipairs(directions) do
+                            probe = Harness.doorCrossingCandidate(source,
+                                getCell():getGridSquare(x + direction[1], y + direction[2], math.floor(az)))
+                            if probe then break end
+                        end
+                    end
+                    if probe then break end
+                end
+                if probe then break end
+            end
+            if probe then break end
+        end
+    end
+    if not probe then
+        skip("real_door_crossing_round_trip", "no clear unlocked loaded door with two-sided landing within six squares")
+        setPhase(Harness.afterDoorCrossingPhase(), current)
+        return
+    end
+    SC.Navigation.reset(Harness.actor)
+    local token, reason = beginHarnessControl(Harness.actor, "door_crossing_probe", 40000)
+    if not token then
+        result("FAIL", "real_door_crossing_round_trip", "ownership: " .. clean(reason))
+        setPhase(Harness.afterDoorCrossingPhase(), current)
+        return
+    end
+    probe.token, probe.stageStartedAt = token, nowMs()
+    -- Navigation's legitimate recovery phase still belongs to this harness.
+    -- It must not deadlock on movementPermission before it can resume approach.
+    token.allowedMovementPhases.recovering = true
+    probe.snapshot = SC.Senses.snapshot(Harness.actor, Harness.player, {})
+    Harness.doorCrossing = probe
+    setPhase("door_crossing", nowMs())
+end
+
+function Harness.finishDoorCrossing(status, detail, current)
+    local SC = SurvivorCompanion
+    SC.Navigation.reset(Harness.actor)
+    pcall(SC.Actor.stop, Harness.actor)
+    endHarnessControl(Harness.doorCrossing and Harness.doorCrossing.token, "door_crossing_" .. status)
+    Harness.doorCrossing = nil
+    result(status, "real_door_crossing_round_trip", detail)
+    setPhase(Harness.afterDoorCrossingPhase(), current)
+end
+
+function Harness.checkDoorState(probe, current)
+    local utility = SurvivorCompanion.GameplayUtil
+    local function finite(value)
+        return type(value) == "number" and value == value and math.abs(value) < math.huge
+    end
+    local x, y, z = position(Harness.actor)
+    if not finite(x) or not finite(y) or not finite(z) then return false, "nonfinite_actor_position" end
+    local square = utility.squareOf(Harness.actor)
+    local present = false
+    utility.squareMovingObjects(square, function(other)
+        if other == Harness.actor then present = true return false end
+    end, 256)
+    local sx, sy, sz = position(square)
+    if not present or sx == nil or math.floor(x) ~= math.floor(sx)
+        or math.floor(y) ~= math.floor(sy) or math.floor(z) ~= math.floor(sz) then
+        return false, "actor_missing_from_current_square"
+    end
+    if probe.checkedX then
+        local step = math.sqrt((x - probe.checkedX)^2 + (y - probe.checkedY)^2 + (z - probe.checkedZ)^2)
+        local elapsed = math.max(0, current - probe.checkedAt) / 1000
+        probe.maximumStep = math.max(probe.maximumStep or 0, step)
+        -- Six tiles/sec is deliberately above a normal walk. The fixed margin
+        -- tolerates float quantization and delayed render sampling, not a snap.
+        if step > math.max(0.25, elapsed * 6) then return false, "unexpected_position_snap:" .. tostring(step) end
+    end
+    local diagnostic, available = utility.call(Harness.actor, "getCompanionCollisionDiagnostic")
+    if available then
+        -- This is actual postupdate input, not the bridge's rejected-request
+        -- counter: safe rejection of an invalid request is allowed.
+        for intended in string.gmatch(tostring(diagnostic), "intended=([^,;}]+)") do
+            local ix, iy = string.match(intended, "([^/]+)/([^/]+)")
+            if not finite(tonumber(ix)) or not finite(tonumber(iy)) then
+                return false, "nonfinite_coordinates_reached_physics:" .. intended
+            end
+        end
+    end
+    probe.checkedX, probe.checkedY, probe.checkedZ, probe.checkedAt = x, y, z, current
+    probe.checkedFrames = (probe.checkedFrames or 0) + 1
+    return true
+end
+
+function Harness.runDoorCrossing(current)
+    local SC, probe = SurvivorCompanion, Harness.doorCrossing
+    local healthy, healthReason = Harness.checkDoorState(probe, current)
+    if not healthy then
+        Harness.finishDoorCrossing("FAIL", "stage=" .. probe.stage .. "; " .. healthReason, current)
+        return
+    end
+    local goal = probe.stage == "out" and probe.farGoal or probe.nearGoal
+    local accepted, status = SC.Navigation.request(Harness.actor, goal, "walk", {
+        action = "ordered_move", snapshot = probe.snapshot, urgent = false,
+        movementPriority = 100, supervisorToken = probe.token,
+    })
+    local x, y, z = position(Harness.actor)
+    Harness.doorTrace(probe, current, status)
+    if not probe.progressX or (x - probe.progressX)^2 + (y - probe.progressY)^2 > 0.01 then
+        probe.progressX, probe.progressY = x, y
+        SC.ActionSupervisor.progress(probe.token,
+            string.format("door:%s:%.2f:%.2f", probe.stage, x, y), { stage = probe.stage })
+    end
+    local progress = (x - probe.mx) * probe.dx + (y - probe.my) * probe.dy
+    local lateral = (x - probe.mx) * -probe.dy + (y - probe.my) * probe.dx
+    if probe.stage ~= "near" and probe.previousProgress then
+        local previous = probe.previousProgress
+        local crosses = probe.stage == "out" and previous < 0 and progress >= 0
+            or probe.stage == "back" and previous > 0 and progress <= 0
+        if crosses then
+            local fraction = -previous / (progress - previous)
+            local crossingLateral = probe.previousLateral + fraction * (lateral - probe.previousLateral)
+            if math.abs(crossingLateral) < 0.45 and math.abs(z - probe.z) < 0.1
+                and math.abs(progress - previous) < 1 then probe.crossed = true end
+        end
+    end
+    probe.previousProgress, probe.previousLateral = progress, lateral
+    local reached = SC.GameplayUtil.arrived(Harness.actor, goal, { targetKind = "square", distance = 0.65 })
+    if reached and probe.stage == "near" and progress < -0.5 then
+        probe.stage, probe.crossed, probe.stageStartedAt = "out", false, current
+        SC.Navigation.reset(Harness.actor)
+    elseif reached and probe.crossed and probe.stage == "out" and progress > 0.5 then
+        probe.outPosition = string.format("%.2f,%.2f", x, y)
+        probe.stage, probe.crossed, probe.stageStartedAt = "back", false, current
+        SC.Navigation.reset(Harness.actor)
+    elseif reached and probe.crossed and probe.stage == "back" and progress < -0.5 then
+        Harness.finishDoorCrossing("PASS", "actual doorway crossed both ways; far=" .. probe.outPosition
+            .. "; returned=" .. string.format("%.2f,%.2f", x, y)
+            .. "; finite_member_frames=" .. tostring(probe.checkedFrames)
+            .. "; max_step=" .. string.format("%.3f", probe.maximumStep or 0), current)
+    elseif current - probe.stageStartedAt > 12000 then
+        local nav = SC.Navigation.peek(Harness.actor) or {}
+        local blocker = nav.lastBlocker or {}
+        Harness.finishDoorCrossing("FAIL", "stage=" .. probe.stage .. "; status=" .. tostring(status)
+            .. "; accepted=" .. tostring(accepted) .. "; crossed=" .. tostring(probe.crossed)
+            .. "; actor=" .. string.format("%.2f,%.2f,%.1f", x, y, z)
+            .. "; portal=" .. string.format("%.2f/%.2f", progress, lateral)
+            .. "; blocker=" .. tostring(blocker.diagnostic or blocker.type), current)
     end
 end
 
@@ -991,6 +1359,10 @@ local function combatDiagnosticSnapshot(actor, target)
         "shove_var=" .. clean(read("getVariableBoolean", "bDoShove")),
         "started=" .. clean(read("isAttackStarted")),
         "performing=" .. clean(read("isPerformingAttackAnimation")),
+        "melee_delay=" .. clean(read("getMeleeDelay")),
+        "recoil_delay=" .. clean(read("getRecoilDelay")),
+        "impact_serial=" .. clean(read("getCompanionAttackCollisionSerial")),
+        "native_path=" .. clean(read("getCompanionPathStatus")),
         "anim_updating=" .. clean(read("isAnimationUpdatingThisFrame")),
         -- Why a started attack may still fail to become a resolved swing: the
         -- actor's root state, hand-to-hand/floor intent, any native collision,
@@ -998,6 +1370,8 @@ local function combatDiagnosticSnapshot(actor, target)
         "state=" .. clean(read("getCurrentState")),
         "do_shove=" .. clean(read("isDoShove")),
         "aim_floor=" .. clean(read("isAimAtFloor")),
+        "use_weapon=" .. clean(observed(utility.call(read("getUseHandWeapon"), "getFullType"))),
+        "target_prone=" .. clean(observed(utility.call(target, "isProne"))),
         "col_vehicle=" .. clean(read("isCollidedWithVehicle")),
         "col_door=" .. clean(read("isCollidedWithDoor")),
         "col_object=" .. clean(read("getCollidedObject")),
@@ -1017,6 +1391,39 @@ local function pinTestZombieAtCombatSquare()
     pcall(function() z:setCurrentSquareFromPosition() end)
 end
 
+function Harness.meleeFixtureDistance(weapon, actor)
+    local U = SurvivorCompanion.GameplayUtil
+    local minimum = tonumber((U.call(weapon, "getMinRange")))
+    local maximum = tonumber((U.call(weapon, "getMaxRange", actor)))
+    local modifier = tonumber((U.call(weapon, "getRangeMod", actor)))
+    if not minimum or not maximum or not modifier or modifier <= 0 then
+        return nil, "weapon range unavailable"
+    end
+    maximum = maximum * modifier
+    -- Stay away from both the automatic defensive-shove band and the outer hit
+    -- boundary. Skill does not make a randomly placed adjacent tile in range.
+    local low, high = minimum + 0.3, maximum - 0.2
+    if low >= high then return nil, "weapon has no stable melee fixture band" end
+    return (low + high) * 0.5, "min=" .. minimum .. " max=" .. maximum
+end
+
+function Harness.onMeleeWeaponHit(attacker, target, weapon, damage)
+    if attacker ~= Harness.actor or target ~= Harness.testZombie then return end
+    local U = SurvivorCompanion.GameplayUtil
+    local ax, ay = position(attacker)
+    local tx, ty = position(target)
+    local distance = ax and tx and math.sqrt((ax - tx)^2 + (ay - ty)^2) or -1
+    Harness.combatImpactCount = (Harness.combatImpactCount or 0) + 1
+    Harness.combatImpactSnapshot = "distance=" .. tostring(distance)
+        .. " weapon=" .. tostring(U.call(weapon, "getFullType"))
+        .. " requested_damage=" .. tostring(damage)
+        .. " clips=" .. tostring(U.call(attacker, "getCompanionActiveAnimationNames"))
+        .. " snapshot={" .. combatDiagnosticSnapshot(attacker, target) .. "}"
+    -- OnWeaponHitCharacter is raised by native Hit before its damage calculation.
+    -- Observe only; never replace the hit or manufacture a health change.
+    print("SC_REAL_SANDBOX|MELEE_IMPACT|" .. Harness.combatImpactSnapshot)
+end
+
 local function cleanupCombat(current)
     endHarnessControl(Harness.combatSupervisorToken, "combat_probe_complete")
     Harness.combatSupervisorToken = nil
@@ -1033,6 +1440,8 @@ local function cleanupCombat(current)
     Harness.combatTargetX = nil
     Harness.combatTargetY = nil
     Harness.combatTargetZ = nil
+    Harness.combatImpactCount = nil
+    Harness.combatImpactSnapshot = nil
     setPhase("ranged_fire", current)
 end
 
@@ -1045,6 +1454,7 @@ end
 -- its health, passing as soon as a swing damages or kills it.
 local function probeCombatDamage(current)
     local SC = SurvivorCompanion
+    pinTestZombieAtCombatSquare()
     local afterDead = select(1, SC.GameplayUtil.call(Harness.testZombie, "isDead"))
     local afterHealth = select(1, SC.GameplayUtil.call(Harness.testZombie, "getHealth"))
     local before = Harness.combatTargetInitialHealth
@@ -1067,6 +1477,9 @@ local function probeCombatDamage(current)
                 .. " after=" .. tostring(afterHealth)
                 .. " a_npc=" .. v(Harness.actor, "isNpc")
                 .. " a_inmelee=" .. v(Harness.actor, "IsInMeleeAttack")
+                .. " last_reject=" .. clean(Harness.combatLastReason)
+                .. " impact={" .. clean(Harness.combatImpactSnapshot) .. "}"
+                .. " now={" .. combatDiagnosticSnapshot(Harness.actor, Harness.testZombie) .. "}"
                 .. " z_attackedby=" .. tostring(select(1, SC.GameplayUtil.call(
                     Harness.testZombie, "getAttackedBy")) ~= nil))
         cleanupCombat(current)
@@ -1077,13 +1490,18 @@ local function probeCombatDamage(current)
             Harness.actor, "isPerformingAttackAnimation"))
         if performing ~= true then
             pinTestZombieAtCombatSquare()
-            local accepted = SC.Actor.setMovement(Harness.actor, "walk", {
+            local accepted, reason = SC.Actor.setMovement(Harness.actor, "walk", {
                 action = "attack_melee", target = Harness.testZombie,
                 weapon = Harness.combatWeapon, urgent = true, emergency = true,
                 supervisorToken = Harness.combatSupervisorToken,
             })
             if accepted == true then
                 Harness.combatSwingCount = (Harness.combatSwingCount or 0) + 1
+            else
+                Harness.combatLastReason = reason
+                print("SC_REAL_SANDBOX|MELEE_RETRY_REJECT|" .. clean(reason)
+                    .. " snapshot={" .. combatDiagnosticSnapshot(Harness.actor,
+                        Harness.testZombie) .. "}")
             end
             Harness.combatNextAttemptAt = current + 700
         end
@@ -1091,10 +1509,13 @@ local function probeCombatDamage(current)
 end
 
 local function probeNativeCombat(current)
+    pinTestZombieAtCombatSquare()
     if current - Harness.phaseStartedAt < 300 then return end
     if current < (Harness.combatNextAttemptAt or 0) then return end
     Harness.combatNextAttemptAt = current + 125
     local SC = SurvivorCompanion
+    local collisionBefore = select(1, SC.GameplayUtil.call(
+        Harness.actor, "getCompanionAttackCollisionSerial"))
     local accepted, reason = SC.Actor.setMovement(Harness.actor, "walk", {
         action = "attack_melee",
         target = Harness.testZombie,
@@ -1131,11 +1552,13 @@ local function probeNativeCombat(current)
         -- Do not call that a real sword swing until the ordinary IsoPlayer
         -- animation graph consumes the request and subsequently completes it.
         Harness.combatStartedAt = current
+        Harness.combatCollisionBefore = tonumber(collisionBefore)
         Harness.combatAnimationObserved = false
         Harness.combatAttackType = tostring(typeValue)
         -- Read how many targets CombatManager found for this swing. Size 0 means
         -- calcValidTargets rejected the target (no valid target => AttackType.MISS);
-        -- size > 0 means a target was found and any miss is a hit roll.
+        -- size > 0 proves only preflight acquisition. The native collision event
+        -- rebuilds this list and can select a different stance/weapon at entry.
         local hitList = SC.GameplayUtil.call(Harness.actor, "getHitInfoList")
         local hitSize = hitList and SC.GameplayUtil.call(hitList, "size") or nil
         Harness.combatHitListSize = tostring(hitSize)
@@ -1149,6 +1572,8 @@ local function probeNativeCombat(current)
         setPhase("combat_animation", current)
         return
     end
+    print("SC_REAL_SANDBOX|MELEE_RETRY_REJECT|phase=preflight reason=" .. clean(reason)
+        .. " snapshot={" .. combatDiagnosticSnapshot(Harness.actor, Harness.testZombie) .. "}")
     if current - Harness.phaseStartedAt > 5000 then
         finishCombatProbe(current, false,
             "timed out after exact Build 42 attack preflight: " .. clean(reason))
@@ -1157,6 +1582,7 @@ end
 
 local function probeNativeCombatAnimation(current)
     local SC = SurvivorCompanion
+    pinTestZombieAtCombatSquare()
     local performing, performingOk = SC.GameplayUtil.call(
         Harness.actor, "isPerformingAttackAnimation")
     local started, startedOk = SC.GameplayUtil.call(Harness.actor, "isAttackStarted")
@@ -1165,10 +1591,32 @@ local function probeNativeCombatAnimation(current)
     end
     if Harness.combatAnimationObserved == true and startedOk and started ~= true
         and (not performingOk or performing ~= true) then
+        local serial = select(1, SC.GameplayUtil.call(
+            Harness.actor, "getCompanionAttackCollisionSerial"))
+        serial = tonumber(serial)
+        local previous = Harness.combatCollisionBefore
+        check("single_swing_collision_ownership", serial ~= nil and previous ~= nil
+            and serial - previous == 1,
+            "before=" .. tostring(previous) .. " after=" .. tostring(serial)
+                .. " elapsed_ms=" .. tostring(current - Harness.combatStartedAt))
+        local delay = select(1, SC.GameplayUtil.call(Harness.actor, "getMeleeDelay"))
+        if (tonumber(delay) or 0) > 0 then
+            local accepted, reason = SC.NativeActions.dispatch(Harness.actor, "walk", {
+                action = "attack_melee", target = Harness.testZombie,
+                weapon = Harness.combatWeapon, urgent = true, emergency = true,
+            }, { directNative = true })
+            check("native_melee_recovery_gate", accepted == false
+                and reason == "native_melee_recovery",
+                "delay=" .. tostring(delay) .. " result=" .. tostring(reason))
+        else
+            result("SKIP", "native_melee_recovery_gate",
+                "native delay had already drained before completed animation was observed")
+        end
         result("PASS", "direct_native_melee_attack",
             "adapter=" .. clean(Harness.combatLastReason)
                 .. " attack_type=" .. clean(Harness.combatAttackType)
                 .. " hit_targets=" .. tostring(Harness.combatHitListSize)
+                .. " start={" .. clean(Harness.combatStartSnapshot) .. "}"
                 .. " animation_observed=true completed=true")
         Harness.combatNextAttemptAt = current + 400
         setPhase("combat_damage", current)
@@ -1237,14 +1685,32 @@ local function endRangedProbe(current, zombie)
     setPhase("faction_begin", current)
 end
 
--- Verify a companion finishes a fallen zombie: knock a real zombie to the ground
--- and confirm the companion's floor finisher (stomp) actually lands damage and
--- kills it -- the native attack must resolve against a prone target, which the
+-- Verify a companion can injure a fallen zombie: knock a real zombie down and
+-- confirm the companion's stomp actually lands damage, without requiring a
+-- guaranteed kill. The native attack must resolve against a prone target, which the
 -- stance filter otherwise skips for an ordinary standing swing.
+function Harness.isStompClip(names)
+    -- Build 42 names the real player stomp "FloorStamp" (with held-weapon
+    -- variants), although its action/event is named Stomp. Match the attack
+    -- clip family, not an idle/transition/shove clip that mentions the action.
+    for clip in string.gmatch(string.lower(tostring(names or "")), "[%w_]+") do
+        if clip == "bob_attackfloorstamp" or clip == "bob_attackfloorstomp"
+            or string.match(clip, "^bob_attackfloorstamp_[%w_]+$")
+            or string.match(clip, "^bob_attackfloorstomp_[%w_]+$") then return true end
+    end
+    return false
+end
+
 local function endFinishGrounded(current, zombie)
+    check("native_grounded_attack_stance_and_clip",
+        Harness.finishFloorSelected == true and Harness.finishStompClip == true,
+        "floor_selected=" .. tostring(Harness.finishFloorSelected)
+            .. " stomp_clip=" .. tostring(Harness.finishStompClip)
+            .. " active_clips=" .. clean(Harness.finishAnimationNames))
     if zombie ~= nil then cleanupTestZombie(zombie) end
     Harness.finishZombie = nil
     Harness.finishTimingChecked = nil
+    Harness.finishLastImpact = nil
     -- Clear the floor-aim / downed-target residue the stomp leaves behind so the
     -- following standing melee phase starts from a clean, upright attack posture.
     pcall(function() Harness.actor:setAimAtFloor(false) end)
@@ -1273,8 +1739,21 @@ local function probeFinishGrounded(current)
             skip("native_companion_finishes_grounded", "companion has no position")
             setPhase("zombie_targeting", current); return
         end
+        -- Earlier probes may leave the actor beside a door or wall. A blind
+        -- eastward spawn can put this supposedly clean target through that wall.
+        -- Pick a real clear contact lane; never bypass impact-time validation.
+        pcall(SC.Actor.stop, Harness.actor)
+        local dx, dy = findClearManualDirection(Harness.actor, 1.0)
+        if dx == nil then
+            result("FAIL", "native_companion_finishes_grounded",
+                "fixture has no clear adjacent contact lane at "
+                    .. tostring(ax) .. "," .. tostring(ay) .. "," .. tostring(az))
+            setPhase("zombie_targeting", current); return
+        end
+        local eastClear = select(1, U.call(Harness.actor,
+            "isCompanionMovementClear", ax + 1.0, ay, az or 0))
         local okSpawn, zs = pcall(addZombiesInOutfit,
-            math.floor(ax) + 1, math.floor(ay), math.floor(az or 0), 1, nil, 0)
+            math.floor(ax + dx), math.floor(ay + dy), math.floor(az or 0), 1, nil, 0)
         local zombie = okSpawn and zs and select(1, U.call(zs, "get", 0)) or nil
         if zombie == nil then
             result("FAIL", "native_companion_finishes_grounded", "zombie spawn failed")
@@ -1297,58 +1776,91 @@ local function probeFinishGrounded(current)
         pcall(function() if Perks ~= nil and Perks.Strength ~= nil then
             Harness.actor:setPerkLevelDebug(Perks.Strength, 10) end end)
         local ax, ay, az = position(Harness.actor)
+        local contactX, contactY = dx * 0.5, dy * 0.5
         if ax ~= nil then
-            pcall(function() zombie:setX(ax + 1.0) end)
-            pcall(function() zombie:setY(ay) end)
+            pcall(function() zombie:setX(ax + contactX) end)
+            pcall(function() zombie:setY(ay + contactY) end)
+            pcall(function() zombie:setZ(az or 0) end)
             pcall(function() zombie:setCurrentSquareFromPosition() end)
         end
+        Harness.finishMoveX, Harness.finishMoveY = contactX, contactY
+        print("SC_REAL_SANDBOX_DIAGNOSTIC|grounded_contact_fixture|"
+            .. clean("actor=" .. tostring(ax) .. "," .. tostring(ay) .. "," .. tostring(az)
+                .. " direction=" .. tostring(dx) .. "," .. tostring(dy)
+                .. " prior_east_clear=" .. tostring(eastClear)))
         SC.GameplayUtil.call(Harness.actor, "setCompanionAimTarget", zombie)
         Harness.finishZombie = zombie
         Harness.finishStart = current
         Harness.finishNextAt = current + 700
         Harness.finishStomps = 0
+        Harness.finishFloorSelected = nil
+        Harness.finishStompClip = false
+        Harness.finishAnimationNames = ""
         Harness.finishTimingChecked = false
         local hp0v = select(1, U.call(zombie, "getHealth"))
         Harness.finishHp0 = tonumber(hp0v)
         return
     end
     local zombie = Harness.finishZombie
+    local names = tostring(select(1, U.call(Harness.actor,
+        "getCompanionActiveAnimationNames")) or "")
+    if Harness.isStompClip(names) then
+        Harness.finishStompClip = true
+        Harness.finishAnimationNames = names
+    elseif Harness.finishStompClip ~= true then
+        Harness.finishAnimationNames = names
+    end
     if SC.NativeActions and type(SC.NativeActions.pollCombatEvents) == "function" then
-        SC.NativeActions.pollCombatEvents(Harness.actor)
+        local _, reason, evidence = SC.NativeActions.pollCombatEvents(Harness.actor)
+        if type(evidence) == "table" then
+            local ax, ay, az = position(Harness.actor)
+            local tx, ty, tz = position(zombie)
+            Harness.finishLastImpact = "reason=" .. clean(reason)
+                .. " result=" .. clean(evidence.result)
+                .. " serial=" .. tostring(evidence.serial)
+                .. " hit_count=" .. tostring(evidence.hitCount)
+                .. " exact_target=" .. tostring(evidence.collisionTargetMatched)
+                .. " source=" .. tostring(evidence.source)
+                .. " visible=" .. v(Harness.actor, "CanSee", zombie)
+                .. " clear=" .. v(Harness.actor, "isCompanionMovementClear", tx, ty, tz)
+                .. " distance=" .. v(Harness.actor, "DistTo", zombie)
+                .. " actor=" .. tostring(ax) .. "," .. tostring(ay) .. "," .. tostring(az)
+                .. " target=" .. tostring(tx) .. "," .. tostring(ty) .. "," .. tostring(tz)
+            print("SC_REAL_SANDBOX_DIAGNOSTIC|grounded_stomp_impact|"
+                .. clean(Harness.finishLastImpact))
+        end
     end
     local hpValue = select(1, U.call(zombie, "getHealth"))
     local hp = tonumber(hpValue)
     local dead = select(1, U.call(zombie, "isDead")) == true
     local prone = select(1, U.call(zombie, "isProne")) == true
         or select(1, U.call(zombie, "isOnFloor")) == true
-    local headHitsV = select(1, U.call(zombie, "getHitHeadWhileOnFloor"))
-    local headHits = tonumber(headHitsV) or 0
     if dead or (Harness.finishHp0 and hp and hp < Harness.finishHp0 - 0.0001) then
         check("native_companion_finishes_grounded", true,
-            "grounded zombie finished: hp " .. tostring(Harness.finishHp0) .. "->" .. tostring(hp)
+            "grounded zombie damaged: hp " .. tostring(Harness.finishHp0) .. "->" .. tostring(hp)
                 .. " dead=" .. tostring(dead) .. " was_prone=" .. tostring(prone)
-                .. " head_hits=" .. tostring(headHits)
                 .. " stomps=" .. tostring(Harness.finishStomps))
         endFinishGrounded(current, zombie); return
     end
     if current - Harness.finishStart > 12000 then
         check("native_companion_finishes_grounded", false,
             "grounded zombie not finished in 12s: prone=" .. tostring(prone)
-                .. " hp=" .. tostring(hp) .. " head_hits=" .. tostring(headHits)
+                .. " hp=" .. tostring(hp)
                 .. " stomps=" .. tostring(Harness.finishStomps)
                 .. " reject=" .. clean(Harness.finishLastReason or "none")
+                .. " last_impact={" .. clean(Harness.finishLastImpact or "none") .. "}"
                 .. " a_state=" .. clean(v(Harness.actor, "getCompanionActionStateName")))
         endFinishGrounded(current, zombie); return
     end
-    -- Keep it grounded and pinned adjacent so the finisher has a clean target;
-    -- getHeadSquare is companion-relative, so an adjacent downed zombie already
-    -- puts the head within the finisher's stomp reach (no need to move the actor).
+    -- Keep it grounded and pinned at native stomp contact distance. Collision
+    -- bones, not a synthetic head-square estimate, choose the actual hit zone.
     pcall(function() zombie:knockDown(true) end)
-    local ax, ay = position(Harness.actor)
+    local ax, ay, az = position(Harness.actor)
     local distValue = select(1, U.call(Harness.actor, "DistTo", zombie))
     if ax ~= nil and (tonumber(distValue) or 9) > 1.5 then
-        pcall(function() zombie:setX(ax + 1.0) end)
-        pcall(function() zombie:setY(ay) end)
+        pcall(function() zombie:setX(ax + Harness.finishMoveX) end)
+        pcall(function() zombie:setY(ay + Harness.finishMoveY) end)
+        pcall(function() zombie:setZ(az or 0) end)
         pcall(function() zombie:setCurrentSquareFromPosition() end)
     end
     if current >= (Harness.finishNextAt or 0) then
@@ -1359,6 +1871,9 @@ local function probeFinishGrounded(current)
                 urgent = true, emergency = true, supervisorToken = Harness.finishControl })
             if accepted == true then
                 Harness.finishStomps = (Harness.finishStomps or 0) + 1
+                local floorSelected = select(1, U.call(Harness.actor, "isAimAtFloor")) == true
+                    and select(1, U.call(Harness.actor, "isDoShove")) == true
+                Harness.finishFloorSelected = Harness.finishFloorSelected ~= false and floorSelected
                 if Harness.finishTimingChecked ~= true then
                     local immediateHpValue = select(1, U.call(zombie, "getHealth"))
                     local immediateHp = tonumber(immediateHpValue)
@@ -1655,6 +2170,10 @@ local function endZombieAttackObserve(current)
         pcall(function() Harness.player:setGhostMode(wasGhost == true) end)
         Harness.zObservePlayerGhost = nil
     end
+    if not Harness.restoreObserverBoundary("after_zombie_fixture") then
+        setPhase("finish", current)
+        return
+    end
     -- Release the harness action ownership held over the companion.
     if Harness.zObserveControl ~= nil then
         endHarnessControl(Harness.zObserveControl, "zombie_attack_observe_done")
@@ -1681,6 +2200,21 @@ local function probeZombieAttackObserve(current)
     local function v(obj, m, ...) local val, ok = U.call(obj, m, ...) return ok and tostring(val) or "na" end
     local function num1(obj, m) local val = select(1, U.call(obj, m)) return tonumber(val) or 0 end
     if Harness.zObserveZombies == nil then
+        if not Harness.restoreObserverBoundary("before_zombie_fixture") then
+            setPhase("finish", current)
+            return
+        end
+        local arena = Harness.findCombatArena(Harness.player)
+        if not check("combat_arena_isolated", arena ~= nil and arena.observerDistance >= 10,
+            "observer_distance=" .. tostring(arena and arena.observerDistance) .. "; loaded clear 5x5 required") then
+            setPhase("finish", current); return
+        end
+        local oldX, oldY, oldZ = position(Harness.actor)
+        Harness.combatArenaReturn = {x=oldX, y=oldY, z=oldZ}
+        local placed, placeReason = Harness.placeCombatActor(Harness.actor, arena)
+        if not check("combat_arena_membership", placed, placeReason) then
+            setPhase("finish", current); return
+        end
         if type(addZombiesInOutfit) ~= "function" then
             skip("native_zombie_attacks_companion", "addZombiesInOutfit unavailable")
             setPhase("zombie_targeting", current); return
@@ -1718,9 +2252,7 @@ local function probeZombieAttackObserve(current)
             result("FAIL", "native_zombie_attacks_companion", "zombie spawn returned no actors")
             setPhase("zombie_targeting", current); return
         end
-        -- Ghost the local player so the pack does not wander off to player 0.
-        Harness.zObservePlayerGhost = select(1, U.call(Harness.player, "isGhostMode")) == true
-        pcall(function() Harness.player:setGhostMode(true) end)
+        -- The arena, not a debug-only ghost setter, isolates the observer.
         -- Hold the companion still through action ownership (not by deactivating
         -- it): a moving companion is chased (WalkTowardState) instead of attacked,
         -- and retaliation staggers attackers. Owning its action stops the decision
@@ -1960,7 +2492,7 @@ local function probeZombieTargeting(current)
     Harness.combatWeapon = weapon
     Harness.combatTargetInitialHealth = nil
     Harness.combatSwingCount = 0
-    -- Remove hit-chance: max the blade skills so an in-range, faced swing lands.
+    -- Use an experienced wielder; this does not override native hit filtering.
     pcall(function()
         if Perks ~= nil then
             for _, perk in ipairs({ Perks.LongBlade, Perks.Blade, Perks.Axe }) do
@@ -1968,17 +2500,37 @@ local function probeZombieTargeting(current)
             end
         end
     end)
-    -- Keep the target on the adjacent free/visible square selected above. The
-    -- former probe moved it one tile east regardless of walls, so a valid spawn
-    -- could be teleported behind an obstacle and yield an empty melee hit list.
-    -- A stationary probe actor cannot follow a wandering zombie, so retain its
-    -- verified spawn coordinates and stop its movement.
+    -- The acquisition test above uses a normal spawn. The damage test needs a
+    -- stationary target at a precise, physically clear point inside the actual
+    -- weapon band, not the random fractional position of an adjacent spawn tile.
     do
-        Harness.combatTargetX, Harness.combatTargetY, Harness.combatTargetZ = position(zombie)
+        local distance, distanceReason = Harness.meleeFixtureDistance(weapon, Harness.actor)
+        local dx, dy
+        if distance then dx, dy = findClearManualDirection(Harness.actor, distance) end
+        if dx == nil then
+            finishCombatProbe(current, false, "no verified melee fixture lane: " .. clean(distanceReason))
+            return
+        end
+        local ax, ay, az = position(Harness.actor)
+        Harness.combatTargetX = ax + dx * distance
+        Harness.combatTargetY = ay + dy * distance
+        Harness.combatTargetZ = az
         pcall(function() zombie:setTarget(nil) end)
         pcall(function() zombie:setPathing(false) end)
         pcall(function() zombie:setSpeedMod(0.0) end)
         pcall(function() zombie:setPath2(nil) end)
+        pinTestZombieAtCombatSquare()
+        local tx, ty, tz = position(zombie)
+        local clear, clearOk = SC.GameplayUtil.call(Harness.actor,
+            "isCompanionMovementClear", tx, ty, tz)
+        if not clearOk or clear ~= true or math.abs(tx - Harness.combatTargetX) > 0.02
+            or math.abs(ty - Harness.combatTargetY) > 0.02 then
+            finishCombatProbe(current, false, "precise melee fixture placement/clearance rejected")
+            return
+        end
+        print("SC_REAL_SANDBOX|MELEE_FIXTURE|distance=" .. tostring(distance)
+            .. " " .. clean(distanceReason) .. " actor=" .. ax .. "," .. ay
+            .. " target=" .. Harness.combatTargetX .. "," .. Harness.combatTargetY)
     end
     SC.GameplayUtil.call(Harness.actor, "setCompanionAimTarget", zombie)
     Harness.combatNextAttemptAt = current + 600
@@ -1987,6 +2539,17 @@ end
 
 local function beginFactionProbe(current)
     local SC = SurvivorCompanion
+    if not Harness.restoreCombatArena() then setPhase("finish", current); return end
+    if not Harness.restoreObserverBoundary("before_faction") then
+        setPhase("finish", current)
+        return
+    end
+    local ghost = SC.GameplayUtil.call(Harness.player, "isGhostMode")
+    if not check("faction_observer_visible", ghost == false,
+        "hostile human target selection uses an ordinary visible player") then
+        setPhase("finish", current)
+        return
+    end
     Harness.factionMapCaptureOnly = Harness.config.faction_map_only == "true"
     check("debug_faction_tools_enabled", SC.Config.get("debugSpawnEnabled") == true,
         "isolated harness uses the private debug payload")
@@ -2474,6 +3037,8 @@ local function probeFactionFortification(current)
                 record.actor, Harness.player, snapshot)
             local inventory = record.actor:getInventory()
             local counts = { hammer = 0, plank = 0, nails = 0 }
+            local ownMedical = SC.Medical.assess(record.actor)
+            local playerMedical = SC.Medical.assess(Harness.player)
             for _, item in ipairs(SC.GameplayUtil.inventoryItems(inventory, 256)) do
                 local fullType = tostring(select(1,
                     SC.GameplayUtil.call(item, "getFullType")) or "")
@@ -2486,6 +3051,11 @@ local function probeFactionFortification(current)
                 clean(decision and decision.current),
                 clean(decision and decision.intent),
                 "want=" .. clean(intent and intent.mode),
+                "key=" .. clean(decision and decision.currentKey),
+                "medical=" .. tostring(ownMedical.health) .. ":" .. tostring(ownMedical.critical)
+                    .. ":" .. tostring(ownMedical.bleedingCount),
+                "playerMedical=" .. tostring(playerMedical.health) .. ":" .. tostring(playerMedical.critical)
+                    .. ":" .. tostring(playerMedical.bleedingCount),
                 "threat=" .. tostring(snapshot.threatCount or 0),
                 "mat=" .. counts.hammer .. "/" .. counts.plank .. "/" .. counts.nails,
             }, "/")
@@ -2588,6 +3158,7 @@ end
 
 local function finish()
     if Harness.finished then return end
+    Harness.restoreCombatArena()
     Harness.finished = true
     writeSnapshot(true)
     print("SC_REAL_SANDBOX|SUMMARY|status="
@@ -2960,6 +3531,10 @@ local function tick()
         beginRoomProbe(current)
     elseif Harness.phase == "room_probe" then
         runRoomProbe(current)
+    elseif Harness.phase == "begin_door_crossing" then
+        Harness.beginDoorCrossing(current)
+    elseif Harness.phase == "door_crossing" then
+        Harness.runDoorCrossing(current)
     elseif Harness.phase == "awareness" then
         runAwareness(current)
     elseif Harness.phase == "restore_awareness" then
@@ -3003,6 +3578,84 @@ function Harness.safeTick()
     end
 end
 
+function Harness.restoreObserver(observer)
+    local U = SurvivorCompanion.GameplayUtil
+    local dead, checked = U.call(observer, "isDead")
+    if not checked or dead ~= false then return false, "observer dead or unavailable; use a fresh cloned run" end
+    local body, bodyOk = U.call(observer, "getBodyDamage")
+    if not bodyOk or body == nil then return false, "observer BodyDamage unavailable" end
+    -- This ungated native method resets wounds/infection and body health. Unlike
+    -- God Mode it works in ordinary SP. It runs only at isolated phase boundaries
+    -- on the observer, never on companions or as an attempt to resurrect a corpse.
+    local _, restored = U.call(body, "RestoreToFullHealth")
+    local health, healthOk = U.call(body, "getOverallBodyHealth")
+    local stillDead, aliveChecked = U.call(observer, "isDead")
+    local infected, infectedOk = U.call(body, "isInfected")
+    local fake, fakeOk = U.call(body, "isIsFakeInfected")
+    local infectionTime, timeOk = U.call(body, "getInfectionTime")
+    local mortality, mortalityOk = U.call(body, "getInfectionMortalityDuration")
+    local infectionLevel, levelOk = U.call(body, "getApparentInfectionLevel")
+    local bites, bitesOk = U.call(body, "getNumPartsBitten")
+    local scratches, scratchesOk = U.call(body, "getNumPartsScratched")
+    local bleeding, bleedingOk = U.call(body, "getNumPartsBleeding")
+    local cleanBody = infectedOk and infected == false and fakeOk and fake == false
+        and timeOk and (tonumber(infectionTime) or 0) < 0
+        and mortalityOk and (tonumber(mortality) or 0) < 0
+        and levelOk and tonumber(infectionLevel) == 0
+        and bitesOk and tonumber(bites) == 0 and scratchesOk and tonumber(scratches) == 0
+        and bleedingOk and tonumber(bleeding) == 0
+    return restored and healthOk and (tonumber(health) or 0) >= 99.99
+        and aliveChecked and stillDead == false and cleanBody,
+        "restored=" .. tostring(restored) .. " health=" .. tostring(health)
+            .. " alive=" .. tostring(aliveChecked and stillDead == false)
+            .. " clean_body=" .. tostring(cleanBody) .. " infection=" .. tostring(infected)
+            .. "/" .. tostring(infectionLevel) .. " fake=" .. tostring(fake)
+            .. " mortality=" .. tostring(mortality) .. " infection_time=" .. tostring(infectionTime)
+            .. " wounds=" .. tostring(bites) .. "/" .. tostring(scratches) .. "/" .. tostring(bleeding)
+end
+
+function Harness.observerSnapshot(observer)
+    local U = SurvivorCompanion.GameplayUtil
+    local body = U.call(observer, "getBodyDamage")
+    local function value(object, method) return tostring((U.call(object, method))) end
+    return "phase=" .. tostring(Harness.phase) .. " dead=" .. value(observer, "isDead")
+        .. " health=" .. value(body, "getOverallBodyHealth")
+        .. " infected=" .. value(body, "isInfected")
+        .. " apparent_infection=" .. value(body, "getApparentInfectionLevel")
+        .. " infection_time=" .. value(body, "getInfectionTime")
+        .. " mortality=" .. value(body, "getInfectionMortalityDuration")
+        .. " wounds=" .. value(body, "getNumPartsBitten") .. "/"
+            .. value(body, "getNumPartsScratched") .. "/" .. value(body, "getNumPartsBleeding")
+        .. " dragdown=" .. value(observer, "isDeathDragDown")
+        .. " attacker=" .. value(observer, "getAttackedBy")
+        .. " cold=" .. value(body, "getColdDamageStage")
+        .. " pills=" .. value(observer, "getSleepingPillsTaken")
+end
+
+function Harness.onObserverDamage(observer, kind, amount)
+    if observer ~= Harness.player or Harness.finished then return end
+    Harness.observerLastDamage = "kind=" .. tostring(kind) .. " amount=" .. tostring(amount)
+        .. " " .. Harness.observerSnapshot(observer)
+    if nowMs() >= (Harness.observerNextDamageLog or 0) or kind ~= Harness.observerLastDamageKind then
+        print("SC_REAL_SANDBOX|OBSERVER_DAMAGE|" .. Harness.observerLastDamage)
+        Harness.observerNextDamageLog = nowMs() + 1000
+        Harness.observerLastDamageKind = kind
+    end
+end
+
+function Harness.onObserverDeath(observer)
+    if observer ~= Harness.player or Harness.finished then return end
+    print("SC_REAL_SANDBOX|OBSERVER_DEATH|" .. Harness.observerSnapshot(observer)
+        .. " last_damage={" .. clean(Harness.observerLastDamage) .. "}")
+end
+
+function Harness.restoreObserverBoundary(name)
+    print("SC_REAL_SANDBOX|OBSERVER_BOUNDARY|" .. tostring(name) .. " before={"
+        .. Harness.observerSnapshot(Harness.player) .. "}")
+    local restored, reason = Harness.restoreObserver(Harness.player)
+    return check("observer_alive_" .. name, restored, reason)
+end
+
 local function onGameStart()
     Harness.config = readConfig()
     if Harness.config.enabled ~= "true" then return end
@@ -3039,6 +3692,13 @@ local function onGameStart()
     check("local_player_slot_zero", singletonOk, "getPlayer equals getSpecificPlayer(0)")
     Harness.playerX, Harness.playerY, Harness.playerZ = position(Harness.player)
     Harness.playerZ = Harness.playerZ or 0
+    local dead, deadChecked = SC.GameplayUtil.call(Harness.player, "isDead")
+    if not check("local_observer_initially_alive", deadChecked and dead == false,
+        "observer must be alive in the cloned save; no resurrection or damage immunity")
+        or not Harness.restoreObserverBoundary("initial") then
+        finish()
+        return
+    end
     if Harness.config.faction_map_only == "true" then
         setPhase("faction_begin", Harness.startedAt)
     else
@@ -3074,6 +3734,9 @@ Harness.config = readConfig()
 if Events and Events.OnMainMenuEnter then Events.OnMainMenuEnter.Add(onMainMenuEnter) end
 if Events and Events.OnGameStart then Events.OnGameStart.Add(onGameStart) end
 if Events and Events.OnRenderTick then Events.OnRenderTick.Add(Harness.safeTick) end
+if Events and Events.OnWeaponHitCharacter then Events.OnWeaponHitCharacter.Add(Harness.onMeleeWeaponHit) end
+if Events and Events.OnPlayerGetDamage then Events.OnPlayerGetDamage.Add(Harness.onObserverDamage) end
+if Events and Events.OnPlayerDeath then Events.OnPlayerDeath.Add(Harness.onObserverDeath) end
 
 SCRealSandboxHarness = Harness
 return Harness

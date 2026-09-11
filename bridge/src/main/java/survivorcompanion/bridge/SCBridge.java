@@ -38,7 +38,7 @@ import zombie.network.GameServer;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.20-isocompanion-5";
+    public static final String PROTOCOL = "42.20-isocompanion-7";
     /**
      * Core.getVersionNumber() reports the public release family (42.20) in a
      * live game, even though this bridge is compiled and signature-tested

@@ -26,6 +26,27 @@ local function invoke(object, methodName, ...)
     return called, value, b, c
 end
 
+local function perceptionRuntime(actor)
+    if actor == nil or not SC.Registry or type(SC.Registry.idOf) ~= "function"
+        or type(SC.Registry.byId) ~= "function" then return nil end
+    local id = SC.Registry.idOf(actor)
+    local record = id and SC.Registry.byId(id) or nil
+    return record and record.runtime or nil
+end
+
+local function safePerceptionComplete(snapshot)
+    if type(snapshot) ~= "table" or snapshot.valid == false then return false end
+    if (tonumber(snapshot.threatCount) or 0) > 0 then return false, "danger_nearby" end
+    if type(snapshot.nativeDiscovery) == "table"
+        and snapshot.nativeDiscovery.complete ~= true then
+        return false, "danger_check_pending"
+    end
+    if snapshot.nativeDiscovery == nil and snapshot.scanComplete == false then
+        return false, "danger_check_pending"
+    end
+    return true
+end
+
 local listSize = SC.NativeList.size
 local listGet = SC.NativeList.get
 
@@ -352,10 +373,14 @@ local function proximityOkay(group, player, trader, allowHostile, maximumDistanc
         return false, "faction_hostile"
     end
     if SC.Senses and type(SC.Senses.snapshot) == "function" then
-        local ok, snapshot = pcall(SC.Senses.snapshot, trader, player, {})
-        if ok and type(snapshot) == "table" and (tonumber(snapshot.threatCount) or 0) > 0 then
-            return false, "danger_nearby"
-        end
+        -- Reuse the actor's real runtime. A fresh table restarted the global
+        -- zombie cursor at every click and could authorize trade after seeing
+        -- only the first bounded chunk.
+        local ok, snapshot = pcall(SC.Senses.snapshot, trader, player,
+            perceptionRuntime(trader))
+        if not ok then return false, "danger_check_unavailable" end
+        local safe, reason = safePerceptionComplete(snapshot)
+        if not safe then return false, reason or "danger_check_unavailable" end
     end
     return true
 end

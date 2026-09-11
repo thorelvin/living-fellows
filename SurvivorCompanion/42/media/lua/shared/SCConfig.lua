@@ -99,6 +99,7 @@ local valueData = {
     combatDecisionIntervalMs = 100,
     combatReflexIntervalMs = 50,
     combatTacticalIntervalMs = 250,
+    combatDeadTargetAttackLeaseMs = 1800,
     combatSpacingReversalGuardMs = 225,
     combatSteeringProbeDistance = 0.45,
     combatTargetActionCandidates = 3,
@@ -115,7 +116,29 @@ local valueData = {
     sneakDistance = 0.032,
     movementSoundDelta = 1.0,
 
-    perceptionRadius = 18,
+    perceptionRadius = 24,
+    -- Cursor-bounded native candidates make off-axis 20-tile contacts practical;
+    -- the larger radius does not expand hearing or bypass same-floor wall LOS.
+    perceptionNativeCandidatesPerSlice = 64,
+    perceptionNativeLosPerSlice = 12,
+    perceptionNativeSliceMs = 0.75,
+    -- The cell zombie-list cursor is shared across companions. A short partial
+    -- cadence keeps acquisition responsive; a completed roster is held long
+    -- enough for every observer to drain its bounded local candidate queue.
+    perceptionNativeSharedPulseMs = 50,
+    perceptionNativeCompletedHoldMs = 1000,
+    perceptionNativeRosterQueryPerSlice = 128,
+    perceptionNativeCandidateQueueHardCap = 64,
+    perceptionVisualChecksPerSlice = 16,
+    perceptionImmediateVisualHardCap = 12,
+    perceptionVisualSliceMs = 1.0,
+    perceptionVisualRetentionMs = 250,
+    perceptionVisualRetentionLimit = 16,
+    perceptionVisualQueueHardCap = 64,
+    perceptionReflexCandidateHardCap = 48,
+    perceptionReflexNearbyHardCap = 32,
+    perceptionReflexMovingObjectHardCap = 128,
+    perceptionReflexObjectsPerSquare = 48,
     perceptionSquareBudget = 240,
     -- Restart an unfinished broad scan once its origin is no longer local to the
     -- moving companion. This prevents stale square work from delaying contacts
@@ -136,10 +159,15 @@ local valueData = {
     escapeScanRadius = 5,
     escapeScanNodeBudget = 64,
     escapeTopologyCacheMs = 250,
+    escapeTopologyEdgesPerSlice = 24,
+    escapeTopologySliceMs = 0.75,
+    escapeValidatedCandidateLimit = 1,
 
     navigationArrivalDistance = 0.6,
     navigationMicroDistance = 1.45,
     navigationNodeBudget = 220,
+    navigationSliceBudgetMs = 2,
+    navigationMovingRouteMaxNodes = 256,
     navigationAlternativeRoutes = 3,
     navigationAlternativeNodeBudget = 80,
     navigationAlternativeMinLength = 6,
@@ -170,6 +198,10 @@ local valueData = {
     navigationDynamicBlockedEdgeMs = 750,
     navigationUnknownBlockedEdgeMs = 500,
     navigationNativeLeaseMs = 6500,
+    -- Lua route planning and native PathFindBehavior2 startup are both allowed
+    -- to span multiple frames without being mistaken for an idle/stuck actor.
+    navigationPathSearchLeaseMs = 6500,
+    navigationNativePendingMs = 6500,
     -- Whole-building routes to another floor stay owned by PathFindBehavior2.
     -- Unlike a one-tile native affordance, reaching the staircase may itself take
     -- several seconds; this is a no-progress timeout and is refreshed per tile.
@@ -265,21 +297,15 @@ local valueData = {
     combatShoveDistance = 1.35,
     combatShoveFollowupDelayMs = 300,
     combatShoveFollowupWindowMs = 3500,
-    combatStompDistance = 1.55,
+    -- Native chooses the actual stomp clip only when its prone-target distance is
+    -- below roughly 0.6. Keep our centre-distance gate tight so a companion does
+    -- not start a harmless long-range foot swing.
+    combatStompDistance = 0.72,
     combatStompPursuitDistance = 3.25,
-    -- Build 42's non-local player floor attack currently reaches its impact
-    -- event with an empty hit list, so NativeActions supplies one bounded hit.
-    -- These values start near the stock BareHands range; verified head contact,
-    -- strength, stamina, footwear and prior head impacts modify them. Death is
-    -- never forced -- the zombie's native Hit/health path owns the outcome.
-    combatStompDamage = 0.30,
-    combatHeadStompDamage = 0.72,
-    combatStompDamageVariation = 0.12,
-    combatStompHeadHitGrowth = 0.10,
-    combatStompCriticalMultiplier = 1.65,
-    combatStompCriticalMaxChance = 0.35,
-    combatHeadStompRange = 1.1,
     combatStompMaxImmediate = 1,
+    combatFloorWeaponFailureLimit = 2,
+    combatFloorWeaponFailureResetMs = 8000,
+    combatLiveLosChecksPerPulse = 6,
     combatMeleeDistance = 1.7,
     -- A small deadband around native weapon MinRange/MaxRange prevents a moving
     -- target crossing both thresholds between combat decisions.
@@ -615,6 +641,9 @@ local valueData = {
 
     dangerSignalMaxDistance = 10,
     dangerSignalImmediateRadius = 4,
+    -- Let a visible warning gesture read clearly before ordinary follow/path
+    -- input resumes. Immediate danger, vehicles, and new orders still interrupt.
+    dangerSignalHoldMs = 900,
 
     debugSpawnEnabled = false,
     debugSpawnIntervalMs = 60000,

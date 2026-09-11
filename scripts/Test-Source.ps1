@@ -12,7 +12,16 @@ $BuildRoot = Join-Path ([System.IO.Path]::GetTempPath()) `
     ('living-fellows-source-tests-' + [guid]::NewGuid().ToString('N'))
 
 $parseErrors = @()
-Get-ChildItem -LiteralPath $ProjectRoot -Recurse -File -Filter '*.ps1' | ForEach-Object {
+# Generated live runs can contain entire saves and junctions to external mods.
+# Parse maintained scripts, not every archived sandbox or generated installer.
+$scriptFiles = @(Get-ChildItem -LiteralPath $ProjectRoot -File -Filter '*.ps1')
+foreach ($sourceDirectory in @('scripts', 'tests', 'tools', '.github')) {
+    $sourcePath = Join-Path $ProjectRoot $sourceDirectory
+    if (Test-Path -LiteralPath $sourcePath -PathType Container) {
+        $scriptFiles += Get-ChildItem -LiteralPath $sourcePath -Recurse -File -Filter '*.ps1'
+    }
+}
+$scriptFiles | ForEach-Object {
     $errors = $null
     [System.Management.Automation.Language.Parser]::ParseFile(
         $_.FullName, [ref]$null, [ref]$errors) | Out-Null

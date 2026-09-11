@@ -2161,7 +2161,7 @@ function Factions.memberDied(record)
     return true
 end
 
-local function actorHiddenFromPlayer(actor, player)
+local function actorHiddenFromPlayer(actor, player, runtime)
     if player == nil then return false end
     local visible = U().canSee and U().canSee(player, actor)
     if visible == true then return false end
@@ -2170,15 +2170,25 @@ local function actorHiddenFromPlayer(actor, player)
     if Factions.hostileTargetFor(actor, player) ~= nil then return false end
     local threatCount = 0
     if SC.Senses and type(SC.Senses.snapshot) == "function" then
-        local ok, snapshot = pcall(SC.Senses.snapshot, actor, player)
-        if ok and type(snapshot) == "table" then threatCount = tonumber(snapshot.threatCount) or 0 end
+        -- Hibernation is destructive actor removal, so absence of a completed
+        -- danger scan is not evidence of safety. Reuse the registry runtime and
+        -- wait for the bounded native/grid cursor instead of restarting it.
+        local ok, snapshot = pcall(SC.Senses.snapshot, actor, player, runtime)
+        if not ok or type(snapshot) ~= "table" or snapshot.valid == false then return false end
+        threatCount = tonumber(snapshot.threatCount) or 0
+        if type(snapshot.nativeDiscovery) == "table"
+            and snapshot.nativeDiscovery.complete ~= true then return false end
+        if snapshot.nativeDiscovery == nil and snapshot.scanComplete == false then return false end
     end
     return threatCount == 0
 end
 
+Factions._actorHiddenFromPlayerForTests = actorHiddenFromPlayer
+
 local function hibernateMember(group, member, player)
     local record = member.actorId and SC.Registry.byId(member.actorId) or nil
-    if not record or not record.actor or not actorHiddenFromPlayer(record.actor, player) then
+    if not record or not record.actor
+        or not actorHiddenFromPlayer(record.actor, player, record.runtime) then
         return false, "member_not_safe_to_hibernate"
     end
     local snapshot, reason = SC.Persistence.captureRecord(record)

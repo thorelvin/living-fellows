@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.20.4-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.22.9-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.22.10-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns isolated survivors into persistent people who can become teammates, establish routines, help run a base, and make their own survival decisions. Companions use native human actors, keep real inventories and injuries, and can follow, fight, retreat, scavenge, work, travel, grieve, argue, and remember what happened to them.
@@ -150,7 +150,9 @@ World context commands use one **Living Fellows** root. The companion selected i
 
 Followers use formation slots instead of stacking on the player. Each active fireteam (the unassigned squad or an Alpha/Bravo/Charlie group) automatically assigns a close fighter as point, keeps firearm support in the protected middle, and places a cautious survivor at the rear. That stable role order becomes a single-file column through doors and stairs; the team stays collapsed until the last nearby follower clears the portal, then deliberately fans back out. They check blind corners and room thresholds, remember a recent route back outdoors, and replan around vehicles, furniture, crowds, vegetation, windows, gates, slopes, and player-built obstacles. Open gates remain recognized as passages, while low fences and climbable tall walls use the same native player climb states and safe perpendicular approach used by Project Zomboid. Bushes and trees are costly terrain rather than universal walls, so an emergency route may still cross vegetation.
 
-In open space the local route planner can move across all eight compass directions instead of forming a four-direction staircase. A diagonal step is accepted only when both routes around its corner are clear; it cannot cut between blocked walls, doors, fences, vehicles, or occupied geometry. Door, gate, window, stair, and fence transitions remain deliberate cardinal crossings so their native interactions and animations stay aligned.
+In open space the local route planner can move across all eight compass directions instead of forming a four-direction staircase. A diagonal step is accepted only when both routes around its corner are clear; it cannot cut between blocked walls, doors, fences, vehicles, or occupied geometry. Door, gate, window, stair, and fence transitions remain deliberate cardinal crossings so their native interactions and animations stay aligned. Short alignment steps have an exact stopping point, and native climbing keeps control until its animation finishes. Animation movement is consumed once per frame, preventing the accumulated-motion fault that caused a reproduced open-door stall and small position jumps.
+
+In clear conditions a companion can acquire a zombie out to 24 tiles, roughly twice the previously practical distance. Candidate discovery is shared across the squad, but perception is not: every companion still proves current distance, floor, and native line of sight for itself. Walls, closed geometry, and other floors block visual targeting. Movement or fighting behind a wall may produce an uncertain heard-contact warning, never an invisible combat target.
 
 The pathing audit for 0.22.9 reduces Build 42.20.4's sprites and object states to **38 distinct collision conditions**. They are handled by one topology policy instead of scattered stuck exceptions:
 
@@ -174,6 +176,10 @@ Companions can backpedal or strafe while disengaging on safe ground. A true over
 
 Combat decisions use the companion's real body condition, endurance reserve, panic, pain, tiredness, stress, morale, encumbrance, skills, weapon quality, support, threat directions, footing, and available exits. Allies try to split targets, avoid friendly fire, preserve stamina, shove when a lane is safe, finish isolated grounded zombies, kite, cover a retreat, or disengage before they are surrounded.
 
+Attack cadence follows the game's native animation and melee/recoil recovery, including weapon and character modifiers. Companions stop old approach input when holding range or swinging, aim to engage near useful weapon reach, and make room for closing threats. A finishing swing keeps its animation even after the last target dies, while actionable critical medical needs and incoming hit reactions can still take priority. Ground attacks require contact at the impact frame; a stomp is not a guaranteed execution.
+
+Against an isolated grounded zombie, the companion makes one stable choice for that victim instead of changing its mind every frame. A usable held melee weapon normally stays in hand and uses the matching native floor attack; a stomp remains an occasional believable choice when boots, fatigue, weapon condition, panic, and personality support it. Bare or injured feet strongly favor the weapon. If the weapon can already reach but a stomp cannot, the companion strikes from the safer distance instead of stepping into bite range. Native collision, animation, footwear power, hit location, and damage decide the result for both choices.
+
 Companion attacks land real damage, and companions are real targets in return: zombies notice, chase, and attack them, and a landed hit inflicts an actual wound. Bites can infect and eventually turn a companion, while scratches and lacerations wound and bleed without infecting — so a swarmed or careless companion is in genuine danger and can be lost. Hostile survivors are damaged the same way. When too many zombies pile on at once they can pull a companion to the ground and pin it — thin the swarm in time and you drag your friend back to their feet, bloodied but alive; leave them and the pack finishes the job.
 
 Combat barks report threat scale, engagement, prolonged effort, kills, and emergency withdrawal. They draw from varied English line pools and use actor, team, and intent cooldowns. Spoken yells create real sound and can attract zombies; quiet doctrine prefers silent hand signals when danger permits.
@@ -187,6 +193,8 @@ Companions understand nested bags and prefer suitable worn backpacks. They keep 
 ### Needs, medicine, and death
 
 Hunger and thirst advance at half the vanilla rate. Companions can eat, drink, seek clean sinks or wells, fetch from player-accessible camp storage, tear cloth into emergency bandages, treat themselves, and help an injured player when doing so does not become suicidal.
+
+Low health alone does not immobilize a living companion or block Follow with repeated, impossible treatment attempts. Medical care requires an actual treatable injury, while critical health still makes fighting or escaping real threats urgent. Explicit legacy downed states recover through the native action before normal movement resumes; ordinary low health does not create such a state.
 
 Companions are vulnerable to wounds and Knox infection. Death is permanent and is left to the game's native corpse and reanimation systems. A known bite can create concealment, confession, quarantine, exile, mercy, or farewell conflicts based on personality and relationships. A pinned companion calls for help, while terminal zombie wounds, failing health, and imminent conversion draw from separate last-word pools keyed to personality, relationship tier, and the player's name. Lethal group decisions require explicit player authorization.
 

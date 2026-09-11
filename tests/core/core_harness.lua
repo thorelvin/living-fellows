@@ -216,10 +216,24 @@ function actor:getPrimaryHandItem() return self.primaryHand end
 function actor:setSecondaryHandItem(item) self.secondaryHand = item end
 function actor:getSecondaryHandItem() return self.secondaryHand end
 function actor:setAimAtFloor(value) self.aimAtFloor = value end
+function actor:isAimAtFloor() return self.aimAtFloor == true end
+function actor:setCompanionFloorAttackInput(enabled, stomp)
+    self.floorInput, self.stompInput = enabled == true, stomp == true
+    return true
+end
 function actor:setCompanionAimTarget(value) self.companionAimTarget = value end
 function actor:setCompanionFloorTarget(value) self.targetOnGround = value end
 function actor:getCompanionAttackCollisionSerial()
     return self.companionAttackCollisionSerial or 0
+end
+function actor:getCompanionAttackCollisionHitCount()
+    return self.companionAttackCollisionHitCount or 0
+end
+function actor:getCompanionAttackCollisionTarget()
+    return self.companionAttackCollisionTarget
+end
+function actor:didCompanionAttackCollisionHitTarget()
+    return self.companionAttackCollisionTargetHit == true
 end
 local bareHandsWeapon = {
     __class = "HandWeapon",
@@ -275,6 +289,12 @@ function actor:DoAttack()
     return false
 end
 function actor:isAttackStarted() return self.attackStarted == true end
+function actor:getMeleeDelay() return self.meleeDelay or 0 end
+function actor:getRecoilDelay() return self.recoilDelay or 0 end
+function actor:setCompanionMovementTarget(x, y, z, tolerance, ttlMs)
+    self.movementTarget = { x = x, y = y, z = z, tolerance = tolerance, ttlMs = ttlMs }
+    return true
+end
 function actor:setKnockedDown(value) self.knockedDown = value end
 function actor:isKnockedDown() return self.knockedDown == true end
 function actor:setSitOnFurnitureObject(value) self.seatObject = value end
@@ -1107,6 +1127,9 @@ do
         action = "attack_melee", target = evidenceTarget, weapon = twoHandedWeapon,
     })
     evidenceTarget.health = 3.5
+    actor.companionAttackCollisionTarget = evidenceTarget
+    actor.companionAttackCollisionHitCount = 1
+    actor.companionAttackCollisionTargetHit = true
     actor.companionAttackCollisionSerial = 21
     local evidenceHandled, evidenceReason, evidence = SC.NativeActions.pollCombatEvents(actor)
     check(evidenceAttack and evidenceHandled
@@ -1118,6 +1141,9 @@ do
     local missedAttack = SC.Actor.setMovement(actor, "walk", {
         action = "attack_melee", target = evidenceTarget, weapon = twoHandedWeapon,
     })
+    actor.companionAttackCollisionTarget = evidenceTarget
+    actor.companionAttackCollisionHitCount = 0
+    actor.companionAttackCollisionTargetHit = false
     actor.companionAttackCollisionSerial = 22
     local missedHandled, missedReason, missedEvidence = SC.NativeActions.pollCombatEvents(actor)
     check(missedAttack and missedHandled
@@ -1151,6 +1177,9 @@ do
             and actor.attackType == AttackType.MELEE_SWING,
         "grounded melee uses the equipped weapon and native player floor-swing state even inside standing minimum range")
     groundedWeaponTarget.health = 3.2
+    actor.companionAttackCollisionTarget = groundedWeaponTarget
+    actor.companionAttackCollisionHitCount = 1
+    actor.companionAttackCollisionTargetHit = true
     actor.companionAttackCollisionSerial = 31
     local groundedWeaponLanded, groundedWeaponLandedReason, groundedWeaponEvidence =
         SC.NativeActions.pollCombatEvents(actor)
@@ -1174,143 +1203,87 @@ do
     check(not farMeleeOk and farMeleeReason == "attack target is outside melee range"
             and (actor.doAttackCalls or 0) == attackCallsBeforeRangeGate,
         "the final native attack gate rejects a melee swing before DoAttack when the target is metres away")
-    local function stompTarget(health, headSquare)
-        local target = {
-            health = health, headHits = 0, setHealthCalls = 0, hitCalls = 0,
-        }
-        function target:getX() return 1.5 end
-        function target:getY() return 0.5 end
-        function target:getZ() return 0 end
-        function target:isProne() return true end
-        function target:isOnFloor() return true end
-        function target:isCrawling() return false end
-        function target:isDead() return self.health <= 0 end
-        function target:getHealth() return self.health end
-        function target:setHealth(value)
+    local function stompTarget(health)
+        local value = { health = health, hitCalls = 0, setHealthCalls = 0 }
+        function value:getX() return 1.0 end
+        function value:getY() return 0.5 end
+        function value:getZ() return 0 end
+        function value:isProne() return true end
+        function value:isOnFloor() return true end
+        function value:isCrawling() return false end
+        function value:isDead() return self.health <= 0 end
+        function value:getHealth() return self.health end
+        function value:setHealth(nextHealth)
             self.setHealthCalls = self.setHealthCalls + 1
-            self.health = value
+            self.health = nextHealth
         end
-        function target:getHitHeadWhileOnFloor() return self.headHits end
-        function target:setHitHeadWhileOnFloor(value) self.headHits = value end
-        function target:getHeadSquare() return headSquare end
-        function target:Hit(weapon, _, damage)
+        function value:Hit()
             self.hitCalls = self.hitCalls + 1
-            self.hitWeapon = weapon
-            self.lastDamage = damage
-            self.health = self.health - damage
         end
-        return target
+        return value
     end
-    local verifiedHeadSquare = {
-        getX = function() return math.floor(actor:getX()) end,
-        getY = function() return math.floor(actor:getY()) end,
-        getZ = function() return math.floor(actor:getZ()) end,
-    }
-    local combatBoots = {
-        getFullType = function() return "Base.Boots_Army" end,
-        getType = function() return "Boots_Army" end,
-        getCondition = function() return 10 end,
-        getConditionMax = function() return 10 end,
-    }
+    local function collision(targetValue, hit, count)
+        actor.companionAttackCollisionTarget = targetValue
+        actor.companionAttackCollisionTargetHit = hit == true
+        actor.companionAttackCollisionHitCount = count or (hit and 1 or 0)
+        actor.companionAttackCollisionSerial =
+            (actor.companionAttackCollisionSerial or 0) + 1
+    end
 
-    actor.companionAttackCollisionSerial = 0
+    actor.companionAttackCollisionSerial = 40
     actor.wornShoes = nil
-    local bodyStompTarget = stompTarget(1, nil)
+    local stomped = stompTarget(2)
     local stompOk, stompReason = SC.Actor.setMovement(actor, "walk", {
-        action = "stomp", target = bodyStompTarget, floorAttack = true,
+        action = "stomp", target = stomped, floorAttack = true,
     })
-    check(stompOk and stompReason == "attack_started" and bodyStompTarget.health == 1,
-        "a started stomp does not damage its target before the visible impact frame")
-    actor.companionAttackCollisionSerial = 1
-    local landed, landedReason, bodyImpact = SC.NativeActions.pollCombatEvents(actor)
-    check(landed and landedReason == "stomp_collision_applied"
-            and bodyImpact and bodyImpact.zone == "body"
-            and bodyImpact.source == "fallback" and bodyImpact.critical == false
-            and bodyStompTarget.health > 0 and bodyStompTarget.health < 1
-            and bodyStompTarget.headHits == 0 and bodyStompTarget.setHealthCalls == 0
-            and bodyStompTarget.hitWeapon == bareHandsWeapon,
-        "an unverified stomp is a nonlethal body hit owned by native Hit, not a forced kill")
+    check(stompOk and stompReason == "attack_started" and stomped.health == 2,
+        "a started stomp never applies damage before its native collision frame")
+    stomped.health = 1.25
+    collision(stomped, true, 1)
+    local landed, landedReason, impact = SC.NativeActions.pollCombatEvents(actor)
+    check(landed and landedReason == "stomp_collision_landed"
+            and impact and impact.result == "landed" and impact.source == "native"
+            and impact.collisionTargetMatched == true and impact.hitCount == 1
+            and impact.healthBefore == 2 and impact.healthAfter == 1.25
+            and stomped.hitCalls == 0 and stomped.setHealthCalls == 0,
+        "stomp accepts one exact native target hit without any Lua damage fallback")
 
     actor.attackStarted = false
-    actor.wornShoes = combatBoots
-    local headStompTarget = stompTarget(1, verifiedHeadSquare)
-    local firstHeadOk = SC.Actor.setMovement(actor, "walk", {
-        action = "stomp", target = headStompTarget, floorAttack = true,
+    local missed = stompTarget(2)
+    local missStarted = SC.Actor.setMovement(actor, "walk", {
+        action = "stomp", target = missed, floorAttack = true,
     })
-    actor.companionAttackCollisionSerial = 2
-    local firstHeadLanded, firstHeadReason, firstHeadImpact =
-        SC.NativeActions.pollCombatEvents(actor)
-    check(firstHeadOk and firstHeadLanded and firstHeadReason == "stomp_collision_applied"
-            and firstHeadImpact.zone == "head" and firstHeadImpact.headVerified == true
-            and firstHeadImpact.footwear == "Base.Boots_Army"
-            and firstHeadImpact.damage > bodyImpact.damage
-            and headStompTarget.health > 0 and headStompTarget.headHits == 1
-            and headStompTarget.setHealthCalls == 0,
-        "an average booted head stomp is stronger but does not automatically kill a fresh zombie")
-    actor.attackStarted = false
-    local secondHeadOk = SC.Actor.setMovement(actor, "walk", {
-        action = "stomp", target = headStompTarget, floorAttack = true,
-    })
-    actor.companionAttackCollisionSerial = 3
-    local secondHeadLanded, secondHeadReason, secondHeadImpact =
-        SC.NativeActions.pollCombatEvents(actor)
-    check(secondHeadOk and secondHeadLanded and secondHeadReason == "stomp_collision_applied"
-            and secondHeadImpact.priorHeadHits == 1
-            and secondHeadImpact.damage > firstHeadImpact.damage
-            and headStompTarget.health <= 0 and headStompTarget.headHits == 2
-            and headStompTarget.setHealthCalls == 0 and actor.targetOnGround == nil,
-        "repeated verified head impacts progressively finish the target through Hit alone")
+    collision(missed, false, 0)
+    local missHandled, missReason, missEvidence = SC.NativeActions.pollCombatEvents(actor)
+    check(missStarted and missHandled and missReason == "stomp_collision_no_effect"
+            and missEvidence.result == "no_effect" and missed.health == 2
+            and missed.hitCalls == 0 and missed.setHealthCalls == 0,
+        "a native stomp miss remains a miss and never becomes a guaranteed fallback hit")
 
     actor.attackStarted = false
-    actor.perks[Perks.Strength], actor.perks[Perks.Fitness] = 1, 2
-    actor.endurance = 0.15
-    actor.moodleLevels = {
-        [MoodleType.TIRED] = 3, [MoodleType.PAIN] = 2,
-        [MoodleType.HEAVY_LOAD] = 2,
-    }
-    actor.wornShoes = nil
-    local weakTarget = stompTarget(5, verifiedHeadSquare)
-    local weakOk = SC.Actor.setMovement(actor, "walk", {
-        action = "stomp", target = weakTarget, floorAttack = true,
+    local intended, other = stompTarget(2), stompTarget(2)
+    local exactStarted = SC.Actor.setMovement(actor, "walk", {
+        action = "stomp", target = intended, floorAttack = true,
     })
-    actor.companionAttackCollisionSerial = 4
-    local weakLanded, _, weakImpact = SC.NativeActions.pollCombatEvents(actor)
+    other.health = 1
+    collision(other, true, 1)
+    local exactHandled, _, exactEvidence = SC.NativeActions.pollCombatEvents(actor)
+    check(exactStarted and exactHandled and exactEvidence.result == "no_effect"
+            and exactEvidence.collisionTargetMatched == false
+            and intended.health == 2 and intended.hitCalls == 0,
+        "a hit on another prone zombie cannot be credited to or damage the intended target")
 
     actor.attackStarted = false
-    actor.perks[Perks.Strength], actor.perks[Perks.Fitness] = 9, 8
-    actor.endurance = 0.95
-    actor.moodleLevels = {}
-    actor.wornShoes = combatBoots
-    local strongTarget = stompTarget(5, verifiedHeadSquare)
-    local strongOk = SC.Actor.setMovement(actor, "walk", {
-        action = "stomp", target = strongTarget, floorAttack = true,
+    local killed = stompTarget(0.4)
+    local killStarted = SC.Actor.setMovement(actor, "walk", {
+        action = "stomp", target = killed, floorAttack = true,
     })
-    actor.companionAttackCollisionSerial = 5
-    local strongLanded, _, strongImpact = SC.NativeActions.pollCombatEvents(actor)
-    check(weakOk and weakLanded and strongOk and strongLanded
-            and weakImpact.zone == "head" and strongImpact.zone == "head"
-            and weakImpact.footwear == "barefoot"
-            and strongImpact.footwear == "Base.Boots_Army"
-            and strongImpact.damage > weakImpact.damage * 2
-            and weakTarget.health > 0 and strongTarget.health > 0,
-        "strength, fitness, stamina, moodles and footwear materially grade stomp power")
-
-    actor.attackStarted = false
-    actor.perks[Perks.Strength], actor.perks[Perks.Fitness] = 5, 5
-    actor.endurance, actor.moodleLevels = 0.65, {}
-    actor.companionAttackCollisionSerial = 5
-    local nativeStompTarget = stompTarget(4, verifiedHeadSquare)
-    local nativeStompOk = SC.Actor.setMovement(actor, "walk", {
-        action = "stomp", target = nativeStompTarget, floorAttack = true,
-    })
-    nativeStompTarget.health = 3.5
-    actor.companionAttackCollisionSerial = 6
-    local nativeLanded, nativeLandedReason, nativeImpact =
-        SC.NativeActions.pollCombatEvents(actor)
-    check(nativeStompOk and nativeLanded and nativeLandedReason == "stomp_collision_native"
-            and nativeImpact.source == "native" and nativeStompTarget.health == 3.5
-            and nativeStompTarget.hitCalls == 0 and nativeStompTarget.headHits == 0,
-        "the stomp fallback does not stack damage on a native collision hit")
+    killed.health = 0
+    collision(killed, true, 1)
+    local killHandled, _, killEvidence = SC.NativeActions.pollCombatEvents(actor)
+    check(killStarted and killHandled and killEvidence.result == "landed"
+            and actor.targetOnGround == nil,
+        "a native lethal stomp clears the retained floor target after collision")
     actor.wornShoes = nil
 end
 
@@ -1333,7 +1306,13 @@ function window:IsOpen() return self.opened end
 function window:isSmashed() return self.smashed end
 function window:isGlassRemoved() return self.glassRemoved end
 function window:removeBrokenGlass() self.glassRemoved = true end
-function actor:openWindow(value) value.opened = true end
+function actor:openWindow(value)
+    value.opened = true
+    self.openingWindow = true
+end
+function actor:getVariableBoolean(name)
+    return name == "bOpenWindow" and self.openingWindow == true
+end
 function actor:smashWindow(value) value.smashed = true end
 function actor:climbThroughWindow() self.climbing = true end
 function actor:isClimbing() return self.climbing == true end
@@ -1388,11 +1367,20 @@ check(wallOk and wallReason == "wall_climb_started"
     "direct-native adapter validates and enters the stock tall-wall climb state")
 actor.climbing, actor.climbDirection, actor.climbKind = false, nil, nil
 end
+do
 local windowOk, windowReason = SC.Actor.setMovement(actor, "walk", {
     action = "open_window", object = window,
 })
-check(windowOk and windowReason == "window_opened" and window.opened,
-    "direct-native adapter verifies window interaction")
+local windowPhase, windowOwner = SC.NativeActions.activityStatus(actor)
+check(windowOk and window.opened and windowPhase == "active" and windowOwner == "traversal",
+    "an opened window retains traversal ownership until its native animation finishes")
+local tailMovement = SC.Actor.setMovement(actor, "walk", { action = "ready_weapon" })
+check(not tailMovement, "another pose cannot interrupt the open-window animation tail")
+actor.openingWindow = false -- the native state exits on a later simulation frame
+SC_TEST_CLOCK = SC_TEST_CLOCK + 16
+check(SC.NativeActions.activityStatus(actor) == "none",
+    "window effect completion plus native state exit releases traversal ownership")
+end
 local downedOk = SC.Actor.setMovement(actor, "walk", { action = "downed" })
 check(downedOk and actor.knockedDown == true,
     "direct-native adapter verifies native downed state")
@@ -1459,12 +1447,36 @@ local conversationPoseOk, conversationPoseReason = SC.Actor.setMovement(actor, "
 check(conversationPoseOk and conversationPoseReason == "conversation_pose_started"
     and actor.forwardY > 0.9 and actor.lastEmote == "yes",
     "conversation pose atomically faces the partner and starts one validated human gesture")
+do
+actor.forwardX, actor.forwardY, actor.lastEmote = 1, 0, nil
+actor.moving = true
+pathBehavior.startedMoving, pathBehavior.cancelled = true, false
+local warningTarget = { x = actor:getX(), y = actor:getY() + 4, z = 0 }
+local warningSignalOk, warningSignalReason = SC.Actor.setMovement(actor, "walk", {
+    action = "hand_signal", emote = "freeze", target = warningTarget,
+    facingTarget = warningTarget, faceTargetBeforeEmote = true, stableFacing = true,
+})
+check(warningSignalOk and warningSignalReason == "hand_signal_started"
+    and actor.forwardY > 0.9 and actor.lastEmote == "freeze"
+    and actor:isMoving() == false and pathBehavior.cancelled == true,
+    "visible-danger hand signal stops its active route and faces the exact target before its emote")
+actor.lastEmote = nil
+actor.moving = true
+pathBehavior.cancelled = false
+local targetlessSignalOk, targetlessSignalReason = SC.Actor.setMovement(actor, "walk", {
+    action = "hand_signal", emote = "freeze", faceTargetBeforeEmote = true,
+})
+check(not targetlessSignalOk and targetlessSignalReason == "hand signal facing target is unavailable"
+    and actor.lastEmote == nil and actor:isMoving() == true and pathBehavior.cancelled == false,
+    "a directional danger emote fails closed instead of inventing a facing target")
+end
 actor.lastEmote = nil
 local saluteOk = SC.Actor.setMovement(actor, "walk", {
     action = "hand_signal", emote = "salute",
 })
-check(saluteOk and actor.lastEmote == "salutecasual",
-    "salute UI alias resolves to an installed Build 42 player emote")
+check(saluteOk and actor.lastEmote == "salutecasual"
+        and actor:isMoving() == true and pathBehavior.cancelled == false,
+    "ordinary targetless emotes remain non-directional and do not cancel navigation")
 do
     pathBehavior.x, pathBehavior.y, pathBehavior.z, pathBehavior.cancelled = 2.5, 0.5, 0, false
     pathBehavior.startedMoving, pathBehavior.turning, pathBehavior.usingPath = false, true, true

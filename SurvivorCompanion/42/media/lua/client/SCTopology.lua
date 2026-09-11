@@ -3,9 +3,27 @@
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
+if not SC.Call and type(require) == "function" then pcall(require, "SCCall") end
 
 SC.Topology = SC.Topology or {}
 local Topology = SC.Topology
+local readBatch = nil
+
+-- A batch is a synchronous, read-only graph slice, never a saved path or a TTL
+-- cache. The world is read again after returning/yielding, so a door toggle,
+-- vehicle, construction change, or actor permission cannot survive into a later
+-- movement decision as cached passability. Callers must not mutate the world
+-- inside the callback; traversal execution always runs outside these batches.
+function Topology.withReadBatch(callback, ...)
+    if readBatch then return callback(...) end
+    local batch = { edges = {}, hazards = {}, count = 0, hits = 0 }
+    readBatch = batch
+    local results = SC.Call.pack(pcall(callback, ...))
+    readBatch = nil
+    Topology.lastBatch = { classifications = batch.count, hits = batch.hits }
+    if not results[1] then error(results[2], 0) end
+    return SC.Call.unpack(results, 2, results.n)
+end
 
 -- Build 42.20.4 exposes many sprites, but they reduce to this finite set of
 -- pathing conditions at the player-collision boundary.  Keeping the catalogue
@@ -131,6 +149,7 @@ function Topology.squareHasSheetRope(square)
 end
 
 function Topology.squareHazards(square)
+    if readBatch and readBatch.hazards[square] then return readBatch.hazards[square] end
     local hazards = {}
     if square == nil then return hazards end
     if squareHasFlag(square, "burning") then hazards.fire = true end
@@ -143,6 +162,7 @@ function Topology.squareHazards(square)
         elseif U().instanceOf(object, "IsoBrokenGlass") then hazards.brokenGlass = true
         elseif U().instanceOf(object, "IsoTrap") then hazards.explosiveTrap = true end
     end, 64)
+    if readBatch then readBatch.hazards[square] = hazards end
     return hazards
 end
 
@@ -374,7 +394,7 @@ local function thumpableBlocker(actor, fromSquare, toSquare)
     return found, kind
 end
 
-function Topology.classifyEdge(actor, fromSquare, toSquare, options)
+local function classifyEdge(actor, fromSquare, toSquare, options)
     options = type(options) == "table" and options or {}
     local result = {
         traversable = false, affordance = "invalid", reason = "invalid_edge",
@@ -560,6 +580,34 @@ function Topology.classifyEdge(actor, fromSquare, toSquare, options)
     return result
 end
 
+function Topology.classifyEdge(actor, fromSquare, toSquare, options)
+    if not readBatch or fromSquare == nil or toSquare == nil then
+        return classifyEdge(actor, fromSquare, toSquare, options)
+    end
+    if readBatch.count >= 2048 then return classifyEdge(actor, fromSquare, toSquare, options) end
+    options = type(options) == "table" and options or {}
+    local policy = (options.allowHazards == true and "hazards:" or "safe:")
+        .. (options.ignoreSafehouse == true and "public" or "permission")
+    local owner = actor or false
+    local actors = readBatch.edges
+    actors[owner] = actors[owner] or {}
+    local origins = actors[owner]
+    origins[fromSquare] = origins[fromSquare] or {}
+    local destinations = origins[fromSquare]
+    destinations[toSquare] = destinations[toSquare] or {}
+    local policies = destinations[toSquare]
+    if policies[policy] then
+        readBatch.hits = readBatch.hits + 1
+        return policies[policy]
+    end
+    local result = classifyEdge(actor, fromSquare, toSquare, options)
+    if readBatch.count < 2048 then
+        policies[policy] = result
+        readBatch.count = readBatch.count + 1
+    end
+    return result
+end
+
 local cardinalOffsets = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
 
 function Topology.localSignature(actor, origin)
@@ -577,48 +625,127 @@ end
 
 -- Bounded cardinal flood-fill used by combat escape planning. It returns only
 -- squares that can be reached under the same edge policy as Navigation.
-function Topology.reachableEscapeSquares(actor, origin, options)
+function Topology.newEscapeSearch(actor, origin, options)
     options = type(options) == "table" and options or {}
-    local radius = math.max(1, math.floor(tonumber(options.radius) or 5))
-    local nodeBudget = math.max(4, math.floor(tonumber(options.nodeBudget) or 64))
-    local exitLimit = math.max(1, math.floor(tonumber(options.exitLimit) or 16))
     local ox, oy, oz = floorPosition(origin)
-    if ox == nil then return {}, {}, { processed = 0, signature = "invalid" } end
-    local queue = { { square = origin, distance = 0, cost = 0 } }
-    local head, processed = 1, 0
-    local visited = {}
-    visited[U().squareKey(origin) or tostring(origin)] = true
-    local reachable, exits = {}, {}
-    while head <= #queue and processed < nodeBudget do
-        local current = queue[head]
-        head = head + 1
-        processed = processed + 1
-        if current.distance < radius then
+    local job = {
+        actor = actor, origin = origin, options = options,
+        radius = math.max(1, math.floor(tonumber(options.radius) or 5)),
+        nodeBudget = math.max(4, math.floor(tonumber(options.nodeBudget) or 64)),
+        exitLimit = math.max(1, math.floor(tonumber(options.exitLimit) or 16)),
+        queue = {}, head = 1, processed = 0, edgeChecks = 0,
+        visited = {}, reachable = {}, exits = {}, portals = {}, portalSeen = {},
+        originKey = U().squareKey(origin),
+        complete = ox == nil,
+    }
+    if ox ~= nil then
+        job.queue[1] = { square = origin, distance = 0, cost = 0, nextEdge = 1 }
+        job.visited[job.originKey or tostring(origin)] = true
+    end
+    return job
+end
+
+function Topology.escapeSearchValid(job, deadline, clock)
+    if type(job) ~= "table" then return false end
+    clock = type(clock) == "function" and clock or U().nowMs
+    local portals = job.portals or {}
+    local index = math.max(1, math.floor(tonumber(job.validationIndex) or 1))
+    local used = 0
+    while index <= #portals do
+        -- Portal verification is part of the same cooperative frame budget as
+        -- edge expansion. Preserve its cursor rather than rescanning an
+        -- expensive prefix whenever the deadline is reached.
+        if deadline and used > 0 and clock() >= deadline then
+            job.validationIndex = index
+            return true, false, used
+        end
+        local portal = portals[index]
+        local object = Topology.barrierBetween(portal.fromSquare, portal.toSquare)
+        if object ~= portal.object
+            or Topology.objectStateSignature(object) ~= portal.signature then
+            job.validationIndex = 1
+            return false, true, used + 1
+        end
+        index, used = index + 1, used + 1
+    end
+    job.validationIndex = 1
+    return true, true, used
+end
+
+local function advanceEscapeSearch(job, edgeQuota, deadline, clock)
+    local used = 0
+    edgeQuota = math.max(1, math.floor(tonumber(edgeQuota) or 24))
+    clock = type(clock) == "function" and clock or U().nowMs
+    local valid, validationComplete, validationUsed =
+        Topology.escapeSearchValid(job, deadline, clock)
+    validationUsed = tonumber(validationUsed) or 0
+    if not valid then
+        job.complete, job.invalidated = true, true
+        return {}, {}, { used = validationUsed, edgeUsed = 0,
+            processed = job.processed, complete = true, invalidated = true }
+    end
+    if validationComplete ~= true or validationUsed >= edgeQuota then
+        return job.reachable, job.exits, { used = validationUsed, edgeUsed = 0,
+            processed = job.processed, edgeChecks = job.edgeChecks,
+            complete = false, validationPending = true, originKey = job.originKey }
+    end
+    local edgeQuotaRemaining = edgeQuota - validationUsed
+    while not job.complete and job.head <= #job.queue and used < edgeQuotaRemaining do
+        -- Always establish the four immediate cardinal options on a fresh
+        -- emergency. Deeper geometry yields without postponing close defense.
+        if deadline and used > 0 and job.edgeChecks >= 4 and clock() >= deadline then break end
+        local current = job.queue[job.head]
+        job.processed = math.max(job.processed, job.head)
+        if current.distance < job.radius and current.nextEdge <= #cardinalOffsets then
             local cx, cy, cz = floorPosition(current.square)
-            for _, offset in ipairs(cardinalOffsets) do
-                if processed + #queue - head + 1 >= nodeBudget then break end
+            local offset = cardinalOffsets[current.nextEdge]
+            current.nextEdge = current.nextEdge + 1
+            used, job.edgeChecks = used + 1, job.edgeChecks + 1
+            if cx ~= nil then
                 local square = U().gridSquare(cx + offset[1], cy + offset[2], cz)
                 local key = square and U().squareKey(square) or nil
-                if key and not visited[key] then
-                    local edge = Topology.classifyEdge(actor, current.square, square, options)
+                if key and not job.visited[key] then
+                    local edge = Topology.classifyEdge(job.actor, current.square, square, job.options)
                     if edge.traversable == true then
+                        if edge.object and not job.portalSeen[edge.object] then
+                            -- A continuation cannot retain an opening that was
+                            -- closed/locked/removed between its bounded slices.
+                            -- Limit recurring validation work, not the flood fill.
+                            -- Dense door/fence layouts may contain more portals;
+                            -- the selected route is always revalidated edge by
+                            -- edge before use, so an untracked portal must not
+                            -- truncate reachable escape space.
+                            if #job.portals < 16 then
+                                job.portalSeen[edge.object] = true
+                                job.portals[#job.portals + 1] = {
+                                    object = edge.object, fromSquare = current.square,
+                                    toSquare = square,
+                                    signature = Topology.objectStateSignature(edge.object),
+                                }
+                            else
+                                job.portalValidationTruncated = true
+                            end
+                        end
                         -- A wall can reject one directed approach to a square
                         -- which remains reachable around the other side. Mark a
                         -- node visited only after an admissible edge reaches it.
-                        visited[key] = true
+                        job.visited[key] = true
                         local node = {
                             square = square,
+                            x = cx + offset[1], y = cy + offset[2], z = cz,
+                            parent = current,
+                            fromSquare = current.square,
                             distance = current.distance + 1,
                             traversalCost = (tonumber(current.traversalCost)
                                 or tonumber(current.cost) or 0)
                                 + (tonumber(edge.cost) or 1),
                             requiresNative = edge.requiresNative == true,
-                            via = edge,
+                            via = edge, nextEdge = 1,
                         }
-                        queue[#queue + 1] = node
-                        reachable[#reachable + 1] = node
-                        if edge.affordance ~= "open" and #exits < exitLimit then
-                            exits[#exits + 1] = {
+                        job.queue[#job.queue + 1] = node
+                        job.reachable[#job.reachable + 1] = node
+                        if edge.affordance ~= "open" and #job.exits < job.exitLimit then
+                            job.exits[#job.exits + 1] = {
                                 kind = edge.affordance, square = square,
                                 fromSquare = current.square, object = edge.object,
                                 distance = node.distance, requiresNative = edge.requiresNative,
@@ -627,13 +754,58 @@ function Topology.reachableEscapeSquares(actor, origin, options)
                     end
                 end
             end
+        else
+            job.head = job.head + 1
+        end
+        if #job.queue >= job.nodeBudget then job.complete = true end
+    end
+    if job.head > #job.queue then job.complete = true end
+    return job.reachable, job.exits, {
+        processed = job.processed, edgeChecks = job.edgeChecks,
+        used = used + validationUsed, edgeUsed = used,
+        complete = job.complete, originKey = job.originKey,
+        portalValidationTruncated = job.portalValidationTruncated == true,
+    }
+end
+
+function Topology.resumeEscapeSearch(job, edgeQuota, deadline, clock)
+    return Topology.withReadBatch(advanceEscapeSearch, job, edgeQuota, deadline, clock)
+end
+
+function Topology.reachableEscapeSquares(actor, origin, options)
+    local job = Topology.newEscapeSearch(actor, origin, options)
+    local raw, exits, meta = Topology.resumeEscapeSearch(job, job.nodeBudget * 4)
+    meta.signature = Topology.localSignature(actor, origin)
+    return raw, exits, meta
+end
+
+-- A flood-fill continuation is only a planning cache. Before Senses exposes a
+-- square as an actionable retreat destination, re-read every edge in that
+-- node's parent chain without the batch memo. This catches a car, wall, door or
+-- construction inserted after an earlier slice and gives one coherent
+-- main-thread validation of the route actually selected for use.
+function Topology.validateEscapeNode(actor, node, options)
+    if type(node) ~= "table" or node.square == nil then return false, "invalid_node", 0 end
+    local chain, cursor, guard = {}, node, 0
+    while cursor and cursor.parent do
+        guard = guard + 1
+        if guard > 16 then return false, "parent_cycle", guard end
+        chain[#chain + 1] = cursor
+        cursor = cursor.parent
+    end
+    if #chain == 0 then return false, "no_route", 0 end
+    local checked = 0
+    for index = #chain, 1, -1 do
+        local step = chain[index]
+        local fromSquare = step.fromSquare
+            or (step.parent and step.parent.square) or nil
+        local edge = classifyEdge(actor, fromSquare, step.square, options)
+        checked = checked + 1
+        if edge.traversable ~= true then
+            return false, edge.reason or "blocked", checked
         end
     end
-    return reachable, exits, {
-        processed = processed,
-        signature = Topology.localSignature(actor, origin),
-        originKey = U().squareKey(origin),
-    }
+    return true, "traversable", checked
 end
 
 return Topology

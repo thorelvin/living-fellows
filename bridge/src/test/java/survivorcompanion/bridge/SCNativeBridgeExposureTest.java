@@ -76,7 +76,7 @@ public final class SCNativeBridgeExposureTest {
         thread.getClass().getMethod("call", Object.class, Object[].class)
                 .invoke(thread, closure, (Object) new Object[0]);
         Method rawget = tableClass.getMethod("rawget", Object.class);
-        require("42.20-isocompanion-5".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
+        require("42.20-isocompanion-7".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
                 "Lua received the wrong native bridge protocol");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_ATTACK_TYPES")),
                 "production bridge did not expose the native attack enum contract");

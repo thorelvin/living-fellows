@@ -10,9 +10,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.RejectedExecutionException;
 
 import zombie.Lua.LuaEventManager;
+import zombie.GameTime;
 import zombie.ai.AIBrainPlayerControlVars;
+import zombie.ai.State;
+import zombie.ai.astar.AStarPathFinder;
+import zombie.ai.states.IdleState;
 import zombie.ai.states.PathFindState;
-import zombie.ai.states.PlayerActionsState;
+import zombie.ai.states.SwipeStatePlayer;
 import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.SurvivorDesc;
@@ -57,11 +61,20 @@ public final class SCNativeCompanion extends IsoPlayer {
     // naturally (reached goal / failed / cancelled) clears bridgePathActive instead
     // of leaving isMoving()/hasPendingMovement() reporting movement indefinitely.
     private volatile boolean bridgePathStartedThisRun;
+    private volatile boolean bridgePathRouteReady;
+    private volatile boolean bridgePathStopping;
     private volatile long bridgePathStartNanos;
     private volatile float bridgeMoveDistance;
     private volatile float bridgeMoveX;
     private volatile float bridgeMoveY;
     private volatile float bridgeMoveSoundDelta;
+    private volatile long bridgeMoveExpiresNanos;
+    private volatile boolean bridgeMoveHasTarget;
+    private volatile float bridgeMoveTargetX;
+    private volatile float bridgeMoveTargetY;
+    private volatile float bridgeMoveTargetZ;
+    private volatile float bridgeMoveArrivalTolerance;
+    private static final long MANUAL_INPUT_LIFETIME_NANOS = 250_000_000L;
     private volatile boolean bridgeTacticalMovement;
     private volatile float bridgeStrafeX;
     private volatile float bridgeStrafeY;
@@ -70,16 +83,27 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile long bridgeSpeechRefreshUntilNanos;
     private volatile long bridgePostUpdateCount;
     private volatile String bridgePostUpdateDiagnostic = "not_run";
+    private final MovementProbe bridgeLastMovementProbe = new MovementProbe();
+    private final MovementProbe bridgeLastCollisionProbe = new MovementProbe();
+    private long bridgeInvalidMovementCount;
+    private String bridgeInvalidMovementEvidence = "none";
     private volatile zombie.iso.IsoMovingObject bridgeAimTarget;
     // Keep the construction cell independently of mutable square references so
     // a cleanup retry can still remove scheduler membership after an earlier
     // attempt already cleared current/render/moving squares.
     private final IsoCell bridgeCell;
     // Monotonic evidence that a native swing reached its animation-owned impact
-    // frame. Lua snapshots this before a stomp and applies its Build 42 floor-hit
-    // fallback only after the serial advances; starting DoAttack is too early and
-    // made the zombie die before the player could see the stomp animation.
+    // frame. The accompanying target/result fields let Lua consume the native
+    // collision outcome without fabricating a second hit after the animation.
     private volatile int bridgeAttackCollisionSerial;
+    private volatile int bridgeAttackCollisionHitCount;
+    private volatile zombie.iso.IsoMovingObject bridgeAttackCollisionTarget;
+    private volatile boolean bridgeAttackCollisionTargetHit;
+    private boolean bridgeFloorInputArmed;
+    private boolean bridgeFloorInputStomp;
+    private boolean bridgeFloorInputObservedSwing;
+    private long bridgeFloorInputStartDeadline;
+    private long bridgeFloorInputHardDeadline;
     private boolean genericUpdateActive;
     private final Set<BaseAction> bridgePendingActionStarts = ConcurrentHashMap.newKeySet();
     private volatile String bridgeActionStartFailure = "";
@@ -95,7 +119,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     // A path request that has not begun moving via pathfind within this window is
     // treated as failed to start, so a phantom-active path clears rather than
     // pinning the movement flags forever.
-    private static final long PATH_START_GRACE_NANOS = 600_000_000L;
+    private static final long PATH_START_GRACE_NANOS = 6_500_000_000L;
 
     public SCNativeCompanion(SurvivorDesc descriptor, IsoCell cell, int x, int y, int z) {
         super(cell, descriptor, x, y, z, false);
@@ -295,19 +319,67 @@ public final class SCNativeCompanion extends IsoPlayer {
     /**
      * End a native climb that has stopped advancing past the navigation timeout.
      * Merely cancelling PathFindBehavior2 leaves the legacy Climb*State active;
-     * isClimbing() then remains true forever and every later route waits on the
+     * its native state can remain active and every later route waits on the
      * same animation. Changing to the stock player state invokes the climb
      * state's own exit hook, which restores collision/movement flags and clears
      * its animation variables without translating or recreating the actor.
      */
     public boolean cancelCompanionStuckClimb() {
+        return cancelCompanionTraversal();
+    }
+
+    /**
+     * Build 42 fence/window/wall states do not maintain the legacy climbing
+     * field returned by isClimbing(). Observe the actual state owners, including
+     * child states, so a valid vault is not cancelled as a failed start and no
+     * retained manual input can compete with its animation-owned movement.
+     */
+    public boolean isCompanionTraversalActive() {
         try {
-            if (!isClimbing()) return true;
+            if (isClimbing()) return true;
+            var machine = getStateMachine();
+            if (machine == null) return false;
+            if (isTraversalState(machine.getCurrent())) return true;
+            for (int index = 0; index < machine.getSubStateCount(); index++) {
+                if (isTraversalState(machine.getSubStateAt(index))) return true;
+            }
+            return false;
+        } catch (RuntimeException | LinkageError failure) {
+            // Losing observation must not release another native movement owner.
+            return true;
+        }
+    }
+
+    private static boolean isTraversalState(State state) {
+        if (state == null) return false;
+        String name = state.getClass().getSimpleName();
+        return name.startsWith("Climb") || name.equals("OpenWindowState")
+                || name.equals("SmashWindowState");
+    }
+
+    public boolean cancelCompanionTraversal() {
+        try {
+            // Climb methods enqueue events; cancellation can arrive before the
+            // next ActionContext update has entered the corresponding state.
+            var context = getActionContext();
+            if (context == null) return false;
+            for (String event : new String[] { "EventClimbFence", "EventClimbWall",
+                    "EventClimbWindow", "EventClimbRope", "EventClimbDownRope",
+                    "EventOpenWindow", "EventSmashWindow" }) {
+                context.clearEvent(event);
+            }
+            if (!isCompanionTraversalActive()) return true;
             PathFindBehavior2 behavior = getPathFindBehavior2();
             if (behavior != null) behavior.cancel();
             setMoving(false);
-            changeState(PlayerActionsState.instance());
-            return !isClimbing();
+            var idle = context.getGroup() == null ? null : context.getGroup().findState("idle");
+            if (idle == null) return false;
+            // setCurrentState clears ActionContext children, and changeState
+            // removes native substates through their own exit hooks as well.
+            context.setCurrentState(idle);
+            changeState(IdleState.instance());
+            return !isCompanionTraversalActive()
+                    && getStateMachine().getCurrent() == IdleState.instance();
         } catch (RuntimeException | LinkageError failure) {
             return false;
         }
@@ -317,11 +389,51 @@ public final class SCNativeCompanion extends IsoPlayer {
         return bridgePostUpdateDiagnostic + ",count=" + bridgePostUpdateCount;
     }
 
+    /** Read-only, retained evidence of the vectors consumed by native physics. */
+    public String getCompanionCollisionDiagnostic() {
+        return "move{" + bridgeLastMovementProbe.describe() + "};collision{"
+                + bridgeLastCollisionProbe.describe() + "};invalid=" + bridgeInvalidMovementCount
+                + ":" + bridgeInvalidMovementEvidence;
+    }
+
+    private static final class MovementProbe {
+        long sequence;
+        boolean standalone;
+        boolean polygonCollision;
+        boolean collided;
+        float x, y, nextX, nextY, lastX, lastY, afterX, afterY, afterNextX, afterNextY;
+        String state = "none";
+
+        void record(long sequence, boolean standalone, State state, float x, float y,
+                float nextX, float nextY, float lastX, float lastY, SCNativeCompanion actor) {
+            this.sequence = sequence;
+            this.standalone = standalone;
+            this.state = state == null ? "none" : state.getClass().getSimpleName();
+            this.x = x; this.y = y; this.nextX = nextX; this.nextY = nextY;
+            this.lastX = lastX; this.lastY = lastY;
+            this.afterX = actor.getX(); this.afterY = actor.getY();
+            this.afterNextX = actor.getNextX(); this.afterNextY = actor.getNextY();
+            this.polygonCollision = actor.isCollidedWithVehicle();
+            this.collided = actor.isCollidedThisFrame();
+        }
+
+        String describe() {
+            if (sequence == 0) return "none";
+            return "seq=" + sequence + ",pass=" + (standalone ? "standalone" : "nested")
+                    + ",state=" + state + ",before=" + x + "/" + y
+                    + ",intended=" + nextX + "/" + nextY + ",last=" + lastX + "/" + lastY
+                    + ",after=" + afterX + "/" + afterY
+                    + ",resolved=" + afterNextX + "/" + afterNextY
+                    + ",polygon=" + polygonCollision + ",collided=" + collided;
+        }
+    }
+
     @Override
     public void postupdate() {
         if (bridgeDisabled) {
             return;
         }
+        guardPhysicsMovement();
         // The engine runs postupdate() both nested inside update()'s generic pass
         // and again as its own standalone pass. When nested, update() already owns
         // the local-player snapshot/restore and exception handling for this frame,
@@ -331,6 +443,10 @@ public final class SCNativeCompanion extends IsoPlayer {
         // not cover, which can otherwise leak player-indexed/singleton ownership
         // onto the real player (a hotbar-disturbance cause).
         final boolean standalonePass = !genericUpdateActive;
+        final float physicsX = getX(), physicsY = getY();
+        final float physicsNextX = getNextX(), physicsNextY = getNextY();
+        final float physicsLastX = getLastX(), physicsLastY = getLastY();
+        final State physicsState = getStateMachine().getCurrent();
         LocalPlayerState localState = null;
         if (standalonePass) {
             localState = LocalPlayerState.capture();
@@ -407,6 +523,17 @@ public final class SCNativeCompanion extends IsoPlayer {
             }
             firstPostUpdateFailureNanos = 0L;
         }
+        // Retain primitive snapshots, formatting only when diagnostics are read.
+        // A later idle physics pass must not erase the last attempted vector or
+        // collision. Vanilla's "vehicle" flag also covers static polygons.
+        if (physicsNextX != physicsX || physicsNextY != physicsY) {
+            bridgeLastMovementProbe.record(bridgePostUpdateCount, standalonePass, physicsState,
+                    physicsX, physicsY, physicsNextX, physicsNextY, physicsLastX, physicsLastY, this);
+        }
+        if (isCollidedThisFrame() || isCollidedWithVehicle()) {
+            bridgeLastCollisionProbe.record(bridgePostUpdateCount, standalonePass, physicsState,
+                    physicsX, physicsY, physicsNextX, physicsNextY, physicsLastX, physicsLastY, this);
+        }
         try {
             bridgePostUpdateDiagnostic = "before=" + beforeState
                     + ",next=" + beforeNext
@@ -434,21 +561,31 @@ public final class SCNativeCompanion extends IsoPlayer {
     public void OnAnimEvent(AnimLayer layer, AnimationTrack track, AnimEvent event) {
         super.OnAnimEvent(layer, track, event);
         if (event != null && "AttackCollisionCheck".equals(event.eventName)) {
-            driveCompanionAttackCollision(event.parameterValue);
-            bridgeAttackCollisionSerial++;
+            if (driveCompanionAttackCollision(event.parameterValue)) {
+                bridgeAttackCollisionSerial++;
+            }
         }
     }
 
-    private void driveCompanionAttackCollision(String attackTypeName) {
-        if (bridgeDisabled || getVehicle() != null) return;
+    private boolean driveCompanionAttackCollision(String attackTypeName) {
+        if (bridgeDisabled || getVehicle() != null || isDead()) return false;
         if (COMBAT_MANAGER_INSTANCE == null || ATTACK_COLLISION_CHECK == null
                 || SWIPE_STATE_INSTANCE == null || GET_USE_HAND_WEAPON == null
                 || GET_ATTACK_TYPE == null) {
-            return;
+            return false;
         }
         try {
+            // Use the same per-swing latch as the local player. The native state
+            // resets it on the next attack (including automatic-fire reentry),
+            // so duplicate animation layers cannot add damage while later swings
+            // remain eligible. Ignore outgoing/stale tracks outside that state.
+            var swipe = SwipeStatePlayer.instance();
+            boolean currentSwing = getStateMachine().getCurrent() == swipe
+                    || getStateMachine().isSubstate(swipe);
+            if (!shouldDriveAttackCollision(currentSwing,
+                    Boolean.TRUE.equals(get(SwipeStatePlayer.ATTACKED)))) return false;
             Object weapon = GET_USE_HAND_WEAPON.invoke(this);
-            if (weapon == null) return;
+            if (weapon == null) return false;
             // The AttackType that gates CombatManager's stance filter is carried
             // by the swing's AttackCollisionCheck anim event (its parameter is the
             // enum id, e.g. "MeleeSwing"), not by the actor's getAttackType()
@@ -461,7 +598,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             }
             Object combatManager = COMBAT_MANAGER_INSTANCE.invoke(null);
             Object swipeState = SWIPE_STATE_INSTANCE.invoke(null);
-            if (combatManager == null || swipeState == null) return;
+            if (combatManager == null || swipeState == null) return false;
             // Re-point at the current target: the swing animation may have turned
             // the actor, and attackCollisionCheck rebuilds the hit-info list
             // against the actor's facing before applying the hit.
@@ -473,10 +610,53 @@ public final class SCNativeCompanion extends IsoPlayer {
             if (isAimAtFloor() && bridgeAimTarget instanceof IsoGameCharacter) {
                 this.targetOnGround = (IsoGameCharacter) bridgeAimTarget;
             }
+            IsoGameCharacter collisionTarget = bridgeAimTarget instanceof IsoGameCharacter
+                    ? (IsoGameCharacter) bridgeAimTarget : null;
+            float targetHealthBefore = collisionTarget == null
+                    ? Float.NaN : collisionTarget.getHealth();
+            boolean targetDeadBefore = collisionTarget != null && collisionTarget.isDead();
+
+            // SwipeStatePlayer.enter only derives this flag inside its local-
+            // player input branch. A companion is intentionally non-local, so an
+            // explicitly armed stomp otherwise arrives here as an ordinary shove;
+            // CombatManager then sets bIgnoreDamage and the foot never hurts the
+            // grounded zombie. Restore the result immediately before the one
+            // native collision check. SwipeStatePlayer.exit clears it normally.
+            boolean liveFloorInput = refreshBridgeFloorAttackInput();
+            if (shouldForceStompCollision(liveFloorInput, bridgeFloorInputStomp)) {
+                setShoveStompAnim(true);
+            }
+            // Claim before calling: a thrown native check may already have hit
+            // one target, and must not be replayed by a second animation layer.
+            set(SwipeStatePlayer.ATTACKED, true);
             ATTACK_COLLISION_CHECK.invoke(combatManager, this, weapon, swipeState, attackType);
+            int hitCount = getLastHitCount();
+            boolean targetHit = hitCount > 0 && collisionTarget != null
+                    && collisionTargetAffected(targetHealthBefore, collisionTarget.getHealth(),
+                            targetDeadBefore, collisionTarget.isDead());
+            bridgeAttackCollisionTarget = collisionTarget;
+            bridgeAttackCollisionHitCount = hitCount;
+            bridgeAttackCollisionTargetHit = targetHit;
+            return true;
         } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
             // Fail closed: no swing damage rather than an update-breaking throw.
+            return false;
         }
+    }
+
+    static boolean shouldDriveAttackCollision(boolean currentSwing, boolean attacked) {
+        return currentSwing && !attacked;
+    }
+
+    static boolean shouldForceStompCollision(boolean floorInputArmed, boolean floorInputStomp) {
+        return floorInputArmed && floorInputStomp;
+    }
+
+    static boolean collisionTargetAffected(float healthBefore, float healthAfter,
+            boolean deadBefore, boolean deadAfter) {
+        return !deadBefore && deadAfter
+                || Float.isFinite(healthBefore) && Float.isFinite(healthAfter)
+                        && healthAfter < healthBefore;
     }
 
     /**
@@ -508,14 +688,19 @@ public final class SCNativeCompanion extends IsoPlayer {
             bridgeMoving = moving && getVehicle() == null;
             if (!bridgeMoving) {
                 bridgeMoveRequested = false;
+                bridgeMoveHasTarget = false;
+                bridgeMoveExpiresNanos = 0L;
                 bridgePathActive = false;
                 bridgePathStartedThisRun = false;
+                bridgePathRouteReady = false;
+                bridgePathStopping = false;
                 // External stop/cancel requests run outside the generic physics
                 // pass. Vanilla's PathFindBehavior2.cancel() does not clear the
                 // animation variable, so without this handshake the actor reaches
                 // idle with bPathfind pinned true indefinitely.
                 try {
                     setVariable("bPathfind", false);
+                    clearBridgePathContinuation();
                 } catch (RuntimeException | LinkageError ignored) {
                     // The superclass constructor can call setMoving before the
                     // animation-variable registry is fully initialized.
@@ -532,6 +717,8 @@ public final class SCNativeCompanion extends IsoPlayer {
      */
     private void beginBridgePath(boolean active) {
         bridgePathActive = active;
+        bridgePathRouteReady = false;
+        bridgePathStopping = false;
         if (active) {
             bridgePathStartedThisRun = false;
             bridgePathStartNanos = System.nanoTime();
@@ -555,6 +742,8 @@ public final class SCNativeCompanion extends IsoPlayer {
             return;
         }
         bridgeMoveRequested = false;
+        bridgeMoveHasTarget = false;
+        bridgeMoveExpiresNanos = 0L;
         bridgeMoving = false;
         setVariable("bPathfind", true);
         super.setMoving(false);
@@ -563,24 +752,28 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     @Override
     public void pathToLocationF(float x, float y, float z) {
+        clearBridgePathContinuation();
         super.pathToLocationF(x, y, z);
         forceBridgePathfindingState(getVehicle() == null && !bridgeDisabled);
     }
 
     @Override
     public void pathToLocation(int x, int y, int z) {
+        clearBridgePathContinuation();
         super.pathToLocation(x, y, z);
         forceBridgePathfindingState(getVehicle() == null && !bridgeDisabled);
     }
 
     @Override
     public void pathToCharacter(IsoGameCharacter target) {
+        clearBridgePathContinuation();
         super.pathToCharacter(target);
         forceBridgePathfindingState(target != null && getVehicle() == null && !bridgeDisabled);
     }
 
     @Override
     public void pathToSound(int x, int y, int z) {
+        clearBridgePathContinuation();
         super.pathToSound(x, y, z);
         forceBridgePathfindingState(getVehicle() == null && !bridgeDisabled);
     }
@@ -593,6 +786,11 @@ public final class SCNativeCompanion extends IsoPlayer {
      */
     @Override
     public void MoveForward(float distance, float x, float y, float soundDelta) {
+        if (!Float.isFinite(distance) || !Float.isFinite(x) || !Float.isFinite(y)) {
+            recordInvalidMovement("MoveForward", x, y);
+            if (!genericUpdateActive) setMoving(false);
+            return;
+        }
         if (genericUpdateActive) {
             super.MoveForward(distance, x, y, soundDelta);
             return;
@@ -601,13 +799,100 @@ public final class SCNativeCompanion extends IsoPlayer {
             suspendBridgeLocomotion();
             return;
         }
+        if (!Float.isFinite(distance) || distance <= 0.0f
+                || !Float.isFinite(x) || !Float.isFinite(y)) {
+            setMoving(false);
+            return;
+        }
         bridgeMoveDistance = distance;
         bridgeMoveX = x;
         bridgeMoveY = y;
         bridgeMoveSoundDelta = soundDelta;
+        bridgeMoveHasTarget = false;
+        bridgeMoveExpiresNanos = System.nanoTime() + MANUAL_INPUT_LIFETIME_NANOS;
         bridgeMoveRequested = true;
         bridgeMoving = true;
         super.setMoving(true);
+    }
+
+    @Override
+    public void moveUnmodded(float x, float y) {
+        if (!Float.isFinite(x) || !Float.isFinite(y)) {
+            recordInvalidMovement("moveUnmodded", x, y);
+            return;
+        }
+        guardPhysicsMovement();
+        if (!Float.isFinite(getNextX() + x) || !Float.isFinite(getNextY() + y)) {
+            recordInvalidMovement("moveUnmodded_overflow", x, y);
+            return;
+        }
+        super.moveUnmodded(x, y);
+    }
+
+    private void guardPhysicsMovement() {
+        if (Float.isFinite(getNextX()) && Float.isFinite(getNextY())) return;
+        recordInvalidMovement("physics_ingress", getNextX(), getNextY());
+        // Discard an invalid pending displacement, never translate the actor.
+        // Otherwise vanilla's collision code floors NaN, loses square membership
+        // and snaps the actor to its previous tile centre.
+        if (Float.isFinite(getX()) && Float.isFinite(getY())) {
+            setNextX(getX());
+            setNextY(getY());
+        }
+    }
+
+    private void recordInvalidMovement(String source, float x, float y) {
+        bridgeInvalidMovementCount++;
+        if (bridgeInvalidMovementCount > 3 && bridgeInvalidMovementCount % 120 != 0) return;
+        try {
+            zombie.iso.Vector2 deferred = getDeferredMovement(new zombie.iso.Vector2());
+            zombie.iso.Vector2 forward = getForwardDirection();
+            PathFindBehavior2 behavior = getPathFindBehavior2();
+            StringBuilder evidence = new StringBuilder(source).append('(').append(x).append(',').append(y)
+                    .append(") pos=").append(getX()).append(',').append(getY())
+                    .append(" deferred=").append(deferred.x).append(',').append(deferred.y)
+                    .append(" forward=").append(forward.x).append(',').append(forward.y)
+                    .append(" angle=").append(hasAnimationPlayer() ? getAnimationPlayer().getRenderedAngle() : Float.NaN)
+                    .append(" waypoint=").append(behavior.pathNextIsSet).append(':')
+                    .append(behavior.pathNextX).append(',').append(behavior.pathNextY);
+            var path = getPath2();
+            evidence.append(" nodes=").append(path == null ? -1 : path.size());
+            if (path != null) {
+                for (int index = 0; index < Math.min(path.size(), 10); index++) {
+                    var node = path.getNode(index);
+                    evidence.append('[').append(node.x).append(',').append(node.y).append(',').append(node.z).append(']');
+                }
+            }
+            StackTraceElement[] trace = Thread.currentThread().getStackTrace();
+            for (int index = 2; index < Math.min(trace.length, 6); index++) {
+                evidence.append(" <-").append(trace[index].getClassName()).append('.')
+                        .append(trace[index].getMethodName()).append(':').append(trace[index].getLineNumber());
+            }
+            bridgeInvalidMovementEvidence = evidence.toString();
+        } catch (RuntimeException | LinkageError failure) {
+            bridgeInvalidMovementEvidence = source + ":" + x + "," + y + ":diagnostic_unavailable";
+        }
+    }
+
+    /** Attach an exact endpoint to the immediately preceding MoveForward input. */
+    public boolean setCompanionMovementTarget(float x, float y, float z,
+            float arrivalTolerance, int ttlMs) {
+        if (!bridgeMoveRequested || !validMovementTarget(x, y, z, getZ(),
+                arrivalTolerance, ttlMs)) return false;
+        bridgeMoveTargetX = x;
+        bridgeMoveTargetY = y;
+        bridgeMoveTargetZ = z;
+        bridgeMoveArrivalTolerance = Math.min(0.25f, arrivalTolerance);
+        bridgeMoveExpiresNanos = System.nanoTime() + Math.min(1000, ttlMs) * 1_000_000L;
+        bridgeMoveHasTarget = true;
+        return true;
+    }
+
+    static boolean validMovementTarget(float x, float y, float z, float currentZ,
+            float tolerance, int ttlMs) {
+        return Float.isFinite(x) && Float.isFinite(y) && Float.isFinite(z)
+                && Float.isFinite(currentZ) && Math.floor(z) == Math.floor(currentZ)
+                && Float.isFinite(tolerance) && tolerance >= 0.0f && ttlMs > 0;
     }
 
     /**
@@ -664,12 +949,160 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     /**
-     * Return animation-owned impact evidence for Lua's downed-target fallback.
-     * The value is deliberately an opaque serial: callers compare it for change
-     * and do not depend on its absolute value or eventual integer wraparound.
+     * Supply the actor-owned equivalent of the player's manual-floor modifier.
+     * CombatManager recalculates aimAtFloor/doShove during CanAttack, attack
+     * start and native animation entry; setting those result flags alone cannot
+     * preserve an explicit floor intent. Keep this input through the one native
+     * swing, then release it on exit (or bounded failure to start).
      */
+    public boolean setCompanionFloorAttackInput(boolean enabled, boolean stomp) {
+        if (!enabled) {
+            clearBridgeFloorAttackInput();
+            return true;
+        }
+        if (bridgeDisabled || isDead() || getVehicle() != null) return false;
+        refreshBridgeFloorAttackInput();
+        boolean activeSwing = hasNativeAttackOwner();
+        if (activeSwing && (!bridgeFloorInputArmed || bridgeFloorInputStomp != stomp)) return false;
+        if (bridgeFloorInputArmed && bridgeFloorInputObservedSwing) return true;
+        long now = System.nanoTime();
+        bridgeFloorInputArmed = true;
+        bridgeFloorInputStomp = stomp;
+        bridgeFloorInputObservedSwing = activeSwing;
+        bridgeFloorInputStartDeadline = now + 1_000_000_000L;
+        bridgeFloorInputHardDeadline = now + 15_000_000_000L;
+        return true;
+    }
+
+    @Override
+    public boolean isManualFloorAtkButtonDown() {
+        return refreshBridgeFloorAttackInput();
+    }
+
+    @Override
+    public boolean isMeleeButtonDown() {
+        return refreshBridgeFloorAttackInput() && bridgeFloorInputStomp;
+    }
+
+    private boolean hasNativeAttackOwner() {
+        var machine = getStateMachine();
+        var swipe = SwipeStatePlayer.instance();
+        return isAttackStarted() || isPerformingAttackAnimation()
+                || isPerformingShoveAnimation() || isPerformingStompAnimation()
+                || machine != null && (machine.getCurrent() == swipe || machine.isSubstate(swipe));
+    }
+
+    private boolean hasCompanionAttackActionState() {
+        String state = getCompanionActionStateName().toLowerCase(java.util.Locale.ROOT);
+        return state.contains("melee") || state.contains("attack")
+                || state.contains("shove") || state.contains("stomp");
+    }
+
+    /**
+     * Release every independent Build 42 attack owner after Lua's bounded
+     * dead-target lease expires. clearHandToHandAttack() alone does not promise
+     * to clear the animation/FSM latches, and any one of those latches prevents
+     * retained follow movement from reaching MoveForward().
+     */
+    public boolean releaseCompanionStaleAttack() {
+        try {
+            boolean attackStateOwned = hasNativeAttackOwner()
+                    || hasCompanionAttackActionState();
+            clearBridgeFloorAttackInput();
+            targetOnGround = null;
+            bridgeAimTarget = null;
+            clearHandToHandAttack();
+            setAttackStarted(false);
+            setInitiateAttack(false);
+            setPerformingAttackAnimation(false);
+            setPerformingShoveAnimation(false);
+            setPerformingStompAnimation(false);
+            setShoveStompAnim(false);
+            setDoShove(false);
+            setAimAtFloor(false);
+            setIsAiming(false);
+            set(SwipeStatePlayer.ATTACKED, false);
+
+            if (attackStateOwned) {
+                var context = getActionContext();
+                var machine = getStateMachine();
+                var swipe = SwipeStatePlayer.instance();
+                boolean swipeOwned = machine != null
+                        && (machine.getCurrent() == swipe || machine.isSubstate(swipe));
+                if (context != null && (swipeOwned || hasCompanionAttackActionState())) {
+                    var idle = context.getGroup() == null
+                            ? null : context.getGroup().findState("idle");
+                    if (idle == null) return false;
+                    context.setCurrentState(idle);
+                }
+                if (swipeOwned) changeState(IdleState.instance());
+            }
+
+            // State exit hooks are allowed to rewrite animation variables, so
+            // establish and verify the postcondition after leaving SwipeState.
+            clearHandToHandAttack();
+            setAttackStarted(false);
+            setInitiateAttack(false);
+            setPerformingAttackAnimation(false);
+            setPerformingShoveAnimation(false);
+            setPerformingStompAnimation(false);
+            setShoveStompAnim(false);
+            setDoShove(false);
+            setAimAtFloor(false);
+            setIsAiming(false);
+            set(SwipeStatePlayer.ATTACKED, false);
+            return !hasNativeAttackOwner() && !hasCompanionAttackActionState();
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    private boolean refreshBridgeFloorAttackInput() {
+        if (!bridgeFloorInputArmed) return false;
+        long now = System.nanoTime();
+        if (bridgeDisabled || isDead() || now >= bridgeFloorInputHardDeadline) {
+            clearBridgeFloorAttackInput();
+            return false;
+        }
+        if (hasNativeAttackOwner()) {
+            bridgeFloorInputObservedSwing = true;
+        } else if (bridgeFloorInputObservedSwing || now >= bridgeFloorInputStartDeadline) {
+            clearBridgeFloorAttackInput();
+            return false;
+        }
+        return true;
+    }
+
+    private void clearBridgeFloorAttackInput() {
+        bridgeFloorInputArmed = false;
+        bridgeFloorInputStomp = false;
+        bridgeFloorInputObservedSwing = false;
+        bridgeFloorInputStartDeadline = 0L;
+        bridgeFloorInputHardDeadline = 0L;
+    }
+
+    /** Return the opaque sequence number of the last bridge-driven native impact. */
     public int getCompanionAttackCollisionSerial() {
         return bridgeAttackCollisionSerial;
+    }
+
+    /** Return Build 42's candidate count from the last native collision check. */
+    public int getCompanionAttackCollisionHitCount() {
+        return bridgeAttackCollisionHitCount;
+    }
+
+    /** Return the exact bridge aim target sampled for the last native impact. */
+    public zombie.iso.IsoMovingObject getCompanionAttackCollisionTarget() {
+        return bridgeAttackCollisionTarget;
+    }
+
+    /**
+     * True only when that exact target lost health or died during the native
+     * collision call. A candidate/miss, ignored shove damage, or a hit on another
+     * object therefore cannot authorize a synthetic Lua fallback.
+     */
+    public boolean didCompanionAttackCollisionHitTarget() {
+        return bridgeAttackCollisionTargetHit;
     }
 
     /**
@@ -874,8 +1307,10 @@ public final class SCNativeCompanion extends IsoPlayer {
             return;
         }
         try {
+            refreshBridgeFloorAttackInput();
             boolean seated = getVehicle() != null;
             if (seated) suspendBridgeLocomotion();
+            reconcileBridgePathState();
             synchronizePlayerLocomotion();
             genericUpdateActive = true;
             if (seated) {
@@ -896,7 +1331,9 @@ public final class SCNativeCompanion extends IsoPlayer {
             }
             updateGenericCharacter();
             advanceBridgePath();
+            consumeBridgeDeferredMovement();
             genericUpdateActive = false;
+            refreshBridgeFloorAttackInput();
             // The generic update advanced the native pathfinder; clear a path that
             // finished on its own so the movement flags do not stay pinned (3.1).
             reconcileBridgePathState();
@@ -953,12 +1390,50 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     private void applyBridgeMovement() {
         if (getVehicle() != null || !bridgeMoveRequested || !bridgeMoving) return;
+        if (System.nanoTime() >= bridgeMoveExpiresNanos || isDead() || isCompanionTraversalActive()
+                || isBlockMovement() || isAttackStarted() || isPerformingAttackAnimation()) {
+            setMoving(false);
+            return;
+        }
+        float multiplier = GameTime.getInstance().getMultiplier();
+        if (!Float.isFinite(multiplier) || multiplier <= 0.0f) return;
+        float distance = bridgeMoveDistance;
+        if (bridgeMoveHasTarget) {
+            if (Math.floor(getZ()) != Math.floor(bridgeMoveTargetZ)) {
+                setMoving(false);
+                return;
+            }
+            float dx = bridgeMoveTargetX - getX();
+            float dy = bridgeMoveTargetY - getY();
+            float remaining = (float)Math.sqrt(dx * dx + dy * dy);
+            distance = boundedMovementDistance(distance, multiplier, remaining,
+                    bridgeMoveArrivalTolerance);
+            if (distance <= 0.0f) {
+                setMoving(false);
+                return;
+            }
+            bridgeMoveX = dx / remaining;
+            bridgeMoveY = dy / remaining;
+        }
+        if (!isCompanionMovementClear(getX() + bridgeMoveX * distance * multiplier,
+                getY() + bridgeMoveY * distance * multiplier, getZ())) {
+            setMoving(false);
+            return;
+        }
         applyBridgeMovementFacing();
         super.setMoving(true);
-        super.MoveForward(bridgeMoveDistance, bridgeMoveX, bridgeMoveY, bridgeMoveSoundDelta);
+        super.MoveForward(distance, bridgeMoveX, bridgeMoveY, bridgeMoveSoundDelta);
         // MoveForward/action variables may rotate a non-local player during the
         // same update. Leave the render-facing direction authoritative too.
         applyBridgeMovementFacing();
+    }
+
+    static float boundedMovementDistance(float requested, float multiplier,
+            float remaining, float tolerance) {
+        if (!Float.isFinite(requested) || !Float.isFinite(multiplier)
+                || !Float.isFinite(remaining) || !Float.isFinite(tolerance)
+                || requested <= 0.0f || multiplier <= 0.0f || remaining <= tolerance) return 0.0f;
+        return Math.min(requested, remaining / multiplier);
     }
 
     /**
@@ -995,12 +1470,23 @@ public final class SCNativeCompanion extends IsoPlayer {
      * while the ordinary player graph remains responsible for the visible walk.
      */
     private void advanceBridgePath() {
-        if (bridgeDisabled || getVehicle() != null || !bridgePathActive) return;
+        if (bridgeDisabled || getVehicle() != null || !bridgePathActive
+                || isCompanionTraversalActive()) return;
         // Avoid a double step if a future Build 42 player graph gains a native
         // pathfind state and the generic update has already executed it.
         if (getStateMachine().getCurrent() != PathFindState.instance()) {
             PathFindState.instance().execute(this);
         }
+    }
+
+    private void consumeBridgeDeferredMovement() {
+        if (!hasAnimationPlayer()) return;
+        // IsoPlayer.updateInternal2 normally calls doDeferredMovement, which
+        // resets the accumulator even when path2 owns translation. We omit that
+        // local-input update, so consume the accumulator after native state/PFB
+        // movement without applying its displacement a second time. The current
+        // deferred snapshot remains available until the next animation update.
+        getAnimationPlayer().resetDeferredMovementAccum();
     }
 
     /**
@@ -1034,36 +1520,13 @@ public final class SCNativeCompanion extends IsoPlayer {
         // which reaches IsoPlayer.isPlayerMoving() and therefore this method
         // again. Own path activity explicitly instead of querying either the
         // behavior or its callback-backed animation variable here.
-        // bridgePathActive is ownership, not proof of translation. While
-        // PolygonalMap2 is still searching, reporting movement makes the player
-        // animation graph play its forward run cycle in place. The first native
-        // path step flips bridgePathStartedThisRun in reconcileBridgePathState();
-        // from then on we retain movement through the normal one-frame stopping
-        // phase until bPathfind clears.
-        return bridgeMoving || bridgeMoveRequested
-                || (bridgePathActive && bridgePathStartedThisRun);
-    }
-
-    /**
-     * Pure decision for {@link #reconcileBridgePathState()} (review 3.1):
-     * PathFindState clearing bPathfind is the normal terminal handshake. A request
-     * that never starts is also terminal after the grace window, but a path that
-     * already moved retains ownership through PathFindBehavior2's one-frame
-     * "stopping" phase. Package-private and side-effect free so the transition
-     * table is unit-testable without a live engine.
-     */
-    static boolean pathHasTerminated(boolean pathfindRequested,
-            boolean movingViaPathFind, boolean startedThisRun,
-            boolean startGraceElapsed) {
-        if (!pathfindRequested) return true;
-        if (movingViaPathFind) return false;
-        // PathFindBehavior2 temporarily reports not-moving while it applies the
-        // final deferred movement ("stopping"). bPathfind remains true until the
-        // following update returns Succeeded. Once movement has begun, retain the
-        // bridge owner for that terminal update rather than freezing one frame
-        // short of completion with bPathfind pinned.
-        if (startedThisRun) return false;
-        return startGraceElapsed;
+        // A ready route can start animation before the first root-motion frame;
+        // a pending route cannot. During stopping, retain the path OWNER but
+        // stop walk animation so its residual motion can drain to Succeeded.
+        return ((bridgeMoving || bridgeMoveRequested)
+                    && (!bridgeMoveRequested || System.nanoTime() < bridgeMoveExpiresNanos))
+                || (bridgePathActive && !bridgePathStopping
+                    && (bridgePathRouteReady || bridgePathStartedThisRun));
     }
 
     /**
@@ -1078,33 +1541,55 @@ public final class SCNativeCompanion extends IsoPlayer {
         if (bridgeDisabled || getVehicle() != null || !bridgePathActive) return;
         PathFindBehavior2 behavior = getPathFindBehavior2();
         if (behavior == null) return;
-        boolean movingViaPathFind;
-        boolean pathfindRequested;
         try {
-            movingViaPathFind = behavior.isMovingUsingPathFind();
-            pathfindRequested = getVariableBoolean("bPathfind");
-        } catch (RuntimeException | LinkageError failure) {
-            // Can't read the terminal status this frame; leave the flag untouched.
-            return;
-        }
-        if (movingViaPathFind) {
-            bridgePathStartedThisRun = true;
-            return;
-        }
-        boolean startGraceElapsed = System.nanoTime() - bridgePathStartNanos > PATH_START_GRACE_NANOS;
-        if (pathHasTerminated(pathfindRequested, false,
-                bridgePathStartedThisRun, startGraceElapsed)) {
-            // The grace branch represents a request that never became live; make
-            // its native state as terminal as the bridge state. On normal success
-            // PathFindState already performed these operations.
-            if (pathfindRequested) {
+            boolean pathfindRequested = getVariableBoolean("bPathfind");
+            boolean cancelled = behavior.getIsCancelled();
+            var progress = getFinder().progress;
+            boolean failed = progress == AStarPathFinder.PathFindProgress.failed;
+            boolean ready = progress == AStarPathFinder.PathFindProgress.found;
+            bridgePathRouteReady = ready && pathfindRequested && !cancelled && !failed;
+            bridgePathStopping = bridgePathRouteReady && !behavior.isMovingUsingPathFind();
+            // Route readiness may start the walking animation before its first
+            // root-motion frame. hasStartedMoving is evidence, not permission:
+            // requiring it before animation would deadlock an idle character.
+            if (behavior.hasStartedMoving()) bridgePathStartedThisRun = true;
+            boolean startExpired = !bridgePathStartedThisRun
+                    && System.nanoTime() - bridgePathStartNanos > PATH_START_GRACE_NANOS;
+            if (pathRequestTerminal(pathfindRequested, cancelled, failed, startExpired)) {
                 behavior.cancel();
                 setVariable("bPathfind", false);
                 super.setMoving(false);
+                clearBridgePathContinuation();
+                bridgePathActive = false;
+                bridgePathStartedThisRun = false;
+                bridgePathRouteReady = false;
+                bridgePathStopping = false;
             }
-            bridgePathActive = false;
-            bridgePathStartedThisRun = false;
+        } catch (RuntimeException | LinkageError failure) {
+            // Can't read the terminal status this frame; leave the flag untouched.
         }
+    }
+
+    static boolean pathRequestTerminal(boolean requested, boolean cancelled,
+            boolean failed, boolean startExpired) {
+        return !requested || cancelled || failed || startExpired;
+    }
+
+    private void clearBridgePathContinuation() {
+        PathFindBehavior2 behavior = getPathFindBehavior2();
+        if (behavior != null) {
+            behavior.pathNextIsSet = false;
+            behavior.pathNextX = getX();
+            behavior.pathNextY = getY();
+        }
+        setPath2(null);
+    }
+
+    public String getCompanionPathStatus() {
+        if (!bridgePathActive) return "none";
+        if (!bridgePathRouteReady) return "pending";
+        if (bridgePathStopping) return "stopping";
+        return bridgePathStartedThisRun ? "moving" : "ready";
     }
 
     /**
@@ -1119,6 +1604,7 @@ public final class SCNativeCompanion extends IsoPlayer {
         try {
             PathFindBehavior2 behavior = getPathFindBehavior2();
             if (behavior == null) return false;
+            clearBridgePathContinuation();
             behavior.pathToNearestTable(locations);
             forceBridgePathfindingState(true);
             return true;
@@ -1129,8 +1615,13 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     private void suspendBridgeLocomotion() {
         bridgeMoveRequested = false;
+        bridgeMoveHasTarget = false;
+        bridgeMoveExpiresNanos = 0L;
         bridgeMoving = false;
         bridgePathActive = false;
+        bridgePathRouteReady = false;
+        bridgePathStopping = false;
+        bridgePathStartedThisRun = false;
         bridgeTacticalMovement = false;
         bridgeStrafeX = 0.0f;
         bridgeStrafeY = 0.0f;
@@ -1366,7 +1857,7 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     /** Package-private real-JAR test seam for the deferred physics request. */
     public boolean hasPendingMovement() {
-        return bridgeMoveRequested || bridgePathActive;
+        return (bridgeMoveRequested && System.nanoTime() < bridgeMoveExpiresNanos) || bridgePathActive;
     }
 
     public boolean isBridgeHealthy() {

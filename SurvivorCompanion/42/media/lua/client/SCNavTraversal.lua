@@ -117,29 +117,18 @@ local function completeWindowAction(actor, state, window, action, now, context)
         smash_window = utility.config("windowSmashMs") or 900,
         remove_glass = utility.config("windowGlassRemovalMs") or 1400,
     }
-    if now - pending.startedAt < (delays[action] or 500) then return nil, "interacting" end
-    if action == "open_window" and not invoke(context, "objectOpen", window) then
-        utility.call(actor, "openWindow", window)
-        if not invoke(context, "objectOpen", window) then
-            local _, toggled = utility.call(window, "ToggleWindow", actor)
-            if not toggled or not invoke(context, "objectOpen", window) then
-                return false, "window_open_failed"
-            end
+    local verified = action == "open_window" and invoke(context, "objectOpen", window)
+        or action == "smash_window" and invoke(context, "windowSmashed", window)
+        or action == "remove_glass" and invoke(context, "windowGlassRemoved", window)
+    if not verified then
+        -- The adapter already submitted the native event. Re-submitting here or
+        -- toggling the object directly races the animation and duplicates effects.
+        if now - pending.startedAt < math.max(3500, (delays[action] or 500) + 1500) then
+            return nil, "traversal_starting:" .. action
         end
-    elseif action == "smash_window" and not invoke(context, "windowSmashed", window) then
-        utility.call(actor, "smashWindow", window)
-        if not invoke(context, "windowSmashed", window) then
-            local _, direct = utility.call(window, "smashWindow", false, false)
-            if not direct or not invoke(context, "windowSmashed", window) then
-                return false, "window_smash_failed"
-            end
-        end
-    elseif action == "remove_glass" and invoke(context, "windowSmashed", window)
-        and not invoke(context, "windowGlassRemoved", window) then
-        local _, removed = utility.call(window, "removeBrokenGlass")
-        if not removed or not invoke(context, "windowGlassRemoved", window) then
-            return false, "glass_removal_failed"
-        end
+        Traversal.release(window, actor)
+        state.pendingInteraction = nil
+        return false, action .. "_verification_timeout"
     end
     state.pendingInteraction = nil
     return true, "done"
@@ -147,6 +136,11 @@ end
 
 function Traversal.handleWindow(actor, state, window, fromSquare, toSquare, now, intent, context)
     local utility = U()
+    local pending = state.pendingInteraction
+    if pending and pending.object == window then
+        local complete, status = completeWindowAction(actor, state, window, pending.action, now, context)
+        if complete ~= true then return complete, status end
+    end
     if invoke(context, "objectBarricaded", window) then return false, "barricaded_window" end
     if invoke(context, "windowInvincible", window)
         and not invoke(context, "objectOpen", window) then return false, "invincible_window" end
@@ -283,6 +277,8 @@ function Traversal.alignDoorApproach(actor, fromSquare, toSquare, intent, afford
         dy = targetY - actorY,
         targetPosition = { x = targetX, y = targetY, z = fromZ or 0 },
         targetKind = "world",
+        movementArrivalTolerance = math.min(0.08, tolerance * 0.5),
+        movementTargetTtlMs = 750,
         direct = true,
         collisionValidated = true,
         doorwayAlignment = affordance ~= "fence",

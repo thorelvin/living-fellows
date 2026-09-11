@@ -83,6 +83,11 @@ try {
     try {
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @LuaFiles
         if ($LASTEXITCODE -ne 0) { throw 'Gameplay Kahlua integration harness failed.' }
+        $medicalFiles = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
+        $medicalFiles += @($LuaFiles | Select-Object -SkipLast 1)
+        $medicalFiles += Join-Path $TestRoot 'medical_liveness_regression_harness.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Medical liveness/rescue regression harness failed.' }
     }
     finally {
         Pop-Location

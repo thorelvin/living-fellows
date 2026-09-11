@@ -21,6 +21,20 @@ function Visual.handSignal(actor, intent, provider)
     local requestedEmote = intent.emote or "freeze"
     local emote = context.emoteAliases[requestedEmote] or requestedEmote
     if context.humanEmotes[requestedEmote] ~= true then return false, "unsupported human emote" end
+    if intent.faceTargetBeforeEmote == true then
+        local target = intent.facingTarget or intent.target
+        if target == nil then return false, "hand signal facing target is unavailable" end
+        local stopped = context.stopDirect(actor, { preservePosture = true })
+        if stopped ~= true then return false, "hand signal could not stop active movement" end
+        local facingIntent = {}
+        for key, value in pairs(intent) do facingIntent[key] = value end
+        facingIntent.action = "face_alert"
+        facingIntent.targetPosition = target
+        facingIntent.targetSquare = nil
+        local faced, facingReason = Visual.faceTarget(
+            actor, facingIntent, provider, "hand_signal_facing_started")
+        if not faced then return false, facingReason end
+    end
     local handled, reason = context.useProvider(provider, "emote", actor, emote, intent)
     if handled ~= nil then return handled, reason end
     if not provider.directNative then return false, reason end

@@ -269,7 +269,7 @@ local function nativeAttackRange(actor, action, intent)
     end
 
     local maximum = action == "stomp"
-        and (tonumber(SC.Config.get("combatStompDistance")) or 1.55)
+        and (tonumber(SC.Config.get("combatStompDistance")) or 0.72)
         or (tonumber(SC.Config.get("combatShoveDistance")) or 1.35)
     if distance > maximum + tolerance then
         return false, "attack target is outside " .. tostring(action) .. " range"
@@ -299,11 +299,16 @@ local function setWeaponReady(actor, enabled, target)
         invoke(actor, "setCompanionAimTarget", nil)
         invoke(actor, "setAimAtFloor", false)
         invoke(actor, "setCompanionFloorTarget", nil)
+        invoke(actor, "setCompanionFloorAttackInput", false, false)
     end
     if enabled and target ~= nil then
         local x, y = position(target)
         if x ~= nil then
-            if type(target) ~= "table" or target.x == nil then x, y = x + 0.5, y + 0.5 end
+            -- Character coordinates are already exact world positions. Only a
+            -- square contributes a tile corner that needs centring.
+            if method(target, "isFree") ~= nil and method(target, "getCurrentSquare") == nil then
+                x, y = x + 0.5, y + 0.5
+            end
             invoke(actor, "faceLocationF", x, y)
         end
     end
@@ -414,7 +419,8 @@ function actions.inspectMovementBlocker(actor)
     end
     local knockedOk, knocked = invoke(actor, "isKnockedDown")
     if knockedOk and knocked == true then return "knocked_down" end
-    local climbingOk, climbing = invoke(actor, "isClimbing")
+    local climbingOk, climbing = invoke(actor, "isCompanionTraversalActive")
+    if not climbingOk then climbingOk, climbing = invoke(actor, "isClimbing") end
     if climbingOk and climbing == true then return "climbing" end
     local blockedOk, blocked = invoke(actor, "isBlockMovement")
     if blockedOk and blocked == true then return "movement_locked" end
@@ -467,6 +473,17 @@ function actions.pathTelemetry(actor)
         or (telemetry.movingUsingPathFind == nil and telemetry.shouldBeMoving == true)
     telemetry.pending = telemetry.active == true
         and telemetry.hasStartedMoving == false
+    local statusOk, status = invoke(actor, "getCompanionPathStatus")
+    if statusOk and (status == "none" or status == "pending" or status == "ready"
+        or status == "moving" or status == "stopping") then
+        -- Native ownership and visible motion differ while waiting for a route
+        -- and while draining its final animation frame.
+        telemetry.status = status
+        telemetry.active = status ~= "none"
+        telemetry.pending = status == "pending"
+        telemetry.moving = status == "moving"
+        telemetry.stopping = status == "stopping"
+    end
     return telemetry
 end
 
@@ -615,6 +632,53 @@ local function directMove(actor, mode, dx, dy, intent)
     if x == nil then
         return false, "actor position is unavailable"
     end
+    local endpointX, endpointY, endpointZ, arrivalTolerance, targetTtlMs
+    if intent.doorwayAlignment == true or intent.fenceAlignment == true
+        or intent.movementTarget == true then
+        endpointX, endpointY, endpointZ = position(intent.targetPosition)
+        if not finite(endpointX) or not finite(endpointY) or not finite(endpointZ)
+            or math.floor(endpointZ) ~= math.floor(z) then
+            actions.stopDirect(actor)
+            return false, "manual_movement_target_invalid"
+        end
+        arrivalTolerance = tonumber(intent.movementArrivalTolerance) or 0.06
+        targetTtlMs = tonumber(intent.movementTargetTtlMs) or 750
+    elseif finite(tonumber(intent.combatMinimumDistance)) then
+        local tx, ty, tz = position(intent.target)
+        if not finite(tx) or not finite(ty) or not finite(tz)
+            or math.floor(tz) ~= math.floor(z) then
+            actions.stopDirect(actor)
+            return false, "combat_movement_target_invalid"
+        end
+        local minimum = math.max(0, tonumber(intent.combatMinimumDistance))
+        local gap = math.sqrt((tx - x) ^ 2 + (ty - y) ^ 2) - minimum
+        if gap <= 0.01 then
+            local stopped
+            if type(actions.holdCombatPosition) == "function" then
+                stopped = actions.holdCombatPosition(actor)
+            else
+                stopped = actions.stopDirect(actor, { preservePosture = true })
+            end
+            if stopped ~= true then return false, "combat_position_hold_failed" end
+            local ready, readyReason = setWeaponReady(actor, true, intent.target)
+            return ready == true, ready and "combat_spacing_reached" or readyReason
+        end
+        -- Preserve the collision-checked steering direction. A target endpoint
+        -- at the zombie itself would undo a lateral detour chosen by navigation.
+        -- Travelling no farther than the remaining range gap is safe in any
+        -- direction and cannot carry the actor inside the requested range.
+        local travel = math.min(gap, tonumber(SC.Config.get("combatSteeringProbeDistance")) or 0.45)
+        endpointX, endpointY, endpointZ = x + nx * travel, y + ny * travel, z
+        arrivalTolerance, targetTtlMs = math.min(0.02, travel * 0.25), 250
+    end
+    if endpointX ~= nil then
+        if not finite(arrivalTolerance) or not finite(targetTtlMs) then
+            actions.stopDirect(actor)
+            return false, "manual_movement_bounds_invalid"
+        end
+        arrivalTolerance = math.max(0.001, math.min(0.15, arrivalTolerance))
+        targetTtlMs = math.floor(math.max(1, math.min(1000, targetTtlMs)))
+    end
     local toX, toY = x + nx * distance, y + ny * distance
     local stateReady, stateReason = movementReady(actor)
     if not stateReady then return false, stateReason end
@@ -684,6 +748,14 @@ local function directMove(actor, mode, dx, dy, intent)
     if not moved then
         actions.stopDirect(actor)
         return false, reason
+    end
+    if endpointX ~= nil then
+        local bounded, accepted = invoke(actor, "setCompanionMovementTarget",
+            endpointX, endpointY, endpointZ, arrivalTolerance, targetTtlMs)
+        if not bounded or accepted ~= true then
+            actions.stopDirect(actor)
+            return false, "native_bounded_movement_rejected"
+        end
     end
     -- MoveForward owns the translation vector. Reapply the observation vector
     -- afterwards so a corner step is a true sidestep rather than a blind turn.
@@ -1557,69 +1629,6 @@ local function stompClamp(value, minimum, maximum)
     return math.max(minimum, math.min(maximum, value))
 end
 
-local function stompConfig(name, fallback)
-    if SC.GameplayUtil and type(SC.GameplayUtil.config) == "function" then
-        local ok, value = pcall(SC.GameplayUtil.config, name)
-        if ok and tonumber(value) ~= nil then return tonumber(value) end
-    end
-    if SC.Config and type(SC.Config.get) == "function" then
-        local ok, value = pcall(SC.Config.get, name)
-        if ok and tonumber(value) ~= nil then return tonumber(value) end
-    end
-    return fallback
-end
-
-local function stompPerk(actor, name, fallback)
-    if SC.GameplayUtil and type(SC.GameplayUtil.perkLevel) == "function" then
-        local ok, value = pcall(SC.GameplayUtil.perkLevel, actor, name, fallback)
-        if ok and tonumber(value) ~= nil then return tonumber(value) end
-    end
-    local perks = type(_G) == "table" and rawget(_G, "Perks") or nil
-    local perk
-    if perks ~= nil then
-        local ok, value = pcall(function() return perks[name] end)
-        if ok then perk = value end
-    end
-    local valueOk, value = false, nil
-    if perk ~= nil then valueOk, value = invoke(actor, "getPerkLevel", perk) end
-    if valueOk and tonumber(value) ~= nil then return tonumber(value) end
-    return fallback
-end
-
-local function stompStat(actor, name, fallback)
-    if SC.GameplayUtil and type(SC.GameplayUtil.characterStatValue) == "function" then
-        local ok, value = pcall(SC.GameplayUtil.characterStatValue,
-            actor, name, fallback)
-        if ok and tonumber(value) ~= nil then return tonumber(value) end
-    end
-    return fallback
-end
-
-local function stompMoodle(actor, name)
-    if SC.GameplayUtil and type(SC.GameplayUtil.moodleLevel) == "function" then
-        local ok, value = pcall(SC.GameplayUtil.moodleLevel, actor, name, 0)
-        if ok and tonumber(value) ~= nil then return tonumber(value) end
-    end
-    return 0
-end
-
-local function stompRandomUnit()
-    if type(ZombRandFloat) == "function" then
-        local ok, value = pcall(ZombRandFloat, 0.0, 1.0)
-        if ok and tonumber(value) ~= nil then
-            return stompClamp(value, 0, 1)
-        end
-    end
-    if type(ZombRand) == "function" then
-        local ok, value = pcall(ZombRand, 10000)
-        if ok and tonumber(value) ~= nil then
-            return stompClamp(tonumber(value) / 9999, 0, 1)
-        end
-    end
-    -- Headless harnesses without the game RNG use the neutral midpoint.
-    return 0.5
-end
-
 local function itemType(item)
     if item == nil then return "none" end
     local ok, value = invoke(item, "getFullType")
@@ -1628,9 +1637,22 @@ local function itemType(item)
 end
 
 local function stompFootwear(actor)
-    local wornOk, worn = invoke(actor, "getWornItems")
     local footwear
-    if wornOk and worn ~= nil then
+    -- CombatManager asks the Shoes body slot directly. This is O(1), works for
+    -- modded footwear, and avoids searching every worn item on each cache miss.
+    local locations = type(_G) == "table" and rawget(_G, "ItemBodyLocation") or nil
+    local shoes
+    if locations ~= nil then
+        local ok, value = pcall(function() return locations.SHOES end)
+        if ok then shoes = value end
+    end
+    local directOk, direct = invoke(actor, "getWornItem", shoes or "Shoes")
+    if directOk and direct ~= nil then footwear = direct end
+
+    -- Compatibility fallback for small providers and older adapters that do not
+    -- expose getWornItem but do expose the native worn-items collection.
+    local wornOk, worn = invoke(actor, "getWornItems")
+    if footwear == nil and wornOk and worn ~= nil then
         local sizeOk, size = invoke(worn, "size")
         size = sizeOk and math.min(64, math.max(0, tonumber(size) or 0)) or 0
         for index = 0, size - 1 do
@@ -1657,158 +1679,81 @@ local function stompFootwear(actor)
         end
     end
 
-    -- getWornItems() is the authoritative Build 42 path. The direct accessor is
-    -- retained for small harness providers and any compatible actor adapter.
     if footwear == nil then
-        local locations = type(_G) == "table" and rawget(_G, "ItemBodyLocation") or nil
-        local shoes
-        if locations ~= nil then
-            local ok, value = pcall(function() return locations.SHOES end)
-            if ok then shoes = value end
-        end
-        local directOk, direct = invoke(actor, "getWornItem", shoes or "Shoes")
-        if directOk and direct ~= nil then footwear = direct end
-    end
-
-    if footwear == nil then
-        return nil, wornOk and "barefoot" or "unknown", wornOk and 0.65 or 1.0,
-            wornOk and -0.04 or 0, 0
+        -- Vanilla applies a 0.5 barefoot multiplier. Normalize against ordinary
+        -- shoes (2.1) for the decision model; native collision still owns damage.
+        return nil, (directOk or wornOk) and "barefoot" or "unknown",
+            (directOk or wornOk) and (0.5 / 2.1) or 1.0, 0.5, 0
     end
     local label = itemType(footwear)
     local lower = string.lower(label)
-    local multiplier, criticalBonus = 1.0, 0
-    if string.find(lower, "slipper", 1, true)
-        or string.find(lower, "sandal", 1, true)
-        or string.find(lower, "flipflop", 1, true) then
-        multiplier, criticalBonus = 0.78, -0.02
-    elseif string.find(lower, "trainer", 1, true)
-        or string.find(lower, "sneaker", 1, true) then
-        multiplier = 0.92
-    elseif string.find(lower, "boot", 1, true)
-        or string.find(lower, "wellie", 1, true) then
-        multiplier, criticalBonus = 1.15, 0.05
+    local powerOk, stompPower = invoke(footwear, "getStompPower")
+    stompPower = powerOk and tonumber(stompPower) or nil
+    if stompPower == nil then
+        -- Name matching is only a compatibility fallback; current Build 42 and
+        -- correctly authored modded shoes expose getStompPower directly.
+        if string.find(lower, "slipper", 1, true)
+            or string.find(lower, "sandal", 1, true)
+            or string.find(lower, "flipflop", 1, true) then stompPower = 0.8
+        elseif string.find(lower, "trainer", 1, true)
+            or string.find(lower, "sneaker", 1, true) then stompPower = 1.8
+        elseif string.find(lower, "boot", 1, true)
+            or string.find(lower, "wellie", 1, true) then stompPower = 2.5
+        else stompPower = 2.1 end
     end
     local conditionOk, condition = invoke(footwear, "getCondition")
     local maximumOk, maximum = invoke(footwear, "getConditionMax")
     local ratio = conditionOk and maximumOk and tonumber(maximum) and tonumber(maximum) > 0
         and stompClamp(tonumber(condition) / tonumber(maximum), 0, 1) or 1
-    multiplier = multiplier * (0.82 + ratio * 0.18)
-    return footwear, label, multiplier, criticalBonus, ratio
+    local factor = stompClamp(stompPower / 2.1, 0.2, 1.25)
+        * (0.82 + ratio * 0.18)
+    return footwear, label, factor, stompPower, ratio
 end
 
-local function verifiedHeadContact(actor, target)
-    local headOk, headSquare = invoke(target, "getHeadSquare", actor)
-    if not headOk or headSquare == nil then return false, nil end
-    local ax, ay, az = position(actor)
-    local hx, hy, hz = position(headSquare)
-    if ax == nil or hx == nil or math.floor(az or 0) ~= math.floor(hz or 0) then
-        return false, nil
-    end
-    -- getHeadSquare() returns tile coordinates; compare the actor against that
-    -- tile's centre instead of accepting every point in a generous square radius.
-    local dx, dy = ax - (hx + 0.5), ay - (hy + 0.5)
-    local distance = math.sqrt(dx * dx + dy * dy)
-    return distance <= stompConfig("combatHeadStompRange", 1.1), distance
-end
-
--- Land one bounded fallback hit only after the native swing reaches
--- AttackCollisionCheck. Build 42.20.4 gives a non-local player an empty floor
--- hit list, but it still supplies the animation, BareHands attack preflight and
--- collision event. The fallback mirrors a physical stomp rather than declaring a
--- finisher: verified contact, capability and condition determine damage, while
--- target:Hit() remains the sole owner of damage and death.
-local function applyStompImpact(actor, target)
-    local _, prone = invoke(target, "isProne")
-    local _, onFloor = invoke(target, "isOnFloor")
-    local _, crawling = invoke(target, "isCrawling")
-    local _, dead = invoke(target, "isDead")
-    if not (prone == true or onFloor == true or crawling == true) or dead == true then
-        return false, { result = "no_effect", reason = "stomp_target_not_grounded" }
-    end
-    local atHead, headDistance = verifiedHeadContact(actor, target)
-    local countOk, count = invoke(target, "getHitHeadWhileOnFloor")
-    local priorHeadHits = countOk and math.max(0, tonumber(count) or 0) or 0
-    local strength = stompClamp(stompPerk(actor, "Strength", 5), 0, 10)
-    local fitness = stompClamp(stompPerk(actor, "Fitness", 5), 0, 10)
-    local endurance = stompClamp(stompStat(actor, "ENDURANCE", 0.65), 0, 1)
-    local tired = stompClamp(stompMoodle(actor, "TIRED"), 0, 4)
-    local pain = stompClamp(stompMoodle(actor, "PAIN"), 0, 4)
-    local heavyLoad = stompClamp(stompMoodle(actor, "HEAVY_LOAD"), 0, 4)
-    local _, footwearLabel, footwearFactor, footwearCritical, footwearCondition =
-        stompFootwear(actor)
+-- Share native footwear power with finisher selection. The caller caches the
+-- lookup; neither helper starts an action or predicts collision damage.
+function actions.stompFootwearProfile(actor)
+    local item, label, factor, stompPower, condition = stompFootwear(actor)
     local _, footInjured = invoke(actor, "hasFootInjury")
+    return { item = item, type = label, factor = factor, stompPower = stompPower,
+        condition = condition, footInjured = footInjured == true }
+end
 
-    local baseDamage = atHead and stompConfig("combatHeadStompDamage", 0.72)
-        or stompConfig("combatStompDamage", 0.30)
-    local strengthFactor = 0.72 + strength * 0.056
-    local fitnessFactor = 0.92 + fitness * 0.016
-    local enduranceFactor = 0.58 + endurance * 0.42
-    local impairmentFactor = stompClamp(1 - tired * 0.055 - pain * 0.045
-        - heavyLoad * 0.04, 0.55, 1)
-    if footInjured == true then impairmentFactor = impairmentFactor * 0.82 end
-    local repeatedFactor = atHead and (1 + math.min(priorHeadHits, 3)
-        * stompConfig("combatStompHeadHitGrowth", 0.10)) or 1
-    local variation = stompConfig("combatStompDamageVariation", 0.12)
-    local randomFactor = 1 + (stompRandomUnit() * 2 - 1) * variation
-    local criticalChance = atHead and stompClamp(0.04 + strength * 0.018
-        + math.max(0, endurance - 0.6) * 0.10 + footwearCritical
-        + math.min(priorHeadHits, 3) * 0.04 - tired * 0.02 - pain * 0.015,
-        0.02, stompConfig("combatStompCriticalMaxChance", 0.35)) or 0
-    local critical = atHead and stompRandomUnit() < criticalChance
-    local criticalFactor = critical
-        and stompConfig("combatStompCriticalMultiplier", 1.65) or 1
-    local damage = baseDamage * strengthFactor * fitnessFactor * enduranceFactor
-        * impairmentFactor * footwearFactor * repeatedFactor * randomFactor
-        * criticalFactor
-    damage = stompClamp(damage, atHead and 0.18 or 0.08, atHead and 2.25 or 0.65)
-    damage = math.floor(damage * 1000 + 0.5) / 1000
+function actions.combatCollisionAvailable(actor)
+    if method(actor, "getCompanionAttackCollisionSerial") == nil
+        or method(actor, "getCompanionAttackCollisionHitCount") == nil
+        or method(actor, "getCompanionAttackCollisionTarget") == nil
+        or method(actor, "didCompanionAttackCollisionHitTarget") == nil then
+        return false
+    end
+    if SC.Actor and type(SC.Actor.bridgeStatus) == "function" then
+        local ok, status = pcall(SC.Actor.bridgeStatus, false)
+        if ok and type(status) == "table" and status.combatCollision == false then
+            return false
+        end
+    end
+    return true
+end
 
-    -- CanAttack() selects Build 42's BareHands weapon for shove/stomp even when a
-    -- knife or axe is equipped. Use that collision contract; never derive damage
-    -- from the held weapon. The primary-hand fallback only preserves Hit's
-    -- required HandWeapon argument if a provider cannot expose useHandWeapon.
-    local weaponOk, stompWeapon = invoke(actor, "getUseHandWeapon")
-    if not weaponOk or stompWeapon == nil then
-        weaponOk, stompWeapon = invoke(actor, "getPrimaryHandItem")
+function actions.floorAttackAvailable(actor)
+    -- Build 42 selects its own one-hand/knife/two-hand/heavy/spear floor clips
+    -- from the equipped HandWeapon. A missing bridge input lease is not license
+    -- to synthesize either the animation or its damage.
+    if method(actor, "setCompanionFloorAttackInput") == nil
+        or not actions.combatCollisionAvailable(actor) then return false end
+    if SC.Actor and type(SC.Actor.bridgeStatus) == "function" then
+        local ok, status = pcall(SC.Actor.bridgeStatus, false)
+        if ok and type(status) == "table" and status.floorAttack == false then
+            return false
+        end
     end
-    local beforeOk, healthBefore = invoke(target, "getHealth")
-    local applied, failure = invoke(target, "Hit", stompWeapon, actor, damage, true, 1.0)
-    if not applied then
-        return false, {
-            result = "no_effect", reason = "stomp_hit_failed", error = failure,
-            source = "fallback", zone = atHead and "head" or "body", damage = damage,
-        }
-    end
-    if atHead then
-        invoke(target, "setHitHeadWhileOnFloor", priorHeadHits + 1)
-    end
-    local afterOk, healthAfter = invoke(target, "getHealth")
-    local _, nowDead = invoke(target, "isDead")
-    if nowDead == true then
-        invoke(actor, "setCompanionFloorTarget", nil)
-    end
-    local affected = nowDead == true or (beforeOk and afterOk
-        and tonumber(healthAfter) ~= nil and tonumber(healthBefore) ~= nil
-        and tonumber(healthAfter) < tonumber(healthBefore) - 0.0001)
-    return true, {
-        result = affected and "landed" or "no_effect",
-        source = "fallback", zone = atHead and "head" or "body",
-        headVerified = atHead, headDistance = headDistance,
-        damage = damage, critical = critical, criticalChance = criticalChance,
-        strength = strength, fitness = fitness, endurance = endurance,
-        tired = tired, pain = pain, heavyLoad = heavyLoad,
-        footwear = footwearLabel, footwearFactor = footwearFactor,
-        footwearCondition = footwearCondition, footInjured = footInjured == true,
-        priorHeadHits = priorHeadHits, attackWeapon = itemType(stompWeapon),
-        healthBefore = beforeOk and tonumber(healthBefore) or nil,
-        healthAfter = afterOk and tonumber(healthAfter) or nil,
-    }
+    return true
 end
 
 -- DoAttack/isAttackStarted proves only that the state machine accepted an attack;
 -- it runs before the visible animation. The Java actor increments a serial at the
--- actual AttackCollisionCheck event. Melee and shove expose native outcome
--- evidence to Combat; only the known empty-list floor stomp owns a fallback hit.
+-- actual AttackCollisionCheck event and records the exact target outcome. Native
+-- collision is the sole damage owner for melee, shove, weapon finishers and stomp.
 function actions.pollCombatEvents(actor)
     local record = actor and pendingCombat[actor] or nil
     if type(record) ~= "table" then return false, "no_pending_combat" end
@@ -1816,47 +1761,38 @@ function actions.pollCombatEvents(actor)
     local serial = serialOk and tonumber(serialValue) or nil
     if serial ~= nil and serial ~= record.collisionSerial then
         pendingCombat[actor] = nil
-        -- A future engine build may start populating the companion floor-attack
-        -- hit list itself. If native collision already damaged this target, do
-        -- not stack our Build 42 empty-list fallback on top of that native hit.
+        local hitOk, hitTarget = invoke(actor, "didCompanionAttackCollisionHitTarget")
+        local targetOk, collisionTarget = invoke(actor, "getCompanionAttackCollisionTarget")
+        local countOk, hitCount = invoke(actor, "getCompanionAttackCollisionHitCount")
         local _, dead = invoke(record.target, "isDead")
         local hpOk, health = invoke(record.target, "getHealth")
-        local nativeDamage = dead == true or (record.healthBefore ~= nil and hpOk
-            and type(health) == "number" and health < record.healthBefore - 0.0001)
-        if nativeDamage then
-            if dead == true then invoke(actor, "setCompanionFloorTarget", nil) end
-            local reason = record.action == "stomp" and "stomp_collision_native"
-                or tostring(record.action) .. "_collision_landed"
-            return true, reason, {
-                result = "landed", action = record.action, target = record.target,
-                serial = serial, healthBefore = record.healthBefore, healthAfter = health,
-                source = "native", floorAttack = record.floorAttack == true,
-                start = { x = record.actorX, y = record.actorY, z = record.actorZ },
-            }
-        end
-        if record.action == "stomp" then
-            local applied, impact = applyStompImpact(actor, record.target)
-            impact = type(impact) == "table" and impact or {}
-            impact.action, impact.target, impact.serial = record.action, record.target, serial
-            impact.healthBefore = impact.healthBefore or record.healthBefore
-            impact.start = { x = record.actorX, y = record.actorY, z = record.actorZ }
-            if not applied then return false, "stomp_collision_failed", impact end
-            local reason = impact.result == "landed" and "stomp_collision_applied"
-                or "stomp_collision_no_effect"
-            return true, reason, impact
-        end
+        local exactTarget = targetOk and collisionTarget == record.target
+        local nativeLanded = hitOk and hitTarget == true and exactTarget
         local grounded = select(2, invoke(record.target, "isOnFloor")) == true
             or select(2, invoke(record.target, "isProne")) == true
         local targetX, targetY = position(record.target)
         local displacement = targetX and record.targetX
             and math.sqrt((targetX - record.targetX) ^ 2 + (targetY - record.targetY) ^ 2) or 0
-        local shoveLanded = record.action == "shove"
-            and ((grounded and record.groundedBefore ~= true) or displacement >= 0.2)
-        local result = shoveLanded and "landed" or "no_effect"
+        if record.action == "shove" and not nativeLanded then
+            -- A valid defensive shove intentionally ignores health damage. Its
+            -- observable native result is displacement or a newly grounded target.
+            nativeLanded = (grounded and record.groundedBefore ~= true)
+                or displacement >= 0.2
+        end
+        if dead == true then invoke(actor, "setCompanionFloorTarget", nil) end
+        local result = nativeLanded and "landed" or "no_effect"
         return true, tostring(record.action) .. "_collision_" .. result, {
-            result = result, action = record.action, target = record.target,
-            serial = serial, displacement = displacement,
-            healthBefore = record.healthBefore, healthAfter = health,
+            result = result,
+            action = record.action,
+            target = record.target,
+            weapon = record.weapon,
+            serial = serial,
+            hitCount = countOk and tonumber(hitCount) or nil,
+            collisionTargetMatched = exactTarget,
+            displacement = displacement,
+            healthBefore = record.healthBefore,
+            healthAfter = hpOk and tonumber(health) or nil,
+            source = "native",
             floorAttack = record.floorAttack == true,
             start = { x = record.actorX, y = record.actorY, z = record.actorZ },
         }
@@ -1868,20 +1804,106 @@ function actions.pollCombatEvents(actor)
             or tostring(record.action) .. "_collision_timeout"
         return false, reason, {
             result = "aborted", action = record.action, target = record.target,
-            serial = serial, floorAttack = record.floorAttack == true,
+            weapon = record.weapon, serial = serial,
+            floorAttack = record.floorAttack == true,
+            source = "native",
             start = { x = record.actorX, y = record.actorY, z = record.actorZ },
         }
     end
     return false, tostring(record.action) .. "_collision_pending"
 end
-
 function actions.resetCombatEvents(actor)
     if actor ~= nil then
         pendingCombat[actor] = nil
         invoke(actor, "setCompanionFloorTarget", nil)
+        invoke(actor, "setCompanionFloorAttackInput", false, false)
     else
         pendingCombat = setmetatable({}, { __mode = "k" })
     end
+end
+
+-- A target can die while the non-local player graph is leaving SwipeStatePlayer.
+-- Ordinarily clearHandToHandAttack runs from the native exit event; this adapter
+-- is only used after Combat's dead-target safety lease expires, when retaining
+-- that owner would prevent every later follow movement from being applied.
+function actions.releaseStaleAttack(actor)
+    if actor == nil then return false, "invalid_actor" end
+    pendingCombat[actor] = nil
+    local bridgeOk, bridgeReleased = invoke(actor, "releaseCompanionStaleAttack")
+    local cleared, failure = invoke(actor, "clearHandToHandAttack")
+    local releaseAttempted = bridgeOk and bridgeReleased == true or cleared == true
+    for _, setter in ipairs({ "setAttackStarted", "setInitiateAttack",
+        "setPerformingAttackAnimation", "setPerformingShoveAnimation",
+        "setPerformingStompAnimation", "setShoveStompAnim" }) do
+        local called = invoke(actor, setter, false)
+        releaseAttempted = releaseAttempted or called == true
+    end
+    invoke(actor, "setCompanionAimTarget", nil)
+    invoke(actor, "setAimAtFloor", false)
+    invoke(actor, "setCompanionFloorTarget", nil)
+    invoke(actor, "setCompanionFloorAttackInput", false, false)
+    invoke(actor, "setDoShove", false)
+    setTacticalMovement(actor, false, 0, 0)
+    invoke(actor, "setIsAiming", false)
+
+    -- A successful method invocation is not proof that Build 42 released every
+    -- attack owner. Any remaining flag makes the bridge reject later movement.
+    for _, probe in ipairs({ "isAttackStarted", "isPerformingAttackAnimation",
+        "isPerformingShoveAnimation", "isPerformingStompAnimation" }) do
+        local ok, active = invoke(actor, probe)
+        if ok and active == true then
+            return false, "native_attack_release_incomplete:" .. tostring(probe)
+        end
+    end
+    local stateOk, stateName = invoke(actor, "getCompanionActionStateName")
+    local state = stateOk and string.lower(tostring(stateName or "")) or ""
+    if string.find(state, "melee", 1, true) or string.find(state, "attack", 1, true)
+        or string.find(state, "shove", 1, true) or string.find(state, "stomp", 1, true) then
+        return false, "native_attack_release_incomplete:action_state"
+    end
+    if not releaseAttempted then
+        return false, failure or "native_attack_release_unavailable"
+    end
+    return true, "stale_native_attack_released"
+end
+
+-- Translation has a different owner from attack/floor/aim state. A combat hold
+-- or native swing may cancel a prior approach without clearing its own pose.
+function actions.holdCombatPosition(actor)
+    local behaviorOk, behavior = invoke(actor, "getPathFindBehavior2")
+    local pathStopped = true
+    if behaviorOk and behavior ~= nil then pathStopped = invoke(behavior, "cancel") end
+    local stopped = invoke(actor, "setMoving", false)
+    invoke(actor, "setRunning", false)
+    invoke(actor, "setSprinting", false)
+    local checked, moving = invoke(actor, "isMoving")
+    return pathStopped and stopped and (not checked or moving ~= true)
+end
+
+-- CanAttack and DoAttack do not include the input controller's recovery gates.
+-- The generic native update already decrements these values in game time.
+function actions.combatReadiness(actor, action)
+    for _, name in ipairs({ "isAttackStarted", "isPerformingAttackAnimation",
+        "isPerformingShoveAnimation", "isPerformingStompAnimation" }) do
+        local ok, active = invoke(actor, name)
+        if ok and active == true then return false, "native_attack_active" end
+    end
+    local stateOk, stateName = invoke(actor, "getCompanionActionStateName")
+    local state = stateOk and string.lower(tostring(stateName or "")) or ""
+    if string.find(state, "melee", 1, true) or string.find(state, "attack", 1, true)
+        or string.find(state, "shove", 1, true) or string.find(state, "stomp", 1, true) then
+        return false, "native_attack_active"
+    end
+    local meleeOk, melee = invoke(actor, "getMeleeDelay")
+    local recoilOk, recoil = invoke(actor, "getRecoilDelay")
+    melee = meleeOk and tonumber(melee) or 0
+    recoil = recoilOk and tonumber(recoil) or 0
+    local delays = { melee = math.max(0, melee or 0), recoil = math.max(0, recoil or 0) }
+    if delays.melee > 0 then return false, "native_melee_recovery", delays end
+    if action ~= "shove" and action ~= "stomp" and delays.recoil > 0 then
+        return false, "native_recoil_recovery", delays
+    end
+    return true, "combat_ready", delays
 end
 
 local function attack(actor, action, intent, provider)
@@ -1889,6 +1911,13 @@ local function attack(actor, action, intent, provider)
     if target == nil then
         return false, "attack intent has no target"
     end
+    -- Acquire stationary combat ownership before any range/equip/model check.
+    -- A failed or completed swing must never revive a retained approach vector.
+    if not actions.holdCombatPosition(actor) then
+        return false, "native_combat_stop_failed"
+    end
+    local recovered, recoveryReason = actions.combatReadiness(actor, action)
+    if not recovered then return false, recoveryReason end
     local inRange, rangeReason = nativeAttackRange(actor, action, intent)
     if not inRange then return false, rangeReason end
     local handled, reason = useProvider(provider, "attack", actor, action, intent)
@@ -1900,6 +1929,13 @@ local function attack(actor, action, intent, provider)
     end
 
     local floorAttack = action == "stomp" or intent.floorAttack == true
+    if (action == "stomp" or action == "shove" or action == "attack_melee")
+        and not actions.combatCollisionAvailable(actor) then
+        return false, "native combat collision capability is unavailable"
+    end
+    if floorAttack and not actions.floorAttackAvailable(actor) then
+        return false, "native floor-attack capability is unavailable"
+    end
     if floorAttack then
         local _, prone = invoke(target, "isProne")
         local _, onFloor = invoke(target, "isOnFloor")
@@ -1963,6 +1999,7 @@ local function attack(actor, action, intent, provider)
         invoke(actor, "setCompanionAimTarget", nil)
         invoke(actor, "setAimAtFloor", false)
         invoke(actor, "setCompanionFloorTarget", nil)
+        invoke(actor, "setCompanionFloorAttackInput", false, false)
         if restoreAuthorization then restoreAuthorization() end
         if restoreActionState then restoreActionState() end
         return false, reason
@@ -1973,11 +2010,19 @@ local function attack(actor, action, intent, provider)
             return fail(equipReason)
         end
     end
+    -- Use the player's explicit floor-attack input contract. CombatManager
+    -- recalculates and overwrites aimAtFloor/doShove during DoAttack; setting
+    -- those output flags alone can silently select a harmless standing shove.
+    local floorInputOk, floorInputSet = invoke(actor,
+        "setCompanionFloorAttackInput", floorAttack, action == "stomp")
+    if floorAttack and (not floorInputOk or floorInputSet ~= true) then
+        return fail("native floor-attack input could not be selected")
+    end
     invoke(actor, "setAimAtFloor", floorAttack)
     if floorAttack and intent.target ~= nil then
         -- Point both stomps and melee floor swings at the downed target. Build
         -- 42's player collision path builds its floor hit list from
-        -- targetOnGround; only stomp needs our empty-list fallback afterward.
+        -- targetOnGround; the Java bridge then runs that one native collision.
         invoke(actor, "setCompanionFloorTarget", intent.target)
     end
     local shoveStateOk, previousDoShove = invoke(actor, "isDoShove")
@@ -2078,7 +2123,8 @@ local function attack(actor, action, intent, provider)
     end
     -- Started: revert only the temporary authorization (CombatManager copied the
     -- calculated attack variables back). Keep doShove/aimAtFloor and the aim
-    -- target -- the animation state owns them until clearHandToHandAttack(), and
+    -- target and actor-local floor input -- the animation state owns them until
+    -- native swing exit, and
     -- the next requested attack selects its own state before starting.
     restoreAuthorization()
     if (action == "stomp" or action == "shove" or action == "attack_melee")
@@ -2091,6 +2137,7 @@ local function attack(actor, action, intent, provider)
         pendingCombat[actor] = {
             action = action,
             target = intent.target,
+            weapon = intent.weapon,
             collisionSerial = collisionSerial,
             startedAt = nowMs(),
             healthBefore = hpOk and tonumber(targetHealth) or nil,
@@ -2193,7 +2240,7 @@ function actions.stopDirect(actor, options)
 end
 
 -- A path cancel does not leave Build 42's legacy Climb*State. Use the owned
--- actor's narrow native adapter and require the isClimbing postcondition before
+-- actor's narrow native adapter and require the real traversal-state postcondition before
 -- navigation is allowed to issue another route.
 function actions.cancelStuckClimb(actor)
     if actor == nil then return false, "invalid_actor" end
@@ -2205,7 +2252,8 @@ function actions.cancelStuckClimb(actor)
     local invoked, retained = invoke(actor, "cancelCompanionStuckClimb")
     if not invoked then return false, retained or "native_climb_cancel_unavailable" end
     if retained ~= true then return false, "native_climb_cancel_rejected" end
-    local checked, stillClimbing = invoke(actor, "isClimbing")
+    local checked, stillClimbing = invoke(actor, "isCompanionTraversalActive")
+    if not checked then checked, stillClimbing = invoke(actor, "isClimbing") end
     if not checked or stillClimbing == true then
         return false, "native_climb_state_remains"
     end
@@ -2282,6 +2330,13 @@ end
 -- reason movement must wait.
 function actions.activityStatus(actor)
     if actor == nil then return "none" end
+    -- EventClimb requests acquire ownership before the next native update
+    -- enters the animation. Do not let a follow/attack dispatch erase that gap.
+    local traversal = SC.NativeTraversalActions
+    if traversal and type(traversal.activityStatus) == "function" then
+        local phase, owner, name, startedAt, record = traversal.activityStatus(actor)
+        if phase ~= "none" then return phase, owner, name, startedAt, record end
+    end
     local visualState, visualName, visualAt = actions.visualStatus(actor)
     if visualState == "active" then
         return "active", "visual", visualName, visualAt
@@ -2369,6 +2424,8 @@ function actions.beginPacing(actor, source, options)
         lookDueAt = current + math.floor(duration * math.max(0, math.min(100, lookDelay)) / 100),
         shouldLook = seed % 100 < math.max(0, math.min(100, lookChance)),
         lookDirection = seed % 4,
+        interruptForFollow = options.interruptForFollow ~= false,
+        holdReason = options.holdReason,
         stopped = false,
     }
     pacingStates[actor] = record
@@ -2408,6 +2465,7 @@ end
 function actions.interruptOwnedActivity(actor, reason)
     local phase, owner = actions.activityStatus(actor)
     if phase == "none" then return true, reason or "no_owned_activity" end
+    if owner == "traversal" then return SC.NativeTraversalActions.cancel(actor, reason) end
     if owner == "visual" then return actions.cancelVisual(actor, reason) end
     if owner == "needs" then return actions.cancelNeeds(actor, reason) end
     if owner == "work" then return actions.cancelWork(actor, reason) end
@@ -2487,6 +2545,9 @@ function actions.resetNeeds(actor)
 end
 
 function actions.resetActivity(actor)
+    if SC.NativeTraversalActions and type(SC.NativeTraversalActions.reset) == "function" then
+        SC.NativeTraversalActions.reset(actor)
+    end
     if actor ~= nil then
         pacingStates[actor] = nil
         resultHistory[actor] = nil
@@ -2721,8 +2782,10 @@ function actions.dispatch(actor, mode, intent, provider)
     elseif action == "hand_signal" then
         return SC.NativeVisualActions.handSignal(actor, intent, provider)
     elseif action == "ready_weapon" then
+        if not actions.holdCombatPosition(actor) then return false, "native_combat_stop_failed" end
+        setTacticalMovement(actor, false, 0, 0)
         return setWeaponReady(actor, true,
-            intent.facingTarget or intent.targetSquare or intent.targetPosition)
+            intent.facingTarget or intent.target or intent.targetSquare or intent.targetPosition)
     elseif action == "lower_weapon" then
         return setWeaponReady(actor, false)
     elseif visualActionSpecs[action] then

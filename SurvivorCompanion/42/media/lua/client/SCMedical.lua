@@ -56,7 +56,9 @@ local function inspectPart(part, index)
     -- separately at the character level (knoxInfected).
     local infected = booleanMethod(part, { "isInfectedWound" })
     local bandaged = booleanMethod(part, { "bandaged", "isBandaged" })
-    local dirtyBandage = booleanMethod(part, { "isBandageDirty" })
+    -- Native isBandageDirty() only checks bandageLife <= 0, which is also
+    -- true for every completely unbandaged healthy body part.
+    local dirtyBandage = bandaged and booleanMethod(part, { "isBandageDirty" })
     local scratched = booleanMethod(part, { "scratched", "isScratched" })
     local cut = booleanMethod(part, { "isCut" })
     local deep = booleanMethod(part, { "deepWounded", "isDeepWounded" })
@@ -96,7 +98,7 @@ local function inspectPart(part, index)
     }
 end
 
-function Medical.assess(character)
+function Medical.assess(character, runtime)
     local utility = U()
     local body = bodyDamage(character)
     local health = body and numberMethod(body, { "getHealth" }, utility.nativeHealth(character))
@@ -129,11 +131,33 @@ function Medical.assess(character)
         knoxInfected = infected,
         infectionLevel = infectionLevel,
         terminalKnox = terminalKnox,
-        downed = state ~= nil,
+        -- Only an explicit legacy state requires recovery. Low body health is
+        -- not a downed state and cannot be healed by an empty bandage action.
+        downed = state ~= nil or type(runtime) == "table" and runtime.downed == true,
         critical = health > 0 and health <= (utility.config("medicalCriticalHealth") or 35),
         needsBandage = bleedingCount > 0,
         needsBandageChange = dirtyBandages > 0,
     }
+end
+
+function Medical.isLivingPatient(character, assessment)
+    if character == nil or U().isDead(character) then return false end
+    assessment = assessment or Medical.assess(character)
+    return type(assessment) == "table" and assessment.alive ~= false
+        and (tonumber(assessment.health) or U().nativeHealth(character)) > 0
+        and assessment.terminalKnox ~= true
+end
+
+function Medical.hasActionableNeed(character, assessment, allowRecovery)
+    assessment = assessment or Medical.assess(character)
+    if not Medical.isLivingPatient(character, assessment) then return false end
+    -- Recovery belongs to the downed actor; a helper cannot stand another actor
+    -- up by calling treat(). Dirty-bandage replacement normally remains downtime
+    -- work, but a critical patient may prioritize replacing a genuinely worn one.
+    return allowRecovery == true and assessment.downed == true
+        or assessment.needsBandage == true or (tonumber(assessment.bleedingCount) or 0) > 0
+        or assessment.critical == true and (assessment.needsBandageChange == true
+            or (tonumber(assessment.dirtyBandages) or 0) > 0)
 end
 
 local inventoryContains
@@ -807,6 +831,9 @@ end
 local continueTreatmentApproach
 
 local function advanceTreatment(helper, state)
+    if not Medical.isLivingPatient(state.patient) then
+        return clearTreatment(helper, state, "patient_no_longer_alive")
+    end
     if state.phase == "approaching" then
         return continueTreatmentApproach(helper, state)
     end
@@ -897,8 +924,8 @@ end
 -- Self-bandaging is low priority: the companion must not stop to patch itself in
 -- active combat. Only allow it when at least semi-safe -- nothing attacking in
 -- melee range and not pinned by a crowd with no way out -- so it fights or
--- repositions first and treats the wound once the danger eases. A truly critical
--- wound instead drops the actor into the separate downed path.
+-- repositions first and treats the wound once the danger eases. Low health alone
+-- never creates a downed state or a treatment that cannot affect that health.
 local function bandageSemiSafe(helper, snapshot)
     if not rescueViable(helper, snapshot) then return false end
     if type(snapshot) ~= "table" then return true end
@@ -913,6 +940,7 @@ end
 local function treatmentCapability(helper, patient, options)
     options = type(options) == "table" and options or {}
     local assessment = Medical.assess(patient)
+    if not Medical.isLivingPatient(patient, assessment) then return nil, "invalid_patient" end
     local wound
     if options.dirtyOnly then
         for _, value in ipairs(assessment.wounds or {}) do
@@ -1126,6 +1154,7 @@ function Medical.playerBandagePreflight(companion, player)
     if not utility.isValidActor(companion) then return false, "invalid_companion" end
     if not utility.isValidActor(player) then return false, "invalid_player" end
     local assessment = Medical.assess(companion)
+    if not Medical.isLivingPatient(companion, assessment) then return false, "invalid_companion" end
     local wound = chooseWound(assessment, true)
     if not wound then return false, "no_treatable_wound" end
     local bandage, inventory = findBandage(player)
@@ -1180,7 +1209,7 @@ local function rescueCandidate(actor, player, snapshot)
             if not ok or allied ~= true then return end
         end
         local assessment = Medical.assess(candidate)
-        if not assessment.needsBandage and not assessment.critical and not assessment.downed then return end
+        if not Medical.hasActionableNeed(candidate, assessment, false) then return end
         local score = (assessment.downed and 80 or 0)
             + assessment.bleedingCount * 25
             + math.max(0, 50 - assessment.health)
@@ -1200,7 +1229,7 @@ function Medical.update(actor, player, runtime)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
     local rootRuntime = utility.actorState(actor, runtime)
-    local assessment = Medical.assess(actor)
+    local assessment = Medical.assess(actor, rootRuntime)
     rootRuntime.medicalAssessment = assessment
 
     if not assessment.alive or assessment.health <= 0 or assessment.terminalKnox then
@@ -1216,18 +1245,19 @@ function Medical.update(actor, player, runtime)
     -- health drops, and only stops when it dies at zero health or turns at terminal
     -- Knox (handled above). Recover any companion still in a legacy health-downed
     -- state so it stands back up instead of lying frozen.
-    if downed[actor] then
+    if assessment.downed then
         return leaveDowned(actor, rootRuntime)
     end
 
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
-    if assessment.needsBandage and bandageSemiSafe(actor, snapshot) then
+    if Medical.hasActionableNeed(actor, assessment, false) and bandageSemiSafe(actor, snapshot) then
         local ok, reason = Medical.treat(actor, actor, rootRuntime)
         if ok then return true, reason end
     end
 
     local explicitTarget = rootRuntime.rescueTarget
-    local candidate = explicitTarget or rescueCandidate(actor, player, snapshot)
+    local candidate = explicitTarget and Medical.hasActionableNeed(explicitTarget, nil, false)
+        and explicitTarget or rescueCandidate(actor, player, snapshot)
     if candidate and rescueViable(actor, snapshot) then
         local ok, reason = Medical.treat(actor, candidate, rootRuntime)
         if ok then return true, reason end

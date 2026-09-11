@@ -120,6 +120,39 @@ public final class SCNativeApiSignatureTest {
         require(companion.getDeclaredMethod("isCompanionMovementClear",
                         float.class, float.class, float.class).getReturnType() == boolean.class,
                 "SCNativeCompanion continuous collision contract changed");
+        require(companion.getDeclaredMethod("setCompanionMovementTarget", float.class,
+                        float.class, float.class, float.class, int.class).getReturnType() == boolean.class
+                        && companion.getDeclaredMethod("getCompanionPathStatus").getReturnType() == String.class,
+                "SCNativeCompanion bounded movement/path lifecycle contract changed");
+        require(companion.getDeclaredMethod("cancelCompanionTraversal").getReturnType() == boolean.class
+                        && companion.getDeclaredMethod("releaseCompanionStaleAttack")
+                                .getReturnType() == boolean.class
+                        && companion.getDeclaredMethod("getCompanionCollisionDiagnostic").getReturnType() == String.class
+                        && companion.getDeclaredMethod("isCompanionTraversalActive").getReturnType() == boolean.class
+                        && method(stateMachine, "getSubStateCount").getReturnType() == int.class
+                        && method(stateMachine, "getSubStateAt", int.class).getReturnType() == state
+                        && method(actionContext, "clearEvent", String.class).getReturnType() == void.class
+                        && method(actionContext, "hasEventOccurred", String.class).getReturnType() == boolean.class,
+                "pending native traversal cancellation contract changed");
+        require(companion.getDeclaredMethod("setCompanionFloorAttackInput", boolean.class, boolean.class)
+                        .getReturnType() == boolean.class
+                        && method(character, "isManualFloorAtkButtonDown").getReturnType() == boolean.class
+                        && method(character, "isMeleeButtonDown").getReturnType() == boolean.class,
+                "actor-owned native manual floor-attack input contract changed");
+        Class<?> stateParam = Class.forName("zombie.ai.State$Param");
+        Class<?> swipeState = Class.forName("zombie.ai.states.SwipeStatePlayer");
+        Class<?> finderResult = Class.forName("zombie.ai.astar.AStarPathFinderResult");
+        require(method(character, "get", stateParam).getReturnType() == Object.class
+                        && method(character, "set", stateParam, Object.class).getReturnType() == void.class
+                        && swipeState.getField("ATTACKED").getType() == stateParam
+                        && method(stateMachine, "isSubstate", state).getReturnType() == boolean.class,
+                "native per-swing collision latch contract changed");
+        require(method(character, "getFinder").getReturnType() == finderResult
+                        && finderResult.getField("progress").getType()
+                            == Class.forName("zombie.ai.astar.AStarPathFinder$PathFindProgress")
+                        && method(pathBehavior, "getIsCancelled").getReturnType() == boolean.class
+                        && method(gameTime, "getMultiplier").getReturnType() == float.class,
+                "native path readiness/manual timestep contract changed");
         require(companion.getDeclaredMethod("cancelCompanionStuckClimb").getReturnType()
                         == boolean.class
                         && method(character, "isClimbing").getReturnType() == boolean.class
@@ -137,7 +170,17 @@ public final class SCNativeApiSignatureTest {
                                 == boolean.class,
                 "Build 42 open-gate and low/high fence traversal signatures changed");
         require(companion.getDeclaredMethod("getCompanionAttackCollisionSerial")
-                        .getReturnType() == int.class,
+                        .getReturnType() == int.class
+                        && companion.getDeclaredMethod("getCompanionAttackCollisionHitCount")
+                                .getReturnType() == int.class
+                        && companion.getDeclaredMethod("getCompanionAttackCollisionTarget")
+                                .getReturnType() == movingObject
+                        && companion.getDeclaredMethod("didCompanionAttackCollisionHitTarget")
+                                .getReturnType() == boolean.class
+                        && method(character, "getHealth").getReturnType() == float.class
+                        && method(character, "getLastHitCount").getReturnType() == int.class
+                        && method(character, "setShoveStompAnim", boolean.class)
+                                .getReturnType() == void.class,
                 "SCNativeCompanion attack-impact evidence contract changed");
         require(method(player, "getCoopPVP").getReturnType() == boolean.class
                         && method(player, "setCoopPVP", boolean.class).getReturnType()

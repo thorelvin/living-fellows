@@ -9,8 +9,10 @@ $ProjectRoot = Split-Path -Parent $PSScriptRoot
 & (Join-Path $ProjectRoot 'scripts\Test-Source.ps1')
 & (Join-Path $ProjectRoot 'tests\core\run_core_tests.ps1') -GameRoot $GameRoot
 & (Join-Path $ProjectRoot 'tests\gameplay\run_gameplay_tests.ps1') -GameRoot $GameRoot
+& (Join-Path $ProjectRoot 'tests\gameplay\run_navigation_stability_tests.ps1') -GameRoot $GameRoot
+& (Join-Path $ProjectRoot 'tests\gameplay\run_perception_topology_tests.ps1') -GameRoot $GameRoot
 & (Join-Path $ProjectRoot 'tests\ui\run_ui_tests.ps1') -GameRoot $GameRoot
 & (Join-Path $ProjectRoot 'tests\live\run_live_harness_static.ps1') -GameRoot $GameRoot
 & (Join-Path $ProjectRoot 'scripts\Build-Workshop.ps1') -ProjectRoot $ProjectRoot
 & (Join-Path $ProjectRoot 'scripts\Build-Standalone.ps1') -ProjectRoot $ProjectRoot
-Write-Output 'PROJECT_TEST_PASS pz-runtime=true source=true core=true gameplay=true ui=true live-harness-static=true workshop=true standalone=true'
+Write-Output 'PROJECT_TEST_PASS pz-runtime=true source=true core=true gameplay=true navigation-stability=true perception-topology=true ui=true live-harness-static=true workshop=true standalone=true'

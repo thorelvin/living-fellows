@@ -1,4 +1,4 @@
-Living Fellows: Companion 0.22.9 pathing coverage playtest
+Living Fellows: Companion 0.22.10 combat and navigation stability playtest
 
 The included native bridge supplies SCNativeCompanion, an original IsoPlayer
 subclass that remains outside the local-player slots. Workshop installations

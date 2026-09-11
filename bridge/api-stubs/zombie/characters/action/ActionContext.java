@@ -8,4 +8,7 @@ public final class ActionContext {
     public ActionState peekNextState() { return null; }
     public boolean canTransitionToState(String name) { return false; }
     public void setCurrentState(ActionState state) {}
+    public void clearEvent(String event) {}
+    public void reportEvent(String event) {}
+    public boolean hasEventOccurred(String event) { return false; }
 }

@@ -85,9 +85,9 @@ local function commandMoveMode(commands, player)
     return requested == "copy" and "walk" or requested
 end
 
-local function medicalAssessment(actor)
+local function medicalAssessment(actor, runtime)
     if SC.Medical and type(SC.Medical.assess) == "function" then
-        local ok, assessment = pcall(SC.Medical.assess, actor)
+        local ok, assessment = pcall(SC.Medical.assess, actor, runtime)
         if ok and type(assessment) == "table" then return assessment end
     end
     return {
@@ -96,11 +96,30 @@ local function medicalAssessment(actor)
     }
 end
 
+local function actionableMedical(actor, assessment, allowRecovery)
+    if SC.Medical and type(SC.Medical.hasActionableNeed) == "function" then
+        return SC.Medical.hasActionableNeed(actor, assessment, allowRecovery)
+    end
+    return assessment and (allowRecovery == true and assessment.downed == true
+        or assessment.needsBandage == true or (tonumber(assessment.bleedingCount) or 0) > 0
+        or assessment.critical == true and (assessment.needsBandageChange == true
+            or (tonumber(assessment.dirtyBandages) or 0) > 0))
+end
+
 local function rescueNeed(actor, player, snapshot)
     local score, target = 0, nil
+    local function livingPatient(patient, assessment)
+        if SC.Medical and type(SC.Medical.isLivingPatient) == "function" then
+            return SC.Medical.isLivingPatient(patient, assessment)
+        end
+        return assessment and assessment.alive ~= false and not U().isDead(patient)
+            and (tonumber(assessment.health) or U().nativeHealth(patient)) > 0
+            and assessment.terminalKnox ~= true
+    end
     if player and SC.Medical and type(SC.Medical.assess) == "function" then
         local ok, assessment = pcall(SC.Medical.assess, player)
-        if ok and assessment then
+        if ok and assessment and livingPatient(player, assessment)
+            and actionableMedical(player, assessment, false) then
             local playerScore = (assessment.critical and 35 or 0)
                 + (assessment.bleedingCount or 0) * 22
                 + (assessment.downed and 45 or 0)
@@ -121,7 +140,10 @@ local function rescueNeed(actor, player, snapshot)
                 local allyScore = (assessment.critical and 25 or 0)
                     + (assessment.bleedingCount or 0) * 18
                     + (assessment.downed and 40 or 0)
-                if allyScore > score then score, target = allyScore, ally.actor end
+                if livingPatient(ally.actor, assessment)
+                    and actionableMedical(ally.actor, assessment, false) and allyScore > score then
+                    score, target = allyScore, ally.actor
+                end
             end
         end
     end
@@ -182,10 +204,14 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         candidates[#candidates].safetyRank = safetyRank[candidates[#candidates].safetyTier]
         if kind == "downtime" then downtimeAdded = true end
     end
-    if assessment.downed or (assessment.health > 0 and assessment.health <= (U().config("downedHealth") or 18)) then
-        add("medical", 140, true)
-    elseif assessment.needsBandage or assessment.critical then
-        add("medical", 96 + (assessment.bleedingCount or 0) * 8, assessment.bleedingCount and assessment.bleedingCount > 0)
+    if actionableMedical(actor, assessment, true) then
+        if assessment.downed or (assessment.health > 0
+            and assessment.health <= (U().config("downedHealth") or 18)) then
+            add("medical", 140, true)
+        else
+            add("medical", 96 + (assessment.bleedingCount or 0) * 8,
+                (tonumber(assessment.bleedingCount) or 0) > 0)
+        end
     end
     local rescue, rescueTarget = rescueNeed(actor, player, snapshot)
     if rescue > 0 and (snapshot.immediateCount or 0) == 0 then
@@ -237,8 +263,12 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         if humanThreat and threatCount == 0 then
             combatScore = humanThreat.visible == true and 106 or 84
         end
+        -- Critical health still makes real danger urgent, even when there is no
+        -- wound medicine can treat. Combat retains its health-aware retreat logic.
+        if assessment.critical then combatScore = math.max(combatScore, 112) end
         add("combat", combatScore,
-            immediate > 0 or snapshot.encircled or humanThreat and humanThreat.visible == true,
+            assessment.critical or immediate > 0 or snapshot.encircled
+                or humanThreat and humanThreat.visible == true,
             threatCount == 0 and humanThreat and {
                 mode = "human_hostile",
                 targetId = humanThreat.id,
@@ -1472,6 +1502,9 @@ local function warnAboutThreat(actor, snapshot, state, current)
             action = "hand_signal",
             emote = "freeze",
             target = threat,
+            facingTarget = threat,
+            faceTargetBeforeEmote = true,
+            stableFacing = true,
             silent = true,
         })
         if signalled ~= true then
@@ -1501,6 +1534,20 @@ local function warnAboutThreat(actor, snapshot, state, current)
         local radius = U().config("threatWarningSoundRadius") or 10
         pcall(addSound, actor, actorX, actorY, actorZ, radius, 12)
     end
+    if quietSignal then
+        local native = SC.NativeActions
+        if type(native) == "table" and type(native.beginPacing) == "function" then
+            local holdMs = U().config("dangerSignalHoldMs") or 900
+            pcall(native.beginPacing, actor, "threat_signal", {
+                minimumMs = holdMs,
+                maximumMs = holdMs,
+                lookChancePercent = 0,
+                interruptForFollow = false,
+                holdReason = "threat_signal",
+            })
+        end
+    end
+    return quietSignal
 end
 
 local function warnAboutHeardThreat(actor, snapshot, state, current)
@@ -1540,7 +1587,9 @@ local function survivalNeedsImmediateControl(snapshot, assessment, needs, comman
     return immediate > 0 or snapshot.humanThreat ~= nil
         or (tonumber(snapshot.pressure) or 0) >= 1.5
         or playerDanger > 0 or commands.order == "retreat"
-        or assessment.downed == true or assessment.critical == true
+        or assessment.downed == true
+        or assessment.critical == true and ((tonumber(snapshot.threatCount) or #(snapshot.threats or {})) > 0
+            or assessment.needsBandageChange == true or (tonumber(assessment.dirtyBandages) or 0) > 0)
         or (tonumber(assessment.bleedingCount) or 0) > 0
         or type(needs) == "table" and needs.emergency == true
 end
@@ -1581,7 +1630,8 @@ local function factionNeedsImmediateControl(actor, player, snapshot, commands)
         and (intent.mode == "hostile" or intent.mode == "bandit_human")
 end
 
-local function pacingFollowMustMove(actor, player, commands)
+local function pacingFollowMustMove(actor, player, commands, record)
+    if type(record) == "table" and record.interruptForFollow == false then return false end
     if commands.order ~= "follow" and commands.order ~= "regroup" then return false end
     if not player then return false end
     local moving, movingOk = U().call(player, "isMoving")
@@ -1683,7 +1733,8 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
     if not pacing then return false end
     local serialChanged = tonumber(record.commandSerial) ~= (tonumber(commands.commandSerial) or 0)
     local inVehicle = select(1, U().call(actor, "getVehicle")) ~= nil
-    if urgent or serialChanged or inVehicle or pacingFollowMustMove(actor, player, commands) then
+    if urgent or serialChanged or inVehicle
+        or pacingFollowMustMove(actor, player, commands, record) then
         if type(native.cancelPacing) == "function" then
             native.cancelPacing(actor, urgent and "survival_priority"
                 or serialChanged and "new_order"
@@ -1724,7 +1775,8 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
         record.looked = true
     end
     state.current = "pacing"
-    state.intent = looked and "looking_around" or "thinking"
+    state.intent = type(record.holdReason) == "string" and record.holdReason
+        or (looked and "looking_around" or "thinking")
     state.lastHandledAt = current
     return true, state.intent
 end
@@ -1797,7 +1849,7 @@ function Decision.update(actor, player, runtime)
             return SC.Autonomy.observe(actor, player, rootRuntime, snapshot, commands)
         end)
     end
-    local assessment = medicalAssessment(actor)
+    local assessment = medicalAssessment(actor, rootRuntime)
     local needs
     if SC.Needs and type(SC.Needs.assess) == "function" then
         local ok, value = pcall(SC.Needs.assess, actor, rootRuntime)
@@ -1812,6 +1864,24 @@ function Decision.update(actor, player, runtime)
         return false, "dead"
     end
 
+    -- A completed hit may remove the final perceived threat before the native
+    -- swing exits. Keep that animation owner even though evaluate() would no
+    -- longer propose combat. Actionable critical medicine and native hit reactions
+    -- retain precedence; a failed stationary hold must not fall through to Follow.
+    if not assessment.downed and not (actionableMedical(actor, assessment, false)
+        and (assessment.critical or assessment.health <= (utility.config("downedHealth") or 18)))
+        and SC.Combat and type(SC.Combat.holdNativeAttack) == "function" then
+        local safe, held, holdReason = utility.safeSubsystem("combat-lease", actor, function()
+            return SC.Combat.holdNativeAttack(actor, rootRuntime)
+        end)
+        if not safe or held ~= nil then
+            state.current, state.currentKey = "combat", "combat"
+            state.intent = holdReason or "native_combat_hold_failed"
+            state.lastHandledAt = current
+            return safe and held == true, state.intent
+        end
+    end
+
     local held, heldReason = holdOwnedActivityOrPacing(
         actor, player, snapshot, assessment, needs, commands, state, current)
     if held then return true, heldReason end
@@ -1824,8 +1894,13 @@ function Decision.update(actor, player, runtime)
         return vehicleHandled == true, state.intent
     end
 
-    warnAboutThreat(actor, snapshot, state, current)
+    local threatSignalled = warnAboutThreat(actor, snapshot, state, current)
     warnAboutHeardThreat(actor, snapshot, state, current)
+    if threatSignalled then
+        state.current, state.currentKey, state.intent = "alert", "threat_signal", "threat_signal"
+        state.lastHandledAt = current
+        return true, state.intent
+    end
     if SC.Dialogue and type(SC.Dialogue.ambientPulse) == "function" then
         utility.safeSubsystem("ambient-dialogue", actor, function()
             return SC.Dialogue.ambientPulse(actor, player, snapshot, commands, current)

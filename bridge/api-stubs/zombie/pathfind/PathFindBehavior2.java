@@ -5,7 +5,11 @@ import se.krka.kahlua.vm.KahluaTable;
 
 /** Compile-only API surface for the version-pinned locomotion bridge. */
 public class PathFindBehavior2 {
+    public boolean pathNextIsSet;
+    public float pathNextX;
+    public float pathNextY;
     public void cancel() {}
+    public boolean getIsCancelled() { return false; }
     public boolean shouldBeMoving() { return false; }
     public boolean hasStartedMoving() { return false; }
     public boolean allowTurnAnimation() { return false; }

@@ -77,7 +77,9 @@ local function threatRecord(actor, player, zombie, actorSquare)
     local U = util()
     local zombieSquare = U.squareOf(zombie)
     local distanceSq = U.distanceSq(actor, zombie)
-    local visible = U.canSee(actor, zombie)
+    local zombieX, zombieY, zombieZ = U.position(zombie)
+    local visible = distanceSq <= (tonumber(U.config("perceptionRadius")) or 24) ^ 2
+        and U.canSee(actor, zombie)
     -- isBlockedTo() only describes one adjacent edge and cannot establish LOS to
     -- a distant square. canSee() delegates actor sight to Build 42's character LOS,
     -- so an unconfirmed contact is obstructed by definition and must never enter
@@ -102,6 +104,7 @@ local function threatRecord(actor, player, zombie, actorSquare)
     return {
         actor = zombie,
         square = zombieSquare,
+        x = zombieX, y = zombieY, z = zombieZ,
         distanceSq = distanceSq,
         distance = math.sqrt(distanceSq),
         visible = visible,
@@ -290,26 +293,76 @@ local function collectEscapeSquares(actor, threats, state, current, immediateCou
     state = type(state) == "table" and state or {}
     current = tonumber(current) or U.nowMs()
     local originKey = U.squareKey(actorSquare)
-    local signature = type(SC.Topology.localSignature) == "function"
-        and SC.Topology.localSignature(actor, actorSquare) or originKey
     local cache = state.escapeTopology
+    -- Peaceful followers do not need a fresh 64-node combat escape flood-fill.
+    -- Actual threats still trigger the immediate four-edge probe before deeper
+    -- work is allowed to yield.
+    if #(threats or {}) == 0 and (tonumber(immediateCount) or 0) <= 0 then
+        -- A partial flood-fill is not a reusable topology snapshot. If calm
+        -- cancels it, discard its partial result as well so a threat returning
+        -- inside the cache TTL starts from verified immediate exits.
+        if state.escapeSearch ~= nil or (cache and cache.complete ~= true) then
+            state.escapeTopology = nil
+        end
+        state.escapeSearch = nil
+        state.escapeImmediateCount = 0
+        return {}, {}, { processed = 0, originKey = originKey, signature = "quiet_deferred",
+            computedAt = current, deferred = true }
+    end
     local ttl = tonumber(U.config("escapeTopologyCacheMs")) or 250
     local urgentInvalidation = (tonumber(immediateCount) or 0) > 0
         and (tonumber(state.escapeImmediateCount) or 0) <= 0
-    if type(cache) ~= "table" or cache.originKey ~= originKey
-        or cache.signature ~= signature or current - (tonumber(cache.computedAt) or 0) >= ttl
-        or urgentInvalidation then
-        local raw, exits, meta = SC.Topology.reachableEscapeSquares(actor, actorSquare, {
-            radius = tonumber(U.config("escapeScanRadius")) or 5,
-            nodeBudget = tonumber(U.config("escapeScanNodeBudget")) or 64,
-            exitLimit = tonumber(U.config("perceptionExitLimit")) or 16,
-        })
-        cache = {
-            raw = raw, exits = exits, originKey = originKey,
-            signature = meta and meta.signature or signature,
-            processed = meta and meta.processed or 0, computedAt = current,
-        }
-        state.escapeTopology = cache
+    local job = state.escapeSearch
+    local expired = type(cache) ~= "table" or cache.complete ~= true
+        or cache.originKey ~= originKey
+        or current - (tonumber(cache.computedAt) or 0) >= ttl or urgentInvalidation
+    if job or expired then
+        -- Signature, retained-portal validation and new edge expansion share one
+        -- read batch and one elapsed deadline. The four local signature edges
+        -- are fixed urgent work; everything deeper is resumable.
+        local started = U.nowMs()
+        local deadline = started + (tonumber(U.config("escapeTopologySliceMs")) or 0.75)
+        local meta
+        SC.Topology.withReadBatch(function()
+            local signature = type(SC.Topology.localSignature) == "function"
+                and SC.Topology.localSignature(actor, actorSquare) or originKey
+            local needsRefresh = type(cache) ~= "table" or cache.complete ~= true
+                or cache.originKey ~= originKey or cache.signature ~= signature
+                or current - (tonumber(cache.computedAt) or 0) >= ttl or urgentInvalidation
+            if needsRefresh and (not job or job.originKey ~= originKey
+                or job.signature ~= signature) then
+                job = SC.Topology.newEscapeSearch(actor, actorSquare, {
+                    radius = tonumber(U.config("escapeScanRadius")) or 5,
+                    nodeBudget = tonumber(U.config("escapeScanNodeBudget")) or 64,
+                    exitLimit = tonumber(U.config("perceptionExitLimit")) or 16,
+                })
+                job.signature = signature
+                state.escapeSearch = job
+            end
+            if job then
+                local raw, exits
+                raw, exits, meta = SC.Topology.resumeEscapeSearch(job,
+                    tonumber(U.config("escapeTopologyEdgesPerSlice")) or 24,
+                    deadline)
+                cache = {
+                    raw = raw, exits = exits, originKey = originKey,
+                    signature = signature,
+                    processed = meta and meta.processed or 0, computedAt = current,
+                    verification = meta.invalidated ~= true and job or nil,
+                    complete = meta.complete == true and meta.invalidated ~= true,
+                }
+                if meta.invalidated then cache.computedAt = current - ttl end
+                state.escapeTopology = cache
+                if meta.complete then state.escapeSearch = nil end
+            end
+        end)
+        if meta and SC.Performance and type(SC.Performance.record) == "function" then
+            SC.Performance.record("perception.escape", U.idOf(actor), U.nowMs() - started,
+                meta.used or 0, false)
+            if not meta.complete then
+                SC.Performance.markYield("perception.escape", U.idOf(actor), meta.used)
+            end
+        end
     end
     state.escapeImmediateCount = tonumber(immediateCount) or 0
 
@@ -317,39 +370,74 @@ local function collectEscapeSquares(actor, threats, state, current, immediateCou
     -- therefore changes the preferred exit on every reflex pulse without paying
     -- for another flood-fill until the topology TTL or origin changes.
     local candidates = {}
+    local threatPositions = {}
+    for _, threat in ipairs(threats or {}) do
+        local tx, ty, tz = tonumber(threat.x), tonumber(threat.y), tonumber(threat.z)
+        if tx == nil then tx, ty, tz = U.position(threat.actor) end
+        if tx ~= nil then
+            threatPositions[#threatPositions + 1] = { x = tx, y = ty, z = tz or 0 }
+        end
+    end
     for _, raw in ipairs(cache.raw or {}) do
         local square = raw.square
+        local sx, sy, sz = tonumber(raw.x), tonumber(raw.y), tonumber(raw.z)
+        if sx == nil then sx, sy, sz = U.position(square) end
         local danger, nearest = 0, math.huge
-        for _, threat in ipairs(threats or {}) do
-            local threatDistanceSq = U.distanceSq(square, threat.actor)
-            if threatDistanceSq < nearest then nearest = threatDistanceSq end
-            if threatDistanceSq <= 9 then danger = danger + 1 end
+        if sx ~= nil then
+            for _, threat in ipairs(threatPositions) do
+                local dx, dy, dz = sx - threat.x, sy - threat.y, (sz or 0) - threat.z
+                local threatDistanceSq = dx * dx + dy * dy + dz * dz * 9
+                if threatDistanceSq < nearest then nearest = threatDistanceSq end
+                if threatDistanceSq <= 9 then danger = danger + 1 end
+            end
         end
+        if raw.outdoors == nil then raw.outdoors = squareIsOutdoor(square) end
         candidates[#candidates + 1] = {
             square = square,
+            topologyNode = raw,
             distance = raw.distance,
             traversalCost = raw.traversalCost,
             requiresNative = raw.requiresNative == true,
             danger = danger,
-            outdoors = squareIsOutdoor(square),
+            outdoors = raw.outdoors,
             nearestThreatSq = nearest,
             score = (tonumber(raw.distance) or 0) * 3
                 + math.min(nearest, 100) * 0.15 - danger * 20
-                + (squareIsOutdoor(square) and 12 or 0)
+                + (raw.outdoors and 12 or 0)
                 - math.max(0, (tonumber(raw.traversalCost) or 0)
                     - (tonumber(raw.distance) or 0)) * 0.5,
         }
     end
     table.sort(candidates, function(a, b) return a.score > b.score end)
-    local limit = tonumber(U.config("perceptionExitLimit")) or 16
-    while #candidates > limit do table.remove(candidates) end
-    return candidates, cache.exits or {}, {
+    local limit = math.min(tonumber(U.config("perceptionExitLimit")) or 16,
+        tonumber(U.config("escapeValidatedCandidateLimit")) or 4)
+    local verified, attempts, rejected = {}, 0, false
+    for _, candidate in ipairs(candidates) do
+        if #verified >= limit or attempts >= limit then break end
+        attempts = attempts + 1
+        local valid = type(SC.Topology.validateEscapeNode) == "function"
+            and SC.Topology.validateEscapeNode(actor, candidate.topologyNode, {})
+        if valid == true then
+            candidate.topologyNode = nil
+            verified[#verified + 1] = candidate
+        else
+            rejected = true
+        end
+    end
+    if rejected and #verified == 0 then
+        cache.computedAt = current - ttl
+        state.escapeTopology = cache
+    end
+    return verified, cache.exits or {}, {
         processed = cache.processed or 0,
         originKey = cache.originKey,
         signature = cache.signature,
         computedAt = cache.computedAt,
+        candidateValidationAttempts = attempts,
     }
 end
+
+Senses._collectEscapeSquaresForTests = collectEscapeSquares
 
 local function directionalThreats(actor, threats, immediate)
     local U = util()
@@ -416,28 +504,234 @@ local function scanJobInvalid(job, originX, originY, originZ, radius, squareBudg
         util().config("perceptionScanRebaseDistance") or 2.0)
 end
 
-local function liveThreatLists(actor, player, actorSquare, job, threatLimit, immediateRadiusSq, current)
+local function appendVisualCandidate(list, seen, actor, prior, discovered, urgent, priority)
+    if actor == nil or seen[actor] then return end
+    seen[actor] = true
+    list[#list + 1] = {
+        actor = actor,
+        prior = prior,
+        discovered = discovered == true,
+        urgent = urgent == true,
+        priority = priority == true,
+    }
+end
+
+local function unpackVisualCandidate(value)
+    if type(value) == "table" and value.visualCandidate == true then
+        return value.actor, value.prior, value.discovered == true, value.urgent == true
+    end
+    if type(value) == "table" and value.actor ~= nil
+        and (value.distanceSq ~= nil or value.visualValidatedAt ~= nil) then
+        return value.actor, value, true, false
+    end
+    return value, nil, true, false
+end
+
+-- LOS checks are more expensive than candidate discovery. Keep a persistent
+-- FIFO for deferred checks, reserve the current target and immediate contacts,
+-- and append contacts checked this pulse behind the pending queue next pulse.
+-- This makes a hard per-pulse budget fair instead of repeatedly validating the
+-- same first N zombies in a crowded scene.
+local function visualCandidateLists(state, currentSnapshot, discovered, combatTarget)
+    local priority, ordinary = {}, {}
+    local prioritySeen = setmetatable({}, { __mode = "k" })
+    local ordinarySeen = setmetatable({}, { __mode = "k" })
+    local priorByActor = setmetatable({}, { __mode = "k" })
+    currentSnapshot = type(currentSnapshot) == "table" and currentSnapshot or {}
+
+    local function remember(records)
+        for _, record in ipairs(records or {}) do
+            if record and record.actor then priorByActor[record.actor] = record end
+        end
+    end
+    remember(currentSnapshot.threats)
+    remember(currentSnapshot.stealthThreats)
+    remember(currentSnapshot.immediateAttackers)
+
+    -- The committed combat target is the one contact that must never wait for
+    -- a crowded immediate list; Combat will independently prove LOS again
+    -- before authorizing an action.
+    if combatTarget ~= nil then
+        appendVisualCandidate(priority, prioritySeen, combatTarget,
+            priorByActor[combatTarget], false, false, true)
+    end
+    local deferredOrdinary = {}
+    for _, entry in ipairs(state.visualValidationQueue or {}) do
+        if entry.urgent == true
+            or (entry.prior and immediateThreat(entry.prior,
+                (util().config("immediateThreatRadius") or 2.25) ^ 2)) then
+            appendVisualCandidate(priority, prioritySeen, entry.actor,
+                priorByActor[entry.actor] or entry.prior,
+                entry.discovered == true, true, true)
+        else
+            deferredOrdinary[#deferredOrdinary + 1] = entry
+        end
+    end
+    -- Deferred urgent contacts lead the recycled immediate set. With more than
+    -- the hard urgent cap this rotates the tail instead of starving contact 13.
+    for _, record in ipairs(currentSnapshot.immediateAttackers or {}) do
+        appendVisualCandidate(priority, prioritySeen, record.actor, record,
+            false, true, true)
+    end
+    local nearest = currentSnapshot.nearestThreat
+    if nearest and nearest.actor then
+        appendVisualCandidate(priority, prioritySeen, nearest.actor, nearest,
+            false, false, true)
+    end
+
+    local ordinaryDiscoveries = {}
+    for _, value in ipairs(discovered or {}) do
+        local actor, prior, wasDiscovered, urgent = unpackVisualCandidate(value)
+        if urgent then
+            appendVisualCandidate(priority, prioritySeen, actor,
+                priorByActor[actor] or prior, wasDiscovered, true, true)
+        else
+            ordinaryDiscoveries[#ordinaryDiscoveries + 1] = {
+                actor = actor, prior = prior, discovered = wasDiscovered,
+            }
+        end
+    end
+
+    local function appendOrdinary(actor, prior, wasDiscovered, urgent)
+        if actor == nil or prioritySeen[actor] then return end
+        local queueCap = math.max(16, math.min(128,
+            math.floor(tonumber(util().config("perceptionVisualQueueHardCap")) or 64)))
+        if #ordinary >= queueCap then return end
+        appendVisualCandidate(ordinary, ordinarySeen, actor,
+            priorByActor[actor] or prior, wasDiscovered, urgent, false)
+    end
+    -- Old deferred entries stay at the head. Contacts handled this pulse are
+    -- re-appended from the current snapshot on the next one, behind this tail.
+    for _, entry in ipairs(deferredOrdinary) do
+        appendOrdinary(entry.actor, entry.prior,
+            entry.discovered == true, entry.urgent == true)
+    end
+    for _, record in ipairs(currentSnapshot.stealthThreats or {}) do
+        appendOrdinary(record.actor, record, false, false)
+    end
+    for _, record in ipairs(currentSnapshot.threats or {}) do
+        appendOrdinary(record.actor, record, false, false)
+    end
+    for _, entry in ipairs(ordinaryDiscoveries) do
+        appendOrdinary(entry.actor, entry.prior, entry.discovered, false)
+    end
+    return priority, ordinary
+end
+
+local function retainedVisualRecord(actor, prior, current, observerX, observerY, observerZ)
+    local U = util()
+    if type(prior) ~= "table" or prior.visible ~= true or prior.obstructed == true
+        or not isActiveZombie(actor) then return nil end
+    local validatedAt = tonumber(prior.visualValidatedAt)
+    local retention = math.max(0,
+        tonumber(U.config("perceptionVisualRetentionMs")) or 250)
+    if validatedAt == nil or current - validatedAt > retention then return nil end
+    local x, y, z = U.position(actor)
+    if x == nil or math.floor(z or 0) ~= math.floor(observerZ or 0) then return nil end
+    local dx, dy = x - observerX, y - observerY
+    local distanceSq = dx * dx + dy * dy
+    local radius = tonumber(U.config("perceptionRadius")) or 24
+    if distanceSq > radius * radius then return nil end
+    local record = U.copyShallow(prior)
+    record.x, record.y, record.z = x, y, z
+    record.square = U.squareOf(actor)
+    record.distanceSq, record.distance = distanceSq, math.sqrt(distanceSq)
+    record.visualDeferred, record.recentlyVisible = true, true
+    return record
+end
+
+local function validateVisualCandidates(actor, player, actorSquare, state, currentSnapshot,
+        discovered, threatLimit, immediateRadiusSq, current, combatTarget)
+    local U = util()
     local set = threatSets().new(threatLimit, immediateRadiusSq,
-        util().config("perceptionAttackCommitRadius") or 1.5)
-    local heard
-    for _, prior in ipairs(job.stealthThreats or {}) do
-        local zombie = prior.actor
-        if isActiveZombie(zombie) then
-            local record = threatRecord(actor, player, zombie, actorSquare)
-            if record.visible and not record.obstructed then
-                threatSets().add(set, record, false)
-            else
-                local audible, activity = zombieAudible(actor, zombie, record)
-                if audible then
-                    local candidate = heardThreatRecord(actor, zombie, record, current, activity)
-                    if not heard or candidate.strength > heard.strength then heard = candidate end
-                end
+        U.config("perceptionAttackCommitRadius") or 1.5)
+    local heard, checks, urgentChecks, deferred = nil, 0, 0, 0
+    local limit = math.max(4,
+        math.floor(tonumber(U.config("perceptionVisualChecksPerSlice")) or 16))
+    local urgentCap = math.max(4,
+        math.floor(tonumber(U.config("perceptionImmediateVisualHardCap")) or 12))
+    local deadline = U.nowMs() + (tonumber(U.config("perceptionVisualSliceMs")) or 1.0)
+    local priority, ordinary = visualCandidateLists(
+        state, currentSnapshot, discovered, combatTarget)
+    local pending = {}
+    local pendingCap = math.max(16, math.min(128,
+        math.floor(tonumber(U.config("perceptionVisualQueueHardCap")) or 64)))
+    local observerX, observerY, observerZ = U.position(actor)
+
+    local function inspect(entry, forced)
+        local zombie = entry.actor
+        local urgent = entry.urgent == true
+            or (entry.prior and immediateThreat(entry.prior, immediateRadiusSq))
+        if (urgent and urgentChecks >= urgentCap)
+            or (not forced and not urgent and (checks >= limit
+                or (checks >= 4 and U.nowMs() >= deadline))) then
+            if #pending < pendingCap then pending[#pending + 1] = entry end
+            deferred = deferred + 1
+            return
+        end
+        if not isActiveZombie(zombie) then return end
+        checks = checks + 1
+        if urgent then urgentChecks = urgentChecks + 1 end
+        local record = threatRecord(actor, player, zombie, actorSquare)
+        record.visualValidatedAt = current
+        if record.visible and not record.obstructed then
+            threatSets().add(set, record, entry.discovered)
+        else
+            local audible, activity = zombieAudible(actor, zombie, record)
+            if audible then
+                local candidate = heardThreatRecord(actor, zombie, record, current, activity)
+                if not heard or candidate.strength > heard.strength then heard = candidate end
             end
         end
     end
+
+    for _, entry in ipairs(priority) do inspect(entry, true) end
+    for _, entry in ipairs(ordinary) do inspect(entry, false) end
+    state.visualValidationQueue = #pending > 0 and pending or nil
+
+    -- Keep only very recently proven contacts while their fair-queue turn is
+    -- pending. The current target and melee contacts never rely on this grace;
+    -- they are force-checked above. This avoids crowd-size flicker without
+    -- turning old sightings into wall-penetrating omniscience.
+    if observerX ~= nil then
+        local retentionLimit = math.max(0, math.min(threatLimit,
+            math.floor(tonumber(U.config("perceptionVisualRetentionLimit")) or 16)))
+        for index = 1, math.min(#pending, retentionLimit) do
+            local entry = pending[index]
+            local retained = retainedVisualRecord(entry.actor, entry.prior, current,
+                observerX, observerY, observerZ)
+            if retained then threatSets().add(set, retained, false) end
+        end
+    end
     local result = threatSets().finish(set)
+    result.visualChecks, result.visualDeferred = checks, deferred
     return result.threats, result.immediate, result.fenced, result.stealth,
         result.grounded, heard, result
+end
+
+local function liveThreatLists(actor, player, actorSquare, job, threatLimit,
+        immediateRadiusSq, current, state, combatTarget)
+    return validateVisualCandidates(actor, player, actorSquare, state,
+        state.current, job.stealthThreats, threatLimit, immediateRadiusSq,
+        current, combatTarget)
+end
+
+local function eachMovingObjectRotated(state, square, maximum, callback)
+    local U = util()
+    local objects, available = U.call(square, "getMovingObjects")
+    if not available or objects == nil or not SC.NativeList then return 0 end
+    local count = SC.NativeList.size(objects)
+    if count <= 0 then return 0 end
+    state.reflexObjectCursors = state.reflexObjectCursors
+        or setmetatable({}, { __mode = "k" })
+    local start = math.floor(tonumber(state.reflexObjectCursors[square]) or 0) % count
+    local used = math.min(count, math.max(0, math.floor(tonumber(maximum) or count)))
+    for offset = 0, used - 1 do
+        local value, found = SC.NativeList.get(objects, (start + offset) % count)
+        if found then callback(value) end
+    end
+    state.reflexObjectCursors[square] = (start + used) % count
+    return used
 end
 
 function Senses.snapshot(actor, player, runtime)
@@ -460,15 +754,23 @@ function Senses.snapshot(actor, player, runtime)
     local startedAt = now
     local actorSquare = U.squareOf(actor)
     local originX, originY, originZ = U.position(actorSquare)
-    local radius = U.config("perceptionRadius") or 18
+    local radius = U.config("perceptionRadius") or 24
     local squareBudget = U.config("perceptionSquareBudget") or 240
     local threatLimit = U.config("perceptionThreatLimit") or 32
     local immediateRadiusSq = (U.config("immediateThreatRadius") or 2.25) ^ 2
 
+    local nativeCandidates, nativeMeta = scans().nativeCandidates(actor, state, radius,
+        U.config("perceptionNativeCandidatesPerSlice") or 64,
+        U.nowMs() + (tonumber(U.config("perceptionNativeSliceMs")) or 0.75))
     local job = state.scanJob
     local invalid, invalidReason, rebaseDistance = scanJobInvalid(
         job, originX, originY, originZ, radius, squareBudget)
-    if invalid then
+    if nativeCandidates ~= nil then
+        -- Native discovery needs no 240-square schedule allocation or rebasing;
+        -- a moving observer keeps advancing the bounded native-list cursor.
+        job = { offsets = {}, index = 1, scannedSquares = 0, outerSampled = 0,
+            stealthThreats = {}, seen = {}, coverage = { native = true } }
+    elseif invalid then
         if invalidReason == "movement" then
             state.scanRebaseCount = (state.scanRebaseCount or 0) + 1
             state.lastScanRebaseDistance = rebaseDistance
@@ -479,7 +781,7 @@ function Senses.snapshot(actor, player, runtime)
     end
     local requested = math.max(0, #job.offsets - job.index + 1)
     local granted = requested
-    if SC.Performance and type(SC.Performance.claimUnits) == "function" then
+    if nativeCandidates == nil and SC.Performance and type(SC.Performance.claimUnits) == "function" then
         granted = SC.Performance.claimUnits("perception", requested, false)
     end
     local processed = 0
@@ -526,7 +828,14 @@ function Senses.snapshot(actor, player, runtime)
         end
     end
 
-    while processed < granted and job.index <= #job.offsets
+    if nativeCandidates ~= nil then
+        job.stealthThreats, job.seen = nativeCandidates,
+            setmetatable({}, { __mode = "k" })
+        processed = nativeMeta.processed or 0
+        job.index = #job.offsets + 1
+        state.nativeDiscovery = nativeMeta
+    end
+    while nativeCandidates == nil and processed < granted and job.index <= #job.offsets
         and #job.stealthThreats < threatLimit do
         local offset = job.offsets[job.index]
         job.index = job.index + 1
@@ -541,7 +850,8 @@ function Senses.snapshot(actor, player, runtime)
     local complete = job.index > #job.offsets or #job.stealthThreats >= threatLimit
     local threats, immediate, fenced, stealthThreats, groundedThreats, heard,
         threatMeta = liveThreatLists(
-        actor, player, actorSquare, job, threatLimit, immediateRadiusSq, now)
+        actor, player, actorSquare, job, threatLimit, immediateRadiusSq, now,
+        state, rootRuntime.combatTarget)
 
     local escapeSquares, exits, escapeMeta = collectEscapeSquares(
         actor, threats, state, now, #immediate)
@@ -599,6 +909,10 @@ function Senses.snapshot(actor, player, runtime)
         scanRebaseCount = state.scanRebaseCount or 0,
         lastScanRebaseDistance = state.lastScanRebaseDistance,
         lastScanRebaseAt = state.lastScanRebaseAt,
+        discoveryMode = nativeMeta and "native_cursor" or "grid_fallback",
+        nativeDiscovery = nativeMeta,
+        visualChecks = threatMeta.visualChecks or 0,
+        visualDeferred = threatMeta.visualDeferred or 0,
         threats = threats,
         stealthThreats = stealthThreats,
         groundedThreats = groundedThreats,
@@ -640,6 +954,12 @@ function Senses.snapshot(actor, player, runtime)
     snapshot.encircled = closeImmediateCount >= 3 or occupiedThreatSectors >= 3
         or (#escapeSquares == 0 and #threats >= 2)
     state.current = snapshot
+    -- A full snapshot already performs the same bounded native discovery, LOS
+    -- validation and escape refresh as the immediate pass. Satisfy this reflex
+    -- interval here so Decision.update does not repeat all of that work in the
+    -- same frame.
+    state.nextReflexAt = now + math.max(25,
+        tonumber(U.config("perceptionReflexIntervalMs")) or 100)
     state.allies, state.protectedActors, state.alliesAt =
         snapshot.allies, snapshot.protectedActors, now
     if complete then
@@ -696,58 +1016,108 @@ function Senses.refreshImmediate(actor, player, snapshot, runtime)
     local radiusSq = radius * radius
     local immediateRadiusSq = (U.config("immediateThreatRadius") or 2.25) ^ 2
     local threatLimit = U.config("perceptionThreatLimit") or 32
-    local threatSet = threatSets().new(threatLimit, immediateRadiusSq,
-        U.config("perceptionAttackCommitRadius") or 1.5)
-    local seen = setmetatable({}, { __mode = "k" })
-    local heard
-
-    local function consider(zombie, discovered)
-        if seen[zombie] or not isActiveZombie(zombie) then return end
-        seen[zombie] = true
-        local record = threatRecord(actor, player, zombie, actorSquare)
-        if record.visible and not record.obstructed then
-            threatSets().add(threatSet, record, discovered)
-        else
-            local audible, activity = zombieAudible(actor, zombie, record)
-            if audible then
-                local candidate = heardThreatRecord(actor, zombie, record, now, activity)
-                if not heard or candidate.strength > heard.strength then heard = candidate end
-            end
+    local discovered, discoveryMeta = scans().nativeCandidates(actor, state,
+        U.config("perceptionRadius") or 24, U.config("perceptionNativeCandidatesPerSlice") or 64,
+        U.nowMs() + (tonumber(U.config("perceptionNativeSliceMs")) or 0.75))
+    if discoveryMeta then state.nativeDiscovery = discoveryMeta end
+    local visualCandidates = {}
+    local visualCandidateSeen = setmetatable({}, { __mode = "k" })
+    local nearbyCandidateSeen = setmetatable({}, { __mode = "k" })
+    local visualCandidateCap = math.max(16, math.min(96,
+        math.floor(tonumber(U.config("perceptionReflexCandidateHardCap")) or 48)))
+    local nearbyCandidateCap = math.max(8, math.min(48,
+        math.floor(tonumber(U.config("perceptionReflexNearbyHardCap")) or 32)))
+    local nearbyCandidates = 0
+    for _, candidate in ipairs(discovered or {}) do
+        if candidate and visualCandidateSeen[candidate] == nil
+            and #visualCandidates < visualCandidateCap then
+            visualCandidates[#visualCandidates + 1] = candidate
+            visualCandidateSeen[candidate] = #visualCandidates
         end
     end
 
-    for _, prior in ipairs(snapshot.stealthThreats or {}) do consider(prior.actor, false) end
-    for _, prior in ipairs(snapshot.threats or {}) do consider(prior.actor, false) end
-
     local originX, originY = math.floor(ax), math.floor(ay)
     local reach = math.ceil(radius) + 1
-    local scanned = 0
+    local squareOffsets = {}
     for dx = -reach, reach do
         for dy = -reach, reach do
             local sx, sy = originX + dx, originY + dy
             local nearestX = math.max(sx, math.min(ax, sx + 1))
             local nearestY = math.max(sy, math.min(ay, sy + 1))
             local boundsDx, boundsDy = nearestX - ax, nearestY - ay
-            if boundsDx * boundsDx + boundsDy * boundsDy <= radiusSq then
-                local square = U.gridSquare(sx, sy, az)
-                if square then
-                    scanned = scanned + 1
-                    U.squareMovingObjects(square, function(value)
-                        if U.distanceSq(actor, value) <= radiusSq then
-                            consider(value, true)
-                        end
-                    end, threatLimit)
-                end
+            local boundsDistanceSq = boundsDx * boundsDx + boundsDy * boundsDy
+            if boundsDistanceSq <= radiusSq then
+                squareOffsets[#squareOffsets + 1] = {
+                    x = sx, y = sy, distanceSq = boundsDistanceSq,
+                }
             end
         end
     end
+    table.sort(squareOffsets, function(left, right)
+        if left.distanceSq == right.distanceSq then
+            if left.x == right.x then return left.y < right.y end
+            return left.x < right.x
+        end
+        return left.distanceSq < right.distanceSq
+    end)
+    local scanned, inspectedObjects = 0, 0
+    local objectHardCap = math.max(32, math.min(256,
+        math.floor(tonumber(U.config("perceptionReflexMovingObjectHardCap")) or 128)))
+    local perSquareCap = math.max(8, math.min(96,
+        math.floor(tonumber(U.config("perceptionReflexObjectsPerSquare")) or 48)))
+    local squareCursor = math.max(1,
+        math.floor(tonumber(state.reflexSquareCursor) or 1))
+    if squareCursor > #squareOffsets then squareCursor = 1 end
+    local visitedOffsets = 0
+    while visitedOffsets < #squareOffsets and nearbyCandidates < nearbyCandidateCap
+        and inspectedObjects < objectHardCap do
+        local index = ((squareCursor + visitedOffsets - 1) % #squareOffsets) + 1
+        local offset = squareOffsets[index]
+        local square = U.gridSquare(offset.x, offset.y, az)
+        visitedOffsets = visitedOffsets + 1
+        if square then
+            scanned = scanned + 1
+            local allowance = math.min(perSquareCap, objectHardCap - inspectedObjects)
+            local inspected = eachMovingObjectRotated(state, square, allowance, function(value)
+                if nearbyCandidates >= nearbyCandidateCap
+                    or nearbyCandidateSeen[value] ~= nil
+                    or not isActiveZombie(value) then return end
+                local vx, vy, vz = U.position(value)
+                if vx ~= nil then
+                    local dx, dy, dz = vx - ax, vy - ay, (vz or 0) - (az or 0)
+                    if dx * dx + dy * dy + dz * dz * 9 <= radiusSq then
+                        nearbyCandidateSeen[value] = true
+                        nearbyCandidates = nearbyCandidates + 1
+                        local urgent = {
+                            visualCandidate = true,
+                            actor = value,
+                            discovered = true,
+                            urgent = true,
+                        }
+                        local existing = visualCandidateSeen[value]
+                        if existing ~= nil then
+                            visualCandidates[existing] = urgent
+                        elseif #visualCandidates < visualCandidateCap then
+                            visualCandidates[#visualCandidates + 1] = urgent
+                            visualCandidateSeen[value] = #visualCandidates
+                        end
+                    end
+                end
+            end)
+            inspectedObjects = inspectedObjects + inspected
+        end
+    end
+    if #squareOffsets > 0 then
+        state.reflexSquareCursor = ((squareCursor + math.max(1, visitedOffsets) - 1)
+            % #squareOffsets) + 1
+    end
 
-    -- Emergency contacts own capacity before ordinary cached contacts. The
-    -- shared threat-set policy also preserves bounded overflow totals.
-    local threatMeta = threatSets().finish(threatSet)
-    local threats, immediate, fenced = threatMeta.threats,
-        threatMeta.immediate, threatMeta.fenced
-    local stealthThreats, groundedThreats = threatMeta.stealth, threatMeta.grounded
+    local threats, immediate, fenced, stealthThreats, groundedThreats, heard,
+        threatMeta = validateVisualCandidates(actor, player, actorSquare, state,
+            snapshot, visualCandidates, threatLimit, immediateRadiusSq, now,
+            rootRuntime.combatTarget)
+    local visualChecks = threatMeta.visualChecks or 0
+    local visualDeferred = threatMeta.visualDeferred or 0
     local added = threatMeta.added
     local visibleCount = threatMeta.visibleCount
     local immediateVisibleCount = threatMeta.immediateVisibleCount
@@ -785,6 +1155,8 @@ function Senses.refreshImmediate(actor, player, snapshot, runtime)
     snapshot.reflexTime = now
     snapshot.reflexScannedSquares = scanned
     snapshot.reflexAddedThreats = added
+    snapshot.reflexVisualChecks = visualChecks
+    snapshot.reflexVisualDeferred = visualDeferred
     snapshot.threats = threats
     snapshot.stealthThreats = stealthThreats
     snapshot.groundedThreats = groundedThreats

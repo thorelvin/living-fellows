@@ -1402,10 +1402,16 @@ end
 local zedIndex
 for index, value in ipairs(zed.square.moving) do if value == zed then zedIndex = index end end
 table.remove(zed.square.moving, zedIndex)
+-- The native zombie roster keeps a living actor while sight is lost; removing it
+-- only from a square is therefore not a visibility signal. Model the actual
+-- contract (the actor remains alive, but the wall blocks CanSee) so last-seen
+-- memory is tested independently of discovery implementation.
+zed.square.losBlocked = true
 clock = clock + 100
 local rememberedSnapshot = SurvivorCompanion.Senses.snapshot(fellow, player, sensesRuntime)
 check(rememberedSnapshot.threatCount == 0 and rememberedSnapshot.lastKnownDanger ~= nil,
     "last-known danger survives a brief loss of contact")
+zed.square.losBlocked = false
 zed.square.moving[#zed.square.moving + 1] = zed
 SurvivorCompanion.Senses.hear(player, 0, 1, 0, 12, 8, "test_sound")
 local soundSnapshot = SurvivorCompanion.Senses.snapshot(fellow, player, sensesRuntime)
@@ -1973,10 +1979,13 @@ local collisionFrom = cell:getGridSquare(6, -7, 0)
 local collisionTile = cell:getGridSquare(7, -7, 0)
 local collisionGoal = cell:getGridSquare(9, -7, 0)
 collisionActor.collidedVehicle = true
+local previousVehicleGetter = collisionTile.getVehicleContainer
+function collisionTile:getVehicleContainer() return { __class = "BaseVehicle" } end
 local collisionState = { blockedEdges = {}, blockedSquares = {}, routeMemory = {} }
 SurvivorCompanion.Navigation._rememberFailureForTests(collisionActor, collisionState,
     collisionFrom, collisionTile, "native_path_failed", clock, "native_edge_replan")
 collisionActor.collidedVehicle = false
+collisionTile.getVehicleContainer = previousVehicleGetter
 local collisionRoute = SurvivorCompanion.Navigation.findPath(
     collisionFrom, collisionGoal, { blockedSquares = collisionState.blockedSquares, now = clock })
 local reusedCollisionTile = false
@@ -1985,7 +1994,7 @@ for _, square in ipairs(collisionRoute or {}) do
 end
 check(collisionState.blockedSquares[SurvivorCompanion.GameplayUtil.squareKey(collisionTile)]
         and collisionRoute ~= nil and reusedCollisionTile == false,
-    "a native vehicle collision blacklists the whole capsule tile for the next A-star route")
+    "a native collision with a verified vehicle blacklists the whole capsule tile for the next A-star route")
 local diagnosticLine
 local originalPrint = print
 print = function(value) diagnosticLine = tostring(value) end
@@ -2433,6 +2442,37 @@ do
 end
 
 do
+    local reuseSearch = SurvivorCompanion.Navigation._usefulPendingMovingSearchForTests
+    local recover = SurvivorCompanion.Navigation._recoverFromStuckForTests
+    check(type(reuseSearch) == "function" and type(recover) == "function",
+        "navigation exposes pending-search ownership regression seams")
+    local searchActor = actor("sc-pending-search", -8, 8, {})
+    local oldGoal = cell:getGridSquare(-5, 8, 0)
+    local movedGoal = cell:getGridSquare(-2, 8, 0)
+    local reverseGoal = cell:getGridSquare(-10, 8, 0)
+    local searchState = {
+        lastProgressAt = 0,
+        pathSearch = {
+            startedAt = 1000,
+            route = {
+                startKey = SurvivorCompanion.GameplayUtil.squareKey(searchActor.square),
+                goalSquare = oldGoal,
+            },
+        },
+    }
+    local followIntent = { action = "follow_formation", movingTarget = true }
+    check(reuseSearch(searchActor, searchState, movedGoal, followIntent, 4000)
+            and not reuseSearch(searchActor, searchState, reverseGoal, followIntent, 4000)
+            and not reuseSearch(searchActor, searchState, movedGoal, followIntent, 8000),
+        "a live moving-target search survives bounded forward drift but not reversal or expiry")
+    local recovering = recover(searchActor, searchState, movedGoal,
+        "walk", followIntent, 4000)
+    check(recovering == false and searchState.pathSearch ~= nil
+            and (searchState.stuckAttempts or 0) == 0,
+        "an intentionally idle incremental path search is not misclassified as a stuck actor")
+end
+
+do
     -- Replanning a moving goal must cancel the engine's old PathFindBehavior2,
     -- not merely forget the Lua lease. Otherwise that native path keeps walking
     -- straight toward its stale endpoint while the new route search is pending.
@@ -2463,6 +2503,21 @@ do
             return true
         end,
     }
+    local startingState = {
+        nativeLease = {
+            ultimateGoal = oldGoal,
+            ultimateGoalKey = SurvivorCompanion.GameplayUtil.squareKey(oldGoal),
+            movingTarget = true,
+            startedAt = 1000,
+            expires = 5000,
+            targets = { oldGoal },
+        },
+    }
+    local startingResult, startingReason = maintainLease(
+        leaseActor, startingState, newGoal, 1200)
+    check(startingResult == "active" and startingReason == "native_path_starting"
+            and startingState.nativeLease ~= nil and stopped == 0,
+        "a forward-moving follow goal cannot cancel its native path before startup")
     local leaseResult, leaseReason = maintainLease(leaseActor, leaseState, newGoal, 2000)
     SurvivorCompanion.NativeActions = previousNativeActions
     check(leaseResult == "cancelled" and leaseReason == "native_goal_changed"
@@ -2509,6 +2564,53 @@ end
 end)()
 
 do
+    local maintainLease = SurvivorCompanion.Navigation._maintainNativeLeaseForTests
+    local pendingActor = actor("sc-native-pending-grace", -8, 12, {})
+    local oldGoal = cell:getGridSquare(-5, 12, 0)
+    local movedGoal = cell:getGridSquare(-2, 12, 0)
+    local pendingState = {
+        nativeLease = {
+            ultimateGoal = oldGoal,
+            ultimateGoalKey = SurvivorCompanion.GameplayUtil.squareKey(oldGoal),
+            movingTarget = true,
+            fromSquare = pendingActor.square,
+            toSquare = oldGoal,
+            targets = { oldGoal },
+            startedAt = 0,
+            expires = 2500,
+            positionProgressAt = 0,
+            progressSquareKey = SurvivorCompanion.GameplayUtil.squareKey(pendingActor.square),
+            lastWorldX = pendingActor:getX(),
+            lastWorldY = pendingActor:getY(),
+            lastWorldZ = pendingActor:getZ(),
+            lastGoalDistance = SurvivorCompanion.GameplayUtil.distance(pendingActor, oldGoal),
+            leaseMs = 2500,
+        },
+    }
+    local previousNativeActions = SurvivorCompanion.NativeActions
+    local telemetryPending = true
+    local stopped = 0
+    SurvivorCompanion.NativeActions = {
+        pathTelemetry = function()
+            return { available = true, active = true, pending = telemetryPending,
+                status = telemetryPending and "pending" or "ready",
+                shouldBeMoving = true, hasStartedMoving = not telemetryPending }
+        end,
+        stopDirect = function() stopped = stopped + 1 return true end,
+    }
+    local result, reason = maintainLease(pendingActor, pendingState, movedGoal, 3000)
+    check(result == "active" and reason == "native_path_pending"
+            and pendingState.nativeLease ~= nil and stopped == 0,
+        "native path search keeps ownership through the engine's full pending-start grace")
+    telemetryPending = false
+    result, reason = maintainLease(pendingActor, pendingState, movedGoal, 3200)
+    SurvivorCompanion.NativeActions = previousNativeActions
+    check(result == "active" and reason == "native_path_owned"
+            and pendingState.nativeLease.positionProgressAt == 3200 and stopped == 0,
+        "a newly ready native path receives a fresh movement-progress window")
+end
+
+do
 local failedEdgeActor = actor("sc-failed-edge", -7, -7, {})
 registry[failedEdgeActor.id] = failedEdgeActor
 failedEdgeActor.rejectMovement = true
@@ -2540,6 +2642,7 @@ local vehicleActor = actor("sc-vehicle-blocker", -7, -5, {})
 registry[vehicleActor.id] = vehicleActor
 vehicleActor.rejectMovement = true
 vehicleActor.collidedVehicle = true
+vehicleActor.square.vehicleContainer = { id = "overlapping-parked-car" }
 local accepted = SurvivorCompanion.Navigation.request(
     vehicleActor, cell:getGridSquare(-5, -5, 0), "walk", {})
 local vehicleState = SurvivorCompanion.Navigation.peek(vehicleActor)
@@ -2548,6 +2651,7 @@ check(not accepted and vehicleState.lastBlocker.type == "vehicle"
         and vehicleState.lastBlocker.recoveryResult == "direct_replan",
     "vehicle collision evidence selects dedicated vehicle recovery diagnostics")
 SurvivorCompanion.Navigation.reset(vehicleActor)
+vehicleActor.square.vehicleContainer = nil
 registry[vehicleActor.id] = nil
 end
 
@@ -3899,6 +4003,9 @@ registry[windowActor.id] = windowActor
 SurvivorCompanion.Navigation.request(windowActor, windowTo, "walk", { snapshot = { threats = {} } })
 check(windowActor.lastIntent.action == "open_window", "safe window route chooses opening over smashing")
 clock = clock + 1400
+-- The provider submits one event; the engine applies its effect on a later
+-- update. Navigation must observe it rather than re-invoke/toggle the window.
+windowActor:openWindow(testWindow)
 SurvivorCompanion.Navigation.request(windowActor, windowTo, "walk", { snapshot = { threats = {} } })
 clock = clock + 1
 SurvivorCompanion.Navigation.request(windowActor, windowTo, "walk", { snapshot = { threats = {} } })
@@ -3909,14 +4016,14 @@ windowActor.square = windowFrom
 windowActor.noopOpenWindow = true
 testWindow.open, testWindow.smashed, testWindow.glassRemoved = false, false, false
 SurvivorCompanion.Navigation.request(windowActor, windowTo, "walk", { snapshot = { threats = {} } })
-clock = clock + 1400
+clock = clock + 3501
 local noOpOpen, noOpOpenReason = SurvivorCompanion.Navigation.request(
     windowActor,
     windowTo,
     "walk",
     { snapshot = { threats = {} } }
 )
-check(not noOpOpen and noOpOpenReason == "window_open_failed" and not testWindow.open,
+check(not noOpOpen and noOpOpenReason == "open_window_verification_timeout" and not testWindow.open,
     "no-op native window opening fails its authoritative postcondition")
 
 SurvivorCompanion.Navigation.reset(windowActor)
@@ -3927,11 +4034,11 @@ local timedThreat = { x = 6.2, y = 2, z = 0 }
 SurvivorCompanion.Navigation.request(windowActor, windowTo, "walk", {
     snapshot = { threats = { { actor = timedThreat } } },
 })
-clock = clock + 1000
+clock = clock + 3501
 local noOpSmash, noOpSmashReason = SurvivorCompanion.Navigation.request(windowActor, windowTo, "walk", {
     snapshot = { threats = { { actor = timedThreat } } },
 })
-check(not noOpSmash and noOpSmashReason == "window_smash_failed" and not testWindow.smashed,
+check(not noOpSmash and noOpSmashReason == "smash_window_verification_timeout" and not testWindow.smashed,
     "no-op native window smashing fails its authoritative postcondition")
 
 SurvivorCompanion.Navigation.reset(windowActor)
@@ -3939,14 +4046,14 @@ windowActor.noopSmashWindow = false
 testWindow.open, testWindow.smashed, testWindow.glassRemoved = false, true, false
 testWindow.noopRemoveGlass = true
 SurvivorCompanion.Navigation.request(windowActor, windowTo, "walk", { snapshot = { threats = {} } })
-clock = clock + 1500
+clock = clock + 3501
 local noOpGlass, noOpGlassReason = SurvivorCompanion.Navigation.request(
     windowActor,
     windowTo,
     "walk",
     { snapshot = { threats = {} } }
 )
-check(not noOpGlass and noOpGlassReason == "glass_removal_failed" and not testWindow.glassRemoved,
+check(not noOpGlass and noOpGlassReason == "remove_glass_verification_timeout" and not testWindow.glassRemoved,
     "no-op broken-glass removal fails its authoritative postcondition")
 testWindow.noopRemoveGlass = false
 for _, blocker in ipairs(windowBlockers) do blocker.solid = false end
@@ -4790,6 +4897,10 @@ check(cleaverFloored and cleaverFloorReason == "melee"
         and cleaverActor.lastIntent.floorAttack == true,
     "a healthy equipped melee weapon uses the native player floor attack on a grounded zombie")
 cleaver.condition = 1
+-- At one full tile the weapon is already in reach while a stomp is not; the
+-- safety rule correctly keeps the weapon there. Move into verified foot range
+-- to isolate the nearly-broken-weapon preference this assertion covers.
+cleaverActor.worldX = 31.0
 local preservedWeapon, preservedWeaponReason = SurvivorCompanion.Combat.update(
     cleaverActor, player, { snapshot = cleaverSnapshot })
 check(preservedWeapon and preservedWeaponReason == "stomp"
@@ -5040,8 +5151,9 @@ check(attacked and attackReason == "melee"
         and rejectedRuntime.combatRejectedReason == nil,
     "the companion retries and attacks with its equipped melee weapon once ready")
 function swordActor:isAttackStarted() return self.attackStarted == true end
-function swordActor:isPerformingAttackAnimation() return self.attackStarted == true end
+function swordActor:isPerformingAttackAnimation() return self.attackAnimation == true end
 swordActor.attackStarted = true
+swordActor.attackAnimation = true
 local callsBeforeLease = swordActor.movementCalls
 approachSnapshot.threats[1].distanceSq = 0.25 * 0.25
 local leased, leaseReason = SurvivorCompanion.Combat.update(
@@ -5049,7 +5161,74 @@ local leased, leaseReason = SurvivorCompanion.Combat.update(
 check(leased and leaseReason == "attack_in_progress"
         and swordActor.movementCalls == callsBeforeLease,
     "an active native swing leases the actor and suppresses approach/backstep reevaluation")
-swordActor.attackStarted = false
+local noTargetLease, noTargetLeaseReason = SurvivorCompanion.Combat.update(
+    swordActor, player, { snapshot = { threats = {} } })
+check(noTargetLease and noTargetLeaseReason == "attack_in_progress"
+        and swordActor.movementCalls == callsBeforeLease,
+    "a target dying at impact cannot cancel or redirect the still-owned swing animation")
+function swordActor:clearHandToHandAttack()
+    self.attackStarted = false
+    self.staleAttackCleared = true
+end
+function swordActor:releaseCompanionStaleAttack()
+    self.attackStarted = false
+    self.attackAnimation = false
+    self.staleAttackCleared = true
+    return true
+end
+local nativeActionsBeforeStaleRelease = SurvivorCompanion.NativeActions
+SurvivorCompanion.NativeActions = {
+    releaseStaleAttack = function(value)
+        return value:releaseCompanionStaleAttack(), "stale_native_attack_released"
+    end,
+}
+swordZed.dead = true
+clock = clock + 1
+check(SurvivorCompanion.Combat.holdNativeAttack(swordActor, rejectedRuntime) == true,
+    "a dead target retains only the bounded native swing-tail lease")
+clock = clock + SurvivorCompanion.Config.values.combatDeadTargetAttackLeaseMs + 1
+local corpseLease, corpseLeaseReason = SurvivorCompanion.Combat.holdNativeAttack(
+    swordActor, rejectedRuntime)
+check(corpseLease == nil and corpseLeaseReason == "dead_target_attack_released"
+        and swordActor.staleAttackCleared == true
+        and swordActor.attackAnimation == false
+        and SurvivorCompanion.Combat.peek(swordActor).target == nil
+        and rejectedRuntime.combatTarget == nil,
+    "a stale native attack releases its dead target and restores later movement ownership")
+SurvivorCompanion.NativeActions = nativeActionsBeforeStaleRelease
+swordZed.dead = false
+local oldNativeCombat = SurvivorCompanion.NativeActions
+SurvivorCompanion.NativeActions = {
+    combatReadiness = function() return false, "native_melee_recovery" end,
+    holdCombatPosition = function() return true end,
+}
+approachSnapshot.threats[1].distanceSq = 2 * 2
+local priorOffensiveAt = SurvivorCompanion.Combat.peek(swordActor).lastOffensiveAt
+clock = clock + 120
+local recovering, recoveryReason = SurvivorCompanion.Combat.update(
+    swordActor, player, rejectedRuntime)
+check(recovering and recoveryReason == "combat_recovery_wait"
+        and swordActor.lastIntent.action == "ready_weapon"
+        and rejectedRuntime.combatRejectedReason == nil
+        and SurvivorCompanion.Combat.peek(swordActor).lastOffensiveAt == priorOffensiveAt,
+    "native post-swing recovery is a normal stationary wait, not a failed attack or new offensive credit")
+local oldRecoveryMovement = SurvivorCompanion.Actor.setMovement
+SurvivorCompanion.NativeActions.combatReadiness = function() return true, "combat_ready" end
+SurvivorCompanion.Actor.setMovement = function(value, mode, intent)
+    if value == swordActor and intent.action == "attack_melee" then
+        return false, "native_melee_recovery"
+    end
+    return oldRecoveryMovement(value, mode, intent)
+end
+approachSnapshot.threats[1].distanceSq = 1.4 * 1.4
+clock = clock + 120
+local raceHandled, raceReason = SurvivorCompanion.Combat.update(swordActor, player, rejectedRuntime)
+check(raceHandled and raceReason == "combat_recovery_wait"
+        and rejectedRuntime.combatRejectedReason == nil
+        and SurvivorCompanion.Combat.peek(swordActor).lastOffensiveAt == priorOffensiveAt,
+    "a final native recovery rejection becomes a benign hold with no phantom attack credit")
+SurvivorCompanion.Actor.setMovement = oldRecoveryMovement
+SurvivorCompanion.NativeActions = oldNativeCombat
 SurvivorCompanion.Combat.reset(swordActor)
 registry[swordActor.id] = nil
 swordZed.dead = true
@@ -5149,6 +5328,7 @@ check(approachedStomp and approachedStompReason == "approach_stomp_after_shove"
     "a shove-displaced grounded zombie is approached instead of losing the stomp follow-up")
 clock = clock + 100
 stompZed.square = cell:getGridSquare(9, -7, 0)
+stompActor.worldX = 9.0
 local stomped, stompReason = SurvivorCompanion.Combat.update(
     stompActor, player, { snapshot = stompSnapshot })
 check(stomped and stompReason == "stomp_after_shove"
@@ -7629,6 +7809,144 @@ check(not idleStopped and idleStopReason == "idle_stop_rejected",
 end
 testDecisionReturnPropagation()
 
+function SurvivorCompanion.__testDecisionNativeSwingLease()
+    local SC = SurvivorCompanion
+    local oldSenses, oldNative = SC.Senses, SC.NativeActions
+    local oldStop, oldMove = SC.Actor.stop, SC.Actor.setMovement
+    local quietSnapshot = {
+        threats = {}, threatCount = 0, immediateCount = 0, pressure = 0,
+        escapeSquares = {}, allies = {}, player = { danger = 0 },
+    }
+    SC.Senses = {
+        snapshot = function() return quietSnapshot end,
+        refreshImmediate = function() return quietSnapshot end,
+    }
+    SC.NativeActions = {
+        holdCombatPosition = function(value)
+            value.leaseHolds = (value.leaseHolds or 0) + 1
+            if value.rejectStop then return false end
+            value.moving = false
+            return true
+        end,
+        pollCombatEvents = function(value)
+            local evidence = value.pendingEvidence
+            value.pendingEvidence = nil
+            if evidence then
+                value.consumedImpacts = (value.consumedImpacts or 0) + 1
+                return true, "stomp_collision_landed", evidence
+            end
+            return false, "no_pending_combat"
+        end,
+    }
+    SC.Actor.stop = function(value)
+        if value.leaseProbe then value.attackPose = false end
+        return oldStop(value)
+    end
+    SC.Actor.setMovement = function(value, mode, intent)
+        if value.leaseProbe then value.attackPose = false end
+        return oldMove(value, mode, intent)
+    end
+    for _, order in ipairs({ "follow", "stay" }) do
+        local fighter = actor("sc-decision-swing-" .. order, 24, 28, {})
+        registry[fighter.id] = fighter
+        fighter.modData.SC_Order = order
+        fighter.leaseProbe, fighter.attackPose, fighter.attackStarted = true, true, true
+        function fighter:isAttackStarted() return self.attackStarted end
+        function fighter:isPerformingAttackAnimation() return self.attackStarted end
+        local runtime = { snapshot = quietSnapshot }
+        SC.Combat.update(fighter, player, runtime)
+        local victim = zombie(25, 28, { onFloor = true })
+        victim.dead = true
+        local combatState = SC.Combat.peek(fighter)
+        combatState.target, combatState.lastOffensiveTarget = victim, victim
+        combatState.lastOffensiveAt = clock
+        fighter.pendingEvidence = { result = "landed", action = "stomp", target = victim }
+        local holdsBefore = fighter.leaseHolds or 0
+        local movementBefore = fighter.movementCalls or 0
+        local handled, reason
+        for _ = 1, 4 do
+            clock = clock + 201
+            handled, reason = SC.Decision.update(fighter, player, runtime)
+        end
+        check(handled and reason == "attack_in_progress" and fighter.attackPose == true
+                and fighter.leaseHolds > holdsBefore
+                and (fighter.movementCalls or 0) == movementBefore,
+            "real Decision preserves the native swing tail after its last target dies under " .. order
+                .. ": " .. tostring(reason))
+        check(fighter.consumedImpacts == 1
+                and SC.Combat.peek(fighter).lastCombatEvidenceReason == "stomp_collision_landed",
+            "Decision consumes each pending native collision once while holding the no-threat swing tail")
+        fighter.attackStarted = false
+        for _ = 1, 4 do
+            clock = clock + 201
+            handled, reason = SC.Decision.update(fighter, player, runtime)
+        end
+        check(reason ~= "attack_in_progress" and fighter.attackPose == false,
+            "real Decision resumes " .. order .. " only after the native swing exits")
+        SC.Combat.reset(fighter)
+        SC.Decision.reset(fighter)
+        registry[fighter.id] = nil
+    end
+    local priorityFighter = actor("sc-decision-swing-priority", 24, 29, {})
+    registry[priorityFighter.id] = priorityFighter
+    priorityFighter.modData.SC_Order = "stay"
+    priorityFighter.leaseProbe, priorityFighter.attackPose = true, true
+    function priorityFighter:isAttackStarted() return true end
+    function priorityFighter:isPerformingAttackAnimation() return true end
+    function priorityFighter:getCompanionActionStateName() return self.actionState or "melee" end
+    local priorityRuntime = { snapshot = quietSnapshot }
+    priorityFighter.rejectStop = true
+    local held, holdReason = SC.Decision.update(priorityFighter, player, priorityRuntime)
+    check(not held and holdReason == "native_combat_stop_failed"
+            and priorityFighter.attackPose == true and not priorityFighter.lastIntent,
+        "a rejected native swing hold cannot fall through to stay or follow")
+    priorityFighter.rejectStop = nil
+    local holdsBefore = priorityFighter.leaseHolds or 0
+    for _, nativeState in ipairs({ "hitreaction", "grapple", "getup" }) do
+        priorityFighter.actionState = nativeState
+        local leased = SC.Combat.holdNativeAttack(priorityFighter, priorityRuntime)
+        check(leased == nil and priorityFighter.leaseHolds == holdsBefore,
+            "native " .. nativeState .. " keeps precedence over a stale attack flag")
+    end
+    priorityFighter.actionState = "melee"
+    priorityFighter.knockedDown = true
+    check(SC.Combat.holdNativeAttack(priorityFighter, priorityRuntime) == nil
+            and priorityFighter.leaseHolds == holdsBefore,
+        "native knockdown keeps precedence over a stale attack flag")
+    priorityFighter.knockedDown = false
+    priorityFighter.body.infected, priorityFighter.body.infectionLevel = true, 100
+    local terminalHandled, terminalReason = SC.Decision.update(priorityFighter, player, priorityRuntime)
+    check(not terminalHandled and terminalReason == "dead"
+            and priorityFighter.leaseHolds == holdsBefore,
+        "terminal medical state precedes the native combat lease")
+    priorityFighter.body.infected, priorityFighter.body.infectionLevel = false, 0
+    local oldMedicalUpdate = SC.Medical.update
+    SC.Medical.update = function(value, ...)
+        if value == priorityFighter then return true, "medical_priority_probe" end
+        return oldMedicalUpdate(value, ...)
+    end
+    priorityFighter.body.parts = { bodyPart({ name = "ForeArm_R", isBleeding = true }) }
+    for _, health in ipairs({ 25, 10 }) do
+        priorityFighter.body.health = health
+        SC.Decision.reset(priorityFighter)
+        for _ = 1, 4 do
+            clock = clock + 201
+            held, holdReason = SC.Decision.update(priorityFighter, player, priorityRuntime)
+        end
+        check(held and holdReason == "medical_priority_probe"
+                and priorityFighter.leaseHolds == holdsBefore,
+            "actionable critical medicine precedes the native swing lease at health " .. tostring(health))
+    end
+    SC.Medical.update = oldMedicalUpdate
+    SC.Combat.reset(priorityFighter)
+    SC.Decision.reset(priorityFighter)
+    registry[priorityFighter.id] = nil
+    SC.Actor.stop, SC.Actor.setMovement = oldStop, oldMove
+    SC.Senses, SC.NativeActions = oldSenses, oldNative
+end
+SurvivorCompanion.__testDecisionNativeSwingLease()
+SurvivorCompanion.__testDecisionNativeSwingLease = nil
+
 function SurvivorCompanion.__testNeedsAndCamp()
 local rateActor = actor("sc-needs-rate", 28, 20, {})
 registry[rateActor.id] = rateActor
@@ -7746,22 +8064,67 @@ clock = clock + 4000
 local signalActor = actor("sc-silent-warning", 40, 20, {})
 local signalPlayer = actor("signal-player", 40, 21, { className = "IsoPlayer", recruited = false })
 signalPlayer.modData.SC_Recruited = false
+signalActor.modData.SC_MoveMode = "walk"
+signalActor.modData.SC_MoveModeVersion = 2
 registry[signalActor.id] = signalActor
 local distantThreat = zombie(46, 20, {})
 local soundsBeforeSignal = worldSoundCount
-SurvivorCompanion.Decision.update(signalActor, signalPlayer, {
-    snapshot = {
-        threats = { { actor = distantThreat, distanceSq = 36, visible = true, score = 20 } },
-        immediateAttackers = {}, threatCount = 1, immediateCount = 0, pressure = 0.35,
-        escapeSquares = {}, allies = {}, player = { actor = signalPlayer, danger = 0 },
-    },
-})
-check(signalActor.lastIntent and signalActor.lastIntent.action == "hand_signal"
+local signalSnapshot = {
+    threats = { { actor = distantThreat, distanceSq = 36, visible = true, score = 20 } },
+    immediateAttackers = {}, threatCount = 1, immediateCount = 0, pressure = 0.35,
+    escapeSquares = {}, allies = {}, player = { actor = signalPlayer, danger = 0 },
+}
+local signalRuntime = { snapshot = signalSnapshot }
+local savedSignalNativeActions = SurvivorCompanion.NativeActions
+local signalPacing
+SurvivorCompanion.NativeActions = {
+    activityStatus = function() return "none" end,
+    beginPacing = function(value, source, options)
+        signalPacing = {
+            actor = value, source = source, startedAt = clock,
+            untilAt = clock + (tonumber(options.minimumMs) or 0),
+            commandSerial = tonumber(SurvivorCompanion.Commands.peek(value).commandSerial) or 0,
+            interruptForFollow = options.interruptForFollow,
+            holdReason = options.holdReason,
+            shouldLook = (tonumber(options.lookChancePercent) or -1) > 0,
+            stopped = true,
+        }
+        return true, "pacing_started", signalPacing
+    end,
+    pacingStatus = function(value, current)
+        if signalPacing and signalPacing.actor == value
+            and current < signalPacing.untilAt then return true, signalPacing end
+        signalPacing = nil
+        return false, nil
+    end,
+    cancelPacing = function()
+        signalPacing = nil
+        return true, "pacing_cancelled"
+    end,
+}
+local signalHandled, signalReason = SurvivorCompanion.Decision.update(
+    signalActor, signalPlayer, signalRuntime)
+check(signalHandled and signalReason == "threat_signal"
+    and signalActor.lastIntent and signalActor.lastIntent.action == "hand_signal"
+    and signalActor.lastIntent.target == distantThreat
+    and signalActor.lastIntent.facingTarget == distantThreat
+    and signalActor.lastIntent.faceTargetBeforeEmote == true
+    and signalActor.lastIntent.stableFacing == true
+    and signalPacing and signalPacing.interruptForFollow == false
+    and signalPacing.holdReason == "threat_signal" and signalPacing.shouldLook == false
     and worldSoundCount == soundsBeforeSignal
     and type(signalActor.lastSpeech) == "string"
     and string.sub(signalActor.lastSpeech, 1, 1) == "*"
     and SurvivorCompanion.Dialogue.lastSpokenTopic(signalActor) == "signal.one",
-    "visible distant danger displays an emoted freeze signal without attracting zombies")
+    "visible distant danger faces the exact zombie and displays a silent freeze signal")
+local signalMovementCalls = signalActor.movementCalls
+clock = clock + 100
+local signalHeld, signalHeldReason = SurvivorCompanion.Decision.update(
+    signalActor, signalPlayer, signalRuntime)
+check(signalHeld and signalHeldReason == "threat_signal"
+        and signalActor.movementCalls == signalMovementCalls,
+    "the short warning pose prevents follow/path input from turning away during the emote")
+SurvivorCompanion.NativeActions = savedSignalNativeActions
 clock = clock + 4000
 signalActor.lastEmote = nil
 local alternateDistantThreat = zombie(46, 21, {})
@@ -9067,6 +9430,39 @@ registry[residentOne.id] = { id = residentOne.id, actor = residentOne,
     factionId = group.id, factionRole = group.members[1].role }
 registry[residentTwo.id] = { id = residentTwo.id, actor = residentTwo,
     factionId = group.id, factionRole = group.members[2].role }
+
+do
+    local originalSnapshot = SurvivorCompanion.Senses.snapshot
+    local residentRuntime, observedRuntime, scanCalls = {}, nil, 0
+    registry[residentOne.id].runtime = residentRuntime
+    SurvivorCompanion.Senses.snapshot = function(_, _, suppliedRuntime)
+        scanCalls = scanCalls + 1
+        observedRuntime = suppliedRuntime
+        return {
+            valid = true,
+            threatCount = 0,
+            nativeDiscovery = { complete = scanCalls > 1 },
+        }
+    end
+    local openedEarly, earlyReason = Trade.canOpen("faction-test", player)
+    local openedComplete = Trade.canOpen("faction-test", player)
+    check(not openedEarly and earlyReason == "danger_check_pending"
+            and openedComplete and observedRuntime == residentRuntime,
+        "trade reuses persistent perception and fails closed until native discovery completes")
+
+    local residentSquare = residentOne.square
+    local priorLosBlocked = residentSquare.losBlocked
+    residentSquare.losBlocked = true
+    scanCalls = 0
+    local hiddenEarly = Factions._actorHiddenFromPlayerForTests(
+        residentOne, player, residentRuntime)
+    local hiddenComplete = Factions._actorHiddenFromPlayerForTests(
+        residentOne, player, residentRuntime)
+    residentSquare.losBlocked = priorLosBlocked
+    SurvivorCompanion.Senses.snapshot = originalSnapshot
+    check(not hiddenEarly and hiddenComplete and observedRuntime == residentRuntime,
+        "faction hibernation waits for a complete persistent danger scan")
+end
 
 do
     local entrySquare = cell:getGridSquare(1, 2, 0)

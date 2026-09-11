@@ -345,12 +345,51 @@ local function confirmRecentKill(actor, state, commands, now)
     return false, credited and "kill_already_confirmed" or "kill_credit_expired"
 end
 
--- Decision selection stops delegating to Combat as soon as Senses removes a
--- dead zombie. Keep this tiny observer public so the next ordinary AI tick can
--- confirm a kill even though there is no longer a combat candidate.
+local function consumeCombatEvents(actor, state)
+    if SC.NativeActions and type(SC.NativeActions.pollCombatEvents) == "function" then
+        local _, eventReason, evidence = SC.NativeActions.pollCombatEvents(actor)
+        if type(evidence) == "table" then
+            state = state or stateFor(actor)
+            state.lastCombatEvidence = evidence
+            state.lastCombatEvidenceReason = eventReason
+            state.lastCombatEvidenceAt = U().nowMs()
+            if evidence.result == "no_effect" then
+                state.noEffectCollisions = state.noEffectTarget == evidence.target
+                    and (state.noEffectCollisions or 0) + 1 or 1
+                state.noEffectTarget = evidence.target
+            elseif evidence.result == "landed" then
+                -- A successful first hit on B must not inherit failures from A.
+                state.noEffectCollisions = 0
+                state.noEffectTarget = evidence.target
+            end
+            if evidence.floorAttack == true and evidence.action == "attack_melee"
+                and evidence.target ~= nil then
+                state.floorWeaponFailures = state.floorWeaponFailures
+                    or setmetatable({}, { __mode = "k" })
+                if evidence.result == "landed" then
+                    state.floorWeaponFailures[evidence.target] = nil
+                elseif evidence.result == "no_effect" or evidence.result == "aborted" then
+                    local prior = state.floorWeaponFailures[evidence.target]
+                    local sameWeapon = type(prior) == "table"
+                        and prior.weapon == evidence.weapon
+                    state.floorWeaponFailures[evidence.target] = {
+                        weapon = evidence.weapon,
+                        count = sameWeapon and (tonumber(prior.count) or 0) + 1 or 1,
+                        at = U().nowMs(),
+                    }
+                end
+            end
+        end
+    end
+    return state
+end
+
+-- Native collision evidence is independent of which decision wins next. Consume
+-- it even when a swing lease or a vanished threat prevents Combat.update, then
+-- confirm a kill after the single collision-owned effect has been committed.
 function Combat.observe(actor)
     if not U() or not U().isValidActor(actor) then return false, "invalid_actor" end
-    local state = states[actor]
+    local state = consumeCombatEvents(actor, states[actor])
     if type(state) ~= "table" then return false, "no_combat_history" end
     return confirmRecentKill(actor, state, commandState(actor), U().nowMs())
 end
@@ -465,7 +504,9 @@ end
 -- lease, just as keyboard input is ignored while a normal player's attack plays.
 local function attackInProgress(actor)
     if boolCall(actor, "isAttackStarted")
-        or boolCall(actor, "isPerformingAttackAnimation") then return true end
+        or boolCall(actor, "isPerformingAttackAnimation")
+        or boolCall(actor, "isPerformingShoveAnimation")
+        or boolCall(actor, "isPerformingStompAnimation") then return true end
     local stateName, stateOk = U().call(actor, "getCompanionActionStateName")
     if not stateOk or stateName == nil then return false end
     local lower = string.lower(tostring(stateName))
@@ -548,6 +589,119 @@ function Combat.meleeRange(actor, item)
     local swingMax = math.max(swingMin + 0.2,
         effectiveMax + (U().config("combatMeleeOuterTolerance") or 0.08))
     return swingMin, swingMax, weapon
+end
+
+-- Reach tolerance is for accepting a hit, never a target position. Keep the
+-- desired stance inside real outer reach, and defend before the zombie crosses
+-- the native minimum. A bounded closing estimate adds reaction room without
+-- making short knives unable to engage or chasing noisy velocity samples.
+function Combat.meleeSpacing(actor, item, threat)
+    local acceptMin, acceptMax, weapon = Combat.meleeRange(actor, item)
+    if not weapon or weapon.ranged or acceptMax == nil then return nil end
+    local nativeMin = math.max(0.15, tonumber(weapon.minRange) or 0)
+    local outer = math.max(nativeMin + 0.12,
+        acceptMax - (U().config("combatMeleeOuterTolerance") or 0.08))
+    local band = outer - nativeMin
+    local desired = outer - U().clamp(band * 0.20, 0.04, 0.18)
+    local closing = U().clamp(tonumber(threat and threat.closingSpeed) or 0, 0, 3)
+    local anticipation = U().clamp((tonumber(weapon.swing) or 1) * 0.18, 0.12, 0.28)
+    local reaction = 0.08 + closing * anticipation
+        + (threat and threat.attacking == true and 0.08 or 0)
+    local defend = math.min(desired - 0.04, nativeMin + reaction)
+    return {
+        minimum = acceptMin, maximum = acceptMax, nativeMinimum = nativeMin,
+        desired = desired, defend = math.max(nativeMin, defend), closingSpeed = closing,
+    }
+end
+
+local function holdCombatPosition(actor)
+    if SC.NativeActions and type(SC.NativeActions.holdCombatPosition) == "function" then
+        return SC.NativeActions.holdCombatPosition(actor)
+    end
+    -- Provider-only harnesses and integrations still have a stationary contract.
+    U().call(actor, "setMoving", false)
+    return true
+end
+
+local function nativeCombatReadiness(actor, action)
+    if SC.NativeActions and type(SC.NativeActions.combatReadiness) == "function" then
+        return SC.NativeActions.combatReadiness(actor, action)
+    end
+    return true, "combat_ready"
+end
+
+-- Decision must retain this native owner even after Senses removes the last
+-- victim. Otherwise follow/stay can lower the weapon during the swing's tail
+-- without ever calling Combat.update. Return nil when there is no combat lease,
+-- false on a failed stop, and true only for a verified stationary native swing.
+function Combat.holdNativeAttack(actor, runtime)
+    if not actor then return nil, "no_native_attack" end
+    local state = states[actor]
+    if not attackInProgress(actor) then
+        if state then
+            state.nativeAttackOrphanSince = nil
+            state.nativeAttackOrphanTarget = nil
+        end
+        return nil, "no_native_attack"
+    end
+    state = state or stateFor(actor)
+    if U().isDead(actor) or boolCall(actor, "isKnockedDown")
+        or boolCall(actor, "isDeathDragDown") then return nil, "native_attack_interrupted" end
+    local stateName = select(1, U().call(actor, "getCompanionActionStateName"))
+    local lower = string.lower(tostring(stateName or ""))
+    for _, interrupted in ipairs({ "hitreaction", "hit_reaction", "gethit", "getup",
+        "knock", "grapple", "grab", "death", "dead" }) do
+        if string.find(lower, interrupted, 1, true) then return nil, "native_attack_interrupted" end
+    end
+    if SC.Medical and type(SC.Medical.isDowned) == "function"
+        and SC.Medical.isDowned(actor) then return nil, "native_attack_interrupted" end
+    local rootRuntime = U().actorState(actor, runtime)
+    local now = U().nowMs()
+    local target = state.target
+    if target == nil or U().isDead(target) then
+        if state.nativeAttackOrphanSince == nil
+            or state.nativeAttackOrphanTarget ~= target then
+            state.nativeAttackOrphanSince = now
+            state.nativeAttackOrphanTarget = target
+        elseif now - state.nativeAttackOrphanSince
+            >= (tonumber(U().config("combatDeadTargetAttackLeaseMs")) or 1800) then
+            local released, releaseReason = false, "native_attack_release_unavailable"
+            if SC.NativeActions and type(SC.NativeActions.releaseStaleAttack) == "function" then
+                local ok, value, reason = pcall(SC.NativeActions.releaseStaleAttack, actor)
+                released = ok and value == true
+                releaseReason = ok and reason or tostring(value)
+            else
+                local _, cleared = U().call(actor, "clearHandToHandAttack")
+                released = cleared == true
+            end
+            clearEngagement(state, actor)
+            state.active, state.target, state.retreating = false, nil, false
+            state.nativeAttackOrphanSince, state.nativeAttackOrphanTarget = nil, nil
+            state.aimTarget, state.aimStartedAt, state.aimRequiredMs = nil, nil, nil
+            state.lastOffensiveTarget, state.lastOffensiveAt = nil, nil
+            rootRuntime.combatTarget, rootRuntime.combatAction = nil, nil
+            rootRuntime.combatRole, rootRuntime.combatCohort = nil, nil
+            U().call(actor, "setCompanionAimTarget", nil)
+            U().diagnostic("combat", actor,
+                "action=dead_target_attack_release native=" .. tostring(released)
+                    .. " reason=" .. tostring(releaseReason))
+            return nil, released and "dead_target_attack_released"
+                or "dead_target_attack_lease_expired"
+        end
+    else
+        state.nativeAttackOrphanSince = nil
+        state.nativeAttackOrphanTarget = nil
+    end
+    if not holdCombatPosition(actor) then return false, "native_combat_stop_failed" end
+    if state.target and not U().isDead(state.target) then
+        claimTarget(state.target, actor, now, state.cohortKey, state.combatRole,
+            "committed", math.sqrt(U().distanceSq(actor, state.target)))
+    end
+    clearRejection(state, rootRuntime)
+    state.active, state.retreating = true, false
+    state.lastActionAt, state.lastAction = now, "attack_in_progress"
+    rootRuntime.combatTarget, rootRuntime.combatAction = state.target, "attack_in_progress"
+    return true, "attack_in_progress"
 end
 
 local function inventoryWeapons(actor)
@@ -816,11 +970,12 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
     if type(snapshot) ~= "table" or type(snapshot.threats) ~= "table" then return scored end
     for index = 1, math.min(#snapshot.threats, utility.config("perceptionThreatLimit") or 32) do
         local threat = snapshot.threats[index]
-        -- Treat the snapshot as a candidate list, not continuing permission to
-        -- attack. Revalidate LOS and position every combat pulse so a target that
-        -- turns a corner or crosses a closed doorway immediately leaves combat.
+        -- Treat the snapshot as a bounded candidate list. Native LOS is checked
+        -- after cheap scoring, so a horde cannot force 32 expensive CanSee calls
+        -- on every combat pulse.
         if threat.actor and not utility.isDead(threat.actor)
-            and utility.sameFloor(actor, threat.actor) and utility.canSee(actor, threat.actor) then
+            and threat.visible ~= false and threat.obstructed ~= true
+            and utility.sameFloor(actor, threat.actor) then
             local record = utility.copyShallow(threat)
             record.square = utility.squareOf(threat.actor)
             -- Perception snapshots are timestamped and may be up to one scan old.
@@ -869,7 +1024,34 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
         if a.score == b.score then return (a.distanceSq or math.huge) < (b.distanceSq or math.huge) end
         return a.score > b.score
     end)
-    return scored
+    -- Validate the incumbent first, then only the best few alternatives. This
+    -- preserves immediate wall/door correctness while putting a hard ceiling on
+    -- native LOS work under dense pressure. Only validated records may proceed
+    -- to doctrine selection or action dispatch.
+    local limit = math.max(1, math.floor(tonumber(
+        utility.config("combatLiveLosChecksPerPulse")) or 6))
+    local checked, checkedCount, visible = setmetatable({}, { __mode = "k" }), 0, {}
+    local function validate(record)
+        if not record or checked[record.actor] or checkedCount >= limit then return end
+        checked[record.actor] = true
+        checkedCount = checkedCount + 1
+        if utility.canSee(actor, record.actor) then
+            record.liveLosValidated = true
+        end
+    end
+    if previousTarget ~= nil then
+        for _, record in ipairs(scored) do
+            if record.actor == previousTarget then validate(record) break end
+        end
+    end
+    for _, record in ipairs(scored) do
+        if checkedCount >= limit then break end
+        validate(record)
+    end
+    for _, record in ipairs(scored) do
+        if record.liveLosValidated == true then visible[#visible + 1] = record end
+    end
+    return visible
 end
 
 local function addNearbyGrounded(actor, scored)
@@ -1249,7 +1431,147 @@ local function shoveFollowUpSafe(snapshot, target)
     return true
 end
 
-local function tryShoveFollowUp(actor, state, snapshot, now)
+local function equippedFinisherWeapon(actor)
+    local primary = select(1, U().call(actor, "getPrimaryHandItem"))
+    local weapon = weaponRecord(primary)
+    if weapon then weapon.equipped = true end
+    return weapon
+end
+
+local function finisherRandom()
+    if type(ZombRandFloat) == "function" then
+        local ok, value = pcall(ZombRandFloat, 0.0, 1.0)
+        if ok and tonumber(value) then return U().clamp(tonumber(value), 0, 1) end
+    end
+    if type(ZombRand) == "function" then
+        local ok, value = pcall(ZombRand, 10000)
+        if ok and tonumber(value) then return U().clamp(tonumber(value) / 10000, 0, 1) end
+    end
+    return 0.5
+end
+
+local function finisherRolls(state)
+    if type(state.finisherRolls) ~= "table" then
+        state.finisherRolls = setmetatable({}, { __mode = "k" })
+    end
+    return state.finisherRolls
+end
+
+local function clearFinisherRoll(state, target)
+    if type(state.finisherRolls) == "table" and target ~= nil then
+        state.finisherRolls[target] = nil
+    end
+end
+
+-- One bounded preference draw per grounded target. Re-scoring, approaching or
+-- waiting for native recovery never fishes for a new roll, while retargeting a
+-- different zombie receives its own believable choice.
+-- An injected RNG/profile keeps decision tests deterministic without changing the
+-- native attack RNG, animation speed, collision ownership, or damage model.
+function Combat.groundedFinisher(actor, target, weapon, readiness, commands, options)
+    options, readiness, commands = options or {}, readiness or {}, commands or {}
+    local utility, state = U(), stateFor(actor)
+    local native = SC.NativeActions
+    local available = options.floorAttackAvailable
+    if available == nil and native and type(native.floorAttackAvailable) == "function" then
+        available = native.floorAttackAvailable(actor)
+    end
+    if available == false then return { kind = "hold_range", reason = "floor_input_unavailable" } end
+    local endurance = utility.clamp(tonumber(readiness.endurance) or 0.5, 0, 1)
+    if endurance <= 0.08 then return { kind = "hold_range", reason = "finisher_exhausted" } end
+    local now = utility.nowMs()
+    local footwear = options.footwear
+    if not footwear then
+        if not state.finisherFootwear or now - (state.finisherFootwearAt or 0) >= 500 then
+            state.finisherFootwear = native and type(native.stompFootwearProfile) == "function"
+                and native.stompFootwearProfile(actor) or { factor = 1, type = "unknown" }
+            state.finisherFootwearAt = now
+        end
+        footwear = state.finisherFootwear
+    end
+    local feetFactor = tonumber(footwear.factor) or 1
+    local stompAllowed = footwear.footInjured ~= true and not boolCall(actor, "hasFootInjury")
+        and not ((tonumber(readiness.pain) or 0) >= 3 and feetFactor < 0.9)
+    local compatible = weapon and weapon.equipped == true and not weapon.ranged
+    -- Weapon selection is cached for responsiveness, but condition can change on
+    -- the immediately preceding hit. Read these two scalars live before deciding
+    -- whether preserving or using the held weapon makes sense.
+    local currentCondition = compatible and numberCall(weapon.item, "getCondition",
+        tonumber(weapon.condition) or 0) or 0
+    local maximumCondition = compatible and math.max(1, numberCall(weapon.item,
+        "getConditionMax", tonumber(weapon.conditionMax) or 1)) or 1
+    if compatible and currentCondition <= 0 then compatible = false end
+    if compatible then
+        local melee, meleeOk = utility.call(weapon.item, "isMelee")
+        if meleeOk and melee == false then compatible = false end
+    end
+    -- A modded weapon can advertise itself as melee yet have no usable native
+    -- floor clip. Two target-specific failed collision attempts temporarily
+    -- retire that weapon for this victim, avoiding an endless harmless loop.
+    local failure = type(state.floorWeaponFailures) == "table"
+        and state.floorWeaponFailures[target] or nil
+    if compatible and type(failure) == "table" then
+        local sameWeapon = failure.weapon == weapon.item
+        local fresh = now - (tonumber(failure.at) or 0)
+            < (utility.config("combatFloorWeaponFailureResetMs") or 8000)
+        if sameWeapon and fresh and (tonumber(failure.count) or 0)
+            >= (utility.config("combatFloorWeaponFailureLimit") or 2) then
+            compatible = false
+        elseif not sameWeapon or not fresh then
+            state.floorWeaponFailures[target] = nil
+        end
+    end
+    local ratio = compatible and utility.clamp(currentCondition / maximumCondition, 0, 1) or 0
+    local burden = compatible and math.max(0, (tonumber(weapon.staminaCost) or 1) - 1.5) or 0
+    local profile = commands.personalityProfile or {}
+    local caution = utility.clamp(tonumber(profile.caution) or 50, 0, 100)
+    local courage = utility.clamp(tonumber(profile.courage) or 50, 0, 100)
+    local practicality = utility.clamp(tonumber(profile.practicality) or 50, 0, 100)
+    -- A usable weapon is the ordinary choice, especially with sandals/bare feet
+    -- or high panic. Good boots, courage, wear and heavy-weapon fatigue can make
+    -- a stomp sensible; personality shifts remain small beside physical safety.
+    local probability = 0.92 + (1 - feetFactor) * 0.65
+        + (caution - courage) * 0.0008 + (tonumber(readiness.panic) or 0) * 0.02
+        - math.max(0, 0.65 - ratio) * (0.6 + practicality * 0.003)
+        - burden * (1 - endurance) * 0.11
+    probability = utility.clamp(probability, 0.08, 0.98)
+    if not compatible then probability = 0
+    elseif not stompAllowed then probability = 1
+    elseif ratio < 0.15 then probability = 0 end
+    if not compatible and not stompAllowed then
+        return { kind = "hold_range", reason = "no_safe_ground_finisher" }
+    end
+    local roll
+    if type(options.rng) == "function" then
+        roll = utility.clamp(tonumber(options.rng()) or 0.5, 0, 1)
+    else
+        local rolls = finisherRolls(state)
+        if rolls[target] == nil then rolls[target] = finisherRandom() end
+        roll = rolls[target]
+    end
+    local kind = compatible and (not stompAllowed or roll < probability) and "melee" or "stomp"
+    local stompMax = utility.config("combatStompDistance") or 0.72
+    local meleeMax = compatible and select(2, Combat.meleeRange(actor, weapon.item)) or nil
+    local distance = math.sqrt(utility.distanceSq(actor, target))
+    local maximum = kind == "melee" and meleeMax or stompMax
+    -- Prefer an already reachable weapon strike over walking into foot range.
+    if kind == "stomp" and distance > stompMax and compatible and distance <= meleeMax then
+        kind, maximum = "melee", meleeMax
+    elseif kind == "melee" and distance > meleeMax and stompAllowed and distance <= stompMax then
+        kind, maximum = "stomp", stompMax
+    end
+    local result = { kind = kind, attackKind = kind, floorAttack = kind == "melee",
+        weaponProbability = probability, roll = roll, maximum = maximum,
+        footwear = footwear.type, reason = "ground_finisher_preference" }
+    if distance > maximum then
+        result.kind = distance <= (utility.config("combatStompPursuitDistance") or 3.25)
+            and readiness.staminaCritical ~= true and "approach" or "hold_range"
+        result.minimumDistance = maximum * 0.85
+    end
+    return result
+end
+
+local function tryShoveFollowUp(actor, state, snapshot, now, commands)
     local followUp = state.shoveFollowUp
     if type(followUp) ~= "table" then return nil, nil end
     local target = followUp.target
@@ -1265,7 +1587,9 @@ local function tryShoveFollowUp(actor, state, snapshot, now)
     local elapsed = now - (followUp.startedAt or now)
     local attacking = boolCall(actor, "isAttackStarted")
         or boolCall(actor, "isPerformingAttackAnimation")
-    if elapsed < (U().config("combatShoveFollowupDelayMs") or 300) or attacking then
+    local recovered = nativeCombatReadiness(actor, "stomp")
+    if elapsed < (U().config("combatShoveFollowupDelayMs") or 300) or attacking or not recovered then
+        if not holdCombatPosition(actor) then return nil, "native_combat_stop_failed" end
         return true, "waiting_for_shove_result"
     end
     local grounded = boolCall(target, "isOnFloor") or boolCall(target, "isProne")
@@ -1277,7 +1601,21 @@ local function tryShoveFollowUp(actor, state, snapshot, now)
         state.shoveFollowUp = nil
         return nil, "stomp_followup_unsafe"
     end
-    local maximum = U().config("combatStompDistance") or 1.55
+    local weapon = equippedFinisherWeapon(actor)
+    local readiness = Combat.readiness(actor, snapshot, weapon, commands)
+    local finisher = Combat.groundedFinisher(actor, target, weapon, readiness, commands)
+    local attackKind = finisher.attackKind
+    if finisher.kind == "hold_range" then
+        state.shoveFollowUp = nil
+        if not holdCombatPosition(actor) then return nil, "native_combat_stop_failed" end
+        return true, "ground_finisher_wait"
+    end
+    local action = attackKind == "melee" and "attack_melee" or "stomp"
+    if not nativeCombatReadiness(actor, action) then
+        if not holdCombatPosition(actor) then return nil, "native_combat_stop_failed" end
+        return true, "waiting_for_shove_result"
+    end
+    local maximum = finisher.maximum
     if U().distanceSq(actor, target) > maximum * maximum then
         -- A successful shove commonly leaves the zombie just beyond immediate
         -- stomp range. Keep the short-lived follow-up and close on its head rather
@@ -1287,36 +1625,40 @@ local function tryShoveFollowUp(actor, state, snapshot, now)
             state.shoveFollowUp = nil
             return nil, "stomp_followup_out_of_range"
         end
-        local headSquare = select(1, U().call(target, "getHeadSquare", actor))
         local ax, ay = U().position(actor)
-        local hxValue = headSquare and select(1, U().call(headSquare, "getX")) or nil
-        local hyValue = headSquare and select(1, U().call(headSquare, "getY")) or nil
-        local hx = tonumber(hxValue)
-        local hy = tonumber(hyValue)
         local tx, ty = U().position(target)
-        hx, hy = hx or tx, hy or ty
-        if ax == nil or ay == nil or hx == nil or hy == nil then
+        if ax == nil or ay == nil or tx == nil or ty == nil then
             state.shoveFollowUp = nil
             return nil, "stomp_followup_position_unavailable"
         end
         local accepted = U().move(actor, "walk", {
             action = "combat_approach",
-            dx = (hx + (headSquare and 0.5 or 0)) - ax,
-            dy = (hy + (headSquare and 0.5 or 0)) - ay,
+            dx = tx - ax,
+            dy = ty - ay,
             target = target, facingTarget = target, keepFacing = true,
             weaponReady = true, stompFollowUp = true,
+            combatMinimumDistance = maximum * 0.85,
         })
         if not accepted then return nil, "stomp_followup_approach_rejected" end
-        return true, "approach_stomp_after_shove"
+        return true, attackKind == "melee" and "approach_melee_after_shove" or "approach_stomp_after_shove"
     end
-    local accepted = U().move(actor, "walk", {
-        action = "stomp", target = target, floorAttack = true,
-        shoveFollowUp = true,
+    local accepted, nativeReason = U().move(actor, "walk", {
+        action = action, target = target, floorAttack = true,
+        weapon = attackKind == "melee" and weapon.item or nil,
+        groundedAttack = attackKind == "melee", shoveFollowUp = true,
     })
+    if not accepted and (nativeReason == "native_melee_recovery"
+        or nativeReason == "native_recoil_recovery" or nativeReason == "native_attack_active") then
+        if not holdCombatPosition(actor) then return nil, "native_combat_stop_failed" end
+        return true, "waiting_for_shove_result"
+    end
     state.shoveFollowUp = nil
-    if not accepted then return nil, "stomp_followup_rejected" end
-    return true, "stomp_after_shove"
+    if not accepted then return nil, tostring(attackKind) .. "_followup_rejected:" .. tostring(nativeReason) end
+    clearFinisherRoll(state, target)
+    return true, attackKind == "melee" and "melee_after_shove" or "stomp_after_shove"
 end
+
+Combat._tryShoveFollowUpForTests = tryShoveFollowUp
 
 local function actionUtilities(actor, player, snapshot, target, weapon, inventory, commands,
         readiness)
@@ -1330,8 +1672,8 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
     local actions = {}
     local retreat = retreatUtility(actor, snapshot, weapon, readiness)
     actions[#actions + 1] = { kind = "retreat", score = retreat }
-    local grounded = findGroundedThreat(
-        { target }, utility.config("combatStompDistance") or 1.55)
+    local grounded = boolCall(target.actor, "isOnFloor") or boolCall(target.actor, "isProne")
+        or boolCall(target.actor, "isCrawling")
     -- A carried melee weapon is the normal close-range answer. Offering the
     -- generic shove beside it made shove's higher base score beat axes/cleavers.
     -- Firearms may still shove at contact, and unarmed combat still relies on it.
@@ -1345,41 +1687,13 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
         }
     end
     if grounded and readiness.immediate <= 1 and isolatedFront then
-        local conditionRatio = weapon and not weapon.ranged
-            and U().clamp(tonumber(weapon.conditionRatio) or 0, 0, 1) or 0
-        local preservationPenalty = conditionRatio < 0.20 and 32
-            or conditionRatio < 0.35 and 10 or 0
-        local burdenPenalty = weapon and not weapon.ranged
-            and math.max(0, (tonumber(weapon.staminaCost) or 1) - 1.5) * 4 or 0
-        actions[#actions + 1] = {
-            kind = "stomp",
-            -- Stomping remains useful while unarmed, while preserving a nearly
-            -- broken weapon, or when exhaustion makes a heavy floor swing a poor
-            -- choice. The impact model still decides whether several hits are
-            -- needed; choosing this action is never a declared execution.
-            score = 102 + readiness.strength * 0.8 - fatiguePenalty * 0.45
-                + preservationPenalty * 0.75
-                + (readiness.staminaCritical and burdenPenalty + 8 or 0),
-        }
-        if weapon and not weapon.ranged then
-            local _, swingMax = Combat.meleeRange(actor, weapon.item)
-            swingMax = swingMax or (utility.config("combatMeleeDistance") or 1.7)
-            if distance <= swingMax then
-                actions[#actions + 1] = {
-                    kind = "melee",
-                    floorAttack = true,
-                    -- A healthy melee weapon is the ordinary player-like answer
-                    -- to a prone zombie. Condition preservation and the stamina
-                    -- cost of a heavy weapon can still make a stomp win naturally.
-                    score = 112 + weapon.damage * 5
-                        + readiness.combatSkill * 1.8
-                        + readiness.strength * 0.6
-                        + readiness.weaponQuality * 8
-                        - pressure * 2 - fatiguePenalty * 0.65
-                        - burdenPenalty - preservationPenalty,
-                }
-            end
-        end
+        local finisher = Combat.groundedFinisher(actor, target.actor, weapon, readiness, commands)
+        -- Offer only the committed physical choice. Offering both and adding
+        -- generic weapon utility afterwards silently defeated weighted variation.
+        finisher.score = (finisher.kind == "hold_range" and 56
+            or finisher.kind == "approach" and 66 or 112)
+            + readiness.strength * 0.6 - pressure * 2 - fatiguePenalty * 0.45
+        actions[#actions + 1] = finisher
     end
     if weapon and not grounded then
         if weapon.ranged then
@@ -1408,19 +1722,17 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                 }
             end
         else
-            -- Melee spacing is keyed to the weapon's own reach, with a small
-            -- hysteresis on both boundaries. The previous implementation added
-            -- 0.15 to MinRange and subtracted 0.20 from MaxRange. For a meat
-            -- cleaver (0.61..1.00) that left a swing band only ~0.04 tiles wide:
-            -- one decision approached, the next backstepped, and neither behaved
-            -- like a player. The tolerant band accepts a valid swing before a
-            -- moving target crosses the boundary between 125 ms decisions.
-            local swingMin, swingMax = Combat.meleeRange(actor, weapon.item)
-            swingMin = swingMin or 0.15
-            swingMax = swingMax or (utility.config("combatMeleeDistance") or 1.7)
-            if distance < swingMin then
-                -- Inside the weapon's true minimum reach, use the same defensive
-                -- shove a player gets at body contact. It creates space and feeds
+            -- Keep permissive hit acceptance separate from the preferred stance
+            -- and early defensive threshold; a short cleaver still needs a
+            -- usable swing band rather than a universal long-weapon distance.
+            local spacing = Combat.meleeSpacing(actor, weapon.item, target)
+            local swingMin = spacing and spacing.minimum or 0.15
+            local swingMax = spacing and spacing.maximum or (utility.config("combatMeleeDistance") or 1.7)
+            local defend = spacing and spacing.defend or swingMin
+            if distance < defend then
+                -- Defend before contact crosses native minimum reach. A shove
+                -- creates space when a zombie already attacks or is too close;
+                -- otherwise a safe early backstep preserves the stance. It feeds
                 -- the existing stomp follow-up even when a wall makes backstep
                 -- impossible. Backstep remains an option when clearance exists.
                 if distance <= (utility.config("combatShoveDistance") or 1.35) then
@@ -1432,7 +1744,9 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                 end
                 actions[#actions + 1] = {
                     kind = "backstep",
-                    score = 60 + pressure * 6 + readiness.nimble * 1.5
+                    score = (distance >= (spacing and spacing.nativeMinimum or swingMin)
+                        and target.attacking ~= true and 108 or 60)
+                        + pressure * 6 + readiness.nimble * 1.5
                         + readiness.fitness - readiness.footing.crowd * 4,
                 }
             elseif distance <= swingMax then
@@ -1448,6 +1762,7 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                 -- the next tick resumes the swing/kite exchange from there.
                 actions[#actions + 1] = {
                     kind = "approach",
+                    minimumDistance = spacing and spacing.desired,
                     score = 61 + weapon.damage * 3 + readiness.combatSkill * 1.2
                         + readiness.nimble * 0.7 + readiness.confidence * 0.08
                         - math.max(0, distance - swingMax - 1) * 2 - pressure * 3,
@@ -1464,13 +1779,37 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
     elseif not weapon and not grounded then
         actions[#actions + 1] = { kind = distance <= 1.35 and "shove" or "escape", score = 58 + pressure * 8 }
     end
+    local recoveryAction = weapon and (weapon.ranged and "attack_firearm" or "attack_melee") or "shove"
+    local recovered, recoveryReason = nativeCombatReadiness(actor, recoveryAction)
+    if not recovered then
+        local nativeKinds = { melee = "attack_melee", shoot = "attack_firearm", shove = "shove", stomp = "stomp" }
+        for index = #actions, 1, -1 do
+            local action = actions[index]
+            local nativeKind = nativeKinds[action.kind]
+            local blockedByRecovery = nativeKind and (recoveryReason ~= "native_recoil_recovery"
+                or (nativeKind ~= "shove" and nativeKind ~= "stomp"))
+            if action.kind == "approach" or blockedByRecovery then
+                table.remove(actions, index)
+            end
+        end
+        local spacing = weapon and not weapon.ranged and Combat.meleeSpacing(actor, weapon.item, target)
+        if not grounded and distance < (spacing and spacing.desired or 1.35) then
+            actions[#actions + 1] = {
+                kind = "backstep", score = 105 + pressure * 4,
+                recoveryReason = recoveryReason,
+            }
+        end
+        actions[#actions + 1] = {
+            kind = "hold_range", score = 56, recoveryReason = recoveryReason,
+        }
+    end
     if SC.Navigation and type(SC.Navigation.combatVector) == "function" then
         for index = #actions, 1, -1 do
             local action = actions[index]
             if action.kind == "approach" or action.kind == "backstep"
                 or action.kind == "kite" then
                 local moveX, moveY, steered, vectorReason =
-                    SC.Navigation.combatVector(actor, target.actor, action.kind)
+                    SC.Navigation.combatVector(actor, target.actor, action.kind, snapshot)
                 if moveX == nil or moveY == nil then
                     table.remove(actions, index)
                 else
@@ -1653,17 +1992,33 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
     -- Reuse it within this pulse so widening the bounded candidate scan does not
     -- multiply inventory and body-state work.
     local weaponByBand, readinessByWeapon = {}, {}
+    local floorWeapon, floorInventory, floorLoadoutChecked
     for _, target in ipairs(targets) do
         local distance = math.sqrt(target.distanceSq or U().distanceSq(actor, target.actor))
-        local band = weaponDistanceBand(distance)
-        local selection = weaponByBand[band]
-        if selection == nil then
-            local weapon, inventory = responsiveWeapon(actor, state, preference, distance,
-                snapshot.pressure or 0, snapshot, now)
-            selection = { weapon = weapon, inventory = inventory }
-            weaponByBand[band] = selection
+        local weapon, inventory
+        if boolCall(target.actor, "isOnFloor") or boolCall(target.actor, "isProne")
+            or boolCall(target.actor, "isCrawling") then
+            -- Finish with what is visibly in hand, not an inventory candidate
+            -- that has not been equipped yet. Native player code selects its
+            -- floor animation from that same primary HandWeapon. Read this once
+            -- per pulse, without searching the inventory for every prone target.
+            if not floorLoadoutChecked then
+                floorWeapon = equippedFinisherWeapon(actor)
+                floorInventory = select(1, U().call(actor, "getInventory"))
+                floorLoadoutChecked = true
+            end
+            weapon, inventory = floorWeapon, floorInventory
+        else
+            local band = weaponDistanceBand(distance)
+            local selection = weaponByBand[band]
+            if selection == nil then
+                local selected, items = responsiveWeapon(actor, state, preference, distance,
+                    snapshot.pressure or 0, snapshot, now)
+                selection = { weapon = selected, inventory = items }
+                weaponByBand[band] = selection
+            end
+            weapon, inventory = selection.weapon, selection.inventory
         end
-        local weapon, inventory = selection.weapon, selection.inventory
         local readinessKey = weapon and weapon.item or "unarmed"
         local readiness = readinessByWeapon[readinessKey]
         if readiness == nil then
@@ -2035,7 +2390,6 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             local grounded = boolCall(targetActor, "isOnFloor")
                 or boolCall(targetActor, "isProne") or boolCall(targetActor, "isCrawling")
             if not grounded or utility.isDead(targetActor)
-                or not utility.canSee(actor, targetActor)
                 or (tonumber(snapshot.closeImmediateCount)
                     or tonumber(snapshot.immediateCount) or 0)
                     > (utility.config("combatStompMaxImmediate") or 1) then
@@ -2053,46 +2407,16 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
     elseif action.kind == "stomp" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
         local grounded = boolCall(targetActor, "isOnFloor") or boolCall(targetActor, "isProne")
-        if not grounded or utility.isDead(targetActor) or not utility.canSee(actor, targetActor)
+        if not grounded or utility.isDead(targetActor)
             or (tonumber(snapshot.closeImmediateCount) or tonumber(snapshot.immediateCount) or 0)
                 > (utility.config("combatStompMaxImmediate") or 1) then
             state.stompAnchor = nil
             return false, "stomp_anchor_invalid"
         end
-        -- Prefer the head as a competent player would, but positioning only makes
-        -- head contact possible. The collision-time impact model verifies it and
-        -- applies graded damage; reaching this anchor is never an automatic kill.
-        local current = utility.nowMs()
-        local anchor = state.stompAnchor
-        if not anchor or anchor.target ~= targetActor or current >= (anchor.expires or 0) then
-            anchor = {
-                target = targetActor,
-                square = select(1, utility.call(targetActor, "getHeadSquare", actor)),
-                expires = current + (utility.config("combatStompAnchorMs") or 850),
-            }
-            state.stompAnchor = anchor
-        end
-        local headSquare = anchor.square
-        local ax, ay = utility.position(actor)
-        local hxv = headSquare and select(1, utility.call(headSquare, "getX")) or nil
-        local hyv = headSquare and select(1, utility.call(headSquare, "getY")) or nil
-        local hx = tonumber(hxv)
-        local hy = tonumber(hyv)
-        if hx ~= nil and hy ~= nil and ax ~= nil and ay ~= nil then
-            local hdx = (hx + 0.5) - ax
-            local hdy = (hy + 0.5) - ay
-            local headRange = utility.config("combatHeadStompRange") or 1.1
-            if (hdx * hdx + hdy * hdy) > headRange * headRange then
-                accepted, nativeReason = utility.move(actor, "walk", {
-                    action = "combat_approach",
-                    dx = hdx, dy = hdy,
-                    target = targetActor, facingTarget = targetActor,
-                    keepFacing = true, weaponReady = true,
-                })
-                if not accepted then return false, "stomp_rejected" end
-                return true, "stomp_approach_head"
-            end
-        end
+        -- Native Build 42 owns floor-hit geometry and head/body selection. Its
+        -- getHeadSquare API is a traversal-state helper, not a general prone-head
+        -- locator, so approach the victim's live position and let collision bones
+        -- decide the actual contact exactly as they do for a player.
         accepted, nativeReason = utility.move(actor, "walk", { action = "stomp", target = targetActor, floorAttack = true })
     elseif action.kind == "approach" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
@@ -2103,7 +2427,7 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         if moveX == nil and SC.Navigation and type(SC.Navigation.combatVector) == "function" then
             local vectorReason
             moveX, moveY, steered, vectorReason = SC.Navigation.combatVector(
-                actor, targetActor, "approach")
+                actor, targetActor, "approach", snapshot)
             if moveX == nil then return false, "approach_blocked:" .. tostring(vectorReason) end
         elseif moveX == nil then
             moveX, moveY = tx - ax, ty - ay
@@ -2118,13 +2442,15 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             weaponReady = true,
             tacticalStrafe = true,
             microSteered = steered == true,
+            combatMinimumDistance = action.minimumDistance
+                or (weapon and Combat.meleeSpacing(actor, weapon.item, target) or {}).desired,
         })
     elseif action.kind == "backstep" then
         local moveX, moveY, steered = action.moveX, action.moveY, action.microSteered
         if moveX == nil and SC.Navigation and type(SC.Navigation.combatVector) == "function" then
             local vectorReason
             moveX, moveY, steered, vectorReason = SC.Navigation.combatVector(
-                actor, targetActor, "backstep")
+                actor, targetActor, "backstep", snapshot)
             if moveX == nil then return false, "backstep_blocked:" .. tostring(vectorReason) end
         end
         accepted, nativeReason = utility.move(actor, "walk", {
@@ -2137,7 +2463,7 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         if moveX == nil and SC.Navigation and type(SC.Navigation.combatVector) == "function" then
             local vectorReason
             moveX, moveY, steered, vectorReason = SC.Navigation.combatVector(
-                actor, targetActor, "kite")
+                actor, targetActor, "kite", snapshot)
             if moveX == nil then return false, "kite_blocked:" .. tostring(vectorReason) end
         end
         accepted, nativeReason = utility.move(actor, "walk", {
@@ -2154,6 +2480,11 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         return false, "unknown_action"
     end
     if not accepted then
+        if nativeReason == "native_melee_recovery" or nativeReason == "native_recoil_recovery"
+            or nativeReason == "native_attack_active" then
+            if not holdCombatPosition(actor) then return false, "native_combat_stop_failed" end
+            return true, "combat_recovery_wait"
+        end
         local prefix = action.kind .. "_rejected"
         return false, nativeReason and (prefix .. ":" .. tostring(nativeReason)) or prefix
     end
@@ -2169,7 +2500,11 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             expires = utility.nowMs() + (utility.config("combatStompAnchorMs") or 850),
         }
     end
-    return true, action.kind
+    if action.kind == "stomp" or (action.kind == "melee" and action.floorAttack == true) then
+        clearFinisherRoll(state, targetActor)
+    end
+    return true, action.kind == "hold_range" and action.recoveryReason
+        and "combat_recovery_wait" or action.kind
 end
 
 local function vehicleCombat(actor, player, snapshot, target, weapon, inventory, commands)
@@ -2241,22 +2576,7 @@ function Combat.update(actor, player, runtime)
     -- Consume the previous native collision before scoring. This both commits a
     -- pending stomp fallback and tells spacing recovery whether melee/shove
     -- actually affected the target.
-    if SC.NativeActions and type(SC.NativeActions.pollCombatEvents) == "function" then
-        local _, eventReason, evidence = SC.NativeActions.pollCombatEvents(actor)
-        if type(evidence) == "table" then
-            state.lastCombatEvidence = evidence
-            state.lastCombatEvidenceReason = eventReason
-            state.lastCombatEvidenceAt = utility.nowMs()
-            if evidence.result == "no_effect" then
-                state.noEffectCollisions = state.noEffectTarget == evidence.target
-                    and (state.noEffectCollisions or 0) + 1 or 1
-                state.noEffectTarget = evidence.target
-            elseif evidence.result == "landed" then
-                if state.noEffectTarget == evidence.target then state.noEffectCollisions = 0 end
-                state.noEffectTarget = evidence.target
-            end
-        end
-    end
+    consumeCombatEvents(actor, state)
     local rootRuntime = utility.actorState(actor, runtime)
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
     if type(snapshot) ~= "table" then snapshot = {} end
@@ -2267,15 +2587,21 @@ function Combat.update(actor, player, runtime)
     local now = utility.nowMs()
     state.cohortKey = combatCohortKey(actor, player)
     confirmRecentKill(actor, state, commands, now)
+    -- Acquire the swing lease before target selection/no-threat cleanup. Killing
+    -- the target at impact does not end its recovery animation, and selecting a
+    -- different zombie must not redirect the current swing or revive old input.
+    local swingHeld, swingReason = Combat.holdNativeAttack(actor, rootRuntime)
+    if swingHeld ~= nil then return swingHeld, swingReason end
     local scored = Combat.scoreTargets(actor, player, snapshot, state.target)
     addNearbyGrounded(actor, scored)
     local followUpHandled, followUpReason = tryShoveFollowUp(
-        actor, state, snapshot, now)
+        actor, state, snapshot, now, commands)
+    if followUpReason == "native_combat_stop_failed" then return false, followUpReason end
     if followUpHandled then
         state.active = true
         state.lastAction = followUpReason
         state.lastActionAt = now
-        if followUpReason == "stomp_after_shove" then
+        if followUpReason == "stomp_after_shove" or followUpReason == "melee_after_shove" then
             recordOffensiveAction(actor, state, commands, state.target, now, false, snapshot)
         end
         rootRuntime.combatTarget = state.shoveFollowUp and state.shoveFollowUp.target
@@ -2339,23 +2665,6 @@ function Combat.update(actor, player, runtime)
     rootRuntime.combatCohort = state.cohortKey
     local vehicle, vehicleOk = utility.call(actor, "getVehicle")
     local seated = vehicleOk and vehicle ~= nil
-    -- Preserve the target/facing but do not run inventory or locomotion work while
-    -- a native on-foot swing owns the actor. This mirrors player input ownership
-    -- and keeps the 50 ms reflex cadence cheap during the animation itself.
-    if not seated and attackInProgress(actor) then
-        claimTarget(target.actor, actor, now, state.cohortKey, combatRole,
-            "committed", distance)
-        clearRejection(state, rootRuntime)
-        state.active = true
-        state.target = target.actor
-        state.targetScore = target.score
-        state.lastActionAt = now
-        state.lastAction = "attack_in_progress"
-        state.retreating = false
-        rootRuntime.combatTarget = target.actor
-        rootRuntime.combatAction = "attack_in_progress"
-        return true, "attack_in_progress"
-    end
     -- Doctrine determines which contacts may be engaged and how the companion
     -- positions. Weapon priority is a separate explicit loadout choice. The only
     -- situational override is a seated actor: melee cannot be executed from a
@@ -2521,8 +2830,8 @@ function Combat.update(actor, player, runtime)
         return false, reason
     end
     clearRejection(state, rootRuntime)
-    if chosen.kind == "shoot" or chosen.kind == "melee"
-        or chosen.kind == "shove" or chosen.kind == "stomp" then
+    if reason ~= "combat_recovery_wait" and (chosen.kind == "shoot" or chosen.kind == "melee"
+        or chosen.kind == "shove" or chosen.kind == "stomp") then
         claimTarget(target.actor, actor, now, state.cohortKey, combatRole,
             "committed", distance)
         clearAimPreparation(state)
@@ -2545,18 +2854,18 @@ function Combat.update(actor, player, runtime)
         state.lastSpacingTarget = target.actor
         state.lastSpacingAt = now
     end
-    if chosen.kind == "shove" then
+    if chosen.kind == "shove" and reason == "shove" then
         state.shoveFollowUp = {
             target = target.actor,
             startedAt = state.lastActionAt,
             expires = state.lastActionAt
                 + (utility.config("combatShoveFollowupWindowMs") or 1800),
         }
-    elseif chosen.kind == "stomp" then
+    elseif chosen.kind == "stomp" and reason == "stomp" then
         state.shoveFollowUp = nil
     end
     rootRuntime.combatTarget = target.actor
-    rootRuntime.combatAction = chosen.kind
+    rootRuntime.combatAction = reason == "combat_recovery_wait" and reason or chosen.kind
     return true, reason
 end
 

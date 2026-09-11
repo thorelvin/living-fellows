@@ -65,7 +65,7 @@ REQUIRED_EXPORTS = {
     "SCAllegiance.lua": ["isHostile", "relationship", "areAllies", "isProtected"],
     "SCThreatSet.lua": ["threatPreferred", "proximityPreferred", "isImmediate",
                         "new", "add", "finish"],
-    "SCPerceptionScan.lua": ["nextOffsets", "newJob", "invalid", "reset"],
+    "SCPerceptionScan.lua": ["nativeCandidates", "nextOffsets", "newJob", "invalid", "reset"],
     "SCDialogue.lua": ["register", "has", "choose", "say", "sayLastWords",
                        "monitorMortality", "reset", "poolSize", "topics"],
     "SCLifeEvents.lua": ["emit", "drain", "reset"],
@@ -147,7 +147,26 @@ def main() -> int:
         sources[name] = text
         require(text.startswith("-- SPDX-License-Identifier: MIT"), f"missing SPDX header: {name}")
         require("Events.OnTick" not in text and "OnTick.Add" not in text, f"independent tick loop: {name}")
-        require("getZombieList" not in text, f"unbounded global zombie query: {name}")
+        if name == "SCPerceptionScan.lua":
+            # The only permitted global zombie-list read is the explicit rolling
+            # candidate discovery. Keep the old ban everywhere else, and make
+            # its cursor, unit cap and elapsed deadline part of the source gate.
+            require(text.count('"getZombieList"') == 1
+                    and "function Scan.nativeCandidates" in text
+                    and "sharedNative" in text
+                    and "state.nativeScanCursor" in text
+                    and "processed < limit and shared.cursor < count" in text
+                    and "math.min(count, 128" in text
+                    and "processed >= 4 and clock() >= deadline" in text
+                    and "SC.NativeList.get(list, index)" in text
+                    and "perceptionNativeRosterQueryPerSlice" in text
+                    and "state.nativeRosterCursor" in text
+                    and "math.floor(zz or 0) == math.floor(z or 0)" in text
+                    and "distanceSq <= radiusSq" in text
+                    and "math.min(32" in text,
+                    "native zombie query is not cursor/deadline bounded")
+        else:
+            require("getZombieList" not in text, f"unbounded global zombie query: {name}")
         require(not re.search(r"\b(isClient|isServer|sendClientCommand|sendServerCommand)\s*\(", text),
                 f"multiplayer API bypass: {name}")
         require("ZombieWalk" not in text and "ZombieRun" not in text and "ZombieHitReaction" not in text,
@@ -311,9 +330,11 @@ def main() -> int:
             "positioning module is not load-ordered and fail-fast validated")
     traversal_source = sources["SCNavTraversal.lua"]
     require('not invoke(context, "objectOpen", entry.object)' in traversal_source
-            and "window_open_failed" in traversal_source
-            and "window_smash_failed" in traversal_source
-            and "glass_removal_failed" in traversal_source,
+            and 'action .. "_verification_timeout"' in traversal_source
+            and 'invoke(context, "windowSmashed", window)' in traversal_source
+            and 'invoke(context, "windowGlassRemoved", window)' in traversal_source
+            and 'utility.call(actor, "openWindow", window)' not in traversal_source
+            and '"ToggleWindow"' not in traversal_source,
             "native-authoritative door/window postconditions missing")
     require("scavengeSquareBudget" in sources["SCEncounter.lua"], "scavenge budget not enforced")
     require("wasPlayerOpened" in sources["SCEncounter.lua"]
@@ -514,6 +535,8 @@ def main() -> int:
     require("selectedFailure" in decision_source, "selected Decision failure reason may be masked by fallbacks")
     require('candidate.kind == "needs"' in decision_source
             and 'action = "hand_signal"' in decision_source
+            and "faceTargetBeforeEmote" in decision_source
+            and "interruptForFollow = false" in decision_source
             and "dangerSignalImmediateRadius" in decision_source,
             "needs arbitration or context-aware silent danger signal missing")
     downtime_source = sources["SCDowntime.lua"]

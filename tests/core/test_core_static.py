@@ -102,11 +102,13 @@ for action in ("loot_container", "kneel_treat", "rip_clothing_for_bandage",
 require("native visual timed action did not start" in native,
         "visual actions lack truthful start rejection")
 require('SC.NativeTraversalActions.window(actor, action, intent, provider)' in native
-        and "native window climb did not start" in native_traversal
-        and "native fence climb did not enter a climb state" in native_traversal
-        and "native sheet-rope climb did not enter a climb state" in native_traversal
+        and "function Traversal.poll" in native_traversal
+        and "traversal_start_timeout:" in native_traversal
+        and "traversal_state_timeout:" in native_traversal
+        and 'phase == "starting" or phase == "active"' in native_traversal
+        and 'traversal.activityStatus(actor)' in native
         and "native downed state was not retained" in native_traversal,
-        "guarded native traversal handlers are not extracted and verified")
+        "native traversal must retain and verify asynchronous ownership")
 require("SC.NativeCombatActions.handles(action)" in native
         and "SC.NativeCombatActions.dispatch(actor, action, intent, provider)" in native
         and "context.attack(actor, action, intent, provider)" in native_combat,
@@ -136,8 +138,9 @@ for token in ('require "TimedActions/ISEatFoodAction"',
               'require "TimedActions/ISTakeWaterAction"',
               "eat_food", "drink_item", "drink_source", "needsStatus", "cancelNeeds"):
     require(token in native, f"real companion needs action contract missing: {token}")
-require("playEmote" in native_visual and "hand_signal_started" in native_visual,
-        "native silent hand-signal adapter missing")
+require("playEmote" in native_visual and "hand_signal_started" in native_visual
+        and "faceTargetBeforeEmote" in native_visual and "context.stopDirect" in native_visual,
+        "native target-facing silent hand-signal adapter missing")
 require("tacticalStrafe" in native and "facingTarget" in native
         and "setForwardDirection\", facingX, facingY" in native,
         "native tactical sidestep does not preserve its observation vector")
@@ -451,7 +454,9 @@ require("forceBridgePathfindingState" in native_companion
         and "getStateMachine().getCurrent() != PathFindState.instance()" in native_companion
         and 'getVariableBoolean("bPathfind")' in native_companion
         and 'setVariable("bPathfind", false)' in native_companion
-        and "if (startedThisRun) return false" in native_companion,
+        and "pathRequestTerminal(pathfindRequested, cancelled, failed, startExpired)" in native_companion
+        and "PathFindProgress.found" in native_companion
+        and "bridgePathStopping" in native_companion,
         "clear-line companion paths can fall back to input-owned player movement")
 require("public String getCompanionActionGroupName()" in native_companion
         and "public String getCompanionActionStateName()" in native_companion
@@ -495,7 +500,9 @@ require("_isRecoverablePlacementFailureForTests" in runtime
         and "repaired companion world membership in place" in runtime,
         "missing moving-list membership can still relocate/recreate a live companion")
 require("public boolean cancelCompanionStuckClimb()" in native_companion
-        and "changeState(PlayerActionsState.instance())" in native_companion
+        and "context.clearEvent(event)" in native_companion
+        and "context.setCurrentState(idle)" in native_companion
+        and "changeState(IdleState.instance())" in native_companion
         and "actions.cancelStuckClimb" in native
         and 'recovery = "stuck_climb_cancel_rejected"' in navigation
         and 'type = "actor_state", square = actorSquare' in navigation,

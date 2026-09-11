@@ -492,10 +492,16 @@ function Locomotion.report(actor)
             .. " | health " .. tostring(evidence.healthBefore or "?")
             .. " -> " .. tostring(evidence.healthAfter or "?")
     end
+    local projectionAge = nav.routeProjectionAt and math.max(0, snapshot.now - nav.routeProjectionAt)
+    local crossTrackText = "unavailable"
+    if not nav.nativeLease and not nav.pendingInteraction and projectionAge
+        and projectionAge <= 1000 and tonumber(nav.routeCrossTrack) then
+        crossTrackText = string.format("%.2f (%dms ago)", nav.routeCrossTrack, projectionAge)
+    end
     local lines = {
         "Living Fellows movement recorder",
         "Companion: " .. tostring(snapshot.name) .. " [" .. tostring(snapshot.id) .. "]",
-        "Window: last " .. tostring((tonumber(SC.Config and SC.Config.get("movementRecorderWindowMs")) or 30000) / 1000) .. " seconds",
+        "Event window: last " .. tostring((tonumber(SC.Config and SC.Config.get("movementRecorderWindowMs")) or 30000) / 1000) .. " seconds",
         "Locomotion: " .. tostring(snapshot.phase) .. " | owner " .. tostring(snapshot.owner)
             .. " | action " .. tostring(snapshot.action),
         "Last result: " .. boolText(snapshot.lastAccepted) .. " | " .. tostring(snapshot.lastReason or "none"),
@@ -520,11 +526,16 @@ function Locomotion.report(actor)
             .. "/" .. tostring(positioning.fireteamSize or "-")
             .. " | trail rev " .. tostring(positioning.trailRevision or 0)
             .. " | portal " .. tostring(positioning.portalKey or "none"),
-        "Path stability: reused " .. tostring(nav.routeReuseCount or 0)
+        "Path stability (since navigation reset): reused " .. tostring(nav.routeReuseCount or 0)
             .. " | repaired " .. tostring(nav.routeRepairCount or 0)
             .. " | overshoot " .. tostring(nav.routeOvershootCount or 0)
             .. " | restarted " .. tostring(nav.routeRestartCount or 0)
-            .. " | cross-track " .. string.format("%.2f", tonumber(nav.routeCrossTrack) or 0),
+            .. " | cross-track " .. crossTrackText,
+        "Last route repair: " .. tostring(nav.lastRouteRepairKind or "none")
+            .. " | appended " .. tostring(nav.lastRouteRepairAppended or 0)
+            .. " | trimmed " .. tostring(nav.lastRouteRepairTrimmed or 0)
+            .. " | compacted " .. tostring(nav.lastRouteRepairCompacted or 0),
+        "Path search yield: " .. tostring(nav.pathSearch and nav.pathSearchYieldReason or "none"),
         "Combat: role " .. tostring(combat.combatRole or "none")
             .. " | cohort " .. tostring(combat.cohortKey or "none")
             .. " | evidence " .. tostring(combat.lastCombatEvidenceReason or "none")
@@ -538,6 +549,7 @@ function Locomotion.report(actor)
     for _, entry in ipairs(snapshot.events or {}) do
         local age = math.max(0, snapshot.now - (tonumber(entry.at) or snapshot.now)) / 1000
         local detail = entry.status or entry.detail or "-"
+        if entry.status and entry.detail then detail = detail .. " | " .. tostring(entry.detail) end
         if entry.blocker then detail = detail .. " | blocker " .. tostring(entry.blocker) end
         if entry.recovery then detail = detail .. " | recovery " .. tostring(entry.recovery) end
         lines[#lines + 1] = string.format("  -%.1fs %s | %s | %s | %s | target %s | next %s%s",

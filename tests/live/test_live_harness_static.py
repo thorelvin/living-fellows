@@ -215,6 +215,55 @@ require("SC.Navigation.evaluateRoutes" in lua,
         "route test must exercise real loaded grid squares")
 require("checking_room_entry_left" in lua and "checking_room_entry_right" in lua,
         "room test must observe both production sweep phases")
+door_probe = lua.split("function Harness.doorCrossingCandidate", 1)[1].split(
+    "local function playerStillIsolated", 1)[0]
+require('"real_door_crossing_round_trip"' in door_probe
+        and 'SC.Navigation.request' in door_probe
+        and 'probe.crossed' in door_probe and 'probe.stage == "back"' in door_probe
+        and 'crossingLateral' in door_probe and 'math.abs(progress - previous) < 1' in door_probe,
+        "live doorway test must prove a bounded physical round trip across the door plane")
+require(':setX(' not in door_probe and ':setY(' not in door_probe
+        and 'teleport' not in door_probe.lower(),
+        "live door crossing must not manufacture passage by repositioning the actor")
+require('"single_swing_collision_ownership"' in lua
+        and 'serial - previous == 1' in lua
+        and 'reason == "native_melee_recovery"' in lua,
+        "live combat must verify one impact per swing and the native recovery gate")
+require(re.search(r'result\(\s*[\"\x27]INFO[\"\x27]', lua) is None,
+        "diagnostic messages must not enter the PASS/FAIL/SKIP assertion counter")
+require('"native_grounded_attack_stance_and_clip"' in lua
+        and 'Harness.finishFloorSelected == true and Harness.finishStompClip == true' in lua,
+        "grounded damage must also prove the real native stomp stance and clip")
+require('Harness.isStompClip(names)' in lua
+        and 'clip == "bob_attackfloorstamp"' in lua
+        and 'clip == "bob_attackfloorstomp"' in lua,
+        "stomp clip validation must recognize native FloorStamp without accepting unrelated transitions")
+require('"local_observer_initially_alive"' in lua
+        and 'Harness.restoreObserverBoundary("before_faction")' in lua
+        and 'U.call(body, "RestoreToFullHealth")' in lua
+        and 'U.call(body, "getOverallBodyHealth")' in lua
+        and '"faction_observer_visible"' in lua,
+        "ordinary SP fixture must restore only a living observer and verify faction visibility")
+require('setGodMod' not in lua and 'setInvulnerable' not in lua,
+        "live harness must not assume debug-only cheats protect an ordinary SP observer")
+require('Harness.meleeFixtureDistance(weapon, Harness.actor)' in lua
+        and 'findClearManualDirection(Harness.actor, distance)' in lua
+        and 'minimum + 0.3, maximum - 0.2' in lua,
+        "melee damage fixture requires a precise clear interior native weapon range")
+require('MELEE_RETRY_REJECT' in lua and 'MELEE_IMPACT' in lua
+        and 'OnWeaponHitCharacter.Add(Harness.onMeleeWeaponHit)' in lua,
+        "native hit and every rejected retry must remain observable without forced damage")
+require('Harness.findCombatArena(Harness.player)' in lua and 'arena.observerDistance >= 10' in lua
+        and '{ 16, 20, 24, 12 }' in lua and 'actor:setMovingSquare(actor:getCurrentSquare())' in lua
+        and 'actor:setSquare(actor:getCurrentSquare())' in lua
+        and 'Harness.restoreCombatArena()' in lua,
+        "ordinary SP hostile fixtures require physical isolation and preserved world membership")
+require('OnPlayerGetDamage.Add(Harness.onObserverDamage)' in lua
+        and 'OnPlayerDeath.Add(Harness.onObserverDeath)' in lua
+        and 'stillDead == false and cleanBody' in lua,
+        "observer sanitation must verify infection and wounds and retain actual death diagnostics")
+require('Harness.actor:setGodMod' not in lua and 'Harness.actor:setInvulnerable' not in lua,
+        "observer protection must never disable companion damage")
 require(re.search(r"expanded\s*<=\s*380", lua) is not None,
         "route test must enforce the bounded search budget")
 

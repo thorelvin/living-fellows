@@ -156,7 +156,28 @@ function PathSearch.new(startSquare, goalSquare, options, adapter)
     }
 end
 
-function PathSearch.resume(job, expansionQuota)
+-- Build 42 exposes getTimestampMs as System.currentTimeMillis, not world time.
+-- A caller may inject a clock for deterministic tests. A slice is shared across
+-- primary/alternative searches so changing jobs never replenishes its deadline.
+function PathSearch.newSlice(options, defaultBudgetMs)
+    options = type(options) == "table" and options or {}
+    local budget = tonumber(options.sliceBudgetMs) or tonumber(defaultBudgetMs)
+    if not budget or budget <= 0 or budget ~= budget or budget == math.huge then return nil end
+    local clock = options.clock or getTimestampMs
+    if type(clock) ~= "function" then return nil end
+    local now = tonumber(clock())
+    if not now or now ~= now or math.abs(now) == math.huge then return nil end
+    return { clock = clock, deadline = now + budget, startedAt = now, budgetMs = budget }
+end
+
+function PathSearch.sliceExpired(slice)
+    if not slice then return false end
+    local now = tonumber(slice.clock())
+    -- A wall-clock correction backwards must not buy extra work in this frame.
+    return now ~= nil and now == now and (now >= slice.deadline or now < slice.startedAt)
+end
+
+function PathSearch.resume(job, expansionQuota, slice)
     if type(job) ~= "table" then return "failed", nil, "invalid_job", 0, 0 end
     if job.complete then
         return job.path and "complete" or "failed", job.path, job.reason, job.expanded or 0, 0
@@ -167,28 +188,50 @@ function PathSearch.resume(job, expansionQuota)
     end
     local adapter = job.adapter
     local quota = math.max(1, math.floor(tonumber(expansionQuota) or job.nodeBudget or 1))
+    slice = slice or PathSearch.newSlice(job.options)
+    job.lastYieldReason = nil
     local used = 0
-    while #job.open > 0 and job.expanded < job.nodeBudget and used < quota do
-        local entry = heapPop(job.open)
-        if entry == nil then break end
-        local bestKey = entry.key
-        local node = job.nodes[bestKey]
-        -- Improvements use lazy deletion. Superseded priorities and already
-        -- closed nodes do not consume the caller's expansion quota.
-        if node ~= nil and not job.closed[bestKey]
-            and entry.f == node.f and entry.h == node.h
-            and (tonumber(entry.familiarity) or 0) == (tonumber(node.familiarity) or 0) then
-            if bestKey == job.goalKey then
-                job.complete = true
-                job.path = reconstruct(job.nodes, bestKey)
-                return "complete", job.path, nil, job.expanded, used
+    while job.pendingExpansion or (#job.open > 0 and job.expanded < job.nodeBudget and used < quota) do
+        -- Check even lazy-deleted heap entries, and between world-edge calls.
+        -- One native edge query cannot be preempted, but a costly node need not
+        -- perform all eight queries after the frame's time allowance is gone.
+        if PathSearch.sliceExpired(slice) then
+            job.lastYieldReason = "deadline"
+            return "pending", nil, "searching", job.expanded, used
+        end
+        if not job.pendingExpansion then
+            local entry = heapPop(job.open)
+            if entry == nil then break end
+            local bestKey = entry.key
+            local node = job.nodes[bestKey]
+            -- Improvements use lazy deletion. Superseded priorities and already
+            -- closed nodes do not consume the caller's expansion quota.
+            if node ~= nil and not job.closed[bestKey]
+                and entry.f == node.f and entry.h == node.h
+                and (tonumber(entry.familiarity) or 0) == (tonumber(node.familiarity) or 0) then
+                if bestKey == job.goalKey then
+                    job.complete = true
+                    job.path = reconstruct(job.nodes, bestKey)
+                    return "complete", job.path, nil, job.expanded, used
+                end
+                job.closed[bestKey] = true
+                job.expanded = job.expanded + 1
+                used = used + 1
+                job.pendingExpansion = {
+                    key = bestKey, node = node, index = 1,
+                    neighbors = adapter.neighbors(node.square, job.goalSquare, job.options) or {},
+                }
             end
-            job.closed[bestKey] = true
-            job.expanded = job.expanded + 1
-            used = used + 1
-            local current = node
-            for _, otherSquare in ipairs(adapter.neighbors(
-                current.square, job.goalSquare, job.options) or {}) do
+        else
+            local pending = job.pendingExpansion
+            local bestKey, current = pending.key, pending.node
+            local otherSquare = pending.neighbors[pending.index]
+            if otherSquare == nil then
+                job.pendingExpansion = nil
+            else
+                -- Advance only after remembering the edge being processed; a
+                -- resumed node neither skips neighbors nor repeats their costs.
+                pending.index = pending.index + 1
                 local otherKey = adapter.key(otherSquare)
                 if otherKey and not job.closed[otherKey] then
                     local passable, cost, rejection, ignoredObject, edgeFamiliarity =
@@ -240,12 +283,13 @@ function PathSearch.resume(job, expansionQuota)
             end
         end
     end
-    if #job.open == 0 or job.expanded >= job.nodeBudget then
+    if not job.pendingExpansion and (#job.open == 0 or job.expanded >= job.nodeBudget) then
         job.complete = true
         job.reason = job.expanded >= job.nodeBudget and "budget" or "unreachable"
         job.failureClass, job.nativeFallbackAllowed = PathSearch.classifyFailure(job, job.reason)
         return "failed", nil, job.reason, job.expanded, used
     end
+    job.lastYieldReason = "quota"
     return "pending", nil, "searching", job.expanded, used
 end
 

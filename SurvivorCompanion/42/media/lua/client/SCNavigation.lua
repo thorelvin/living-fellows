@@ -233,6 +233,43 @@ local function recordBlocker(actor, state, blockerType, object, square, actorSta
         confidence = confidence or "low",
         time = now or U().nowMs(),
     }
+    local ax, ay, az = U().position(actor)
+    local nativeState = select(1, U().call(actor, "getCurrentState"))
+    local actionState = select(1, U().call(actor, "getCompanionActionStateName"))
+    local nextAction = select(1, U().call(actor, "getCompanionNextActionStateName"))
+    local animations = select(1, U().call(actor, "getCompanionActiveAnimationNames"))
+    local telemetry = {}
+    if SC.NativeActions and type(SC.NativeActions.pathTelemetry) == "function" then
+        local ok, value = pcall(SC.NativeActions.pathTelemetry, actor)
+        if ok and type(value) == "table" then telemetry = value end
+    end
+    local geometry = state.nativeLease or {
+        fromSquare = state.lastAttemptFrom, toSquare = state.lastAttemptTo,
+    }
+    local progress, lateral = V().doorGeometry(geometry, actor)
+    entry.failureReason = state.lastMovementReason
+    entry.nativeState = U().objectLabel(nativeState)
+    entry.actionState = tostring(actionState or "unknown")
+    entry.diagnostic = " pos=" .. string.format("%.3f,%.3f,%.2f", ax or -1, ay or -1, az or -1)
+        .. " fsm=" .. entry.nativeState .. " action=" .. entry.actionState
+        .. " nextAction=" .. tostring(nextAction or "unknown")
+        .. " anim=" .. string.sub(tostring(animations or "unknown"), 1, 160)
+        .. " path=" .. tostring(telemetry.status or "unavailable") .. ":"
+        .. tostring(telemetry.active) .. "/" .. tostring(telemetry.pending)
+        .. " pathNext=" .. tostring(telemetry.pathNextIsSet) .. ":"
+        .. tostring(telemetry.pathNextX) .. "," .. tostring(telemetry.pathNextY)
+        .. " collided=" .. tostring(select(1, U().call(actor, "isCollidedThisFrame")))
+        .. "/door:" .. tostring(select(1, U().call(actor, "isCollidedWithDoor")))
+        .. "/polygon:" .. tostring(select(1, U().call(actor, "isCollidedWithVehicle")))
+        .. " objectOpen=" .. tostring(select(1, U().call(object, "IsOpen")))
+        .. " portal=" .. string.format("%.3f/%.3f", progress or -99, lateral or -99)
+        .. " reason=" .. string.sub(tostring(entry.failureReason or "unknown"), 1, 120)
+    local beforeStop = state.lastNativeFailureTelemetry
+    if beforeStop and entry.time - beforeStop.at <= 1000 then
+        entry.beforeStop = beforeStop
+        entry.diagnostic = entry.diagnostic .. " beforeStop=" .. beforeStop.summary
+        state.lastNativeFailureTelemetry = nil
+    end
     state.lastBlocker = entry
     recordMovement(actor, "blocker", {
         blocker = entry.type, recovery = entry.recoveryResult,
@@ -249,7 +286,7 @@ local function recordBlocker(actor, state, blockerType, object, square, actorSta
         .. " state=" .. tostring(entry.actorState)
         .. " evidence=" .. tostring(entry.evidenceClass)
         .. " confidence=" .. tostring(entry.confidence)
-        .. " recovery=" .. tostring(entry.recoveryResult))
+        .. " recovery=" .. tostring(entry.recoveryResult) .. entry.diagnostic)
     return entry
 end
 
@@ -746,10 +783,13 @@ local function squareHasBush(square)
 end
 
 local function squareVegetationCost(square)
-    if not square then return 0 end
+    if not square then return 0, false end
     local utility = U()
-    if squareHasTree(square) then return utility.config("navigationTreePenalty") or 12 end
-    return squareHasBush(square) and (utility.config("navigationBushPenalty") or 5.5) or 0
+    if squareHasTree(square) then
+        return utility.config("navigationTreePenalty") or 12, false
+    end
+    local bush = squareHasBush(square)
+    return bush and (utility.config("navigationBushPenalty") or 5.5) or 0, bush
 end
 
 local function pathHasBush(path)
@@ -928,10 +968,11 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
     end
     local memoryPenalty, familiarity = routeMemoryAdjustment(
         options.routeMemory, fromSquare, toSquare, options.now)
+    local vegetationCost, hasBush = squareVegetationCost(toSquare)
     return true, math.max(0.25, baseCost
-        + squareVegetationCost(toSquare) * math.max(0, scale)
+        + vegetationCost * math.max(0, scale)
         + treeClearanceCost(toSquare) + vehicleClearanceCost(toSquare) + crowdCost
-        + memoryPenalty), nil, nil, familiarity
+        + memoryPenalty), nil, nil, familiarity, hasBush
 end
 
 local function heuristic(square, goal)
@@ -997,6 +1038,8 @@ end
 local function stealthThreatPenalty(square, snapshot)
     if not square or type(snapshot) ~= "table" then return 0 end
     local utility = U()
+    local squareX, squareY, squareZ = utility.position(square)
+    if squareX == nil then return 0 end
     local visibleRadius = math.max(1,
         tonumber(utility.config("navigationStealthVisibleRadius")) or 10)
     local obstructedRadius = math.max(1,
@@ -1011,9 +1054,14 @@ local function stealthThreatPenalty(square, snapshot)
 
     local function addThreat(threat, remembered)
         if type(threat) ~= "table" then return end
-        local source = threat.actor or threat.square or threat
-        local distanceSq = utility.distanceSq(square, source)
-        if distanceSq == math.huge then return end
+        local threatX, threatY, threatZ = tonumber(threat.x), tonumber(threat.y), tonumber(threat.z)
+        if threatX == nil then
+            threatX, threatY, threatZ = utility.position(threat.actor or threat.square or threat)
+        end
+        if threatX == nil then return end
+        local dx, dy = squareX - threatX, squareY - threatY
+        local dz = (squareZ or 0) - (threatZ or 0)
+        local distanceSq = dx * dx + dy * dy + dz * dz * 9
         local distance = math.sqrt(math.max(0, distanceSq))
         local radius = threat.obstructed == true and obstructedRadius or visibleRadius
         if remembered == true then radius = math.min(radius, obstructedRadius) end
@@ -1052,7 +1100,7 @@ local function buildStealthOverlay(snapshot)
             or (type(snapshot.threats) == "table" and snapshot.threats or {}))
         or {}
     for index = 1, math.min(#source, 24) do
-        overlay.threats[#overlay.threats + 1] = source[index]
+        overlay.threats[#overlay.threats + 1] = U().copyShallow(source[index])
     end
     if type(snapshot) == "table" then overlay.lastKnownDanger = snapshot.lastKnownDanger end
     return overlay
@@ -1072,6 +1120,8 @@ local function refreshStealthOverlay(overlay, now)
     for _, threat in ipairs(overlay.threats) do
         local actor = type(threat) == "table" and threat.actor or nil
         if actor == nil or (utility.isValidActor(actor) and not utility.isDead(actor)) then
+            local x, y, z = utility.position(actor or threat.square or threat)
+            if x ~= nil then threat.x, threat.y, threat.z = x, y, z end
             kept[#kept + 1] = threat
         end
     end
@@ -1116,8 +1166,8 @@ local function newBoundedPathJob(startSquare, goalSquare, options)
     return P().new(startSquare, goalSquare, options, pathSearchAdapter)
 end
 
-local function resumeBoundedPathJob(job, expansionQuota)
-    return P().resume(job, expansionQuota)
+local function resumeBoundedPathJob(job, expansionQuota, slice)
+    return P().resume(job, expansionQuota, slice)
 end
 
 local function boundedPath(startSquare, goalSquare, options)
@@ -1250,46 +1300,156 @@ local function refreshEgress(state, currentSquare, now)
     state.nextEgressScanAt = now + (U().config("navigationEgressRefreshMs") or 2500)
 end
 
-local function routeDanger(path, snapshot, options)
+local function routePoint(value, remembered)
+    if value == nil then return nil end
+    local record = type(value) == "table" and value or nil
+    local x = record and tonumber(record.x) or nil
+    local y = record and tonumber(record.y) or nil
+    local z = record and tonumber(record.z) or nil
+    if x == nil or y == nil then
+        x, y, z = U().position(record and (record.actor or record.square) or value)
+    end
+    if x == nil or y == nil then return nil end
+    return {
+        x = x, y = y, z = z or 0,
+        obstructed = record and record.obstructed == true or false,
+        attacking = record and record.attacking == true or false,
+        remembered = remembered == true,
+    }
+end
+
+-- Capture each moving actor once, cooperatively, before evaluating route nodes.
+-- Scoring then compares plain numbers instead of multiplying Kahlua-to-Java
+-- getX/getY/getZ calls by path length and crowd size.
+local function newRouteEvaluationContext(snapshot, options)
+    snapshot = type(snapshot) == "table" and snapshot or {}
+    options = type(options) == "table" and options or {}
+    local dangerSnapshot = options.stealthOverlay or snapshot
+    return {
+        threats = {}, allies = {}, stealthAvoidance = options.stealthAvoidance == true,
+        visibleRadius = math.max(1, tonumber(U().config("navigationStealthVisibleRadius")) or 10),
+        obstructedRadius = math.max(1, tonumber(U().config("navigationStealthObstructedRadius")) or 6),
+        closeRadius = math.max(0.5, tonumber(U().config("navigationStealthCloseRadius")) or 4),
+        basePenalty = math.max(0, tonumber(U().config("navigationStealthThreatPenalty")) or 36),
+        closePenalty = math.max(0, tonumber(U().config("navigationStealthClosePenalty")) or 90),
+        snapshot = snapshot, dangerSnapshot = dangerSnapshot,
+        stage = "threats", index = 1, ready = false,
+    }
+end
+
+local function resumeRouteEvaluationContext(context, slice)
+    if context.ready == true then return true end
+    if context.source == nil then
+        context.source = type(context.dangerSnapshot.threats) == "table"
+            and context.dangerSnapshot.threats
+            or (type(context.snapshot.threats) == "table" and context.snapshot.threats or {})
+        context.threatLimit = context.stealthAvoidance and 24 or 16
+    end
+    while context.stage == "threats"
+        and context.index <= math.min(#context.source, context.threatLimit) do
+        if slice and P().sliceExpired(slice) then return false end
+        local point = routePoint(context.source[context.index], false)
+        if point then context.threats[#context.threats + 1] = point end
+        context.index = context.index + 1
+    end
+    if context.stage == "threats" then
+        if #context.source == 0 and type(context.dangerSnapshot.lastKnownDanger) == "table" then
+            if slice and P().sliceExpired(slice) then return false end
+            local point = routePoint(context.dangerSnapshot.lastKnownDanger, true)
+            if point then context.threats[1] = point end
+        end
+        context.stage, context.index = "allies", 1
+        context.source = type(context.snapshot.allies) == "table"
+            and context.snapshot.allies or {}
+    end
+    while context.stage == "allies" and context.index <= #context.source do
+        if slice and P().sliceExpired(slice) then return false end
+        local point = routePoint(context.source[context.index], false)
+        if point then context.allies[#context.allies + 1] = point end
+        context.index = context.index + 1
+    end
+    if context.stage == "allies" then
+        context.stage = "player"
+    end
+    if context.stage == "player" then
+        local player = context.snapshot.player
+        if type(player) == "table" and player.actor then
+            if slice and P().sliceExpired(slice) then return false end
+            local point = routePoint(player, false)
+            if point then context.allies[#context.allies + 1] = point end
+        end
+        context.stage = "complete"
+    end
+    context.ready, context.source = true, nil
+    context.snapshot, context.dangerSnapshot = nil, nil
+    return true
+end
+
+local function routeEvaluationContext(snapshot, options)
+    local context = newRouteEvaluationContext(snapshot, options)
+    resumeRouteEvaluationContext(context)
+    return context
+end
+
+local function pointDistanceSq(x, y, z, point)
+    local dx, dy, dz = x - point.x, y - point.y, (z or 0) - (point.z or 0)
+    return dx * dx + dy * dy + dz * dz * 9
+end
+
+local function routeDangerAt(x, y, z, context)
+    if x == nil or type(context) ~= "table" then return 0 end
+    local total = 0
+    if context.stealthAvoidance == true then
+        for _, threat in ipairs(context.threats or {}) do
+            local distance = math.sqrt(math.max(0, pointDistanceSq(x, y, z, threat)))
+            local radius = threat.obstructed and context.obstructedRadius or context.visibleRadius
+            if threat.remembered then radius = math.min(radius, context.obstructedRadius) end
+            if distance < radius then
+                local penalty = context.basePenalty * ((radius - distance) / radius)
+                if distance < context.closeRadius then
+                    penalty = penalty + context.closePenalty
+                        * ((context.closeRadius - distance) / context.closeRadius + 0.25)
+                end
+                if threat.attacking then penalty = penalty * 1.25 end
+                total = total + penalty
+            end
+        end
+        return total
+    end
+    for _, threat in ipairs(context.threats or {}) do
+        local distanceSq = pointDistanceSq(x, y, z, threat)
+        if distanceSq <= 2.25 then total = total + 5
+        elseif distanceSq <= 6.25 then total = total + 2
+        elseif distanceSq <= 12.25 then total = total + 0.5 end
+    end
+    return total
+end
+
+local function routeDanger(path, snapshot, options, context)
     if type(path) ~= "table" or type(snapshot) ~= "table" then return 0 end
     options = type(options) == "table" and options or {}
-    if options.stealthAvoidance == true then
-        local exposure = 0
-        for index = 2, #path do
-            exposure = exposure + stealthThreatPenalty(path[index], snapshot)
-        end
-        return exposure
-    end
-    if type(snapshot.threats) ~= "table" then return 0 end
+    context = context or routeEvaluationContext(snapshot, options)
+    local last = options.stealthAvoidance == true and #path or math.min(#path, 6)
     local danger = 0
-    for index = 2, math.min(#path, 6) do
-        local square = path[index]
-        for threatIndex = 1, math.min(#snapshot.threats, 16) do
-            local threat = snapshot.threats[threatIndex]
-            local distanceSq = U().distanceSq(square, threat.actor or threat.square)
-            if distanceSq <= 2.25 then danger = danger + 5
-            elseif distanceSq <= 6.25 then danger = danger + 2
-            elseif distanceSq <= 12.25 then danger = danger + 0.5 end
-        end
+    for index = 2, last do
+        local x, y, z = U().position(path[index])
+        danger = danger + routeDangerAt(x, y, z, context)
     end
     return danger
 end
 
-local function routeCrowding(path, snapshot)
+local function routeCrowding(path, snapshot, context)
     if type(path) ~= "table" or type(snapshot) ~= "table" then return 0 end
-    local actors = {}
-    for _, ally in ipairs(snapshot.allies or {}) do
-        if ally.actor then actors[#actors + 1] = ally.actor end
-    end
-    if type(snapshot.player) == "table" and snapshot.player.actor then
-        actors[#actors + 1] = snapshot.player.actor
-    end
+    context = context or routeEvaluationContext(snapshot, {})
     local crowding = 0
     for index = 2, math.min(#path, 7) do
-        for _, other in ipairs(actors) do
-            local distanceSq = U().distanceSq(path[index], other)
-            if distanceSq <= 0.81 then crowding = crowding + 2
-            elseif distanceSq <= 2.25 then crowding = crowding + 0.5 end
+        local x, y, z = U().position(path[index])
+        if x ~= nil then
+            for _, other in ipairs(context.allies or {}) do
+                local distanceSq = pointDistanceSq(x, y, z, other)
+                if distanceSq <= 0.81 then crowding = crowding + 2
+                elseif distanceSq <= 2.25 then crowding = crowding + 0.5 end
+            end
         end
     end
     return crowding
@@ -1314,13 +1474,15 @@ end
 
 local function routeTraversalCost(path)
     if type(path) ~= "table" then return math.huge end
-    local cost = 0
+    local cost, hasBush = 0, false
     for index = 2, #path do
-        local passable, edgeCost = passableEdge(path[index - 1], path[index])
+        local passable, edgeCost, _, _, _, edgeHasBush =
+            passableEdge(path[index - 1], path[index])
         if not passable then return math.huge end
         cost = cost + edgeCost
+        hasBush = hasBush or edgeHasBush == true
     end
-    return cost
+    return cost, hasBush
 end
 
 local function routeSignature(path)
@@ -1330,9 +1492,11 @@ local function routeSignature(path)
 end
 
 local function routeEvaluation(path, snapshot, originalIndex, options)
-    local traversal = routeTraversalCost(path)
-    local danger = routeDanger(path, snapshot, options)
-    local crowding = routeCrowding(path, snapshot)
+    local context = routeEvaluationContext(snapshot, options)
+    local traversal, hasBush = routeTraversalCost(path)
+    local danger = routeDanger(path,
+        options and options.stealthOverlay or snapshot, options, context)
+    local crowding = routeCrowding(path, snapshot, context)
     local turns = routeTurns(path)
     return {
         path = path,
@@ -1341,9 +1505,76 @@ local function routeEvaluation(path, snapshot, originalIndex, options)
         danger = danger,
         crowding = crowding,
         turns = turns,
+        signature = routeSignature(path),
+        emergencyVegetation = hasBush == true,
         score = traversal + danger * (options and options.stealthAvoidance and 1 or 4)
             + crowding * 2 + turns * 0.15,
     }
+end
+
+-- The incremental route chooser must time-slice scoring as well as A*. In
+-- particular, rechecking traversal cost can otherwise issue a whole path's
+-- worth of native obstacle queries after its search deadline has expired.
+local function resumeRouteEvaluation(job, path, originalIndex, slice)
+    if not resumeRouteEvaluationContext(job.evaluationContext, slice) then return nil end
+    local evaluation = job.pendingEvaluation
+    if not evaluation then
+        local firstX, firstY, firstZ = U().position(path[1])
+        evaluation = { path = path, originalIndex = originalIndex, index = 2,
+            traversal = 0, danger = 0, crowding = 0, turns = 0,
+            context = job.evaluationContext,
+            previousX = firstX, previousY = firstY, previousZ = firstZ,
+            signatureParts = { tostring(squareKey(path[1])) },
+            emergencyVegetation = false }
+        job.pendingEvaluation = evaluation
+    end
+    local options = job.pathOptions or {}
+    while evaluation.index <= #path do
+        if P().sliceExpired(slice) then return nil end
+        local index = evaluation.index
+        local previous, square = path[index - 1], path[index]
+        if evaluation.traversal < math.huge then
+            local passable, cost, _, _, _, hasBush = passableEdge(previous, square)
+            evaluation.traversal = passable and evaluation.traversal + cost or math.huge
+            evaluation.emergencyVegetation = evaluation.emergencyVegetation
+                or hasBush == true
+        end
+        local bx, by, bz = U().position(square)
+        if options.stealthAvoidance == true or index <= 6 then
+            evaluation.danger = evaluation.danger
+                + routeDangerAt(bx, by, bz, evaluation.context)
+        end
+        if index <= 7 and bx ~= nil then
+            for _, other in ipairs(evaluation.context.allies or {}) do
+                local distanceSq = pointDistanceSq(bx, by, bz, other)
+                if distanceSq <= 0.81 then evaluation.crowding = evaluation.crowding + 2
+                elseif distanceSq <= 2.25 then evaluation.crowding = evaluation.crowding + 0.5 end
+            end
+        end
+        if evaluation.previousX and bx then
+            local dx, dy, dz = bx - evaluation.previousX, by - evaluation.previousY,
+                (bz or 0) - (evaluation.previousZ or 0)
+            if evaluation.lastX ~= nil and (dx ~= evaluation.lastX
+                or dy ~= evaluation.lastY or dz ~= evaluation.lastZ) then
+                evaluation.turns = evaluation.turns + 1
+            end
+            evaluation.lastX, evaluation.lastY, evaluation.lastZ = dx, dy, dz
+        end
+        evaluation.previousX, evaluation.previousY, evaluation.previousZ = bx, by, bz
+        local key = bx ~= nil and (tostring(math.floor(bx)) .. ":"
+            .. tostring(math.floor(by)) .. ":" .. tostring(math.floor(bz or 0)))
+            or tostring(squareKey(square))
+        evaluation.signatureParts[#evaluation.signatureParts + 1] = key
+        evaluation.index = index + 1
+    end
+    job.pendingEvaluation = nil
+    return { path = path, originalIndex = originalIndex, traversal = evaluation.traversal,
+        danger = evaluation.danger, crowding = evaluation.crowding, turns = evaluation.turns,
+        signature = table.concat(evaluation.signatureParts, ">"),
+        nodeKeys = evaluation.signatureParts,
+        emergencyVegetation = evaluation.emergencyVegetation == true,
+        score = evaluation.traversal + evaluation.danger * (options.stealthAvoidance and 1 or 4)
+            + evaluation.crowding * 2 + evaluation.turns * 0.15 }
 end
 
 local function chooseFollowRoute(startSquare, goalSquare, snapshot, pathOptions)
@@ -1351,8 +1582,9 @@ local function chooseFollowRoute(startSquare, goalSquare, snapshot, pathOptions)
     pathOptions = type(pathOptions) == "table" and pathOptions or {}
     local primary, reason, expanded = boundedPath(startSquare, goalSquare, pathOptions)
     if not primary then return nil, reason, expanded, nil end
-    local candidates = { routeEvaluation(primary, snapshot, 1, pathOptions) }
-    local signatures = { [routeSignature(primary)] = true }
+    local primaryEvaluation = routeEvaluation(primary, snapshot, 1, pathOptions)
+    local candidates = { primaryEvaluation }
+    local signatures = { [primaryEvaluation.signature] = true }
     local minimumLength = utility.config("navigationAlternativeMinLength") or 6
     local maximum = math.max(1, math.min(3,
         math.floor(tonumber(utility.config("navigationAlternativeRoutes")) or 3)))
@@ -1373,11 +1605,11 @@ local function chooseFollowRoute(startSquare, goalSquare, snapshot, pathOptions)
             alternativeOptions.penalties = penalties
             local alternative, _, alternativeExpanded = boundedPath(startSquare, goalSquare, alternativeOptions)
             totalExpanded = totalExpanded + (alternativeExpanded or 0)
-            local signature = alternative and routeSignature(alternative) or nil
-            if alternative and signature and not signatures[signature] then
-                signatures[signature] = true
-                candidates[#candidates + 1] = routeEvaluation(
-                    alternative, snapshot, #candidates + 1, pathOptions)
+            local evaluation = alternative and routeEvaluation(
+                alternative, snapshot, #candidates + 1, pathOptions) or nil
+            if evaluation and not signatures[evaluation.signature] then
+                signatures[evaluation.signature] = true
+                candidates[#candidates + 1] = evaluation
             end
         end
     end
@@ -1391,6 +1623,9 @@ local function chooseFollowRoute(startSquare, goalSquare, snapshot, pathOptions)
         candidateCount = #candidates,
         selectedOriginalIndex = selected.originalIndex,
         selectedScore = selected.score,
+        selectedDanger = selected.danger,
+        selectedSignature = selected.signature,
+        selectedEmergencyVegetation = selected.emergencyVegetation == true,
         routes = candidates,
     }
 end
@@ -1410,6 +1645,9 @@ local function finalizeRouteSearch(job, reason)
             candidateCount = #job.candidates,
             selectedOriginalIndex = selected.originalIndex,
             selectedScore = selected.score,
+            selectedDanger = selected.danger,
+            selectedSignature = selected.signature,
+            selectedEmergencyVegetation = selected.emergencyVegetation == true,
             routes = job.candidates,
         }
     end
@@ -1425,6 +1663,7 @@ local function newRouteSearchJob(startSquare, goalSquare, snapshot, pathOptions,
         goalKey = squareKey(goalSquare),
         snapshot = snapshot,
         pathOptions = pathOptions,
+        evaluationContext = newRouteEvaluationContext(snapshot, pathOptions),
         alternatives = alternatives == true,
         phase = "primary",
         search = newBoundedPathJob(startSquare, goalSquare, pathOptions),
@@ -1439,11 +1678,13 @@ end
 
 local function startAlternativeSearch(job)
     local utility = U()
-    local previous = job.candidates[#job.candidates] and job.candidates[#job.candidates].path or nil
+    local previousEvaluation = job.candidates[#job.candidates]
+    local previous = previousEvaluation and previousEvaluation.path or nil
     if not previous then return false end
     local diversity = utility.config("navigationRouteDiversityPenalty") or 3.5
     for index = 2, math.min(#previous - 1, 12) do
-        local key = squareKey(previous[index])
+        local key = previousEvaluation.nodeKeys and previousEvaluation.nodeKeys[index]
+            or squareKey(previous[index])
         if key then job.penalties[key] = (job.penalties[key] or 0) + diversity end
     end
     local options = utility.copyShallow(job.pathOptions)
@@ -1455,12 +1696,14 @@ local function startAlternativeSearch(job)
     return true
 end
 
-local function resumeRouteSearch(job, expansionQuota)
+local function resumeRouteSearchSlice(job, expansionQuota)
     if type(job) ~= "table" then return "failed", nil, "invalid_job", 0, nil, 0 end
     if job.complete then
         return job.path and "complete" or "failed", job.path, job.reason,
             job.totalExpanded or 0, job.report, 0
     end
+    local slice = P().newSlice(job.pathOptions, U().config("navigationSliceBudgetMs") or 2)
+    job.lastYieldReason = nil
     -- Refresh the stealth danger overlay before this slice so later-expanded nodes
     -- score against threats that are still live (review 3.5). Bounded and throttled.
     if type(job.pathOptions) == "table" and job.pathOptions.stealthOverlay ~= nil then
@@ -1469,13 +1712,36 @@ local function resumeRouteSearch(job, expansionQuota)
     local remaining = math.max(1, math.floor(tonumber(expansionQuota) or 1))
     local totalUsed, transitions = 0, 0
     while remaining > 0 and not job.complete and transitions < 8 do
+        if P().sliceExpired(slice) then
+            job.lastYieldReason = "deadline"
+            return "pending", nil, "searching", job.totalExpanded
+                + (job.search and job.search.expanded or 0), nil, totalUsed
+        end
         transitions = transitions + 1
-        local status, path, reason, expanded, used = resumeBoundedPathJob(job.search, remaining)
+        local status, path, reason, expanded, used = resumeBoundedPathJob(job.search, remaining, slice)
         used = math.max(0, tonumber(used) or 0)
         totalUsed = totalUsed + used
         remaining = remaining - used
         if status == "pending" then
+            job.lastYieldReason = job.search.lastYieldReason or "quota"
             return "pending", nil, "searching", job.totalExpanded + expanded, nil, totalUsed
+        end
+
+        -- A completed search retains its result. Resume its cheap completion on
+        -- the next slice instead of scoring alternatives after a costly edge.
+        if P().sliceExpired(slice) then
+            job.lastYieldReason = "deadline"
+            return "pending", nil, "searching", job.totalExpanded + expanded, nil, totalUsed
+        end
+
+        local evaluation
+        if status == "complete" and path then
+            evaluation = resumeRouteEvaluation(job, path,
+                job.phase == "primary" and 1 or #job.candidates + 1, slice)
+            if not evaluation then
+                job.lastYieldReason = "deadline"
+                return "pending", nil, "searching", job.totalExpanded + expanded, nil, totalUsed
+            end
         end
 
         job.totalExpanded = job.totalExpanded + (tonumber(expanded) or 0)
@@ -1488,12 +1754,12 @@ local function resumeRouteSearch(job, expansionQuota)
                 }
                 finalizeRouteSearch(job, reason or "unreachable")
             elseif not job.alternatives then
-                job.candidates[1] = routeEvaluation(path, job.snapshot, 1, job.pathOptions)
-                job.signatures[routeSignature(path)] = true
+                job.candidates[1] = evaluation
+                job.signatures[evaluation.signature] = true
                 finalizeRouteSearch(job)
             else
-                job.candidates[1] = routeEvaluation(path, job.snapshot, 1, job.pathOptions)
-                job.signatures[routeSignature(path)] = true
+                job.candidates[1] = evaluation
+                job.signatures[evaluation.signature] = true
                 local minimumLength = U().config("navigationAlternativeMinLength") or 6
                 local maximum = math.max(1, math.min(3,
                     math.floor(tonumber(U().config("navigationAlternativeRoutes")) or 3)))
@@ -1504,12 +1770,10 @@ local function resumeRouteSearch(job, expansionQuota)
                 end
             end
         else
-            if status == "complete" and path then
-                local signature = routeSignature(path)
-                if not job.signatures[signature] then
-                    job.signatures[signature] = true
-                    job.candidates[#job.candidates + 1] = routeEvaluation(
-                        path, job.snapshot, #job.candidates + 1, job.pathOptions)
+            if status == "complete" and path and evaluation then
+                if not job.signatures[evaluation.signature] then
+                    job.signatures[evaluation.signature] = true
+                    job.candidates[#job.candidates + 1] = evaluation
                 end
             end
             job.attempt = job.attempt + 1
@@ -1527,6 +1791,13 @@ local function resumeRouteSearch(job, expansionQuota)
             job.totalExpanded, job.report, totalUsed
     end
     return "pending", nil, "searching", job.totalExpanded, nil, totalUsed
+end
+
+local function resumeRouteSearch(job, expansionQuota)
+    if SC.Topology and type(SC.Topology.withReadBatch) == "function" then
+        return SC.Topology.withReadBatch(resumeRouteSearchSlice, job, expansionQuota)
+    end
+    return resumeRouteSearchSlice(job, expansionQuota)
 end
 
 local function chooseRememberedEgress(state, currentSquare, now, snapshot)
@@ -1726,16 +1997,19 @@ end
 local function personalSpaceBlocker(actor, nextSquare, snapshot)
     if type(snapshot) ~= "table" then return nil end
     local utility = U()
-    local spacing = utility.config("navigationPersonalSpace") or 0.9
-    local spacingSq = spacing * spacing
+    local tx, ty = utility.position(nextSquare)
+    if tx == nil then return nil end
+    local spacing = utility.config("navigationBodyClearance") or 0.5
     for _, ally in ipairs(snapshot.allies or {}) do
         if ally.actor and ally.actor ~= actor and utility.sameFloor(ally.actor, nextSquare)
-            and utility.distanceSq(ally.actor, nextSquare) < spacingSq then return ally.actor end
+            and utility.bodyBlocksSegment(ally.actor, actor, tx + 0.5, ty + 0.5, spacing)
+            then return ally.actor end
     end
     local player = snapshot.player
     if type(player) == "table" and player.actor and player.actor ~= actor
         and utility.sameFloor(player.actor, nextSquare)
-        and utility.distanceSq(player.actor, nextSquare) < spacingSq then return player.actor end
+        and utility.bodyBlocksSegment(player.actor, actor, tx + 0.5, ty + 0.5, spacing)
+        then return player.actor end
     return nil
 end
 
@@ -2044,7 +2318,17 @@ local function changedGoal(state, goalSquare)
     return not state.goalSquare or not sameSquare(state.goalSquare, goalSquare)
 end
 
+local function resetRouteProjection(state)
+    state.routeCrossTrack, state.routeProjection, state.lastRouteProjection = nil, nil, nil
+    state.crossTrackSince, state.reverseProgressSince = nil, nil
+    state.routeProjectionSegment, state.routeProjectionAt = nil, nil
+end
+-- The large request dispatcher is at Kahlua's 60-upvalue ceiling. Share this
+-- through its existing SC upvalue instead of capturing one more local helper.
+Navigation._resetRouteProjection = resetRouteProjection
+
 local function clearMovementTransients(actor, state)
+    resetRouteProjection(state)
     if state.nativeLease and SC.NativeActions
         and type(SC.NativeActions.stopDirect) == "function" then
         pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
@@ -2161,10 +2445,53 @@ local function goalResetDistance(context)
     return U().config("navigationGoalResetDistance") or 3.0
 end
 
+local function goalsShareHeading(actor, oldGoal, newGoal)
+    local ax, ay, az = U().position(actor)
+    local ox, oy, oz = U().position(oldGoal)
+    local nx, ny, nz = U().position(newGoal)
+    if ax == nil or ox == nil or nx == nil
+        or math.floor(az or 0) ~= math.floor(oz or 0)
+        or math.floor(az or 0) ~= math.floor(nz or 0) then return false end
+    local odx, ody, ndx, ndy = ox - ax, oy - ay, nx - ax, ny - ay
+    local oldLength = math.sqrt(odx * odx + ody * ody)
+    local newLength = math.sqrt(ndx * ndx + ndy * ndy)
+    if oldLength <= 0.6 or newLength <= 0.6 then return false end
+    return (odx * ndx + ody * ndy) / (oldLength * newLength) >= 0.35
+end
+
+-- The actor is deliberately stationary while incremental A* yields. Let a
+-- forward-moving formation goal drift a few tiles without discarding that whole
+-- frontier; the completed route is repaired to the latest goal immediately.
+local function usefulPendingMovingSearch(actor, state, goalSquare, context, now)
+    local pending = state and state.pathSearch
+    local route = pending and pending.route
+    local oldGoal = route and route.goalSquare
+    if oldGoal == nil or not isMovingTargetIntent(context) then return false end
+    local startedAt = tonumber(pending.startedAt)
+    local leaseMs = tonumber(U().config("navigationPathSearchLeaseMs")) or 6500
+    if startedAt == nil or now - startedAt < 0 or now - startedAt > leaseMs then
+        return false
+    end
+    local sourceSquare = U().squareOf(actor)
+    if sourceSquare == nil or route.startKey ~= squareKey(sourceSquare) then return false end
+    local ox, oy, oz = U().position(oldGoal)
+    local nx, ny, nz = U().position(goalSquare)
+    if ox == nil or nx == nil or math.floor(oz or 0) ~= math.floor(nz or 0) then
+        return false
+    end
+    local drift = math.abs(math.floor(nx) - math.floor(ox))
+        + math.abs(math.floor(ny) - math.floor(oy))
+    local limit = math.max(1,
+        math.floor(tonumber(U().config("navigationMovingRouteRepairDistance")) or 4))
+    return drift <= limit and goalsShareHeading(actor, oldGoal, goalSquare)
+end
+Navigation._usefulPendingMovingSearchForRequest = usefulPendingMovingSearch
+Navigation._usefulPendingMovingSearchForTests = usefulPendingMovingSearch
+
 -- A formation destination moves a little on nearly every leader sample. Rebuilding
 -- a complete A* frontier for each small drift wastes the already-valid route and
--- creates visible search pauses. Safely extend the old endpoint with a very short
--- cardinal tail when both destinations remain in the same forward region.
+-- creates visible search pauses. Trim to an existing unconsumed goal, or safely
+-- extend the endpoint with a short cardinal tail. Never append a retracing loop.
 local function tryRepairMovingPath(actor, state, sourceSquare, goalSquare, context, now)
     if not isMovingTargetIntent(context) or type(state.path) ~= "table"
         or #state.path == 0 or not state.pathGoalSquare then return false end
@@ -2191,8 +2518,56 @@ local function tryRepairMovingPath(actor, state, sourceSquare, goalSquare, conte
     local startedAt = utility.nowMs()
     local current = state.path[#state.path]
     if not sameSquare(current, state.pathGoalSquare) then return false end
+    local activeIndex = math.max(2, math.floor(tonumber(state.pathIndex) or 2))
+    local firstRetained = math.min(#state.path, activeIndex - 1)
+    local maximumNodes = math.max(8,
+        math.floor(tonumber(utility.config("navigationMovingRouteMaxNodes")) or 256))
+    -- Keep one predecessor for continuous segment projection, not the entire
+    -- route history. Decline oversized legacy tails and let normal replanning
+    -- recover rather than spending an unbounded frame scanning them.
+    if #state.path - firstRetained + 1 > maximumNodes then return false end
+    local existingGoal
+    for index = firstRetained, #state.path do
+        if sameSquare(state.path[index], goalSquare) then
+            if index < activeIndex then return false end
+            existingGoal = index
+            break
+        end
+    end
+    local function commitRepair(tail, lastRetained, kind)
+        local oldCount = #state.path
+        local repaired = {}
+        for index = firstRetained, lastRetained do
+            repaired[#repaired + 1] = state.path[index]
+        end
+        for _, square in ipairs(tail) do repaired[#repaired + 1] = square end
+        if #repaired > maximumNodes then return false end
+        state.path = repaired
+        state.pathIndex = activeIndex - firstRetained + 1
+        state.pathGoalSquare = goalSquare
+        resetRouteProjection(state)
+        state.routeRepairCount = (state.routeRepairCount or 0) + 1
+        state.lastRouteRepairAt, state.lastRouteRepairKind = now, kind
+        state.lastRouteRepairAppended = #tail
+        state.lastRouteRepairTrimmed = oldCount - lastRetained
+        state.lastRouteRepairCompacted = firstRetained - 1
+        recordMovement(actor, "route_repaired", {
+            status = kind, targetSquare = goalSquare,
+            detail = "nodes=" .. tostring(#repaired) .. " appended=" .. tostring(#tail)
+                .. " trimmed=" .. tostring(oldCount - lastRetained)
+                .. " compacted=" .. tostring(firstRetained - 1),
+        })
+        if SC.Performance and type(SC.Performance.record) == "function" then
+            SC.Performance.record("navigation.repair", utility.idOf(actor),
+                utility.nowMs() - startedAt, #tail, false)
+        end
+        return true
+    end
+    if existingGoal then return commitRepair({}, existingGoal, "trimmed") end
+    local repairSlice = P().newSlice({ clock = utility.nowMs },
+        utility.config("navigationSliceBudgetMs") or 2)
     local tail, seen = {}, {}
-    for index = 1, #state.path - 1 do
+    for index = firstRetained, #state.path do
         local key = squareKey(state.path[index])
         if key then seen[key] = true end
     end
@@ -2212,8 +2587,9 @@ local function tryRepairMovingPath(actor, state, sourceSquare, goalSquare, conte
         end
         local best, bestScore
         for _, candidate in ipairs(candidates) do
+            if P().sliceExpired(repairSlice) then return false end
             local key = squareKey(candidate)
-            if candidate and (not seen[key] or sameSquare(candidate, goalSquare)) then
+            if candidate and not seen[key] then
                 local passable, cost = passableEdge(current, candidate,
                     context.urgent == true
                         and (utility.config("navigationEmergencyVegetationScale") or 0.2) or 1, {
@@ -2234,18 +2610,7 @@ local function tryRepairMovingPath(actor, state, sourceSquare, goalSquare, conte
         current = best
     end
     if not sameSquare(current, goalSquare) then return false end
-    for _, square in ipairs(tail) do state.path[#state.path + 1] = square end
-    state.pathGoalSquare = goalSquare
-    state.routeRepairCount = (state.routeRepairCount or 0) + 1
-    state.lastRouteRepairAt = now
-    recordMovement(actor, "route_repaired", {
-        appended = #tail, goal = squareKey(goalSquare),
-    })
-    if SC.Performance and type(SC.Performance.record) == "function" then
-        SC.Performance.record("navigation.repair", utility.idOf(actor),
-            utility.nowMs() - startedAt, #tail, false)
-    end
-    return true
+    return commitRepair(tail, #state.path, "extended")
 end
 
 -- Native collision steering may place the actor beside (or farther along) the
@@ -2287,10 +2652,12 @@ local function tryReusePathSuffix(actor, state, sourceSquare, context, now)
     if not selected then return false end
     releaseStep(state, actor)
     state.pathIndex = selected
+    resetRouteProjection(state)
     state.routeReuseCount = (state.routeReuseCount or 0) + 1
     state.lastRouteReuseAt = now
     recordMovement(actor, "route_suffix_reused", {
-        index = selected, exact = exact == true,
+        status = exact and "exact" or "adjacent", nextSquare = state.path[selected],
+        detail = "index=" .. tostring(selected),
     })
     if SC.Performance and type(SC.Performance.record) == "function" then
         SC.Performance.record("navigation.reuse", U().idOf(actor), 0, 1, false)
@@ -2300,28 +2667,35 @@ end
 
 local function correctRouteProjection(actor, state, sourceSquare, context, now)
     if type(state.path) ~= "table" or not state.path[state.pathIndex or 2]
-        or state.nativeLease or state.pendingInteraction then return true end
+        or state.nativeLease or state.pendingInteraction then
+        resetRouteProjection(state)
+        return true
+    end
     local index = math.max(2, tonumber(state.pathIndex) or 2)
     local previous, following = state.path[index - 1], state.path[index]
     if Navigation.edgeAffordance(previous, following) then
-        state.crossTrackSince, state.reverseProgressSince = nil, nil
+        resetRouteProjection(state)
         return true
     end
+    local segment = tostring(squareKey(previous)) .. ">" .. tostring(squareKey(following))
+    if state.routeProjectionSegment ~= segment then resetRouteProjection(state) end
+    state.routeProjectionSegment = segment
     local utility = U()
     local ax, ay = utility.position(actor)
     local px, py = utility.position(previous)
     local nx, ny = utility.position(following)
-    if ax == nil or px == nil or nx == nil then return true end
+    if ax == nil or px == nil or nx == nil then resetRouteProjection(state) return true end
     px, py, nx, ny = px + 0.5, py + 0.5, nx + 0.5, ny + 0.5
     local dx, dy = nx - px, ny - py
     local lengthSq = dx * dx + dy * dy
-    if lengthSq < 0.01 then return true end
+    if lengthSq < 0.01 then resetRouteProjection(state) return true end
     local projection = ((ax - px) * dx + (ay - py) * dy) / lengthSq
     local clamped = math.max(0, math.min(1, projection))
     local closestX, closestY = px + dx * clamped, py + dy * clamped
     local crossTrack = math.sqrt((ax - closestX) ^ 2 + (ay - closestY) ^ 2)
     state.routeCrossTrack = crossTrack
     state.routeProjection = projection
+    state.routeProjectionAt = now
 
     if projection > 1.05 and index < #state.path then
         local oldIndex = index
@@ -2333,9 +2707,11 @@ local function correctRouteProjection(actor, state, sourceSquare, context, now)
         state.pathIndex = math.max(oldIndex + 1, index)
         state.routeOvershootCount = (state.routeOvershootCount or 0) + 1
         state.lastRouteOvershootAt = now
-        state.crossTrackSince, state.reverseProgressSince = nil, nil
+        resetRouteProjection(state)
         recordMovement(actor, "route_overshoot", {
-            index = state.pathIndex, crossTrack = crossTrack, status = "advanced_suffix",
+            status = "advanced_suffix", nextSquare = state.path[state.pathIndex],
+            detail = "index=" .. tostring(state.pathIndex)
+                .. " cross-track=" .. string.format("%.2f", crossTrack),
         })
         return true
     end
@@ -2361,9 +2737,9 @@ local function correctRouteProjection(actor, state, sourceSquare, context, now)
         state.pathIndex, state.nextRepathAt = 1, 0
         state.routeRestartCount = (state.routeRestartCount or 0) + 1
         state.lastRouteRestartAt, state.lastRouteRestartReason = now, reason
-        state.crossTrackSince, state.reverseProgressSince = nil, nil
+        resetRouteProjection(state)
         recordMovement(actor, "route_restarted", {
-            status = reason, crossTrack = crossTrack,
+            status = reason, detail = "cross-track=" .. string.format("%.2f", crossTrack),
         })
         return false
     end
@@ -2401,7 +2777,7 @@ end
 -- Probe a short continuous step, then try deterministic nearby headings. The
 -- actor's stable side preference prevents alternating left/right around the same
 -- obstacle on consecutive combat ticks.
-function Navigation.combatVector(actor, target, kind)
+function Navigation.combatVector(actor, target, kind, snapshot)
     local utility = U()
     local ax, ay, az = utility.position(actor)
     local tx, ty = utility.position(target)
@@ -2425,6 +2801,8 @@ function Navigation.combatVector(actor, target, kind)
         tonumber(utility.config("combatSteeringProbeDistance")) or 0.45)
     local sourceSquare = utility.squareOf(actor)
     local nativeProbeAvailable = utility.hasMethod(actor, "isCompanionMovementClear")
+    local best, bestCost
+    local threats = type(snapshot) == "table" and snapshot.threats or nil
     for index, angle in ipairs(angles) do
         local dx, dy = rotatedVector(baseX, baseY, angle)
         local toX, toY = ax + dx * probeDistance, ay + dy * probeDistance
@@ -2440,18 +2818,44 @@ function Navigation.combatVector(actor, target, kind)
                 actor = actor, now = utility.nowMs(), allowOccupiedGoal = false,
             })) == true
         end
-        if clear then
-            if index > 1 then
-                local state = stateFor(actor)
-                state.combatSteerCount = (state.combatSteerCount or 0) + 1
-                state.lastCombatSteerAt = utility.nowMs()
-                state.lastCombatSteerKind = kind
-                recordMovement(actor, "combat_micro_steer", {
-                    action = kind, candidate = index,
-                })
+        local danger = index * 0.001
+        if clear and type(threats) == "table" then
+            for threatIndex = 1, math.min(#threats, 12) do
+                local threat = threats[threatIndex]
+                local other = threat and threat.actor
+                if other and not utility.isDead(other) and utility.sameFloor(actor, other)
+                    and not (kind == "approach" and other == target) then
+                    local ox, oy = utility.position(other)
+                    if ox then
+                        local before = math.sqrt((ox - ax)^2 + (oy - ay)^2)
+                        local after = math.sqrt((ox - toX)^2 + (oy - toY)^2)
+                        if utility.bodyBlocksSegment(other, actor, toX, toY, 0.6)
+                            or (before < 1.3 and after < before - 0.05)
+                            or (other == target and after < before - 0.02) then
+                            clear = false
+                            break
+                        end
+                        danger = danger + math.max(0, 2.25 - after)^2
+                    end
+                end
             end
-            return dx, dy, index > 1, index > 1 and "steered" or "direct"
         end
+        if clear and (best == nil or danger < bestCost) then
+            best, bestCost = { x = dx, y = dy, index = index }, danger
+            if threats == nil then break end
+        end
+    end
+    if best then
+        if best.index > 1 then
+            local state = stateFor(actor)
+            state.combatSteerCount = (state.combatSteerCount or 0) + 1
+            state.lastCombatSteerAt = utility.nowMs()
+            state.lastCombatSteerKind = kind
+            recordMovement(actor, "combat_micro_steer", {
+                action = kind, candidate = best.index,
+            })
+        end
+        return best.x, best.y, best.index > 1, best.index > 1 and "steered" or "direct"
     end
     return nil, nil, false, "no_clear_alternative"
 end
@@ -2515,12 +2919,27 @@ local function nativeLeaseArrival(actor, lease)
     return nil
 end
 
+-- PathFindBehavior2 may need several frames before it publishes an active path.
+-- A running leader can move the formation goal beyond the normal drift threshold
+-- during that startup window. Keep the just-issued path when both goals are still
+-- ahead in the same general direction; a turn or reversal still cancels at once.
+local function usefulMovingGoalDuringStart(actor, lease, goalSquare, now)
+    if not lease or lease.movingTarget ~= true then return false end
+    local telemetry = pathTelemetry(actor)
+    local grace = (telemetry.pending == true or lease.wasPending == true)
+        and (tonumber(U().config("navigationNativePendingMs")) or 6500)
+        or (tonumber(U().config("navigationNativeStartGraceMs")) or 650)
+    if now - (tonumber(lease.startedAt) or now) >= grace then return false end
+    return goalsShareHeading(actor, lease.ultimateGoal, goalSquare)
+end
+
 local function maintainNativeLease(actor, state, goalSquare, now)
     local lease = state.nativeLease
     if not lease then return nil, nil end
-    if lease.ultimateGoalKey and squareKey(goalSquare) ~= lease.ultimateGoalKey
+    local goalMoved = lease.ultimateGoalKey and squareKey(goalSquare) ~= lease.ultimateGoalKey
         and lease.ultimateGoal and U().distance(lease.ultimateGoal, goalSquare)
-            >= goalResetDistance(lease) then
+            >= goalResetDistance(lease)
+    if goalMoved and not usefulMovingGoalDuringStart(actor, lease, goalSquare, now) then
         -- Cancelling only the Lua lease leaves PathFindBehavior2 running toward
         -- its old destination while the replacement A* search yields over later
         -- frames. Stop the engine-owned path first so a follower cannot walk far
@@ -2530,6 +2949,9 @@ local function maintainNativeLease(actor, state, goalSquare, now)
         end
         state.nativeLease = nil
         return "cancelled", "native_goal_changed"
+    elseif goalMoved then
+        lease.deferredGoalSquare = goalSquare
+        lease.deferredGoalKey = squareKey(goalSquare)
     end
     if lease.nativePaused == true then
         if now < (tonumber(lease.passagePausedUntil) or 0) then
@@ -2635,6 +3057,31 @@ local function maintainNativeLease(actor, state, goalSquare, now)
     if actorState ~= nil or telemetry.active == true then
         lease.activityHeartbeatAt = now
     end
+    local pendingGrace = tonumber(U().config("navigationNativePendingMs")) or 6500
+    local nativePending = telemetry.pending == true or telemetry.status == "pending"
+    if nativePending and now - (tonumber(lease.startedAt) or now) <= pendingGrace then
+        lease.wasPending = true
+        lease.expires = math.max(tonumber(lease.expires) or 0,
+            (tonumber(lease.startedAt) or now) + pendingGrace)
+        extendChoke(state, actor, lease.expires)
+        lease.lastActiveAt = now
+        return "active", "native_path_pending"
+    elseif lease.wasPending == true then
+        -- Ready/moving is a new phase: give native movement its normal no-progress
+        -- allowance instead of charging the route-search time against it.
+        lease.wasPending = nil
+        if lease.deferredGoalSquare ~= nil then
+            lease.ultimateGoal = lease.deferredGoalSquare
+            lease.ultimateGoalKey = lease.deferredGoalKey
+            lease.deferredGoalSquare, lease.deferredGoalKey = nil, nil
+        end
+        lease.positionProgressAt = now
+        lease.lastWorldX, lease.lastWorldY, lease.lastWorldZ = worldX, worldY, worldZ
+        lease.lastGoalDistance = goalDistance
+        lease.expires = now + (tonumber(lease.leaseMs)
+            or U().config("navigationNativeLeaseMs") or 6500)
+        state.lastProgressAt = now
+    end
     local startGrace = tonumber(U().config("navigationNativeStartGraceMs")) or 650
     local stallMs = lease.affordance == "multi_level"
         and (tonumber(U().config("navigationMultiLevelStallMs")) or 3000)
@@ -2656,6 +3103,18 @@ local function maintainNativeLease(actor, state, goalSquare, now)
     if now - lease.startedAt < startGrace then
         return "active", "native_path_starting"
     end
+    -- stopDirect clears the route and often returns the FSM to idle. Preserve
+    -- the failing native evidence before cleanup makes the blocker log lie.
+    state.lastNativeFailureTelemetry = {
+        at = now, status = telemetry.status, active = telemetry.active,
+        pathNextIsSet = telemetry.pathNextIsSet, pathNextX = telemetry.pathNextX,
+        pathNextY = telemetry.pathNextY,
+        summary = tostring(telemetry.status or "unavailable") .. ":"
+            .. tostring(telemetry.active) .. "/" .. tostring(telemetry.pending)
+            .. ":next=" .. tostring(telemetry.pathNextIsSet) .. ":"
+            .. tostring(telemetry.pathNextX) .. "," .. tostring(telemetry.pathNextY)
+            .. ":fsm=" .. string.sub(U().objectLabel(select(1, U().call(actor, "getCurrentState"))), 1, 80),
+    }
     if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
         pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
     end
@@ -2681,21 +3140,37 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
     if barrierKind == "open" and (squareHasSlope(fromSquare) or squareHasSlope(toSquare)) then
         barrierKind = "slope"
     end
-    if barrierKind == "door" or barrierKind == "fence" or barrierKind == "stairs"
+    if barrierKind == "door" and not objectOpen(barrier) then
+        return { type = "door", object = barrier, square = toSquare or fromSquare }
+    end
+    if barrierKind == "fence" or barrierKind == "stairs"
         or barrierKind == "slope" then
         return { type = barrierKind, object = barrier, square = toSquare or fromSquare }
     end
     local collided, ok = utility.call(actor, "isCollidedWithVehicle")
-    if ok and collided == true then
-        return { type = "vehicle", square = toSquare or fromSquare }
+    -- Despite its name, Build 42 sets this flag for ANY PolygonalMap2
+    -- position correction, including walls and door geometry. A vehicle
+    -- classification requires an actual overlapping vehicle object.
+    local polygonCollision = ok and collided == true
+    if polygonCollision then
+        local vehicle = squareVehicle(toSquare) or squareVehicle(fromSquare)
+        if vehicle then
+            return { type = "vehicle", object = vehicle, square = toSquare or fromSquare }
+        end
     end
     collided, ok = utility.call(actor, "isCollidedWithDoor")
     if ok and collided == true then
         local object = select(1, utility.call(actor, "getCollidedObject"))
-        return { type = "door", object = object, square = toSquare or fromSquare }
+        return { type = "door", object = object or barrier, square = toSquare or fromSquare,
+            evidenceClass = objectOpen(object or barrier) and "unknown" or nil,
+            confidence = objectOpen(object or barrier) and "low" or nil }
     end
     local object, objectOk = utility.call(actor, "getCollidedObject")
     if objectOk and object ~= nil then
+        if barrierKind == "door" and object == barrier and objectOpen(object) then
+            return { type = "door", object = object, square = toSquare,
+                evidenceClass = "unknown", confidence = "low" }
+        end
         local moved, movedOk = utility.call(object, "isMovedThumpable")
         local blockAll, blockOk = utility.call(object, "isBlockAllTheSquare")
         if (movedOk and moved == true) or (blockOk and blockAll == true)
@@ -2715,8 +3190,16 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
     if static then return { type = staticKind, object = static, square = toSquare } end
     local thumpable, thumpableKind = edgeThumpableBlocker(fromSquare, toSquare, actor)
     if thumpable then return { type = thumpableKind, object = thumpable, square = toSquare } end
-    local moving, movingKind = utility.movingBlocker(toSquare, actor)
+    local moving, movingKind = utility.movingBlocker(toSquare, actor, { swept = true })
     if moving then return { type = movingKind, object = moving, square = toSquare, dynamic = true } end
+    if barrierKind == "door" then
+        return { type = "door", object = barrier, square = toSquare or fromSquare,
+            evidenceClass = "unknown", confidence = "low", passageOnly = true }
+    end
+    if polygonCollision then
+        return { type = "continuous_geometry", square = toSquare or fromSquare,
+            evidenceClass = "unknown", confidence = "low" }
+    end
     if squareHasStairs(fromSquare) or squareHasStairs(toSquare)
         or squareHasSlope(fromSquare) or squareHasSlope(toSquare) then
         return { type = "stairs_or_slope", square = toSquare }
@@ -2742,6 +3225,8 @@ local function addBlockerEvidence(blocker)
     local blockAll = blockAllOk and blockAllValue == true
     if kind == "actor_state" then
         blocker.evidenceClass, blocker.confidence = "actor_state", "high"
+    elseif string.find(kind, "_crowd", 1, true) then
+        blocker.evidenceClass, blocker.confidence = "dynamic", "high"
     elseif kind == "vehicle" or kind == "moved_object" or kind == "pushable_object"
         or kind == "player" or kind == "companion" or kind == "zombie" then
         blocker.evidenceClass, blocker.confidence = "dynamic_square", "high"
@@ -2761,11 +3246,17 @@ local function addBlockerEvidence(blocker)
 end
 
 local function rememberFailure(actor, state, fromSquare, toSquare, reason, now, recovery)
+    state.lastMovementReason = reason
+    state.lastAttemptFrom, state.lastAttemptTo = fromSquare, toSquare
     local blocker = addBlockerEvidence(
         classifyMovementBlocker(actor, fromSquare, toSquare, reason))
     local object, kind = barrierBetween(fromSquare, toSquare)
     rememberRouteEdge(state, fromSquare, toSquare, false,
         blocker.type or kind, blocker.object or object, now)
+    if blocker.confidence == "low" then
+        local remembered = state.routeMemory and state.routeMemory[edgeKey(fromSquare, toSquare)]
+        if remembered then remembered.expires = now + blockerDuration("unknown") end
+    end
     if blocker.type ~= "actor_state" and fromSquare and toSquare then
         blacklistEdge(state, fromSquare, toSquare, blocker.type, blocker.object, now,
             blocker.evidenceClass, blocker.confidence)
@@ -3023,6 +3514,17 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         -- the generic stuck timer can immediately fire in the same update.
         state.lastProgressAt = now
     end
+    if state.pathSearch ~= nil then
+        local searchAge = now - (tonumber(state.pathSearch.startedAt) or now)
+        local searchLease = tonumber(utility.config("navigationPathSearchLeaseMs")) or 6500
+        if searchAge >= 0 and searchAge <= searchLease then
+            -- holdForPathSearch intentionally makes the actor idle. Planning is
+            -- still live work, not evidence for collision recovery.
+            return false, nil, nil
+        end
+        state.lastMovementReason = "path_search_timeout:"
+            .. tostring(state.pathSearchYieldReason or "unknown")
+    end
     local nearbyDoor = nearbyOpenedDoor(state, actor)
     local treeAwayX, treeAwayY = treeEscapeDirection(actorSquare, actor, goalSquare)
     local preview = classifyMovementBlocker(actor, state.lastAttemptFrom or actorSquare,
@@ -3179,6 +3681,7 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         blocker.actorState, "recovery_rejected", now)
     return true, false, "recovery_action_rejected"
 end
+Navigation._recoverFromStuckForTests = recoverFromStuck
 
 local function nativeVerificationFailure(reason)
     local text = string.lower(tostring(reason or ""))
@@ -3287,6 +3790,30 @@ local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
 end
 Navigation._requestMultiLevelPath = requestMultiLevelPath
 
+function Navigation._maintainTraversalForRequest(actor, state, sourceSquare, now)
+    local nativeTraversal = SC.NativeTraversalActions
+    if nativeTraversal and type(nativeTraversal.poll) == "function" then
+        local phase, traversalReason, traversal = nativeTraversal.poll(actor, now)
+        if phase == "starting" or phase == "active" then
+            state.lastProgressAt = now
+            return true, true, traversalReason or "traversal_starting"
+        elseif traversal and (phase == "failed" or phase == "completed") then
+            nativeTraversal.reset(actor)
+            SC.NavTraversal.release(traversal.object, actor)
+            if phase == "failed" then
+                state.pendingInteraction = nil
+                rememberFailure(actor, state, traversal.fromSquare or sourceSquare,
+                    traversal.toSquare or sourceSquare, traversalReason, now, "traversal_replan")
+                return true, false, traversalReason
+            elseif not traversal.effectOnly then
+                state.path, state.pathSearch, state.nativeLease = nil, nil, nil
+                state.pathIndex, state.nextRepathAt, state.lastProgressAt = 1, 0, now
+            end
+        end
+    end
+    return false
+end
+
 function Navigation.request(actor, target, movementMode, intent)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
@@ -3300,6 +3827,9 @@ function Navigation.request(actor, target, movementMode, intent)
 
     local now = utility.nowMs()
     local state = stateFor(actor)
+    local traversalHandled, traversalAccepted, traversalReason =
+        SC.Navigation._maintainTraversalForRequest(actor, state, sourceSquare, now)
+    if traversalHandled then return traversalAccepted, traversalReason end
     SC.Navigation._markActorPassageForRequest(actor, state, now)
     state.trafficPriority = movementPriority(intent)
     state.trafficAction = type(intent) == "table" and intent.action or "move"
@@ -3379,9 +3909,11 @@ function Navigation.request(actor, target, movementMode, intent)
         local previousAction = tostring(state.goalAction or "")
         local requestedAction = tostring(requestIntent.action or "")
         local goalShift = previousGoal and utility.distance(previousGoal, goalSquare) or math.huge
+        local retainPendingSearch = SC.Navigation._usefulPendingMovingSearchForRequest(
+            actor, state, goalSquare, requestIntent, now)
         local materialGoalChange = previousGoal == nil
             or previousAction ~= requestedAction
-            or goalShift >= goalResetDistance(requestIntent)
+            or (goalShift >= goalResetDistance(requestIntent) and not retainPendingSearch)
             or ownershipChanged
         state.goalSquare = goalSquare
         state.goalAction = requestIntent.action
@@ -3534,8 +4066,10 @@ function Navigation.request(actor, target, movementMode, intent)
         local planningGoal = goalSquare
         if state.pathSearch and state.pathSearch.route
             and state.pathSearch.route.startKey == squareKey(sourceSquare)
-            and utility.distance(state.pathSearch.route.goalSquare, goalSquare)
-                < goalResetDistance(requestIntent)
+            and (utility.distance(state.pathSearch.route.goalSquare, goalSquare)
+                    < goalResetDistance(requestIntent)
+                or SC.Navigation._usefulPendingMovingSearchForRequest(
+                    actor, state, goalSquare, requestIntent, now))
             and state.pathSearch.stealthAvoidance == (requestIntent.stealthAvoidance == true)
             and state.pathSearch.followRouting == (followRouting == true)
             and state.pathSearch.alternatives == (evaluateAlternatives == true) then
@@ -3584,6 +4118,7 @@ function Navigation.request(actor, target, movementMode, intent)
                 utility.nowMs() - searchStarted, usedNodes or 0, false)
         end
         state.pathReason = reason
+        state.pathSearchYieldReason = state.pathSearch.route.lastYieldReason
         state.expandedNodes = expanded
         if searchStatus == "pending" then
             if SC.Performance and type(SC.Performance.markYield) == "function" then
@@ -3600,7 +4135,9 @@ function Navigation.request(actor, target, movementMode, intent)
         local completedSearch = state.pathSearch and state.pathSearch.route or nil
         state.pathSearch = nil
         state.pathSearchHolding = nil
+        state.lastProgressAt = now
         state.path = path
+        SC.Navigation._resetRouteProjection(state)
         state.pathFailure = path and nil or (completedSearch and completedSearch.failure or {
             failureClass = reason == "budget" and "budget_exhausted" or "blocked_static",
             nativeFallbackAllowed = reason == "budget",
@@ -3608,10 +4145,12 @@ function Navigation.request(actor, target, movementMode, intent)
         })
         state.pathGoalSquare = path and planningGoal or nil
         state.pathStealthAvoidance = requestIntent.stealthAvoidance
-        state.stealthRouteExposure = path and routeDanger(path, requestIntent.snapshot, pathOptions) or nil
+        state.stealthRouteExposure = path and routeReport
+            and routeReport.selectedDanger or nil
         state.nextStealthRepathAt = requestIntent.stealthAvoidance
             and now + (utility.config("navigationStealthRepathMs") or 1800) or nil
-        state.pathEmergencyVegetation = requestIntent.urgent == true and pathHasBush(path)
+        state.pathEmergencyVegetation = requestIntent.urgent == true and routeReport
+            and routeReport.selectedEmergencyVegetation == true
         state.pathIndex = path and 2 or 1
         state.routeCandidateCount = routeReport and routeReport.candidateCount or (path and 1 or 0)
         state.routeSelectedIndex = routeReport and routeReport.selectedOriginalIndex or 1
@@ -3627,6 +4166,7 @@ function Navigation.request(actor, target, movementMode, intent)
     if state.path then
         while state.pathIndex <= #state.path and sameSquare(sourceSquare, state.path[state.pathIndex]) do
             state.pathIndex = state.pathIndex + 1
+            SC.Navigation._resetRouteProjection(state)
         end
         nextSquare = state.path[state.pathIndex]
         afterSquare = state.path[state.pathIndex + 1]
@@ -3822,7 +4362,7 @@ function Navigation.request(actor, target, movementMode, intent)
         and personalSpaceBlocker(actor, nextSquare, requestIntent.snapshot) or nil
     local blockerType = blocker and (utility.isCompanion(blocker)
         and "companion_crowd" or "player_crowd") or nil
-    if not blocker then blocker, blockerType = utility.movingBlocker(nextSquare, actor) end
+    if not blocker then blocker, blockerType = utility.movingBlocker(nextSquare, actor, { swept = true }) end
     if blocker then
         if state.yieldBlocker ~= blocker then
             state.yieldBlocker = blocker
@@ -4031,6 +4571,10 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
     intent = utility.copyShallow(intent)
     local permitted, permissionReason = navigationOwnershipPermission(actor, intent)
     if permitted ~= true then return false, permissionReason end
+    local traversalHandled, traversalAccepted, traversalReason =
+        SC.Navigation._maintainTraversalForRequest(actor, stateFor(actor),
+            utility.squareOf(actor), utility.nowMs())
+    if traversalHandled then return traversalAccepted, traversalReason end
     local service, token = supervisedToken(intent)
     local valid, seen = {}, {}
     for _, candidate in ipairs(type(candidates) == "table" and candidates or {}) do
@@ -4278,7 +4822,9 @@ function Navigation.evaluateRoutes(sourceSquare, destinationSquare, snapshot, op
     report.reason = reason
     report.expandedNodes = expanded
     report.stealthAvoidance = pathOptions.stealthAvoidance == true
-    report.stealthExposure = path and routeDanger(path, snapshot, pathOptions) or nil
+    report.stealthExposure = path and report.selectedDanger or nil
+    report.emergencyVegetation = path
+        and report.selectedEmergencyVegetation == true or false
     return report
 end
 
@@ -4301,6 +4847,27 @@ function Navigation.retreatTarget(actor, snapshot)
     local currentSquare = utility.squareOf(actor)
     local state = stateFor(actor)
     observeSquare(state, currentSquare)
+    -- Senses has already ranked and live-validated these local topology nodes.
+    -- In an indoor combat pulse, use one immediately rather than synchronously
+    -- running the up-to-160-node outdoor Dijkstra (and possibly its vegetation
+    -- retry) before the companion is allowed to move away from a bite.
+    if currentSquare and not squareIsOutdoor(currentSquare)
+        and type(snapshot) == "table" and type(snapshot.escapeSquares) == "table" then
+        for _, candidate in ipairs(snapshot.escapeSquares) do
+            if type(candidate) == "table" and candidate.square ~= nil
+                and utility.isSquareFree(candidate.square) then
+                return candidate.square, {
+                    source = "validated_local_escape",
+                    danger = tonumber(candidate.danger) or 0,
+                    outdoors = candidate.outdoors == true,
+                    distance = tonumber(candidate.distance),
+                    traversalCost = tonumber(candidate.traversalCost),
+                    snapshotTime = snapshot.time,
+                    validated = true,
+                }
+            end
+        end
+    end
     local target, plan = chooseRememberedEgress(state, currentSquare, utility.nowMs(), snapshot)
     if target then
         plan.snapshotTime = type(snapshot) == "table" and snapshot.time or nil

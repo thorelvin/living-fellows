@@ -93,6 +93,28 @@ try {
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @coreFiles
         if ($LASTEXITCODE -ne 0) { throw 'Core Kahlua integration harness failed.' }
 
+        $combatRecoveryFiles = @($coreFiles | Select-Object -SkipLast 2)
+        $combatRecoveryFiles += Join-Path $TestRoot 'combat_recovery_harness.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @combatRecoveryFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Native combat recovery/spacing regression harness failed.' }
+
+        $groundFinisherFiles = @($combatRecoveryFiles | Select-Object -SkipLast 1)
+        $groundFinisherFiles += Join-Path $TestRoot 'ground_finisher_harness.lua'
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @groundFinisherFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Grounded finisher regression harness failed.' }
+
+        $navigationTraversalFiles = @($coreFiles | Select-Object -SkipLast 2)
+        $navigationTraversalFiles += @(
+            (Join-Path $Client 'SCTopology.lua'),
+            (Join-Path $Client 'SCPathSearch.lua'),
+            (Join-Path $Client 'SCNavTraffic.lua'),
+            (Join-Path $Client 'SCNavTraversal.lua'),
+            (Join-Path $Client 'SCNavigation.lua'),
+            (Join-Path $TestRoot 'navigation_traversal_regression_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @navigationTraversalFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Door/async traversal regression harness failed.' }
+
         $actorOwnershipFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),
             (Join-Path $Shared 'SCNamespace.lua'),

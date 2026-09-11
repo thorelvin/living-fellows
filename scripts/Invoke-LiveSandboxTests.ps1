@@ -16,6 +16,7 @@ param(
     [string[]]$ExcludeModId = @(),
     [string]$FactionMapScreenshot = '',
     [switch]$FactionMapOnly,
+    [switch]$PathingOnly,
     [switch]$PrepareOnly
 )
 
@@ -38,6 +39,9 @@ if ($captureFactionMap) {
 }
 if ($FactionMapOnly -and -not $captureFactionMap) {
     throw '-FactionMapOnly requires -FactionMapScreenshot.'
+}
+if ($PathingOnly -and $FactionMapOnly) {
+    throw '-PathingOnly and -FactionMapOnly are mutually exclusive.'
 }
 $RunsRoot = [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot 'build\live-sandbox-runs'))
 $runsPrefix = $RunsRoot.TrimEnd('\') + '\'
@@ -323,7 +327,7 @@ if (-not (Test-Path -LiteralPath $sourceBridge -PathType Leaf)) {
 }
 $installedBridgeHash = (Get-FileHash -LiteralPath $bridgePath -Algorithm SHA256).Hash
 $sourceBridgeHash = (Get-FileHash -LiteralPath $sourceBridge -Algorithm SHA256).Hash
-if ($installedBridgeHash -ne $sourceBridgeHash) {
+if ($installedBridgeHash -ne $sourceBridgeHash -and -not $PrepareOnly) {
     throw 'The installed native bridge does not match the source candidate. ' +
         'Run Install-Local.ps1 -NativeBridge before the real sandbox harness.'
 }
@@ -353,6 +357,7 @@ $config = @(
     ('mode=' + $GameMode),
     ('capture_faction_map=' + $captureFactionMap.ToString().ToLowerInvariant()),
     ('faction_map_only=' + $FactionMapOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('pathing_only=' + $PathingOnly.IsPresent.ToString().ToLowerInvariant()),
     ('internal_timeout_ms=' + (($TimeoutSeconds - 15) * 1000))
 ) -join [Environment]::NewLine
 [System.IO.File]::WriteAllText((Join-Path $SandboxLua 'config.ini'),
@@ -369,10 +374,14 @@ $manifest = [ordered]@{
     sourceRelease = ((Get-Content -LiteralPath (Join-Path $sourceMod 'mod.info') |
         Where-Object { $_ -match '^modversion=' }) -replace '^modversion=', '')
     sourceSaveIsReadOnlyInput = $true
+    sourceBridge = $sourceBridge
+    sourceBridgeSha256 = $sourceBridgeHash
+    installedBridgeMatches = $installedBridgeHash -eq $sourceBridgeHash
     livingFellowsOnly = $LivingFellowsOnly.IsPresent
     excludedModIds = @($ExcludeModId)
     factionMapScreenshot = if ($captureFactionMap) { $FactionMapScreenshot } else { $null }
     factionMapOnly = $FactionMapOnly.IsPresent
+    pathingOnly = $PathingOnly.IsPresent
     autoCleanup = $false
 }
 [System.IO.File]::WriteAllText((Join-Path $RunRoot 'run-manifest.json'),
@@ -388,6 +397,8 @@ Write-Output "Prepared isolated live sandbox: $RunRoot"
 Write-Output "Source save remains untouched: $SeedSave"
 if ($PrepareOnly) {
     Write-Output "LIVE_SANDBOX_PREPARED run=$runId cache=$CacheRoot"
+    Write-Output "Source bridge for isolated Java launch: $sourceBridge"
+    Write-Output 'Prepare-only does not change the installed launcher or start its bridge.'
     return
 }
 

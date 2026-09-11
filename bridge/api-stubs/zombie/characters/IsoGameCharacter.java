@@ -22,6 +22,11 @@ import zombie.chat.ChatElement;
 public class IsoGameCharacter extends IsoMovingObject {
     private String sayLine;
     private final java.util.Stack<BaseAction> characterActions = new java.util.Stack<>();
+    private boolean aiming;
+    private boolean aimAtFloor;
+    private boolean performingAttackAnimation;
+    private boolean performingShoveAnimation;
+    private boolean performingStompAnimation;
 
     public static class XP {
         public XP(IsoGameCharacter owner, IsoGameCharacter remoteOwner) {}
@@ -51,7 +56,13 @@ public class IsoGameCharacter extends IsoMovingObject {
     public Moodles getMoodles() { return null; }
     public BaseVisual getVisual() { return null; }
     public AnimationPlayer getAnimationPlayer() { return null; }
+    public boolean hasAnimationPlayer() { return false; }
+    public zombie.iso.Vector2 getForwardDirection() { return null; }
     public PathFindBehavior2 getPathFindBehavior2() { return null; }
+    public zombie.ai.astar.AStarPathFinderResult getFinder() { return null; }
+    public void setPath2(zombie.pathfind.Path path) {}
+    public <T> T get(State.Param<T> parameter) { return null; }
+    public <T> void set(State.Param<T> parameter, T value) {}
     public StateMachine getStateMachine() { return null; }
     public void changeState(State state) {}
     public void pathToLocationF(float x, float y, float z) {}
@@ -64,9 +75,16 @@ public class IsoGameCharacter extends IsoMovingObject {
     public float getX() { return 0; }
     public float getY() { return 0; }
     public float getZ() { return 0; }
+    public float getHealth() { return 0; }
+    public int getLastHitCount() { return 0; }
     public boolean isDead() { return false; }
     public boolean isOnFloor() { return false; }
     public boolean isClimbing() { return false; }
+    public boolean isManualFloorAtkButtonDown() { return false; }
+    public boolean isMeleeButtonDown() { return false; }
+    public zombie.pathfind.Path getPath2() { return null; }
+    public zombie.iso.Vector2 getDeferredMovement(zombie.iso.Vector2 result) { return result; }
+    public boolean isBlockMovement() { return false; }
     public void OnAnimEvent(zombie.core.skinnedmodel.advancedanimation.AnimLayer layer,
             zombie.core.skinnedmodel.animation.AnimationTrack track,
             zombie.core.skinnedmodel.advancedanimation.AnimEvent event) {}
@@ -91,11 +109,19 @@ public class IsoGameCharacter extends IsoMovingObject {
     public void setMovingSquare(IsoGridSquare square) {}
     public void setSquare(IsoGridSquare square) {}
     public void setForwardDirection(float x, float y) {}
-    public boolean isAiming() { return false; }
-    public void setIsAiming(boolean aiming) {}
-    public boolean isAimAtFloor() { return false; }
+    public boolean isAiming() { return aiming; }
+    public void setIsAiming(boolean aiming) { this.aiming = aiming; }
+    public boolean isAimAtFloor() { return aimAtFloor; }
+    public void setAimAtFloor(boolean value) { aimAtFloor = value; }
+    public void setDoShove(boolean value) {}
+    public void setShoveStompAnim(boolean value) {}
     public boolean getVariableBoolean(String key) { return false; }
-    public boolean isPerformingAttackAnimation() { return false; }
+    public boolean isPerformingAttackAnimation() { return performingAttackAnimation; }
+    public void setPerformingAttackAnimation(boolean value) { performingAttackAnimation = value; }
+    public boolean isPerformingShoveAnimation() { return performingShoveAnimation; }
+    public void setPerformingShoveAnimation(boolean value) { performingShoveAnimation = value; }
+    public boolean isPerformingStompAnimation() { return performingStompAnimation; }
+    public void setPerformingStompAnimation(boolean value) { performingStompAnimation = value; }
     public void postupdate() {}
     public <ComponentType extends ECSComponent> ComponentType getECSComponent(
             Class<ComponentType> componentTypeClass) { return null; }

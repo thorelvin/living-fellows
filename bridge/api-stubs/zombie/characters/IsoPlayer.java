@@ -10,6 +10,8 @@ public class IsoPlayer extends IsoLivingCharacter {
     public int playerIndex;
     public int serverPlayerIndex;
     protected boolean isPlayerMoving;
+    private boolean initiateAttack;
+    private boolean attackStarted;
 
     public IsoPlayer(IsoCell cell, SurvivorDesc descriptor, int x, int y, int z, boolean animal) {
         super(cell, x, y, z);
@@ -23,8 +25,11 @@ public class IsoPlayer extends IsoLivingCharacter {
     public boolean isLocalPlayer() { return false; }
     public boolean isPlayerMoving() { return false; }
     public boolean isNpc() { return false; }
-    public boolean isInitiateAttack() { return false; }
-    public boolean isAttackStarted() { return false; }
+    public boolean isInitiateAttack() { return initiateAttack; }
+    public void setInitiateAttack(boolean initiate) { initiateAttack = initiate; }
+    public boolean isAttackStarted() { return attackStarted; }
+    public void setAttackStarted(boolean started) { attackStarted = started; }
+    public void clearHandToHandAttack() { attackStarted = false; initiateAttack = false; }
     public boolean isZombiesDontAttack() { return false; }
     public void StopAllActionQueue() {}
     public void setNpc(boolean npc) {}
