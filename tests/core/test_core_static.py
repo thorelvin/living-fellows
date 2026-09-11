@@ -186,6 +186,7 @@ require("function vehicleService.importNativeSeat" in vehicle,
         "native-seated save records are not distinguished on restore")
 
 persistence = (CLIENT / "SCPersistence.lua").read_text(encoding="utf-8")
+registry = (SHARED / "SCRegistry.lua").read_text(encoding="utf-8")
 require("save transaction aborted; prior snapshot retained" in persistence,
         "active record capture failure does not abort the save transaction")
 require("lastStableSnapshot" in persistence and "quarantined companion" in persistence,
@@ -202,8 +203,12 @@ require("entry.state =" in commands and "movementMode = state.moveMode" in comma
         and "combatStance = state.combatMode" in commands,
         "command state is not synchronized into the persistence schema")
 for token in ("SC_WorkMode", "workTarget = stableWorkTarget", "handleBarricade",
-              "handleFinishWork", "set_work_mode", "SC_WorkInitialPlanks"):
+              "handleFinishWork", "set_work_mode", "SC_WorkInitialPlanks",
+              "SC_WorkObjectId", "SC_WorkObjectSignature"):
     require(token in commands, f"persistent companion work order missing: {token}")
+require("objectId =" in persistence and "objectSignature =" in persistence
+        and "objectId =" in registry and "objectSignature =" in registry,
+        "exact direct-work identity is not preserved through capture and registry normalization")
 
 downtime = (CLIENT / "SCDowntime.lua").read_text(encoding="utf-8")
 require('itemType == "sheet" or itemType == "base.sheet"' in downtime

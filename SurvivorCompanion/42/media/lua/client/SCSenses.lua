@@ -283,7 +283,7 @@ end
 
 Senses._collectRelationshipsForTests = collectRelationships
 
-local function collectEscapeSquares(actor, threats, state, current, immediateCount)
+local function collectEscapeSquares(actor, threats, state, current, immediateCount, player)
     local U = util()
     local actorSquare = U.squareOf(actor)
     if actorSquare == nil or type(SC.Topology) ~= "table"
@@ -292,6 +292,17 @@ local function collectEscapeSquares(actor, threats, state, current, immediateCou
     end
     state = type(state) == "table" and state or {}
     current = tonumber(current) or U.nowMs()
+    local cohesionAnchor, currentCohesionDistance
+    if player and U.isValidActor(player) and U.sameFloor(actor, player)
+        and type(SC.Commands) == "table" and type(SC.Commands.peek) == "function" then
+        local ok, commands = pcall(SC.Commands.peek, actor)
+        local order = ok and type(commands) == "table" and commands.order or nil
+        if commands and commands.recruited == true
+            and (order == "follow" or order == "regroup" or order == "retreat") then
+            cohesionAnchor = player
+            currentCohesionDistance = U.distance(actor, player)
+        end
+    end
     local originKey = U.squareKey(actorSquare)
     local cache = state.escapeTopology
     -- Peaceful followers do not need a fresh 64-node combat escape flood-fill.
@@ -378,17 +389,61 @@ local function collectEscapeSquares(actor, threats, state, current, immediateCou
             threatPositions[#threatPositions + 1] = { x = tx, y = ty, z = tz or 0 }
         end
     end
+    local destinationRadius = tonumber(U.config("combatRetreatDestinationThreatRadius")) or 5
+    local destinationRadiusSq = destinationRadius * destinationRadius
+    local corridorRadius = tonumber(U.config("combatRetreatCorridorThreatRadius")) or 4.5
+    local corridorRadiusSq = corridorRadius * corridorRadius
     for _, raw in ipairs(cache.raw or {}) do
         local square = raw.square
         local sx, sy, sz = tonumber(raw.x), tonumber(raw.y), tonumber(raw.z)
         if sx == nil then sx, sy, sz = U.position(square) end
-        local danger, nearest = 0, math.huge
+        local danger, corridorDanger, nearest = 0, 0, math.huge
         if sx ~= nil then
             for _, threat in ipairs(threatPositions) do
                 local dx, dy, dz = sx - threat.x, sy - threat.y, (sz or 0) - threat.z
                 local threatDistanceSq = dx * dx + dy * dy + dz * dz * 9
                 if threatDistanceSq < nearest then nearest = threatDistanceSq end
-                if threatDistanceSq <= 9 then danger = danger + 1 end
+                if threatDistanceSq <= destinationRadiusSq then danger = danger + 1 end
+
+                -- An endpoint can look empty while its parent chain passes close
+                -- enough to wake or collide with another zombie. Score the exact
+                -- topology chain that validation will later approve, excluding
+                -- only the unavoidable origin node beneath the companion.
+                local node, corridorNearest, guard = raw, math.huge, 0
+                while type(node) == "table" and guard < 16 do
+                    if (tonumber(node.distance) or 0) > 0 then
+                        local nx, ny, nz = tonumber(node.x), tonumber(node.y), tonumber(node.z)
+                        if nx == nil then nx, ny, nz = U.position(node.square) end
+                        if nx ~= nil then
+                            local ndx, ndy = nx - threat.x, ny - threat.y
+                            local ndz = (nz or 0) - threat.z
+                            corridorNearest = math.min(corridorNearest,
+                                ndx * ndx + ndy * ndy + ndz * ndz * 9)
+                        end
+                    end
+                    node, guard = node.parent, guard + 1
+                end
+                if corridorNearest <= corridorRadiusSq then
+                    corridorDanger = corridorDanger + 1
+                end
+            end
+        end
+        local cohesionDistance, cohesionScore, outsideCohesion = nil, 0, false
+        if cohesionAnchor and sx ~= nil then
+            local px, py, pz = U.position(cohesionAnchor)
+            if px ~= nil and math.floor(pz or 0) == math.floor(sz or 0) then
+                cohesionDistance = math.sqrt((sx - px) ^ 2 + (sy - py) ^ 2)
+                local soft = tonumber(U.config("combatFollowRetreatSoftLeash")) or 10
+                local hard = math.max(soft,
+                    tonumber(U.config("combatFollowRetreatHardLeash")) or 14)
+                local delta = (tonumber(currentCohesionDistance) or cohesionDistance)
+                    - cohesionDistance
+                cohesionScore = delta
+                        * (tonumber(U.config("combatRetreatCohesionWeight")) or 8)
+                    - math.max(0, cohesionDistance - soft)
+                        * (tonumber(U.config("combatRetreatCohesionPenalty")) or 12)
+                outsideCohesion = cohesionDistance > hard
+                    and cohesionDistance >= (tonumber(currentCohesionDistance) or 0) - 0.25
             end
         end
         if raw.outdoors == nil then raw.outdoors = squareIsOutdoor(square) end
@@ -399,10 +454,16 @@ local function collectEscapeSquares(actor, threats, state, current, immediateCou
             traversalCost = raw.traversalCost,
             requiresNative = raw.requiresNative == true,
             danger = danger,
+            corridorDanger = corridorDanger,
             outdoors = raw.outdoors,
             nearestThreatSq = nearest,
+            cohesionDistance = cohesionDistance,
+            outsideCohesion = outsideCohesion,
             score = (tonumber(raw.distance) or 0) * 3
                 + math.min(nearest, 100) * 0.15 - danger * 20
+                - corridorDanger
+                    * (tonumber(U.config("combatRetreatCorridorDangerPenalty")) or 18)
+                + cohesionScore - (outsideCohesion and 1000 or 0)
                 + (raw.outdoors and 12 or 0)
                 - math.max(0, (tonumber(raw.traversalCost) or 0)
                     - (tonumber(raw.distance) or 0)) * 0.5,
@@ -847,14 +908,30 @@ function Senses.snapshot(actor, player, runtime)
     -- would replay the same offsets forever and also freeze the coverage cursor.
     if #job.stealthThreats >= threatLimit then job.index = #job.offsets + 1 end
 
-    local complete = job.index > #job.offsets or #job.stealthThreats >= threatLimit
+    local sliceComplete = job.index > #job.offsets or #job.stealthThreats >= threatLimit
     local threats, immediate, fenced, stealthThreats, groundedThreats, heard,
         threatMeta = liveThreatLists(
         actor, player, actorSquare, job, threatLimit, immediateRadiusSq, now,
         state, rootRuntime.combatTarget)
+    local discoveryComplete = nativeMeta ~= nil
+        and nativeMeta.complete == true and nativeMeta.freshComplete == true
+        or nativeMeta == nil and sliceComplete
+    local visualComplete = (tonumber(threatMeta.visualDeferred) or 0) == 0
+        and state.visualValidationQueue == nil
+    local complete = discoveryComplete and visualComplete
+    local scanProgress
+    if nativeMeta then
+        local total = math.max(0, tonumber(nativeMeta.count) or 0)
+        local pending = math.max(0, tonumber(nativeMeta.pending) or 0)
+        scanProgress = total > 0 and math.max(0, math.min(1, 1 - pending / total))
+            or (complete and 1 or 0)
+    else
+        scanProgress = #job.offsets > 0
+            and math.min(1, (job.index - 1) / #job.offsets) or 1
+    end
 
     local escapeSquares, exits, escapeMeta = collectEscapeSquares(
-        actor, threats, state, now, #immediate)
+        actor, threats, state, now, #immediate, player)
     local threatSectors, occupiedThreatSectors, closeThreatCount, closeImmediateCount =
         directionalThreats(actor, threats, immediate)
     local recentSounds = relevantSounds(actor, rootRuntime.sounds, now)
@@ -905,7 +982,9 @@ function Senses.snapshot(actor, player, runtime)
         outerSampled = job.outerSampled,
         scanCoverage = job.coverage,
         scanComplete = complete,
-        scanProgress = #job.offsets > 0 and math.min(1, (job.index - 1) / #job.offsets) or 1,
+        scanDiscoveryComplete = discoveryComplete,
+        scanVisualComplete = visualComplete,
+        scanProgress = scanProgress,
         scanRebaseCount = state.scanRebaseCount or 0,
         lastScanRebaseDistance = state.lastScanRebaseDistance,
         lastScanRebaseAt = state.lastScanRebaseAt,
@@ -963,7 +1042,7 @@ function Senses.snapshot(actor, player, runtime)
     state.allies, state.protectedActors, state.alliesAt =
         snapshot.allies, snapshot.protectedActors, now
     if complete then
-        state.scanJob = nil
+        if nativeCandidates == nil then state.scanJob = nil end
         state.lastCompleteAt = now
     elseif SC.Performance and type(SC.Performance.markYield) == "function" then
         SC.Performance.markYield("perception", U.idOf(actor), processed)
@@ -1122,7 +1201,7 @@ function Senses.refreshImmediate(actor, player, snapshot, runtime)
     local visibleCount = threatMeta.visibleCount
     local immediateVisibleCount = threatMeta.immediateVisibleCount
     local escapeSquares, exits, escapeMeta = collectEscapeSquares(
-        actor, threats, state, now, #immediate)
+        actor, threats, state, now, #immediate, player)
     local sectors, occupied, closeCount, closeImmediate =
         directionalThreats(actor, threats, immediate)
     local strongest = threats[1]

@@ -81,6 +81,7 @@ local stableDataKeys = {
     "SC_Bond", "SC_Morale", "SC_Stress", "SC_TimeTogetherMs",
     "SC_CommandSerial", "SC_LastDowntime", "SC_AnchorX", "SC_AnchorY", "SC_AnchorZ",
     "SC_WorkMode", "SC_WorkX", "SC_WorkY", "SC_WorkZ", "SC_WorkObjectIndex",
+    "SC_WorkObjectId", "SC_WorkObjectSignature",
     "SC_WorkInitialPlanks",
     "SC_WorkBaseJobId", "SC_WorkKind", "SC_WorkBarricadeSide",
     "SC_ReturnOrder", "SC_ReturnWorkMode",
@@ -308,6 +309,10 @@ local function snapshotState(actor, entry)
         type(persistedTarget) == "table" and persistedTarget.z or nil)
     local objectIndex = valueFrom(data, { "SC_WorkObjectIndex" },
         type(persistedTarget) == "table" and persistedTarget.objectIndex or nil)
+    local objectId = valueFrom(data, { "SC_WorkObjectId" },
+        type(persistedTarget) == "table" and persistedTarget.objectId or nil)
+    local objectSignature = valueFrom(data, { "SC_WorkObjectSignature" },
+        type(persistedTarget) == "table" and persistedTarget.objectSignature or nil)
     local initialPlanks = valueFrom(data, { "SC_WorkInitialPlanks" },
         type(persistedTarget) == "table" and persistedTarget.initialPlanks or 0)
     local baseJobId = valueFrom(data, { "SC_WorkBaseJobId" },
@@ -323,12 +328,23 @@ local function snapshotState(actor, entry)
             y = workY,
             z = tonumber(workZ) or 0,
             objectIndex = math.floor(tonumber(objectIndex)),
+            objectId = type(objectId) == "string" and objectId or nil,
+            objectSignature = type(objectSignature) == "string" and objectSignature or nil,
             initialPlanks = math.max(0, math.floor(tonumber(initialPlanks) or 0)),
             baseJobId = type(baseJobId) == "string" and baseJobId or nil,
             barricadeSide = barricadeSide == "same" and "same"
                 or barricadeSide == "opposite" and "opposite" or nil,
             kind = targetedWorkKinds[workKind] and workKind or "barricade",
         }
+    end
+    -- pendingInteraction deliberately remains transient because it contains a
+    -- live Java object.  A save made during a door approach therefore restores
+    -- the prior stable order instead of leaving an unexecutable `interact` order.
+    if state.order == "interact" then
+        local returnOrder = state.returnOrder
+        if returnOrder ~= "follow" and returnOrder ~= "stay" and returnOrder ~= "guard"
+            and returnOrder ~= "base_duty" then returnOrder = "stay" end
+        state.order, state.returnOrder = returnOrder, nil
     end
     return state
 end
@@ -377,6 +393,10 @@ local function writeStable(actor, entry, state)
             y = state.workTarget.y,
             z = tonumber(state.workTarget.z) or 0,
             objectIndex = math.floor(tonumber(state.workTarget.objectIndex)),
+            objectId = type(state.workTarget.objectId) == "string"
+                and state.workTarget.objectId or nil,
+            objectSignature = type(state.workTarget.objectSignature) == "string"
+                and state.workTarget.objectSignature or nil,
             initialPlanks = math.max(0,
                 math.floor(tonumber(state.workTarget.initialPlanks) or 0)),
             baseJobId = type(state.workTarget.baseJobId) == "string"
@@ -455,6 +475,8 @@ local function writeStable(actor, entry, state)
             data.SC_WorkX, data.SC_WorkY, data.SC_WorkZ = stableWorkTarget.x,
                 stableWorkTarget.y, stableWorkTarget.z
             data.SC_WorkObjectIndex = stableWorkTarget.objectIndex
+            data.SC_WorkObjectId = stableWorkTarget.objectId
+            data.SC_WorkObjectSignature = stableWorkTarget.objectSignature
             data.SC_WorkInitialPlanks = stableWorkTarget.initialPlanks
             data.SC_WorkBaseJobId = stableWorkTarget.baseJobId
             data.SC_WorkKind = stableWorkTarget.kind
@@ -462,6 +484,8 @@ local function writeStable(actor, entry, state)
         else
             data.SC_WorkX, data.SC_WorkY, data.SC_WorkZ = nil, nil, nil
             data.SC_WorkObjectIndex = nil
+            data.SC_WorkObjectId = nil
+            data.SC_WorkObjectSignature = nil
             data.SC_WorkInitialPlanks = nil
             data.SC_WorkBaseJobId = nil
             data.SC_WorkKind = nil
@@ -723,11 +747,22 @@ local function barricadeTarget(actor, payload)
     return object, square, nil
 end
 
+local function describeWorkObject(object)
+    if not SC.BaseLife or type(SC.BaseLife.describeObject) ~= "function" then
+        return nil, "work_object_identity_unavailable"
+    end
+    local descriptor, reason = SC.BaseLife.describeObject(object, true)
+    if type(descriptor) ~= "table" or type(descriptor.objectId) ~= "string" then
+        return nil, reason or "work_object_identity_unavailable"
+    end
+    return descriptor
+end
+
 local function handleBarricade(actor, entry, state, payload)
     local object, square, reason = barricadeTarget(actor, payload)
     if not object then return false, reason end
-    local position = positionTable(square)
-    local objectIndex = select(1, U().call(object, "getObjectIndex"))
+    local descriptor, identityReason = describeWorkObject(object)
+    if not descriptor then return false, identityReason end
     local existing = select(1, U().call(object, "getBarricadeForCharacter", actor))
     local initialPlanks = 0
     if existing then
@@ -749,10 +784,12 @@ local function handleBarricade(actor, entry, state, payload)
     state.pendingInteraction = nil
     state.workTarget = {
         object = object,
-        x = position.x,
-        y = position.y,
-        z = position.z,
-        objectIndex = math.floor(tonumber(objectIndex)),
+        x = descriptor.x,
+        y = descriptor.y,
+        z = descriptor.z,
+        objectIndex = descriptor.objectIndex,
+        objectId = descriptor.objectId,
+        objectSignature = descriptor.objectSignature,
         initialPlanks = initialPlanks,
         baseJobId = type(payload) == "table" and payload.baseJobId or nil,
         kind = "barricade",
@@ -796,8 +833,8 @@ end
 local function handleTargetedWork(actor, entry, state, payload, kind)
     local object, square, reason = targetedWorkObject(actor, payload, kind)
     if not object then return false, reason end
-    local position = positionTable(square)
-    local objectIndex = select(1, U().call(object, "getObjectIndex"))
+    local descriptor, identityReason = describeWorkObject(object)
+    if not descriptor then return false, identityReason end
     local previousOrder = state.order == "work" and state.returnOrder or state.order
     if previousOrder ~= "follow" and previousOrder ~= "stay" and previousOrder ~= "guard"
         and previousOrder ~= "base_duty" then
@@ -813,10 +850,12 @@ local function handleTargetedWork(actor, entry, state, payload, kind)
     state.pendingInteraction = nil
     state.workTarget = {
         object = object,
-        x = position.x,
-        y = position.y,
-        z = position.z,
-        objectIndex = math.floor(tonumber(objectIndex)),
+        x = descriptor.x,
+        y = descriptor.y,
+        z = descriptor.z,
+        objectIndex = descriptor.objectIndex,
+        objectId = descriptor.objectId,
+        objectSignature = descriptor.objectSignature,
         kind = kind,
         barricadeSide = kind == "remove_barricade" and type(payload) == "table"
             and payload.barricadeSide or nil,
@@ -1041,6 +1080,11 @@ local function handleDoor(actor, entry, state, payload, player, action)
     if not object then return false, "missing_door" end
     if not SC.Navigation then return false, "navigation_unavailable" end
     if U().distance(actor, object) > 1.75 then
+        local previousOrder = state.order == "interact" and state.returnOrder or state.order
+        if previousOrder ~= "follow" and previousOrder ~= "stay"
+            and previousOrder ~= "guard" and previousOrder ~= "base_duty" then
+            previousOrder = "stay"
+        end
         local square = U().squareOf(object)
         if not square then return false, "invalid_door" end
         if type(SC.Navigation.request) ~= "function" then return false, "navigation_unavailable" end
@@ -1053,7 +1097,13 @@ local function handleDoor(actor, entry, state, payload, player, action)
         })
         if not accepted then return false, status or "approach_rejected" end
         clearWorkState(state)
-        state.pendingInteraction = { object = object, action = action }
+        state.returnOrder = previousOrder
+        state.pendingInteraction = {
+            object = object,
+            action = action,
+            startedAt = U().nowMs(),
+            returnOrder = previousOrder,
+        }
         state.order = "interact"
         markCommand(actor, entry, state)
         return true, status or "approaching_interaction"
@@ -1063,6 +1113,28 @@ local function handleDoor(actor, entry, state, payload, player, action)
     if not accepted then return false, status or "interaction_rejected" end
     markCommand(actor, entry, state)
     return true, status or action
+end
+
+local function handleFinishInteraction(actor, entry, state)
+    if state.order ~= "interact" or type(state.pendingInteraction) ~= "table" then
+        return false, "no_pending_interaction"
+    end
+    local returnOrder = state.returnOrder or state.pendingInteraction.returnOrder
+    if returnOrder ~= "follow" and returnOrder ~= "stay"
+        and returnOrder ~= "guard" and returnOrder ~= "base_duty" then
+        returnOrder = "stay"
+    end
+    state.pendingInteraction = nil
+    state.tacticalTarget = nil
+    state.returnOrder, state.returnWorkMode = nil, nil
+    state.order = returnOrder
+    if returnOrder == "follow" then
+        state.anchor = nil
+    elseif type(state.anchor) ~= "table" then
+        state.anchor = positionTable(actor)
+    end
+    markCommand(actor, entry, state)
+    return true, "interaction_complete_" .. returnOrder
 end
 
 local function handleCheckRoom(actor, entry, state, payload)
@@ -1285,6 +1357,7 @@ local handlers = {
     close_door = function(actor, entry, state, payload, player)
         return handleDoor(actor, entry, state, payload, player, "close_door")
     end,
+    finish_interaction = handleFinishInteraction,
     check_room = handleCheckRoom,
     finish_room_check = handleFinishRoomCheck,
     barricade = handleBarricade,

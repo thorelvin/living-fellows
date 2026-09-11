@@ -751,6 +751,11 @@ function persistence.captureRecord(record, vehicleState)
             y = finite(order.workTarget.y, 0),
             z = finite(order.workTarget.z, 0),
             objectIndex = math.floor(finite(order.workTarget.objectIndex, -1)),
+            objectId = type(order.workTarget.objectId) == "string"
+                and string.sub(order.workTarget.objectId, 1, 7) == "object:"
+                and text(order.workTarget.objectId, "", 96) or nil,
+            objectSignature = type(order.workTarget.objectSignature) == "string"
+                and text(order.workTarget.objectSignature, "", 192) or nil,
             initialPlanks = math.max(0,
                 math.floor(finite(order.workTarget.initialPlanks, 0))),
             baseJobId = type(order.workTarget.baseJobId) == "string"

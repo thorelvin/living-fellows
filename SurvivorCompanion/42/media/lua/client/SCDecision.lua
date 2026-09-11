@@ -684,12 +684,24 @@ local function reportRoomCheck(actor, target, snapshot)
         end
     end
     local topic, key, fallback
+    local current = U().nowMs()
+    local snapshotAge = snapshot and tonumber(snapshot.time)
+        and current - tonumber(snapshot.time) or math.huge
+    local coverageFresh = snapshotAge >= 0
+        and snapshotAge <= (U().config("roomCheckCoverageMaxAgeMs") or 750)
+    local originSquare = snapshot and type(snapshot.origin) == "table"
+        and (snapshot.origin.square or U().loadedSquare(snapshot.origin)) or nil
+    local coverageHere = U().squareKey(originSquare) ~= nil
+        and U().squareKey(originSquare) == U().squareKey(actorSquare)
+    local coverageComplete = snapshot and snapshot.scanComplete == true
+        and snapshot.scanDiscoveryComplete == true
+        and snapshot.scanVisualComplete == true
     if contacts == 1 then
         topic, key, fallback = "tactical.room_one", "IGUI_SC_Room_One", "Contact - one infected."
     elseif contacts > 1 then
         topic, key, fallback = "tactical.room_multiple", "IGUI_SC_Room_Multiple", "Multiple contacts."
     elseif targetRoomOk and targetRoom ~= nil and actorRoomOk and actorRoom == targetRoom
-        and snapshot and snapshot.scanComplete == true
+        and coverageComplete and coverageFresh and coverageHere
         and (tonumber(snapshot.heardThreatCount) or 0) == 0 then
         topic, key, fallback = "tactical.room_clear", "IGUI_SC_Room_Clear", "Room clear."
     else
@@ -704,6 +716,8 @@ local function reportRoomCheck(actor, target, snapshot)
     return contacts
 end
 
+Decision._reportRoomCheckForTests = reportRoomCheck
+
 local function finishRoomCheck(actor, player)
     if not SC.Commands or type(SC.Commands.issue) ~= "function" then
         return false, "room_check_finish_commands_unavailable"
@@ -717,6 +731,19 @@ local function finishRoomCheck(actor, player)
     return true, reason or "room_check_complete"
 end
 
+local function finishInteraction(actor, player)
+    if not SC.Commands or type(SC.Commands.issue) ~= "function" then
+        return false, "interaction_finish_commands_unavailable"
+    end
+    local called, accepted, reason = pcall(SC.Commands.issue, U().idOf(actor),
+        "finish_interaction", nil, player)
+    if not called then return false, "interaction_finish_error" end
+    if accepted ~= true then
+        return false, "interaction_finish_rejected:" .. tostring(reason or "unknown")
+    end
+    return true, reason or "interaction_complete"
+end
+
 local function navigationArrived(actor, target, status)
     if status == "arrived" then return true end
     local actorKey = U().squareKey(U().squareOf(actor))
@@ -728,27 +755,17 @@ local function resolveWorkObject(commands)
     local utility = U()
     local target = type(commands.workTarget) == "table" and commands.workTarget or nil
     if not target or targetedWorkKinds[target.kind] ~= true
-        or tonumber(target.objectIndex) == nil then
+        or type(target.objectId) ~= "string" then
         return nil, nil, "invalid_work_target"
     end
     local square = utility.loadedSquare(target)
     if not square then return nil, nil, "work_target_not_loaded" end
-    local expectedIndex = math.floor(tonumber(target.objectIndex))
-    local object = target.object
-    if object then
-        local currentIndex, indexOk = utility.call(object, "getObjectIndex")
-        local objectSquare = utility.squareOf(object)
-        if not indexOk or tonumber(currentIndex) ~= expectedIndex
-            or utility.squareKey(objectSquare) ~= utility.squareKey(square) then
-            object = nil
-        end
+    if not SC.BaseLife or type(SC.BaseLife.resolveObject) ~= "function" then
+        return nil, square, "work_identity_resolver_unavailable"
     end
+    local object, identityReason = SC.BaseLife.resolveObject(target)
     if not object then
-        local objects, objectsOk = utility.call(square, "getObjects")
-        if objectsOk then object = utility.listGet(objects, expectedIndex) end
-    end
-    if not object then
-        return nil, square, "work_target_changed"
+        return nil, square, "work_target_changed:" .. tostring(identityReason or "identity_mismatch")
     end
     if target.kind == "barricade" or target.kind == "remove_barricade" then
         if not utility.hasMethod(object, "getBarricadeForCharacter") then
@@ -766,12 +783,15 @@ local function resolveWorkObject(commands)
         end
     end
     local currentIndex, indexOk = utility.call(object, "getObjectIndex")
-    if not indexOk or tonumber(currentIndex) ~= expectedIndex then
-        return nil, square, "work_target_changed"
+    if not indexOk or tonumber(currentIndex) == nil or tonumber(currentIndex) < 0 then
+        return nil, square, "work_target_changed:invalid_object_index"
     end
+    target.objectIndex = math.floor(tonumber(currentIndex))
     target.object = object
     return object, square, nil
 end
+
+Decision._resolveWorkObjectForTests = resolveWorkObject
 
 local function removalInteractionSquare(object, target, fallback)
     if type(target) ~= "table" or target.kind ~= "remove_barricade"
@@ -817,11 +837,8 @@ end
 
 local function workKey(commands)
     local target = type(commands) == "table" and commands.workTarget or nil
-    if type(target) ~= "table" or tonumber(target.objectIndex) == nil then return nil end
-    local square = U().squareKey(U().loadedSquare(target))
-    if not square then return nil end
-    return tostring(target.kind or "work") .. ":" .. square .. ":"
-        .. tostring(math.floor(tonumber(target.objectIndex)))
+    if type(target) ~= "table" or type(target.objectId) ~= "string" then return nil end
+    return "work:" .. target.objectId
 end
 
 local function releaseWorkReservation(actor, state)
@@ -1205,18 +1222,44 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
     if commands.order == "interact" and commands.pendingInteraction then
         if not SC.Navigation then return false, "navigation_unavailable" end
         local pending = commands.pendingInteraction
+        local current = utility.nowMs()
+        local timedOut = current - (tonumber(pending.startedAt) or current)
+            >= (utility.config("interactionOrderTimeoutMs") or 60000)
+        local objectSquare = utility.squareOf(pending.object)
+        if timedOut or not objectSquare then
+            local transitioned, transitionReason = finishInteraction(actor, player)
+            if not transitioned then return false, transitionReason end
+            return false, timedOut and "interaction_timeout" or "interaction_target_removed"
+        end
         if utility.distance(actor, pending.object) <= 1.75 then
             if type(SC.Navigation.interact) ~= "function" then return false, "navigation_unavailable" end
-            return SC.Navigation.interact(actor, pending.object, pending.action)
+            local accepted, status = SC.Navigation.interact(actor, pending.object, pending.action)
+            local open, openOk = utility.call(pending.object, "IsOpen")
+            if not openOk then open, openOk = utility.call(pending.object, "isOpen") end
+            local desiredOpen = pending.action == "open_door"
+            local verified = openOk and open == desiredOpen
+            local terminalSuccess = accepted == true
+                and (status == "done" or status == "already_set" or verified)
+            local terminalFailure = accepted ~= true and (status == "invalid_target"
+                or status == "locked_door" or status == "obstructed_door"
+                or status == "door_open_failed" or status == "door_close_failed"
+                or status == "action_rejected" or status == "unsupported_door_action")
+            if terminalSuccess or terminalFailure then
+                local transitioned, transitionReason = finishInteraction(actor, player)
+                if not transitioned then return false, transitionReason end
+            end
+            return accepted, status
         end
         if type(SC.Navigation.request) ~= "function" then return false, "navigation_unavailable" end
-        return SC.Navigation.request(actor, utility.squareOf(pending.object),
+        return SC.Navigation.request(actor, objectSquare,
             commandMoveMode(commands, player), {
             action = "approach_interaction", snapshot = snapshot,
         })
     end
     return false, "no_tactical_target"
 end
+
+Decision._doTacticalForTests = doTactical
 
 local function doRetreat(actor, player, snapshot, commands)
     if SC.Combat and type(SC.Combat.sharedRetreatTarget) == "function"

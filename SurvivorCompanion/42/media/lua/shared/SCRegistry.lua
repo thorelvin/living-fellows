@@ -237,6 +237,11 @@ local function defaultState(source, recruited)
             z = boundedNumber(order.workTarget.z, 0, -128, 128, false),
             objectIndex = boundedNumber(order.workTarget.objectIndex,
                 0, 0, 1000000, true),
+            objectId = type(order.workTarget.objectId) == "string"
+                and string.sub(order.workTarget.objectId, 1, 7) == "object:"
+                and boundedText(order.workTarget.objectId, 96) or nil,
+            objectSignature = type(order.workTarget.objectSignature) == "string"
+                and boundedText(order.workTarget.objectSignature, 192) or nil,
             initialPlanks = boundedNumber(order.workTarget.initialPlanks,
                 0, 0, 10000, true),
             baseJobId = boundedText(order.workTarget.baseJobId, 64),

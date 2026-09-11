@@ -545,9 +545,11 @@ check(restoredCommandState.order == "guard" and restoredCommandState.followDista
     and restoredCommandState.background.occupation == "mechanics",
     "Registry persistence schema rehydrates independent policies without transient actor mod-data")
 
-local barricadeObject = { square = square, objectIndex = 0 }
+local barricadeObject = { square = square, objectIndex = 0, data = {} }
 function barricadeObject:getSquare() return self.square end
 function barricadeObject:getObjectIndex() return self.objectIndex end
+function barricadeObject:getModData() return self.data end
+function barricadeObject:transmitModData() self.modDataTransmitted = true end
 function barricadeObject:isBarricadeAllowed() return true end
 function barricadeObject:getBarricadeForCharacter() return nil end
 check(SC.Commands.issue(record.id, "barricade", { object = barricadeObject }, nil),
@@ -560,6 +562,8 @@ check(buildingState.order == "work" and buildingState.workMode == "build"
     and buildingState.workTarget.initialPlanks == 0
     and buildingSnapshot.order.workTarget.object == nil
     and buildingSnapshot.order.workTarget.objectIndex == 0
+    and buildingSnapshot.order.workTarget.objectId == buildingState.workTarget.objectId
+    and type(buildingSnapshot.order.workTarget.objectId) == "string"
     and buildingSnapshot.order.workTarget.initialPlanks == 0,
     "one-shot building persists only a stable target and remembers the prior role")
 check(SC.Commands.issue(record.id, "finish_work", nil, nil),

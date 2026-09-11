@@ -89,6 +89,30 @@ local function completeDoorInteraction(actor, state, object, action, fromSquare,
     return true, "done"
 end
 
+-- Explicit door commands share the same reservation, toggle and verified
+-- postcondition as route traversal, but may request either open or closed.
+function Traversal.interactDoor(actor, state, door, action, fromSquare, toSquare, now, context)
+    if action ~= "open_door" and action ~= "close_door" then
+        return false, "unsupported_door_action"
+    end
+    local desiredOpen = action == "open_door"
+    if invoke(context, "objectOpen", door) == desiredOpen then
+        return true, "already_set"
+    end
+    local obstructed, obstructedOk = U().call(door, "isObstructed")
+    if obstructedOk and obstructed == true then return false, "obstructed_door" end
+    if desiredOpen and invoke(context, "objectLocked", door)
+        and not invoke(context, "actorCanUnlock", actor, door) then
+        return false, "locked_door"
+    end
+    local ok, status = beginInteraction(actor, state, door, action, now, {
+        fromSquare = fromSquare, toSquare = toSquare,
+    }, false, context)
+    if not ok then return false, status end
+    return completeDoorInteraction(actor, state, door, action,
+        fromSquare, toSquare, now, context)
+end
+
 function Traversal.handleDoor(actor, state, door, fromSquare, toSquare, now, context)
     if invoke(context, "objectOpen", door) then return true end
     local obstructed, obstructedOk = U().call(door, "isObstructed")

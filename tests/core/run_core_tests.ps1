@@ -76,6 +76,8 @@ try {
         (Join-Path $Client 'SCScheduler.lua'),
         (Join-Path $Client 'SCPersistence.lua'),
         (Join-Path $Client 'SCGameplayUtil.lua'),
+        (Join-Path $Client 'SCBaseObjectRef.lua'),
+        (Join-Path $Client 'SCBaseLife.lua'),
         (Join-Path $Client 'SCLocomotion.lua'),
         (Join-Path $Client 'SCPersonality.lua'),
         (Join-Path $Client 'SCPersonalItems.lua'),

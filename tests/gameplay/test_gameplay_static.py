@@ -60,7 +60,7 @@ REQUIRED_EXPORTS = {
     "SCNavTraffic.lua": ["observeGroupPassage", "groupPassageActive",
                          "ensureGroupPassage", "markActorPassage", "reserveChoke",
                          "releaseChoke", "reserveStep", "releaseStep", "reset"],
-    "SCNavTraversal.lua": ["reserve", "release", "handleDoor", "handleWindow",
+    "SCNavTraversal.lua": ["reserve", "release", "interactDoor", "handleDoor", "handleWindow",
                             "handleWindowFrame", "doorGeometry", "occupiesDoorway",
                             "alignDoorApproach", "handleFence", "closeOwnedDoors", "reset"],
     "SCAllegiance.lua": ["isHostile", "relationship", "areAllies", "isProtected"],
@@ -88,7 +88,7 @@ REQUIRED_EXPORTS = {
     "SCRelationship.lua": ["initialize", "observe", "respond"],
     "SCObjectives.lua": ["initialize", "update", "respondPlans"],
     "SCJournal.lua": ["build"],
-    "SCBaseLife.lua": ["create", "removeZone", "removeStorage", "setStorageCategory",
+    "SCBaseLife.lua": ["create", "describeObject", "resolveObject", "removeZone", "removeStorage", "setStorageCategory",
                        "setReserve", "setMaintenanceTargetEnabled", "removeMaintenanceTarget",
                        "enqueueJob", "claimJob", "cancelJob", "retryJob", "setPolicy",
                        "guardStatus", "auditOperations", "export", "restore"],
@@ -126,7 +126,7 @@ REQUIRED_COMMANDS = {
     "recruit", "dismiss", "follow", "cautious_follow", "stay", "guard", "regroup", "retreat", "emote",
     "set_follow_distance", "set_scavenge", "set_work_mode", "set_move_mode", "set_combat_doctrine", "set_weapon_priority",
     "set_hold_fire",
-    "hold_fire", "fire_at_will", "move_to", "open_door", "close_door", "check_room", "finish_room_check", "board_vehicle",
+    "hold_fire", "fire_at_will", "move_to", "open_door", "close_door", "finish_interaction", "check_room", "finish_room_check", "board_vehicle",
     "barricade", "remove_barricade", "dismantle", "finish_work", "exit_vehicle",
     "open_inventory", "open_health", "set_group",
     "base_duty", "set_base_role",
@@ -254,6 +254,20 @@ def main() -> int:
     require("perceptionSquareBudget" in sources["SCSenses.lua"], "perception budget not enforced")
     require("outerSampled" in sources["SCSenses.lua"], "rotating outer perception coverage missing")
     require("navigationNodeBudget" in sources["SCNavigation.lua"], "navigation node budget not enforced")
+    require("navigationPathSearchHardMs" in sources["SCNavigation.lua"]
+            and "progressAt" in sources["SCNavigation.lua"]
+            and "path_search_stalled:" in sources["SCNavigation.lua"],
+            "incremental path search lacks progress-leased stall recovery and a hard bound")
+    require("recoveryWaypoint" in sources["SCNavigation.lua"]
+            and 'actorState == "bumped_state"' in sources["SCNavigation.lua"]
+            and "cancelled_stale_bump" in sources["SCNavigation.lua"],
+            "BumpedState does not own a stable local clearance waypoint")
+    require("string.match(rawLabel" in gameplay_util
+            and gameplay_util.index("string.match(rawLabel")
+                < gameplay_util.index('for _, methodName in ipairs({ "getObjectName"')
+            and gameplay_util.index('return "bumped_state", current')
+                < gameplay_util.index('U.call(actor, "isBlockMovement")'),
+            "opaque B42 state labels are probed unsafely or BumpedState is hidden by movement_locked")
     require("recovery_exhausted:" in sources["SCNavigation.lua"]
             and "navigationTerminalRetryMs" in sources["SCNavigation.lua"],
             "bounded retryable terminal navigation episode missing")
@@ -558,6 +572,12 @@ def main() -> int:
             and "combatOverrunHoldMs" in sources["SCCombat.lua"]
             and "occupiedThreatSectors" in sources["SCSenses.lua"],
             "directional overrun assessment and retreat hysteresis missing")
+    require("retreatTether" in sources["SCCombat.lua"]
+            and "combatFollowRetreatHardLeash" in sources["SCCombat.lua"]
+            and "corridorDanger" in sources["SCSenses.lua"]
+            and "combatRetreatCorridorThreatRadius" in sources["SCSenses.lua"]
+            and "outsideCohesion" in sources["SCSenses.lua"],
+            "combat retreat lacks a group tether or route-corridor threat scoring")
     require("combatAllySupportRadius" in sources["SCCombat.lua"]
             and "combatAllySupportMax" in sources["SCCombat.lua"]
             and "not downed" in sources["SCCombat.lua"],

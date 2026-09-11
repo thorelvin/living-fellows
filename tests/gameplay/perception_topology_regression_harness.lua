@@ -131,6 +131,48 @@ for _, node in ipairs(raw) do
 end
 check(deepNode ~= nil and T.validateEscapeNode(observer, deepNode, {}),
     "a completed escape node retains a live-verifiable parent route")
+
+local function routeNode(parent, x, y, distance)
+    return {
+        square = square(x, y), x = x, y = y, z = 0,
+        fromSquare = parent.square, parent = parent,
+        distance = distance, traversalCost = distance,
+    }
+end
+local corridorRoot = { square = origin, x = 0, y = 0, z = 0, distance = 0 }
+local exposedOne = routeNode(corridorRoot, 1, 0, 1)
+local exposedTwo = routeNode(exposedOne, 1, 1, 2)
+local exposedThree = routeNode(exposedTwo, 1, 2, 3)
+local exposedFour = routeNode(exposedThree, 1, 3, 4)
+local exposedEnd = routeNode(exposedFour, 0, 3, 5)
+local shelteredOne = routeNode(corridorRoot, -1, 0, 1)
+local shelteredTwo = routeNode(shelteredOne, -1, -1, 2)
+local shelteredThree = routeNode(shelteredTwo, -1, -2, 3)
+local shelteredFour = routeNode(shelteredThree, -1, -3, 4)
+local shelteredEnd = routeNode(shelteredFour, 0, -3, 5)
+local corridorState = {
+    escapeImmediateCount = 1,
+    escapeTopology = {
+        raw = { exposedEnd, shelteredEnd }, exits = {}, complete = true,
+        originKey = U.squareKey(origin), signature = "corridor-fixture",
+        computedAt = current, processed = 10,
+    },
+}
+local corridorThreat = actor(5, 0, 0, "IsoZombie")
+local savedValidatedCandidateLimit = SC.Config._overrides.escapeValidatedCandidateLimit
+SC.Config._overrides.escapeValidatedCandidateLimit = 2
+local corridorCandidates = S._collectEscapeSquaresForTests(observer, {
+    { actor = corridorThreat, x = 5, y = 0, z = 0 },
+}, corridorState, current, 1)
+SC.Config._overrides.escapeValidatedCandidateLimit = savedValidatedCandidateLimit
+check(#corridorCandidates == 2
+        and corridorCandidates[1].square == shelteredEnd.square
+        and corridorCandidates[1].danger == 0
+        and corridorCandidates[1].corridorDanger == 0
+        and corridorCandidates[2].danger == 0
+        and corridorCandidates[2].corridorDanger == 1,
+    "escape scoring rejects an empty endpoint whose actual parent corridor brushes a zombie")
+
 deepNode.square.vehicle = {}
 check(not T.validateEscapeNode(observer, deepNode, {}),
     "a vehicle inserted on an earlier escape result invalidates that route")
@@ -499,6 +541,76 @@ end
 check(sawEndWithTail and completionMeta.complete and completionMeta.listComplete
         and completionMeta.pending == 0 and completionMeta.cursor == 40,
     "native completion remains pending until the observer drains the final candidate tail")
+
+-- The producer must be free to lap observers without invalidating an adopted
+-- immutable roster. Exercise two observers at deliberately different cadences.
+Scan.reset()
+zombies = {}
+for index = 1, 400 do
+    zombies[index] = actor(3 + (index % 20) * 0.02,
+        2 + (math.floor(index / 20) % 20) * 0.02, 0, "IsoZombie")
+end
+local fastState, slowState = {}, {}
+local fastSeen, slowSeen, fastCount, slowCount = {}, {}, 0, 0
+local fastCompletedCycle, slowCompletedCycle = 0, 0
+for pulse = 1, 900 do
+    current = current + 100
+    local fastResult, fastMeta = Scan.nativeCandidates(observer, fastState, 24, 64)
+    for _, candidate in ipairs(fastResult) do
+        if not fastSeen[candidate] then fastSeen[candidate], fastCount = true, fastCount + 1 end
+    end
+    if fastMeta.complete then fastCompletedCycle = math.max(fastCompletedCycle, fastMeta.cycle or 0) end
+    if pulse % 4 == 0 then
+        local slowResult, slowMeta = Scan.nativeCandidates(observer, slowState, 24, 64)
+        for _, candidate in ipairs(slowResult) do
+            if not slowSeen[candidate] then slowSeen[candidate], slowCount = true, slowCount + 1 end
+        end
+        if slowMeta.complete then slowCompletedCycle = math.max(slowCompletedCycle, slowMeta.cycle or 0) end
+    end
+    check(not fastState.nativeCandidateQueue or #fastState.nativeCandidateQueue <= 64,
+        "fast observer retains the native candidate queue hard cap")
+    check(not slowState.nativeCandidateQueue or #slowState.nativeCandidateQueue <= 64,
+        "slow observer retains the native candidate queue hard cap")
+    if fastCount == 400 and slowCount == 400
+        and fastCompletedCycle >= 2 and slowCompletedCycle >= 2 then break end
+end
+check(fastCount == 400 and slowCount == 400
+        and fastCompletedCycle >= 2 and slowCompletedCycle >= 2,
+    "producer cycles may pass observers at different cadences without losing roster tails")
+
+-- scanComplete is an evidence claim: producer discovery and the per-observer LOS
+-- queue must both be complete in the currently published cycle.
+Scan.reset()
+local savedLosPerSlice = SC.Config._overrides.perceptionNativeLosPerSlice
+local savedVisualPerSlice = SC.Config._overrides.perceptionVisualChecksPerSlice
+SC.Config._overrides.perceptionNativeLosPerSlice = 32
+SC.Config._overrides.perceptionVisualChecksPerSlice = 4
+zombies = {}
+for index = 1, 48 do zombies[index] = actor(4 + index * 0.01, 2, 0, "IsoZombie") end
+local coverageRuntime, coverageSnapshot = {}, nil
+current = current + 100
+coverageSnapshot = S.snapshot(observer, nil, coverageRuntime)
+check(coverageSnapshot.nativeDiscovery.complete ~= true
+        and coverageSnapshot.scanDiscoveryComplete ~= true
+        and coverageSnapshot.scanComplete == false,
+    "unfinished native discovery is never advertised as complete room coverage")
+local sawDeferredCompleteDiscovery = false
+for pulse = 1, 80 do
+    current = current + 100
+    coverageSnapshot = S.snapshot(observer, nil, coverageRuntime)
+    if coverageSnapshot.scanDiscoveryComplete == true
+        and coverageSnapshot.visualDeferred > 0 then
+        sawDeferredCompleteDiscovery = true
+        check(coverageSnapshot.scanVisualComplete == false
+                and coverageSnapshot.scanComplete == false,
+            "pending LOS validation blocks complete room coverage")
+        break
+    end
+end
+SC.Config._overrides.perceptionNativeLosPerSlice = savedLosPerSlice
+SC.Config._overrides.perceptionVisualChecksPerSlice = savedVisualPerSlice
+check(sawDeferredCompleteDiscovery,
+    "room-coverage fixture reaches complete discovery with a deliberately deferred LOS tail")
 
 -- Cancelling danger must also cancel its partial topology result. Otherwise a
 -- returning threat inside the cache TTL would treat a four-edge prefix as a

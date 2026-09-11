@@ -89,6 +89,8 @@ local function item(itemType, category, options)
     end
     function value:getInventory() return self.nestedInventory end
     function value:getContainer() return self.container end
+    function value:getWorldItem() return self.worldItem end
+    function value:setWorldItem(worldItem) self.worldItem = worldItem end
     function value:IsClothing() return self.category == "Clothing" end
     function value:IsInventoryContainer() return self.nestedInventory ~= nil end
     function value:canBeEquipped() return self.equipLocation or self.bodyLocation or "" end
@@ -284,6 +286,7 @@ local function makeSquare(x, y, z)
     function value:getStaticMovingObjects() return self.staticMoving end
     function value:getObjects() return self.objects end
     function value:getSpecialObjects() return self.specialObjects end
+    function value:getWorldObjects() return self.worldItems end
     function value:getVehicleContainer() return self.vehicleContainer end
     function value:getFire() return self.fire end
     function value:getBrokenGlass() return self.brokenGlass end
@@ -294,10 +297,23 @@ local function makeSquare(x, y, z)
         return self.flags and self.flags[key] == true or false
     end
     function value:AddWorldInventoryItem(added, xOffset, yOffset, zOffset, transmit)
+        if type(added) ~= "table" then added = item(added, "Item") end
         local worldItem = { item = added, square = self, xOffset = xOffset, yOffset = yOffset,
             zOffset = zOffset }
+        function worldItem:getItem() return self.item end
+        function worldItem:getSquare() return self.square end
+        function worldItem:setSquare(target) self.square = target end
+        function worldItem:removeFromWorld() self.removedFromWorld = true end
+        function worldItem:removeFromSquare()
+            if not self.square then return end
+            for index, candidate in ipairs(self.square.worldItems) do
+                if candidate == self then table.remove(self.square.worldItems, index) break end
+            end
+            self.square = nil
+        end
         self.worldItems[#self.worldItems + 1] = worldItem
-        return worldItem
+        added.worldItem = worldItem
+        return added
     end
     function value:isBlockedTo(other) return self.blocked[other] == true end
     function value:isDoorTo(other) return false end
@@ -2470,6 +2486,13 @@ do
     check(recovering == false and searchState.pathSearch ~= nil
             and (searchState.stuckAttempts or 0) == 0,
         "an intentionally idle incremental path search is not misclassified as a stuck actor")
+    searchState.pathSearch.progressAt = 7900
+    searchState.pathSearch.lastExpanded = 12
+    local progressingSearchRecovery = recover(searchActor, searchState, movedGoal,
+        "walk", followIntent, 8000)
+    check(reuseSearch(searchActor, searchState, movedGoal, followIntent, 8000)
+            and progressingSearchRecovery == false and searchState.pathSearch ~= nil,
+        "fresh frontier progress extends the moving-target search lease beyond its total wall-clock age")
 end
 
 do
@@ -2743,6 +2766,44 @@ check(SurvivorCompanion.Navigation.request(
 SurvivorCompanion.Config.values.navigationActorStateGraceMs = nil
 SurvivorCompanion.Navigation.reset(wallStateActor)
 registry[wallStateActor.id] = nil
+end
+
+do
+local opaqueBumpedState = { __class = "BumpedState" }
+check(SurvivorCompanion.GameplayUtil.objectLabel(opaqueBumpedState) == "BumpedState",
+    "B42 state diagnostics preserve the concrete singleton class name")
+local bumpStateActor = actor("sc-bumped-state-blocker", 30, 30, {})
+registry[bumpStateActor.id] = bumpStateActor
+bumpStateActor.currentState = opaqueBumpedState
+bumpStateActor.blockMovement = true
+local bumpGoal = cell:getGridSquare(34, 30, 0)
+SurvivorCompanion.Config.values.navigationActorStateGraceMs = 100
+local bumpWaiting, bumpWaitingReason = SurvivorCompanion.Navigation.request(
+    bumpStateActor, bumpGoal, "walk", {})
+check(bumpWaiting and bumpWaitingReason == "waiting_bumped_state"
+        and SurvivorCompanion.GameplayUtil.movementStateBlocker(bumpStateActor)
+            == "bumped_state",
+    "BumpedState is classified before its broad isBlockMovement flag")
+clock = clock + 101
+local bumpRecovered, bumpRecoveryReason = SurvivorCompanion.Navigation.request(
+    bumpStateActor, bumpGoal, "walk", {})
+local bumpWaypoint = SurvivorCompanion.Navigation.peek(bumpStateActor).recoveryWaypoint
+check(bumpRecovered and bumpRecoveryReason == "cancelled_stale_bump"
+        and bumpWaypoint ~= nil,
+    "a stale bump releases old forward input and chooses one nearby clearance waypoint")
+bumpStateActor.currentState = nil
+bumpStateActor.blockMovement = false
+clock = clock + 1
+local bumpResumed = SurvivorCompanion.Navigation.request(
+    bumpStateActor, cell:getGridSquare(38, 30, 0), "walk", {
+        action = "follow_formation", movingTarget = true, player = player,
+    })
+check(bumpResumed
+        and SurvivorCompanion.Navigation.peek(bumpStateActor).goalSquare == bumpWaypoint,
+    "Follow holds the stable clearance waypoint until the bumped companion clears the obstacle")
+SurvivorCompanion.Config.values.navigationActorStateGraceMs = nil
+SurvivorCompanion.Navigation.reset(bumpStateActor)
+registry[bumpStateActor.id] = nil
 end
 
 do
@@ -5452,6 +5513,30 @@ check(firstEscape and secondEscape and firstEscape ~= secondEscape
 end
 
 do
+local retreatAnchor = actor("sc-retreat-tether-anchor", 30, 30, {
+    className = "IsoPlayer", recruited = false,
+})
+retreatAnchor.modData.SC_Recruited = false
+local tetheredFollower = actor("sc-retreat-tether-follower", 50, 30, {})
+local outwardEscape = cell:getGridSquare(54, 30, 0)
+local inwardEscape = cell:getGridSquare(46, 30, 0)
+local allowed = SurvivorCompanion.Combat._retreatCandidateAllowedForTests
+check(not allowed({ anchor = retreatAnchor, currentDistance = 20, hard = 14 }, outwardEscape)
+        and allowed({ anchor = retreatAnchor, currentDistance = 20, hard = 14 }, inwardEscape),
+    "a separated follower may retreat only through squares that close distance to the group")
+local tetheredEscape = SurvivorCompanion.Combat._sharedRetreatSquareForTests(
+    tetheredFollower, { cohortKey = "party:tethered-retreat" }, {
+        player = { actor = retreatAnchor },
+        escapeSquares = {
+            { square = outwardEscape, danger = 0, score = 100 },
+            { square = inwardEscape, danger = 1, score = 0 },
+        },
+    }, nil, clock, retreatAnchor, { recruited = true, order = "follow" })
+check(tetheredEscape == inwardEscape,
+    "retreat scoring rejects a tempting outward endpoint beyond the hard group tether")
+end
+
+do
 local overrunBat = item("Base.Axe", "Weapon", { damage = 1.5, range = 1.5 })
 local overrunActor = actor("sc-overrun", -4, -5, { inventory = inventory({ overrunBat }) })
 overrunActor.primary = overrunBat
@@ -7343,6 +7428,159 @@ local function decisionAfterDue(testActor, testPlayer, runtime, delay)
     return SurvivorCompanion.Decision.update(testActor, testPlayer, runtime)
 end
 
+local function worldObjectIdentityFixture(value)
+    value.modData = value.modData or {}
+    function value:getModData() return self.modData end
+    function value:transmitModData() self.modDataTransmitted = true end
+    return value
+end
+
+function SurvivorCompanion.__testDoorTerminalOrders()
+    local testPlayer = actor("door-test-player", 6, 7,
+        { className = "IsoPlayer", recruited = false })
+    testPlayer.modData.SC_Recruited = false
+    local savedRequest = SurvivorCompanion.Navigation.request
+    SurvivorCompanion.Navigation.request = function()
+        return true, "door_test_approaching"
+    end
+    local function doorAt(targetSquare, opened, locked)
+        local door = { square = targetSquare, open = opened == true, locked = locked == true }
+        function door:getSquare() return self.square end
+        function door:getX() return self.square.x + 0.5 end
+        function door:getY() return self.square.y + 0.5 end
+        function door:getZ() return self.square.z end
+        function door:IsOpen() return self.open end
+        function door:isLocked() return self.locked end
+        function door:ToggleDoor()
+            if self.locked then return false end
+            self.open = not self.open
+        end
+        return door
+    end
+    local safe = { threats = {}, threatCount = 0, immediateCount = 0,
+        escapeSquares = {}, allies = {}, player = { danger = 0 } }
+    local function arriveAndPerform(subject, door)
+        subject.square = door.square
+        return SurvivorCompanion.Decision._doTacticalForTests(
+            subject, testPlayer, { snapshot = safe },
+            SurvivorCompanion.Commands.peek(subject), safe, {})
+    end
+
+    local follower = actor("sc-door-return-follow", 7, 7, {})
+    local farDoor = doorAt(cell:getGridSquare(11, 7, 0), false, false)
+    registry[follower.id] = follower
+    check(SurvivorCompanion.Commands.issue(follower.id, "open_door",
+            { object = farDoor }, testPlayer)
+            and SurvivorCompanion.Commands.peek(follower).order == "interact"
+            and SurvivorCompanion.Commands.peek(follower).returnOrder == "follow",
+        "a distant door command records the stable return order")
+    local opened, openStatus = arriveAndPerform(follower, farDoor)
+    check(opened and openStatus == "done" and farDoor.open
+            and SurvivorCompanion.Commands.peek(follower).order == "follow"
+            and SurvivorCompanion.Commands.peek(follower).pendingInteraction == nil,
+        "verified distant door completion resumes Follow")
+
+    local closeAccepted, closeStatus = SurvivorCompanion.Commands.issue(
+        follower.id, "close_door", { object = farDoor }, testPlayer)
+    check(closeAccepted and closeStatus == "done" and not farDoor.open
+            and SurvivorCompanion.Commands.peek(follower).order == "follow",
+        "the adjacent door variant remains a one-shot action without changing order")
+
+    follower.square = cell:getGridSquare(7, 7, 0)
+    farDoor.open = true
+    check(SurvivorCompanion.Commands.issue(follower.id, "open_door",
+        { object = farDoor }, testPlayer),
+        "an already-open distant door still stages an approach")
+    local alreadyAccepted, alreadyStatus = arriveAndPerform(follower, farDoor)
+    check(alreadyAccepted and alreadyStatus == "already_set"
+            and SurvivorCompanion.Commands.peek(follower).order == "follow",
+        "already-correct door state terminates and resumes Follow")
+
+    follower.square = cell:getGridSquare(7, 7, 0)
+    farDoor.open, farDoor.locked = false, true
+    check(SurvivorCompanion.Commands.issue(follower.id, "open_door",
+        { object = farDoor }, testPlayer),
+        "a distant locked door can be approached before its lock is verified")
+    local lockedAccepted, lockedStatus = arriveAndPerform(follower, farDoor)
+    check(not lockedAccepted and lockedStatus == "locked_door"
+            and SurvivorCompanion.Commands.peek(follower).order == "follow"
+            and SurvivorCompanion.Commands.peek(follower).pendingInteraction == nil,
+        "a locked door ends the one-shot order without stranding the follower")
+
+    follower.square = cell:getGridSquare(7, 7, 0)
+    farDoor.locked = false
+    check(SurvivorCompanion.Commands.issue(follower.id, "open_door",
+        { object = farDoor }, testPlayer),
+        "removed-door fixture stages an approach")
+    farDoor.square = nil
+    local removedAccepted, removedStatus = SurvivorCompanion.Decision._doTacticalForTests(
+        follower, testPlayer, { snapshot = safe },
+        SurvivorCompanion.Commands.peek(follower), safe, {})
+    check(not removedAccepted and removedStatus == "interaction_target_removed"
+            and SurvivorCompanion.Commands.peek(follower).order == "follow",
+        "a removed door terminates the one-shot order with a bounded failure")
+
+    local interruptDoor = doorAt(cell:getGridSquare(11, 7, 0), false, false)
+    check(SurvivorCompanion.Commands.issue(follower.id, "open_door",
+            { object = interruptDoor }, testPlayer)
+            and SurvivorCompanion.Commands.issue(follower.id, "stay", nil, testPlayer)
+            and SurvivorCompanion.Commands.peek(follower).order == "stay"
+            and SurvivorCompanion.Commands.peek(follower).pendingInteraction == nil
+            and SurvivorCompanion.Commands.peek(follower).returnOrder == nil,
+        "a new player order cleanly interrupts a pending door interaction")
+    SurvivorCompanion.Navigation.request = savedRequest
+    SurvivorCompanion.Navigation.reset(follower)
+    SurvivorCompanion.Commands.reset(follower)
+    registry[follower.id] = nil
+end
+SurvivorCompanion.__testDoorTerminalOrders()
+SurvivorCompanion.__testDoorTerminalOrders = nil
+
+function SurvivorCompanion.__testRoomCoverageClaims()
+    local subject = actor("sc-room-coverage-claim", 6, 6, {})
+    local room = { name = "coverage-room" }
+    subject.square.room = room
+    local savedSay = SurvivorCompanion.Dialogue.say
+    local spoken
+    SurvivorCompanion.Dialogue.say = function(_, topic) spoken = topic return true end
+    local complete = {
+        time = clock, origin = { square = subject.square }, threats = {},
+        heardThreatCount = 0, scanComplete = true,
+        scanDiscoveryComplete = true, scanVisualComplete = true,
+    }
+    SurvivorCompanion.Decision._reportRoomCheckForTests(subject, subject.square, complete)
+    check(spoken == "tactical.room_clear",
+        "fresh complete discovery and LOS at the actor's room may report Room clear")
+    local cases = {
+        { field = "scanDiscoveryComplete", value = false },
+        { field = "scanVisualComplete", value = false },
+        { field = "time", value = clock - 5000 },
+        { field = "origin", value = { square = cell:getGridSquare(5, 6, 0) } },
+    }
+    for _, case in ipairs(cases) do
+        local snapshot = SurvivorCompanion.GameplayUtil.copyShallow(complete)
+        snapshot[case.field] = case.value
+        spoken = nil
+        SurvivorCompanion.Decision._reportRoomCheckForTests(subject, subject.square, snapshot)
+        check(spoken == "tactical.room_uncertain",
+            "unfinished, deferred, stale, or displaced coverage cannot claim Room clear")
+    end
+    local contact = zombie(6, 6, {})
+    contact.square.room = room
+    local contactSnapshot = SurvivorCompanion.GameplayUtil.copyShallow(complete)
+    contactSnapshot.scanDiscoveryComplete = false
+    contactSnapshot.threats = { { actor = contact, square = contact.square,
+        visible = true, obstructed = false } }
+    spoken = nil
+    SurvivorCompanion.Decision._reportRoomCheckForTests(
+        subject, subject.square, contactSnapshot)
+    check(spoken == "tactical.room_one",
+        "an observed contact is still reported while negative room coverage remains incomplete")
+    SurvivorCompanion.Dialogue.say = savedSay
+end
+SurvivorCompanion.__testRoomCoverageClaims()
+SurvivorCompanion.__testRoomCoverageClaims = nil
+
 local guardActor = actor("sc-guard-patrol", -7, -6, {})
 local originalRoleTestMedical = SurvivorCompanion.Medical
 SurvivorCompanion.Medical = nil
@@ -7383,7 +7621,9 @@ registry[buildActor.id] = buildActor
 check(SurvivorCompanion.Commands.issue(buildActor.id, "stay", nil, guardTestPlayer)
     and SurvivorCompanion.Commands.issue(buildActor.id, "set_work_mode", { mode = "idle" }, guardTestPlayer),
     "build fixture starts from a permanent idle/stay role")
-local buildObject = { square = buildActor.square, objectIndex = #buildActor.square.objects, built = false }
+local buildObject = worldObjectIdentityFixture({
+    square = buildActor.square, objectIndex = #buildActor.square.objects, built = false,
+})
 function buildObject:getSquare() return self.square end
 function buildObject:getX() return self.square.x + 0.5 end
 function buildObject:getY() return self.square.y + 0.5 end
@@ -7433,6 +7673,7 @@ local removeBarricade = {
     square = removeActor.square,
     objectIndex = #removeActor.square.objects,
 }
+worldObjectIdentityFixture(removeBarricade)
 local barricade = { getNumPlanks = function() return removeBarricade.planks end }
 function removeBarricade:getSquare() return self.square end
 function removeBarricade:getX() return self.square.x + 0.5 end
@@ -7465,6 +7706,7 @@ local dismantleObject = {
     square = dismantleActor.square,
     objectIndex = #dismantleActor.square.objects,
 }
+worldObjectIdentityFixture(dismantleObject)
 function dismantleObject:getSquare() return self.square end
 function dismantleObject:getX() return self.square.x + 0.5 end
 function dismantleObject:getY() return self.square.y + 0.5 end
@@ -7481,6 +7723,55 @@ check(decisionAfterDue(dismantleActor, guardTestPlayer, {
         escapeSquares = {}, allies = {}, player = { danger = 0 } },
 }, 201) and dismantleActor.lastIntent and dismantleActor.lastIntent.action == "dismantle",
     "dismantle decision starts the real destructive work intent")
+
+local swapActor = actor("sc-dismantle-identity-swap", -10, -4, {})
+registry[swapActor.id] = swapActor
+local originalObject = worldObjectIdentityFixture({
+    __class = "IsoThumpable", square = swapActor.square,
+    objectIndex = #swapActor.square.objects,
+})
+function originalObject:getSquare() return self.square end
+function originalObject:getX() return self.square.x + 0.5 end
+function originalObject:getY() return self.square.y + 0.5 end
+function originalObject:getZ() return self.square.z end
+function originalObject:getObjectIndex() return self.objectIndex end
+function originalObject:isDismantable() return true end
+swapActor.square.objects[#swapActor.square.objects + 1] = originalObject
+check(SurvivorCompanion.Commands.issue(swapActor.id, "dismantle",
+        { object = originalObject }, guardTestPlayer),
+    "identity-swap fixture accepts an exact direct-work target")
+local issuedWork = SurvivorCompanion.Commands.peek(swapActor).workTarget
+local originalId = issuedWork and issuedWork.objectId
+local replacement = worldObjectIdentityFixture({
+    __class = "IsoThumpable", square = swapActor.square,
+    objectIndex = originalObject.objectIndex,
+})
+function replacement:getSquare() return self.square end
+function replacement:getX() return self.square.x + 0.5 end
+function replacement:getY() return self.square.y + 0.5 end
+function replacement:getZ() return self.square.z end
+function replacement:getObjectIndex() return self.objectIndex end
+function replacement:isDismantable() return true end
+swapActor.square.objects[originalObject.objectIndex + 1] = replacement
+originalObject.square, originalObject.objectIndex = nil, -1
+local liveResolved, _, liveResolveReason =
+    SurvivorCompanion.Decision._resolveWorkObjectForTests(
+        SurvivorCompanion.Commands.peek(swapActor))
+check(type(originalId) == "string" and liveResolved == nil
+        and string.find(tostring(liveResolveReason), "work_target_changed", 1, true)
+        and replacement.modData.LF_BaseObjectId == nil,
+    "a live work reference never rebinds to a lookalike inserted at the old index")
+SurvivorCompanion.Commands.reset(swapActor)
+local restoredWork = SurvivorCompanion.Commands.peek(swapActor).workTarget
+local restoredResolved, _, restoredReason =
+    SurvivorCompanion.Decision._resolveWorkObjectForTests(
+        SurvivorCompanion.Commands.peek(swapActor))
+check(restoredWork and restoredWork.object == nil and restoredWork.objectId == originalId
+        and restoredResolved == nil
+        and string.find(tostring(restoredReason), "work_target_changed", 1, true)
+        and replacement.modData.LF_BaseObjectId == nil,
+    "save/load preserves exact work identity and conservatively rejects an index replacement")
+registry[swapActor.id] = nil
 registry[removeActor.id], registry[dismantleActor.id] = nil, nil
 end
 SurvivorCompanion.__testDestructiveTargetWork()
@@ -7495,6 +7786,7 @@ local sharedBuildObject = {
     square = reserveActorOne.square,
     objectIndex = #reserveActorOne.square.objects,
 }
+worldObjectIdentityFixture(sharedBuildObject)
 function sharedBuildObject:getSquare() return self.square end
 function sharedBuildObject:getX() return self.square.x + 0.5 end
 function sharedBuildObject:getY() return self.square.y + 0.5 end
@@ -8149,9 +8441,10 @@ check(signalHandled and signalReason == "threat_signal"
     and signalPacing.holdReason == "threat_signal" and signalPacing.shouldLook == false
     and worldSoundCount == soundsBeforeSignal
     and type(signalActor.lastSpeech) == "string"
-    and string.sub(signalActor.lastSpeech, 1, 1) == "*"
-    and SurvivorCompanion.Dialogue.lastSpokenTopic(signalActor) == "signal.one",
-    "visible distant danger faces the exact zombie and displays a silent freeze signal")
+    and ((SurvivorCompanion.Dialogue.lastSpokenTopic(signalActor) == "signal.one"
+            and string.sub(signalActor.lastSpeech, 1, 1) == "*")
+        or SurvivorCompanion.Dialogue.lastSpokenTopic(signalActor) == "recognition.local"),
+    "visible distant danger faces the exact zombie and displays a silent freeze or recognition signal")
 local signalMovementCalls = signalActor.movementCalls
 clock = clock + 100
 local signalHeld, signalHeldReason = SurvivorCompanion.Decision.update(
@@ -8639,6 +8932,111 @@ do
     SurvivorCompanion.Quirks.reset(duckKeeper)
     SurvivorCompanion.Commands.reset(duckKeeper)
     registry[duckKeeper.id] = nil
+end
+do
+    local function faultWorld(mode)
+        local sourceItem = item("Base.Rubberducky", "Item")
+        local source = inventory({ sourceItem })
+        local square = { x = 30, y = 30, z = 0, worldItems = {}, objects = {} }
+        function square:getX() return self.x end
+        function square:getY() return self.y end
+        function square:getZ() return self.z end
+        function square:getWorldObjects() return self.worldItems end
+        function square:getObjects() return self.objects end
+        local worldItem = { item = sourceItem, square = square }
+        function worldItem:getItem() return self.item end
+        function worldItem:getSquare() return self.square end
+        function worldItem:setSquare(target) self.square = target end
+        local function injected()
+            if mode == "throw" then error("injected world removal failure") end
+            return false
+        end
+        square.transmitRemoveItemFromSquare = injected
+        square.removeWorldObject = injected
+        worldItem.removeFromWorld = injected
+        worldItem.removeFromSquare = injected
+        square.worldItems[1], square.objects[1] = worldItem, worldItem
+        sourceItem.worldItem = worldItem
+        return worldItem, sourceItem, source, square
+    end
+    for _, mode in ipairs({ "noop", "throw" }) do
+        local worldItem, sourceItem, source, square = faultWorld(mode)
+        local destination = inventory()
+        local recovered, reason = SurvivorCompanion.GameplayUtil.takeWorldItemVerified(
+            worldItem, destination, sourceItem)
+        check(not recovered and reason == "world_item_remove_failed_rolled_back"
+                and not destination:contains(sourceItem) and source:contains(sourceItem)
+                and square.worldItems[1] == worldItem and square.objects[1] == worldItem
+                and sourceItem:getWorldItem() == worldItem,
+            "a " .. mode .. " native removal cannot report pickup while the world owner remains")
+    end
+
+    local rejectSquare = cell:getGridSquare(12, -8, 0)
+    rejectSquare.worldItems = {}
+    local rejectItem = item("Base.Rubberducky", "Item")
+    local rejectSource = inventory({ rejectItem })
+    local dropped, rejectWorld = SurvivorCompanion.GameplayUtil.dropItem(
+        rejectSource, rejectSquare, rejectItem, 0.5, 0.5, 0)
+    local rejectingDestination = inventory()
+    rejectingDestination.rejectAdd = true
+    local rejected, rejectReason, rejectDetails =
+        SurvivorCompanion.GameplayUtil.takeWorldItemVerified(
+            rejectWorld, rejectingDestination, rejectItem)
+    check(dropped and not rejected and rejectReason == "pickup_add_failed_rolled_back"
+            and rejectDetails and rejectDetails.worldPresent == true
+            and not rejectingDestination:contains(rejectItem)
+            and #rejectSquare.worldItems == 1
+            and rejectItem:getWorldItem() == rejectSquare.worldItems[1],
+        "a destination rejection reconstructs and verifies exactly one world owner")
+
+    local rollbackItem = item("Base.Rubberducky", "Item")
+    local rollbackSource = inventory({ rollbackItem })
+    local rollbackSquare = { x = 31, y = 30, z = 0, worldItems = {}, objects = {} }
+    function rollbackSquare:getWorldObjects() return self.worldItems end
+    function rollbackSquare:getObjects() return self.objects end
+    local rollbackWorld = { item = rollbackItem, square = rollbackSquare }
+    function rollbackWorld:getItem() return self.item end
+    function rollbackWorld:getSquare() return self.square end
+    function rollbackWorld:setSquare(target) self.square = target end
+    local function removeRollbackWorld()
+        rollbackSquare.worldItems, rollbackSquare.objects = {}, {}
+        rollbackWorld.square = nil
+    end
+    function rollbackSquare:transmitRemoveItemFromSquare() removeRollbackWorld() end
+    function rollbackSquare:removeWorldObject() removeRollbackWorld() end
+    function rollbackWorld:removeFromWorld() end
+    function rollbackWorld:removeFromSquare() removeRollbackWorld() end
+    function rollbackSquare:AddWorldInventoryItem() return nil end
+    rollbackSquare.worldItems[1], rollbackSquare.objects[1] = rollbackWorld, rollbackWorld
+    rollbackItem.worldItem = rollbackWorld
+    local rollbackDestination = inventory()
+    rollbackDestination.rejectAdd = true
+    local rollbackAccepted, rollbackReason, rollbackDetails =
+        SurvivorCompanion.GameplayUtil.takeWorldItemVerified(
+            rollbackWorld, rollbackDestination, rollbackItem)
+    check(not rollbackAccepted and rollbackReason == "pickup_rollback_failed"
+            and rollbackDetails and rollbackDetails.sourcePreserved == true
+            and rollbackSource:contains(rollbackItem)
+            and not rollbackDestination:contains(rollbackItem)
+            and #rollbackSquare.worldItems == 0 and rollbackItem:getWorldItem() == nil,
+        "failed world reconstruction preserves one explicit source owner and reports failure")
+
+    local idempotentSquare = cell:getGridSquare(11, -8, 0)
+    idempotentSquare.worldItems = {}
+    local idempotentItem = item("Base.Rubberducky", "Item")
+    local idempotentSource, idempotentDestination = inventory({ idempotentItem }), inventory()
+    local idempotentDropped, idempotentWorld = SurvivorCompanion.GameplayUtil.dropItem(
+        idempotentSource, idempotentSquare, idempotentItem, 0.5, 0.5, 0)
+    local firstPickup = SurvivorCompanion.GameplayUtil.takeWorldItemVerified(
+        idempotentWorld, idempotentDestination, idempotentItem)
+    local secondPickup, secondReason = SurvivorCompanion.GameplayUtil.takeWorldItemVerified(
+        idempotentWorld, idempotentDestination, idempotentItem)
+    check(idempotentDropped and firstPickup and secondPickup
+            and secondReason == "already_recovered"
+            and idempotentDestination:contains(idempotentItem)
+            and #idempotentSquare.worldItems == 0
+            and idempotentItem:getWorldItem() == nil,
+        "repeated exact pickup is idempotent after one verified ownership transfer")
 end
 local protectedArea = BaseLife.active().zones[1]
 do

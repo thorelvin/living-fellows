@@ -133,6 +133,9 @@ local valueData = {
     perceptionImmediateVisualHardCap = 12,
     perceptionVisualSliceMs = 1.0,
     perceptionVisualRetentionMs = 250,
+    -- A clear-room bark is a claim about the actor's present room, not about a
+    -- cached scan from before the final approach or a producer cycle rollover.
+    roomCheckCoverageMaxAgeMs = 750,
     perceptionVisualRetentionLimit = 16,
     perceptionVisualQueueHardCap = 64,
     perceptionReflexCandidateHardCap = 48,
@@ -200,7 +203,11 @@ local valueData = {
     navigationNativeLeaseMs = 6500,
     -- Lua route planning and native PathFindBehavior2 startup are both allowed
     -- to span multiple frames without being mistaken for an idle/stuck actor.
+    -- The search lease is a no-progress lease: useful frontier/evaluation work
+    -- refreshes it. A separate hard bound prevents a pathological continuation
+    -- from living forever while a moving Follow goal keeps changing.
     navigationPathSearchLeaseMs = 6500,
+    navigationPathSearchHardMs = 30000,
     navigationNativePendingMs = 6500,
     -- Whole-building routes to another floor stay owned by PathFindBehavior2.
     -- Unlike a one-tile native affordance, reaching the staircase may itself take
@@ -216,6 +223,7 @@ local valueData = {
     navigationNativeRetryMs = 500,
     navigationActorStateGraceMs = 900,
     navigationActorStateTimeoutMs = 12000,
+    navigationRecoveryWaypointMs = 5000,
     navigationRouteMemorySuccessMs = 30000,
     navigationRouteMemoryFailureMs = 8000,
     navigationRouteMemorySuccessBonus = 0.25,
@@ -336,6 +344,17 @@ local valueData = {
     combatNoEffectReapproachCount = 2,
     combatSharedRetreatMs = 1200,
     combatSharedRetreatAlignment = 0.35,
+    -- A follower may break contact locally, but repeated five-tile retreats must
+    -- not chain into a sixty-tile flight that abandons the group and wakes every
+    -- zombie along the way. Destination and corridor pressure are separate: a
+    -- clear endpoint is still unsafe when the route to it brushes another pack.
+    combatFollowRetreatSoftLeash = 10,
+    combatFollowRetreatHardLeash = 14,
+    combatRetreatCohesionWeight = 8,
+    combatRetreatCohesionPenalty = 12,
+    combatRetreatDestinationThreatRadius = 5,
+    combatRetreatCorridorThreatRadius = 4.5,
+    combatRetreatCorridorDangerPenalty = 18,
     combatRearThreatPriority = 30,
     combatFlankThreatPriority = 18,
     combatOverrunRisk = 62,
@@ -569,6 +588,7 @@ local valueData = {
     lastWordsDeathDelayMs = 3000,
     workReservationMs = 45000,
     workApproachTimeoutMs = 90000,
+    interactionOrderTimeoutMs = 60000,
     decisionHysteresis = 8,
     decisionMinStateMs = 900,
     relationshipObservationIntervalMs = 1000,

@@ -558,6 +558,15 @@ function BaseLife.resolveObject(record)
     return references.resolve(record, objectReferenceContext(false))
 end
 
+-- Direct player-issued work uses the same persistent object identity as base
+-- storage and maintenance records.  Keeping allocation here gives every caller
+-- one persisted serial source instead of inventing another index-based handle.
+function BaseLife.describeObject(object, createIdentity)
+    local references = R()
+    if not references then return nil, "base_object_ref_unavailable" end
+    return references.describe(object, objectReferenceContext(createIdentity == true))
+end
+
 function BaseLife.registerStorage(object, category)
     if not BaseLife.STORAGE_CATEGORIES[category] then return false, "invalid_storage_category" end
     local base = activeBase()

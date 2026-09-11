@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.22.12 - Verified interaction and perception
+
+- Bound direct barricade, unbarricade, and dismantle orders to a persistent object identity instead of a mutable square index. Save/load and object reindexing retain the intended target, while removal or replacement fails closed without acting on a neighboring object.
+- Gave each observer independent ownership of an adopted native perception roster. Faster companions can publish later cycles without starving a slower observer before it has completed the current bounded scan.
+- Made room-clear reports require fresh, complete native discovery and deferred line-of-sight validation from the companion's current square. Partial, stale, displaced, or visually unfinished coverage now reports uncertainty instead of a false clear.
+- Made one-shot door orders restore the companion's prior Follow, Stay, Guard, or base-duty state after success, rejection, target loss, obstruction, or timeout. Also repaired the navigation boundary that called inaccessible door helpers.
+- Rebuilt floor-item pickup as a verified ownership transaction. The exact world representation must disappear before the inventory receives the item; failed removal or destination insertion rolls back to one recoverable owner, and repeated requests remain idempotent.
+- Added deterministic regressions for work-target replacement and persistence, fast/slow shared scans, incomplete room coverage, door terminal states, and world-item removal/add/rollback faults.
+
 ## 0.22.11 - Kentucky rituals and companion expression
 
 - Added persistent, personality-led companion rituals: saluting Spiffo, blessing bourbon, apologizing to mannequins, reporting to garden-gnome command, and delivering increasingly unhinged Kentucky sports pep talks. One discovered ritual becomes that survivor's signature habit, grows from a quirk into a routine and tradition, reacts to stress and temperament, persists across saves, and appears in the relationship journal.

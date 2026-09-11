@@ -445,6 +445,14 @@ end
 
 function U.objectLabel(object)
     if object == nil then return "none" end
+    -- Several Build 42 state-machine singletons are intentionally not exposed
+    -- as ordinary Kahlua objects. Indexing one to probe getObjectName/getType/
+    -- getName prints a full exception even inside pcall. Their stable tostring
+    -- already contains the useful class name, so resolve it before any method
+    -- lookup. This keeps blocker diagnostics safe during BumpedState.
+    local rawLabel = tostring(object):gsub("[%c]", " ")
+    local stateName = string.match(rawLabel, "([%w_$]+State)@")
+    if stateName then return stateName end
     for _, methodName in ipairs({ "getObjectName", "getType", "getName" }) do
         local value, ok = U.call(object, methodName)
         if ok and value ~= nil and tostring(value) ~= "" then
@@ -454,7 +462,7 @@ function U.objectLabel(object)
     if type(object) == "table" then
         return tostring(object.__class or object.className or object.type or "table")
     end
-    return tostring(object):gsub("[%c]", " ")
+    return rawLabel
 end
 
 function U.squareStaticBlocker(square)
@@ -565,11 +573,14 @@ end
 
 function U.movementStateBlocker(actor)
     if not actor then return nil end
+    -- Inspect the concrete state before the broad isBlockMovement flag. A
+    -- native BumpedState sets that flag too; returning generic movement_locked
+    -- hid the short collision owner and made navigation wait the full twelve-
+    -- second animation timeout instead of releasing stale forward input.
     local checks = {
         { "isKnockedDown", "knocked_down" },
         { "isCompanionTraversalActive", "climbing" },
         { "isClimbing", "climbing" },
-        { "isBlockMovement", "movement_locked" },
     }
     for _, check in ipairs(checks) do
         local value, ok = U.call(actor, check[1])
@@ -584,6 +595,10 @@ function U.movementStateBlocker(actor)
         end
         name = name or U.objectLabel(current)
         local lower = string.lower(name)
+        if string.find(lower, "bumpedstate", 1, true)
+            or string.find(lower, "bumpstate", 1, true) then
+            return "bumped_state", current
+        end
         if string.find(lower, "collidewithwall", 1, true) then return "wall_collision_state", current end
         if string.find(lower, "climb", 1, true) then return "climbing", current end
         if string.find(lower, "knock", 1, true) or string.find(lower, "getup", 1, true) then
@@ -593,6 +608,8 @@ function U.movementStateBlocker(actor)
             return "action_animation_state", current
         end
     end
+    local blocked, blockedOk = U.call(actor, "isBlockMovement")
+    if blockedOk and blocked == true then return "movement_locked" end
     local actions, actionsOk = U.call(actor, "getCharacterActions")
     if actionsOk and actions ~= nil then
         local size, sizeOk = U.call(actions, "size")
@@ -993,23 +1010,111 @@ function U.dropItem(source, square, item, xOffset, yOffset, zOffset)
     local removeResult, removeCalled = U.call(source, "Remove", item)
     local removed = removeCalled and removeResult ~= false and not U.inventoryContains(source, item)
     if not removed then return false, "drop_remove_failed" end
-    local worldItem, added = U.call(square, "AddWorldInventoryItem", item,
+    local addedItem, added = U.call(square, "AddWorldInventoryItem", item,
         tonumber(xOffset) or 0.5, tonumber(yOffset) or 0.5,
         tonumber(zOffset) or 0, false)
-    if added and worldItem ~= nil then return true, worldItem end
+    local worldItem, linked = U.call(item, "getWorldItem")
+    if not linked or worldItem == nil then
+        -- Test doubles and older adapters may return the wrapper. Build 42
+        -- returns the InventoryItem and exposes the wrapper through getWorldItem.
+        if addedItem ~= item then worldItem = addedItem end
+    end
+    if added and addedItem ~= nil and worldItem ~= nil then return true, worldItem end
     U.addItem(source, item)
     return false, "drop_world_add_failed"
 end
 
-local function tableWorldItemRemove(square, worldItem)
-    if type(square) ~= "table" or type(square.worldItems) ~= "table" then return false end
-    for index, candidate in ipairs(square.worldItems) do
-        if candidate == worldItem then
-            table.remove(square.worldItems, index)
-            return true
-        end
+local function identityInList(list, target)
+    if list == nil then return nil end
+    local count = SC.NativeList and SC.NativeList.size(list)
+        or type(list) == "table" and #list or nil
+    if count == nil or count > 4096 then return nil end
+    for index = 0, count - 1 do
+        local value, available
+        if SC.NativeList then value, available = SC.NativeList.get(list, index)
+        elseif type(list) == "table" then value, available = list[index + 1], true end
+        if not available then return nil end
+        if value == target then return true end
     end
     return false
+end
+
+-- Returns true/false only when every exposed authoritative collection could be
+-- read. nil means absence could not be proven and is never accepted as pickup.
+local function worldItemPresent(square, worldItem)
+    if not square or not worldItem then return nil end
+    local canonical
+    if U.hasMethod(square, "getWorldObjects") then
+        local list, ok = U.call(square, "getWorldObjects")
+        canonical = ok and identityInList(list, worldItem) or nil
+        if canonical == true then return true end
+    end
+    -- getObjects catches a partially detached wrapper, but getWorldObjects is
+    -- the canonical ownership collection and is sufficient to prove absence.
+    if U.hasMethod(square, "getObjects") then
+        local list, ok = U.call(square, "getObjects")
+        local result = ok and identityInList(list, worldItem) or nil
+        if result == true then return true end
+    end
+    if canonical == false then return false end
+    if type(square) == "table" and type(square.worldItems) == "table" then
+        for _, candidate in ipairs(square.worldItems) do
+            if candidate == worldItem then return true end
+        end
+        return false
+    end
+    return nil
+end
+
+U.worldItemPresent = worldItemPresent
+
+local function worldLink(item)
+    local link, ok = U.call(item, "getWorldItem")
+    if ok then return link, true end
+    if type(item) == "table" then return item.worldItem, true end
+    return nil, false
+end
+
+local function removeInventoryIdentity(container, item)
+    if not container or not U.inventoryContains(container, item) then return true end
+    U.call(container, "DoRemoveItem", item)
+    if U.inventoryContains(container, item) then U.call(container, "Remove", item) end
+    return not U.inventoryContains(container, item)
+end
+
+local function addInventoryIdentity(container, item)
+    if not container then return false end
+    if U.inventoryContains(container, item) then return true end
+    U.call(container, "DoAddItemBlind", item)
+    if not U.inventoryContains(container, item) then U.addItem(container, item) end
+    return U.inventoryContains(container, item)
+end
+
+local function restoreWorldOwnership(square, oldWorldItem, item, source, sourceHadItem,
+        allowReconstruct)
+    local present = worldItemPresent(square, oldWorldItem)
+    local restoredWorld = present == true and oldWorldItem or nil
+    if present == nil and allowReconstruct ~= true then
+        if sourceHadItem and source then addInventoryIdentity(source, item) end
+        return false, oldWorldItem
+    end
+    if not restoredWorld then
+        U.call(item, "setWorldItem", nil)
+        if type(item) == "table" then item.worldItem = nil end
+        local addedItem, added = U.call(square, "AddWorldInventoryItem", item,
+            tonumber(type(oldWorldItem) == "table" and oldWorldItem.xOffset) or 0.5,
+            tonumber(type(oldWorldItem) == "table" and oldWorldItem.yOffset) or 0.5,
+            tonumber(type(oldWorldItem) == "table" and oldWorldItem.zOffset) or 0, false)
+        local linked = select(1, worldLink(item))
+        restoredWorld = linked or (addedItem ~= item and addedItem or nil)
+        if not added or addedItem == nil then restoredWorld = nil end
+    end
+    if sourceHadItem and source then addInventoryIdentity(source, item) end
+    local linked, linkReadable = worldLink(item)
+    local restoredPresent = restoredWorld and worldItemPresent(square, restoredWorld) or nil
+    local sourceRestored = not sourceHadItem or source and U.inventoryContains(source, item)
+    return restoredPresent == true and linkReadable and linked == restoredWorld and sourceRestored,
+        restoredWorld
 end
 
 -- Transactional inverse of dropItem for one exact floor object. Build 42's
@@ -1027,29 +1132,73 @@ function U.takeWorldItemVerified(worldItem, destination, expectedItem)
     if item == nil or expectedItem ~= nil and item ~= expectedItem then
         return false, "world_item_identity_changed"
     end
-    if U.inventoryContains(destination, item) then
-        return true, "already_recovered", { item = item, idempotent = true }
-    end
     local square, squareOk = U.call(worldItem, "getSquare")
     if not squareOk or square == nil then
         square = type(worldItem) == "table" and worldItem.square or nil
     end
-    if square == nil then return false, "world_item_square_unavailable" end
+    local linkedWorld, linkReadable = worldLink(item)
+    if U.inventoryContains(destination, item) then
+        local present = square and worldItemPresent(square, worldItem) or false
+        if present == false and linkReadable and linkedWorld == nil then
+            return true, "already_recovered", { item = item, idempotent = true }
+        end
+        -- Preserve the world copy as the recovery owner if a prior partial call
+        -- left both representations alive. A later retry can then start cleanly.
+        if not removeInventoryIdentity(destination, item) then
+            return false, "world_item_ownership_conflict"
+        end
+        return false, "world_item_conflict_rolled_back"
+    end
+    if square == nil then
+        local source = select(1, U.call(item, "getContainer"))
+        if source and U.inventoryContains(source, item) and linkedWorld == nil then
+            return U.transferItemVerified(source, destination, item)
+        end
+        return false, "world_item_square_unavailable"
+    end
 
     local source, sourceOk = U.call(item, "getContainer")
     local sourceHadItem = sourceOk and source ~= nil and U.inventoryContains(source, item)
-    if sourceHadItem then
-        U.call(source, "DoRemoveItem", item)
-        if U.inventoryContains(source, item) then U.call(source, "Remove", item) end
-        if U.inventoryContains(source, item) then return false, "world_source_remove_failed" end
+    if sourceHadItem and not removeInventoryIdentity(source, item) then
+        return false, "world_source_remove_failed"
     end
+
+    -- Mirror vanilla's floor pickup lifecycle, but treat every native return as
+    -- an invocation receipt only. Membership and links are the postconditions.
     U.call(square, "transmitRemoveItemFromSquare", worldItem)
-    local _, removedWorld = U.call(square, "removeWorldObject", worldItem)
-    if not removedWorld then tableWorldItemRemove(square, worldItem) end
+    U.call(square, "removeWorldObject", worldItem)
+    U.call(worldItem, "removeFromWorld")
+    U.call(worldItem, "removeFromSquare")
+    local present = worldItemPresent(square, worldItem)
+    if present ~= false then
+        local restored, restoredWorld = restoreWorldOwnership(
+            square, worldItem, item, source, sourceHadItem, false)
+        return false, restored and "world_item_remove_failed_rolled_back"
+            or "world_item_remove_rollback_failed", {
+            item = item, worldItem = restoredWorld or worldItem,
+            worldPresent = present, sourcePreserved = sourceHadItem
+                and source and U.inventoryContains(source, item) or false,
+        }
+    end
+    U.call(worldItem, "setSquare", nil)
     U.call(item, "setWorldItem", nil)
+    if type(item) == "table" then item.worldItem = nil end
+    linkedWorld, linkReadable = worldLink(item)
+    local detachedSquare = select(1, U.call(worldItem, "getSquare"))
+    if not linkReadable or linkedWorld ~= nil or detachedSquare ~= nil then
+        local restored, restoredWorld = restoreWorldOwnership(
+            square, worldItem, item, source, sourceHadItem, true)
+        return false, restored and "world_item_detach_failed_rolled_back"
+            or "world_item_detach_rollback_failed", {
+            item = item, worldItem = restoredWorld or worldItem,
+        }
+    end
 
     U.addItem(destination, item)
-    if U.inventoryContains(destination, item) then
+    if U.inventoryContains(destination, item)
+        and worldItemPresent(square, worldItem) == false
+        and select(1, worldLink(item)) == nil
+        and (not source or source == destination or not U.inventoryContains(source, item)) then
         return true, "world_item_recovered", {
             item = item, worldItem = worldItem, square = square,
             sourceEmpty = not (source and U.inventoryContains(source, item)),
@@ -1057,17 +1206,21 @@ function U.takeWorldItemVerified(worldItem, destination, expectedItem)
         }
     end
 
-    if U.inventoryContains(destination, item) then U.call(destination, "Remove", item) end
-    if sourceHadItem and source then
-        U.call(source, "DoAddItemBlind", item)
-        if not U.inventoryContains(source, item) then U.addItem(source, item) end
+    removeInventoryIdentity(destination, item)
+    local restored, restoredWorld = restoreWorldOwnership(
+        square, worldItem, item, source, sourceHadItem, true)
+    if restored then
+        return false, "pickup_add_failed_rolled_back", {
+            item = item, worldItem = restoredWorld, worldPresent = true,
+        }
     end
-    local restored, restoredOk = U.call(square, "AddWorldInventoryItem", item,
-        tonumber(type(worldItem) == "table" and worldItem.xOffset) or 0.5,
-        tonumber(type(worldItem) == "table" and worldItem.yOffset) or 0.5,
-        tonumber(type(worldItem) == "table" and worldItem.zOffset) or 0, false)
-    if restoredOk and restored ~= nil then return false, "pickup_add_failed_rolled_back" end
-    return false, "pickup_rollback_failed"
+    -- Even if a hostile world adapter rejects reconstruction, retain one exact
+    -- container owner so the failure is explicit and the item is not deleted.
+    local sourcePreserved = sourceHadItem and source and addInventoryIdentity(source, item)
+    return false, "pickup_rollback_failed", {
+        item = item, worldItem = restoredWorld,
+        sourcePreserved = sourcePreserved == true,
+    }
 end
 
 function U.nameOf(actor)

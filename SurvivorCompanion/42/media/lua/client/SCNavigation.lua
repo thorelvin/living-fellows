@@ -2318,6 +2318,75 @@ local function changedGoal(state, goalSquare)
     return not state.goalSquare or not sameSquare(state.goalSquare, goalSquare)
 end
 
+-- Collision recovery must temporarily own a fixed nearby destination. Without
+-- this waypoint, Follow replaces the lateral escape square with the leader's
+-- freshly sampled position every update and can pull the actor straight back
+-- into the fence or corner it is trying to clear.
+local function selectRecoveryWaypoint(actor, state, actorSquare, goalSquare, intent, now)
+    local utility = U()
+    local x, y, z = utility.position(actorSquare)
+    if x == nil then return nil end
+    local reference = state.lastAttemptTo or goalSquare
+    local rx, ry = utility.position(reference)
+    local dx, dy = (rx or x) - x, (ry or y) - y
+    local forwardX, forwardY
+    if math.abs(dx) >= math.abs(dy) then
+        forwardX, forwardY = dx >= 0 and 1 or -1, 0
+    else
+        forwardX, forwardY = 0, dy >= 0 and 1 or -1
+    end
+    local offsets = {
+        { -forwardY, forwardX }, { forwardY, -forwardX },
+        { -forwardX, -forwardY }, { forwardX, forwardY },
+    }
+    if utility.stableHash(utility.idOf(actor)) % 2 == 1 then
+        offsets[1], offsets[2] = offsets[2], offsets[1]
+    end
+    for _, offset in ipairs(offsets) do
+        local square = utility.gridSquare(x + offset[1], y + offset[2], z)
+        if square then
+            local _, kind = barrierBetween(actorSquare, square)
+            if kind == "open" and select(1, passableEdge(actorSquare, square)) == true
+                and utility.isSquareFree(square)
+                and not utility.edgeBlocked(actorSquare, square)
+                and not personalSpaceBlocker(actor, square, intent and intent.snapshot) then
+                state.recoveryWaypoint = square
+                state.recoveryWaypointExpires = now
+                    + (utility.config("navigationRecoveryWaypointMs") or 5000)
+                return square
+            end
+        end
+    end
+    return nil
+end
+Navigation._selectRecoveryWaypointForRequest = selectRecoveryWaypoint
+Navigation._selectRecoveryWaypointForTests = selectRecoveryWaypoint
+
+local function activeRecoveryWaypoint(actor, state, now, intent)
+    local square = state and state.recoveryWaypoint
+    if square == nil then return nil end
+    local utility = U()
+    local actorSquare = utility.squareOf(actor)
+    local expires = tonumber(state.recoveryWaypointExpires) or 0
+    local valid = actorSquare ~= nil and now <= expires
+        and utility.sameFloor(actorSquare, square)
+        and utility.isSquareFree(square)
+        and not personalSpaceBlocker(actor, square, intent and intent.snapshot)
+    if valid and not sameSquare(actorSquare, square)
+        and not utility.arrived(actor, square, {
+            targetKind = "square",
+            distance = utility.config("navigationArrivalDistance") or 0.6,
+        }) then
+        return square
+    end
+    state.recoveryWaypoint = nil
+    state.recoveryWaypointExpires = nil
+    state.recoveryWaypointReason = nil
+    return nil
+end
+Navigation._activeRecoveryWaypointForRequest = activeRecoveryWaypoint
+Navigation._activeRecoveryWaypointForTests = activeRecoveryWaypoint
+
 local function resetRouteProjection(state)
     state.routeCrossTrack, state.routeProjection, state.lastRouteProjection = nil, nil, nil
     state.crossTrackSince, state.reverseProgressSince = nil, nil
@@ -2468,8 +2537,13 @@ local function usefulPendingMovingSearch(actor, state, goalSquare, context, now)
     local oldGoal = route and route.goalSquare
     if oldGoal == nil or not isMovingTargetIntent(context) then return false end
     local startedAt = tonumber(pending.startedAt)
+    local progressAt = tonumber(pending.progressAt) or startedAt
     local leaseMs = tonumber(U().config("navigationPathSearchLeaseMs")) or 6500
-    if startedAt == nil or now - startedAt < 0 or now - startedAt > leaseMs then
+    local hardMs = math.max(leaseMs,
+        tonumber(U().config("navigationPathSearchHardMs")) or 30000)
+    if startedAt == nil or progressAt == nil or now - startedAt < 0
+        or now - progressAt < 0 or now - progressAt > leaseMs
+        or now - startedAt > hardMs then
         return false
     end
     local sourceSquare = U().squareOf(actor)
@@ -3441,7 +3515,8 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         -- unfinished climb edge (temporary) so the repath routes around it instead
         -- of re-queuing the same stuck climb.
         local stuckThreshold = actorState == "climbing" and timeout or grace
-        if (actorState == "wall_collision_state" or actorState == "climbing")
+        if (actorState == "wall_collision_state" or actorState == "bumped_state"
+                or actorState == "climbing")
             and elapsed >= stuckThreshold
             and now >= (state.nextActorStateRecoveryAt or 0) then
             local cancelled = false
@@ -3474,9 +3549,22 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
                 state.pathIndex = 1
                 state.nextRepathAt = 0
                 state.lastProgressAt = now
+                if actorState == "bumped_state" and actorSquare then
+                    local waypoint = SC.Navigation._selectRecoveryWaypointForRequest(
+                        actor, state, actorSquare, goalSquare, intent, now)
+                    state.recoveryWaypointReason = waypoint and "bumped_state" or nil
+                end
                 activelyRecovered = true
-                recovery = actorState == "climbing" and "cancelled_stuck_climb"
-                    or "cancelled_stale_wall_collision"
+                if actorState == "climbing" then
+                    recovery = "cancelled_stuck_climb"
+                elseif actorState == "bumped_state" then
+                    recovery = "cancelled_stale_bump"
+                else
+                    recovery = "cancelled_stale_wall_collision"
+                end
+                recordBlocker(actor, state, "actor_state", nil, actorSquare,
+                    actorState, recovery, now)
+                state.nextActorStateDiagnosticAt = now + 2000
             elseif actorState == "climbing" then
                 recovery = "stuck_climb_cancel_rejected"
                 local maximum = math.max(1,
@@ -3515,15 +3603,22 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         state.lastProgressAt = now
     end
     if state.pathSearch ~= nil then
-        local searchAge = now - (tonumber(state.pathSearch.startedAt) or now)
+        local startedAt = tonumber(state.pathSearch.startedAt) or now
+        local progressAt = tonumber(state.pathSearch.progressAt) or startedAt
+        local searchAge = now - startedAt
+        local stalledFor = now - progressAt
         local searchLease = tonumber(utility.config("navigationPathSearchLeaseMs")) or 6500
-        if searchAge >= 0 and searchAge <= searchLease then
+        local hardLimit = math.max(searchLease,
+            tonumber(utility.config("navigationPathSearchHardMs")) or 30000)
+        if searchAge >= 0 and stalledFor >= 0 and stalledFor <= searchLease
+            and searchAge <= hardLimit then
             -- holdForPathSearch intentionally makes the actor idle. Planning is
             -- still live work, not evidence for collision recovery.
             return false, nil, nil
         end
-        state.lastMovementReason = "path_search_timeout:"
-            .. tostring(state.pathSearchYieldReason or "unknown")
+        state.lastMovementReason = searchAge > hardLimit and "path_search_timeout:hard_limit"
+            or "path_search_stalled:"
+                .. tostring(state.pathSearchYieldReason or "unknown")
     end
     local nearbyDoor = nearbyOpenedDoor(state, actor)
     local treeAwayX, treeAwayY = treeEscapeDirection(actorSquare, actor, goalSquare)
@@ -3554,8 +3649,15 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
     state.nextRepathAt = 0
     local maximum = utility.config("navigationRecoveryAttempts") or 3
     if state.stuckAttempts > maximum then
+        state.recoveryWaypoint = nil
+        state.recoveryWaypointExpires = nil
+        state.recoveryWaypointReason = nil
+        local terminalGoal = type(intent) == "table" and intent.requestedGoalSquare
+            or goalSquare
+        state.goalSquare = terminalGoal
+        state.routeTargetSignature = routeTargetSignature(terminalGoal, intent)
         return true, false, beginTerminalEpisode(actor, state, actorSquare,
-            goalSquare, intent, preview, now)
+            terminalGoal, intent, preview, now)
     end
     local failedFrom = state.lastAttemptFrom or actorSquare
     local failedTo = state.lastAttemptTo or goalSquare
@@ -3655,6 +3757,10 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
                 supervisorToken = intent and intent.supervisorToken,
             })
             if accepted then
+                state.recoveryWaypoint = square
+                state.recoveryWaypointExpires = now
+                    + (utility.config("navigationRecoveryWaypointMs") or 5000)
+                state.recoveryWaypointReason = "lateral_clearance"
                 recordBlocker(actor, state, blocker.type, blocker.object, blocker.square,
                     blocker.actorState, "lateral_clearance", now)
                 return true, true, "recovering_" .. tostring(blocker.type)
@@ -3830,6 +3936,12 @@ function Navigation.request(actor, target, movementMode, intent)
     local traversalHandled, traversalAccepted, traversalReason =
         SC.Navigation._maintainTraversalForRequest(actor, state, sourceSquare, now)
     if traversalHandled then return traversalAccepted, traversalReason end
+    local recoveryGoal = SC.Navigation._activeRecoveryWaypointForRequest(
+        actor, state, now, intent)
+    if recoveryGoal then
+        goalSquare = recoveryGoal
+        goalAdjusted = true
+    end
     SC.Navigation._markActorPassageForRequest(actor, state, now)
     state.trafficPriority = movementPriority(intent)
     state.trafficAction = type(intent) == "table" and intent.action or "move"
@@ -3839,6 +3951,7 @@ function Navigation.request(actor, target, movementMode, intent)
     requestIntent.targetSquare = goalSquare
     requestIntent.requestedGoalSquare = requestedGoalSquare
     requestIntent.goalAdjustedForObstacle = goalAdjusted == true
+    requestIntent.recoveryWaypoint = recoveryGoal ~= nil
     requestIntent.direction = directionBetween(sourceSquare, goalSquare)
     requestIntent.mode = movementMode or requestIntent.mode or "walk"
     requestIntent.stealthAvoidance = stealthAvoidanceRequested(
@@ -3902,7 +4015,8 @@ function Navigation.request(actor, target, movementMode, intent)
 
     local goalChanged = changedGoal(state, goalSquare)
     local ownershipChanged = previousTokenSerial ~= currentTokenSerial
-        or (previousTargetSignature ~= nil
+        or (requestIntent.recoveryWaypoint ~= true
+            and previousTargetSignature ~= nil
             and previousTargetSignature ~= currentTargetSignature)
     if goalChanged then
         local previousGoal = state.goalSquare
@@ -3911,10 +4025,12 @@ function Navigation.request(actor, target, movementMode, intent)
         local goalShift = previousGoal and utility.distance(previousGoal, goalSquare) or math.huge
         local retainPendingSearch = SC.Navigation._usefulPendingMovingSearchForRequest(
             actor, state, goalSquare, requestIntent, now)
-        local materialGoalChange = previousGoal == nil
-            or previousAction ~= requestedAction
-            or (goalShift >= goalResetDistance(requestIntent) and not retainPendingSearch)
-            or ownershipChanged
+        local materialGoalChange = ownershipChanged
+            or (requestIntent.recoveryWaypoint ~= true
+                and (previousGoal == nil
+                    or previousAction ~= requestedAction
+                    or (goalShift >= goalResetDistance(requestIntent)
+                        and not retainPendingSearch)))
         state.goalSquare = goalSquare
         state.goalAction = requestIntent.action
         if state.terminalGoalKey ~= nil and state.terminalGoalKey ~= squareKey(goalSquare)
@@ -4085,6 +4201,8 @@ function Navigation.request(actor, target, movementMode, intent)
                 route = newRouteSearchJob(sourceSquare, planningGoal, requestIntent.snapshot,
                     pathOptions, evaluateAlternatives),
                 startedAt = now,
+                progressAt = now,
+                lastExpanded = 0,
                 stealthAvoidance = requestIntent.stealthAvoidance == true,
                 followRouting = followRouting == true,
                 alternatives = evaluateAlternatives == true,
@@ -4113,6 +4231,14 @@ function Navigation.request(actor, target, movementMode, intent)
         local searchStarted = utility.nowMs()
         local searchStatus, path, reason, expanded, routeReport, usedNodes =
             resumeRouteSearch(state.pathSearch.route, grantedNodes)
+        local search = state.pathSearch
+        local expandedCount = tonumber(expanded) or 0
+        if search and (expandedCount > (tonumber(search.lastExpanded) or -1)
+                or (tonumber(usedNodes) or 0) > 0) then
+            search.lastExpanded = math.max(expandedCount,
+                tonumber(search.lastExpanded) or 0)
+            search.progressAt = now
+        end
         if SC.Performance and type(SC.Performance.record) == "function" then
             SC.Performance.record("navigation", utility.idOf(actor),
                 utility.nowMs() - searchStarted, usedNodes or 0, false)
@@ -4707,9 +4833,11 @@ function Navigation.interact(actor, object, action, options)
         local desiredOpen = action == "open_door"
         if objectOpen(object) == desiredOpen then return true, "already_set" end
         if desiredOpen and objectLocked(object) then return false, "locked_door" end
-        local ok, status = beginInteraction(actor, state, object, action, now, options, false)
-        if not ok then return false, status end
-        return completeDoorInteraction(actor, state, object, action, utility.squareOf(actor), objectSquare, now)
+        if not V() or type(V().interactDoor) ~= "function" then
+            return false, "traversal_unavailable"
+        end
+        return V().interactDoor(actor, state, object, action,
+            utility.squareOf(actor), objectSquare, now, traversalContext)
     end
     if action == "open_curtain" or action == "close_curtain" then
         local desiredOpen = action == "open_curtain"

@@ -82,8 +82,10 @@ end
 local function resetActorNativeState(state, generation)
     state.nativeSharedGeneration = generation
     state.nativeRosterCycle = nil
+    state.nativeRosterSource = nil
     state.nativeRosterCursor = 1
     state.nativeRosterComplete = false
+    state.nativeLastCompleteCycle = nil
     state.nativePreviewCycle = nil
     state.nativePreviewCursor = 1
     state.nativeCandidateQueue = nil
@@ -152,14 +154,18 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         queue = state.nativeCandidateQueue
     end
 
-    local coherent = shared.completedCycle > 0 and state.nativeRosterComplete ~= true
-        and state.nativeRosterCycle == shared.completedCycle
+    -- Once adopted, this observer owns an immutable roster reference.  The
+    -- producer may publish several newer cycles while a slow observer drains
+    -- it; that must not invalidate the observer's cursor or queued tail.
+    local coherent = state.nativeRosterComplete ~= true
+        and tonumber(state.nativeRosterCycle) ~= nil
+        and type(state.nativeRosterSource) == "table"
     local source, cursor
     if coherent then
         -- Keep the exact completed roster alive while this observer drains it;
         -- another global cycle may finish meanwhile without invalidating the
         -- completion proof or dropping a queued tail.
-        source = state.nativeRosterSource or shared.published
+        source = state.nativeRosterSource
         cursor = math.max(1, math.floor(tonumber(state.nativeRosterCursor) or 1))
     else
         if state.nativePreviewCycle ~= shared.cycle then
@@ -225,14 +231,16 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     local queuePending = math.max(0, #queue - queueIndex + 1)
     if coherent and cursor > #source and queuePending == 0 then
         state.nativeRosterComplete = true
-        state.nativeLastCompleteCycle = shared.completedCycle
+        state.nativeLastCompleteCycle = state.nativeRosterCycle
     end
     if queuePending == 0 then
         state.nativeCandidateQueue, state.nativeCandidateIndex = nil, nil
     end
 
-    local complete = shared.completedCycle > 0
-        and state.nativeLastCompleteCycle == shared.completedCycle
+    local observerCycle = tonumber(state.nativeRosterCycle) or 0
+    local complete = observerCycle > 0 and state.nativeRosterComplete == true
+        and state.nativeLastCompleteCycle == observerCycle
+    local freshComplete = complete and observerCycle == shared.completedCycle
     local sourceRemaining = coherent and math.max(0, #source - cursor + 1) or 0
     local pending = queuePending + sourceRemaining
     local reportedCursor = complete and count or shared.cursor
@@ -244,6 +252,7 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     state.nativeScanMeta = {
         processed = processed,
         complete = complete,
+        freshComplete = freshComplete,
         reused = reused,
         count = count,
         cursor = reportedCursor,
@@ -255,7 +264,8 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         listComplete = complete,
         endReached = shared.completedCycle > 0,
         globalCompleted = globalCompleted,
-        cycle = shared.completedCycle,
+        cycle = observerCycle,
+        publishedCycle = shared.completedCycle,
         generation = shared.generation,
     }
     return result, state.nativeScanMeta

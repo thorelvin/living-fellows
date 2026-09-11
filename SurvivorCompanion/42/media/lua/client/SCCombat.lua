@@ -2162,10 +2162,47 @@ local function prepareRangedShot(actor, state, snapshot, target, weapon, readine
     return true, "aiming"
 end
 
-local function sharedRetreatSquare(actor, state, snapshot, target, now)
+local function retreatTether(actor, player, snapshot, commands)
+    local utility = U()
+    commands = type(commands) == "table" and commands or commandState(actor)
+    local order = commands and commands.order or nil
+    if not commands or commands.recruited ~= true
+        or (order ~= "follow" and order ~= "regroup" and order ~= "retreat") then
+        return nil
+    end
+    local anchor = player or (type(snapshot) == "table"
+        and type(snapshot.player) == "table" and snapshot.player.actor or nil)
+    if not anchor or not utility.isValidActor(anchor) or not utility.sameFloor(actor, anchor) then
+        return nil
+    end
+    local soft = tonumber(utility.config("combatFollowRetreatSoftLeash")) or 10
+    local hard = math.max(soft,
+        tonumber(utility.config("combatFollowRetreatHardLeash")) or 14)
+    return {
+        anchor = anchor,
+        currentDistance = utility.distance(actor, anchor),
+        soft = soft,
+        hard = hard,
+    }
+end
+
+local function retreatCandidateAllowed(tether, square)
+    if not tether or not square then return square ~= nil end
+    local distance = U().distance(square, tether.anchor)
+    if distance <= tether.hard then return true, distance end
+    -- Once already separated, permit a bounded chain only when every segment
+    -- measurably closes on the group. This lets a stranded follower work back
+    -- from beyond the leash without authorising another outward hop.
+    return tether.currentDistance > tether.hard
+        and distance < tether.currentDistance - 0.25, distance
+end
+Combat._retreatCandidateAllowedForTests = retreatCandidateAllowed
+
+local function sharedRetreatSquare(actor, state, snapshot, target, now, player, commands)
     local utility = U()
     local ax, ay, az = utility.position(actor)
     if ax == nil then return nil, nil end
+    local tether = retreatTether(actor, player, snapshot, commands)
     local cohort = state and state.cohortKey or combatCohortKey(actor, nil)
     local key = tostring(cohort) .. ":" .. tostring(math.floor(az or 0))
     local plan = retreatPlans[key]
@@ -2179,10 +2216,37 @@ local function sharedRetreatSquare(actor, state, snapshot, target, now)
         retreatPlans[key] = plan
     end
     local existing = plan.assignments[actor]
-    if existing and utility.isSquareFree(existing) then return existing, plan end
+    if existing and utility.isSquareFree(existing)
+        and retreatCandidateAllowed(tether, existing) then return existing, plan end
+    if existing then
+        local existingKey = utility.squareKey(existing)
+        if existingKey and plan.reserved[existingKey] == actor then
+            plan.reserved[existingKey] = nil
+        end
+        plan.assignments[actor] = nil
+    end
 
     local candidates = snapshot.escapeSquares or {}
-    local bestLocal = candidates[1]
+    local bestLocal, bestLocalScore
+    for _, candidate in ipairs(candidates) do
+        local square = candidate.square
+        local allowed, cohesionDistance = retreatCandidateAllowed(tether, square)
+        if allowed and square and utility.isSquareFree(square) then
+            local score = tonumber(candidate.score)
+                or -(tonumber(candidate.danger) or 0) * 20
+                    - (tonumber(candidate.corridorDanger) or 0)
+                        * (tonumber(utility.config("combatRetreatCorridorDangerPenalty")) or 18)
+            if tether and candidate.cohesionDistance == nil then
+                score = score + (tether.currentDistance - (cohesionDistance or 0))
+                        * (tonumber(utility.config("combatRetreatCohesionWeight")) or 8)
+                    - math.max(0, (cohesionDistance or 0) - tether.soft)
+                        * (tonumber(utility.config("combatRetreatCohesionPenalty")) or 12)
+            end
+            if bestLocal == nil or score > bestLocalScore then
+                bestLocal, bestLocalScore = candidate, score
+            end
+        end
+    end
     if plan.directionX == nil and bestLocal and bestLocal.square then
         local tx, ty = utility.position(bestLocal.square)
         local length = tx and math.sqrt((tx - ax) ^ 2 + (ty - ay) ^ 2) or 0
@@ -2192,35 +2256,37 @@ local function sharedRetreatSquare(actor, state, snapshot, target, now)
             plan.danger = tonumber(bestLocal.danger) or 0
         end
     end
-    local aligned, alignedDanger
+    local aligned, alignedDanger, alignedScore
     for _, candidate in ipairs(candidates) do
         local square = candidate.square
         local squareKeyValue = square and utility.squareKey(square) or nil
         local owner = squareKeyValue and plan.reserved[squareKeyValue] or nil
         local tx, ty = utility.position(square)
-        if square and tx and (owner == nil or owner == actor) and utility.isSquareFree(square) then
+        local allowed, cohesionDistance = retreatCandidateAllowed(tether, square)
+        if allowed and square and tx and (owner == nil or owner == actor)
+            and utility.isSquareFree(square) then
             local dx, dy = tx - ax, ty - ay
             local length = math.sqrt(dx * dx + dy * dy)
             local dot = length > 0.001 and plan.directionX
                 and (dx / length) * plan.directionX + (dy / length) * plan.directionY or 1
             local danger = tonumber(candidate.danger) or 0
+            local score = tonumber(candidate.score)
+                or -danger * 20 - (tonumber(candidate.corridorDanger) or 0)
+                    * (tonumber(utility.config("combatRetreatCorridorDangerPenalty")) or 18)
+            if tether and candidate.cohesionDistance == nil then
+                score = score + (tether.currentDistance - (cohesionDistance or 0))
+                        * (tonumber(utility.config("combatRetreatCohesionWeight")) or 8)
+                    - math.max(0, (cohesionDistance or 0) - tether.soft)
+                        * (tonumber(utility.config("combatRetreatCohesionPenalty")) or 12)
+            end
+            score = score + dot * 6
             if dot >= (utility.config("combatSharedRetreatAlignment") or 0.35)
-                and (aligned == nil or danger < alignedDanger) then
-                aligned, alignedDanger = square, danger
+                and (aligned == nil or score > alignedScore) then
+                aligned, alignedDanger, alignedScore = square, danger, score
             end
         end
     end
-    local chosen = aligned
-    if bestLocal and bestLocal.square then
-        local localDanger = tonumber(bestLocal.danger) or 0
-        local localKey = utility.squareKey(bestLocal.square)
-        local localOwner = localKey and plan.reserved[localKey] or nil
-        if (localOwner == nil or localOwner == actor)
-            and utility.isSquareFree(bestLocal.square)
-            and (chosen == nil or localDanger + 1 < (alignedDanger or math.huge)) then
-            chosen = bestLocal.square
-        end
-    end
+    local chosen = aligned or (bestLocal and bestLocal.square or nil)
     if chosen then
         local squareKeyValue = utility.squareKey(chosen)
         plan.assignments[actor] = chosen
@@ -2234,18 +2300,26 @@ Combat._sharedRetreatSquareForTests = sharedRetreatSquare
 function Combat.sharedRetreatTarget(actor, player, snapshot, target)
     local state = stateFor(actor)
     state.cohortKey = state.cohortKey or combatCohortKey(actor, player)
-    return sharedRetreatSquare(actor, state, snapshot or {}, target, U().nowMs())
+    return sharedRetreatSquare(actor, state, snapshot or {}, target, U().nowMs(),
+        player, commandState(actor))
 end
 
-local function executeRetreat(actor, snapshot, target, survivalCritical, state)
+local function executeRetreat(actor, player, snapshot, target, survivalCritical, state, commands)
     local utility = U()
+    local tether = retreatTether(actor, player, snapshot, commands)
     local shared, sharedPlan = sharedRetreatSquare(
-        actor, state or stateFor(actor), snapshot, target, utility.nowMs())
+        actor, state or stateFor(actor), snapshot, target, utility.nowMs(), player, commands)
     local remembered, retreatPlan
     if SC.Navigation and type(SC.Navigation.retreatTarget) == "function" then
         remembered, retreatPlan = SC.Navigation.retreatTarget(actor, snapshot)
     end
-    local escape = snapshot.escapeSquares and snapshot.escapeSquares[1]
+    local escape
+    for _, candidate in ipairs(snapshot.escapeSquares or {}) do
+        if retreatCandidateAllowed(tether, candidate.square) then
+            escape = candidate
+            break
+        end
+    end
     if shared then
         escape = { square = shared, danger = sharedPlan and sharedPlan.danger or 0 }
     end
@@ -2257,7 +2331,8 @@ local function executeRetreat(actor, snapshot, target, survivalCritical, state)
     -- fall back to the nearby escape square when the remembered target is beyond it.
     if remembered then
         local retreatCap = utility.config("combatRetreatMaxDistance") or 14
-        if utility.distance(actor, remembered) > retreatCap then remembered = nil end
+        if utility.distance(actor, remembered) > retreatCap
+            or not retreatCandidateAllowed(tether, remembered) then remembered = nil end
     end
     if remembered and SC.Navigation and type(SC.Navigation.request) == "function" then
         return SC.Navigation.request(actor, remembered, "jog", {
@@ -2294,6 +2369,23 @@ local function executeRetreat(actor, snapshot, target, survivalCritical, state)
             survivalCritical = survivalCritical == true,
         })
         return accepted == true, accepted and "retreating" or "retreat_rejected"
+    end
+    if tether and tether.currentDistance >= tether.hard
+        and SC.Navigation and type(SC.Navigation.request) == "function" then
+        local anchorSquare = utility.squareOf(tether.anchor)
+        if anchorSquare then
+            return SC.Navigation.request(actor, anchorSquare, "jog", {
+                action = "combat_retreat",
+                snapshot = snapshot,
+                player = tether.anchor,
+                movingTarget = true,
+                urgent = true,
+                escapeSpeedOverride = true,
+                survivalCritical = survivalCritical == true,
+                regroupTether = true,
+                awayFrom = target and target.actor,
+            })
+        end
     end
     local threat = target and target.actor or nil
     if threat == nil then
@@ -2364,7 +2456,8 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
     state = state or stateFor(actor)
     local targetActor = target and target.actor
     if action.kind == "retreat" or action.kind == "escape" then
-        return executeRetreat(actor, snapshot, target, action.kind == "escape", state)
+        return executeRetreat(actor, player, snapshot, target,
+            action.kind == "escape", state, commands)
     end
     if weapon and not weapon.equipped and action.kind ~= "shove" and action.kind ~= "stomp" then
         if not equipWeapon(actor, weapon.item, { nextAction = action.kind }) then
@@ -2720,7 +2813,7 @@ function Combat.update(actor, player, runtime)
         releaseActorClaims(actor)
         state.combatRole = nil
         rootRuntime.combatRole = nil
-        local ok, reason = executeRetreat(actor, snapshot, target, true, state)
+        local ok, reason = executeRetreat(actor, player, snapshot, target, true, state, commands)
         if ok then
             enterRetreat(actor, state, commands, now, true, snapshot)
             state.active = true
@@ -2738,7 +2831,7 @@ function Combat.update(actor, player, runtime)
             releaseActorClaims(actor)
             state.combatRole = nil
             rootRuntime.combatRole = nil
-            local ok, reason = executeRetreat(actor, snapshot, target, false, state)
+            local ok, reason = executeRetreat(actor, player, snapshot, target, false, state, commands)
             if ok then
                 enterRetreat(actor, state, commands, now, false, snapshot)
                 state.active = true
