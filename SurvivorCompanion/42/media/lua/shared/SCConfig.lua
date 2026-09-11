@@ -509,9 +509,13 @@ local valueData = {
     -- Long enough for a guard to finish a natural idle/read/repair cycle
     -- between short patrol legs instead of pacing continuously.
     guardPatrolIntervalMs = 30000,
-    threatWarningCooldownMs = 15000,
+    -- A visible pack is one continuous threat episode, not a fresh discovery
+    -- every decision pulse. The actor cooldown also covers brief LOS flicker,
+    -- while the group cooldown prevents a full party from reporting one pack.
+    threatWarningCooldownMs = 30000,
+    threatWarningClearMs = 7000,
     heardThreatWarningCooldownMs = 15000,
-    threatWarningGroupCooldownMs = 3500,
+    threatWarningGroupCooldownMs = 10000,
     threatWarningSoundRadius = 10,
     sharedAlertMemoryMs = 5000,
     -- SCNativeCompanion deliberately skips IsoPlayer's local visibility pass.
@@ -574,6 +578,9 @@ local valueData = {
     ambientDialogueActorCooldownMs = 90000,
     ambientDialogueGroupCooldownMs = 30000,
     ambientDialogueDistance = 10,
+    companionNameLabels = true,
+    companionNameLabelDistance = 20,
+    companionNameLabelOffsetY = 72,
     -- Vanilla overhead chat fades too quickly for full companion sentences.
     -- Use real-time, length-aware display targets; the native companion keeps
     -- the actor-owned line alive without routing speech through the player.
@@ -1061,6 +1068,9 @@ function SC.Config.refreshSandbox(source)
     if banditCamps then runtimeOverrides.banditFactionMaxCamps = math.floor(banditCamps) end
     local opacity = clamp(sandbox.UIOpacity, 0.25, 0.85)
     if opacity then runtimeOverrides.uiPanelOpacity = opacity end
+    if type(sandbox.ShowCompanionNames) == "boolean" then
+        runtimeOverrides.companionNameLabels = sandbox.ShowCompanionNames
+    end
     return true
 end
 

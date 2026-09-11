@@ -10,6 +10,14 @@ assert(Events.OnRenderTick.callback == Visuals.onRenderTick)
 assert(Events.OnPreUIDraw.callback == Visuals.onPreUIDraw)
 assert(Visuals.isInstalled() == true)
 
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 2 and fixture.labels[1].value == "Addy"
+        and fixture.labels[2].value == "Addy",
+    "a recruited visible companion needs one shadowed first-name label even when base visuals are hidden; labels="
+        .. tostring(#fixture.labels) .. " report="
+        .. tostring(fixture.reports[1] and fixture.reports[1][4]))
+fixture.labels = {}
+
 Events.OnRenderTick.callback()
 assert(#fixture.lines == 0, "the persistent layout must be opt-in")
 assert(#fixture.foodObject.calls == 0, "disabled visualization must not touch storage")
@@ -29,11 +37,23 @@ assert(fixture.foodObject.calls[1].name == "setOutlineHighlight"
     "storage highlight must be scoped to the local player")
 
 Events.OnPreUIDraw.callback()
-assert(#fixture.labels == 6, "two zones and one storage need shadowed labels")
+assert(#fixture.labels == 8, "base records and the recruited companion need shadowed labels")
 assert(fixture.labels[1].value == "Camp area"
         and fixture.labels[3].value == "Workshop"
-        and fixture.labels[5].value == "Food",
-    "labels must identify both named zones and localized storage categories")
+        and fixture.labels[5].value == "Food" and fixture.labels[7].value == "Addy",
+    "labels must identify zones, localized storage categories, and the companion first name")
+
+fixture.companion.square.visible = false
+fixture.labels = {}
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 6,
+    "companion names must not render through a wall or outside the player's visible squares")
+fixture.companion.square.visible = true
+fixture.companion.speech = "One zombie ahead."
+fixture.labels = {}
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 6, "active overhead speech must own the companion head-text lane")
+fixture.companion.speech = ""
 
 Visuals.focus("zone", "zone:work")
 fixture.lines = {}

@@ -72,6 +72,23 @@ local function numberMethod(object, methodName)
     return value
 end
 
+local function safeMethod(object, methodName, ...)
+    local method = object and object[methodName] or nil
+    if type(method) ~= "function" then return nil, false end
+    local ok, value = pcall(method, object, ...)
+    if not ok then return nil, false end
+    return value, true
+end
+
+local function configured(key, fallback)
+    local config = SC.Config
+    if type(config) == "table" and type(config.get) == "function" then
+        local ok, value = pcall(config.get, key)
+        if ok and value ~= nil then return value end
+    end
+    return fallback
+end
+
 local function playerPosition(subject)
     local x = numberMethod(subject, "getX")
     local y = numberMethod(subject, "getY")
@@ -301,13 +318,14 @@ local function screenPosition(x, y, z)
     return sx, sy
 end
 
-local function drawLabel(value, x, y, z, color, occupied)
+local function drawLabel(value, x, y, z, color, occupied, alpha, verticalOffset)
     local sx, sy = screenPosition(x, y, z)
     if not sx then return false end
     local core = type(getCore) == "function" and getCore() or nil
     local width = core and numberMethod(core, "getScreenWidth") or 0
     local height = core and numberMethod(core, "getScreenHeight") or 0
-    sy = sy - 48
+    alpha = math.max(0, math.min(1, tonumber(alpha) or 1))
+    sy = sy - (tonumber(verticalOffset) or 48)
     if sx < 0 or sy < 0 or (width > 0 and sx > width) or (height > 0 and sy > height) then
         return false
     end
@@ -317,33 +335,111 @@ local function drawLabel(value, x, y, z, color, occupied)
     sy = sy + collision * 13
     local manager = type(getTextManager) == "function" and getTextManager() or nil
     if not manager or type(manager.DrawStringCentre) ~= "function" then return false end
-    manager:DrawStringCentre(UIFont.Small, sx + 1, sy + 1, value, 0.02, 0.02, 0.02, 0.94)
-    manager:DrawStringCentre(UIFont.Small, sx, sy, value, color.r, color.g, color.b, 1.00)
+    manager:DrawStringCentre(UIFont.Small, sx + 1, sy + 1, value,
+        0.02, 0.02, 0.02, math.min(0.94, alpha))
+    manager:DrawStringCentre(UIFont.Small, sx, sy, value,
+        color.r, color.g, color.b, alpha)
     return true
 end
 
-function Visuals.renderLabels()
-    if not enabled then return true end
-    refreshCache(false)
-    local occupied = {}
-    for _, zone in ipairs(cachedZones) do
-        local x1, y1, x2, y2 = bounds(zone)
-        if x1 then
-            local label = tostring(zone.name or translated(
-                "UI_SC_Base_Zone_" .. tostring(zone.kind), humanize(zone.kind)))
-            if focusKind == "zone" and focusId == zone.id then label = "> " .. label .. " <" end
-            drawLabel(label, (x1 + x2) / 2, (y1 + y2) / 2, zone.z,
-                colorFor(ZONE_COLORS, zone.kind), occupied)
+local function firstName(record)
+    local identity = type(record) == "table" and type(record.identity) == "table"
+        and record.identity or nil
+    local value = identity and identity.forename or nil
+    if type(value) ~= "string" then return nil end
+    value = string.gsub(value, "^%s+", "")
+    value = string.gsub(value, "%s+$", "")
+    if value == "" then return nil end
+    return string.sub(value, 1, 48)
+end
+
+local function visibleCompanionLabel(record, subject, px, py, pz, playerIndex)
+    if type(record) ~= "table" or record.recruited ~= true then return nil end
+    if type(record.runtime) == "table" and record.runtime.inactive == true then return nil end
+    local actor = record.actor
+    if actor == nil or actor == subject then return nil end
+    if type(SC.Registry) == "table" and type(SC.Registry.isActive) == "function" then
+        local ok, active = pcall(SC.Registry.isActive, actor, record.id)
+        if not ok or active ~= true then return nil end
+    end
+    local dead, deadOk = safeMethod(actor, "isDead")
+    if deadOk and dead == true then return nil end
+    local vehicle, vehicleOk = safeMethod(actor, "getVehicle")
+    if vehicleOk and vehicle ~= nil then return nil end
+    local x, y, z = playerPosition(actor)
+    if x == nil or z ~= pz then return nil end
+    local dx, dy = x - px, y - py
+    local distanceSq = dx * dx + dy * dy
+    local maximum = math.max(1,
+        tonumber(configured("companionNameLabelDistance", 20)) or 20)
+    if distanceSq > maximum * maximum then return nil end
+    local square, squareOk = safeMethod(actor, "getCurrentSquare")
+    if not squareOk or square == nil then return nil end
+    local canSee, canSeeOk = safeMethod(square, "getCanSee", playerIndex)
+    if not canSeeOk or canSee ~= true then return nil end
+    local targetAlpha, alphaOk = safeMethod(actor, "getTargetAlpha", playerIndex)
+    if alphaOk and tonumber(targetAlpha) ~= nil and tonumber(targetAlpha) <= 0.05 then
+        return nil
+    end
+    -- The vanilla chat element occupies the same head anchor. Let speech take
+    -- the lane while active instead of painting the name through the sentence.
+    local line, lineOk = safeMethod(actor, "getSayLine")
+    if lineOk and type(line) == "string" and line ~= "" then return nil end
+    local name = firstName(record)
+    if name == nil then return nil end
+    local distance = math.sqrt(distanceSq)
+    local alpha = 0.92 - (distance / maximum) * 0.30
+    return { name = name, x = x, y = y, z = z, alpha = math.max(0.55, alpha) }
+end
+
+local function renderCompanionLabels(occupied)
+    if configured("companionNameLabels", true) ~= true
+        or type(SC.Registry) ~= "table" or type(SC.Registry.records) ~= "function" then
+        return 0
+    end
+    local subject = player()
+    local px, py, pz = playerPosition(subject)
+    if subject == nil or px == nil then return 0 end
+    local playerNumber = safeMethod(subject, "getPlayerNum")
+    local index = tonumber(playerNumber) or 0
+    local ok, records = pcall(SC.Registry.records)
+    if not ok or type(records) ~= "table" then return 0 end
+    local drawn = 0
+    for _, record in ipairs(records) do
+        local row = visibleCompanionLabel(record, subject, px, py, pz, index)
+        if row and drawLabel(row.name, row.x, row.y, row.z,
+            { r = 0.84, g = 0.92, b = 1.00 }, occupied, row.alpha,
+            configured("companionNameLabelOffsetY", 72)) then
+            drawn = drawn + 1
         end
     end
-    for _, entry in ipairs(cachedStorages) do
-        local row = entry.record
-        local label = translated("UI_SC_Base_Storage_" .. tostring(row.category),
-            humanize(row.category))
-        if focusKind == "storage" and focusId == row.id then label = "> " .. label .. " <" end
-        drawLabel(label, row.x + 0.5, row.y + 0.5, row.z,
-            colorFor(STORAGE_COLORS, row.category), occupied)
+    return drawn
+end
+
+function Visuals.renderLabels()
+    local occupied = {}
+    if enabled then
+        refreshCache(false)
+        for _, zone in ipairs(cachedZones) do
+            local x1, y1, x2, y2 = bounds(zone)
+            if x1 then
+                local label = tostring(zone.name or translated(
+                    "UI_SC_Base_Zone_" .. tostring(zone.kind), humanize(zone.kind)))
+                if focusKind == "zone" and focusId == zone.id then label = "> " .. label .. " <" end
+                drawLabel(label, (x1 + x2) / 2, (y1 + y2) / 2, zone.z,
+                    colorFor(ZONE_COLORS, zone.kind), occupied)
+            end
+        end
+        for _, entry in ipairs(cachedStorages) do
+            local row = entry.record
+            local label = translated("UI_SC_Base_Storage_" .. tostring(row.category),
+                humanize(row.category))
+            if focusKind == "storage" and focusId == row.id then label = "> " .. label .. " <" end
+            drawLabel(label, row.x + 0.5, row.y + 0.5, row.z,
+                colorFor(STORAGE_COLORS, row.category), occupied)
+        end
     end
+    renderCompanionLabels(occupied)
     return true
 end
 

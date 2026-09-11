@@ -40,7 +40,33 @@ local player = { x = 10, y = 10, z = 0 }
 function player:getX() return self.x end
 function player:getY() return self.y end
 function player:getZ() return self.z end
+function player:getPlayerNum() return 0 end
 fixture.player = player
+
+local companionSquare = { visible = true }
+function companionSquare:getCanSee(index)
+    assert(index == 0)
+    return self.visible
+end
+local companion = { x = 12, y = 11, z = 0, square = companionSquare, speech = "" }
+function companion:getX() return self.x end
+function companion:getY() return self.y end
+function companion:getZ() return self.z end
+function companion:getCurrentSquare() return self.square end
+function companion:getTargetAlpha(index) assert(index == 0); return 1 end
+function companion:getVehicle() return nil end
+function companion:isDead() return false end
+function companion:getSayLine() return self.speech end
+fixture.companion = companion
+fixture.records = {
+    { id = "sc-addy", actor = companion, recruited = true,
+        identity = { forename = "Addy", surname = "Ratliff" }, runtime = {} },
+}
+fixture.config = {
+    companionNameLabels = true,
+    companionNameLabelDistance = 20,
+    companionNameLabelOffsetY = 72,
+}
 
 function getSpecificPlayer(index)
     assert(index == 0)
@@ -134,6 +160,9 @@ fixture.summary = {
 }
 
 SurvivorCompanion = {
+    Config = {
+        get = function(key) return fixture.config[key] end,
+    },
     GameplayUtil = {
         nowMs = function() return fixture.clock end,
     },
@@ -159,6 +188,12 @@ SurvivorCompanion = {
         zoneInsideAreaUnion = function(zone)
             return zone.z == 0 and zone.x1 >= 8 and zone.x2 <= 18
                 and zone.y1 >= 8 and zone.y2 <= 18
+        end,
+    },
+    Registry = {
+        records = function() return fixture.records end,
+        isActive = function(actor, id)
+            return actor == companion and id == "sc-addy"
         end,
     },
 }

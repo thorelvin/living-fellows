@@ -25,5 +25,7 @@
     "Sandbox_LivingFellows_MaxBanditCamps": "Maximum bandit camps",
     "Sandbox_LivingFellows_MaxBanditCamps_tooltip": "Stops additional bandit camp spawning at this count. Lowering the value never removes camps already saved.",
     "Sandbox_LivingFellows_UIOpacity": "Companion menu opacity",
-    "Sandbox_LivingFellows_UIOpacity_tooltip": "Adjusts the background opacity of the companion menu while preserving visibility of approaching threats."
+    "Sandbox_LivingFellows_UIOpacity_tooltip": "Adjusts the background opacity of the companion menu while preserving visibility of approaching threats.",
+    "Sandbox_LivingFellows_ShowCompanionNames": "Show companion first names",
+    "Sandbox_LivingFellows_ShowCompanionNames_tooltip": "Draws a subtle first-name label above recruited companions that the player can currently see. Names yield to speech and are never shown through walls."
 }

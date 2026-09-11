@@ -341,7 +341,7 @@ require(sandbox_options.is_file() and sandbox_translation.is_file(),
 sandbox_text = sandbox_options.read_text(encoding="utf-8")
 for option in ("EncountersEnabled", "EncounterFrequency", "MaxCompanions",
                "CompanionNeedsRate", "HouseholdSpawnsEnabled", "HouseholdDailyChance",
-               "MaxHouseholds", "UIOpacity"):
+               "MaxHouseholds", "UIOpacity", "ShowCompanionNames"):
     require(f"option LivingFellows.{option}" in sandbox_text,
             f"sandbox option missing: {option}")
 require("debugSpawnEnabled" not in sandbox_text and "Debug" not in sandbox_text,

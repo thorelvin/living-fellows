@@ -1501,7 +1501,8 @@ local function warnAboutThreat(actor, snapshot, commands, state, current)
     local count = tonumber(snapshot.threatCount) or #(snapshot.threats or {})
     if count <= 0 then
         if state.threatClearAt == nil then state.threatClearAt = current end
-        if current - state.threatClearAt >= 3000 then
+        if current - state.threatClearAt
+            >= (U().config("threatWarningClearMs") or 7000) then
             state.lastWarnedThreat = nil
             state.lastThreatBand = nil
             state.lastThreatBandRank = nil
@@ -1521,18 +1522,23 @@ local function warnAboutThreat(actor, snapshot, commands, state, current)
     -- otherwise each swap restarts the same freeze hand signal and looks like an
     -- endless raised-hand loop. A genuinely higher danger band still bypasses it.
     if current < (state.nextThreatWarningAt or 0) and not escalated then return end
+    -- Once this actor has acknowledged a continuous visible-threat episode,
+    -- elapsed cooldown alone must not make the same pack feel newly discovered.
+    -- A higher band still gets one immediate escalation warning; ordinary
+    -- warnings resume only after the configured threat-free reset window.
+    if state.lastThreatBandRank ~= nil and not escalated then return end
     local immediate = tonumber(snapshot.immediateCount) or #(snapshot.immediateAttackers or {})
     state.lastWarnedThreat = threat
     state.lastThreatBand = band
     state.lastThreatBandRank = bandRank
-    state.nextThreatWarningAt = current + (U().config("threatWarningCooldownMs") or 15000)
+    state.nextThreatWarningAt = current + (U().config("threatWarningCooldownMs") or 30000)
     -- Immediate contact is resolved in the same decision by Combat. Reserving
     -- the overhead line lets the more useful Engage or Fall back bark describe
     -- the action instead of first showing a generic warning and then replacing
     -- it. Distant contacts retain the existing hand signal or warning.
     if immediate > 0 then return end
     if current - lastGroupThreatWarningAt
-        < (U().config("threatWarningGroupCooldownMs") or 3500)
+        < (U().config("threatWarningGroupCooldownMs") or 10000)
         and not (escalated and band == "horde") then return end
     lastGroupThreatWarningAt = current
     local player = snapshot.player and snapshot.player.actor or nil

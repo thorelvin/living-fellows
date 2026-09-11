@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.22.15 - Quieter threat signals and companion nameplates
+
+- Changed visible-zombie warnings from repeating on an elapsed timer to one report per uninterrupted threat episode. A higher danger band still warns immediately, while a seven-second clear window and 30-second actor cooldown prevent brief line-of-sight flicker from restarting the same discovery.
+- Raised the party-wide warning gap to ten seconds so multiple companions do not take turns signaling the same pack.
+- Added subtle first-name labels above recruited companions within 20 tiles. Labels respect the local player's square visibility, fade with distance, never reveal actors through walls, skip occupied vehicles, and yield the head-text lane while the companion speaks.
+- Added the default-on `Show companion first names` sandbox option and UI/config regressions for visibility, speech overlap, disabling, continuous threats, and escalation.
+
 ## 0.22.14 - Runtime safety and exact relic recovery
 
 - Closed an action-supervisor re-entrancy hole that could let a lower-priority order overwrite an urgent survival action, and added explicit per-actor retirement cleanup for Kahlua tables that cannot actually be weak.

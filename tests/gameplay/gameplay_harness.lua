@@ -8435,6 +8435,10 @@ local signalSnapshot = {
 }
 local signalRuntime = { snapshot = signalSnapshot }
 local savedSignalNativeActions = SurvivorCompanion.NativeActions
+local savedSignalSnapshot = SurvivorCompanion.Senses.snapshot
+local savedSignalRefreshImmediate = SurvivorCompanion.Senses.refreshImmediate
+SurvivorCompanion.Senses.snapshot = function(_, _, runtime) return runtime.snapshot end
+SurvivorCompanion.Senses.refreshImmediate = function(_, _, snapshot) return snapshot end
 local signalPacing
 SurvivorCompanion.NativeActions = {
     activityStatus = function() return "none" end,
@@ -8488,27 +8492,43 @@ SurvivorCompanion.NativeActions = savedSignalNativeActions
 clock = clock + 4000
 signalActor.lastEmote = nil
 local alternateDistantThreat = zombie(46, 21, {})
-SurvivorCompanion.Decision.update(signalActor, signalPlayer, {
-    snapshot = {
-        threats = { { actor = alternateDistantThreat, distanceSq = 37,
-            visible = true, score = 21 } },
-        immediateAttackers = {}, threatCount = 1, immediateCount = 0, pressure = 0.35,
-        escapeSquares = {}, allies = {}, player = { actor = signalPlayer, danger = 0 },
-    },
-})
+signalRuntime.snapshot = {
+    threats = { { actor = alternateDistantThreat, distanceSq = 37,
+        visible = true, score = 21 } },
+    immediateAttackers = {}, threatCount = 1, immediateCount = 0, pressure = 0.35,
+    escapeSquares = {}, allies = {}, player = { actor = signalPlayer, danger = 0 },
+}
+SurvivorCompanion.Decision.update(signalActor, signalPlayer, signalRuntime)
+signalRuntime.snapshot = signalSnapshot
 check(signalActor.lastEmote == nil
         and SurvivorCompanion.Dialogue.lastSpokenTopic(signalActor) == "signal.one",
     "a different top-ranked zombie cannot restart the same warning hand signal during cooldown")
-SurvivorCompanion.Decision.update(signalActor, signalPlayer, {
-    snapshot = {
-        threats = { { actor = distantThreat, distanceSq = 36, visible = true, score = 90 } },
-        immediateAttackers = {}, threatCount = 12, immediateCount = 0, pressure = 1.2,
-        escapeSquares = {}, allies = {}, player = { actor = signalPlayer, danger = 0 },
-    },
-})
+SurvivorCompanion.Downtime.reset(signalActor)
+SurvivorCompanion.Locomotion.reset(signalActor)
+signalRuntime.snapshot = {
+    threats = { { actor = distantThreat, distanceSq = 36, visible = true, score = 90 } },
+    immediateAttackers = {}, threatCount = 12, immediateCount = 0, pressure = 1.2,
+    escapeSquares = {}, allies = {}, player = { actor = signalPlayer, danger = 0 },
+}
+SurvivorCompanion.Decision.update(signalActor, signalPlayer, signalRuntime)
 check(SurvivorCompanion.Dialogue.lastSpokenTopic(signalActor) == "signal.horde"
         and worldSoundCount == soundsBeforeSignal,
-    "a contact escalating from one zombie to a horde bypasses the stale warning cooldown silently")
+    "a contact escalating from one zombie to a horde bypasses the stale warning cooldown silently: topic="
+        .. tostring(SurvivorCompanion.Dialogue.lastSpokenTopic(signalActor))
+        .. " rank=" .. tostring(SurvivorCompanion.Decision.peek(signalActor).lastThreatBandRank)
+        .. " intent=" .. tostring(SurvivorCompanion.Decision.peek(signalActor).intent))
+clock = clock + 31000
+signalActor.lastEmote = nil
+local continuousWarningDeadline = SurvivorCompanion.Decision.peek(signalActor).nextThreatWarningAt
+local continuousWarningRank = SurvivorCompanion.Decision.peek(signalActor).lastThreatBandRank
+SurvivorCompanion.Decision.update(signalActor, signalPlayer, signalRuntime)
+check(SurvivorCompanion.Decision.peek(signalActor).nextThreatWarningAt
+        == continuousWarningDeadline
+        and SurvivorCompanion.Decision.peek(signalActor).lastThreatBandRank
+            == continuousWarningRank,
+    "elapsed cooldown cannot make one continuous visible threat episode look newly spotted")
+SurvivorCompanion.Senses.refreshImmediate = savedSignalRefreshImmediate
+SurvivorCompanion.Senses.snapshot = savedSignalSnapshot
 end
 SurvivorCompanion.__testNeedsAndCamp()
 SurvivorCompanion.__testNeedsAndCamp = nil
