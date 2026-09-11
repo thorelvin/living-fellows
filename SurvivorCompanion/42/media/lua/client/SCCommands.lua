@@ -48,6 +48,7 @@ local copyLimits = {
     background = { maxDepth = 4, maxEntries = 128 },
     care = { maxDepth = 4, maxEntries = 192 },
     reveals = { maxDepth = 4, maxEntries = 128 },
+    ritual = { maxDepth = 5, maxEntries = 96 },
     objectives = { maxDepth = 6, maxEntries = 512 },
     possessions = { maxDepth = 6, maxEntries = 256 },
     downtime = { maxDepth = 4, maxEntries = 128 },
@@ -88,7 +89,7 @@ local stableDataKeys = {
 local stableEntryKeys = {
     "recruited", "factionId", "factionRole", "factionLeader", "order", "followDistance", "scavenge", "allowOverload", "rideWithPlayer",
     "moveMode", "moveModeVersion", "combatMode", "combatDoctrine", "holdFire", "weaponPriority", "group", "trust", "bond", "morale", "stress",
-    "timeTogetherMs", "memories", "background", "care", "reveals", "lastDowntime", "state",
+    "timeTogetherMs", "memories", "background", "care", "reveals", "ritual", "lastDowntime", "state",
     "personalityProfile", "objectives", "possessions",
     "workMode", "workTarget", "returnOrder", "returnWorkMode",
 }
@@ -178,6 +179,8 @@ local function snapshotState(actor, entry)
         copyLimits.care, "$.commands.care")
     local stableReveals = requiredCopy(valueFrom(entry, { "reveals" },
         persistedPersonality.reveals), copyLimits.reveals, "$.commands.reveals")
+    local stableRitual = requiredCopy(valueFrom(entry, { "ritual" },
+        persistedPersonality.ritual), copyLimits.ritual, "$.commands.ritual")
     local stableObjectives = requiredCopy(persistedObjectives, copyLimits.objectives,
         "$.commands.objectives") or {}
     local stablePossessions = requiredCopy(persistedPossessions, copyLimits.possessions,
@@ -245,6 +248,7 @@ local function snapshotState(actor, entry)
         background = stableBackground,
         care = stableCare,
         reveals = stableReveals,
+        ritual = stableRitual,
         timeTogetherMs = tonumber(valueFrom(data, { "SC_TimeTogetherMs" },
             valueFrom(entry, { "timeTogetherMs" }, persistedPersonality.timeTogetherMs or 0))) or 0,
         lastEncouragedAt = tonumber(persistedPersonality.lastEncouragedAt) or 0,
@@ -404,6 +408,8 @@ local function writeStable(actor, entry, state)
     local stableReveals = requiredCopy(type(state.reveals) == "table" and state.reveals
         or priorPersonality.reveals or {}, copyLimits.reveals,
         "$.commands.reveals") or {}
+    local stableRitual = requiredCopy(type(state.ritual) == "table" and state.ritual
+        or priorPersonality.ritual, copyLimits.ritual, "$.commands.ritual")
     local stableObjectives = requiredCopy(state.objectives or prior.objectives or {},
         copyLimits.objectives, "$.commands.objectives") or {}
     local stablePossessions = requiredCopy(state.possessions or prior.possessions or {},
@@ -493,6 +499,7 @@ local function writeStable(actor, entry, state)
                 background = stableBackground,
                 care = stableCare,
                 reveals = stableReveals,
+                ritual = stableRitual,
                 timeTogetherMs = tonumber(state.timeTogetherMs) or 0,
                 lastEncouragedAt = tonumber(state.lastEncouragedAt) or 0,
             },
@@ -531,6 +538,7 @@ local function writeStable(actor, entry, state)
         entry.background = stableBackground
         entry.care = stableCare
         entry.reveals = stableReveals
+        entry.ritual = stableRitual
         entry.lastDowntime = stableLastDowntime
         entry.workMode = state.workMode
         entry.workTarget = stableWorkTarget
@@ -1785,6 +1793,7 @@ copyCommandState = function(state)
         { "background", copyLimits.background },
         { "care", copyLimits.care },
         { "reveals", copyLimits.reveals },
+        { "ritual", copyLimits.ritual },
         { "objectives", copyLimits.objectives },
         { "possessions", copyLimits.possessions },
         { "lastDowntime", copyLimits.downtime },
@@ -2392,6 +2401,7 @@ function Commands.export(actor)
         background = detached.background,
         care = detached.care,
         reveals = detached.reveals,
+        ritual = detached.ritual,
         timeTogetherMs = detached.timeTogetherMs,
         objectives = detached.objectives,
         possessions = detached.possessions,

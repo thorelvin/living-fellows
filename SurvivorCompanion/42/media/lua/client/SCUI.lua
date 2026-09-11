@@ -2768,6 +2768,22 @@ function SCUIDetail:buildJournal(panel, row)
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_Journal_PrivateKeepsake"))
     end
 
+    local ritual = type(journal.ritual) == "table" and journal.ritual or {}
+    y = self:addSection(panel, y + 4, "UI_SC_Journal_Ritual")
+    if ritual.known then
+        y = self:addInformationLine(panel, y, "UI_SC_Journal_RitualName",
+            ritual.label or UI.stateText(ritual.id))
+        y = self:addInformationLine(panel, y, "UI_SC_Journal_RitualStage",
+            UI.stateText(ritual.stage), tostring(tonumber(ritual.completions) or 0))
+        if ritual.relicStatus then
+            y = self:addInformationLine(panel, y, "UI_SC_Journal_RelicStatus",
+                UI.stateText(ritual.relicStatus))
+        end
+    else
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_Journal_NoRitual"))
+    end
+
     y = self:addSection(panel, y + 4, "UI_SC_Journal_Memories")
     local memories = type(journal.memories) == "table" and journal.memories or {}
     if #memories == 0 then

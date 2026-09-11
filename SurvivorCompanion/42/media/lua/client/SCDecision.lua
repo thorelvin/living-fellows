@@ -27,7 +27,7 @@ local safetyRank = {
 local idleDecisionKinds = {
     downtime = true, conversation = true, mental_episode = true,
     grief_response = true, purposeful_idle = true, joy_response = true,
-    social_participant = true,
+    social_participant = true, ritual = true,
 }
 local tacticalDecisionKinds = {
     combat = true, retreat = true, medical = true, tactical = true,
@@ -1291,7 +1291,8 @@ end
 local function delegate(candidate, actor, player, rootRuntime, commands, snapshot, state)
     if candidate.kind == "mental_episode" or candidate.kind == "grief_response"
         or candidate.kind == "purposeful_idle"
-        or candidate.kind == "joy_response" or candidate.kind == "social_participant" then
+        or candidate.kind == "joy_response" or candidate.kind == "social_participant"
+        or candidate.kind == "ritual" then
         if not SC.Autonomy or type(SC.Autonomy.update) ~= "function" then
             return false, "autonomy_unavailable"
         end
@@ -1429,6 +1430,8 @@ local function candidateInterval(candidate)
         return 167
     elseif candidate.kind == "purposeful_idle" or candidate.kind == "joy_response" then
         return 250
+    elseif candidate.kind == "ritual" then
+        return 250
     elseif candidate.kind == "needs" then
         return 250
     elseif candidate.kind == "base_work" then
@@ -1451,7 +1454,7 @@ local function candidateDue(actor, candidate, current)
     return U().isDue(actor, "decision_" .. candidate.kind, candidateInterval(candidate), current)
 end
 
-local function warnAboutThreat(actor, snapshot, state, current)
+local function warnAboutThreat(actor, snapshot, commands, state, current)
     local count = tonumber(snapshot.threatCount) or #(snapshot.threats or {})
     if count <= 0 then
         if state.threatClearAt == nil then state.threatClearAt = current end
@@ -1497,6 +1500,10 @@ local function warnAboutThreat(actor, snapshot, state, current)
         and U().distance(actor, player) <= (U().config("dangerSignalMaxDistance") or 10)
         and U().canSee(player, actor)
         and (tonumber(snapshot.player and snapshot.player.danger) or 0) <= 0
+    local recognitionCandidate = count == 1 and threat and SC.Quirks
+        and type(SC.Quirks.recognitionCandidate) == "function"
+        and SC.Quirks.recognitionCandidate(actor, threat, snapshot, commands, current) or nil
+    local recognitionSpoken = false
     if quietSignal then
         local signalled = U().move(actor, "walk", {
             action = "hand_signal",
@@ -1509,19 +1516,32 @@ local function warnAboutThreat(actor, snapshot, state, current)
         })
         if signalled ~= true then
             quietSignal = false
-        elseif SC.Dialogue and type(SC.Dialogue.say) == "function" then
-            local signalTopic = SC.Dialogue.threatTopic("signal", count)
-            SC.Dialogue.say(actor, signalTopic, nil, nil, {
-                recentLimit = 4,
-                salt = tostring(current) .. ":" .. tostring(count),
-            })
+        else
+            if recognitionCandidate and SC.Quirks
+                and type(SC.Quirks.speakRecognition) == "function" then
+                recognitionSpoken = SC.Quirks.speakRecognition(
+                    actor, recognitionCandidate, commands, current) == true
+            end
+            if not recognitionSpoken and SC.Dialogue
+                and type(SC.Dialogue.say) == "function" then
+                local signalTopic = SC.Dialogue.threatTopic("signal", count)
+                SC.Dialogue.say(actor, signalTopic, nil, nil, {
+                    recentLimit = 4,
+                    salt = tostring(current) .. ":" .. tostring(count),
+                })
+            end
         end
     end
     if not quietSignal then
-        if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+        if recognitionCandidate and SC.Quirks
+            and type(SC.Quirks.speakRecognition) == "function" then
+            recognitionSpoken = SC.Quirks.speakRecognition(
+                actor, recognitionCandidate, commands, current) == true
+        end
+        if not recognitionSpoken and SC.Dialogue and type(SC.Dialogue.say) == "function" then
             SC.Dialogue.say(actor, dangerTopic, nil, nil,
                 { fallback = U().text("IGUI_SC_Threat_Warning", "Zombie! Watch out!") })
-        else
+        elseif not recognitionSpoken then
             U().say(actor, U().text("IGUI_SC_Threat_Warning", "Zombie! Watch out!"))
         end
     end
@@ -1894,7 +1914,13 @@ function Decision.update(actor, player, runtime)
         return vehicleHandled == true, state.intent
     end
 
-    local threatSignalled = warnAboutThreat(actor, snapshot, state, current)
+    if SC.Quirks and type(SC.Quirks.observeRecognitionResolution) == "function" then
+        utility.safeSubsystem("recognition-resolution", actor, function()
+            return SC.Quirks.observeRecognitionResolution(
+                actor, snapshot, commands, current)
+        end)
+    end
+    local threatSignalled = warnAboutThreat(actor, snapshot, commands, state, current)
     warnAboutHeardThreat(actor, snapshot, state, current)
     if threatSignalled then
         state.current, state.currentKey, state.intent = "alert", "threat_signal", "threat_signal"
@@ -1921,6 +1947,10 @@ function Decision.update(actor, player, runtime)
 
     local previous = state.current
     local previousKey = state.currentKey
+    if previous == "ritual" and selected.kind ~= "ritual"
+        and SC.Autonomy and type(SC.Autonomy.interrupt) == "function" then
+        pcall(SC.Autonomy.interrupt, actor, "decision_preempted")
+    end
     if selected.kind ~= "mental_episode" and selected.kind ~= "social_participant"
         and (selected.kind == "combat" or selected.kind == "retreat"
             or selected.kind == "medical" and selected.emergency) then

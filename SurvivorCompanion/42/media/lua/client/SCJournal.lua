@@ -107,6 +107,9 @@ function Journal.build(actor, state, description)
     local keepsake = SC.PersonalItems and type(SC.PersonalItems.description) == "function"
         and SC.PersonalItems.description(possessions, keepsakeRevealed)
         or { known = false, status = "unknown", kind = "private" }
+    local ritual = SC.Quirks and type(SC.Quirks.describe) == "function"
+        and SC.Quirks.describe(state.ritual)
+        or { known = false, id = nil, stage = nil, completions = 0 }
     return {
         version = 1,
         name = description.name or (actor and U().nameOf(actor)) or U().text("UI_SC_UnknownCompanion", "Unknown companion"),
@@ -138,6 +141,7 @@ function Journal.build(actor, state, description)
         },
         objective = objective,
         keepsake = keepsake,
+        ritual = ritual,
         memories = memories,
         care = copyMap(state.care),
         timeTogetherHours = math.floor(((tonumber(state.timeTogetherMs) or 0) / 3600000) * 10) / 10,

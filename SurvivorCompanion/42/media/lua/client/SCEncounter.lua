@@ -412,6 +412,11 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
     if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
         SC.NativeActions.noteResult(actor, "camp_supply", "taken", { kind = "short" })
     end
+    if SC.Quirks and type(SC.Quirks.onVerifiedLoot) == "function" then
+        -- Let Quirks reject ordinary items before it initializes command state;
+        -- a camp-supply transfer must not create unrelated personal inventory.
+        SC.Quirks.onVerifiedLoot(actor, item)
+    end
     releasePlayerSupply(actor, state)
     return "taken", "camp_supply_taken", item
 end
@@ -558,6 +563,13 @@ local function scoreContainer(actor, container, needs, objectives, commands, aud
                 local bonus = SC.Objectives.itemBonus(objectives, item, actor)
                 score = score + bonus
                 if bonus > 0 and not category then category = "personal" end
+            end
+            if SC.Quirks and type(SC.Quirks.itemDesireBonus) == "function" then
+                local ritualScore, ritualCategory = SC.Quirks.itemDesireBonus(
+                    actor, item, commands)
+                if (tonumber(ritualScore) or 0) > score then
+                    score, category = ritualScore, ritualCategory or "personal"
+                end
             end
         end
         if score > bestScore then bestItem, bestCategory, bestScore = item, category, score end
@@ -824,7 +836,103 @@ local function chooseDestination(actor, item, category, audit)
     return utility.inventory(actor), "inventory", nil
 end
 
-local function beginTask(actor, state, container, item, category, owner, commands, audit, time)
+local function lootReactionTone(actor, task, commands, sequence)
+    local utility = U()
+    local item = task and task.item or nil
+    local function itemFlag(method)
+        local value, ok = utility.call(item, method)
+        return ok and value == true
+    end
+    if itemFlag("isRotten") or itemFlag("isBurnt") or itemFlag("isDirty")
+        or itemFlag("isBloody") or itemFlag("isbDangerousUncooked") then
+        return "gross"
+    end
+    local salt = tostring(utility.idOf(actor)) .. ":" .. tostring(task.itemType)
+        .. ":" .. tostring(sequence)
+    if task.sourceKind == "zombie_corpse" then
+        local chance = math.max(0, math.min(100, tonumber(utility.config(
+            "scavengeLootReactionCorpseGrossChancePercent")) or 45))
+        if math.abs(utility.stableHash(salt .. ":corpse")) % 100 < chance then
+            return "gross"
+        end
+    end
+    local condition, conditionOk = utility.call(item, "getCondition")
+    local maximum, maximumOk = utility.call(item, "getConditionMax")
+    local ratio = conditionOk and maximumOk and tonumber(maximum) and maximum > 0
+        and (tonumber(condition) or maximum) / maximum or nil
+    if ratio and ratio <= 0.35 then return "disappointed" end
+    if (tonumber(task.utilityScore) or 0) < 30 then return "disappointed" end
+    return "excited"
+end
+
+local function maybeReactToLoot(actor, state, task, commands, time)
+    local utility = U()
+    if not actor or not state or not task then return false, "invalid_loot_reaction" end
+    if time < (tonumber(state.nextLootReactionAt) or 0) then
+        return false, "loot_reaction_cooldown"
+    end
+    state.lootReactionSequence = (tonumber(state.lootReactionSequence) or 0) + 1
+    local baseChance = tonumber(utility.config("scavengeLootReactionChancePercent")) or 38
+    if baseChance <= 0 then return false, "loot_reaction_disabled" end
+    local chance = baseChance
+    local stress, morale = tonumber(commands and commands.stress) or 0,
+        tonumber(commands and commands.morale) or 55
+    local profile = commands and type(commands.personalityProfile) == "table"
+        and commands.personalityProfile or {}
+    if baseChance < 100 then
+        if stress >= 65 then chance = chance + 10 end
+        if morale >= 72 then chance = chance + 8 elseif morale <= 28 then chance = chance - 4 end
+        if (tonumber(profile.courage) or 0) >= 72 then chance = chance + 5 end
+        if (tonumber(profile.practicality) or 0) >= 78 then chance = chance - 5 end
+        chance = math.max(5, math.min(85, chance))
+    else
+        chance = 100
+    end
+    local salt = tostring(utility.idOf(actor)) .. ":" .. tostring(task.itemType)
+        .. ":" .. tostring(state.lootReactionSequence) .. ":" .. tostring(math.floor(time / 250))
+    if math.abs(utility.stableHash(salt .. ":speak")) % 100 >= chance then
+        return false, "loot_reaction_roll"
+    end
+
+    local tone = lootReactionTone(actor, task, commands, state.lootReactionSequence)
+    local topic = "scavenge.loot." .. tone
+    local itemName = tostring(task.itemName or task.itemType or "something")
+        :gsub("[%c]", " "):sub(1, 80)
+    local spoken, line
+    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+        spoken, line = SC.Dialogue.say(actor, topic, nil, { itemName }, {
+            state = commands, recentLimit = 4, salt = salt,
+            fallback = "Found " .. itemName .. ".",
+        })
+    else
+        line = "Found " .. itemName .. "."
+        spoken = utility.say(actor, line)
+    end
+    if spoken ~= true then return false, line or "loot_reaction_rejected" end
+    state.nextLootReactionAt = time
+        + (utility.config("scavengeLootReactionCooldownMs") or 10000)
+    if state.lastLoot then
+        state.lastLoot.reactionTopic = topic
+        state.lastLoot.reactionLine = line
+    end
+
+    if SC.Relationship and type(SC.Relationship.playEmote) == "function" then
+        local emote
+        if tone == "excited" then
+            emote = math.abs(utility.stableHash(salt .. ":emote")) % 4 == 0
+                and "clap" or "thumbsup"
+        elseif tone == "gross" then
+            emote = "thumbsdown"
+        else
+            emote = (stress >= 65 or morale <= 28) and "thumbsdown" or "shrug"
+        end
+        pcall(SC.Relationship.playEmote, actor, emote)
+    end
+    return true, topic
+end
+
+local function beginTask(actor, state, container, item, category, owner, utilityScore,
+    commands, audit, time)
     local destination, destinationKind, destinationName = chooseDestination(
         actor, item, category, audit)
     if not destination then return nil, "destination_unavailable" end
@@ -839,6 +947,7 @@ local function beginTask(actor, state, container, item, category, owner, command
         destination = destination,
         destinationKind = destinationKind,
         destinationName = destinationName,
+        utilityScore = tonumber(utilityScore) or 0,
         selectedAt = time,
         commandSerial = tonumber(commands.commandSerial) or 0,
     }
@@ -969,7 +1078,8 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
     state.selectionJob = nil
     if not selection.bestContainer or not selection.bestItem then return nil, "nothing_needed" end
     return beginTask(actor, state, selection.bestContainer, selection.bestItem,
-        selection.bestCategory, selection.bestOwner, commands, audit, time)
+        selection.bestCategory, selection.bestOwner, selection.bestScore,
+        commands, audit, time)
 end
 
 local function commitTask(actor, state, task, commands, audit, time)
@@ -992,7 +1102,10 @@ local function commitTask(actor, state, task, commands, audit, time)
         })
         return false, "source_changed"
     end
-    if SC.Logistics and type(SC.Logistics.canTake) == "function" then
+    local ritualAccepts = SC.Quirks and type(SC.Quirks.acceptsLoot) == "function"
+        and SC.Quirks.acceptsLoot(actor, task.item, commands) == true
+    if not ritualAccepts and SC.Logistics
+        and type(SC.Logistics.canTake) == "function" then
         local accepted, reason = SC.Logistics.canTake(actor, task.item, task.category, audit)
         if accepted ~= true then
             resetScavengeTarget(actor, state, {
@@ -1077,6 +1190,9 @@ local function commitTask(actor, state, task, commands, audit, time)
         if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
             SC.NativeActions.noteResult(actor, "scavenge", "looted")
         end
+        local becameRitual = SC.Quirks and type(SC.Quirks.onVerifiedLoot) == "function"
+            and select(1, SC.Quirks.onVerifiedLoot(actor, task.item, commands)) == true
+        if not becameRitual then maybeReactToLoot(actor, state, task, commands, time) end
         return true, "looted"
     end
 
@@ -1241,7 +1357,10 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         if movingOk and moving == true then return true, "settling_at_container" end
     end
 
-    if SC.Logistics and type(SC.Logistics.canTake) == "function" then
+    local ritualAccepts = SC.Quirks and type(SC.Quirks.acceptsLoot) == "function"
+        and SC.Quirks.acceptsLoot(actor, task.item, commands) == true
+    if not ritualAccepts and SC.Logistics
+        and type(SC.Logistics.canTake) == "function" then
         local accepted, reason = SC.Logistics.canTake(actor, task.item, task.category, audit)
         if accepted ~= true then
             resetScavengeTarget(actor, state, {

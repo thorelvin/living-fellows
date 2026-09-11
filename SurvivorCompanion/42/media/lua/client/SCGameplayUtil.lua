@@ -1001,6 +1001,75 @@ function U.dropItem(source, square, item, xOffset, yOffset, zOffset)
     return false, "drop_world_add_failed"
 end
 
+local function tableWorldItemRemove(square, worldItem)
+    if type(square) ~= "table" or type(square.worldItems) ~= "table" then return false end
+    for index, candidate in ipairs(square.worldItems) do
+        if candidate == worldItem then
+            table.remove(square.worldItems, index)
+            return true
+        end
+    end
+    return false
+end
+
+-- Transactional inverse of dropItem for one exact floor object. Build 42's
+-- vanilla ISTransferAction removes the floor-container membership, transmits
+-- and removes the IsoWorldInventoryObject, clears InventoryItem.worldItem, and
+-- only then adds the same InventoryItem to its destination. Mirror that narrow
+-- lifecycle here so autonomous rituals cannot duplicate a relic or silently
+-- delete it when a destination rejects the add.
+function U.takeWorldItemVerified(worldItem, destination, expectedItem)
+    if not worldItem or not destination then return false, "invalid_world_pickup" end
+    local item, itemOk = U.call(worldItem, "getItem")
+    if not itemOk or item == nil then
+        item = type(worldItem) == "table" and worldItem.item or expectedItem
+    end
+    if item == nil or expectedItem ~= nil and item ~= expectedItem then
+        return false, "world_item_identity_changed"
+    end
+    if U.inventoryContains(destination, item) then
+        return true, "already_recovered", { item = item, idempotent = true }
+    end
+    local square, squareOk = U.call(worldItem, "getSquare")
+    if not squareOk or square == nil then
+        square = type(worldItem) == "table" and worldItem.square or nil
+    end
+    if square == nil then return false, "world_item_square_unavailable" end
+
+    local source, sourceOk = U.call(item, "getContainer")
+    local sourceHadItem = sourceOk and source ~= nil and U.inventoryContains(source, item)
+    if sourceHadItem then
+        U.call(source, "DoRemoveItem", item)
+        if U.inventoryContains(source, item) then U.call(source, "Remove", item) end
+        if U.inventoryContains(source, item) then return false, "world_source_remove_failed" end
+    end
+    U.call(square, "transmitRemoveItemFromSquare", worldItem)
+    local _, removedWorld = U.call(square, "removeWorldObject", worldItem)
+    if not removedWorld then tableWorldItemRemove(square, worldItem) end
+    U.call(item, "setWorldItem", nil)
+
+    U.addItem(destination, item)
+    if U.inventoryContains(destination, item) then
+        return true, "world_item_recovered", {
+            item = item, worldItem = worldItem, square = square,
+            sourceEmpty = not (source and U.inventoryContains(source, item)),
+            destinationContains = true,
+        }
+    end
+
+    if U.inventoryContains(destination, item) then U.call(destination, "Remove", item) end
+    if sourceHadItem and source then
+        U.call(source, "DoAddItemBlind", item)
+        if not U.inventoryContains(source, item) then U.addItem(source, item) end
+    end
+    local restored, restoredOk = U.call(square, "AddWorldInventoryItem", item,
+        tonumber(type(worldItem) == "table" and worldItem.xOffset) or 0.5,
+        tonumber(type(worldItem) == "table" and worldItem.yOffset) or 0.5,
+        tonumber(type(worldItem) == "table" and worldItem.zOffset) or 0, false)
+    if restoredOk and restored ~= nil then return false, "pickup_add_failed_rolled_back" end
+    return false, "pickup_rollback_failed"
+end
+
 function U.nameOf(actor)
     -- IsoPlayer's display name is an account/local-player label. Non-local
     -- companions can all inherit the same default (commonly "Bob"), even

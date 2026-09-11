@@ -37,6 +37,7 @@ OWNED = [
     "SCObjectives.lua",
     "SCJournal.lua",
     "SCBaseLife.lua",
+    "SCQuirks.lua",
     "SCBaseWork.lua",
     "SCFactions.lua",
     "SCTrade.lua",
@@ -91,6 +92,10 @@ REQUIRED_EXPORTS = {
                        "setReserve", "setMaintenanceTargetEnabled", "removeMaintenanceTarget",
                        "enqueueJob", "claimJob", "cancelJob", "retryJob", "setPolicy",
                        "guardStatus", "auditOperations", "export", "restore"],
+    "SCQuirks.lua": ["normalize", "describe", "acceptsLoot", "itemDesireBonus",
+                       "onVerifiedLoot", "recognitionCandidate", "speakRecognition",
+                       "observeRecognitionResolution", "ritualIntent", "updateRitual",
+                       "interrupt", "reset"],
     "SCBaseWork.lua": ["update", "auditMaintenance"],
     "SCFactions.lua": ["productionPulse", "banditProductionPulse", "debugSpawnHousehold",
                         "debugSpawnBanditCamp", "hostileTargetFor", "isHostileBetween",
@@ -405,6 +410,43 @@ def main() -> int:
     require("validEmotes" in relationship_source and "function Relationship.isEmote" in relationship_source,
             "validated Build 42 human emote contract missing")
     dialogue_source = sources["SCDialogue.lua"]
+    signal_start = dialogue_source.index('["signal.one"]')
+    signal_end = dialogue_source.index('["combat.engage"]', signal_start)
+    require("tap" not in dialogue_source[signal_start:signal_end].lower(),
+            "visible-zombie hand signals still describe body tapping")
+    require(all(f'["scavenge.loot.{tone}"]' in dialogue_source
+                for tone in ("excited", "disappointed", "gross"))
+            and "maybeReactToLoot(actor, state, task, commands, time)" in sources["SCEncounter.lua"]
+            and "scavengeLootReactionChancePercent" in sources["SCEncounter.lua"],
+            "post-transfer personality-aware scavenging reactions are missing")
+    quirks_source = sources["SCQuirks.lua"]
+    require('== "Base.Rubberducky"' in quirks_source
+            and "Base.KeyRing_RubberDuck" not in quirks_source
+            and 'phase = "recovery_pending"' in quirks_source
+            and "takeWorldItemVerified" in quirks_source
+            and "dropItem" in quirks_source,
+            "exact rubber-duck relic identity and transactional recovery contract missing")
+    require(all(f'"{ritual}"' in quirks_source for ritual in (
+                "spiffo_salute", "bourbon_blessing", "mannequin_apology",
+                "gnome_commander", "sports_pep_talk", "rubber_duck_oracle"))
+            and 'candidate.kind == "ritual"' in sources["SCDecision.lua"]
+            and "SC.Quirks.ritualIntent" in sources["SCAutonomy.lua"],
+            "persistent personality ritual catalogue is not integrated into autonomy")
+    require('SC.Dialogue.register("recognition.local"' in quirks_source
+            and 'SC.Dialogue.register("recognition.grief"' in quirks_source
+            and "subjectGender" in sources["SCCommunity.lua"]
+            and "SC.Quirks.recognitionCandidate" in sources["SCDecision.lua"],
+            "gendered Kentucky zombie-recognition dialogue is not wired to grief and threat warnings")
+    persistence_source = (CLIENT / "SCPersistence.lua").read_text(encoding="utf-8")
+    registry_source = (SHARED / "SCRegistry.lua").read_text(encoding="utf-8")
+    ui_source = (CLIENT / "SCUI.lua").read_text(encoding="utf-8")
+    require("personality.ritual" in persistence_source
+            and "personality.ritual" in registry_source
+            and '"ritual", copyLimits.ritual' in command_source
+            and "ritual = detached.ritual" in command_source
+            and "ritual = ritual" in sources["SCJournal.lua"]
+            and "UI_SC_Journal_Ritual" in ui_source,
+            "ritual persistence/export/journal projection is incomplete")
     zombie_attack_source = sources["SCZombieAttack.lua"]
     runtime_source = (CLIENT / "SCRuntime.lua").read_text(encoding="utf-8")
     require(all(f'"lastwords.{circumstance}"' in dialogue_source

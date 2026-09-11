@@ -412,6 +412,33 @@ local valueData = {
     scavengeSuccessCooldownMs = 4000,
     scavengeStatusHoldMs = 8000,
     scavengeMemoryLimit = 96,
+    -- Loot reactions happen only after a verified transfer. They are sparse
+    -- enough to stay surprising, while corpse grime and poor-condition finds
+    -- can shift an otherwise useful pickup toward disgust or disappointment.
+    scavengeLootReactionChancePercent = 38,
+    scavengeLootReactionCooldownMs = 10000,
+    scavengeLootReactionCorpseGrossChancePercent = 45,
+    -- Character quirks are deliberately rare beside ordinary tactical speech.
+    -- Recognition uses simulation time so sleeping/fast-forward cannot turn it
+    -- into a burst of repeated real-time warnings.
+    recognitionChancePercent = 8,
+    recognitionStressBonusPercent = 4,
+    recognitionGriefBonusPercent = 4,
+    recognitionCooldownGameHours = 6,
+    recognitionThoughtGameHours = 4,
+    recognitionResolutionChancePercent = 25,
+    recognitionResolutionExpiryGameHours = 4,
+    -- Rituals run only in the safe autonomy lane. Duck recovery is allowed to
+    -- retry more often because the exact relic may be sitting in the world.
+    ritualCooldownGameHours = 24,
+    ritualScanRadius = 4,
+    ritualSquareBudget = 25,
+    ritualObjectBudget = 40,
+    ritualScanIntervalMs = 10000,
+    ritualEmoteHoldMs = 1800,
+    duckRitualPickupScore = 140,
+    duckRitualApproachRange = 1.25,
+    duckRitualRecoveryRetryMs = 2500,
     -- Completed visual actions remain claimable until their gameplay owner has
     -- committed the corresponding inventory or medical transaction.
     visualEffectClaimMs = 2000,

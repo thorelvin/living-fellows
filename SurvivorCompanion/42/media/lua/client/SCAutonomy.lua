@@ -262,11 +262,15 @@ function Autonomy.intentFor(actor, player, snapshot, commands)
     if reservation and reservation.ownerId ~= U().idOf(actor) then
         return { kind = "social_participant", priority = 88, ownerId = reservation.ownerId }
     end
+    local ritual = SC.Quirks and type(SC.Quirks.ritualIntent) == "function"
+        and SC.Quirks.ritualIntent(actor, player, snapshot, commands) or nil
+    if ritual and (tonumber(ritual.priority) or 0) >= 84 then return ritual end
     local grief = griefEligible(actor, snapshot)
     if grief then return { kind = "grief_response", priority = 82, grief = grief } end
     if majorEligible(actor, commands, snapshot) then
         return { kind = "mental_episode", priority = 78, response = SC.Community.mindFor(actor).stressResponse }
     end
+    if ritual and (tonumber(ritual.priority) or 0) >= 74 then return ritual end
     if safeContext(actor, snapshot) and SC.Community.joyReady(actor, commands) then
         return { kind = "joy_response", priority = 61 }
     end
@@ -279,9 +283,11 @@ function Autonomy.intentFor(actor, player, snapshot, commands)
     if threatCount(snapshot) == 0 and shouldRequestSupply(actor, mind) then
         return { kind = "purposeful_idle", priority = 54, purpose = "supply_request" }
     end
+    if ritual and (tonumber(ritual.priority) or 0) >= 48 then return ritual end
     if threatCount(snapshot) == 0 and mind.boredom >= 45 and simNow() >= mind.nextPurposeAt then
         return { kind = "purposeful_idle", priority = 36, purpose = "restless_route" }
     end
+    if ritual then return ritual end
     return nil
 end
 
@@ -904,9 +910,17 @@ end
 
 function Autonomy.interrupt(actor, reason)
     if not actor then return false, "invalid_actor" end
+    local ritualInterrupted, ritualReason = false, nil
+    if SC.Quirks and type(SC.Quirks.interrupt) == "function" then
+        ritualInterrupted, ritualReason = SC.Quirks.interrupt(
+            actor, reason or "external_interrupt")
+    end
     local runtime = states[actor]
-    if not runtime then return false, "no_episode" end
-    return interruptEpisode(actor, runtime, reason or "external_interrupt")
+    if runtime and runtime.episode then
+        return interruptEpisode(actor, runtime, reason or "external_interrupt")
+    end
+    if ritualInterrupted then return true, ritualReason end
+    return false, "no_episode"
 end
 
 function Autonomy.offerSupport(actorOrId)
@@ -1026,6 +1040,10 @@ end
 
 function Autonomy.update(actor, player, rootRuntime, detail)
     detail = type(detail) == "table" and detail or {}
+    if detail.kind == "ritual" and SC.Quirks
+        and type(SC.Quirks.updateRitual) == "function" then
+        return SC.Quirks.updateRitual(actor, player, rootRuntime, detail)
+    end
     if detail.kind == "social_participant" then return updateParticipant(actor, detail) end
     if detail.kind == "joy_response" then return updateJoy(actor) end
     if detail.kind == "grief_response" then
@@ -1198,10 +1216,12 @@ end
 
 function Autonomy.reset(actor)
     if actor then
+        if SC.Quirks and type(SC.Quirks.reset) == "function" then SC.Quirks.reset(actor) end
         local runtime = states[actor]
         if runtime and runtime.episode then interruptEpisode(actor, runtime, "reset") end
         states[actor], observations[actor] = nil, nil
     else
+        if SC.Quirks and type(SC.Quirks.reset) == "function" then SC.Quirks.reset() end
         states = setmetatable({}, { __mode = "k" })
         observations = setmetatable({}, { __mode = "k" })
         recentEvents = {}

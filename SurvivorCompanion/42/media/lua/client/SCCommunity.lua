@@ -299,6 +299,20 @@ local function deathName(record)
     return "Survivor"
 end
 
+local function deathGender(record)
+    local identity = type(record) == "table" and type(record.identity) == "table"
+        and record.identity or nil
+    local gender = identity and string.lower(tostring(identity.gender or "")) or ""
+    if gender == "female" or gender == "woman" then return "female" end
+    if gender == "male" or gender == "man" then return "male" end
+    if type(record) == "table" and record.actor and U() then
+        local descriptor = select(1, U().call(record.actor, "getDescriptor"))
+        local female, known = U().call(descriptor, "isFemale")
+        if known then return female == true and "female" or "male" end
+    end
+    return "unknown"
+end
+
 local function rememberDeath(row)
     local deaths = ensure().deaths
     deaths[row.subjectId] = stableCopy(row, 3, { count = 32 })
@@ -366,7 +380,9 @@ function Community.noteCompanionDeath(record)
 
     local current = now()
     local name = deathName(record)
-    rememberDeath({ subjectId = record.id, subjectName = name, startedAt = current })
+    local gender = deathGender(record)
+    rememberDeath({ subjectId = record.id, subjectName = name,
+        subjectGender = gender, startedAt = current })
     local affected = 0
     -- The registry also contains neutral encounters and loaded faction actors.
     -- Scan a bounded superset so those records cannot push a recruited teammate
@@ -393,7 +409,8 @@ function Community.noteCompanionDeath(record)
             local recoveryDays = recoveryMin + (recoveryMax - recoveryMin) * intensity / 100
             local mind = Community.mindFor(actor, state)
             local grief = {
-                subjectId = record.id, subjectName = name, startedAt = current,
+                subjectId = record.id, subjectName = name, subjectGender = gender,
+                startedAt = current,
                 acuteUntil = current + hours(acuteHours),
                 recoveryAt = current + hours(recoveryDays * 24),
                 intensity = intensity, witnessed = witnessed,
@@ -418,18 +435,20 @@ function Community.noteCompanionDeath(record)
                 stress = math.floor(10 + intensity * 0.28),
                 morale = -math.floor(8 + intensity * 0.3),
                 at = current, expiresAt = grief.acuteUntil,
-                sourceId = record.id, targetId = survivorId,
+                sourceId = record.id, targetId = survivorId, subjectGender = gender,
             })
             Community.adjustRelation(survivorId, record.id, {
                 familiarity = 2,
                 memory = { kind = "companion_died", at = current,
-                    subjectId = record.id, subjectName = name, witnessed = witnessed },
+                    subjectId = record.id, subjectName = name,
+                    subjectGender = gender, witnessed = witnessed },
             })
             if SC.Relationship and type(SC.Relationship.noteEvent) == "function" then
                 pcall(SC.Relationship.noteEvent, state, "companion_died", {
                     at = current, morale = -math.floor(5 + intensity * 0.12),
                     stress = math.floor(5 + intensity * 0.1),
-                    subjectId = record.id, subjectName = name, witnessed = witnessed,
+                    subjectId = record.id, subjectName = name,
+                    subjectGender = gender, witnessed = witnessed,
                 })
             end
             persistActor(actor)
@@ -438,8 +457,9 @@ function Community.noteCompanionDeath(record)
     end
     history({ id = "death:" .. record.id .. ":" .. tostring(current),
         kind = "companion_died", at = current, sourceId = record.id,
-        subjectName = name, affected = affected })
-    return true, { affected = affected, subjectId = record.id, subjectName = name }
+        subjectName = name, subjectGender = gender, affected = affected })
+    return true, { affected = affected, subjectId = record.id,
+        subjectName = name, subjectGender = gender }
 end
 
 local function upsertCondition(actor, key, amount, morale, textValue, current)

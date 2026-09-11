@@ -386,7 +386,8 @@ do
             order = { current = "invalid", followDistance = 999,
                 combatStance = "invalid", weaponPriority = "invalid" },
             personality = { memories = { { text = "original" } },
-                background = { occupation = "carpenter" }, care = {}, reveals = {} },
+                background = { occupation = "carpenter" }, care = {}, reveals = {},
+                ritual = { id = "gnome_commander", completions = 2 } },
             downtime = { facts = { repaired = 1 } },
         },
     }
@@ -397,8 +398,10 @@ do
     })
     source.identity.forename = "Mutated"
     source.state.personality.memories[1].text = "mutated"
+    source.state.personality.ritual.id = "mutated"
     check(copied and copied.identity.forename == "Owned"
             and copied.memories[1].text == "original"
+            and copied.state.personality.ritual.id == "gnome_commander"
             and copied.order == "follow" and copied.followDistance == 3
             and copied.combatMode == "defensive" and copied.weaponPriority == "best",
         "registry owns nested inputs and normalizes invalid command enums")
@@ -470,6 +473,15 @@ check(SC.Commands.issue(record.id, "set_group", { group = "Bravo" }, nil),
     "command adapter accepts persistent group")
 check(SC.Commands.issue(record.id, "set_work_mode", { mode = "craft" }, nil),
     "command adapter accepts persistent work mode")
+local ritualState = SC.Commands.peek(actor)
+ritualState.ritual = {
+    version = 1, id = "rubber_duck_oracle", completions = 3, stage = "routine",
+    lastAt = 12345, duck = {
+        relicKey = "sc-core-actor:ritual:duck", phase = "recovery_pending",
+        baseId = "test-base", x = 4, y = 5, z = 0,
+    },
+}
+check(SC.Commands.persist(actor), "personal ritual state commits through Commands")
 local commandSnapshot, commandSnapshotReason = SC.Persistence.captureRecord(record)
 check(commandSnapshot ~= nil and commandSnapshotReason == nil
     and commandSnapshot.order.current == "guard"
@@ -488,7 +500,10 @@ check(commandSnapshot ~= nil and commandSnapshotReason == nil
     and commandSnapshot.personality.morale == 63
     and commandSnapshot.personality.stress == 21
     and commandSnapshot.personality.timeTogetherMs == 7200000
-    and commandSnapshot.personality.background.occupation == "mechanics",
+    and commandSnapshot.personality.background.occupation == "mechanics"
+    and commandSnapshot.personality.ritual.id == "rubber_duck_oracle"
+    and commandSnapshot.personality.ritual.duck.phase == "recovery_pending"
+    and commandSnapshot.personality.ritual.duck.x == 4,
     "real Commands -> Registry state -> Persistence schema preserves stable command fields: stance="
         .. tostring(commandSnapshot and commandSnapshot.order.combatStance)
         .. " doctrine=" .. tostring(commandSnapshot and commandSnapshot.order.combatDoctrine)
@@ -505,7 +520,9 @@ check(commandSnapshot ~= nil and commandSnapshotReason == nil
         .. " morale=" .. tostring(commandSnapshot and commandSnapshot.personality.morale)
         .. " stress=" .. tostring(commandSnapshot and commandSnapshot.personality.stress)
         .. " time=" .. tostring(commandSnapshot and commandSnapshot.personality.timeTogetherMs)
-        .. " occupation=" .. tostring(commandSnapshot and commandSnapshot.personality.background.occupation))
+        .. " occupation=" .. tostring(commandSnapshot and commandSnapshot.personality.background.occupation)
+        .. " ritual=" .. tostring(commandSnapshot and commandSnapshot.personality.ritual
+            and commandSnapshot.personality.ritual.id))
 for _, key in ipairs({
     "SC_Order", "SC_FollowDistance", "SC_Scavenge", "SC_MoveMode", "SC_CombatMode",
     "SC_CombatDoctrine", "SC_HoldFire", "SC_WeaponPriority", "SC_Group", "SC_Trust", "SC_Bond",
@@ -523,6 +540,8 @@ check(restoredCommandState.order == "guard" and restoredCommandState.followDista
     and restoredCommandState.trust == 7 and restoredCommandState.bond == 11
     and restoredCommandState.morale == 63 and restoredCommandState.stress == 21
     and restoredCommandState.timeTogetherMs == 7200000
+    and restoredCommandState.ritual.id == "rubber_duck_oracle"
+    and restoredCommandState.ritual.duck.phase == "recovery_pending"
     and restoredCommandState.background.occupation == "mechanics",
     "Registry persistence schema rehydrates independent policies without transient actor mod-data")
 

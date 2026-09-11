@@ -6258,6 +6258,8 @@ local stagedLootActor = actor("sc-loot-transaction", -20, 4, {})
 registry[stagedLootActor.id] = stagedLootActor
 SurvivorCompanion.Commands.issue(stagedLootActor.id, "set_scavenge", true, player)
 stagedLootActor.hunger = 0.95
+local savedReactionChance = SurvivorCompanion.Config.values.scavengeLootReactionChancePercent
+SurvivorCompanion.Config.values.scavengeLootReactionChancePercent = 100
 local stagedContainer = containerObject(stagedLootActor.square, { stagedFood })
 local stagedVisualState = "active"
 local stagedClears = 0
@@ -6296,9 +6298,42 @@ check(stagedFinished and stagedFinishReason == "looted" and stagedClears == 1
         and stagedLootActor.inventory:contains(stagedFood)
         and not stagedContainer:contains(stagedFood)
         and stagedCompleted.phase == "idle" and stagedCompleted.reservationCount == 0
-        and stagedCompleted.last and stagedCompleted.last.event == "completed",
-    "completed rummage commits once and releases supervisor ownership and reservations")
+        and stagedCompleted.last and stagedCompleted.last.event == "completed"
+        and SurvivorCompanion.Dialogue.lastSpokenTopic(stagedLootActor)
+            == "scavenge.loot.excited"
+        and string.find(tostring(stagedLootActor.lastSpeech), "Base.CannedChili", 1, true)
+            ~= nil,
+    "completed rummage commits once, releases ownership, then names the verified pickup")
 SurvivorCompanion.NativeActions = nil
+SurvivorCompanion.Config.values.scavengeLootReactionChancePercent = savedReactionChance
+end
+
+do
+local wornOutFood = item("Base.DentedMysteryCan", "Food", {
+    condition = 2, conditionMax = 10,
+})
+local disappointedLooter = actor("sc-loot-disappointed", -40, 40, {})
+registry[disappointedLooter.id] = disappointedLooter
+SurvivorCompanion.Commands.issue(disappointedLooter.id, "set_scavenge", true, player)
+disappointedLooter.hunger = 0.95
+containerObject(disappointedLooter.square, { wornOutFood })
+local savedReactionChance = SurvivorCompanion.Config.values.scavengeLootReactionChancePercent
+SurvivorCompanion.Config.values.scavengeLootReactionChancePercent = 100
+local looted, lootReason = SurvivorCompanion.Encounter.tryScavenge(
+    disappointedLooter, nil, {
+        snapshot = { threats = {}, immediateCount = 0, threatCount = 0,
+            pressure = 0, escapeSquares = {} },
+    })
+local reactionState = SurvivorCompanion.Encounter.peek(disappointedLooter)
+check(looted and lootReason == "looted" and reactionState.lastLoot
+        and reactionState.lastLoot.reactionTopic == "scavenge.loot.disappointed"
+        and string.find(tostring(disappointedLooter.lastSpeech),
+            "Base.DentedMysteryCan", 1, true) ~= nil,
+    "a poor-condition verified pickup gets a disappointed line that names the item")
+SurvivorCompanion.Config.values.scavengeLootReactionChancePercent = savedReactionChance
+SurvivorCompanion.Encounter.reset(disappointedLooter)
+SurvivorCompanion.Commands.reset(disappointedLooter)
+registry[disappointedLooter.id] = nil
 end
 
 do
@@ -8503,6 +8538,108 @@ BaseLife.reset()
 local campSquare = cell:getGridSquare(2, 2, 0)
 check(BaseLife.create(campSquare, "Test Camp") and BaseLife.active().name == "Test Camp",
     "base core creates one bounded default camp area")
+do
+    local duck = item("Base.Rubberducky", "Junk")
+    local falseDuck = item("Base.KeyRing_RubberDuck", "Junk")
+    local duckKeeper = actor("sc-duck-keeper", 2, 2, {
+        inventory = inventory({ duck, item("Base.Photo", "Item", { memento = true }) }),
+    })
+    registry[duckKeeper.id] = duckKeeper
+    local commands = SurvivorCompanion.Commands.peek(duckKeeper)
+    local desired = SurvivorCompanion.Quirks.itemDesireBonus(duckKeeper, duck, commands)
+    local falseDesired = SurvivorCompanion.Quirks.itemDesireBonus(
+        duckKeeper, falseDuck, commands)
+    local claimed, claimReason = SurvivorCompanion.Quirks.onVerifiedLoot(
+        duckKeeper, duck, commands)
+    local personal = SurvivorCompanion.PersonalItems.personalRecord(duck)
+    local exported = SurvivorCompanion.Commands.export(duckKeeper)
+    check(desired > 0 and falseDesired == 0 and claimed
+            and claimReason == "duck_devotion_started"
+            and personal and personal.ownerId == duckKeeper.id
+            and personal.kind == "duck_relic" and duck.favorite == true
+            and exported.ritual and exported.ritual.id == "rubber_duck_oracle"
+            and exported.ritual.duck.phase == "awaiting_base"
+            and SurvivorCompanion.PersonalItems.isProtected(
+                duck, duckKeeper, "ordinary_transfer"),
+        "only the exact rubber duck becomes a persistent protected personal relic")
+
+    local femaleWalker = zombie(5, 2, {})
+    function femaleWalker:isFemale() return true end
+    local recognition = SurvivorCompanion.Quirks.recognitionCandidate(
+        duckKeeper, femaleWalker, {
+            threats = { { actor = femaleWalker } }, threatCount = 1,
+            immediateAttackers = {}, immediateCount = 0, pressure = 0.2,
+        }, commands, clock, true)
+    check(recognition and recognition.arguments[2] == "she"
+            and recognition.arguments[5] == "her"
+            and SurvivorCompanion.Quirks.speakRecognition(
+                duckKeeper, recognition, commands, clock)
+            and (SurvivorCompanion.Dialogue.lastSpokenTopic(duckKeeper)
+                == "recognition.local"),
+        "a forced lone-walker recognition uses the zombie's gendered pronouns and dialogue pool")
+
+    local savedRequest = SurvivorCompanion.Navigation.request
+    SurvivorCompanion.Navigation.request = function(subject, target)
+        local old = subject.square
+        if old and type(old.moving) == "table" then
+            for index, value in ipairs(old.moving) do
+                if value == subject then table.remove(old.moving, index) break end
+            end
+        end
+        subject.square = target
+        target.moving[#target.moving + 1] = subject
+        return true, "ritual_test_arrived"
+    end
+    local safeSnapshot = { threats = {}, threatCount = 0, immediateAttackers = {},
+        immediateCount = 0, pressure = 0, player = { danger = 0 } }
+    local runtime = { snapshot = safeSnapshot }
+    local intent = SurvivorCompanion.Quirks.ritualIntent(
+        duckKeeper, nil, safeSnapshot, commands)
+    for _ = 1, 10 do
+        clock = clock + 2000
+        SurvivorCompanion.Quirks.updateRitual(duckKeeper, nil, runtime, intent)
+        if commands.ritual.duck.phase == "carried"
+            and commands.ritual.completions == 1 then break end
+    end
+    check(commands.ritual.completions == 1
+            and commands.ritual.duck.phase == "carried"
+            and duckKeeper.inventory:contains(duck)
+            and #duckKeeper.square.worldItems == 0
+            and SurvivorCompanion.Journal.build(duckKeeper, commands, {}).ritual.known,
+        "duck worship places, addresses, and retrieves the exact relic without duplication")
+
+    commands.ritual.duck.phase = "awaiting_base"
+    SurvivorCompanion.Commands.persist(duckKeeper)
+    intent = SurvivorCompanion.Quirks.ritualIntent(
+        duckKeeper, nil, safeSnapshot, commands)
+    for _ = 1, 5 do
+        clock = clock + 2000
+        SurvivorCompanion.Quirks.updateRitual(duckKeeper, nil, runtime, intent)
+        if commands.ritual.duck.phase == "displayed" then break end
+    end
+    local displayedWorld = duckKeeper.square.worldItems[1]
+    local interrupted = SurvivorCompanion.Quirks.interrupt(duckKeeper, "test_alarm")
+    local recovery = SurvivorCompanion.Quirks.ritualIntent(
+        duckKeeper, nil, safeSnapshot, commands)
+    for _ = 1, 5 do
+        clock = clock + 2000
+        SurvivorCompanion.Quirks.updateRitual(duckKeeper, nil, runtime, recovery)
+        if commands.ritual.duck.phase == "carried" then break end
+    end
+    check(displayedWorld and displayedWorld.item == duck and interrupted
+            and recovery and recovery.recovery == true
+            and commands.ritual.duck.phase == "carried"
+            and duckKeeper.inventory:contains(duck)
+            and #duckKeeper.square.worldItems == 0,
+        "an interrupted duck shrine persists recovery_pending and later recovers the same object")
+    SurvivorCompanion.Navigation.request = savedRequest
+    for index, value in ipairs(duckKeeper.square.moving) do
+        if value == duckKeeper then table.remove(duckKeeper.square.moving, index) break end
+    end
+    SurvivorCompanion.Quirks.reset(duckKeeper)
+    SurvivorCompanion.Commands.reset(duckKeeper)
+    registry[duckKeeper.id] = nil
+end
 local protectedArea = BaseLife.active().zones[1]
 do
     local fourCorners = {
@@ -8863,6 +9000,10 @@ check(Dialogue.poolSize("danger.one", fellow, {}) >= 12
         and Dialogue.poolSize("danger.horde", fellow, {}) >= 12
         and Dialogue.poolSize("signal.horde", fellow, {}) >= 6,
     "every contact scale has a broad spoken pool and several silent hand-sign variants")
+check(Dialogue.poolSize("scavenge.loot.excited", fellow, {}) >= 10
+        and Dialogue.poolSize("scavenge.loot.disappointed", fellow, {}) >= 10
+        and Dialogue.poolSize("scavenge.loot.gross", fellow, {}) >= 10,
+    "verified scavenging has broad excited, disappointed, and gross personality pools")
 local variedLines = {}
 local dialogueDetail
 for index = 1, 4 do

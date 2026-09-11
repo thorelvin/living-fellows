@@ -58,6 +58,7 @@ $LuaFiles += @(
     'SCObjectives.lua',
     'SCJournal.lua',
     'SCBaseLife.lua',
+    'SCQuirks.lua',
     'SCFactions.lua',
     'SCTrade.lua',
     'SCFactionLife.lua',

@@ -1,4 +1,4 @@
-Living Fellows: Companion 0.22.10 combat and navigation stability playtest
+Living Fellows: Companion 0.22.11 Kentucky rituals and companion expression playtest
 
 The included native bridge supplies SCNativeCompanion, an original IsoPlayer
 subclass that remains outside the local-player slots. Workshop installations

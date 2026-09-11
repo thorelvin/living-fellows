@@ -794,6 +794,10 @@ function persistence.captureRecord(record, vehicleState)
     reveals, copyReason = stableCopy(personality.reveals, 4, 128,
         "$.personality.reveals")
     if copyReason ~= nil then return nil, copyReason end
+    local ritual
+    ritual, copyReason = stableCopy(personality.ritual, 5, 96,
+        "$.personality.ritual")
+    if copyReason ~= nil then return nil, copyReason end
     local objectiveCopy
     objectiveCopy, copyReason = stableCopy(objectives, 6, 512, "$.objectives")
     if copyReason ~= nil then return nil, copyReason end
@@ -847,6 +851,7 @@ function persistence.captureRecord(record, vehicleState)
             background = background,
             care = care,
             reveals = reveals,
+            ritual = ritual,
             timeTogetherMs = math.max(0, finite(personality.timeTogetherMs, 0)),
             lastEncouragedAt = math.max(0, finite(personality.lastEncouragedAt, 0)),
         },
