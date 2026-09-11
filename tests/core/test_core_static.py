@@ -445,6 +445,16 @@ require("getDeclaredMethod(\"updateInternal\")" in native_companion
         and "ownersMatch()" in native_companion
         and "slotsMatch" in native_companion,
         "native update is not isolated from the local IsoPlayer controller")
+require('resolveDeclaredNoArg(IsoPlayer.class, "updateEmitter")' in native_companion
+        and "PLAYER_EMITTER_UPDATE.invoke(this)" in native_companion
+        and "playerVoiceSound() pain and" in native_companion
+        and 'descriptor.setVoicePrefix(descriptor.isFemale() ? "VoiceFemale" : "VoiceMale")'
+            in native_companion
+        and 'descriptor.setVoicePrefix(request.female ? "VoiceFemale" : "VoiceMale")'
+            in native_bridge
+        and 'invoke(descriptor, "setVoicePrefix", female and "VoiceFemale" or "VoiceMale")'
+            in actor,
+        "companion pain/death vocals are not sex-correct and positionally updated")
 require("public boolean isPlayerMoving()" in native_companion
         and "synchronizePlayerLocomotion()" in native_companion
         and "updateMovementRates()" in native_companion

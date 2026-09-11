@@ -40,6 +40,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     private static final Method GENERIC_CHARACTER_UPDATE = resolveGenericCharacterUpdate();
     private static final Method PLAYER_VEHICLE_UPDATE = resolvePlayerVehicleUpdate();
     private static final Method PLAYER_ACTION_GROUP_CHECK = resolvePlayerActionGroupCheck();
+    private static final Method PLAYER_EMITTER_UPDATE = resolvePlayerEmitterUpdate();
     private static final Method COMBAT_MANAGER_INSTANCE = resolveStatic("zombie.CombatManager", "getInstance");
     private static final Method SWIPE_STATE_INSTANCE = resolveStatic("zombie.ai.states.SwipeStatePlayer", "instance");
     private static final Method ATTACK_COLLISION_CHECK = resolveAttackCollisionCheck();
@@ -127,6 +128,11 @@ public final class SCNativeCompanion extends IsoPlayer {
         playerIndex = RESERVED_NON_LOCAL_PLAYER_INDEX;
         serverPlayerIndex = -1;
         setNpc(true);
+        // SurvivorDesc defaults to the female voice prefix independently of its
+        // sex flag. playerVoiceSound() composes every pain/death event from this
+        // prefix, so normalize it for every construction path (including restore
+        // and real-JAR probes), not only the ordinary spawn request.
+        descriptor.setVoicePrefix(descriptor.isFemale() ? "VoiceFemale" : "VoiceMale");
         descriptor.setInstance(this);
         addOnDiedListener((character, body) -> corpseReady = body != null, false);
     }
@@ -1348,6 +1354,12 @@ public final class SCNativeCompanion extends IsoPlayer {
             applyCompanionAim();
             refreshCompanionSpeech();
             if (getVehicle() == null) applyBridgeMovement();
+            // IsoPlayer.update() normally advances the character-owned FMOD
+            // emitter, but this non-local actor deliberately runs the generic
+            // IsoGameCharacter update to avoid local-player input/UI side effects.
+            // Tick it here, after movement, so vanilla playerVoiceSound() pain and
+            // death vocals start and remain parented to the companion's position.
+            updatePlayerEmitter();
         } catch (RuntimeException | LinkageError failure) {
             genericUpdateActive = false;
             boolean repaired = localState.restore();
@@ -1666,6 +1678,22 @@ public final class SCNativeCompanion extends IsoPlayer {
         }
     }
 
+    private void updatePlayerEmitter() {
+        if (PLAYER_EMITTER_UPDATE == null) {
+            throw new IllegalStateException("player sound-emitter update is unavailable");
+        }
+        try {
+            PLAYER_EMITTER_UPDATE.invoke(this);
+        } catch (IllegalAccessException failure) {
+            throw new IllegalStateException("player sound-emitter update is inaccessible", failure);
+        } catch (InvocationTargetException failure) {
+            Throwable cause = failure.getCause();
+            if (cause instanceof RuntimeException runtimeFailure) throw runtimeFailure;
+            if (cause instanceof Error error) throw error;
+            throw new IllegalStateException("player sound-emitter update failed", cause);
+        }
+    }
+
     /**
      * IsoPlayer.update() is a local-player controller: in Build 42.20.4 it
      * assigns the global player/camera owners, fires OnPlayerUpdate and reads
@@ -1718,6 +1746,26 @@ public final class SCNativeCompanion extends IsoPlayer {
         } catch (ReflectiveOperationException | RuntimeException failure) {
             return null;
         }
+    }
+
+    private static Method resolvePlayerEmitterUpdate() {
+        return resolveDeclaredNoArg(IsoPlayer.class, "updateEmitter");
+    }
+
+    private static Method resolveDeclaredNoArg(Class<?> owner, String methodName) {
+        Class<?> current = owner;
+        while (current != null) {
+            try {
+                Method method = current.getDeclaredMethod(methodName);
+                method.setAccessible(true);
+                return method;
+            } catch (NoSuchMethodException failure) {
+                current = current.getSuperclass();
+            } catch (RuntimeException failure) {
+                return null;
+            }
+        }
+        return null;
     }
 
     private static Method resolveStatic(String className, String methodName) {

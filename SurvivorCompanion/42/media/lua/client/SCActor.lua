@@ -262,7 +262,12 @@ local function experimentalProvider()
         if not descriptorOk or descriptor == nil then
             return rejectExperimental(nil, "SurvivorFactory did not create a descriptor")
         end
-        invoke(descriptor, "setFemale", identity.gender == "female" or identity.gender == "woman")
+        local female = identity.gender == "female" or identity.gender == "woman"
+        local genderOk = invoke(descriptor, "setFemale", female)
+        local voiceOk = invoke(descriptor, "setVoicePrefix", female and "VoiceFemale" or "VoiceMale")
+        if not genderOk or not voiceOk then
+            return rejectExperimental(nil, "SurvivorDesc voice identity could not be initialized")
+        end
         invoke(descriptor, "setForename", tostring(identity.forename or "Fellow"))
         invoke(descriptor, "setSurname", tostring(identity.surname or "Survivor"))
         if identity.outfit ~= nil and tostring(identity.outfit) ~= "" then

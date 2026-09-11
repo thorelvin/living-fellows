@@ -519,6 +519,11 @@ public final class SCIsoCompanionControlTest {
         Object secondActor = SCBridge.constructCompanion((SurvivorDesc) secondDescriptor,
                 (IsoCell) cell, 0, 0, 0);
         secondActor.getClass().getMethod("setCurrentSquare", squareClass).invoke(secondActor, square);
+        require("VoiceMale".equals(descriptorClass.getMethod("getVoicePrefix")
+                        .invoke(firstDescriptor))
+                        && "VoiceFemale".equals(descriptorClass.getMethod("getVoicePrefix")
+                                .invoke(secondDescriptor)),
+                "companion construction did not normalize sex-specific player vocals");
 
         // A dedicated probe covers the complete live spawn registration. The
         // headless fixture has no initialized GameEntityManager unregister
@@ -767,7 +772,7 @@ public final class SCIsoCompanionControlTest {
         require(!(Boolean) playerClass.getMethod("getCoopPVP").invoke(null),
                 "last NPC teardown did not restore the previous vanilla hit-gate state");
         playerClass.getMethod("setCoopPVP", boolean.class).invoke(null, coopPvpBefore);
-        System.out.println("ISO_COMPANION_CONTROL_PASS actors=2 index=3 components=true local-state=unchanged"
+        System.out.println("ISO_COMPANION_CONTROL_PASS actors=2 index=3 components=true voice-position=true local-state=unchanged"
                 + " movement=true animation-scalars=true rollback=true transient-ownership=true ownership=true pvp-hit-gate=true permadeath=true teardown=true"
                 + " cleanup-retry=true update="
                 + (updateReachedRenderBoundary ? "contained-render-boundary" : "complete"));

@@ -1,4 +1,4 @@
-Living Fellows: Companion 0.22.12 verified interaction and perception playtest
+Living Fellows: Companion 0.22.13 positional voices and consistent menu audio playtest
 
 The included native bridge supplies SCNativeCompanion, an original IsoPlayer
 subclass that remains outside the local-player slots. Workshop installations

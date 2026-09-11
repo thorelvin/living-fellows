@@ -626,6 +626,7 @@ public final class SCBridge {
             SurvivorDesc descriptor = SurvivorFactory.CreateSurvivor(
                     SurvivorFactory.SurvivorType.Neutral, request.female);
             if (descriptor == null) return failNull("SurvivorFactory returned no descriptor");
+            descriptor.setVoicePrefix(request.female ? "VoiceFemale" : "VoiceMale");
             descriptor.setForename(request.forename);
             descriptor.setSurname(request.surname);
             if (!request.outfit.isEmpty()) descriptor.dressInNamedOutfit(request.outfit);

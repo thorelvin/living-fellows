@@ -18,6 +18,19 @@ public final class SCNativeApiSignatureTest {
         return type.getMethod(name, parameters);
     }
 
+    private static Method declaredMethodInHierarchy(Class<?> type, String name,
+            Class<?>... parameters) throws NoSuchMethodException {
+        Class<?> current = type;
+        while (current != null) {
+            try {
+                return current.getDeclaredMethod(name, parameters);
+            } catch (NoSuchMethodException failure) {
+                current = current.getSuperclass();
+            }
+        }
+        throw new NoSuchMethodException(type.getName() + "." + name);
+    }
+
     public static void main(String[] args) throws Exception {
         Class<?> player = Class.forName("zombie.characters.IsoPlayer");
         Class<?> character = Class.forName("zombie.characters.IsoGameCharacter");
@@ -361,6 +374,14 @@ public final class SCNativeApiSignatureTest {
         require(method(survivorFactory, "CreateSurvivor", survivorType, boolean.class)
                         .getReturnType() == descriptor,
                 "gender-correct SurvivorFactory overload changed");
+        require(method(descriptor, "isFemale").getReturnType() == boolean.class
+                        && method(descriptor, "getVoicePrefix").getReturnType() == String.class
+                        && method(descriptor, "setVoicePrefix", String.class).getReturnType() == void.class,
+                "SurvivorDesc voice-identity signatures changed");
+        require(method(player, "playerVoiceSound", String.class).getReturnType() == long.class
+                        && declaredMethodInHierarchy(player, "updateEmitter").getReturnType()
+                                == void.class,
+                "positional player-vocal signatures changed");
         Method specificPlayer = method(luaGlobals, "getSpecificPlayer", int.class);
         require(Modifier.isStatic(specificPlayer.getModifiers())
                         && specificPlayer.getReturnType() == player,

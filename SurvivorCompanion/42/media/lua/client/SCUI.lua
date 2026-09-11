@@ -3663,6 +3663,7 @@ local function onDockButton(target)
     target:applyScreenBounds()
     target:updateDockButton()
     target:saveSettings()
+    playUISound(UI.MENU_OPEN_SOUND)
 end
 
 local function onTabButton(target, button)

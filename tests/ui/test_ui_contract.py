@@ -1187,6 +1187,8 @@ class UIStaticContractTests(unittest.TestCase):
     def test_menu_toggle_uses_paired_vanilla_ui_sounds(self) -> None:
         self.assertIn('UI.MENU_OPEN_SOUND = "UIVehicleMenuOpen"', self.ui)
         self.assertIn('UI.MENU_CLOSE_SOUND = "UIVehicleMenuClose"', self.ui)
+        dock = lua_function(self.ui, "local function onDockButton(target)")
+        self.assertIn("playUISound(UI.MENU_OPEN_SOUND)", dock)
         collapse = lua_function(
             self.ui, "function SCUIRoot:setCollapsed(collapsed, initial)"
         )
@@ -1197,8 +1199,13 @@ class UIStaticContractTests(unittest.TestCase):
             "playUISound(requested and UI.MENU_CLOSE_SOUND or UI.MENU_OPEN_SOUND)",
             collapse,
         )
+        launcher = lua_function(
+            self.ui, "function SCUICollapsedLauncher:onMouseUp(x, y)"
+        )
+        self.assertIn("self.root:setCollapsed(false)", launcher)
         toggle = lua_function(self.ui, "function UI.toggle()")
         self.assertIn("playUISound(UI.MENU_OPEN_SOUND)", toggle)
+        self.assertIn("UI.instance:setCollapsed(not UI.instance.collapsed)", toggle)
 
     def test_saved_collapsed_launcher_is_restored_after_game_ui_startup(self) -> None:
         startup = lua_function(self.ui, "function UI.onGameStart()")

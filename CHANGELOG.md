@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.22.13 - Positional voices and consistent menu audio
+
+- Restored Build 42's character-owned sound-emitter update for native companions. Vanilla scratch, laceration, bite, and being-eaten vocals now start from and continue to follow the injured companion's world position without adding a duplicate Lua scream or artificial zombie-attraction event.
+- Normalized every companion descriptor to the matching `VoiceMale` or `VoiceFemale` prefix during native construction, ordinary spawning, restoration, and the guarded experimental fallback. Added installed-runtime API and actor controls for the hidden emitter lifecycle and sex-correct voice identity.
+- Made docking the Living Fellows window play the same menu-open cue used by the mini button and Home-key toggle, while undocking and closing continue to use the shared menu-close cue. Added UI regressions covering all four entry and exit paths.
+
 ## 0.22.12 - Verified interaction and perception
 
 - Bound direct barricade, unbarricade, and dismantle orders to a persistent object identity instead of a mutable square index. Save/load and object reindexing retain the intended target, while removal or replacement fails closed without acting on a neighboring object.
