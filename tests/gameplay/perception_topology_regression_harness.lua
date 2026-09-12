@@ -494,12 +494,41 @@ current = current + 100
 snapshot = S.refreshImmediate(observer, nil, snapshot, runtime)
 check(snapshot.threatCount == 0 and snapshot.heardThreatCount == 1
         and snapshot.heardThreats[1].actor == nil and snapshot.heardThreats[1].square == nil,
-    "nearby hidden noise remains non-targetable hearing information")
+    "nearby hidden noise remains non-targetable hearing information"
+        .. " threats=" .. tostring(snapshot.threatCount)
+        .. " heard=" .. tostring(snapshot.heardThreatCount)
+        .. " discovery=" .. tostring(runtime.senses.nativeDiscovery
+            and runtime.senses.nativeDiscovery.evaluated)
+        .. " processed=" .. tostring(runtime.senses.nativeDiscovery
+            and runtime.senses.nativeDiscovery.processed)
+        .. " reused=" .. tostring(runtime.senses.nativeDiscovery
+            and runtime.senses.nativeDiscovery.reused)
+        .. " verify=" .. tostring(runtime.senses.nativeDiscovery
+            and runtime.senses.nativeDiscovery.verificationPending)
+        .. " count=" .. tostring(runtime.senses.nativeDiscovery
+            and runtime.senses.nativeDiscovery.count)
+        .. " cycle=" .. tostring(runtime.senses.nativeDiscovery
+            and runtime.senses.nativeDiscovery.cycle)
+        .. " published=" .. tostring(runtime.senses.nativeDiscovery
+            and runtime.senses.nativeDiscovery.publishedCycle))
 local deadlineState, reads = {}, list.reads
 for index = 1, 160 do zombies[index] = actor(100+index,100,0,"IsoZombie") end
 local results, limited = Scan.nativeCandidates(observer, deadlineState, 24, 64, 1, function() return 100 end)
 check(limited.processed == 4 and list.reads - reads == 4 and #results == 0,
     "native discovery also observes an elapsed-time deadline with bounded minimum progress")
+
+Scan.reset()
+zombies = {}
+current = current + 100
+local emptyResults, emptyMeta = Scan.nativeCandidates(observer, {}, 24, 64)
+check(#emptyResults == 0 and emptyMeta.complete == true
+        and emptyMeta.freshComplete == true and (emptyMeta.cycle or 0) > 0,
+    "an available empty native roster publishes authoritative fresh completion")
+local emptySnapshot = S.snapshot(observer, nil, {})
+check(emptySnapshot.scanDiscoveryComplete == true
+        and emptySnapshot.scanVisualComplete == true
+        and emptySnapshot.scanComplete == true,
+    "a verified empty room can produce a complete negative perception observation")
 
 -- A sequential cursor gave a target at the tail of a 1000-zombie cell list a
 -- roughly 25-second worst case when every slice hit its time limit. The shared
@@ -534,7 +563,6 @@ zombies[1] = churnHead
 for index = 2, 999 do zombies[index] = actor(300 + index, 300, 0, "IsoZombie") end
 zombies[1000] = churnTail
 local churnState, churnSeen, churnMeta = {}, {}, nil
-local churnCounts = setmetatable({}, { __mode = "k" })
 for pulse = 1, 220 do
     if pulse % 2 == 0 then zombies[1001] = actor(9000 + pulse, 9000, 0, "IsoZombie")
     else zombies[1001] = nil end
@@ -543,16 +571,68 @@ for pulse = 1, 220 do
     found, churnMeta = Scan.nativeCandidates(observer, churnState, 24, 64)
     for _, candidate in ipairs(found) do
         churnSeen[candidate] = true
-        churnCounts[candidate] = (churnCounts[candidate] or 0) + 1
     end
-    if churnMeta.complete then break end
 end
-check(churnMeta.complete and churnMeta.endReached
+check(churnSeen[churnHead] and churnSeen[churnTail]
+        and (churnMeta.rejectedCycles or 0) > 0,
+    "continuous roster churn preserves progressive threat discovery without false completion")
+zombies[1001] = nil
+for pulse = 1, 80 do
+    current = current + 100
+    local found
+    found, churnMeta = Scan.nativeCandidates(observer, churnState, 24, 64)
+    for _, candidate in ipairs(found) do churnSeen[candidate] = true end
+    if churnMeta.freshComplete then break end
+end
+check(churnMeta.complete and churnMeta.freshComplete
         and churnSeen[churnHead] and churnSeen[churnTail]
-        and (churnMeta.sourceCount == 1000 or churnMeta.sourceCount == 1001),
-    "native discovery completes a coherent cycle while the live list count oscillates")
-check((churnCounts[churnHead] or 0) == 1 and (churnCounts[churnTail] or 0) == 1,
-    "one coherent churn cycle publishes each relevant actor only once")
+        and churnMeta.sourceCount == 1000,
+    "discovery converges after two matching bounded rosters once churn settles")
+
+-- A remove-and-append can keep the count unchanged while shifting every later
+-- index. The mixed pass must not certify a negative observation that omitted C.
+Scan.reset()
+local a = actor(100, 100, 0, "IsoZombie")
+local b = actor(101, 100, 0, "IsoZombie")
+local c = actor(3, 2, 0, "IsoZombie")
+local d = actor(103, 100, 0, "IsoZombie")
+local e = actor(104, 100, 0, "IsoZombie")
+local f = actor(105, 100, 0, "IsoZombie")
+local g = actor(106, 100, 0, "IsoZombie")
+local h = actor(107, 100, 0, "IsoZombie")
+zombies = { a, b, c, d, e, f, g, h }
+local originalListGet, mutationReads = list.get, 0
+function list:get(index)
+    self.reads = self.reads + 1
+    mutationReads = mutationReads + 1
+    local value = zombies[index + 1]
+    if mutationReads == 4 then
+        table.remove(zombies, 1)
+        zombies[#zombies + 1] = actor(108, 100, 0, "IsoZombie")
+    end
+    return value
+end
+current = current + 100
+local mutationState = {}
+local mutationResult, mutationMeta = Scan.nativeCandidates(
+    observer, mutationState, 24, 64)
+list.get = originalListGet
+check(mutationMeta.complete == false and mutationMeta.freshComplete == false
+        and (mutationMeta.rejectedCycles or 0) == 1,
+    "a same-count replacement invalidates the mixed roster instead of certifying absence")
+local mutationSeen = false
+for _, candidate in ipairs(mutationResult) do
+    if candidate == c then mutationSeen = true end
+end
+for pulse = 1, 8 do
+    current = current + 100
+    local found
+    found, mutationMeta = Scan.nativeCandidates(observer, mutationState, 24, 64)
+    for _, candidate in ipairs(found) do if candidate == c then mutationSeen = true end end
+    if mutationMeta.freshComplete then break end
+end
+check(mutationSeen and mutationMeta.freshComplete,
+    "the stabilized verification passes discover the skipped nearby survivor before completion")
 
 -- Reaching the end with more candidates than one LOS window used to reset the
 -- cursor to zero before the tail drained, so completion was never observable.

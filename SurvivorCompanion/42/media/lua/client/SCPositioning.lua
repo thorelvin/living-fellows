@@ -167,9 +167,10 @@ local function assignCqbRoles(followers)
 end
 
 local function stableCqbRoles(leaderState, key, followers, current)
-    -- Compute the desired doctrine layout, then commit it only after roster
-    -- membership has stayed unchanged. The live layout keeps vacancies briefly
-    -- so one disconnect/death pulse cannot make everyone swap sides at once.
+    -- Compute the desired doctrine layout, then commit it only after membership
+    -- and equipment/doctrine-derived roles have stayed unchanged. The live
+    -- layout keeps vacancies briefly so one disconnect/death pulse cannot make
+    -- everyone swap sides at once.
     assignCqbRoles(followers)
     leaderState.roleAssignments = leaderState.roleAssignments or {}
     local stable = leaderState.roleAssignments[key]
@@ -177,18 +178,29 @@ local function stableCqbRoles(leaderState, key, followers, current)
     for _, entry in ipairs(followers) do ids[#ids + 1] = tostring(entry.id) end
     table.sort(ids)
     local signature = table.concat(ids, "|")
+    local desired = {}
+    for _, entry in ipairs(followers) do
+        desired[#desired + 1] = tostring(entry.id) .. ":"
+            .. tostring(entry.cqbRole) .. ":" .. tostring(entry.columnIndex)
+    end
+    table.sort(desired)
+    local desiredSignature = table.concat(desired, "|")
     if not stable then
-        stable = { assignments = {}, signature = signature }
+        stable = { assignments = {}, signature = signature,
+            desiredSignature = desiredSignature }
         leaderState.roleAssignments[key] = stable
-    elseif stable.signature == signature then
-        stable.pendingSignature, stable.pendingSince = nil, nil
-    elseif stable.signature ~= signature and stable.pendingSignature ~= signature then
-        stable.pendingSignature, stable.pendingSince = signature, current
+    elseif stable.signature == signature and stable.desiredSignature == desiredSignature then
+        stable.pendingSignature, stable.pendingDesiredSignature, stable.pendingSince = nil, nil, nil
+    elseif stable.pendingSignature ~= signature
+        or stable.pendingDesiredSignature ~= desiredSignature then
+        stable.pendingSignature, stable.pendingDesiredSignature, stable.pendingSince =
+            signature, desiredSignature, current
     end
 
     local roleStableMs = tonumber(U().config("formationRoleStableMs")) or 2000
     local vacancyGraceMs = tonumber(U().config("formationVacancyGraceMs")) or 1000
     local mayReflow = stable.pendingSignature == signature
+        and stable.pendingDesiredSignature == desiredSignature
         and current - (stable.pendingSince or current) >= roleStableMs
     local present, reservedSlots, reservedRoles = {}, {}, {}
     for _, entry in ipairs(followers) do present[entry.actor] = true end
@@ -210,7 +222,8 @@ local function stableCqbRoles(leaderState, key, followers, current)
             }
         end
         stable.signature = signature
-        stable.pendingSignature, stable.pendingSince = nil, nil
+        stable.desiredSignature = desiredSignature
+        stable.pendingSignature, stable.pendingDesiredSignature, stable.pendingSince = nil, nil, nil
     else
         for _, assignment in pairs(stable.assignments) do
             reservedSlots[assignment.slot] = true

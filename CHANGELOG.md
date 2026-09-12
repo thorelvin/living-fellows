@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.22.16 - Transactional safety and stable perception
+
+- Preserved native key identities, partial-use values, customized food nutrition and cooking state, and explicit false item fields across companion and household reconstruction. The installed Build 42 API gate now verifies every persisted native setter.
+- Rebuilt barter as an exception-safe ownership transaction. Every item is journaled before mutation, transfer authorization always closes, failed removes/adds/finalizers restore verified owners and faction state, and unresolved native failures retain exact item references in managed recovery.
+- Evaluated trade capacity after both sides' outgoing items are detached, allowing valid reciprocal exchanges at full capacity while keeping unknown capacity checks fail-closed.
+- Required fresh, complete native discovery and line-of-sight validation before trade or destructive faction hibernation can conclude that an area is safe.
+- Made an empty native zombie roster immediately authoritative and non-empty absence require two matching identity passes. Count changes, duplicate/missing entries, and observer-cursor replacement now invalidate negative evidence without delaying positive threat discovery.
+- Let stable CQB membership converge after equipment, weapon-priority, or doctrine changes, with the existing debounce preventing momentary inventory changes from reshuffling the fireteam.
+- Isolated native bootstrap workers, queued callbacks, and exposure tickets by generation so a failed or retired run cannot mutate or suppress its replacement.
+- Added fault-injection, mutable-roster, persistence, formation, native-signature, and bootstrap-lifecycle regressions for the repaired paths.
+
 ## 0.22.15 - Quieter threat signals and companion nameplates
 
 - Changed visible-zombie warnings from repeating on an elapsed timer to one report per uninterrupted threat episode. A higher danger band still warns immediately, while a seven-second clear window and 30-second actor cooldown prevent brief line-of-sight flicker from restarting the same discovery.

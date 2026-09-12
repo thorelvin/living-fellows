@@ -273,6 +273,7 @@ end
 
 local scalarItemFields = {
     { key = "uses", getter = "getUses", setter = "setUses", kind = "integer" },
+    { key = "currentUses", getter = "getCurrentUsesFloat", setter = "setCurrentUsesFloat", kind = "number" },
     { key = "usedDelta", getter = "getUsedDelta", setter = "setUsedDelta", kind = "number" },
     { key = "age", getter = "getAge", setter = "setAge", kind = "number" },
     { key = "offAge", getter = "getOffAge", setter = "setOffAge", kind = "integer" },
@@ -286,6 +287,48 @@ local scalarItemFields = {
     { key = "frozen", getter = "isFrozen", setter = "setFrozen", kind = "boolean" },
     { key = "activated", getter = "isActivated", setter = "setActivated", kind = "boolean" },
 }
+
+-- Food carries mutable nutrition and portion data outside InventoryItem's
+-- generic age/uses fields. Keep this codec explicit so a crafted or partly
+-- eaten meal is not silently rebuilt with script defaults.
+local foodItemFields = {
+    { key = "baseHunger", getter = "getBaseHunger", setter = "setBaseHunger", kind = "number" },
+    { key = "thirstChange", getter = "getThirstChange", setter = "setThirstChange", kind = "number" },
+    { key = "boredomChange", getter = "getBoredomChange", setter = "setBoredomChange", kind = "number" },
+    { key = "unhappyChange", getter = "getUnhappyChange", setter = "setUnhappyChange", kind = "number" },
+    { key = "calories", getter = "getCalories", setter = "setCalories", kind = "number" },
+    { key = "carbohydrates", getter = "getCarbohydrates", setter = "setCarbohydrates", kind = "number" },
+    { key = "lipids", getter = "getLipids", setter = "setLipids", kind = "number" },
+    { key = "proteins", getter = "getProteins", setter = "setProteins", kind = "number" },
+    { key = "heat", getter = "getHeat", setter = "setHeat", kind = "number" },
+    { key = "freezingTime", getter = "getFreezingTime", setter = "setFreezingTime", kind = "number" },
+    { key = "poisonPower", getter = "getPoisonPower", setter = "setPoisonPower", kind = "integer" },
+    { key = "poisonDetection", getter = "getPoisonDetectionLevel", setter = "setPoisonDetectionLevel", kind = "integer" },
+    { key = "useForPoison", getter = "getUseForPoison", setter = "setUseForPoison", kind = "integer" },
+    { key = "lastCookMinute", getter = "getLastCookMinute", setter = "setLastCookMinute", kind = "integer" },
+    { key = "microwaved", getter = "isCookedInMicrowave", setter = "setCookedInMicrowave", kind = "boolean" },
+    { key = "packaged", getter = "isPackaged", setter = "setPackaged", kind = "boolean" },
+    { key = "dangerousUncooked", getter = "isbDangerousUncooked", setter = "setbDangerousUncooked", kind = "boolean" },
+    { key = "removeNegativeWhenCooked", getter = "isRemoveNegativeEffectOnCooked", setter = "setRemoveNegativeEffectOnCooked", kind = "boolean" },
+}
+
+local function captureItemFields(item, fields)
+    local result = {}
+    for _, field in ipairs(fields) do
+        local ok, value = false, nil
+        if method(item, field.setter) ~= nil then ok, value = invoke(item, field.getter) end
+        if ok then
+            if field.kind == "boolean" and type(value) == "boolean" then
+                result[field.key] = value
+            elseif field.kind == "integer" and finite(value, nil) ~= nil then
+                result[field.key] = math.floor(finite(value, 0))
+            elseif field.kind == "number" and finite(value, nil) ~= nil then
+                result[field.key] = finite(value, 0)
+            end
+        end
+    end
+    return hasEntries(result) and result or nil
+end
 
 local function captureFluid(item)
     local fluidOk, fluid = invoke(item, "getFluidContainer")
@@ -407,24 +450,16 @@ local function captureItem(item)
     if ok then entry.condition = math.floor(finite(value, 0)) end
     ok, value = invoke(item, "isFavorite")
     if ok then entry.favorite = value == true end
-    local scalar = {}
-    for _, field in ipairs(scalarItemFields) do
-        ok, value = false, nil
-        -- Some base classes expose a placeholder getter but no corresponding
-        -- setter (InventoryItem.getWetness() is one example).  Persist only a
-        -- property the concrete item can also accept during restore.
-        if method(item, field.setter) ~= nil then ok, value = invoke(item, field.getter) end
-        if ok then
-            if field.kind == "boolean" and type(value) == "boolean" then
-                scalar[field.key] = value
-            elseif field.kind == "integer" and finite(value, nil) ~= nil then
-                scalar[field.key] = math.floor(finite(value, 0))
-            elseif field.kind == "number" and finite(value, nil) ~= nil then
-                scalar[field.key] = finite(value, 0)
-            end
-        end
+    -- Some base classes expose a placeholder getter but no corresponding
+    -- setter (InventoryItem.getWetness() is one example). Persist only a
+    -- property the concrete item can also accept during restore.
+    entry.scalar = captureItemFields(item, scalarItemFields)
+    local keyOk, keyId = invoke(item, "getKeyId")
+    if keyOk and method(item, "setKeyId") ~= nil and finite(keyId, nil) ~= nil
+        and math.floor(finite(keyId, -1)) >= 0 then
+        entry.key = { id = math.floor(finite(keyId, -1)) }
     end
-    if hasEntries(scalar) then entry.scalar = scalar end
+    entry.food = captureItemFields(item, foodItemFields)
     local dataOk, modData = invoke(item, "getModData")
     if dataOk and type(modData) == "table" then
         local copied, copyReason = stableCopy(modData, 5,
@@ -1092,6 +1127,12 @@ local function copyInventoryNode(source, context, depth)
     clean.magazine, copyReason = stableCopy(source.magazine, 3, 64,
         "$.inventory[].magazine")
     if copyReason ~= nil then return nil, copyReason end
+    clean.key, copyReason = stableCopy(source.key, 2, 8,
+        "$.inventory[].key")
+    if copyReason ~= nil then return nil, copyReason end
+    clean.food, copyReason = stableCopy(source.food, 3, 64,
+        "$.inventory[].food")
+    if copyReason ~= nil then return nil, copyReason end
     clean.fluid, copyReason = stableCopy(source.fluid, 4, 128,
         "$.inventory[].fluid")
     if copyReason ~= nil then return nil, copyReason end
@@ -1297,13 +1338,36 @@ local function applyItemState(item, entry, restoredKeys)
         return false, "item favourite state could not be restored"
     end
     for _, field in ipairs(scalarItemFields) do
-        local value = type(entry.scalar) == "table" and entry.scalar[field.key] or nil
-        if value ~= nil then
+        local value, present = nil, false
+        if type(entry.scalar) == "table" then
+            value, present = entry.scalar[field.key], entry.scalar[field.key] ~= nil
+        end
+        if present then
             if field.kind == "boolean" then value = value == true
             elseif field.kind == "integer" then value = math.floor(finite(value, 0))
             else value = finite(value, 0) end
             if not invoke(item, field.setter, value) then
                 return false, "item field could not be restored: " .. field.key
+            end
+        end
+    end
+    if type(entry.key) == "table" and entry.key.id ~= nil then
+        local keyId = math.floor(finite(entry.key.id, -1))
+        if keyId < 0 or not invoke(item, "setKeyId", keyId) then
+            return false, "native key identity could not be restored"
+        end
+    end
+    for _, field in ipairs(foodItemFields) do
+        local value, present = nil, false
+        if type(entry.food) == "table" then
+            value, present = entry.food[field.key], entry.food[field.key] ~= nil
+        end
+        if present then
+            if field.kind == "boolean" then value = value == true
+            elseif field.kind == "integer" then value = math.floor(finite(value, 0))
+            else value = finite(value, 0) end
+            if not invoke(item, field.setter, value) then
+                return false, "food field could not be restored: " .. field.key
             end
         end
     end

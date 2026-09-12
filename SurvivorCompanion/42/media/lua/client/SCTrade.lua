@@ -8,6 +8,8 @@ SC.Trade = SC.Trade or {}
 local Trade = SC.Trade
 local authorized = false
 local authorizationSerial = 0
+local pendingRecoveries = {}
+local recoverySerial = 0
 
 local values = {
     ["Base.Plank"] = 4, ["Base.Nails"] = 1, ["Base.NailsBox"] = 20,
@@ -39,13 +41,22 @@ local function perceptionRuntime(actor)
 end
 
 local function safePerceptionComplete(snapshot)
-    if type(snapshot) ~= "table" or snapshot.valid == false then return false end
+    if SC.Senses and type(SC.Senses.isCompleteObservation) == "function" then
+        local called, safe, reason = pcall(SC.Senses.isCompleteObservation, snapshot)
+        if not called then return false, "danger_check_unavailable" end
+        return safe == true, reason
+    end
+    if type(snapshot) ~= "table" or snapshot.valid ~= true then
+        return false, "danger_check_unavailable"
+    end
     if (tonumber(snapshot.threatCount) or 0) > 0 then return false, "danger_nearby" end
-    if type(snapshot.nativeDiscovery) == "table"
-        and snapshot.nativeDiscovery.complete ~= true then
+    if snapshot.scanComplete ~= true or snapshot.scanDiscoveryComplete ~= true
+        or snapshot.scanVisualComplete ~= true then
         return false, "danger_check_pending"
     end
-    if snapshot.nativeDiscovery == nil and snapshot.scanComplete == false then
+    if type(snapshot.nativeDiscovery) == "table"
+        and (snapshot.nativeDiscovery.complete ~= true
+            or snapshot.nativeDiscovery.freshComplete ~= true) then
         return false, "danger_check_pending"
     end
     return true
@@ -331,47 +342,204 @@ local function destinationAcceptsAll(container, owner, rows)
     return true
 end
 
+-- Membership in getItems() is authoritative. getContainer() is checked as a
+-- second invariant because native fault paths can update only one side.
+local function containerMembership(container, item)
+    if container == nil or item == nil then return nil end
+    local itemsOk, items = invoke(container, "getItems")
+    if not itemsOk or items == nil then return nil end
+    local count
+    if type(items) == "table" then
+        count = #items
+    else
+        local sizeOk, size = invoke(items, "size")
+        if not sizeOk or tonumber(size) == nil then return nil end
+        count = math.max(0, math.floor(tonumber(size)))
+    end
+    if count > 8192 then return nil end
+    for index = 0, count - 1 do
+        local candidate, available = listGet(items, index)
+        if not available then return nil end
+        if candidate == item then return true end
+    end
+    return false
+end
+
+local function verifiedOwner(item, expected, other)
+    local expectedMember = containerMembership(expected, item)
+    local otherMember = containerMembership(other, item)
+    local ownerOk, owner = invoke(item, "getContainer")
+    return expectedMember == true and otherMember == false
+        and ownerOk and owner == expected
+end
+
+local function removeIdentity(container, item)
+    local present = containerMembership(container, item)
+    if present == nil then return false end
+    if present == false then return true end
+    invoke(container, "Remove", item)
+    return containerMembership(container, item) == false
+end
+
+local function addIdentity(container, item)
+    local present = containerMembership(container, item)
+    local ownerOk, owner = invoke(item, "getContainer")
+    if present == nil or not ownerOk then return false end
+    if present == true and ownerOk and owner == container then return true end
+    if present == true and not removeIdentity(container, item) then return false end
+    if owner ~= nil and owner ~= container then
+        local ownerMember = containerMembership(owner, item)
+        if ownerMember == nil then return false end
+        if ownerMember == true and not removeIdentity(owner, item) then return false end
+    end
+    local addedOk, added = invoke(container, "AddItem", item)
+    if not addedOk or added == false then return false end
+    local afterOk, after = invoke(item, "getContainer")
+    return containerMembership(container, item) == true
+        and afterOk and after == container
+end
+
 local function rollback(transfers)
-    local complete = true
+    local complete, failures = true, {}
     for index = #transfers, 1, -1 do
         local transfer = transfers[index]
-        local currentOk, current = invoke(transfer.item, "getContainer")
-        if not currentOk then
+        local destinationMember = containerMembership(transfer.destination, transfer.item)
+        local destinationCleared = destinationMember == false
+        if destinationMember == true then
+            destinationCleared = removeIdentity(transfer.destination, transfer.item)
+        end
+        if destinationMember == nil or not destinationCleared then
             complete = false
-        elseif current ~= transfer.source then
-            if current ~= nil then invoke(current, "Remove", transfer.item) end
-            local addedOk, added = invoke(transfer.source, "AddItem", transfer.item)
-            local verifyOk, after = invoke(transfer.item, "getContainer")
-            if not addedOk or added == false or not verifyOk or after ~= transfer.source then
+            failures[#failures + 1] = "destination_remove_unverified"
+        end
+        if destinationCleared then
+            if not addIdentity(transfer.source, transfer.item)
+                or not verifiedOwner(transfer.item, transfer.source, transfer.destination) then
                 complete = false
+                failures[#failures + 1] = "source_restore_unverified"
             end
         end
     end
-    return complete
+    return complete, #failures > 0 and table.concat(failures, ";") or nil
 end
 
-local function moveRows(rows, destination, destinationOwner, committed)
-    for _, row in ipairs(rows or {}) do
-        local accepted, reason = destinationAccepts(destination, destinationOwner, row.item)
-        if not accepted then return false, reason end
+local function clearRecovery(record)
+    if type(record) ~= "table" then return end
+    for _, transfer in ipairs(record.transfers or {}) do
+        if pendingRecoveries[transfer.item] == record then
+            pendingRecoveries[transfer.item] = nil
+        end
     end
-    for _, row in ipairs(rows or {}) do
-        local removedOk, removed = invoke(row.container, "Remove", row.item)
-        if not removedOk or removed == false then return false, "source_remove_failed" end
-        committed[#committed + 1] = {
-            item = row.item, source = row.container, destination = destination,
-        }
-        local detachedOk, detachedFrom = invoke(row.item, "getContainer")
-        if not detachedOk or detachedFrom == row.container then
-            return false, "source_remove_unverified"
+end
+
+local function rememberRecovery(transfers, group, reason, rollbackReason)
+    recoverySerial = recoverySerial + 1
+    local record = {
+        serial = recoverySerial,
+        factionId = group and group.id or nil,
+        reason = tostring(reason or "transaction_failed"),
+        rollbackReason = tostring(rollbackReason or "ownership_unverified"),
+        recordedAt = U().nowMs(),
+        transfers = transfers,
+    }
+    for _, transfer in ipairs(transfers) do pendingRecoveries[transfer.item] = record end
+    if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+        SC.Diagnostics.report("trade-transaction", record.factionId,
+            "item ownership retained for recovery",
+            record.reason .. "; " .. record.rollbackReason)
+    end
+    return record
+end
+
+function Trade.recoverPending()
+    local records, seen = {}, {}
+    for _, record in pairs(pendingRecoveries) do
+        if not seen[record] then
+            seen[record] = true
+            records[#records + 1] = record
         end
-        local addedOk, added = invoke(destination, "AddItem", row.item)
-        local currentOk, current = invoke(row.item, "getContainer")
-        if not addedOk or added == false or not currentOk or current ~= destination then
-            return false, "destination_add_failed"
+    end
+    table.sort(records, function(left, right)
+        return (tonumber(left.serial) or 0) < (tonumber(right.serial) or 0)
+    end)
+    for _, record in ipairs(records) do
+        local restored, reason = rollback(record.transfers or {})
+        if not restored then
+            record.rollbackReason = tostring(reason or record.rollbackReason)
+            return false, "trade_recovery_pending"
         end
+        clearRecovery(record)
     end
     return true
+end
+
+function Trade.pendingRecoveryCount()
+    local count, seen = 0, {}
+    for _, record in pairs(pendingRecoveries) do
+        if not seen[record] then seen[record], count = true, count + 1 end
+    end
+    return count
+end
+
+local function journalRows(rows, destination, destinationOwner, journal)
+    for _, row in ipairs(rows or {}) do
+        journal[#journal + 1] = {
+            item = row.item,
+            source = row.container,
+            destination = destination,
+            destinationOwner = destinationOwner,
+            phase = "planned",
+        }
+    end
+end
+
+local function detachJournal(journal)
+    for _, transfer in ipairs(journal) do
+        local removedOk, removed = invoke(transfer.source, "Remove", transfer.item)
+        transfer.phase = "detach_attempted"
+        local member = containerMembership(transfer.source, transfer.item)
+        local ownerOk, owner = invoke(transfer.item, "getContainer")
+        if not removedOk or removed == false or member ~= false
+            or not ownerOk or owner == transfer.source then
+            return false, "source_remove_failed"
+        end
+        transfer.phase = "detached"
+    end
+    return true
+end
+
+local function attachJournal(journal)
+    for _, transfer in ipairs(journal) do
+        local accepted, reason = destinationAccepts(
+            transfer.destination, transfer.destinationOwner, transfer.item)
+        if not accepted then return false, reason end
+        local addedOk, added = invoke(transfer.destination, "AddItem", transfer.item)
+        transfer.phase = "attach_attempted"
+        if not addedOk or added == false
+            or not verifiedOwner(transfer.item, transfer.destination, transfer.source) then
+            return false, "destination_add_failed"
+        end
+        transfer.phase = "attached"
+    end
+    return true
+end
+
+local function snapshotGroup(group)
+    if not SC.StableValue or type(SC.StableValue.copyStrict) ~= "function" then
+        return nil, "stable group snapshot unavailable"
+    end
+    return SC.StableValue.copyStrict(group, {
+        maxDepth = 20, maxEntries = 200000, path = "$.trade.finalize.group",
+    })
+end
+
+local function restoreGroup(group, snapshot)
+    if type(group) ~= "table" or type(snapshot) ~= "table" then return false end
+    local ok = pcall(function()
+        for key in pairs(group) do group[key] = nil end
+        for key, value in pairs(snapshot) do group[key] = value end
+    end)
+    return ok
 end
 
 local function proximityOkay(group, player, trader, allowHostile, maximumDistance)
@@ -400,6 +568,8 @@ end
 
 local function transaction(group, player, playerRows, factionRows, options)
     options = type(options) == "table" and options or {}
+    local recovered, recoveryReason = Trade.recoverPending()
+    if not recovered then return false, recoveryReason end
     local trader = actorForGroup(group)
     local ready, reason = proximityOkay(group, player, trader, options.allowHostile == true,
         options.maximumDistance)
@@ -412,39 +582,69 @@ local function transaction(group, player, playerRows, factionRows, options)
     valid, validationReason = validateRows(factionRows, trader, factionInventory,
         options.allowProtectedFaction == true)
     if not valid then return false, validationReason end
-    local accepted, capacityReason = destinationAcceptsAll(
-        factionInventory, trader, playerRows)
-    if not accepted then
-        return false, capacityReason == "capacity_check_unavailable"
-            and "faction_capacity_check_unavailable" or "faction_inventory_full"
+    local groupSnapshot
+    if type(options.finalize) == "function" then
+        groupSnapshot, reason = snapshotGroup(group)
+        if groupSnapshot == nil then
+            return false, "transaction_finalize_snapshot_failed:" .. tostring(reason)
+        end
     end
-    accepted, capacityReason = destinationAcceptsAll(playerInventory, player, factionRows)
-    if not accepted then
-        return false, capacityReason == "capacity_check_unavailable"
-            and "player_capacity_check_unavailable" or "player_inventory_full"
-    end
+    local journal = {}
+    journalRows(playerRows, factionInventory, trader, journal)
+    journalRows(factionRows, playerInventory, player, journal)
     authorizationSerial = authorizationSerial + 1
     authorized = { serial = authorizationSerial, factionId = group.id }
-    local committed = {}
-    local ok, transferReason = moveRows(playerRows, factionInventory, trader, committed)
-    if ok then ok, transferReason = moveRows(factionRows, playerInventory, player, committed) end
-    if not ok then
-        local restored = rollback(committed)
-        authorized = false
-        return false, restored and transferReason or "transaction_rollback_failed"
-    end
-    if type(options.finalize) == "function" then
-        local finalized, finalReason = options.finalize()
-        if finalized ~= true then
-            local restored = rollback(committed)
-            authorized = false
-            return false, restored and (finalReason or "transaction_finalize_failed")
-                or "transaction_rollback_failed"
+    local finalizeStarted = false
+    local function execute()
+        local ok, transferReason = detachJournal(journal)
+        if not ok then return false, transferReason end
+        local accepted, capacityReason = destinationAcceptsAll(
+            factionInventory, trader, playerRows)
+        if not accepted then
+            return false, capacityReason == "capacity_check_unavailable"
+                and "faction_capacity_check_unavailable" or "faction_inventory_full"
         end
-        transferReason = finalReason or transferReason
+        accepted, capacityReason = destinationAcceptsAll(
+            playerInventory, player, factionRows)
+        if not accepted then
+            return false, capacityReason == "capacity_check_unavailable"
+                and "player_capacity_check_unavailable" or "player_inventory_full"
+        end
+        ok, transferReason = attachJournal(journal)
+        if not ok then return false, transferReason end
+        if type(options.finalize) == "function" then
+            finalizeStarted = true
+            local finalized, finalReason = options.finalize()
+            if finalized ~= true then
+                return false, finalReason or "transaction_finalize_failed"
+            end
+            transferReason = finalReason or transferReason
+        end
+        return true, transferReason or "transaction_complete"
     end
+
+    local called, ok, transferReason = pcall(execute)
     authorized = false
-    return true, transferReason or "transaction_complete"
+    if not called then
+        ok, transferReason = false, "transaction_exception:" .. tostring(ok)
+    end
+    if ok == true then return true, transferReason or "transaction_complete" end
+
+    local finalizeRestored = true
+    if finalizeStarted then
+        finalizeRestored = restoreGroup(group, groupSnapshot)
+        if type(options.compensate) == "function" then
+            local compensated, result = pcall(options.compensate)
+            finalizeRestored = finalizeRestored and compensated and result ~= false
+        end
+    end
+    local restored, rollbackReason = rollback(journal)
+    if not restored then
+        rememberRecovery(journal, group, transferReason, rollbackReason)
+        return false, "transaction_rollback_failed"
+    end
+    if not finalizeRestored then return false, "transaction_finalize_recovery_failed" end
+    return false, transferReason or "transaction_failed"
 end
 
 function Trade.isAuthorizedTransfer(factionId)
@@ -870,6 +1070,9 @@ end
 function Trade.reset()
     authorized = false
     authorizationSerial = 0
+    local recovered, reason = Trade.recoverPending()
+    if recovered then recoverySerial = 0 end
+    return recovered, reason
 end
 
 return Trade

@@ -2176,9 +2176,17 @@ local function actorHiddenFromPlayer(actor, player, runtime)
         local ok, snapshot = pcall(SC.Senses.snapshot, actor, player, runtime)
         if not ok or type(snapshot) ~= "table" or snapshot.valid == false then return false end
         threatCount = tonumber(snapshot.threatCount) or 0
-        if type(snapshot.nativeDiscovery) == "table"
-            and snapshot.nativeDiscovery.complete ~= true then return false end
-        if snapshot.nativeDiscovery == nil and snapshot.scanComplete == false then return false end
+        if type(SC.Senses.isCompleteObservation) == "function" then
+            -- Actor removal is at least as safety-sensitive as barter: require
+            -- fresh, fully validated negative evidence, not merely the end of
+            -- native discovery while LOS candidates are still queued.
+            local complete = SC.Senses.isCompleteObservation(snapshot)
+            if complete ~= true then return false end
+        else
+            if type(snapshot.nativeDiscovery) == "table"
+                and snapshot.nativeDiscovery.complete ~= true then return false end
+            if snapshot.nativeDiscovery == nil and snapshot.scanComplete == false then return false end
+        end
     end
     return threatCount == 0
 end

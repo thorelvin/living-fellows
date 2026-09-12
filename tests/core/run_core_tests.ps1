@@ -40,6 +40,7 @@ try {
         (Join-Path $TestRoot 'SCItemContainerContractTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCKahluaExposureTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCDeferredMainThreadQueueTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCBootstrapLifecycleTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCIsoPlayerControlTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCIsoCompanionControlTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeCleanupTransactionTest.java') `
@@ -344,6 +345,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Installed Build 42 item-container contract gate failed.' }
     & $GameJava -cp "$BuildRoot;$NativeClasses" survivorcompanion.bridge.SCDeferredMainThreadQueueTest
     if ($LASTEXITCODE -ne 0) { throw 'Deferred main-thread spawn queue gate failed.' }
+    & $GameJava -cp "$BuildRoot;$NativeClasses" survivorcompanion.bridge.SCBootstrapLifecycleTest
+    if ($LASTEXITCODE -ne 0) { throw 'Bootstrap generation lifecycle gate failed.' }
 
     $clothingCatalog = Join-Path $GameRoot 'media\clothing\clothing.xml'
     [xml]$clothing = Get-Content -LiteralPath $clothingCatalog -Raw -Encoding utf8

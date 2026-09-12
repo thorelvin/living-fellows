@@ -1,4 +1,4 @@
-Living Fellows: Companion 0.22.15 quieter threat signals and companion nameplates playtest
+Living Fellows: Companion 0.22.16 transactional safety and stable perception playtest
 
 The included native bridge supplies SCNativeCompanion, an original IsoPlayer
 subclass that remains outside the local-player slots. Workshop installations

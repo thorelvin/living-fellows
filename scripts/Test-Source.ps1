@@ -50,11 +50,15 @@ New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
 try {
     & $Javac -cp (Join-Path $ProjectRoot 'build\native-bridge\classes') `
         -d $BuildRoot `
-        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCDeferredMainThreadQueueTest.java')
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCDeferredMainThreadQueueTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCBootstrapLifecycleTest.java')
     if ($LASTEXITCODE -ne 0) { throw 'Repository-stub Java control compilation failed.' }
     & $Java -cp "$BuildRoot;$(Join-Path $ProjectRoot 'build\native-bridge\classes')" `
         survivorcompanion.bridge.SCDeferredMainThreadQueueTest
     if ($LASTEXITCODE -ne 0) { throw 'Repository-stub Java control failed.' }
+    & $Java -cp "$BuildRoot;$(Join-Path $ProjectRoot 'build\native-bridge\classes')" `
+        survivorcompanion.bridge.SCBootstrapLifecycleTest
+    if ($LASTEXITCODE -ne 0) { throw 'Bootstrap generation lifecycle control failed.' }
 
     foreach ($test in @(
         'tests\core\test_core_static.py',

@@ -76,6 +76,8 @@ local function makeItem(itemType, options)
     function item:setFavorite(value) self.favorite = value == true end
     function item:getUses() return self.uses end
     function item:setUses(value) self.uses = value end
+    function item:getCurrentUsesFloat() return self.currentUsesFloat end
+    function item:setCurrentUsesFloat(value) self.currentUsesFloat = value end
     function item:getUsedDelta() return self.usedDelta end
     function item:setUsedDelta(value) self.usedDelta = value end
     function item:getAge() return self.age end
@@ -90,6 +92,51 @@ local function makeItem(itemType, options)
     function item:setHaveBeenRepaired(value) self.repairs = value end
     function item:isCooked() return self.cooked end
     function item:setCooked(value) self.cooked = value == true end
+    function item:isActivated() return self.activated end
+    function item:setActivated(value) self.activated = value == true end
+    function item:getKeyId() return self.keyId or -1 end
+    function item:setKeyId(value) self.keyId = value end
+    if item.__class == "Food" then
+        function item:getBaseHunger() return self.baseHunger end
+        function item:setBaseHunger(value) self.baseHunger = value end
+    function item:getHungerChange() return self.hungerChange end
+        function item:getThirstChange() return self.thirstChange end
+        function item:setThirstChange(value) self.thirstChange = value end
+        function item:getBoredomChange() return self.boredomChange end
+        function item:setBoredomChange(value) self.boredomChange = value end
+        function item:getUnhappyChange() return self.unhappyChange end
+        function item:setUnhappyChange(value) self.unhappyChange = value end
+        function item:getCalories() return self.calories end
+        function item:setCalories(value) self.calories = value end
+        function item:getCarbohydrates() return self.carbohydrates end
+        function item:setCarbohydrates(value) self.carbohydrates = value end
+        function item:getLipids() return self.lipids end
+        function item:setLipids(value) self.lipids = value end
+        function item:getProteins() return self.proteins end
+        function item:setProteins(value) self.proteins = value end
+        function item:getHeat() return self.heat end
+        function item:setHeat(value) self.heat = value end
+        function item:getFreezingTime() return self.freezingTime end
+        function item:setFreezingTime(value) self.freezingTime = value end
+        function item:getPoisonPower() return self.poisonPower end
+        function item:setPoisonPower(value) self.poisonPower = value end
+        function item:getPoisonDetectionLevel() return self.poisonDetection end
+        function item:setPoisonDetectionLevel(value) self.poisonDetection = value end
+        function item:getUseForPoison() return self.useForPoison end
+        function item:setUseForPoison(value) self.useForPoison = value end
+        function item:getLastCookMinute() return self.lastCookMinute end
+        function item:setLastCookMinute(value) self.lastCookMinute = value end
+        function item:isCookedInMicrowave() return self.microwaved end
+        function item:setCookedInMicrowave(value) self.microwaved = value == true end
+        function item:isPackaged() return self.packaged end
+        function item:setPackaged(value) self.packaged = value == true end
+        function item:isbDangerousUncooked() return self.dangerousUncooked end
+        function item:setbDangerousUncooked(value) self.dangerousUncooked = value == true end
+        function item:isRemoveNegativeEffectOnCooked() return self.removeNegativeWhenCooked end
+        function item:setRemoveNegativeEffectOnCooked(value)
+            self.removeNegativeWhenCooked = value == true
+        end
+    end
     function item:getFluidContainer() return self.fluid end
     function item:getAllWeaponParts() return self.weaponParts or {} end
     function item:attachWeaponPart(part)
@@ -127,6 +174,10 @@ local function makeInventory(initial)
             item = makeItem(value, { nestedInventory = makeInventory() })
         elseif string.find(tostring(value), "WaterBottle", 1, true) ~= nil then
             item = makeItem(value, { fluid = makeFluid() })
+        elseif tostring(value) == "Base.TestMeal" then
+            item = makeItem(value, { __class = "Food" })
+        elseif tostring(value) == "Base.ActiveByDefault" then
+            item = makeItem(value, { activated = true })
         else
             item = makeItem(value)
         end
@@ -375,6 +426,20 @@ local bottle = makeItem("Base.WaterBottleFull", {
     age = 1.25, cooked = true,
 })
 nested:AddItem(bottle)
+local exactKey = makeItem("Base.Key1", { keyId = 41277 })
+local meal = makeItem("Base.TestMeal", {
+    __class = "Food", currentUsesFloat = 0.35, baseHunger = -0.72,
+    hungerChange = -0.25, thirstChange = -0.11, boredomChange = -7,
+    unhappyChange = -13, calories = 843.5, carbohydrates = 61.25,
+    lipids = 24.5, proteins = 37.75, heat = 1.4, freezingTime = 22.5,
+    poisonPower = 9, poisonDetection = 4, useForPoison = 2,
+    lastCookMinute = 18, microwaved = false, packaged = false,
+    dangerousUncooked = true, removeNegativeWhenCooked = false,
+})
+local inactiveItem = makeItem("Base.ActiveByDefault", { activated = false })
+original.inventory:AddItem(exactKey)
+original.inventory:AddItem(meal)
+original.inventory:AddItem(inactiveItem)
 local scope = makeItem("Base.x4Scope", { condition = 7, modData = { zeroed = true } })
 local weapon = makeItem("Base.VarmintRifle", {
     __class = "HandWeapon", condition = 4, repairs = 2, bloodLevel = 0.35,
@@ -475,7 +540,7 @@ check(SC.Persistence.recoveryRetirements("sc-recovery-retire") == 0,
     "sustained healthy activation clears the retirement history")
 end
 check(captured.inventory.schema == 2 and captured.inventory.complete == true
-    and captured.inventory.count == 8
+    and captured.inventory.count == 11
     and captured.inventory.equipment.primary ~= nil
     and captured.inventory.equipment.primary == captured.inventory.equipment.secondary
     and #captured.inventory.equipment.worn == 2
@@ -576,6 +641,9 @@ local restoredBottle = findType(restored.inventory, "Base.WaterBottleFull")
 local restoredWeapon = findType(restored.inventory, "Base.VarmintRifle")
 local restoredJacket = findType(restored.inventory, "Base.Jacket_Police")
 local restoredKnife = findType(restored.inventory, "Base.HuntingKnife")
+local restoredKey = findType(restored.inventory, "Base.Key1")
+local restoredMeal = findType(restored.inventory, "Base.TestMeal")
+local restoredInactive = findType(restored.inventory, "Base.ActiveByDefault")
 check(findType(restored.inventory, "Base.GeneratedOutfit") == nil
     and restoredBag and restoredBag:getModData().role == "medical"
     and restoredBag:getModData().nested.rank == 2,
@@ -604,6 +672,24 @@ check(restoredBottle.uses == 3 and math.abs(restoredBottle.usedDelta - 0.65) < 0
     and math.abs(restoredBottle.fluid.values.Water - 0.7) < 0.001
     and math.abs(restoredBottle.fluid.values.Coffee - 0.2) < 0.001,
     "stack, drainable, food and exact mixed-fluid state survive restore")
+check(restoredKey and restoredKey.keyId == 41277,
+    "native key identity survives reconstruction instead of reverting to the script default")
+check(restoredInactive and restoredInactive.activated == false,
+    "saved false scalar values remain distinct from missing fields during restore")
+check(restoredMeal and math.abs(restoredMeal.currentUsesFloat - 0.35) < 0.001
+        and math.abs(restoredMeal.baseHunger + 0.72) < 0.001
+        and math.abs(restoredMeal.thirstChange + 0.11) < 0.001
+        and restoredMeal.boredomChange == -7 and restoredMeal.unhappyChange == -13
+        and math.abs(restoredMeal.calories - 843.5) < 0.001
+        and math.abs(restoredMeal.carbohydrates - 61.25) < 0.001
+        and math.abs(restoredMeal.lipids - 24.5) < 0.001
+        and math.abs(restoredMeal.proteins - 37.75) < 0.001
+        and restoredMeal.poisonPower == 9 and restoredMeal.poisonDetection == 4
+        and restoredMeal.useForPoison == 2 and restoredMeal.lastCookMinute == 18
+        and restoredMeal.microwaved == false and restoredMeal.packaged == false
+        and restoredMeal.dangerousUncooked == true
+        and restoredMeal.removeNegativeWhenCooked == false,
+    "partly consumed customized food retains nutrition, poison, cooking and boolean state")
 
 SC.Commands.reset(restored)
 SC.Registry.unregister(restored)

@@ -43,6 +43,8 @@ public final class SCNativeApiSignatureTest {
         Class<?> attackType = Class.forName("zombie.AttackType");
         Class<?> inventoryItem = Class.forName("zombie.inventory.InventoryItem");
         Class<?> handWeapon = Class.forName("zombie.inventory.types.HandWeapon");
+        Class<?> keyItem = Class.forName("zombie.inventory.types.Key");
+        Class<?> foodItem = Class.forName("zombie.inventory.types.Food");
         Class<?> bodyDamage = Class.forName("zombie.characters.BodyDamage.BodyDamage");
         Class<?> bodyPart = Class.forName("zombie.characters.BodyDamage.BodyPart");
         Class<?> movingObject = Class.forName("zombie.iso.IsoMovingObject");
@@ -410,6 +412,50 @@ public final class SCNativeApiSignatureTest {
                         && method(player, "getPrimaryHandItem").getReturnType() == inventoryItem
                         && method(player, "getSecondaryHandItem").getReturnType() == inventoryItem,
                 "native attack/equipment readback signatures changed");
+        require(method(keyItem, "getKeyId").getReturnType() == int.class
+                        && method(keyItem, "setKeyId", int.class).getReturnType() == void.class
+                        && method(inventoryItem, "getCurrentUsesFloat").getReturnType() == float.class
+                        && method(inventoryItem, "setCurrentUsesFloat", float.class).getReturnType()
+                                == void.class,
+                "key identity/current-use persistence signatures changed");
+        require(method(foodItem, "getBaseHunger").getReturnType() == float.class
+                        && method(foodItem, "setBaseHunger", float.class).getReturnType() == void.class
+                        && method(foodItem, "getThirstChange").getReturnType() == float.class
+                        && method(foodItem, "setThirstChange", float.class).getReturnType() == void.class
+                        && method(foodItem, "getBoredomChange").getReturnType() == float.class
+                        && method(foodItem, "setBoredomChange", float.class).getReturnType() == void.class
+                        && method(foodItem, "getUnhappyChange").getReturnType() == float.class
+                        && method(foodItem, "setUnhappyChange", float.class).getReturnType() == void.class
+                        && method(foodItem, "getCalories").getReturnType() == float.class
+                        && method(foodItem, "setCalories", float.class).getReturnType() == void.class
+                        && method(foodItem, "getCarbohydrates").getReturnType() == float.class
+                        && method(foodItem, "setCarbohydrates", float.class).getReturnType() == void.class
+                        && method(foodItem, "getLipids").getReturnType() == float.class
+                        && method(foodItem, "setLipids", float.class).getReturnType() == void.class
+                        && method(foodItem, "getProteins").getReturnType() == float.class
+                        && method(foodItem, "setProteins", float.class).getReturnType() == void.class
+                        && method(foodItem, "getHeat").getReturnType() == float.class
+                        && method(foodItem, "setHeat", float.class).getReturnType() == void.class
+                        && method(foodItem, "getFreezingTime").getReturnType() == float.class
+                        && method(foodItem, "setFreezingTime", float.class).getReturnType() == void.class
+                        && method(foodItem, "getPoisonPower").getReturnType() == int.class
+                        && method(foodItem, "setPoisonPower", int.class).getReturnType() == void.class
+                        && method(foodItem, "getPoisonDetectionLevel").getReturnType() == int.class
+                        && method(foodItem, "setPoisonDetectionLevel", int.class).getReturnType() == void.class
+                        && method(foodItem, "getUseForPoison").getReturnType() == int.class
+                        && method(foodItem, "setUseForPoison", int.class).getReturnType() == void.class
+                        && method(foodItem, "getLastCookMinute").getReturnType() == int.class
+                        && method(foodItem, "setLastCookMinute", int.class).getReturnType() == void.class
+                        && method(foodItem, "isCookedInMicrowave").getReturnType() == boolean.class
+                        && method(foodItem, "setCookedInMicrowave", boolean.class).getReturnType() == void.class
+                        && method(foodItem, "isPackaged").getReturnType() == boolean.class
+                        && method(foodItem, "setPackaged", boolean.class).getReturnType() == void.class
+                        && method(foodItem, "isbDangerousUncooked").getReturnType() == boolean.class
+                        && method(foodItem, "setbDangerousUncooked", boolean.class).getReturnType() == void.class
+                        && method(foodItem, "isRemoveNegativeEffectOnCooked").getReturnType() == boolean.class
+                        && method(foodItem, "setRemoveNegativeEffectOnCooked", boolean.class)
+                                .getReturnType() == void.class,
+                "food nutrition persistence signatures changed");
         require(method(player, "isPerformingAttackAnimation").getReturnType() == boolean.class
                         && method(player, "clearHandToHandAttack").getReturnType() == void.class,
                 "native attack animation lifecycle signatures changed");

@@ -23,6 +23,11 @@ local function newSharedNative(list, count)
         publishedCount = 0,
         build = {},
         buildSeen = {},
+        verification = nil,
+        verificationCount = nil,
+        completedAt = nil,
+        evidenceExpiresAt = 0,
+        rejectedCycles = 0,
         nextAdvanceAt = 0,
     }
 end
@@ -37,11 +42,27 @@ local function nativeIndex(cursor, count)
     return count - pair - 1
 end
 
+local function sameRoster(left, right, count)
+    if type(left) ~= "table" or type(right) ~= "table"
+        or #left ~= count or #right ~= count then return false end
+    local identities = {}
+    for _, entry in ipairs(left) do identities[entry.actor] = true end
+    for _, entry in ipairs(right) do
+        if not identities[entry.actor] then return false end
+        identities[entry.actor] = nil
+    end
+    -- Both inputs are de-duplicated while they are built and their lengths
+    -- already match, so membership of every right-side actor proves equality.
+    -- Avoid relying on the optional global next() in stripped Kahlua fixtures.
+    return true
+end
+
 local function advanceSharedNative(list, count, maximum, deadline, clock, now)
     if sharedNative == nil or sharedNative.list ~= list then
         sharedNative = newSharedNative(list, count)
     end
     local shared = sharedNative
+    if shared.liveCount ~= count then shared.evidenceExpiresAt = now end
     shared.liveCount = count
     if count == 0 and (shared.cycleCount ~= 0 or shared.cursor > 0
         or #shared.build > 0) then
@@ -50,6 +71,7 @@ local function advanceSharedNative(list, count, maximum, deadline, clock, now)
         -- manufacture threats that no longer exist.
         shared.cycleCount, shared.cursor = 0, 0
         shared.build, shared.buildSeen = {}, {}
+        shared.verification, shared.verificationCount = nil, nil
         shared.nextAdvanceAt = now
     end
     -- A completed roster may be held briefly to avoid needless rescans. If the
@@ -60,6 +82,7 @@ local function advanceSharedNative(list, count, maximum, deadline, clock, now)
         shared.nextAdvanceAt = now
         shared.published, shared.publishedCount = {}, 0
         shared.completedCycle = 0
+        shared.verification, shared.verificationCount = nil, nil
     end
     if now < (shared.nextAdvanceAt or 0) then return 0, true, false end
 
@@ -84,11 +107,35 @@ local function advanceSharedNative(list, count, maximum, deadline, clock, now)
         end
     end
 
-    local completed = shared.cursor >= shared.cycleCount
-    if completed then
-        shared.published = shared.build
-        shared.publishedCount = shared.cycleCount
-        shared.completedCycle = shared.cycle
+    local passEnded = shared.cursor >= shared.cycleCount
+    local published = false
+    if passEnded then
+        local coherent = #shared.build == shared.cycleCount and count == shared.cycleCount
+        -- A non-empty live Java list is mutable across slices. Certify absence
+        -- only after two complete passes observe the same identity set. A
+        -- duplicate/missing index or a changed count invalidates verification,
+        -- but the just-read build remains available as best-effort preview.
+        if shared.cycleCount == 0 and count == 0 then
+            published = true
+        elseif coherent and shared.verificationCount == shared.cycleCount
+            and sameRoster(shared.verification, shared.build, shared.cycleCount) then
+            published = true
+        elseif coherent then
+            shared.verification = shared.build
+            shared.verificationCount = shared.cycleCount
+        else
+            shared.verification, shared.verificationCount = nil, nil
+            shared.rejectedCycles = (shared.rejectedCycles or 0) + 1
+        end
+        if published then
+            shared.published = shared.build
+            shared.publishedCount = shared.cycleCount
+            shared.completedCycle = shared.cycle
+            shared.completedAt = now
+            shared.evidenceExpiresAt = now + math.max(250,
+                tonumber(SC.GameplayUtil.config("perceptionNativeCompletedHoldMs")) or 1000)
+            shared.verification, shared.verificationCount = nil, nil
+        end
         nativeGeneration = nativeGeneration + 1
         shared.cycle = nativeGeneration
         shared.build = {}
@@ -96,13 +143,13 @@ local function advanceSharedNative(list, count, maximum, deadline, clock, now)
         shared.cursor = 0
         shared.cycleCount = count
     end
-    local interval = completed
+    local interval = published
         and math.max(250, tonumber(SC.GameplayUtil.config(
             "perceptionNativeCompletedHoldMs")) or 1000)
         or math.max(16, tonumber(SC.GameplayUtil.config(
             "perceptionNativeSharedPulseMs")) or 50)
     shared.nextAdvanceAt = now + interval
-    return processed, false, completed
+    return processed, false, published
 end
 
 local function resetActorNativeState(state, generation)
@@ -160,14 +207,22 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     local shared = sharedNative
     if state.nativeSharedGeneration ~= shared.generation then
         resetActorNativeState(state, shared.generation)
+    elseif state.nativeScanCount ~= nil and state.nativeScanCount ~= count then
+        -- A stable list object may change size between observer pulses. Its old
+        -- roster cursor and delivered set describe a different population and
+        -- can otherwise collide with the producer's monotonically reused cycle
+        -- number, skipping the first entries of the replacement roster.
+        resetActorNativeState(state, shared.generation)
     end
     if count == 0 then
         -- An empty live list is authoritative absence. Do not make observers
         -- drain a previously published populated roster before accepting it.
-        state.nativeRosterCycle = nil
-        state.nativeRosterSource = nil
-        state.nativeRosterCount = nil
-        state.nativeRosterComplete = true
+        state.nativeRosterCycle = shared.completedCycle > 0 and shared.completedCycle or nil
+        state.nativeRosterSource = shared.published
+        state.nativeRosterCount = 0
+        state.nativeRosterCursor = 1
+        state.nativeRosterComplete = shared.completedCycle > 0
+        state.nativeLastCompleteCycle = state.nativeRosterCycle
         state.nativeCandidateQueue, state.nativeCandidateIndex = nil, nil
     end
 
@@ -185,17 +240,18 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     if count > 0 and shared.completedCycle > 0
         and state.nativeRosterCycle ~= shared.completedCycle
         and (state.nativeRosterCycle == nil or state.nativeRosterComplete == true) then
+        local previewMatches = state.nativeDeliveredCycle == shared.completedCycle
         state.nativeRosterCycle = shared.completedCycle
         state.nativeRosterSource = shared.published
         state.nativeRosterCount = shared.publishedCount
         state.nativeRosterCursor = 1
         state.nativeRosterComplete = false
-        if state.nativeDeliveredCycle ~= shared.completedCycle then
+        if not previewMatches then
             state.nativeDeliveredCycle = shared.completedCycle
             state.nativeDeliveredSeen = {}
+            state.nativeCandidateQueue, state.nativeCandidateIndex = {}, 1
+            queue = state.nativeCandidateQueue
         end
-        state.nativeCandidateQueue, state.nativeCandidateIndex = {}, 1
-        queue = state.nativeCandidateQueue
     end
 
     -- Once adopted, this observer owns an immutable roster reference.  The
@@ -218,7 +274,11 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
             state.nativeDeliveredCycle = shared.cycle
             state.nativeDeliveredSeen = {}
         end
-        source = count == 0 and {} or shared.build
+        -- The first coherent pass is useful for threat discovery immediately,
+        -- even though absence is not certified until the matching second pass.
+        -- Its cycle number is the one now being verified, allowing the observer
+        -- queue to carry over when that second pass publishes the same roster.
+        source = count == 0 and {} or shared.verification or shared.build
         cursor = math.max(1, math.floor(tonumber(state.nativePreviewCursor) or 1))
     end
 
@@ -287,10 +347,10 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     end
 
     local observerCycle = tonumber(state.nativeRosterCycle) or 0
-    local complete = count == 0 or (observerCycle > 0 and state.nativeRosterComplete == true
+    local complete = observerCycle > 0 and state.nativeRosterComplete == true
         and state.nativeLastCompleteCycle == observerCycle
-    )
     local freshComplete = complete and observerCycle == shared.completedCycle
+        and now <= (tonumber(shared.evidenceExpiresAt) or 0)
     local sourceRemaining = coherent and math.max(0, #source - cursor + 1) or 0
     local pending = queuePending + sourceRemaining
     local reportedCursor = count == 0 and 0
@@ -319,6 +379,9 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         listComplete = complete,
         endReached = complete or shared.completedCycle > 0,
         globalCompleted = globalCompleted,
+        evidenceExpiresAt = shared.evidenceExpiresAt,
+        rejectedCycles = shared.rejectedCycles or 0,
+        verificationPending = shared.verification ~= nil,
         cycle = observerCycle,
         publishedCycle = shared.completedCycle,
         generation = shared.generation,

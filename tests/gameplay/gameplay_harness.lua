@@ -171,18 +171,30 @@ local function inventory(initial)
     function value:getItems() return self.items end
     function value:AddItem(added)
         local addedType = type(added) == "table" and added.itemType or added
+        if self.throwBeforeAdd then error("injected add failure before mutation") end
         if self.rejectAdd or self.rejectAddType == addedType then return nil end
         if type(added) ~= "table" then added = item(added, "Item") end
         self.items[#self.items + 1] = added
         added.container = self
+        if self.throwAfterAddItem == added then
+            error("injected add failure after mutation")
+        end
         return added
     end
     function value:Remove(removed)
         self.removeCalls = (self.removeCalls or 0) + 1
+        if self.throwBeforeRemove then error("injected remove failure before mutation") end
         if self.rejectRemove or self.rejectRemoveItem == removed
             or (self.rejectRemoveNth and self.removeCalls == self.rejectRemoveNth) then return false end
         for index, candidate in ipairs(self.items) do
-            if candidate == removed then table.remove(self.items, index) candidate.container = nil return end
+            if candidate == removed then
+                table.remove(self.items, index)
+                candidate.container = nil
+                if self.throwAfterRemoveItem == removed then
+                    error("injected remove failure after mutation")
+                end
+                return
+            end
         end
     end
     function value:containsTypeRecurse(itemType)
@@ -3243,6 +3255,32 @@ check(pointContext.columnIndex == 1 and assaultContext.columnIndex == 2
         and pointContext.participants[3].actor == formationRanged
         and pointContext.participants[4].actor == formationRight,
     "settled fireteam reflows once into point, assault, ranged support, rear guard order")
+
+formationLeft.primary = item("Base.RoleSwapRifle", "Weapon", { ranged = true, ammo = 8 })
+formationRanged.primary = nil
+formationRangedCommands.combatDoctrine = "close_defense"
+formationRangedCommands.weaponPriority = "melee"
+clock = clock + 300
+_, pointContext = SurvivorCompanion.Positioning.formationTarget(
+    formationLeft, positioningLeader, formationLeftCommands, formationSnapshot)
+_, assaultContext = SurvivorCompanion.Positioning.formationTarget(
+    formationAssault, positioningLeader, formationAssaultCommands, formationSnapshot)
+check(pointContext.cqbRole == "point" and assaultContext.cqbRole == "assault",
+    "equipment-driven CQB role changes are debounced instead of reshuffling immediately")
+clock = clock + 2100
+leftTarget, pointContext = SurvivorCompanion.Positioning.formationTarget(
+    formationLeft, positioningLeader, formationLeftCommands, formationSnapshot)
+_, assaultContext = SurvivorCompanion.Positioning.formationTarget(
+    formationAssault, positioningLeader, formationAssaultCommands, formationSnapshot)
+_, rangedContext = SurvivorCompanion.Positioning.formationTarget(
+    formationRanged, positioningLeader, formationRangedCommands, formationSnapshot)
+_, rearContext = SurvivorCompanion.Positioning.formationTarget(
+    formationRight, positioningLeader, formationRightCommands, formationSnapshot)
+check(assaultContext.cqbRole == "point" and assaultContext.columnIndex == 1
+        and rangedContext.cqbRole == "assault" and rangedContext.columnIndex == 2
+        and pointContext.cqbRole == "ranged_support" and pointContext.columnIndex == 3
+        and rearContext.cqbRole == "rear_guard" and rearContext.columnIndex == 4,
+    "stable membership converges to new CQB roles after weapon and doctrine changes")
 
 positioningLeader.forwardX, positioningLeader.forwardY = 0, 1
 clock = clock + 100
@@ -10211,6 +10249,15 @@ registry[residentOne.id] = { id = residentOne.id, actor = residentOne,
 registry[residentTwo.id] = { id = residentTwo.id, actor = residentTwo,
     factionId = group.id, factionRole = group.members[2].role }
 
+local function completeTradeSafetySnapshot()
+    return {
+        valid = true, time = clock, threatCount = 0,
+        scanComplete = true, scanDiscoveryComplete = true,
+        scanVisualComplete = true,
+        nativeDiscovery = { complete = true, freshComplete = true },
+    }
+end
+
 do
     local originalSnapshot = SurvivorCompanion.Senses.snapshot
     local residentRuntime, observedRuntime, scanCalls = {}, nil, 0
@@ -10218,17 +10265,21 @@ do
     SurvivorCompanion.Senses.snapshot = function(_, _, suppliedRuntime)
         scanCalls = scanCalls + 1
         observedRuntime = suppliedRuntime
-        return {
-            valid = true,
-            threatCount = 0,
-            nativeDiscovery = { complete = scanCalls > 1 },
-        }
+        local snapshot = completeTradeSafetySnapshot()
+        snapshot.scanComplete = scanCalls > 2
+        snapshot.scanDiscoveryComplete = scanCalls > 1
+        snapshot.scanVisualComplete = scanCalls > 2
+        snapshot.nativeDiscovery.complete = scanCalls > 1
+        snapshot.nativeDiscovery.freshComplete = scanCalls > 1
+        return snapshot
     end
     local openedEarly, earlyReason = Trade.canOpen("faction-test", player)
+    local openedVisualPending, visualReason = Trade.canOpen("faction-test", player)
     local openedComplete = Trade.canOpen("faction-test", player)
     check(not openedEarly and earlyReason == "danger_check_pending"
+            and not openedVisualPending and visualReason == "danger_check_pending"
             and openedComplete and observedRuntime == residentRuntime,
-        "trade reuses persistent perception and fails closed until native discovery completes")
+        "trade reuses persistent perception and waits for fresh discovery plus complete LOS validation")
 
     local residentSquare = residentOne.square
     local priorLosBlocked = residentSquare.losBlocked
@@ -10238,9 +10289,12 @@ do
         residentOne, player, residentRuntime)
     local hiddenComplete = Factions._actorHiddenFromPlayerForTests(
         residentOne, player, residentRuntime)
+    local hiddenSettled = Factions._actorHiddenFromPlayerForTests(
+        residentOne, player, residentRuntime)
     residentSquare.losBlocked = priorLosBlocked
     SurvivorCompanion.Senses.snapshot = originalSnapshot
-    check(not hiddenEarly and hiddenComplete and observedRuntime == residentRuntime,
+    check(not hiddenEarly and not hiddenComplete and hiddenSettled
+            and observedRuntime == residentRuntime,
         "faction hibernation waits for a complete persistent danger scan")
 end
 
@@ -10554,7 +10608,7 @@ do
             and retrieveProgress.ready and retrieveProgress.questItemCount == 1,
         "the uniquely tagged retrieved item completes progress but stays out of ordinary barter")
     local originalQuestSnapshot = SurvivorCompanion.Senses.snapshot
-    SurvivorCompanion.Senses.snapshot = function() return { threatCount = 0 } end
+    SurvivorCompanion.Senses.snapshot = completeTradeSafetySnapshot
     local completedRetrieve, completedRetrieveReason = Contracts.chooseReward(
         group, player, 2, false)
     local selectedReceived = true
@@ -10856,8 +10910,7 @@ do
     residentOne.inventory:AddItem(requestedLighter)
     local originalSnapshot = SurvivorCompanion.Senses.snapshot
     SurvivorCompanion.Senses.snapshot = function()
-        return { valid = true, threatCount = 0,
-            nativeDiscovery = { complete = true } }
+        return completeTradeSafetySnapshot()
     end
     player.inventory.capacityCheckThrows = true
     local traded, capacityReason = Trade.barter("faction-test", player,
@@ -10869,6 +10922,99 @@ do
             and offeredTool:getContainer() == player.inventory
             and requestedLighter:getContainer() == residentOne.inventory,
         "trade fails closed before transfer when destination capacity cannot be proven")
+    player.inventory:Remove(offeredTool)
+    residentOne.inventory:Remove(requestedLighter)
+end
+
+do
+    local offeredAxe = item("Base.Axe", "Tool", { weight = 2 })
+    local requestedHammer = item("Base.Hammer", "Tool", { weight = 2 })
+    player.inventory:AddItem(offeredAxe)
+    residentOne.inventory:AddItem(requestedHammer)
+    local playerCapacity, factionCapacity = player.inventory.capacity, residentOne.inventory.capacity
+    player.inventory.capacity = player.inventory:getCapacityWeight()
+    residentOne.inventory.capacity = residentOne.inventory:getCapacityWeight()
+    local originalSnapshot = SurvivorCompanion.Senses.snapshot
+    SurvivorCompanion.Senses.snapshot = completeTradeSafetySnapshot
+    local exchanged, exchangeReason = Trade.barter("faction-test", player,
+        { { item = offeredAxe, container = player.inventory } },
+        { { item = requestedHammer, container = residentOne.inventory } })
+    SurvivorCompanion.Senses.snapshot = originalSnapshot
+    player.inventory.capacity, residentOne.inventory.capacity = playerCapacity, factionCapacity
+    check(exchanged and player.inventory:contains(requestedHammer)
+            and residentOne.inventory:contains(offeredAxe),
+        "a full reciprocal trade stages outgoing items and accepts the valid net capacity: "
+            .. tostring(exchangeReason))
+    player.inventory:Remove(requestedHammer)
+    residentOne.inventory:Remove(offeredAxe)
+end
+
+do
+    local originalSnapshot = SurvivorCompanion.Senses.snapshot
+    SurvivorCompanion.Senses.snapshot = completeTradeSafetySnapshot
+    local offeredTool = item("Base.Hammer", "Tool")
+    local requestedLighter = item("Base.Lighter", "Item")
+    player.inventory:AddItem(offeredTool)
+    residentOne.inventory:AddItem(requestedLighter)
+    player.inventory.throwAfterRemoveItem = offeredTool
+    local traded, reason = Trade.barter("faction-test", player,
+        { { item = offeredTool, container = player.inventory } },
+        { { item = requestedLighter, container = residentOne.inventory } })
+    player.inventory.throwAfterRemoveItem = nil
+    check(not traded and reason == "source_remove_failed"
+            and player.inventory:contains(offeredTool)
+            and residentOne.inventory:contains(requestedLighter)
+            and not Trade.isAuthorizedTransfer("faction-test"),
+        "a remove that mutates then throws is journaled before mutation and rolls back exactly")
+
+    residentOne.inventory.throwAfterAddItem = offeredTool
+    traded, reason = Trade.barter("faction-test", player,
+        { { item = offeredTool, container = player.inventory } },
+        { { item = requestedLighter, container = residentOne.inventory } })
+    residentOne.inventory.throwAfterAddItem = nil
+    check(not traded and reason == "destination_add_failed"
+            and player.inventory:contains(offeredTool)
+            and residentOne.inventory:contains(requestedLighter)
+            and not Trade.isAuthorizedTransfer("faction-test"),
+        "an insertion that mutates then throws restores both verified inventory owners")
+
+    local originalCanReconcile = SurvivorCompanion.Factions.canReconcile
+    local originalRequired = SurvivorCompanion.Factions.restitutionRequired
+    local originalReconcile = SurvivorCompanion.Factions.reconcile
+    local priorStanding = group.standing
+    SurvivorCompanion.Factions.canReconcile = function() return true, "restitution_due" end
+    SurvivorCompanion.Factions.restitutionRequired = function() return 1 end
+    SurvivorCompanion.Factions.reconcile = function()
+        group.standing = "Trusted"
+        error("injected finalizer failure")
+    end
+    traded, reason = Trade.payRestitution("faction-test", player,
+        { { item = offeredTool, container = player.inventory } })
+    SurvivorCompanion.Factions.canReconcile = originalCanReconcile
+    SurvivorCompanion.Factions.restitutionRequired = originalRequired
+    SurvivorCompanion.Factions.reconcile = originalReconcile
+    check(not traded and string.find(tostring(reason), "transaction_exception:", 1, true) == 1
+            and group.standing == priorStanding and player.inventory:contains(offeredTool)
+            and not Trade.isAuthorizedTransfer("faction-test"),
+        "a throwing finalizer restores faction state, item ownership and authorization")
+
+    player.inventory.throwAfterRemoveItem = offeredTool
+    player.inventory.rejectAdd = true
+    traded, reason = Trade.barter("faction-test", player,
+        { { item = offeredTool, container = player.inventory } },
+        { { item = requestedLighter, container = residentOne.inventory } })
+    player.inventory.throwAfterRemoveItem = nil
+    check(not traded and reason == "transaction_rollback_failed"
+            and Trade.pendingRecoveryCount() == 1 and offeredTool:getContainer() == nil,
+        "an unprovable rollback retains the exact detached item in managed trade recovery")
+    player.inventory.rejectAdd = nil
+    local recovered, recoveryReason = Trade.recoverPending()
+    check(recovered and Trade.pendingRecoveryCount() == 0
+            and player.inventory:contains(offeredTool)
+            and residentOne.inventory:contains(requestedLighter),
+        "managed trade recovery restores the exact source owner on a later retry: "
+            .. tostring(recoveryReason))
+    SurvivorCompanion.Senses.snapshot = originalSnapshot
     player.inventory:Remove(offeredTool)
     residentOne.inventory:Remove(requestedLighter)
 end
@@ -10892,7 +11038,7 @@ check(deliveryProgress and deliveryProgress.ready and #deliveryProgress.requirem
     and deliveryProgress.requirements[1].available >= 2,
     "contract progress previews eligible alternative goods in the player inventory")
 local originalSnapshot = SurvivorCompanion.Senses.snapshot
-SurvivorCompanion.Senses.snapshot = function() return { threatCount = 0 } end
+SurvivorCompanion.Senses.snapshot = completeTradeSafetySnapshot
 local deliveredAlternative, deliveryOutcome = Contracts.fulfill("faction-test", player, false)
 SurvivorCompanion.Senses.snapshot = originalSnapshot
     check(deliveredAlternative and not player.inventory:contains(cleanSheetA)

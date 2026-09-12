@@ -133,6 +133,7 @@ local valueData = {
     perceptionImmediateVisualHardCap = 12,
     perceptionVisualSliceMs = 1.0,
     perceptionVisualRetentionMs = 250,
+    perceptionSafetyFreshMs = 1500,
     -- A clear-room bark is a claim about the actor's present room, not about a
     -- cached scan from before the final approach or a producer cycle rollover.
     roomCheckCoverageMaxAgeMs = 750,

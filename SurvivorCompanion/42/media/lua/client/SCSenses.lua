@@ -795,6 +795,36 @@ local function eachMovingObjectRotated(state, square, maximum, callback)
     return used
 end
 
+-- Safety-sensitive consumers must not reinterpret the scanner's internal
+-- fields independently. A negative conclusion is valid only for the current,
+-- fully discovered and fully LOS-validated observation.
+function Senses.isCompleteObservation(snapshot, maximumAgeMs)
+    if type(snapshot) ~= "table" or snapshot.valid ~= true then
+        return false, "danger_check_unavailable"
+    end
+    if (tonumber(snapshot.threatCount) or 0) > 0 then
+        return false, "danger_nearby"
+    end
+    if snapshot.scanComplete ~= true or snapshot.scanDiscoveryComplete ~= true
+        or snapshot.scanVisualComplete ~= true then
+        return false, "danger_check_pending"
+    end
+    local native = snapshot.nativeDiscovery
+    if type(native) == "table"
+        and (native.complete ~= true or native.freshComplete ~= true) then
+        return false, "danger_check_pending"
+    end
+    local observedAt = tonumber(snapshot.time)
+    local current = util().nowMs()
+    maximumAgeMs = math.max(100, tonumber(maximumAgeMs)
+        or tonumber(util().config("perceptionSafetyFreshMs")) or 1500)
+    if observedAt == nil or observedAt > current + 1000
+        or current - observedAt > maximumAgeMs then
+        return false, "danger_check_stale"
+    end
+    return true
+end
+
 function Senses.snapshot(actor, player, runtime)
     local U = util()
     if not U or not U.isValidActor(actor) then
