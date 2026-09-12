@@ -233,7 +233,7 @@ local function serviceRecord(record, current, currentPlayer)
     else
         local decisionStarted = nowMs()
         local guarded, ok, reason = SC.Diagnostics.guard("decision", record.id,
-            SC.Decision.update, record.actor, currentPlayer, record.runtime)
+            SC.Decision.update, record.actor, currentPlayer, record.runtime, current)
         if SC.Performance and type(SC.Performance.record) == "function" then
             SC.Performance.record("decision", record.id, nowMs() - decisionStarted)
         end
@@ -286,7 +286,7 @@ end
 -- The scheduler owns *when* an actor gets CPU; per-actor dueFor only enforces a
 -- minimum cadence and is bypassed for the critical lane so an emergency is never
 -- gated behind it.
-local function decisionTask(current, budgetRemaining)
+local function decisionTaskCore(current, budgetRemaining)
     local startedAt = nowMs()
     local records = SC.Registry.records()
     local total = #records
@@ -412,6 +412,13 @@ local function decisionTask(current, budgetRemaining)
             end
         end
     end
+end
+local function decisionTask(current, budgetRemaining)
+    if SC.GameplayUtil and type(SC.GameplayUtil.withSpatialReadBatch) == "function" then
+        return SC.GameplayUtil.withSpatialReadBatch(
+            decisionTaskCore, current, budgetRemaining)
+    end
+    return decisionTaskCore(current, budgetRemaining)
 end
 runtime._decisionTaskForTests = decisionTask
 runtime._recordIsCriticalForTests = recordIsCritical
@@ -742,13 +749,22 @@ local function tradeRecoveryTask()
     end
 end
 
-local function saveTask()
-    local saved, reason = runtime.save()
-    if saved ~= true then
+local function saveRequestTask()
+    local requested, reason = SC.Persistence.requestScheduledSave(player())
+    if requested ~= true and reason ~= "retry_delayed" then
         SC.Diagnostics.report("persistence", nil,
-            "scheduled save reported failure", reason)
+            "scheduled save request reported failure", reason)
     end
-    return saved, reason
+    return requested, reason
+end
+
+local function savePulseTask()
+    local status, reason = SC.Persistence.pulse()
+    if status == "failed" then
+        SC.Diagnostics.report("persistence", nil,
+            "scheduled save pulse reported failure", reason)
+    end
+    return status ~= "failed", reason
 end
 
 local function spawnCompletionTask(current)
@@ -785,6 +801,20 @@ local function uiTask()
     if SC.UI ~= nil and type(SC.UI.scheduledRefresh) == "function" then
         SC.UI.scheduledRefresh()
     end
+end
+
+local observedBridgeGeneration = nil
+local function bridgeGenerationTask()
+    local bridge = type(_G) == "table" and rawget(_G, "SCBridge") or nil
+    if bridge == nil or not SC.Call then return end
+    local called, generation = SC.Call.static(bridge, "getBootstrapGeneration")
+    generation = called and tonumber(generation) or nil
+    if generation == nil then return end
+    if observedBridgeGeneration ~= nil and observedBridgeGeneration ~= generation
+        and type(SC.Call.resetMethodCache) == "function" then
+        SC.Call.resetMethodCache()
+    end
+    observedBridgeGeneration = generation
 end
 
 local function baseMaintenanceTask(current)
@@ -844,20 +874,24 @@ local function registerTasks()
         { "encounter-spawn", SC.Config.get("productionSpawnCheckIntervalMs"), 31,
             productionSpawnTask, "background" },
         { "factions", SC.Config.get("factionPulseIntervalMs"), 30, factionTask, "normal" },
-        { "ui-refresh", 500, 20, uiTask, "background" },
+        { "ui-refresh", 50, 20, uiTask, "background", false, true },
+        { "bridge-generation", 1000, 21, bridgeGenerationTask, "background" },
         { "base-maintenance", SC.Config.get("baseAuditIntervalMs"), 19,
             baseMaintenanceTask, "background" },
         { "infection-crisis", SC.Config.get("infectionCrisisIntervalMs"), 18,
             infectionCrisisTask, "normal" },
         { "community", SC.Config.get("communityPulseIntervalMs"), 17,
             communityTask, "background" },
-        { "persistence", SC.Config.get("persistenceIntervalMs"), 10,
-            saveTask, "background", true },
+        { "persistence-request", SC.Config.get("persistenceIntervalMs"), 10,
+            saveRequestTask, "background", true },
+        { "persistence", SC.Config.get("persistencePulseIntervalMs"), 9,
+            savePulseTask, "background", true, true },
     }
     for _, definition in ipairs(definitions) do
         local called, ok, reason = pcall(SC.Scheduler.register, definition[1],
             definition[2], definition[3], definition[4], {
                 lane = definition[5], reportFailure = definition[6] == true,
+                fixedInterval = definition[7] == true,
             })
         if not called or ok ~= true then
             SC.Scheduler.reset(true)
@@ -1124,6 +1158,10 @@ function runtime.start()
     startupCommitted = false
     restoreCommitted = false
     startupFailureReason = "runtime startup is in progress"
+    if SC.Performance and type(SC.Performance.configureNativeCallTracing) == "function" then
+        SC.Performance.configureNativeCallTracing(
+            SC.Config.get("performanceNativeCallTracing") == true)
+    end
 
     -- A prior interrupted startup may still own local infrastructure. Clear
     -- only those runtime-owned pieces; never dispose actors or persistence as
@@ -1224,6 +1262,10 @@ function runtime.releaseActor(actor)
 end
 
 function runtime.reset(detach)
+    if SC.Call and type(SC.Call.resetMethodCache) == "function" then
+        SC.Call.resetMethodCache()
+    end
+    observedBridgeGeneration = nil
     local shouldDetach = detach ~= false
     local hadTick = tickAttached
     local hadContainer = originalSelectContainer ~= nil

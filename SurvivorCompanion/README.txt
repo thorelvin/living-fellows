@@ -1,4 +1,4 @@
-Living Fellows: Companion 0.22.20 responsive traversal and living encounters playtest
+Living Fellows: Companion 0.22.21 maximum response and performance playtest
 
 The included native bridge supplies SCNativeCompanion, an original IsoPlayer
 subclass that remains outside the local-player slots. Workshop installations

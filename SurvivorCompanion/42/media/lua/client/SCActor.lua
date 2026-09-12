@@ -1500,6 +1500,10 @@ function actorService.recover(actor, square)
     if SC.Navigation and type(SC.Navigation.reset) == "function" then
         pcall(SC.Navigation.reset, actor)
     end
+    if SC.GameplayUtil and type(SC.GameplayUtil.invalidateSpatial) == "function" then
+        SC.GameplayUtil.invalidateSpatial(actor)
+        SC.GameplayUtil.invalidateSpatial(square)
+    end
     return true
 end
 

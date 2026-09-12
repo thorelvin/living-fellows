@@ -77,6 +77,27 @@ expect(type(instanceResult[2]) == "string" and instanceResult[2] ~= "",
 expectEqual(instanceSideEffects, 1,
     "failed instance method is not retried with another receiver convention")
 
+local valueFixture = {
+    echo = function(self, a, b, c, d)
+        return a, b, c, d
+    end,
+    falseValue = function() return false, "tail" end,
+}
+local valueTuple = Call.pack(Call.value(valueFixture, "echo", 1, nil, 3, 4))
+expectEqual(valueTuple.n, 5, "value-first adapter tuple count")
+expectEqual(valueTuple[1], 1, "value-first adapter first value")
+expectEqual(valueTuple[2], true, "value-first adapter success position")
+expect(valueTuple[3] == nil, "value-first adapter retains nil hole")
+expectEqual(valueTuple[4], 3, "value-first adapter third method value")
+expectEqual(valueTuple[5], 4, "value-first adapter fourth method value")
+local falseValue, falseOk, falseTail = Call.value(valueFixture, "falseValue")
+expect(falseValue == false and falseOk == true and falseTail == "tail",
+    "value-first adapter distinguishes a successful false result")
+local missingValue, missingOk = Call.value(valueFixture, "missing")
+expect(missingValue == nil and missingOk == false,
+    "value-first adapter reports a missing method without invoking a fallback")
+expect(Call.resetMethodCache() == true, "method cache reset is explicit")
+
 local staticSideEffects = 0
 local static = {
     fail = function()

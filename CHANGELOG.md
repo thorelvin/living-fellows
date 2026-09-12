@@ -2,8 +2,12 @@
 
 # Changelog
 
-## Unreleased - Navigation and recovery stability
+## 0.22.21 - Maximum response and performance
 
+- Added protocol-8 main-thread bulk reads for scalar item capture, topology facts and coherent zombie snapshots, with strict Lua fallback and no game/Kahlua objects on worker threads.
+- Replaced allocation-heavy protected Java calls with 0-3 argument fast paths plus successful Java-metatable method caches, reset on runtime/bootstrap generation changes. Decision rounds now share a synchronous spatial read batch.
+- Made scheduled world saves resumable and atomic: 0.75 ms background slices, before/after inventory/equipment identity verification, two churn retries, a five-second deadline and preservation of the prior complete document. `OnSave` remains fresh and synchronous.
+- Made roster refresh resumable and atomic on a fixed 50 ms background pulse, preserved live Status/Orders/Loadout controls across value changes, cached render text/color work and kept Debug/Factions refresh explicit. Save/UI slices keep their bounded cadence under load while remaining behind combat/survival. Optional fine-grained native/decision/item/topology/UI profiling remains off by default.
 - Made tree trunk squares non-passable and kept clearance penalties on their neighbours, so Lua routing agrees with the native player pathfinder instead of repeatedly driving companions into a tree.
 - Preserved vanilla fence/window root motion for companions and accepted a verified boundary crossing even when the animation lands beyond the nominal destination square. Terminal traversal records now outlive the exit-clearance window, and climb speech follows the observed result rather than only the initial roll.
 - Separated ordinary catch-up speed from survival-urgent navigation. Followers still keep running briefly after the player slows, but retain room, hazard and traffic policy; an unreachable Stealth catch-up now returns to sneaking after a bounded commitment.

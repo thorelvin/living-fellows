@@ -406,6 +406,38 @@ local function detailRowSignature(row)
         .. stableSignatureValue(row, 4, { count = 160 }, {})
 end
 
+-- The common live panels have a stable control tree. Health, distance, action
+-- text and selector values must not tear that tree down (especially while a
+-- combo is open); only branches that add/remove controls are structural.
+local function detailStructureSignature(row, tab)
+    if tab == "status" then
+        local actionFailure = UI.actionFailureText(row and row.actionSummary or nil)
+        return stableSignatureValue({
+            row = row ~= nil,
+            recruit = row ~= nil and row.recruited ~= true,
+            request = row and type(row.pendingRequest) == "table"
+                and row.pendingRequest.kind or nil,
+            actionFailure = actionFailure ~= nil,
+            grief = row and type(row.grief) == "table" or false,
+            expectation = row and row.currentExpectation ~= nil or false,
+            episode = row and row.activeEpisode ~= nil or false,
+        }, 3, { count = 32 }, {})
+    end
+    if tab == "orders" then return row and "orders:row" or "orders:none" end
+    if tab == "loadout" then
+        local vehicle = row and row.vehicleStatus or nil
+        return stableSignatureValue({
+            row = row ~= nil,
+            vehicle = type(vehicle) == "table",
+            status = type(vehicle) == "table" and vehicle.status or nil,
+            capacityWait = type(vehicle) == "table" and vehicle.capacityWait == true,
+            canExit = type(vehicle) == "table" and vehicle.status == "in_vehicle"
+                and vehicle.canExitNow == true,
+        }, 3, { count = 32 }, {})
+    end
+    return detailRowSignature(row)
+end
+
 local function factionDetailSignature()
     if not SC.Factions or type(SC.Factions.list) ~= "function" then return "factions:none" end
     local rows = {}
@@ -979,6 +1011,8 @@ local function setButtonFeedback(target, message, success)
     local now = SC.GameplayUtil and type(SC.GameplayUtil.nowMs) == "function"
         and SC.GameplayUtil.nowMs() or 0
     target.feedbackUntil = now + 4500
+    target.feedbackWrapKey = nil
+    target.feedbackWrapLines = nil
 end
 
 local function dismissDialogAnswer(request, answer)
@@ -1940,6 +1974,13 @@ function SCUIClippedScrollPanel:onMouseWheel(delta)
     return true
 end
 
+local function detailRefreshClock()
+    if SC.GameplayUtil and type(SC.GameplayUtil.nowMs) == "function" then
+        return SC.GameplayUtil.nowMs()
+    end
+    return math.floor((os.clock and os.clock() or 0) * 1000)
+end
+
 function SCUIDetail:new(x, y, width, height, root)
     local object = ISPanel.new(self, x, y, width, height)
     object.root = root
@@ -1972,17 +2013,28 @@ function SCUIDetail:contentViewportHeight()
 end
 
 function SCUIDetail:addInformationLine(panel, y, labelKey, value)
-    local textValue = UI.text(labelKey, value or unknownValue())
+    local provider = type(value) == "function" and value or nil
+    local resolved = provider and value() or value
+    local textValue = UI.text(labelKey, resolved or unknownValue())
     local metrics = self.metrics or UI.layoutMetrics()
     local maximumWidth = math.max(80, panel:getWidth() - 32)
     local lines = UI.wrapText(UIFont.Small, textValue, maximumWidth)
+    local labels = {}
     for _, line in ipairs(lines) do
         local label = ISLabel:new(8, y, metrics.fontHeight, line, 0.88, 0.89, 0.83, 1, UIFont.Small, true)
         label:initialise()
         label.tooltip = textValue
         panel:addChild(label)
+        labels[#labels + 1] = label
         panel.scContentWidth = math.max(panel.scContentWidth or panel:getWidth(), UI.textWidth(UIFont.Small, line) + 24)
         y = y + metrics.infoLineHeight
+    end
+    if provider then
+        self.infoBindings = self.infoBindings or {}
+        self.infoBindings[#self.infoBindings + 1] = {
+            provider = provider, labelKey = labelKey, labels = labels,
+            maximumWidth = maximumWidth,
+        }
     end
     return y
 end
@@ -2008,9 +2060,11 @@ function SCUIDetail:addCommand(panel, y, labelKey, command, payload)
     makeButtonTranslucent(button)
     button:setWidth(buttonWidth)
     button.scCommand = command
-    button.scPayload = payload
+    button.scPayloadProvider = type(payload) == "function" and payload or nil
+    button.scPayload = button.scPayloadProvider and button.scPayloadProvider() or payload
     button.scLabel = fullLabel
-    local enabled, reasonKey, reasonArgument = UI.commandAvailability(self.root and self.root.selectedRow or nil, command, payload)
+    local enabled, reasonKey, reasonArgument = UI.commandAvailability(
+        self.root and self.root.selectedRow or nil, command, button.scPayload)
     if button.setEnable then
         button:setEnable(enabled)
     end
@@ -2044,6 +2098,8 @@ function SCUIDetail:addBooleanCommand(panel, y, labelKey, command, rowField, sel
     tickBox:setSelected(1, selected == true)
     tickBox.scLabel = fullLabel
     tickBox.scRowField = rowField
+    tickBox.scOptionLabel = visibleLabel
+    tickBox.scAvailabilityCommand = command
     local row = self.root and self.root.selectedRow or nil
     local enabled, reasonKey, reasonArgument = UI.commandAvailability(row, command,
         { enabled = selected == true })
@@ -2074,6 +2130,16 @@ function SCUIDetail:addCommandSelector(panel, y, labelKey, currentValue, options
         a = configuredOpacity(1.18, 0.48, 0.9) }
     combo.scValue = currentValue
     combo.scLabel = label
+    local selectorFields = {
+        ["set_order:order"] = "order",
+        ["set_follow_distance:distance"] = "followDistance",
+        ["set_move_mode:mode"] = "moveMode",
+        ["set_combat_doctrine:doctrine"] = "combatDoctrine",
+        ["set_work_mode:mode"] = "workMode",
+        ["set_weapon_priority:priority"] = "weaponPriority",
+        ["set_group:group"] = "group",
+    }
+    combo.scRowField = selectorFields[tostring(command) .. ":" .. tostring(payloadKey)]
     local selected = false
     for index, option in ipairs(options or {}) do
         local optionLabel = UI.text(option.key)
@@ -2108,11 +2174,76 @@ function SCUIDetail:addCommandSelector(panel, y, labelKey, currentValue, options
         row, availabilityCommand,
         tableHasEntries(availabilityPayload) and availabilityPayload or nil)
     combo:setEnabled(enabled)
+    combo.scAvailabilityCommand = availabilityCommand
+    combo.scAvailabilityPayload = tableHasEntries(availabilityPayload)
+        and availabilityPayload or nil
     combo.tooltip = enabled and label
         or (reasonArgument ~= nil and UI.text(reasonKey, reasonArgument) or UI.text(reasonKey))
     panel:addChild(combo)
     panel.scContentWidth = panel:getWidth()
     return y + metrics.buttonHeight + 4
+end
+
+local function selectedRowValue(detail, formatter)
+    return function()
+        local row = detail.root and detail.root.selectedRow or nil
+        return formatter(row or {})
+    end
+end
+
+function SCUIDetail:refreshValues()
+    for _, binding in ipairs(self.infoBindings or {}) do
+        local ok, value = pcall(binding.provider)
+        if not ok then return false end
+        local textValue = UI.text(binding.labelKey, value or unknownValue())
+        local lines = UI.wrapText(UIFont.Small, textValue, binding.maximumWidth)
+        if #lines ~= #(binding.labels or {}) then return false end
+        for index, line in ipairs(lines) do
+            local label = binding.labels[index]
+            if type(label.setName) == "function" then label:setName(line)
+            else label.name = line end
+            label.tooltip = textValue
+        end
+    end
+    local row = self.root and self.root.selectedRow or nil
+    for _, control in ipairs(self.content and self.content.childrenInOrder or {}) do
+        if control.scRowField ~= nil and control.isCombobox == true then
+            local value = row and row[control.scRowField] or control.scValue
+            selectComboValue(control, value)
+            control.scValue = value
+            local enabled, reasonKey, reasonArgument = UI.commandAvailability(
+                row, control.scAvailabilityCommand, control.scAvailabilityPayload)
+            if type(control.setEnabled) == "function" then control:setEnabled(enabled) end
+            control.tooltip = enabled and control.scLabel
+                or (reasonArgument ~= nil and UI.text(reasonKey, reasonArgument)
+                    or UI.text(reasonKey))
+        elseif control.scRowField ~= nil and type(control.setSelected) == "function" then
+            local selected = row and row[control.scRowField] == true or false
+            control:setSelected(1, selected)
+            local enabled, reasonKey, reasonArgument = UI.commandAvailability(
+                row, control.scAvailabilityCommand, { enabled = selected })
+            if type(control.disableOption) == "function" and control.scOptionLabel then
+                control:disableOption(control.scOptionLabel, enabled ~= true)
+            end
+            control.tooltip = enabled and control.scLabel
+                or (reasonArgument ~= nil and UI.text(reasonKey, reasonArgument)
+                    or UI.text(reasonKey))
+        elseif control.scCommand ~= nil then
+            if control.scPayloadProvider then
+                local ok, payload = pcall(control.scPayloadProvider)
+                if not ok then return false end
+                control.scPayload = payload
+            end
+            local enabled, reasonKey, reasonArgument = UI.commandAvailability(
+                row, control.scCommand, control.scPayload)
+            if type(control.setEnable) == "function" then control:setEnable(enabled) end
+            control.enable = enabled
+            control.tooltip = enabled and control.scLabel
+                or (reasonArgument ~= nil and UI.text(reasonKey, reasonArgument)
+                    or UI.text(reasonKey))
+        end
+    end
+    return true
 end
 
 function SCUIDetail:addDoctrineSelector(panel, y, doctrine)
@@ -2379,39 +2510,68 @@ function SCUIDetail:buildStatus(panel, row)
     if not row then
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_NoSelection"))
     else
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Name", row.name)
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Health", UI.healthText(row.health))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Name",
+            selectedRowValue(self, function(value) return value.name end))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Health",
+            selectedRowValue(self, function(value) return UI.healthText(value.health) end))
         y = self:addInformationLine(panel, y, "UI_SC_Info_Hunger",
-            numericText((tonumber(row.hunger) or 0) * 100, 0) .. "%")
+            selectedRowValue(self, function(value)
+                return numericText((tonumber(value.hunger) or 0) * 100, 0) .. "%"
+            end))
         y = self:addInformationLine(panel, y, "UI_SC_Info_Thirst",
-            numericText((tonumber(row.thirst) or 0) * 100, 0) .. "%")
+            selectedRowValue(self, function(value)
+                return numericText((tonumber(value.thirst) or 0) * 100, 0) .. "%"
+            end))
         y = self:addInformationLine(panel, y, "UI_SC_Info_CurrentAction",
-            UI.actionSummaryText(row.actionSummary))
+            selectedRowValue(self, function(value)
+                return UI.actionSummaryText(value.actionSummary)
+            end))
         local actionFailure = UI.actionFailureText(row.actionSummary)
         if actionFailure then
-            y = self:addInformationLine(panel, y, "UI_SC_Info_LastActionFailure", actionFailure)
+            y = self:addInformationLine(panel, y, "UI_SC_Info_LastActionFailure",
+                selectedRowValue(self, function(value)
+                    return UI.actionFailureText(value.actionSummary)
+                end))
         end
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Order", UI.stateText(row.order))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Intent", UI.stateText(row.intent or row.activity))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Distance", UI.distanceText(row.distance))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Order",
+            selectedRowValue(self, function(value) return UI.stateText(value.order) end))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Intent",
+            selectedRowValue(self, function(value)
+                return UI.stateText(value.intent or value.activity)
+            end))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Distance",
+            selectedRowValue(self, function(value) return UI.distanceText(value.distance) end))
         y = self:addSection(panel, y + 4, "UI_SC_Section_RelationshipSummary")
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Mood", UI.stateText(row.mood))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Relationship", UI.stateText(row.relationshipTier))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_CurrentNeed", UI.stateText(row.currentNeed))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_RecentMemory", UI.summaryText(row.recentMemory))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Mood",
+            selectedRowValue(self, function(value) return UI.stateText(value.mood) end))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Relationship",
+            selectedRowValue(self, function(value)
+                return UI.stateText(value.relationshipTier)
+            end))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_CurrentNeed",
+            selectedRowValue(self, function(value) return UI.stateText(value.currentNeed) end))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_RecentMemory",
+            selectedRowValue(self, function(value) return UI.summaryText(value.recentMemory) end))
         if type(row.grief) == "table" then
             y = self:addInformationLine(panel, y, "UI_SC_Info_Grief",
-                UI.text("UI_SC_Info_GriefValue", row.grief.subjectName or unknownValue(),
-                    UI.stateText(row.grief.stage),
-                    numericText(row.grief.currentIntensity, 0)))
+                selectedRowValue(self, function(value)
+                    local grief = value.grief or {}
+                    return UI.text("UI_SC_Info_GriefValue",
+                        grief.subjectName or unknownValue(), UI.stateText(grief.stage),
+                        numericText(grief.currentIntensity, 0))
+                end))
         end
         if row.currentExpectation then
             y = self:addInformationLine(panel, y, "UI_SC_Info_Expectation",
-                UI.stateText(row.currentExpectation))
+                selectedRowValue(self, function(value)
+                    return UI.stateText(value.currentExpectation)
+                end))
         end
         if row.activeEpisode then
             y = self:addInformationLine(panel, y, "UI_SC_Info_MentalEpisode",
-                UI.stateText(row.activeEpisode))
+                selectedRowValue(self, function(value)
+                    return UI.stateText(value.activeEpisode)
+                end))
         end
     end
     y = self:addSection(panel, y + 4, "UI_SC_Section_Talk")
@@ -2443,7 +2603,11 @@ function SCUIDetail:buildOrders(panel)
         row and row.combatDoctrine or "close_defense", COMBAT_DOCTRINES,
         "set_combat_doctrine", "doctrine")
     y = self:addCommand(panel, y, "UI_SC_Action_ApplyToAll", "set_combat_doctrine",
-        { doctrine = row and row.combatDoctrine or "close_defense", scope = "team" })
+        function()
+            local current = self.root and self.root.selectedRow or nil
+            return { doctrine = current and current.combatDoctrine or "close_defense",
+                scope = "team" }
+        end)
     y = self:addBooleanCommand(panel, y, "UI_SC_Toggle_HoldFire",
         "set_hold_fire", "holdFire", row and row.holdFire == true)
     y = self:addInformationLine(panel, y, "UI_SC_Orders_TargetHint",
@@ -2464,25 +2628,41 @@ function SCUIDetail:buildLoadout(panel, row)
     if not row then
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message", UI.text("UI_SC_NoSelection"))
     else
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Health", UI.healthText(row.health))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Wounds", UI.formatWounds(row.wounds))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Knox", UI.formatKnox(row.knox))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Health",
+            selectedRowValue(self, function(value) return UI.healthText(value.health) end))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Wounds",
+            selectedRowValue(self, function(value) return UI.formatWounds(value.wounds) end))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Knox",
+            selectedRowValue(self, function(value) return UI.formatKnox(value.knox) end))
     end
     y = self:addCommand(panel, y, "UI_SC_Action_OpenHealth", "open_health", nil)
     y = self:addCommand(panel, y, "UI_SC_Action_Bandage", "bandage", nil)
     y = self:addSection(panel, y + 4, "UI_SC_Section_Gear")
     if row then
         y = self:addInformationLine(panel, y, "UI_SC_Info_EquippedWeapon",
-            row.equippedWeapon or UI.text("UI_SC_State_none"))
+            selectedRowValue(self, function(value)
+                return value.equippedWeapon or UI.text("UI_SC_State_none")
+            end))
         y = self:addInformationLine(panel, y, "UI_SC_Info_WeaponPriority",
-            UI.stateText(row.weaponPriority))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Supplies", UI.formatSupplies(row.supplies))
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Ammunition", UI.formatAmmunition(row.ammunition))
-        local loadText = numericText(row.loadWeight, 1) .. " / "
-            .. numericText(row.loadCapacity, 1) .. " ("
-            .. numericText((tonumber(row.loadRatio) or 0) * 100, 0) .. "%)"
-        if row.loadRole then loadText = loadText .. " | " .. UI.stateText(row.loadRole) end
-        y = self:addInformationLine(panel, y, "UI_SC_Info_Load", loadText)
+            selectedRowValue(self, function(value)
+                return UI.stateText(value.weaponPriority)
+            end))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Supplies",
+            selectedRowValue(self, function(value) return UI.formatSupplies(value.supplies) end))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Ammunition",
+            selectedRowValue(self, function(value)
+                return UI.formatAmmunition(value.ammunition)
+            end))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Load",
+            selectedRowValue(self, function(value)
+                local textValue = numericText(value.loadWeight, 1) .. " / "
+                    .. numericText(value.loadCapacity, 1) .. " ("
+                    .. numericText((tonumber(value.loadRatio) or 0) * 100, 0) .. "%)"
+                if value.loadRole then
+                    textValue = textValue .. " | " .. UI.stateText(value.loadRole)
+                end
+                return textValue
+            end))
     end
     y = self:addSection(panel, y + 4, "UI_SC_Section_WeaponPriority")
     y = self:addCommandSelector(panel, y, "UI_SC_Select_WeaponPriority",
@@ -2495,17 +2675,27 @@ function SCUIDetail:buildLoadout(panel, row)
     y = self:addBooleanCommand(panel, y, "UI_SC_Toggle_RideWithPlayer",
         "set_ride_with_player", "rideWithPlayer", row and row.rideWithPlayer ~= false)
     if row and type(row.vehicleStatus) == "table" then
-        local statusKey = "UI_SC_VehicleStatus_" .. tostring(row.vehicleStatus.status or "on_foot")
-        y = self:addInformationLine(panel, y, "UI_SC_Info_VehicleStatus", UI.text(statusKey))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_VehicleStatus",
+            selectedRowValue(self, function(value)
+                local status = type(value.vehicleStatus) == "table"
+                    and value.vehicleStatus.status or "on_foot"
+                return UI.text("UI_SC_VehicleStatus_" .. tostring(status))
+            end))
         if row.vehicleStatus.capacityWait == true then
             y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                UI.text("UI_SC_Vehicle_Waiting", row.vehicleStatus.assigned or 0,
-                    row.vehicleStatus.capacity or 0, row.vehicleStatus.waiting or 0))
+                selectedRowValue(self, function(value)
+                    local status = value.vehicleStatus or {}
+                    return UI.text("UI_SC_Vehicle_Waiting", status.assigned or 0,
+                        status.capacity or 0, status.waiting or 0)
+                end))
         elseif row.vehicleStatus.status == "approaching_vehicle" then
             y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                UI.text("UI_SC_Vehicle_Assigned", row.vehicleStatus.seat or "?",
-                    row.vehicleStatus.assigned or 0, row.vehicleStatus.capacity or 0,
-                    row.vehicleStatus.waiting or 0))
+                selectedRowValue(self, function(value)
+                    local status = value.vehicleStatus or {}
+                    return UI.text("UI_SC_Vehicle_Assigned", status.seat or "?",
+                        status.assigned or 0, status.capacity or 0,
+                        status.waiting or 0)
+                end))
         end
         if row.vehicleStatus.status == "in_vehicle"
             and row.vehicleStatus.canExitNow == true then
@@ -3757,10 +3947,15 @@ function SCUIDetail:buildSupport(panel)
 end
 
 function SCUIDetail:rebuild(preserveScroll)
+    local tracing = SC.Performance and type(SC.Performance.isTracing) == "function"
+        and SC.Performance.isTracing() == true
+    local rebuildStarted = tracing and detailRefreshClock() or nil
+    local rebuildScope = tracing and SC.Performance.beginScope("ui.detail-rebuild") or nil
     local previousY = 0
     if preserveScroll and self.content and self.content.getYScroll then
         previousY = tonumber(self.content:getYScroll()) or 0
     end
+    self.infoBindings = {}
     if self.content then
         self:removeChild(self.content)
         self.content = nil
@@ -3812,6 +4007,11 @@ function SCUIDetail:rebuild(preserveScroll)
     panel:setScrollHeight(contentHeight)
     local maximumScroll = math.max(0, contentHeight - panel:getHeight())
     panel:setYScroll(Bounds.clamp(previousY, -maximumScroll, 0))
+    if rebuildScope then
+        SC.Performance.endScope(rebuildScope)
+        SC.Performance.record("ui.detail-rebuild", self.displayedCompanionId,
+            detailRefreshClock() - rebuildStarted, #(panel.childrenInOrder or {}), false)
+    end
 end
 
 function SCUIDetail:setTab(tab)
@@ -3832,8 +4032,13 @@ function SCUIDetail:render()
             self.feedbackUntil = nil
             return
         end
-        local lines = UI.wrapText(UIFont.Small, self.feedback,
-            math.max(80, self:getWidth() - 24))
+        local wrapWidth = math.max(80, self:getWidth() - 24)
+        local wrapKey = tostring(self.feedback) .. "\0" .. tostring(wrapWidth)
+        if self.feedbackWrapKey ~= wrapKey then
+            self.feedbackWrapKey = wrapKey
+            self.feedbackWrapLines = UI.wrapText(UIFont.Small, self.feedback, wrapWidth)
+        end
+        local lines = self.feedbackWrapLines or {}
         local count = math.min(2, #lines)
         local bannerHeight = 10 + count * metrics.infoLineHeight
         local footerHeight = self:feedbackFooterHeight()
@@ -4013,6 +4218,7 @@ function SCUIRoot:applyLayout()
     end
     self.detail:rebuild(true)
     self:updateTabButtons()
+    self.cachedTitleKey, self.cachedTitle = nil, nil
 end
 
 function SCUIRoot:updateTabButtons()
@@ -4146,9 +4352,11 @@ function SCUIRoot:refreshRoster(preferredId, description, preserveScroll, deferD
     selectedId = selectedId or descriptionId
     local previousScroll = tonumber(self.roster:getYScroll()) or 0
     local player = playerForUI()
-    local entries = {}
+    local preparedEntries = self.preparedRefreshEntries
+    self.preparedRefreshEntries = nil
+    local entries = type(preparedEntries) == "table" and preparedEntries or {}
     local descriptionApplied = false
-    if SC.Registry and type(SC.Registry.living) == "function" then
+    if preparedEntries == nil and SC.Registry and type(SC.Registry.living) == "function" then
         local ok, living = pcall(SC.Registry.living)
         if ok and type(living) == "table" then
             for _, entry in pairs(living) do
@@ -4217,7 +4425,7 @@ function SCUIRoot:refreshRoster(preferredId, description, preserveScroll, deferD
         -- stable until the user requests it.  Membership changes still take the
         -- full rebuild path below so selection never points at a removed actor.
         if deferDetailRefresh == true then return end
-        local signature = detailRowSignature(self.selectedRow)
+        local signature = detailStructureSignature(self.selectedRow, self.selectedTab)
         if self.selectedTab == "factions" or self.selectedTab == "debug" then
             signature = signature .. ":" .. factionDetailSignature()
         elseif self.selectedTab == "base" then
@@ -4228,7 +4436,10 @@ function SCUIRoot:refreshRoster(preferredId, description, preserveScroll, deferD
             or self.detail.displayedTab ~= self.detail.tab
             or self.detailRowSignature ~= signature)
         self.detailRowSignature = signature
-        if detailChanged then self.detail:rebuild(true) end
+        if detailChanged then self.detail:rebuild(true)
+        elseif self.detail and self.detail:refreshValues() ~= true then
+            self.detail:rebuild(true)
+        end
         return
     end
 
@@ -4256,7 +4467,7 @@ function SCUIRoot:onRosterSelectionChanged(index, preserveDetailScroll)
     local item = self.roster and self.roster.items[index] or nil
     self.selectedRow = item and item.item or nil
     self.selectedId = self.selectedRow and self.selectedRow.id or nil
-    self.detailRowSignature = detailRowSignature(self.selectedRow)
+    self.detailRowSignature = detailStructureSignature(self.selectedRow, self.selectedTab)
     if self.selectedTab == "factions" or self.selectedTab == "debug" then
         self.detailRowSignature = self.detailRowSignature .. ":" .. factionDetailSignature()
     elseif self.selectedTab == "base" then
@@ -4348,8 +4559,11 @@ function SCUIRoot:prerender()
     if sw ~= self.lastScreenWidth or sh ~= self.lastScreenHeight then
         self:applyScreenBounds()
     end
-    self.backgroundColor = { r = 0.055, g = 0.065, b = 0.06,
-        a = configuredOpacity(1, 0.25, 0.85) }
+    local opacity = configuredOpacity(1, 0.25, 0.85)
+    if self.cachedBackgroundOpacity ~= opacity then
+        self.cachedBackgroundOpacity = opacity
+        self.backgroundColor = { r = 0.055, g = 0.065, b = 0.06, a = opacity }
+    end
     ISPanel.prerender(self)
 end
 
@@ -4358,7 +4572,16 @@ function SCUIRoot:render()
     local metrics = self.metrics or UI.layoutMetrics()
     local titleX = self.titleX or 202
     local maximumTitleWidth = math.max(1, self:getWidth() - titleX - 8)
-    local title = fitText(UIFont.Small, UI.text("UI_SC_Title"), maximumTitleWidth)
+    local core = type(getCore) == "function" and getCore() or nil
+    local locale = core and safeMethod(core, "getOptionLanguageName") or ""
+    local translatedTitle = UI.text("UI_SC_Title")
+    local titleKey = tostring(maximumTitleWidth) .. "\0" .. tostring(locale)
+        .. "\0" .. tostring(translatedTitle)
+    if self.cachedTitleKey ~= titleKey then
+        self.cachedTitleKey = titleKey
+        self.cachedTitle = fitText(UIFont.Small, translatedTitle, maximumTitleWidth)
+    end
+    local title = self.cachedTitle or translatedTitle
     self:drawText(title, titleX, math.floor((metrics.headerHeight - metrics.fontHeight) / 2), 0.91, 0.89, 0.76, 1, UIFont.Small)
     Pixels.draw(self, "grip", self:getWidth() - 11, self:getHeight() - 11, 2, 0.58, 0.60, 0.51, 0.8)
 end
@@ -4577,20 +4800,81 @@ function UI.isOpen()
     return UI.instance ~= nil and UI.instance:isVisible() and UI.instance.collapsed == false
 end
 
+local function uiRefreshClock()
+    if SC.GameplayUtil and type(SC.GameplayUtil.nowMs) == "function" then
+        return SC.GameplayUtil.nowMs()
+    end
+    return math.floor((os.clock and os.clock() or 0) * 1000)
+end
+
+local function beginScheduledUIRefresh(root, current)
+    local sources = {}
+    if SC.Registry and type(SC.Registry.living) == "function" then
+        local ok, living = pcall(SC.Registry.living)
+        if ok and type(living) == "table" then
+            for _, entry in pairs(living) do sources[#sources + 1] = entry end
+        end
+    end
+    local maximumLag = math.max(50,
+        tonumber(SC.Config.get("uiRefreshMaximumLagMs")) or 500)
+    local availablePulses = math.max(1, math.floor(maximumLag / 50))
+    UI._scheduledRefreshJob = {
+        root = root, sources = sources, index = 1, entries = {},
+        player = playerForUI(), startedAt = current, workMs = 0,
+        minimumPerPulse = math.max(2, math.ceil(#sources / availablePulses)),
+    }
+    return UI._scheduledRefreshJob
+end
+
 function UI.scheduledRefresh()
     if not UI.isOpen() then
+        UI._scheduledRefreshJob = nil
         return false
-    end
-    if Bridge and type(Bridge.maintainInventory) == "function" then
-        Bridge.maintainInventory()
     end
     if UI.instance:isUserInteracting() then
         UI.instance.refreshPending = true
         return false
     end
+    local current = uiRefreshClock()
+    local job = UI._scheduledRefreshJob
+    if job == nil then
+        if Bridge and type(Bridge.maintainInventory) == "function" then
+            Bridge.maintainInventory()
+        end
+        job = beginScheduledUIRefresh(UI.instance, current)
+    elseif job.root ~= UI.instance then
+        job = beginScheduledUIRefresh(UI.instance, current)
+    end
+    local budget = math.max(0.1,
+        tonumber(SC.Config.get("uiRefreshSliceBudgetMs")) or 0.5)
+    local deadline = current + budget
+    local pulseStarted = current
+    local processed = 0
+    repeat
+        local entry = job.sources[job.index]
+        if entry == nil then break end
+        job.index = job.index + 1
+        processed = processed + 1
+        local row = UI.describeEntry(entry, job.player)
+        if row.factionMember ~= true and row.factionId == nil then
+            job.entries[#job.entries + 1] = row
+        end
+    until processed >= job.minimumPerPulse and uiRefreshClock() >= deadline
+    job.workMs = job.workMs + math.max(0, uiRefreshClock() - pulseStarted)
+    if job.index <= #job.sources then return false, "yielded" end
+
+    UI._scheduledRefreshJob = nil
     UI.instance.refreshPending = false
+    UI.instance.lastScheduledRefreshAt = uiRefreshClock()
     local deferDetailRefresh = UI.instance.selectedTab == "debug"
+        or UI.instance.selectedTab == "factions"
+    UI.instance.preparedRefreshEntries = job.entries
     UI.instance:refreshRoster(nil, nil, true, deferDetailRefresh)
+    if SC.Performance and type(SC.Performance.isTracing) == "function"
+        and SC.Performance.isTracing() == true then
+        SC.Performance.record("ui.roster-refresh", nil,
+            job.workMs, #job.entries, false)
+    end
     return true
 end
 
@@ -4632,6 +4916,7 @@ function UI.onKeyPressed(key)
 end
 
 function UI.refresh()
+    UI._scheduledRefreshJob = nil
     if UI.instance and UI.instance:isVisible() then
         if UI.instance:isUserInteracting() then
             UI.instance.refreshPending = true
@@ -4648,6 +4933,7 @@ function UI.reset()
     UI.close()
     gatherDraft = { material = "logs", requested = 12, zoneId = nil, storageId = nil }
     UI._gameStarted = false
+    UI._scheduledRefreshJob = nil
 end
 
 function UI.onCreatePlayer(playerIndex, player)

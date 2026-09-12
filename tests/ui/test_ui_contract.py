@@ -891,9 +891,9 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("supplies = { bandages = 3, food = 2, water = 4, ammunition = 37 }", runtime_test)
         self.assertIn('knox = "No Knox symptoms observed"', runtime_test)
         self.assertIn('Format.stateText("very_careful", text) == "Very careful"', runtime_test)
-        self.assertIn("UI.formatWounds(row.wounds)", self.ui)
-        self.assertIn("UI.formatSupplies(row.supplies)", self.ui)
-        self.assertIn("UI.formatKnox(row.knox)", self.ui)
+        self.assertIn("UI.formatWounds(value.wounds)", self.ui)
+        self.assertIn("UI.formatSupplies(value.supplies)", self.ui)
+        self.assertIn("UI.formatKnox(value.knox)", self.ui)
 
     def test_inventory_and_health_bridges_are_truthful(self) -> None:
         self.assertIn("function UI.openInventory(actor, player)", self.ui)
@@ -905,8 +905,8 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn('root.detail.tab == "loadout"', self.bridge)
         self.assertIn("root.detail.displayedCompanionId == id", self.bridge)
         health = lua_function(self.ui, "function SCUIDetail:buildLoadout(panel, row)")
-        self.assertIn("UI.formatWounds(row.wounds)", health)
-        self.assertIn("UI.formatKnox(row.knox)", health)
+        self.assertIn("UI.formatWounds(value.wounds)", health)
+        self.assertIn("UI.formatKnox(value.knox)", health)
         mock_test = read(PROJECT / "tests" / "ui" / "SCUIBridgeTests.lua")
         self.assertIn("Bridge.openInventory(actor, player)", mock_test)
         self.assertIn("Bridge.openHealth(actor, player", mock_test)
@@ -998,10 +998,16 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("local canReuse = #entries == #(self.roster.items or {})", refresh)
         self.assertIn("item.item = row", refresh)
         self.assertIn("if deferDetailRefresh == true then return end", refresh)
-        self.assertIn("local signature = detailRowSignature(self.selectedRow)", refresh)
+        self.assertIn(
+            "local signature = detailStructureSignature(self.selectedRow, self.selectedTab)",
+            refresh,
+        )
+        self.assertIn("self.detail:refreshValues()", refresh)
         self.assertLess(
             refresh.index("if deferDetailRefresh == true then return end"),
-            refresh.index("local signature = detailRowSignature(self.selectedRow)"),
+            refresh.index(
+                "local signature = detailStructureSignature(self.selectedRow, self.selectedTab)"
+            ),
         )
         self.assertLess(refresh.index("if canReuse then"), refresh.index("self.roster:clear()"))
 

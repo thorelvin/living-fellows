@@ -25,6 +25,10 @@ local cacheSerial = 0
 local cacheEntries = 0
 local loadLevel = 0
 local lastLoadChangeFrame = 0
+local counters = {}
+local scopeStack = {}
+local currentScope = "unscoped"
+local tracingEnabled = false
 local totals = {
     frames = 0,
     overBudgetFrames = 0,
@@ -372,6 +376,42 @@ function Performance.record(system, companionId, elapsedMs, units, yielded)
     end
 end
 
+function Performance.count(name, amount)
+    local key = tostring(name or "unknown")
+    counters[key] = (tonumber(counters[key]) or 0) + (tonumber(amount) or 1)
+    return counters[key]
+end
+
+function Performance.beginScope(name)
+    scopeStack[#scopeStack + 1] = currentScope
+    currentScope = tostring(name or "unscoped")
+    return #scopeStack
+end
+
+function Performance.endScope(token)
+    if tonumber(token) ~= #scopeStack then return false end
+    currentScope = scopeStack[#scopeStack] or "unscoped"
+    scopeStack[#scopeStack] = nil
+    return true
+end
+
+function Performance.traceNativeCall()
+    Performance.count("nativeCalls." .. currentScope, 1)
+end
+
+function Performance.configureNativeCallTracing(enabled)
+    tracingEnabled = enabled == true
+    local gameplay = SC.GameplayUtil
+    if type(gameplay) == "table" and type(gameplay.setNativeCallTracer) == "function" then
+        gameplay.setNativeCallTracer(tracingEnabled and Performance.traceNativeCall or nil)
+    end
+    return tracingEnabled
+end
+
+function Performance.isTracing()
+    return tracingEnabled
+end
+
 function Performance.measure(system, companionId, callback, ...)
     if type(callback) ~= "function" then return false, "invalid callback" end
     local started = nowMs()
@@ -519,6 +559,8 @@ function Performance.loadLevel()
 end
 
 function Performance.snapshot()
+    local counterCopy = {}
+    for key, value in pairs(counters) do counterCopy[key] = value end
     return {
         frames = totals.frames,
         frameBudgetMs = configured("frameBudgetMs", 2),
@@ -537,6 +579,8 @@ function Performance.snapshot()
         loadLevel = loadLevel,
         topSystems = sortedMetrics(systems, 12),
         topActors = sortedMetrics(actors, 12),
+        counters = counterCopy,
+        nativeCallTracing = tracingEnabled,
         activeFrame = frame ~= nil,
     }
 end
@@ -566,6 +610,13 @@ function Performance.summary()
         lines[#lines + 1] = string.format("  %s: p95 %.2f ms, max %.2f ms, runs %d, yields %d",
             metric.label, metric.p95Ms, metric.maxMs, metric.runs, metric.yielded)
     end
+    local counterKeys = {}
+    for key in pairs(snapshot.counters or {}) do counterKeys[#counterKeys + 1] = key end
+    table.sort(counterKeys)
+    if #counterKeys > 0 then lines[#lines + 1] = "Counters:" end
+    for _, key in ipairs(counterKeys) do
+        lines[#lines + 1] = "  " .. key .. ": " .. tostring(snapshot.counters[key])
+    end
     return table.concat(lines, "\n"), snapshot
 end
 
@@ -582,6 +633,9 @@ function Performance.reset()
     cacheEntries = 0
     loadLevel = 0
     lastLoadChangeFrame = 0
+    counters = {}
+    scopeStack = {}
+    currentScope = "unscoped"
     totals = {
         frames = 0, overBudgetFrames = 0, deferredFrames = 0,
         yieldedJobs = 0, cacheHits = 0, cacheMisses = 0,

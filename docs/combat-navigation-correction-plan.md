@@ -15,7 +15,7 @@ The exact initiating cause of the recorded native door stalls at 6764,5265,0 is 
 
 Production install/save and Git publication are separate from implementing and testing this package.
 
-The native bridge protocol first advanced to `42.20-isocompanion-6` for bounded movement and traversal cancellation, then to `42.20-isocompanion-7` for target-specific native combat-collision evidence. Old launchers must be rejected at startup, not discovered through failed movement or combat in a save. Install the matching Lua and JAR together, then restart the game. The mod version is the 0.22.10 candidate; save format is unchanged.
+The native bridge protocol first advanced to `42.20-isocompanion-6` for bounded movement and traversal cancellation, then to `42.20-isocompanion-7` for target-specific native combat-collision evidence. The current protocol 8 adds main-thread bulk item, topology and perception reads without changing the save schema. Old launchers must be rejected at startup, not discovered through failed movement or combat in a save. Install the matching Lua and JAR together, then restart the game. This section records the earlier 0.22.10 candidate.
 
 ## Validation notes
 
@@ -103,8 +103,9 @@ Each observer still performs its own range, floor, and native LOS proof, and hea
 cannot supply an actor target. The focused harness acquires a clear 20-tile contact in
 100 ms and keeps four companions to one 64-entry native-list chunk per pulse.
 
-Grounded combat uses target-specific native collision evidence under bridge protocol
-`42.20-isocompanion-7`; synthetic stomp damage has been removed. The companion keeps
+Grounded combat uses target-specific native collision evidence introduced under bridge
+protocol `42.20-isocompanion-7`; current protocol 8 retains it and adds bulk reads.
+Synthetic stomp damage has been removed. The companion keeps
 one bounded weapon/stomp preference while approaching or waiting. Healthy held melee
 weapons normally use their native floor clips, with situational stomp variation and a
 safer weapon-range override when stepping into foot range would be unnecessary.

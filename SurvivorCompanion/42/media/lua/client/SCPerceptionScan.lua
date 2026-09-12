@@ -8,6 +8,73 @@ local Scan = SC.PerceptionScan
 local scheduleCache = {}
 local sharedNative = nil
 local nativeGeneration = 0
+local nativeSnapshotScratch = {}
+local nativeSnapshotShared = nil
+local nativeSnapshotEpoch = 1
+local nativeSnapshotRetryAt = 0
+
+local function bridgeValue()
+    if type(_G) ~= "table" then return nil end
+    return rawget(_G, "SCBridge")
+end
+
+-- Protocol 8 copies the mutable Java zombie list and its hot coordinates in a
+-- single main-thread call. Success is coherent immediately; overflow/failure
+-- falls through to the sliced Lua producer without publishing a partial list.
+local function nativeBulkSnapshot(now, clock)
+    local interval = math.max(50, math.floor(tonumber(
+        SC.GameplayUtil.config("nativeZombieSnapshotIntervalMs")) or 250))
+    if nativeSnapshotShared and now < (nativeSnapshotShared.nextAdvanceAt or 0) then
+        return nativeSnapshotShared, 0, true, false
+    end
+    if now < nativeSnapshotRetryAt then return nil end
+    local bridge = bridgeValue()
+    if bridge == nil or not SC.Call or type(SC.Call.static) ~= "function" then return nil end
+    local maximum = math.max(1, math.floor(tonumber(
+        SC.GameplayUtil.config("nativeZombieSnapshotMaximum")) or 8192))
+    local tracing = SC.Performance and type(SC.Performance.isTracing) == "function"
+        and SC.Performance.isTracing() == true
+    local started = tracing and clock() or nil
+    local scope = tracing and SC.Performance.beginScope("perception.native-snapshot") or nil
+    local called, count = SC.Call.static(
+        bridge, "fillZombieSnapshot", nativeSnapshotScratch, maximum)
+    if scope then
+        SC.Performance.endScope(scope)
+        SC.Performance.record("perception.native-snapshot", nil,
+            math.max(0, clock() - started), math.max(0, tonumber(count) or 0), false)
+    end
+    count = called and tonumber(count) or nil
+    if count == nil or count < 0 then
+        nativeSnapshotRetryAt = now + interval
+        return nil
+    end
+    count = math.floor(count)
+    -- Publish the coherent buffer itself and rotate the scratch reference.
+    -- Observers may drain an older snapshot while Java fills the next one;
+    -- reading flat quadruples avoids allocating one Lua wrapper per zombie.
+    local published = nativeSnapshotScratch
+    nativeSnapshotScratch = {}
+    nativeGeneration = nativeGeneration + 1
+    nativeSnapshotShared = {
+        generation = "bridge:" .. tostring(nativeSnapshotEpoch),
+        list = published,
+        liveCount = count,
+        cycleCount = count,
+        cursor = count,
+        cycle = nativeGeneration,
+        completedCycle = nativeGeneration,
+        published = published,
+        publishedCount = count,
+        publishedFlat = true,
+        build = published,
+        completedAt = now,
+        evidenceValid = true,
+        evidenceCount = count,
+        rejectedCycles = 0,
+        nextAdvanceAt = now + interval,
+    }
+    return nativeSnapshotShared, count, false, true
+end
 
 local function newSharedNative(list, count)
     nativeGeneration = nativeGeneration + 1
@@ -183,6 +250,7 @@ local function resetActorNativeState(state, generation)
     state.nativeRosterCycle = nil
     state.nativeRosterSource = nil
     state.nativeRosterCount = nil
+    state.nativeRosterFlat = nil
     state.nativeRosterCursor = 1
     state.nativeRosterComplete = false
     state.nativeLastCompleteCycle = nil
@@ -220,17 +288,23 @@ end
 -- so sharing discovery never shares perception.
 function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     local U = SC.GameplayUtil
-    local list, available = U.call(U.cell(), "getZombieList")
-    if not available or list == nil or not SC.NativeList then return nil end
     clock = type(clock) == "function" and clock or U.nowMs
     local now = clock()
-    local count = SC.NativeList.size(list)
+    local shared, processed, reused, globalCompleted = nativeBulkSnapshot(now, clock)
+    local list, count
+    if shared ~= nil then
+        list, count = shared.list, shared.liveCount
+    else
+        local available
+        list, available = U.call(U.cell(), "getZombieList")
+        if not available or list == nil or not SC.NativeList then return nil end
+        count = SC.NativeList.size(list)
+        processed, reused, globalCompleted = advanceSharedNative(
+            list, count, maximum, deadline, clock, now)
+        shared = sharedNative
+    end
     local x, y, z = U.position(actor)
     if x == nil then return {}, { processed = 0, complete = true, count = count } end
-
-    local processed, reused, globalCompleted = advanceSharedNative(
-        list, count, maximum, deadline, clock, now)
-    local shared = sharedNative
     if state.nativeSharedGeneration ~= shared.generation then
         resetActorNativeState(state, shared.generation)
     elseif state.nativeScanCount ~= nil and state.nativeScanCount ~= count then
@@ -246,6 +320,7 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         state.nativeRosterCycle = shared.completedCycle > 0 and shared.completedCycle or nil
         state.nativeRosterSource = shared.published
         state.nativeRosterCount = 0
+        state.nativeRosterFlat = shared.publishedFlat == true
         state.nativeRosterCursor = 1
         state.nativeRosterComplete = shared.completedCycle > 0
         state.nativeLastCompleteCycle = state.nativeRosterCycle
@@ -270,6 +345,7 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         state.nativeRosterCycle = shared.completedCycle
         state.nativeRosterSource = shared.published
         state.nativeRosterCount = shared.publishedCount
+        state.nativeRosterFlat = shared.publishedFlat == true
         state.nativeRosterCursor = 1
         state.nativeRosterComplete = false
         if not previewMatches then
@@ -286,12 +362,14 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     local coherent = count > 0 and state.nativeRosterComplete ~= true
         and tonumber(state.nativeRosterCycle) ~= nil
         and type(state.nativeRosterSource) == "table"
-    local source, cursor
+    local source, sourceCount, sourceFlat, cursor
     if coherent then
         -- Keep the exact completed roster alive while this observer drains it;
         -- another global cycle may finish meanwhile without invalidating the
         -- completion proof or dropping a queued tail.
         source = state.nativeRosterSource
+        sourceCount = tonumber(state.nativeRosterCount) or #source
+        sourceFlat = state.nativeRosterFlat == true
         cursor = math.max(1, math.floor(tonumber(state.nativeRosterCursor) or 1))
     else
         if state.nativePreviewCycle ~= shared.cycle then
@@ -305,6 +383,8 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         -- Its cycle number is the one now being verified, allowing the observer
         -- queue to carry over when that second pass publishes the same roster.
         source = count == 0 and {} or shared.verification or shared.build
+        sourceCount = #source
+        sourceFlat = false
         cursor = math.max(1, math.floor(tonumber(state.nativePreviewCursor) or 1))
     end
 
@@ -313,18 +393,23 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     for _, value in ipairs(queue) do queued[value] = true end
     local additions, distances = {}, setmetatable({}, { __mode = "k" })
     local inspected = 0
-    while cursor <= #source and inspected < queryLimit
+    while cursor <= sourceCount and inspected < queryLimit
         and #queue + #additions < queueCap do
         if deadline and inspected >= 4 and clock() >= deadline then break end
-        local entry = source[cursor]
-        local value = type(entry) == "table" and entry.actor or entry
+        local entry = sourceFlat and nil or source[cursor]
+        local flatBase = sourceFlat and ((cursor - 1) * 4 + 1) or nil
+        local value = sourceFlat and source[flatBase]
+            or type(entry) == "table" and entry.actor or entry
         cursor = cursor + 1
         inspected = inspected + 1
         if value ~= nil and not queued[value]
             and not (state.nativeDeliveredSeen and state.nativeDeliveredSeen[value]) then
-            local zx = type(entry) == "table" and entry.x or nil
-            local zy = type(entry) == "table" and entry.y or nil
-            local zz = type(entry) == "table" and entry.z or nil
+            local zx = sourceFlat and tonumber(source[flatBase + 1])
+                or type(entry) == "table" and entry.x or nil
+            local zy = sourceFlat and tonumber(source[flatBase + 2])
+                or type(entry) == "table" and entry.y or nil
+            local zz = sourceFlat and tonumber(source[flatBase + 3])
+                or type(entry) == "table" and entry.z or nil
             if zx == nil then zx, zy, zz = U.position(value) end
             if zx and math.floor(zz or 0) == math.floor(z or 0) then
                 local dx, dy = zx - x, zy - y
@@ -334,7 +419,8 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
                     additions[#additions + 1] = value
                     distances[value] = {
                         distanceSq = distanceSq,
-                        index = type(entry) == "table" and entry.index or cursor,
+                        index = sourceFlat and (cursor - 1)
+                            or type(entry) == "table" and entry.index or cursor,
                     }
                 end
             end
@@ -364,7 +450,7 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     end
     state.nativeCandidateQueue, state.nativeCandidateIndex = queue, queueIndex
     local queuePending = math.max(0, #queue - queueIndex + 1)
-    if coherent and cursor > #source and queuePending == 0 then
+    if coherent and cursor > sourceCount and queuePending == 0 then
         state.nativeRosterComplete = true
         state.nativeLastCompleteCycle = state.nativeRosterCycle
     end
@@ -378,7 +464,7 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     local freshComplete = complete and observerCycle == shared.completedCycle
         and shared.evidenceValid == true
         and shared.evidenceCount == count
-    local sourceRemaining = coherent and math.max(0, #source - cursor + 1) or 0
+    local sourceRemaining = coherent and math.max(0, sourceCount - cursor + 1) or 0
     local pending = queuePending + sourceRemaining
     local reportedCursor = count == 0 and 0
         or complete and (state.nativeRosterCount or #state.nativeRosterSource)
@@ -402,7 +488,7 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         evaluated = #result,
         inspected = inspected,
         pending = pending,
-        previewPending = coherent and 0 or math.max(0, #source - cursor + 1),
+        previewPending = coherent and 0 or math.max(0, sourceCount - cursor + 1),
         listComplete = complete,
         endReached = complete or shared.completedCycle > 0,
         globalCompleted = globalCompleted,
@@ -568,6 +654,10 @@ end
 function Scan.reset()
     scheduleCache = {}
     sharedNative = nil
+    nativeSnapshotShared = nil
+    nativeSnapshotScratch = {}
+    nativeSnapshotRetryAt = 0
+    nativeSnapshotEpoch = nativeSnapshotEpoch + 1
     -- Do not reuse an epoch: actor runtimes can outlive a global world/reset
     -- pulse and must discard any cursor that belonged to the old roster.
     nativeGeneration = nativeGeneration + 1

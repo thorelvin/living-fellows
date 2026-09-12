@@ -1337,6 +1337,20 @@ local function callSubsystem(name, actor, callback)
     return handled == true, reason
 end
 
+local function profiledDecisionPhase(name, actor, callback, ...)
+    local performance = SC.Performance
+    if not performance or type(performance.isTracing) ~= "function"
+        or performance.isTracing() ~= true then return callback(...) end
+    local token = performance.beginScope("decision." .. tostring(name))
+    local started = U().nowMs()
+    local values = SC.Call.pack(pcall(callback, ...))
+    performance.endScope(token)
+    performance.record("decision." .. tostring(name), U().idOf(actor),
+        U().nowMs() - started)
+    if values[1] ~= true then error(values[2], 0) end
+    return SC.Call.unpack(values, 2, values.n)
+end
+
 local function delegate(candidate, actor, player, rootRuntime, commands, snapshot, state)
     if candidate.kind == "mental_episode" or candidate.kind == "grief_response"
         or candidate.kind == "purposeful_idle"
@@ -1871,11 +1885,11 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
 end
 Decision._holdOwnedActivityOrPacingForTests = holdOwnedActivityOrPacing
 
-function Decision.update(actor, player, runtime)
+function Decision.update(actor, player, runtime, roundTimestamp)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
     local state, rootRuntime = stateFor(actor, runtime)
-    local current = utility.nowMs()
+    local current = tonumber(roundTimestamp) or utility.nowMs()
     if SC.Needs and type(SC.Needs.updateRates) == "function" then
         utility.safeSubsystem("needs-rate", actor, function()
             return SC.Needs.updateRates(actor, rootRuntime, current)
@@ -2002,8 +2016,10 @@ function Decision.update(actor, player, runtime)
             return SC.Dialogue.ambientPulse(actor, player, snapshot, commands, current)
         end)
     end
-    local candidates = evaluate(actor, player, snapshot, commands, assessment, needs, state, current)
-    local selected = selectWithHysteresis(state, candidates, current)
+    local candidates = profiledDecisionPhase("evaluate", actor, evaluate,
+        actor, player, snapshot, commands, assessment, needs, state, current)
+    local selected = profiledDecisionPhase("targeting", actor,
+        selectWithHysteresis, state, candidates, current)
     if not selected then
         if not utility.stop(actor) then
             state.intent = "idle_stop_rejected"
@@ -2065,7 +2081,8 @@ function Decision.update(actor, player, runtime)
             end
         end
     end
-    local handled, reason = delegate(selected, actor, player, rootRuntime, commands, snapshot, state)
+    local handled, reason = profiledDecisionPhase("delegate", actor, delegate,
+        selected, actor, player, rootRuntime, commands, snapshot, state)
     if not handled then
         local selectedFailure = reason
         local selectedRank = selected.safetyRank or safetyRank[selected.safetyTier] or 1
@@ -2080,15 +2097,9 @@ function Decision.update(actor, player, runtime)
                     or (fallback.safetyRank or safetyRank[fallback.safetyTier] or 1)
                         == selectedRank)
                 and candidateDue(actor, fallback, current) then
-                local fallbackHandled, fallbackReason = delegate(
-                    fallback,
-                    actor,
-                    player,
-                    rootRuntime,
-                    commands,
-                    snapshot,
-                    state
-                )
+                local fallbackHandled, fallbackReason = profiledDecisionPhase(
+                    "delegate", actor, delegate, fallback, actor, player,
+                    rootRuntime, commands, snapshot, state)
                 if fallbackHandled then
                     handled, reason, selected = true, fallbackReason, fallback
                     break

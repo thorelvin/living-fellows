@@ -13,6 +13,9 @@ local tasksByName = {}
 local ordered = {}
 local actorClocks = {}
 local clockOverride = nil
+local laneRank = { critical = 4, high = 3, normal = 2, background = 1 }
+local runnableBuffer = {}
+local runnableSortNow = 0
 local stats = {
     frames = 0,
     callbacks = 0,
@@ -64,6 +67,17 @@ local function inferredLane(priority)
     return "normal"
 end
 
+local function runnableBefore(left, right)
+    local leftRank = laneRank[left.lane] or 2
+    local rightRank = laneRank[right.lane] or 2
+    if leftRank ~= rightRank then return leftRank > rightRank end
+    local leftOverdue = runnableSortNow - (left.nextDue or runnableSortNow)
+    local rightOverdue = runnableSortNow - (right.nextDue or runnableSortNow)
+    if leftOverdue ~= rightOverdue then return leftOverdue > rightOverdue end
+    if left.priority ~= right.priority then return left.priority > right.priority end
+    return left.name < right.name
+end
+
 function scheduler.register(name, interval, priority, callback, options)
     if type(name) ~= "string" or name == "" then
         return false, "scheduler name is required"
@@ -88,6 +102,7 @@ function scheduler.register(name, interval, priority, callback, options)
     local unchanged = existing ~= nil and existing.interval == math.floor(interval)
         and existing.priority == priority and existing.callback == callback
         and existing.lane == lane
+        and existing.fixedInterval == (options.fixedInterval == true)
     local keepSchedule = existing ~= nil
         and (options.preserveSchedule == true or unchanged)
     tasksByName[name] = {
@@ -98,6 +113,7 @@ function scheduler.register(name, interval, priority, callback, options)
         nextDue = keepSchedule and existing.nextDue or nil,
         runs = existing and existing.runs or 0,
         lane = lane,
+        fixedInterval = options.fixedInterval == true,
         reportFailure = options.reportFailure == nil and existing ~= nil
             and existing.reportFailure == true or options.reportFailure == true,
     }
@@ -151,7 +167,8 @@ function scheduler.tick()
     end
     local current = started
     local deferred = false
-    local runnable = {}
+    local runnable = runnableBuffer
+    for index = #runnable, 1, -1 do runnable[index] = nil end
     for _, task in ipairs(ordered) do
         if task.nextDue == nil then
             task.nextDue = current + task.interval
@@ -159,17 +176,8 @@ function scheduler.tick()
             runnable[#runnable + 1] = task
         end
     end
-    local laneRank = { critical = 4, high = 3, normal = 2, background = 1 }
-    table.sort(runnable, function(left, right)
-        local leftRank = laneRank[left.lane] or 2
-        local rightRank = laneRank[right.lane] or 2
-        if leftRank ~= rightRank then return leftRank > rightRank end
-        local leftOverdue = current - (left.nextDue or current)
-        local rightOverdue = current - (right.nextDue or current)
-        if leftOverdue ~= rightOverdue then return leftOverdue > rightOverdue end
-        if left.priority ~= right.priority then return left.priority > right.priority end
-        return left.name < right.name
-    end)
+    runnableSortNow = current
+    table.sort(runnable, runnableBefore)
 
     for runnableIndex, task in ipairs(runnable) do
         if current - started >= budget then
@@ -198,7 +206,8 @@ function scheduler.tick()
                 "scheduled callback reported failure", detail)
         end
         current = nowMs()
-        local scale = SC.Performance and type(SC.Performance.intervalScale) == "function"
+        local scale = not task.fixedInterval and SC.Performance
+            and type(SC.Performance.intervalScale) == "function"
             and SC.Performance.intervalScale(task.lane) or 1
         task.nextDue = current + math.max(1, math.floor(task.interval * scale))
     end
@@ -240,6 +249,7 @@ function scheduler.getStats()
             name = task.name,
             lane = task.lane,
             interval = task.interval,
+            fixedInterval = task.fixedInterval == true,
             runs = task.runs,
             nextDue = task.nextDue,
         }

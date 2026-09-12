@@ -40,6 +40,9 @@ local valueData = {
     performanceCacheNamespaceLimit = 512,
     performanceCacheTotalLimit = 1024,
     performanceCacheSweepPerFrame = 24,
+    -- Disabled in production: the single branch in U.call remains cheap, while
+    -- opt-in playtests can attribute every Lua -> Java boundary to a scope.
+    performanceNativeCallTracing = false,
     performanceLoadEvaluationFrames = 60,
     performanceLoadChangeCooldownFrames = 120,
     performanceLoadRaiseRatio = 0.22,
@@ -111,6 +114,11 @@ local valueData = {
     perceptionReflexRadius = 2.25,
     slowIntervalMs = 1000,
     persistenceIntervalMs = 30000,
+    persistencePulseIntervalMs = 50,
+    persistenceSliceBudgetMs = 0.75,
+    persistenceCaptureDeadlineMs = 5000,
+    persistenceActorRetryLimit = 2,
+    persistenceRetryDelayMs = 5000,
     tradeRecoveryIntervalMs = 500,
     tradeRecoveryPerPulse = 8,
     -- Failed native inventory mutations are reconciled asynchronously, but a
@@ -147,6 +155,8 @@ local valueData = {
     -- a replacement roster is published.
     perceptionNativeSharedPulseMs = 50,
     perceptionNativeCompletedHoldMs = 1000,
+    nativeZombieSnapshotIntervalMs = 250,
+    nativeZombieSnapshotMaximum = 8192,
     perceptionNativeRosterQueryPerSlice = 128,
     perceptionNativeCandidateQueueHardCap = 64,
     perceptionVisualChecksPerSlice = 16,
@@ -191,6 +201,8 @@ local valueData = {
     navigationMicroDistance = 1.45,
     navigationNodeBudget = 220,
     navigationSliceBudgetMs = 2,
+    uiRefreshSliceBudgetMs = 0.5,
+    uiRefreshMaximumLagMs = 500,
     navigationMovingRouteMaxNodes = 256,
     navigationAlternativeRoutes = 3,
     navigationAlternativeNodeBudget = 80,

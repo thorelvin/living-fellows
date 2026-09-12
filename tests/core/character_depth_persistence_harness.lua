@@ -503,6 +503,49 @@ original:setAttachedItem("Belt Left", knife)
 local captured, captureReason = SC.Persistence.captureRecord(record)
 check(captured ~= nil,
     "plain native items without getInventory still capture: " .. tostring(captureReason))
+
+-- A staged save must reject an internally mixed actor snapshot when inventory
+-- identity changes during capture, retry only that actor, and then atomically
+-- publish the stable retry. Mutate on the captureRecord getInventory call after
+-- the first before-signature has already been collected.
+do
+    local priorGetInventory = original.getInventory
+    local inventoryReads = 0
+    local churnItem = makeItem("Base.StagedSaveChurn")
+    function original:getInventory()
+        inventoryReads = inventoryReads + 1
+        if inventoryReads == 2 then self.inventory:AddItem(churnItem) end
+        return priorGetInventory(self)
+    end
+    local stagedStore = SC_TEST_SET_WORLD_STORE({ document = { sentinel = "stable-prior" } })
+    local stagedPlayer = { getModData = function() return {} end }
+    local priorTimestamp = getTimestampMs
+    local stagedClock = 4000
+    getTimestampMs = function()
+        stagedClock = stagedClock + 0.2
+        return stagedClock
+    end
+    local requested, requestReason = SC.Persistence.requestScheduledSave(stagedPlayer)
+    local status, outgoing
+    if requested then
+        for _ = 1, 20000 do
+            status, outgoing = SC.Persistence.pulse()
+            if status ~= "yielded" then break end
+        end
+    end
+    getTimestampMs = priorTimestamp
+    original.getInventory = priorGetInventory
+    original.inventory:Remove(churnItem)
+    check(requested == true and status == "complete"
+            and type(outgoing) == "table" and stagedStore.document == outgoing
+            and outgoing.companions[record.id].inventory.count
+                == captured.inventory.count + 1
+            and inventoryReads >= 6,
+        "scheduled save retries a churning actor and atomically publishes only its stable retry: "
+            .. tostring(requestReason) .. "/" .. tostring(status) .. "/"
+            .. tostring(outgoing) .. " reads=" .. tostring(inventoryReads))
+end
+
 local stablePosition = SC.Persistence.noteStablePosition(record, 100)
 local originalSquare = original.square
 local transientSquare = { x = 91, y = 92, z = 0 }
@@ -622,6 +665,8 @@ do
         boundaryItems[index] = makeItem("Base.InventoryBoundary" .. tostring(index))
     end
     original.inventory = makeInventory(boundaryItems)
+    original:setPrimaryHandItem(boundaryItems[1])
+    original:setSecondaryHandItem(boundaryItems[1])
     local boundary, boundaryReason = SC.Persistence.captureRecord(record)
     check(boundary ~= nil and boundary.inventory.count == inventoryLimit,
         "configured inventory boundary captures every item without truncation: "

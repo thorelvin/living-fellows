@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 if type(require) == "function" then
+    pcall(require, "SCCall")
     pcall(require, "SCConfig")
     pcall(require, "SCNativeList")
 end
@@ -37,25 +38,45 @@ local diagnostics = {}
 -- either a container or the world becomes the verified owner.
 local pendingWorldRecoveryByItem = {}
 local pendingWorldRecoveryByWorld = {}
+local spatialReadBatch = nil
+local nativeCallTracer = nil
 
-local function packedArguments(...)
-    return { n = select("#", ...), ... }
+function U.setNativeCallTracer(callback)
+    nativeCallTracer = type(callback) == "function" and callback or nil
+    if SC.Call and type(SC.Call.setNativeCallTracer) == "function" then
+        SC.Call.setNativeCallTracer(nativeCallTracer)
+    end
+    return nativeCallTracer ~= nil
 end
 
-local function invoke(obj, methodName, args)
-    if obj == nil then return false, nil end
-    local okMethod, method = pcall(function() return obj[methodName] end)
-    if not okMethod or type(method) ~= "function" then return false, nil end
-    args = args or { n = 0 }
-    local count = tonumber(args.n) or #args
-    local ok, a, b, c, d = pcall(method, obj, unpack(args, 1, count))
-    if not ok then return false, nil, tostring(a) end
-    return true, a, b, c, d
+function U.withSpatialReadBatch(callback, ...)
+    if type(callback) ~= "function" then error("spatial read callback is required", 2) end
+    if spatialReadBatch ~= nil then return callback(...) end
+    spatialReadBatch = { positions = {}, squares = {} }
+    local values = SC.Call.pack(pcall(callback, ...))
+    spatialReadBatch = nil
+    if values[1] ~= true then error(values[2], 0) end
+    return SC.Call.unpack(values, 2, values.n)
+end
+
+function U.invalidateSpatial(value)
+    if spatialReadBatch == nil or value == nil then return false end
+    spatialReadBatch.positions[value] = nil
+    spatialReadBatch.squares[value] = nil
+    return true
 end
 
 function U.call(obj, methodName, ...)
-    local ok, a, b, c, d = invoke(obj, methodName, packedArguments(...))
-    return a, ok, b, c, d
+    if SC.Call and type(SC.Call.value) == "function" then
+        return SC.Call.value(obj, methodName, ...)
+    end
+    if nativeCallTracer ~= nil then nativeCallTracer(methodName) end
+    if obj == nil then return nil, false end
+    local okMethod, method = pcall(function() return obj[methodName] end)
+    if not okMethod or type(method) ~= "function" then return nil, false end
+    local ok, a, b, c, d = pcall(method, obj, ...)
+    if not ok then return nil, false, tostring(a) end
+    return a, true, b, c, d
 end
 
 function U.hasMethod(obj, methodName)
@@ -211,6 +232,18 @@ function U.safeSubsystem(subsystem, actor, callback)
     -- diagnostics is loaded.  Keep the local implementation only as a narrow
     -- standalone-test fallback for this utility module.
     if SC.Diagnostics and type(SC.Diagnostics.guard) == "function" then
+        if SC.Performance and type(SC.Performance.isTracing) == "function"
+            and SC.Performance.isTracing() == true then
+            local token = SC.Performance.beginScope(subsystem)
+            local started = U.nowMs()
+            local values = SC.Call.pack(pcall(
+                SC.Diagnostics.guard, subsystem, U.idOf(actor), callback))
+            SC.Performance.endScope(token)
+            SC.Performance.record("subsystem." .. tostring(subsystem), U.idOf(actor),
+                U.nowMs() - started)
+            if values[1] ~= true then error(values[2], 0) end
+            return SC.Call.unpack(values, 2, values.n)
+        end
         return SC.Diagnostics.guard(subsystem, U.idOf(actor), callback)
     end
     local now = U.nowMs()
@@ -249,23 +282,41 @@ function U.position(value)
     if type(value) == "table" and type(value.x) == "number" and type(value.y) == "number" then
         return value.x, value.y, value.z or 0
     end
+    local cached = spatialReadBatch and spatialReadBatch.positions[value] or nil
+    if cached ~= nil then
+        if cached == false then return nil end
+        return cached[1], cached[2], cached[3]
+    end
     local x, xOk = U.call(value, "getX")
     local y, yOk = U.call(value, "getY")
     local z, zOk = U.call(value, "getZ")
-    if xOk and yOk then return x, y, zOk and z or 0 end
+    if xOk and yOk then
+        local resolvedZ = zOk and z or 0
+        if spatialReadBatch then spatialReadBatch.positions[value] = { x, y, resolvedZ } end
+        return x, y, resolvedZ
+    end
+    if spatialReadBatch then spatialReadBatch.positions[value] = false end
     return nil
 end
 
 function U.squareOf(value)
     if value == nil then return nil end
     if type(value) == "table" and value.square ~= nil then return value.square end
+    local cached = spatialReadBatch and spatialReadBatch.squares[value] or nil
+    if cached ~= nil then return cached ~= false and cached or nil end
     if U.hasMethod(value, "getSquare") then
         local square, ok = U.call(value, "getSquare")
-        if ok and square ~= nil then return square end
+        if ok and square ~= nil then
+            if spatialReadBatch then spatialReadBatch.squares[value] = square end
+            return square
+        end
     end
     if U.hasMethod(value, "getCurrentSquare") then
         local square, ok = U.call(value, "getCurrentSquare")
-        if ok and square ~= nil then return square end
+        if ok and square ~= nil then
+            if spatialReadBatch then spatialReadBatch.squares[value] = square end
+            return square
+        end
     end
     -- Native passengers legitimately have no ordinary current square. Their
     -- vehicle square remains the loaded origin for senses and safety checks.
@@ -273,10 +324,14 @@ function U.squareOf(value)
         local vehicle, vehicleOk = U.call(value, "getVehicle")
         if vehicleOk and vehicle ~= nil then
             local square, squareOk = U.call(vehicle, "getSquare")
-            if squareOk and square ~= nil then return square end
+            if squareOk and square ~= nil then
+                if spatialReadBatch then spatialReadBatch.squares[value] = square end
+                return square
+            end
         end
     end
     if U.hasMethod(value, "getX") and U.hasMethod(value, "isFree") then return value end
+    if spatialReadBatch then spatialReadBatch.squares[value] = false end
     return nil
 end
 

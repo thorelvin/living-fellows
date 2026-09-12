@@ -129,6 +129,28 @@ check(SC.Performance.intervalScale("critical") == 1,
 check(SC.Performance.intervalScale("background") > 1,
     "background work slows down under sustained load")
 
+do
+    -- UI/persistence slices are already bounded internally. Their 50 ms pulse
+    -- must remain stable under load while lane ordering still keeps them behind
+    -- due critical/high work.
+    local fixedRuns, scaledRuns = 0, 0
+    SC.Scheduler.register("fixed-background", 50, 2,
+        function() fixedRuns = fixedRuns + 1 end,
+        { lane = "background", fixedInterval = true })
+    SC.Scheduler.register("scaled-background", 50, 1,
+        function() scaledRuns = scaledRuns + 1 end,
+        { lane = "background" })
+    SC.Scheduler.tick()
+    clock = clock + 50
+    SC.Scheduler.tick()
+    clock = clock + 50
+    SC.Scheduler.tick()
+    check(fixedRuns == 2 and scaledRuns == 1,
+        "bounded background pulses keep fixed cadence while ordinary background work sheds load")
+    SC.Scheduler.unregister("fixed-background")
+    SC.Scheduler.unregister("scaled-background")
+end
+
 SC.Performance.record("perception", "actor-profile", 1, 72, false)
 SC.Performance.markYield("navigation", "actor-profile", 64)
 local report, snapshot = SC.Performance.summary()

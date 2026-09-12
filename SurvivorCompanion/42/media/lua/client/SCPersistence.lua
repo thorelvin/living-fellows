@@ -20,6 +20,13 @@ local saveBlockedReason = nil
 local restoreCommitted = false
 local restoreFailureReason = "restore has not committed"
 local worldStore = nil
+local scheduledSave = nil
+local scheduledSaveRetryAt = 0
+local captureYieldHook = nil
+
+local function captureYieldPoint()
+    if captureYieldHook ~= nil then captureYieldHook() end
+end
 local quarantined = { companions = {}, factionActors = {}, subsystems = {} }
 local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true }
 local defaultDetachedMarkerKeys = {
@@ -27,6 +34,7 @@ local defaultDetachedMarkerKeys = {
     state = "LF_TradeRecoveryState",
     build = "LF_TradeRecoveryBuildId",
 }
+local itemFactsScratch = {}
 
 local function detachedMarkerKeys(source)
     if source == nil then return defaultDetachedMarkerKeys end
@@ -477,27 +485,95 @@ local function captureItemVisual(item)
     return #result.parts > 0 and result or nil
 end
 
-local function captureItem(item)
-    local typeOk, fullType = invoke(item, "getFullType")
-    if not typeOk or fullType == nil then return nil end
-    local entry = { type = text(fullType, "", 128) }
-    local ok, value = invoke(item, "getCondition")
-    if ok then entry.condition = math.floor(finite(value, 0)) end
-    ok, value = invoke(item, "isFavorite")
-    if ok then entry.favorite = value == true end
-    -- Some base classes expose a placeholder getter but no corresponding
-    -- setter (InventoryItem.getWetness() is one example). Persist only a
-    -- property the concrete item can also accept during restore.
-    entry.scalar = captureItemFields(item, scalarItemFields)
-    if isItemClass(item, "DrainableComboItem") then
-        entry.drainable = captureItemFields(item, drainableItemFields)
+local function maskHas(mask, flag)
+    return math.floor((tonumber(mask) or 0) / flag) % 2 >= 1
+end
+
+local function copiedFactGroup(prefix, fields)
+    local result = {}
+    for _, field in ipairs(fields) do
+        local value = itemFactsScratch[prefix .. field.key]
+        if value ~= nil then result[field.key] = value end
     end
-    local keyOk, keyId = invoke(item, "getKeyId")
-    if keyOk and method(item, "setKeyId") ~= nil and finite(keyId, nil) ~= nil
-        and math.floor(finite(keyId, -1)) >= 0 then
-        entry.key = { id = math.floor(finite(keyId, -1)) }
+    return hasEntries(result) and result or nil
+end
+
+local function captureNativeItemFacts(item)
+    local bridge = type(_G) == "table" and rawget(_G, "SCBridge") or nil
+    if bridge == nil then return nil end
+    local tracing = SC.Performance and type(SC.Performance.isTracing) == "function"
+        and SC.Performance.isTracing() == true
+    local started = tracing and (type(getTimestampMs) == "function"
+        and tonumber(getTimestampMs()) or 0) or nil
+    local scope = tracing and SC.Performance.beginScope("persistence.item-native") or nil
+    local called, mask = staticInvoke(bridge, "captureItemFacts", item, itemFactsScratch)
+    if scope then
+        SC.Performance.endScope(scope)
+        SC.Performance.record("persistence.item-native", nil,
+            math.max(0, (type(getTimestampMs) == "function"
+                and tonumber(getTimestampMs()) or started) - started), 1, false)
     end
-    entry.food = captureItemFields(item, foodItemFields)
+    mask = called and tonumber(mask) or nil
+    if mask == nil or mask < 0 or itemFactsScratch.type == nil then return nil end
+    local result = {
+        type = text(itemFactsScratch.type, "", 128),
+        condition = math.floor(finite(itemFactsScratch.condition, 0)),
+        favorite = itemFactsScratch.favorite == true,
+        scalar = copiedFactGroup("scalar_", scalarItemFields),
+    }
+    if maskHas(mask, 2) then
+        result.drainable = copiedFactGroup("drainable_", drainableItemFields)
+    end
+    if maskHas(mask, 1) then
+        result.food = copiedFactGroup("food_", foodItemFields)
+    end
+    if maskHas(mask, 16) and finite(itemFactsScratch.key_id, nil) ~= nil then
+        result.key = { id = math.floor(finite(itemFactsScratch.key_id, -1)) }
+    end
+    if maskHas(mask, 4) then
+        result.firearm = {
+            currentAmmo = itemFactsScratch.firearm_currentAmmo,
+            containsClip = itemFactsScratch.firearm_containsClip,
+            roundChambered = itemFactsScratch.firearm_roundChambered,
+            jammed = itemFactsScratch.firearm_jammed,
+            fireMode = itemFactsScratch.firearm_fireMode,
+        }
+    elseif maskHas(mask, 8) then
+        result.magazine = {
+            currentAmmo = math.max(0, math.floor(finite(
+                itemFactsScratch.magazine_currentAmmo, 0))),
+        }
+    end
+    return result
+end
+
+local function captureItemCore(item)
+    local entry = captureNativeItemFacts(item)
+    local ok, value
+    if entry == nil then
+        local typeOk, fullType = invoke(item, "getFullType")
+        if not typeOk or fullType == nil then return nil end
+        entry = { type = text(fullType, "", 128) }
+        ok, value = invoke(item, "getCondition")
+        if ok then entry.condition = math.floor(finite(value, 0)) end
+        ok, value = invoke(item, "isFavorite")
+        if ok then entry.favorite = value == true end
+        -- Persist only properties the concrete item can also accept.
+        entry.scalar = captureItemFields(item, scalarItemFields)
+        if isItemClass(item, "DrainableComboItem") then
+            entry.drainable = captureItemFields(item, drainableItemFields)
+        end
+        local keyOk, keyId = invoke(item, "getKeyId")
+        if keyOk and method(item, "setKeyId") ~= nil and finite(keyId, nil) ~= nil
+            and math.floor(finite(keyId, -1)) >= 0 then
+            entry.key = { id = math.floor(finite(keyId, -1)) }
+        end
+        -- Calling every Food getter on ordinary InventoryItem was both noisy
+        -- and expensive. Only a verified Food object owns this state.
+        if isItemClass(item, "Food") then
+            entry.food = captureItemFields(item, foodItemFields)
+        end
+    end
     local dataOk, modData = invoke(item, "getModData")
     if dataOk and type(modData) == "table" then
         local copied, copyReason = stableCopy(modData, 5,
@@ -515,12 +591,12 @@ local function captureItem(item)
             entry.personal = copied
         end
     end
-    local firearm = false
-    if type(instanceof) == "function" then
+    local firearm = entry.firearm ~= nil
+    if entry.firearm == nil and entry.magazine == nil and type(instanceof) == "function" then
         local instanceOk, instanceResult = pcall(instanceof, item, "HandWeapon")
         firearm = instanceOk and instanceResult == true
     end
-    if firearm then
+    if firearm and entry.firearm == nil then
         entry.firearm = {}
         local fields = {
             currentAmmo = "getCurrentAmmoCount",
@@ -535,7 +611,8 @@ local function captureItem(item)
                 entry.firearm[key] = value
             end
         end
-    elseif method(item, "getCurrentAmmoCount") ~= nil and method(item, "setCurrentAmmoCount") ~= nil then
+    elseif entry.magazine == nil and method(item, "getCurrentAmmoCount") ~= nil
+        and method(item, "setCurrentAmmoCount") ~= nil then
         -- A spare magazine is an InventoryItem (not a HandWeapon) but still tracks
         -- its loaded rounds. Persist them via a verified getter/setter so a saved
         -- magazine keeps its ammunition and stays usable reload supply after load
@@ -550,6 +627,21 @@ local function captureItem(item)
     if fluid then entry.fluid = fluid end
     entry.visual = captureItemVisual(item)
     return entry
+end
+
+local function captureItem(item)
+    local performance = SC.Performance
+    if not performance or type(performance.isTracing) ~= "function"
+        or performance.isTracing() ~= true then return captureItemCore(item) end
+    local started = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0
+    local scope = performance.beginScope("persistence.item-capture")
+    local values = SC.Call.pack(pcall(captureItemCore, item))
+    performance.endScope(scope)
+    local finished = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or started
+    performance.record("persistence.item-capture", nil,
+        math.max(0, finished - started), 1, false)
+    if values[1] ~= true then error(values[2], 0) end
+    return SC.Call.unpack(values, 2, values.n)
 end
 
 local function captureInventory(actor)
@@ -623,8 +715,10 @@ local function captureInventory(actor)
                 if not partEntry then return nil, partReason or "weapon part has no stable type" end
                 partEntry.id = partId
                 entry.weaponParts[#entry.weaponParts + 1] = partEntry
+                captureYieldPoint()
             end
         end
+        captureYieldPoint()
         return entry
     end
 
@@ -1007,7 +1101,360 @@ local function worldData()
     return store
 end
 
+local function scheduledSubsystemDefinitions()
+    return {
+        { field = "factions", owner = SC.Factions, depth = 12, entries = 131072 },
+        { field = "factionWorld", owner = SC.FactionWorld, depth = 8, entries = 16384 },
+        { field = "baseLife", owner = SC.BaseLife, depth = 24, entries = 65536 },
+        { field = "infectionCrisis", owner = SC.InfectionCrisis,
+            depth = 10, entries = 16384 },
+        { field = "community", owner = SC.Community, depth = 10, entries = 32768 },
+        { field = "tradeRecovery", owner = SC.Trade, depth = 14, entries = 16384 },
+    }
+end
+
+local function identityAppend(result, value)
+    result[#result + 1] = value ~= nil and value or false
+end
+
+local function inventoryIdentitySequence(actor)
+    local result, active, expanded, count = {}, {}, {}, 0
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    if not inventoryOk or inventory == nil then return nil, "inventory_unavailable" end
+    identityAppend(result, inventory)
+    local function appendItem(item, depth)
+        if item == nil or depth > 12 then
+            return item ~= nil and "inventory_cycle_or_depth" or "nil_inventory_item"
+        end
+        identityAppend(result, item)
+        if active[item] then return "inventory_cycle_or_depth" end
+        -- Equipment collections normally reference objects already present in
+        -- the root inventory. Keep that reference in the identity sequence,
+        -- but do not count or walk the same object graph a second time.
+        if expanded[item] then return nil end
+        active[item], expanded[item], count = true, true, count + 1
+        if count > (SC.Config.get("persistence", "maxSavedInventoryItems") or 2048) then
+            return "inventory_identity_limit"
+        end
+        local nestedOk, nested = invoke(item, "getInventory")
+        identityAppend(result, nestedOk and nested or false)
+        if nestedOk and nested ~= nil then
+            local itemsOk, items = invoke(nested, "getItems")
+            if not itemsOk or items == nil then return "nested_inventory_unavailable" end
+            identityAppend(result, listSize(items))
+            for index = 0, listSize(items) - 1 do
+                local reason = appendItem(listGet(items, index), depth + 1)
+                if reason then return reason end
+            end
+        end
+        local partsOk, parts = invoke(item, "getAllWeaponParts")
+        if partsOk and parts ~= nil then
+            identityAppend(result, listSize(parts))
+            for index = 0, listSize(parts) - 1 do identityAppend(result, listGet(parts, index)) end
+        else identityAppend(result, false) end
+        active[item] = nil
+        captureYieldPoint()
+        return nil
+    end
+    local itemsOk, items = invoke(inventory, "getItems")
+    if not itemsOk or items == nil then return nil, "inventory_items_unavailable" end
+    identityAppend(result, listSize(items))
+    for index = 0, listSize(items) - 1 do
+        local reason = appendItem(listGet(items, index), 1)
+        if reason then return nil, reason end
+    end
+    for _, getter in ipairs({ "getPrimaryHandItem", "getSecondaryHandItem" }) do
+        local ok, item = invoke(actor, getter)
+        identityAppend(result, ok and item or false)
+        if ok and item ~= nil then
+            local reason = appendItem(item, 1)
+            if reason then return nil, reason end
+        end
+    end
+    for _, getter in ipairs({ "getWornItems", "getAttachedItems" }) do
+        local ok, collection = invoke(actor, getter)
+        if not ok or collection == nil then identityAppend(result, false)
+        else
+            identityAppend(result, listSize(collection))
+            for index = 0, listSize(collection) - 1 do
+                local wrapper = listGet(collection, index)
+                local itemOk, item = invoke(wrapper, "getItem")
+                local locationOk, location = invoke(wrapper, "getLocation")
+                identityAppend(result, itemOk and item or false)
+                identityAppend(result, locationOk and tostring(location) or false)
+                if itemOk and item ~= nil then
+                    local reason = appendItem(item, 1)
+                    if reason then return nil, reason end
+                end
+            end
+        end
+    end
+    return result
+end
+
+local function sameIdentitySequence(left, right)
+    if type(left) ~= "table" or type(right) ~= "table" or #left ~= #right then return false end
+    for index = 1, #left do if left[index] ~= right[index] then return false end end
+    return true
+end
+
+local function abortScheduledSave(job, reason, current)
+    scheduledSave = nil
+    scheduledSaveRetryAt = current + math.max(100,
+        tonumber(SC.Config.get("persistenceRetryDelayMs")) or 5000)
+    SC.Diagnostics.report("persistence", nil,
+        "scheduled save staging aborted; prior complete document retained", reason)
+    return "failed", reason
+end
+
+function persistence.cancelPendingSave(reason)
+    if scheduledSave == nil then return false, "idle" end
+    scheduledSave.cancelled = tostring(reason or "cancelled")
+    scheduledSave = nil
+    return true, "cancelled"
+end
+
+function persistence.requestScheduledSave(player)
+    local current = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0
+    if scheduledSave ~= nil then return true, "already_pending" end
+    if current < scheduledSaveRetryAt then return false, "retry_delayed" end
+    local store, reason = worldData()
+    if store == nil or saveBlockedReason ~= nil then
+        return false, reason or saveBlockedReason
+    end
+    local records = {}
+    for _, record in ipairs(SC.Registry.records()) do records[#records + 1] = record end
+    scheduledSave = {
+        player = player, store = store, priorDocument = store.document,
+        startedAt = current,
+        deadline = current + math.max(250,
+            tonumber(SC.Config.get("persistenceCaptureDeadlineMs")) or 5000),
+        phase = "subsystems", index = 1,
+        definitions = scheduledSubsystemDefinitions(), records = records,
+        actorAttempts = {},
+        document = {
+            schema = SC.Identity.saveSchema,
+            protocol = SC.Identity.bridgeProtocol,
+            savedAt = current,
+            companions = {}, factionActors = {},
+        },
+    }
+    return true, "requested"
+end
+
+local function beginScheduledCopy(job, source, depth, entries, path, assign)
+    job.copyJob = SC.StableValue.beginCopy(source, {
+        maxDepth = depth, maxEntries = entries, path = path,
+    })
+    job.copyAssign = assign
+end
+
+local function resumeScheduledCopy(job, deadline)
+    local status, copied, reason = SC.StableValue.resumeCopy(job.copyJob, {
+        maxUnits = 256, minUnits = 1, deadline = deadline,
+        clock = type(getTimestampMs) == "function" and getTimestampMs or nil,
+    })
+    if status == "failed" then return false, reason end
+    if status == "complete" then
+        job.copyAssign(copied)
+        job.copyJob, job.copyAssign = nil, nil
+        return true, "complete"
+    end
+    return true, "yielded"
+end
+
+local function scheduledActor(job, record)
+    if (record.recruited ~= true and type(record.factionId) ~= "string")
+        or record.actor == nil then return true end
+    local destination = record.recruited == true
+        and job.document.companions or job.document.factionActors
+    local bucket = record.recruited == true and "companions" or "factionActors"
+    local deadOk, dead = invoke(record.actor, "isDead")
+    if deadOk and dead == true then return true end
+    local inactive = type(record.runtime) == "table" and record.runtime.inactive == true
+    if inactive then
+        local previous = record.runtime.lastStableSnapshot
+            or (pending[record.id] and (pending[record.id].raw or pending[record.id].record))
+            or (type(job.priorDocument) == "table"
+                and type(job.priorDocument[bucket]) == "table"
+                and job.priorDocument[bucket][record.id])
+            or (type(lastDocument) == "table" and type(lastDocument[bucket]) == "table"
+                and lastDocument[bucket][record.id])
+        local preserved, reason = stableCopy(previous, documentDepthLimit(),
+            documentEntryLimit(), "$." .. bucket .. "[" .. tostring(record.id) .. "]")
+        if type(preserved) ~= "table" then return false, reason or "no stable snapshot" end
+        destination[record.id] = preserved
+        return true
+    end
+    local before, beforeReason = inventoryIdentitySequence(record.actor)
+    if before == nil then return false, beforeReason end
+    local vehicleState = SC.Vehicle and type(SC.Vehicle.stateFor) == "function"
+        and SC.Vehicle.stateFor(record.actor) or nil
+    local captured, reason = persistence.captureRecord(record, vehicleState)
+    local after, afterReason = inventoryIdentitySequence(record.actor)
+    if captured ~= nil and after ~= nil and sameIdentitySequence(before, after) then
+        destination[record.id] = captured
+        return true
+    end
+    return false, reason or afterReason or "inventory changed during capture"
+end
+
+local function resumeScheduledActor(job, record, deadline, clock)
+    if job.activeActor == nil or job.activeActor.record ~= record then
+        job.activeActor = {
+            record = record,
+            coroutine = coroutine.create(function() return scheduledActor(job, record) end),
+        }
+    end
+    local units = 0
+    captureYieldHook = function()
+        units = units + 1
+        if units >= 1 and clock() >= deadline then coroutine.yield("capture_yielded") end
+    end
+    local values = SC.Call.pack(coroutine.resume(job.activeActor.coroutine))
+    captureYieldHook = nil
+    if values[1] ~= true then
+        job.activeActor = nil
+        return false, tostring(values[2]), true
+    end
+    if coroutine.status(job.activeActor.coroutine) ~= "dead" then
+        return nil, "yielded", false
+    end
+    job.activeActor = nil
+    return values[2] == true, values[3], true
+end
+
+local function commitScheduled(job, outgoing)
+    local assigned, assignmentReason = pcall(function() job.store.document = outgoing end)
+    if not assigned then
+        local rolledBack, rollbackReason = pcall(function()
+            job.store.document = job.priorDocument
+        end)
+        return false, "save assignment failed: " .. tostring(assignmentReason)
+            .. (rolledBack and "" or "; rollback failed: " .. tostring(rollbackReason))
+    end
+    lastDocument = outgoing
+    return true
+end
+
+function persistence.pulse()
+    local job = scheduledSave
+    if job == nil then return "idle" end
+    local clock = type(getTimestampMs) == "function" and getTimestampMs
+        or function() return math.floor((os.clock and os.clock() or 0) * 1000) end
+    local current = tonumber(clock()) or 0
+    if current >= job.deadline then return abortScheduledSave(job, "capture deadline exceeded", current) end
+    local sliceDeadline = current + math.max(0.1,
+        tonumber(SC.Config.get("persistenceSliceBudgetMs")) or 0.75)
+    local progressed = false
+    repeat
+        progressed = true
+        if job.copyJob ~= nil then
+            local ok, status = resumeScheduledCopy(job, sliceDeadline)
+            if not ok then return abortScheduledSave(job, status, current) end
+            if status == "yielded" then return "yielded" end
+        elseif job.phase == "subsystems" then
+            local definition = job.definitions[job.index]
+            if definition == nil then job.phase, job.index = "actors", 1
+            else
+                local source
+                local quarantine = quarantined.subsystems[definition.field]
+                if quarantine ~= nil then source = quarantine.raw
+                elseif definition.owner and type(definition.owner.export) == "function" then
+                    local called, value, reason = pcall(definition.owner.export)
+                    if not called or value == nil and reason ~= nil then
+                        return abortScheduledSave(job, definition.field .. " export failed: "
+                            .. tostring(called and reason or value), current)
+                    end
+                    source = value
+                end
+                local field = definition.field
+                beginScheduledCopy(job, source, definition.depth, definition.entries,
+                    "$." .. field, function(copied) job.document[field] = copied end)
+                job.index = job.index + 1
+            end
+        elseif job.phase == "actors" then
+            local record = job.records[job.index]
+            if record == nil then job.phase, job.index = "vehicle", 1
+            else
+                local ok, reason, complete = resumeScheduledActor(
+                    job, record, sliceDeadline, clock)
+                if complete ~= true then return "yielded", reason end
+                if not ok then
+                    local attempts = (job.actorAttempts[record.id] or 0) + 1
+                    job.actorAttempts[record.id] = attempts
+                    if attempts > math.max(0, math.floor(tonumber(
+                        SC.Config.get("persistenceActorRetryLimit")) or 2)) then
+                        return abortScheduledSave(job, "active companion capture failed: "
+                            .. tostring(record.id) .. ": " .. tostring(reason), current)
+                    end
+                    return "yielded", "actor_retry"
+                end
+                job.index = job.index + 1
+            end
+        elseif job.phase == "vehicle" then
+            local stored = SC.Vehicle and type(SC.Vehicle.exportStored) == "function"
+                and SC.Vehicle.exportStored() or {}
+            for id, entry in pairs(stored) do job.document.companions[id] = entry end
+            job.phase, job.index = "pending", 1
+            job.pendingKeys = sortedKeys(pending)
+        elseif job.phase == "pending" then
+            local id = job.pendingKeys[job.index]
+            if id == nil then
+                job.phase, job.index = "quarantine", 1
+                job.quarantineEntries = {}
+                for _, bucket in ipairs({ "companions", "factionActors" }) do
+                    for key, entry in pairs(quarantined[bucket]) do
+                        job.quarantineEntries[#job.quarantineEntries + 1] = {
+                            bucket = bucket, id = key, source = entry.raw,
+                        }
+                    end
+                end
+            else
+                local entry = pending[id]
+                job.index = job.index + 1
+                if entry ~= nil then
+                    local bucket = entry.bucket == "factionActors" and "factionActors" or "companions"
+                    local source = type(entry.raw) == "table" and entry.raw or entry.record
+                    if type(source) == "table" and job.document[bucket][id] == nil then
+                        beginScheduledCopy(job, source, documentDepthLimit(), documentEntryLimit(),
+                            "$.pending[" .. tostring(id) .. "]", function(copied)
+                                job.document[bucket][id] = copied
+                            end)
+                    end
+                end
+            end
+        elseif job.phase == "quarantine" then
+            local entry = job.quarantineEntries[job.index]
+            if entry == nil then job.phase = "final"
+            else
+                job.index = job.index + 1
+                if job.document[entry.bucket][entry.id] == nil then
+                    beginScheduledCopy(job, entry.source, documentDepthLimit(),
+                        documentEntryLimit(), "$." .. entry.bucket .. "["
+                            .. tostring(entry.id) .. "]", function(copied)
+                                job.document[entry.bucket][entry.id] = copied
+                            end)
+                end
+            end
+        elseif job.phase == "final" then
+            job.phase = "commit"
+            beginScheduledCopy(job, job.document, documentDepthLimit(), documentEntryLimit(),
+                "$", function(copied) job.outgoing = copied end)
+        elseif job.phase == "commit" then
+            local ok, reason = commitScheduled(job, job.outgoing)
+            if not ok then return abortScheduledSave(job, reason, current) end
+            scheduledSave, scheduledSaveRetryAt = nil, 0
+            return "complete", job.outgoing
+        else
+            return abortScheduledSave(job, "unknown staging phase", current)
+        end
+    until clock() >= sliceDeadline
+    return progressed and "yielded" or "idle"
+end
+
 function persistence.save(player)
+    persistence.cancelPendingSave("synchronous save")
     local store, storeReason = worldData()
     if store == nil then
         return false, storeReason
@@ -2617,6 +3064,7 @@ function persistence.prepareReset()
 end
 
 function persistence.reset()
+    persistence.cancelPendingSave("persistence reset")
     local cancelled, cancelReason = persistence.prepareReset()
     if not cancelled then return false, cancelReason end
     pending = {}
@@ -2628,6 +3076,7 @@ function persistence.reset()
     restoreCommitted = false
     restoreFailureReason = "restore has not committed"
     worldStore = nil
+    scheduledSaveRetryAt = 0
     return true
 end
 

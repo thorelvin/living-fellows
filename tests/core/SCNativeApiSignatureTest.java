@@ -95,6 +95,45 @@ public final class SCNativeApiSignatureTest {
         Class<?> zombieAttackState = Class.forName("zombie.ai.states.AttackState");
         Class<?> playerActionsState = Class.forName("zombie.ai.states.PlayerActionsState");
         Class<?> isoDirection = Class.forName("zombie.iso.IsoDirections");
+        Class<?> thumpable = Class.forName("zombie.iso.objects.IsoThumpable");
+        Class<?> clothing = Class.forName("zombie.inventory.types.Clothing");
+        Class<?> isoWorld = Class.forName("zombie.iso.IsoWorld");
+
+        require(bridge.getDeclaredMethod("captureItemFacts", inventoryItem, kahluaTable)
+                        .getReturnType() == int.class
+                        && bridge.getDeclaredMethod("fillEdgeFacts", gameCharacter,
+                                square, square, kahluaTable).getReturnType() == boolean.class
+                        && bridge.getDeclaredMethod("fillZombieSnapshot", kahluaTable,
+                                int.class).getReturnType() == int.class
+                        && bridge.getDeclaredMethod("getBootstrapGeneration")
+                                .getReturnType() == long.class,
+                "protocol-8 native bulk-read signatures changed");
+        require(method(kahluaTable, "rawset", Object.class, Object.class)
+                                .getReturnType() == void.class
+                        && method(kahluaTable, "rawset", int.class, Object.class)
+                                .getReturnType() == void.class
+                        && method(kahluaTable, "wipe").getReturnType() == void.class
+                        && method(cell, "getZombieList").getReturnType()
+                                == java.util.ArrayList.class
+                        && method(isoWorld, "getCell").getReturnType() == cell,
+                "protocol-8 Kahlua/zombie snapshot dependencies changed");
+        require(method(inventoryItem, "getFullType").getReturnType() == String.class
+                        && method(inventoryItem, "getCurrentAmmoCount").getReturnType()
+                                == int.class
+                        && method(inventoryItem, "getMaxAmmo").getReturnType() == int.class
+                        && method(clothing, "getDirtiness").getReturnType() == float.class
+                        && method(clothing, "getWetness").getReturnType() == float.class,
+                "protocol-8 item fact dependencies changed");
+        require(method(drainableItem, "getCurrentUsesFloat").getReturnType() == float.class,
+                "protocol-8 drainable fact dependencies changed");
+        require(method(square, "getWindowThumpableTo", square).getReturnType() == thumpable
+                        && method(square, "getSpecialObjects").getReturnType()
+                                == java.util.ArrayList.class
+                        && method(square, "testPathFindAdjacent", movingObject,
+                                int.class, int.class, int.class).getReturnType() == boolean.class
+                        && method(thumpable, "TestCollide", movingObject, square, square)
+                                .getReturnType() == boolean.class,
+                "protocol-8 edge fact dependencies changed");
 
         require(Modifier.isFinal(survivor.getModifiers()), "stock IsoSurvivor must remain final");
         require(player.isAssignableFrom(companion) && Modifier.isFinal(companion.getModifiers()),

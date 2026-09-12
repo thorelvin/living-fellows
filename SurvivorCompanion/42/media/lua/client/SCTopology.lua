@@ -8,6 +8,7 @@ if not SC.Call and type(require) == "function" then pcall(require, "SCCall") end
 SC.Topology = SC.Topology or {}
 local Topology = SC.Topology
 local readBatch = nil
+local edgeFactsScratch = {}
 
 -- A batch is a synchronous, read-only graph slice, never a saved path or a TTL
 -- cache. The world is read again after returning/yielding, so a door toggle,
@@ -77,6 +78,21 @@ end
 
 local function U()
     return SC.GameplayUtil
+end
+
+local function nativeEdgeFacts(actor, fromSquare, toSquare)
+    if readBatch == nil or type(_G) ~= "table" or not SC.Call then return nil end
+    local bridge = rawget(_G, "SCBridge")
+    if bridge == nil then return nil end
+    local tracing = SC.Performance and type(SC.Performance.isTracing) == "function"
+        and SC.Performance.isTracing() == true
+    local scope = tracing and SC.Performance.beginScope("navigation.edge-native") or nil
+    local called, filled = SC.Call.static(
+        bridge, "fillEdgeFacts", actor, fromSquare, toSquare, edgeFactsScratch)
+    if scope and SC.Performance and SC.Performance.endScope then
+        SC.Performance.endScope(scope)
+    end
+    return called and filled == true and edgeFactsScratch or nil
 end
 
 local function floorPosition(value)
@@ -502,6 +518,10 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
             and "diagonal_corner" or "same_square"
         return result
     end
+    local nativeFacts = nativeEdgeFacts(actor, fromSquare, toSquare)
+    -- Keep the floor-object water test authoritative: square.hasWater also sees
+    -- water below bridges. The native helper still publishes its raw value for
+    -- diagnostics and future game-version-specific validation.
     if Topology.squareIsWater(toSquare) then
         result.affordance, result.reason = "water", "water_terrain"
         return result
@@ -509,11 +529,25 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
     -- The stock player pathfinder rejects tree-occupied destinations even
     -- though the broad square-free probe can admit them. Treat the trunk cell
     -- as a detour and retain only the existing clearance cost for neighbours.
-    if Topology.squareHasTree(toSquare) then
+    if nativeFacts and nativeFacts.tree == true
+        or not nativeFacts and Topology.squareHasTree(toSquare) then
         result.affordance, result.reason = "tree", "tree_occupied"
         return result
     end
-    local hazards = Topology.squareHazards(toSquare)
+    local hazards = nativeFacts and {
+        fire = nativeFacts.fire == true,
+        brokenGlass = nativeFacts.brokenGlass == true,
+    } or Topology.squareHazards(toSquare)
+    -- Explosive traps are policy-sensitive and not represented by a stable
+    -- public square getter, so preserve the Lua object scan for that one fact.
+    if nativeFacts then
+        U().squareObjects(toSquare, function(object)
+            if U().instanceOf(object, "IsoTrap") then
+                hazards.explosiveTrap = true
+                return false
+            end
+        end, 64)
+    end
     result.hazards = hazards
     local hazardCost = 0
     if hazards.fire then
@@ -536,13 +570,16 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
         hazardCost = hazardCost
             + (tonumber(U().config("navigationBrokenGlassPenalty")) or 8)
     end
-    local vehicle, vehicleOk = U().call(toSquare, "getVehicleContainer")
+    local vehicle, vehicleOk = nativeFacts and nativeFacts.vehicle, nativeFacts ~= nil
+    if not nativeFacts then vehicle, vehicleOk = U().call(toSquare, "getVehicleContainer") end
     if vehicleOk and vehicle ~= nil then
         result.affordance, result.reason, result.object =
             "vehicle", "vehicle_footprint", vehicle
         return result
     end
-    if not U().isSquareFree(toSquare) then
+    local squareFree = nativeFacts and nativeFacts.squareFree == true
+        or not nativeFacts and U().isSquareFree(toSquare)
+    if not squareFree then
         result.affordance, result.reason = "blocked", "square_blocked"
         return result
     end
@@ -551,15 +588,29 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
         return result
     end
 
-    local object, kind = Topology.barrierBetween(fromSquare, toSquare)
-    if kind == "open" and (Topology.squareHasSlope(fromSquare)
-        or Topology.squareHasSlope(toSquare)) then kind = "slope" end
+    local object, kind
+    if nativeFacts then
+        object, kind = nativeFacts.barrierObject, tostring(nativeFacts.barrierKind or "invalid")
+    else
+        object, kind = Topology.barrierBetween(fromSquare, toSquare)
+    end
+    if kind == "open" and (nativeFacts and (nativeFacts.slopeFrom == true
+        or nativeFacts.slopeTo == true) or not nativeFacts
+        and (Topology.squareHasSlope(fromSquare) or Topology.squareHasSlope(toSquare))) then
+        kind = "slope"
+    end
     result.object, result.affordance = object, kind
     if kind == "invalid" or kind == "blocked" or kind == "diagonal" then
         result.reason = kind == "diagonal" and "diagonal_corner" or "blocked_edge"
         return result
     end
-    local thumpable, thumpableKind = thumpableBlocker(actor, fromSquare, toSquare)
+    local thumpable, thumpableKind
+    if nativeFacts then
+        thumpable, thumpableKind = nativeFacts.thumpableObject,
+            nativeFacts.thumpableKind
+    else
+        thumpable, thumpableKind = thumpableBlocker(actor, fromSquare, toSquare)
+    end
     -- A player-built hoppable IsoThumpable still reports collision. Once the
     -- edge getters have positively identified that exact object as a door,
     -- window or fence, its collision is the traversal affordance—not a second
@@ -574,8 +625,12 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
     end
 
     if kind == "open" then
-        local nativeBlocked, nativeOk = U().call(fromSquare, "testPathFindAdjacent", actor,
-            tx - fx, ty - fy, tz - fz)
+        local nativeBlocked, nativeOk = nativeFacts and nativeFacts.nativeBlocked,
+            nativeFacts ~= nil
+        if not nativeFacts then
+            nativeBlocked, nativeOk = U().call(fromSquare, "testPathFindAdjacent", actor,
+                tx - fx, ty - fy, tz - fz)
+        end
         if nativeOk and nativeBlocked == true then
             result.affordance, result.reason = "blocked", "native_directional_edge"
             return result
@@ -629,8 +684,10 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
         end
         result.requiresNative = true
     elseif kind == "stairs" then
-        if not (Topology.squareHasStairs(fromSquare)
-            or Topology.squareHasStairs(toSquare)) then
+        local hasStairs = nativeFacts and (nativeFacts.stairsFrom == true
+            or nativeFacts.stairsTo == true) or not nativeFacts
+            and (Topology.squareHasStairs(fromSquare) or Topology.squareHasStairs(toSquare))
+        if not hasStairs then
             result.reason = "stairs_not_confirmed" return result
         end
         result.cost, result.requiresNative = 3, true
@@ -645,7 +702,7 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
     return result
 end
 
-function Topology.classifyEdge(actor, fromSquare, toSquare, options)
+local function classifyEdgeCached(actor, fromSquare, toSquare, options)
     if not readBatch or fromSquare == nil or toSquare == nil then
         return classifyEdge(actor, fromSquare, toSquare, options)
     end
@@ -671,6 +728,23 @@ function Topology.classifyEdge(actor, fromSquare, toSquare, options)
         readBatch.count = readBatch.count + 1
     end
     return result
+end
+
+function Topology.classifyEdge(actor, fromSquare, toSquare, options)
+    local performance = SC.Performance
+    if not performance or type(performance.isTracing) ~= "function"
+        or performance.isTracing() ~= true then
+        return classifyEdgeCached(actor, fromSquare, toSquare, options)
+    end
+    local started = U().nowMs()
+    local scope = performance.beginScope("navigation.edge-classification")
+    local values = SC.Call.pack(pcall(
+        classifyEdgeCached, actor, fromSquare, toSquare, options))
+    performance.endScope(scope)
+    performance.record("navigation.edge-classification", U().idOf(actor),
+        U().nowMs() - started, 1, false)
+    if values[1] ~= true then error(values[2], 0) end
+    return SC.Call.unpack(values, 2, values.n)
 end
 
 local cardinalOffsets = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }

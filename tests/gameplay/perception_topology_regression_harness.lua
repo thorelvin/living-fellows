@@ -111,6 +111,88 @@ check(not T.classifyEdge(observer, origin, destination, {}).traversable,
     "failure releases its memo before the next world read")
 destination.solid = false
 
+local function testNativeFastPaths()
+-- Protocol-8 edge facts are authoritative only inside the synchronous read
+-- batch. Prove the native table is consumed, reused and discarded before the
+-- following world read rather than merely being populated beside the Lua path.
+local originalSCBridge = SCBridge
+local edgeFactCalls = 0
+SCBridge = {
+    fillEdgeFacts = function(_, fromSquare, toSquare, out)
+        edgeFactCalls = edgeFactCalls + 1
+        for key in pairs(out) do out[key] = nil end
+        out.tree, out.fire, out.brokenGlass = false, false, false
+        out.squareFree = true
+        out.barrierKind = "open"
+        out.nativeBlocked = false
+        out.stairsFrom, out.stairsTo = false, false
+        out.slopeFrom, out.slopeTo = false, false
+        return true
+    end,
+}
+destination.solid = true
+local nativeOpen = T.withReadBatch(function()
+    local first = T.classifyEdge(observer, origin, destination, {})
+    local second = T.classifyEdge(observer, origin, destination, {})
+    return first, second
+end)
+check(nativeOpen.traversable == true and edgeFactCalls == 1,
+    "protocol-8 edge facts drive one cached classification inside a read batch")
+SCBridge = originalSCBridge
+check(not T.withReadBatch(T.classifyEdge, observer, origin, destination, {}).traversable,
+    "native edge facts never survive into a later read batch")
+destination.solid = false
+
+-- A coherent protocol-8 zombie copy is immediately complete and shared for
+-- its 250 ms cadence. Overflow must reject a partial prefix and use the sliced
+-- roster, which cannot claim negative evidence from the discarded prefix.
+local bulkNear = actor(3, 2, 0, "IsoZombie")
+local bulkFar = actor(200, 200, 0, "IsoZombie")
+local bulkCalls = 0
+SCBridge = {
+    fillZombieSnapshot = function(out, maximum)
+        bulkCalls = bulkCalls + 1
+        for key in pairs(out) do out[key] = nil end
+        local values = { bulkNear, bulkNear.x, bulkNear.y, bulkNear.z,
+            bulkFar, bulkFar.x, bulkFar.y, bulkFar.z }
+        for index, value in ipairs(values) do out[index] = value end
+        return 2
+    end,
+}
+Scan.reset()
+current = current + 300
+local bulkState = {}
+local bulkResult, bulkMeta = Scan.nativeCandidates(observer, bulkState, 24, 64)
+check(#bulkResult == 1 and bulkResult[1] == bulkNear
+        and bulkMeta.freshComplete == true and bulkCalls == 1
+        and bulkState.nativeRosterSource[1] == bulkNear
+        and bulkState.nativeRosterSource[2] == bulkNear.x,
+    "protocol-8 coherent flat snapshot publishes nearby threats without per-zombie wrappers")
+current = current + 100
+Scan.nativeCandidates(observer, {}, 24, 64)
+check(bulkCalls == 1, "protocol-8 zombie snapshot is shared during its 250 ms cadence")
+
+local discardedPrefix = actor(2, 2, 0, "IsoZombie")
+SCBridge.fillZombieSnapshot = function(out, maximum)
+    bulkCalls = bulkCalls + 1
+    for key in pairs(out) do out[key] = nil end
+    out[1], out[2], out[3], out[4] = discardedPrefix, 2, 2, 0
+    out.requiredCount = maximum + 1
+    return -2
+end
+zombies = { bulkFar }
+Scan.reset()
+current = current + 300
+local overflowReads = list.reads
+local overflowResult, overflowMeta = Scan.nativeCandidates(observer, {}, 24, 64)
+check(#overflowResult == 0 and overflowMeta.freshComplete ~= true
+        and list.reads > overflowReads,
+    "protocol-8 overflow discards its prefix and falls back without false negative proof")
+SCBridge = originalSCBridge
+Scan.reset()
+end
+testNativeFastPaths()
+
 local job = T.newEscapeSearch(observer, origin, {nodeBudget=64, radius=5})
 local timeReads = 0
 local raw, exits, meta = T.resumeEscapeSearch(job, 24, 1, function()

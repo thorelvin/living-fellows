@@ -74,6 +74,10 @@ public final class SCBootstrap {
         return status;
     }
 
+    public static long getGeneration() {
+        return generation;
+    }
+
     private static boolean isCurrent(BootstrapRun run) {
         return run != null && !run.cancelled && started && activeRun == run
                 && generation == run.generation;

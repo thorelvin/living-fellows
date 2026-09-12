@@ -16,10 +16,12 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 
+import se.krka.kahlua.vm.KahluaTable;
 import zombie.MainThread;
 import zombie.Lua.Event;
 import zombie.Lua.LuaEventManager;
 import zombie.ai.states.AttackState;
+import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.characters.SurvivorDesc;
@@ -30,15 +32,32 @@ import zombie.characters.CharacterTimedActions.BaseAction;
 import zombie.characters.SurvivorFactory;
 import zombie.core.Core;
 import zombie.core.skinnedmodel.ModelManager;
+import zombie.inventory.InventoryItem;
+import zombie.inventory.types.Clothing;
+import zombie.inventory.types.DrainableComboItem;
+import zombie.inventory.types.Food;
+import zombie.inventory.types.HandWeapon;
+import zombie.inventory.types.Key;
 import zombie.iso.IsoCell;
+import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
+import zombie.iso.IsoObject;
+import zombie.iso.IsoWorld;
+import zombie.iso.objects.IsoDoor;
+import zombie.iso.objects.IsoThumpable;
+import zombie.iso.objects.IsoWindow;
 import zombie.vehicles.BaseVehicle;
 import zombie.network.GameClient;
 import zombie.network.GameServer;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.20-isocompanion-7";
+    public static final String PROTOCOL = "42.20-isocompanion-8";
+    public static final int ITEM_FACT_FOOD = 1;
+    public static final int ITEM_FACT_DRAINABLE = 1 << 1;
+    public static final int ITEM_FACT_HAND_WEAPON = 1 << 2;
+    public static final int ITEM_FACT_MAGAZINE = 1 << 3;
+    public static final int ITEM_FACT_KEY = 1 << 4;
     /**
      * Core.getVersionNumber() reports the public release family (42.20) in a
      * live game, even though this bridge is compiled and signature-tested
@@ -224,6 +243,278 @@ public final class SCBridge {
 
     public static String getLastFailure() {
         return lastFailure;
+    }
+
+    public static long getBootstrapGeneration() {
+        return SCBootstrap.getGeneration();
+    }
+
+    private static boolean onGameThread() {
+        return Thread.currentThread() == MainThread.mainThread;
+    }
+
+    private static void put(KahluaTable table, String key, Object value) {
+        table.rawset(key, value);
+    }
+
+    /**
+     * Captures the hot, scalar portion of an item snapshot without crossing the
+     * Lua/Java boundary once per field. Complex graph-shaped state deliberately
+     * stays in Lua, where its existing validation and cycle limits remain the
+     * authority. The caller owns and may reuse {@code out}.
+     */
+    public static int captureItemFacts(InventoryItem item, KahluaTable out) {
+        lastFailure = "";
+        if (!onGameThread() || item == null || out == null) {
+            lastFailure = "captureItemFacts requires the game thread, an item, and an output table";
+            return -1;
+        }
+        try {
+            out.wipe();
+            int mask = 0;
+            put(out, "type", item.getFullType());
+            put(out, "condition", item.getCondition());
+            put(out, "favorite", item.isFavorite());
+            put(out, "scalar_uses", item.getUses());
+            put(out, "scalar_age", item.getAge());
+            put(out, "scalar_offAge", item.getOffAge());
+            put(out, "scalar_offAgeMax", item.getOffAgeMax());
+            put(out, "scalar_bloodLevel", item.getBloodLevel());
+            put(out, "scalar_repairs", item.getHaveBeenRepaired());
+            put(out, "scalar_cooked", item.isCooked());
+            put(out, "scalar_burnt", item.isBurnt());
+            put(out, "scalar_activated", item.isActivated());
+
+            if (item instanceof Clothing clothing) {
+                put(out, "scalar_dirtiness", clothing.getDirtiness());
+                put(out, "scalar_wetness", clothing.getWetness());
+            }
+            if (item instanceof DrainableComboItem drainable) {
+                mask |= ITEM_FACT_DRAINABLE;
+                put(out, "drainable_currentUses", drainable.getCurrentUsesFloat());
+            }
+            if (item instanceof Food food) {
+                mask |= ITEM_FACT_FOOD;
+                put(out, "scalar_frozen", food.isFrozen());
+                put(out, "food_baseHunger", food.getBaseHunger());
+                put(out, "food_hungChange", food.getHungChange());
+                put(out, "food_thirstChange", food.getThirstChangeUnmodified());
+                put(out, "food_boredomChange", food.getBoredomChangeUnmodified());
+                put(out, "food_unhappyChange", food.getUnhappyChangeUnmodified());
+                put(out, "food_calories", food.getCalories());
+                put(out, "food_carbohydrates", food.getCarbohydrates());
+                put(out, "food_lipids", food.getLipids());
+                put(out, "food_proteins", food.getProteins());
+                put(out, "food_heat", food.getHeat());
+                put(out, "food_freezingTime", food.getFreezingTime());
+                put(out, "food_poisonPower", food.getPoisonPower());
+                put(out, "food_poisonDetection", food.getPoisonDetectionLevel());
+                put(out, "food_useForPoison", food.getUseForPoison());
+                put(out, "food_lastCookMinute", food.getLastCookMinute());
+                put(out, "food_microwaved", food.isCookedInMicrowave());
+                put(out, "food_packaged", food.isPackaged());
+                put(out, "food_dangerousUncooked", food.isbDangerousUncooked());
+                put(out, "food_removeNegativeWhenCooked", food.isRemoveNegativeEffectOnCooked());
+            }
+
+            int keyId = item.getKeyId();
+            if (item instanceof Key && keyId >= 0) {
+                mask |= ITEM_FACT_KEY;
+                put(out, "key_id", keyId);
+            }
+            if (item instanceof HandWeapon weapon) {
+                mask |= ITEM_FACT_HAND_WEAPON;
+                put(out, "firearm_currentAmmo", weapon.getCurrentAmmoCount());
+                put(out, "firearm_containsClip", weapon.isContainsClip());
+                put(out, "firearm_roundChambered", weapon.isRoundChambered());
+                put(out, "firearm_jammed", weapon.isJammed());
+                put(out, "firearm_fireMode", weapon.getFireMode());
+            } else {
+                // Build 42 represents detachable magazines as InventoryItem;
+                // maxAmmo is the reliable distinction from ordinary items.
+                int maxAmmo = item.getMaxAmmo();
+                if (maxAmmo > 0) {
+                    mask |= ITEM_FACT_MAGAZINE;
+                    put(out, "magazine_currentAmmo", item.getCurrentAmmoCount());
+                }
+            }
+            return mask;
+        } catch (RuntimeException | LinkageError failure) {
+            try { out.wipe(); } catch (RuntimeException ignored) {}
+            lastFailure = cleanFailure("item fact capture failed: "
+                    + failure.getClass().getSimpleName());
+            return -1;
+        }
+    }
+
+    /**
+     * Publishes a coherent flat zombie roster in one main-thread call. Numeric
+     * keys contain actor,x,y,z quadruples. Overflow never publishes a prefix,
+     * so Lua cannot mistake an incomplete sample for negative evidence.
+     */
+    public static int fillZombieSnapshot(KahluaTable out, int maximum) {
+        lastFailure = "";
+        if (!onGameThread() || out == null || maximum < 0) {
+            lastFailure = "fillZombieSnapshot requires the game thread and a valid output table";
+            return -1;
+        }
+        try {
+            out.wipe();
+            IsoCell cell = IsoWorld.instance == null ? null : IsoWorld.instance.getCell();
+            ArrayList<IsoZombie> zombies = cell == null ? null : cell.getZombieList();
+            if (zombies == null) return 0;
+            int count = zombies.size();
+            if (count > maximum) {
+                put(out, "requiredCount", count);
+                return -2;
+            }
+            int output = 1;
+            for (int index = 0; index < count; index++) {
+                IsoZombie zombie = zombies.get(index);
+                if (zombie == null) continue;
+                out.rawset(output++, (Object) zombie);
+                out.rawset(output++, Float.valueOf(zombie.getX()));
+                out.rawset(output++, Float.valueOf(zombie.getY()));
+                out.rawset(output++, Float.valueOf(zombie.getZ()));
+            }
+            int published = (output - 1) / 4;
+            put(out, "count", published);
+            return published;
+        } catch (RuntimeException | LinkageError failure) {
+            try { out.wipe(); } catch (RuntimeException ignored) {}
+            lastFailure = cleanFailure("zombie snapshot failed: "
+                    + failure.getClass().getSimpleName());
+            return -1;
+        }
+    }
+
+    /**
+     * Reads edge geometry into a caller-reused table. This helper publishes
+     * facts only; Lua remains authoritative for keys, hazards, safehouses,
+     * costs, reservations and companion capability.
+     */
+    public static boolean fillEdgeFacts(IsoGameCharacter actor, IsoGridSquare from,
+            IsoGridSquare to, KahluaTable out) {
+        lastFailure = "";
+        if (!onGameThread() || from == null || to == null || out == null) {
+            return failBoolean("fillEdgeFacts requires the game thread and loaded squares");
+        }
+        try {
+            out.wipe();
+            int fx = from.getX(), fy = from.getY(), fz = from.getZ();
+            int tx = to.getX(), ty = to.getY(), tz = to.getZ();
+            int dx = tx - fx, dy = ty - fy, dz = tz - fz;
+            put(out, "fromX", fx); put(out, "fromY", fy); put(out, "fromZ", fz);
+            put(out, "toX", tx); put(out, "toY", ty); put(out, "toZ", tz);
+            put(out, "water", to.hasWater());
+            put(out, "tree", to.HasTree() || to.getTree() != null);
+            put(out, "fire", to.haveFire());
+            put(out, "brokenGlass", to.getBrokenGlass() != null);
+            put(out, "vehicle", to.getVehicleContainer());
+            put(out, "squareFree", to.isFree(true) && !to.isSolid()
+                    && !to.isSolidTrans() && to.TreatAsSolidFloor());
+            put(out, "stairsFrom", from.HasStairs());
+            put(out, "stairsTo", to.HasStairs());
+            put(out, "slopeFrom", from.hasSlopedSurface());
+            put(out, "slopeTo", to.hasSlopedSurface());
+
+            if (fz != tz) {
+                put(out, "barrierKind", Math.abs(dx) + Math.abs(dy) > 1 ? "invalid" : "stairs");
+                return true;
+            }
+            if (Math.abs(dx) + Math.abs(dy) != 1) {
+                put(out, "barrierKind", dx == 0 && dy == 0 ? "same" : "diagonal");
+                return true;
+            }
+
+            IsoGridSquare owner = from;
+            boolean north;
+            if (ty < fy) north = true;
+            else if (ty > fy) { owner = to; north = true; }
+            else if (tx < fx) north = false;
+            else { owner = to; north = false; }
+
+            IsoObject barrier = from.getWindowTo(to);
+            String kind = barrier == null ? null : "window";
+            if (barrier == null) { barrier = from.getWindowThumpableTo(to); kind = barrier == null ? null : "window"; }
+            if (barrier == null) { barrier = from.getWindowFrameTo(to); kind = barrier == null ? null : "window_frame"; }
+            if (barrier == null) { barrier = from.getDoorTo(to); kind = barrier == null ? null : "door"; }
+            if (barrier == null) { barrier = owner.getGarageDoor(north); kind = barrier == null ? null : "door"; }
+            if (barrier == null) {
+                IsoObject contextual = owner.getDoorOrWindow(north);
+                if (contextual instanceof IsoWindow || contextual != null && contextual.isWindow()) {
+                    barrier = contextual; kind = "window";
+                } else if (contextual instanceof IsoDoor
+                        || contextual instanceof IsoThumpable thumpable && thumpable.isDoor()) {
+                    barrier = contextual; kind = "door";
+                }
+            }
+            if (barrier == null && from.isDoorTo(to)) {
+                barrier = owner.getDoor(north); kind = "door";
+            }
+            if (barrier == null && from.isWindowTo(to)) {
+                barrier = owner.getWindow(north);
+                if (barrier == null) barrier = owner.getThumpableWindow(north);
+                if (barrier == null) {
+                    barrier = owner.getWindowFrame(north);
+                    kind = barrier == null ? "window" : "window_frame";
+                } else kind = "window";
+            }
+            if (barrier == null) { barrier = from.getHoppableThumpableTo(to); kind = barrier == null ? null : "fence"; }
+            if (barrier == null) { barrier = from.getHoppableTo(to); kind = barrier == null ? null : "fence"; }
+            if (barrier == null) { barrier = from.getWallHoppableTo(to); kind = barrier == null ? null : "fence"; }
+            if (barrier == null && from.isHoppableTo(to)) kind = "fence";
+
+            boolean ordinaryBlocked = from.isBlockedTo(to);
+            if (kind == null && ordinaryBlocked) {
+                IsoDirections direction = dy < 0 ? IsoDirections.N : dy > 0
+                        ? IsoDirections.S : dx < 0 ? IsoDirections.W : IsoDirections.E;
+                kind = from.isPlayerAbleToHopWallTo(direction, to) ? "fence" : "blocked";
+            }
+            if (kind == null) kind = "open";
+            put(out, "barrierObject", barrier);
+            put(out, "barrierKind", kind);
+            put(out, "nativeBlocked", kind.equals("open")
+                    && from.testPathFindAdjacent(actor, dx, dy, dz));
+
+            writeThumpableBlocker(actor, from, to, out);
+            return true;
+        } catch (RuntimeException | LinkageError failure) {
+            try { out.wipe(); } catch (RuntimeException ignored) {}
+            return failBoolean("edge fact capture failed: "
+                    + failure.getClass().getSimpleName());
+        }
+    }
+
+    private static void writeThumpableBlocker(IsoGameCharacter actor,
+            IsoGridSquare from, IsoGridSquare to, KahluaTable out) {
+        for (IsoGridSquare square : new IsoGridSquare[] { from, to }) {
+            ArrayList<IsoObject> objects = square.getSpecialObjects();
+            if (objects == null) continue;
+            int maximum = Math.min(objects.size(), 48);
+            for (int index = 0; index < maximum; index++) {
+                IsoObject object = objects.get(index);
+                if (object == null) continue;
+                if (square == to && object.isMovedThumpable()) {
+                    put(out, "thumpableObject", object);
+                    put(out, "thumpableKind", "moved_object");
+                    return;
+                }
+                if (!(object instanceof IsoThumpable thumpable)) continue;
+                if (square == to && thumpable.isBlockAllTheSquare()) {
+                    put(out, "thumpableObject", object);
+                    put(out, "thumpableKind", "full_square_thumpable");
+                    return;
+                }
+                if (!thumpable.isDoor() && !thumpable.isWindow()
+                        && !thumpable.isCanPassThrough()
+                        && thumpable.TestCollide(actor, from, to)) {
+                    put(out, "thumpableObject", object);
+                    put(out, "thumpableKind", "wall_thumpable");
+                    return;
+                }
+            }
+        }
     }
 
     /**

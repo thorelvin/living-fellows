@@ -3,6 +3,7 @@ package zombie.iso;
 
 import java.util.ArrayList;
 import zombie.characters.IsoSurvivor;
+import zombie.characters.IsoZombie;
 
 public class IsoCell {
     public IsoCell(int width, int height) {}
@@ -10,5 +11,6 @@ public class IsoCell {
     public IsoGridSquare getGridSquare(int x, int y, int z) { return null; }
     public IsoGridSquare getGridSquare(Double x, Double y, Double z) { return null; }
     public ArrayList<IsoSurvivor> getSurvivorList() { return null; }
+    public ArrayList<IsoZombie> getZombieList() { return null; }
     public java.util.Set<IsoMovingObject> getObjectList() { return null; }
 }

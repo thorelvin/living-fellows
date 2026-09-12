@@ -432,4 +432,44 @@ check(overflowSaved == true
         and deepEqual(overflowOutgoing.companions["sc-overflow-pending"], overflowRecord),
     "one-over failure preserves the complete prior record instead of truncating it")
 
+-- Periodic saves stage a complete document without exposing intermediate
+-- subsystem/actor copies. A deliberately advancing sub-millisecond clock makes
+-- the 0.75 ms slices observable in the headless VM.
+check(SC.Persistence.reset() == true, "scheduled-save test starts cleanly")
+local stagedStore = SC_TEST_SET_WORLD_STORE({ document = { sentinel = "prior-complete" } })
+local stagedPlayer = { getModData = function() return {} end }
+local priorTimestamp = getTimestampMs
+local stagedClock = 2000
+getTimestampMs = function()
+    stagedClock = stagedClock + 0.2
+    return stagedClock
+end
+local requested, requestReason = SC.Persistence.requestScheduledSave(stagedPlayer)
+check(requested == true and requestReason == "requested"
+        and stagedStore.document.sentinel == "prior-complete",
+    "scheduled save request leaves the prior atomic document assigned")
+local stagedStatus, stagedOutgoing
+local stagedYielded = false
+for _ = 1, 10000 do
+    stagedStatus, stagedOutgoing = SC.Persistence.pulse()
+    if stagedStatus == "yielded" then
+        stagedYielded = true
+        check(stagedStore.document.sentinel == "prior-complete",
+            "yielded save pulse never publishes partial staging")
+    else break end
+end
+check(stagedYielded and stagedStatus == "complete"
+        and type(stagedOutgoing) == "table"
+        and stagedStore.document == stagedOutgoing
+        and stagedStore.document.sentinel == nil,
+    "scheduled save completes through bounded pulses and commits once")
+
+check(SC.Persistence.requestScheduledSave(stagedPlayer) == true,
+    "a second scheduled save can enter staging")
+local synchronous, synchronousDocument = SC.Persistence.save(stagedPlayer)
+check(synchronous == true and type(synchronousDocument) == "table"
+        and SC.Persistence.pulse() == "idle",
+    "synchronous OnSave-style capture cancels staging and commits a fresh document")
+getTimestampMs = priorTimestamp
+
 print("PERSISTENCE_TRANSACTION_KAHLUA_PASS checks=" .. tostring(checks))

@@ -324,5 +324,37 @@ check(cycleTrial == false and contains(cycleTrialReason, "$.recruitment.origin[s
 
 SC.Commands = productionCommands
 
+local sharedLeaf = { value = 17 }
+local resumableSource = {
+    alpha = { one = 1, two = 2 },
+    beta = sharedLeaf,
+    gamma = sharedLeaf,
+}
+local copyJob = SC.StableValue.beginCopy(resumableSource, {
+    maxDepth = 4, maxEntries = 32, path = "$.resumable",
+})
+local yielded, status, copied, copyReason = false
+repeat
+    status, copied, copyReason = SC.StableValue.resumeCopy(copyJob, { maxUnits = 1 })
+    yielded = yielded or status == "yielded"
+until status ~= "yielded"
+check(yielded and status == "complete" and copyReason == nil
+        and copied.alpha.two == 2 and copied.beta.value == 17
+        and copied.gamma.value == 17 and copied.beta ~= copied.gamma,
+    "resumable strict copy yields, completes, and preserves non-cyclic repeated tables")
+
+local resumableCycle = {}
+resumableCycle.self = resumableCycle
+local cycleJob = SC.StableValue.beginCopy(resumableCycle, {
+    maxDepth = 4, maxEntries = 16, path = "$.resumableCycle",
+})
+repeat
+    status, copied, copyReason = SC.StableValue.resumeCopy(cycleJob, { maxUnits = 2 })
+until status ~= "yielded"
+check(status == "failed" and copied == nil
+        and contains(copyReason, "$.resumableCycle[self]")
+        and contains(copyReason, "cyclic"),
+    "resumable strict copy reports the same precise active-path cycle failure")
+
 print("STRICT_COPY_BOUNDARY_HARNESS_PASS checks=" .. tostring(checks)
     .. " detaches=" .. tostring(detachCount) .. " rollbacks=" .. tostring(rollbackCount))
