@@ -5,7 +5,7 @@
 ## Mandatory gate before launch
 
 - [ ] `scripts\Test-Project.ps1` passes against Project Zomboid 42.20.4.
-- [ ] `VERSION.txt`, both `mod.info` files and the Support tab all report 0.22.19.
+- [ ] `VERSION.txt`, both `mod.info` files and the Support tab all report 0.22.20.
 - [ ] Workshop-path testing has ZombieBuddy 2.3.3 or newer enabled before Living Fellows.
 - [ ] The loose legacy `zombie\characters\IsoSurvivor.class` is absent and the game is closed.
 - [ ] The local install displays `PRIVATE-NATIVE-BRIDGE.txt`.
@@ -56,9 +56,12 @@
 - [ ] In ordinary Follow, crouching, walking and running are mirrored without rapid pose resets; while holding formation, the companion remains crouched when the player remains crouched.
 - [ ] Catch-up and immediate combat may override Copy player; retreat and true overrun always request native running on clear ground, then return to copied movement after the urgent condition clears.
 - [ ] During escape, doors, fences, stairs, windows and unavoidable vegetation walk only for their constrained transition; running resumes on the next clear edge.
+- [ ] Run a roughly 10-tile circle in an open field: a trailing companion takes a smooth safe chord toward the current formation slot instead of tracing the circle or making sharp tile-centre turns; a true reversal still uses a normal turn animation.
+- [ ] Cross a low fence, tall football fence, player-built hoppable fence, empty window frame, ordinary window, and multi-tile garage door. Each is planned before arrival, uses the same validated native/context action as the player, and leaves the companion fully clear of the object.
+- [ ] Leave a companion well behind on the near side of a fence or window, cross it, and continue along the far side. The companion joins a reachable pre-portal breadcrumb and crosses at the player's opening instead of searching in place.
 - [ ] Doors/open leaves, locked or obstructed gates, cars/trailers, moved furniture, full-square thumpables, narrow gaps, stairs/slopes, crowds and safehouse boundaries cannot trap a follower on a repeatedly selected edge.
 - [ ] While native routing is still pending or turning at an obstacle, the companion waits without restarting the request, sliding, or reporting a false stuck recovery.
-- [ ] Two companions approaching a door, fence or stair reserve the whole short choke in order; the second waits outside and proceeds after the first clears it.
+- [ ] Two companions approaching a door, window, window frame, fence, stair or slope reserve the whole short choke in order; the second waits outside and proceeds after the first clears it.
 - [ ] Four or more companions approaching the same door remain in a stable priority/FIFO queue; no later ordinary request steals an occupied corridor, and its lease remains owned throughout a slow native transition.
 - [ ] Put two companions head-to-head in a narrow aisle: the deterministic lower-priority actor receives a yield request and sidesteps when possible; if neither side is free, bounded deadlock recovery eventually clears the aisle without both actors switching sides every frame.
 - [ ] Approach the same sink, container, patient and construction target from blocked sides; the companion chooses another reachable interaction position without circling or retrying the enclosed side.

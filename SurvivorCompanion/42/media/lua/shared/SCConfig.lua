@@ -124,6 +124,13 @@ local valueData = {
     runDistance = 0.075,
     sneakDistance = 0.032,
     movementSoundDelta = 1.0,
+    -- Manual player-track movement waits for the stock turn-in-place animation
+    -- only on sharp heading changes. This is a dot product: 0.8 is about 37°.
+    movementTurnBeforeMoveDot = 0.8,
+    -- A validated open-ground follow vector may bend while the actor is already
+    -- moving. Keep translation through ordinary 45/90-degree corrections and
+    -- reserve the stop-and-turn state for changes sharper than about 104°.
+    movementContinuousTurnBeforeMoveDot = -0.25,
 
     perceptionRadius = 24,
     -- Cursor-bounded native candidates make off-axis 20-tile contacts practical;
@@ -220,6 +227,11 @@ local valueData = {
     -- from living forever while a moving Follow goal keeps changing.
     navigationPathSearchLeaseMs = 6500,
     navigationPathSearchHardMs = 30000,
+    -- Formation goals keep moving and usually have a player breadcrumb. Do not
+    -- leave a follower stationary for the generic 30-second planning bound if
+    -- that shortcut is unavailable; re-sample and replan promptly.
+    navigationFollowPathSearchLeaseMs = 2500,
+    navigationFollowPathSearchHardMs = 5000,
     navigationNativePendingMs = 6500,
     -- Whole-building routes to another floor stay owned by PathFindBehavior2.
     -- Unlike a one-tile native affordance, reaching the staircase may itself take
@@ -229,6 +241,10 @@ local valueData = {
     navigationNativeStartGraceMs = 650,
     navigationNativeTurnGraceMs = 900,
     navigationNativeStallMs = 1400,
+    -- Build 42 can report an idle/failed PathFindBehavior2 at an already-open
+    -- doorway. After native steering has had its normal chance, allow one short
+    -- collision-validated direct crossing instead of blacklisting the exit.
+    navigationOpenDoorDirectFallbackMs = 2000,
     navigationMultiLevelStallMs = 3000,
     navigationProgressDistance = 0.08,
     navigationGoalProgressDistance = 0.05,
@@ -279,7 +295,29 @@ local valueData = {
     -- PathFindBehavior2.  A small tolerance avoids needless shuffling while
     -- keeping the crossing angle clear of both sides of the frame.
     navigationDoorApproachLateralTolerance = 0.18,
+    -- Window traversal mirrors the player action: stand centred on the source
+    -- side, stop short of the frame, finish turning, then hand off to the native
+    -- ClimbThroughWindow state.
+    navigationWindowApproachLateralTolerance = 0.10,
+    navigationWindowApproachNormalTolerance = 0.12,
+    navigationWindowApproachSetback = 0.38,
+    navigationTraversalExitClearance = 0.38,
+    navigationTraversalExitTolerance = 0.08,
+    navigationTraversalExitTimeoutMs = 2000,
+    -- High-wall reactions are outcome-driven but intentionally occasional.
+    -- Actor and party gates prevent a fence line from becoming a chorus when
+    -- several companions traverse it in succession.
+    wallClimbReactionChancePercent = 35,
+    wallClimbReactionActorCooldownMs = 10000,
+    wallClimbReactionGroupCooldownMs = 3000,
+    navigationFastFollowMaxSteps = 24,
+    navigationContinuousFollowLookahead = 6,
+    formationTrackMaxSquares = 48,
+    formationTrackJoinCandidates = 12,
     formationOpenDistance = 6,
+    -- A visible leader in open ground is intercepted at the current formation
+    -- slot instead of replaying every bend in the leader's breadcrumb trail.
+    formationOpenInterceptDistance = 14,
     formationPortalHoldMs = 1200,
     -- Keep the role-ordered column intact until the final nearby follower has
     -- cleared a door/stair, then allow a short settled pause before fanning out.
@@ -429,6 +467,11 @@ local valueData = {
     encounterIntervalMs = 1000,
     encounterActiveRadius = 75,
     encounterDespawnRadius = 95,
+    -- Unrecruited survivors scavenge independently around their own position.
+    -- Unarmed survivors revisit the search more aggressively until they find a
+    -- usable melee weapon; armed survivors still forage before recruitment.
+    neutralWeaponSearchRetryMs = 4000,
+    neutralScavengeRetryMs = 10000,
     scavengeRadius = 14,
     -- Follow-order scavenging is a short opportunistic excursion, not a new
     -- formation order. Search locally and abandon the excursion as soon as the
@@ -592,7 +635,9 @@ local valueData = {
     ambientDialogueDistance = 10,
     companionNameLabels = true,
     companionNameLabelDistance = 20,
-    companionNameLabelOffsetY = 72,
+    companionNameLabelHeadClearance = 120,
+    -- Fixed UI-pixel gap above the native bottom edge of the overhead name.
+    companionNameLabelOffsetY = 2,
     -- Vanilla overhead chat fades too quickly for full companion sentences.
     -- Use real-time, length-aware display targets; the native companion keeps
     -- the actor-owned line alive without routing speech through the player.
@@ -908,6 +953,7 @@ local aliases = {
         runDistance = "runDistance",
         sneakDistance = "sneakDistance",
         soundDelta = "movementSoundDelta",
+        turnBeforeMoveDot = "movementTurnBeforeMoveDot",
     },
     vehicle = {
         boardRangeSquared = "vehicleBoardRangeSquared",

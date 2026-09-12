@@ -147,6 +147,17 @@ local survivorOutfits = {
     "Grunge", "Hobbyist", "Backpacker", "Camper", "Evacuee",
 }
 
+-- New, unaffiliated survivors are not trained soldiers. Half of them begin
+-- with one plausible household/tool weapon; everyone else must find one in
+-- the world. The identity seed keeps the roll stable across native retries.
+local weakStarterMeleeWeapons = {
+    "Base.RollingPin",
+    "Base.Saucepan",
+    "Base.WoodenMallet",
+    "Base.KitchenKnife",
+    "Base.Screwdriver",
+}
+
 local function method(object, name)
     if object == nil then return nil end
     local ok, value = pcall(function() return object[name] end)
@@ -173,6 +184,55 @@ local function randomBetween(minimum, maximum)
     end
     sequence = sequence + 1
     return minimum + (sequence * 1103515245 % math.max(1, maximum - minimum + 1))
+end
+
+function spawn.starterMeleeWeapon(identity)
+    identity = type(identity) == "table" and identity or {}
+    local seed = tonumber(identity.visualSeed)
+    if seed == nil or seed ~= seed or seed == math.huge or seed == -math.huge then
+        seed = randomBetween(1, 999999999)
+    end
+    seed = math.floor(math.abs(seed))
+    if seed % 100 >= 50 then return nil end
+    local index = math.floor(seed / 100) % #weakStarterMeleeWeapons + 1
+    return weakStarterMeleeWeapons[index]
+end
+
+local function prepareNeutralStarterWeapon(profile)
+    if type(profile) ~= "table" or profile.recruited == true or profile.restored == true
+        or profile.factionId ~= nil or profile._starterMeleePrepared == true then
+        return profile
+    end
+    profile._starterMeleePrepared = true
+    local identity = type(profile.identity) == "table" and profile.identity or profile
+    local itemType = spawn.starterMeleeWeapon(identity)
+    profile.starterMeleeWeapon = itemType or false
+    if itemType == nil then return profile end
+
+    local previousInitialize = profile.initialize
+    profile.initialize = function(actor, recordInput)
+        if type(previousInitialize) == "function" then
+            local result, reason = previousInitialize(actor, recordInput)
+            if result == false then return false, reason end
+        end
+        local inventoryOk, inventory = invoke(actor, "getInventory")
+        local addedOk, added = false, nil
+        if inventoryOk and inventory then
+            addedOk, added = invoke(inventory, "AddItem", itemType)
+        end
+        if not addedOk or added == nil then
+            if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+                local name = tostring(identity.forename or identity.name or "unknown")
+                SC.Diagnostics.report("spawn-starter-weapon", name,
+                    "weak starter melee weapon was unavailable", itemType)
+            end
+            -- Active mods may remove an item type. In that case the actor still
+            -- spawns and naturally enters the unarmed scavenging branch.
+            return true
+        end
+        return true
+    end
+    return profile
 end
 
 function spawn.generateIdentity()
@@ -401,6 +461,7 @@ function spawn.attempt(player, profile, runtime, source)
         recruited = false,
         identity = spawn.generateIdentity(),
     }
+    profile = prepareNeutralStarterWeapon(profile)
     if privateDebug then
         profile.debugSpawn = true
         profile.debugDiscovered = false

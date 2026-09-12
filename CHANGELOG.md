@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.22.20 - Responsive traversal and living encounters
+
+- Added a short-range player-track follow path with continuous lookahead, safe open-ground interception and loop erasure. Companions respond sooner, stop tracing the player's circles, keep moving through ordinary bends and retain sticky catch-up running after the player slows or stops.
+- Rebuilt portal planning around the player's real affordances. Low fences use validated `hopFence`, tall football fences use the native wall capability/action, player-built hoppable thumpables use the contextual E-style climb, and doors, garage openings, windows, frames, stairs and slopes retain ordered choke ownership.
+- Centred window and fence approaches on the correct source side and kept traversal owned through native completion and far-side clearance. Failed climbs now fail and recover like player attempts instead of relocating the actor or accepting feet left inside the obstacle.
+- Preserved reachable pre-portal breadcrumbs when a direct follow chord is blocked, added bounded multi-fence planning and classification coverage for related world objects, and shortened moving Follow searches so a stale route cannot leave the companion stationary for the generic planning bound.
+- Anchored companion first-name labels from their bottom edge above the head at every zoom level, stopped UI refreshes from collapsing the follow-distance selector, and restored the shared menu cue for Home and the collapsed mini button.
+- Added occasional personality-, morale- and stress-aware spoken reactions for successful, difficult and failed tall-wall climbs, with actor and party cooldowns to prevent a fence-line chorus.
+- Gave new unaffiliated survivors an identity-stable 50% chance of one weak household melee weapon. All recruitable neutrals now scavenge before recruitment; unarmed survivors search more often around their own position and prefer real weapons in kitchens, garages, sheds, workshops and storage/tool containers while combat and immediate danger remain authoritative.
+- Expanded Kahlua, navigation, gameplay, UI and installed native-bridge regressions for continuous following, traversal entry/exit, world-object classification, action ownership, name anchoring, menu audio, climb dialogue and neutral starter/scavenging behavior.
+
 ## 0.22.19 - Dependable gathering and recovery
 
 - Added finite physical gathering orders for logs and planks. The Base view binds one camp work zone, one exact registered destination and up to two residents; workers scan loaded squares incrementally, walk to an existing floor item, use an effect-free loot pose, carry that exact native object and count only its verified deposit.

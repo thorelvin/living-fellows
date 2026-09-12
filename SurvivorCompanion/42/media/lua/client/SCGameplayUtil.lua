@@ -1509,13 +1509,25 @@ end
 -- UI-category sounds obey the player's UI volume and never create an audible
 -- world event for zombies. Callers use this only after the associated state
 -- transition commits, so a rejected action retains only the ordinary button click.
-function U.playUISound(soundName)
-    if type(soundName) ~= "string" or soundName == ""
-        or type(getSoundManager) ~= "function" then return false end
-    local ok, manager = pcall(getSoundManager)
+local function playNativeUISound(manager, soundName)
+    local ok, handle = pcall(function() return manager:playUISound(soundName) end)
+    if not ok then return false end
+    -- SoundManager returns zero when the event has no playable clip. Merely
+    -- surviving pcall is therefore not proof that the user heard anything.
+    local numeric = tonumber(handle)
+    return numeric ~= nil and numeric ~= 0
+end
+
+function U.playUISound(soundName, fallbackSound)
+    if type(soundName) ~= "string" or soundName == "" then return false end
+    local ok, manager = pcall(function() return getSoundManager() end)
     if not ok or manager == nil then return false end
-    local played = pcall(function() manager:playUISound(soundName) end)
-    return played == true
+    if playNativeUISound(manager, soundName) then return true end
+    if type(fallbackSound) == "string" and fallbackSound ~= ""
+        and fallbackSound ~= soundName then
+        return playNativeUISound(manager, fallbackSound)
+    end
+    return false
 end
 
 function U.text(key, fallback, ...)

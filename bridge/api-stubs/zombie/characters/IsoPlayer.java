@@ -2,6 +2,7 @@
 package zombie.characters;
 
 import zombie.iso.IsoCell;
+import zombie.iso.IsoDirections;
 
 /** Compile-only API surface for the version-pinned companion prototype. */
 public class IsoPlayer extends IsoLivingCharacter {
@@ -31,6 +32,7 @@ public class IsoPlayer extends IsoLivingCharacter {
     public void setAttackStarted(boolean started) { attackStarted = started; }
     public void clearHandToHandAttack() { attackStarted = false; initiateAttack = false; }
     public boolean isZombiesDontAttack() { return false; }
+    public boolean climbOverWall(IsoDirections direction) { return false; }
     public void StopAllActionQueue() {}
     public void setNpc(boolean npc) {}
     public void updateMovementRates() {}

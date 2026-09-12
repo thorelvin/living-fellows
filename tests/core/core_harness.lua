@@ -1010,6 +1010,43 @@ end
 check(SC.Actor._setProviderForTests(directProvider),
     "pure-Lua experimental adapter selects explicit direct-native execution")
 
+do
+local oldForwardX, oldForwardY = actor.forwardX, actor.forwardY
+local oldMoving = actor.moving
+local oldRunning, oldSprinting = actor.running, actor.sprinting
+local originalFaceLocation = actor.faceLocationF
+local faceCalls = 0
+actor.px, actor.py = 0.5, 0.5
+actor.forwardX, actor.forwardY, actor.turning = -1, 0, false
+function actor:faceLocationF(x, y)
+    faceCalls = faceCalls + 1
+    return originalFaceLocation(self, x, y)
+end
+local requested, requestedReason = SC.NativeActions._prepareForwardTurnForTests(
+    actor, actor:getX(), actor:getY(), 1, 0, false, {})
+local retained, retainedReason = SC.NativeActions._prepareForwardTurnForTests(
+    actor, actor:getX(), actor:getY(), 1, 0, false, {})
+actor.turning = false
+local ready = SC.NativeActions._prepareForwardTurnForTests(
+    actor, actor:getX(), actor:getY(), 1, 0, false, {})
+local continuousCorner = SC.NativeActions._prepareForwardTurnForTests(
+    actor, actor:getX(), actor:getY(), 0, 1, false, { continuousFollow = true })
+local continuousReverse, continuousReverseReason = SC.NativeActions._prepareForwardTurnForTests(
+    actor, actor:getX(), actor:getY(), -1, 0, false, { continuousFollow = true })
+actor.faceLocationF = originalFaceLocation
+-- The fixture does not advance the native animation graph between checks. The
+-- turn requested above is explicitly completed before later movement tests.
+actor.forwardX, actor.forwardY, actor.turning = oldForwardX, oldForwardY, false
+actor.moving, actor.running, actor.sprinting = oldMoving, oldRunning, oldSprinting
+check(requested == true and requestedReason == "turning_for_movement"
+        and retained == true and retainedReason == "turning_for_movement"
+        and ready == nil and faceCalls == 2,
+    "sharp player-track corners finish one native turn before translation resumes")
+check(continuousCorner == nil and continuousReverse == true
+        and continuousReverseReason == "turning_for_movement",
+    "continuous follow blends a right-angle bend but still stops before reversing")
+end
+
 actor.px, actor.py = 0.5, 0.5
 local moved, moveReason = SC.Actor.setMovement(actor, "jog", { action = "move", dx = 1, dy = 0 })
 actor.healthyJogDistanceForTest = actor.px - 0.5
@@ -1348,6 +1385,15 @@ function actor:climbOverFence(direction)
     self.climbDirection = direction
     self.climbKind = "fence"
 end
+function actor:hopFence(direction, testOnly)
+    if testOnly == true then return direction ~= nil end
+    if direction == nil then return false end
+    self.climbing = true
+    self.climbDirection = direction
+    self.climbKind = "fence"
+    self.usedHopFence = true
+    return true
+end
 function actor:canClimbOverWall(direction) return direction ~= nil end
 function actor:climbOverWall(direction)
     if direction == nil then return false end
@@ -1548,9 +1594,18 @@ check(not movedBeforeClaim
         and claimReason == "locomotion_protected_activity:result_pending:visual:loot_container",
     "completed loot animation keeps a bounded transaction claim window")
 SC_TEST_CLOCK = SC_TEST_CLOCK + SC.Config.get("visualEffectClaimMs") + 1
-local resumedAfterClaim = SC.Actor.setMovement(actor, "walk", {
+-- Kahlua's fixture does not tick the animation graph; complete any facing
+-- animation started by the preceding native action before testing locomotion.
+actor.turning = false
+local resumedAfterClaim, resumedAfterClaimReason = SC.Actor.setMovement(actor, "walk", {
     action = "move", dx = 1, dy = 0,
 })
+if resumedAfterClaimReason == "turning_for_movement" then
+    actor.turning = false
+    resumedAfterClaim = SC.Actor.setMovement(actor, "walk", {
+        action = "move", dx = 1, dy = 0,
+    })
+end
 check(resumedAfterClaim and actor:getX() > visualStartX,
     "ordinary movement resumes after an unclaimed visual effect expires")
 do

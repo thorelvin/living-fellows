@@ -141,6 +141,8 @@ public final class SCNativeApiSignatureTest {
                         && companion.getDeclaredMethod("getCompanionPathStatus").getReturnType() == String.class,
                 "SCNativeCompanion bounded movement/path lifecycle contract changed");
         require(companion.getDeclaredMethod("cancelCompanionTraversal").getReturnType() == boolean.class
+                        && companion.getDeclaredMethod("climbCompanionOverWall", isoDirection)
+                                .getReturnType() == boolean.class
                         && companion.getDeclaredMethod("releaseCompanionStaleAttack")
                                 .getReturnType() == boolean.class
                         && companion.getDeclaredMethod("getCompanionCollisionDiagnostic").getReturnType() == String.class
@@ -183,6 +185,10 @@ public final class SCNativeApiSignatureTest {
                         && method(player, "canClimbOverWall", isoDirection).getReturnType()
                                 == boolean.class
                         && method(player, "climbOverWall", isoDirection).getReturnType()
+                                == boolean.class
+                        && method(player, "isClimbOverWallSuccess").getReturnType()
+                                == boolean.class
+                        && method(player, "isClimbOverWallStruggle").getReturnType()
                                 == boolean.class,
                 "Build 42 open-gate and low/high fence traversal signatures changed");
         require(companion.getDeclaredMethod("getCompanionAttackCollisionSerial")

@@ -64,7 +64,8 @@ REQUIRED_EXPORTS = {
                          "releaseChoke", "reserveStep", "releaseStep", "reset"],
     "SCNavTraversal.lua": ["reserve", "release", "interactDoor", "handleDoor", "handleWindow",
                             "handleWindowFrame", "doorGeometry", "occupiesDoorway",
-                            "alignDoorApproach", "handleFence", "closeOwnedDoors", "reset"],
+                            "alignDoorApproach", "alignWindowApproach", "handleFence",
+                            "closeOwnedDoors", "reset"],
     "SCAllegiance.lua": ["isHostile", "relationship", "areAllies", "isProtected"],
     "SCThreatSet.lua": ["threatPreferred", "proximityPreferred", "isImmediate",
                         "new", "add", "finish"],
@@ -474,6 +475,14 @@ def main() -> int:
             and "maybeReactToLoot(actor, state, task, commands, time)" in sources["SCEncounter.lua"]
             and "scavengeLootReactionChancePercent" in sources["SCEncounter.lua"],
             "post-transfer personality-aware scavenging reactions are missing")
+    traversal_source = (CLIENT / "SCNativeTraversalActions.lua").read_text(encoding="utf-8")
+    require(all(f'["traversal.wall.{outcome}"]' in dialogue_source
+                for outcome in ("success", "struggle", "fail"))
+            and 'invoke(actor, "isClimbOverWallSuccess")' in traversal_source
+            and 'invoke(actor, "isClimbOverWallStruggle")' in traversal_source
+            and "wallClimbReactionChancePercent" in traversal_source
+            and "wallClimbReactionGroupCooldownMs" in traversal_source,
+            "random outcome-matched high-wall companion reactions are missing")
     quirks_source = sources["SCQuirks.lua"]
     gameplay_util_source = sources["SCGameplayUtil.lua"]
     require("canonical = ok and identityInList" not in gameplay_util_source
@@ -530,6 +539,8 @@ def main() -> int:
                 < zombie_attack_source.index("if attackers < threshold"),
             "fatal zombie drag-down does not preserve a living farewell beat")
     require("function U.playUISound" in sources["SCGameplayUtil.lua"]
+            and "fallbackSound" in sources["SCGameplayUtil.lua"]
+            and "numeric ~= 0" in sources["SCGameplayUtil.lua"]
             and command_source.count('U().playUISound("UIAchievement")') == 2,
             "successful neutral and faction recruitment do not share one vanilla UI cue")
     require("publicBackground" in relationship_source and "revealedBackground" in relationship_source,

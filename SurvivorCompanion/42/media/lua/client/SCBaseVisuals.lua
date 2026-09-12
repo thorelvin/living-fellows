@@ -298,7 +298,15 @@ function Visuals.renderWorld()
     return true
 end
 
-local function screenPosition(x, y, z)
+local function zoomFor(playerIndex)
+    local core = type(getCore) == "function" and getCore() or nil
+    local value, ok = safeMethod(core, "getZoom", tonumber(playerIndex) or 0)
+    value = ok and tonumber(value) or nil
+    if value == nil or value <= 0 then return 1 end
+    return value
+end
+
+local function screenPosition(x, y, z, playerIndex)
     local ok, sx, sy
     if type(ISCoordConversion) == "table"
         and type(ISCoordConversion.ToScreen) == "function" then
@@ -315,24 +323,22 @@ local function screenPosition(x, y, z)
     end
     sx, sy = ok and tonumber(sx) or nil, ok and tonumber(sy) or nil
     if sx == nil or sy == nil then return nil, nil end
-    return sx, sy
+    local zoom = zoomFor(playerIndex)
+    return sx / zoom, sy / zoom, zoom
 end
 
-local function drawLabel(value, x, y, z, color, occupied, alpha, verticalOffset)
-    local sx, sy = screenPosition(x, y, z)
-    if not sx then return false end
+local function drawScreenLabel(value, sx, sy, color, occupied, alpha, stackDirection)
     local core = type(getCore) == "function" and getCore() or nil
     local width = core and numberMethod(core, "getScreenWidth") or 0
     local height = core and numberMethod(core, "getScreenHeight") or 0
     alpha = math.max(0, math.min(1, tonumber(alpha) or 1))
-    sy = sy - (tonumber(verticalOffset) or 48)
     if sx < 0 or sy < 0 or (width > 0 and sx > width) or (height > 0 and sy > height) then
         return false
     end
     local lane = math.floor(sx / 96) .. ":" .. math.floor(sy / 14)
     local collision = tonumber(occupied[lane]) or 0
     occupied[lane] = collision + 1
-    sy = sy + collision * 13
+    sy = sy + collision * 13 * (tonumber(stackDirection) or 1)
     local manager = type(getTextManager) == "function" and getTextManager() or nil
     if not manager or type(manager.DrawStringCentre) ~= "function" then return false end
     manager:DrawStringCentre(UIFont.Small, sx + 1, sy + 1, value,
@@ -340,6 +346,51 @@ local function drawLabel(value, x, y, z, color, occupied, alpha, verticalOffset)
     manager:DrawStringCentre(UIFont.Small, sx, sy, value,
         color.r, color.g, color.b, alpha)
     return true
+end
+
+local function drawLabel(value, x, y, z, color, occupied, alpha, verticalOffset, playerIndex)
+    local sx, sy, zoom = screenPosition(x, y, z, playerIndex)
+    if not sx then return false end
+    sy = sy - (tonumber(verticalOffset) or 48) / zoom
+    return drawScreenLabel(value, sx, sy, color, occupied, alpha)
+end
+
+local function companionNamePosition(actor, x, y, z, playerIndex)
+    local zoom = zoomFor(playerIndex)
+    local offsetX = numberMethod(actor, "getOffsetX") or 0
+    local offsetY = numberMethod(actor, "getOffsetY") or 0
+    -- getNameCoords applies the current camera zoom. Keep the body-space head
+    -- clearance independent from UI zoom, then anchor the label by its bottom
+    -- edge below. The vanilla 128/2/tileScale offset lands around an NPC's hips
+    -- because companions do not have the player's overhead UI stack.
+    local headClearance = math.max(0,
+        tonumber(configured("companionNameLabelHeadClearance", 120)) or 120)
+    local manager = type(getTextManager) == "function" and getTextManager() or nil
+    local fontHeight = manager and safeMethod(manager, "getFontHeight", UIFont.Small) or nil
+    fontHeight = math.max(1, tonumber(fontHeight) or 14)
+    local bottomGap = math.max(0,
+        tonumber(configured("companionNameLabelOffsetY", 2)) or 2)
+    -- getNameCoords receives the character's render offset plus the configured
+    -- body-space head clearance. Its result is the label's bottom anchor, so
+    -- subtract the actual UI-font height before drawing.
+    local ok, vector = pcall(function()
+        local output = Vector2.new()
+        IsoGameCharacter.getNameCoords(
+            x, y, z, offsetX, offsetY + headClearance, zoom, output)
+        return output
+    end)
+    if ok and vector ~= nil then
+        local sx = numberMethod(vector, "getX")
+        local sy = numberMethod(vector, "getY")
+        if sx ~= nil and sy ~= nil then return sx, sy - fontHeight - bottomGap end
+    end
+
+    -- Older/test runtimes may not expose getNameCoords. Keep the fallback in
+    -- UI coordinates and apply the same bottom-edge contract explicitly.
+    local sx, sy = screenPosition(x, y, z, playerIndex)
+    if sx == nil then return nil, nil end
+    return sx - offsetX / zoom,
+        sy - (offsetY + headClearance) / zoom - fontHeight - bottomGap
 end
 
 local function firstName(record)
@@ -389,7 +440,10 @@ local function visibleCompanionLabel(record, subject, px, py, pz, playerIndex)
     if name == nil then return nil end
     local distance = math.sqrt(distanceSq)
     local alpha = 0.92 - (distance / maximum) * 0.30
-    return { name = name, x = x, y = y, z = z, alpha = math.max(0.55, alpha) }
+    return {
+        name = name, actor = actor, x = x, y = y, z = z,
+        alpha = math.max(0.55, alpha),
+    }
 end
 
 local function renderCompanionLabels(occupied)
@@ -407,10 +461,13 @@ local function renderCompanionLabels(occupied)
     local drawn = 0
     for _, record in ipairs(records) do
         local row = visibleCompanionLabel(record, subject, px, py, pz, index)
-        if row and drawLabel(row.name, row.x, row.y, row.z,
-            { r = 0.84, g = 0.92, b = 1.00 }, occupied, row.alpha,
-            configured("companionNameLabelOffsetY", 72)) then
-            drawn = drawn + 1
+        if row then
+            local sx, sy = companionNamePosition(
+                row.actor, row.x, row.y, row.z, index)
+            if sx and drawScreenLabel(row.name, sx, sy,
+                { r = 0.84, g = 0.92, b = 1.00 }, occupied, row.alpha, -1) then
+                drawn = drawn + 1
+            end
         end
     end
     return drawn

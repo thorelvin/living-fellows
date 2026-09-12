@@ -42,7 +42,7 @@ local orders = { follow = true, stay = true, guard = true, regroup = true,
     retreat = true, wander = true, base_duty = true, work = true, faction_duty = true }
 local combatStances = { passive = true, defensive = true, aggressive = true }
 local weaponPriorities = { best = true, melee = true, firearm = true, quiet = true }
-local followDistances = { [2] = true, [3] = true, [5] = true, [8] = true }
+local followDistances = { [1] = true, [2] = true, [3] = true, [5] = true, [8] = true }
 local maximumSafeInteger = 9007199254740991
 
 local function finite(value)

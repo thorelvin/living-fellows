@@ -624,7 +624,8 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
         return true, "holding_formation"
     end
     local mode, posture = SC.Positioning.followMode(
-        commands.moveMode or "copy", commands.stress, leaderDistance, player)
+        commands.moveMode or "copy", commands.stress, leaderDistance, player, desired,
+        actor, commands.commandSerial)
     if not SC.Navigation or type(SC.Navigation.request) ~= "function" then return false, "navigation_unavailable" end
     return SC.Navigation.request(actor, target, mode, {
         action = commands.order == "regroup" and "regroup" or "follow_formation",
@@ -632,11 +633,15 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
         snapshot = snapshot,
         followRecovery = true,
         desiredDistance = desired,
-        urgent = leaderDistance >= (utility.config("followFarDistance") or 18),
+        urgent = leaderDistance >= (desired == 1 and 5
+            or math.min(utility.config("followFarDistance") or 18,
+                math.max(7, desired + 4))),
         movementPriority = 20,
         stressPosture = posture,
         formationMode = formation and formation.mode or nil,
         trailRevision = formation and formation.trailRevision or nil,
+        followTrack = formation and formation.followTrack or nil,
+        interceptPosition = formation and formation.interceptPosition or nil,
         portalKey = formation and formation.portalKey or nil,
         portal = formation and formation.portal or nil,
         columnIndex = formation and formation.columnIndex or nil,
@@ -1788,11 +1793,25 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
             state.lastHandledAt = current
             return true, state.intent
         elseif urgent and phase ~= nil and phase ~= "none" then
+            local interrupted, interruptReason = false, "activity_not_interruptible"
+            if type(native.interruptOwnedActivity) == "function" then
+                interrupted, interruptReason = native.interruptOwnedActivity(
+                    actor, "survival_priority")
+            end
+            if interrupted == true then
+                -- Drop a follow/work route whose portal preparation just yielded;
+                -- otherwise its retained native lease can mask the combat handoff
+                -- when ordinary navigation resumes later.
+                if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+                    pcall(SC.Navigation.cancel, actor, "survival_priority")
+                end
+                return false
+            end
             local queued, queueReason = queueUrgentReassessment(actor, state,
                 tostring(owner) .. ":" .. tostring(name) .. ":" .. tostring(phase))
             state.current = "activity"
             state.intent = queued and (queueReason or "urgent_queued")
-                or (queueReason or "urgent_queue_rejected")
+                or (queueReason or interruptReason or "urgent_queue_rejected")
             state.lastHandledAt = current
             return true, state.intent
         end
@@ -1849,6 +1868,7 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
     state.lastHandledAt = current
     return true, state.intent
 end
+Decision._holdOwnedActivityOrPacingForTests = holdOwnedActivityOrPacing
 
 function Decision.update(actor, player, runtime)
     local utility = U()

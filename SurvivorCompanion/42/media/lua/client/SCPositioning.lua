@@ -47,6 +47,15 @@ local function stateFor(actor)
     return state
 end
 
+local function clearCatchUp(state)
+    if type(state) ~= "table" then return end
+    state.catchUpActive = nil
+    state.catchUpReason = nil
+    state.catchUpStartedAt = nil
+    state.catchUpLeaderId = nil
+    state.catchUpCommandSerial = nil
+end
+
 local function normalized(x, y)
     x, y = tonumber(x), tonumber(y)
     if not x or not y then return nil, nil end
@@ -352,6 +361,13 @@ local function cohortKey(actor, leader)
     return "party:" .. tostring(U().idOf(leader))
 end
 
+local function hardPortalEdge(edge)
+    if type(edge) ~= "table" then return false end
+    return edge.kind == "door" or edge.kind == "window"
+        or edge.kind == "window_frame" or edge.kind == "fence"
+        or edge.kind == "stairs" or edge.kind == "slope"
+end
+
 local function sampleLeader(leader, current, roster, cohort)
     local utility = U()
     local state = leaderStateFor(leader)
@@ -403,6 +419,39 @@ local function sampleLeader(leader, current, roster, cohort)
             and (dx * dx + dy * dy >= 0.35 * 0.35
                 or math.floor(z or 0) ~= math.floor(last.z or 0))
     end
+    if shouldSample and last then
+        -- Erase a completed open-ground loop when the leader returns to a
+        -- retained square. A follower can then take the safe chord instead of
+        -- marching around the player's ten-metre circle. Never erase across a
+        -- portal: the exact approach to a door/window/fence remains required.
+        local currentKey = utility.squareKey(square)
+        local loopLookback = math.max(12,
+            math.floor(tonumber(utility.config("navigationBreadcrumbLimit")) or 64))
+        local first = math.max(1, #state.trail - loopLookback)
+        for index = #state.trail - 1, first, -1 do
+            local candidate = state.trail[index]
+            if candidate and utility.squareKey(candidate.square) == currentKey then
+                local crossesPortal = false
+                for scan = index + 1, #state.trail do
+                    if hardPortalEdge(state.trail[scan] and state.trail[scan].edge) then
+                        crossesPortal = true
+                        break
+                    end
+                end
+                if not crossesPortal then
+                    for remove = #state.trail, index + 1, -1 do
+                        table.remove(state.trail, remove)
+                    end
+                    candidate.x, candidate.y, candidate.z = x, y, z
+                    candidate.square, candidate.at = square, current
+                    state.totalDistance = tonumber(candidate.distance) or 0
+                    state.revision = (state.revision or 0) + 1
+                    shouldSample = false
+                end
+                break
+            end
+        end
+    end
     if shouldSample then
         local distance = 0
         local edge
@@ -422,7 +471,7 @@ local function sampleLeader(leader, current, roster, cohort)
         local limit = math.max(12, tonumber(utility.config("navigationBreadcrumbLimit")) or 64)
         while #state.trail > limit do table.remove(state.trail, 1) end
         state.revision = (state.revision or 0) + 1
-        if edge and (edge.kind == "door" or edge.kind == "stairs") then
+        if hardPortalEdge(edge) then
             state.latestPortal = edge
             state.latestPortalAt = current
             if SC.Navigation and type(SC.Navigation.observeGroupPassage) == "function" then
@@ -449,6 +498,7 @@ local function sampleLeader(leader, current, roster, cohort)
     end
     return state
 end
+Positioning._sampleLeaderForTests = sampleLeader
 
 local function leaderHeading(actor, leader, current)
     local commands = commandState(actor)
@@ -545,12 +595,31 @@ local function trailTarget(actor, leaderState, lagDistance, snapshot, minimum, c
         local square = point and point.square or nil
         if square and utility.isSquareFree(square) and allyClear(actor, square, snapshot, minimum)
             and canReserve(actor, square, current) then
-            return square, point.edge
+            return square, point.edge, index
         end
     end
     local point = trail[selectedIndex]
     if not point then return nil, nil end
-    return availableTarget(actor, point.x, point.y, point.z, snapshot, minimum), point.edge
+    return availableTarget(actor, point.x, point.y, point.z, snapshot, minimum), point.edge, nil
+end
+
+local function followTrackTo(leaderState, selectedIndex)
+    local trail = type(leaderState) == "table" and leaderState.trail or nil
+    if type(trail) ~= "table" or tonumber(selectedIndex) == nil then return nil end
+    selectedIndex = math.max(1, math.min(#trail, math.floor(selectedIndex)))
+    local limit = math.max(2,
+        math.floor(tonumber(U().config("formationTrackMaxSquares")) or 48))
+    local first = math.max(1, selectedIndex - limit + 1)
+    local result, previousKey = {}, nil
+    for index = first, selectedIndex do
+        local square = trail[index] and trail[index].square or nil
+        local key = square and U().squareKey(square) or nil
+        if square ~= nil and key ~= nil and key ~= previousKey then
+            result[#result + 1] = square
+            previousKey = key
+        end
+    end
+    return #result > 0 and result or nil
 end
 
 function Positioning.formationTarget(actor, leader, commands, snapshot)
@@ -565,8 +634,10 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     local velocityX, velocityY = leaderState.velocityX or 0, leaderState.velocityY or 0
     local rightX, rightY = -forwardY, forwardX
     local localOffset = cqbOpenOffset(fireteamMember, slot)
+    local desiredDistance = tonumber(commands.followDistance) or 3
     local scale = commands.order == "regroup" and 0.75
-        or math.max(0.75, (tonumber(commands.followDistance) or 3) / 3)
+        or desiredDistance == 1 and 0.5
+        or math.max(0.75, desiredDistance / 3)
     local predictionX, predictionY = 0, 0
     local moving, movingOk = utility.call(leader, "isMoving")
     if movingOk and moving == true then
@@ -588,9 +659,20 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     local state = stateFor(actor)
     local distanceToLeader = utility.distance(actor, leader)
     local clearOpenFormation = utility.sameFloor(actor, leader)
-        and distanceToLeader <= (tonumber(utility.config("formationOpenDistance")) or 6)
+        and distanceToLeader <= (tonumber(
+            utility.config("formationOpenInterceptDistance")) or 14)
         and (utility.canSee(actor, leader)
             or utility.canSee(actor, utility.squareOf(leader)))
+    if clearOpenFormation and SC.Navigation
+        and type(SC.Navigation._fastOpenRouteForRequest) == "function" then
+        -- Visibility alone is not a movement contract (it commonly passes
+        -- through fences). Only intercept when every edge to the leader is
+        -- ordinary open floor; otherwise retain the player's portal trace.
+        local interceptSquare = utility.squareOf(leader)
+        local ok, route = pcall(SC.Navigation._fastOpenRouteForRequest,
+            utility.squareOf(actor), interceptSquare, {})
+        clearOpenFormation = ok and route ~= nil
+    end
     local portalHoldMs = tonumber(utility.config("formationPortalHoldMs")) or 1200
     local passageActive = false
     if leaderState.latestPortal and SC.Navigation
@@ -624,12 +706,19 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     end
     local mode = clearOpenFormation and current >= (state.trailModeUntil or 0)
         and "open" or "trail"
-    local target, portal
+    local target, portal, followTrack, interceptPosition
     if mode == "trail" then
         local trail = leaderState.trail or {}
         if #trail >= 2 and (leaderState.totalDistance or 0) >= 0.35 then
-            local lag = 1.5 + math.max(0, slot - 1) * 1.1
-            target, portal = trailTarget(actor, leaderState, lag, snapshot, minimum, current)
+            local lag = desiredDistance == 1
+                and (0.65 + math.max(0, slot - 1) * 0.8)
+                or (1.5 + math.max(0, slot - 1) * 1.1)
+            local selectedIndex
+            target, portal, selectedIndex = trailTarget(
+                actor, leaderState, lag, snapshot, minimum, current)
+            if target ~= nil and selectedIndex ~= nil then
+                followTrack = followTrackTo(leaderState, selectedIndex)
+            end
         else
             -- Immediately after loading, the in-memory breadcrumb trail contains
             -- only the leader's current square. It does not describe the doorway
@@ -662,6 +751,11 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         target = previous
     end
     if target then
+        local idealSquare = mode == "open"
+            and utility.gridSquare(targetX, targetY, pz) or nil
+        if idealSquare and reservationKey(idealSquare) == reservationKey(target) then
+            interceptPosition = { x = targetX, y = targetY, z = pz }
+        end
         state.slot = slot
         state.targetKey = reservationKey(target)
         state.targetSquare = target
@@ -686,6 +780,8 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         fireteamSize = fireteamMember and fireteamMember.fireteamSize or #roster,
         cohortKey = cohort,
         participants = roster,
+        followTrack = followTrack,
+        interceptPosition = interceptPosition,
     }
 end
 
@@ -714,7 +810,10 @@ function Positioning.shouldHold(actor, target)
         targetKind = "square", distance = leave,
     })
     if state.holdingFormation then
-        if withinLeave then return true end
+        if withinLeave then
+            clearCatchUp(state)
+            return true
+        end
         state.holdingFormation = false
         return false
     end
@@ -722,6 +821,7 @@ function Positioning.shouldHold(actor, target)
     if withinEnter then
         state.holdingFormation = true
         state.heldAt = U().nowMs()
+        clearCatchUp(state)
         return true
     end
     return false
@@ -767,16 +867,50 @@ function Positioning.syncCopiedPosture(actor, player, requested)
     })
 end
 
-function Positioning.followMode(requested, stress, leaderDistance, player)
+function Positioning.followMode(requested, stress, leaderDistance, player, desiredDistance,
+        actor, commandSerial)
     local mode = Positioning.resolveMoveMode(requested, player)
     local far = U().config("followFarDistance") or 18
-    if leaderDistance >= far then return "jog", "catch_up" end
+    local desired = tonumber(desiredDistance) or 3
+    local catchUp = desired == 1 and 5 or math.min(far, math.max(7, desired + 4))
+    local hardCatchUp = leaderDistance >= catchUp
+    local state = actor and stateFor(actor) or nil
+    if state then
+        -- A real command or a different leader invalidates an old run commitment.
+        -- Combat does neither, so it may preempt this low-priority follow movement
+        -- and the companion resumes catching up once the danger is handled.
+        local leaderId = U().idOf(player)
+        if state.catchUpLeaderId ~= nil and state.catchUpLeaderId ~= leaderId then
+            clearCatchUp(state)
+        elseif state.catchUpCommandSerial ~= nil
+            and state.catchUpCommandSerial ~= commandSerial then
+            clearCatchUp(state)
+        end
+
+        local leaderRunning = Positioning.playerMoveMode(player) == "jog"
+        local mirrorsLeaderSpeed = requested == "copy" or requested == "sneak"
+        local reason = hardCatchUp
+            and (desired == 1 and "stay_close_catch_up" or "catch_up")
+            or (leaderRunning and mirrorsLeaderSpeed and "leader_run_catch_up" or nil)
+        if reason ~= nil and state.catchUpActive ~= true then
+            state.catchUpActive = true
+            state.catchUpReason = reason
+            state.catchUpStartedAt = U().nowMs()
+            state.catchUpLeaderId = leaderId
+            state.catchUpCommandSerial = commandSerial
+        end
+        if state.catchUpActive == true then
+            return "jog", state.catchUpReason or "catch_up_committed", true
+        end
+    elseif hardCatchUp then
+        return "jog", desired == 1 and "stay_close_catch_up" or "catch_up", true
+    end
     if leaderDistance > 8 and mode == "sneak" then return "walk", "closing_distance" end
     if requested ~= "copy" and tonumber(stress) and tonumber(stress) >= 72
         and leaderDistance <= 8 then
         return "sneak", "guarded"
     end
-    return mode, tonumber(stress) and tonumber(stress) >= 42 and "alert" or "calm"
+    return mode, tonumber(stress) and tonumber(stress) >= 42 and "alert" or "calm", false
 end
 
 function Positioning.updateHoldAwareness(actor, leader, snapshot)
@@ -958,6 +1092,9 @@ function Positioning.debug(actor)
         slot = state.slot,
         targetKey = state.targetKey,
         holdingFormation = state.holdingFormation == true,
+        catchUpActive = state.catchUpActive == true,
+        catchUpReason = state.catchUpReason,
+        catchUpStartedAt = state.catchUpStartedAt,
         predictionDistance = state.predictionDistance or 0,
         velocityX = state.velocityX or 0,
         velocityY = state.velocityY or 0,

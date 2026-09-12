@@ -606,6 +606,50 @@ local function directPath(actor, target, mode, intent)
     return true, "path_started"
 end
 
+-- Manual player-track movement translates the actor directly after the native
+-- animation update. Starting that translation during a sharp rendered turn
+-- makes the feet continue along the old facing for a frame or two. Let the
+-- stock player turn animation own sharp changes first; straight and shallow
+-- bends still start in the same pulse.
+local function prepareForwardTurn(actor, actorX, actorY, nx, ny, tactical, intent)
+    if tactical or type(intent) == "table" and intent.allowMovingTurn == true then return nil end
+    local turningOk, turning = invoke(actor, "isTurning")
+    if turningOk and turning == true then
+        invoke(actor, "setMoving", false)
+        invoke(actor, "setRunning", false)
+        invoke(actor, "setSprinting", false)
+        return true, "turning_for_movement"
+    end
+
+    local forwardXOk, forwardX = invoke(actor, "getForwardDirectionX")
+    local forwardYOk, forwardY = invoke(actor, "getForwardDirectionY")
+    if not forwardXOk or not forwardYOk or not finite(forwardX) or not finite(forwardY) then
+        return nil
+    end
+    local forwardLength = math.sqrt(forwardX * forwardX + forwardY * forwardY)
+    if forwardLength <= 0.000001 then return nil end
+    local facingDot = (forwardX * nx + forwardY * ny) / forwardLength
+    local thresholdKey = type(intent) == "table" and intent.continuousFollow == true
+        and "movementContinuousTurnBeforeMoveDot" or "movementTurnBeforeMoveDot"
+    local threshold = tonumber(SC.Config.get(thresholdKey))
+        or (thresholdKey == "movementContinuousTurnBeforeMoveDot" and -0.25 or 0.8)
+    threshold = math.max(-1, math.min(1, threshold))
+    if facingDot >= threshold then return nil end
+
+    -- setMoving(false) cancels a retained vector from the previous segment.
+    -- Without it that vector keeps translating the actor during the new turn.
+    invoke(actor, "setMoving", false)
+    invoke(actor, "setRunning", false)
+    invoke(actor, "setSprinting", false)
+    local requested, accepted = invoke(actor, "faceLocationF",
+        actorX + nx * 2, actorY + ny * 2)
+    if not requested or accepted ~= true then
+        return false, "movement_turn_rejected"
+    end
+    return true, "turning_for_movement"
+end
+actions._prepareForwardTurnForTests = prepareForwardTurn
+
 local function directMove(actor, mode, dx, dy, intent)
     local lengthSquared = dx * dx + dy * dy
     if lengthSquared < 0.000001 then
@@ -734,6 +778,9 @@ local function directMove(actor, mode, dx, dy, intent)
     else
         setTacticalMovement(actor, false, 0, 0)
     end
+    local waitingForTurn, turnReason = prepareForwardTurn(
+        actor, x, y, nx, ny, tactical, intent)
+    if waitingForTurn ~= nil then return waitingForTurn, turnReason end
     -- Never let PathFindBehavior2 and manual MoveForward own the same frame.
     -- Their competing vectors cause sliding and frozen-foot moonwalking.
     local behaviorOk, behavior = invoke(actor, "getPathFindBehavior2")

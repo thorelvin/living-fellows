@@ -26,7 +26,7 @@ local function U()
     return SC.GameplayUtil
 end
 
-local followDistances = { [2] = true, [3] = true, [5] = true, [8] = true }
+local followDistances = { [1] = true, [2] = true, [3] = true, [5] = true, [8] = true }
 local moveModes = { copy = true, walk = true, sneak = true, jog = true }
 local combatModes = { aggressive = true, defensive = true, passive = true }
 local weaponPriorities = { best = true, melee = true, firearm = true, quiet = true }

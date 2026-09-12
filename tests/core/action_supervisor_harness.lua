@@ -205,6 +205,41 @@ local combatAuthorized, combatReason = SC.Locomotion.authorize(combatActor, "wal
 check(combatAuthorized == true and combatReason == "interact",
     "an unowned production combat action needs no supervisorToken")
 
+do
+    local traversalActor = testActor("supervisor-combat-after-traversal")
+    local originalActivity = SC.NativeActions.activityStatus
+    local originalMovement = SC.Actor.setMovement
+    local crossing = true
+    local combatDispatches = 0
+    SC.NativeActions.activityStatus = function(candidate)
+        if candidate == traversalActor and crossing then
+            return "active", "traversal", "climb_window", SC_TEST_CLOCK, {}
+        end
+        if candidate == traversalActor then return "none" end
+        return originalActivity(candidate)
+    end
+    SC.Actor.setMovement = function(candidate, mode, intent)
+        if candidate == traversalActor then
+            combatDispatches = combatDispatches + 1
+            return true, tostring(intent.action) .. "_dispatched"
+        end
+        return originalMovement(candidate, mode, intent)
+    end
+    local combatNow, combatWaitReason = SC.Locomotion.authorize(
+        traversalActor, "walk", { action = "attack_melee", urgent = true })
+    local waiting = Supervisor.urgentStatus(traversalActor)
+    crossing = false
+    local dispatched, dispatchReason = Supervisor.update(traversalActor)
+    SC.NativeActions.activityStatus = originalActivity
+    SC.Actor.setMovement = originalMovement
+    check(combatNow == false
+            and string.find(tostring(combatWaitReason), "urgent", 1, true) ~= nil
+            and waiting.state == "queued" and dispatched == true
+            and dispatchReason == "attack_melee_dispatched"
+            and combatDispatches == 1,
+        "urgent combat waits through an uninterruptible crossing and dispatches first on release")
+end
+
 local failure = assert(Supervisor.begin(actor, {
     owner = "logistics", action = "wear_armor", targetKey = "vest:1",
     priority = Supervisor.Priority.WORK, retryCategory = "transaction",

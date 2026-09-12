@@ -427,7 +427,7 @@ function Encounter.cancelPlayerSupply(actor)
     return true
 end
 
-local function currentNeeds(actor)
+local function currentNeeds(actor, commands)
     local utility = U()
     local health = utility.nativeHealth(actor)
     local hunger = utility.characterStatValue(actor, "HUNGER", 0.25)
@@ -444,7 +444,8 @@ local function currentNeeds(actor)
         water = math.max(0.2, thirst),
         medicine = medicalNeed,
         ammunition = 0.5,
-        weapon = 0.35,
+        weapon = type(commands) == "table" and commands.prioritizeMeleeWeapon == true
+            and 1.0 or 0.35,
         clothing = 0.2,
     }
 end
@@ -469,14 +470,74 @@ local function itemCategory(item)
     return nil
 end
 
+local function usableMeleeWeapon(item)
+    if not item then return false end
+    local utility = U()
+    local category, categoryOk = utility.call(item, "getCategory")
+    local weapon = utility.instanceOf(item, "HandWeapon")
+        or utility.instanceOf(item, "zombie.inventory.types.HandWeapon")
+        or (categoryOk and tostring(category) == "Weapon"
+            and utility.hasMethod(item, "getMaxDamage"))
+    if not weapon then return false end
+    local ranged, rangedOk = utility.call(item, "isRanged")
+    if rangedOk and ranged == true then return false end
+    local broken, brokenOk = utility.call(item, "isBroken")
+    if brokenOk and broken == true then return false end
+    local condition, conditionOk = utility.call(item, "getCondition")
+    return not conditionOk or tonumber(condition) == nil or tonumber(condition) > 0
+end
+
+local function actorNeedsMeleeWeapon(actor, audit)
+    local utility = U()
+    if type(audit) == "table" and type(audit.items) == "table" then
+        for _, record in ipairs(audit.items) do
+            if usableMeleeWeapon(type(record) == "table" and record.item or record) then
+                return false
+            end
+        end
+        return true
+    end
+    local root = utility.inventory(actor)
+    for _, item in ipairs(utility.inventoryItems(root, 256)) do
+        if usableMeleeWeapon(item) then return false end
+    end
+    return true
+end
+
+function Encounter.needsMeleeWeapon(actor)
+    if not actor then return false end
+    local audit = SC.Logistics and type(SC.Logistics.status) == "function"
+        and SC.Logistics.status(actor) or nil
+    return actorNeedsMeleeWeapon(actor, audit)
+end
+
+local function priorityMeleeAllowed(actor, item, audit, commands)
+    if type(commands) ~= "table" or commands.prioritizeMeleeWeapon ~= true
+        or not usableMeleeWeapon(item) then
+        return false
+    end
+    if SC.Logistics and type(SC.Logistics.canTake) == "function" then
+        local accepted, reason = SC.Logistics.canTake(actor, item, "weapon", audit)
+        -- A firearm or broken weapon may satisfy the generic category count
+        -- without giving this survivor a usable close-combat fallback.
+        return accepted == true or reason == "loadout_satisfied"
+    end
+    return true
+end
+
 local function itemNeedScore(actor, item, needs, commands, audit)
+    local score, category
     if SC.Logistics and type(SC.Logistics.itemNeedScore) == "function" then
-        return SC.Logistics.itemNeedScore(actor, item, commands, audit)
+        score, category = SC.Logistics.itemNeedScore(actor, item, commands, audit)
+        if priorityMeleeAllowed(actor, item, audit, commands) then
+            return math.max(140, tonumber(score) or 0), "weapon"
+        end
+        return score, category
     end
     local utility = U()
-    local category = itemCategory(item)
+    category = itemCategory(item)
     if not category then return 0, nil end
-    local score = (needs[category] or 0) * 60
+    score = (needs[category] or 0) * 60
     local condition, conditionOk = utility.call(item, "getCondition")
     local maximum, maxOk = utility.call(item, "getConditionMax")
     if conditionOk and maxOk and maximum and maximum > 0 then score = score * condition / maximum end
@@ -487,7 +548,54 @@ local function itemNeedScore(actor, item, needs, commands, audit)
         local amount, amountOk = utility.call(item, "getUsedDelta")
         if amountOk then score = score * math.max(0.2, amount) end
     end
+    if priorityMeleeAllowed(actor, item, audit, commands) then
+        score, category = math.max(140, score), "weapon"
+    end
     return score, category
+end
+
+local logicalWeaponRoomTokens = {
+    "kitchen", "garage", "shed", "tool", "storage", "warehouse",
+    "factory", "workshop", "mechanic", "maintenance",
+}
+
+local logicalWeaponContainerTokens = {
+    "counter", "cupboard", "cabinet", "crate", "shelf", "locker",
+    "toolbox", "workbench", "metal",
+}
+
+local function containsAny(value, tokens)
+    value = string.lower(tostring(value or ""))
+    for _, token in ipairs(tokens) do
+        if string.find(value, token, 1, true) ~= nil then return true end
+    end
+    return false
+end
+
+local function logicalWeaponLocationBonus(container, owner)
+    local utility = U()
+    local bonus = 0
+    local containerType, typeOk = utility.call(container, "getType")
+    if typeOk and containsAny(containerType, logicalWeaponContainerTokens) then
+        bonus = bonus + 18
+    end
+    local square = utility.squareOf(owner)
+    if not square then
+        local source, sourceOk = utility.call(container, "getSourceGrid")
+        if sourceOk then square = source end
+    end
+    local room, roomOk = utility.call(square, "getRoom")
+    local roomName
+    if roomOk and room then
+        local roomDef, definitionOk = utility.call(room, "getRoomDef")
+        if definitionOk and roomDef then
+            roomName = select(1, utility.call(roomDef, "getName"))
+        end
+        if roomName == nil then roomName = select(1, utility.call(room, "getName")) end
+        if roomName == nil and type(room) == "table" then roomName = room.name end
+    end
+    if containsAny(roomName, logicalWeaponRoomTokens) then bonus = bonus + 42 end
+    return bonus
 end
 
 containerItems = function(container)
@@ -552,6 +660,10 @@ end
 local function scoreContainer(actor, container, needs, objectives, commands, audit)
     local utility = U()
     local bestItem, bestCategory, bestScore = nil, nil, 0
+    local owner = containerOwner(container)
+    local weaponLocationBonus = type(commands) == "table"
+        and commands.prioritizeMeleeWeapon == true
+        and logicalWeaponLocationBonus(container, owner) or 0
     local budget = utility.config("scavengeItemBudget") or 40
     utility.each(containerItems(container), budget, function(item)
         local protected = SC.PersonalItems
@@ -559,6 +671,10 @@ local function scoreContainer(actor, container, needs, objectives, commands, aud
         local score, category = 0, nil
         if not protected then
             score, category = itemNeedScore(actor, item, needs, commands, audit)
+            if category == "weapon" and usableMeleeWeapon(item)
+                and priorityMeleeAllowed(actor, item, audit, commands) then
+                score = score + weaponLocationBonus
+            end
             if SC.Objectives and type(SC.Objectives.itemBonus) == "function" then
                 local bonus = SC.Objectives.itemBonus(objectives, item, actor)
                 score = score + bonus
@@ -574,7 +690,6 @@ local function scoreContainer(actor, container, needs, objectives, commands, aud
         end
         if score > bestScore then bestItem, bestCategory, bestScore = item, category, score end
     end)
-    local owner = containerOwner(container)
     bestScore = bestScore - utility.distance(actor, owner) * 1.5
     return bestScore, bestItem, bestCategory, owner
 end
@@ -1008,7 +1123,8 @@ end
 
 local function selectTask(actor, player, state, commands, needs, audit, allowCorpses, time)
     local selection = state.selectionJob
-    if selection and selection.commandSerial ~= (tonumber(commands.commandSerial) or 0) then
+    if selection and (selection.commandSerial ~= (tonumber(commands.commandSerial) or 0)
+        or selection.prioritizeMeleeWeapon ~= (commands.prioritizeMeleeWeapon == true)) then
         clearSearchFields(actor, state)
         selection = nil
     end
@@ -1026,6 +1142,7 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
         selection = {
             candidates = candidates or {}, index = 1,
             commandSerial = tonumber(commands.commandSerial) or 0,
+            prioritizeMeleeWeapon = commands.prioritizeMeleeWeapon == true,
         }
         state.selectionJob = selection
     end
@@ -1104,7 +1221,8 @@ local function commitTask(actor, state, task, commands, audit, time)
     end
     local ritualAccepts = SC.Quirks and type(SC.Quirks.acceptsLoot) == "function"
         and SC.Quirks.acceptsLoot(actor, task.item, commands) == true
-    if not ritualAccepts and SC.Logistics
+    if not ritualAccepts and not priorityMeleeAllowed(
+        actor, task.item, audit, commands) and SC.Logistics
         and type(SC.Logistics.canTake) == "function" then
         local accepted, reason = SC.Logistics.canTake(actor, task.item, task.category, audit)
         if accepted ~= true then
@@ -1235,7 +1353,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         return false, formationReason
     end
     local radius = utility.config("scavengeRadius") or 14
-    if player and utility.distanceSq(actor, player) > radius * radius then
+    if player and not neutralOverride and utility.distanceSq(actor, player) > radius * radius then
         resetScavengeTarget(actor, state, {
             cancelVisual = true, stopMovement = state.task ~= nil,
             reason = "outside_scavenge_radius", phase = "cancelled",
@@ -1245,9 +1363,15 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         return false, "outside_scavenge_radius"
     end
 
-    local needs = currentNeeds(actor)
     local audit = SC.Logistics and type(SC.Logistics.status) == "function"
         and SC.Logistics.status(actor) or nil
+    if neutralOverride and actorNeedsMeleeWeapon(actor, audit) then
+        local view = {}
+        for key, value in pairs(commands) do view[key] = value end
+        view.prioritizeMeleeWeapon = true
+        commands = view
+    end
+    local needs = currentNeeds(actor, commands)
     if audit and audit.shouldUnload then
         resetScavengeTarget(actor, state, {
             cancelVisual = true, stopMovement = state.task ~= nil,
@@ -1258,6 +1382,8 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         return false, "loadout_needs_unloading"
     end
     local allowCorpses = safeForCorpseLoot(actor, snapshot, state, time)
+    local selectionPlayer = player
+    if neutralOverride then selectionPlayer = nil end
     local task = state.task
     if task and containerOnCooldown(task.container, time) then
         resetScavengeTarget(actor, state, {
@@ -1283,7 +1409,8 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     if not task then
         local selectionReason
         task, selectionReason = selectTask(
-            actor, player, state, commands, needs, audit, allowCorpses, time)
+            actor, selectionPlayer, state, commands,
+            needs, audit, allowCorpses, time)
         if not task then
             if selectionReason == "searching" then return true, "searching_for_supplies" end
             return false, selectionReason or "nothing_needed"
@@ -1306,41 +1433,64 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         return false, "corpse_loot_unsafe"
     end
 
-    if utility.distance(actor, task.owner) > 1.45 then
-        setTaskPhase(actor, state, task, "approach", "approaching_container")
-        if SC.Navigation and type(SC.Navigation.requestAny) == "function" then
-            local targets = SC.Navigation.interactionTargets(actor, task.owner, {
-                snapshot = snapshot,
-            })
-            local ok, status = SC.Navigation.requestAny(actor, targets, "walk", {
-                action = "move_to_scavenge", container = task.container,
-                item = task.item, object = task.owner, snapshot = snapshot,
-                arrivalDistance = 1.0, supervisorToken = task.supervisorToken,
-            })
-            local service = supervisor()
-            if service and task.supervisorToken and type(service.progress) == "function" then
-                service.progress(task.supervisorToken, "approach:" .. tostring(status), {
-                    navigation = status,
-                })
-            end
-            local terminalNavigation = not ok and (string.find(
-                tostring(status or ""), "recovery_exhausted:", 1, true) == 1
-                or string.find(tostring(status or ""), "actor_state_timeout:", 1, true) == 1)
-            if terminalNavigation then
-                resetScavengeTarget(actor, state, {
-                    cancelVisual = true, stopMovement = true,
-                    reason = status, phase = "failed", cooldown = true,
-                    memoryResult = "navigation_failed", time = time,
-                })
-                return false, status
-            end
-            return ok, status or "approaching_container"
-        end
+    if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function"
+        or type(SC.Navigation.interactionTargets) ~= "function" then
         resetScavengeTarget(actor, state, {
             stopMovement = true, reason = "navigation_unavailable", phase = "failed",
             cooldown = true, memoryResult = "navigation_unavailable", time = time,
         })
         return false, "navigation_unavailable"
+    end
+    local targets = SC.Navigation.interactionTargets(actor, task.owner, {
+        snapshot = snapshot, requireDirectAccess = true,
+    })
+    if #targets == 0 then
+        resetScavengeTarget(actor, state, {
+            cancelVisual = true, stopMovement = true,
+            reason = "no_interaction_targets", phase = "failed", cooldown = true,
+            memoryResult = "navigation_failed", time = time,
+        })
+        return false, "no_interaction_targets"
+    end
+    local atInteractionTarget = false
+    for _, target in ipairs(targets) do
+        if utility.arrived(actor, target, {
+            targetKind = "square", distance = 1.0,
+        }) then
+            atInteractionTarget = true
+            break
+        end
+    end
+
+    if not atInteractionTarget then
+        setTaskPhase(actor, state, task, "approach", "approaching_container")
+        local ok, status = SC.Navigation.requestAny(actor, targets, "walk", {
+            action = "move_to_scavenge", container = task.container,
+            item = task.item, object = task.owner, snapshot = snapshot,
+            arrivalDistance = 1.0, supervisorToken = task.supervisorToken,
+        })
+        local service = supervisor()
+        if service and task.supervisorToken and type(service.progress) == "function" then
+            service.progress(task.supervisorToken, "approach:" .. tostring(status), {
+                navigation = status,
+            })
+        end
+        local navigationStatus = tostring(status or "")
+        local terminalNavigation = not ok and (
+            navigationStatus == "no_interaction_targets"
+            or navigationStatus == "no_reachable_interaction_target"
+            or string.find(navigationStatus, "path_blocked:", 1, true) == 1
+            or string.find(navigationStatus, "recovery_exhausted:", 1, true) == 1
+            or string.find(navigationStatus, "actor_state_timeout:", 1, true) == 1)
+        if terminalNavigation then
+            resetScavengeTarget(actor, state, {
+                cancelVisual = true, stopMovement = true,
+                reason = status, phase = "failed", cooldown = true,
+                memoryResult = "navigation_failed", time = time,
+            })
+            return false, status
+        end
+        return ok, status or "approaching_container"
     end
 
     if task.phase == "select" or task.phase == "approach" then
@@ -1359,7 +1509,8 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
 
     local ritualAccepts = SC.Quirks and type(SC.Quirks.acceptsLoot) == "function"
         and SC.Quirks.acceptsLoot(actor, task.item, commands) == true
-    if not ritualAccepts and SC.Logistics
+    if not ritualAccepts and not priorityMeleeAllowed(
+        actor, task.item, audit, commands) and SC.Logistics
         and type(SC.Logistics.canTake) == "function" then
         local accepted, reason = SC.Logistics.canTake(actor, task.item, task.category, audit)
         if accepted ~= true then
@@ -1663,6 +1814,17 @@ local function neutralUpdate(actor, player, rootRuntime, snapshot, state)
             if ok then return true, reason or "neutral_rescue" end
         end
     end
+    local current = now()
+    local scavengingActive = state.task ~= nil or state.selectionJob ~= nil
+        or state.containerSearch ~= nil
+    local weaponSearch = actorNeedsMeleeWeapon(actor)
+    if scavengingActive or current >= (tonumber(state.nextNeutralScavengeAt) or 0) then
+        local scavenged, reason = Encounter.tryScavenge(actor, player, rootRuntime, true)
+        if scavenged then return true, reason or "neutral_scavenge" end
+        state.nextNeutralScavengeAt = current + (weaponSearch
+            and (utility.config("neutralWeaponSearchRetryMs") or 4000)
+            or (utility.config("neutralScavengeRetryMs") or 10000))
+    end
     if snapshot and snapshot.strongestSound and SC.Navigation and type(SC.Navigation.request) == "function" then
         local sound = snapshot.strongestSound
         local square = utility.gridSquare(sound.x, sound.y, sound.z)
@@ -1674,11 +1836,10 @@ local function neutralUpdate(actor, player, rootRuntime, snapshot, state)
             })
         end
     end
-    local choice = (utility.stableHash(utility.idOf(actor)) + math.floor(now() / math.max(1, utility.config("encounterIntervalMs") or 1000))) % 4
-    if choice == 0 then
-        local scavenged, reason = Encounter.tryScavenge(actor, player, rootRuntime, true)
-        if scavenged then return true, reason or "neutral_scavenge" end
-    elseif choice == 1 then
+    local choice = (utility.stableHash(utility.idOf(actor))
+        + math.floor(current / math.max(1,
+            utility.config("encounterIntervalMs") or 1000))) % 3
+    if choice == 1 then
         local cover = indoorCover(actor, snapshot)
         if cover and SC.Navigation and type(SC.Navigation.request) == "function" then
             return SC.Navigation.request(actor, cover, "sneak", {

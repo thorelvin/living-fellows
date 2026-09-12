@@ -99,8 +99,13 @@ local function sweepGroupPassages(now, context)
     end
 end
 
+local groupPassageKinds = {
+    door = true, window = true, window_frame = true, fence = true,
+    stairs = true, slope = true,
+}
+
 function Traffic.observeGroupPassage(leader, edge, cohort, roster, current, context)
-    if type(edge) ~= "table" or (edge.kind ~= "door" and edge.kind ~= "stairs") then
+    if type(edge) ~= "table" or groupPassageKinds[edge.kind] ~= true then
         return nil
     end
     local now = tonumber(current) or U().nowMs()
@@ -230,7 +235,7 @@ function Traffic.ensureGroupPassage(actor, state, sourceSquare, nextSquare, kind
         or call(context, "squareHasSlope", nextSquare) == true) then
         kind = "slope"
     end
-    if kind ~= "door" and kind ~= "stairs" and kind ~= "slope" then return true end
+    if groupPassageKinds[kind] ~= true then return true end
     local cohort = intent and intent.cohortKey
     if not cohort then return true end
     sweepGroupPassages(now, context)

@@ -317,7 +317,7 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertLess(apply_rect.index("self:setHeight(rect.height)"),
                         apply_rect.index("self:setY(rect.y)"))
         for signature in (
-            "function SCUIRoot:setCollapsed(collapsed, initial)",
+            "function SCUIRoot:setCollapsed(collapsed, initial, soundHandled)",
             "function SCUIRoot:applyScreenBounds()",
         ):
             self.assertIn("self:applyRect(rect)", lua_function(self.ui, signature))
@@ -335,7 +335,7 @@ class UIStaticContractTests(unittest.TestCase):
 
     def test_collapse_uses_a_separate_launcher_without_click_through(self) -> None:
         collapse = lua_function(
-            self.ui, "function SCUIRoot:setCollapsed(collapsed, initial)"
+            self.ui, "function SCUIRoot:setCollapsed(collapsed, initial, soundHandled)"
         )
         root_mouse_up = lua_function(self.ui, "function SCUIRoot:onMouseUp(x, y)")
         launcher_mouse_up = lua_function(
@@ -346,7 +346,7 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn('ISPanel:derive("SCUICollapsedLauncher")', self.ui)
         self.assertIn("self:setVisible(false)", collapse)
         self.assertIn("UI.showCollapsedLauncher(self)", collapse)
-        self.assertIn("self.root:setCollapsed(false)", launcher_mouse_up)
+        self.assertIn("self.root:setCollapsed(false, false, true)", launcher_mouse_up)
         self.assertIn("if not self.dragging then return false end", launcher_mouse_up)
         self.assertNotIn("setCollapsed(false)", root_mouse_up)
         self.assertIn("Bounds.expandedRect", ensure)
@@ -842,7 +842,10 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("detailBar.scrolling == true", interaction)
         self.assertIn('safeMethod(rosterBar, "getIsCaptured")', interaction)
         self.assertIn('safeMethod(detailBar, "getIsCaptured")', interaction)
+        self.assertIn("content.childrenInOrder", interaction)
+        self.assertIn("child.sawMouseDown == true", interaction)
         self.assertIn("child.expanded == true", interaction)
+        self.assertNotIn("ipairs(content and content.children or {})", interaction)
 
     def test_command_selectors_do_not_depend_on_kahlua_global_next(self) -> None:
         selector = lua_function(self.ui, "function SCUIDetail:addCommandSelector(")
@@ -1196,14 +1199,17 @@ class UIStaticContractTests(unittest.TestCase):
     def test_menu_toggle_uses_paired_vanilla_ui_sounds(self) -> None:
         self.assertIn('UI.MENU_OPEN_SOUND = "UIVehicleMenuOpen"', self.ui)
         self.assertIn('UI.MENU_CLOSE_SOUND = "UIVehicleMenuClose"', self.ui)
+        helper = lua_function(self.ui, "local function playUISound(soundName)")
+        self.assertIn('utility.playUISound, soundName, "UIActivateButton"', helper)
+        self.assertIn('manager:playUISound(name)', helper)
         dock = lua_function(self.ui, "local function onDockButton(target)")
         self.assertIn("playUISound(UI.MENU_OPEN_SOUND)", dock)
         collapse = lua_function(
-            self.ui, "function SCUIRoot:setCollapsed(collapsed, initial)"
+            self.ui, "function SCUIRoot:setCollapsed(collapsed, initial, soundHandled)"
         )
         self.assertIn("local changed = self.collapsed ~= requested", collapse)
         self.assertIn("if not initial then", collapse)
-        self.assertIn("if changed then", collapse)
+        self.assertIn("if changed and soundHandled ~= true then", collapse)
         self.assertIn(
             "playUISound(requested and UI.MENU_CLOSE_SOUND or UI.MENU_OPEN_SOUND)",
             collapse,
@@ -1211,7 +1217,10 @@ class UIStaticContractTests(unittest.TestCase):
         launcher = lua_function(
             self.ui, "function SCUICollapsedLauncher:onMouseUp(x, y)"
         )
-        self.assertIn("self.root:setCollapsed(false)", launcher)
+        self.assertIn("playUISound(UI.MENU_OPEN_SOUND)", launcher)
+        self.assertIn("self.root:setCollapsed(false, false, true)", launcher)
+        self.assertLess(launcher.index("playUISound(UI.MENU_OPEN_SOUND)"),
+                        launcher.index("self.root:setCollapsed(false, false, true)"))
         toggle = lua_function(self.ui, "function UI.toggle()")
         self.assertIn("playUISound(UI.MENU_OPEN_SOUND)", toggle)
         self.assertIn("UI.instance:setCollapsed(not UI.instance.collapsed)", toggle)
@@ -1252,7 +1261,7 @@ class UIStaticContractTests(unittest.TestCase):
         dynamic_prefixes = {"UI_SC_State_", "UI_SC_Action_Distance", "UI_SC_VehicleStatus_"}
         references = {key for key in references if key not in dynamic_prefixes}
         self.assertFalse(references - en_keys, f"untranslated UI keys: {sorted(references - en_keys)}")
-        for distance in (2, 3, 5, 8):
+        for distance in (1, 2, 3, 5, 8):
             self.assertIn(f"UI_SC_Action_Distance{distance}", en_keys)
         self.assertEqual(en_data["UI_SC_Value_Health"], "%1%%")
         self.assertIn("UI_SC_State_defensive", en_keys)

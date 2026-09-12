@@ -329,6 +329,24 @@ function Topology.barrierBetween(fromSquare, toSquare)
     -- adjacent hoppable fence segment.
     local door, doorOk = U().call(fromSquare, "getDoorTo", toSquare)
     if doorOk and door ~= nil then return door, "door" end
+    -- Multi-tile garage doors and some modded gates are published on their
+    -- owning edge without participating in getDoorTo()/isDoorTo(). These are
+    -- still ordinary doors for pathing and use the same open/lock policy.
+    local garage, garageOk = U().call(owner, "getGarageDoor", north)
+    if garageOk and garage ~= nil then return garage, "door" end
+    local contextual, contextualOk = U().call(owner, "getDoorOrWindow", north)
+    if contextualOk and contextual ~= nil then
+        local isWindow, windowObserved = U().call(contextual, "isWindow")
+        if U().instanceOf(contextual, "IsoWindow")
+            or windowObserved and isWindow == true then
+            return contextual, "window"
+        end
+        local isDoor, doorObserved = U().call(contextual, "isDoor")
+        if U().instanceOf(contextual, "IsoDoor")
+            or doorObserved and isDoor == true then
+            return contextual, "door"
+        end
+    end
     local doorTo, doorToOk = U().call(fromSquare, "isDoorTo", toSquare)
     if doorToOk and doorTo == true then
         door, doorOk = U().call(owner, "getDoor", north)
@@ -344,19 +362,33 @@ function Topology.barrierBetween(fromSquare, toSquare)
         if frameOk and frame ~= nil then return frame, "window_frame" end
         return nil, "window"
     end
-    local hoppable, hopOk = U().call(fromSquare, "isHoppableTo", toSquare)
-    if hopOk and hoppable == true then
-        local fence, fenceOk = U().call(fromSquare, "getHoppableThumpableTo", toSquare)
-        if not fenceOk or fence == nil then
-            fence, fenceOk = U().call(fromSquare, "getHoppableTo", toSquare)
-        end
-        if not fenceOk or fence == nil then
-            fence, fenceOk = U().call(fromSquare, "getWallHoppableTo", toSquare)
-        end
-        return fenceOk and fence or nil, "fence"
+    -- Player context handling checks concrete hoppable objects as well as the
+    -- low-fence predicate. Tall sports/football fences may be exposed only by
+    -- getWallHoppableTo(): requiring isHoppableTo() first makes the planner
+    -- reject an edge that the player's E action can climb.
+    local fence, fenceOk = U().call(fromSquare, "getHoppableThumpableTo", toSquare)
+    if not fenceOk or fence == nil then
+        fence, fenceOk = U().call(fromSquare, "getHoppableTo", toSquare)
     end
-    if U().edgeBlocked(fromSquare, toSquare) then return nil, "blocked" end
-    return nil, "open"
+    if not fenceOk or fence == nil then
+        fence, fenceOk = U().call(fromSquare, "getWallHoppableTo", toSquare)
+    end
+    if fenceOk and fence ~= nil then return fence, "fence" end
+    local hoppable, hopOk = U().call(fromSquare, "isHoppableTo", toSquare)
+    if hopOk and hoppable == true then return nil, "fence" end
+    -- Do not invoke the broader player wall probe for ordinary open floor.
+    -- This function runs for every cardinal A-star neighbor; the native probe
+    -- is both substantially more expensive than isBlockedTo() and meaningful
+    -- only when the normal movement edge is actually blocked.
+    if not U().edgeBlocked(fromSquare, toSquare) then return nil, "open" end
+    -- Build 42 has a square-local wall affordance which is safe to query while
+    -- A-star evaluates a remote edge. Unlike actor:canClimbOverWall(), it does
+    -- not accidentally test whatever happens to be in front of the companion.
+    local direction = cardinalDirection(fromSquare, toSquare)
+    local wallHoppable, wallHoppableOk = U().call(
+        fromSquare, "isPlayerAbleToHopWallTo", direction, toSquare)
+    if wallHoppableOk and wallHoppable == true then return nil, "fence" end
+    return nil, "blocked"
 end
 
 local function thumpableBlocker(actor, fromSquare, toSquare)
@@ -503,7 +535,14 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
         return result
     end
     local thumpable, thumpableKind = thumpableBlocker(actor, fromSquare, toSquare)
-    if thumpable ~= nil then
+    -- A player-built hoppable IsoThumpable still reports collision. Once the
+    -- edge getters have positively identified that exact object as a door,
+    -- window or fence, its collision is the traversal affordance—not a second
+    -- wall layered over it.
+    local recognizedTraversalObject = thumpable ~= nil and object ~= nil
+        and thumpable == object and (kind == "door" or kind == "window"
+            or kind == "window_frame" or kind == "fence")
+    if thumpable ~= nil and not recognizedTraversalObject then
         result.object, result.affordance, result.reason = thumpable,
             thumpableKind or "thumpable", thumpableKind or "thumpable_collision"
         return result
@@ -554,10 +593,11 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
     elseif kind == "fence" then
         local tall, tallOk = U().call(object, "isTallHoppable")
         if tallOk and tall == true then
-            local direction = cardinalDirection(fromSquare, toSquare)
-            local climbable, climbOk = U().call(actor, "canClimbOverWall", direction)
-            if not climbOk then result.reason = "wall_climbability_unknown" return result end
-            if climbable ~= true then result.reason = "wall_not_climbable" return result end
+            -- canClimbOverWall(direction) is relative to the actor's current
+            -- square. Calling it while A-star evaluates a distant fence tests
+            -- an unrelated edge and rejects valid routes. Keep the concrete
+            -- tall wall in the route; the adjacent traversal dispatch repeats
+            -- the stock player capability check immediately before climbing.
             result.cost = 4.5
         else
             result.cost = 2.5

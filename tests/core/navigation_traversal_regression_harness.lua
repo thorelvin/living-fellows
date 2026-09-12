@@ -48,8 +48,23 @@ local function actor()
         if self.reject then return false end
         self.event = true
     end
+    function value:hopFence(_, testOnly)
+        if testOnly == true then
+            self.hopTests = (self.hopTests or 0) + 1
+            return not self.reject
+        end
+        return self:request()
+    end
     value.climbOverFence, value.climbOverWall = value.request, value.request
     value.climbThroughWindow, value.climbSheetRope = value.request, value.request
+    function value:triggerContextualAction(action, object)
+        self.contextualAction, self.contextualObject = action, object
+        return self:request()
+    end
+    function value:climbThroughWindowFrame(...)
+        self.frameClimb = true
+        return self:request(...)
+    end
     value.climbDownSheetRope, value.openWindow, value.smashWindow = value.request, value.request, value.request
     function value:cancelCompanionTraversal()
         if not self.cancelAllowed then return false end
@@ -108,14 +123,146 @@ local rejectedActor = actor()
 rejectedActor.reject = true
 check(not T.fence(rejectedActor, "climb_fence", { direction = "east" }, provider)
     and T.poll(rejectedActor) == "none", "explicit native rejection has no pending owner")
+local objectlessFenceActor = actor()
+function objectlessFenceActor:hopFence()
+    self.incorrectLowFenceCalls = (self.incorrectLowFenceCalls or 0) + 1
+    return false
+end
+function objectlessFenceActor:climbOverFence(direction)
+    self.objectlessFenceDirection = direction
+    return self:request()
+end
+check(T.fence(objectlessFenceActor, "climb_fence", {
+        direction = "east", objectlessFenceFallback = true,
+        fromSquare = objectlessFenceActor.square, toSquare = square(1, 0),
+    }, provider)
+        and objectlessFenceActor.objectlessFenceDirection == IsoDirections.E
+        and objectlessFenceActor.incorrectLowFenceCalls == nil,
+    "an objectless square fence uses the engine's matching inherited climb entry point")
+T.reset(objectlessFenceActor)
+local incapableWallActor = actor()
+function incapableWallActor:canClimbOverWall() return false end
+check(not T.fence(incapableWallActor, "climb_wall", { direction = "east" }, provider)
+    and T.poll(incapableWallActor) == "none",
+    "adjacent tall-wall dispatch still rejects a character that cannot climb")
+local companionWallActor = actor()
+function companionWallActor:climbCompanionOverWall(direction)
+    self.companionWallDirection = direction
+    return self:request()
+end
+function companionWallActor:climbOverWall()
+    self.incorrectInheritedWallCall = true
+    return false
+end
+check(T.fence(companionWallActor, "climb_wall", {
+        direction = "east", fromSquare = companionWallActor.square,
+        toSquare = square(1, 0),
+    }, provider)
+        and companionWallActor.companionWallDirection == IsoDirections.E
+        and companionWallActor.incorrectInheritedWallCall == nil,
+    "native companions use the bridge entry that preserves vanilla wall-climb outcomes")
+T.reset(companionWallActor)
+
+local reactionTopics, reactionState = {}, {
+    recruited = true, order = "follow", stress = 12, morale = 60,
+    personalityProfile = { archetype = "practical" },
+}
+local savedDialogue = SC.Dialogue
+local savedCommandPeek = SC.Commands.peek
+local reactionOverrides = SC.Config._overrides
+local savedReactionChance = reactionOverrides.wallClimbReactionChancePercent
+local savedReactionActorGap = reactionOverrides.wallClimbReactionActorCooldownMs
+local savedReactionGroupGap = reactionOverrides.wallClimbReactionGroupCooldownMs
+SC.Dialogue = {
+    lastSpokenAt = function() return -math.huge end,
+    say = function(_, topic)
+        reactionTopics[#reactionTopics + 1] = topic
+        return true
+    end,
+}
+SC.Commands.peek = function() return reactionState end
+reactionOverrides.wallClimbReactionChancePercent = 100
+reactionOverrides.wallClimbReactionActorCooldownMs = 0
+reactionOverrides.wallClimbReactionGroupCooldownMs = 0
+
+local function finishWallOutcome(success, struggle)
+    local value, destination = actor(), square(1, 0)
+    function value:climbCompanionOverWall(direction)
+        self.companionWallDirection = direction
+        return self:request()
+    end
+    function value:isClimbOverWallSuccess() return success end
+    function value:isClimbOverWallStruggle() return struggle end
+    check(T.fence(value, "climb_wall", {
+            direction = "east", fromSquare = value.square, toSquare = destination,
+        }, provider), "outcome-aware wall climb starts")
+    value.nativeState = { __class = "ClimbOverWallState" }
+    current = current + 100
+    check(T.poll(value) == "active", "outcome-aware wall climb enters native state")
+    value.nativeState = nil
+    if success then value.x = 1.5 end
+    current = current + 100
+    local terminal = T.poll(value)
+    local spoken = #reactionTopics
+    T.poll(value)
+    check(#reactionTopics == spoken, "a completed wall attempt considers its reaction only once")
+    T.reset(value)
+    return terminal
+end
+
+check(finishWallOutcome(true, false) == "completed"
+        and reactionTopics[#reactionTopics] == "traversal.wall.success",
+    "a clean vanilla wall success selects the success voice pool")
+check(finishWallOutcome(true, true) == "completed"
+        and reactionTopics[#reactionTopics] == "traversal.wall.struggle",
+    "a successful vanilla struggle selects the struggle voice pool")
+check(finishWallOutcome(false, true) == "failed"
+        and reactionTopics[#reactionTopics] == "traversal.wall.fail",
+    "vanilla failure takes precedence over its separate struggle roll")
+local priorReactionCount = #reactionTopics
+reactionOverrides.wallClimbReactionChancePercent = 0
+finishWallOutcome(true, false)
+check(#reactionTopics == priorReactionCount,
+    "high-wall voice reactions remain random rather than firing every time")
+reactionOverrides.wallClimbReactionChancePercent = 100
+reactionState.order = "retreat"
+finishWallOutcome(true, false)
+check(#reactionTopics == priorReactionCount,
+    "retreat traversal suppresses cosmetic wall chatter so survival keeps priority")
+reactionOverrides.wallClimbReactionChancePercent = savedReactionChance
+reactionOverrides.wallClimbReactionActorCooldownMs = savedReactionActorGap
+reactionOverrides.wallClimbReactionGroupCooldownMs = savedReactionGroupGap
+SC.Commands.peek = savedCommandPeek
+SC.Dialogue = savedDialogue
+T.reset()
+
 local lateActor, lateDestination = actor(), square(1, 0)
 T.fence(lateActor, "climb_fence", { direction = "east", toSquare = lateDestination,
     fromSquare = lateActor.square }, provider)
 lateActor.x = 1.5
 current = current + 200
+check(T.poll(lateActor) == "starting" and lateActor.event,
+    "destination motion cannot cancel a delayed native climb before its startup lease")
+current = current + 1400
 check(T.poll(lateActor) == "completed" and not lateActor.event,
-    "missed short animation verifies destination and cancels any queued event")
+    "missed short animation verifies destination only after its startup lease")
 T.reset(lateActor)
+local frameActor = actor()
+check(T.window(frameActor, "climb_window", { object = {}, emptyFrame = true,
+        fromSquare = frameActor.square, toSquare = square(1, 0) }, provider)
+        and frameActor.frameClimb == true,
+    "empty window frames use the engine's dedicated climbThroughWindowFrame entry point")
+T.reset(frameActor)
+local contextualFenceActor, contextualFence = actor(), {}
+function contextualFence:canClimbOver(candidate) return candidate == contextualFenceActor end
+check(T.window(contextualFenceActor, "climb_window", {
+        object = contextualFence, hoppableThumpable = true,
+        fromSquare = contextualFenceActor.square, toSquare = square(1, 0),
+    }, provider)
+        and contextualFenceActor.contextualAction == "ClimbThroughWindow"
+        and contextualFenceActor.contextualObject == contextualFence,
+    "hoppable IsoThumpables use the player's contextual ClimbThroughWindow entry point")
+T.reset(contextualFenceActor)
 local sameSideActor = actor()
 T.fence(sameSideActor, "climb_fence", { direction = "east", toSquare = square(1, 0),
     fromSquare = sameSideActor.square }, provider)
@@ -141,13 +288,63 @@ check(T.poll(windowActor) == "active", "native state still owns tail after anima
 windowActor.nativeState = nil
 check(T.poll(windowActor) == "completed", "window completion verifies actual effect")
 T.reset(windowActor)
+local interruptedWindowActor, interruptedWindow = actor(), { opened = false }
+function interruptedWindow:IsOpen() return self.opened end
+T.window(interruptedWindowActor, "open_window", { object = interruptedWindow }, provider)
+interruptedWindowActor.bOpenWindow = true
+interruptedWindowActor.nativeState = { __class = "OpenWindowState" }
+check(T.poll(interruptedWindowActor) == "active"
+        and T.cancel(interruptedWindowActor, "combat_priority") == true
+        and T.poll(interruptedWindowActor) == "none"
+        and not interruptedWindowActor.event,
+    "survival combat may cancel window preparation before any boundary crossing")
+local protectedClimbActor, protectedClimbWindow = actor(), { opened = true }
+function protectedClimbWindow:IsOpen() return self.opened end
+function protectedClimbWindow:isSmashed() return false end
+T.window(protectedClimbActor, "climb_window", {
+    object = protectedClimbWindow, fromSquare = protectedClimbActor.square,
+    toSquare = square(1, 0),
+}, provider)
+protectedClimbActor.nativeState = { __class = "ClimbThroughWindowState" }
+check(T.poll(protectedClimbActor) == "active"
+        and T.cancel(protectedClimbActor, "combat_priority") == false
+        and T.poll(protectedClimbActor) == "active",
+    "an already-active boundary crossing remains protected so urgent combat queues safely")
+protectedClimbActor.nativeState, protectedClimbActor.x = nil, 1.5
+check(T.poll(protectedClimbActor) == "completed",
+    "protected crossing releases combat ownership immediately after verified arrival")
+T.reset(protectedClimbActor)
+local closingWindowActor, closingWindowDestination = actor(), square(1, 0)
+local closingWindow = { opened = true, smashed = false, glassRemoved = false }
+function closingWindow:IsOpen() return self.opened end
+function closingWindow:isSmashed() return self.smashed end
+function closingWindow:isGlassRemoved() return self.glassRemoved end
+T.window(closingWindowActor, "climb_window", {
+    object = closingWindow, fromSquare = closingWindowActor.square,
+    toSquare = closingWindowDestination,
+}, provider)
+closingWindow.opened = false
+local closingPhase, closingReason = T.poll(closingWindowActor)
+local closingWindowState = {
+    path = { closingWindowActor.square, closingWindowDestination },
+    pathIndex = 2, openedDoors = {},
+}
+local closingHandled = N._maintainTraversalForRequest(
+    closingWindowActor, closingWindowState, closingWindowActor.square, current)
+check(closingPhase == "cancelled"
+        and closingReason == "traversal_portal_changed:climb_window"
+        and closingHandled == false and closingWindowState.path ~= nil
+        and closingWindowState.blockedEdges == nil and not closingWindowActor.event,
+    "a window closed before native climb entry is reclassified without timeout or blacklist")
 local earlyWindowActor, earlyWindow = actor(), { IsOpen = function() return true end }
 T.window(earlyWindowActor, "open_window", { object = earlyWindow }, provider)
 check(T.activityStatus(earlyWindowActor) == "none" and not earlyWindowActor.event
     and earlyWindowActor.calls == 0, "already-open window never queues a redundant native event")
 T.reset(earlyWindowActor)
 local ownedActor, ownedDestination = actor(), square(1, 0)
-local ownedState = { path = { ownedActor.square, ownedDestination }, openedDoors = {} }
+local ownedState = {
+    path = { ownedActor.square, ownedDestination }, pathIndex = 2, openedDoors = {},
+}
 T.fence(ownedActor, "climb_fence", { direction = "east", fromSquare = ownedActor.square,
     toSquare = ownedDestination }, provider)
 local handled, accepted = N._maintainTraversalForRequest(ownedActor, ownedState, ownedActor.square, current)
@@ -160,8 +357,9 @@ check(handled and accepted and ownedState.path and not ownedState.blockedEdges,
     "navigation waits through actual fence state despite false legacy field and expired start deadline")
 ownedActor.nativeState, ownedActor.x = nil, 1.5
 check(not N._maintainTraversalForRequest(ownedActor, ownedState, ownedDestination, current + 100)
-    and ownedState.path == nil and T.poll(ownedActor) == "none",
-    "navigation consumes verified traversal once and replans without blacklisting")
+    and ownedState.path and ownedState.path[2] == ownedDestination
+    and ownedState.pathIndex == 2 and T.poll(ownedActor) == "none",
+    "navigation consumes verified traversal once and preserves its validated route suffix")
 local bridgeActor = actor()
 function bridgeActor:isCompanionTraversalActive() return self.bridgeTraversal == true end
 T.fence(bridgeActor, "climb_fence", { direction = "east" }, provider)
@@ -257,6 +455,96 @@ for _, goal in ipairs({ square(1, 0), square(-1, 0), square(0, 1), square(0, -1)
         and intent.movementArrivalTolerance < 0.18 and intent.movementTargetTtlMs == 750,
         "door alignment sends a bounded exact endpoint in every orientation")
 end
+for _, goal in ipairs({ square(1, 0), square(-1, 0), square(0, 1), square(0, -1) }) do
+    mover.x, mover.y = goal.x ~= 0 and 0.5 or 0.75, goal.y ~= 0 and 0.5 or 0.75
+    mover.lastIntent = nil
+    local aligned = SC.NavTraversal.alignWindowApproach(mover, square(0, 0), goal, {}, {
+        directionBetween = function() return goal.x > 0 and "east" or goal.x < 0 and "west"
+            or goal.y > 0 and "south" or "north" end,
+    })
+    local intent = mover.lastIntent
+    check(aligned == nil and intent.action == "window_approach"
+        and intent.windowAlignment == true and intent.targetKind == "world"
+        and intent.movementArrivalTolerance <= 0.06,
+        "window alignment stages an exact source-side endpoint in every orientation")
+end
+for _, goal in ipairs({ square(1, 0), square(-1, 0), square(0, 1), square(0, -1) }) do
+    local from = square(0, 0)
+    mover.x = goal.x > 0 and 1.02 or goal.x < 0 and -0.02 or 0.5
+    mover.y = goal.y > 0 and 1.02 or goal.y < 0 and -0.02 or 0.5
+    mover.lastIntent = nil
+    local record = { action = "climb_fence", fromSquare = from, toSquare = goal,
+        mode = "walk", supervisorToken = { serial = 7 } }
+    local cleared = SC.NavTraversal.clearTraversalExit(mover, record, current, {})
+    local intent = mover.lastIntent
+    local progress, lateral = SC.NavTraversal.doorGeometry(record, intent.targetPosition)
+    check(cleared == nil and intent.action == "traversal_exit"
+        and intent.traversalExit == true and intent.direct == true
+        and progress >= 0.37 and lateral <= 0.001
+        and intent.supervisorToken == record.supervisorToken,
+        "window and fence exits take a bounded step fully through every portal orientation")
+    mover.x, mover.y = intent.targetPosition.x, intent.targetPosition.y
+    check(SC.NavTraversal.clearTraversalExit(mover, record, current + 100, {}) == true,
+        "portal exit clearance completes only after the actor's feet clear the frame")
+end
+
+local fastGrid = {}
+for x = 0, 5 do
+    for y = 0, 3 do fastGrid[tostring(x) .. ":" .. tostring(y)] = square(x, y) end
+end
+U.gridSquare = function(x, y)
+    return fastGrid[tostring(math.floor(x)) .. ":" .. tostring(math.floor(y))]
+end
+local fastPath = N._fastOpenRouteForTests(
+    fastGrid["0:0"], fastGrid["5:3"], { actor = mover, now = current })
+check(fastPath and #fastPath == 6 and fastPath[1] == fastGrid["0:0"]
+        and fastPath[#fastPath] == fastGrid["5:3"],
+    "short open follow routes are fully validated and available in the first decision pulse")
+fastGrid["3:2"].isSolid = function() return true end
+fastGrid["3:2"].isFree = function() return false end
+check(N._fastOpenRouteForTests(
+        fastGrid["0:0"], fastGrid["5:3"], { actor = mover, now = current }) == nil,
+    "the immediate follow route fails closed so A-star can plan around an obstruction")
+fastGrid["3:2"].isSolid = function() return false end
+fastGrid["3:2"].isFree = function() return true end
+local playerTrack = {
+    fastGrid["2:0"], fastGrid["2:1"], fastGrid["2:2"], fastGrid["3:2"],
+}
+local trackPath = N._followTrackRouteForTests(
+    fastGrid["0:0"], fastGrid["3:2"], playerTrack, { actor = mover, now = current })
+check(trackPath and #trackPath == 4 and trackPath[2] ~= fastGrid["2:0"]
+        and trackPath[#trackPath] == fastGrid["3:2"],
+    "an open player track is string-pulled into a direct chord instead of replaying a bend")
+local trackFence = { isTallHoppable = function() return false end }
+for y = 0, 3 do
+    local left, right = fastGrid["0:" .. tostring(y)], fastGrid["1:" .. tostring(y)]
+    function left:getHoppableTo(other) return other == right and trackFence or nil end
+end
+local portalTrack = {
+    fastGrid["0:0"], fastGrid["1:0"], fastGrid["1:1"],
+    fastGrid["1:2"], fastGrid["1:3"], fastGrid["2:3"],
+}
+local portalPath = N._followTrackRouteForTests(
+    fastGrid["0:3"], fastGrid["2:3"], portalTrack,
+    { actor = mover, now = current })
+local crossedAtPlayerPortal = false
+for index = 2, #(portalPath or {}) do
+    if portalPath[index - 1] == fastGrid["0:0"]
+        and portalPath[index] == fastGrid["1:0"] then
+        crossedAtPlayerPortal = true
+        break
+    end
+end
+check(portalPath and crossedAtPlayerPortal,
+    "a follower on the wrong side of a fence joins the reachable old approach and replays the player's portal")
+for y = 0, 3 do fastGrid["0:" .. tostring(y)].getHoppableTo = nil end
+mover.square, mover.x, mover.y = fastGrid["0:0"], 0.5, 0.5
+local aimX, aimY, aimSquare = N._continuousFollowVectorForTests(mover, {
+    path = fastPath, pathIndex = 2, blockedEdges = {}, blockedSquares = {}, routeMemory = {},
+}, fastGrid["0:0"], { action = "follow_formation" })
+check(aimX and aimY and aimSquare == fastGrid["5:3"]
+        and math.abs(aimX) > 1 and math.abs(aimY) > 1,
+    "continuous follow aims down a proven-open route instead of steering at each tile centre")
 U.move = oldMove
 -- No world scan is needed: only the existing bounded close-threat snapshot.
 U.gridSquare = function() return nil end

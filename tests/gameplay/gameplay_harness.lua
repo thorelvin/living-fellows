@@ -26,10 +26,15 @@ end
 local worldSoundCount = 0
 function addSound(source, x, y, z, radius, volume) worldSoundCount = worldSoundCount + 1 end
 local uiSounds = {}
+SC_TEST_UI_SOUND_HANDLES = {}
 function getSoundManager()
     return {
         playUISound = function(_, soundName)
             uiSounds[#uiSounds + 1] = tostring(soundName)
+            if SC_TEST_UI_SOUND_HANDLES[soundName] ~= nil then
+                return SC_TEST_UI_SOUND_HANDLES[soundName]
+            end
+            return #uiSounds
         end,
     }
 end
@@ -439,6 +444,20 @@ local function actor(id, x, y, options)
         self.climbing = true
         self.climbDirection = direction
         self.climbKind = "fence"
+    end
+    function value:hopFence(direction, testOnly)
+        if testOnly == true then return self.rejectFenceClimb ~= true end
+        if self.rejectFenceClimb then return false end
+        self.climbing = true
+        self.climbDirection = direction
+        self.climbKind = "fence"
+        return true
+    end
+    function value:triggerContextualAction(action, object)
+        self.contextualAction, self.contextualObject = action, object
+        self.climbing = true
+        self.climbKind = "contextual"
+        return true
     end
     function value:canClimbOverWall(direction)
         return self.rejectWallClimb ~= true
@@ -934,6 +953,20 @@ local zed = zombie(1, 0, { attacking = true, target = fellow })
 
 local defaultsChanged = pcall(function() SurvivorCompanion.GameplayUtil.Defaults.perceptionRadius = 999 end)
 check(not defaultsChanged, "gameplay defaults must be immutable")
+
+function SC_TEST_VERIFY_UI_SOUND()
+    local before = #uiSounds
+    SC_TEST_UI_SOUND_HANDLES.UIFixtureSilent = 0
+    check(SurvivorCompanion.GameplayUtil.playUISound(
+            "UIFixtureSilent", "UIActivateButton")
+            and #uiSounds == before + 2
+            and uiSounds[before + 1] == "UIFixtureSilent"
+            and uiSounds[before + 2] == "UIActivateButton",
+        "a zero native UI-sound handle falls back to the vanilla button cue")
+    SC_TEST_UI_SOUND_HANDLES.UIFixtureSilent = nil
+end
+SC_TEST_VERIFY_UI_SOUND()
+SC_TEST_VERIFY_UI_SOUND = nil
 
 do
     -- A zombie that already targets a non-local companion must accumulate the
@@ -1728,9 +1761,13 @@ end
 
 do
     local savedUnits = SurvivorCompanion.Config.values.performanceNavigationNodesPerFrame
+    local savedFastSteps = SurvivorCompanion.Config.values.navigationFastFollowMaxSteps
     local savedNativeActions = SurvivorCompanion.NativeActions
     local searchStops = 0
     SurvivorCompanion.Config.values.performanceNavigationNodesPerFrame = 1
+    -- Exercise the yielded A-star fallback independently from the open-route
+    -- first-pulse optimization covered by the traversal regression harness.
+    SurvivorCompanion.Config.values.navigationFastFollowMaxSteps = 0
     SurvivorCompanion.NativeActions = {
         stopDirect = function(value)
             searchStops = searchStops + 1
@@ -1760,6 +1797,7 @@ do
     registry[responsiveFollower.id] = nil
     SurvivorCompanion.NativeActions = savedNativeActions
     SurvivorCompanion.Config.values.performanceNavigationNodesPerFrame = savedUnits
+    SurvivorCompanion.Config.values.navigationFastFollowMaxSteps = savedFastSteps
     SurvivorCompanion.Performance.reset()
 end
 
@@ -2067,6 +2105,7 @@ local fenceFrom = cell:getGridSquare(5, -6, 0)
 local fenceTo = cell:getGridSquare(6, -6, 0)
 local priorHoppable = fenceFrom.isHoppableTo
 local priorGetHoppable = fenceFrom.getHoppableTo
+local priorGetWallHoppable = fenceFrom.getWallHoppableTo
 local lowFence = { tall = false }
 function lowFence:isTallHoppable() return self.tall == true end
 function fenceFrom:isHoppableTo(other) return other == fenceTo end
@@ -2091,12 +2130,116 @@ check(wallAccepted and fenceActor.lastIntent
     "a tall hoppable wall selects the native player wall-climb action: "
         .. tostring(wallReason) .. "/"
         .. tostring(fenceActor.lastIntent and fenceActor.lastIntent.action))
+local priorPlanningCanClimb = fenceActor.canClimbOverWall
+local planningCanClimbCalls = 0
+function fenceActor:canClimbOverWall(direction)
+    planningCanClimbCalls = planningCanClimbCalls + 1
+    return priorPlanningCanClimb(self, direction)
+end
 fenceActor.rejectWallClimb = true
 local rejectedWall = SurvivorCompanion.Topology.classifyEdge(
     fenceActor, fenceFrom, fenceTo, {})
-check(rejectedWall.traversable == false and rejectedWall.reason == "wall_not_climbable",
-    "a tall wall is rejected when the stock character climb check says it is unsafe")
+check(rejectedWall.traversable == true and rejectedWall.requiresNative == true
+        and planningCanClimbCalls == 0,
+    "remote path planning defers actor-relative tall-wall capability until the nearest adjacent dispatch")
 fenceActor.rejectWallClimb = nil
+function fenceFrom:isHoppableTo(other) return false end
+function fenceFrom:getHoppableTo(other) return nil end
+function fenceFrom:getWallHoppableTo(other)
+    return other == fenceTo and lowFence or nil
+end
+local concreteTallWall = SurvivorCompanion.Topology.classifyEdge(
+    fenceActor, fenceFrom, fenceTo, {})
+SurvivorCompanion.Navigation.reset(fenceActor)
+fenceActor.lastIntent = nil
+local sportsFenceAccepted = SurvivorCompanion.Navigation._handleFenceForRequest(
+    fenceActor, concreteTallWall.object, fenceFrom, fenceTo,
+    { action = "follow_formation" })
+check(concreteTallWall.traversable == true
+        and concreteTallWall.object == lowFence
+        and sportsFenceAccepted and fenceActor.lastIntent
+        and fenceActor.lastIntent.action == "climb_wall",
+    "a concrete tall sports fence remains routable when low-fence isHoppableTo is false: "
+        .. tostring(concreteTallWall.traversable) .. "/"
+        .. tostring(concreteTallWall.reason) .. "/"
+        .. tostring(concreteTallWall.object == lowFence) .. "/"
+        .. tostring(sportsFenceAccepted) .. "/"
+        .. tostring(fenceActor.lastIntent and fenceActor.lastIntent.action))
+SurvivorCompanion.Navigation.reset(fenceActor)
+local builtFence = { __class = "IsoThumpable" }
+function builtFence:isHoppable() return true end
+function builtFence:isTallHoppable() return false end
+function builtFence:canClimbOver(candidate) return candidate == fenceActor end
+function builtFence:isDoor() return false end
+function builtFence:isWindow() return false end
+function builtFence:isCanPassThrough() return false end
+function builtFence:TestCollide() return true end
+fenceFrom.specialObjects[#fenceFrom.specialObjects + 1] = builtFence
+function fenceFrom:getWallHoppableTo(other)
+    return other == fenceTo and builtFence or nil
+end
+local builtFenceEdge = SurvivorCompanion.Topology.classifyEdge(
+    fenceActor, fenceFrom, fenceTo, {})
+fenceActor.lastIntent = nil
+local builtFenceAccepted = SurvivorCompanion.Navigation._handleFenceForRequest(
+    fenceActor, builtFence, fenceFrom, fenceTo, { action = "follow_formation" })
+check(builtFenceEdge.traversable == true and builtFenceEdge.object == builtFence
+        and builtFenceAccepted == true and fenceActor.lastIntent
+        and fenceActor.lastIntent.action == "climb_window"
+        and fenceActor.lastIntent.hoppableThumpable == true,
+    "a colliding player-built fence remains a traversal affordance and mirrors the stock contextual climb: "
+        .. tostring(builtFenceEdge.traversable) .. "/"
+        .. tostring(builtFenceEdge.object == builtFence) .. "/"
+        .. tostring(builtFenceAccepted) .. "/"
+        .. tostring(fenceActor.lastIntent and fenceActor.lastIntent.action))
+table.remove(fenceFrom.specialObjects)
+SurvivorCompanion.Navigation.reset(fenceActor)
+function fenceFrom:getWallHoppableTo() return nil end
+local priorSquareWall = fenceFrom.isPlayerAbleToHopWallTo
+local priorFenceBlockedTo = fenceFrom.isBlockedTo
+local squareWallProbeCount = 0
+function fenceFrom:isPlayerAbleToHopWallTo(direction, other)
+    squareWallProbeCount = squareWallProbeCount + 1
+    return direction == IsoDirections.E and other == fenceTo
+end
+function fenceFrom:isBlockedTo(other)
+    if other == fenceTo then return true end
+    return priorFenceBlockedTo(self, other)
+end
+local priorCanClimbOverWall = fenceActor.canClimbOverWall
+function fenceActor:canClimbOverWall(direction)
+    self.checkedWallDirection = direction
+    if direction ~= IsoDirections.E then
+        error("canClimbOverWall requires IsoDirections.E")
+    end
+    return true
+end
+local squareWallEdge = SurvivorCompanion.Topology.classifyEdge(
+    fenceActor, fenceFrom, fenceTo, {})
+fenceActor.lastIntent = nil
+local squareWallAccepted = SurvivorCompanion.Navigation._handleFenceForRequest(
+    fenceActor, nil, fenceFrom, fenceTo, { action = "follow_formation" })
+check(squareWallEdge.traversable == true and squareWallEdge.affordance == "fence"
+        and squareWallAccepted == true and fenceActor.lastIntent
+        and fenceActor.lastIntent.action == "climb_wall"
+        and fenceActor.checkedWallDirection == IsoDirections.E
+        and fenceActor.lastIntent.objectlessFenceFallback == true
+        and squareWallProbeCount > 0,
+    "a wall exposed only through the square-local player hop contract is planned and dispatched")
+fenceActor.canClimbOverWall = priorCanClimbOverWall
+fenceFrom.isPlayerAbleToHopWallTo = priorSquareWall
+fenceFrom.isBlockedTo = priorFenceBlockedTo
+local openProbeFrom = cell:getGridSquare(20, -6, 0)
+local openProbeTo = cell:getGridSquare(21, -6, 0)
+local openWallProbeCalls = 0
+function openProbeFrom:isPlayerAbleToHopWallTo()
+    openWallProbeCalls = openWallProbeCalls + 1
+    return true
+end
+local _, openProbeKind = SurvivorCompanion.Topology.barrierBetween(
+    openProbeFrom, openProbeTo)
+check(openProbeKind == "open" and openWallProbeCalls == 0,
+    "open A-star edges bypass the expensive square-wide wall affordance probe")
 SurvivorCompanion.Navigation.reset(fenceActor)
 registry[fenceActor.id] = nil
 for index = #fenceActor.square.moving, 1, -1 do
@@ -2106,6 +2249,42 @@ for index = #fenceActor.square.moving, 1, -1 do
 end
 fenceFrom.isHoppableTo = priorHoppable
 fenceFrom.getHoppableTo = priorGetHoppable
+fenceFrom.getWallHoppableTo = priorGetWallHoppable
+
+-- A* may retain more than one statically proven fence in a route, but it must
+-- prove the complete suffix to the requested goal without invoking the actor's
+-- adjacent-only canClimbOverWall() check for either remote portal.
+local sequentialSource = cell:getGridSquare(25, -6, 0)
+local sequentialGoal = cell:getGridSquare(29, -6, 0)
+local priorSequentialClassifier = SurvivorCompanion.Topology.classifyEdge
+local sequentialFenceKeys = {
+    ["25:-6:0>26:-6:0"] = true,
+    ["27:-6:0>28:-6:0"] = true,
+}
+SurvivorCompanion.Topology.classifyEdge = function(_, fromSquare, toSquare)
+    if fromSquare.y ~= -6 or toSquare.y ~= -6 then
+        return { traversable = false, reason = "outside_test_corridor" }
+    end
+    local key = SurvivorCompanion.GameplayUtil.squareKey(fromSquare)
+        .. ">" .. SurvivorCompanion.GameplayUtil.squareKey(toSquare)
+    local fence = sequentialFenceKeys[key] == true
+    return { traversable = true, cost = fence and 2.5 or 1,
+        affordance = fence and "fence" or "open", requiresNative = fence }
+end
+local capabilityCallsBeforeRoute = planningCanClimbCalls
+local sequentialPath = SurvivorCompanion.Navigation.findPath(
+    sequentialSource, sequentialGoal, { actor = fenceActor, nodeBudget = 32 })
+SurvivorCompanion.Topology.classifyEdge = priorSequentialClassifier
+local selectedFenceCount = 0
+for index = 2, #(sequentialPath or {}) do
+    local key = SurvivorCompanion.GameplayUtil.squareKey(sequentialPath[index - 1])
+        .. ">" .. SurvivorCompanion.GameplayUtil.squareKey(sequentialPath[index])
+    if sequentialFenceKeys[key] then selectedFenceCount = selectedFenceCount + 1 end
+end
+check(sequentialPath and sequentialPath[#sequentialPath] == sequentialGoal
+        and selectedFenceCount == 2
+        and planningCanClimbCalls == capabilityCallsBeforeRoute,
+    "A-star proves the full destination suffix across sequential fences without remotely testing the actor")
 end
 
 do
@@ -2121,6 +2300,14 @@ check(gateObject == openGate and gateKind == "door"
         and SurvivorCompanion.Topology.classifyEdge(nil, gateFrom, gateTo, {}).traversable,
     "an open gate remains a traversable door affordance instead of becoming a fence")
 gateFrom.getDoorTo = priorDoorTo
+local garageDoor = { open = true, IsOpen = function(self) return self.open end }
+local priorGarageDoor = gateTo.getGarageDoor
+function gateTo:getGarageDoor(north) return north == false and garageDoor or nil end
+gateObject, gateKind = SurvivorCompanion.Topology.barrierBetween(gateFrom, gateTo)
+check(gateObject == garageDoor and gateKind == "door"
+        and SurvivorCompanion.Topology.classifyEdge(nil, gateFrom, gateTo, {}).traversable,
+    "a multi-tile garage door published only by its owner edge participates in pathing")
+gateTo.getGarageDoor = priorGarageDoor
 end
 
 do
@@ -2188,6 +2375,14 @@ local nearestArrived, nearestArrivalStatus = SurvivorCompanion.Navigation.reques
 check(nearestArrived and nearestArrivalStatus == "arrived"
         and SurvivorCompanion.Navigation.peek(nearestActor).nativeLease == nil,
     "nearest-of-many routing accepts any candidate and releases native ownership on arrival")
+SurvivorCompanion.Navigation.reset(nearestActor)
+nearestActor.square = cell:getGridSquare(-7, 2, 0)
+local objectRouteStarted = SurvivorCompanion.Navigation.requestAny(
+    nearestActor, targets, "walk", {
+        action = "test_object_route", object = interactionObject, arrivalDistance = 0.8,
+    })
+check(objectRouteStarted and starts == 1,
+    "fixed world-object approaches use portal-aware Lua routing instead of opaque native nearest pathing")
 SurvivorCompanion.Navigation.reset(nearestActor)
 SurvivorCompanion.NativeActions = previousNativeActions
 registry[nearestActor.id] = nil
@@ -3111,6 +3306,44 @@ local entryAdvanced = SurvivorCompanion.Navigation.request(
 check(entryAdvanced and entryActor.lastIntent and entryActor.lastIntent.roomEntryChecked == true,
     "room-entry movement advances only after both corner checks")
 
+do
+    local oscillatingActor = actor("sc-room-entry-multigoal", 13, 0, {})
+    registry[oscillatingActor.id] = oscillatingActor
+    local wideSource = cell:getGridSquare(13, 1, 0)
+    local wideStep = cell:getGridSquare(14, 1, 0)
+    local alternateTarget = cell:getGridSquare(15, 1, 0)
+    wideStep.room, alternateTarget.room = entryRoom, entryRoom
+    local fixedObject = { square = entryGoal }
+    function fixedObject:getSquare() return self.square end
+    local held, heldReason = SurvivorCompanion.Navigation.requestAny(
+        oscillatingActor, { entryGoal, alternateTarget }, "walk", {
+            action = "room_entry_multigoal", object = fixedObject,
+            snapshot = { allies = {} },
+        })
+    local initialDeadline = SurvivorCompanion.Navigation.peek(
+        oscillatingActor).roomEntryObserveUntil
+    clock = clock + 100
+    -- A double-wide opening may move the collision capsule onto the adjacent
+    -- outside tile and reorder equal interaction goals. It is still the same
+    -- room transition and must retain the sweep already in progress.
+    oscillatingActor.square = wideSource
+    local retained, retainedReason = SurvivorCompanion.Navigation.requestAny(
+        oscillatingActor, { entryGoal, alternateTarget }, "walk", {
+            action = "room_entry_multigoal", object = fixedObject,
+            snapshot = { allies = {} },
+        })
+    local retainedDeadline = SurvivorCompanion.Navigation.peek(
+        oscillatingActor).roomEntryObserveUntil
+    check(held and heldReason == "checking_room_entry" and retained
+            and retainedReason == "checking_room_entry"
+            and retainedDeadline == initialDeadline,
+        "multi-goal resorting cannot reset an in-progress room-entry observation")
+    SurvivorCompanion.Navigation.reset(oscillatingActor)
+    registry[oscillatingActor.id] = nil
+    wideStep.room, alternateTarget.room = nil, nil
+    clock = clock - 100
+end
+
 -- A lower-priority decision pulse must not clear an owning route's threshold
 -- timer before its eventual movement dispatch is rejected.  This is the exact
 -- interleaving exercised by the live harness: the owner pauses at a doorway
@@ -3347,6 +3580,30 @@ for _, value in ipairs({ predictionFollower, predictionLeader }) do
     end
 end
 
+local interceptLeader = actor("intercept-player", 50, 30, {
+    className = "IsoPlayer", recruited = false, forwardX = 1, forwardY = 0,
+})
+interceptLeader.modData.SC_Recruited = false
+local interceptFollower = actor("sc-intercept-follower", 40, 30, {})
+registry[interceptFollower.id] = interceptFollower
+SurvivorCompanion.Commands.issue(interceptFollower.id, "follow", nil, interceptLeader)
+local interceptTarget, interceptContext = SurvivorCompanion.Positioning.formationTarget(
+    interceptFollower, interceptLeader, SurvivorCompanion.Commands.peek(interceptFollower), {
+        threats = {}, allies = {}, player = { actor = interceptLeader, danger = 0 },
+    })
+check(interceptTarget and interceptContext.mode == "open"
+        and type(interceptContext.interceptPosition) == "table"
+        and interceptContext.followTrack == nil,
+    "a visible leader ten tiles away is intercepted in open ground instead of being replayed")
+SurvivorCompanion.Positioning.reset(interceptFollower)
+SurvivorCompanion.Commands.reset(interceptFollower)
+registry[interceptFollower.id] = nil
+for _, value in ipairs({ interceptFollower, interceptLeader }) do
+    for index = #value.square.moving, 1, -1 do
+        if value.square.moving[index] == value then table.remove(value.square.moving, index) end
+    end
+end
+
 local trailLeader = actor("trail-player", 50, 24, {
     className = "IsoPlayer", recruited = false, forwardX = 1, forwardY = 0,
 })
@@ -3374,8 +3631,10 @@ for x = 51, 53 do
 end
 check(trailTarget and trailContext and trailContext.mode == "trail"
         and trailContext.trailRevision >= 4 and trailTarget.x < trailLeader.square.x
-        and trailContext.columnIndex >= 1,
-    "a distant follower uses the shared leader breadcrumb column instead of cutting toward a side slot")
+        and trailContext.columnIndex >= 1
+        and type(trailContext.followTrack) == "table"
+        and trailContext.followTrack[#trailContext.followTrack] == trailTarget,
+    "a distant follower receives the exact shared leader track ending at its column target")
 SurvivorCompanion.Positioning.reset(trailFollower)
 SurvivorCompanion.Commands.reset(trailFollower)
 registry[trailFollower.id] = nil
@@ -3421,6 +3680,49 @@ check(not SurvivorCompanion.Positioning.shouldHold(formationLeft, settledHeading
 local guardedMode, guardedPosture = SurvivorCompanion.Positioning.followMode("walk", 80, 4)
 check(guardedMode == "sneak" and guardedPosture == "guarded",
     "high stress selects guarded human locomotion without a zombie animation")
+
+do
+    local closeCatchup = SurvivorCompanion.Positioning.followMode("walk", 0, 6, nil, 1)
+    local normalCatchup = SurvivorCompanion.Positioning.followMode("walk", 0, 6, nil, 3)
+    local separatedCatchup = SurvivorCompanion.Positioning.followMode("walk", 0, 15.7, nil, 3)
+    check(closeCatchup == "jog" and normalCatchup == "walk",
+        "stay-close mode begins catch-up earlier than ordinary formation spacing")
+    check(separatedCatchup == "jog",
+        "ordinary follow catches up before a companion falls fifteen tiles behind")
+end
+
+do
+    local committedFollower = actor("sc-committed-catch-up", 20, 20, {})
+    local arrivalTarget = committedFollower.square
+    player.running = true
+    local copyRun, copyReason = SurvivorCompanion.Positioning.followMode(
+        "copy", 0, 5, player, 3, committedFollower, 41)
+    player.running = false
+    local copyCommitted, _, copyActive = SurvivorCompanion.Positioning.followMode(
+        "copy", 0, 5, player, 3, committedFollower, 41)
+    check(copyRun == "jog" and copyReason == "leader_run_catch_up"
+            and copyCommitted == "jog" and copyActive == true,
+        "copy-player follow keeps jogging after the running leader stops")
+    check(SurvivorCompanion.Positioning.shouldHold(committedFollower, arrivalTarget),
+        "committed catch-up reaches the existing formation arrival band")
+    local copySettled, _, copyStillActive = SurvivorCompanion.Positioning.followMode(
+        "copy", 0, 3, player, 3, committedFollower, 41)
+    check(copySettled == "walk" and copyStillActive == false,
+        "copy-player follow releases its run commitment only after formation arrival")
+
+    player.running = true
+    local stealthRun = SurvivorCompanion.Positioning.followMode(
+        "sneak", 0, 5, player, 3, committedFollower, 42)
+    player.running = false
+    local stealthCommitted = SurvivorCompanion.Positioning.followMode(
+        "sneak", 0, 5, player, 3, committedFollower, 42)
+    local changedCommand = SurvivorCompanion.Positioning.followMode(
+        "sneak", 0, 5, player, 3, committedFollower, 43)
+    check(stealthRun == "jog" and stealthCommitted == "jog"
+            and changedCommand == "sneak",
+        "stealth follow catches a running leader but a new command clears the old commitment")
+    SurvivorCompanion.Positioning.reset(committedFollower)
+end
 
 SurvivorCompanion.Config.values.rearScanIntervalMs = 1
 SurvivorCompanion.Config.values.rearScanHoldMs = 1
@@ -3910,12 +4212,109 @@ do
 end
 local doorActor = actor("sc-door", 0, 2, {})
 registry[doorActor.id] = doorActor
-check(SurvivorCompanion.Navigation.request(doorActor, doorTo, "walk", {}), "door interaction begins")
+doorActor.testKitchenObject = { square = doorTo }
+function doorActor.testKitchenObject:getSquare() return self.square end
+do
+    local directDoorTargets = SurvivorCompanion.Navigation.interactionTargets(
+        doorActor, doorActor.testKitchenObject, { requireDirectAccess = true })
+    local admittedClosedDoorSide, admittedDiagonal = false, false
+    for _, target in ipairs(directDoorTargets) do
+        if target == doorFrom then admittedClosedDoorSide = true end
+        local dx, dy = math.abs(target.x - doorTo.x), math.abs(target.y - doorTo.y)
+        if dx + dy ~= 1 then admittedDiagonal = true end
+    end
+    check(not admittedClosedDoorSide and not admittedDiagonal,
+        "direct interaction targets exclude closed-door, wall, and diagonal contact points")
+end
+check(SurvivorCompanion.Navigation.requestAny(
+        doorActor, { doorTo }, "walk", {
+            action = "move_to_kitchen", object = doorActor.testKitchenObject,
+        }),
+    "portal-aware object routing starts toward a closed room door")
 clock = clock + 350
-check(SurvivorCompanion.Navigation.request(doorActor, doorTo, "walk", {}) and testDoor.open
+check(SurvivorCompanion.Navigation.requestAny(
+        doorActor, { doorTo }, "walk", {
+            action = "move_to_kitchen", object = doorActor.testKitchenObject,
+        }) and testDoor.open
         and doorActor.lastIntent.enginePath == true
         and doorActor.lastIntent.nativeAffordance == "door",
-    "required unlocked door opens and hands the whole threshold crossing to native pathing")
+    "an object route out of a closed room opens the unlocked door and hands the threshold to native pathing")
+do
+    local fallbackFrom = cell:getGridSquare(6, 2, 0)
+    local fallbackTo = cell:getGridSquare(7, 2, 0)
+    local fallbackDoor = { open = true, locked = false }
+    function fallbackDoor:IsOpen() return self.open end
+    function fallbackDoor:isLocked() return self.locked end
+    function fallbackDoor:ToggleDoor() self.open = not self.open return true end
+    function fallbackFrom:isDoorTo(other) return other == fallbackTo end
+    function fallbackTo:getDoor(north)
+        if north == false then return fallbackDoor end
+    end
+    local fallbackActor = actor("sc-open-door-native-fallback", 6, 2, {})
+    registry[fallbackActor.id] = fallbackActor
+    local started = SurvivorCompanion.Navigation.request(
+        fallbackActor, fallbackTo, "walk", {})
+    local fallbackState = SurvivorCompanion.Navigation.peek(fallbackActor)
+    check(started and fallbackState and fallbackState.nativeLease ~= nil,
+        "an open-door fixture first acquires native threshold steering")
+    fallbackState.nativeLease.startedAt = clock - 2000
+    fallbackState.nativeLease.positionProgressAt = clock - 2000
+    fallbackState.nativeLease.expires = clock + 5000
+    local previousNativeActions = SurvivorCompanion.NativeActions
+    SurvivorCompanion.NativeActions = {
+        pathTelemetry = function()
+            return { available = true, active = true, shouldBeMoving = true }
+        end,
+        stopDirect = function() return true end,
+    }
+    local fallbackResult, fallbackReason =
+        SurvivorCompanion.Navigation._maintainNativeLeaseForTests(
+            fallbackActor, fallbackState, fallbackTo, clock)
+    SurvivorCompanion.NativeActions = previousNativeActions
+    local fallbackMoved = SurvivorCompanion.Navigation.request(
+        fallbackActor, fallbackTo, "walk", {})
+    check(fallbackResult == "cancelled"
+            and fallbackReason == "open_door_direct_retry"
+            and fallbackMoved and fallbackActor.lastIntent
+            and fallbackActor.lastIntent.openDoorFallback == true
+            and fallbackActor.lastIntent.direct == true
+            and fallbackActor.lastIntent.enginePath ~= true,
+        "a stalled native path through an already-open door retries as a validated direct crossing")
+    SurvivorCompanion.Navigation.reset(fallbackActor)
+    registry[fallbackActor.id] = nil
+
+    fallbackDoor.open = true
+    local closingActor = actor("sc-door-closed-during-native-path", 6, 2, {})
+    registry[closingActor.id] = closingActor
+    local closingStarted = SurvivorCompanion.Navigation.request(
+        closingActor, fallbackTo, "walk", {})
+    local closingState = SurvivorCompanion.Navigation.peek(closingActor)
+    fallbackDoor.open = false
+    local stopCalls = 0
+    previousNativeActions = SurvivorCompanion.NativeActions
+    SurvivorCompanion.NativeActions = {
+        pathTelemetry = function()
+            return { available = true, active = true, shouldBeMoving = true }
+        end,
+        stopDirect = function() stopCalls = stopCalls + 1 return true end,
+    }
+    local closingResult, closingReason =
+        SurvivorCompanion.Navigation._maintainNativeLeaseForTests(
+            closingActor, closingState, fallbackTo, clock)
+    SurvivorCompanion.NativeActions = previousNativeActions
+    local reopened, reopenedReason = SurvivorCompanion.Navigation.request(
+        closingActor, fallbackTo, "walk", {})
+    local closingBlacklisted = false
+    for _ in pairs(closingState.blockedEdges or {}) do closingBlacklisted = true break end
+    check(closingStarted and closingResult == "cancelled"
+            and closingReason == "door_closed_retry" and stopCalls == 1
+            and not closingBlacklisted
+            and reopened and fallbackDoor.open and closingActor.lastIntent ~= nil,
+        "a door closed during native approach cancels immediately, reopens, and retries without blacklisting: "
+            .. tostring(reopenedReason))
+    SurvivorCompanion.Navigation.reset(closingActor)
+    registry[closingActor.id] = nil
+end
 local queuedDoorActor = actor("sc-door-queued", 0, 2, {})
 registry[queuedDoorActor.id] = queuedDoorActor
 local queuedDoor, queuedDoorReason = SurvivorCompanion.Navigation.request(
@@ -4199,6 +4598,10 @@ check(type(description.background) == "table" and description.relationshipTier =
     "describe exposes persistent relationship, mood, need, and background summaries")
 local invalidDistance = SurvivorCompanion.Commands.issue(fellow.id, "set_follow_distance", 4, player)
 check(not invalidDistance, "invalid follow distance is rejected")
+check(SurvivorCompanion.Commands.issue(
+        fellow.id, "set_follow_distance", 1, player)
+        and fellow.modData.SC_FollowDistance == 1,
+    "stay-close follow distance is accepted and persisted")
 local validDistance = SurvivorCompanion.Commands.issue(fellow.id, "set_follow_distance", 5, player)
 check(validDistance and fellow.modData.SC_FollowDistance == 5, "valid follow distance is persisted")
 
@@ -4725,6 +5128,45 @@ check(SurvivorCompanion.Decision._ownerNeedsImmediatePreemptionForTests(
             { bleedingCount = 1, critical = false, downed = false }, {}, { order = "stay" },
             true) == true,
     "an active medical owner ignores its own wound urgency but still yields to external danger")
+do
+    local portalActor = actor("sc-combat-preempts-portal-preparation", 9, 8, {})
+    registry[portalActor.id] = portalActor
+    local oldActivityStatus = SurvivorCompanion.NativeActions.activityStatus
+    local oldInterrupt = SurvivorCompanion.NativeActions.interruptOwnedActivity
+    local oldNavigationCancel = SurvivorCompanion.Navigation.cancel
+    local interrupts, routeCancels = 0, 0
+    SurvivorCompanion.NativeActions.activityStatus = function(candidate)
+        if candidate == portalActor then
+            return "active", "traversal", "open_window", clock, {}
+        end
+        return oldActivityStatus(candidate)
+    end
+    SurvivorCompanion.NativeActions.interruptOwnedActivity = function(candidate, reason)
+        if candidate == portalActor then
+            interrupts = interrupts + 1
+            return true, reason
+        end
+        return oldInterrupt(candidate, reason)
+    end
+    SurvivorCompanion.Navigation.cancel = function(candidate, reason)
+        if candidate == portalActor then
+            routeCancels = routeCancels + 1
+            return true, reason
+        end
+        return oldNavigationCancel(candidate, reason)
+    end
+    local held = SurvivorCompanion.Decision._holdOwnedActivityOrPacingForTests(
+        portalActor, player,
+        { immediateCount = 1, pressure = 1, player = { danger = 0 } },
+        { alive = true, health = 100, wounds = {}, bleedingCount = 0 }, {},
+        { order = "follow", recruited = true }, {}, clock)
+    SurvivorCompanion.NativeActions.activityStatus = oldActivityStatus
+    SurvivorCompanion.NativeActions.interruptOwnedActivity = oldInterrupt
+    SurvivorCompanion.Navigation.cancel = oldNavigationCancel
+    check(held == false and interrupts == 1 and routeCancels == 1,
+        "an immediate combat event interrupts safe portal preparation and clears the stale follow route")
+    registry[portalActor.id] = nil
+end
 local stagedActive, stagedActiveReason = SurvivorCompanion.Medical.treat(
     stagedMedic, stagedMedic, {})
 check(stagedActive and stagedActiveReason == "treatment_animation_active"
@@ -6285,9 +6727,11 @@ check(not failedNthGroup and SurvivorCompanion.Commands.peek(fellow).order == "f
 
 local openedFood = item("Base.CannedSoup", "Food")
 local safeFood = item("Base.CannedBeans", "Food")
-local function containerObject(square, contents)
+local function containerObject(square, contents, options)
+    options = options or {}
     local container = inventory(contents)
     function container:getParent() return self.owner end
+    function container:getType() return options.containerType or "counter" end
     local owner = { square = square, modData = {} }
     function owner:getSquare() return self.square end
     function owner:getX() return self.square.x end
@@ -6390,6 +6834,20 @@ do
     check(activeCandidates[1] and activeCandidates[1].kind == "scavenge"
             and activeCandidates[1].score >= 76,
         "an active bounded scavenging search retains enough priority to finish")
+    local immediateZombie = { x = decisionScavenger:getX() + 0.5,
+        y = decisionScavenger:getY(), z = decisionScavenger:getZ() }
+    local combatCandidates = SurvivorCompanion.Decision._evaluateForTests(
+        decisionScavenger, player, {
+            threats = { { actor = immediateZombie, distance = 0.5 } },
+            immediateAttackers = { { actor = immediateZombie, distance = 0.5 } },
+            threatCount = 1, immediateCount = 1, pressure = 1,
+            closeThreatCount = 1, allies = {}, escapeSquares = {},
+            player = { danger = 0, immediateThreats = 0 },
+        }, commandView, { alive = true, health = 100, wounds = {} }, {}, {}, clock)
+    check(combatCandidates[1] and combatCandidates[1].kind == "combat"
+            and combatCandidates[1].emergency == true
+            and combatCandidates[1].safetyTier == SurvivorCompanion.Decision.SafetyTier.SURVIVAL,
+        "an immediate zombie combat event outranks follow, player-track reuse, and active scavenging")
     SurvivorCompanion.Commands.reset(decisionScavenger)
     registry[decisionScavenger.id] = nil
 end
@@ -7124,6 +7582,94 @@ local neutralFallback = SurvivorCompanion.Encounter.update(neutralReject, player
     },
 })
 check(not neutralFallback, "encounter fallback movement propagates Actor rejection")
+
+do
+    local seeker = actor("sc-neutral-weapon-seeker", 30, 0, { recruited = false })
+    seeker.modData.SC_Recruited = false
+    registry[seeker.id] = seeker
+    local bedroomSquare = seeker.square
+    local kitchenSquare = cell:getGridSquare(31, 0, 0)
+    local oldBedroom, oldKitchen = bedroomSquare.room, kitchenSquare.room
+    bedroomSquare.room = { name = "bedroom" }
+    local kitchenDef = { name = "kitchen" }
+    function kitchenDef:getName() return self.name end
+    kitchenSquare.room = { definition = kitchenDef }
+    function kitchenSquare.room:getRoomDef() return self.definition end
+    local nearbyWeapon = item("Base.Nightstick", "Weapon", { damage = 1.2 })
+    local kitchenWeapon = item("Base.KitchenKnife", "Weapon", { damage = 0.7 })
+    local nearbyContainer = containerObject(bedroomSquare, { nearbyWeapon }, {
+        containerType = "dresser",
+    })
+    local kitchenContainer = containerObject(kitchenSquare, { kitchenWeapon }, {
+        containerType = "counter",
+    })
+    local safeRuntime = {
+        snapshot = { threats = {}, immediateAttackers = {}, threatCount = 0,
+            immediateCount = 0, pressure = 0, escapeSquares = {}, allies = {} },
+    }
+    local selected
+    for _ = 1, 6 do
+        SurvivorCompanion.Encounter.tryScavenge(seeker, player, safeRuntime, true)
+        local state = SurvivorCompanion.Encounter.peek(seeker)
+        if seeker.inventory:contains(kitchenWeapon)
+            or (state and state.task and state.task.item == kitchenWeapon) then
+            selected = true
+            break
+        end
+    end
+    local holdingKitchenWeapon = seeker.inventory:contains(kitchenWeapon)
+    local pendingState = SurvivorCompanion.Encounter.peek(seeker)
+    local pendingKitchenWeapon = pendingState and pendingState.task
+        and pendingState.task.item == kitchenWeapon
+    check(selected == true and (holdingKitchenWeapon or pendingKitchenWeapon)
+        and (not holdingKitchenWeapon
+            or not SurvivorCompanion.Encounter.needsMeleeWeapon(seeker))
+        and not seeker.inventory:contains(nearbyWeapon),
+        "an unrecruited unarmed survivor searches around itself and prefers melee loot in a logical kitchen")
+    SurvivorCompanion.Encounter.reset(seeker)
+    SurvivorCompanion.Logistics.reset(seeker)
+    registry[seeker.id] = nil
+    for _, square in ipairs({ bedroomSquare, kitchenSquare }) do
+        for index = #square.objects, 1, -1 do
+            local candidate = square.objects[index]
+            if candidate == nearbyContainer.owner or candidate == kitchenContainer.owner then
+                table.remove(square.objects, index)
+            end
+        end
+    end
+    bedroomSquare.room, kitchenSquare.room = oldBedroom, oldKitchen
+end
+do
+    local starterWeapon = item("Base.RollingPin", "Weapon", { damage = 0.5 })
+    local armedNeutral = actor("sc-neutral-armed-scavenger", 34, 2, {
+        recruited = false, inventory = inventory({ starterWeapon }),
+    })
+    armedNeutral.modData.SC_Recruited = false
+    armedNeutral.hunger = 0.95
+    registry[armedNeutral.id] = armedNeutral
+    local food = item("Base.CannedBeans", "Food")
+    local foodContainer = containerObject(armedNeutral.square, { food }, {
+        containerType = "counter",
+    })
+    local began, reason = SurvivorCompanion.Encounter.update(armedNeutral, player, {
+        snapshot = { threats = {}, immediateAttackers = {}, threatCount = 0,
+            immediateCount = 0, pressure = 0, escapeSquares = {}, allies = {},
+            strongestSound = { x = 40, y = 2, z = 0 } },
+    })
+    local state = SurvivorCompanion.Encounter.peek(armedNeutral)
+    check(began == true and (armedNeutral.inventory:contains(food)
+        or (state and (state.task or state.selectionJob or state.containerSearch)))
+        and reason ~= "investigate_sound",
+        "an armed neutral also starts scavenging before recruitment and before non-danger sounds")
+    SurvivorCompanion.Encounter.reset(armedNeutral)
+    SurvivorCompanion.Logistics.reset(armedNeutral)
+    registry[armedNeutral.id] = nil
+    for index = #armedNeutral.square.objects, 1, -1 do
+        if armedNeutral.square.objects[index] == foodContainer.owner then
+            table.remove(armedNeutral.square.objects, index)
+        end
+    end
+end
 local spawnSquare = SurvivorCompanion.Encounter.chooseSpawnSquare(player, {})
 check(spawnSquare ~= nil and spawnSquare.hidden == true and SurvivorCompanion.GameplayUtil.isSquareFree(spawnSquare),
     "production spawn chooser returns a loaded, unseen, valid square")
@@ -9703,6 +10249,10 @@ check(Dialogue.poolSize("scavenge.loot.excited", fellow, {}) >= 10
         and Dialogue.poolSize("scavenge.loot.disappointed", fellow, {}) >= 10
         and Dialogue.poolSize("scavenge.loot.gross", fellow, {}) >= 10,
     "verified scavenging has broad excited, disappointed, and gross personality pools")
+check(Dialogue.poolSize("traversal.wall.success", fellow, {}) >= 10
+        and Dialogue.poolSize("traversal.wall.struggle", fellow, {}) >= 10
+        and Dialogue.poolSize("traversal.wall.fail", fellow, {}) >= 10,
+    "high-wall outcomes have broad voice-matched success, struggle, and fail pools")
 local variedLines = {}
 local dialogueDetail
 for index = 1, 4 do
@@ -12032,6 +12582,24 @@ Factions.reset()
 end
 SurvivorCompanion.__testFactionRestoreTransactions()
 SurvivorCompanion.__testFactionRestoreTransactions = nil
+
+;(function()
+local loopLeader = actor("loop-prune-player", 45, 40, {
+    className = "IsoPlayer", recruited = false, forwardX = 1, forwardY = 0,
+})
+loopLeader.modData.SC_Recruited = false
+local loopState
+for _, point in ipairs({ { 45, 40 }, { 46, 40 }, { 46, 41 },
+        { 45, 41 }, { 45, 40 } }) do
+    loopLeader.square = cell:getGridSquare(point[1], point[2], 0)
+    clock = clock + 120
+    loopState = SurvivorCompanion.Positioning._sampleLeaderForTests(
+        loopLeader, clock, {}, "party:loop-prune")
+end
+check(loopState and #loopState.trail == 1 and loopState.totalDistance == 0,
+    "returning to a retained open square erases the completed leader loop")
+SurvivorCompanion.Positioning.reset(loopLeader)
+end)()
 
 check(SurvivorCompanion.Decision.resetAll(), "central gameplay runtime reset")
 check(SurvivorCompanion.Decision.peek(fellow) == nil and SurvivorCompanion.Combat.peek(fellow) == nil,

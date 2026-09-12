@@ -7,6 +7,7 @@ SC.NativeTraversalActions = SC.NativeTraversalActions or {}
 local Traversal = SC.NativeTraversalActions
 local context
 local pending = setmetatable({}, { __mode = "k" })
+local lastWallClimbReactionAt = -math.huge
 
 function Traversal.configure(value)
     assert(type(value) == "table", "native traversal context is required")
@@ -66,6 +67,29 @@ local function effectDone(record)
     return ok and result == true
 end
 
+-- A climb submitted through an open window may sit in the native event queue
+-- for a frame or two.  Re-read the portal before the animation owns the actor;
+-- another survivor can close the window during that gap.  Unknown native state
+-- remains admissible so compatibility adapters without every getter do not fail
+-- closed on an observation we could not make.
+local function windowClimbStillValid(record)
+    if record.action ~= "climb_window" or record.object == nil then return true end
+    if record.hoppableThumpable == true then
+        local observed, climbable = invoke(record.object, "canClimbOver", record.actor)
+        return not observed or climbable == true
+    end
+    local openObserved, open = invoke(record.object, "IsOpen")
+    if not openObserved then openObserved, open = invoke(record.object, "isOpen") end
+    if openObserved and open == true then return true end
+    local smashedObserved, smashed = invoke(record.object, "isSmashed")
+    if smashedObserved and smashed == true then
+        local glassObserved, glassRemoved = invoke(record.object, "isGlassRemoved")
+        return not glassObserved or glassRemoved == true
+    end
+    if openObserved and smashedObserved then return false end
+    return true
+end
+
 local function windowAnimationActive(actor, action)
     if action == "remove_glass" then return false end
     local observed, active = invoke(actor, "isCompanionTraversalActive")
@@ -95,6 +119,52 @@ local function cancelNative(actor, record, current)
     return ok and cancelled == true
 end
 
+-- Tall-wall success and struggle are separate vanilla rolls. Keep the values
+-- captured at dispatch so the reaction still matches the animation after
+-- ClimbOverWallState clears its variables on exit. Speech is deliberately a
+-- terminal side effect: it never owns movement and cannot delay urgent combat.
+local function considerWallClimbReaction(record, current)
+    if record.action ~= "climb_wall" or record.reactionConsidered == true
+        or (record.phase ~= "completed" and record.phase ~= "failed") then return end
+    record.reactionConsidered = true
+    local outcome = record.wallClimbOutcome
+    if outcome ~= "success" and outcome ~= "struggle" and outcome ~= "fail" then return end
+
+    local commands = SC.Commands
+    local state
+    if type(commands) == "table" and type(commands.peek) == "function" then
+        local ok, value = pcall(commands.peek, record.actor)
+        if ok and type(value) == "table" then state = value end
+    end
+    if type(state) ~= "table" or state.recruited ~= true or state.order == "retreat" then return end
+    local token = record.supervisorToken
+    local critical = SC.ActionSupervisor and SC.ActionSupervisor.Priority
+        and tonumber(SC.ActionSupervisor.Priority.COMBAT_RESCUE) or 500
+    if type(token) == "table" and (tonumber(token.priority) or 0) >= critical then return end
+
+    local dialogue = SC.Dialogue
+    local utility = SC.GameplayUtil
+    if type(dialogue) ~= "table" or type(dialogue.say) ~= "function"
+        or type(utility) ~= "table" or type(utility.stableHash) ~= "function" then return end
+    local actorGap = config("wallClimbReactionActorCooldownMs", 10000)
+    if type(dialogue.lastSpokenAt) == "function"
+        and current - (tonumber(dialogue.lastSpokenAt(record.actor)) or -math.huge)
+            < actorGap then return end
+    if current - lastWallClimbReactionAt
+        < config("wallClimbReactionGroupCooldownMs", 3000) then return end
+
+    local chance = math.max(0, math.min(100,
+        config("wallClimbReactionChancePercent", 35)))
+    local salt = tostring(utility.idOf(record.actor)) .. ":wall-climb:"
+        .. outcome .. ":" .. tostring(record.startedAt)
+    if utility.stableHash(salt) % 100 >= chance then return end
+    local topic = "traversal.wall." .. outcome
+    local spoken = dialogue.say(record.actor, topic, nil, nil, {
+        state = state, recentLimit = 4, salt = salt,
+    })
+    if spoken == true then lastWallClimbReactionAt = current end
+end
+
 -- Native traversal requests queue action events. A false isClimbing result in
 -- the dispatch frame is not a rejection; retain ownership until a later update
 -- observes entry, completion, or a bounded failure.
@@ -102,12 +172,21 @@ function Traversal.poll(actor, current)
     local record = pending[actor]
     if not record then return "none", nil, nil end
     current = tonumber(current) or nowMs()
-    if record.phase == "completed" or record.phase == "failed" then
+    if record.phase == "completed" or record.phase == "failed"
+        or record.phase == "cancelled" then
         if current - (record.finishedAt or current) > 2000 then pending[actor] = nil end
         return record.phase, record.reason, record
     end
     local active = climbing(actor)
-    if record.effectOnly then
+    if not active and record.phase == "starting"
+        and not windowClimbStillValid(record) then
+        if cancelNative(actor, record, current) then
+            record.phase = "cancelled"
+            record.reason = "traversal_portal_changed:" .. record.action
+        else
+            record.reason = "traversal_cancel_pending:" .. record.action
+        end
+    elseif record.effectOnly then
         record.effectVerified = record.effectVerified or effectDone(record)
         if windowAnimationActive(actor, record.action) then
             record.phase, record.observedAt = "active", record.observedAt or current
@@ -125,9 +204,16 @@ function Traversal.poll(actor, current)
         local x, y, z = position(actor)
         local moved = x and record.x and ((x - record.x)^2 + (y - record.y)^2 > 0.04
             or math.abs((z or 0) - (record.z or 0)) > 0.1)
-        record.phase = moved and "completed" or "failed"
-        record.reason = moved and "traversal_completed" or "traversal_exited_without_progress"
-    elseif record.toSquare and current > record.startedAt then
+        local tx, ty, tz = position(record.toSquare)
+        local destinationReached = record.rope == true or record.toSquare == nil
+            or (x and tx and math.floor(x) == math.floor(tx)
+                and math.floor(y) == math.floor(ty)
+                and math.floor(z or 0) == math.floor(tz or 0))
+        record.phase = moved and destinationReached and "completed" or "failed"
+        record.reason = not moved and "traversal_exited_without_progress"
+            or destinationReached and "traversal_completed"
+            or "traversal_exited_without_destination"
+    elseif record.toSquare and current >= record.startDeadline then
         -- A low-frequency observer can miss a whole short animation. Actual
         -- arrival across the requested boundary is also authoritative evidence.
         local x, y, z = position(actor)
@@ -164,7 +250,11 @@ function Traversal.poll(actor, current)
             record.reason = "traversal_cancel_pending:" .. record.action
         end
     end
-    if record.phase == "completed" or record.phase == "failed" then record.finishedAt = current end
+    if record.phase == "completed" or record.phase == "failed"
+        or record.phase == "cancelled" then
+        record.finishedAt = current
+        if record.phase ~= "cancelled" then considerWallClimbReaction(record, current) end
+    end
     return record.phase, record.reason, record
 end
 
@@ -178,7 +268,14 @@ end
 
 function Traversal.cancel(actor, reason)
     local phase, _, record = Traversal.poll(actor)
-    if phase == "active" then return false, "traversal_active" end
+    if phase == "active" then
+        -- Opening/smashing a window has no cross-boundary motion and can yield
+        -- to survival combat.  Once a climb owns the capsule, cancellation is
+        -- unsafe and the urgent action must wait for the short native traversal.
+        if not record.effectOnly or not cancelNative(actor, record, nowMs()) then
+            return false, "traversal_active"
+        end
+    end
     if phase == "starting" and not cancelNative(actor, record, nowMs()) then
         return false, "traversal_starting"
     end
@@ -187,7 +284,11 @@ function Traversal.cancel(actor, reason)
 end
 
 function Traversal.reset(actor)
-    if actor then pending[actor] = nil else pending = setmetatable({}, { __mode = "k" }) end
+    if actor then pending[actor] = nil
+    else
+        pending = setmetatable({}, { __mode = "k" })
+        lastWallClimbReactionAt = -math.huge
+    end
 end
 
 local function existingRequest(actor, action, object)
@@ -210,11 +311,14 @@ local function retainRequest(actor, action, intent, startedReason, effectOnly)
     local rope = action == "climb_sheet_rope" or action == "climb_down_sheet_rope"
     local active = effectOnly and windowAnimationActive(actor, action) or not effectOnly and climbing(actor)
     pending[actor] = {
+        actor = actor,
         action = action, object = intent.object, fromSquare = intent.fromSquare,
         toSquare = intent.toSquare or intent.nextSquare or intent.targetSquare,
+        mode = intent.mode or "walk", supervisorToken = intent.supervisorToken,
         phase = active and "active" or "starting", startedAt = current,
         observedAt = active and current or nil, x = x, y = y, z = z,
         effectOnly = effectOnly == true, rope = rope,
+        hoppableThumpable = intent.hoppableThumpable == true,
         startDeadline = current + config("nativeTraversalStartTimeoutMs", effectOnly and 3500 or 1500),
         finishDeadline = current + config("nativeTraversalTimeoutMs", rope and 30000 or 15000),
         reason = active and startedReason or "traversal_starting:" .. action,
@@ -255,7 +359,22 @@ function Traversal.window(actor, action, intent, provider)
         return retainRequest(actor, action, intent, "glass_removed", true)
     end
 
-    local started, failure = invoke(actor, "climbThroughWindow", object)
+    local started, failure
+    if intent.hoppableThumpable == true then
+        -- The stock E action submits a hoppable IsoThumpable through the
+        -- contextual ClimbThroughWindow entry point. That state owns its object
+        -- geometry and animation offsets better than treating it as a low fence.
+        started, failure = invoke(
+            actor, "triggerContextualAction", "ClimbThroughWindow", object)
+        if started and failure == false then
+            return false, "contextual thumpable climb was rejected"
+        end
+    end
+    if not started then
+        local methodName = intent.emptyFrame == true
+            and "climbThroughWindowFrame" or "climbThroughWindow"
+        started, failure = invoke(actor, methodName, object)
+    end
     if not started or failure == false then return false, failure or "native window climb rejected" end
     return retainRequest(actor, action, intent, "window_climb_started")
 end
@@ -282,19 +401,63 @@ function Traversal.fence(actor, action, intent, provider)
         return false, "fence climb could not acquire stationary actor"
     end
 
+    local wallClimbOutcome
     if action == "climb_wall" then
         local checked, climbable = invoke(actor, "canClimbOverWall", direction)
         if not checked then return false, "native tall-wall climb check is unavailable" end
         if climbable ~= true then return false, "native tall wall is not climbable" end
-        local invoked, started = invoke(actor, "climbOverWall", direction)
+        -- Native companions are intentionally non-local IsoPlayers. Their
+        -- bridge entry grants only ClimbOverWallState.setParams() the temporary
+        -- local context it needs to roll vanilla success/struggle/fail. Ordinary
+        -- IsoPlayers and compatibility adapters retain the inherited fallback.
+        local invoked, started = invoke(actor, "climbCompanionOverWall", direction)
+        if not invoked then invoked, started = invoke(actor, "climbOverWall", direction) end
         if not invoked then return false, started or "native tall-wall climb failed" end
         if started == false then return false, "native tall-wall climb was rejected" end
+        local successObserved, success = invoke(actor, "isClimbOverWallSuccess")
+        local struggleObserved, struggle = invoke(actor, "isClimbOverWallStruggle")
+        if successObserved and type(success) == "boolean"
+            and struggleObserved and type(struggle) == "boolean" then
+            wallClimbOutcome = success ~= true and "fail"
+                or struggle == true and "struggle" or "success"
+        end
     else
-        local invoked, failure = invoke(actor, "climbOverFence", direction)
-        if not invoked or failure == false then return false, failure or "native fence climb failed" end
+        if intent.objectlessFenceFallback == true then
+            -- IsoGameCharacter.climbOverFence() validates objectless square
+            -- affordances with isPlayerAbleToHopWallTo(). IsoPlayer:hopFence()
+            -- checks only the low-fence HoppableN/HoppableW flags and rejects
+            -- these otherwise valid edges. Mirror the engine's matching entry
+            -- point and retain it under the same bounded startup verification.
+            local invoked, failure = invoke(actor, "climbOverFence", direction)
+            if not invoked or failure == false then
+                return false, failure or "native objectless fence climb failed"
+            end
+            return retainRequest(actor, action, intent, "fence_climb_started")
+        end
+        -- IsoPlayer's context key does not call the inherited climb method
+        -- directly. hopFence(test=true) validates the exact edge, then
+        -- hopFence(test=false) submits the native state. Mirror that path when
+        -- it is exposed, retaining the inherited method only for adapters.
+        local tested, hoppable = invoke(actor, "hopFence", direction, true)
+        if tested then
+            if hoppable ~= true then return false, "native fence is not hoppable" end
+            local invoked, started = invoke(actor, "hopFence", direction, false)
+            if not invoked or started == false then
+                return false, started or "native fence hop failed"
+            end
+        else
+            local invoked, failure = invoke(actor, "climbOverFence", direction)
+            if not invoked or failure == false then
+                return false, failure or "native fence climb failed"
+            end
+        end
     end
-    return retainRequest(actor, action, intent,
+    local retained, retainReason = retainRequest(actor, action, intent,
         action == "climb_wall" and "wall_climb_started" or "fence_climb_started")
+    if retained and wallClimbOutcome and pending[actor] then
+        pending[actor].wallClimbOutcome = wallClimbOutcome
+    end
+    return retained, retainReason
 end
 
 function Traversal.sheetRope(actor, action, intent, provider)

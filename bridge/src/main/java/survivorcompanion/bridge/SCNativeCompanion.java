@@ -26,6 +26,7 @@ import zombie.characters.action.ActionState;
 import zombie.chat.ChatElement;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
+import zombie.iso.IsoDirections;
 import zombie.pathfind.PathFindBehavior2;
 import zombie.pathfind.PolygonalMap2;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
@@ -82,6 +83,11 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile int bridgeNextSpeechDisplayMillis;
     private volatile String bridgeSpeechLine;
     private volatile long bridgeSpeechRefreshUntilNanos;
+    // ClimbOverWallState computes its normal player success/struggle/fail roll
+    // only for a local IsoPlayer. This flag is true solely inside the synchronous
+    // companion wall-climb submission below; it is cleared before Lua regains
+    // control and never makes the actor a split-screen/local-player singleton.
+    private boolean bridgeWallClimbOutcomeContext;
     private volatile long bridgePostUpdateCount;
     private volatile String bridgePostUpdateDiagnostic = "not_run";
     private final MovementProbe bridgeLastMovementProbe = new MovementProbe();
@@ -184,7 +190,7 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     @Override
     public boolean isLocalPlayer() {
-        return false;
+        return bridgeWallClimbOutcomeContext;
     }
 
     /** Kahlua-safe diagnostic view of the otherwise unexposed ActionContext. */
@@ -332,6 +338,23 @@ public final class SCNativeCompanion extends IsoPlayer {
      */
     public boolean cancelCompanionStuckClimb() {
         return cancelCompanionTraversal();
+    }
+
+    /**
+     * Submit a tall-wall climb while allowing the stock ClimbOverWallState to
+     * roll the same skill, moodle, trait, load, sandbox and random outcome used
+     * by the local player. The actor remains a non-local NPC before and after
+     * this synchronous call; only vanilla's setParams calculation observes the
+     * temporary context.
+     */
+    public boolean climbCompanionOverWall(IsoDirections direction) {
+        if (bridgeDisabled || direction == null || bridgeWallClimbOutcomeContext) return false;
+        bridgeWallClimbOutcomeContext = true;
+        try {
+            return super.climbOverWall(direction);
+        } finally {
+            bridgeWallClimbOutcomeContext = false;
+        }
     }
 
     /**

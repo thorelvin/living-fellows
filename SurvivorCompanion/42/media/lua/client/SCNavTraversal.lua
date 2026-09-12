@@ -320,9 +320,198 @@ function Traversal.alignDoorApproach(actor, fromSquare, toSquare, intent, afford
     return nil, "aligning_" .. prefix .. "_approach"
 end
 
+local function cardinalDirection(name)
+    local directions = type(_G) == "table" and rawget(_G, "IsoDirections") or nil
+    local key = ({ north = "N", south = "S", east = "E", west = "W" })[
+        string.lower(tostring(name or ""))]
+    if directions == nil or key == nil then return nil end
+    local ok, value = pcall(function() return directions[key] end)
+    return ok and value or nil
+end
+
+function Traversal.alignWindowApproach(actor, fromSquare, toSquare, intent, context)
+    local utility = U()
+    local entry = { fromSquare = fromSquare, toSquare = toSquare }
+    local progress, lateral, forwardX, forwardY = Traversal.doorGeometry(entry, actor)
+    if progress == nil then return false, "window_geometry_unavailable" end
+    local lateralTolerance = utility.config("navigationWindowApproachLateralTolerance") or 0.10
+    local normalTolerance = utility.config("navigationWindowApproachNormalTolerance") or 0.12
+    local setback = utility.config("navigationWindowApproachSetback") or 0.38
+    if lateral <= lateralTolerance and math.abs(progress + setback) <= normalTolerance then
+        -- ISClimbThroughWindow waits until faceDirection has finished before it
+        -- submits the native climb. Do the same for companions so the animation
+        -- never begins sideways or from the opposite face of the portal.
+        local name = invoke(context, "directionBetween", fromSquare, toSquare)
+        local direction = cardinalDirection(name)
+        if direction ~= nil then
+            utility.call(actor, "faceDirection", direction)
+            local turning, observed = utility.call(actor, "shouldBeTurning")
+            if observed and turning == true then
+                invoke(context, "record", actor, "window_approach", {
+                    targetSquare = toSquare, status = "turning_to_window",
+                })
+                return nil, "turning_window_approach"
+            end
+        end
+        return true, "window_approach_aligned"
+    end
+
+    local fromX, fromY, fromZ = utility.position(fromSquare)
+    local toX, toY = utility.position(toSquare)
+    local actorX, actorY = utility.position(actor)
+    if fromX == nil or toX == nil or actorX == nil then
+        return false, "window_approach_position_unavailable"
+    end
+    local thresholdX = (fromX + toX) * 0.5 + 0.5
+    local thresholdY = (fromY + toY) * 0.5 + 0.5
+    local targetX = thresholdX - forwardX * setback
+    local targetY = thresholdY - forwardY * setback
+    local alignmentIntent = {
+        action = "window_approach",
+        dx = targetX - actorX,
+        dy = targetY - actorY,
+        targetPosition = { x = targetX, y = targetY, z = fromZ or 0 },
+        targetKind = "world",
+        movementArrivalTolerance = math.min(0.06, lateralTolerance * 0.5),
+        movementTargetTtlMs = 1000,
+        direct = true,
+        collisionValidated = true,
+        doorwayAlignment = true,
+        windowAlignment = true,
+        weaponReady = false,
+        supervisorToken = intent and intent.supervisorToken,
+    }
+    local accepted, reason = utility.move(actor, "walk", alignmentIntent)
+    if accepted ~= true then return false, reason or "window_approach_rejected" end
+    invoke(context, "record", actor, "window_approach", {
+        targetSquare = alignmentIntent.targetPosition,
+        nextSquare = toSquare,
+        status = "aligning_to_window",
+    })
+    return nil, "aligning_window_approach"
+end
+
+-- Native window/fence states stop as soon as the collision capsule crosses the
+-- tile boundary. Player input immediately supplies the remaining step, but an
+-- AI actor can remain with its feet inside the frame while its next decision is
+-- pending. Finish that same short step under the traversal's existing owner.
+function Traversal.clearTraversalExit(actor, record, now, context)
+    if type(record) ~= "table" or record.effectOnly == true or record.rope == true then
+        return true, "traversal_exit_not_required"
+    end
+    local action = tostring(record.action or "")
+    if action ~= "climb_window" and action ~= "climb_window_emergency"
+        and action ~= "climb_fence" and action ~= "climb_wall" then
+        return true, "traversal_exit_not_required"
+    end
+
+    local utility = U()
+    local progress, lateral, forwardX, forwardY = Traversal.doorGeometry(record, actor)
+    local toX, toY, toZ = utility.position(record.toSquare)
+    local actorX, actorY, actorZ = utility.position(actor)
+    if progress == nil or toX == nil or actorX == nil then
+        return true, "traversal_exit_geometry_unavailable"
+    end
+    if math.floor(actorX) ~= math.floor(toX) or math.floor(actorY) ~= math.floor(toY)
+        or math.floor(actorZ or 0) ~= math.floor(toZ or 0) then
+        return false, "traversal_destination_not_reached"
+    end
+
+    local clearance = math.max(0.10,
+        tonumber(utility.config("navigationTraversalExitClearance")) or 0.38)
+    local tolerance = math.max(0.02,
+        tonumber(utility.config("navigationTraversalExitTolerance")) or 0.08)
+    if progress >= clearance - tolerance and lateral <= tolerance then
+        return true, "traversal_exit_clear"
+    end
+
+    now = tonumber(now) or utility.nowMs()
+    record.exitStartedAt = record.exitStartedAt or now
+    record.exitDeadline = record.exitDeadline or (record.exitStartedAt
+        + (tonumber(utility.config("navigationTraversalExitTimeoutMs")) or 2000))
+    if now >= record.exitDeadline then
+        -- A successful native crossing must never become an unbounded owner.
+        -- The retained route can still pull the actor away on its next edge.
+        return true, "traversal_exit_timeout"
+    end
+
+    local fromX, fromY = utility.position(record.fromSquare)
+    if fromX == nil then return true, "traversal_exit_origin_unavailable" end
+    local thresholdX = (fromX + toX) * 0.5 + 0.5
+    local thresholdY = (fromY + toY) * 0.5 + 0.5
+    local targetX = thresholdX + forwardX * clearance
+    local targetY = thresholdY + forwardY * clearance
+    local movementIntent = {
+        action = "traversal_exit",
+        dx = targetX - actorX,
+        dy = targetY - actorY,
+        targetPosition = { x = targetX, y = targetY, z = toZ or actorZ or 0 },
+        targetKind = "world",
+        movementArrivalTolerance = math.min(0.06, tolerance),
+        movementTargetTtlMs = 1000,
+        direct = true,
+        collisionValidated = true,
+        doorwayAlignment = true,
+        traversalExit = true,
+        weaponReady = false,
+        supervisorToken = record.supervisorToken,
+    }
+    local accepted, reason = utility.move(actor, record.mode or "walk", movementIntent)
+    invoke(context, "record", actor, "traversal_exit", {
+        targetSquare = movementIntent.targetPosition,
+        nextSquare = record.toSquare,
+        status = accepted == true and "clearing_portal" or tostring(reason or "rejected"),
+    })
+    -- Retry a rejected pulse until the short deadline. This retains the native
+    -- traversal reservation but cannot trap the actor indefinitely.
+    return nil, accepted == true and "clearing_traversal_exit"
+        or "traversal_exit_retry"
+end
+
 function Traversal.handleFence(actor, object, fromSquare, toSquare, intent, context)
     local utility = U()
+    local isHoppable, hoppableObserved = utility.call(object, "isHoppable")
+    local canClimb, climbObserved = utility.call(object, "canClimbOver", actor)
+    if object ~= nil and utility.instanceOf(object, "IsoThumpable")
+        and hoppableObserved and isHoppable == true
+        and climbObserved and canClimb == true then
+        -- The player's E action routes hoppable IsoThumpable objects through
+        -- the contextual ClimbThroughWindow action, not hopFence/climbOverWall.
+        -- This covers player-built and modded climbable fence objects whose
+        -- collision stays active while their contextual climb is legal.
+        local climbIntent = {
+            action = "climb_window",
+            object = object,
+            fromSquare = fromSquare,
+            targetSquare = toSquare,
+            nextSquare = toSquare,
+            direction = invoke(context, "directionBetween", fromSquare, toSquare),
+            nativeAffordance = "fence",
+            hoppableThumpable = true,
+            humanAnimationOnly = true,
+            supervisorToken = intent and intent.supervisorToken,
+        }
+        local accepted, reason = utility.move(actor, "walk", climbIntent)
+        if accepted ~= true then return false, reason or "thumpable_climb_rejected" end
+        invoke(context, "record", actor, "fence_climb", {
+            targetSquare = toSquare,
+            nextSquare = toSquare,
+            status = "climb_thumpable",
+        })
+        return true, "climbing_thumpable"
+    end
     local tall, tallOk = utility.call(object, "isTallHoppable")
+    local direction = invoke(context, "directionBetween", fromSquare, toSquare)
+    local nativeDirection = cardinalDirection(direction)
+    if (not tallOk or object == nil) and nativeDirection ~= nil then
+        -- This is the same final affordance test used by the player's E action.
+        -- It is deliberately only a dispatch-time fallback: arbitrary A-star
+        -- nodes are not necessarily adjacent to the actor and cannot safely use
+        -- the character-relative canClimbOverWall check.
+        local climbable, climbableOk = utility.call(
+            actor, "canClimbOverWall", nativeDirection)
+        if climbableOk and climbable == true then tall, tallOk = true, true end
+    end
     local action = tallOk and tall == true and "climb_wall" or "climb_fence"
     local climbIntent = {
         action = action,
@@ -330,8 +519,9 @@ function Traversal.handleFence(actor, object, fromSquare, toSquare, intent, cont
         fromSquare = fromSquare,
         targetSquare = toSquare,
         nextSquare = toSquare,
-        direction = invoke(context, "directionBetween", fromSquare, toSquare),
+        direction = direction,
         nativeAffordance = "fence",
+        objectlessFenceFallback = object == nil,
         humanAnimationOnly = true,
         supervisorToken = intent and intent.supervisorToken,
     }

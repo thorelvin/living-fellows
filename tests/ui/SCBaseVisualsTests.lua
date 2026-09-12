@@ -16,6 +16,14 @@ assert(#fixture.labels == 2 and fixture.labels[1].value == "Addy"
     "a recruited visible companion needs one shadowed first-name label even when base visuals are hidden; labels="
         .. tostring(#fixture.labels) .. " report="
         .. tostring(fixture.reports[1] and fixture.reports[1][4]))
+assert(fixture.labels[2].x == 321
+        and fixture.labels[2].y == 222 - 14
+            - fixture.config.companionNameLabelOffsetY
+        and fixture.nameCoordsCall and fixture.nameCoordsCall.zoom == fixture.zoom
+        and fixture.nameCoordsCall.offsetX == fixture.companion.renderOffsetX
+        and fixture.nameCoordsCall.offsetY == fixture.companion.renderOffsetY
+            + fixture.config.companionNameLabelHeadClearance,
+    "companion names must use a zoom-aware bottom-edge anchor above the head")
 fixture.labels = {}
 
 Events.OnRenderTick.callback()

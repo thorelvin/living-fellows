@@ -26,6 +26,7 @@ Events = {
 
 local fixture = {
     clock = 1000,
+    zoom = 2,
     mouseX = 140,
     mouseY = 160,
     lines = {},
@@ -48,7 +49,10 @@ function companionSquare:getCanSee(index)
     assert(index == 0)
     return self.visible
 end
-local companion = { x = 12, y = 11, z = 0, square = companionSquare, speech = "" }
+local companion = {
+    x = 12, y = 11, z = 0, square = companionSquare, speech = "",
+    renderOffsetX = 6, renderOffsetY = -10,
+}
 function companion:getX() return self.x end
 function companion:getY() return self.y end
 function companion:getZ() return self.z end
@@ -57,6 +61,8 @@ function companion:getTargetAlpha(index) assert(index == 0); return 1 end
 function companion:getVehicle() return nil end
 function companion:isDead() return false end
 function companion:getSayLine() return self.speech end
+function companion:getOffsetX() return self.renderOffsetX end
+function companion:getOffsetY() return self.renderOffsetY end
 fixture.companion = companion
 fixture.records = {
     { id = "sc-addy", actor = companion, recruited = true,
@@ -65,7 +71,8 @@ fixture.records = {
 fixture.config = {
     companionNameLabels = true,
     companionNameLabelDistance = 20,
-    companionNameLabelOffsetY = 72,
+    companionNameLabelHeadClearance = 120,
+    companionNameLabelOffsetY = 2,
 }
 
 function getSpecificPlayer(index)
@@ -100,6 +107,10 @@ function renderIsoCircle(x, y, z, radius, segments, thickness, red, green, blue,
 end
 
 local textManager = {}
+function textManager:getFontHeight(font)
+    assert(font == UIFont.Small)
+    return 14
+end
 function textManager:DrawStringCentre(font, x, y, value, red, green, blue, alpha)
     fixture.labels[#fixture.labels + 1] = {
         font = font, x = x, y = y, value = value,
@@ -111,7 +122,24 @@ function getTextManager() return textManager end
 local core = {}
 function core:getScreenWidth() return 1920 end
 function core:getScreenHeight() return 1080 end
+function core:getZoom(index) assert(index == 0); return fixture.zoom end
 function getCore() return core end
+Core = { getTileScale = function() return 2 end }
+
+Vector2 = {}
+function Vector2.new()
+    local value = { x = 0, y = 0 }
+    function value:getX() return self.x end
+    function value:getY() return self.y end
+    return value
+end
+IsoGameCharacter = {}
+function IsoGameCharacter.getNameCoords(x, y, z, offsetX, offsetY, zoom, output)
+    fixture.nameCoordsCall = {
+        x = x, y = y, z = z, offsetX = offsetX, offsetY = offsetY, zoom = zoom,
+    }
+    output.x, output.y = 321, 222
+end
 
 local translations = {
     UI_SC_Base_Storage_food = "Food",

@@ -99,6 +99,7 @@ local MAIN_ORDERS = {
     { id = "guard", key = "UI_SC_Select_OrderGuard", command = "guard" },
 }
 local FOLLOW_DISTANCES = {
+    { id = 1, key = "UI_SC_Select_Distance1" },
     { id = 2, key = "UI_SC_Select_Distance2" },
     { id = 3, key = "UI_SC_Select_Distance3" },
     { id = 5, key = "UI_SC_Select_Distance5" },
@@ -1483,8 +1484,21 @@ end
 
 local function playUISound(soundName)
     local utility = SC.GameplayUtil
-    if not utility or type(utility.playUISound) ~= "function" then return false end
-    return utility.playUISound(soundName)
+    if utility and type(utility.playUISound) == "function" then
+        local ok, played = pcall(utility.playUISound, soundName, "UIActivateButton")
+        if ok then return played == true end
+    end
+    -- SCUI can be restored before every gameplay helper is available. Keep the
+    -- two custom, non-ISButton entry points audible with the same direct call
+    -- vanilla ISButton uses, including its known-good activation fallback.
+    local ok, manager = pcall(function() return getSoundManager() end)
+    if not ok or manager == nil then return false end
+    local function direct(name)
+        local invoked, handle = pcall(function() return manager:playUISound(name) end)
+        return invoked and tonumber(handle) ~= nil and tonumber(handle) ~= 0
+    end
+    if direct(soundName) then return true end
+    return soundName ~= "UIActivateButton" and direct("UIActivateButton") or false
 end
 
 local SCUIQuestDialog = ISPanel:derive("SCUIQuestDialog")
@@ -4048,7 +4062,7 @@ function SCUIRoot:applyRect(rect)
     self:setY(rect.y)
 end
 
-function SCUIRoot:setCollapsed(collapsed, initial)
+function SCUIRoot:setCollapsed(collapsed, initial, soundHandled)
     local requested = collapsed == true
     local changed = self.collapsed ~= requested
     local sw, sh = screenSize()
@@ -4085,7 +4099,7 @@ function SCUIRoot:setCollapsed(collapsed, initial)
     end
     if not initial then
         self:saveSettings()
-        if changed then
+        if changed and soundHandled ~= true then
             playUISound(requested and UI.MENU_CLOSE_SOUND or UI.MENU_OPEN_SOUND)
         end
     end
@@ -4262,8 +4276,13 @@ function SCUIRoot:isUserInteracting()
         or safeMethod(rosterBar, "getIsCaptured") == true) then return true end
     if detailBar and (detailBar.scrolling == true
         or safeMethod(detailBar, "getIsCaptured") == true) then return true end
-    for _, child in ipairs(content and content.children or {}) do
-        if child and child.isCombobox == true and child.expanded == true then return true end
+    -- ISUIElement.children is keyed by global element IDs, so ipairs normally
+    -- sees none of these controls. childrenInOrder is the engine-maintained
+    -- dense list. Guard both halves of the click as well as the open popup so a
+    -- 500 ms roster refresh cannot destroy a combo between mouse-down and-up.
+    for _, child in ipairs(content and content.childrenInOrder or {}) do
+        if child and child.isCombobox == true
+            and (child.sawMouseDown == true or child.expanded == true) then return true end
     end
     if type(isMouseButtonDown) == "function" and isMouseButtonDown(0)
         and safeMethod(self, "isMouseOver") == true then return true end
@@ -4403,7 +4422,11 @@ function SCUICollapsedLauncher:onMouseUp(x, y)
     self.dragging = false
     if self.setCapture then self:setCapture(false) end
     if wasClick and self.root then
-        self.root:setCollapsed(false)
+        -- Play while the launcher still owns the completed click. Opening the
+        -- large panel can rebuild many controls before setCollapsed returns;
+        -- passing soundHandled prevents the shared transition from replaying it.
+        playUISound(UI.MENU_OPEN_SOUND)
+        self.root:setCollapsed(false, false, true)
     elseif self.root then
         self.root:saveSettings()
     end

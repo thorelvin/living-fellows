@@ -81,6 +81,22 @@ check(deterministic.forename == deterministicAgain.forename
     and deterministic.gender == deterministicAgain.gender,
     "identity fallback is deterministic after reset")
 
+local starterCount, starterTypes = 0, {}
+for visualSeed = 0, 499 do
+    local starterType = SC.Spawn.starterMeleeWeapon({ visualSeed = visualSeed })
+    if starterType then
+        starterCount = starterCount + 1
+        starterTypes[starterType] = true
+    end
+end
+check(starterCount == 250
+    and starterTypes["Base.RollingPin"] == true
+    and starterTypes["Base.Saucepan"] == true
+    and starterTypes["Base.WoodenMallet"] == true
+    and starterTypes["Base.KitchenKnife"] == true
+    and starterTypes["Base.Screwdriver"] == true,
+    "new neutral identities receive a stable exact 50-percent weak-melee roll")
+
 SC.Spawn.reset()
 local recoveringRuntime = { active = false, disabledReason = "bridge exposure pending" }
 local recovered = SC.Spawn.debugPulse(player, recoveringRuntime, 0)
@@ -120,5 +136,27 @@ check(SC.Spawn.markDebugDiscovered(spawnedActors[1])
     and not SC.Spawn.isDebugProtected(spawnedActors[1]),
     "first discovery releases private despawn protection exactly once")
 check(bridgeChecks == 4, "debug pulse checks provider readiness before native spawn attempts")
+
+local starterProfile = {
+    recruited = false,
+    identity = { forename = "Starter", surname = "Test", gender = "female",
+        outfit = "Generic01", visualSeed = 0 },
+}
+local starterSpawn = SC.Spawn.attempt(player, starterProfile, {}, "encounter")
+local starterInventory = { items = {} }
+function starterInventory:AddItem(itemType)
+    local added = { fullType = itemType }
+    self.items[#self.items + 1] = added
+    return added
+end
+local starterActor = { inventory = starterInventory }
+function starterActor:getInventory() return self.inventory end
+local initialized = type(starterProfile.initialize) == "function"
+    and starterProfile.initialize(starterActor, {})
+check(starterSpawn ~= nil and initialized == true
+    and starterProfile.starterMeleeWeapon == "Base.RollingPin"
+    and #starterInventory.items == 1
+    and starterInventory.items[1].fullType == "Base.RollingPin",
+    "the successful half of the roll adds one concrete weak weapon during actor initialization")
 
 print("PRIVATE_SPAWN_KAHLUA_PASS checks=" .. tostring(checks))

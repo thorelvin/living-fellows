@@ -572,8 +572,10 @@ function Navigation.edgeAffordance(fromSquare, toSquare)
     elseif kind == "open" and (squareHasSlope(fromSquare) or squareHasSlope(toSquare)) then
         kind = "slope"
     end
-    if kind ~= "door" and kind ~= "stairs" and kind ~= "slope"
-        and kind ~= "fence" then return nil end
+    if kind ~= "door" and kind ~= "window" and kind ~= "window_frame"
+        and kind ~= "stairs" and kind ~= "slope" and kind ~= "fence" then
+        return nil
+    end
     local key
     if kind == "door" and object ~= nil then
         key = "door:" .. tostring(object) .. ":" .. tostring(directionBetween(fromSquare, toSquare))
@@ -1182,6 +1184,208 @@ local function boundedPath(startSquare, goalSquare, options)
     if status == "pending" then return nil, "budget", expanded end
     return path, reason, expanded
 end
+
+local function nearestGridCoordinate(value)
+    if value >= 0 then return math.floor(value + 0.5) end
+    return math.ceil(value - 0.5)
+end
+
+-- Common follow requests are short and cross completely open ground. Prove the
+-- octile-straight route edge by edge before starting the resumable A-star job.
+-- If any edge is blocked, hazardous, crowded or more expensive than open floor,
+-- abandon this shortcut and let the full planner choose a detour.
+local function fastOpenRouteWithinBatch(startSquare, goalSquare, options)
+    options = type(options) == "table" and options or {}
+    if options.stealthAvoidance == true or type(options.squarePenalty) == "function" then
+        return nil, "scored_route_required"
+    end
+    local sx, sy, sz = U().position(startSquare)
+    local gx, gy, gz = U().position(goalSquare)
+    if sx == nil or gx == nil or math.floor(sz or 0) ~= math.floor(gz or 0) then
+        return nil, "fast_route_floor_mismatch"
+    end
+    sx, sy, sz = math.floor(sx), math.floor(sy), math.floor(sz or 0)
+    gx, gy = math.floor(gx), math.floor(gy)
+    local dx, dy = gx - sx, gy - sy
+    local steps = math.max(math.abs(dx), math.abs(dy))
+    local maximum = math.floor(tonumber(U().config("navigationFastFollowMaxSteps")) or 24)
+    if steps <= 0 then return { startSquare }, nil end
+    if maximum <= 0 or steps > maximum then return nil, "fast_route_out_of_range" end
+
+    local path, current = { startSquare }, startSquare
+    local previousX, previousY = sx, sy
+    for step = 1, steps do
+        local nextX = nearestGridCoordinate(sx + dx * step / steps)
+        local nextY = nearestGridCoordinate(sy + dy * step / steps)
+        local deltaX, deltaY = math.abs(nextX - previousX), math.abs(nextY - previousY)
+        if deltaX > 1 or deltaY > 1 or deltaX + deltaY == 0 then
+            return nil, "fast_route_invalid_step"
+        end
+        local nextSquare = U().gridSquare(nextX, nextY, sz)
+        if nextSquare == nil then return nil, "fast_route_square_unavailable" end
+        if type(options.squareAdmission) == "function" then
+            local observed, admitted = pcall(options.squareAdmission, nextSquare, current)
+            if not observed or admitted ~= true then return nil, "outside_admitted_area" end
+        end
+        options.allowOccupiedGoal = step == steps
+        local passable, cost = passableEdge(
+            current, nextSquare, options.vegetationScale, options)
+        local openCost = deltaX == 1 and deltaY == 1 and math.sqrt(2) or 1
+        if passable ~= true or tonumber(cost) == nil or cost > openCost + 0.001 then
+            return nil, "fast_route_requires_planner"
+        end
+        path[#path + 1] = nextSquare
+        current, previousX, previousY = nextSquare, nextX, nextY
+    end
+    if not sameSquare(current, goalSquare) then return nil, "fast_route_goal_missed" end
+    return path, nil
+end
+
+local function fastOpenRoute(startSquare, goalSquare, options)
+    if SC.Topology and type(SC.Topology.withReadBatch) == "function" then
+        return SC.Topology.withReadBatch(
+            fastOpenRouteWithinBatch, startSquare, goalSquare, options)
+    end
+    return fastOpenRouteWithinBatch(startSquare, goalSquare, options)
+end
+Navigation._fastOpenRouteForRequest = fastOpenRoute
+Navigation._fastOpenRouteForTests = fastOpenRoute
+
+local function followTrackRouteWithinBatch(startSquare, goalSquare, track, options)
+    if type(track) ~= "table" or track[1] == nil then return nil, "track_unavailable" end
+    options = type(options) == "table" and options or {}
+    if options.stealthAvoidance == true or type(options.squarePenalty) == "function" then
+        return nil, "scored_route_required"
+    end
+    local maximum = math.max(2,
+        math.floor(tonumber(U().config("formationTrackMaxSquares")) or 48))
+    if #track > maximum then return nil, "track_too_long" end
+
+    -- Open ground does not require literal breadcrumb replay. This is both a
+    -- loop eraser and a string pull: a companion following a player around a
+    -- circle takes the proven-clear chord to the current formation goal.
+    local direct = fastOpenRouteWithinBatch(startSquare, goalSquare, options)
+    if direct ~= nil then return direct, nil end
+
+    -- When a portal blocks that chord, join a reachable point on the retained
+    -- player track. Trying only the geometrically nearest point strands an actor
+    -- on the wrong side of a fence/window because every nearby breadcrumb is
+    -- beyond the barrier. Probe a bounded set, while always including the oldest
+    -- retained approach point so the exact player crossing remains recoverable.
+    local candidates = {}
+    for index = 1, #track do
+        local distance = U().distance(startSquare, track[index])
+        candidates[#candidates + 1] = { index = index, distance = distance }
+    end
+    table.sort(candidates, function(left, right)
+        if left.distance ~= right.distance then return left.distance < right.distance end
+        return left.index < right.index
+    end)
+    local candidateLimit = math.max(1,
+        math.floor(tonumber(U().config("formationTrackJoinCandidates")) or 12))
+    local attempted, bestReason = {}, "track_join_blocked"
+
+    local function routeFrom(joinIndex)
+        attempted[joinIndex] = true
+        local path, reason = fastOpenRouteWithinBatch(
+            startSquare, track[joinIndex], options)
+        if path == nil then return nil, reason or "track_join_blocked" end
+        local current = path[#path]
+        for index = joinIndex + 1, #track do
+            local nextSquare = track[index]
+            if nextSquare ~= nil and not sameSquare(current, nextSquare) then
+                if not adjacentStep(current, nextSquare) then
+                    return nil, "track_sample_gap"
+                end
+                options.allowOccupiedGoal = index == #track
+                local passable = passableEdge(
+                    current, nextSquare, options.vegetationScale, options)
+                if passable ~= true then return nil, "track_edge_changed" end
+                path[#path + 1] = nextSquare
+                current = nextSquare
+                if #path > maximum + 1 then return nil, "track_route_too_long" end
+            end
+        end
+        if not sameSquare(current, goalSquare) then return nil, "track_goal_changed" end
+        return path, nil
+    end
+
+    for rank = 1, math.min(#candidates, candidateLimit) do
+        local path, reason = routeFrom(candidates[rank].index)
+        if path ~= nil then return path, nil end
+        bestReason = reason or bestReason
+    end
+    if not attempted[1] then
+        local path, reason = routeFrom(1)
+        if path ~= nil then return path, nil end
+        bestReason = reason or bestReason
+    end
+    return nil, bestReason
+end
+
+local function followTrackRoute(startSquare, goalSquare, track, options)
+    if SC.Topology and type(SC.Topology.withReadBatch) == "function" then
+        return SC.Topology.withReadBatch(
+            followTrackRouteWithinBatch, startSquare, goalSquare, track, options)
+    end
+    return followTrackRouteWithinBatch(startSquare, goalSquare, track, options)
+end
+Navigation._followTrackRouteForRequest = followTrackRoute
+Navigation._followTrackRouteForTests = followTrackRoute
+
+-- Aim manual follow movement several proven-open tiles ahead. The route and
+-- first-square reservation remain authoritative; only the movement vector is
+-- blended. This removes the tile-centre staircase and its abrupt 45/90-degree
+-- turns without cutting a wall, closed portal, vehicle or hazardous edge.
+local function continuousFollowVector(actor, state, sourceSquare, intent)
+    if not actor or type(state) ~= "table" or type(state.path) ~= "table"
+        or type(intent) ~= "table" then return nil end
+    if intent.action ~= "follow_formation" and intent.action ~= "regroup" then return nil end
+    local first = math.max(2, math.floor(tonumber(state.pathIndex) or 2))
+    if state.path[first] == nil then return nil end
+    local lookahead = math.max(1, math.floor(tonumber(
+        U().config("navigationContinuousFollowLookahead")) or 6))
+    local last = math.min(#state.path, first + lookahead - 1)
+    local openLast, previous = first - 1, sourceSquare
+    for index = first, last do
+        local candidate = state.path[index]
+        if candidate == nil or Navigation.edgeAffordance(previous, candidate) ~= nil then break end
+        openLast, previous = index, candidate
+    end
+    if openLast < first then return nil end
+
+    local options = {
+        actor = actor,
+        blockedEdges = state.blockedEdges,
+        blockedSquares = state.blockedSquares,
+        routeMemory = state.routeMemory,
+        allowHazards = intent.urgent == true,
+        now = U().nowMs(),
+    }
+    for index = openLast, first, -1 do
+        local candidate = state.path[index]
+        local route = fastOpenRoute(sourceSquare, candidate, options)
+        if route ~= nil then
+            local targetX, targetY, targetZ = U().position(candidate)
+            targetX, targetY = targetX and targetX + 0.5, targetY and targetY + 0.5
+            local intercept = index == #state.path and intent.interceptPosition or nil
+            if type(intercept) == "table" and tonumber(intercept.x)
+                and tonumber(intercept.y)
+                and math.floor(intercept.x) == math.floor(targetX or math.huge)
+                and math.floor(intercept.y) == math.floor(targetY or math.huge)
+                and math.floor(intercept.z or targetZ or 0) == math.floor(targetZ or 0) then
+                targetX, targetY, targetZ = intercept.x, intercept.y, intercept.z or targetZ
+            end
+            local actorX, actorY = U().position(actor)
+            if actorX ~= nil and targetX ~= nil then
+                return targetX - actorX, targetY - actorY, candidate, index
+            end
+        end
+    end
+    return nil
+end
+Navigation._continuousFollowVectorForTests = continuousFollowVector
+Navigation._continuousFollowVectorForRequest = continuousFollowVector
 
 local function egressNeighbors(square)
     local utility = U()
@@ -1898,11 +2102,17 @@ local function handleDoor(actor, state, door, fromSquare, toSquare, now)
 end
 
 local function handleWindow(actor, state, window, fromSquare, toSquare, now, intent)
+    local aligned, status = V().alignWindowApproach(
+        actor, fromSquare, toSquare, intent, traversalContext)
+    if aligned ~= true then return aligned, status end
     return V().handleWindow(
         actor, state, window, fromSquare, toSquare, now, intent, traversalContext)
 end
 
 local function handleWindowFrame(actor, frame, fromSquare, toSquare, now, intent)
+    local aligned, status = V().alignWindowApproach(
+        actor, fromSquare, toSquare, intent, traversalContext)
+    if aligned ~= true then return aligned, status end
     return V().handleWindowFrame(
         actor, frame, fromSquare, toSquare, now, intent, traversalContext)
 end
@@ -2126,8 +2336,11 @@ local function checkRoomEntry(actor, state, sourceSquare, nextSquare, intent, no
         return true, "no_room_entry"
     end
 
-    local key = "room-entry:" .. tostring(squareKey(sourceSquare))
-        .. ":" .. tostring(squareKey(nextSquare))
+    -- Key the observation to the room transition, not one exact threshold
+    -- tile. Double-wide openings legitimately alternate between adjacent route
+    -- edges and must share the sweep already in progress.
+    local key = "room-entry:" .. tostring(sourceRoom or "outside")
+        .. ">" .. tostring(destinationRoom)
     if state.roomEntryKey ~= key then
         state.roomEntryKey = key
         state.roomEntryObserveUntil = now
@@ -2449,6 +2662,11 @@ local function updateProgress(actor, state, now)
     local currentSquare = utility.squareOf(actor)
     if currentSquare and state.lastAttemptFrom and state.lastAttemptTo
         and sameSquare(currentSquare, state.lastAttemptTo) then
+        if state.openDoorDirectKey
+            == edgeKey(state.lastAttemptFrom, state.lastAttemptTo) then
+            state.openDoorDirectKey = nil
+            state.openDoorDirectUntil = nil
+        end
         local object, kind = barrierBetween(state.lastAttemptFrom, state.lastAttemptTo)
         rememberRouteEdge(state, state.lastAttemptFrom, state.lastAttemptTo,
             true, kind, object, now)
@@ -2534,6 +2752,18 @@ local function goalsShareHeading(actor, oldGoal, newGoal)
     return (odx * ndx + ody * ndy) / (oldLength * newLength) >= 0.35
 end
 
+local function pathSearchBounds(pending)
+    local leaseMs = tonumber(U().config("navigationPathSearchLeaseMs")) or 6500
+    local hardMs = tonumber(U().config("navigationPathSearchHardMs")) or 30000
+    if type(pending) == "table" and pending.followRouting == true then
+        leaseMs = math.min(leaseMs,
+            tonumber(U().config("navigationFollowPathSearchLeaseMs")) or 2500)
+        hardMs = math.min(hardMs,
+            tonumber(U().config("navigationFollowPathSearchHardMs")) or 5000)
+    end
+    return leaseMs, math.max(leaseMs, hardMs)
+end
+
 -- The actor is deliberately stationary while incremental A* yields. Let a
 -- forward-moving formation goal drift a few tiles without discarding that whole
 -- frontier; the completed route is repaired to the latest goal immediately.
@@ -2544,9 +2774,7 @@ local function usefulPendingMovingSearch(actor, state, goalSquare, context, now)
     if oldGoal == nil or not isMovingTargetIntent(context) then return false end
     local startedAt = tonumber(pending.startedAt)
     local progressAt = tonumber(pending.progressAt) or startedAt
-    local leaseMs = tonumber(U().config("navigationPathSearchLeaseMs")) or 6500
-    local hardMs = math.max(leaseMs,
-        tonumber(U().config("navigationPathSearchHardMs")) or 30000)
+    local leaseMs, hardMs = pathSearchBounds(pending)
     if startedAt == nil or progressAt == nil or now - startedAt < 0
         or now - progressAt < 0 or now - progressAt > leaseMs
         or now - startedAt > hardMs then
@@ -3053,6 +3281,27 @@ local function maintainNativeLease(actor, state, goalSquare, now)
         state.lastProgressAt = now
         return "arrived", arrived
     end
+    if lease.affordance == "door" then
+        local currentDoor, currentKind = barrierBetween(lease.fromSquare, lease.toSquare)
+        if currentKind == "door" and currentDoor ~= nil and not objectOpen(currentDoor) then
+            -- The edge was validated while open, but doors are mutable.  Stop the
+            -- stale engine path immediately and retain the Lua route so this same
+            -- request can reopen/reclassify the threshold without a stall timeout
+            -- or a false static-edge blacklist.
+            if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
+                pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
+            end
+            state.nativeLease = nil
+            state.openDoorDirectKey, state.openDoorDirectUntil = nil, nil
+            state.nextRepathAt = 0
+            state.lastProgressAt = now
+            recordMovement(actor, "portal_state_changed", {
+                blocker = "door", status = "door_closed_during_native_path",
+                targetSquare = lease.toSquare,
+            })
+            return "cancelled", "door_closed_retry"
+        end
+    end
     local currentSquare = U().squareOf(actor)
     local currentKey = squareKey(currentSquare)
     local progressed = false
@@ -3199,6 +3448,14 @@ local function maintainNativeLease(actor, state, goalSquare, now)
         pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
     end
     state.nativeLease = nil
+    local openDoor, openDoorKind = barrierBetween(lease.fromSquare, lease.toSquare)
+    if lease.affordance == "door" and openDoorKind == "door"
+        and objectOpen(openDoor) then
+        state.openDoorDirectKey = edgeKey(lease.fromSquare, lease.toSquare)
+        state.openDoorDirectUntil = now
+            + (tonumber(U().config("navigationOpenDoorDirectFallbackMs")) or 2000)
+        return "cancelled", "open_door_direct_retry"
+    end
     return "failed", noProgressFor > stallMs and "native_path_stalled"
         or now > lease.expires and "native_path_timeout" or "native_path_failed"
 end
@@ -3613,9 +3870,7 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         local progressAt = tonumber(state.pathSearch.progressAt) or startedAt
         local searchAge = now - startedAt
         local stalledFor = now - progressAt
-        local searchLease = tonumber(utility.config("navigationPathSearchLeaseMs")) or 6500
-        local hardLimit = math.max(searchLease,
-            tonumber(utility.config("navigationPathSearchHardMs")) or 30000)
+        local searchLease, hardLimit = pathSearchBounds(state.pathSearch)
         if searchAge >= 0 and stalledFor >= 0 and stalledFor <= searchLease
             and searchAge <= hardLimit then
             -- holdForPathSearch intentionally makes the actor idle. Planning is
@@ -3909,7 +4164,23 @@ function Navigation._maintainTraversalForRequest(actor, state, sourceSquare, now
         if phase == "starting" or phase == "active" then
             state.lastProgressAt = now
             return true, true, traversalReason or "traversal_starting"
-        elseif traversal and (phase == "failed" or phase == "completed") then
+        elseif traversal and (phase == "failed" or phase == "completed"
+            or phase == "cancelled") then
+            if phase == "completed" and not traversal.effectOnly then
+                local cleared, clearReason = SC.NavTraversal.clearTraversalExit(
+                    actor, traversal, now, { record = recordMovement })
+                if cleared == nil then
+                    state.lastProgressAt = now
+                    return true, true, clearReason or "clearing_traversal_exit"
+                elseif cleared == false then
+                    nativeTraversal.reset(actor)
+                    SC.NavTraversal.release(traversal.object, actor)
+                    rememberFailure(actor, state, traversal.fromSquare or sourceSquare,
+                        traversal.toSquare or sourceSquare, clearReason, now,
+                        "traversal_exit_replan")
+                    return true, false, clearReason
+                end
+            end
             nativeTraversal.reset(actor)
             SC.NavTraversal.release(traversal.object, actor)
             if phase == "failed" then
@@ -3917,9 +4188,25 @@ function Navigation._maintainTraversalForRequest(actor, state, sourceSquare, now
                 rememberFailure(actor, state, traversal.fromSquare or sourceSquare,
                     traversal.toSquare or sourceSquare, traversalReason, now, "traversal_replan")
                 return true, false, traversalReason
+            elseif phase == "cancelled" then
+                -- A queued window climb observed the window close before native
+                -- entry. Keep the already-validated route and immediately let the
+                -- current request choose open/smash/replan for the new portal state.
+                state.pendingInteraction = nil
+                state.nextRepathAt = 0
+                state.lastProgressAt = now
+                recordMovement(actor, "portal_state_changed", {
+                    blocker = "window", status = traversalReason,
+                    targetSquare = traversal.toSquare,
+                })
             elseif not traversal.effectOnly then
-                state.path, state.pathSearch, state.nativeLease = nil, nil, nil
-                state.pathIndex, state.nextRepathAt, state.lastProgressAt = 1, 0, now
+                -- The route was already validated across this affordance. Keep
+                -- its remaining suffix so the actor walks on immediately instead
+                -- of standing still for a second A-star search after every climb.
+                state.nativeLease = nil
+                state.lastAttemptFrom = traversal.fromSquare or sourceSquare
+                state.lastAttemptTo = traversal.toSquare or sourceSquare
+                state.lastProgressAt = now
             end
         end
     end
@@ -4191,7 +4478,42 @@ function Navigation.request(actor, target, movementMode, intent)
                 return stealthThreatPenalty(square, overlay)
             end
         end
-        local planningGoal = goalSquare
+        if followRouting and state.pathSearch == nil then
+            local immediatePath, immediateReason
+            if requestIntent.formationMode == "trail"
+                and type(requestIntent.followTrack) == "table" then
+                immediatePath = SC.Navigation._followTrackRouteForRequest(
+                    sourceSquare, goalSquare, requestIntent.followTrack, pathOptions)
+                if immediatePath ~= nil then immediateReason = "player_track_route" end
+            end
+            if immediatePath == nil then
+                immediatePath = SC.Navigation._fastOpenRouteForRequest(
+                    sourceSquare, goalSquare, pathOptions)
+                if immediatePath ~= nil then immediateReason = "fast_open_route" end
+            end
+            if immediatePath ~= nil then
+                state.path = immediatePath
+                state.pathFailure = nil
+                state.pathGoalSquare = goalSquare
+                state.pathStealthAvoidance = false
+                state.pathEmergencyVegetation = false
+                state.pathIndex = 2
+                state.pathSearchHolding = nil
+                state.pathReason = immediateReason
+                state.expandedNodes = 0
+                state.routeCandidateCount = 1
+                state.routeSelectedIndex = 1
+                state.routeSelectedScore = nil
+                state.routeEvaluations = nil
+                state.lastProgressAt = now
+                state.nextRepathAt = now
+                    + (utility.config("navigationRepathMs") or 900)
+                state.routeReplanCount = (state.routeReplanCount or 0) + 1
+                SC.Navigation._resetRouteProjection(state)
+            end
+        end
+        if not state.path then
+            local planningGoal = goalSquare
         if state.pathSearch and state.pathSearch.route
             and state.pathSearch.route.startKey == squareKey(sourceSquare)
             and (utility.distance(state.pathSearch.route.goalSquare, goalSquare)
@@ -4295,6 +4617,7 @@ function Navigation.request(actor, target, movementMode, intent)
         state.routeSelectedScore = routeReport and routeReport.selectedScore or nil
         state.routeEvaluations = routeReport and routeReport.routes or nil
         state.nextRepathAt = now + (utility.config("navigationRepathMs") or 900)
+        end
     end
 
     local nextSquare, afterSquare
@@ -4596,7 +4919,30 @@ function Navigation.request(actor, target, movementMode, intent)
         requestIntent.vehicleClearance = squareNearVehicle(sourceSquare)
             or squareNearVehicle(nextSquare)
     end
-    if kind == "door" or kind == "stairs" or kind == "slope" or kind == "fence" then
+    if kind == "open" and requestIntent.direct == true
+        and requestIntent.enginePath ~= true then
+        local aimX, aimY, aimSquare = SC.Navigation._continuousFollowVectorForRequest(
+            actor, state, sourceSquare, requestIntent)
+        if aimX ~= nil then
+            requestIntent.dx, requestIntent.dy = aimX, aimY
+            requestIntent.continuousFollow = true
+            requestIntent.continuousAimSquare = aimSquare
+        end
+    end
+    if now > (tonumber(state.openDoorDirectUntil) or 0) then
+        state.openDoorDirectKey = nil
+        state.openDoorDirectUntil = nil
+    end
+    local openDoorFallback = kind == "door" and objectOpen(barrier)
+        and state.openDoorDirectKey == edgeKey(sourceSquare, nextSquare)
+        and now <= (tonumber(state.openDoorDirectUntil) or 0)
+    if openDoorFallback then
+        requestIntent.direct = true
+        requestIntent.collisionValidated = true
+        requestIntent.openDoorFallback = true
+        requestIntent.enginePath = nil
+        requestIntent.nativeAffordance = nil
+    elseif kind == "door" or kind == "stairs" or kind == "slope" or kind == "fence" then
         -- Once Lua has approved the affordance and any explicit door action,
         -- let PathFindBehavior2 own the complete collision capsule transition.
         -- Reclaiming it as a one-tile MoveForward step is what caused doorway,
@@ -4660,9 +5006,18 @@ local function approachScore(actor, square, options)
     return score
 end
 
--- Return human-usable positions around a world object/square.  The candidates
--- are deliberately independent of reachability; the native nearest-of-many
--- request can reject an enclosed side without forcing Lua to retry that side.
+local function directInteractionEdge(actor, square, centre)
+    local object, kind = barrierBetween(square, centre)
+    if kind == "open" then return true end
+    -- An open door is clear line-of-contact. Closed doors, walls, windows and
+    -- fences are traversal boundaries, not valid positions from which to use an
+    -- object on the other side.
+    return kind == "door" and object ~= nil and objectOpen(object) == true
+end
+
+-- Return human-usable positions around a world object/square. Fixed world
+-- interactions can request cardinal, line-of-contact candidates so a nearby
+-- square across a wall is never mistaken for a usable side of the object.
 function Navigation.interactionTargets(actor, objectOrSquare, options)
     local utility = U()
     options = type(options) == "table" and options or {}
@@ -4670,16 +5025,24 @@ function Navigation.interactionTargets(actor, objectOrSquare, options)
     local x, y, z = utility.position(centre)
     if x == nil then return {} end
     local candidates, seen = {}, {}
-    local offsets = {
-        { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
-        { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 },
-    }
+    local offsets = options.requireDirectAccess == true
+        and { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } }
+        or {
+            { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
+            { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 },
+        }
     for _, offset in ipairs(offsets) do
         local square = utility.gridSquare(x + offset[1], y + offset[2], z)
         local key = square and squareKey(square) or nil
         local cardinal = math.abs(offset[1]) + math.abs(offset[2]) == 1
-        local interactionEdgeClear = square and (not cardinal
-            or not utility.edgeBlocked(square, centre))
+        local interactionEdgeClear = square ~= nil
+        if interactionEdgeClear and cardinal then
+            if options.requireDirectAccess == true then
+                interactionEdgeClear = directInteractionEdge(actor, square, centre)
+            else
+                interactionEdgeClear = not utility.edgeBlocked(square, centre)
+            end
+        end
         if key and not seen[key] and interactionEdgeClear
             and utility.isSquareFree(square)
             and not utility.safehouseBlocker(square, actor) then
@@ -4687,7 +5050,8 @@ function Navigation.interactionTargets(actor, objectOrSquare, options)
             candidates[#candidates + 1] = square
         end
     end
-    if #candidates == 0 and utility.isSquareFree(centre)
+    if #candidates == 0 and options.requireDirectAccess ~= true
+        and utility.isSquareFree(centre)
         and not utility.safehouseBlocker(centre, actor) then
         candidates[1] = centre
     end
@@ -4771,8 +5135,6 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         if state.nativeLease then clearMovementTransients(actor, state) end
         state.multiGoalSelected = nil
     end
-    state.actionTokenSerial = currentTokenSerial
-    state.routeTargetSignature = routeTargetSignature(valid[1], intent)
     state.multiGoalOwnerKey = key
     state.multiGoalFailures = state.multiGoalFailures or {}
     for failedKey, expiry in pairs(state.multiGoalFailures) do
@@ -4789,11 +5151,13 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         clearMovementTransients(actor, state)
     end
 
-    if intent.workCampOnly ~= true and intent.cohortKey == nil
+    if intent.workCampOnly ~= true and intent.cohortKey == nil and intent.object == nil
         and now >= (state.nativeMultiUnavailableUntil or 0) and SC.NativeActions
         and type(SC.NativeActions.pathToNearest) == "function" then
         local started, reason = SC.NativeActions.pathToNearest(actor, valid, movementMode or "walk")
         if started then
+            state.actionTokenSerial = currentTokenSerial
+            state.routeTargetSignature = routeTargetSignature(valid[1], intent)
             state.goalSquare, state.goalAction = valid[1], intent.action
             state.lastAttemptFrom, state.lastAttemptTo = utility.squareOf(actor), valid[1]
             beginNativeLease(state, valid, state.lastAttemptFrom, valid[1],
