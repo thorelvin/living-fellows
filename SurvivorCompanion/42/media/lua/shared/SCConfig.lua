@@ -113,6 +113,13 @@ local valueData = {
     persistenceIntervalMs = 30000,
     tradeRecoveryIntervalMs = 500,
     tradeRecoveryPerPulse = 8,
+    -- Failed native inventory mutations are reconciled asynchronously, but a
+    -- corrupt owner/container must never create an unbounded global retry loop.
+    tradeRecoveryMaxEntries = 256,
+    tradeRecoveryMaxAttempts = 8,
+    tradeRecoveryMaxAgeMs = 30000,
+    tradeRecoveryRetryBaseMs = 500,
+    tradeRecoveryRetryMaximumMs = 5000,
     walkDistance = 0.045,
     runDistance = 0.075,
     sneakDistance = 0.032,
@@ -125,8 +132,10 @@ local valueData = {
     perceptionNativeLosPerSlice = 12,
     perceptionNativeSliceMs = 0.75,
     -- The cell zombie-list cursor is shared across companions. A short partial
-    -- cadence keeps acquisition responsive; a completed roster is held long
-    -- enough for every observer to drain its bounded local candidate queue.
+    -- cadence keeps acquisition responsive; a completed roster pauses the
+    -- producer long enough for observers to drain their local queue. Its
+    -- negative evidence remains valid until native population size changes or
+    -- a replacement roster is published.
     perceptionNativeSharedPulseMs = 50,
     perceptionNativeCompletedHoldMs = 1000,
     perceptionNativeRosterQueryPerSlice = 128,

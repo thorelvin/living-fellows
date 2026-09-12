@@ -222,6 +222,11 @@ local function inventory(initial)
     function value:hasRoomFor(character, candidate)
         if self.capacityCheckThrows then error("injected capacity check failure") end
         if self.rejectRoom then return false end
+        self.lastCapacityOwner = character
+        if self.expectedCapacityOwner ~= nil and character ~= self.expectedCapacityOwner then
+            self.capacityOwnerMismatch = true
+            return false
+        end
         return self:getCapacityWeight() + candidate:getActualWeight()
             <= self.capacity + 0.001
     end
@@ -10951,6 +10956,8 @@ do
     local playerCapacity, factionCapacity = player.inventory.capacity, residentOne.inventory.capacity
     player.inventory.capacity = player.inventory:getCapacityWeight()
     residentOne.inventory.capacity = residentOne.inventory:getCapacityWeight()
+    player.inventory.expectedCapacityOwner = player
+    residentOne.inventory.expectedCapacityOwner = residentOne
     local originalSnapshot = SurvivorCompanion.Senses.snapshot
     SurvivorCompanion.Senses.snapshot = completeTradeSafetySnapshot
     local exchanged, exchangeReason = Trade.barter("faction-test", player,
@@ -10958,9 +10965,14 @@ do
         { { item = requestedHammer, container = residentOne.inventory } })
     SurvivorCompanion.Senses.snapshot = originalSnapshot
     player.inventory.capacity, residentOne.inventory.capacity = playerCapacity, factionCapacity
+    player.inventory.expectedCapacityOwner, residentOne.inventory.expectedCapacityOwner = nil, nil
     check(exchanged and player.inventory:contains(requestedHammer)
-            and residentOne.inventory:contains(offeredAxe),
-        "a full reciprocal trade stages outgoing items and accepts the valid net capacity: "
+            and residentOne.inventory:contains(offeredAxe)
+            and player.inventory.lastCapacityOwner == player
+            and residentOne.inventory.lastCapacityOwner == residentOne
+            and player.inventory.capacityOwnerMismatch ~= true
+            and residentOne.inventory.capacityOwnerMismatch ~= true,
+        "a reciprocal trade passes the live destination actor through both capacity checks: "
             .. tostring(exchangeReason))
     player.inventory:Remove(requestedHammer)
     residentOne.inventory:Remove(offeredAxe)
@@ -11052,11 +11064,16 @@ do
             .. tostring(reason) .. "/pending=" .. tostring(Trade.pendingRecoveryCount())
             .. "/owner=" .. tostring(offeredTool:getContainer()))
     player.inventory.rejectAdd = nil
+    local playerStash = inventory()
+    playerStash:AddItem(offeredTool)
     local recovered, recoveryReason = Trade.recoverPending()
     check(recovered and Trade.pendingRecoveryCount() == 0
-            and player.inventory:contains(offeredTool)
+            and not player.inventory:contains(offeredTool)
+            and not residentOne.inventory:contains(offeredTool)
+            and playerStash:contains(offeredTool)
+            and offeredTool.modData.LF_TradeRecoveryId == nil
             and residentOne.inventory:contains(requestedLighter),
-        "managed trade recovery restores the exact source owner on a later retry: "
+        "managed recovery accepts the verified current owner without undoing the player's later move: "
             .. tostring(recoveryReason))
 
     local durableTool = item("Base.RecoveryScrewdriver", "Tool", {
@@ -11099,9 +11116,136 @@ do
         "restart recovery reconstructs exactly one verified source owner with mutable item state")
     player.inventory:Remove(restoredDurable)
     residentOne.inventory:Remove(durableReward)
+
+    -- A recovery belonging to another household must not globally disable all
+    -- trade. Keep both recorded owners deliberately unavailable so the entry
+    -- remains pending through the unrelated transaction.
+    durableSave.entries[1].factionId = "faction-unavailable"
+    durableSave.entries[1].sourceOwner = { kind = "actor", id = "missing-source" }
+    durableSave.entries[1].destinationOwner = { kind = "actor", id = "missing-destination" }
+    durableSave.entries[1].attempts = 0
+    durableSave.entries[1].recordedAt = clock
+    check(Trade.restore(durableSave),
+        "a faction-scoped pending recovery fixture restores")
+    local scopedOffer = item("Base.Hammer", "Tool", { weight = 1 })
+    local scopedRequest = item("Base.Lighter", "Item", { weight = 1 })
+    player.inventory:AddItem(scopedOffer)
+    residentOne.inventory:AddItem(scopedRequest)
+    local scopedTrade, scopedReason = Trade.barter("faction-test", player,
+        { { item = scopedOffer, container = player.inventory } },
+        { { item = scopedRequest, container = residentOne.inventory } })
+    check(scopedTrade and Trade.pendingRecoveryCount() == 1
+            and player.inventory:contains(scopedRequest)
+            and residentOne.inventory:contains(scopedOffer),
+        "an unresolved recovery blocks only its own faction, not every household: "
+            .. tostring(scopedReason))
+    player.inventory:Remove(scopedRequest)
+    residentOne.inventory:Remove(scopedOffer)
+
+    -- Exhaustion is bounded without guessing that absence from two inventories
+    -- means absence from the world. The durable record becomes a quiet quarantine.
+    local boundedSave = Trade.export()
+    boundedSave.entries[1].attempts =
+        SurvivorCompanion.Config.get("tradeRecoveryMaxAttempts") - 1
+    boundedSave.entries[1].recordedAt = clock
+        - SurvivorCompanion.Config.get("tradeRecoveryMaxAgeMs") - 1
+    check(Trade.restore(boundedSave), "bounded recovery fixture restores")
+    recovered, recoveryReason = Trade.recoverPending(player, 8, true)
+    local boundedItem
+    for _, candidate in ipairs(player.inventory.items) do
+        if candidate:getFullType() == "Base.RecoveryScrewdriver" then
+            boundedItem = candidate
+            break
+        end
+    end
+    local quarantinedSave = Trade.export()
+    check(recovered and Trade.pendingRecoveryCount() == 1 and boundedItem == nil
+            and quarantinedSave and #quarantinedSave.entries == 1
+            and quarantinedSave.entries[1].phase == "recovery_quarantined",
+        "recovery stops after its configured bound without manufacturing an unproven copy: "
+            .. tostring(recoveryReason))
+
+    -- A rotating cursor must reach a healthy tail record even when a full
+    -- prefix remains permanently unavailable.
+    local fairQueue = { version = 1, serial = 33, cursorSerial = 0, entries = {} }
+    for index = 1, 33 do
+        local recoveryId = "lf-trade:fair:" .. tostring(index)
+        fairQueue.entries[index] = {
+            recoveryId = recoveryId, serial = index, factionId = "fair-" .. tostring(index),
+            recordedAt = clock, attempts = 0, phase = "recovery_pending",
+            detachedProof = index == 33,
+            sourceOwner = index == 33 and { kind = "player" }
+                or { kind = "actor", id = "missing-source-" .. tostring(index) },
+            destinationOwner = index == 33 and { kind = "actor", id = residentOne.id }
+                or { kind = "actor", id = "missing-destination-" .. tostring(index) },
+            itemState = {
+                schema = 2, complete = true, count = 1,
+                roots = { {
+                    id = "recovery-item", type = "Base.FairRecovery" .. tostring(index),
+                    children = {}, weaponParts = {},
+                    modData = {
+                        LF_TradeRecoveryId = recoveryId,
+                        LF_TradeRecoveryState = "original",
+                    },
+                } },
+                equipment = { worn = {}, attached = {} },
+            },
+        }
+    end
+    check(Trade.restore(fairQueue), "fair recovery queue fixture restores")
+    Trade.recoverPending(player, 32, true)
+    Trade.recoverPending(player, 1, true)
+    local fairTail
+    for _, candidate in ipairs(player.inventory.items) do
+        if candidate:getFullType() == "Base.FairRecovery33" then fairTail = candidate break end
+    end
+    check(fairTail ~= nil and Trade.pendingRecoveryCount() == 32,
+        "the persisted recovery cursor reaches a healthy tail behind 32 permanent failures")
+    player.inventory:Remove(fairTail)
+
+    -- Death is a terminal owner transition, not a reason to resurrect an actor
+    -- or globally block unrelated households.
+    local deathQueue = { version = 1, serial = 1, cursorSerial = 0, entries = {
+        {
+            recoveryId = "lf-trade:death:1", serial = 1, factionId = "dead-faction",
+            recordedAt = clock, attempts = 0, phase = "recovery_pending",
+            sourceOwner = { kind = "actor", id = residentOne.id },
+            destinationOwner = { kind = "actor", id = "missing-death-counterparty" },
+            itemState = {
+                schema = 2, complete = true, count = 1,
+                roots = { {
+                    id = "recovery-item", type = "Base.DeathRecovery",
+                    children = {}, weaponParts = {},
+                    modData = {
+                        LF_TradeRecoveryId = "lf-trade:death:1",
+                        LF_TradeRecoveryState = "original",
+                    },
+                } },
+                equipment = { worn = {}, attached = {} },
+            },
+        },
+    } }
+    check(Trade.restore(deathQueue) and Trade.prepareActorDeath(residentOne, player),
+        "dead owner recovery transitions without requiring the missing counterparty")
+    local deathSave = Trade.export()
+    check(deathSave.entries[1].phase == "recovery_quarantined"
+            and deathSave.entries[1].sourceOwner.kind == "retired"
+            and not Trade.hasPendingActor(residentOne),
+        "dead owners persist as retired quarantine descriptors and no longer pin actor cleanup")
+
+    check(Trade.restore(durableSave) and Trade.pendingRecoveryCount() == 1
+            and Trade.reset() == true and Trade.pendingRecoveryCount() == 0,
+        "runtime teardown clears an unresolved durable trade ledger without becoming fatal")
+    local oversizedRecovery = { version = 1, serial = 0, entries = {} }
+    for index = 1, SurvivorCompanion.Config.get("tradeRecoveryMaxEntries") + 1 do
+        oversizedRecovery.entries[index] = {}
+    end
+    local oversizedAccepted, oversizedReason = Trade.restore(oversizedRecovery)
+    check(not oversizedAccepted and oversizedReason == "invalid trade recovery envelope",
+        "the durable recovery queue rejects documents beyond its hard entry bound")
     SurvivorCompanion.Senses.snapshot = originalSnapshot
     SurvivorCompanion.Persistence = originalPersistence
-    player.inventory:Remove(offeredTool)
+    playerStash:Remove(offeredTool)
     residentOne.inventory:Remove(requestedLighter)
 end
 

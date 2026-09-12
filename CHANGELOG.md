@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.22.18 - Verified trade recovery
+
+- Made detached trade reconstruction transactional across native failures. Every generated root records its native item ID before state mutation, generated roots and weapon parts carry a build identity, and only a recaptured snapshot match can advance the root from `building` to `verified`. Failed cleanup retains the exact partial identity across save/restart and never creates a replacement until removal is proven.
+- Required both inventory membership and the native `getContainer()` pointer before a marked item can finish recovery. Absence from the two original inventories permits reconstruction only when the live transaction persisted an explicit detached proof; ambiguous absence, including an item on a corpse, in world space, or in a third container, is quarantined without spawning a copy.
+- Added an explicit `retired` owner transition before dead companions leave the registry. Unresolved death ownership becomes a durable, quiet quarantine that neither resurrects the actor nor blocks unrelated households, while marked native items remain excluded from later barter.
+- Added a persisted rotating recovery cursor, bounded backoff, attempt/age limits, and faction-scoped blocking. Healthy tail records now receive work behind permanently unavailable owners without allowing unlimited per-tick recovery.
+- Passed the live destination actor to `ItemContainer.hasRoomFor` during both preflight and insertion. Capacity regressions now reject a missing or incorrect actor in both barter directions.
+- Corrected mutable item persistence for partially eaten food, raw food mood/thirst values, and ordinary versus drainable item uses. Stable negative perception evidence now remains valid until the zombie population changes or a replacement roster publishes.
+- Added coupled Kahlua integration coverage for failures before and after the recovery marker, rejected/no-op removal, weapon-part restoration, owner-pointer conflicts, native-ID restart recovery, third-container ambiguity, dead-owner quarantine, and 33-record queue fairness.
+
 ## 0.22.17 - Durable recovery and lifecycle safety
 
 - Made failed barter recovery durable per item. Unresolved transfers now carry a stable identity, intended source and destination, transaction phase, and a complete mutable item snapshot in world-scoped persistence, allowing a save/restart to restore exactly one verified owner without duplicating already-resolved items.

@@ -42,6 +42,7 @@ public final class SCNativeApiSignatureTest {
         Class<?> survivorType = Class.forName("zombie.characters.SurvivorFactory$SurvivorType");
         Class<?> attackType = Class.forName("zombie.AttackType");
         Class<?> inventoryItem = Class.forName("zombie.inventory.InventoryItem");
+        Class<?> drainableItem = Class.forName("zombie.inventory.types.DrainableComboItem");
         Class<?> handWeapon = Class.forName("zombie.inventory.types.HandWeapon");
         Class<?> keyItem = Class.forName("zombie.inventory.types.Key");
         Class<?> foodItem = Class.forName("zombie.inventory.types.Food");
@@ -414,17 +415,20 @@ public final class SCNativeApiSignatureTest {
                 "native attack/equipment readback signatures changed");
         require(method(keyItem, "getKeyId").getReturnType() == int.class
                         && method(keyItem, "setKeyId", int.class).getReturnType() == void.class
-                        && method(inventoryItem, "getCurrentUsesFloat").getReturnType() == float.class
-                        && method(inventoryItem, "setCurrentUsesFloat", float.class).getReturnType()
+                        && inventoryItem.isAssignableFrom(drainableItem)
+                        && method(drainableItem, "getCurrentUsesFloat").getReturnType() == float.class
+                        && method(drainableItem, "setCurrentUsesFloat", float.class).getReturnType()
                                 == void.class,
-                "key identity/current-use persistence signatures changed");
+                "key identity/drainable-use persistence signatures changed");
         require(method(foodItem, "getBaseHunger").getReturnType() == float.class
                         && method(foodItem, "setBaseHunger", float.class).getReturnType() == void.class
-                        && method(foodItem, "getThirstChange").getReturnType() == float.class
+                        && method(foodItem, "getHungChange").getReturnType() == float.class
+                        && method(foodItem, "setHungChange", float.class).getReturnType() == void.class
+                        && method(foodItem, "getThirstChangeUnmodified").getReturnType() == float.class
                         && method(foodItem, "setThirstChange", float.class).getReturnType() == void.class
-                        && method(foodItem, "getBoredomChange").getReturnType() == float.class
+                        && method(foodItem, "getBoredomChangeUnmodified").getReturnType() == float.class
                         && method(foodItem, "setBoredomChange", float.class).getReturnType() == void.class
-                        && method(foodItem, "getUnhappyChange").getReturnType() == float.class
+                        && method(foodItem, "getUnhappyChangeUnmodified").getReturnType() == float.class
                         && method(foodItem, "setUnhappyChange", float.class).getReturnType() == void.class
                         && method(foodItem, "getCalories").getReturnType() == float.class
                         && method(foodItem, "setCalories", float.class).getReturnType() == void.class

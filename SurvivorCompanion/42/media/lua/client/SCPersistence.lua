@@ -22,6 +22,9 @@ local restoreFailureReason = "restore has not committed"
 local worldStore = nil
 local quarantined = { companions = {}, factionActors = {}, subsystems = {} }
 local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true }
+local detachedRecoveryMarker = "LF_TradeRecoveryId"
+local detachedRecoveryStateMarker = "LF_TradeRecoveryState"
+local detachedRecoveryBuildMarker = "LF_TradeRecoveryBuildId"
 
 local function method(object, name)
     if object == nil then
@@ -273,8 +276,6 @@ end
 
 local scalarItemFields = {
     { key = "uses", getter = "getUses", setter = "setUses", kind = "integer" },
-    { key = "currentUses", getter = "getCurrentUsesFloat", setter = "setCurrentUsesFloat", kind = "number" },
-    { key = "usedDelta", getter = "getUsedDelta", setter = "setUsedDelta", kind = "number" },
     { key = "age", getter = "getAge", setter = "setAge", kind = "number" },
     { key = "offAge", getter = "getOffAge", setter = "setOffAge", kind = "integer" },
     { key = "offAgeMax", getter = "getOffAgeMax", setter = "setOffAgeMax", kind = "integer" },
@@ -288,14 +289,23 @@ local scalarItemFields = {
     { key = "activated", getter = "isActivated", setter = "setActivated", kind = "boolean" },
 }
 
+-- InventoryItem exposes get/setCurrentUsesFloat even though those methods are
+-- not an inverse pair for ordinary items (the base setter divides by useDelta).
+-- Only DrainableComboItem implements the matching fractional-use contract.
+local drainableItemFields = {
+    { key = "currentUses", getter = "getCurrentUsesFloat", setter = "setCurrentUsesFloat", kind = "number" },
+    { key = "usedDelta", getter = "getUsedDelta", setter = "setUsedDelta", kind = "number" },
+}
+
 -- Food carries mutable nutrition and portion data outside InventoryItem's
 -- generic age/uses fields. Keep this codec explicit so a crafted or partly
 -- eaten meal is not silently rebuilt with script defaults.
 local foodItemFields = {
     { key = "baseHunger", getter = "getBaseHunger", setter = "setBaseHunger", kind = "number" },
-    { key = "thirstChange", getter = "getThirstChange", setter = "setThirstChange", kind = "number" },
-    { key = "boredomChange", getter = "getBoredomChange", setter = "setBoredomChange", kind = "number" },
-    { key = "unhappyChange", getter = "getUnhappyChange", setter = "setUnhappyChange", kind = "number" },
+    { key = "hungChange", getter = "getHungChange", setter = "setHungChange", kind = "number" },
+    { key = "thirstChange", getter = "getThirstChangeUnmodified", setter = "setThirstChange", kind = "number" },
+    { key = "boredomChange", getter = "getBoredomChangeUnmodified", setter = "setBoredomChange", kind = "number" },
+    { key = "unhappyChange", getter = "getUnhappyChangeUnmodified", setter = "setUnhappyChange", kind = "number" },
     { key = "calories", getter = "getCalories", setter = "setCalories", kind = "number" },
     { key = "carbohydrates", getter = "getCarbohydrates", setter = "setCarbohydrates", kind = "number" },
     { key = "lipids", getter = "getLipids", setter = "setLipids", kind = "number" },
@@ -328,6 +338,12 @@ local function captureItemFields(item, fields)
         end
     end
     return hasEntries(result) and result or nil
+end
+
+local function isItemClass(item, className)
+    if type(instanceof) ~= "function" then return false end
+    local ok, result = pcall(instanceof, item, className)
+    return ok and result == true
 end
 
 local function captureFluid(item)
@@ -454,6 +470,9 @@ local function captureItem(item)
     -- setter (InventoryItem.getWetness() is one example). Persist only a
     -- property the concrete item can also accept during restore.
     entry.scalar = captureItemFields(item, scalarItemFields)
+    if isItemClass(item, "DrainableComboItem") then
+        entry.drainable = captureItemFields(item, drainableItemFields)
+    end
     local keyOk, keyId = invoke(item, "getKeyId")
     if keyOk and method(item, "setKeyId") ~= nil and finite(keyId, nil) ~= nil
         and math.floor(finite(keyId, -1)) >= 0 then
@@ -1153,6 +1172,9 @@ local function copyInventoryNode(source, context, depth)
     clean.scalar, copyReason = stableCopy(source.scalar, 3, 64,
         "$.inventory[].scalar")
     if copyReason ~= nil then return nil, copyReason end
+    clean.drainable, copyReason = stableCopy(source.drainable, 3, 16,
+        "$.inventory[].drainable")
+    if copyReason ~= nil then return nil, copyReason end
     clean.personal, copyReason = stableCopy(source.personal, 4, 64,
         "$.inventory[].personal")
     if copyReason ~= nil then return nil, copyReason end
@@ -1288,6 +1310,47 @@ function persistence.validateDetachedItem(source)
     return snapshot
 end
 
+local detachedIgnoredKeys = {
+    [detachedRecoveryMarker] = true,
+    [detachedRecoveryStateMarker] = true,
+    [detachedRecoveryBuildMarker] = true,
+}
+
+local function detachedEquivalent(left, right, depth, budget, key)
+    if detachedIgnoredKeys[key] == true then return true end
+    if type(left) ~= type(right) then return false end
+    if type(left) == "number" then return math.abs(left - right) <= 0.0001 end
+    if type(left) ~= "table" then return left == right end
+    if depth > 20 or budget.count <= 0 then return false end
+    budget.count = budget.count - 1
+    for childKey, value in pairs(left) do
+        if detachedIgnoredKeys[childKey] ~= true
+            and not detachedEquivalent(value, right[childKey], depth + 1, budget, childKey) then
+            return false
+        end
+    end
+    for childKey in pairs(right) do
+        if detachedIgnoredKeys[childKey] ~= true and left[childKey] == nil then return false end
+    end
+    return true
+end
+
+-- A successful setter call is not enough proof for native inventory state: a
+-- modded item may reject a value without throwing. Recapture the finished item
+-- and compare it with the durable snapshot before recovery may be committed.
+function persistence.verifyDetachedItem(item, source)
+    local expected, expectedReason = persistence.validateDetachedItem(source)
+    if expected == nil then return false, expectedReason end
+    local actual, actualReason = persistence.captureDetachedItem(item)
+    if actual == nil then return false, actualReason end
+    actual, actualReason = persistence.validateDetachedItem(actual)
+    if actual == nil then return false, actualReason end
+    if not detachedEquivalent(expected, actual, 0, { count = 65536 }) then
+        return false, "restored detached item state does not match its snapshot"
+    end
+    return true
+end
+
 local function validateRecord(id, source)
     if not SC.Registry.isValidId(id) or type(source) ~= "table" or source.id ~= id
         or (source.recruited ~= true and type(source.factionId) ~= "string")
@@ -1377,7 +1440,7 @@ local function applyItemVisual(item, saved)
     return true
 end
 
-local function applyItemState(item, entry, restoredKeys)
+local function applyItemState(item, entry, restoredKeys, reservedModData)
     if entry.condition ~= nil and not invoke(item, "setCondition",
         math.floor(finite(entry.condition, 0))) then
         return false, "item condition could not be restored"
@@ -1396,6 +1459,17 @@ local function applyItemState(item, entry, restoredKeys)
             else value = finite(value, 0) end
             if not invoke(item, field.setter, value) then
                 return false, "item field could not be restored: " .. field.key
+            end
+        end
+    end
+    if type(entry.drainable) == "table" then
+        if not isItemClass(item, "DrainableComboItem") then
+            return false, "saved drainable state targets a non-drainable item"
+        end
+        for _, field in ipairs(drainableItemFields) do
+            local value = entry.drainable[field.key]
+            if value ~= nil and not invoke(item, field.setter, finite(value, 0)) then
+                return false, "drainable field could not be restored: " .. field.key
             end
         end
     end
@@ -1426,7 +1500,11 @@ local function applyItemState(item, entry, restoredKeys)
             SC.Config.get("persistence", "maxItemModDataEntries") or 256,
             "$.inventory[].modData")
         if copy == nil then return false, copyReason end
-        for key, value in pairs(copy) do data[key] = value end
+        for key, value in pairs(copy) do
+            if type(reservedModData) ~= "table" or reservedModData[key] ~= true then
+                data[key] = value
+            end
+        end
     end
     if type(entry.firearm) == "table" then
         local firearm = entry.firearm
@@ -1492,6 +1570,104 @@ local function clearActorInventory(actor, inventory)
     return true
 end
 
+local function inventoryContainsIdentity(inventory, item)
+    if inventory == nil or item == nil then return nil end
+    local itemsOk, items = invoke(inventory, "getItems")
+    if not itemsOk or items == nil then return nil end
+    local count = listSize(items)
+    if count > 8192 then return nil end
+    for index = 0, count - 1 do
+        if listGet(items, index) == item then return true end
+    end
+    return false
+end
+
+local function markCreatedItem(item, context, root)
+    local nativeIdOk, nativeId = invoke(item, "getID")
+    if type(context.created) == "table" then
+        context.created[#context.created + 1] = {
+            item = item, inventory = context.currentInventory,
+            nativeId = nativeIdOk and nativeId or nil,
+        }
+    end
+    if context.recoveryId == nil then return true end
+    if not nativeIdOk or nativeId == nil then
+        return false, "recovery reconstruction native identity is unavailable"
+    end
+    if root == true then
+        context.rootItem = item
+        context.rootNativeId = nativeId
+    end
+    local dataOk, data = invoke(item, "getModData")
+    if not dataOk or type(data) ~= "table" then
+        return false, "recovery reconstruction identity could not be attached"
+    end
+    data[detachedRecoveryBuildMarker] = context.recoveryId
+    if root == true then
+        data[detachedRecoveryMarker] = context.recoveryId
+        data[detachedRecoveryStateMarker] = "building"
+    end
+    return true
+end
+
+local function clearCreatedBuildMarkers(context)
+    for _, created in ipairs(context.created) do
+        local dataOk, data = invoke(created.item, "getModData")
+        if not dataOk or type(data) ~= "table" then
+            return false, "recovery reconstruction marker could not be finalized"
+        end
+        if data[detachedRecoveryBuildMarker] == context.recoveryId then
+            data[detachedRecoveryBuildMarker] = nil
+        end
+    end
+    local dataOk, data = invoke(context.rootItem, "getModData")
+    if not dataOk or type(data) ~= "table"
+        or data[detachedRecoveryMarker] ~= context.recoveryId then
+        return false, "recovery reconstruction root identity changed"
+    end
+    data[detachedRecoveryStateMarker] = "verified"
+    return true
+end
+
+local function cleanupCreatedItems(context)
+    local complete = true
+    for index = #context.created, 1, -1 do
+        local created = context.created[index]
+        local item, candidates, seen = created.item, {}, {}
+        local function addCandidate(inventory)
+            if inventory ~= nil and not seen[inventory] then
+                seen[inventory] = true
+                candidates[#candidates + 1] = inventory
+            end
+        end
+        addCandidate(created.inventory)
+        local ownerOk, owner = invoke(item, "getContainer")
+        if ownerOk then addCandidate(owner) else complete = false end
+        for _, inventory in ipairs(candidates) do
+            local present = inventoryContainsIdentity(inventory, item)
+            if present == true then invoke(inventory, "Remove", item) end
+            if inventoryContainsIdentity(inventory, item) ~= false then complete = false end
+        end
+        local afterOk, afterOwner = invoke(item, "getContainer")
+        if not afterOk or afterOwner ~= nil then complete = false end
+    end
+    if complete then
+        for _, created in ipairs(context.created) do
+            local dataOk, data = invoke(created.item, "getModData")
+            if dataOk and type(data) == "table" then
+                if data[detachedRecoveryBuildMarker] == context.recoveryId then
+                    data[detachedRecoveryBuildMarker] = nil
+                end
+                if data[detachedRecoveryMarker] == context.recoveryId then
+                    data[detachedRecoveryMarker] = nil
+                    data[detachedRecoveryStateMarker] = nil
+                end
+            end
+        end
+    end
+    return complete
+end
+
 local function addInventoryNode(parentInventory, entry, context, depth)
     local personal = type(entry.personal) == "table" and entry.personal or nil
     local personalKey = personal and text(personal.key, "", 128) or ""
@@ -1503,8 +1679,12 @@ local function addInventoryNode(parentInventory, entry, context, depth)
     end
     local addedOk, item = invoke(parentInventory, "AddItem", entry.type)
     if not addedOk or item == nil then return false, "inventory item could not be restored: " .. entry.type end
+    context.currentInventory = parentInventory
+    local marked, markReason = markCreatedItem(item, context, depth == 1)
+    if not marked then return false, markReason end
     context.byId[entry.id] = item
-    local stateOk, stateReason = applyItemState(item, entry, context.restoredKeys)
+    local stateOk, stateReason = applyItemState(item, entry, context.restoredKeys,
+        context.recoveryId and detachedIgnoredKeys or nil)
     if not stateOk then return false, stateReason end
     if #entry.children > 0 then
         local nestedOk, nested = invoke(item, "getInventory")
@@ -1517,8 +1697,12 @@ local function addInventoryNode(parentInventory, entry, context, depth)
     for _, partEntry in ipairs(entry.weaponParts) do
         local partOk, part = invoke(context.rootInventory, "AddItem", partEntry.type)
         if not partOk or part == nil then return false, "weapon part could not be created: " .. partEntry.type end
+        context.currentInventory = context.rootInventory
+        local partMarked, partMarkReason = markCreatedItem(part, context, false)
+        if not partMarked then return false, partMarkReason end
         context.byId[partEntry.id] = part
-        local partStateOk, partStateReason = applyItemState(part, partEntry, context.restoredKeys)
+        local partStateOk, partStateReason = applyItemState(part, partEntry,
+            context.restoredKeys, context.recoveryId and detachedIgnoredKeys or nil)
         if not partStateOk then return false, partStateReason end
         if not invoke(context.rootInventory, "Remove", part) then
             return false, "weapon part could not leave the root inventory"
@@ -1530,7 +1714,7 @@ local function addInventoryNode(parentInventory, entry, context, depth)
     return true, item
 end
 
-function persistence.restoreDetachedItem(actor, source)
+function persistence.restoreDetachedItem(actor, source, recoveryId)
     if actor == nil then return nil, "detached item owner is unavailable" end
     local snapshot, reason = persistence.validateDetachedItem(source)
     if snapshot == nil then return nil, reason end
@@ -1542,28 +1726,31 @@ function persistence.restoreDetachedItem(actor, source)
     if not beforeOk or beforeItems == nil then
         return nil, "detached item owner inventory list is unavailable"
     end
-    local before = {}
-    for index = 0, listSize(beforeItems) - 1 do
-        before[listGet(beforeItems, index)] = true
+    if recoveryId ~= nil and (type(recoveryId) ~= "string"
+        or recoveryId == "" or #recoveryId > 128) then
+        return nil, "detached recovery identity is invalid"
     end
-    local context = { rootInventory = inventory, byId = {}, restoredKeys = {} }
+    local context = {
+        rootInventory = inventory, byId = {}, restoredKeys = {}, created = {},
+        recoveryId = recoveryId,
+    }
     local applied, item = addInventoryNode(inventory, snapshot.roots[1], context, 1)
-    if applied then return item end
+    if applied then
+        local verified, verifyReason = persistence.verifyDetachedItem(item, snapshot)
+        if verified and recoveryId ~= nil then
+            verified, verifyReason = clearCreatedBuildMarkers(context)
+        end
+        if verified then return item end
+        applied, item = false, verifyReason
+    end
 
     -- addInventoryNode can fail after AddItem mutates the root. Roll back only
     -- identities introduced by this attempt and preserve every pre-existing item.
-    local afterOk, afterItems = invoke(inventory, "getItems")
-    if afterOk and afterItems ~= nil then
-        local additions = {}
-        for index = 0, listSize(afterItems) - 1 do
-            local candidate = listGet(afterItems, index)
-            if candidate ~= nil and not before[candidate] then
-                additions[#additions + 1] = candidate
-            end
-        end
-        for index = #additions, 1, -1 do invoke(inventory, "Remove", additions[index]) end
+    local cleaned = cleanupCreatedItems(context)
+    if not cleaned then
+        return nil, item, context.rootItem, context.rootNativeId, false
     end
-    return nil, item
+    return nil, item, nil, nil, true
 end
 
 local function reportEquipmentFallback(companionId, kind, location, reason)

@@ -157,6 +157,14 @@ try {
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @characterDepthFiles
         if ($LASTEXITCODE -ne 0) { throw 'Character-depth persistence harness failed.' }
 
+        $tradePersistenceFiles = @($coreFiles | Select-Object -SkipLast 2)
+        $tradePersistenceFiles += @(
+            (Join-Path $Client 'SCTrade.lua'),
+            (Join-Path $TestRoot 'trade_persistence_recovery_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @tradePersistenceFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Trade/persistence recovery integration harness failed.' }
+
         $persistenceTransactionFiles = @($coreFiles | Select-Object -SkipLast 2)
         $persistenceTransactionFiles += Join-Path $TestRoot 'persistence_transaction_harness.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @persistenceTransactionFiles

@@ -1369,6 +1369,13 @@ function actorService.retireDead(actor)
     if cachedProvider == nil or type(cachedProvider.retireDead) ~= "function" then
         return false, "actor provider cannot finalize a permanent death"
     end
+    if SC.Trade ~= nil and type(SC.Trade.prepareActorDeath) == "function" then
+        local called, prepared, tradeReason = pcall(SC.Trade.prepareActorDeath, actor)
+        if not called or prepared ~= true then
+            return false, "dead actor trade ownership could not be finalized: "
+                .. tostring(called and tradeReason or prepared)
+        end
+    end
     local id = SC.Registry.idOf(actor)
     retainActorCleanup(actor, cachedProvider, {
         operation = "retireDead",

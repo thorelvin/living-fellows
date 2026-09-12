@@ -5,7 +5,7 @@
 ## Mandatory gate before launch
 
 - [ ] `scripts\Test-Project.ps1` passes against Project Zomboid 42.20.4.
-- [ ] `VERSION.txt`, both `mod.info` files and the Support tab all report 0.22.17.
+- [ ] `VERSION.txt`, both `mod.info` files and the Support tab all report 0.22.18.
 - [ ] Workshop-path testing has ZombieBuddy 2.3.3 or newer enabled before Living Fellows.
 - [ ] The loose legacy `zombie\characters\IsoSurvivor.class` is absent and the game is closed.
 - [ ] The local install displays `PRIVATE-NATIVE-BRIDGE.txt`.
@@ -45,6 +45,10 @@
 - [ ] Five save/load cycles create no duplicate UUIDs or actors.
 - [ ] A schema-1 save migrates once; a schema-2 companion retains nested bag hierarchy, worn and attached gear, both hand slots, weapon parts, fluid mixtures, condition and bounded item mod-data.
 - [ ] Force one incomplete inventory capture in a disposable test: the previous stable document remains intact and the next healthy save succeeds.
+- [ ] Interrupt barter reconstruction before and after its recovery marker, reject the first cleanup, save/reload, then allow cleanup: exactly one complete item remains with weapon parts and mutable state intact.
+- [ ] Move a marked recovery item into a third container or corpse inventory before save/reload: no snapshot copy is created, and list membership agrees with the item's native owner pointer before the journal closes.
+- [ ] Kill either NPC referenced by unresolved barter: death records a terminal owner or quarantine, never recreates the NPC, and does not block trade with an unrelated household.
+- [ ] Queue 33 recovery records with permanent failures first and a healthy item last: the persisted cursor reaches the tail within bounded pulses without an unbounded tick.
 - [ ] Lower Max companions or Max households below the current population, reload, and verify no existing companion or household is deleted; only future spawning is capped.
 - [ ] Change encounter cadence, companion needs rate and UI opacity in Sandbox settings and verify each effective value after reload.
 - [ ] Follow/stay/guard/regroup/retreat work across distance, floors, doors, windows and obstacles.

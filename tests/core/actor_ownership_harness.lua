@@ -177,6 +177,13 @@ end
 -- Permanent-death cleanup has the same ownership guarantee.  The ordinary
 -- death_pending response remains active, while unexpected false/throw results
 -- are quarantined with a callable retry handle.
+local originalTrade, preparedDeaths = SC.Trade, 0
+SC.Trade = {
+    prepareActorDeath = function(actor)
+        preparedDeaths = preparedDeaths + 1
+        return actor ~= nil
+    end,
+}
 for _, mode in ipairs({ "false", "throw" }) do
     resetActorService()
     local candidate = newActor()
@@ -207,6 +214,9 @@ for _, mode in ipairs({ "false", "throw" }) do
             and SC.Actor.ownershipSnapshot().actorCleanups == 0,
         "retire retry did not release exactly once for " .. mode)
 end
+check(preparedDeaths == 2,
+    "each permanent death transitions trade ownership before native retirement")
+SC.Trade = originalTrade
 
 -- Native removal may commit before registry cleanup fails.  The retry must
 -- only unregister; calling provider.remove twice would be a double release.

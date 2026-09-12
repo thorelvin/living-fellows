@@ -76,8 +76,21 @@ local function makeItem(itemType, options)
     function item:setFavorite(value) self.favorite = value == true end
     function item:getUses() return self.uses end
     function item:setUses(value) self.uses = value end
-    function item:getCurrentUsesFloat() return self.currentUsesFloat end
-    function item:setCurrentUsesFloat(value) self.currentUsesFloat = value end
+    -- Mirror the Build 42 bytecode contract. InventoryItem's base methods are
+    -- not inverses, Food reports a hunger-derived value, and only drainables
+    -- own a matching fractional-use pair.
+    function item:getCurrentUsesFloat()
+        if self.__class == "DrainableComboItem" then return self.currentUsesFloat end
+        if self.__class == "Food" then return math.abs(self.hungerChange or 0) end
+        return self.uses or 1
+    end
+    function item:setCurrentUsesFloat(value)
+        if self.__class == "DrainableComboItem" then
+            self.currentUsesFloat = value
+        else
+            self.uses = math.floor(value / (self.useDelta or 0.03125) + 0.5)
+        end
+    end
     function item:getUsedDelta() return self.usedDelta end
     function item:setUsedDelta(value) self.usedDelta = value end
     function item:getAge() return self.age end
@@ -99,12 +112,25 @@ local function makeItem(itemType, options)
     if item.__class == "Food" then
         function item:getBaseHunger() return self.baseHunger end
         function item:setBaseHunger(value) self.baseHunger = value end
-    function item:getHungerChange() return self.hungerChange end
-        function item:getThirstChange() return self.thirstChange end
+        function item:getHungerChange() return self.hungerChange end
+        function item:getHungChange() return self.hungerChange end
+        function item:setHungChange(value) self.hungerChange = value end
+        function item:getThirstChange()
+            if self.burnt then return (self.thirstChange or 0) / 5 end
+            if self.cooked then return (self.thirstChange or 0) / 2 end
+            return self.thirstChange
+        end
+        function item:getThirstChangeUnmodified() return self.thirstChange end
         function item:setThirstChange(value) self.thirstChange = value end
-        function item:getBoredomChange() return self.boredomChange end
+        function item:getBoredomChange()
+            return (self.boredomChange or 0) + (self.rotten and 20 or 0)
+        end
+        function item:getBoredomChangeUnmodified() return self.boredomChange end
         function item:setBoredomChange(value) self.boredomChange = value end
-        function item:getUnhappyChange() return self.unhappyChange end
+        function item:getUnhappyChange()
+            return (self.unhappyChange or 0) + (self.rotten and 20 or 0)
+        end
+        function item:getUnhappyChangeUnmodified() return self.unhappyChange end
         function item:setUnhappyChange(value) self.unhappyChange = value end
         function item:getCalories() return self.calories end
         function item:setCalories(value) self.calories = value end
@@ -176,6 +202,8 @@ local function makeInventory(initial)
             item = makeItem(value, { fluid = makeFluid() })
         elseif tostring(value) == "Base.TestMeal" then
             item = makeItem(value, { __class = "Food" })
+        elseif tostring(value) == "Base.TestDrainable" then
+            item = makeItem(value, { __class = "DrainableComboItem" })
         elseif tostring(value) == "Base.ActiveByDefault" then
             item = makeItem(value, { activated = true })
         else
@@ -422,22 +450,30 @@ original.inventory:AddItem(bag)
 original.inventory:Remove(keepsakeItem)
 nested:AddItem(keepsakeItem)
 local bottle = makeItem("Base.WaterBottleFull", {
-    fluid = makeFluid({ Water = 0.7, Coffee = 0.2 }), uses = 3, usedDelta = 0.65,
+    fluid = makeFluid({ Water = 0.7, Coffee = 0.2 }), uses = 3,
     age = 1.25, cooked = true,
 })
 nested:AddItem(bottle)
+local drainable = makeItem("Base.TestDrainable", {
+    __class = "DrainableComboItem", uses = 3,
+    currentUsesFloat = 0.35, usedDelta = 0.65,
+})
+nested:AddItem(drainable)
 local exactKey = makeItem("Base.Key1", { keyId = 41277 })
+local exactUses = makeItem("Base.TestUses", { uses = 1, useDelta = 0.03125 })
 local meal = makeItem("Base.TestMeal", {
-    __class = "Food", currentUsesFloat = 0.35, baseHunger = -0.72,
+    __class = "Food", uses = 1, baseHunger = -0.72,
     hungerChange = -0.25, thirstChange = -0.11, boredomChange = -7,
     unhappyChange = -13, calories = 843.5, carbohydrates = 61.25,
     lipids = 24.5, proteins = 37.75, heat = 1.4, freezingTime = 22.5,
     poisonPower = 9, poisonDetection = 4, useForPoison = 2,
-    lastCookMinute = 18, microwaved = false, packaged = false,
+    lastCookMinute = 18, microwaved = false, packaged = false, cooked = true,
+    rotten = true,
     dangerousUncooked = true, removeNegativeWhenCooked = false,
 })
 local inactiveItem = makeItem("Base.ActiveByDefault", { activated = false })
 original.inventory:AddItem(exactKey)
+original.inventory:AddItem(exactUses)
 original.inventory:AddItem(meal)
 original.inventory:AddItem(inactiveItem)
 local scope = makeItem("Base.x4Scope", { condition = 7, modData = { zeroed = true } })
@@ -540,7 +576,7 @@ check(SC.Persistence.recoveryRetirements("sc-recovery-retire") == 0,
     "sustained healthy activation clears the retirement history")
 end
 check(captured.inventory.schema == 2 and captured.inventory.complete == true
-    and captured.inventory.count == 11
+    and captured.inventory.count == 13
     and captured.inventory.equipment.primary ~= nil
     and captured.inventory.equipment.primary == captured.inventory.equipment.secondary
     and #captured.inventory.equipment.worn == 2
@@ -642,6 +678,7 @@ local restoredWeapon = findType(restored.inventory, "Base.VarmintRifle")
 local restoredJacket = findType(restored.inventory, "Base.Jacket_Police")
 local restoredKnife = findType(restored.inventory, "Base.HuntingKnife")
 local restoredKey = findType(restored.inventory, "Base.Key1")
+local restoredExactUses = findType(restored.inventory, "Base.TestUses")
 local restoredMeal = findType(restored.inventory, "Base.TestMeal")
 local restoredInactive = findType(restored.inventory, "Base.ActiveByDefault")
 check(findType(restored.inventory, "Base.GeneratedOutfit") == nil
@@ -666,18 +703,26 @@ check(restoredWeapon.condition == 4 and restoredWeapon.repairs == 2
 local restoredMagazine = findType(restored.inventory, "Base.556Clip")
 check(restoredMagazine ~= nil and restoredMagazine.currentAmmo == 15,
     "a loaded spare magazine (not a HandWeapon) keeps its rounds across save/restore (LF-02)")
-check(restoredBottle.uses == 3 and math.abs(restoredBottle.usedDelta - 0.65) < 0.001
+check(restoredBottle.uses == 3
     and math.abs(restoredBottle.age - 1.25) < 0.001 and restoredBottle.cooked == true
     and math.abs(restoredBottle.fluid:getAmount() - 0.9) < 0.001
     and math.abs(restoredBottle.fluid.values.Water - 0.7) < 0.001
     and math.abs(restoredBottle.fluid.values.Coffee - 0.2) < 0.001,
-    "stack, drainable, food and exact mixed-fluid state survive restore")
+    "stack, food and exact mixed-fluid state survive restore")
+local restoredDrainable = findType(restored.inventory, "Base.TestDrainable")
+check(restoredDrainable and restoredDrainable.uses == 3
+        and math.abs(restoredDrainable.currentUsesFloat - 0.35) < 0.001
+        and math.abs(restoredDrainable.usedDelta - 0.65) < 0.001,
+    "fractional currentUses is captured and restored only for DrainableComboItem")
 check(restoredKey and restoredKey.keyId == 41277,
     "native key identity survives reconstruction instead of reverting to the script default")
+check(restoredExactUses and restoredExactUses.uses == 1,
+    "ordinary InventoryItem uses is not inflated through the non-inverse base currentUses setter")
 check(restoredInactive and restoredInactive.activated == false,
     "saved false scalar values remain distinct from missing fields during restore")
-check(restoredMeal and math.abs(restoredMeal.currentUsesFloat - 0.35) < 0.001
+check(restoredMeal and restoredMeal.uses == 1
         and math.abs(restoredMeal.baseHunger + 0.72) < 0.001
+        and math.abs(restoredMeal.hungerChange + 0.25) < 0.001
         and math.abs(restoredMeal.thirstChange + 0.11) < 0.001
         and restoredMeal.boredomChange == -7 and restoredMeal.unhappyChange == -13
         and math.abs(restoredMeal.calories - 843.5) < 0.001
@@ -689,7 +734,7 @@ check(restoredMeal and math.abs(restoredMeal.currentUsesFloat - 0.35) < 0.001
         and restoredMeal.microwaved == false and restoredMeal.packaged == false
         and restoredMeal.dangerousUncooked == true
         and restoredMeal.removeNegativeWhenCooked == false,
-    "partly consumed customized food retains nutrition, poison, cooking and boolean state")
+    "partly consumed customized food retains raw portion, mood, thirst, nutrition, poison, cooking and boolean state")
 
 SC.Commands.reset(restored)
 SC.Registry.unregister(restored)

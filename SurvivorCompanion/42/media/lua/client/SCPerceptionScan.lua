@@ -26,7 +26,9 @@ local function newSharedNative(list, count)
         verification = nil,
         verificationCount = nil,
         completedAt = nil,
-        evidenceExpiresAt = 0,
+        evidenceValid = false,
+        evidenceCount = nil,
+        evidenceInvalidatedAt = nil,
         rejectedCycles = 0,
         nextAdvanceAt = 0,
     }
@@ -62,7 +64,13 @@ local function advanceSharedNative(list, count, maximum, deadline, clock, now)
         sharedNative = newSharedNative(list, count)
     end
     local shared = sharedNative
-    if shared.liveCount ~= count then shared.evidenceExpiresAt = now end
+    if shared.liveCount ~= count then
+        -- A changed native population invalidates negative evidence
+        -- immediately. Time alone does not: the old one-second expiry created
+        -- a long danger_check_pending window during every unchanged rescan.
+        shared.evidenceValid = false
+        shared.evidenceInvalidatedAt = now
+    end
     shared.liveCount = count
     if count == 0 and (shared.cycleCount ~= 0 or shared.cursor > 0
         or #shared.build > 0) then
@@ -132,8 +140,9 @@ local function advanceSharedNative(list, count, maximum, deadline, clock, now)
             shared.publishedCount = shared.cycleCount
             shared.completedCycle = shared.cycle
             shared.completedAt = now
-            shared.evidenceExpiresAt = now + math.max(250,
-                tonumber(SC.GameplayUtil.config("perceptionNativeCompletedHoldMs")) or 1000)
+            shared.evidenceValid = true
+            shared.evidenceCount = count
+            shared.evidenceInvalidatedAt = nil
             shared.verification, shared.verificationCount = nil, nil
         end
         nativeGeneration = nativeGeneration + 1
@@ -350,7 +359,8 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     local complete = observerCycle > 0 and state.nativeRosterComplete == true
         and state.nativeLastCompleteCycle == observerCycle
     local freshComplete = complete and observerCycle == shared.completedCycle
-        and now <= (tonumber(shared.evidenceExpiresAt) or 0)
+        and shared.evidenceValid == true
+        and shared.evidenceCount == count
     local sourceRemaining = coherent and math.max(0, #source - cursor + 1) or 0
     local pending = queuePending + sourceRemaining
     local reportedCursor = count == 0 and 0
@@ -379,7 +389,9 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         listComplete = complete,
         endReached = complete or shared.completedCycle > 0,
         globalCompleted = globalCompleted,
-        evidenceExpiresAt = shared.evidenceExpiresAt,
+        evidenceValid = shared.evidenceValid == true,
+        evidenceCount = shared.evidenceCount,
+        evidenceInvalidatedAt = shared.evidenceInvalidatedAt,
         rejectedCycles = shared.rejectedCycles or 0,
         verificationPending = shared.verification ~= nil,
         cycle = observerCycle,

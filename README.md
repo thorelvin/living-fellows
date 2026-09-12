@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.20.4-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.22.17-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.22.18-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns isolated survivors into persistent people who can become teammates, establish routines, help run a base, and make their own survival decisions. Companions use native human actors, keep real inventories and injuries, and can follow, fight, retreat, scavenge, work, travel, grieve, argue, and remember what happened to them.
@@ -217,6 +217,8 @@ Bandit camps are a separate, permanently hostile archetype. They begin appearing
 ## Saves, updates, and backups
 
 Living Fellows writes versioned state into world-scoped Project Zomboid Global ModData. The current world document is schema 3; recursive inventory nodes remain schema 2 for nested bags, worn and attached equipment, weapon parts, and fluid state. Companions, households, relationships, contracts, bases, and bounded memories therefore survive replacement of a dead player character.
+
+Failed barter uses a durable per-item recovery journal. Reconstruction records native identity before applying state, verifies the finished item against its snapshot, and requires inventory membership to agree with the item's native owner pointer. Ambiguous absence is quarantined rather than guessed: the mod will not create a replacement merely because the marked original is no longer in either trader's inventory. Dead owners transition to a terminal descriptor before retirement, and bounded recovery rotates fairly without blocking unrelated households.
 
 Before installing or updating:
 

@@ -589,6 +589,25 @@ check(churnMeta.complete and churnMeta.freshComplete
         and churnMeta.sourceCount == 1000,
     "discovery converges after two matching bounded rosters once churn settles")
 
+-- The completed-hold interval controls producer cadence, not the validity of
+-- unchanged negative evidence. Trade and other safety consumers must retain a
+-- completed proof while the next two-pass roster is still being assembled.
+local stablePublishedCycle = churnMeta.publishedCycle
+current = current + 1200
+local _, retainedEvidence = Scan.nativeCandidates(observer, churnState, 24, 64)
+check(retainedEvidence.freshComplete == true
+        and retainedEvidence.evidenceValid == true
+        and retainedEvidence.publishedCycle == stablePublishedCycle,
+    "unchanged completed native evidence remains valid during the next bounded rescan")
+zombies[1001] = actor(12001, 12001, 0, "IsoZombie")
+current = current + 100
+local _, invalidatedEvidence = Scan.nativeCandidates(observer, churnState, 24, 64)
+check(invalidatedEvidence.freshComplete == false
+        and invalidatedEvidence.evidenceValid == false
+        and invalidatedEvidence.evidenceInvalidatedAt == current,
+    "a native zombie-count change immediately invalidates completed negative evidence")
+zombies[1001] = nil
+
 -- A remove-and-append can keep the count unchanged while shifting every later
 -- index. The mixed pass must not certify a negative observation that omitted C.
 Scan.reset()
