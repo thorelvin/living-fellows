@@ -54,6 +54,7 @@ local function clearCatchUp(state)
     state.catchUpStartedAt = nil
     state.catchUpLeaderId = nil
     state.catchUpCommandSerial = nil
+    state.catchUpRetryAt = nil
 end
 
 local function normalized(x, y)
@@ -425,13 +426,16 @@ local function sampleLeader(leader, current, roster, cohort)
         -- marching around the player's ten-metre circle. Never erase across a
         -- portal: the exact approach to a door/window/fence remains required.
         local currentKey = utility.squareKey(square)
+        local prospectiveEdge = SC.Navigation
+            and type(SC.Navigation.edgeAffordance) == "function"
+            and SC.Navigation.edgeAffordance(last.square, square) or nil
         local loopLookback = math.max(12,
             math.floor(tonumber(utility.config("navigationBreadcrumbLimit")) or 64))
         local first = math.max(1, #state.trail - loopLookback)
         for index = #state.trail - 1, first, -1 do
             local candidate = state.trail[index]
             if candidate and utility.squareKey(candidate.square) == currentKey then
-                local crossesPortal = false
+                local crossesPortal = hardPortalEdge(prospectiveEdge)
                 for scan = index + 1, #state.trail do
                     if hardPortalEdge(state.trail[scan] and state.trail[scan].edge) then
                         crossesPortal = true
@@ -887,20 +891,37 @@ function Positioning.followMode(requested, stress, leaderDistance, player, desir
             clearCatchUp(state)
         end
 
-        local leaderRunning = Positioning.playerMoveMode(player) == "jog"
+        local current = U().nowMs()
+        local playerMode = Positioning.playerMoveMode(player)
+        local leaderRunning = playerMode == "jog"
         local mirrorsLeaderSpeed = requested == "copy" or requested == "sneak"
         local reason = hardCatchUp
             and (desired == 1 and "stay_close_catch_up" or "catch_up")
             or (leaderRunning and mirrorsLeaderSpeed and "leader_run_catch_up" or nil)
-        if reason ~= nil and state.catchUpActive ~= true then
+        if reason ~= nil and state.catchUpActive ~= true
+            and current >= (tonumber(state.catchUpRetryAt) or 0) then
             state.catchUpActive = true
             state.catchUpReason = reason
-            state.catchUpStartedAt = U().nowMs()
+            state.catchUpStartedAt = current
             state.catchUpLeaderId = leaderId
             state.catchUpCommandSerial = commandSerial
         end
         if state.catchUpActive == true then
-            return "jog", state.catchUpReason or "catch_up_committed", true
+            -- Keep the requested post-run commitment, including Stealth mode,
+            -- but never jog forever beside a player who has settled into a
+            -- crouch while the formation slot is unreachable.
+            local stealthMaximum = tonumber(U().config(
+                "formationCatchUpStealthMaximumMs")) or 5000
+            if playerMode == "sneak" and current - (tonumber(
+                state.catchUpStartedAt) or current) >= stealthMaximum then
+                state.catchUpActive = nil
+                state.catchUpReason = nil
+                state.catchUpStartedAt = nil
+                state.catchUpRetryAt = current + (tonumber(U().config(
+                    "formationCatchUpRetryDelayMs")) or 2500)
+            else
+                return "jog", state.catchUpReason or "catch_up_committed", true
+            end
         end
     elseif hardCatchUp then
         return "jog", desired == 1 and "stay_close_catch_up" or "catch_up", true

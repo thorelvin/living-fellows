@@ -414,6 +414,14 @@ function Traversal.clearTraversalExit(actor, record, now, context)
     end
     if math.floor(actorX) ~= math.floor(toX) or math.floor(actorY) ~= math.floor(toY)
         or math.floor(actorZ or 0) ~= math.floor(toZ or 0) then
+        if record.destinationVerifiedAt ~= nil then
+            -- Combat or root motion may carry the actor beyond (or briefly
+            -- back from) the exact destination cell after the native state
+            -- already proved the crossing. Release the portal without
+            -- blacklisting a valid edge; the next route pulse starts from the
+            -- actor's actual square.
+            return true, "traversal_exit_displaced"
+        end
         return false, "traversal_destination_not_reached"
     end
 

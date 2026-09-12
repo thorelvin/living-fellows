@@ -108,6 +108,22 @@ for _, action in ipairs({ "climb_fence", "climb_wall", "climb_window",
     check(T.poll(value) == "completed", action .. " verifies later displacement and exit")
     T.reset(value)
 end
+local overshootActor = actor()
+local overshootFrom, overshootTo = overshootActor.square, square(1, 0)
+check(T.fence(overshootActor, "climb_fence", {
+    direction = "east", fromSquare = overshootFrom, toSquare = overshootTo,
+}, provider) == true, "overshoot traversal starts")
+overshootActor.nativeState = { __class = "ClimbOverFenceState" }
+current = current + 100
+check(T.poll(overshootActor) == "active", "overshoot traversal enters native state")
+overshootActor.nativeState, overshootActor.x = nil, 2.3
+current = current + 100
+local overshootPhase, _, overshootRecord = T.poll(overshootActor)
+check(overshootPhase == "completed" and overshootRecord.destinationVerifiedAt ~= nil
+        and SC.NavTraversal.clearTraversalExit(
+            overshootActor, overshootRecord, current, {}) == true,
+    "crossing the requested boundary remains success when root motion lands beyond one tile")
+T.reset(overshootActor)
 local timeoutActor = actor()
 T.fence(timeoutActor, "climb_fence", { direction = "east" }, provider)
 timeoutActor.cancelAllowed = false
@@ -500,6 +516,12 @@ local fastPath = N._fastOpenRouteForTests(
 check(fastPath and #fastPath == 6 and fastPath[1] == fastGrid["0:0"]
         and fastPath[#fastPath] == fastGrid["5:3"],
     "short open follow routes are fully validated and available in the first decision pulse")
+fastGrid["2:1"].HasTree = function() return true end
+local treeEdge = SC.Topology.classifyEdge(mover, fastGrid["1:1"], fastGrid["2:1"], {})
+check(treeEdge.traversable ~= true and treeEdge.affordance == "tree"
+        and treeEdge.reason == "tree_occupied",
+    "a tree trunk square is a non-passable detour, not merely costly terrain")
+fastGrid["2:1"].HasTree = nil
 fastGrid["3:2"].isSolid = function() return true end
 fastGrid["3:2"].isFree = function() return false end
 check(N._fastOpenRouteForTests(

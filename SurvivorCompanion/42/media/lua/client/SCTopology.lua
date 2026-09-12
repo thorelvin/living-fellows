@@ -61,7 +61,7 @@ Topology.OBSTACLE_CATALOG = {
     { id = "fire", passage = "avoid_or_emergency" },
     { id = "broken_glass", passage = "costly" },
     { id = "explosive_trap", passage = "avoid_or_emergency" },
-    { id = "tree", passage = "costly" },
+    { id = "tree", passage = "detour" },
     { id = "bush", passage = "costly" },
     { id = "vehicle", passage = "detour_polygon" },
     { id = "full_square_object", passage = "detour" },
@@ -138,6 +138,24 @@ end
 
 function Topology.squareHasSlope(square)
     return callBoolean(square, "hasSlopedSurface")
+end
+
+function Topology.squareHasTree(square)
+    if square == nil then return false end
+    local tree, observed = U().call(square, "HasTree")
+    if observed then return tree == true end
+    tree, observed = U().call(square, "getTree")
+    if observed and tree ~= nil then return true end
+    local found = false
+    U().squareObjects(square, function(object)
+        if U().instanceOf(object, "IsoTree") then found = true return false end
+        local name, nameOk = U().call(object, "getObjectName")
+        if nameOk and string.lower(tostring(name or "")) == "tree" then
+            found = true
+            return false
+        end
+    end, 32)
+    return found
 end
 
 function Topology.squareHasSheetRope(square)
@@ -486,6 +504,13 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
     end
     if Topology.squareIsWater(toSquare) then
         result.affordance, result.reason = "water", "water_terrain"
+        return result
+    end
+    -- The stock player pathfinder rejects tree-occupied destinations even
+    -- though the broad square-free probe can admit them. Treat the trunk cell
+    -- as a detour and retain only the existing clearance cost for neighbours.
+    if Topology.squareHasTree(toSquare) then
+        result.affordance, result.reason = "tree", "tree_occupied"
         return result
     end
     local hazards = Topology.squareHazards(toSquare)

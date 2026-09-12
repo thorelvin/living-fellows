@@ -127,7 +127,11 @@ local function considerWallClimbReaction(record, current)
     if record.action ~= "climb_wall" or record.reactionConsidered == true
         or (record.phase ~= "completed" and record.phase ~= "failed") then return end
     record.reactionConsidered = true
-    local outcome = record.wallClimbOutcome
+    -- The vanilla roll predicts the animation branch, but the terminal native
+    -- observation is authoritative. A timeout or same-side landing must never
+    -- speak a success line merely because the initial roll succeeded.
+    local outcome = record.phase == "failed" and "fail" or record.wallClimbOutcome
+    if record.phase == "completed" and outcome == "fail" then outcome = "success" end
     if outcome ~= "success" and outcome ~= "struggle" and outcome ~= "fail" then return end
 
     local commands = SC.Commands
@@ -174,7 +178,7 @@ function Traversal.poll(actor, current)
     current = tonumber(current) or nowMs()
     if record.phase == "completed" or record.phase == "failed"
         or record.phase == "cancelled" then
-        if current - (record.finishedAt or current) > 2000 then pending[actor] = nil end
+        if current - (record.finishedAt or current) > 30000 then pending[actor] = nil end
         return record.phase, record.reason, record
     end
     local active = climbing(actor)
@@ -209,10 +213,23 @@ function Traversal.poll(actor, current)
             or (x and tx and math.floor(x) == math.floor(tx)
                 and math.floor(y) == math.floor(ty)
                 and math.floor(z or 0) == math.floor(tz or 0))
+        if not destinationReached and x and record.fromSquare and record.toSquare then
+            local fx, fy, fz = position(record.fromSquare)
+            if fx and tx and math.floor(z or 0) == math.floor(tz or 0) then
+                local dx, dy = math.floor(tx) - math.floor(fx),
+                    math.floor(ty) - math.floor(fy)
+                local thresholdX, thresholdY = (fx + tx) * 0.5 + 0.5,
+                    (fy + ty) * 0.5 + 0.5
+                destinationReached = dx * (x - thresholdX)
+                    + dy * (y - thresholdY) > 0.02
+                    and math.floor(fz or 0) == math.floor(tz or 0)
+            end
+        end
         record.phase = moved and destinationReached and "completed" or "failed"
         record.reason = not moved and "traversal_exited_without_progress"
             or destinationReached and "traversal_completed"
             or "traversal_exited_without_destination"
+        if record.phase == "completed" then record.destinationVerifiedAt = current end
     elseif record.toSquare and current >= record.startDeadline then
         -- A low-frequency observer can miss a whole short animation. Actual
         -- arrival across the requested boundary is also authoritative evidence.
@@ -231,6 +248,7 @@ function Traversal.poll(actor, current)
                 or math.abs((z or 0) - (record.z or 0)) > 0.1) then
             if cancelNative(actor, record, current) then
                 record.phase, record.reason = "completed", "traversal_destination_verified"
+                record.destinationVerifiedAt = current
             else record.reason = "traversal_cancel_pending:" .. record.action end
         end
     end

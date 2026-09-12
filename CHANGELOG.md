@@ -2,6 +2,17 @@
 
 # Changelog
 
+## Unreleased - Navigation and recovery stability
+
+- Made tree trunk squares non-passable and kept clearance penalties on their neighbours, so Lua routing agrees with the native player pathfinder instead of repeatedly driving companions into a tree.
+- Preserved vanilla fence/window root motion for companions and accepted a verified boundary crossing even when the animation lands beyond the nominal destination square. Terminal traversal records now outlive the exit-clearance window, and climb speech follows the observed result rather than only the initial roll.
+- Separated ordinary catch-up speed from survival-urgent navigation. Followers still keep running briefly after the player slows, but retain room, hazard and traffic policy; an unreachable Stealth catch-up now returns to sneaking after a bounded commitment.
+- Validated continuous follow steering along the actor's actual swept line, bounded open-door fallback attempts, and preserved the final portal edge when erasing a loop from the player's breadcrumb trail.
+- Allowed scavengers to use proven-open diagonal corner contact while requiring the actor to occupy an actual interaction square, preventing both skipped corner counters and through-wall looting.
+- Strengthened work and trade recovery: exact container identity is independent of the 256-item routine scan, proven destination deliveries can leave quarantine, dormant restored trade owners get a fresh recovery window, and terminal trade quarantines have bounded retention.
+- Kept multi-worker gathering active when one resident leaves duty, made candidate cooldown identities unique under FIFO trimming, and prevented dormant registry records from masquerading as live actors.
+- Documented the bridge's synchronous wall-climb outcome context and made its guard volatile.
+
 ## 0.22.20 - Responsive traversal and living encounters
 
 - Added a short-range player-track follow path with continuous lookahead, safe open-ground interception and loop erasure. Companions respond sooner, stop tracing the player's circles, keep moving through ordinary bends and retain sticky catch-up running after the player slows or stops.

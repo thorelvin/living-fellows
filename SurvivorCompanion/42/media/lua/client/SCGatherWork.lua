@@ -136,10 +136,10 @@ end
 
 local function cooldownActive(scan, key)
     local expires = tonumber(scan.cooldowns[key]) or 0
-    if expires <= now() then
-        scan.cooldowns[key] = nil
-        return false
-    end
+    -- Keep the expired record until the bounded FIFO evicts it. This preserves
+    -- one queue entry per identity; otherwise a later failure appends a
+    -- duplicate whose older eviction also erases the new cooldown.
+    if expires <= now() then return false end
     return true
 end
 

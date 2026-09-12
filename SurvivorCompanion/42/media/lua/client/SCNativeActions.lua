@@ -612,7 +612,8 @@ end
 -- stock player turn animation own sharp changes first; straight and shallow
 -- bends still start in the same pulse.
 local function prepareForwardTurn(actor, actorX, actorY, nx, ny, tactical, intent)
-    if tactical or type(intent) == "table" and intent.allowMovingTurn == true then return nil end
+    if tactical or type(intent) == "table" and (intent.allowMovingTurn == true
+        or intent.urgent == true or intent.survivalCritical == true) then return nil end
     local turningOk, turning = invoke(actor, "isTurning")
     if turningOk and turning == true then
         invoke(actor, "setMoving", false)
@@ -778,13 +779,13 @@ local function directMove(actor, mode, dx, dy, intent)
     else
         setTacticalMovement(actor, false, 0, 0)
     end
-    local waitingForTurn, turnReason = prepareForwardTurn(
-        actor, x, y, nx, ny, tactical, intent)
-    if waitingForTurn ~= nil then return waitingForTurn, turnReason end
     -- Never let PathFindBehavior2 and manual MoveForward own the same frame.
     -- Their competing vectors cause sliding and frozen-foot moonwalking.
     local behaviorOk, behavior = invoke(actor, "getPathFindBehavior2")
     if behaviorOk and behavior ~= nil then invoke(behavior, "cancel") end
+    local waitingForTurn, turnReason = prepareForwardTurn(
+        actor, x, y, nx, ny, tactical, intent)
+    if waitingForTurn ~= nil then return waitingForTurn, turnReason end
     invoke(actor, "setForwardDirection", facingX, facingY)
     invoke(actor, "setRunning", mode == "run" and not tactical and intent.weaponReady ~= true)
     invoke(actor, "setSprinting", false)

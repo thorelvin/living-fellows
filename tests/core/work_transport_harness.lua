@@ -697,6 +697,70 @@ do
         "future work document must be preserved in quarantine")
 end
 
+-- Transactional ownership proof is not constrained by the routine 256-item AI
+-- scan, and yielding one worker leaves the remaining gatherer on duty.
+do
+    local ctx = setup("logs", 1)
+    for index = 1, 300 do
+        ctx.storageObject.container:AddItem(makeItem("Base.Nails" .. tostring(index)))
+    end
+    local gathered = makeItem("Base.Log")
+    putOnGround(ctx.source, gathered)
+    dispatchUntilTerminal(ctx, 30)
+    check(ctx.order.state == "completed" and ctx.order.delivered == 1
+            and ctx.storageObject.container:contains(gathered),
+        "delivery into a container above the routine scan cap remains exactly verified")
+
+    ctx = setup("logs", 2, 2)
+    local first, second = makeItem("Base.Log"), makeItem("Base.Log")
+    putOnGround(ctx.source, first)
+    putOnGround(ctx.source, second)
+    local firstReceipt = reserveCandidate(ctx, ctx.actors[1], first)
+    local secondCandidate = select(1, SC.GatherWork.nextCandidate(ctx.order, ctx.actors[2]))
+    local secondReceipt = SC.WorkTransport.reserve(ctx.order, ctx.base.jobs[2],
+        ctx.actors[2], secondCandidate.item, secondCandidate.worldItem, secondCandidate.square)
+    check(secondReceipt ~= nil, "second worker must own an independent selection")
+    check(SC.BaseLife.setDuty(ctx.actors[1].modData.SC_Id, false) == true
+            and firstReceipt.phase == "cancelled" and secondReceipt.phase == "selected"
+            and ctx.order.state == "running" and #ctx.order.workers == 1
+            and ctx.order.workers[1] == ctx.actors[2].modData.SC_Id,
+        "taking one of two workers off duty releases only that worker's selection")
+end
+
+-- Repeated failures keep one FIFO entry for the identity. Trimming unrelated
+-- candidates must not erase a newer permanent cooldown through an old duplicate.
+do
+    local ctx = setup("logs", 1)
+    local item = makeItem("Base.Log")
+    putOnGround(ctx.source, item)
+    local function nextCandidate()
+        for _ = 1, 3 do
+            local value = select(1, SC.GatherWork.nextCandidate(ctx.order, ctx.actor))
+            if value ~= nil then return value end
+        end
+        return nil
+    end
+    local candidate = nextCandidate()
+    check(candidate ~= nil, "cooldown candidate must be discovered")
+    for attempt = 1, 3 do
+        check(SC.GatherWork.noteCandidateFailure(
+            ctx.order.id, candidate, "fixture_failure"),
+            "candidate failure must be recorded")
+        if attempt < 3 then
+            SC_TEST_CLOCK = SC_TEST_CLOCK + 100000
+            candidate = nextCandidate()
+            check(candidate ~= nil, "expired finite cooldown permits its bounded retry")
+        end
+    end
+    for index = 1, 30 do
+        SC.GatherWork.noteCandidateFailure(ctx.order.id,
+            { key = "fixture-noise:" .. tostring(index) }, "noise")
+    end
+    local dormant = nextCandidate()
+    check(dormant == nil,
+        "queue trimming cannot wake a permanently dormant duplicated identity")
+end
+
 local gatherMetrics = SC.GatherWork.diagnostics()
 local transportMetrics = SC.WorkTransport.diagnostics()
 check(type(transportMetrics.pendingReceipts) == "number"

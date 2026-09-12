@@ -842,7 +842,38 @@ local function quarantineRecovery(transfer, reason)
     return false
 end
 
+local function pruneQuarantined(current)
+    current = tonumber(current) or U().nowMs()
+    local retention = recoverySetting("tradeRecoveryQuarantineRetentionMs",
+        600000, 10000, 86400000)
+    local maximum = recoverySetting("tradeRecoveryMaxQuarantinedEntries", 64, 1, 1024)
+    local rows = {}
+    for id, transfer in pairs(pendingRecoveries) do
+        if transfer.phase == "recovery_quarantined" then
+            rows[#rows + 1] = { id = id, transfer = transfer,
+                at = tonumber(transfer.quarantinedAt) or current }
+        end
+    end
+    table.sort(rows, function(left, right)
+        if left.at == right.at then return tostring(left.id) < tostring(right.id) end
+        return left.at < right.at
+    end)
+    local excess = math.max(0, #rows - maximum)
+    for index, row in ipairs(rows) do
+        if index <= excess or current - row.at >= retention then
+            clearMarker(row.transfer.item, row.transfer.recoveryId)
+            pendingRecoveries[row.id] = nil
+            if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+                SC.Diagnostics.report("trade-recovery", row.transfer.factionId,
+                    "expired terminal quarantine record",
+                    "recovery=" .. tostring(row.transfer.recoveryId))
+            end
+        end
+    end
+end
+
 function Trade.recoverPending(player, maximum, force)
+    pruneQuarantined()
     local records = {}
     for _, record in pairs(pendingRecoveries) do
         if record.phase == "recovery_pending"
@@ -883,7 +914,17 @@ function Trade.recoverPending(player, maximum, force)
             local restored, reason = recoverTransfer(record, player)
             if not restored then
                 record.rollbackReason = tostring(reason or record.rollbackReason)
-                if record.attempts >= maximumAttempts or age >= maximumAge then
+                local unavailable = reason == "owner_unavailable"
+                    or reason == "source_inventory_unavailable"
+                    or reason == "destination_inventory_unavailable"
+                if unavailable and force ~= true and age < maximumAge then
+                    -- Dormant companions commonly spawn after persistence is
+                    -- restored. Missing runtime owners are not failed item
+                    -- reconstruction attempts while the restored bounded
+                    -- availability window is still open.
+                    record.attempts = math.max(0, record.attempts - 1)
+                    record.nextAttemptAt = now + retryMaximum
+                elseif record.attempts >= maximumAttempts or age >= maximumAge then
                     quarantineRecovery(record, reason or "recovery_limit_reached")
                 else
                     local delay = math.min(retryMaximum,
@@ -917,10 +958,12 @@ end
 function Trade.hasPendingActor(actor)
     local id = type(actor) == "string" and actor or U().idOf(actor)
     for _, transfer in pairs(pendingRecoveries) do
+        if transfer.phase == "recovery_pending" then
         for _, descriptor in ipairs({ transfer.sourceOwner, transfer.destinationOwner }) do
             if type(descriptor) == "table"
                 and ((descriptor.kind == "player" and actor == primaryPlayer())
                     or (descriptor.kind == "actor" and descriptor.id == id)) then return true end
+        end
         end
     end
     return false
@@ -1618,6 +1661,7 @@ function Trade.restore(source)
         or type(source.entries) ~= "table" or #source.entries > recoveryEntryLimit() then
         return false, "invalid trade recovery envelope"
     end
+    local restoredAt = U().nowMs()
     local candidate, seen, maximumSerial = {}, {}, math.max(0,
         math.floor(tonumber(source.serial) or 0))
     for _, entry in ipairs(source.entries) do
@@ -1658,13 +1702,14 @@ function Trade.restore(source)
             factionId = type(entry.factionId) == "string" and entry.factionId or nil,
             reason = tostring(entry.reason or "transaction_failed"),
             rollbackReason = tostring(entry.rollbackReason or "ownership_unverified"),
-            recordedAt = tonumber(entry.recordedAt) or 0,
+            recordedAt = phase == "recovery_pending" and restoredAt
+                or (tonumber(entry.recordedAt) or restoredAt),
             attempts = math.max(0, math.floor(tonumber(entry.attempts) or 0)),
             nextAttemptAt = 0, phase = phase,
             quarantineReason = phase == "recovery_quarantined"
                 and tostring(entry.quarantineReason or "restored_quarantine") or nil,
             quarantinedAt = phase == "recovery_quarantined"
-                and math.max(0, tonumber(entry.quarantinedAt) or 0) or nil,
+                and restoredAt or nil,
             reconstructionPartial = entry.reconstructionPartial == true,
             partialNativeId = partialNativeId ~= nil and tostring(partialNativeId) or nil,
             detachedProof = entry.detachedProof == true,
@@ -1676,6 +1721,7 @@ function Trade.restore(source)
     pendingRecoveries, recoverySerial = candidate, maximumSerial
     recoveryCursorSerial = math.max(0, math.min(maximumSerial,
         math.floor(tonumber(source.cursorSerial) or 0)))
+    pruneQuarantined(restoredAt)
     return true
 end
 

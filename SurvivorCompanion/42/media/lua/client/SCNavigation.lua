@@ -600,6 +600,9 @@ end
 
 local function squareHasTree(square)
     if not square then return false end
+    if SC.Topology and type(SC.Topology.squareHasTree) == "function" then
+        return SC.Topology.squareHasTree(square)
+    end
     local utility = U()
     local tree, treeOk = utility.call(square, "HasTree")
     if treeOk then return tree == true end
@@ -1227,7 +1230,7 @@ local function fastOpenRouteWithinBatch(startSquare, goalSquare, options)
             local observed, admitted = pcall(options.squareAdmission, nextSquare, current)
             if not observed or admitted ~= true then return nil, "outside_admitted_area" end
         end
-        options.allowOccupiedGoal = step == steps
+        options.allowOccupiedGoal = step == steps and options.allowOccupiedFinal ~= false
         local passable, cost = passableEdge(
             current, nextSquare, options.vegetationScale, options)
         local openCost = deltaX == 1 and deltaY == 1 and math.sqrt(2) or 1
@@ -1333,6 +1336,43 @@ end
 Navigation._followTrackRouteForRequest = followTrackRoute
 Navigation._followTrackRouteForTests = followTrackRoute
 
+local function actualOpenSegmentWithinBatch(actor, targetX, targetY, targetZ, options)
+    local actorX, actorY, actorZ = U().position(actor)
+    if actorX == nil or targetX == nil
+        or math.floor(actorZ or 0) ~= math.floor(targetZ or 0) then return false end
+    local distance = math.sqrt((targetX - actorX)^2 + (targetY - actorY)^2)
+    local samples = math.max(1, math.ceil(distance / 0.20))
+    local previous = U().gridSquare(math.floor(actorX), math.floor(actorY),
+        math.floor(actorZ or 0))
+    if previous == nil then return false end
+    options = U().copyShallow(options)
+    options.allowOccupiedGoal = false
+    for sample = 1, samples do
+        local ratio = sample / samples
+        local square = U().gridSquare(
+            math.floor(actorX + (targetX - actorX) * ratio),
+            math.floor(actorY + (targetY - actorY) * ratio),
+            math.floor(targetZ or 0))
+        if square == nil then return false end
+        if not sameSquare(previous, square) then
+            local passable = passableEdge(previous, square,
+                options.vegetationScale, options)
+            if passable ~= true then return false end
+            previous = square
+        end
+    end
+    return true
+end
+
+local function actualOpenSegment(actor, targetX, targetY, targetZ, options)
+    if SC.Topology and type(SC.Topology.withReadBatch) == "function" then
+        return SC.Topology.withReadBatch(actualOpenSegmentWithinBatch,
+            actor, targetX, targetY, targetZ, options)
+    end
+    return actualOpenSegmentWithinBatch(actor, targetX, targetY, targetZ, options)
+end
+Navigation._actualOpenSegmentForTests = actualOpenSegment
+
 -- Aim manual follow movement several proven-open tiles ahead. The route and
 -- first-square reservation remain authoritative; only the movement vector is
 -- blended. This removes the tile-centre staircase and its abrupt 45/90-degree
@@ -1360,6 +1400,7 @@ local function continuousFollowVector(actor, state, sourceSquare, intent)
         blockedSquares = state.blockedSquares,
         routeMemory = state.routeMemory,
         allowHazards = intent.urgent == true,
+        allowOccupiedFinal = false,
         now = U().nowMs(),
     }
     for index = openLast, first, -1 do
@@ -1377,7 +1418,8 @@ local function continuousFollowVector(actor, state, sourceSquare, intent)
                 targetX, targetY, targetZ = intercept.x, intercept.y, intercept.z or targetZ
             end
             local actorX, actorY = U().position(actor)
-            if actorX ~= nil and targetX ~= nil then
+            if actorX ~= nil and targetX ~= nil
+                and actualOpenSegment(actor, targetX, targetY, targetZ, options) then
                 return targetX - actorX, targetY - actorY, candidate, index
             end
         end
@@ -2640,6 +2682,10 @@ local function clearMovementTransients(actor, state)
     state.pathSearchHolding = nil
     state.pathGoalSquare = nil
     state.nativeLease = nil
+    state.openDoorDirectKey = nil
+    state.openDoorDirectUntil = nil
+    state.openDoorRetryKey = nil
+    state.openDoorRetryAttempts = nil
 end
 
 local function holdForPathSearch(actor, state)
@@ -2666,6 +2712,8 @@ local function updateProgress(actor, state, now)
             == edgeKey(state.lastAttemptFrom, state.lastAttemptTo) then
             state.openDoorDirectKey = nil
             state.openDoorDirectUntil = nil
+            state.openDoorRetryKey = nil
+            state.openDoorRetryAttempts = nil
         end
         local object, kind = barrierBetween(state.lastAttemptFrom, state.lastAttemptTo)
         rememberRouteEdge(state, state.lastAttemptFrom, state.lastAttemptTo,
@@ -3293,6 +3341,7 @@ local function maintainNativeLease(actor, state, goalSquare, now)
             end
             state.nativeLease = nil
             state.openDoorDirectKey, state.openDoorDirectUntil = nil, nil
+            state.openDoorRetryKey, state.openDoorRetryAttempts = nil, nil
             state.nextRepathAt = 0
             state.lastProgressAt = now
             recordMovement(actor, "portal_state_changed", {
@@ -3451,7 +3500,19 @@ local function maintainNativeLease(actor, state, goalSquare, now)
     local openDoor, openDoorKind = barrierBetween(lease.fromSquare, lease.toSquare)
     if lease.affordance == "door" and openDoorKind == "door"
         and objectOpen(openDoor) then
-        state.openDoorDirectKey = edgeKey(lease.fromSquare, lease.toSquare)
+        local retryKey = edgeKey(lease.fromSquare, lease.toSquare)
+        if state.openDoorRetryKey ~= retryKey then
+            state.openDoorRetryKey = retryKey
+            state.openDoorRetryAttempts = 0
+        end
+        state.openDoorRetryAttempts = (tonumber(state.openDoorRetryAttempts) or 0) + 1
+        local maximum = math.max(1, math.floor(tonumber(U().config(
+            "navigationOpenDoorDirectAttempts")) or 2))
+        if state.openDoorRetryAttempts > maximum then
+            state.openDoorDirectKey, state.openDoorDirectUntil = nil, nil
+            return "failed", "open_door_direct_retry_exhausted"
+        end
+        state.openDoorDirectKey = retryKey
         state.openDoorDirectUntil = now
             + (tonumber(U().config("navigationOpenDoorDirectFallbackMs")) or 2000)
         return "cancelled", "open_door_direct_retry"
@@ -3540,6 +3601,11 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
     if squareHasStairs(fromSquare) or squareHasStairs(toSquare)
         or squareHasSlope(fromSquare) or squareHasSlope(toSquare) then
         return { type = "stairs_or_slope", square = toSquare }
+    end
+    if squareHasTree(toSquare) or squareNearTree(toSquare)
+        or squareHasTree(fromSquare) or squareNearTree(fromSquare) then
+        return { type = "vegetation", square = toSquare or fromSquare,
+            nearTree = true }
     end
     local reason = string.lower(tostring(movementReason or ""))
     if string.find(reason, "continuous_collision", 1, true) then
@@ -5025,12 +5091,10 @@ function Navigation.interactionTargets(actor, objectOrSquare, options)
     local x, y, z = utility.position(centre)
     if x == nil then return {} end
     local candidates, seen = {}, {}
-    local offsets = options.requireDirectAccess == true
-        and { { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 } }
-        or {
-            { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
-            { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 },
-        }
+    local offsets = {
+        { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
+        { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 },
+    }
     for _, offset in ipairs(offsets) do
         local square = utility.gridSquare(x + offset[1], y + offset[2], z)
         local key = square and squareKey(square) or nil
@@ -5042,6 +5106,17 @@ function Navigation.interactionTargets(actor, objectOrSquare, options)
             else
                 interactionEdgeClear = not utility.edgeBlocked(square, centre)
             end
+        elseif interactionEdgeClear and options.requireDirectAccess == true then
+            -- A player can use a corner counter diagonally when both complete
+            -- cardinal decompositions around that corner are open. Requiring
+            -- all four legs prevents interaction through either adjacent wall.
+            local horizontal = utility.gridSquare(x + offset[1], y, z)
+            local vertical = utility.gridSquare(x, y + offset[2], z)
+            interactionEdgeClear = horizontal ~= nil and vertical ~= nil
+                and directInteractionEdge(actor, square, horizontal)
+                and directInteractionEdge(actor, horizontal, centre)
+                and directInteractionEdge(actor, square, vertical)
+                and directInteractionEdge(actor, vertical, centre)
         end
         if key and not seen[key] and interactionEdgeClear
             and utility.isSquareFree(square)
@@ -5100,9 +5175,12 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
     if #valid == 0 then return false, "no_interaction_targets" end
     local arrival = tonumber(intent.arrivalDistance) or 0.85
     for _, square in ipairs(valid) do
-        if utility.arrived(actor, square, {
-            targetKind = "square", distance = arrival,
-        }) then
+        local arrived = intent.requireSameSquare == true
+            and utility.sameSquare(actor, square)
+            or intent.requireSameSquare ~= true and utility.arrived(actor, square, {
+                targetKind = "square", distance = arrival,
+            })
+        if arrived then
             local existing = states[actor]
             if existing then
                 if existing.nativeLease and SC.NativeActions

@@ -120,6 +120,8 @@ local valueData = {
     tradeRecoveryMaxAgeMs = 30000,
     tradeRecoveryRetryBaseMs = 500,
     tradeRecoveryRetryMaximumMs = 5000,
+    tradeRecoveryQuarantineRetentionMs = 600000,
+    tradeRecoveryMaxQuarantinedEntries = 64,
     walkDistance = 0.045,
     runDistance = 0.075,
     sneakDistance = 0.032,
@@ -245,6 +247,9 @@ local valueData = {
     -- doorway. After native steering has had its normal chance, allow one short
     -- collision-validated direct crossing instead of blacklisting the exit.
     navigationOpenDoorDirectFallbackMs = 2000,
+    navigationOpenDoorDirectAttempts = 2,
+    formationCatchUpStealthMaximumMs = 5000,
+    formationCatchUpRetryDelayMs = 2500,
     navigationMultiLevelStallMs = 3000,
     navigationProgressDistance = 0.08,
     navigationGoalProgressDistance = 0.05,
@@ -757,6 +762,9 @@ local valueData = {
     workRecoveryMaxAttempts = 8,
     workRecoveryRetryBaseMs = 500,
     workRecoveryRetryMaximumMs = 5000,
+    -- Transactional ownership scans are distinct from routine AI inventory
+    -- browsing and must cover realistic bulk storage containers.
+    workRecoveryInventoryScanLimit = 4096,
     workInteractionSettleMs = 250,
 
     -- Bites start a social incident. Evidence and deliberation advance slowly,

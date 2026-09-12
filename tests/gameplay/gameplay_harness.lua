@@ -2015,8 +2015,8 @@ corridorWalls[#corridorWalls + 1] = cell:getGridSquare(3, 5, 0)
 for _, square in ipairs(corridorWalls) do square.solid = true end
 local corridorRoute = SurvivorCompanion.Navigation.findPath(
     cell:getGridSquare(0, 5, 0), cell:getGridSquare(2, 5, 0))
-check(corridorRoute ~= nil and corridorRoute[2] == corridorTree,
-    "a tree is costly terrain rather than an absolute wall when it is the only exit")
+check(corridorRoute == nil,
+    "a tree trunk is non-passable when it completely seals the only exit")
 for _, square in ipairs(corridorWalls) do square.solid = false end
 corridorTree.hasTree = false
 end
@@ -3716,11 +3716,17 @@ do
     player.running = false
     local stealthCommitted = SurvivorCompanion.Positioning.followMode(
         "sneak", 0, 5, player, 3, committedFollower, 42)
+    player.sneaking = true
+    clock = clock + SurvivorCompanion.Config.get("formationCatchUpStealthMaximumMs") + 1
+    local stealthExpired, _, stealthStillActive = SurvivorCompanion.Positioning.followMode(
+        "sneak", 0, 5, player, 3, committedFollower, 42)
+    player.sneaking = false
     local changedCommand = SurvivorCompanion.Positioning.followMode(
         "sneak", 0, 5, player, 3, committedFollower, 43)
     check(stealthRun == "jog" and stealthCommitted == "jog"
+            and stealthExpired == "sneak" and stealthStillActive == false
             and changedCommand == "sneak",
-        "stealth follow catches a running leader but a new command clears the old commitment")
+        "stealth catch-up survives a brief slowdown but expires if its slot stays unreachable")
     SurvivorCompanion.Positioning.reset(committedFollower)
 end
 
@@ -4223,8 +4229,8 @@ do
         local dx, dy = math.abs(target.x - doorTo.x), math.abs(target.y - doorTo.y)
         if dx + dy ~= 1 then admittedDiagonal = true end
     end
-    check(not admittedClosedDoorSide and not admittedDiagonal,
-        "direct interaction targets exclude closed-door, wall, and diagonal contact points")
+    check(not admittedClosedDoorSide and admittedDiagonal,
+        "direct interaction excludes the closed-door side but admits an open diagonal corner")
 end
 check(SurvivorCompanion.Navigation.requestAny(
         doorActor, { doorTo }, "walk", {

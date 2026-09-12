@@ -772,6 +772,15 @@ function U.sameFloor(a, b)
     return math.floor(az) == math.floor(bz)
 end
 
+function U.sameSquare(a, b)
+    local ax, ay, az = U.position(a)
+    local bx, by, bz = U.position(b)
+    if ax == nil or bx == nil then return false end
+    return math.floor(ax) == math.floor(bx)
+        and math.floor(ay) == math.floor(by)
+        and math.floor(az or 0) == math.floor(bz or 0)
+end
+
 function U.squareObjects(square, callback, limit)
     if not square then return end
     local objects, ok = U.call(square, "getObjects")
@@ -819,6 +828,37 @@ function U.inventoryContains(inventory, item)
     if containsOk then return contains == true end
     for _, value in ipairs(U.inventoryItems(inventory, 160)) do
         if value == item then return true end
+    end
+    return false
+end
+
+-- Exact identity proof for transactional code. Unlike inventoryContains this
+-- preserves the third state (unavailable) and prefers ItemContainer.contains,
+-- whose native scan is not capped by the ordinary AI inventory budget.
+function U.containerContainsIdentity(container, item, fallbackLimit)
+    if container == nil or item == nil then return nil end
+    local contains, containsOk = U.call(container, "contains", item)
+    if containsOk and type(contains) == "boolean" then return contains end
+    local items, itemsOk = U.call(container, "getItems")
+    if not itemsOk and type(container) == "table" then
+        items, itemsOk = container.items, type(container.items) == "table"
+    end
+    if not itemsOk or items == nil then return nil end
+    local count
+    if type(items) == "table" then count = #items
+    else
+        local value, countOk = U.call(items, "size")
+        if countOk then count = tonumber(value) end
+    end
+    local maximum = math.max(1, math.floor(tonumber(fallbackLimit) or 4096))
+    if count == nil or count > maximum then return nil end
+    for index = 0, count - 1 do
+        local candidate, available
+        if type(items) == "table" then candidate, available = items[index + 1], true
+        elseif SC.NativeList then candidate, available = SC.NativeList.get(items, index)
+        else candidate, available = U.call(items, "get", index) end
+        if not available then return nil end
+        if candidate == item then return true end
     end
     return false
 end
@@ -1575,7 +1615,18 @@ function U.resolveActor(id)
     local ok, entry = pcall(registry.byId, id)
     if not ok then ok, entry = pcall(registry.byId, registry, id) end
     if not ok or entry == nil then return nil, nil end
-    if type(entry) == "table" and entry.actor ~= nil then return entry.actor, entry end
+    -- Registry.byId returns a record even while its native actor is dormant.
+    -- Never leak that record through the actor return slot.
+    if type(entry) == "table" then
+        if entry.actor ~= nil then return entry.actor, entry end
+        -- Test/compatibility registries may return the actor directly. Native
+        -- userdata never enters this branch; table-backed actors are still
+        -- identifiable by their character surface.
+        if type(entry.getSquare) == "function" or entry.__class ~= nil then
+            return entry, nil
+        end
+        return nil, entry
+    end
     return entry, nil
 end
 

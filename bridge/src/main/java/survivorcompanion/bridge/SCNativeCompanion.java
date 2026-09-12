@@ -87,7 +87,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     // only for a local IsoPlayer. This flag is true solely inside the synchronous
     // companion wall-climb submission below; it is cleared before Lua regains
     // control and never makes the actor a split-screen/local-player singleton.
-    private boolean bridgeWallClimbOutcomeContext;
+    private volatile boolean bridgeWallClimbOutcomeContext;
     private volatile long bridgePostUpdateCount;
     private volatile String bridgePostUpdateDiagnostic = "not_run";
     private final MovementProbe bridgeLastMovementProbe = new MovementProbe();
@@ -1516,6 +1516,20 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     private void consumeBridgeDeferredMovement() {
         if (!hasAnimationPlayer()) return;
+        // A normal IsoPlayer applies animation-owned movement from
+        // IsoPlayer.updateInternal2().  The bridge deliberately omits that
+        // local-input update, but ClimbOverWallState (and the other native
+        // traversal states) still relies on its root motion to carry the
+        // collision body across the portal.  Discarding the accumulator here
+        // lets the success animation play while the actor lands on the source
+        // side.  Apply it only while a verified native traversal owns movement;
+        // ordinary path/manual locomotion already translates through PFB or
+        // MoveForward and must continue to consume without applying a second
+        // displacement.
+        if (isCompanionTraversalActive()) {
+            doDeferredMovement();
+            return;
+        }
         // IsoPlayer.updateInternal2 normally calls doDeferredMovement, which
         // resets the accumulator even when path2 owns translation. We omit that
         // local-input update, so consume the accumulator after native state/PFB

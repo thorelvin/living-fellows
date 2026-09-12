@@ -1452,11 +1452,11 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         })
         return false, "no_interaction_targets"
     end
-    local atInteractionTarget = false
+    -- A passable object/corpse may share the actor's current square. That is
+    -- already direct contact and needs no synthetic adjacent step.
+    local atInteractionTarget = utility.sameSquare(actor, utility.squareOf(task.owner))
     for _, target in ipairs(targets) do
-        if utility.arrived(actor, target, {
-            targetKind = "square", distance = 1.0,
-        }) then
+        if utility.sameSquare(actor, target) then
             atInteractionTarget = true
             break
         end
@@ -1467,7 +1467,8 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         local ok, status = SC.Navigation.requestAny(actor, targets, "walk", {
             action = "move_to_scavenge", container = task.container,
             item = task.item, object = task.owner, snapshot = snapshot,
-            arrivalDistance = 1.0, supervisorToken = task.supervisorToken,
+            arrivalDistance = 0.35, requireSameSquare = true,
+            supervisorToken = task.supervisorToken,
         })
         local service = supervisor()
         if service and task.supervisorToken and type(service.progress) == "function" then

@@ -84,6 +84,7 @@ public class IsoGameCharacter extends IsoMovingObject {
     public boolean isMeleeButtonDown() { return false; }
     public zombie.pathfind.Path getPath2() { return null; }
     public zombie.iso.Vector2 getDeferredMovement(zombie.iso.Vector2 result) { return result; }
+    protected void doDeferredMovement() {}
     public boolean isBlockMovement() { return false; }
     public void OnAnimEvent(zombie.core.skinnedmodel.advancedanimation.AnimLayer layer,
             zombie.core.skinnedmodel.animation.AnimationTrack track,

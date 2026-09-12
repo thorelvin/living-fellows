@@ -152,6 +152,11 @@ end
 
 local function containerMembership(container, item, maximum)
     if not container or not item then return nil end
+    if U().containerContainsIdentity then
+        local present = U().containerContainsIdentity(container, item,
+            maximum or U().config("workRecoveryInventoryScanLimit") or 4096)
+        if present ~= nil then return present end
+    end
     local list, readable = listForContainer(container)
     if not readable then return nil end
     local count, countReadable = listCount(list)
@@ -167,7 +172,7 @@ end
 
 local function verifiedContainerOwner(container, item)
     local present = containerMembership(container, item,
-        U().config("maxInventoryItems") or 256)
+        U().config("workRecoveryInventoryScanLimit") or 4096)
     local owner, readable = itemOwner(item)
     if present == nil or not readable then return nil end
     return present == true and owner == container
@@ -315,7 +320,7 @@ local function findMarkedInContainer(container, receiptId)
     local list, readable = listForContainer(container)
     if not readable then return "unavailable" end
     local count, countReadable = listCount(list)
-    local maximum = U().config("maxInventoryItems") or 256
+    local maximum = U().config("workRecoveryInventoryScanLimit") or 4096
     if not countReadable or count > maximum then return "pending" end
     for index = 0, count - 1 do
         local item, available = listEntry(list, index)
@@ -424,9 +429,12 @@ local function detachedEvidence(receipt, item, worldItem, sourceSquare, actorInv
     local present = sourceSquare and worldItem and U().worldItemPresent(sourceSquare, worldItem) or nil
     local link, linkReadable = itemWorldLink(item)
     local owner, ownerReadable = itemOwner(item)
-    local actorHas = containerMembership(actorInventory, item, U().config("maxInventoryItems") or 256)
-    local destinationHas = destinationContainer and containerMembership(destinationContainer,
-        item, U().config("maxInventoryItems") or 256) or false
+    local scanLimit = U().config("workRecoveryInventoryScanLimit") or 4096
+    local actorHas = containerMembership(actorInventory, item, scanLimit)
+    local destinationHas
+    if destinationContainer ~= nil then
+        destinationHas = containerMembership(destinationContainer, item, scanLimit)
+    end
     return present == false and linkReadable and link == nil and ownerReadable and owner == nil
         and actorHas == false and destinationHas == false
 end
@@ -520,9 +528,10 @@ function Transport.deposit(receipt, actor, item)
     end
     local owner, ownerReadable = itemOwner(item)
     if ownerReadable and owner == nil
-        and containerMembership(source, item, U().config("maxInventoryItems") or 256) == false
+        and containerMembership(source, item,
+            U().config("workRecoveryInventoryScanLimit") or 4096) == false
         and containerMembership(destination, item,
-            U().config("maxInventoryItems") or 256) == false then
+            U().config("workRecoveryInventoryScanLimit") or 4096) == false then
         receipt.phase, receipt.owner, receipt.detachedProof = "recovery", "detached", true
         receipt.blocker, receipt.updatedAt = clean(reason or "deposit_detached", 160), now()
         return false, receipt.blocker
@@ -643,6 +652,18 @@ function Transport.reconcile(receipt, actor)
     return quarantine(receipt, "work_item_absence_unproven", "unknown")
 end
 
+local function settleQuarantinedDelivery(receipt)
+    local storage = storageById(receipt and receipt.destinationStorageId)
+    local destination = storage and SC.BaseLife.resolveContainer(storage) or nil
+    local state, item = findMarkedInContainer(destination, receipt and receipt.id)
+    if state ~= "found" then return false, state == "pending" and
+        "work_ownership_evidence_incomplete" or "quarantined_destination_not_verified" end
+    if verifiedContainerOwner(destination, item) ~= true then
+        return false, "destination_owner_pointer_conflict"
+    end
+    return finishDelivery(receipt, item, destination)
+end
+
 function Transport.recoverPending(maximum)
     local receipts = SC.BaseLife and SC.BaseLife.workReceipts
         and SC.BaseLife.workReceipts(nil, false) or {}
@@ -688,7 +709,10 @@ function Transport.retryOrder(orderId)
     local restored, blocked = 0, false
     for _, receipt in ipairs(SC.BaseLife.workReceipts(orderId, true)) do
         if receipt.phase == "quarantined" then
-            if receipt.owner == "detached" and receipt.detachedProof == true
+            local settled = settleQuarantinedDelivery(receipt)
+            if settled == true then
+                restored = restored + 1
+            elseif receipt.owner == "detached" and receipt.detachedProof == true
                 and type(receipt.snapshot) == "table" then
                 receipt.phase, receipt.attempts, receipt.nextRetryAt = "recovery", 0, 0
                 receipt.blocker, receipt.updatedAt = nil, now()
@@ -756,13 +780,44 @@ function Transport.releaseCarriedCargo(orderId, actorId)
 end
 
 function Transport.yieldActor(actorId, reason)
+    local affectedOrders = {}
+    for _, order in ipairs(SC.BaseLife.workOrders(false)) do
+        for _, workerId in ipairs(type(order.workers) == "table" and order.workers or {}) do
+            if workerId == actorId then affectedOrders[order.id] = true break end
+        end
+    end
     for _, receipt in ipairs(SC.BaseLife.workReceipts(nil, false)) do
         if receipt.actorId == actorId and not terminal(receipt) then
-            if receipt.phase == "selected" then Transport.pauseOrder(receipt.orderId, reason) end
-            local order = SC.BaseLife.workOrder(receipt.orderId)
-            if order and order.state == "running" then
-                order.state, order.blocker, order.updatedAt = "paused", clean(reason, 160), now()
+            affectedOrders[receipt.orderId] = true
+            if receipt.phase == "selected" then
+                if not liveItems[receipt.id] or not liveWorldItems[receipt.id] then
+                    Transport.reconcile(receipt, receiptActor(receipt))
+                end
+                if receipt.phase == "selected" then
+                    local released, releaseReason = Transport.abandonSelected(receipt, reason)
+                    if not released then
+                        receipt.blocker, receipt.updatedAt = clean(
+                            releaseReason or "selected_release_pending", 160), now()
+                    end
+                end
             end
+        end
+    end
+    for orderId in pairs(affectedOrders) do
+        -- Carried cargo is already in the worker's personal inventory. Release
+        -- its marker in place instead of stopping unrelated workers.
+        Transport.releaseCarriedCargo(orderId, actorId)
+        local order = SC.BaseLife.workOrder(orderId)
+        if order and type(order.workers) == "table" then
+            for index = #order.workers, 1, -1 do
+                if order.workers[index] == actorId then table.remove(order.workers, index) end
+            end
+            if order.state == "running" and #order.workers == 0 then
+                order.state, order.blocker = "paused", clean(reason, 160)
+            elseif order.state == "running" then
+                order.blocker = nil
+            end
+            order.updatedAt = now()
         end
     end
     return true

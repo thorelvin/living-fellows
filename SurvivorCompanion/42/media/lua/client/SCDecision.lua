@@ -633,9 +633,10 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
         snapshot = snapshot,
         followRecovery = true,
         desiredDistance = desired,
-        urgent = leaderDistance >= (desired == 1 and 5
-            or math.min(utility.config("followFarDistance") or 18,
-                math.max(7, desired + 4))),
+        -- Catch-up speed is selected by Positioning.followMode. Navigation's
+        -- urgent flag is reserved for a genuine far-behind regroup because it
+        -- intentionally relaxes hazard, room-entry and reservation policy.
+        urgent = leaderDistance >= (utility.config("followFarDistance") or 18),
         movementPriority = 20,
         stressPosture = posture,
         formationMode = formation and formation.mode or nil,

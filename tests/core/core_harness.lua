@@ -1033,6 +1033,8 @@ local continuousCorner = SC.NativeActions._prepareForwardTurnForTests(
     actor, actor:getX(), actor:getY(), 0, 1, false, { continuousFollow = true })
 local continuousReverse, continuousReverseReason = SC.NativeActions._prepareForwardTurnForTests(
     actor, actor:getX(), actor:getY(), -1, 0, false, { continuousFollow = true })
+local urgentTurn = SC.NativeActions._prepareForwardTurnForTests(
+    actor, actor:getX(), actor:getY(), -1, 0, false, { urgent = true })
 actor.faceLocationF = originalFaceLocation
 -- The fixture does not advance the native animation graph between checks. The
 -- turn requested above is explicitly completed before later movement tests.
@@ -1043,7 +1045,7 @@ check(requested == true and requestedReason == "turning_for_movement"
         and ready == nil and faceCalls == 2,
     "sharp player-track corners finish one native turn before translation resumes")
 check(continuousCorner == nil and continuousReverse == true
-        and continuousReverseReason == "turning_for_movement",
+        and continuousReverseReason == "turning_for_movement" and urgentTurn == nil,
     "continuous follow blends a right-angle bend but still stops before reversing")
 end
 

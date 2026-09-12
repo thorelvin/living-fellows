@@ -306,6 +306,10 @@ public final class SCIsoCompanionControlTest {
         var snapshot = (zombie.iso.Vector2) snapshotField.get(animation);
         var consume = SCNativeCompanion.class.getDeclaredMethod("consumeBridgeDeferredMovement");
         consume.setAccessible(true);
+        var machine = actor.getStateMachine();
+        var currentField = machine.getClass().getDeclaredField("currentState");
+        currentField.setAccessible(true);
+        Object originalState = currentField.get(machine);
         try {
             ownerAnimation.set(actor, animation);
             snapshot.x = .025f; snapshot.y = -.01f;
@@ -317,8 +321,29 @@ public final class SCIsoCompanionControlTest {
                 require(snapshot.x == .025f && snapshot.y == -.01f,
                         "consuming the accumulator erased the native path's current motion snapshot");
             }
+
+            // Unlike ordinary path/manual motion, stock traversal animations
+            // own their displacement.  The companion omits IsoPlayer's local
+            // update, so the bridge must run the inherited deferred-movement
+            // step while that real native state is active.
+            Object wallState = Class.forName("zombie.ai.states.ClimbOverWallState")
+                    .getMethod("instance").invoke(null);
+            currentField.set(machine, wallState);
+            actor.setNextX(actor.getX());
+            actor.setNextY(actor.getY());
+            float beforeX = actor.getNextX(), beforeY = actor.getNextY();
+            accumulator.x = .08f;
+            accumulator.y = 0.0f;
+            consume.invoke(actor);
+            require(accumulator.x == 0 && accumulator.y == 0,
+                    "native traversal did not consume its root-motion accumulator");
+            require(actor.getNextX() != beforeX || actor.getNextY() != beforeY,
+                    "native traversal success animation did not translate the companion body");
         } finally {
+            currentField.set(machine, originalState);
             ownerAnimation.set(actor, original);
+            actor.setNextX(actor.getX());
+            actor.setNextY(actor.getY());
         }
     }
 
