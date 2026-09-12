@@ -665,6 +665,44 @@ local function captureInventory(actor)
     }
 end
 
+-- Trade recovery may temporarily own an item that is in neither actor
+-- inventory. Capture it with the same state schema as ordinary inventories so
+-- a save during recovery never degrades to an unpersisted native reference.
+function persistence.captureDetachedItem(item)
+    if item == nil then return nil, "detached inventory item is required" end
+    local entry, reason = captureItem(item)
+    if entry == nil then return nil, reason or "detached item has no stable type" end
+    entry.id, entry.children, entry.weaponParts = "recovery-item", {}, {}
+    local count = 1
+    local nestedOk, nested = invoke(item, "getInventory")
+    if nestedOk and nested ~= nil then
+        local itemsOk, items = invoke(nested, "getItems")
+        if not itemsOk or items == nil then
+            return nil, "detached container contents are unavailable"
+        end
+        if listSize(items) > 0 then
+            return nil, "detached trade container must remain empty"
+        end
+    end
+    local partsOk, parts = invoke(item, "getAllWeaponParts")
+    if partsOk and parts ~= nil then
+        for index = 0, listSize(parts) - 1 do
+            local partEntry, partReason = captureItem(listGet(parts, index))
+            if partEntry == nil then
+                return nil, partReason or "detached weapon part has no stable type"
+            end
+            count = count + 1
+            partEntry.id, partEntry.children, partEntry.weaponParts =
+                "recovery-part-" .. tostring(count - 1), {}, {}
+            entry.weaponParts[#entry.weaponParts + 1] = partEntry
+        end
+    end
+    return {
+        schema = 2, complete = true, count = count, roots = { entry },
+        equipment = { worn = {}, attached = {} },
+    }
+end
+
 local function capturePossessions(actor, source, ownerId)
     local possessions, copyReason = stableCopy(source or {}, 6, 256, "$.possessions")
     if copyReason ~= nil then return nil, copyReason end
@@ -953,6 +991,7 @@ function persistence.save(player)
         { field = "infectionCrisis", owner = SC.InfectionCrisis,
             depth = 10, entries = 16384 },
         { field = "community", owner = SC.Community, depth = 10, entries = 32768 },
+        { field = "tradeRecovery", owner = SC.Trade, depth = 14, entries = 16384 },
     }
     for _, definition in ipairs(subsystemDefinitions) do
         local source
@@ -1240,6 +1279,15 @@ local function normalizeInventorySnapshot(source)
     return result
 end
 
+function persistence.validateDetachedItem(source)
+    local snapshot, reason = normalizeInventorySnapshot(source)
+    if snapshot == nil then return nil, reason end
+    if #snapshot.roots ~= 1 then
+        return nil, "detached recovery must contain exactly one root item"
+    end
+    return snapshot
+end
+
 local function validateRecord(id, source)
     if not SC.Registry.isValidId(id) or type(source) ~= "table" or source.id ~= id
         or (source.recruited ~= true and type(source.factionId) ~= "string")
@@ -1480,6 +1528,42 @@ local function addInventoryNode(parentInventory, entry, context, depth)
         end
     end
     return true, item
+end
+
+function persistence.restoreDetachedItem(actor, source)
+    if actor == nil then return nil, "detached item owner is unavailable" end
+    local snapshot, reason = persistence.validateDetachedItem(source)
+    if snapshot == nil then return nil, reason end
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    if not inventoryOk or inventory == nil then
+        return nil, "detached item owner inventory is unavailable"
+    end
+    local beforeOk, beforeItems = invoke(inventory, "getItems")
+    if not beforeOk or beforeItems == nil then
+        return nil, "detached item owner inventory list is unavailable"
+    end
+    local before = {}
+    for index = 0, listSize(beforeItems) - 1 do
+        before[listGet(beforeItems, index)] = true
+    end
+    local context = { rootInventory = inventory, byId = {}, restoredKeys = {} }
+    local applied, item = addInventoryNode(inventory, snapshot.roots[1], context, 1)
+    if applied then return item end
+
+    -- addInventoryNode can fail after AddItem mutates the root. Roll back only
+    -- identities introduced by this attempt and preserve every pre-existing item.
+    local afterOk, afterItems = invoke(inventory, "getItems")
+    if afterOk and afterItems ~= nil then
+        local additions = {}
+        for index = 0, listSize(afterItems) - 1 do
+            local candidate = listGet(afterItems, index)
+            if candidate ~= nil and not before[candidate] then
+                additions[#additions + 1] = candidate
+            end
+        end
+        for index = #additions, 1, -1 do invoke(inventory, "Remove", additions[index]) end
+    end
+    return nil, item
 end
 
 local function reportEquipmentFallback(companionId, kind, location, reason)
@@ -1943,6 +2027,7 @@ function persistence.restore(player)
         { field = "infectionCrisis", owner = SC.InfectionCrisis,
             diagnostic = "infection-crisis" },
         { field = "community", owner = SC.Community, diagnostic = "community" },
+        { field = "tradeRecovery", owner = SC.Trade, diagnostic = "trade-recovery" },
     }
     for _, definition in ipairs(subsystemDefinitions) do
         local raw = candidateDocument[definition.field]

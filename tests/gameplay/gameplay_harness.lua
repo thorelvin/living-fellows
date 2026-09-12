@@ -1233,6 +1233,13 @@ end
 local sensesRuntime = {}
 local snapshot = SurvivorCompanion.Senses.snapshot(fellow, player, sensesRuntime)
 check(snapshot.valid and snapshot.threatCount == 1, "bounded senses should detect the nearby standing zombie")
+do
+    local relationshipRefreshAt = sensesRuntime.senses and sensesRuntime.senses.alliesAt
+    clock = clock + 100
+    SurvivorCompanion.Senses.snapshot(fellow, player, sensesRuntime)
+    check(relationshipRefreshAt ~= nil and sensesRuntime.senses.alliesAt == relationshipRefreshAt,
+        "cached relationship reuse does not postpone the next real relationship refresh")
+end
 check(snapshot.scannedSquares <= SurvivorCompanion.Config.values.perceptionSquareBudget, "sense scan must honor its square budget")
 check(snapshot.outerSampled > 0, "rotating outer-band coverage runs within the configured budget")
 check(snapshot.immediateCount == 1 and snapshot.lastKnownDanger ~= nil, "immediate and last-known danger should be populated")
@@ -3190,15 +3197,25 @@ local formationRightCommands = SurvivorCompanion.Commands.peek(formationRight)
 formationLeftCommands.personalityProfile = { courage = 95, caution = 25, practicality = 55 }
 formationRightCommands.personalityProfile = { courage = 35, caution = 95, practicality = 65 }
 local formationSnapshot = { threats = {}, allies = {}, player = { actor = positioningLeader, danger = 0 } }
+local originalLiving = SurvivorCompanion.Registry.living
+local originalMaximum = SurvivorCompanion.Config.values.maxCompanions
+local unrelatedResidentA = actor("000-unrelated-resident-a", 14, 18, { recruited = false })
+local unrelatedResidentB = actor("001-unrelated-resident-b", 14, 19, { recruited = false })
+SurvivorCompanion.Config.values.maxCompanions = 2
+SurvivorCompanion.Registry.living = function()
+    return { unrelatedResidentA, unrelatedResidentB, formationLeft, formationRight }
+end
 local leftTarget = SurvivorCompanion.Positioning.formationTarget(
     formationLeft, positioningLeader, formationLeftCommands, formationSnapshot)
 local rightTarget = SurvivorCompanion.Positioning.formationTarget(
     formationRight, positioningLeader, formationRightCommands, formationSnapshot)
+SurvivorCompanion.Registry.living = originalLiving
+SurvivorCompanion.Config.values.maxCompanions = originalMaximum
 check(leftTarget and leftTarget.x == 19 and leftTarget.y == 19
     and rightTarget and rightTarget.x == 17 and rightTarget.y == 20
     and SurvivorCompanion.Positioning.debug(formationLeft).cqbRole == "point"
     and SurvivorCompanion.Positioning.debug(formationRight).cqbRole == "rear_guard",
-    "stable CQB roles place point and rear guard behind an east-facing player")
+    "the full registry is filtered before the companion cap and stable CQB roles are assigned")
 
 local formationAssault = actor("002-formation-assault", 15, 19, {})
 local formationRanged = actor("003-formation-ranged", 15, 22, {})
@@ -10952,6 +10969,31 @@ end
 do
     local originalSnapshot = SurvivorCompanion.Senses.snapshot
     SurvivorCompanion.Senses.snapshot = completeTradeSafetySnapshot
+    local originalPersistence = SurvivorCompanion.Persistence
+    SurvivorCompanion.Persistence = {
+        captureDetachedItem = function(detached)
+            return {
+                schema = 2, complete = true, count = 1,
+                roots = { {
+                    id = "recovery-item", type = detached:getFullType(),
+                    condition = detached:getCondition(), favorite = detached:isFavorite(),
+                    children = {}, weaponParts = {},
+                    modData = detached:getModData(),
+                } },
+                equipment = { worn = {}, attached = {} },
+            }
+        end,
+        validateDetachedItem = function(saved) return saved end,
+        restoreDetachedItem = function(owner, saved)
+            local root = saved.roots[1]
+            local restored = item(root.type, "Tool", {
+                condition = root.condition, favorite = root.favorite == true, modData = {},
+            })
+            for key, value in pairs(root.modData or {}) do restored.modData[key] = value end
+            owner.inventory:AddItem(restored)
+            return restored
+        end,
+    }
     local offeredTool = item("Base.Hammer", "Tool")
     local requestedLighter = item("Base.Lighter", "Item")
     player.inventory:AddItem(offeredTool)
@@ -11006,7 +11048,9 @@ do
     player.inventory.throwAfterRemoveItem = nil
     check(not traded and reason == "transaction_rollback_failed"
             and Trade.pendingRecoveryCount() == 1 and offeredTool:getContainer() == nil,
-        "an unprovable rollback retains the exact detached item in managed trade recovery")
+        "an unprovable rollback retains the exact detached item in managed trade recovery: "
+            .. tostring(reason) .. "/pending=" .. tostring(Trade.pendingRecoveryCount())
+            .. "/owner=" .. tostring(offeredTool:getContainer()))
     player.inventory.rejectAdd = nil
     local recovered, recoveryReason = Trade.recoverPending()
     check(recovered and Trade.pendingRecoveryCount() == 0
@@ -11014,7 +11058,49 @@ do
             and residentOne.inventory:contains(requestedLighter),
         "managed trade recovery restores the exact source owner on a later retry: "
             .. tostring(recoveryReason))
+
+    local durableTool = item("Base.RecoveryScrewdriver", "Tool", {
+        condition = 4, favorite = true, modData = { testState = "preserved" },
+    })
+    local durableReward = item("Base.RecoveryBattery", "Item")
+    player.inventory:AddItem(durableTool)
+    residentOne.inventory:AddItem(durableReward)
+    player.inventory.throwAfterRemoveItem = durableTool
+    player.inventory.rejectAdd = true
+    traded, reason = Trade.barter("faction-test", player,
+        { { item = durableTool, container = player.inventory } },
+        { { item = durableReward, container = residentOne.inventory } })
+    player.inventory.throwAfterRemoveItem = nil
+    local durableSave = Trade.export()
+    local lifecycleReady, lifecycleReason = Trade.prepareActorLifecycle(residentOne, player)
+    check(not traded and reason == "transaction_rollback_failed"
+            and durableSave and #durableSave.entries == 1
+            and durableSave.entries[1].itemState.roots[1].condition == 4
+            and lifecycleReady == false and lifecycleReason == "trade_recovery_pending",
+        "an unresolved per-item transfer is durable and pins either referenced actor")
+
+    check(Trade.restore(durableSave),
+        "a saved detached-item recovery ledger validates after a simulated restart")
+    player.inventory.rejectAdd = nil
+    recovered, recoveryReason = Trade.recoverPending(player)
+    local restoredDurable, restoredCount
+    restoredCount = 0
+    for _, candidate in ipairs(player.inventory.items) do
+        if candidate:getFullType() == "Base.RecoveryScrewdriver" then
+            restoredDurable, restoredCount = candidate, restoredCount + 1
+        end
+    end
+    check(recovered and Trade.pendingRecoveryCount() == 0 and restoredCount == 1
+            and restoredDurable ~= durableTool and restoredDurable:getCondition() == 4
+            and restoredDurable:isFavorite()
+            and restoredDurable.modData.testState == "preserved"
+            and restoredDurable.modData.LF_TradeRecoveryId == nil
+            and residentOne.inventory:contains(durableReward),
+        "restart recovery reconstructs exactly one verified source owner with mutable item state")
+    player.inventory:Remove(restoredDurable)
+    residentOne.inventory:Remove(durableReward)
     SurvivorCompanion.Senses.snapshot = originalSnapshot
+    SurvivorCompanion.Persistence = originalPersistence
     player.inventory:Remove(offeredTool)
     residentOne.inventory:Remove(requestedLighter)
 end

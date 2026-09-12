@@ -10,6 +10,7 @@ local authorized = false
 local authorizationSerial = 0
 local pendingRecoveries = {}
 local recoverySerial = 0
+local recoveryMarker = "LF_TradeRecoveryId"
 
 local values = {
     ["Base.Plank"] = 4, ["Base.Nails"] = 1, ["Base.NailsBox"] = 20,
@@ -96,11 +97,18 @@ local function itemCategory(item)
 end
 
 local function collect(container, rows, depth, budget)
-    if container == nil or depth > 4 or budget.count <= 0 then return end
+    if container == nil then return end
+    if depth > 4 or budget.count <= 0 then
+        budget.complete = false
+        return
+    end
     local ok, items = invoke(container, "getItems")
-    if not ok or items == nil then return end
+    if not ok or items == nil then
+        budget.complete = false
+        return
+    end
     for index = 0, listSize(items) - 1 do
-        if budget.count <= 0 then break end
+        if budget.count <= 0 then budget.complete = false break end
         budget.count = budget.count - 1
         local item = listGet(items, index)
         if item ~= nil then
@@ -403,91 +411,245 @@ local function rollback(transfers)
     local complete, failures = true, {}
     for index = #transfers, 1, -1 do
         local transfer = transfers[index]
-        local destinationMember = containerMembership(transfer.destination, transfer.item)
-        local destinationCleared = destinationMember == false
-        if destinationMember == true then
-            destinationCleared = removeIdentity(transfer.destination, transfer.item)
-        end
-        if destinationMember == nil or not destinationCleared then
-            complete = false
-            failures[#failures + 1] = "destination_remove_unverified"
-        end
-        if destinationCleared then
-            if not addIdentity(transfer.source, transfer.item)
-                or not verifiedOwner(transfer.item, transfer.source, transfer.destination) then
+        if transfer.resolved ~= true then
+            local destinationMember = containerMembership(transfer.destination, transfer.item)
+            local destinationCleared = destinationMember == false
+            if destinationMember == true then
+                destinationCleared = removeIdentity(transfer.destination, transfer.item)
+            end
+            if destinationMember == nil or not destinationCleared then
                 complete = false
-                failures[#failures + 1] = "source_restore_unverified"
+                failures[#failures + 1] = "destination_remove_unverified"
+            end
+            if destinationCleared then
+                if not addIdentity(transfer.source, transfer.item)
+                    or not verifiedOwner(transfer.item, transfer.source, transfer.destination) then
+                    complete = false
+                    failures[#failures + 1] = "source_restore_unverified"
+                else
+                    transfer.resolved = true
+                end
             end
         end
     end
     return complete, #failures > 0 and table.concat(failures, ";") or nil
 end
 
-local function clearRecovery(record)
-    if type(record) ~= "table" then return end
-    for _, transfer in ipairs(record.transfers or {}) do
-        if pendingRecoveries[transfer.item] == record then
-            pendingRecoveries[transfer.item] = nil
+local function ownerDescriptor(actor, player)
+    if actor == nil then return nil end
+    if actor == player then return { kind = "player" } end
+    local id = U().idOf(actor)
+    if type(id) == "string" and id ~= "" then
+        return { kind = "actor", id = id }
+    end
+    return nil
+end
+
+local function primaryPlayer(candidate)
+    if candidate ~= nil then return candidate end
+    if type(getSpecificPlayer) == "function" then
+        local ok, value = pcall(getSpecificPlayer, 0)
+        if ok and value ~= nil then return value end
+    end
+    if type(getPlayer) == "function" then
+        local ok, value = pcall(getPlayer)
+        if ok then return value end
+    end
+    return nil
+end
+
+local function resolveOwner(descriptor, player)
+    if type(descriptor) ~= "table" then return nil end
+    if descriptor.kind == "player" then return primaryPlayer(player) end
+    if descriptor.kind ~= "actor" or type(descriptor.id) ~= "string" then return nil end
+    return select(1, U().resolveActor(descriptor.id))
+end
+
+local function markerOf(item)
+    local data = existingModData(item)
+    return type(data) == "table" and data[recoveryMarker] or nil
+end
+
+local function scanRecovery(actor, recoveryId)
+    local inventory = actorInventory(actor)
+    if inventory == nil then return nil, 0, false, nil end
+    local rows, budget = {}, { count = 8192, complete = true }
+    collect(inventory, rows, 0, budget)
+    local found, count, container = nil, 0, nil
+    for _, row in ipairs(rows) do
+        if markerOf(row.item) == recoveryId then
+            found, container, count = found or row.item, container or row.container, count + 1
         end
+    end
+    return found, count, budget.complete ~= false, container
+end
+
+local function clearMarker(item, recoveryId)
+    local data = existingModData(item)
+    if type(data) == "table" and data[recoveryMarker] == recoveryId then
+        data[recoveryMarker] = nil
     end
 end
 
-local function rememberRecovery(transfers, group, reason, rollbackReason)
-    recoverySerial = recoverySerial + 1
-    local record = {
-        serial = recoverySerial,
-        factionId = group and group.id or nil,
-        reason = tostring(reason or "transaction_failed"),
-        rollbackReason = tostring(rollbackReason or "ownership_unverified"),
-        recordedAt = U().nowMs(),
-        transfers = transfers,
-    }
-    for _, transfer in ipairs(transfers) do pendingRecoveries[transfer.item] = record end
+local function finishRecovery(transfer, item)
+    transfer.resolved = true
+    clearMarker(item or transfer.item, transfer.recoveryId)
+    pendingRecoveries[transfer.recoveryId] = nil
+end
+
+local function rememberRecovery(transfers, group, reason, rollbackReason, player)
+    local retained, captureFailure = 0, nil
+    for _, transfer in ipairs(transfers) do
+        if transfer.resolved ~= true then
+            recoverySerial = recoverySerial + 1
+            transfer.serial = recoverySerial
+            transfer.recoveryId = "lf-trade:" .. tostring(U().nowMs())
+                .. ":" .. tostring(recoverySerial)
+            transfer.factionId = group and group.id or nil
+            transfer.reason = tostring(reason or "transaction_failed")
+            transfer.rollbackReason = tostring(rollbackReason or "ownership_unverified")
+            transfer.recordedAt = U().nowMs()
+            transfer.sourceOwner = ownerDescriptor(transfer.sourceActor, player)
+            transfer.destinationOwner = ownerDescriptor(transfer.destinationActor, player)
+            local data = U().modData(transfer.item)
+            if type(data) ~= "table" or transfer.sourceOwner == nil
+                or transfer.destinationOwner == nil then
+                captureFailure = captureFailure or "trade recovery identity is unavailable"
+            else
+                data[recoveryMarker] = transfer.recoveryId
+                pendingRecoveries[transfer.recoveryId] = transfer
+                retained = retained + 1
+                local capture = SC.Persistence
+                    and type(SC.Persistence.captureDetachedItem) == "function"
+                    and SC.Persistence.captureDetachedItem or nil
+                local snapshot, snapshotReason
+                if capture then
+                    snapshot, snapshotReason = capture(transfer.item)
+                else
+                    snapshotReason = "detached item persistence is unavailable"
+                end
+                if snapshot == nil then
+                    captureFailure = captureFailure or snapshotReason
+                else
+                    transfer.itemState = snapshot
+                end
+            end
+        end
+    end
     if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
-        SC.Diagnostics.report("trade-transaction", record.factionId,
+        SC.Diagnostics.report("trade-transaction", group and group.id or nil,
             "item ownership retained for recovery",
-            record.reason .. "; " .. record.rollbackReason)
+            tostring(reason) .. "; " .. tostring(rollbackReason)
+                .. (captureFailure and "; " .. tostring(captureFailure) or ""))
     end
-    return record
+    return retained > 0 and captureFailure == nil, captureFailure
 end
 
-function Trade.recoverPending()
-    local records, seen = {}, {}
+local function recoverTransfer(transfer, player)
+    local sourceActor = resolveOwner(transfer.sourceOwner, player) or transfer.sourceActor
+    local destinationActor = resolveOwner(transfer.destinationOwner, player)
+        or transfer.destinationActor
+    if sourceActor == nil or destinationActor == nil then return false, "owner_unavailable" end
+    local sourceItem, sourceCount, sourceComplete =
+        scanRecovery(sourceActor, transfer.recoveryId)
+    local destinationItem, destinationCount, destinationComplete
+    if destinationActor == sourceActor then
+        destinationItem, destinationCount, destinationComplete = nil, 0, sourceComplete
+    else
+        destinationItem, destinationCount, destinationComplete =
+            scanRecovery(destinationActor, transfer.recoveryId)
+    end
+    if not sourceComplete or not destinationComplete then return false, "inventory_scan_pending" end
+    if sourceCount + destinationCount > 1 then return false, "duplicate_recovery_identity" end
+    if sourceCount == 1 and destinationCount == 0 then
+        finishRecovery(transfer, sourceItem)
+        return true
+    end
+
+    local sourceInventory = actorInventory(sourceActor)
+    local candidate = destinationItem
+    if candidate == nil and transfer.item ~= nil
+        and markerOf(transfer.item) == transfer.recoveryId then candidate = transfer.item end
+    if candidate ~= nil then
+        if not addIdentity(sourceInventory, candidate) then return false, "source_restore_unverified" end
+    else
+        local restore = SC.Persistence
+            and type(SC.Persistence.restoreDetachedItem) == "function"
+            and SC.Persistence.restoreDetachedItem or nil
+        if restore == nil then return false, "detached_item_restore_unavailable" end
+        local restored, restoreReason = restore(sourceActor, transfer.itemState)
+        if restored == nil then return false, restoreReason end
+        candidate, transfer.item = restored, restored
+    end
+
+    sourceItem, sourceCount, sourceComplete = scanRecovery(sourceActor, transfer.recoveryId)
+    if destinationActor == sourceActor then
+        destinationItem, destinationCount, destinationComplete = nil, 0, sourceComplete
+    else
+        destinationItem, destinationCount, destinationComplete =
+            scanRecovery(destinationActor, transfer.recoveryId)
+    end
+    if sourceComplete and destinationComplete and sourceCount == 1 and destinationCount == 0 then
+        finishRecovery(transfer, sourceItem or candidate)
+        return true
+    end
+    return false, "source_restore_unverified"
+end
+
+function Trade.recoverPending(player, maximum)
+    local records = {}
     for _, record in pairs(pendingRecoveries) do
-        if not seen[record] then
-            seen[record] = true
-            records[#records + 1] = record
-        end
+        records[#records + 1] = record
     end
     table.sort(records, function(left, right)
         return (tonumber(left.serial) or 0) < (tonumber(right.serial) or 0)
     end)
+    local processed = 0
     for _, record in ipairs(records) do
-        local restored, reason = rollback(record.transfers or {})
-        if not restored then
+        if processed >= (tonumber(maximum) or math.huge) then break end
+        processed = processed + 1
+        local restored, reason = recoverTransfer(record, player)
+        if not restored and reason ~= "owner_unavailable" then
             record.rollbackReason = tostring(reason or record.rollbackReason)
-            return false, "trade_recovery_pending"
         end
-        clearRecovery(record)
     end
-    return true
+    local pending = false
+    for _ in pairs(pendingRecoveries) do pending = true break end
+    return not pending, pending and "trade_recovery_pending" or nil
 end
 
 function Trade.pendingRecoveryCount()
-    local count, seen = 0, {}
-    for _, record in pairs(pendingRecoveries) do
-        if not seen[record] then seen[record], count = true, count + 1 end
-    end
+    local count = 0
+    for _ in pairs(pendingRecoveries) do count = count + 1 end
     return count
 end
 
-local function journalRows(rows, destination, destinationOwner, journal)
+function Trade.hasPendingActor(actor)
+    local id = type(actor) == "string" and actor or U().idOf(actor)
+    for _, transfer in pairs(pendingRecoveries) do
+        for _, descriptor in ipairs({ transfer.sourceOwner, transfer.destinationOwner }) do
+            if type(descriptor) == "table"
+                and ((descriptor.kind == "player" and actor == primaryPlayer())
+                    or (descriptor.kind == "actor" and descriptor.id == id)) then return true end
+        end
+    end
+    return false
+end
+
+function Trade.prepareActorLifecycle(actor, player)
+    Trade.recoverPending(player, 32)
+    if Trade.hasPendingActor(actor) then return false, "trade_recovery_pending" end
+    return true
+end
+
+local function journalRows(rows, sourceActor, destination, destinationActor, journal)
     for _, row in ipairs(rows or {}) do
         journal[#journal + 1] = {
             item = row.item,
             source = row.container,
             destination = destination,
-            destinationOwner = destinationOwner,
+            sourceActor = sourceActor,
+            destinationActor = destinationActor,
             phase = "planned",
         }
     end
@@ -568,7 +730,7 @@ end
 
 local function transaction(group, player, playerRows, factionRows, options)
     options = type(options) == "table" and options or {}
-    local recovered, recoveryReason = Trade.recoverPending()
+    local recovered, recoveryReason = Trade.recoverPending(player)
     if not recovered then return false, recoveryReason end
     local trader = actorForGroup(group)
     local ready, reason = proximityOkay(group, player, trader, options.allowHostile == true,
@@ -590,8 +752,8 @@ local function transaction(group, player, playerRows, factionRows, options)
         end
     end
     local journal = {}
-    journalRows(playerRows, factionInventory, trader, journal)
-    journalRows(factionRows, playerInventory, player, journal)
+    journalRows(playerRows, player, factionInventory, trader, journal)
+    journalRows(factionRows, trader, playerInventory, player, journal)
     authorizationSerial = authorizationSerial + 1
     authorized = { serial = authorizationSerial, factionId = group.id }
     local finalizeStarted = false
@@ -640,7 +802,11 @@ local function transaction(group, player, playerRows, factionRows, options)
     end
     local restored, rollbackReason = rollback(journal)
     if not restored then
-        rememberRecovery(journal, group, transferReason, rollbackReason)
+        local retained, retainReason = rememberRecovery(
+            journal, group, transferReason, rollbackReason, player)
+        if not retained then
+            return false, "transaction_recovery_capture_failed:" .. tostring(retainReason)
+        end
         return false, "transaction_rollback_failed"
     end
     if not finalizeRestored then return false, "transaction_finalize_recovery_failed" end
@@ -1067,12 +1233,103 @@ function Trade.barter(groupId, player, offeredRows, requestedRows)
     return traded, reason
 end
 
+local function copyOwnerDescriptor(source)
+    if type(source) ~= "table" then return nil end
+    if source.kind == "player" then return { kind = "player" } end
+    if source.kind == "actor" and type(source.id) == "string"
+        and source.id ~= "" and #source.id <= 96 then
+        return { kind = "actor", id = source.id }
+    end
+    return nil
+end
+
+function Trade.export()
+    -- Opportunistically close live cases first; anything still unresolved is a
+    -- durable ownership record and is saved independently of both inventories.
+    Trade.recoverPending(primaryPlayer(), 32)
+    local entries = {}
+    for _, transfer in pairs(pendingRecoveries) do
+        if type(transfer.itemState) ~= "table" then
+            return nil, "pending trade item has no durable state"
+        end
+        entries[#entries + 1] = {
+            recoveryId = transfer.recoveryId,
+            serial = transfer.serial,
+            factionId = transfer.factionId,
+            reason = transfer.reason,
+            rollbackReason = transfer.rollbackReason,
+            recordedAt = transfer.recordedAt,
+            phase = "recovery_pending",
+            sourceOwner = copyOwnerDescriptor(transfer.sourceOwner),
+            destinationOwner = copyOwnerDescriptor(transfer.destinationOwner),
+            itemState = transfer.itemState,
+        }
+    end
+    table.sort(entries, function(left, right)
+        return (tonumber(left.serial) or 0) < (tonumber(right.serial) or 0)
+    end)
+    return { version = 1, serial = recoverySerial, entries = entries }
+end
+
+function Trade.restore(source)
+    if type(source) ~= "table" or source.version ~= 1
+        or type(source.entries) ~= "table" or #source.entries > 4096 then
+        return false, "invalid trade recovery envelope"
+    end
+    local candidate, seen, maximumSerial = {}, {}, math.max(0,
+        math.floor(tonumber(source.serial) or 0))
+    for _, entry in ipairs(source.entries) do
+        local recoveryId = type(entry) == "table" and entry.recoveryId or nil
+        local serial = type(entry) == "table" and math.floor(tonumber(entry.serial) or -1) or -1
+        local sourceOwner = type(entry) == "table" and copyOwnerDescriptor(entry.sourceOwner) or nil
+        local destinationOwner = type(entry) == "table"
+            and copyOwnerDescriptor(entry.destinationOwner) or nil
+        if type(recoveryId) ~= "string" or recoveryId == "" or #recoveryId > 128
+            or seen[recoveryId] or serial < 1 or sourceOwner == nil
+            or destinationOwner == nil then
+            return false, "invalid trade recovery entry"
+        end
+        local validate = SC.Persistence
+            and type(SC.Persistence.validateDetachedItem) == "function"
+            and SC.Persistence.validateDetachedItem or nil
+        local itemState, stateReason
+        if validate then
+            itemState, stateReason = validate(entry.itemState)
+        else
+            stateReason = "detached item validation is unavailable"
+        end
+        if itemState == nil then
+            return false, "invalid detached trade item: " .. tostring(stateReason)
+        end
+        local root = itemState.roots[1]
+        if type(root.modData) ~= "table" or root.modData[recoveryMarker] ~= recoveryId then
+            return false, "detached trade item identity does not match its recovery"
+        end
+        seen[recoveryId] = true
+        candidate[recoveryId] = {
+            recoveryId = recoveryId, serial = serial,
+            factionId = type(entry.factionId) == "string" and entry.factionId or nil,
+            reason = tostring(entry.reason or "transaction_failed"),
+            rollbackReason = tostring(entry.rollbackReason or "ownership_unverified"),
+            recordedAt = tonumber(entry.recordedAt) or 0,
+            phase = "recovery_pending", sourceOwner = sourceOwner,
+            destinationOwner = destinationOwner, itemState = itemState,
+        }
+        maximumSerial = math.max(maximumSerial, serial)
+    end
+    pendingRecoveries, recoverySerial = candidate, maximumSerial
+    return true
+end
+
 function Trade.reset()
     authorized = false
     authorizationSerial = 0
-    local recovered, reason = Trade.recoverPending()
-    if recovered then recoverySerial = 0 end
-    return recovered, reason
+    -- Runtime teardown has already persisted the durable envelope and disposed
+    -- native actors. Never retry against those obsolete containers or carry an
+    -- old world's recovery ledger into the next world.
+    pendingRecoveries = {}
+    recoverySerial = 0
+    return true
 end
 
 return Trade

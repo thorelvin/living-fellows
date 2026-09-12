@@ -856,4 +856,35 @@ check(legacyRecord ~= nil and legacyRecord.state.downtime.lastCompleted == "Rest
 SC.Registry.unregister(legacyActor)
 end
 
+do
+-- A trade item can be detached from both inventories when a native mutation
+-- throws. Its standalone recovery snapshot must preserve the same mutable state
+-- and add exactly one root without clearing the owner's existing inventory.
+local retained = makeItem("Base.TradeRecoveryTool", {
+    condition = 3, favorite = true, repairs = 2,
+    modData = { LF_TradeRecoveryId = "lf-trade:test:1", note = "intact" },
+})
+local detached, detachedReason = SC.Persistence.captureDetachedItem(retained)
+check(detached ~= nil and detached.count == 1
+        and detached.roots[1].modData.LF_TradeRecoveryId == "lf-trade:test:1",
+    "detached trade capture uses a complete standalone inventory tree: "
+        .. tostring(detachedReason))
+local recoveryOwner = makeActor(square, makeInventory({ makeItem("Base.ExistingItem") }))
+local restoredDetached, restoreReason = SC.Persistence.restoreDetachedItem(
+    recoveryOwner, detached)
+check(restoredDetached ~= nil and #recoveryOwner.inventory.items == 2
+        and restoredDetached:getFullType() == "Base.TradeRecoveryTool"
+        and restoredDetached.condition == 3 and restoredDetached.favorite == true
+        and restoredDetached.repairs == 2
+        and restoredDetached.modData.note == "intact",
+    "detached trade restore adds exactly one item and preserves mutable state: "
+        .. tostring(restoreReason))
+local invalidDetached = SC.Persistence.validateDetachedItem({
+    schema = 2, complete = true, count = 0, roots = {},
+    equipment = { worn = {}, attached = {} },
+})
+check(invalidDetached == nil,
+    "detached trade validation rejects envelopes without exactly one root")
+end
+
 print("CHARACTER_DEPTH_PERSISTENCE_PASS checks=" .. tostring(checks))

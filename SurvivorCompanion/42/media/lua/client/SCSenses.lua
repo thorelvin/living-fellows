@@ -1000,6 +1000,8 @@ function Senses.snapshot(actor, player, runtime)
     local allies, protectedActors = state.allies, state.protectedActors
     if relationshipsFresh then
         allies, protectedActors = collectRelationships(actor, player)
+        state.allies, state.protectedActors, state.alliesAt =
+            allies, protectedActors, now
     end
     local actorRoom, actorRoomOk = U.call(actorSquare, "getRoom")
     local snapshot = {
@@ -1069,8 +1071,7 @@ function Senses.snapshot(actor, player, runtime)
     -- same frame.
     state.nextReflexAt = now + math.max(25,
         tonumber(U.config("perceptionReflexIntervalMs")) or 100)
-    state.allies, state.protectedActors, state.alliesAt =
-        snapshot.allies, snapshot.protectedActors, now
+    state.allies, state.protectedActors = snapshot.allies, snapshot.protectedActors
     if complete then
         if nativeCandidates == nil then state.scanJob = nil end
         state.lastCompleteAt = now

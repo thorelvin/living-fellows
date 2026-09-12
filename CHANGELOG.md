@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.22.17 - Durable recovery and lifecycle safety
+
+- Made failed barter recovery durable per item. Unresolved transfers now carry a stable identity, intended source and destination, transaction phase, and a complete mutable item snapshot in world-scoped persistence, allowing a save/restart to restore exactly one verified owner without duplicating already-resolved items.
+- Added a bounded high-priority recovery pulse and blocked companion removal or household hibernation while that actor still participates in unresolved trade ownership. Hibernation reconciles before capture so its snapshot cannot omit a newly recovered item.
+- Made native bridge readiness publication atomic with bootstrap-generation ownership. An exposure callback retired while in flight can no longer publish readiness or waiting state over its replacement.
+- Built fireteams from the complete active registry before filtering recruited followers, preventing unrelated household or bandit actors from consuming the configured companion prefix.
+- Kept relationship-cache timestamps tied to real relationship scans instead of cache reads, so frequent perception requests cannot postpone ally and protected-actor refresh forever.
+- Added restart, mutable-item, per-transfer, lifecycle-pinning, registry-prefix, relationship-cache, detached-item persistence, and stale-bootstrap publication regressions. Rebuilt the reproducible Java 17 bridge payload.
+
 ## 0.22.16 - Transactional safety and stable perception
 
 - Preserved native key identities, partial-use values, customized food nutrition and cooking state, and explicit false item fields across companion and household reconstruction. The installed Build 42 API gate now verifies every persisted native setter.

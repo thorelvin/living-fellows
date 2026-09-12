@@ -1314,6 +1314,14 @@ function actorService.remove(actor)
     if not ready then
         return false, reason
     end
+    if SC.Trade ~= nil and type(SC.Trade.prepareActorLifecycle) == "function" then
+        local called, released, releaseReason = pcall(
+            SC.Trade.prepareActorLifecycle, actor)
+        if not called or released ~= true then
+            return false, "actor removal blocked by unresolved trade ownership: "
+                .. tostring(called and releaseReason or released)
+        end
+    end
     local id = SC.Registry.idOf(actor)
     local activeRecord = id and SC.Registry.byId(id) or nil
     if activeRecord ~= nil and (activeRecord.recruited == true

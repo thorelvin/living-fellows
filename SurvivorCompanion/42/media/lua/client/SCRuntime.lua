@@ -733,6 +733,13 @@ local function restoreTask()
     SC.Persistence.restorePulse(player())
 end
 
+local function tradeRecoveryTask()
+    if SC.Trade ~= nil and type(SC.Trade.recoverPending) == "function" then
+        SC.Trade.recoverPending(player(),
+            tonumber(SC.Config.get("tradeRecoveryPerPulse")) or 8)
+    end
+end
+
 local function saveTask()
     local saved, reason = runtime.save()
     if saved ~= true then
@@ -829,6 +836,8 @@ local function registerTasks()
         { "vitals", 25, 80, vitalsTask, "critical" },
         { "vehicle", 250, 70, vehicleTask, "critical" },
         { "restore", 1000, 50, restoreTask, "high" },
+        { "trade-recovery", SC.Config.get("tradeRecoveryIntervalMs"), 45,
+            tradeRecoveryTask, "high" },
         { "spawn-completion", 100, 32, spawnCompletionTask, "normal" },
         { "encounter-spawn", SC.Config.get("productionSpawnCheckIntervalMs"), 31,
             productionSpawnTask, "background" },

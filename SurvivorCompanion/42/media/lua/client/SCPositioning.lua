@@ -297,7 +297,7 @@ local function followerRoster(leader, current, group)
         -- Partition the whole recruited roster once per leader pulse. Selecting
         -- Alpha, Bravo and an ungrouped follower in the same frame must not turn
         -- into three registry scans.
-        for _, other in ipairs(utility.registryLiving(utility.config("maxCompanions") or 16)) do
+        for _, other in ipairs(utility.registryLiving(false)) do
             local commands = commandState(other)
             if commands and commands.recruited
                 and (commands.order == "follow" or commands.order == "regroup") then

@@ -37,6 +37,13 @@ public final class SCBootstrapLifecycleTest {
         method.invoke(null, run, reason);
     }
 
+    private static boolean publish(Object run, boolean exposed) throws Exception {
+        Method method = SCBootstrap.class.getDeclaredMethod(
+                "publishExposure", run.getClass(), boolean.class);
+        method.setAccessible(true);
+        return (Boolean) method.invoke(null, run, exposed);
+    }
+
     private static void waitForQueue() throws Exception {
         long deadline = System.nanoTime() + 2_000_000_000L;
         while (MainThread.queuedForTests() == 0 && System.nanoTime() < deadline) {
@@ -69,6 +76,10 @@ public final class SCBootstrapLifecycleTest {
         Object second = activeRun();
         require(second != null && second != first && bootstrapWorkers() == 1,
                 "bootstrap restart did not own one new worker generation");
+        String replacementStatus = SCBootstrap.getStatus();
+        require(!publish(first, true) && !SCBootstrap.isReady()
+                        && replacementStatus.equals(SCBootstrap.getStatus()),
+                "retired in-flight exposure published readiness into its replacement");
         Thread.sleep(150L);
         require(MainThread.queuedForTests() == 1 && bootstrapWorkers() == 1,
                 "retired generation interfered with the replacement queue ticket");

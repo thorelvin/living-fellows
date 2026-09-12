@@ -82,17 +82,10 @@ public final class SCBootstrap {
     private static void exposeOnMainThread(BootstrapRun run) {
         try {
             if (!isCurrent(run)) return;
-            if (SCExposure.exposeNow()) {
-                boolean announce = !ready;
-                ready = true;
-                status = "ready";
-                if (announce) {
-                    System.out.println("[SurvivorCompanionBridge] ready protocol="
-                            + SCBridge.PROTOCOL);
-                }
-            } else {
-                ready = false;
-                status = "waiting for initialized Project Zomboid LuaManager";
+            boolean exposed = SCExposure.exposeNow();
+            if (publishExposure(run, exposed)) {
+                System.out.println("[SurvivorCompanionBridge] ready protocol="
+                        + SCBridge.PROTOCOL);
             }
         } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
             stopAfterFailure(run, "native bridge exposure failed: "
@@ -101,6 +94,20 @@ public final class SCBootstrap {
         } finally {
             run.exposureQueued.set(false);
         }
+    }
+
+    /** Publishes an exposure result only while its generation still owns bootstrap state. */
+    private static synchronized boolean publishExposure(BootstrapRun run, boolean exposed) {
+        if (!isCurrent(run)) return false;
+        if (exposed) {
+            boolean announce = !ready;
+            ready = true;
+            status = "ready";
+            return announce;
+        }
+        ready = false;
+        status = "waiting for initialized Project Zomboid LuaManager";
+        return false;
     }
 
     private static synchronized void stopAfterFailure(BootstrapRun run, String reason) {

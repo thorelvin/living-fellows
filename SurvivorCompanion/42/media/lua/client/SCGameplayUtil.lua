@@ -1534,7 +1534,15 @@ function U.registryLiving(limit)
     if not ok then ok, living = pcall(registry.living, registry) end
     if not ok or living == nil then return {} end
     local result = {}
-    local maximum = limit or U.config("maxCompanions") or 16
+    -- `false` is the explicit uncapped form.  Most callers intentionally keep
+    -- the configured companion cap, while roster builders must inspect the
+    -- complete registry before filtering recruited followers.
+    local maximum
+    if limit == false then
+        maximum = math.huge
+    else
+        maximum = limit or U.config("maxCompanions") or 16
+    end
     if type(living) == "table" and #living == 0 then
         for _, entry in pairs(living) do
             local actor = type(entry) == "table" and entry.actor or entry

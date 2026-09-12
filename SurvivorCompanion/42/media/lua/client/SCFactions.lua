@@ -2199,6 +2199,14 @@ local function hibernateMember(group, member, player)
         or not actorHiddenFromPlayer(record.actor, player, record.runtime) then
         return false, "member_not_safe_to_hibernate"
     end
+    if SC.Trade ~= nil and type(SC.Trade.prepareActorLifecycle) == "function" then
+        local called, released, releaseReason = pcall(
+            SC.Trade.prepareActorLifecycle, record.actor, player)
+        if not called or released ~= true then
+            return false, "member_trade_recovery_pending:" .. tostring(
+                called and releaseReason or released)
+        end
+    end
     local snapshot, reason = SC.Persistence.captureRecord(record)
     if not snapshot then return false, reason end
     local removed, result = SC.Actor.remove(record.actor)
