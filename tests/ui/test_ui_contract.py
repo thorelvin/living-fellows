@@ -411,13 +411,17 @@ class UIStaticContractTests(unittest.TestCase):
         for action in (
             "remove_zone", "remove_storage", "set_storage_category",
             "set_storage_reserve", "cancel_job", "retry_job",
-            "set_maintenance_enabled", "remove_maintenance",
+            "set_maintenance_enabled", "remove_maintenance", "start_gather",
+            "pause_gather", "resume_gather", "retry_gather", "cancel_gather",
+            "release_gather_cargo", "add_gather_worker", "change_gather_destination",
         ):
             self.assertIn(f'action == "{action}"', dispatch)
         for method in (
             "removeZone", "removeStorage", "setStorageCategory", "setReserve",
             "cancelJob", "retryJob", "setMaintenanceTargetEnabled",
-            "removeMaintenanceTarget",
+            "removeMaintenanceTarget", "createGatherOrder", "pauseGatherOrder",
+            "resumeGatherOrder", "retryGatherOrder", "cancelGatherOrder",
+            "releaseGatherCargo", "addGatherWorker", "changeGatherDestination",
         ):
             self.assertIn(f"SC.BaseLife.{method}", dispatch)
         for rows in ("base.zoneRows", "base.storageRows", "base.maintenanceRows"):
@@ -425,6 +429,11 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn('job.state == "blocked"', base)
         self.assertIn('"retry_job"', base)
         self.assertIn('"cancel_job"', base)
+        self.assertIn('for amount = 1, 100 do', self.ui)
+        self.assertIn('"start_gather"', base)
+        self.assertIn('"release_gather_cargo"', base)
+        self.assertIn("order.workerPhases", base)
+        self.assertIn("UI_SC_Base_GatherWorkerPhase", base)
         self.assertIn("UI.confirmBaseAction", self.ui)
 
     def test_base_context_is_hidden_outside_camp_and_dismiss_is_confirmed(self) -> None:

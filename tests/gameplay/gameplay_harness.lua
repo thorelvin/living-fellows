@@ -11068,13 +11068,83 @@ do
     playerStash:AddItem(offeredTool)
     local recovered, recoveryReason = Trade.recoverPending()
     check(recovered and Trade.pendingRecoveryCount() == 0
-            and not player.inventory:contains(offeredTool)
+            and player.inventory:contains(offeredTool)
             and not residentOne.inventory:contains(offeredTool)
-            and playerStash:contains(offeredTool)
+            and not playerStash:contains(offeredTool)
             and offeredTool.modData.LF_TradeRecoveryId == nil
             and residentOne.inventory:contains(requestedLighter),
-        "managed recovery accepts the verified current owner without undoing the player's later move: "
+        "managed recovery returns the exact item to its source instead of accepting a half trade: "
             .. tostring(recoveryReason))
+    player.inventory:Remove(offeredTool)
+    residentOne.inventory:Remove(requestedLighter)
+
+    local function verifyCompensatedRollback(label, configureFailure)
+        local offered = item("Base." .. label .. "Offer", "Tool")
+        local requested = item("Base." .. label .. "Request", "Item")
+        player.inventory:AddItem(offered)
+        residentOne.inventory:AddItem(requested)
+        configureFailure(offered, requested)
+        local completed, failureReason = Trade.barter("faction-test", player,
+            { { item = offered, container = player.inventory } },
+            { { item = requested, container = residentOne.inventory } })
+        player.inventory.rejectAdd = nil
+        player.inventory.throwAfterAddItem = nil
+        residentOne.inventory.rejectRemoveItem = nil
+        check(not completed and failureReason == "transaction_rollback_failed"
+                and Trade.pendingRecoveryCount() == 1,
+            label .. " fixture must retain an incomplete rollback")
+        local settled, settleReason = Trade.recoverPending(player, 1, true)
+        check(settled and Trade.pendingRecoveryCount() == 0
+                and player.inventory:contains(offered)
+                and residentOne.inventory:contains(requested)
+                and not residentOne.inventory:contains(offered)
+                and not player.inventory:contains(requested),
+            label .. " recovery must produce full source-owner compensation: "
+                .. tostring(settleReason))
+        player.inventory:Remove(offered)
+        residentOne.inventory:Remove(requested)
+    end
+
+    verifyCompensatedRollback("HalfTransfer", function(offered)
+        player.inventory.rejectAdd = true
+        residentOne.inventory.rejectRemoveItem = offered
+    end)
+    verifyCompensatedRollback("BothTransferred", function(offered, requested)
+        player.inventory.throwAfterAddItem = requested
+        residentOne.inventory.rejectRemoveItem = offered
+    end)
+
+    local finalOffer = item("Base.FinalizerRollbackOffer", "Tool")
+    player.inventory:AddItem(finalOffer)
+    local finalStanding = group.standing
+    local canReconcile, restitutionRequired, reconcile =
+        SurvivorCompanion.Factions.canReconcile,
+        SurvivorCompanion.Factions.restitutionRequired,
+        SurvivorCompanion.Factions.reconcile
+    SurvivorCompanion.Factions.canReconcile = function() return true, "restitution_due" end
+    SurvivorCompanion.Factions.restitutionRequired = function() return 1 end
+    SurvivorCompanion.Factions.reconcile = function()
+        group.standing = "Trusted"
+        error("injected compensated-finalizer failure")
+    end
+    residentOne.inventory.rejectRemoveItem = finalOffer
+    traded, reason = Trade.payRestitution("faction-test", player,
+        { { item = finalOffer, container = player.inventory } })
+    residentOne.inventory.rejectRemoveItem = nil
+    SurvivorCompanion.Factions.canReconcile = canReconcile
+    SurvivorCompanion.Factions.restitutionRequired = restitutionRequired
+    SurvivorCompanion.Factions.reconcile = reconcile
+    check(not traded and reason == "transaction_rollback_failed"
+            and group.standing == finalStanding and Trade.pendingRecoveryCount() == 1,
+        "finalizer failure with a rejected rollback retains item and faction compensation")
+    recovered, recoveryReason = Trade.recoverPending(player, 1, true)
+    check(recovered and Trade.pendingRecoveryCount() == 0
+            and player.inventory:contains(finalOffer)
+            and not residentOne.inventory:contains(finalOffer)
+            and group.standing == finalStanding,
+        "finalizer recovery restores both source ownership and faction state: "
+            .. tostring(recoveryReason))
+    player.inventory:Remove(finalOffer)
 
     local durableTool = item("Base.RecoveryScrewdriver", "Tool", {
         condition = 4, favorite = true, modData = { testState = "preserved" },

@@ -608,6 +608,53 @@ check(invalidatedEvidence.freshComplete == false
     "a native zombie-count change immediately invalidates completed negative evidence")
 zombies[1001] = nil
 
+-- R4: an older complete negative proof must also become stale when a sliced
+-- pass detects same-count identity churn. Count equality is not roster proof.
+Scan.reset()
+local stableRoster = {}
+for index = 1, 8 do
+    stableRoster[index] = actor(200 + index, 200, 0, "IsoZombie")
+end
+zombies = stableRoster
+local sameCountState, sameCountMeta = {}, nil
+for pulse = 1, 12 do
+    current = current + 100
+    _, sameCountMeta = Scan.nativeCandidates(observer, sameCountState, 24, 4)
+    if sameCountMeta.freshComplete then break end
+end
+check(sameCountMeta.freshComplete and sameCountMeta.evidenceValid,
+    "R4 fixture first establishes a coherent negative roster")
+current = current + 1200
+Scan.nativeCandidates(observer, sameCountState, 24, 4)
+local unseenClose = actor(3, 2, 0, "IsoZombie")
+zombies = {
+    stableRoster[3], stableRoster[2], stableRoster[1], unseenClose,
+    stableRoster[5], stableRoster[6], stableRoster[7], stableRoster[8],
+}
+current = current + 100
+local sameCountFound
+sameCountFound, sameCountMeta = Scan.nativeCandidates(observer, sameCountState, 24, 4)
+check(sameCountMeta.freshComplete == false
+        and sameCountMeta.evidenceValid == false
+        and sameCountMeta.evidenceInvalidatedAt == current
+        and (sameCountMeta.rejectedCycles or 0) >= 1,
+    "same-count mixed-pass rejection immediately invalidates held negative evidence")
+local unseenCloseFound = false
+for _, candidate in ipairs(sameCountFound) do
+    if candidate == unseenClose then unseenCloseFound = true end
+end
+for pulse = 1, 12 do
+    current = current + 100
+    local found
+    found, sameCountMeta = Scan.nativeCandidates(observer, sameCountState, 24, 4)
+    for _, candidate in ipairs(found) do
+        if candidate == unseenClose then unseenCloseFound = true end
+    end
+    if sameCountMeta.freshComplete then break end
+end
+check(unseenCloseFound and sameCountMeta.freshComplete,
+    "same-count roster stabilizes and exposes the new nearby threat before recertification")
+
 -- A remove-and-append can keep the count unchanged while shifting every later
 -- index. The mixed pass must not certify a negative observation that omitted C.
 Scan.reset()

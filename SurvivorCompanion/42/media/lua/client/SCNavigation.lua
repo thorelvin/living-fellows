@@ -1154,6 +1154,12 @@ local pathSearchAdapter = {
     end,
     edge = function(fromSquare, toSquare, options, allowOccupiedGoal)
         options = type(options) == "table" and options or {}
+        if type(options.squareAdmission) == "function" then
+            local admitted, allowed = pcall(options.squareAdmission, toSquare, fromSquare)
+            if not admitted or allowed ~= true then
+                return false, nil, "outside_admitted_area"
+            end
+        end
         options.allowOccupiedGoal = allowOccupiedGoal == true
         return passableEdge(fromSquare, toSquare, options.vegetationScale, options)
     end,
@@ -4167,6 +4173,12 @@ function Navigation.request(actor, target, movementMode, intent)
             -- cost when topology finds no safe alternative.
             allowHazards = requestIntent.urgent == true,
         }
+        if requestIntent.workCampOnly == true then
+            pathOptions.squareAdmission = function(square)
+                return SC.BaseLife and type(SC.BaseLife.isInside) == "function"
+                    and SC.BaseLife.isInside(square) == true
+            end
+        end
         if requestIntent.stealthAvoidance then
             pathOptions.stealthAvoidance = true
             pathOptions.nodeBudget = utility.config("navigationStealthNodeBudget") or 320
@@ -4343,10 +4355,10 @@ function Navigation.request(actor, target, movementMode, intent)
         -- search or an edge which specifically needs the engine. A proven
         -- static/policy failure must not become an opaque engine path.
         local failure = state.pathFailure
-        local allowNative = state.pathReason == "budget"
+        local allowNative = requestIntent.workCampOnly ~= true and (state.pathReason == "budget"
             or sameSquare(sourceSquare, goalSquare)
             or (type(failure) == "table" and failure.nativeFallbackAllowed == true)
-            or requestIntent.nativeAffordance ~= nil
+            or requestIntent.nativeAffordance ~= nil)
         if not allowNative then
             local failureClass = type(failure) == "table" and failure.failureClass
                 or "blocked_static"
@@ -4394,6 +4406,12 @@ function Navigation.request(actor, target, movementMode, intent)
     end
 
     local barrier, kind = barrierBetween(sourceSquare, nextSquare)
+    if requestIntent.workCampOnly == true
+        and (not SC.BaseLife or type(SC.BaseLife.isInside) ~= "function"
+            or SC.BaseLife.isInside(nextSquare) ~= true) then
+        state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
+        return false, "work_path_outside_camp"
+    end
     if kind == "open" then
         local edge = SC.Navigation.edgeAffordance(sourceSquare, nextSquare)
         if edge and edge.kind == "slope" then kind = "slope" end
@@ -4706,7 +4724,10 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
     for _, candidate in ipairs(type(candidates) == "table" and candidates or {}) do
         local square = utility.squareOf(candidate) or candidate
         local key = square and squareKey(square) or nil
-        if key and not seen[key] and utility.isSquareFree(square)
+        local admitted = intent.workCampOnly ~= true
+            or (SC.BaseLife and type(SC.BaseLife.isInside) == "function"
+                and SC.BaseLife.isInside(square) == true)
+        if key and admitted and not seen[key] and utility.isSquareFree(square)
             and not utility.safehouseBlocker(square, actor) then
             seen[key] = true
             valid[#valid + 1] = square
@@ -4768,7 +4789,8 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         clearMovementTransients(actor, state)
     end
 
-    if intent.cohortKey == nil and now >= (state.nativeMultiUnavailableUntil or 0) and SC.NativeActions
+    if intent.workCampOnly ~= true and intent.cohortKey == nil
+        and now >= (state.nativeMultiUnavailableUntil or 0) and SC.NativeActions
         and type(SC.NativeActions.pathToNearest) == "function" then
         local started, reason = SC.NativeActions.pathToNearest(actor, valid, movementMode or "walk")
         if started then

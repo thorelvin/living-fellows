@@ -68,6 +68,7 @@ bootstrap = (CLIENT / "SCBootstrap.lua").read_text(encoding="utf-8")
 for module in ("SCSenses", "SCNavigation", "SCCombat", "SCMedical", "SCEncounter",
                "SCLogistics", "SCNeeds", "SCDowntime", "SCPersonality", "SCPersonalItems",
                "SCDialogue", "SCRelationship", "SCObjectives", "SCJournal", "SCLifeEvents", "SCCommunity",
+               "SCWorkTransport", "SCGatherWork",
                "SCAutonomy", "SCCommands", "SCDecision",
                "SCSupport", "SCUI", "SCUIContext", "SCCompanionMap"):
     require(f'require "{module}"' in bootstrap, f"bootstrap requirement missing: {module}")

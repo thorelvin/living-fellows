@@ -141,6 +141,28 @@ local BASE_RESERVE_LEVELS = {
     { id = 5, key = "UI_SC_Base_Reserve_5" },
     { id = 10, key = "UI_SC_Base_Reserve_10" },
 }
+local GATHER_MATERIALS = {
+    { id = "logs", key = "UI_SC_Base_GatherMaterial_logs" },
+    { id = "planks", key = "UI_SC_Base_GatherMaterial_planks" },
+}
+local GATHER_QUANTITIES = {}
+for amount = 1, 100 do
+    GATHER_QUANTITIES[#GATHER_QUANTITIES + 1] = { id = amount, label = tostring(amount) }
+end
+local GATHER_PHASE_KEYS = {
+    seeking = "UI_SC_Base_GatherPhase_seeking",
+    selected = "UI_SC_Base_GatherPhase_selected",
+    carried = "UI_SC_Base_GatherPhase_carried",
+    depositing = "UI_SC_Base_GatherPhase_depositing",
+    recovery = "UI_SC_Base_GatherPhase_recovery",
+    quarantined = "UI_SC_Base_GatherPhase_quarantined",
+    running = "UI_SC_Base_GatherPhase_running",
+    paused = "UI_SC_Base_GatherPhase_paused",
+    blocked = "UI_SC_Base_GatherPhase_blocked",
+    completed = "UI_SC_Base_GatherPhase_completed",
+    cancelled = "UI_SC_Base_GatherPhase_cancelled",
+}
+local gatherDraft = { material = "logs", requested = 12, zoneId = nil, storageId = nil }
 local GROUPS = {
     { id = "", key = "UI_SC_Select_GroupNone" },
     { id = "alpha", key = "UI_SC_Select_GroupAlpha" },
@@ -1218,6 +1240,29 @@ local function runBaseManagementAction(target, action, payload)
         method, arguments = SC.BaseLife.cancelJob, { payload.id }
     elseif action == "retry_job" then
         method, arguments = SC.BaseLife.retryJob, { payload.id }
+    elseif action == "start_gather" then
+        method, arguments = SC.BaseLife.createGatherOrder, { {
+            material = payload.material, requested = payload.requested,
+            zoneId = payload.zoneId, destinationStorageId = payload.storageId,
+            workers = { payload.workerId }, enableDuty = true,
+        } }
+    elseif action == "pause_gather" then
+        method, arguments = SC.BaseLife.pauseGatherOrder, { payload.id, "player_paused" }
+    elseif action == "resume_gather" then
+        method, arguments = SC.BaseLife.resumeGatherOrder, { payload.id }
+    elseif action == "retry_gather" then
+        method, arguments = SC.BaseLife.retryGatherOrder, { payload.id }
+    elseif action == "cancel_gather" then
+        method, arguments = SC.BaseLife.cancelGatherOrder, { payload.id }
+    elseif action == "release_gather_cargo" then
+        method, arguments = SC.BaseLife.releaseGatherCargo,
+            { payload.id, payload.workerId }
+    elseif action == "add_gather_worker" then
+        method, arguments = SC.BaseLife.addGatherWorker,
+            { payload.id, payload.workerId }
+    elseif action == "change_gather_destination" then
+        method, arguments = SC.BaseLife.changeGatherDestination,
+            { payload.id, payload.storageId }
     elseif action == "set_maintenance_enabled" then
         method, arguments = SC.BaseLife.setMaintenanceTargetEnabled,
             { payload.id, payload.enabled == true }
@@ -1289,6 +1334,14 @@ local function onBasePolicySelector(target, combo)
         and UI.text("UI_SC_Base_PolicyUpdated")
         or UI.text("UI_SC_Base_ActionFailed", tostring(reason or accepted)),
         ok and accepted == true)
+    UI.refresh()
+end
+
+local function onGatherDraftSelector(target, combo)
+    if not combo or not combo.selected then return end
+    local option = combo:getOptionData(combo.selected)
+    if type(option) ~= "table" then return end
+    gatherDraft[combo.scGatherField] = option.value
     UI.refresh()
 end
 
@@ -2156,6 +2209,29 @@ function SCUIDetail:addBasePolicySelector(panel, y, labelKey, policyKey, current
     return y + metrics.buttonHeight + 4
 end
 
+function SCUIDetail:addGatherDraftSelector(panel, y, labelKey, field, current, options)
+    local metrics = self.metrics or UI.layoutMetrics()
+    local width = math.max(100, panel:getWidth() - 28)
+    local combo = ISComboBox:new(8, y, width, metrics.buttonHeight,
+        self, onGatherDraftSelector)
+    combo:initialise()
+    combo:instantiate()
+    combo.backgroundColor = { r = 0.035, g = 0.04, b = 0.035,
+        a = configuredOpacity(0.88, 0.22, 0.78) }
+    combo.backgroundColorMouseOver = { r = 0.28, g = 0.30, b = 0.25,
+        a = configuredOpacity(1.18, 0.48, 0.9) }
+    combo.scGatherField = field
+    for index, option in ipairs(options or {}) do
+        local label = option.key and UI.text(option.key) or tostring(option.label or option.id)
+        combo:addOptionWithData(UI.text(labelKey, label), { value = option.id }, label)
+        if option.id == current then combo.selected = index end
+    end
+    combo.tooltip = UI.text(labelKey, UI.stateText(current))
+    panel:addChild(combo)
+    panel.scContentWidth = panel:getWidth()
+    return y + metrics.buttonHeight + 4
+end
+
 function SCUIDetail:addBaseManagementAction(panel, y, label, action, payload, confirmation)
     local metrics = self.metrics or UI.layoutMetrics()
     local width = math.max(100, panel:getWidth() - 28)
@@ -2568,6 +2644,118 @@ function SCUIDetail:buildBase(panel, row)
                         or residentRow.job and UI.humanize(residentRow.job)
                         or residentRow.duty and UI.text("UI_SC_Base_StateAvailable")
                         or UI.text("UI_SC_Base_StateOffDuty")))
+        end
+        y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Gather")
+        local workZones, depositStorages = {}, {}
+        for _, zone in ipairs(base.zoneRows or {}) do
+            if zone.kind == "work" then
+                workZones[#workZones + 1] = { id = zone.id, label = zone.name }
+            end
+        end
+        for _, storage in ipairs(base.storageRows or {}) do
+            if storage.deposits ~= false then
+                depositStorages[#depositStorages + 1] = {
+                    id = storage.id,
+                    label = UI.text("UI_SC_Base_GatherStorageOption",
+                        UI.humanize(storage.category), storage.x, storage.y, storage.z),
+                }
+            end
+        end
+        local function optionExists(options, value)
+            for _, option in ipairs(options) do if option.id == value then return true end end
+            return false
+        end
+        if not optionExists(workZones, gatherDraft.zoneId) then
+            gatherDraft.zoneId = workZones[1] and workZones[1].id or nil
+        end
+        if not optionExists(depositStorages, gatherDraft.storageId) then
+            gatherDraft.storageId = depositStorages[1] and depositStorages[1].id or nil
+        end
+        if #workZones == 0 then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_GatherNeedsZone"))
+        elseif #depositStorages == 0 then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_GatherNeedsStorage"))
+        elseif not row then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_GatherNeedsWorker"))
+        else
+            y = self:addGatherDraftSelector(panel, y, "UI_SC_Base_GatherMaterialSelector",
+                "material", gatherDraft.material, GATHER_MATERIALS)
+            y = self:addGatherDraftSelector(panel, y, "UI_SC_Base_GatherZoneSelector",
+                "zoneId", gatherDraft.zoneId, workZones)
+            y = self:addGatherDraftSelector(panel, y, "UI_SC_Base_GatherStorageSelector",
+                "storageId", gatherDraft.storageId, depositStorages)
+            y = self:addGatherDraftSelector(panel, y, "UI_SC_Base_GatherQuantitySelector",
+                "requested", gatherDraft.requested, GATHER_QUANTITIES)
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_GatherWorker", row.name))
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_GatherCampLimit"))
+            y = self:addBaseManagementAction(panel, y,
+                UI.text("UI_SC_Base_GatherStart", UI.humanize(gatherDraft.material),
+                    gatherDraft.requested), "start_gather", {
+                    material = gatherDraft.material, requested = gatherDraft.requested,
+                    zoneId = gatherDraft.zoneId, storageId = gatherDraft.storageId,
+                    workerId = row.id,
+                }, UI.text("UI_SC_Base_GatherStartConfirm", row.name))
+        end
+        for _, order in ipairs(base.workOrders or {}) do
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_GatherProgress", UI.humanize(order.material),
+                    order.delivered, order.requested, order.carried or 0,
+                    UI.humanize(order.state)))
+            if order.blocker then
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_GatherBlocker", UI.humanize(order.blocker)))
+            end
+            for _, worker in ipairs(order.workerPhases or {}) do
+                local phaseKey = GATHER_PHASE_KEYS[worker.phase]
+                    or "UI_SC_Base_GatherPhase_blocked"
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_GatherWorkerPhase", worker.name,
+                        UI.text(phaseKey)))
+            end
+            if order.state == "running" then
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_GatherPause"), "pause_gather", { id = order.id }, nil)
+            elseif order.state == "paused" then
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_GatherResume"), "resume_gather", { id = order.id }, nil)
+            elseif order.state == "blocked" then
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_GatherRetry"), "retry_gather", { id = order.id }, nil)
+            end
+            if order.state ~= "completed" and order.state ~= "cancelled" then
+                if row and #(order.workers or {}) < 2 then
+                    local alreadyAssigned = false
+                    for _, workerId in ipairs(order.workers or {}) do
+                        if workerId == row.id then alreadyAssigned = true break end
+                    end
+                    if not alreadyAssigned then
+                        y = self:addBaseManagementAction(panel, y,
+                            UI.text("UI_SC_Base_GatherAddWorker", row.name),
+                            "add_gather_worker", { id = order.id, workerId = row.id }, nil)
+                    end
+                end
+                for _, option in ipairs(depositStorages) do
+                    if option.id ~= order.destinationStorageId then
+                        y = self:addBaseManagementAction(panel, y,
+                            UI.text("UI_SC_Base_GatherChooseDestination", option.label),
+                            "change_gather_destination",
+                            { id = order.id, storageId = option.id }, nil)
+                    end
+                end
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_GatherCancel"), "cancel_gather", { id = order.id },
+                    UI.text("UI_SC_Base_GatherCancelConfirm"))
+            end
+            if (order.carried or 0) > 0 then
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_GatherReleaseCargo"), "release_gather_cargo",
+                    { id = order.id }, UI.text("UI_SC_Base_GatherReleaseConfirm"))
+            end
         end
         y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Zones")
         if type(base.zoneRows) ~= "table" or #base.zoneRows == 0 then
@@ -4435,6 +4623,7 @@ end
 function UI.reset()
     UI.clearDebugHouseLocator()
     UI.close()
+    gatherDraft = { material = "logs", requested = 12, zoneId = nil, storageId = nil }
     UI._gameStarted = false
 end
 

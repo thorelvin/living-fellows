@@ -59,6 +59,11 @@ local function sameRoster(left, right, count)
     return true
 end
 
+local function invalidateEvidence(shared, now)
+    shared.evidenceValid = false
+    shared.evidenceInvalidatedAt = now
+end
+
 local function advanceSharedNative(list, count, maximum, deadline, clock, now)
     if sharedNative == nil or sharedNative.list ~= list then
         sharedNative = newSharedNative(list, count)
@@ -68,8 +73,7 @@ local function advanceSharedNative(list, count, maximum, deadline, clock, now)
         -- A changed native population invalidates negative evidence
         -- immediately. Time alone does not: the old one-second expiry created
         -- a long danger_check_pending window during every unchanged rescan.
-        shared.evidenceValid = false
-        shared.evidenceInvalidatedAt = now
+        invalidateEvidence(shared, now)
     end
     shared.liveCount = count
     if count == 0 and (shared.cycleCount ~= 0 or shared.cursor > 0
@@ -119,19 +123,32 @@ local function advanceSharedNative(list, count, maximum, deadline, clock, now)
     local published = false
     if passEnded then
         local coherent = #shared.build == shared.cycleCount and count == shared.cycleCount
+        local verificationReady = coherent
+            and shared.verificationCount == shared.cycleCount
+            and type(shared.verification) == "table"
+        local rosterMatches = verificationReady
+            and sameRoster(shared.verification, shared.build, shared.cycleCount)
         -- A non-empty live Java list is mutable across slices. Certify absence
         -- only after two complete passes observe the same identity set. A
         -- duplicate/missing index or a changed count invalidates verification,
         -- but the just-read build remains available as best-effort preview.
         if shared.cycleCount == 0 and count == 0 then
             published = true
-        elseif coherent and shared.verificationCount == shared.cycleCount
-            and sameRoster(shared.verification, shared.build, shared.cycleCount) then
+        elseif rosterMatches then
             published = true
         elseif coherent then
+            if verificationReady then
+                -- A same-sized native list can still have changed identities
+                -- between slices. Once a complete pass disagrees with its
+                -- verification pass, the previously published negative proof
+                -- is no longer safe even though the Java list count is equal.
+                invalidateEvidence(shared, now)
+                shared.rejectedCycles = (shared.rejectedCycles or 0) + 1
+            end
             shared.verification = shared.build
             shared.verificationCount = shared.cycleCount
         else
+            invalidateEvidence(shared, now)
             shared.verification, shared.verificationCount = nil, nil
             shared.rejectedCycles = (shared.rejectedCycles or 0) + 1
         end

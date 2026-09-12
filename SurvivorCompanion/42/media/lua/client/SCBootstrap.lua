@@ -59,6 +59,8 @@ require "SCObjectives"
 require "SCJournal"
 require "SCBaseLife"
 require "SCBaseVisuals"
+require "SCWorkTransport"
+require "SCGatherWork"
 require "SCBaseWork"
 require "SCInfectionCrisis"
 require "SCLifeEvents"
@@ -103,7 +105,8 @@ local requiredModules = {
     "FactionBehavior", "ZombieTargeting", "ThreatSet", "PerceptionScan",
     "Locomotion", "Senses", "Navigation", "Positioning", "Combat", "Medical", "Encounter",
     "Logistics", "Needs", "Downtime", "Personality", "PersonalItems", "Relationship",
-    "Objectives", "Journal", "BaseLife", "BaseVisuals", "BaseWork", "InfectionCrisis",
+    "Objectives", "Journal", "BaseLife", "BaseVisuals", "WorkTransport", "GatherWork",
+    "BaseWork", "InfectionCrisis",
     "LifeEvents", "Community", "Quirks", "Autonomy",
     "Commands", "FactionRecruitment", "Decision", "Support", "UI", "UIContext",
     "CompanionMap",

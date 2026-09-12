@@ -66,7 +66,7 @@ local required = {
     "FactionWorld", "FactionBehavior", "ZombieTargeting", "ThreatSet", "PerceptionScan", "Locomotion", "Senses",
     "Navigation", "Positioning", "Combat", "Medical", "Logistics", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal", "BaseObjectRef", "BaseLife",
-    "BaseVisuals",
+    "BaseVisuals", "WorkTransport", "GatherWork",
     "BaseWork", "InfectionCrisis", "LifeEvents", "Community", "Quirks", "Autonomy", "Commands",
     "FactionRecruitment", "Decision", "Support", "UIContext",
 }

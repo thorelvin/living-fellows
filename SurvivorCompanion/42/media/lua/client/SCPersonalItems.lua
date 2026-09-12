@@ -269,6 +269,10 @@ function PersonalItems.reset(actor)
 end
 
 function PersonalItems.isProtected(item, actorOrId, operation)
+    if SC.WorkTransport and type(SC.WorkTransport.isCargoProtected) == "function"
+        and SC.WorkTransport.isCargoProtected(item, actorOrId, operation) then
+        return true
+    end
     local personal = PersonalItems.personalRecord(item)
     if not personal then return false end
     if allowedOperations[operation] then return false end

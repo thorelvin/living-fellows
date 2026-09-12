@@ -5,7 +5,7 @@
 ## Mandatory gate before launch
 
 - [ ] `scripts\Test-Project.ps1` passes against Project Zomboid 42.20.4.
-- [ ] `VERSION.txt`, both `mod.info` files and the Support tab all report 0.22.18.
+- [ ] `VERSION.txt`, both `mod.info` files and the Support tab all report 0.22.19.
 - [ ] Workshop-path testing has ZombieBuddy 2.3.3 or newer enabled before Living Fellows.
 - [ ] The loose legacy `zombie\characters\IsoSurvivor.class` is absent and the game is closed.
 - [ ] The local install displays `PRIVATE-NATIVE-BRIDGE.txt`.
@@ -125,6 +125,16 @@
 - [ ] Classified camp stores report loaded stock against resident-scaled targets; unloaded stores are explicitly marked unknown instead of counted as empty.
 - [ ] Rotating, role-based and all-hands watch policies select the expected residents, while workload, routine and automatic-maintenance policies survive save/reload.
 - [ ] Safe on-duty residents without a job read, sit, wash or perform another valid downtime activity; automatic sort, repair and craft jobs are never queued without a real actionable item and capable worker.
+- [ ] In Base, create a 1–100 item Logs or Planks order from an existing camp work zone to one exact registered deposit container; one selected resident physically approaches, uses the low loot pose, moves the same floor item, and advances only verified new deliveries.
+- [ ] Run a one-item order with two assigned workers and pre-existing destination stock; only one worker reserves the quota slot, old stock gives no credit, and later player withdrawal does not restart or decrement the completed order.
+- [ ] Save/reload once before pickup and once while carrying. The marked floor/cargo item reconciles before new selection, retains one native owner, deposits once, and never produces a replacement unless persisted detached proof permits reconstruction.
+- [ ] Fill, unload and replace the selected destination during travel. The worker retains cargo, reports the blocker, stops owned movement/visuals, and only an explicit registered-destination change resumes delivery; no same-coordinate fallback is accepted.
+- [ ] Pause, Follow, Retreat, disable duty, dismiss and kill a gathering worker at each transport phase. Survival/player control wins immediately; selected claims release safely, carried cargo remains exact, and death retires/quarantines rather than reconstructing the actor or item.
+- [ ] Move marked cargo through a player-authorized inventory action and expose a candidate to scavenging, hauling, crafting and trade. Automatic consumers honor the receipt, ambiguous third ownership quarantines without copying, and explicit Release cargo removes only a verified claim.
+- [ ] Interrupt detached-item reconstruction after native insertion mutates but throws/returns nil and once while native-ID capture fails. Automatic cleanup leaves zero copies when it succeeds; if cleanup cannot be proven, exactly one marked root remains as the recovery anchor.
+- [ ] Move a persisted partial reconstruction to a corpse, world square or third container, including once with a changed native ID after reload. The journal stays unresolved and no snapshot replacement appears until exact cleanup/absence is proven.
+- [ ] Fail barter after one item moved, after both moved, and in the finalizer. Recovery returns each exact item to its original source; possession by the intended recipient never counts as a completed rollback.
+- [ ] During a multi-slice zombie scan, replace one or more zombies without changing the list count. Existing negative room-clear/trade-safe evidence becomes invalid as soon as the pass disagrees or is incoherent, and returns only after two complete matching identity passes.
 - [ ] World right-click shows one Living Fellows root. The panel-selected nearby companion gets Move here plus at most one relevant object shortcut; its root entry has shallow direct orders plus Talk, Target actions, and Care and inspect. Other companions, Squad, relevant Base work, and households remain grouped and no submenu becomes taller than the screen.
 - [ ] Outside an established camp the Base submenu is absent (except Set camp before a base exists or Finish/Cancel during a zone draft); storage, maintenance, and construction appear only on valid in-camp targets.
 - [ ] Manual companion emote controls are absent from Status and the context menu, while automatic greetings, acknowledgements, thanks and reactions still occur naturally.

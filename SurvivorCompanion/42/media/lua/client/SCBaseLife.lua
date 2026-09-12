@@ -10,6 +10,7 @@ SC.BaseLife = SC.BaseLife or {}
 local BaseLife = SC.BaseLife
 
 BaseLife.VERSION = 1
+BaseLife.WORK_VERSION = 1
 BaseLife.ROLES = {
     generalist = true, guard = true, builder = true, quartermaster = true, medic = true,
 }
@@ -25,6 +26,11 @@ BaseLife.STORAGE_CATEGORIES = {
 BaseLife.JOB_TYPES = {
     haul = true, sort = true, fetch = true, repair = true, replace_bandage = true,
     craft_supply = true, barricade = true, maintain = true, build = true,
+    gather_materials = true,
+}
+BaseLife.GATHER_MATERIALS = {
+    logs = "Base.Log",
+    planks = "Base.Plank",
 }
 
 local JOB_STATES = {
@@ -32,12 +38,23 @@ local JOB_STATES = {
     completed = true, cancelled = true,
 }
 local roleAffinity = {
-    generalist = { haul = 4, sort = 4, fetch = 4, repair = 3, replace_bandage = 2,
+    generalist = { haul = 4, sort = 4, fetch = 4, gather_materials = 5,
+        repair = 3, replace_bandage = 2,
         craft_supply = 3, barricade = 2, maintain = 2, build = 2 },
-    guard = { barricade = 4, maintain = 2, haul = 1, fetch = 1 },
-    builder = { build = 10, barricade = 9, maintain = 8, repair = 5, fetch = 3 },
-    quartermaster = { haul = 10, sort = 10, fetch = 9, craft_supply = 4 },
+    guard = { barricade = 4, maintain = 2, haul = 1, fetch = 1, gather_materials = 1 },
+    builder = { build = 10, barricade = 9, maintain = 8, repair = 5,
+        gather_materials = 6, fetch = 3 },
+    quartermaster = { haul = 10, sort = 10, fetch = 9, gather_materials = 8,
+        craft_supply = 4 },
     medic = { replace_bandage = 10, fetch = 5, haul = 1 },
+}
+
+local WORK_ORDER_STATES = {
+    running = true, paused = true, blocked = true, completed = true, cancelled = true,
+}
+local WORK_RECEIPT_PHASES = {
+    selected = true, carried = true, depositing = true, recovery = true,
+    delivered = true, released = true, cancelled = true, quarantined = true,
 }
 
 local document
@@ -129,6 +146,18 @@ local function emptyDocument()
     }
 end
 
+local function emptyWork()
+    return {
+        version = BaseLife.WORK_VERSION,
+        nextOrderSerial = 1,
+        nextReceiptSerial = 1,
+        recoveryCursor = 1,
+        orders = {},
+        receipts = {},
+        quarantine = nil,
+    }
+end
+
 local function validId(value, prefix)
     return type(value) == "string" and #value >= 3 and #value <= 96
         and (prefix == nil or string.sub(value, 1, #prefix) == prefix)
@@ -212,6 +241,140 @@ local function normalizeJob(source)
     }
 end
 
+local function normalizeWorkerIds(source)
+    local result, seen = {}, {}
+    for _, id in ipairs(type(source) == "table" and source or {}) do
+        if type(id) == "string" and id ~= "" and #id <= 96 and not seen[id]
+            and #result < 2 then
+            result[#result + 1], seen[id] = id, true
+        end
+    end
+    return result
+end
+
+local function normalizeWorkOrder(source)
+    if type(source) ~= "table" or not validId(source.id, "work-order:")
+        or source.operation ~= "gather" then return nil end
+    local material = BaseLife.GATHER_MATERIALS[source.material] and source.material or nil
+    local requested = integer(source.requested, 12, 1, 100)
+    local delivered = integer(source.delivered, 0, 0, requested)
+    local state = WORK_ORDER_STATES[source.state] and source.state or "paused"
+    local workers = normalizeWorkerIds(source.workers)
+    if not material or not validId(source.zoneId, "zone:")
+        or not validId(source.destinationStorageId, "storage:")
+        or #workers < 1 then return nil end
+    if state == "completed" and delivered ~= requested then return nil end
+    return {
+        version = BaseLife.WORK_VERSION,
+        id = source.id,
+        operation = "gather",
+        material = material,
+        itemType = BaseLife.GATHER_MATERIALS[material],
+        zoneId = source.zoneId,
+        destinationStorageId = source.destinationStorageId,
+        requested = requested,
+        delivered = delivered,
+        workers = workers,
+        state = state,
+        blocker = source.blocker ~= nil and cleanText(source.blocker, "blocked", 160) or nil,
+        createdAt = math.max(0, finite(source.createdAt, 0)),
+        updatedAt = math.max(0, finite(source.updatedAt, 0)),
+        completedAt = source.completedAt ~= nil
+            and math.max(0, finite(source.completedAt, 0)) or nil,
+    }
+end
+
+local function normalizeWorkReceipt(source)
+    if type(source) ~= "table" or not validId(source.id, "work-receipt:")
+        or not validId(source.orderId, "work-order:")
+        or not WORK_RECEIPT_PHASES[source.phase] then return nil end
+    local ownerKinds = { world = true, actor = true, destination = true,
+        detached = true, retired = true, released = true, unknown = true }
+    local snapshot = stableCopy(source.snapshot, 18, { count = 8192 })
+    if snapshot == nil then return nil end
+    local sourcePoint = source.source and normalizePoint(source.source) or nil
+    local actorId = type(source.actorId) == "string"
+        and cleanText(source.actorId, "", 96) or nil
+    local itemType = type(source.itemType) == "string"
+        and cleanText(source.itemType, "", 128) or nil
+    local destinationStorageId = validId(source.destinationStorageId, "storage:")
+        and source.destinationStorageId or nil
+    if not sourcePoint or not actorId or actorId == "" or not itemType or itemType == ""
+        or not destinationStorageId then return nil end
+    local owner = ownerKinds[source.owner] and source.owner or "unknown"
+    local detachedProof = source.detachedProof == true
+    if detachedProof and not ((source.phase == "recovery" or source.phase == "quarantined")
+        and owner == "detached") then return nil end
+    if source.phase == "selected" and owner ~= "world" then return nil end
+    if (source.phase == "carried" or source.phase == "depositing")
+        and owner ~= "actor" then return nil end
+    if source.phase == "delivered"
+        and (owner ~= "destination" or source.accounted ~= true) then return nil end
+    if source.phase == "released"
+        and (owner ~= "released" or source.accounted ~= true) then return nil end
+    if source.phase == "cancelled" and source.accounted ~= true then return nil end
+    return {
+        version = BaseLife.WORK_VERSION,
+        id = source.id,
+        orderId = source.orderId,
+        jobId = validId(source.jobId, "job:") and source.jobId or nil,
+        token = cleanText(source.token, source.id, 128),
+        itemType = itemType,
+        nativeId = (type(source.nativeId) == "number" or type(source.nativeId) == "string")
+            and source.nativeId or nil,
+        actorId = actorId,
+        source = sourcePoint,
+        destinationStorageId = destinationStorageId,
+        phase = source.phase,
+        owner = owner,
+        detachedProof = detachedProof,
+        accounted = source.accounted == true,
+        attempts = integer(source.attempts, 0, 0, 1000),
+        -- Wall/monotonic retry deadlines are runtime scheduling state. A
+        -- restored receipt is eligible for one bounded reconciliation pulse.
+        nextRetryAt = 0,
+        blocker = source.blocker ~= nil and cleanText(source.blocker, "recovery", 160) or nil,
+        snapshot = snapshot,
+        createdAt = math.max(0, finite(source.createdAt, 0)),
+        updatedAt = math.max(0, finite(source.updatedAt, 0)),
+    }
+end
+
+local function normalizeWork(source)
+    if source == nil then return emptyWork() end
+    if type(source) ~= "table" or tonumber(source.version) ~= BaseLife.WORK_VERSION then
+        local result = emptyWork()
+        local preserved = type(source) == "table"
+            and stableCopy(source, 12, { count = 8192 }) or nil
+        if preserved then
+            result.quarantine = { reason = "unsupported_work_version", raw = preserved }
+        end
+        return result
+    end
+    local result = emptyWork()
+    result.nextOrderSerial = integer(source.nextOrderSerial, 1, 1, 999999)
+    result.nextReceiptSerial = integer(source.nextReceiptSerial, 1, 1, 999999)
+    result.recoveryCursor = integer(source.recoveryCursor, 1, 1, 999999)
+    local maximumOrders = U() and U().config("workOrderRecordLimit") or 32
+    for _, row in ipairs(type(source.orders) == "table" and source.orders or {}) do
+        local order = normalizeWorkOrder(row)
+        if order and #result.orders < maximumOrders then
+            result.orders[#result.orders + 1] = order
+        end
+    end
+    local maximumReceipts = U() and U().config("workRecoveryMaxEntries") or 32
+    for _, row in ipairs(type(source.receipts) == "table" and source.receipts or {}) do
+        local receipt = normalizeWorkReceipt(row)
+        if receipt and #result.receipts < maximumReceipts then
+            result.receipts[#result.receipts + 1] = receipt
+        end
+    end
+    if type(source.quarantine) == "table" then
+        result.quarantine = stableCopy(source.quarantine, 12, { count = 8192 })
+    end
+    return result
+end
+
 local function normalizeBase(source)
     if type(source) ~= "table" or not validId(source.id, "base:") then return nil end
     local core = normalizePoint(source.core)
@@ -225,6 +388,7 @@ local function normalizeBase(source)
     local result = {
         id = source.id, name = cleanText(source.name, "Main Camp", 48), core = core,
         zones = {}, storages = {}, maintenanceTargets = {}, jobs = {}, completed = {},
+        work = emptyWork(),
         settings = {
             defense = DEFENSE_POLICIES[settings.defense] and settings.defense or "rotation",
             workload = WORKLOAD_POLICIES[settings.workload] and settings.workload or "balanced",
@@ -265,6 +429,7 @@ local function normalizeBase(source)
             result.completed[#result.completed + 1] = stableCopy(row, 2, { count = 32 })
         end
     end
+    result.work = normalizeWork(source.work)
     return result
 end
 
@@ -493,6 +658,11 @@ function BaseLife.removeZone(id)
     local zone, index
     if base then zone, index = findById(base.zones, id) end
     if not index then return false, "unknown_zone" end
+    for _, order in ipairs(base.work and base.work.orders or {}) do
+        if order.zoneId == id and order.state ~= "completed" and order.state ~= "cancelled" then
+            return false, "work_order_uses_zone"
+        end
+    end
     if zone.kind == "area" then
         local remaining, areaCount = {}, 0
         for candidateIndex, candidate in ipairs(base.zones) do
@@ -611,6 +781,18 @@ function BaseLife.removeStorage(id)
     local _, index
     if base then _, index = findById(base.storages, id) end
     if not index then return false, "unknown_storage" end
+    for _, order in ipairs(base.work and base.work.orders or {}) do
+        if order.destinationStorageId == id
+            and order.state ~= "completed" and order.state ~= "cancelled" then
+            return false, "work_order_uses_storage"
+        end
+    end
+    for _, receipt in ipairs(base.work and base.work.receipts or {}) do
+        if receipt.destinationStorageId == id and receipt.phase ~= "delivered"
+            and receipt.phase ~= "released" and receipt.phase ~= "cancelled" then
+            return false, "work_receipt_uses_storage"
+        end
+    end
     table.remove(base.storages, index)
     return true
 end
@@ -748,6 +930,436 @@ function BaseLife.removeMaintenanceTarget(id)
     return true
 end
 
+local function workFor(base)
+    if not base then return nil end
+    if type(base.work) ~= "table" then base.work = emptyWork() end
+    return base.work
+end
+
+local function workOrderIn(base, id)
+    local work = workFor(base)
+    return work and findById(work.orders, id) or nil
+end
+
+local function workReceiptIn(base, id)
+    local work = workFor(base)
+    return work and findById(work.receipts, id) or nil
+end
+
+local function orderIsTerminal(order)
+    return order and (order.state == "completed" or order.state == "cancelled")
+end
+
+local function receiptIsTerminal(receipt)
+    return receipt and (receipt.phase == "delivered" or receipt.phase == "released"
+        or receipt.phase == "cancelled")
+end
+
+local function pruneWorkRows(work)
+    local orderLimit = U().config("workOrderRecordLimit") or 32
+    while #work.orders >= orderLimit do
+        local removed = false
+        for index, order in ipairs(work.orders) do
+            local hasOpenReceipt = false
+            for _, receipt in ipairs(work.receipts) do
+                if receipt.orderId == order.id and not receiptIsTerminal(receipt) then
+                    hasOpenReceipt = true
+                    break
+                end
+            end
+            if orderIsTerminal(order) and not hasOpenReceipt then
+                for receiptIndex = #work.receipts, 1, -1 do
+                    if work.receipts[receiptIndex].orderId == order.id then
+                        table.remove(work.receipts, receiptIndex)
+                    end
+                end
+                table.remove(work.orders, index)
+                removed = true
+                break
+            end
+        end
+        if not removed then break end
+    end
+    local receiptLimit = U().config("workRecoveryMaxEntries") or 32
+    while #work.receipts >= receiptLimit do
+        local removed = false
+        for index, receipt in ipairs(work.receipts) do
+            if receiptIsTerminal(receipt) and receipt.accounted == true then
+                table.remove(work.receipts, index)
+                removed = true
+                break
+            end
+        end
+        if not removed then break end
+    end
+end
+
+local function nextWorkId(work, field, prefix)
+    local serial = integer(work[field], 1, 1, 999999)
+    work[field] = serial + 1
+    return prefix .. tostring(serial)
+end
+
+local function gatheringZone(base, id)
+    local zone = findById(base and base.zones or {}, id)
+    if not zone or zone.kind ~= "work" then return nil end
+    local tiles = (zone.x2 - zone.x1 + 1) * (zone.y2 - zone.y1 + 1)
+    if tiles > (U().config("workGatherMaximumTiles") or 256) then return nil end
+    if not BaseLife.zoneInsideAreaUnion(zone, base.zones) then return nil end
+    return zone
+end
+
+local function gatheringStorage(base, id)
+    local storage = findById(base and base.storages or {}, id)
+    if not storage or storage.deposits == false then return nil end
+    return storage
+end
+
+local function eligibleGatherWorkers(base, source)
+    local workers = normalizeWorkerIds(source)
+    if #workers < 1 then return nil, "gather_worker_missing" end
+    for _, id in ipairs(workers) do
+        local resident = ensure().residents[id]
+        if not resident or resident.baseId ~= base.id then
+            return nil, "gather_worker_not_resident"
+        end
+        local restriction = ensure().restrictions[id]
+        if restriction == "watch" or restriction == "quarantine" then
+            return nil, "gather_worker_restricted"
+        end
+        local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(id) or nil
+        if not record or not record.actor or record.recruited ~= true then
+            return nil, "gather_worker_unavailable"
+        end
+    end
+    return workers
+end
+
+function BaseLife.workOrder(id)
+    return workOrderIn(activeBase(), id)
+end
+
+function BaseLife.workOrders(includeTerminal)
+    local result, work = {}, workFor(activeBase())
+    for _, order in ipairs(work and work.orders or {}) do
+        if includeTerminal == true or not orderIsTerminal(order) then result[#result + 1] = order end
+    end
+    return result
+end
+
+function BaseLife.workReceipt(id)
+    return workReceiptIn(activeBase(), id)
+end
+
+function BaseLife.workReceipts(orderId, includeTerminal)
+    local result, work = {}, workFor(activeBase())
+    for _, receipt in ipairs(work and work.receipts or {}) do
+        if (orderId == nil or receipt.orderId == orderId)
+            and (includeTerminal == true or not receiptIsTerminal(receipt)) then
+            result[#result + 1] = receipt
+        end
+    end
+    return result
+end
+
+function BaseLife.allocateWorkReceipt(spec)
+    local base, current = activeBase(), now()
+    if not base then return false, "base_missing" end
+    spec = type(spec) == "table" and spec or {}
+    local order = workOrderIn(base, spec.orderId)
+    if not order or orderIsTerminal(order) then return false, "work_order_unavailable" end
+    local work = workFor(base)
+    pruneWorkRows(work)
+    if #work.receipts >= (U().config("workRecoveryMaxEntries") or 32) then
+        return false, "work_recovery_limit"
+    end
+    local activeForOrder = 0
+    for _, receipt in ipairs(work.receipts) do
+        if receipt.orderId == order.id and not receiptIsTerminal(receipt) then
+            activeForOrder = activeForOrder + 1
+        end
+    end
+    if order.delivered + activeForOrder >= order.requested then
+        return false, "gather_quota_reserved"
+    end
+    local copied = stableCopy(spec, 20, { count = 12288 }) or {}
+    copied.id = nextWorkId(work, "nextReceiptSerial", "work-receipt:")
+    copied.token = copied.id
+    copied.itemType = order.itemType
+    copied.destinationStorageId = order.destinationStorageId
+    copied.phase = "selected"
+    copied.owner = "world"
+    copied.accounted = false
+    copied.detachedProof = false
+    copied.attempts = 0
+    copied.createdAt, copied.updatedAt = current, current
+    local receipt = normalizeWorkReceipt(copied)
+    if not receipt then return false, "invalid_work_receipt" end
+    work.receipts[#work.receipts + 1] = receipt
+    order.updatedAt, order.blocker = current, nil
+    return true, receipt
+end
+
+function BaseLife.removeWorkReceipt(id)
+    local base = activeBase()
+    local receipt, index
+    if base then receipt, index = findById(workFor(base).receipts, id) end
+    if not receipt then return false, "unknown_work_receipt" end
+    if not receiptIsTerminal(receipt) then return false, "work_receipt_not_terminal" end
+    table.remove(base.work.receipts, index)
+    return true
+end
+
+function BaseLife.blockGatherOrder(id, reason)
+    local order = workOrderIn(activeBase(), id)
+    if not order or orderIsTerminal(order) then return false, "unknown_work_order" end
+    order.state, order.blocker, order.updatedAt = "blocked",
+        cleanText(reason, "gather_blocked", 160), now()
+    return true, order
+end
+
+local function removeGatherJobs(base, orderId, result)
+    for index = #base.jobs, 1, -1 do
+        local job = base.jobs[index]
+        if job.type == "gather_materials" and type(job.target) == "table"
+            and job.target.orderId == orderId then
+            if result ~= nil then
+                base.completed[#base.completed + 1] = {
+                    id = job.id, type = job.type, actorId = job.assignedId,
+                    completedAt = now(), result = cleanText(result, "completed", 96),
+                }
+                while #base.completed > 24 do table.remove(base.completed, 1) end
+            end
+            table.remove(base.jobs, index)
+        end
+    end
+end
+
+local function ensureGatherJobs(base, order)
+    for _, workerId in ipairs(order.workers) do
+        local exists = false
+        for _, job in ipairs(base.jobs) do
+            if job.type == "gather_materials" and job.assignedId == workerId
+                and type(job.target) == "table" and job.target.orderId == order.id then
+                exists = true
+                break
+            end
+        end
+        if not exists then
+            local accepted, reason = BaseLife.enqueueJob({
+                type = "gather_materials", priority = 3, assignedId = workerId,
+                target = { orderId = order.id },
+            })
+            if accepted ~= true then return false, reason end
+        end
+    end
+    return true
+end
+
+local function interruptGatherWorkers(order, reason)
+    for _, workerId in ipairs(order and order.workers or {}) do
+        local actor = U().resolveActor(workerId)
+        if actor and SC.BaseWork and type(SC.BaseWork.cancel) == "function" then
+            pcall(SC.BaseWork.cancel, actor, reason)
+        elseif actor and SC.GatherWork and type(SC.GatherWork.cancelActor) == "function" then
+            pcall(SC.GatherWork.cancelActor, actor, reason)
+        end
+    end
+end
+
+function BaseLife.createGatherOrder(spec)
+    local base, current = activeBase(), now()
+    spec = type(spec) == "table" and spec or {}
+    if not base then return false, "base_missing" end
+    local material = BaseLife.GATHER_MATERIALS[spec.material] and spec.material or nil
+    if not material then return false, "unsupported_gather_material" end
+    local zone = gatheringZone(base, spec.zoneId)
+    if not zone then return false, "invalid_gather_work_zone" end
+    local storage = gatheringStorage(base, spec.destinationStorageId)
+    if not storage then return false, "invalid_gather_destination" end
+    local container = BaseLife.resolveContainer(storage)
+    if not container then return false, "destination_storage_unloaded" end
+    local workers, workerReason = eligibleGatherWorkers(base, spec.workers)
+    if not workers then return false, workerReason end
+    local work, activeCount = workFor(base), 0
+    for _, order in ipairs(work.orders) do
+        if not orderIsTerminal(order) then activeCount = activeCount + 1 end
+    end
+    if activeCount >= (U().config("workMaximumOrders") or 8) then
+        return false, "work_order_limit"
+    end
+    pruneWorkRows(work)
+    if #work.orders >= (U().config("workOrderRecordLimit") or 32) then
+        return false, "work_order_history_full"
+    end
+    local enabledDuty = {}
+    for _, workerId in ipairs(workers) do
+        local resident = ensure().residents[workerId]
+        if resident.duty ~= true then
+            if spec.enableDuty ~= true then return false, "gather_worker_off_duty" end
+            resident.duty = true
+            enabledDuty[#enabledDuty + 1] = workerId
+        end
+    end
+    local order = normalizeWorkOrder({
+        id = nextWorkId(work, "nextOrderSerial", "work-order:"),
+        operation = "gather", material = material,
+        zoneId = zone.id, destinationStorageId = storage.id,
+        requested = integer(spec.requested, 12, 1, 100), delivered = 0,
+        workers = workers, state = "running", createdAt = current, updatedAt = current,
+    })
+    work.orders[#work.orders + 1] = order
+    local jobsReady, jobsReason = ensureGatherJobs(base, order)
+    if not jobsReady then
+        removeGatherJobs(base, order.id)
+        table.remove(work.orders, #work.orders)
+        for _, workerId in ipairs(enabledDuty) do ensure().residents[workerId].duty = false end
+        return false, jobsReason
+    end
+    BaseLife.noteHistory("gather_order_started", {
+        orderId = order.id, material = material, requested = order.requested,
+        zoneId = zone.id, destinationStorageId = storage.id,
+    })
+    return true, order, enabledDuty
+end
+
+function BaseLife.pauseGatherOrder(id, reason)
+    local base, order = activeBase(), workOrderIn(activeBase(), id)
+    if not order or orderIsTerminal(order) then return false, "unknown_work_order" end
+    if SC.WorkTransport and type(SC.WorkTransport.pauseOrder) == "function" then
+        SC.WorkTransport.pauseOrder(id, reason or "gather_paused")
+    end
+    interruptGatherWorkers(order, reason or "gather_paused")
+    order.state, order.blocker, order.updatedAt = "paused",
+        cleanText(reason, "gather_paused", 160), now()
+    for _, job in ipairs(base.jobs) do
+        if job.type == "gather_materials" and type(job.target) == "table"
+            and job.target.orderId == id then
+            job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
+        end
+    end
+    return true, order
+end
+
+function BaseLife.resumeGatherOrder(id)
+    local base, order = activeBase(), workOrderIn(activeBase(), id)
+    if not order or orderIsTerminal(order) then return false, "unknown_work_order" end
+    order.state, order.blocker, order.updatedAt = "running", nil, now()
+    local ready, reason = ensureGatherJobs(base, order)
+    if not ready then
+        order.state, order.blocker = "blocked", cleanText(reason, "job_restore_failed", 160)
+        return false, reason
+    end
+    if SC.GatherWork and type(SC.GatherWork.retryOrder) == "function" then
+        SC.GatherWork.retryOrder(id)
+    end
+    return true, order
+end
+
+function BaseLife.retryGatherOrder(id)
+    local order = workOrderIn(activeBase(), id)
+    if not order or orderIsTerminal(order) then return false, "unknown_work_order" end
+    if SC.WorkTransport and type(SC.WorkTransport.retryOrder) == "function" then
+        local ready, reason = SC.WorkTransport.retryOrder(id)
+        if ready ~= true then return false, reason end
+    end
+    return BaseLife.resumeGatherOrder(id)
+end
+
+function BaseLife.changeGatherDestination(id, storageId)
+    local base, order = activeBase(), workOrderIn(activeBase(), id)
+    if not order or orderIsTerminal(order) then return false, "unknown_work_order" end
+    local storage = gatheringStorage(base, storageId)
+    if not storage then return false, "invalid_gather_destination" end
+    if not BaseLife.resolveContainer(storage) then return false, "destination_storage_unloaded" end
+    interruptGatherWorkers(order, "gather_destination_changed")
+    order.destinationStorageId, order.updatedAt, order.blocker = storage.id, now(), nil
+    for _, receipt in ipairs(workFor(base).receipts) do
+        if receipt.orderId == id and not receiptIsTerminal(receipt) then
+            receipt.destinationStorageId, receipt.updatedAt = storage.id, now()
+        end
+    end
+    return true, order
+end
+
+function BaseLife.addGatherWorker(id, actorId)
+    local base, order = activeBase(), workOrderIn(activeBase(), id)
+    if not order or orderIsTerminal(order) then return false, "unknown_work_order" end
+    if #order.workers >= (U().config("workMaximumWorkersPerOrder") or 2) then
+        return false, "gather_worker_limit"
+    end
+    for _, workerId in ipairs(order.workers) do
+        if workerId == actorId then return true, order end
+    end
+    local workers, reason = eligibleGatherWorkers(base, { actorId })
+    if not workers then return false, reason end
+    order.workers[#order.workers + 1] = actorId
+    local wasOnDuty = ensure().residents[actorId].duty == true
+    ensure().residents[actorId].duty = true
+    local ready, jobReason = ensureGatherJobs(base, order)
+    if not ready then
+        table.remove(order.workers, #order.workers)
+        ensure().residents[actorId].duty = wasOnDuty
+        return false, jobReason
+    end
+    order.updatedAt = now()
+    return true, order
+end
+
+function BaseLife.cancelGatherOrder(id)
+    local base, order = activeBase(), workOrderIn(activeBase(), id)
+    if not order or orderIsTerminal(order) then return false, "unknown_work_order" end
+    if SC.WorkTransport and type(SC.WorkTransport.cancelOrder) == "function" then
+        SC.WorkTransport.cancelOrder(id, "gather_cancelled")
+    end
+    interruptGatherWorkers(order, "gather_cancelled")
+    order.state, order.blocker, order.updatedAt = "cancelled", nil, now()
+    removeGatherJobs(base, id)
+    BaseLife.noteHistory("gather_order_cancelled", {
+        orderId = id, material = order.material, delivered = order.delivered,
+    })
+    return true, order
+end
+
+function BaseLife.releaseGatherCargo(orderId, actorId)
+    if not SC.WorkTransport or type(SC.WorkTransport.releaseCarriedCargo) ~= "function" then
+        return false, "work_transport_unavailable"
+    end
+    return SC.WorkTransport.releaseCarriedCargo(orderId, actorId)
+end
+
+function BaseLife.accountGatherDelivery(orderId, receiptId)
+    local base, order = activeBase(), workOrderIn(activeBase(), orderId)
+    local receipt = workReceiptIn(base, receiptId)
+    if not order or not receipt or receipt.orderId ~= orderId then
+        return false, "work_receipt_mismatch"
+    end
+    if receipt.accounted == true then return true, order, "already_accounted" end
+    if receipt.phase ~= "delivered" or receipt.owner ~= "destination" then
+        return false, "work_delivery_unverified"
+    end
+    receipt.accounted, receipt.updatedAt = true, now()
+    order.delivered = math.min(order.requested, order.delivered + 1)
+    order.updatedAt, order.blocker = now(), nil
+    if order.delivered >= order.requested then
+        order.state, order.completedAt = "completed", now()
+        removeGatherJobs(base, orderId, "gathered")
+        BaseLife.noteHistory("gather_order_completed", {
+            orderId = order.id, material = order.material, delivered = order.delivered,
+        })
+    elseif order.state == "blocked" then
+        order.state = "running"
+    end
+    return true, order, "delivery_accounted"
+end
+
+function BaseLife.workRecoveryCursor(value)
+    local work = workFor(activeBase())
+    if not work then return 1 end
+    if value ~= nil then work.recoveryCursor = integer(value, 1, 1, 999999) end
+    return work.recoveryCursor
+end
+
 function BaseLife.enqueueJob(spec)
     local base = activeBase()
     spec = type(spec) == "table" and spec or {}
@@ -785,6 +1397,11 @@ function BaseLife.jobFor(actorId)
 end
 
 local function jobScore(actorId, job)
+    if job.type == "gather_materials" then
+        local orderId = type(job.target) == "table" and job.target.orderId or nil
+        local order = workOrderIn(activeBase(), orderId)
+        if not order or order.state ~= "running" then return -math.huge end
+    end
     local resident = ensure().residents[actorId] or { role = "generalist" }
     local role = BaseLife.ROLES[resident.role] and resident.role or "generalist"
     local score = job.priority * 20 + ((roleAffinity[role] or {})[job.type] or 0)
@@ -885,6 +1502,10 @@ function BaseLife.cancelJob(id)
     local job, index
     if base then job, index = findById(base.jobs, id) end
     if not job then return false, "unknown_job" end
+    if job.type == "gather_materials" and type(job.target) == "table"
+        and job.target.orderId then
+        return BaseLife.cancelGatherOrder(job.target.orderId)
+    end
     job.state, job.reservedBy, job.leaseUntil = "cancelled", nil, 0
     job.updatedAt = now()
     table.remove(base.jobs, index)
@@ -894,6 +1515,10 @@ end
 function BaseLife.retryJob(id)
     local job = BaseLife.job(id)
     if not job then return false, "unknown_job" end
+    if job.type == "gather_materials" and type(job.target) == "table"
+        and job.target.orderId then
+        return BaseLife.retryGatherOrder(job.target.orderId)
+    end
     if job.state ~= "blocked" then return false, "job_not_blocked" end
     job.state, job.retryAt, job.blocker = "pending", 0, nil
     job.updatedAt = now()
@@ -925,6 +1550,10 @@ function BaseLife.setDuty(actorId, enabled)
         end
         local ok, value = BaseLife.assign(actorId, role, enabled)
         return ok, value
+    end
+    if enabled ~= true and SC.WorkTransport
+        and type(SC.WorkTransport.yieldActor) == "function" then
+        pcall(SC.WorkTransport.yieldActor, actorId, "left_base_duty")
     end
     resident.duty = enabled == true
     if not resident.duty then
@@ -1117,6 +1746,7 @@ function BaseLife.summary()
         residents = 0, duty = 0, jobs = { pending = 0, active = 0, blocked = 0 },
         rows = {}, zoneRows = {}, storageRows = {}, maintenanceRows = {},
         residentRows = {}, history = {}, operations = operations,
+        workOrders = {}, workReceipts = 0,
     }
     for id, resident in pairs(ensure().residents) do
         if base and resident.baseId == base.id then
@@ -1157,7 +1787,8 @@ function BaseLife.summary()
                 id = storage.id, category = storage.category, reserve = storage.reserve,
                 reserves = stableCopy(storage.reserves, 2, { count = 64 }),
                 x = storage.x, y = storage.y, z = storage.z,
-                objectIndex = storage.objectIndex,
+                objectIndex = storage.objectIndex, objectId = storage.objectId,
+                deposits = storage.deposits ~= false,
             }
         end
         for _, target in ipairs(base.maintenanceTargets) do
@@ -1167,6 +1798,57 @@ function BaseLife.summary()
                 objectIndex = target.objectIndex,
             }
         end
+        local receiptCounts = {}
+        for _, receipt in ipairs(workFor(base).receipts) do
+            if not receiptIsTerminal(receipt) then
+                result.workReceipts = result.workReceipts + 1
+                local counts = receiptCounts[receipt.orderId]
+                    or { carried = 0, pending = 0, phases = {} }
+                if receipt.phase == "carried" or receipt.phase == "depositing" then
+                    counts.carried = counts.carried + 1
+                elseif receipt.phase == "quarantined" and receipt.owner == "actor" then
+                    -- The exact native item is still in a live worker inventory.
+                    -- Keep it visible as releasable cargo instead of hiding the
+                    -- only player action that can safely clear its work claim.
+                    counts.carried = counts.carried + 1
+                else counts.pending = counts.pending + 1 end
+                counts.phases[receipt.actorId] = {
+                    phase = receipt.phase, blocker = receipt.blocker,
+                }
+                receiptCounts[receipt.orderId] = counts
+            end
+        end
+        for _, order in ipairs(workFor(base).orders) do
+            local counts = receiptCounts[order.id]
+                or { carried = 0, pending = 0, phases = {} }
+            if not orderIsTerminal(order) or order.state == "completed"
+                or counts.carried > 0 or counts.pending > 0 then
+                local workerPhases = {}
+                for _, workerId in ipairs(order.workers) do
+                    local phase = counts.phases[workerId]
+                    local workerRecord = SC.Registry and type(SC.Registry.byId) == "function"
+                        and SC.Registry.byId(workerId) or nil
+                    workerPhases[#workerPhases + 1] = {
+                        id = workerId,
+                        name = workerRecord and workerRecord.actor
+                            and U().nameOf(workerRecord.actor) or workerId,
+                        phase = phase and phase.phase
+                            or (order.state == "running" and "seeking" or order.state),
+                        blocker = phase and phase.blocker or nil,
+                    }
+                end
+                result.workOrders[#result.workOrders + 1] = {
+                    id = order.id, operation = order.operation, material = order.material,
+                    itemType = order.itemType, zoneId = order.zoneId,
+                    destinationStorageId = order.destinationStorageId,
+                    requested = order.requested, delivered = order.delivered,
+                    workers = stableCopy(order.workers, 2, { count = 8 }),
+                    state = order.state, blocker = order.blocker,
+                    carried = counts.carried, pendingReceipts = counts.pending,
+                    workerPhases = workerPhases,
+                }
+            end
+        end
     end
     for _, row in ipairs(ensure().history) do
         result.history[#result.history + 1] = stableCopy(row, 3, { count = 64 })
@@ -1175,7 +1857,7 @@ function BaseLife.summary()
 end
 
 function BaseLife.export()
-    return stableCopy(ensure(), 7, { count = 8192 })
+    return stableCopy(ensure(), 20, { count = 65536 })
 end
 
 local function restoreFailure(path, detail)
@@ -1229,6 +1911,103 @@ local function validRecordArray(value, path, maximum)
         end
     end
     return true, countOrReason
+end
+
+local function validWorkSource(base, path)
+    local source = base.work
+    if source == nil then return true end
+    if type(source) ~= "table" then return restoreFailure(path, "expected work document") end
+    if tonumber(source.version) ~= BaseLife.WORK_VERSION then
+        local preserved, reason = stableCopy(source, 12, { count = 8192 })
+        if preserved == nil then
+            return restoreFailure(path, reason or "future work document unreadable")
+        end
+        return true
+    end
+    for _, field in ipairs({ "nextOrderSerial", "nextReceiptSerial", "recoveryCursor" }) do
+        if not finiteNumber(source[field]) or source[field] < 1
+            or source[field] ~= math.floor(source[field]) then
+            return restoreFailure(path .. "." .. field, "expected positive integer")
+        end
+    end
+    local okay, countOrReason = denseArray(source.orders, path .. ".orders",
+        configuredLimit("workOrderRecordLimit", 32))
+    if not okay then return false, countOrReason end
+    local orderIds = {}
+    for index = 1, countOrReason do
+        local order = source.orders[index]
+        if normalizeWorkOrder(order) == nil then
+            return restoreFailure(path .. ".orders[" .. tostring(index) .. "]", "invalid work order")
+        end
+        if orderIds[order.id] then
+            return restoreFailure(path .. ".orders[" .. tostring(index) .. "].id",
+                "duplicate work order")
+        end
+        orderIds[order.id] = normalizeWorkOrder(order)
+        local zone, storage = false, false
+        for _, row in ipairs(base.zones or {}) do
+            if row.id == order.zoneId and row.kind == "work" then zone = true break end
+        end
+        for _, row in ipairs(base.storages or {}) do
+            if row.id == order.destinationStorageId and row.deposits ~= false then
+                storage = true break
+            end
+        end
+        local normalizedOrder = normalizeWorkOrder(order)
+        local activeOrder = normalizedOrder and not orderIsTerminal(normalizedOrder)
+        if activeOrder and not zone then
+            return restoreFailure(path .. ".orders[" .. tostring(index) .. "].zoneId",
+                "unknown work zone")
+        end
+        if activeOrder and not storage then
+            return restoreFailure(path .. ".orders[" .. tostring(index)
+                .. "].destinationStorageId", "unknown deposit storage")
+        end
+    end
+    okay, countOrReason = denseArray(source.receipts, path .. ".receipts",
+        configuredLimit("workRecoveryMaxEntries", 32))
+    if not okay then return false, countOrReason end
+    local receiptIds = {}
+    for index = 1, countOrReason do
+        local receipt = source.receipts[index]
+        local normalizedReceipt = normalizeWorkReceipt(receipt)
+        if normalizedReceipt == nil then
+            return restoreFailure(path .. ".receipts[" .. tostring(index) .. "]",
+                "invalid work receipt")
+        end
+        if receiptIds[receipt.id] then
+            return restoreFailure(path .. ".receipts[" .. tostring(index) .. "].id",
+                "duplicate work receipt")
+        end
+        receiptIds[receipt.id] = true
+        local parent = orderIds[receipt.orderId]
+        if not parent then
+            return restoreFailure(path .. ".receipts[" .. tostring(index) .. "].orderId",
+                "unknown work order")
+        end
+        if normalizedReceipt.itemType ~= parent.itemType then
+            return restoreFailure(path .. ".receipts[" .. tostring(index) .. "].itemType",
+                "work receipt material mismatch")
+        end
+        local assigned = false
+        for _, workerId in ipairs(parent.workers) do
+            if workerId == normalizedReceipt.actorId then assigned = true break end
+        end
+        if not assigned then
+            return restoreFailure(path .. ".receipts[" .. tostring(index) .. "].actorId",
+                "work receipt actor is not assigned")
+        end
+        if not receiptIsTerminal(normalizedReceipt)
+            and normalizedReceipt.destinationStorageId ~= parent.destinationStorageId then
+            return restoreFailure(path .. ".receipts[" .. tostring(index)
+                .. "].destinationStorageId", "active work receipt destination mismatch")
+        end
+    end
+    if source.quarantine ~= nil then
+        local preserved, reason = stableCopy(source.quarantine, 12, { count = 8192 })
+        if preserved == nil then return restoreFailure(path .. ".quarantine", reason) end
+    end
+    return true
 end
 
 local function validBaseSource(source, id, path)
@@ -1340,6 +2119,8 @@ local function validBaseSource(source, id, path)
                 rowReason or "invalid completed record")
         end
     end
+    local workOkay, workReason = validWorkSource(source, path .. ".work")
+    if not workOkay then return false, workReason end
     return true
 end
 
@@ -1414,7 +2195,7 @@ function BaseLife.restore(source)
         document, draftZone, operationsCache = emptyDocument(), nil, nil
         return true, document
     end
-    local stable, reason = stableCopy(source, 12, { count = 8192 })
+    local stable, reason = stableCopy(source, 24, { count = 65536 })
     if stable == nil then return restoreFailure("$.baseLife", reason or "copy failed") end
     local valid, validationReason = validateRestoreSource(stable)
     if not valid then return false, validationReason end

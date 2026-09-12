@@ -698,6 +698,22 @@ local valueData = {
     baseOperationsAuditIntervalMs = 5000,
     baseOperationsStorageItemBudget = 160,
 
+    -- WP01 gathering stays finite, camp-local, and shares the existing scheduler.
+    workMaximumOrders = 8,
+    workOrderRecordLimit = 32,
+    workMaximumWorkersPerOrder = 2,
+    workGatherMaximumTiles = 256,
+    workGatherSquaresPerSlice = 16,
+    workGatherObjectsPerSlice = 32,
+    workGatherCandidateCooldownMs = 15000,
+    workGatherCandidateMaxAttempts = 3,
+    workRecoveryPerPulse = 2,
+    workRecoveryMaxEntries = 32,
+    workRecoveryMaxAttempts = 8,
+    workRecoveryRetryBaseMs = 500,
+    workRecoveryRetryMaximumMs = 5000,
+    workInteractionSettleMs = 250,
+
     -- Bites start a social incident. Evidence and deliberation advance slowly,
     -- with an additional delay before any irreversible outcome is eligible.
     infectionCrisisIntervalMs = 500,

@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.20.4-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.22.18-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.22.19-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns isolated survivors into persistent people who can become teammates, establish routines, help run a base, and make their own survival decisions. Companions use native human actors, keep real inventories and injuries, and can follow, fight, retreat, scavenge, work, travel, grieve, argue, and remember what happened to them.
@@ -41,7 +41,7 @@ New to Living Fellows? Jump to **[First five minutes](#first-five-minutes)**. Fu
 - Situational combat decisions based on health, endurance, panic, pain, skill, weapons, allies, nearby threats, footing, and escape quality.
 - Scavenging, nested bag management, armor and weapon upgrades, washing, eating, drinking, bandaging, supply crafting, and role-aware carry limits.
 - Follow, stay, guard, patrol, regroup, retreat, work, vehicle, weapon, combat, stealth, and Rules of Engagement policies.
-- Living-base routines, camp storage, readiness, watches, chores, repair, crafting, downtime, boredom, stress responses, conflict, and morale boosts.
+- Living-base routines, camp storage, finite physical log/plank gathering, readiness, watches, chores, repair, crafting, downtime, boredom, stress responses, conflict, and morale boosts.
 - Survivor households that barricade homes, warn strangers, defend territory, expose shortages, trade conditionally, remember player conduct, and offer social contracts, plus rare hostile bandit camps that patrol and fight both the player group and zombies.
 - An optional base-layout overlay with color-coded zone boundaries, storage outlines and live placement previews, plus faction and quest markers on the world map.
 - Debug, movement-recording, and profiling tools in development builds, with fail-closed runtime health checks in public builds.
@@ -202,7 +202,9 @@ Companions are vulnerable to wounds and Knox infection. Death is permanent and i
 
 Each survivor receives a deterministic profession, trait, personality profile, history, keepsake, camp role, and personal objective. Trust, bond, shared time, care, morale, stress, memories, grief, and pairwise relationships persist. Dialogue uses real context and varied line pools instead of one repeated response.
 
-Safe companions can read, sit, wash, maintain gear, craft supplies, sort storage, repair, keep watch, patrol, or ask about the next supply run. The Base view can remove non-core zones, reclassify storage and set withdrawal reserves, enable or remove maintenance targets, and retry or cancel queued work; destructive management actions ask for confirmation, and the final base area cannot be removed. **Show base layout** draws nearby zones as color-coded ground boundaries and loaded storage as category-colored outlines with labels. Individual zone and storage controls emphasize one record, while two-corner zoning gets a live preview even when the persistent overlay is hidden. Prolonged stress can produce venting, pacing, arguments, withdrawal, furniture strikes, thrown empty bottles, or depressive shutdown. Positive momentum can also improve behavior. Immediate danger interrupts every ambient activity.
+Safe companions can read, sit, wash, maintain gear, craft supplies, sort storage, repair, keep watch, patrol, or ask about the next supply run. The Base view can also assign one or two residents to gather a finite quantity of loose logs or planks from a selected work zone into one exact registered storage container. This is physical work: companions scan loaded camp squares, walk to an existing floor item, use a human loot pose, carry that exact item and deposit it; existing stock and unloaded areas never manufacture progress. Orders expose delivered quantity, carried cargo, blockers, pause/resume/retry, destination change, cancellation and explicit cargo release.
+
+The Base view can remove non-core zones, reclassify storage and set withdrawal reserves, enable or remove maintenance targets, and retry or cancel queued work; destructive management actions ask for confirmation, and the final base area cannot be removed. **Show base layout** draws nearby zones as color-coded ground boundaries and loaded storage as category-colored outlines with labels. Individual zone and storage controls emphasize one record, while two-corner zoning gets a live preview even when the persistent overlay is hidden. Prolonged stress can produce venting, pacing, arguments, withdrawal, furniture strikes, thrown empty bottles, or depressive shutdown. Positive momentum can also improve behavior. Immediate danger interrupts every ambient activity.
 
 ## Survivor households and factions
 
@@ -218,7 +220,7 @@ Bandit camps are a separate, permanently hostile archetype. They begin appearing
 
 Living Fellows writes versioned state into world-scoped Project Zomboid Global ModData. The current world document is schema 3; recursive inventory nodes remain schema 2 for nested bags, worn and attached equipment, weapon parts, and fluid state. Companions, households, relationships, contracts, bases, and bounded memories therefore survive replacement of a dead player character.
 
-Failed barter uses a durable per-item recovery journal. Reconstruction records native identity before applying state, verifies the finished item against its snapshot, and requires inventory membership to agree with the item's native owner pointer. Ambiguous absence is quarantined rather than guessed: the mod will not create a replacement merely because the marked original is no longer in either trader's inventory. Dead owners transition to a terminal descriptor before retirement, and bounded recovery rotates fairly without blocking unrelated households.
+Failed barter uses a durable per-item recovery journal. Reconstruction journals the exact factory-created object before inventory insertion, marks it before optional native-ID reads, verifies the finished item against its snapshot, and requires inventory membership to agree with the item's native owner pointer. A half-completed trade is compensated back to the original source before recovery closes. Ambiguous absence or an unlocated partial build is quarantined rather than guessed: the mod will not create a replacement merely because the marked original is no longer in either trader's inventory. Dead owners transition to a terminal descriptor before retirement, and bounded recovery rotates fairly without blocking unrelated households.
 
 Before installing or updating:
 

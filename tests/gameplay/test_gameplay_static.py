@@ -37,6 +37,8 @@ OWNED = [
     "SCObjectives.lua",
     "SCJournal.lua",
     "SCBaseLife.lua",
+    "SCWorkTransport.lua",
+    "SCGatherWork.lua",
     "SCQuirks.lua",
     "SCBaseWork.lua",
     "SCFactions.lua",
@@ -91,7 +93,17 @@ REQUIRED_EXPORTS = {
     "SCBaseLife.lua": ["create", "describeObject", "resolveObject", "removeZone", "removeStorage", "setStorageCategory",
                        "setReserve", "setMaintenanceTargetEnabled", "removeMaintenanceTarget",
                        "enqueueJob", "claimJob", "cancelJob", "retryJob", "setPolicy",
-                       "guardStatus", "auditOperations", "export", "restore"],
+                       "guardStatus", "auditOperations", "createGatherOrder", "pauseGatherOrder",
+                       "resumeGatherOrder", "retryGatherOrder", "cancelGatherOrder",
+                       "changeGatherDestination", "addGatherWorker", "releaseGatherCargo",
+                       "accountGatherDelivery",
+                       "export", "restore"],
+    "SCWorkTransport.lua": ["reserve", "collect", "deposit", "reconcile",
+                            "recoverPending", "transferVerified", "isCargoProtected",
+                            "retryOrder", "releaseCarriedCargo", "prepareActorRetirement",
+                            "diagnostics", "reset"],
+    "SCGatherWork.lua": ["validateZone", "nextCandidate", "update", "retryOrder",
+                         "diagnostics", "reset"],
     "SCQuirks.lua": ["normalize", "describe", "acceptsLoot", "itemDesireBonus",
                        "onVerifiedLoot", "recognitionCandidate", "speakRecognition",
                        "observeRecognitionResolution", "ritualIntent", "updateRitual",
@@ -188,8 +200,35 @@ def main() -> int:
     require(gameplay_runner.index("SCConfig.lua") < gameplay_runner.index("SCGameplayUtil.lua"),
             "gameplay harness must load canonical SCConfig before SCGameplayUtil")
     require("perceptionScanRebaseDistance = 2.0" in config_source
-            and "combatTargetActionHardCap = 8" in config_source,
+            and "combatTargetActionHardCap = 8" in config_source
+            and "workGatherObjectsPerSlice = 32" in config_source
+            and "workGatherCandidateMaxAttempts = 3" in config_source
+            and "workRecoveryMaxAttempts = 8" in config_source,
             "responsiveness controls are missing from canonical SCConfig")
+
+    transport_source = sources["SCWorkTransport.lua"]
+    gather_source = sources["SCGatherWork.lua"]
+    base_life_source = sources["SCBaseLife.lua"]
+    base_work_source = sources["SCBaseWork.lua"]
+    require('logs = "Base.Log"' in base_life_source
+            and 'planks = "Base.Plank"' in base_life_source,
+            "gathering must use exact installed Build 42 item types")
+    require('job.type == "gather_materials"' in base_work_source
+            and "SC.GatherWork.update(actor, state, job)" in base_work_source,
+            "base dispatcher does not route gathering through the production worker")
+    require("verifiedContainerOwner" in transport_source
+            and 'invoke(container, "hasRoomFor", actor, item)' in transport_source
+            and "captureDetachedItem" in transport_source
+            and "restoreDetachedItem" in transport_source,
+            "work transport lacks exact ownership, capacity, or recovery boundaries")
+    require("workGatherSquaresPerSlice" in gather_source
+            and "workGatherObjectsPerSlice" in gather_source
+            and "workCampOnly = true" in gather_source
+            and 'return nil, "gather_area_scan_incomplete", false' in gather_source,
+            "gathering scan must be resumable and preserve incomplete evidence")
+    require("requestIntent.workCampOnly ~= true" in sources["SCNavigation.lua"]
+            and "outside_admitted_area" in sources["SCNavigation.lua"],
+            "ordinary camp work must not fall back to an unrestricted native route")
 
     for name in ("SCGameplayUtil.lua", "SCNativeActions.lua", "SCSpawn.lua",
                  "SCRuntime.lua", "SCScheduler.lua"):
@@ -208,6 +247,7 @@ def main() -> int:
                   "SCNavTraffic.lua": "Traffic",
                   "SCNavTraversal.lua": "Traversal",
                   "SCPerceptionScan.lua": "Scan",
+                  "SCWorkTransport.lua": "Transport", "SCGatherWork.lua": "Gather",
                   "SCFactionLife.lua": "Life", "SCFactionContracts.lua": "Contracts",
                   "SCFactionWorld.lua": "World", "SCFactionRecruitment.lua": "Recruitment"}.get(
             name, name.removeprefix("SC").removesuffix(".lua"))

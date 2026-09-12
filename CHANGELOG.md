@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.22.19 - Dependable gathering and recovery
+
+- Added finite physical gathering orders for logs and planks. The Base view binds one camp work zone, one exact registered destination and up to two residents; workers scan loaded squares incrementally, walk to an existing floor item, use an effect-free loot pose, carry that exact native object and count only its verified deposit.
+- Added durable work-cargo receipts across selection, carrying, delivery, pause, cancellation, actor retirement and save/reload. Quota reservations prevent two workers from over-delivering, unloaded evidence waits without inventing a result, ambiguous ownership quarantines without copying, and explicit retry, destination change and cargo release remain player-controlled.
+- Made detached item reconstruction journal the factory-created native object before `ItemContainer.AddItem` can mutate or throw. Root/build markers are attached before optional native-ID reads, and cleanup retains an exact reachable anchor whenever any created child or weapon part cannot be proven removed.
+- Kept persisted partial reconstruction evidence fail-closed when its native object cannot be found in either original inventory. A partial moved to world space, a corpse or a third container—or restored with a changed native ID—can no longer be treated as absent and silently duplicated.
+- Made trade recovery compensate every verified half-transfer back to its original source before closing the journal. Destination ownership is no longer accepted as successful rollback, including when the trade finalizer fails after both items moved.
+- Invalidated held negative zombie evidence when two complete same-count native passes disagree or a sliced pass is incoherent. A changing roster can no longer keep an obsolete room-clear or trade-safety proof merely because its total count stayed constant.
+- Extended the coupled Kahlua and installed-JAR gates with mutation-then-throw/nil insertion, failed native-ID capture, partial artifacts outside both owners, changed IDs, one- and two-sided half trades, finalizer rollback, same-count roster churn and the exact `InventoryItemFactory.CreateItem(String)` contract.
+
 ## 0.22.18 - Verified trade recovery
 
 - Made detached trade reconstruction transactional across native failures. Every generated root records its native item ID before state mutation, generated roots and weapon parts carry a build identity, and only a recaptured snapshot match can advance the root from `building` to `verified`. Failed cleanup retains the exact partial identity across save/restart and never creates a replacement until removal is proven.

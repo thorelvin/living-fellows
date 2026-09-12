@@ -22,9 +22,28 @@ local restoreFailureReason = "restore has not committed"
 local worldStore = nil
 local quarantined = { companions = {}, factionActors = {}, subsystems = {} }
 local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true }
-local detachedRecoveryMarker = "LF_TradeRecoveryId"
-local detachedRecoveryStateMarker = "LF_TradeRecoveryState"
-local detachedRecoveryBuildMarker = "LF_TradeRecoveryBuildId"
+local defaultDetachedMarkerKeys = {
+    id = "LF_TradeRecoveryId",
+    state = "LF_TradeRecoveryState",
+    build = "LF_TradeRecoveryBuildId",
+}
+
+local function detachedMarkerKeys(source)
+    if source == nil then return defaultDetachedMarkerKeys end
+    if type(source) ~= "table" then return nil end
+    local result = { id = source.id, state = source.state, build = source.build }
+    for _, key in ipairs({ "id", "state", "build" }) do
+        if type(result[key]) ~= "string" or result[key] == "" or #result[key] > 96
+            or not string.match(result[key], "^LF_[%w_]+$") then return nil end
+    end
+    return result
+end
+
+local function detachedIgnoredKeys(source)
+    local keys = detachedMarkerKeys(source)
+    if not keys then return nil end
+    return { [keys.id] = true, [keys.state] = true, [keys.build] = true }
+end
 
 local function method(object, name)
     if object == nil then
@@ -1006,7 +1025,10 @@ function persistence.save(player)
     local subsystemDefinitions = {
         { field = "factions", owner = SC.Factions, depth = 12, entries = 131072 },
         { field = "factionWorld", owner = SC.FactionWorld, depth = 8, entries = 16384 },
-        { field = "baseLife", owner = SC.BaseLife, depth = 10, entries = 16384 },
+        -- Work receipts may contain one bounded schema-2 item snapshot. Preserve
+        -- that evidence deeply enough for save/reload recovery instead of
+        -- truncating it at the older base-only document budget.
+        { field = "baseLife", owner = SC.BaseLife, depth = 24, entries = 65536 },
         { field = "infectionCrisis", owner = SC.InfectionCrisis,
             depth = 10, entries = 16384 },
         { field = "community", owner = SC.Community, depth = 10, entries = 32768 },
@@ -1310,27 +1332,47 @@ function persistence.validateDetachedItem(source)
     return snapshot
 end
 
-local detachedIgnoredKeys = {
-    [detachedRecoveryMarker] = true,
-    [detachedRecoveryStateMarker] = true,
-    [detachedRecoveryBuildMarker] = true,
-}
+local function containsOnlyIgnoredState(value, depth, budget, ignoredKeys)
+    if type(value) ~= "table" or depth > 20 or budget.count <= 0 then return false end
+    budget.count = budget.count - 1
+    for childKey, child in pairs(value) do
+        if ignoredKeys[childKey] ~= true then
+            if type(child) ~= "table"
+                or not containsOnlyIgnoredState(child, depth + 1, budget, ignoredKeys) then
+                return false
+            end
+        end
+    end
+    return true
+end
 
-local function detachedEquivalent(left, right, depth, budget, key)
-    if detachedIgnoredKeys[key] == true then return true end
-    if type(left) ~= type(right) then return false end
+local function detachedEquivalent(left, right, depth, budget, key, ignoredKeys)
+    if ignoredKeys[key] == true then return true end
+    if type(left) ~= type(right) then
+        if left == nil and type(right) == "table" then
+            return containsOnlyIgnoredState(right, depth + 1, budget, ignoredKeys)
+        end
+        if right == nil and type(left) == "table" then
+            return containsOnlyIgnoredState(left, depth + 1, budget, ignoredKeys)
+        end
+        return false
+    end
     if type(left) == "number" then return math.abs(left - right) <= 0.0001 end
     if type(left) ~= "table" then return left == right end
     if depth > 20 or budget.count <= 0 then return false end
     budget.count = budget.count - 1
     for childKey, value in pairs(left) do
-        if detachedIgnoredKeys[childKey] ~= true
-            and not detachedEquivalent(value, right[childKey], depth + 1, budget, childKey) then
+        if ignoredKeys[childKey] ~= true
+            and not detachedEquivalent(value, right[childKey], depth + 1, budget,
+                childKey, ignoredKeys) then
             return false
         end
     end
     for childKey in pairs(right) do
-        if detachedIgnoredKeys[childKey] ~= true and left[childKey] == nil then return false end
+        if ignoredKeys[childKey] ~= true and left[childKey] == nil
+            and not (type(right[childKey]) == "table"
+                and containsOnlyIgnoredState(right[childKey], depth + 1,
+                    budget, ignoredKeys)) then return false end
     end
     return true
 end
@@ -1338,14 +1380,16 @@ end
 -- A successful setter call is not enough proof for native inventory state: a
 -- modded item may reject a value without throwing. Recapture the finished item
 -- and compare it with the durable snapshot before recovery may be committed.
-function persistence.verifyDetachedItem(item, source)
+function persistence.verifyDetachedItem(item, source, markerKeys)
     local expected, expectedReason = persistence.validateDetachedItem(source)
     if expected == nil then return false, expectedReason end
+    local ignored = detachedIgnoredKeys(markerKeys)
+    if ignored == nil then return false, "detached recovery marker contract is invalid" end
     local actual, actualReason = persistence.captureDetachedItem(item)
     if actual == nil then return false, actualReason end
     actual, actualReason = persistence.validateDetachedItem(actual)
     if actual == nil then return false, actualReason end
-    if not detachedEquivalent(expected, actual, 0, { count = 65536 }) then
+    if not detachedEquivalent(expected, actual, 0, { count = 65536 }, nil, ignored) then
         return false, "restored detached item state does not match its snapshot"
     end
     return true
@@ -1582,58 +1626,69 @@ local function inventoryContainsIdentity(inventory, item)
     return false
 end
 
-local function markCreatedItem(item, context, root)
-    local nativeIdOk, nativeId = invoke(item, "getID")
+local function journalCreatedItem(item, context, inventory, root)
+    local created = { item = item, inventory = inventory, nativeId = nil }
     if type(context.created) == "table" then
-        context.created[#context.created + 1] = {
-            item = item, inventory = context.currentInventory,
-            nativeId = nativeIdOk and nativeId or nil,
-        }
+        context.created[#context.created + 1] = created
     end
+    context.currentInventory = inventory
+    if root == true then context.rootItem = item end
+    return created
+end
+
+local function markCreatedItem(item, context, root, created)
     if context.recoveryId == nil then return true end
-    if not nativeIdOk or nativeId == nil then
-        return false, "recovery reconstruction native identity is unavailable"
-    end
-    if root == true then
-        context.rootItem = item
-        context.rootNativeId = nativeId
-    end
+    -- Attach the durable build identity before asking for an optional native
+    -- ID. A failed ID read must not turn an already inserted object into an
+    -- unmarked partial that cannot be found after reload.
     local dataOk, data = invoke(item, "getModData")
+    local markers = context.markerKeys
+    if dataOk and type(data) == "table" then
+        data[markers.build] = context.recoveryId
+        if root == true then
+            data[markers.id] = context.recoveryId
+            data[markers.state] = "building"
+        end
+    end
+    local nativeIdOk, nativeId = invoke(item, "getID")
+    if created then created.nativeId = nativeIdOk and nativeId or nil end
+    if root == true then context.rootNativeId = nativeIdOk and nativeId or nil end
     if not dataOk or type(data) ~= "table" then
         return false, "recovery reconstruction identity could not be attached"
     end
-    data[detachedRecoveryBuildMarker] = context.recoveryId
-    if root == true then
-        data[detachedRecoveryMarker] = context.recoveryId
-        data[detachedRecoveryStateMarker] = "building"
+    if not nativeIdOk or nativeId == nil then
+        return false, "recovery reconstruction native identity is unavailable"
     end
     return true
 end
 
 local function clearCreatedBuildMarkers(context)
+    local markers = context.markerKeys
     for _, created in ipairs(context.created) do
         local dataOk, data = invoke(created.item, "getModData")
         if not dataOk or type(data) ~= "table" then
             return false, "recovery reconstruction marker could not be finalized"
         end
-        if data[detachedRecoveryBuildMarker] == context.recoveryId then
-            data[detachedRecoveryBuildMarker] = nil
+        if data[markers.build] == context.recoveryId then
+            data[markers.build] = nil
         end
     end
     local dataOk, data = invoke(context.rootItem, "getModData")
     if not dataOk or type(data) ~= "table"
-        or data[detachedRecoveryMarker] ~= context.recoveryId then
+        or data[markers.id] ~= context.recoveryId then
         return false, "recovery reconstruction root identity changed"
     end
-    data[detachedRecoveryStateMarker] = "verified"
+    data[markers.state] = "verified"
     return true
 end
 
 local function cleanupCreatedItems(context)
+    local markers = context.markerKeys
     local complete = true
     for index = #context.created, 1, -1 do
         local created = context.created[index]
         local item, candidates, seen = created.item, {}, {}
+        local itemComplete = true
         local function addCandidate(inventory)
             if inventory ~= nil and not seen[inventory] then
                 seen[inventory] = true
@@ -1642,30 +1697,83 @@ local function cleanupCreatedItems(context)
         end
         addCandidate(created.inventory)
         local ownerOk, owner = invoke(item, "getContainer")
-        if ownerOk then addCandidate(owner) else complete = false end
+        if ownerOk then addCandidate(owner) else itemComplete = false end
         for _, inventory in ipairs(candidates) do
             local present = inventoryContainsIdentity(inventory, item)
             if present == true then invoke(inventory, "Remove", item) end
-            if inventoryContainsIdentity(inventory, item) ~= false then complete = false end
+            if inventoryContainsIdentity(inventory, item) ~= false then itemComplete = false end
         end
         local afterOk, afterOwner = invoke(item, "getContainer")
-        if not afterOk or afterOwner ~= nil then complete = false end
+        if not afterOk or afterOwner ~= nil then itemComplete = false end
+        local worldOk, worldItem = invoke(item, "getWorldItem")
+        if not worldOk or worldItem ~= nil then itemComplete = false end
+        if not itemComplete then
+            complete = false
+            -- Children and weapon parts are journaled after their root. Keep
+            -- that root as a durable anchor when a later artifact cannot be
+            -- removed, instead of cleaning the only object recovery can find.
+            break
+        end
     end
     if complete then
         for _, created in ipairs(context.created) do
             local dataOk, data = invoke(created.item, "getModData")
             if dataOk and type(data) == "table" then
-                if data[detachedRecoveryBuildMarker] == context.recoveryId then
-                    data[detachedRecoveryBuildMarker] = nil
+                if data[markers.build] == context.recoveryId then
+                    data[markers.build] = nil
                 end
-                if data[detachedRecoveryMarker] == context.recoveryId then
-                    data[detachedRecoveryMarker] = nil
-                    data[detachedRecoveryStateMarker] = nil
+                if data[markers.id] == context.recoveryId then
+                    data[markers.id] = nil
+                    data[markers.state] = nil
                 end
             end
         end
     end
     return complete
+end
+
+local function createRecoveryItem(itemType)
+    local factory = type(_G) == "table" and rawget(_G, "InventoryItemFactory") or nil
+    if factory == nil then
+        return false, "recovery reconstruction item factory is unavailable"
+    end
+    local createdOk, item = staticInvoke(factory, "CreateItem", itemType)
+    if not createdOk or item == nil then
+        return false, "inventory item could not be created: " .. tostring(itemType)
+    end
+    return true, item
+end
+
+local function addCreatedItem(parentInventory, itemType, context, root)
+    if context.recoveryId == nil then
+        local addedOk, item = invoke(parentInventory, "AddItem", itemType)
+        if not addedOk or item == nil then
+            return false, "inventory item could not be restored: " .. tostring(itemType)
+        end
+        context.currentInventory = parentInventory
+        return true, item
+    end
+
+    -- Create first so the exact native object can enter the attempt ledger
+    -- before AddItem executes any re-entrant or throwing mutation.
+    local createdOk, itemOrReason = createRecoveryItem(itemType)
+    if not createdOk then return false, itemOrReason end
+    local item = itemOrReason
+    local created = journalCreatedItem(item, context, parentInventory, root)
+    local addedOk, added = invoke(parentInventory, "AddItem", item)
+    -- Even when AddItem threw after mutation, attach all identity evidence to
+    -- the retained pointer before returning control to cleanup.
+    local marked, markReason = markCreatedItem(item, context, root, created)
+    if not marked then return false, markReason end
+    if not addedOk or added ~= item then
+        return false, "inventory item insertion was not acknowledged: " .. tostring(itemType)
+    end
+    local member = inventoryContainsIdentity(parentInventory, item)
+    local ownerOk, owner = invoke(item, "getContainer")
+    if member ~= true or not ownerOk or owner ~= parentInventory then
+        return false, "inventory item insertion ownership is unverified: " .. tostring(itemType)
+    end
+    return true, item
 end
 
 local function addInventoryNode(parentInventory, entry, context, depth)
@@ -1677,14 +1785,11 @@ local function addInventoryNode(parentInventory, entry, context, depth)
             "duplicate personal key ignored during restore", personalKey)
         return true, context.restoredKeys[personalKey]
     end
-    local addedOk, item = invoke(parentInventory, "AddItem", entry.type)
-    if not addedOk or item == nil then return false, "inventory item could not be restored: " .. entry.type end
-    context.currentInventory = parentInventory
-    local marked, markReason = markCreatedItem(item, context, depth == 1)
-    if not marked then return false, markReason end
+    local addedOk, item = addCreatedItem(parentInventory, entry.type, context, depth == 1)
+    if not addedOk then return false, item end
     context.byId[entry.id] = item
     local stateOk, stateReason = applyItemState(item, entry, context.restoredKeys,
-        context.recoveryId and detachedIgnoredKeys or nil)
+        context.recoveryId and context.ignoredKeys or nil)
     if not stateOk then return false, stateReason end
     if #entry.children > 0 then
         local nestedOk, nested = invoke(item, "getInventory")
@@ -1695,14 +1800,12 @@ local function addInventoryNode(parentInventory, entry, context, depth)
         end
     end
     for _, partEntry in ipairs(entry.weaponParts) do
-        local partOk, part = invoke(context.rootInventory, "AddItem", partEntry.type)
-        if not partOk or part == nil then return false, "weapon part could not be created: " .. partEntry.type end
-        context.currentInventory = context.rootInventory
-        local partMarked, partMarkReason = markCreatedItem(part, context, false)
-        if not partMarked then return false, partMarkReason end
+        local partOk, part = addCreatedItem(
+            context.rootInventory, partEntry.type, context, false)
+        if not partOk then return false, part end
         context.byId[partEntry.id] = part
         local partStateOk, partStateReason = applyItemState(part, partEntry,
-            context.restoredKeys, context.recoveryId and detachedIgnoredKeys or nil)
+            context.restoredKeys, context.recoveryId and context.ignoredKeys or nil)
         if not partStateOk then return false, partStateReason end
         if not invoke(context.rootInventory, "Remove", part) then
             return false, "weapon part could not leave the root inventory"
@@ -1714,7 +1817,7 @@ local function addInventoryNode(parentInventory, entry, context, depth)
     return true, item
 end
 
-function persistence.restoreDetachedItem(actor, source, recoveryId)
+function persistence.restoreDetachedItem(actor, source, recoveryId, markerContract)
     if actor == nil then return nil, "detached item owner is unavailable" end
     local snapshot, reason = persistence.validateDetachedItem(source)
     if snapshot == nil then return nil, reason end
@@ -1730,13 +1833,16 @@ function persistence.restoreDetachedItem(actor, source, recoveryId)
         or recoveryId == "" or #recoveryId > 128) then
         return nil, "detached recovery identity is invalid"
     end
+    local markers = detachedMarkerKeys(markerContract)
+    local ignored = detachedIgnoredKeys(markerContract)
+    if not markers or not ignored then return nil, "detached recovery marker contract is invalid" end
     local context = {
         rootInventory = inventory, byId = {}, restoredKeys = {}, created = {},
-        recoveryId = recoveryId,
+        recoveryId = recoveryId, markerKeys = markers, ignoredKeys = ignored,
     }
     local applied, item = addInventoryNode(inventory, snapshot.roots[1], context, 1)
     if applied then
-        local verified, verifyReason = persistence.verifyDetachedItem(item, snapshot)
+        local verified, verifyReason = persistence.verifyDetachedItem(item, snapshot, markerContract)
         if verified and recoveryId ~= nil then
             verified, verifyReason = clearCreatedBuildMarkers(context)
         end

@@ -165,6 +165,17 @@ try {
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @tradePersistenceFiles
         if ($LASTEXITCODE -ne 0) { throw 'Trade/persistence recovery integration harness failed.' }
 
+        $workTransportFiles = @($coreFiles | Select-Object -SkipLast 2)
+        $workTransportFiles += @(
+            (Join-Path $TestRoot 'work_transport_fixture.lua'),
+            (Join-Path $Client 'SCWorkTransport.lua'),
+            (Join-Path $Client 'SCGatherWork.lua'),
+            (Join-Path $Client 'SCBaseWork.lua'),
+            (Join-Path $TestRoot 'work_transport_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @workTransportFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Gathering/transport ownership integration harness failed.' }
+
         $persistenceTransactionFiles = @($coreFiles | Select-Object -SkipLast 2)
         $persistenceTransactionFiles += Join-Path $TestRoot 'persistence_transaction_harness.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @persistenceTransactionFiles

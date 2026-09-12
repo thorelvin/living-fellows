@@ -1,4 +1,4 @@
-Living Fellows: Companion 0.22.18 verified trade recovery playtest
+Living Fellows: Companion 0.22.19 dependable gathering and recovery playtest
 
 The included native bridge supplies SCNativeCompanion, an original IsoPlayer
 subclass that remains outside the local-player slots. Workshop installations

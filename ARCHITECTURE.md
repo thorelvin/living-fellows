@@ -33,9 +33,22 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   operations, no read-side identity allocation, and fail-closed legacy records.
   `SCBaseLife` retains the base document, serial allocation, save schema, and its
   existing public resolver facade.
+- `SCGatherWork` owns the resumable, camp-bounded floor scan for exact
+  `Base.Log` and `Base.Plank` wrappers. It retains only cursor/cooldown runtime
+  state, yields by square and object budgets, distinguishes incomplete evidence
+  from proven absence, and delegates every mutation to `SCWorkTransport`.
+- `SCWorkTransport` owns persistent work cargo receipts and the strong transfer
+  boundary shared by gathering and ordinary base hauling. Container membership
+  and `InventoryItem.getContainer()` must agree; capacity is fail-closed;
+  delivery accounting is exactly once; save/restart reconstruction requires
+  explicit detached proof; ambiguous or third-party ownership quarantines
+  without copying. Reconstruction creates and journals the exact native object
+  before insertion, so mutation-then-throw failures retain a cleanup/recovery
+  anchor. Its runtime native references are rebuilt from evidence and never
+  enter the BaseLife save document.
 - `SCVitals` observes native `BodyDamage`, moodles, XP, Knox state, hunger, thirst, and death. It persists native needs with the same bounded record but does not implement parallel health or infection.
 - `SCPersistence` owns the world-scoped Global ModData key `SC_WorldV1` with document schema 3, strict path-aware values, pending transactional restores, and save preservation while actor creation is unavailable. Character replacement after player death therefore keeps companions, factions, bases, and community state. Restore first copies and validates the complete envelope without publishing state. An envelope that cannot be copied exactly, or has malformed required buckets, blocks restore/save and leaves the original world document untouched. Copyable but schema-invalid actor and subsystem values are quarantined, never activated, and re-emitted unchanged on the next valid save. Save capture is all-or-nothing, so a failed active-record or subsystem capture also leaves the previous document untouched. Deterministic provider failures use bounded backoff and terminal quarantine with explicit manual retry. A record quarantined after unverified native removal is excluded from runtime work and saved from its last verified stable snapshot instead of recapturing the uncertain actor.
-- `SCTrade` owns item transfer authorization and a durable per-item recovery journal. Native reconstruction progresses through `original`, `building`, and `verified`: the native item ID is recorded before mutation, every generated identity receives a build marker, and `SCPersistence` recaptures the completed root and weapon parts before publication. Recovery closes only when list membership and `InventoryItem.getContainer()` agree. A snapshot may be reconstructed after restart only with persisted proof that the exact original was detached; otherwise the record enters a non-spawning quarantine. Death rewrites referenced live actors to terminal `retired` descriptors before registry release. Active retries use bounded backoff and a persisted rotating cursor, while quarantined records consume no automatic scheduler work and block neither unrelated factions nor unmarked items.
+- `SCTrade` owns item transfer authorization and a durable per-item recovery journal. Native reconstruction progresses through `original`, `building`, and `verified`: the factory-created object is journaled before inventory insertion, every generated identity receives a build marker before optional native-ID reads, and `SCPersistence` recaptures the completed root and weapon parts before publication. Recovery closes only after the exact item is compensated to its intended source and both list membership and `InventoryItem.getContainer()` agree. A destination-held half trade, an unlocated partial reconstruction, or absence without persisted detached proof remains unresolved rather than becoming a successful rollback or a copied item. Death rewrites referenced live actors to terminal `retired` descriptors before registry release. Active retries use bounded backoff and a persisted rotating cursor, while quarantined records consume no automatic scheduler work and block neither unrelated factions nor unmarked items.
 - `SCVehicle` owns a capacity-aware passenger manifest, assigns only installed non-driver seats, revalidates a changed seat map before entry, and leaves overflow followers active in a bounded wait state. It exposes a non-mutating seat preflight and prefers verified native seating. A virtual-seat fallback is permitted only after native rejection or a verified native rollback; it stores a stable record for later restoration beside the vehicle. Native entry is never described as atomically reversible. Passenger firearm authorization additionally requires a ranged doctrine, an open or broken side window, a doctrine-specific speed ceiling, and a shared vehicle firing cadence.
 - `SCAllegiance` is the pure, direction-sensitive relationship policy for party,
   faction, neutral, and hostile actors. `SCFactions` alone resolves mutable
@@ -43,7 +56,9 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
 - `SCThreatSet` owns bounded threat de-duplication, emergency-first retention,
   deterministic ranking, posture/fence subsets, and overflow accounting.
   `SCPerceptionScan` owns the cached horizontal/vertical frontier, persistent
-  cursors, job creation, origin rebasing, and scan-budget description.
+  cursors, job creation, origin rebasing, and scan-budget description. Negative
+  native-roster evidence requires matching complete identity passes and is
+  invalidated by count changes, incoherent passes, or same-count identity churn.
   `SCSenses` alone resolves live sight, hearing, world squares, and publishes
   snapshots.
 - `SCSpawn` performs bounded, loaded-square, unseen, collision, occupancy, and nearby-zombie validation.

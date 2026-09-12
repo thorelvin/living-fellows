@@ -2,6 +2,8 @@
 
 if type(require) == "function" then
     pcall(require, "SCBaseLife")
+    pcall(require, "SCWorkTransport")
+    pcall(require, "SCGatherWork")
     pcall(require, "SCNativeList")
     pcall(require, "BuildingObjects/TimedActions/ISBuildAction")
     pcall(require, "TimedActions/ISTimedActionQueue")
@@ -256,8 +258,13 @@ local function transferFromStorage(actor, state, storage, container, item)
         end
     end
     if not U().inventoryContains(container, item) then return false, "base_supply_moved" end
-    local transferred, reason = U().transferItemVerified(
-        container, U().inventory(actor), item)
+    local transferred, reason
+    if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
+        transferred, reason = SC.WorkTransport.transferVerified(
+            container, U().inventory(actor), item, actor)
+    else
+        transferred, reason = U().transferItemVerified(container, U().inventory(actor), item)
+    end
     return transferred == true, transferred and "base_supply_taken"
         or reason or "base_supply_transfer_failed"
 end
@@ -465,8 +472,15 @@ local function updateTransfer(actor, state, job)
     if not U().inventoryContains(U().inventory(actor), transfer.item) then
         return false, "hauled_item_missing", true
     end
-    local moved = U().transferItem(U().inventory(actor), transfer.destinationContainer, transfer.item)
-    if not moved then return false, "base_deposit_failed", true end
+    local moved, moveReason
+    if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
+        moved, moveReason = SC.WorkTransport.transferVerified(U().inventory(actor),
+            transfer.destinationContainer, transfer.item, actor)
+    else
+        moved, moveReason = U().transferItem(
+            U().inventory(actor), transfer.destinationContainer, transfer.item)
+    end
+    if not moved then return false, moveReason or "base_deposit_failed", true end
     SC.BaseLife.completeJob(job.id, actorId(actor), "hauled")
     state.transfer, state.phase = nil, "idle"
     if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
@@ -582,6 +596,12 @@ function BaseWork.update(actor, player, runtime)
     local handled, reason, terminal
     if job.type == "build" then handled, reason, terminal = updateBuild(actor, state, job)
     elseif job.type == "barricade" then handled, reason, terminal = queueBarricade(actor, job)
+    elseif job.type == "gather_materials" then
+        if not SC.GatherWork or type(SC.GatherWork.update) ~= "function" then
+            handled, reason, terminal = false, "gather_work_unavailable", true
+        else
+            handled, reason, terminal = SC.GatherWork.update(actor, state, job)
+        end
     elseif job.type == "haul" or job.type == "sort" or job.type == "fetch" then
         handled, reason, terminal = updateTransfer(actor, state, job)
     else
@@ -690,6 +710,10 @@ end
 function BaseWork.auditMaintenance(player)
     local base = SC.BaseLife and SC.BaseLife.active() or nil
     if not base then return false, "base_missing" end
+    if SC.WorkTransport and type(SC.WorkTransport.recoverPending) == "function" then
+        pcall(SC.WorkTransport.recoverPending,
+            U().config("workRecoveryPerPulse") or 2)
+    end
     if type(SC.BaseLife.auditOperations) == "function" then SC.BaseLife.auditOperations(false) end
     auditPhase = (auditPhase % 4) + 1
     if auditPhase == 1 then return auditMedical(base) end
@@ -735,6 +759,9 @@ end
 
 function BaseWork.cancel(actor, reason)
     local state = states[actor]
+    if SC.GatherWork and type(SC.GatherWork.cancelActor) == "function" then
+        pcall(SC.GatherWork.cancelActor, actor, reason or "base_work_cancelled")
+    end
     if not state then return true end
     local id = actorId(actor)
     if state.jobId then SC.BaseLife.releaseJob(state.jobId, id, reason or "base_work_cancelled") end
@@ -756,6 +783,12 @@ function BaseWork.reset(actor)
     else
         for value, _ in pairs(states) do BaseWork.cancel(value, "base_work_reset") end
         states = setmetatable({}, { __mode = "k" })
+    end
+    if SC.GatherWork and type(SC.GatherWork.reset) == "function" then
+        SC.GatherWork.reset(actor)
+    end
+    if SC.WorkTransport and type(SC.WorkTransport.reset) == "function" then
+        SC.WorkTransport.reset(actor)
     end
     maintenanceCursor, auditPhase, nextRoutineJobAt = 1, 0, 0
 end

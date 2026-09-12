@@ -9,6 +9,8 @@ end
 local SC = SurvivorCompanion
 local Trade, Persistence = SC.Trade, SC.Persistence
 local nextItemId = 7000
+local factoryOptions = {}
+local originalInventoryItemFactory = InventoryItemFactory
 
 local function makeItem(itemType, options)
     local value = options or {}
@@ -19,7 +21,13 @@ local function makeItem(itemType, options)
     value.condition = value.condition or 10
     value.modData = value.modData or {}
     value.parts = value.parts or {}
-    function value:getID() return self.nativeId end
+    function value:getID()
+        if self.failIdOnce then
+            self.failIdOnce = false
+            error("injected native identity failure")
+        end
+        return self.nativeId
+    end
     function value:getFullType() return self.itemType end
     function value:getCondition() return self.condition end
     function value:setCondition(amount) self.condition = amount end
@@ -53,6 +61,14 @@ local function makeItem(itemType, options)
     return value
 end
 
+InventoryItemFactory = {
+    CreateItem = function(itemType)
+        local options = factoryOptions
+        factoryOptions = {}
+        return makeItem(itemType, options)
+    end,
+}
+
 local function makeInventory()
     local value = { items = {} }
     function value:getItems() return self.items end
@@ -67,6 +83,15 @@ local function makeInventory()
         end
         self.items[#self.items + 1] = candidate
         candidate.container = self
+        local itemType = candidate:getFullType()
+        if self.throwAfterAddType == itemType then
+            self.throwAfterAddType = nil
+            error("injected add failure after mutation")
+        end
+        if self.rejectAfterAddType == itemType then
+            self.rejectAfterAddType = nil
+            return nil
+        end
         return candidate
     end
     function value:Remove(candidate)
@@ -137,11 +162,85 @@ local function countType(inventory, itemType)
     return count, found
 end
 
+-- R1: reconstruction must journal the factory-created native object before an
+-- AddItem call can mutate and then throw or return a rejection result.
+for _, fault in ipairs({ "throwAfterAddType", "rejectAfterAddType" }) do
+    local id = "lf-trade:r1:" .. fault
+    local itemType = "Base.Recovery" .. fault
+    player.inventory[fault] = itemType
+    player.inventory.rejectRemove = true
+    check(Trade.restore(envelope(id, itemType, { detachedProof = true })),
+        "R1 root insertion fixture restores for " .. fault)
+    Trade.recoverPending(player, 1, true)
+    local count, partial = countType(player.inventory, itemType)
+    check(count == 1 and partial ~= nil and Trade.pendingRecoveryCount() == 1,
+        "R1 root mutation retains exactly one journaled partial for " .. fault)
+    Trade.recoverPending(player, 1, true)
+    check(select(1, countType(player.inventory, itemType)) == 1,
+        "R1 retry cannot duplicate the root after " .. fault)
+    player.inventory.rejectRemove = false
+    check(Trade.recoverPending(player, 1, true),
+        "R1 root cleanup and reconstruction complete for " .. fault)
+    count, partial = countType(player.inventory, itemType)
+    check(count == 1 and partial.modData.LF_TradeRecoveryId == nil,
+        "R1 leaves one verified root after " .. fault)
+    player.inventory:Remove(partial)
+end
+
+-- R1: a weapon part is also journaled before its AddItem boundary.
+do
+    local id, itemType = "lf-trade:r1:part", "Base.RecoveryPartRoot"
+    player.inventory.throwAfterAddType = "Base.Scope"
+    player.inventory.rejectRemove = true
+    check(Trade.restore(envelope(id, itemType, { detachedProof = true })),
+        "R1 weapon-part insertion fixture restores")
+    Trade.recoverPending(player, 1, true)
+    check(select(1, countType(player.inventory, itemType)) == 1
+            and select(1, countType(player.inventory, "Base.Scope")) == 1,
+        "R1 weapon-part mutation retains one root and one part")
+    Trade.recoverPending(player, 1, true)
+    check(select(1, countType(player.inventory, itemType)) == 1
+            and select(1, countType(player.inventory, "Base.Scope")) == 1,
+        "R1 weapon-part retry creates no copies")
+    player.inventory.rejectRemove = false
+    check(Trade.recoverPending(player, 1, true),
+        "R1 weapon-part cleanup and reconstruction complete")
+    local count, rebuilt = countType(player.inventory, itemType)
+    check(count == 1 and #rebuilt.parts == 1
+            and select(1, countType(player.inventory, "Base.Scope")) == 0,
+        "R1 final weapon tree contains one attached part")
+    player.inventory:Remove(rebuilt)
+end
+
+-- R1: native-ID failure occurs after the root pointer and durable marker have
+-- already been retained, so a rejected cleanup cannot orphan the object.
+do
+    local id, itemType = "lf-trade:r1:id", "Base.RecoveryIdFailure"
+    factoryOptions = { failIdOnce = true }
+    player.inventory.rejectRemove = true
+    check(Trade.restore(envelope(id, itemType, { detachedProof = true })),
+        "R1 native-ID failure fixture restores")
+    Trade.recoverPending(player, 1, true)
+    local count, partial = countType(player.inventory, itemType)
+    check(count == 1 and partial.modData.LF_TradeRecoveryId == id
+            and Trade.pendingRecoveryCount() == 1,
+        "R1 native-ID failure retains its marked root reference")
+    Trade.recoverPending(player, 1, true)
+    check(select(1, countType(player.inventory, itemType)) == 1,
+        "R1 native-ID failure retry creates no copy")
+    player.inventory.rejectRemove = false
+    check(Trade.recoverPending(player, 1, true),
+        "R1 native-ID failure recovers after cleanup becomes available")
+    count, partial = countType(player.inventory, itemType)
+    check(count == 1, "R1 native-ID recovery leaves one root")
+    player.inventory:Remove(partial)
+end
+
 -- Failure after the root marker and before full state completion must keep the
 -- exact partial object until its removal is proven. A retry may not add a copy.
 do
     local id, itemType = "lf-trade:integration:after", "Base.RecoveryRifleAfter"
-    player.inventory.failGeneratedFavoriteOnce = true
+    factoryOptions = { failFavoriteOnce = true }
     player.inventory.rejectRemove = true
     check(Trade.restore(envelope(id, itemType, { detachedProof = true })),
         "post-marker recovery fixture restores")
@@ -169,7 +268,7 @@ end
 -- A simulated restart must find and clean that exact identity before rebuilding.
 do
     local id, itemType = "lf-trade:integration:before", "Base.RecoveryRifleBefore"
-    player.inventory.failGeneratedModDataOnce = true
+    factoryOptions = { failModDataOnce = true }
     player.inventory.rejectRemove = true
     check(Trade.restore(envelope(id, itemType, { detachedProof = true })),
         "pre-marker recovery fixture restores")
@@ -241,5 +340,40 @@ do
     Trade.reset()
 end
 
+
+-- R2: a persisted partial flag without a located artifact is not proof that
+-- the old object disappeared globally. Third-container and rebuilt-ID cases
+-- remain non-creating quarantines.
+for _, rebuiltIdentity in ipairs({ false, true }) do
+    local suffix = rebuiltIdentity and "rebuilt" or "stash"
+    local id, itemType = "lf-trade:r2:" .. suffix, "Base.RecoveryR2" .. suffix
+    local saved = envelope(id, itemType, {
+        detachedProof = false,
+        attempts = SC.Config.get("tradeRecoveryMaxAttempts") - 1,
+    })
+    saved.entries[1].reconstructionPartial = true
+    saved.entries[1].partialNativeId = "424242"
+    local partial = makeItem(itemType, {
+        nativeId = rebuiltIdentity and 525252 or 424242,
+        modData = rebuiltIdentity and {} or { LF_TradeRecoveryBuildId = id },
+    })
+    local owner = rebuiltIdentity and resident.inventory or makeInventory()
+    owner:AddItem(partial)
+    check(Trade.restore(saved), "R2 missing-partial fixture restores for " .. suffix)
+    local settled = Trade.recoverPending(player, 1, true)
+    local exported = Trade.export()
+    check(settled and Trade.pendingRecoveryCount() == 1
+            and select(1, countType(player.inventory, itemType)) == 0
+            and owner.items[1] == partial
+            and exported.entries[1].phase == "recovery_quarantined"
+            and exported.entries[1].reconstructionPartial == true
+            and exported.entries[1].partialNativeId == "424242"
+            and exported.entries[1].detachedProof == false,
+        "R2 unknown partial location cannot authorize reconstruction for " .. suffix)
+    owner:Remove(partial)
+    Trade.reset()
+end
+
 SC.GameplayUtil.resolveActor, SC.GameplayUtil.idOf = originalResolve, originalIdOf
+InventoryItemFactory = originalInventoryItemFactory
 print("TRADE_PERSISTENCE_RECOVERY_PASS checks=" .. tostring(checks))

@@ -567,11 +567,11 @@ local function currentPlacementVerified(item, recoveryId)
     if item == nil or not recoveryStateReady(item, recoveryId) then return false end
     local ownerOk, owner = invoke(item, "getContainer")
     if ownerOk and owner ~= nil and containerMembership(owner, item) == true then
-        return true, "current_container_verified"
+        return true, "current_container_verified", owner
     end
     local worldOk, worldItem = invoke(item, "getWorldItem")
     if ownerOk and owner == nil and worldOk and worldItem ~= nil then
-        return true, "current_world_item_verified"
+        return true, "current_world_item_verified", worldItem
     end
     return false
 end
@@ -608,6 +608,13 @@ local function discardBuildArtifacts(transfer, artifacts)
         rows[#rows + 1] = { item = candidate, container = owner }
         seen[candidate] = true
     end
+    if #rows == 0 and (transfer.reconstructionPartial == true
+        or transfer.partialNativeId ~= nil) then
+        -- A persisted partial flag says an earlier native object may still
+        -- exist. Failure to locate it in these two inventories is not proof
+        -- that it vanished from the world, a corpse, or a third container.
+        return false, "partial_reconstruction_not_located"
+    end
     for index = #rows, 1, -1 do
         local row = rows[index]
         local inventory = row.container
@@ -626,8 +633,7 @@ local function discardBuildArtifacts(transfer, artifacts)
     end
     for _, row in ipairs(rows) do clearMarker(row.item, transfer.recoveryId) end
     if candidate ~= nil and seen[candidate] then transfer.item = nil end
-    transfer.reconstructionPartial, transfer.partialNativeId = nil, nil
-    return true
+    return true, nil, #rows
 end
 
 local function rememberRecovery(transfers, group, reason, rollbackReason, player)
@@ -688,19 +694,12 @@ local function rememberRecovery(transfers, group, reason, rollbackReason, player
 end
 
 local function recoverTransfer(transfer, player)
-    -- A live reference can prove a third-container or world placement even if
-    -- one of the original actors has already become unavailable.
-    local placed, placementReason = currentPlacementVerified(
-        transfer.item, transfer.recoveryId)
-    if placed then
-        finishRecovery(transfer, transfer.item)
-        return true, placementReason
-    end
-
     local sourceActor = resolveOwner(transfer.sourceOwner, player) or transfer.sourceActor
     local destinationActor = resolveOwner(transfer.destinationOwner, player)
         or transfer.destinationActor
     if sourceActor == nil or destinationActor == nil then return false, "owner_unavailable" end
+    local sourceInventory = actorInventory(sourceActor)
+    if sourceInventory == nil then return false, "source_inventory_unavailable" end
     local sourceItem, sourceCount, sourceComplete, sourceContainer, sourceMatches,
         sourceArtifacts = scanRecovery(sourceActor, transfer.recoveryId,
             transfer.partialNativeId)
@@ -721,11 +720,23 @@ local function recoverTransfer(transfer, player)
         local container = sourceCount == 1 and sourceContainer or destinationContainer
         if recoveryStateReady(item, transfer.recoveryId)
             and placementVerifiedIn(container, item, transfer.recoveryId) then
+            if sourceCount ~= 1 then
+                -- A safe item at the transaction recipient is still an
+                -- uncompensated half trade. Move the same identity back to the
+                -- original source before closing its recovery record.
+                if not addIdentity(sourceInventory, item)
+                    or not placementVerifiedIn(sourceInventory, item,
+                        transfer.recoveryId) then
+                    return false, "source_compensation_unverified"
+                end
+                container, sourceMatches, sourceArtifacts = sourceInventory,
+                    destinationMatches, destinationArtifacts
+            end
             finishRecovery(transfer, item,
                 sourceCount == 1 and sourceMatches or destinationMatches,
                 sourceCount == 1 and sourceArtifacts or destinationArtifacts)
             return true, sourceCount == 1 and "source_owner_verified"
-                or "current_owner_verified"
+                or "source_owner_compensated"
         end
         if recoveryStateOf(item, transfer.recoveryId) ~= "building" then
             return false, "reconstruction_state_unverified"
@@ -737,27 +748,40 @@ local function recoverTransfer(transfer, player)
     for _, artifact in ipairs(destinationArtifacts or {}) do artifacts[#artifacts + 1] = artifact end
     if #artifacts > 0 or transfer.reconstructionPartial == true
         or recoveryBuildOf(transfer.item) == transfer.recoveryId then
-        local discarded, discardReason = discardBuildArtifacts(transfer, artifacts)
+        local expectedPartialNativeId = transfer.partialNativeId
+        local discarded, discardReason, discardedCount =
+            discardBuildArtifacts(transfer, artifacts)
         if not discarded then return false, discardReason end
-        transfer.detachedProof = true
         sourceItem, sourceCount, sourceComplete = scanRecovery(
-            sourceActor, transfer.recoveryId, transfer.partialNativeId)
+            sourceActor, transfer.recoveryId, expectedPartialNativeId)
         if destinationActor == sourceActor then
             destinationItem, destinationCount, destinationComplete = nil, 0, sourceComplete
         else
             destinationItem, destinationCount, destinationComplete = scanRecovery(
-                destinationActor, transfer.recoveryId, transfer.partialNativeId)
+                destinationActor, transfer.recoveryId, expectedPartialNativeId)
         end
         if not sourceComplete or not destinationComplete
             or sourceCount + destinationCount ~= 0 then
             return false, "partial_reconstruction_cleanup_unverified"
         end
+        if (discardedCount or 0) < 1 then
+            return false, "partial_reconstruction_cleanup_unproven"
+        end
+        transfer.reconstructionPartial, transfer.partialNativeId = nil, nil
+        transfer.detachedProof = true
     end
 
-    local sourceInventory = actorInventory(sourceActor)
     local candidate = transfer.item
     if candidate ~= nil and markerOf(candidate) ~= transfer.recoveryId then candidate = nil end
     if candidate ~= nil then
+        local placed, placementReason = currentPlacementVerified(
+            candidate, transfer.recoveryId)
+        if placementReason == "current_world_item_verified" then
+            return false, "world_item_compensation_pending"
+        end
+        if not placed and transfer.detachedProof ~= true then
+            return false, "current_item_placement_unverified"
+        end
         if not addIdentity(sourceInventory, candidate) then return false, "source_restore_unverified" end
     else
         if transfer.detachedProof ~= true then return false, "detached_absence_unproven" end

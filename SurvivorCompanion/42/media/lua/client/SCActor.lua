@@ -1369,6 +1369,15 @@ function actorService.retireDead(actor)
     if cachedProvider == nil or type(cachedProvider.retireDead) ~= "function" then
         return false, "actor provider cannot finalize a permanent death"
     end
+    if SC.WorkTransport ~= nil
+        and type(SC.WorkTransport.prepareActorRetirement) == "function" then
+        local called, prepared, workReason = pcall(
+            SC.WorkTransport.prepareActorRetirement, actor)
+        if not called or prepared ~= true then
+            return false, "dead actor work cargo could not be finalized: "
+                .. tostring(called and workReason or prepared)
+        end
+    end
     if SC.Trade ~= nil and type(SC.Trade.prepareActorDeath) == "function" then
         local called, prepared, tradeReason = pcall(SC.Trade.prepareActorDeath, actor)
         if not called or prepared ~= true then
