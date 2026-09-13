@@ -1850,17 +1850,62 @@ do
             and cachedState.activeWorkRoute ~= nil,
         "a repeated obstructed work trip reuses its proven route without starting A-star")
     local newlyBlocked = cachedState.path[cachedState.pathIndex]
+    local savedRouteNativeActions = SurvivorCompanion.NativeActions
+    local routeStopCalls = 0
+    SurvivorCompanion.NativeActions = {
+        stopDirect = function(value)
+            routeStopCalls = routeStopCalls + 1
+            value.moving = false
+            return true
+        end,
+    }
+    cachedActor.moving = true
     newlyBlocked.solid = true
     accepted, reason = Navigation.request(cachedActor, cachedGoal, "walk", cacheIntent)
     local changedState = Navigation.peek(cachedActor)
     local routeStats = Navigation.workRouteStats()
     check(accepted and reason == "work_route_changed" and changedState.path == nil
-            and changedState.activeWorkRoute == nil and routeStats.invalidations == 1,
-        "a cached work route is live-rejected when its next square changes")
+            and changedState.activeWorkRoute == nil and routeStats.invalidations == 1
+            and routeStopCalls == 1 and cachedActor.moving == false
+            and changedState.pathSearchHolding == true,
+        "a changed cached route releases its step and stops stale movement before replanning")
+    SurvivorCompanion.NativeActions = savedRouteNativeActions
     newlyBlocked.solid = false
     wall.solid = false
     Navigation.reset(cachedActor)
     registry[cachedActor.id] = nil
+    Navigation._resetWorkRoutesForTests()
+
+    local anyWall = cell:getGridSquare(12, -4, 0)
+    local anyGoal = cell:getGridSquare(15, -4, 0)
+    anyWall.solid = true
+    local anyIntent = {
+        action = "move_to_base_storage", targetSquare = anyGoal, object = {},
+    }
+    local anyLearner = actor("sc-learn-any-work-route", 10, -4, {})
+    registry[anyLearner.id] = anyLearner
+    accepted, reason = Navigation.requestAny(anyLearner, { anyGoal }, "walk", anyIntent)
+    local anyState = Navigation.peek(anyLearner)
+    check(accepted and anyState.path ~= nil,
+        "public multi-goal work routing starts an obstructed planned trip")
+    anyState.pathIndex = #anyState.path
+    anyLearner.square, anyLearner.worldX, anyLearner.worldY = anyGoal, nil, nil
+    accepted, reason = Navigation.requestAny(anyLearner, { anyGoal }, "walk", anyIntent)
+    check(accepted and reason == "arrived" and Navigation.workRouteStats().records == 1,
+        "public multi-goal arrival records the route before interaction handoff")
+    Navigation.reset(anyLearner)
+    registry[anyLearner.id] = nil
+
+    local anyFollower = actor("sc-use-any-work-route", 10, -4, {})
+    registry[anyFollower.id] = anyFollower
+    accepted, reason = Navigation.requestAny(anyFollower, { anyGoal }, "walk", anyIntent)
+    local anyFollowerState = Navigation.peek(anyFollower)
+    check(accepted and anyFollowerState.pathReason == "work_route_cache"
+            and anyFollowerState.activeWorkRoute ~= nil,
+        "a second public multi-goal worker reuses the learned route")
+    Navigation.reset(anyFollower)
+    registry[anyFollower.id] = nil
+    anyWall.solid = false
     Navigation._resetWorkRoutesForTests()
 
     check(not SurvivorCompanion.WorkRoutes.stationaryFastRouteRequested({

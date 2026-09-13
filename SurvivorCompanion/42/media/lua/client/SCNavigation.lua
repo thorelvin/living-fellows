@@ -1269,6 +1269,27 @@ end
 Navigation._recordWorkRouteForTests = function(...)
     return SC.WorkRoutes.record(...)
 end
+local function finalizeWorkRouteSuccess(state, requestedKey, now)
+    if requestedKey == nil or type(state) ~= "table"
+        or state.workRouteKey ~= requestedKey or type(state.path) ~= "table"
+        or (tonumber(state.pathIndex) or 1) < #state.path then return false end
+    if state.finalizedWorkRoutePath == state.path
+        and state.finalizedWorkRouteKey == requestedKey then return true end
+    if state.activeWorkRoute then
+        state.activeWorkRoute.successes =
+            (tonumber(state.activeWorkRoute.successes) or 0) + 1
+        state.activeWorkRoute.failures = 0
+        state.activeWorkRoute.retryAt = nil
+        state.activeWorkRoute.lastUsedAt = now
+    elseif state.pathReason ~= "fast_stationary_route"
+        and state.pathReason ~= "fast_open_route" then
+        SC.WorkRoutes.record(requestedKey, state.path, now)
+    end
+    state.finalizedWorkRoutePath = state.path
+    state.finalizedWorkRouteKey = requestedKey
+    return true
+end
+Navigation._finalizeWorkRouteSuccess = finalizeWorkRouteSuccess
 Navigation._resetWorkRoutesForTests = function()
     return SC.WorkRoutes.reset()
 end
@@ -2238,6 +2259,7 @@ end
 local function releaseChoke(state, actor)
     return T().releaseChoke(state, actor, trafficContext)
 end
+Navigation._releaseChokeForRequest = releaseChoke
 
 local function extendChoke(state, actor, untilAt)
     return T().extendChoke(state, actor, untilAt)
@@ -4369,24 +4391,14 @@ function Navigation.request(actor, target, movementMode, intent)
     if reachedGoal and state.nativeLease and state.nativeLease.affordance == "door"
         and not actorClearOfDoorway(actor, state.nativeLease) then reachedGoal = false end
     if reachedGoal then
-        if requestedWorkRouteKey ~= nil and state.workRouteKey == requestedWorkRouteKey
-            and type(state.path) == "table" and state.pathIndex >= #state.path then
-            if state.activeWorkRoute then
-                state.activeWorkRoute.successes =
-                    (tonumber(state.activeWorkRoute.successes) or 0) + 1
-                state.activeWorkRoute.failures = 0
-                state.activeWorkRoute.retryAt = nil
-                state.activeWorkRoute.lastUsedAt = now
-            elseif state.pathReason ~= "fast_stationary_route"
-                and state.pathReason ~= "fast_open_route" then
-                SC.WorkRoutes.record(requestedWorkRouteKey, state.path, now)
-            end
-        end
+        SC.Navigation._finalizeWorkRouteSuccess(state, requestedWorkRouteKey, now)
         state.goalSquare = goalSquare
         state.goalAction = requestIntent.action
         state.path = nil
         state.pathGoalSquare = nil
         state.pathIndex = 1
+        state.finalizedWorkRoutePath = nil
+        state.finalizedWorkRouteKey = nil
         state.arrivedAt = now
         state.stuckAttempts = 0
         state.actionTokenSerial = currentTokenSerial
@@ -4812,15 +4824,21 @@ function Navigation.request(actor, target, movementMode, intent)
         local stillPassable, changedReason = SC.WorkRoutes.validateNext(
             actor, state, sourceSquare, nextSquare, goalSquare, requestIntent, now)
         if stillPassable ~= true then
+            releaseStep(state, actor)
+            SC.Navigation._releaseChokeForRequest(state, actor)
             state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
             state.pathIndex, state.nextRepathAt = 1, 0
             state.activeWorkRoute = nil
+            state.pathSearchHolding = nil
             state.pathReason = "work_route_changed:"
                 .. tostring(changedReason or "route_edge_changed")
             recordMovement(actor, "work_route_changed", {
                 status = changedReason or "route_edge_changed",
                 targetSquare = goalSquare, nextSquare = nextSquare,
             })
+            if not holdForPathSearch(actor, state) then
+                return false, "work_route_stop_rejected"
+            end
             return true, "work_route_changed"
         end
     end
@@ -5264,6 +5282,7 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
             utility.squareOf(actor), utility.nowMs())
     if traversalHandled then return traversalAccepted, traversalReason end
     local service, token = supervisedToken(intent)
+    local now = utility.nowMs()
     local valid, seen = {}, {}
     for _, candidate in ipairs(type(candidates) == "table" and candidates or {}) do
         local square = utility.squareOf(candidate) or candidate
@@ -5288,6 +5307,18 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         if arrived then
             local existing = states[actor]
             if existing then
+                local routeIntent = utility.copyShallow(intent)
+                routeIntent.targetSquare = square
+                local routeKey = SC.WorkRoutes.key(actor, square, routeIntent)
+                if SC.Navigation._finalizeWorkRouteSuccess(existing, routeKey, now) then
+                    existing.path, existing.pathGoalSquare = nil, nil
+                    existing.pathIndex = 1
+                    existing.activeWorkRoute = nil
+                    existing.workRouteKey = routeKey
+                    existing.arrivedAt = now
+                    existing.finalizedWorkRoutePath = nil
+                    existing.finalizedWorkRouteKey = nil
+                end
                 if existing.nativeLease and SC.NativeActions
                     and type(SC.NativeActions.stopDirect) == "function" then
                     pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
@@ -5310,7 +5341,7 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         if firstScore == secondScore then return tostring(squareKey(first)) < tostring(squareKey(second)) end
         return firstScore < secondScore
     end)
-    local now, state = utility.nowMs(), stateFor(actor)
+    local state = stateFor(actor)
     local key = multiGoalKey(valid, intent.action)
     local currentTokenSerial = token and tonumber(token.serial) or nil
     if state.actionTokenSerial ~= currentTokenSerial

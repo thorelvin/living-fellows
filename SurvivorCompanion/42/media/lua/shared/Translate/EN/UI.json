@@ -1006,6 +1006,8 @@
     "UI_SC_Base_GatherPause": "Pause gathering",
     "UI_SC_Base_GatherResume": "Resume gathering",
     "UI_SC_Base_GatherRetry": "Retry / rescan",
+    "UI_SC_Base_GatherCleanupPending": "Marker cleanup pending: %1 (%2 exhausted)",
+    "UI_SC_Base_GatherCleanupRetry": "Retry marker cleanup",
     "UI_SC_Base_GatherCancel": "Cancel gathering order",
     "UI_SC_Base_GatherCancelConfirm": "Cancel this gathering order? Verified carried cargo stays with its companion.",
     "UI_SC_Base_GatherAddWorker": "Add worker: %1",

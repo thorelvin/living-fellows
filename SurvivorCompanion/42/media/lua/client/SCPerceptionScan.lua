@@ -313,8 +313,10 @@ local function resetActorNativeState(state, generation)
     state.nativeCandidateQueue = nil
     state.nativeCandidateIndex = nil
     state.nativeCurrentValidationCycle = nil
+    state.nativeCurrentValidationRevision = nil
     state.nativeCurrentValidationSeen = nil
     state.nativeCurrentObserverKey = nil
+    state.nativeCurrentValidationComplete = nil
 end
 
 local function compactCandidateQueue(state)
@@ -452,14 +454,29 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     local queued = setmetatable({}, { __mode = "k" })
     for _, value in ipairs(queue) do queued[value] = true end
     local currentRelevantPending = 0
+    local evidenceChangedDuringValidation = false
     if shared.publishedFlat == true and type(shared.spatial) == "table" then
         local observerKey = tostring(math.floor(x)) .. ":" .. tostring(math.floor(y))
             .. ":" .. tostring(math.floor(z or 0))
-        if state.nativeCurrentValidationCycle ~= shared.completedCycle
-            or state.nativeCurrentObserverKey ~= observerKey then
+        -- A producer may publish several same-identity snapshots while an
+        -- observer drains more relevant candidates than the bounded queue can
+        -- hold. Keep that observer's delivered set until the whole local
+        -- assignment is complete; resetting it on every snapshot repeatedly
+        -- admitted the first 64 candidates and permanently starved the tail.
+        -- Identity changes, observer movement, and a completed assignment all
+        -- begin a new validation epoch. Current positions are still inspected
+        -- every call, so a previously distant identity that moves into range is
+        -- admitted immediately because it has not yet been delivered.
+        if state.nativeCurrentValidationRevision ~= shared.evidenceRevision
+            or state.nativeCurrentObserverKey ~= observerKey
+            or state.nativeCurrentValidationComplete == true then
+            evidenceChangedDuringValidation = state.nativeCurrentValidationRevision ~= nil
+                and state.nativeCurrentValidationRevision ~= shared.evidenceRevision
             state.nativeCurrentValidationCycle = shared.completedCycle
+            state.nativeCurrentValidationRevision = shared.evidenceRevision
             state.nativeCurrentObserverKey = observerKey
-            state.nativeCurrentValidationSeen = setmetatable({}, { __mode = "k" })
+            state.nativeCurrentValidationSeen = {}
+            state.nativeCurrentValidationComplete = false
         end
         local seen = state.nativeCurrentValidationSeen
         local minimumX = math.floor((x - radius) / NATIVE_SPATIAL_BUCKET)
@@ -487,6 +504,11 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
                 end
             end
         end
+        -- The bridge-built spatial index covers every entry in the coherent
+        -- flat snapshot. Walking the same roster from index one while the
+        -- bounded local queue is full duplicates work and prevents the roster
+        -- cursor from ever reaching completion in a dense horde.
+        if sourceFlat then cursor = sourceCount + 1 end
     end
     local additions, distances = {}, setmetatable({}, { __mode = "k" })
     local inspected = 0
@@ -550,7 +572,12 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     end
     state.nativeCandidateQueue, state.nativeCandidateIndex = queue, queueIndex
     local queuePending = math.max(0, #queue - queueIndex + 1)
-    if coherent and cursor > sourceCount and queuePending == 0 then
+    if shared.publishedFlat == true and type(shared.spatial) == "table" then
+        state.nativeCurrentValidationComplete = currentRelevantPending == 0
+            and queuePending == 0
+    end
+    if coherent and cursor > sourceCount and queuePending == 0
+        and currentRelevantPending == 0 then
         state.nativeRosterComplete = true
         state.nativeLastCompleteCycle = state.nativeRosterCycle
     end
@@ -569,6 +596,7 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     local freshComplete = complete and evidenceMatches
         and shared.evidenceValid == true
         and shared.evidenceCount == count
+        and not evidenceChangedDuringValidation
         and currentRelevantPending == 0 and queuePending == 0
     local sourceRemaining = coherent and math.max(0, sourceCount - cursor + 1) or 0
     local pending = queuePending + sourceRemaining + currentRelevantPending

@@ -325,20 +325,26 @@ local function runVisual(actor, receipt, kind, context)
 end
 
 local function approach(actor, target, action)
-    if U().distance(actor, target) <= 1.5 then return true, "gather_in_range" end
     if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
-        return false, "navigation_unavailable", true
+        return "failed", "navigation_unavailable"
     end
-    local approaches = SC.Navigation.interactionTargets(actor, target)
-    if type(approaches) ~= "table" or #approaches == 0 then
-        local square = U().squareOf(target) or target
-        approaches = { square }
-    end
-    local accepted, reason = SC.Navigation.requestAny(actor, approaches, "walk", {
-        action = action, targetSquare = U().squareOf(target) or target,
-        object = target, arrivalDistance = 1.0, workCampOnly = true,
+    local targetSquare = U().squareOf(target) or target
+    if U().sameSquare(actor, targetSquare) then return "arrived", "gather_in_range" end
+    local approaches = SC.Navigation.interactionTargets(actor, target, {
+        requireDirectAccess = true,
     })
-    return accepted == true, reason or "gather_approaching", accepted ~= true
+    if type(approaches) ~= "table" or #approaches == 0 then
+        return "failed", "no_interaction_targets"
+    end
+    local accepted, reason, reached = SC.Navigation.requestAny(actor, approaches, "walk", {
+        action = action, targetSquare = targetSquare,
+        object = target, requireSameSquare = true, workCampOnly = true,
+    })
+    if accepted ~= true then return "failed", reason or "gather_approach_failed" end
+    if reason == "arrived" and reached ~= nil and U().sameSquare(actor, reached) then
+        return "arrived", "gather_in_range"
+    end
+    return "pending", reason or "gather_approaching"
 end
 
 local function updateSelected(actor, order, receipt, candidate)
@@ -351,8 +357,9 @@ local function updateSelected(actor, order, receipt, candidate)
     if receipt.phase ~= "selected" then return true, "gather_receipt_reconciled" end
     local square = U().gridSquare(receipt.source.x, receipt.source.y, receipt.source.z)
     if not square or not worldItem then return false, "gather_source_unloaded", true end
-    local arrived, reason, terminal = approach(actor, worldItem, "move_to_gather_item")
-    if not arrived then
+    local approachState, reason = approach(actor, worldItem, "move_to_gather_item")
+    if approachState ~= "arrived" then
+        local terminal = approachState == "failed"
         if terminal and receipt.phase == "selected" then
             local released = SC.WorkTransport.abandonSelected(receipt, reason)
             if released then
@@ -361,7 +368,7 @@ local function updateSelected(actor, order, receipt, candidate)
                 }, reason)
             end
         end
-        return false, reason, terminal
+        return not terminal, reason, terminal
     end
     local visualComplete, visualReason, visualTerminal = runVisual(actor, receipt, "pickup", {
         item = item, worldItem = worldItem, targetSquare = square,
@@ -416,10 +423,11 @@ local function updateCarried(actor, order, receipt)
         SC.BaseLife.blockGatherOrder(order.id, roomReason)
         return false, roomReason, true
     end
-    local arrived, reason, terminal = approach(actor, object, "move_to_gather_destination")
-    if not arrived then
+    local approachState, reason = approach(actor, object, "move_to_gather_destination")
+    if approachState ~= "arrived" then
+        local terminal = approachState == "failed"
         if terminal then SC.BaseLife.blockGatherOrder(order.id, reason) end
-        return false, reason, terminal
+        return not terminal, reason, terminal
     end
     local visualComplete, visualReason, visualTerminal = runVisual(actor, receipt, "deposit", {
         item = item, container = container, object = object, targetSquare = U().squareOf(object),

@@ -1206,6 +1206,30 @@ local function scheduledActorVehicleState(actor)
     return copied, nil, true
 end
 
+local function scheduledActorVehicleOwnership(value)
+    if value == nil then return nil, nil, true end
+    if type(value) ~= "table" or value.stored == true
+        or type(value.vehicle) ~= "table" then
+        return nil, "native vehicle ownership is malformed", false
+    end
+    local id = value.vehicle.id
+    local seat = tonumber(value.seat)
+    if id == nil or seat == nil then
+        return nil, "native vehicle identity or seat is unavailable", false
+    end
+    -- Coordinates are restore placement, not ownership. A moving vehicle keeps
+    -- the same stable runtime identity and seat while x/y/z legitimately change
+    -- between scheduled-save slices.
+    return {
+        stored = false,
+        seat = math.floor(seat),
+        vehicle = {
+            id = id,
+            script = tostring(value.vehicle.script or ""),
+        },
+    }, nil, true
+end
+
 local function identityAppend(result, value)
     result[#result + 1] = value ~= nil and value or false
 end
@@ -1379,6 +1403,7 @@ local function scheduledActor(job, record)
     local destination = record.recruited == true
         and job.document.companions or job.document.factionActors
     local bucket = record.recruited == true and "companions" or "factionActors"
+    proof.bucket = bucket
     local deadOk, dead = invoke(record.actor, "isDead")
     if not deadOk then return false, "actor death state unavailable" end
     proof.dead = dead == true
@@ -1402,11 +1427,15 @@ local function scheduledActor(job, record)
     local vehicleState, vehicleReason, vehicleOk = scheduledActorVehicleState(record.actor)
     if not vehicleOk then return false, "actor vehicle state unavailable: "
         .. tostring(vehicleReason) end
-    proof.vehicle = vehicleState
+    local vehicleOwnership, ownershipReason, ownershipOk =
+        scheduledActorVehicleOwnership(vehicleState)
+    if not ownershipOk then return false, ownershipReason end
+    proof.vehicleOwnership = vehicleOwnership
     local captured, reason = persistence.captureRecord(record, vehicleState)
     local after, afterReason = inventoryIdentitySequence(record.actor)
     if captured ~= nil and after ~= nil and sameIdentitySequence(before, after) then
         proof.inventory = after
+        proof.captured = captured
         destination[record.id] = captured
         return true
     end
@@ -1477,10 +1506,35 @@ local function verifyScheduledOwnership(job)
             end
             local vehicleState, vehicleReason, vehicleOk =
                 scheduledActorVehicleState(proof.actor)
-            if not vehicleOk or not sameStableValue(proof.vehicle, vehicleState) then
+            local vehicleOwnership, ownershipReason, ownershipOk =
+                scheduledActorVehicleOwnership(vehicleState)
+            if not vehicleOk or not ownershipOk
+                or not sameStableValue(proof.vehicleOwnership, vehicleOwnership) then
                 return false, "actor vehicle state changed before scheduled commit: "
                     .. tostring(proof.id) .. ": "
-                    .. tostring(vehicleReason or "identity mismatch")
+                    .. tostring(vehicleReason or ownershipReason or "identity mismatch")
+            end
+            if vehicleState ~= nil and proof.captured ~= nil then
+                local position = capturePosition(current, proof.actor)
+                if position == nil or position.x == nil or position.y == nil then
+                    return false, "actor vehicle position unavailable before scheduled commit: "
+                        .. tostring(proof.id)
+                end
+                -- Publish the current coherent placement while retaining the
+                -- inventory snapshot captured earlier. Identity/seat changes
+                -- still fail the barrier above.
+                proof.captured.vehicle = vehicleState
+                proof.captured.position = position
+                local outgoingBucket = type(job.outgoing) == "table"
+                    and job.outgoing[proof.bucket] or nil
+                local outgoingRecord = type(outgoingBucket) == "table"
+                    and outgoingBucket[proof.id] or nil
+                if type(outgoingRecord) ~= "table" then
+                    return false, "staged actor record unavailable before scheduled commit: "
+                        .. tostring(proof.id)
+                end
+                outgoingRecord.vehicle = vehicleState
+                outgoingRecord.position = position
             end
         end
     end

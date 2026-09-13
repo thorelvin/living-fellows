@@ -104,7 +104,7 @@ REQUIRED_EXPORTS = {
                        "export", "restore"],
     "SCWorkTransport.lua": ["reserve", "collect", "deposit", "reconcile",
                             "recoverPending", "transferVerified", "isCargoProtected",
-                            "retryOrder", "releaseCarriedCargo", "prepareActorRetirement",
+                            "retryOrder", "retryCleanup", "releaseCarriedCargo", "prepareActorRetirement",
                             "diagnostics", "reset"],
     "SCGatherWork.lua": ["validateZone", "nextCandidate", "update", "retryOrder",
                          "diagnostics", "reset"],

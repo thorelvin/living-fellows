@@ -4,6 +4,15 @@
 
 ## Unreleased
 
+## 0.22.24 - Fair work and perception
+
+- Made gathering distinguish accepted navigation from verified physical arrival. Workers retain multi-update movement, require a real same-square interaction position with direct contact, and only then settle, animate and transfer the exact item.
+- Made protocol-8 spatial perception fair beyond its 64-entry queue. Same-identity producer refreshes no longer re-admit the head before the tail, 65/128/1000 local-candidate scans finish within a bounded number of observer pulses, and the coherent spatial index no longer receives a redundant linear roster pass.
+- Separated native vehicle/seat ownership from moving coordinates in scheduled-save validation. Continuous driving can now commit while seat, vehicle, registry and inventory changes still invalidate staging; the published vehicle and actor placement are refreshed at the final barrier.
+- Added a public marker-cleanup retry for completed and cancelled gathering orders without reopening work or changing delivery accounting. Pending/exhausted cleanup is visible in the Base UI and keeps its receipt/storage binding until verified removal.
+- Unified successful work-route finalization across direct and multi-goal arrival, allowing ordinary `requestAny()` work trips to teach the bounded shared route cache before interaction handoff.
+- Made live rejection of a changed cached edge release its step/choke reservations and acquire a posture-safe stop before replanning. A rejected stop now propagates as failure instead of reporting successful waiting while stale movement continues.
+
 ## 0.22.23 - Atomic state and work recovery
 
 - Separated immutable work-receipt ownership from current gather assignments, so duty-off can leave a valid zero-worker paused order and terminal or unresolved cargo history survives repeated save/restore without weakening active ownership validation.

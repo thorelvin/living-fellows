@@ -228,7 +228,41 @@ local replacementResult, replacementMeta = Scan.nativeCandidates(
     observer, cadenceState, 24, 64)
 check(replacementResult[1] == replacementNear
         and replacementMeta.freshComplete ~= true,
-    "same-count identity replacement invalidates negative evidence and exposes the newcomer")
+    "same-count identity replacement invalidates negative evidence and exposes the newcomer (found="
+        .. tostring(replacementResult[1] == replacementNear) .. ", fresh="
+        .. tostring(replacementMeta.freshComplete) .. ")")
+
+-- A coherent native producer may publish faster than an observer can consume
+-- its bounded 64-entry candidate queue. Delivered identities must remain part
+-- of the same fair assignment until the tail has received one evaluation.
+local function verifyLocalCoverage(amount)
+    cadenceRoster = {}
+    for index = 1, amount do
+        cadenceRoster[index] = actor(2 + (index % 20) * 0.03,
+            2 + (math.floor(index / 20) % 20) * 0.03, 0, "IsoZombie")
+    end
+    Scan.reset()
+    local state, seen, seenCount, meta = {}, {}, 0, nil
+    local maximumPulses = math.ceil(amount / 12) + 4
+    for _ = 1, maximumPulses do
+        current = current + 500
+        local result
+        result, meta = Scan.nativeCandidates(observer, state, 24, 64)
+        for _, candidate in ipairs(result) do
+            if not seen[candidate] then
+                seen[candidate], seenCount = true, seenCount + 1
+            end
+        end
+        if seenCount == amount and meta.freshComplete == true then break end
+    end
+    check(seenCount == amount and meta.freshComplete == true,
+        tostring(amount) .. " local native candidates receive bounded fair evaluation (seen="
+            .. tostring(seenCount) .. ", pending=" .. tostring(meta and meta.pending)
+            .. ", fresh=" .. tostring(meta and meta.freshComplete) .. ")")
+end
+verifyLocalCoverage(65)
+verifyLocalCoverage(128)
+verifyLocalCoverage(1000)
 
 -- Malformed native coordinates are rejected as a whole; the discarded flat
 -- prefix must never be accepted merely because the helper returned success.

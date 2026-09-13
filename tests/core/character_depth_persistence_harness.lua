@@ -655,6 +655,66 @@ do
     end
 
     local priorVehicle = SC.Vehicle
+    local movingX = 10
+    local priorActorASquare = actorA.square
+    local movingSquare = { x = movingX, y = 12, z = 0 }
+    function movingSquare:getX() return self.x end
+    function movingSquare:getY() return self.y end
+    function movingSquare:getZ() return self.z end
+    actorA.square = movingSquare
+    SC.Vehicle = {
+        stateFor = function(actor)
+            if actor ~= actorA then return nil end
+            movingX = movingX + 1
+            movingSquare.x = movingX
+            return {
+                stored = false, seat = 1,
+                vehicle = { id = 77, script = "Base.CarNormal",
+                    x = movingX, y = 12, z = 0 },
+            }
+        end,
+        exportStored = function() return {} end,
+    }
+    check(SC.Persistence.reset() == true, "moving vehicle save resets scheduled state")
+    local movingPrior = { sentinel = "moving-vehicle" }
+    local movingStore = SC_TEST_SET_WORLD_STORE({ document = movingPrior })
+    local movingRequested = SC.Persistence.requestScheduledSave(stagedPlayer)
+    local movingStatus, movingDocument
+    if movingRequested then
+        for _ = 1, 20000 do
+            movingStatus, movingDocument = SC.Persistence.pulse()
+            if movingStatus ~= "yielded" then break end
+        end
+    end
+    local movingRecord = movingDocument and movingDocument.companions[recordA.id]
+    check(movingRequested == true and movingStatus == "complete"
+            and movingStore.document == movingDocument and movingRecord ~= nil
+            and movingRecord.vehicle.vehicle.x == movingX
+            and movingRecord.position.x == movingX,
+        "ordinary vehicle motion preserves ownership and publishes fresh placement: status="
+            .. tostring(movingStatus) .. " record=" .. tostring(movingRecord)
+            .. " expectedX=" .. tostring(movingX) .. " vehicleX="
+            .. tostring(movingRecord and movingRecord.vehicle
+                and movingRecord.vehicle.vehicle and movingRecord.vehicle.vehicle.x)
+            .. " positionX=" .. tostring(movingRecord and movingRecord.position
+                and movingRecord.position.x))
+    actorA.square = priorActorASquare
+
+    local seatReads = 0
+    SC.Vehicle = {
+        stateFor = function(actor)
+            if actor ~= actorA then return nil end
+            seatReads = seatReads + 1
+            return {
+                stored = false, seat = seatReads == 1 and 1 or 2,
+                vehicle = { id = 77, script = "Base.CarNormal", x = 10, y = 12, z = 0 },
+            }
+        end,
+        exportStored = function() return {} end,
+    }
+    check(SC.Persistence.reset() == true, "vehicle seat barrier resets scheduled state")
+    runBarrierJob("actor vehicle seat transition", "actor vehicle state changed")
+
     local vehicleChanged = false
     SC.Vehicle = {
         stateFor = function(actor)

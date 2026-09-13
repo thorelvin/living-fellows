@@ -172,6 +172,7 @@ SC.NativeActions.clearVisual = function() return true end
 SC.NativeActions.cancelVisual = function() return true end
 SC.NativeActions.stopDirect = function() return true end
 local navigationCancels = 0
+local navigationStarts = 0
 local rejectNavigation = false
 SC.Navigation = {
     cancel = function()
@@ -179,9 +180,16 @@ SC.Navigation = {
         return true
     end,
     interactionTargets = function(_, target) return { target } end,
-    requestAny = function()
+    requestAny = function(actor, candidates)
         if rejectNavigation then return false, "fixture_unreachable" end
-        return true, "fixture_path_started"
+        local target = SC.GameplayUtil.squareOf(candidates and candidates[1])
+        if target and SC.GameplayUtil.sameSquare(actor, target) then
+            return true, "arrived", target
+        end
+        if not target then return false, "fixture_target_missing" end
+        navigationStarts = navigationStarts + 1
+        actor.square, actor.x, actor.y, actor.z = target, target.x, target.y, target.z
+        return true, "fixture_path_started", target
     end,
 }
 
@@ -260,6 +268,17 @@ do
     ctx.actor.inventory:AddItem(hammer)
     local gathered = makeItem("Base.Log")
     putOnGround(ctx.source, gathered)
+    local startsBefore, cancelsBefore = navigationStarts, navigationCancels
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 50
+    SC.BaseWork.update(ctx.actor, nil, {})
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 50
+    SC.BaseWork.update(ctx.actor, nil, {})
+    local approachingReceipt = SC.BaseLife.workReceipts(ctx.order.id, false)[1]
+    check(approachingReceipt and approachingReceipt.phase == "selected"
+            and navigationStarts == startsBefore + 1
+            and navigationCancels == cancelsBefore
+            and #ctx.source.worldItems == 1,
+        "accepted navigation remains pending until physical gather arrival")
     dispatchUntilTerminal(ctx)
     check(ctx.order.state == "completed" and ctx.order.delivered == 1,
         "one verified delivery must complete the order")
@@ -1058,9 +1077,21 @@ do
     SC.WorkTransport.recoverPending(1)
     check(receipt.markerCleanupAttempts == maximumAttempts,
         "exhausted marker cleanup must consume no further automatic attempts")
+    local cleanupSummary = SC.BaseLife.summary().workOrders[1]
+    check(cleanupSummary and cleanupSummary.cleanupPending == 1
+            and cleanupSummary.cleanupExhausted == 1,
+        "terminal marker cleanup is visible through the public base summary")
+    local cleanupSave = SC.BaseLife.export()
+    SC.WorkTransport.reset()
+    check(SC.BaseLife.restore(cleanupSave) == true,
+        "exhausted terminal cleanup must survive save and restore")
+    receipt = SC.BaseLife.workReceipt(receipt.id)
     rejectClear = false
-    check(SC.WorkTransport.retryOrder(ctx.order.id) == true,
-        "explicit retry must re-arm exhausted marker cleanup")
+    local retried, retryReason = SC.BaseLife.retryGatherOrder(ctx.order.id)
+    local terminalOrder = SC.BaseLife.workOrder(ctx.order.id)
+    check(retried == true and retryReason == "work_marker_cleanup_retried"
+            and terminalOrder.state == "completed" and terminalOrder.delivered == 1,
+        "public retry re-arms terminal cleanup without reopening its order")
     SC.WorkTransport.recoverPending(1)
     check(receipt.markerCleanupPending == false
             and SC.WorkTransport.runtimeItem(receipt.id) == nil,

@@ -1,4 +1,4 @@
-Living Fellows: Companion 0.22.23 atomic state and work recovery playtest
+Living Fellows: Companion 0.22.24 fair work and perception playtest
 
 The included native bridge supplies SCNativeCompanion, an original IsoPlayer
 subclass that remains outside the local-player slots. Workshop installations

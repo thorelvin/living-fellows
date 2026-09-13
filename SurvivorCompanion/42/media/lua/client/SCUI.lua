@@ -2914,6 +2914,11 @@ function SCUIDetail:buildBase(panel, row)
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                     UI.text("UI_SC_Base_GatherBlocker", UI.humanize(order.blocker)))
             end
+            if (order.cleanupPending or 0) > 0 then
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_GatherCleanupPending", order.cleanupPending,
+                        order.cleanupExhausted or 0))
+            end
             for _, worker in ipairs(order.workerPhases or {}) do
                 local phaseKey = GATHER_PHASE_KEYS[worker.phase]
                     or "UI_SC_Base_GatherPhase_blocked"
@@ -2930,6 +2935,11 @@ function SCUIDetail:buildBase(panel, row)
             elseif order.state == "blocked" then
                 y = self:addBaseManagementAction(panel, y,
                     UI.text("UI_SC_Base_GatherRetry"), "retry_gather", { id = order.id }, nil)
+            end
+            if (order.cleanupPending or 0) > 0 and order.state ~= "blocked" then
+                y = self:addBaseManagementAction(panel, y,
+                    UI.text("UI_SC_Base_GatherCleanupRetry"), "retry_gather",
+                    { id = order.id }, nil)
             end
             if order.state ~= "completed" and order.state ~= "cancelled" then
                 if row and #(order.workers or {}) < 2 then

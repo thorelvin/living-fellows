@@ -1278,7 +1278,16 @@ end
 
 function BaseLife.retryGatherOrder(id)
     local order = workOrderIn(activeBase(), id)
-    if not order or orderIsTerminal(order) then return false, "unknown_work_order" end
+    if not order then return false, "unknown_work_order" end
+    if orderIsTerminal(order) then
+        if not SC.WorkTransport or type(SC.WorkTransport.retryCleanup) ~= "function" then
+            return false, "work_cleanup_retry_unavailable"
+        end
+        -- A terminal order is immutable accounting history. Only re-arm its
+        -- marker cleanup; never recreate jobs, change delivery totals, or turn
+        -- completed/cancelled work back into a running order.
+        return SC.WorkTransport.retryCleanup(id)
+    end
     if SC.WorkTransport and type(SC.WorkTransport.retryOrder) == "function" then
         local ready, reason = SC.WorkTransport.retryOrder(id)
         if ready ~= true then return false, reason end
@@ -1820,10 +1829,17 @@ function BaseLife.summary()
         end
         local receiptCounts = {}
         for _, receipt in ipairs(workFor(base).receipts) do
+            local counts = receiptCounts[receipt.orderId]
+                or { carried = 0, pending = 0, phases = {}, cleanupPending = 0,
+                    cleanupExhausted = 0 }
+            if receipt.markerCleanupPending == true then
+                counts.cleanupPending = counts.cleanupPending + 1
+                if receipt.blocker == "work_marker_cleanup_exhausted" then
+                    counts.cleanupExhausted = counts.cleanupExhausted + 1
+                end
+            end
             if not receiptIsTerminal(receipt) then
                 result.workReceipts = result.workReceipts + 1
-                local counts = receiptCounts[receipt.orderId]
-                    or { carried = 0, pending = 0, phases = {} }
                 if receipt.phase == "carried" or receipt.phase == "depositing" then
                     counts.carried = counts.carried + 1
                 elseif receipt.phase == "quarantined" and receipt.owner == "actor" then
@@ -1835,14 +1851,16 @@ function BaseLife.summary()
                 counts.phases[receipt.actorId] = {
                     phase = receipt.phase, blocker = receipt.blocker,
                 }
-                receiptCounts[receipt.orderId] = counts
             end
+            receiptCounts[receipt.orderId] = counts
         end
         for _, order in ipairs(workFor(base).orders) do
             local counts = receiptCounts[order.id]
-                or { carried = 0, pending = 0, phases = {} }
+                or { carried = 0, pending = 0, phases = {}, cleanupPending = 0,
+                    cleanupExhausted = 0 }
             if not orderIsTerminal(order) or order.state == "completed"
-                or counts.carried > 0 or counts.pending > 0 then
+                or counts.carried > 0 or counts.pending > 0
+                or counts.cleanupPending > 0 then
                 local workerPhases = {}
                 for _, workerId in ipairs(order.workers) do
                     local phase = counts.phases[workerId]
@@ -1865,6 +1883,8 @@ function BaseLife.summary()
                     workers = stableCopy(order.workers, 2, { count = 8 }),
                     state = order.state, blocker = order.blocker,
                     carried = counts.carried, pendingReceipts = counts.pending,
+                    cleanupPending = counts.cleanupPending,
+                    cleanupExhausted = counts.cleanupExhausted,
                     workerPhases = workerPhases,
                 }
             end

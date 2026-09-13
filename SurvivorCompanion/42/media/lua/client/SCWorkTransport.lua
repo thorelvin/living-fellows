@@ -844,6 +844,19 @@ function Transport.retryOrder(orderId)
     return true, restored > 0 and "work_recovery_retried" or "no_work_recovery_blocker"
 end
 
+function Transport.retryCleanup(orderId)
+    local restored = 0
+    for _, receipt in ipairs(SC.BaseLife.workReceipts(orderId, true)) do
+        if receipt.markerCleanupPending == true then
+            receipt.markerCleanupAttempts, receipt.markerCleanupNextRetryAt = 0, 0
+            receipt.blocker, receipt.updatedAt = nil, now()
+            restored = restored + 1
+        end
+    end
+    if restored == 0 then return false, "no_work_marker_cleanup_pending" end
+    return true, "work_marker_cleanup_retried"
+end
+
 function Transport.pauseOrder(orderId, reason)
     for _, receipt in ipairs(SC.BaseLife.workReceipts(orderId, false)) do
         if receipt.phase == "selected" then
