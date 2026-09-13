@@ -102,7 +102,10 @@ local valueData = {
     combatDecisionIntervalMs = 100,
     combatReflexIntervalMs = 50,
     combatTacticalIntervalMs = 250,
-    combatDeadTargetAttackLeaseMs = 1800,
+    -- Let the native player graph finish its immediate post-impact transition,
+    -- but do not leave a non-local companion visibly looping on a corpse for
+    -- several seconds when Build 42 retains an attack/shove animation latch.
+    combatDeadTargetAttackLeaseMs = 600,
     combatSpacingReversalGuardMs = 225,
     combatSteeringProbeDistance = 0.45,
     combatTargetActionCandidates = 3,
@@ -116,7 +119,14 @@ local valueData = {
     persistenceIntervalMs = 30000,
     persistencePulseIntervalMs = 50,
     persistenceSliceBudgetMs = 0.75,
-    persistenceCaptureDeadlineMs = 5000,
+    -- A scheduled capture receives at most one 0.75 ms slice per 50 ms pulse
+    -- (about 15 ms of work per second). In a long session with several
+    -- companions, five seconds aborted staging repeatedly. Long pulse gaps
+    -- (pause, loading, shed background lanes) extend the deadline, bounded by
+    -- the hard cap measured from the request.
+    persistenceCaptureDeadlineMs = 20000,
+    persistenceCaptureHardDeadlineMs = 120000,
+    persistencePulseGapGraceMs = 1000,
     persistenceActorRetryLimit = 2,
     persistenceRetryDelayMs = 5000,
     tradeRecoveryIntervalMs = 500,
@@ -688,6 +698,12 @@ local valueData = {
     interactionOrderTimeoutMs = 60000,
     decisionHysteresis = 8,
     decisionMinStateMs = 900,
+    -- A tactical safety hold that combat cannot resolve (a zombie visible behind
+    -- a tall fence) releases a follower to its leader once no threat is
+    -- immediate, the hold has lasted this long, and the leader is farther than
+    -- followDistance plus this leash distance in tiles.
+    decisionSafetyHoldLeashMs = 4000,
+    decisionSafetyHoldLeashDistance = 4,
     relationshipObservationIntervalMs = 1000,
     -- Living-survivor simulation uses world age for emotional time and the
     -- existing scheduler for CPU cadence. Major incidents are deliberately

@@ -471,6 +471,21 @@ local doingLabels = {
     wash = "washing up",
     follow_formation = "keeping formation",
     approach_vehicle = "reaching the passenger door",
+    logistics_pack = "repacking my gear",
+    logistics_deposit = "putting surplus gear into storage",
+    logistics_drop = "dropping surplus gear",
+    logistics_wear = "changing my equipment",
+}
+
+-- A logistics target is the item being moved, not a place. Feeding its
+-- localized display name into the generic "at/near target" templates produced
+-- lines such as "working on logistics pack near Bukser". The activity itself
+-- is the useful answer here and remains grammatical in every generic variant.
+local targetlessDoingActions = {
+    logistics_pack = true,
+    logistics_deposit = true,
+    logistics_drop = true,
+    logistics_wear = true,
 }
 
 local function readableAction(value)
@@ -496,7 +511,8 @@ end
 local function doingResponse(actor, state, description)
     local summary = type(description.actionSummary) == "table"
         and description.actionSummary or {}
-    local action = readableAction(summary.action)
+    local actionKey = tostring(summary.action or "idle")
+    local action = readableAction(actionKey)
     if summary.active == true then
         if summary.phase == "recovering" then
             return varied(actor, "doing.recovering",
@@ -508,7 +524,8 @@ local function doingResponse(actor, state, description)
                 "I'm waiting before I can finish %1.", { action }, state),
                 "undecided", false
         end
-        if type(summary.targetLabel) == "string" and summary.targetLabel ~= "" then
+        if not targetlessDoingActions[actionKey]
+            and type(summary.targetLabel) == "string" and summary.targetLabel ~= "" then
             return varied(actor, "doing.target", "I'm %1 at %2.",
                 { action, summary.targetLabel }, state), "yes", false
         end

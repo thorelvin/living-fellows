@@ -191,6 +191,23 @@ public final class SCNativeApiSignatureTest {
                         && method(actionContext, "clearEvent", String.class).getReturnType() == void.class
                         && method(actionContext, "hasEventOccurred", String.class).getReturnType() == boolean.class,
                 "pending native traversal cancellation contract changed");
+        for (Class<?>[] parameters : new Class<?>[][] {
+                { String.class },
+                { String.class, Object.class },
+                { String.class, Object.class, Object.class },
+                { String.class, Object.class, Object.class, Object.class },
+                { String.class, Object.class, Object.class, Object.class, Object.class } }) {
+            require(method(character, "triggerContextualAction", parameters).getReturnType()
+                            == void.class
+                            && companion.getDeclaredMethod("triggerContextualAction", parameters)
+                                    .getReturnType() == void.class,
+                    "companion contextual-action isolation no longer overrides every stock overload");
+        }
+        require(companion.getDeclaredMethod("getCompanionContextualActionDiagnostic")
+                        .getReturnType() == String.class
+                        && method(player, "hopFence", isoDirection, boolean.class).getReturnType()
+                                == boolean.class,
+                "companion contextual-action diagnostic or low-fence edge test signature changed");
         require(companion.getDeclaredMethod("setCompanionFloorAttackInput", boolean.class, boolean.class)
                         .getReturnType() == boolean.class
                         && method(character, "isManualFloorAtkButtonDown").getReturnType() == boolean.class

@@ -225,7 +225,14 @@ local function advanceSharedNative(list, count, maximum, deadline, clock, now)
         -- checked after that floor and after every subsequent native read.
         if deadline and processed >= 4 and clock() >= deadline then break end
         local index = nativeIndex(shared.cursor, shared.cycleCount)
-        local value, found = SC.NativeList.get(list, index)
+        -- cycleCount deliberately survives ordinary roster churn, but a shrink
+        -- makes some of that captured extent invalid. Never ask ArrayList for a
+        -- known out-of-range index: Kahlua logs the Java exception even though
+        -- SC.Call catches it, and the repeated exception can delay perception.
+        local value, found
+        if index < count then
+            value, found = SC.NativeList.get(list, index)
+        end
         shared.cursor = shared.cursor + 1
         processed = processed + 1
         if found and value ~= nil and not shared.buildSeen[value] then

@@ -51,6 +51,13 @@ public class IsoGameCharacter extends IsoMovingObject {
     public ActionContext getActionContext() { return null; }
     public java.util.Stack<BaseAction> getCharacterActions() { return characterActions; }
     public void StartAction(BaseAction action) { characterActions.add(action); }
+    public void triggerContextualAction(String action) {}
+    public void triggerContextualAction(String action, Object first) {}
+    public void triggerContextualAction(String action, Object first, Object second) {}
+    public void triggerContextualAction(String action, Object first, Object second,
+            Object third) {}
+    public void triggerContextualAction(String action, Object first, Object second,
+            Object third, Object fourth) {}
     public IsoGridSquare getCurrentSquare() { return null; }
     public BaseCharacterSoundEmitter getEmitter() { return null; }
     public Moodles getMoodles() { return null; }

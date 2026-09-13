@@ -213,6 +213,18 @@ check(not boundsAccepted and not actor.moveRequested,
 actor.rejectBounds = false
 approach()
 before = actor.x
+target.health = 0
+actor.moving, actor.moveRequested = true, true
+local attacksBeforeDeadTarget = actor.attacks
+for _, action in ipairs({ "attack_melee", "attack_firearm", "shove", "stomp" }) do
+    local accepted, rejectedReason = dispatch(action)
+    check(not accepted and rejectedReason == "attack target is dead"
+            and actor.attacks == attacksBeforeDeadTarget
+            and actor.moving == true and actor.moveRequested == true,
+        action .. " rejects a dead target before taking stationary combat ownership")
+end
+target.health = 5
+actor:setMoving(false)
 actor.warming = true
 local started, reason = dispatch("attack_melee", { weapon = weapon })
 actor:updateFrame()

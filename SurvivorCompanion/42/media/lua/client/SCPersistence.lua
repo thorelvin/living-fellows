@@ -211,6 +211,15 @@ end
 local listSize = SC.NativeList.size
 local listGet = SC.NativeList.get
 
+-- Scheduled captures yield between items, so a companion can drop, equip or
+-- consume an item while its lists are being walked. Re-read the live size on
+-- every step: a shrunken list is ordinary churn for the actor retry barrier,
+-- never a Java IndexOutOfBoundsException from ArrayList.get().
+local function liveListItem(list, index)
+    if index >= listSize(list) then return nil, false end
+    return listGet(list, index)
+end
+
 local function positionOf(actor)
     local squareOk, square = invoke(actor, "getCurrentSquare")
     local source = squareOk and square or actor
@@ -736,7 +745,8 @@ local function captureInventory(actor)
             end
             entry.children = {}
             for index = 0, listSize(childList) - 1 do
-                local child = listGet(childList, index)
+                local child, available = liveListItem(childList, index)
+                if not available then return nil, "inventory changed during capture" end
                 local captured, reason = captureNode(child, depth + 1, "i")
                 if not captured then return nil, reason end
                 entry.children[#entry.children + 1] = captured
@@ -750,7 +760,8 @@ local function captureInventory(actor)
         if partsOk and parts ~= nil and listSize(parts) > 0 then
             entry.weaponParts = {}
             for index = 0, listSize(parts) - 1 do
-                local part = listGet(parts, index)
+                local part, available = liveListItem(parts, index)
+                if not available then return nil, "inventory changed during capture" end
                 local partId, partIdReason = nextId("p")
                 if not partId then return nil, partIdReason end
                 local partEntry, partReason = captureItem(part)
@@ -774,7 +785,8 @@ local function captureInventory(actor)
     end
 
     for index = 0, listSize(items) - 1 do
-        local item = listGet(items, index)
+        local item, available = liveListItem(items, index)
+        if not available then return nil, "inventory changed during capture" end
         local _, reason = ensureRoot(item)
         if reason then return nil, reason end
     end
@@ -795,7 +807,8 @@ local function captureInventory(actor)
     local wornOk, worn = invoke(actor, "getWornItems")
     if wornOk and worn ~= nil then
         for index = 0, math.min(listSize(worn), 128) - 1 do
-            local wornEntry = listGet(worn, index)
+            local wornEntry, available = liveListItem(worn, index)
+            if not available then return nil, "inventory changed during capture" end
             local itemOk, item = invoke(wornEntry, "getItem")
             local locationOk, location = invoke(wornEntry, "getLocation")
             if itemOk and item ~= nil and locationOk and location ~= nil then
@@ -810,7 +823,8 @@ local function captureInventory(actor)
     local attachedOk, attached = invoke(actor, "getAttachedItems")
     if attachedOk and attached ~= nil then
         for index = 0, math.min(listSize(attached), 64) - 1 do
-            local attachedEntry = listGet(attached, index)
+            local attachedEntry, available = liveListItem(attached, index)
+            if not available then return nil, "inventory changed during capture" end
             local itemOk, item = invoke(attachedEntry, "getItem")
             local locationOk, location = invoke(attachedEntry, "getLocation")
             if itemOk and item ~= nil and locationOk and location ~= nil then
@@ -1386,11 +1400,14 @@ function persistence.requestScheduledSave(player)
     end
     local records = {}
     for _, record in ipairs(SC.Registry.records()) do records[#records + 1] = record end
+    local deadlineMs = math.max(250,
+        tonumber(SC.Config.get("persistenceCaptureDeadlineMs")) or 20000)
     scheduledSave = {
         player = player, store = store, priorDocument = store.document,
-        startedAt = current,
-        deadline = current + math.max(250,
-            tonumber(SC.Config.get("persistenceCaptureDeadlineMs")) or 5000),
+        startedAt = current, lastPulseAt = current,
+        deadline = current + deadlineMs,
+        hardDeadline = current + math.max(deadlineMs,
+            tonumber(SC.Config.get("persistenceCaptureHardDeadlineMs")) or 120000),
         phase = "subsystems", index = 1,
         definitions = scheduledSubsystemDefinitions(), records = records,
         actorAttempts = {}, actorProofs = {},
@@ -1544,8 +1561,11 @@ local function verifyScheduledOwnership(job)
             if proof.inventory ~= nil then
                 local identity, reason = inventoryIdentitySequence(proof.actor)
                 if identity == nil or not sameIdentitySequence(proof.inventory, identity) then
+                    -- A readable identity names the one owner that can be
+                    -- recaptured; an unreadable inventory must fail closed.
                     return false, "inventory ownership changed before scheduled commit: "
-                        .. tostring(proof.id) .. ": " .. tostring(reason or "identity mismatch")
+                        .. tostring(proof.id) .. ": " .. tostring(reason or "identity mismatch"),
+                        identity ~= nil and proof.record or nil
                 end
             end
             local vehicleState, vehicleReason, vehicleOk =
@@ -1610,8 +1630,8 @@ local function commitScheduled(job, outgoing)
     -- The staged copies span frames, but publication is guarded by one final
     -- main-thread ownership barrier. No game/container mutation can interleave
     -- between this exact revalidation and the assignment below.
-    local coherent, coherenceReason = verifyScheduledOwnership(job)
-    if not coherent then return false, coherenceReason end
+    local coherent, coherenceReason, changedRecord = verifyScheduledOwnership(job)
+    if not coherent then return false, coherenceReason, changedRecord end
     local assigned, assignmentReason = pcall(function() job.store.document = outgoing end)
     if not assigned then
         local rolledBack, rollbackReason = pcall(function()
@@ -1624,12 +1644,25 @@ local function commitScheduled(job, outgoing)
     return true
 end
 
+local function actorRetryLimit()
+    return math.max(0, math.floor(tonumber(
+        SC.Config.get("persistenceActorRetryLimit")) or 2))
+end
+
 function persistence.pulse()
     local job = scheduledSave
     if job == nil then return "idle" end
     local clock = type(getTimestampMs) == "function" and getTimestampMs
         or function() return math.floor((os.clock and os.clock() or 0) * 1000) end
     local current = tonumber(clock()) or 0
+    -- The deadline bounds live capture work. Real time spent paused, loading or
+    -- with the background lane shed is not capture work, so an unusually long
+    -- gap between pulses shifts the deadline, never past the hard cap.
+    local gap = current - (tonumber(job.lastPulseAt) or current)
+    job.lastPulseAt = current
+    if gap > math.max(0, tonumber(SC.Config.get("persistencePulseGapGraceMs")) or 1000) then
+        job.deadline = math.min(job.deadline + gap, tonumber(job.hardDeadline) or job.deadline)
+    end
     if current >= job.deadline then return abortScheduledSave(job, "capture deadline exceeded", current) end
     local sliceDeadline = current + math.max(0.1,
         tonumber(SC.Config.get("persistenceSliceBudgetMs")) or 0.75)
@@ -1748,10 +1781,50 @@ function persistence.pulse()
             beginScheduledCopy(job, job.document, documentDepthLimit(), documentEntryLimit(),
                 "$", function(copied) job.outgoing = copied end)
         elseif job.phase == "commit" then
-            local ok, reason = commitScheduled(job, job.outgoing)
-            if not ok then return abortScheduledSave(job, reason, current) end
-            scheduledSave, scheduledSaveRetryAt = nil, 0
-            return "complete", job.outgoing
+            local ok, reason, changedRecord = commitScheduled(job, job.outgoing)
+            if ok then
+                scheduledSave, scheduledSaveRetryAt = nil, 0
+                return "complete", job.outgoing
+            end
+            if changedRecord == nil then return abortScheduledSave(job, reason, current) end
+            local attempts = (job.actorAttempts[changedRecord.id] or 0) + 1
+            job.actorAttempts[changedRecord.id] = attempts
+            if attempts > actorRetryLimit() then return abortScheduledSave(job, reason, current) end
+            -- Only this owner's inventory moved after it was staged. Recapture
+            -- that one actor, replace its staged copy and repeat the complete
+            -- barrier instead of discarding every other staged record.
+            job.phase, job.recaptureRecord = "recapture", changedRecord
+        elseif job.phase == "recapture" then
+            local record = job.recaptureRecord
+            local ok, reason, complete = resumeScheduledActor(
+                job, record, sliceDeadline, clock)
+            if complete ~= true then return "yielded", reason end
+            if not ok then
+                local attempts = (job.actorAttempts[record.id] or 0) + 1
+                job.actorAttempts[record.id] = attempts
+                if attempts > actorRetryLimit() then
+                    return abortScheduledSave(job, "active companion capture failed: "
+                        .. tostring(record.id) .. ": " .. tostring(reason), current)
+                end
+                return "yielded", "actor_retry"
+            end
+            local proof = job.actorProofs[record]
+            local bucket = proof and proof.bucket or nil
+            local staged = bucket and job.document[bucket][record.id] or nil
+            local outgoingBucket = bucket and type(job.outgoing) == "table"
+                and job.outgoing[bucket] or nil
+            if type(staged) ~= "table" or type(outgoingBucket) ~= "table" then
+                return abortScheduledSave(job, "recaptured actor record unavailable: "
+                    .. tostring(record.id), current)
+            end
+            job.phase = "recapture-copy"
+            beginScheduledCopy(job, staged, documentDepthLimit(), documentEntryLimit(),
+                "$." .. bucket .. "[" .. tostring(record.id) .. "]", function(copied)
+                    outgoingBucket[record.id] = copied
+                    job.recaptureRecord, job.phase = nil, "commit"
+                end)
+        elseif job.phase == "recapture-copy" then
+            return "yielded", "recapture_copy_pending"
         else
             return abortScheduledSave(job, "unknown staging phase", current)
         end

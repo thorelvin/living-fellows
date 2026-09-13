@@ -2245,6 +2245,30 @@ check(wallAccepted and fenceActor.lastIntent
     "a tall hoppable wall selects the native player wall-climb action: "
         .. tostring(wallReason) .. "/"
         .. tostring(fenceActor.lastIntent and fenceActor.lastIntent.action))
+local fenceLanding = cell:getGridSquare(6, -5, 0)
+fenceTo.room = { name = "landing-room" }
+fenceLanding.losBlocked = true
+local fenceTacticalState = {
+    roomEntryKey = "stale-room", roomEntryObserveUntil = clock + 1000,
+    roomEntrySweepPhase = 1, cornerObserveKey = "stale-corner",
+    cornerObserveUntil = clock + 1000,
+}
+local fenceTacticalIntent = {
+    action = "follow_formation",
+    snapshot = { threats = {}, allies = {}, player = { available = false } },
+}
+local fenceTacticalAccepted, fenceTacticalReason =
+    SurvivorCompanion.Navigation._tacticalStepForTests(
+        fenceActor, fenceTacticalState, fenceFrom, fenceTo, fenceLanding,
+        "fence", fenceTacticalIntent, clock)
+check(fenceTacticalAccepted == true and fenceTacticalReason == "normal"
+        and fenceTacticalState.roomEntryKey == nil
+        and fenceTacticalState.cornerObserveKey == nil
+        and fenceTacticalIntent.tacticalCorner ~= true
+        and fenceTacticalIntent.tacticalStrafe ~= true,
+    "a high-fence landing turn bypasses doorway and blind-corner poses so the native climb starts")
+fenceTo.room = nil
+fenceLanding.losBlocked = false
 local priorPlanningCanClimb = fenceActor.canClimbOverWall
 local planningCanClimbCalls = 0
 function fenceActor:canClimbOverWall(direction)
@@ -2302,7 +2326,7 @@ check(builtFenceEdge.traversable == true and builtFenceEdge.object == builtFence
         and builtFenceAccepted == true and fenceActor.lastIntent
         and fenceActor.lastIntent.action == "climb_window"
         and fenceActor.lastIntent.hoppableThumpable == true,
-    "a colliding player-built fence remains a traversal affordance and mirrors the stock contextual climb: "
+    "a colliding player-built fence remains a traversal affordance and mirrors the stock ISClimbThroughWindow climb: "
         .. tostring(builtFenceEdge.traversable) .. "/"
         .. tostring(builtFenceEdge.object == builtFence) .. "/"
         .. tostring(builtFenceAccepted) .. "/"
@@ -4776,6 +4800,23 @@ do
     SurvivorCompanion.ActionSupervisor.cancel(fellow, "fixture_done", nil, true)
 end
 do
+    local logisticsToken = assert(SurvivorCompanion.ActionSupervisor.begin(fellow, {
+        owner = "logistics", action = "logistics_pack", targetKey = "pants:test",
+        targetLabel = "Bukser", phase = "committing",
+        priority = SurvivorCompanion.ActionSupervisor.Priority.WORK,
+    }))
+    fellow.lastSpeech, player.lastSpeech = nil, nil
+    local doingAccepted, doingSentence = SurvivorCompanion.Commands.conversation(
+        fellow.id, "doing", player)
+    local lowerSentence = string.lower(tostring(doingSentence or ""))
+    check(doingAccepted and fellow.lastSpeech == doingSentence
+            and string.find(lowerSentence, "repacking my gear", 1, true) ~= nil
+            and string.find(lowerSentence, "logistics pack", 1, true) == nil
+            and string.find(lowerSentence, "bukser", 1, true) == nil,
+        "logistics pack status describes the activity without treating its localized item as a place")
+    SurvivorCompanion.ActionSupervisor.cancel(fellow, "fixture_done", nil, true)
+end
+do
     -- Playtest 4: every companion had wounds on all body parts at severity 30 and
     -- tried to change bandages over its whole body forever. BodyPart.IsInfected()
     -- reports the character's Knox (zombie) infection, which the engine propagates
@@ -5880,6 +5921,8 @@ swordZed.dead = true
 clock = clock + 1
 check(SurvivorCompanion.Combat.holdNativeAttack(swordActor, rejectedRuntime) == true,
     "a dead target retains only the bounded native swing-tail lease")
+check(SurvivorCompanion.Config.values.combatDeadTargetAttackLeaseMs <= 600,
+    "the dead-target native tail is sub-second instead of visibly looping on a corpse")
 clock = clock + SurvivorCompanion.Config.values.combatDeadTargetAttackLeaseMs + 1
 local corpseLease, corpseLeaseReason = SurvivorCompanion.Combat.holdNativeAttack(
     swordActor, rejectedRuntime)
@@ -8950,7 +8993,7 @@ function SurvivorCompanion.__testDecisionNativeSwingLease()
         local holdsBefore = fighter.leaseHolds or 0
         local movementBefore = fighter.movementCalls or 0
         local handled, reason
-        for _ = 1, 4 do
+        for _ = 1, 2 do
             clock = clock + 201
             handled, reason = SC.Decision.update(fighter, player, runtime)
         end

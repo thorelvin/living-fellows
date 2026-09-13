@@ -776,6 +776,32 @@ check(lateSeen and lateMeta.processed == 4 and list.reads - costlyReads == 4
         and lateMeta.complete == false,
     "a late relevant zombie in a 1000-entry list is acquired in one bounded costly slice")
 
+-- An in-flight fallback pass keeps its original extent so count churn cannot
+-- starve progress. If the Java list shrinks, however, old tail indices must be
+-- skipped before calling ArrayList.get or Kahlua will log caught exceptions.
+Scan.reset()
+zombies = {}
+for index = 1, 8 do zombies[index] = actor(100 + index, 100, 0, "IsoZombie") end
+local originalShrinkingGet, invalidShrinkReads = list.get, 0
+function list:get(index)
+    self.reads = self.reads + 1
+    if index >= #zombies then
+        invalidShrinkReads = invalidShrinkReads + 1
+        error("out of range " .. tostring(index))
+    end
+    return zombies[index + 1]
+end
+local shrinkingState = {}
+current = current + 100
+Scan.nativeCandidates(observer, shrinkingState, 24, 4)
+while #zombies > 3 do table.remove(zombies) end
+current = current + 100
+local _, shrinkingMeta = Scan.nativeCandidates(observer, shrinkingState, 24, 4)
+list.get = originalShrinkingGet
+check(invalidShrinkReads == 0 and shrinkingMeta.complete == false
+        and shrinkingMeta.freshComplete == false,
+    "a shrinking native roster skips captured tail indices without exceptions or false completion")
+
 -- Busy cells change size continuously as zombies die, spawn, and unload. A
 -- cycle keeps its captured extent and clamps failed reads instead of restarting.
 Scan.reset()

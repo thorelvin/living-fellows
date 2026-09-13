@@ -407,6 +407,17 @@ require("extends IsoPlayer" in native_companion
         and "RESERVED_NON_LOCAL_PLAYER_INDEX = 3" in native_companion
         and "public boolean isLocalPlayer()" in native_companion,
         "IsoCompanion inheritance or non-local isolation contract is missing")
+require("public void triggerContextualAction(String action, Object first, Object second)"
+        in native_companion
+        and "suppressContextualAction(action)" in native_companion
+        and "getCompanionContextualActionDiagnostic" in native_companion,
+        "companions must refuse the local player's contextual-action hook")
+require('invoke(actor, "hopFence", direction, false)' not in native_traversal
+        and '"triggerContextualAction"' not in native_traversal
+        and 'invoke(actor, "climbOverFence", direction)' in native_traversal
+        and "clearActionContextEvents" in native_traversal
+        and "local function submitOrDefer" in native_traversal,
+        "companion climbs must use native entry points and wait for an accepting stock pose")
 require("bridgeDeathStarted" in native_companion
         and "addOnDiedListener" in native_companion
         and 'triggerEvent("OnCharacterDeath", this)' in native_companion

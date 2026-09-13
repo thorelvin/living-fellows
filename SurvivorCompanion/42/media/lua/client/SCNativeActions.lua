@@ -280,6 +280,17 @@ local function nativeAttackRange(actor, action, intent)
     return true
 end
 
+local function attackTargetDead(target)
+    if target == nil then return true end
+    local deadOk, dead = invoke(target, "isDead")
+    if deadOk and dead == true then return true end
+    -- Build 42 can publish zero health one update before isDead. This final
+    -- dispatch boundary must reject that transition for every attack kind,
+    -- including standing shove/melee and firearms, not only floor attacks.
+    local healthOk, health = invoke(target, "getHealth")
+    return healthOk and tonumber(health) ~= nil and tonumber(health) <= 0
+end
+
 local function setTacticalMovement(actor, enabled, strafeX, strafeY)
     if method(actor, "setCompanionTacticalMovement") == nil then
         return nil, "native tactical movement is unavailable"
@@ -2210,6 +2221,9 @@ local function attack(actor, action, intent, provider)
     local target = intent.target
     if target == nil then
         return false, "attack intent has no target"
+    end
+    if attackTargetDead(target) then
+        return false, "attack target is dead"
     end
     -- Acquire stationary combat ownership before any range/equip/model check.
     -- A failed or completed swing must never revive a retained approach vector.

@@ -186,6 +186,54 @@ do
         "a rejected critical combat response still cannot fall through to routine Follow")
     SC.Combat = nil
 
+    -- A zombie seen behind a tall fence keeps combat selected although combat
+    -- has no viable action. The companion may guard briefly, then must rejoin a
+    -- leader who walks away instead of holding that pose indefinitely.
+    local function fencedRuntime(immediate)
+        local runtime = quietRuntime()
+        local threat = { actor = patient(100), distanceSq = 9, visible = true }
+        runtime.snapshot.threats = { threat }
+        runtime.snapshot.threatCount = 1
+        runtime.snapshot.closeThreatCount = 1
+        if immediate then
+            runtime.snapshot.immediateAttackers = { threat }
+            runtime.snapshot.immediateCount = 1
+        end
+        return runtime
+    end
+    local function holdTicks(value, target, runtime, ticks)
+        local tickHandled, tickResult
+        for _ = 1, ticks do
+            SC_TEST_CLOCK = SC_TEST_CLOCK + 1000
+            tickHandled, tickResult = SC.Decision.update(value, target, runtime)
+        end
+        return tickHandled, tickResult
+    end
+    SC.Combat = { update = function() return false, "no_viable_target_action" end }
+    local stranded, strandedRuntime = patient(100), fencedRuntime(false)
+    local briefHandled, briefResult = holdTicks(stranded, leader, strandedRuntime, 3)
+    check(briefHandled and briefResult == "safety_guarded_hold:combat" and not stranded.followCalls,
+        "an unreachable non-immediate threat first produces a brief guarded hold: "
+            .. tostring(briefResult))
+    local leashHandled, leashResult = holdTicks(stranded, leader, strandedRuntime, 3)
+    check(leashHandled and leashResult == "followed" and (stranded.followCalls or 0) > 0,
+        "the bounded hold releases a stranded follower to its departing leader: "
+            .. tostring(leashResult))
+    local nearLeader = patient(100)
+    nearLeader.x = 3.5
+    local guarding, guardingRuntime = patient(100), fencedRuntime(false)
+    local nearHandled, nearResult = holdTicks(guarding, nearLeader, guardingRuntime, 8)
+    check(nearHandled and nearResult == "safety_guarded_hold:combat" and not guarding.followCalls,
+        "a companion still guards an unreachable threat while its leader stays close: "
+            .. tostring(nearResult))
+    local attacked, attackedRuntime = patient(100), fencedRuntime(true)
+    local attackedHandled, attackedResult = holdTicks(attacked, leader, attackedRuntime, 8)
+    check(attackedHandled and attackedResult == "safety_guarded_hold:combat"
+            and not attacked.followCalls,
+        "an immediate attacker keeps the defensive hold regardless of leash time or distance: "
+            .. tostring(attackedResult))
+    SC.Combat = nil
+
     local criticalDirty, cleanRuntime = patient(19, { part(true, false, 0) }), quietRuntime()
     local oldTreat, treatedPatient = M.treat, nil
     M.treat = function(_, target) treatedPatient = target return true, "replace_actual_bandage" end

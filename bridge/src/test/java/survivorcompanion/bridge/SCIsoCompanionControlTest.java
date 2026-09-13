@@ -258,6 +258,14 @@ public final class SCIsoCompanionControlTest {
         require(actor.getCompanionCollisionDiagnostic().startsWith("move{")
                         && actor.getCompanionCollisionDiagnostic().contains("};collision{"),
                 "native physics evidence is not exposed as a read-only diagnostic");
+        // IsoPlayer.hopFence(dir, false) fires ClimbOverFence as its whole
+        // effect; the stock handler cannot resolve a non-local companion.
+        String before = actor.getCompanionContextualActionDiagnostic();
+        long prior = Long.parseLong(before.substring("suppressed=".length(), before.indexOf(',')));
+        actor.triggerContextualAction("ClimbOverFence", null, zombie.iso.IsoDirections.N);
+        require(actor.getCompanionContextualActionDiagnostic()
+                        .equals("suppressed=" + (prior + 1) + ",last=ClimbOverFence"),
+                "companion entered the local player's contextual action hook");
     }
 
     private static void testZeroDeferredDuplicatePathNode(SCNativeCompanion actor) throws Exception {

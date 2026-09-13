@@ -88,6 +88,9 @@ public final class SCNativeCompanion extends IsoPlayer {
     // companion wall-climb submission below; it is cleared before Lua regains
     // control and never makes the actor a split-screen/local-player singleton.
     private volatile boolean bridgeWallClimbOutcomeContext;
+    // Inherited contextual-action submissions refused for this non-local actor.
+    private volatile long bridgeSuppressedContextualActions;
+    private volatile String bridgeLastSuppressedContextualAction = "";
     private volatile long bridgePostUpdateCount;
     private volatile String bridgePostUpdateDiagnostic = "not_run";
     private final MovementProbe bridgeLastMovementProbe = new MovementProbe();
@@ -355,6 +358,54 @@ public final class SCNativeCompanion extends IsoPlayer {
         } finally {
             bridgeWallClimbOutcomeContext = false;
         }
+    }
+
+    /**
+     * Stock ContextualAction handlers (ClimbOverFence, ClimbThroughWindow,
+     * curtains, beds, animals) resolve their character with
+     * getSpecificPlayer(getIndex()), which is nil for this reserved non-local
+     * index, and then queue the local player's Lua timed actions. Inherited Java
+     * entry points such as hopFence(dir, false) fire that hook as their entire
+     * effect, so a companion reaching one raised a Lua error and never moved.
+     * Lua submits native climbs directly; never enter the player's contextual
+     * queue on a companion's behalf.
+     */
+    @Override
+    public void triggerContextualAction(String action) {
+        suppressContextualAction(action);
+    }
+
+    @Override
+    public void triggerContextualAction(String action, Object first) {
+        suppressContextualAction(action);
+    }
+
+    @Override
+    public void triggerContextualAction(String action, Object first, Object second) {
+        suppressContextualAction(action);
+    }
+
+    @Override
+    public void triggerContextualAction(String action, Object first, Object second,
+            Object third) {
+        suppressContextualAction(action);
+    }
+
+    @Override
+    public void triggerContextualAction(String action, Object first, Object second,
+            Object third, Object fourth) {
+        suppressContextualAction(action);
+    }
+
+    private void suppressContextualAction(String action) {
+        bridgeSuppressedContextualActions++;
+        bridgeLastSuppressedContextualAction = action == null ? "" : action;
+    }
+
+    /** Read-only evidence that an inherited path tried to enter the player's contextual queue. */
+    public String getCompanionContextualActionDiagnostic() {
+        return "suppressed=" + bridgeSuppressedContextualActions
+                + ",last=" + bridgeLastSuppressedContextualAction;
     }
 
     /**

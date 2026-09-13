@@ -169,6 +169,64 @@ local function considerWallClimbReaction(record, current)
     if spoken == true then lastWallClimbReactionAt = current end
 end
 
+-- Build 42 clears every ActionContext event at the end of each update
+-- (ActionContext.postUpdateInternal -> clearActionContextEvents). A climb
+-- event reported while the stock player graph sits in a state without the
+-- matching to_climb* transition (strafe, aim, bumped, turning, melee...) is
+-- discarded without error, so the climb never starts. These are the stock
+-- player action groups whose transitions consume each climb event.
+local climbAcceptingStates = {
+    climb_fence = { idle = true, movement = true, run = true, sprint = true, climbrope = true },
+    climb_wall = { idle = true, movement = true, run = true },
+    climb_window = { idle = true, movement = true, climbrope = true,
+        openwindow = true, smashwindow = true },
+}
+
+-- Returns the current action state when it cannot consume the climb event,
+-- or nil when submission is safe or the state is not observable (adapters).
+local function climbStateBlocker(actor, action)
+    local accepting = climbAcceptingStates[action]
+    if accepting == nil then return nil end
+    local observed, name = invoke(actor, "getCompanionActionStateName")
+    if not observed or type(name) ~= "string" or name == "" then return nil end
+    local state = string.lower(name)
+    if accepting[state] then return nil end
+    return state
+end
+
+local function startTimeoutMs(effectOnly)
+    return config("nativeTraversalStartTimeoutMs", effectOnly and 3500 or 1500)
+end
+
+local function finishTimeoutMs(rope)
+    return config("nativeTraversalTimeoutMs", rope and 30000 or 15000)
+end
+
+-- Submit a deferred climb once the stock graph can consume its event. The
+-- wait is bounded by the original start lease; a submitted climb receives a
+-- fresh lease so a late submission is not mistaken for a failed start.
+local function submitDeferred(actor, record, current)
+    local blocker = climbStateBlocker(actor, record.action)
+    if blocker ~= nil then
+        record.deferredState = blocker
+        return nil
+    end
+    local submit = record.deferredSubmit
+    record.deferredSubmit, record.deferredState = nil, nil
+    local submitted, failure, outcome = submit()
+    if not submitted then
+        record.phase, record.finishedAt = "failed", current
+        record.reason = tostring(failure or ("native " .. record.action .. " submission failed"))
+        return record.phase, record.reason
+    end
+    record.wallClimbOutcome = outcome
+    record.x, record.y, record.z = position(actor)
+    record.startDeadline = current + startTimeoutMs(false)
+    record.finishDeadline = current + finishTimeoutMs(record.rope)
+    record.reason = "traversal_starting:" .. record.action
+    return nil
+end
+
 -- Native traversal requests queue action events. A false isClimbing result in
 -- the dispatch frame is not a rejection; retain ownership until a later update
 -- observes entry, completion, or a bounded failure.
@@ -180,6 +238,10 @@ function Traversal.poll(actor, current)
         or record.phase == "cancelled" then
         if current - (record.finishedAt or current) > 30000 then pending[actor] = nil end
         return record.phase, record.reason, record
+    end
+    if record.deferredSubmit ~= nil and record.phase == "starting" then
+        local deferredPhase, deferredReason = submitDeferred(actor, record, current)
+        if deferredPhase ~= nil then return deferredPhase, deferredReason, record end
     end
     local active = climbing(actor)
     if not active and record.phase == "starting"
@@ -337,8 +399,8 @@ local function retainRequest(actor, action, intent, startedReason, effectOnly)
         observedAt = active and current or nil, x = x, y = y, z = z,
         effectOnly = effectOnly == true, rope = rope,
         hoppableThumpable = intent.hoppableThumpable == true,
-        startDeadline = current + config("nativeTraversalStartTimeoutMs", effectOnly and 3500 or 1500),
-        finishDeadline = current + config("nativeTraversalTimeoutMs", rope and 30000 or 15000),
+        startDeadline = current + startTimeoutMs(effectOnly),
+        finishDeadline = current + finishTimeoutMs(rope),
         reason = active and startedReason or "traversal_starting:" .. action,
     }
     if effectOnly then pending[actor].effectVerified = effectDone(pending[actor]) end
@@ -347,6 +409,27 @@ local function retainRequest(actor, action, intent, startedReason, effectOnly)
         pending[actor].reason = startedReason
     end
     return true, pending[actor].reason
+end
+
+-- Submit a native climb now when the stock player graph can consume its event;
+-- otherwise retain the same bounded ownership and let poll() submit it once the
+-- graph leaves strafe/aim/turning. Navigation keeps waiting on a "starting"
+-- traversal, so a transient pose never blacklists a valid fence or window.
+local function submitOrDefer(actor, action, intent, submit, startedReason)
+    local blocker = climbStateBlocker(actor, action)
+    if blocker ~= nil then
+        local retained, retainReason = retainRequest(actor, action, intent, startedReason)
+        local record = pending[actor]
+        if not retained or record == nil then return retained, retainReason end
+        record.deferredSubmit, record.deferredState = submit, blocker
+        record.reason = "traversal_waiting_for_action_state:" .. action
+        return true, record.reason
+    end
+    local submitted, failure, outcome = submit()
+    if not submitted then return false, failure end
+    local retained, retainReason = retainRequest(actor, action, intent, startedReason)
+    if retained and pending[actor] then pending[actor].wallClimbOutcome = outcome end
+    return retained, retainReason
 end
 
 function Traversal.window(actor, action, intent, provider)
@@ -377,24 +460,19 @@ function Traversal.window(actor, action, intent, provider)
         return retainRequest(actor, action, intent, "glass_removed", true)
     end
 
-    local started, failure
-    if intent.hoppableThumpable == true then
-        -- The stock E action submits a hoppable IsoThumpable through the
-        -- contextual ClimbThroughWindow entry point. That state owns its object
-        -- geometry and animation offsets better than treating it as a low fence.
-        started, failure = invoke(
-            actor, "triggerContextualAction", "ClimbThroughWindow", object)
-        if started and failure == false then
-            return false, "contextual thumpable climb was rejected"
+    -- The stock E action reaches ISClimbThroughWindow for windows, empty frames
+    -- and hoppable IsoThumpables alike, and its perform() calls these inherited
+    -- methods directly. The player's ContextualAction hook is never used: its
+    -- handler resolves getSpecificPlayer(getIndex()), which is nil here.
+    local methodName = intent.emptyFrame == true
+        and "climbThroughWindowFrame" or "climbThroughWindow"
+    return submitOrDefer(actor, action, intent, function()
+        local started, failure = invoke(actor, methodName, object)
+        if not started or failure == false then
+            return false, failure or "native window climb rejected"
         end
-    end
-    if not started then
-        local methodName = intent.emptyFrame == true
-            and "climbThroughWindowFrame" or "climbThroughWindow"
-        started, failure = invoke(actor, methodName, object)
-    end
-    if not started or failure == false then return false, failure or "native window climb rejected" end
-    return retainRequest(actor, action, intent, "window_climb_started")
+        return true
+    end, "window_climb_started")
 end
 
 local function fenceDirection(intent)
@@ -419,63 +497,54 @@ function Traversal.fence(actor, action, intent, provider)
         return false, "fence climb could not acquire stationary actor"
     end
 
-    local wallClimbOutcome
+    local submit
     if action == "climb_wall" then
         local checked, climbable = invoke(actor, "canClimbOverWall", direction)
         if not checked then return false, "native tall-wall climb check is unavailable" end
         if climbable ~= true then return false, "native tall wall is not climbable" end
-        -- Native companions are intentionally non-local IsoPlayers. Their
-        -- bridge entry grants only ClimbOverWallState.setParams() the temporary
-        -- local context it needs to roll vanilla success/struggle/fail. Ordinary
-        -- IsoPlayers and compatibility adapters retain the inherited fallback.
-        local invoked, started = invoke(actor, "climbCompanionOverWall", direction)
-        if not invoked then invoked, started = invoke(actor, "climbOverWall", direction) end
-        if not invoked then return false, started or "native tall-wall climb failed" end
-        if started == false then return false, "native tall-wall climb was rejected" end
-        local successObserved, success = invoke(actor, "isClimbOverWallSuccess")
-        local struggleObserved, struggle = invoke(actor, "isClimbOverWallStruggle")
-        if successObserved and type(success) == "boolean"
-            and struggleObserved and type(struggle) == "boolean" then
-            wallClimbOutcome = success ~= true and "fail"
-                or struggle == true and "struggle" or "success"
+        submit = function()
+            -- Native companions are intentionally non-local IsoPlayers. Their
+            -- bridge entry grants only ClimbOverWallState.setParams() the temporary
+            -- local context it needs to roll vanilla success/struggle/fail. Ordinary
+            -- IsoPlayers and compatibility adapters retain the inherited fallback.
+            local invoked, started = invoke(actor, "climbCompanionOverWall", direction)
+            if not invoked then invoked, started = invoke(actor, "climbOverWall", direction) end
+            if not invoked then return false, started or "native tall-wall climb failed" end
+            if started == false then return false, "native tall-wall climb was rejected" end
+            local successObserved, success = invoke(actor, "isClimbOverWallSuccess")
+            local struggleObserved, struggle = invoke(actor, "isClimbOverWallStruggle")
+            if successObserved and type(success) == "boolean"
+                and struggleObserved and type(struggle) == "boolean" then
+                return true, nil, success ~= true and "fail"
+                    or struggle == true and "struggle" or "success"
+            end
+            return true
         end
     else
-        if intent.objectlessFenceFallback == true then
-            -- IsoGameCharacter.climbOverFence() validates objectless square
-            -- affordances with isPlayerAbleToHopWallTo(). IsoPlayer:hopFence()
-            -- checks only the low-fence HoppableN/HoppableW flags and rejects
-            -- these otherwise valid edges. Mirror the engine's matching entry
-            -- point and retain it under the same bounded startup verification.
-            local invoked, failure = invoke(actor, "climbOverFence", direction)
-            if not invoked or failure == false then
-                return false, failure or "native objectless fence climb failed"
-            end
-            return retainRequest(actor, action, intent, "fence_climb_started")
+        if intent.objectlessFenceFallback ~= true then
+            -- IsoPlayer:hopFence(dir, false) is not a native climb in 42.20.4: it
+            -- only fires the player's ContextualAction Lua hook, whose stock
+            -- handler resolves getSpecificPlayer(getIndex()) (nil for this
+            -- reserved non-local index) and queues ISClimbOverFence; that
+            -- action's perform() finally calls climbOverFence(dir). Keep
+            -- hopFence(dir, true) as the exact low-fence edge test only.
+            local tested, hoppable = invoke(actor, "hopFence", direction, true)
+            if tested and hoppable ~= true then return false, "native fence is not hoppable" end
         end
-        -- IsoPlayer's context key does not call the inherited climb method
-        -- directly. hopFence(test=true) validates the exact edge, then
-        -- hopFence(test=false) submits the native state. Mirror that path when
-        -- it is exposed, retaining the inherited method only for adapters.
-        local tested, hoppable = invoke(actor, "hopFence", direction, true)
-        if tested then
-            if hoppable ~= true then return false, "native fence is not hoppable" end
-            local invoked, started = invoke(actor, "hopFence", direction, false)
-            if not invoked or started == false then
-                return false, started or "native fence hop failed"
-            end
-        else
+        -- Objectless square edges skip hopFence(test): it checks only the
+        -- HoppableN/HoppableW flags, while climbOverFence() validates those
+        -- affordances with isPlayerAbleToHopWallTo(). Both kinds submit the
+        -- engine's inherited climb under the same bounded startup verification.
+        submit = function()
             local invoked, failure = invoke(actor, "climbOverFence", direction)
             if not invoked or failure == false then
                 return false, failure or "native fence climb failed"
             end
+            return true
         end
     end
-    local retained, retainReason = retainRequest(actor, action, intent,
+    return submitOrDefer(actor, action, intent, submit,
         action == "climb_wall" and "wall_climb_started" or "fence_climb_started")
-    if retained and wallClimbOutcome and pending[actor] then
-        pending[actor].wallClimbOutcome = wallClimbOutcome
-    end
-    return retained, retainReason
 end
 
 function Traversal.sheetRope(actor, action, intent, provider)

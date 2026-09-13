@@ -2,6 +2,19 @@
 
 # Changelog
 
+## 0.22.27 - Reliable climbing, saves and follow recovery
+
+- Let native high-fence traversal own its approach and landing transition instead of running room-entry or blind-corner poses against the unseen square beyond the fence.
+- Reject dead and zero-health combat targets again at the final action boundary for melee, shove, stomp and firearms, preventing a stale shared snapshot from starting another corpse attack.
+- Reduced the forced dead-target native swing tail from 1.8 seconds to 0.6 seconds; normal animation exit still wins earlier, while retained Build 42 attack/shove latches no longer look like several seconds of corpse attacks.
+- Reworded supervised logistics status as natural activities such as "repacking my gear" instead of treating a localized item name as a place (for example, "logistics pack near Bukser").
+- Skip stale tail indices when the fallback zombie roster shrinks during a resumable scan, avoiding caught Java bounds exceptions and the perception stalls they caused.
+- Fixed companions freezing at low fences. The inherited `hopFence` entry only fired the player's contextual Lua action, which failed for a companion with `attempted index: StopAllActionQueue of non-table: null` and never climbed. Companions now validate the edge and use the same native `climbOverFence` call as the stock climb action, player-built hoppable fences use `climbThroughWindow` directly, and the bridge refuses every contextual player action on a companion's behalf.
+- Climbs are submitted only while the stock animation graph can accept them. A companion that is still strafing, aiming or turning keeps its traversal and climbs a moment later instead of timing out at the fence and replanning.
+- Scheduled saves no longer abort repeatedly in longer sessions with several companions. The capture deadline rose from 5 to 20 seconds of live work, paused or stalled time no longer counts toward it, and a companion whose inventory changes just before commit is recaptured on its own instead of discarding the whole save.
+- Inventory capture re-reads list sizes between resumable slices, so an item dropped mid-save is ordinary churn instead of a caught Java `IndexOutOfBoundsException` in the log.
+- Companions no longer stand guard forever against a zombie they cannot reach, such as one behind a tall fence. When combat has no usable action, nothing is attacking, and the leader has moved farther than follow distance plus four tiles, the stationary hold now ends after four seconds and the companion rejoins the leader while still re-checking combat every tick. Immediate attackers, encirclement, hostile humans and critical-health retreats keep the hold. Each hold is logged (throttled) with its reason, threat distance and leader distance.
+
 ## 0.22.26 - Reliable base production
 
 - Added base production: finite, player-visible orders to fell trees, saw logs into planks, dig graves and bury the dead. Orders use the ordinary base job queue, one or two residents, camp storage for tools and materials, pause/resume/retry/cancel and readable blockers. New **Lumber area** and **Burial ground** zones mark where the work happens.

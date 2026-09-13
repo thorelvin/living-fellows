@@ -269,16 +269,72 @@ check(T.window(frameActor, "climb_window", { object = {}, emptyFrame = true,
         and frameActor.frameClimb == true,
     "empty window frames use the engine's dedicated climbThroughWindowFrame entry point")
 T.reset(frameActor)
-local contextualFenceActor, contextualFence = actor(), {}
-function contextualFence:canClimbOver(candidate) return candidate == contextualFenceActor end
-check(T.window(contextualFenceActor, "climb_window", {
-        object = contextualFence, hoppableThumpable = true,
-        fromSquare = contextualFenceActor.square, toSquare = square(1, 0),
+local thumpableFenceActor, thumpableFence = actor(), {}
+function thumpableFence:canClimbOver(candidate) return candidate == thumpableFenceActor end
+function thumpableFenceActor:climbThroughWindow(object)
+    self.climbedObject = object
+    return self:request()
+end
+check(T.window(thumpableFenceActor, "climb_window", {
+        object = thumpableFence, hoppableThumpable = true,
+        fromSquare = thumpableFenceActor.square, toSquare = square(1, 0),
     }, provider)
-        and contextualFenceActor.contextualAction == "ClimbThroughWindow"
-        and contextualFenceActor.contextualObject == contextualFence,
-    "hoppable IsoThumpables use the player's contextual ClimbThroughWindow entry point")
-T.reset(contextualFenceActor)
+        and thumpableFenceActor.climbedObject == thumpableFence
+        and thumpableFenceActor.contextualAction == nil,
+    "hoppable IsoThumpables use ISClimbThroughWindow's native entry, never the player's contextual hook")
+T.reset(thumpableFenceActor)
+local lowFenceActor = actor()
+function lowFenceActor:hopFence(direction, testOnly)
+    if testOnly == true then
+        self.lowFenceTests = (self.lowFenceTests or 0) + 1
+        return true
+    end
+    self.contextualHop = true
+    return true
+end
+function lowFenceActor:climbOverFence(direction)
+    self.lowFenceDirection = direction
+    return self:request()
+end
+check(T.fence(lowFenceActor, "climb_fence", {
+        direction = "east", fromSquare = lowFenceActor.square, toSquare = square(1, 0),
+    }, provider)
+        and lowFenceActor.lowFenceTests == 1
+        and lowFenceActor.lowFenceDirection == IsoDirections.E
+        and lowFenceActor.contextualHop == nil and lowFenceActor.contextualAction == nil,
+    "low fences validate with hopFence(test) and submit climbOverFence, never hopFence's contextual hook")
+T.reset(lowFenceActor)
+local strafingActor = actor()
+strafingActor.actionState = "Strafe"
+function strafingActor:getCompanionActionStateName() return self.actionState end
+check(T.fence(strafingActor, "climb_wall", {
+        direction = "east", fromSquare = strafingActor.square, toSquare = square(1, 0),
+    }, provider) == true
+        and strafingActor.calls == 0 and T.activityStatus(strafingActor) == "active",
+    "a climb requested from a pose without a stock climb transition keeps ownership without a discarded event")
+current = current + 400
+check(T.poll(strafingActor) == "starting" and strafingActor.calls == 0,
+    "the deferred climb waits while the stock graph cannot consume its event")
+strafingActor.actionState = "idle"
+current = current + 100
+check(T.poll(strafingActor) == "starting" and strafingActor.calls == 1 and strafingActor.event,
+    "the deferred climb is submitted once the stock graph reaches an accepting state")
+T.poll(strafingActor)
+check(strafingActor.calls == 1, "a submitted deferred climb is never resubmitted")
+current = current + 1400
+check(T.poll(strafingActor) == "starting",
+    "a late deferred submission receives a fresh native start lease")
+T.reset(strafingActor)
+local bumpedActor = actor()
+function bumpedActor:getCompanionActionStateName() return "bumped" end
+T.fence(bumpedActor, "climb_fence", { direction = "east",
+    fromSquare = bumpedActor.square, toSquare = square(1, 0) }, provider)
+current = current + 1600
+local bumpedPhase, bumpedReason = T.poll(bumpedActor)
+check(bumpedPhase == "failed" and bumpedActor.calls == 0
+        and bumpedReason == "traversal_start_timeout:climb_fence",
+    "a pose that never accepts the climb times out within the start lease without submitting")
+T.reset(bumpedActor)
 local sameSideActor = actor()
 T.fence(sameSideActor, "climb_fence", { direction = "east", toSquare = square(1, 0),
     fromSquare = sameSideActor.square }, provider)

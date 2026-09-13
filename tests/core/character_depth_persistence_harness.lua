@@ -571,6 +571,50 @@ do
             .. tostring(outgoing) .. " reads=" .. tostring(inventoryReads))
 end
 
+-- Scheduled captures yield between items. A companion that drops an item
+-- mid-walk shrinks the live Java list; the capture must report ordinary churn
+-- instead of indexing past the end (IndexOutOfBoundsException in Build 42).
+do
+    local inventory = original.inventory
+    local priorGetItems = inventory.getItems
+    local priorVitalsCapture = SC.Vitals.capture
+    local keep, vanish = makeItem("Base.ShrinkKeep"), makeItem("Base.ShrinkVanish")
+    inventory:AddItem(keep)
+    inventory:AddItem(vanish)
+    local keepIndex = #inventory.items - 2
+    local armed, shrunkOnce, outOfRange = false, false, 0
+    local strict = {}
+    function strict:size() return #inventory.items end
+    function strict:get(index)
+        if index >= #inventory.items then
+            outOfRange = outOfRange + 1
+            error("IndexOutOfBoundsException: Index " .. tostring(index))
+        end
+        local value = inventory.items[index + 1]
+        if armed and index == keepIndex and not shrunkOnce then
+            shrunkOnce = true
+            inventory:Remove(vanish)
+        end
+        return value
+    end
+    function inventory:getItems() return strict end
+    -- captureRecord captures vitals immediately before walking the inventory;
+    -- the keepsake lookup before that must not consume the one-shot shrink.
+    SC.Vitals.capture = function(...)
+        armed = true
+        return priorVitalsCapture(...)
+    end
+    local shrunk, shrinkReason = SC.Persistence.captureRecord(record)
+    SC.Vitals.capture = priorVitalsCapture
+    inventory.getItems = priorGetItems
+    inventory:Remove(keep)
+    inventory:Remove(vanish)
+    check(shrunkOnce and shrunk == nil and outOfRange == 0
+            and shrinkReason == "inventory changed during capture",
+        "an item removed mid-capture is churn, never an out-of-range native list read: "
+            .. tostring(shrinkReason) .. " outOfRange=" .. tostring(outOfRange))
+end
+
 -- Per-actor before/after signatures are insufficient when ownership moves
 -- between actors after the earlier owner has already been captured. Exercise
 -- both directions and require the final global barrier to preserve the prior
@@ -624,17 +668,106 @@ do
         end
         actorB.getInventory = priorGetInventory
         destination.inventory:Remove(transferred)
-        check(requested == true and moved == true and status == "failed"
-                and stagedStore.document == priorDocument
-                and string.find(tostring(reason), "inventory ownership changed", 1, true)
-                    ~= nil,
-            label .. " aborts atomically at global ownership barrier: "
+        local published = stagedStore.document
+        local function evidenceCount(recordId)
+            local count = 0
+            local entry = type(published) == "table" and type(published.companions) == "table"
+                and published.companions[recordId] or nil
+            local inventory = type(entry) == "table" and entry.inventory or nil
+            for _, root in ipairs(type(inventory) == "table" and inventory.roots or {}) do
+                if root.type == "Base.CrossOwnerEvidence" then count = count + 1 end
+            end
+            return count
+        end
+        local sourceId = source == actorA and recordA.id or recordB.id
+        local destinationId = destination == actorA and recordA.id or recordB.id
+        -- The earlier owner's staged copy is stale at the barrier. Recapture
+        -- only that owner and publish one coherent document: the item appears
+        -- exactly once with its final owner, never duplicated or dropped.
+        check(requested == true and moved == true and status == "complete"
+                and published ~= priorDocument
+                and evidenceCount(destinationId) == 1 and evidenceCount(sourceId) == 0,
+            label .. " recaptures the changed owner and publishes the item once: "
                 .. tostring(requestReason) .. "/" .. tostring(status) .. "/"
-                .. tostring(reason))
+                .. tostring(reason) .. " source=" .. tostring(evidenceCount(sourceId))
+                .. " destination=" .. tostring(evidenceCount(destinationId)))
     end
 
     runCrossOwnerTransfer(actorA, actorB, "earlier-to-later transfer")
     runCrossOwnerTransfer(actorB, actorA, "later-to-earlier transfer")
+
+    -- An owner whose inventory keeps moving after every recapture must still
+    -- fail closed once the bounded retry budget is spent.
+    do
+        check(SC.Persistence.reset() == true, "perpetual commit churn resets scheduled state")
+        local priorRecords = SC.Registry.records
+        local barrierReads, churned, churnRequested = 0, {}, false
+        SC.Registry.records = function(...)
+            if churnRequested then
+                barrierReads = barrierReads + 1
+                local item = makeItem("Base.CommitChurn")
+                churned[#churned + 1] = item
+                actorA.inventory:AddItem(item)
+            end
+            return priorRecords(...)
+        end
+        local churnPrior = { sentinel = "perpetual-commit-churn" }
+        local churnStore = SC_TEST_SET_WORLD_STORE({ document = churnPrior })
+        churnRequested = SC.Persistence.requestScheduledSave(stagedPlayer) == true
+        local churnStatus, churnReason
+        if churnRequested then
+            for _ = 1, 20000 do
+                churnStatus, churnReason = SC.Persistence.pulse()
+                if churnStatus ~= "yielded" then break end
+            end
+        end
+        SC.Registry.records = priorRecords
+        for _, item in ipairs(churned) do actorA.inventory:Remove(item) end
+        check(churnRequested and churnStatus == "failed"
+                and churnStore.document == churnPrior and barrierReads >= 3
+                and string.find(tostring(churnReason), "inventory", 1, true) ~= nil,
+            "an owner that keeps changing after bounded recaptures preserves the prior document: "
+                .. tostring(churnStatus) .. "/" .. tostring(churnReason)
+                .. " barriers=" .. tostring(barrierReads))
+    end
+
+    -- Real time spent paused, loading or with the background lane shed is not
+    -- capture work: a long gap between pulses must not expire a healthy save,
+    -- while the hard cap still bounds how long one staged job may stay open.
+    local function runPausedJob(label, pauseMs)
+        check(SC.Persistence.reset() == true, label .. " resets scheduled state")
+        local priorTimestamp = getTimestampMs
+        local pauseClock = 50000
+        getTimestampMs = function()
+            pauseClock = pauseClock + 0.2
+            return pauseClock
+        end
+        local pausedPrior = { sentinel = label }
+        local pausedStore = SC_TEST_SET_WORLD_STORE({ document = pausedPrior })
+        local requested = SC.Persistence.requestScheduledSave(stagedPlayer)
+        local status, reason, pulses = nil, nil, 0
+        if requested then
+            for _ = 1, 20000 do
+                pulses = pulses + 1
+                if pulses == 2 then pauseClock = pauseClock + pauseMs end
+                status, reason = SC.Persistence.pulse()
+                if status ~= "yielded" then break end
+            end
+        end
+        getTimestampMs = priorTimestamp
+        return requested == true, status, reason, pausedStore.document ~= pausedPrior
+    end
+    local pausedOk, pausedStatus, pausedReason, pausedPublished =
+        runPausedJob("paused staging", 60000)
+    check(pausedOk and pausedStatus == "complete" and pausedPublished,
+        "a paused game does not expire an otherwise healthy scheduled save: "
+            .. tostring(pausedStatus) .. "/" .. tostring(pausedReason))
+    local cappedOk, cappedStatus, cappedReason, cappedPublished =
+        runPausedJob("hard-capped staging", 200000)
+    check(cappedOk and cappedStatus == "failed" and not cappedPublished
+            and cappedReason == "capture deadline exceeded",
+        "the hard deadline still bounds a staged save across an extreme pause: "
+            .. tostring(cappedStatus) .. "/" .. tostring(cappedReason))
 
     local function runBarrierJob(label, expected)
         local priorDocument = { sentinel = label }

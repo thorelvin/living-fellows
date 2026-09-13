@@ -483,10 +483,11 @@ function Traversal.handleFence(actor, object, fromSquare, toSquare, intent, cont
     if object ~= nil and utility.instanceOf(object, "IsoThumpable")
         and hoppableObserved and isHoppable == true
         and climbObserved and canClimb == true then
-        -- The player's E action routes hoppable IsoThumpable objects through
-        -- the contextual ClimbThroughWindow action, not hopFence/climbOverWall.
-        -- This covers player-built and modded climbable fence objects whose
-        -- collision stays active while their contextual climb is legal.
+        -- The player's E action climbs hoppable IsoThumpable objects with
+        -- ISClimbThroughWindow, whose perform() calls climbThroughWindow(),
+        -- not hopFence/climbOverWall. This covers player-built and modded
+        -- climbable fence objects whose collision stays active while that climb
+        -- is legal; SCNativeTraversalActions submits the same native call.
         local climbIntent = {
             action = "climb_window",
             object = object,

@@ -498,6 +498,11 @@ def main() -> int:
             and "survival_interrupt" in sources["SCAutonomy.lua"],
             "depressive shutdown lacks a bounded ground-sitting survival contract")
     require("safeSubsystem" in sources["SCDecision.lua"], "decision subsystem circuit breakers not used")
+    require("function Decision._safetyLeashCandidate" in sources["SCDecision.lua"]
+            and "Decision._safetyLeashCandidate(actor, player, snapshot" in sources["SCDecision.lua"]
+            and "decisionSafetyHoldLeashMs" in sources["SCDecision.lua"]
+            and 'diagnostic("safety-hold"' in sources["SCDecision.lua"],
+            "an unresolvable tactical hold must be bounded, leashed to the leader and diagnosed")
     require("observeRelationship" in sources["SCDecision.lua"]
             and 'safeSubsystem("relationship"' in sources["SCDecision.lua"],
             "relationship observation is not integrated into the decision cadence")

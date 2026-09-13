@@ -2423,6 +2423,7 @@ local function executeRetreatCounter(actor, player, snapshot, target, weapon, co
         overrun, state, now)
     if not target or not target.actor then return false end
     local utility = U()
+    if utility.isDead(target.actor) then return false end
     local cooldown = utility.config("combatRetreatCounterCooldownMs") or 1100
     if now - (tonumber(state.lastRetreatCounterAt) or 0) < cooldown then return false end
     local immediate = tonumber(snapshot.closeImmediateCount)
@@ -2471,6 +2472,17 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
     if action.kind == "retreat" or action.kind == "escape" then
         return executeRetreat(actor, player, snapshot, target,
             action.kind == "escape", state, commands)
+    end
+    if action.kind == "shoot" or action.kind == "melee"
+        or action.kind == "shove" or action.kind == "stomp" then
+        if targetActor == nil or utility.isDead(targetActor) then
+            utility.stop(actor)
+            utility.call(actor, "setCompanionAimTarget", nil)
+            state.attackAnchor = nil
+            state.stompAnchor = nil
+            state.shoveFollowUp = nil
+            return false, "combat_target_dead"
+        end
     end
     if targetActor ~= nil and (action.kind == "shoot" or action.kind == "melee"
         or action.kind == "shove" or action.kind == "stomp")
@@ -2622,6 +2634,10 @@ end
 
 local function vehicleCombat(actor, player, snapshot, target, weapon, inventory, commands)
     local utility = U()
+    if not target or not target.actor or utility.isDead(target.actor) then
+        utility.stop(actor)
+        return false, "vehicle_target_dead"
+    end
     local doctrine = commands.combatDoctrine or "close_defense"
     if doctrine ~= "ranged_support" and doctrine ~= "weapons_free" then
         utility.stop(actor)

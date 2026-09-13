@@ -2482,6 +2482,7 @@ end
 local function tacticalStep(actor, state, sourceSquare, nextSquare, afterSquare, kind, intent, now)
     local utility = U()
     local urgent = intent.urgent == true
+    local fence = kind == "fence"
     local stair = kind == "stairs" or kind == "slope"
         or squareHasStairs(sourceSquare) or squareHasStairs(nextSquare)
         or squareHasSlope(sourceSquare) or squareHasSlope(nextSquare)
@@ -2503,9 +2504,20 @@ local function tacticalStep(actor, state, sourceSquare, nextSquare, afterSquare,
         state.chokeQueueSince = nil
         releaseChoke(state, actor)
     end
-    local roomEntryAccepted, roomEntryStatus = checkRoomEntry(
-        actor, state, sourceSquare, nextSquare, intent, now)
-    if roomEntryAccepted ~= true then return roomEntryAccepted, roomEntryStatus end
+    if fence then
+        -- The landing side is not an ordinary doorway/corner yet. The native
+        -- player climb owns alignment, visibility and the full transition, so
+        -- stopping here for a room sweep or strafing toward an unseen turn can
+        -- replace the climb with an unrelated tactical animation.
+        state.roomEntryKey = nil
+        state.roomEntryObserveUntil = nil
+        state.roomEntrySweepPhase = nil
+        intent.roomEntryChecked = nil
+    else
+        local roomEntryAccepted, roomEntryStatus = checkRoomEntry(
+            actor, state, sourceSquare, nextSquare, intent, now)
+        if roomEntryAccepted ~= true then return roomEntryAccepted, roomEntryStatus end
+    end
     if stair then
         local key = "stair:" .. tostring(squareKey(nextSquare))
         if not urgent and state.onStairSequence ~= true then
@@ -2543,7 +2555,7 @@ local function tacticalStep(actor, state, sourceSquare, nextSquare, afterSquare,
         state.stairSpacingSince = nil
     end
 
-    local turn = turnAt(sourceSquare, nextSquare, afterSquare)
+    local turn = not fence and turnAt(sourceSquare, nextSquare, afterSquare) or nil
     local blind = turn ~= nil and not utility.canSee(actor, afterSquare)
     if blind then
         local key = "corner:" .. tostring(squareKey(nextSquare)) .. ":" .. tostring(squareKey(afterSquare))
@@ -2573,6 +2585,8 @@ local function tacticalStep(actor, state, sourceSquare, nextSquare, afterSquare,
     end
     return true, stair and "tactical_stair" or (blind and "tactical_corner" or "normal")
 end
+
+Navigation._tacticalStepForTests = tacticalStep
 
 local function configureTacticalRetreat(actor, sourceSquare, nextSquare, afterSquare, kind, intent)
     local action = tostring(intent.action or "")

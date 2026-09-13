@@ -1474,6 +1474,62 @@ end
 
 Decision._guardedSafetyHoldForTests = guardedSafetyHold
 
+-- A tactical hold that combat cannot resolve (for example a zombie visible
+-- behind a tall fence that only a large horde can break) must not strand a
+-- follower. Once no threat is immediate and the hold has lasted the leash time
+-- while the leader walks away, rejoin the leader instead of guarding forever.
+-- Survival holds, immediate attackers, encirclement and hostile humans keep the
+-- stationary hold unchanged. Consecutive hold ticks form one episode; a gap of
+-- more than 1.5 s (another decision acted) starts a new one.
+function Decision._safetyLeashCandidate(actor, player, snapshot, selected, candidates,
+        commands, state, current)
+    local utility = U()
+    if state.safetyHoldSince == nil
+        or current - (tonumber(state.safetyHoldLastAt) or -math.huge) > 1500 then
+        state.safetyHoldSince = current
+    end
+    state.safetyHoldLastAt = current
+    local rank = selected and (selected.safetyRank or safetyRank[selected.safetyTier]) or nil
+    if rank ~= safetyRank[Decision.SafetyTier.TACTICAL] then return nil end
+    if commands.order ~= "follow" and commands.order ~= "regroup" then return nil end
+    if type(snapshot) ~= "table" or snapshot.encircled == true or snapshot.humanThreat ~= nil
+        or (tonumber(snapshot.immediateCount) or #(snapshot.immediateAttackers or {})) > 0 then
+        return nil
+    end
+    if current - state.safetyHoldSince
+        < (utility.config("decisionSafetyHoldLeashMs") or 4000) then return nil end
+    local leash = (tonumber(commands.followDistance) or utility.config("followDistance") or 3)
+        + (utility.config("decisionSafetyHoldLeashDistance") or 4)
+    local leaderDistance = player and tonumber(utility.distance(actor, player)) or nil
+    if leaderDistance == nil or leaderDistance <= leash then return nil end
+    for _, candidate in ipairs(candidates or {}) do
+        if candidate.kind == "follow" then return candidate end
+    end
+    return nil
+end
+
+-- Bounded evidence for an otherwise silent stationary hold: which decision
+-- failed, why, how close the danger and the leader are, and for how long.
+function Decision._noteSafetyHold(actor, player, snapshot, kind, failure, state, current, outcome)
+    local utility = U()
+    local threat = type(snapshot) == "table" and (snapshot.threats or {})[1] or nil
+    local nearest = type(threat) == "table" and (tonumber(threat.distance)
+        or (tonumber(threat.distanceSq) and math.sqrt(tonumber(threat.distanceSq)))) or nil
+    local leader = player and tonumber(utility.distance(actor, player)) or nil
+    utility.diagnostic("safety-hold", actor,
+        "kind=" .. tostring(kind or "unknown")
+            .. " failure=" .. tostring(failure or "none")
+            .. " outcome=" .. tostring(outcome or "held")
+            .. " threats=" .. tostring(type(snapshot) == "table"
+                and tonumber(snapshot.threatCount) or 0)
+            .. " immediate=" .. tostring(type(snapshot) == "table"
+                and tonumber(snapshot.immediateCount) or 0)
+            .. " nearest=" .. (nearest and string.format("%.1f", nearest) or "none")
+            .. " leader=" .. (leader and string.format("%.1f", leader) or "none")
+            .. " heldMs=" .. tostring(math.floor(current
+                - (tonumber(state.safetyHoldSince) or current))))
+end
+
 local function candidateInterval(candidate)
     if candidate.kind == "combat" then
         return candidate.emergency
@@ -2083,6 +2139,7 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     end
     local handled, reason = profiledDecisionPhase("delegate", actor, delegate,
         selected, actor, player, rootRuntime, commands, snapshot, state)
+    if handled then state.safetyHoldSince, state.safetyHoldLastAt = nil, nil end
     if not handled then
         local selectedFailure = reason
         local selectedRank = selected.safetyRank or safetyRank[selected.safetyTier] or 1
@@ -2112,7 +2169,24 @@ function Decision.update(actor, player, runtime, roundTimestamp)
             or snapshot.humanThreat ~= nil)
         if not handled and (selectedRank >= safetyRank[Decision.SafetyTier.SURVIVAL]
             or dangerPresent) then
-            handled, reason = guardedSafetyHold(actor, snapshot, selected)
+            local heldKind = selected.kind
+            local leashFollow = Decision._safetyLeashCandidate(actor, player, snapshot,
+                selected, candidates, commands, state, current)
+            local outcome = "held"
+            if leashFollow then
+                local followHandled, followReason = profiledDecisionPhase(
+                    "delegate", actor, delegate, leashFollow, actor, player,
+                    rootRuntime, commands, snapshot, state)
+                if followHandled then
+                    handled, reason, selected = true, followReason, leashFollow
+                    outcome = "rejoined_leader"
+                end
+            end
+            if not handled then
+                handled, reason = guardedSafetyHold(actor, snapshot, selected)
+            end
+            Decision._noteSafetyHold(actor, player, snapshot, heldKind, selectedFailure,
+                state, current, outcome)
         end
         if not handled then reason = selectedFailure end
     end
