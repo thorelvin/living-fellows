@@ -4,6 +4,14 @@
 
 ## Unreleased
 
+- Added base production: finite, player-visible orders to fell trees, saw logs into planks, dig graves and bury the dead. Orders use the ordinary base job queue, one or two residents, camp storage for tools and materials, pause/resume/retry/cancel and readable blockers. New **Lumber area** and **Burial ground** zones mark where the work happens.
+- Lumber areas may lie up to 30 tiles outside the camp boundary. Only lumber work (felling and hauling its logs) may path across that band; every other job still walks home first, a worker beyond the band returns to camp, and outside the camp no new tree is started between 21:00 and 06:00. Outside the camp the Living Fellows base menu offers only the lumber area.
+- Felling runs the real `ISChopTreeAction` with an axe fetched from storage. The tree counts only once it is gone from its square; the logs it drops stay ordinary world items and one linked gathering order hauls them to storage. Loud work never starts with a visible threat nearby, winded workers rest for a bounded time, and a stuck chop is cancelled after three minutes. If a companion's chop animation events never arrive, a watchdog uses vanilla's own server-side event emulation until a native hit is seen.
+- Sawing withdraws one log at a time through the verified storage transfer, runs the vanilla `SawLogs` handcraft with the exact log and saw pinned as inputs, proves the three new planks, and deposits them into the chosen storage.
+- Burial digs vanilla graves on natural ground (digging one on demand), buries bodies already lying within two tiles of an open grave with the real `ISBuryCorpse`, fills the grave when it is full or the order is done, and can queue a wooden cross built from camp planks. Bodies still carrying items and fake-dead zombies are left alone unless the order explicitly buries belongings.
+- Each closed grave gets one short line: a prayer or a line of bleak gallows humor chosen by personality and mood, a salute, and sometimes an "Amen" from a nearby resident. Ritual quirks bring their own burial liturgy. Work lines stay occasional, respect actor and party cooldowns and fall silent when danger is visible.
+- Production orders persist in their own versioned base document. Unknown operations are quarantined and re-emitted unchanged, and an order bound to a missing zone or storage fails the restore closed.
+
 ## 0.22.25 - Coherent work and bounded perception
 
 - Bound scheduled actor-inventory capture to a monotonic gathering-ledger revision and included work-cargo markers in the final inventory proof, preventing cross-slice saves from publishing orphaned cargo or stale receipt accounting.

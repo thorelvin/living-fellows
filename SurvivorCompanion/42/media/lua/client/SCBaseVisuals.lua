@@ -27,6 +27,8 @@ local ZONE_COLORS = {
     guard = { r = 0.94, g = 0.12, b = 0.10 },
     rally = { r = 1.00, g = 0.82, b = 0.08 },
     quarantine = { r = 0.70, g = 0.22, b = 0.92 },
+    lumber = { r = 0.36, g = 0.72, b = 0.20 },
+    burial = { r = 0.62, g = 0.66, b = 0.78 },
 }
 
 local STORAGE_COLORS = {

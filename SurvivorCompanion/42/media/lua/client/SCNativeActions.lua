@@ -13,6 +13,9 @@ require "TimedActions/ISTimedActionQueue"
 require "TimedActions/ISBarricadeAction"
 require "TimedActions/ISUnbarricadeAction"
 require "TimedActions/ISDismantleAction"
+require "TimedActions/ISChopTreeAction"
+require "TimedActions/ISBuryCorpse"
+require "TimedActions/ISFillGrave"
 require "TimedActions/ISEatFoodAction"
 require "TimedActions/ISDrinkFromBottle"
 require "TimedActions/ISTakeWaterAction"
@@ -1329,6 +1332,8 @@ local function workTag(name)
         if name == "REMOVE_BARRICADE" then return itemTag.REMOVE_BARRICADE end
         if name == "SAW" then return itemTag.SAW end
         if name == "SCREWDRIVER" then return itemTag.SCREWDRIVER end
+        if name == "CHOP_TREE" then return itemTag.CHOP_TREE end
+        if name == "DIG_GRAVE" then return itemTag.DIG_GRAVE end
         return nil
     end)
     return ok and value or nil
@@ -1500,6 +1505,253 @@ local function startDismantle(actor, intent, provider)
         return false, tostring(timedAction)
     end
     return queueTrackedWork(actor, timedAction, record, "dismantle")
+end
+
+local function unbrokenItem(item)
+    if item == nil then return false end
+    local brokenOk, broken = invoke(item, "isBroken")
+    return not brokenOk or broken ~= true
+end
+
+local function taggedWorkTool(actor, supplied, tagName)
+    if supplied ~= nil then return unbrokenItem(supplied) and supplied or nil end
+    local tag = workTag(tagName)
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    if tag == nil or not inventoryOk or inventory == nil then return nil end
+    local foundOk, found = invoke(inventory, "getFirstTagEvalRecurse", tag, unbrokenItem)
+    return foundOk and found or nil
+end
+
+local function newJavaList(values)
+    local listClass = type(_G) == "table" and rawget(_G, "ArrayList") or nil
+    if type(listClass) ~= "table" and type(listClass) ~= "userdata" then return nil end
+    local created, list = pcall(function() return listClass.new() end)
+    if not created or list == nil then return nil end
+    for _, value in ipairs(values or {}) do
+        local added = invoke(list, "add", value)
+        if not added then return nil end
+    end
+    return list
+end
+
+-- Build 42 resolves handcraft recipes by their script name. Keep the lookup
+-- here so the production layer never touches ScriptManager directly.
+local function craftRecipe(name)
+    local manager = type(_G) == "table" and rawget(_G, "getScriptManager") or nil
+    if type(manager) ~= "function" then return nil end
+    local managerOk, scripts = pcall(manager)
+    if not managerOk or scripts == nil then return nil end
+    for _, candidate in ipairs({ name, string.match(name, "[^%.]+$") }) do
+        local found, recipe = invoke(scripts, "getCraftRecipe", candidate)
+        if found and recipe ~= nil then return recipe end
+    end
+    return nil
+end
+
+-- Pin the exact receipt log and saw as manual inputs. Letting the recipe
+-- choose freely could consume an unrelated or work-owned log.
+local function sawManualInputs(recipe, log, saw)
+    local inputsOk, inputs = invoke(recipe, "getInputs")
+    if not inputsOk or inputs == nil then return nil, "saw recipe inputs are unavailable" end
+    local manual, consumed, kept = {}, 0, 0
+    for index = 0, nativeListSize(inputs) - 1 do
+        local input = nativeListGet(inputs, index)
+        local keepOk, keep = invoke(input, "isKeep")
+        local ioOk, ioIndex = invoke(recipe, "getIndexForIO", input)
+        if not keepOk or not ioOk or tonumber(ioIndex) == nil then
+            return nil, "saw recipe input could not be classified"
+        end
+        local list = newJavaList({ keep == true and saw or log })
+        if list == nil then return nil, "native item list is unavailable" end
+        manual[math.floor(tonumber(ioIndex))] = list
+        if keep == true then kept = kept + 1 else consumed = consumed + 1 end
+    end
+    if kept ~= 1 or consumed ~= 1 then return nil, "saw recipe inputs changed" end
+    return manual
+end
+
+local function startChopTree(actor, intent, provider)
+    local tree = intent.tree
+    if tree == nil then return false, "chop intent has no tree" end
+    local handled, reason = useProvider(provider, "chopTree", actor, tree, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISChopTreeAction) ~= "table" or type(ISChopTreeAction.new) ~= "function" then
+        return false, "native chop tree action is unavailable"
+    end
+    local indexOk, index = invoke(tree, "getObjectIndex")
+    if not indexOk or tonumber(index) == nil or tonumber(index) < 0 then
+        return false, "tree is no longer in the world"
+    end
+    local tool = taggedWorkTool(actor, intent.tool, "CHOP_TREE")
+    if tool == nil then return false, "companion needs an unbroken axe" end
+    local twoOk, twoHanded = invoke(tool, "isTwoHandWeapon")
+    local record, prepareReason = prepareWorkInventory(actor, { tool }, tool,
+        (twoOk and twoHanded == true) and tool or nil)
+    if not record then return false, prepareReason end
+    local created, timedAction = pcall(ISChopTreeAction.new, ISChopTreeAction, actor, tree)
+    if not created then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "chop_tree")
+end
+
+local function startSawLogs(actor, intent, provider)
+    local log, saw = intent.log, intent.saw
+    if log == nil or saw == nil then return false, "saw intent needs a log and a saw" end
+    local handled, reason = useProvider(provider, "sawLogs", actor, log, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISHandcraftAction) ~= "table" or type(ISHandcraftAction.new) ~= "function" then
+        return false, "native handcraft action is unavailable"
+    end
+    if not unbrokenItem(saw) then return false, "companion needs an unbroken saw" end
+    local recipe = craftRecipe("Base.SawLogs")
+    if recipe == nil then return false, "saw logs recipe is unavailable" end
+    local manual, manualReason = sawManualInputs(recipe, log, saw)
+    if not manual then return false, manualReason end
+    local record, prepareReason = prepareWorkInventory(actor, { log, saw }, nil, nil)
+    if not record then return false, prepareReason end
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    local containers = inventoryOk and newJavaList({ inventory }) or nil
+    if containers == nil then
+        restoreWorkInventory(actor, record)
+        return false, "native craft container list is unavailable"
+    end
+    local created, timedAction = pcall(ISHandcraftAction.new, ISHandcraftAction, actor,
+        recipe, containers, nil, nil, manual, nil, nil, 1, 0)
+    if not created then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "saw_logs")
+end
+
+-- ISEmptyGraves:create() reads the builder from the action, but vanilla
+-- start/perform helpers may still resolve getSpecificPlayer(self.player).
+-- Companions own no local-player slot, so bridge that lookup only while the
+-- grave action runs (the same seam SCBaseWork uses for construction).
+local CompanionGraveAction
+
+local function graveActionClass()
+    if CompanionGraveAction then return CompanionGraveAction end
+    if type(ISBuildAction) ~= "table" or type(ISBuildAction.derive) ~= "function" then
+        return nil
+    end
+    CompanionGraveAction = ISBuildAction:derive("SCCompanionGraveAction")
+    local function withCompanionPlayer(action, callback)
+        local original = getSpecificPlayer
+        local companion = action.character
+        getSpecificPlayer = function(index)
+            local numberOk, number = invoke(companion, "getPlayerNum")
+            if numberOk and tonumber(index) == tonumber(number) then return companion end
+            return original and original(index) or nil
+        end
+        local ok, failure = pcall(callback)
+        getSpecificPlayer = original
+        if not ok then error(failure) end
+    end
+    function CompanionGraveAction:start()
+        withCompanionPlayer(self, function() ISBuildAction.start(self) end)
+    end
+    function CompanionGraveAction:perform()
+        withCompanionPlayer(self, function() ISBuildAction.perform(self) end)
+    end
+    return CompanionGraveAction
+end
+
+local GRAVE_SPRITES = {
+    "location_community_cemetary_01_33", "location_community_cemetary_01_32",
+    "location_community_cemetary_01_34", "location_community_cemetary_01_35",
+}
+
+local function startDigGrave(actor, intent, provider)
+    local square = intent.square
+    if square == nil then return false, "dig intent has no grave square" end
+    local handled, reason = useProvider(provider, "digGrave", actor, square, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISEmptyGraves) ~= "table" or type(ISEmptyGraves.new) ~= "function" then
+        return false, "native grave digging is unavailable"
+    end
+    local class = graveActionClass()
+    if class == nil then return false, "native build action is unavailable" end
+    local tool = taggedWorkTool(actor, intent.tool, "DIG_GRAVE")
+    if tool == nil then return false, "companion needs an unbroken shovel" end
+    local record, prepareReason = prepareWorkInventory(actor, { tool }, tool, tool)
+    if not record then return false, prepareReason end
+    local created, graves = pcall(ISEmptyGraves.new, ISEmptyGraves,
+        GRAVE_SPRITES[1], GRAVE_SPRITES[2], GRAVE_SPRITES[3], GRAVE_SPRITES[4], tool)
+    if not created or type(graves) ~= "table" then
+        restoreWorkInventory(actor, record)
+        return false, created and "grave builder was not created" or tostring(graves)
+    end
+    local numberOk, playerNumber = invoke(actor, "getPlayerNum")
+    graves.player = numberOk and playerNumber or nil
+    graves.character = actor
+    graves.north = intent.north == true
+    local validOk, valid = pcall(graves.isValid, graves, square)
+    if not validOk or valid ~= true then
+        restoreWorkInventory(actor, record)
+        return false, "grave site is not diggable"
+    end
+    local xOk, x = invoke(square, "getX")
+    local yOk, y = invoke(square, "getY")
+    local zOk, z = invoke(square, "getZ")
+    local spriteOk, sprite = invoke(graves, "getSprite")
+    if not xOk or not yOk or not zOk then
+        restoreWorkInventory(actor, record)
+        return false, "grave square position is unavailable"
+    end
+    local actionCreated, timedAction = pcall(class.new, class, actor, graves, x, y, z,
+        graves.north, spriteOk and sprite or GRAVE_SPRITES[1], tonumber(graves.maxTime) or 150)
+    if not actionCreated then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "dig_grave")
+end
+
+local function startBuryBody(actor, intent, provider)
+    if intent.grave == nil or intent.bodySquare == nil then
+        return false, "bury intent needs a grave and a body square"
+    end
+    local handled, reason = useProvider(provider, "buryBody", actor, intent.grave, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISBuryCorpse) ~= "table" or type(ISBuryCorpse.new) ~= "function" then
+        return false, "native burial action is unavailable"
+    end
+    local record, prepareReason = prepareWorkInventory(actor, {}, nil, nil)
+    if not record then return false, prepareReason end
+    local created, timedAction = pcall(ISBuryCorpse.new, ISBuryCorpse, actor,
+        intent.grave, nil, intent.bodySquare)
+    if not created then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "bury_body")
+end
+
+local function startFillGrave(actor, intent, provider)
+    if intent.grave == nil then return false, "fill intent has no grave" end
+    local handled, reason = useProvider(provider, "fillGrave", actor, intent.grave, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISFillGrave) ~= "table" or type(ISFillGrave.new) ~= "function" then
+        return false, "native grave filling is unavailable"
+    end
+    local tool = taggedWorkTool(actor, intent.tool, "DIG_GRAVE")
+    if tool == nil then return false, "companion needs an unbroken shovel" end
+    local record, prepareReason = prepareWorkInventory(actor, { tool }, tool, tool)
+    if not record then return false, prepareReason end
+    local created, timedAction = pcall(ISFillGrave.new, ISFillGrave, actor, intent.grave, tool)
+    if not created then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "fill_grave")
 end
 
 local function startBarricade(actor, intent, provider)
@@ -2353,6 +2605,31 @@ function actions.resetWork(actor)
     else activeWork = setmetatable({}, { __mode = "k" }) end
 end
 
+function actions.workKind(actor)
+    local record = actor and activeWork[actor] or nil
+    return record and record.kind or nil
+end
+
+-- Build 42's server path drives ISChopTreeAction by emulating its ChopTree
+-- animation event every 1500 ms. The production watchdog uses the same seam
+-- only after proving that no native event reached this companion's action;
+-- the vanilla handler still owns the tree hit, strain and endurance.
+function actions.emulateWorkEvent(actor, kind, event)
+    if kind ~= "chop_tree" or event ~= "ChopTree" then
+        return false, "unsupported_work_event"
+    end
+    local record = actor and activeWork[actor] or nil
+    if not record or record.kind ~= kind then return false, "work_kind_mismatch" end
+    if not workActionIsActive(actor, record) then return false, "work_action_inactive" end
+    local timedAction = record.timedAction
+    if type(timedAction) ~= "table" or type(timedAction.animEvent) ~= "function" then
+        return false, "work_event_unavailable"
+    end
+    local ok, failure = pcall(timedAction.animEvent, timedAction, event, nil)
+    if not ok then return false, tostring(failure) end
+    return true, "work_event_emulated"
+end
+
 function actions.visualStatus(actor, expectedAction)
     local record = actor and activeVisual[actor] or nil
     if type(record) ~= "table" then return "none" end
@@ -2690,6 +2967,11 @@ SC.NativeWorkActions.configure({
     removeBarricade = startRemoveBarricade,
     dismantle = startDismantle,
     needs = startNeedsAction,
+    chopTree = startChopTree,
+    sawLogs = startSawLogs,
+    digGrave = startDigGrave,
+    buryBody = startBuryBody,
+    fillGrave = startFillGrave,
 })
 
 SC.NativeMovementActions.configure({

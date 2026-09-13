@@ -29,6 +29,8 @@ local buildRecipeAliases = {
     floor = { "ES_WoodFloorLvl1", "ES_WoodFloorLvl2", "ES_WoodFloorLvl3" },
     door_frame = { "ES_Wood_DoorframeLvl1", "ES_Wood_DoorframeLvl2", "ES_Wood_DoorframeLvl3" },
     door = { "ES_Wood_DoorLvl1", "ES_Wood_DoorLvl2", "ES_Wood_DoorLvl3" },
+    -- Burial markers are ordinary Build 42 buildable entities.
+    grave_marker = { "ES_WoodCross", "WoodCross", "ES_RuggedCross", "RuggedCross" },
 }
 
 local function U()
@@ -598,18 +600,26 @@ function BaseWork.update(actor, player, runtime)
     local resident = SC.BaseLife and SC.BaseLife.resident(id) or nil
     if not resident or resident.duty ~= true then return false, "not_on_base_duty" end
     if not SC.BaseLife.active() then return false, "base_missing" end
-    if not SC.BaseLife.isInside(actor) then
-        local target = SC.BaseLife.zoneCenter("rally") or SC.BaseLife.active().core
-        local square = U().loadedSquare(target)
-        if not square then return false, "base_unloaded" end
-        if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
-            return false, "navigation_unavailable"
-        end
-        return SC.Navigation.request(actor, square, "walk", {
-            action = "return_to_base", targetSquare = square,
-        })
-    end
     local job = SC.BaseLife.jobFor(id)
+    if not SC.BaseLife.isInside(actor) then
+        -- Lumber work may continue in the bounded reach band outside the
+        -- camp; every other job walks back to the rally point first.
+        local reachable = type(SC.BaseLife.withinWorkReach) == "function"
+            and SC.BaseLife.withinWorkReach(actor) == true
+        if reachable and not job then job = select(1, SC.BaseLife.claimJob(id)) end
+        if not (reachable and job and type(SC.BaseLife.jobAllowsWorkReach) == "function"
+            and SC.BaseLife.jobAllowsWorkReach(job) == true) then
+            local target = SC.BaseLife.zoneCenter("rally") or SC.BaseLife.active().core
+            local square = U().loadedSquare(target)
+            if not square then return false, "base_unloaded" end
+            if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
+                return false, "navigation_unavailable"
+            end
+            return SC.Navigation.request(actor, square, "walk", {
+                action = "return_to_base", targetSquare = square,
+            })
+        end
+    end
     if not job then job = select(1, SC.BaseLife.claimJob(id)) end
     if not job then
         local activeGuard = SC.BaseLife.guardStatus
@@ -638,6 +648,12 @@ function BaseWork.update(actor, player, runtime)
             handled, reason, terminal = false, "gather_work_unavailable", true
         else
             handled, reason, terminal = SC.GatherWork.update(actor, state, job)
+        end
+    elseif job.type == "production" then
+        if not SC.Production or type(SC.Production.update) ~= "function" then
+            handled, reason, terminal = false, "production_unavailable", true
+        else
+            handled, reason, terminal = SC.Production.update(actor, state, job, runtime)
         end
     elseif job.type == "haul" or job.type == "sort" or job.type == "fetch" then
         handled, reason, terminal = updateTransfer(actor, state, job)
@@ -799,6 +815,9 @@ function BaseWork.cancel(actor, reason)
     if SC.GatherWork and type(SC.GatherWork.cancelActor) == "function" then
         pcall(SC.GatherWork.cancelActor, actor, reason or "base_work_cancelled")
     end
+    if SC.Production and type(SC.Production.cancelActor) == "function" then
+        pcall(SC.Production.cancelActor, actor, reason or "base_work_cancelled")
+    end
     if not state then return true end
     local id = actorId(actor)
     if state.jobId then SC.BaseLife.releaseJob(state.jobId, id, reason or "base_work_cancelled") end
@@ -824,10 +843,19 @@ function BaseWork.reset(actor)
     if SC.GatherWork and type(SC.GatherWork.reset) == "function" then
         SC.GatherWork.reset(actor)
     end
+    if SC.Production and type(SC.Production.reset) == "function" then
+        SC.Production.reset(actor)
+    end
     if SC.WorkTransport and type(SC.WorkTransport.reset) == "function" then
         SC.WorkTransport.reset(actor)
     end
     maintenanceCursor, auditPhase, nextRoutineJobAt = 1, 0, 0
+end
+
+-- Production supply trips reuse the exact storage withdrawal transaction
+-- (approach, loot pose, reserve re-check at commit, verified transfer).
+function BaseWork.withdrawFromStorage(actor, state, storage, container, item)
+    return transferFromStorage(actor, state, storage, container, item)
 end
 
 return BaseWork

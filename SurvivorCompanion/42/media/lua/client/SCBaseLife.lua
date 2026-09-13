@@ -16,7 +16,7 @@ BaseLife.ROLES = {
 }
 BaseLife.ZONE_TYPES = {
     area = true, work = true, rest = true, social = true, guard = true,
-    rally = true, quarantine = true,
+    rally = true, quarantine = true, lumber = true, burial = true,
 }
 BaseLife.STORAGE_CATEGORIES = {
     food = true, water = true, medical = true, tools = true, construction = true,
@@ -26,11 +26,47 @@ BaseLife.STORAGE_CATEGORIES = {
 BaseLife.JOB_TYPES = {
     haul = true, sort = true, fetch = true, repair = true, replace_bandage = true,
     craft_supply = true, barricade = true, maintain = true, build = true,
-    gather_materials = true,
+    gather_materials = true, production = true,
 }
 BaseLife.GATHER_MATERIALS = {
     logs = "Base.Log",
     planks = "Base.Plank",
+}
+BaseLife.GATHER_ZONE_KINDS = { work = true, lumber = true }
+
+-- Persisted production operations. This table is the save schema only:
+-- SCProduction registers the runtime behaviour for each id. Keeping the
+-- schema here lets restore validate and quarantine rows even when the
+-- behaviour module is unavailable. New operations add a row through
+-- BaseLife.registerProductionOperation before any save is restored.
+BaseLife.PRODUCTION_VERSION = 1
+BaseLife.PRODUCTION_COUNTERS = {
+    "treesFelled", "logsDropped", "planksMade", "gravesDug", "bodiesBuried", "gravesClosed",
+}
+BaseLife.PRODUCTION_OPERATIONS = {
+    fell_trees = {
+        zoneKinds = { lumber = true }, unit = "trees", maxRequested = 40,
+        defaultRequested = 5, destination = "optional",
+        settings = { haulLogs = { kind = "boolean", default = true } },
+    },
+    saw_planks = {
+        unit = "planks", maxRequested = 60, defaultRequested = 12,
+        source = true, destination = true, settings = {},
+    },
+    dig_graves = {
+        zoneKinds = { burial = true }, unit = "graves", maxRequested = 6,
+        defaultRequested = 1, settings = {},
+    },
+    bury_bodies = {
+        zoneKinds = { burial = true }, unit = "bodies", maxRequested = 25,
+        defaultRequested = 5,
+        settings = {
+            withBelongings = { kind = "boolean", default = false },
+            closeWhenDone = { kind = "boolean", default = true },
+            digIfNeeded = { kind = "boolean", default = true },
+            marker = { kind = "enum", values = { none = true, wood = true }, default = "none" },
+        },
+    },
 }
 
 local JOB_STATES = {
@@ -40,13 +76,14 @@ local JOB_STATES = {
 local roleAffinity = {
     generalist = { haul = 4, sort = 4, fetch = 4, gather_materials = 5,
         repair = 3, replace_bandage = 2,
-        craft_supply = 3, barricade = 2, maintain = 2, build = 2 },
-    guard = { barricade = 4, maintain = 2, haul = 1, fetch = 1, gather_materials = 1 },
+        craft_supply = 3, barricade = 2, maintain = 2, build = 2, production = 5 },
+    guard = { barricade = 4, maintain = 2, haul = 1, fetch = 1, gather_materials = 1,
+        production = 1 },
     builder = { build = 10, barricade = 9, maintain = 8, repair = 5,
-        gather_materials = 6, fetch = 3 },
+        gather_materials = 6, fetch = 3, production = 7 },
     quartermaster = { haul = 10, sort = 10, fetch = 9, gather_materials = 8,
-        craft_supply = 4 },
-    medic = { replace_bandage = 10, fetch = 5, haul = 1 },
+        craft_supply = 4, production = 4 },
+    medic = { replace_bandage = 10, fetch = 5, haul = 1, production = 2 },
 }
 
 local WORK_ORDER_STATES = {
@@ -173,6 +210,22 @@ local function emptyWork()
         recoveryCursor = 1,
         orders = {},
         receipts = {},
+        quarantine = nil,
+    }
+end
+
+local function emptyProductionCounters()
+    local counters = {}
+    for _, key in ipairs(BaseLife.PRODUCTION_COUNTERS) do counters[key] = 0 end
+    return counters
+end
+
+local function emptyProduction()
+    return {
+        version = BaseLife.PRODUCTION_VERSION,
+        nextOrderSerial = 1,
+        orders = {},
+        counters = emptyProductionCounters(),
         quarantine = nil,
     }
 end
@@ -400,6 +453,154 @@ local function normalizeWork(source)
     return result
 end
 
+function BaseLife.registerProductionOperation(id, schema)
+    if type(id) ~= "string" or not string.match(id, "^[%w_]+$") or #id > 48 then
+        return false, "invalid_production_operation_id"
+    end
+    if type(schema) ~= "table" or type(schema.unit) ~= "string"
+        or tonumber(schema.maxRequested) == nil or tonumber(schema.defaultRequested) == nil then
+        return false, "invalid_production_schema"
+    end
+    if schema.zoneKinds ~= nil then
+        if type(schema.zoneKinds) ~= "table" then return false, "invalid_production_zone_kinds" end
+        for kind in pairs(schema.zoneKinds) do
+            if not BaseLife.ZONE_TYPES[kind] then return false, "invalid_production_zone_kinds" end
+        end
+    end
+    for _, spec in pairs(type(schema.settings) == "table" and schema.settings or {}) do
+        if type(spec) ~= "table" or (spec.kind ~= "boolean" and spec.kind ~= "enum")
+            or (spec.kind == "enum" and (type(spec.values) ~= "table"
+                or spec.values[spec.default] ~= true)) then
+            return false, "invalid_production_setting"
+        end
+    end
+    BaseLife.PRODUCTION_OPERATIONS[id] = schema
+    return true
+end
+
+local function normalizeProductionSettings(schema, source)
+    local settings = {}
+    source = type(source) == "table" and source or {}
+    for key, spec in pairs(type(schema.settings) == "table" and schema.settings or {}) do
+        local value = source[key]
+        if spec.kind == "boolean" then
+            if type(value) == "boolean" then settings[key] = value
+            else settings[key] = spec.default == true end
+        elseif spec.kind == "enum" then
+            settings[key] = (type(value) == "string" and spec.values[value] == true)
+                and value or spec.default
+        end
+    end
+    return settings
+end
+
+-- Returns nil plus "unknown_operation" for rows whose operation has no schema.
+-- Callers preserve those rows verbatim instead of discarding player work.
+local function normalizeProductionOrder(source)
+    if type(source) ~= "table" or not validId(source.id, "production-order:") then
+        return nil, "invalid"
+    end
+    local schema = type(source.operation) == "string"
+        and BaseLife.PRODUCTION_OPERATIONS[source.operation] or nil
+    if not schema then return nil, "unknown_operation" end
+    local maximum = integer(schema.maxRequested, 1, 1, 999)
+    local requested = integer(source.requested, integer(schema.defaultRequested, 1, 1, maximum),
+        1, maximum)
+    local completed = integer(source.completed, 0, 0, requested)
+    local state = WORK_ORDER_STATES[source.state] and source.state or "paused"
+    local workers = normalizeWorkerIds(source.workers)
+    if state == "running" and #workers < 1 then return nil, "invalid" end
+    if state == "completed" and completed ~= requested then return nil, "invalid" end
+    local zoneId = validId(source.zoneId, "zone:") and source.zoneId or nil
+    if schema.zoneKinds ~= nil and zoneId == nil then return nil, "invalid" end
+    local sourceStorageId = validId(source.sourceStorageId, "storage:")
+        and source.sourceStorageId or nil
+    local destinationStorageId = validId(source.destinationStorageId, "storage:")
+        and source.destinationStorageId or nil
+    if schema.source == true and sourceStorageId == nil then return nil, "invalid" end
+    if schema.destination == true and destinationStorageId == nil then return nil, "invalid" end
+    local graves = {}
+    for _, point in ipairs(type(source.graves) == "table" and source.graves or {}) do
+        local normalized = type(point) == "table" and normalizePoint(point) or nil
+        if normalized and #graves < 8 then graves[#graves + 1] = normalized end
+    end
+    return {
+        version = BaseLife.PRODUCTION_VERSION,
+        id = source.id,
+        operation = source.operation,
+        zoneId = zoneId,
+        sourceStorageId = sourceStorageId,
+        destinationStorageId = destinationStorageId,
+        requested = requested,
+        completed = completed,
+        workers = workers,
+        state = state,
+        blocker = source.blocker ~= nil and cleanText(source.blocker, "blocked", 160) or nil,
+        settings = normalizeProductionSettings(schema, source.settings),
+        graves = graves,
+        linkedGatherOrderId = validId(source.linkedGatherOrderId, "work-order:")
+            and source.linkedGatherOrderId or nil,
+        createdAt = math.max(0, finite(source.createdAt, 0)),
+        updatedAt = math.max(0, finite(source.updatedAt, 0)),
+        completedAt = source.completedAt ~= nil
+            and math.max(0, finite(source.completedAt, 0)) or nil,
+    }
+end
+
+local function normalizeProduction(source)
+    if source == nil then return emptyProduction() end
+    if type(source) ~= "table" or tonumber(source.version) ~= BaseLife.PRODUCTION_VERSION then
+        local result = emptyProduction()
+        local preserved = type(source) == "table"
+            and stableCopy(source, 12, { count = 8192 }) or nil
+        if preserved then
+            result.quarantine = { reason = "unsupported_production_version", raw = preserved }
+        end
+        return result
+    end
+    local result = emptyProduction()
+    result.nextOrderSerial = integer(source.nextOrderSerial, 1, 1, 999999)
+    local limit = U() and U().config("productionOrderRecordLimit") or 16
+    local unknown = {}
+    local rows = {}
+    for _, row in ipairs(type(source.orders) == "table" and source.orders or {}) do
+        rows[#rows + 1] = row
+    end
+    -- A row quarantined by an older build returns to service once its
+    -- operation is known again; otherwise it stays preserved verbatim.
+    local quarantined = type(source.quarantine) == "table"
+        and type(source.quarantine.orders) == "table" and source.quarantine.orders or {}
+    for _, row in ipairs(quarantined) do rows[#rows + 1] = row end
+    local seen = {}
+    for _, row in ipairs(rows) do
+        local order, reason = normalizeProductionOrder(row)
+        if order and not seen[order.id] and #result.orders < limit then
+            result.orders[#result.orders + 1] = order
+            seen[order.id] = true
+        elseif order == nil and reason == "unknown_operation" and #unknown < limit then
+            local raw = stableCopy(row, 8, { count = 1024 })
+            if raw then unknown[#unknown + 1] = raw end
+        end
+    end
+    local counters = type(source.counters) == "table" and source.counters or {}
+    for _, key in ipairs(BaseLife.PRODUCTION_COUNTERS) do
+        result.counters[key] = integer(counters[key], 0, 0, 999999)
+    end
+    if type(source.quarantine) == "table" then
+        local preserved = stableCopy(source.quarantine, 12, { count = 8192 })
+        if type(preserved) == "table" then
+            preserved.orders = nil
+            -- Kahlua does not reliably publish next(); probe with pairs.
+            for _ in pairs(preserved) do result.quarantine = preserved break end
+        end
+    end
+    if #unknown > 0 then
+        result.quarantine = result.quarantine or {}
+        result.quarantine.orders = unknown
+    end
+    return result
+end
+
 local function normalizeBase(source)
     if type(source) ~= "table" or not validId(source.id, "base:") then return nil end
     local core = normalizePoint(source.core)
@@ -413,7 +614,7 @@ local function normalizeBase(source)
     local result = {
         id = source.id, name = cleanText(source.name, "Main Camp", 48), core = core,
         zones = {}, storages = {}, maintenanceTargets = {}, jobs = {}, completed = {},
-        work = emptyWork(),
+        work = emptyWork(), production = emptyProduction(),
         settings = {
             defense = DEFENSE_POLICIES[settings.defense] and settings.defense or "rotation",
             workload = WORKLOAD_POLICIES[settings.workload] and settings.workload or "balanced",
@@ -455,6 +656,7 @@ local function normalizeBase(source)
         end
     end
     result.work = normalizeWork(source.work)
+    result.production = normalizeProduction(source.production)
     return result
 end
 
@@ -609,6 +811,63 @@ function BaseLife.zoneInsideAreaUnion(zone, areaZones)
     return true
 end
 
+-- Lumber areas may extend a bounded distance beyond the camp boundary. The
+-- reach band is every camp-area rectangle grown by productionLumberReach
+-- tiles on the same floor. Lumber zones must lie inside that band, and only
+-- lumber work may path across it.
+local function lumberReach()
+    local value = U() and tonumber(U().config("productionLumberReach")) or nil
+    if value == nil or value ~= value then value = 30 end
+    return math.max(0, math.min(64, math.floor(value)))
+end
+
+local function reachAreas(areaZones)
+    local reach, result = lumberReach(), {}
+    for _, area in ipairs(areaZones or {}) do
+        if type(area) == "table" and area.kind == "area" and tonumber(area.x1)
+            and tonumber(area.x2) and tonumber(area.y1) and tonumber(area.y2)
+            and tonumber(area.z) then
+            result[#result + 1] = {
+                kind = "area", z = area.z,
+                x1 = math.min(area.x1, area.x2) - reach, x2 = math.max(area.x1, area.x2) + reach,
+                y1 = math.min(area.y1, area.y2) - reach, y2 = math.max(area.y1, area.y2) + reach,
+            }
+        end
+    end
+    return result
+end
+
+function BaseLife.lumberZoneReachable(zone, areaZones)
+    if type(areaZones) ~= "table" then
+        local base = activeBase()
+        areaZones = base and base.zones or {}
+    end
+    return BaseLife.zoneInsideAreaUnion(zone, reachAreas(areaZones))
+end
+
+-- Allocation-free: navigation asks this for every admitted search node.
+function BaseLife.withinWorkReach(value)
+    local point, base = position(value), activeBase()
+    if not point or not base then return false end
+    local reach = lumberReach()
+    for _, area in ipairs(base.zones) do
+        if area.kind == "area" and area.z == point.z
+            and point.x >= area.x1 - reach and point.x <= area.x2 + reach
+            and point.y >= area.y1 - reach and point.y <= area.y2 + reach then
+            return true
+        end
+    end
+    return false
+end
+
+-- Navigation admission for camp work: ordinary work stays inside the camp
+-- area, while lumber work (intent.workReach) may also use the reach band.
+function BaseLife.admitsWork(value, intent)
+    if BaseLife.isInside(value) then return true end
+    return type(intent) == "table" and intent.workReach == true
+        and BaseLife.withinWorkReach(value) == true
+end
+
 local function findById(rows, id)
     for index, row in ipairs(rows or {}) do
         if row.id == id then return row, index end
@@ -670,7 +929,15 @@ function BaseLife.finishZone(square, name)
         name = name or draftZone.kind, x1 = draftZone.first.x, y1 = draftZone.first.y,
         x2 = second.x, y2 = second.y, z = second.z, createdAt = now(),
     })
-    if zone.kind ~= "area" and not BaseLife.zoneInsideAreaUnion(zone, base.zones) then
+    if zone.kind == "lumber" then
+        local tiles = (zone.x2 - zone.x1 + 1) * (zone.y2 - zone.y1 + 1)
+        if tiles > (U().config("productionLumberMaximumTiles") or 256) then
+            return false, "lumber_zone_too_large"
+        end
+        if not BaseLife.lumberZoneReachable(zone, base.zones) then
+            return false, "lumber_zone_out_of_reach"
+        end
+    elseif zone.kind ~= "area" and not BaseLife.zoneInsideAreaUnion(zone, base.zones) then
         return false, "zone_outside_base_area"
     end
     base.zones[#base.zones + 1] = zone
@@ -688,6 +955,11 @@ function BaseLife.removeZone(id)
             return false, "work_order_uses_zone"
         end
     end
+    for _, order in ipairs(base.production and base.production.orders or {}) do
+        if order.zoneId == id and order.state ~= "completed" and order.state ~= "cancelled" then
+            return false, "production_order_uses_zone"
+        end
+    end
     if zone.kind == "area" then
         local remaining, areaCount = {}, 0
         for candidateIndex, candidate in ipairs(base.zones) do
@@ -698,10 +970,14 @@ function BaseLife.removeZone(id)
         end
         if areaCount < 1 then return false, "last_base_area" end
         for _, candidate in ipairs(remaining) do
-            if candidate.kind ~= "area"
-                and not BaseLife.zoneInsideAreaUnion(candidate, remaining) then
-                return false, "base_area_in_use"
+            local contained
+            if candidate.kind == "lumber" then
+                contained = BaseLife.lumberZoneReachable(candidate, remaining)
+            else
+                contained = candidate.kind == "area"
+                    or BaseLife.zoneInsideAreaUnion(candidate, remaining)
             end
+            if not contained then return false, "base_area_in_use" end
         end
         local dependants = { base.core }
         for _, storage in ipairs(base.storages or {}) do dependants[#dependants + 1] = storage end
@@ -818,6 +1094,12 @@ function BaseLife.removeStorage(id)
                 or (receipt.phase ~= "delivered" and receipt.phase ~= "released"
                     and receipt.phase ~= "cancelled")) then
             return false, "work_receipt_uses_storage"
+        end
+    end
+    for _, order in ipairs(base.production and base.production.orders or {}) do
+        if (order.sourceStorageId == id or order.destinationStorageId == id)
+            and order.state ~= "completed" and order.state ~= "cancelled" then
+            return false, "production_order_uses_storage"
         end
     end
     table.remove(base.storages, index)
@@ -1031,10 +1313,12 @@ end
 
 local function gatheringZone(base, id)
     local zone = findById(base and base.zones or {}, id)
-    if not zone or zone.kind ~= "work" then return nil end
+    if not zone or not BaseLife.GATHER_ZONE_KINDS[zone.kind] then return nil end
     local tiles = (zone.x2 - zone.x1 + 1) * (zone.y2 - zone.y1 + 1)
     if tiles > (U().config("workGatherMaximumTiles") or 256) then return nil end
-    if not BaseLife.zoneInsideAreaUnion(zone, base.zones) then return nil end
+    local contained = zone.kind == "lumber" and BaseLife.lumberZoneReachable(zone, base.zones)
+        or BaseLife.zoneInsideAreaUnion(zone, base.zones)
+    if not contained then return nil end
     return zone
 end
 
@@ -1044,24 +1328,28 @@ local function gatheringStorage(base, id)
     return storage
 end
 
-local function eligibleGatherWorkers(base, source)
+local function eligibleWorkers(base, source, prefix)
     local workers = normalizeWorkerIds(source)
-    if #workers < 1 then return nil, "gather_worker_missing" end
+    if #workers < 1 then return nil, prefix .. "_worker_missing" end
     for _, id in ipairs(workers) do
         local resident = ensure().residents[id]
         if not resident or resident.baseId ~= base.id then
-            return nil, "gather_worker_not_resident"
+            return nil, prefix .. "_worker_not_resident"
         end
         local restriction = ensure().restrictions[id]
         if restriction == "watch" or restriction == "quarantine" then
-            return nil, "gather_worker_restricted"
+            return nil, prefix .. "_worker_restricted"
         end
         local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(id) or nil
         if not record or not record.actor or record.recruited ~= true then
-            return nil, "gather_worker_unavailable"
+            return nil, prefix .. "_worker_unavailable"
         end
     end
     return workers
+end
+
+local function eligibleGatherWorkers(base, source)
+    return eligibleWorkers(base, source, "gather")
 end
 
 function BaseLife.workOrder(id)
@@ -1423,6 +1711,475 @@ function BaseLife.accountGatherDelivery(orderId, receiptId)
     return true, order, "delivery_accounted"
 end
 
+-- ---------------------------------------------------------------------------
+-- Production orders (fell trees, saw planks, dig graves, bury the dead).
+-- They share base jobs, worker rules and caps with gathering, but live in a
+-- separate versioned document: gathering receipts stay single-material and
+-- untouched, and production evidence is re-proved from the world each time.
+-- ---------------------------------------------------------------------------
+
+local function productionFor(base)
+    if not base then return nil end
+    if type(base.production) ~= "table" then base.production = emptyProduction() end
+    return base.production
+end
+
+local function productionOrderIn(base, id)
+    local production = productionFor(base)
+    return production and findById(production.orders, id) or nil
+end
+
+local function productionZone(base, schema, id)
+    local zone = findById(base and base.zones or {}, id)
+    if not zone or type(schema.zoneKinds) ~= "table" or not schema.zoneKinds[zone.kind] then
+        return nil, "invalid_production_zone"
+    end
+    local tiles = (zone.x2 - zone.x1 + 1) * (zone.y2 - zone.y1 + 1)
+    local limitKey = zone.kind == "burial" and "productionBurialMaximumTiles"
+        or "productionLumberMaximumTiles"
+    if tiles > (U().config(limitKey) or 256) then return nil, "production_zone_too_large" end
+    if zone.kind == "lumber" then
+        if not BaseLife.lumberZoneReachable(zone, base.zones) then
+            return nil, "lumber_zone_out_of_reach"
+        end
+    elseif not BaseLife.zoneInsideAreaUnion(zone, base.zones) then
+        return nil, "production_zone_outside_camp"
+    end
+    return zone
+end
+
+-- Only lumber work may continue in the reach band outside the camp: felling
+-- orders and gathering orders bound to a lumber area.
+function BaseLife.jobAllowsWorkReach(job)
+    if type(job) ~= "table" or type(job.target) ~= "table" then return false end
+    local base = activeBase()
+    local order
+    if job.type == "production" then order = productionOrderIn(base, job.target.orderId)
+    elseif job.type == "gather_materials" then order = workOrderIn(base, job.target.orderId) end
+    if not order then return false end
+    local zone = findById(base and base.zones or {}, order.zoneId)
+    return zone ~= nil and zone.kind == "lumber"
+end
+
+local function pruneProductionRows(production)
+    local limit = U().config("productionOrderRecordLimit") or 16
+    while #production.orders >= limit do
+        local removed = false
+        for index, order in ipairs(production.orders) do
+            if orderIsTerminal(order) then
+                table.remove(production.orders, index)
+                removed = true
+                break
+            end
+        end
+        if not removed then break end
+    end
+end
+
+local function removeProductionJobs(base, orderId, result, actorId)
+    local removed = 0
+    for index = #base.jobs, 1, -1 do
+        local job = base.jobs[index]
+        if job.type == "production" and type(job.target) == "table"
+            and job.target.orderId == orderId
+            and (actorId == nil or job.assignedId == actorId) then
+            if result ~= nil then
+                base.completed[#base.completed + 1] = {
+                    id = job.id, type = job.type, actorId = job.assignedId,
+                    completedAt = now(), result = cleanText(result, "completed", 96),
+                }
+                while #base.completed > 24 do table.remove(base.completed, 1) end
+            end
+            table.remove(base.jobs, index)
+            removed = removed + 1
+        end
+    end
+    return removed
+end
+
+local function ensureProductionJobs(base, order)
+    for _, workerId in ipairs(order.workers) do
+        local exists = false
+        for _, job in ipairs(base.jobs) do
+            if job.type == "production" and job.assignedId == workerId
+                and type(job.target) == "table" and job.target.orderId == order.id then
+                exists = true
+                break
+            end
+        end
+        if not exists then
+            local accepted, reason = BaseLife.enqueueJob({
+                type = "production", priority = 3, assignedId = workerId,
+                target = { orderId = order.id },
+            })
+            if accepted ~= true then return false, reason end
+        end
+    end
+    return true
+end
+
+local function releaseBlockedProductionJobs(base, orderId)
+    for _, job in ipairs(base.jobs) do
+        if job.type == "production" and type(job.target) == "table"
+            and job.target.orderId == orderId and job.state == "blocked" then
+            job.state, job.retryAt, job.blocker = "pending", 0, nil
+        end
+    end
+end
+
+local function interruptProductionWorkers(order, reason)
+    for _, workerId in ipairs(order and order.workers or {}) do
+        local actor = U().resolveActor(workerId)
+        if actor and SC.BaseWork and type(SC.BaseWork.cancel) == "function" then
+            pcall(SC.BaseWork.cancel, actor, reason)
+        elseif actor and SC.Production and type(SC.Production.cancelActor) == "function" then
+            pcall(SC.Production.cancelActor, actor, reason)
+        end
+    end
+end
+
+local function forgetProductionRuntime(order)
+    if SC.Production and type(SC.Production.forgetOrder) == "function" then
+        pcall(SC.Production.forgetOrder, order.id, order.workers)
+    end
+end
+
+function BaseLife.productionOrder(id)
+    return productionOrderIn(activeBase(), id)
+end
+
+function BaseLife.productionOrders(includeTerminal)
+    local result, production = {}, productionFor(activeBase())
+    for _, order in ipairs(production and production.orders or {}) do
+        if includeTerminal == true or not orderIsTerminal(order) then
+            result[#result + 1] = order
+        end
+    end
+    return result
+end
+
+function BaseLife.productionCounters()
+    local production = productionFor(activeBase())
+    local result = emptyProductionCounters()
+    for _, key in ipairs(BaseLife.PRODUCTION_COUNTERS) do
+        result[key] = production and integer(production.counters[key], 0, 0, 999999) or 0
+    end
+    return result
+end
+
+function BaseLife.dutyResidentIds()
+    local base, result = activeBase(), {}
+    if not base then return result end
+    for id, resident in pairs(ensure().residents) do
+        if resident.baseId == base.id and resident.duty == true then result[#result + 1] = id end
+    end
+    table.sort(result)
+    while #result > 16 do table.remove(result) end
+    return result
+end
+
+function BaseLife.createProductionOrder(spec)
+    local base, current = activeBase(), now()
+    spec = type(spec) == "table" and spec or {}
+    if not base then return false, "base_missing" end
+    local schema = type(spec.operation) == "string"
+        and BaseLife.PRODUCTION_OPERATIONS[spec.operation] or nil
+    if not schema then return false, "unsupported_production_operation" end
+    local zone
+    if schema.zoneKinds ~= nil then
+        local zoneReason
+        zone, zoneReason = productionZone(base, schema, spec.zoneId)
+        if not zone then return false, zoneReason end
+    end
+    local settings = normalizeProductionSettings(schema, spec.settings)
+    local sourceStorage, destinationStorage
+    if schema.source == true then
+        sourceStorage = findById(base.storages, spec.sourceStorageId)
+        if not sourceStorage or sourceStorage.withdrawals == false then
+            return false, "invalid_production_source"
+        end
+        if not BaseLife.resolveContainer(sourceStorage) then return false, "production_source_unloaded" end
+    end
+    local needsDestination = schema.destination == true
+        or (schema.destination == "optional" and settings.haulLogs == true)
+    if needsDestination then
+        destinationStorage = gatheringStorage(base, spec.destinationStorageId)
+        if not destinationStorage then return false, "invalid_production_destination" end
+        if not BaseLife.resolveContainer(destinationStorage) then
+            return false, "destination_storage_unloaded"
+        end
+    end
+    if sourceStorage and destinationStorage and sourceStorage.id == destinationStorage.id then
+        return false, "production_storage_conflict"
+    end
+    local workers, workerReason = eligibleWorkers(base, spec.workers, "production")
+    if not workers then return false, workerReason end
+    local production, activeCount = productionFor(base), 0
+    for _, order in ipairs(production.orders) do
+        if not orderIsTerminal(order) then activeCount = activeCount + 1 end
+    end
+    if activeCount >= (U().config("productionMaximumOrders") or 6) then
+        return false, "production_order_limit"
+    end
+    pruneProductionRows(production)
+    if #production.orders >= (U().config("productionOrderRecordLimit") or 16) then
+        return false, "production_order_history_full"
+    end
+    for _, workerId in ipairs(workers) do
+        if ensure().residents[workerId].duty ~= true and spec.enableDuty ~= true then
+            return false, "production_worker_off_duty"
+        end
+    end
+    local serial = integer(production.nextOrderSerial, 1, 1, 999999)
+    local order = normalizeProductionOrder({
+        id = "production-order:" .. tostring(serial), operation = spec.operation,
+        zoneId = zone and zone.id or nil,
+        sourceStorageId = sourceStorage and sourceStorage.id or nil,
+        destinationStorageId = destinationStorage and destinationStorage.id or nil,
+        requested = spec.requested, completed = 0, workers = workers, state = "running",
+        settings = settings, createdAt = current, updatedAt = current,
+    })
+    if not order then return false, "invalid_production_order" end
+    local enabledDuty = {}
+    for _, workerId in ipairs(workers) do
+        local resident = ensure().residents[workerId]
+        if resident.duty ~= true then
+            resident.duty = true
+            enabledDuty[#enabledDuty + 1] = workerId
+        end
+    end
+    production.nextOrderSerial = serial + 1
+    production.orders[#production.orders + 1] = order
+    local jobsReady, jobsReason = ensureProductionJobs(base, order)
+    if not jobsReady then
+        removeProductionJobs(base, order.id)
+        table.remove(production.orders, #production.orders)
+        for _, workerId in ipairs(enabledDuty) do ensure().residents[workerId].duty = false end
+        return false, jobsReason
+    end
+    BaseLife.noteHistory("production_order_started", {
+        orderId = order.id, operation = order.operation, requested = order.requested,
+        zoneId = order.zoneId,
+    })
+    return true, order, enabledDuty
+end
+
+function BaseLife.blockProductionOrder(id, reason)
+    local order = productionOrderIn(activeBase(), id)
+    if not order or orderIsTerminal(order) then return false, "unknown_production_order" end
+    order.state, order.blocker, order.updatedAt = "blocked",
+        cleanText(reason, "production_blocked", 160), now()
+    -- Runtime-only cadence: a restored blocked order re-checks at once.
+    order.retryAt = now() + math.max(1000, U().config("productionBlockedRetryMs") or 30000)
+    return true, order
+end
+
+function BaseLife.reopenProductionOrder(id)
+    local order = productionOrderIn(activeBase(), id)
+    if not order or order.state ~= "blocked" then return false, "production_order_not_blocked" end
+    order.state, order.blocker, order.updatedAt = "running", nil, now()
+    return true, order
+end
+
+function BaseLife.pauseProductionOrder(id, reason)
+    local base = activeBase()
+    local order = productionOrderIn(base, id)
+    if not order or orderIsTerminal(order) then return false, "unknown_production_order" end
+    interruptProductionWorkers(order, reason or "production_paused")
+    order.state, order.blocker, order.updatedAt = "paused",
+        cleanText(reason, "production_paused", 160), now()
+    for _, job in ipairs(base.jobs) do
+        if job.type == "production" and type(job.target) == "table"
+            and job.target.orderId == id then
+            job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
+        end
+    end
+    return true, order
+end
+
+function BaseLife.resumeProductionOrder(id)
+    local base = activeBase()
+    local order = productionOrderIn(base, id)
+    if not order or orderIsTerminal(order) then return false, "unknown_production_order" end
+    if type(order.workers) ~= "table" or #order.workers < 1 then
+        order.state, order.blocker, order.updatedAt = "paused", "production_worker_missing", now()
+        return false, "production_worker_missing"
+    end
+    order.state, order.blocker, order.updatedAt = "running", nil, now()
+    local ready, reason = ensureProductionJobs(base, order)
+    if not ready then
+        order.state, order.blocker = "blocked", cleanText(reason, "job_restore_failed", 160)
+        return false, reason
+    end
+    releaseBlockedProductionJobs(base, id)
+    if SC.Production and type(SC.Production.retryOrder) == "function" then
+        SC.Production.retryOrder(id)
+    end
+    return true, order
+end
+
+function BaseLife.retryProductionOrder(id)
+    return BaseLife.resumeProductionOrder(id)
+end
+
+function BaseLife.cancelProductionOrder(id)
+    local base = activeBase()
+    local order = productionOrderIn(base, id)
+    if not order or orderIsTerminal(order) then return false, "unknown_production_order" end
+    interruptProductionWorkers(order, "production_cancelled")
+    order.state, order.blocker, order.updatedAt = "cancelled", nil, now()
+    removeProductionJobs(base, id)
+    forgetProductionRuntime(order)
+    BaseLife.noteHistory("production_order_cancelled", {
+        orderId = id, operation = order.operation, completed = order.completed,
+    })
+    return true, order
+end
+
+function BaseLife.addProductionWorker(id, actorId)
+    local base = activeBase()
+    local order = productionOrderIn(base, id)
+    if not order or orderIsTerminal(order) then return false, "unknown_production_order" end
+    if #order.workers >= (U().config("workMaximumWorkersPerOrder") or 2) then
+        return false, "production_worker_limit"
+    end
+    for _, workerId in ipairs(order.workers) do
+        if workerId == actorId then return true, order end
+    end
+    local workers, reason = eligibleWorkers(base, { actorId }, "production")
+    if not workers then return false, reason end
+    order.workers[#order.workers + 1] = actorId
+    local wasOnDuty = ensure().residents[actorId].duty == true
+    ensure().residents[actorId].duty = true
+    local ready, jobReason = ensureProductionJobs(base, order)
+    if not ready then
+        table.remove(order.workers, #order.workers)
+        ensure().residents[actorId].duty = wasOnDuty
+        return false, jobReason
+    end
+    order.updatedAt = now()
+    return true, order
+end
+
+-- Progress is recorded only after the production layer re-proved the vanilla
+-- post-condition in the world; completion is a separate, explicit step so an
+-- operation can finish its closing work (for example filling a grave).
+function BaseLife.recordProductionProgress(id, amount)
+    local order = productionOrderIn(activeBase(), id)
+    if not order or orderIsTerminal(order) then return false, "unknown_production_order" end
+    amount = integer(amount, 0, 0, 999)
+    order.completed = math.min(order.requested, order.completed + amount)
+    order.updatedAt, order.blocker = now(), nil
+    return true, order
+end
+
+function BaseLife.completeProductionOrder(id, result)
+    local base = activeBase()
+    local order = productionOrderIn(base, id)
+    if not order or orderIsTerminal(order) then return false, "unknown_production_order" end
+    if order.completed < order.requested then return false, "production_quota_open" end
+    order.state, order.completedAt, order.updatedAt, order.blocker = "completed", now(), now(), nil
+    removeProductionJobs(base, id, result or order.operation)
+    forgetProductionRuntime(order)
+    BaseLife.noteHistory("production_order_completed", {
+        orderId = order.id, operation = order.operation, completed = order.completed,
+    })
+    return true, order
+end
+
+function BaseLife.noteProductionCounter(key, amount)
+    local production = productionFor(activeBase())
+    if not production then return false, "base_missing" end
+    local known = false
+    for _, counter in ipairs(BaseLife.PRODUCTION_COUNTERS) do
+        if counter == key then known = true break end
+    end
+    if not known then return false, "unknown_production_counter" end
+    production.counters[key] = math.min(999999,
+        integer(production.counters[key], 0, 0, 999999) + integer(amount, 0, 0, 999))
+    return true, production.counters[key]
+end
+
+function BaseLife.noteProductionGrave(id, point)
+    local order = productionOrderIn(activeBase(), id)
+    local normalized = type(point) == "table" and normalizePoint(point) or nil
+    if not order or not normalized then return false, "invalid_production_grave" end
+    for _, grave in ipairs(order.graves) do
+        if grave.x == normalized.x and grave.y == normalized.y and grave.z == normalized.z then
+            return true, order
+        end
+    end
+    order.graves[#order.graves + 1] = normalized
+    while #order.graves > 8 do table.remove(order.graves, 1) end
+    return true, order
+end
+
+function BaseLife.forgetProductionGrave(id, point)
+    local order = productionOrderIn(activeBase(), id)
+    local normalized = type(point) == "table" and normalizePoint(point) or nil
+    if not order or not normalized then return false, "invalid_production_grave" end
+    for index = #order.graves, 1, -1 do
+        local grave = order.graves[index]
+        if grave.x == normalized.x and grave.y == normalized.y and grave.z == normalized.z then
+            table.remove(order.graves, index)
+        end
+    end
+    return true, order
+end
+
+function BaseLife.extendGatherOrder(id, amount)
+    local base = activeBase()
+    local order = workOrderIn(base, id)
+    if not order or orderIsTerminal(order) then return false, "unknown_work_order" end
+    amount = integer(amount, 0, 0, 100)
+    if amount < 1 then return false, "gather_extension_empty" end
+    order.requested = math.min(100, order.requested + amount)
+    order.updatedAt = now()
+    if order.state == "blocked" then
+        order.state, order.blocker = "running", nil
+        ensureGatherJobs(base, order)
+        for _, job in ipairs(base.jobs) do
+            if job.type == "gather_materials" and type(job.target) == "table"
+                and job.target.orderId == id and job.state == "blocked" then
+                job.state, job.retryAt, job.blocker = "pending", 0, nil
+            end
+        end
+        if SC.GatherWork and type(SC.GatherWork.retryOrder) == "function" then
+            SC.GatherWork.retryOrder(id)
+        end
+    end
+    bumpWorkConsistencyRevision()
+    return true, order
+end
+
+-- Felled logs stay vanilla world items. One linked gathering order moves
+-- them under the existing exact-item receipts instead of a second ledger.
+function BaseLife.linkProductionHaul(id, amount)
+    local base = activeBase()
+    local order = productionOrderIn(base, id)
+    if not order or order.operation ~= "fell_trees" or orderIsTerminal(order) then
+        return false, "unknown_production_order"
+    end
+    if type(order.settings) ~= "table" or order.settings.haulLogs ~= true
+        or not order.destinationStorageId then
+        return false, "production_haul_disabled"
+    end
+    amount = integer(amount, 0, 0, 100)
+    if amount < 1 then return false, "production_haul_empty" end
+    local linked = order.linkedGatherOrderId and workOrderIn(base, order.linkedGatherOrderId) or nil
+    if linked and not orderIsTerminal(linked) then
+        return BaseLife.extendGatherOrder(linked.id, amount)
+    end
+    local ok, gather = BaseLife.createGatherOrder({
+        material = "logs", requested = amount, zoneId = order.zoneId,
+        destinationStorageId = order.destinationStorageId, workers = order.workers,
+        enableDuty = true,
+    })
+    if ok ~= true then return false, gather end
+    order.linkedGatherOrderId, order.updatedAt = gather.id, now()
+    return true, gather
+end
+
 function BaseLife.workRecoveryCursor(value)
     local work = workFor(activeBase())
     if not work then return 1 end
@@ -1466,11 +2223,27 @@ function BaseLife.jobFor(actorId)
     return nil
 end
 
+local function orderOwnedJob(job)
+    return job.type == "gather_materials" or job.type == "production"
+end
+
+local function orderForJob(base, job)
+    local orderId = type(job.target) == "table" and job.target.orderId or nil
+    if job.type == "gather_materials" then return workOrderIn(base, orderId) end
+    if job.type == "production" then return productionOrderIn(base, orderId) end
+    return nil
+end
+
 local function jobScore(actorId, job)
-    if job.type == "gather_materials" then
-        local orderId = type(job.target) == "table" and job.target.orderId or nil
-        local order = workOrderIn(activeBase(), orderId)
-        if not order or order.state ~= "running" then return -math.huge end
+    if orderOwnedJob(job) then
+        local order = orderForJob(activeBase(), job)
+        -- A blocked production order reopens itself once its job retry is
+        -- due, so its job stays claimable exactly like a blocked gather job.
+        if not order or (order.state ~= "running"
+            and not (job.type == "production" and order.state == "blocked"
+                and (tonumber(order.retryAt) or 0) <= now())) then
+            return -math.huge
+        end
         local assigned = false
         for _, workerId in ipairs(type(order.workers) == "table" and order.workers or {}) do
             if workerId == actorId then assigned = true break end
@@ -1509,9 +2282,8 @@ function BaseLife.claimJob(actorId)
     local staleRemoved = false
     for index = #base.jobs, 1, -1 do
         local job = base.jobs[index]
-        if job.type == "gather_materials" then
-            local orderId = type(job.target) == "table" and job.target.orderId or nil
-            local order = workOrderIn(base, orderId)
+        if orderOwnedJob(job) then
+            local order = orderForJob(base, job)
             local assigned = false
             for _, workerId in ipairs(order and type(order.workers) == "table"
                 and order.workers or {}) do
@@ -1602,6 +2374,10 @@ function BaseLife.cancelJob(id)
         and job.target.orderId then
         return BaseLife.cancelGatherOrder(job.target.orderId)
     end
+    if job.type == "production" and type(job.target) == "table"
+        and job.target.orderId then
+        return BaseLife.cancelProductionOrder(job.target.orderId)
+    end
     job.state, job.reservedBy, job.leaseUntil = "cancelled", nil, 0
     job.updatedAt = now()
     table.remove(base.jobs, index)
@@ -1614,6 +2390,10 @@ function BaseLife.retryJob(id)
     if job.type == "gather_materials" and type(job.target) == "table"
         and job.target.orderId then
         return BaseLife.retryGatherOrder(job.target.orderId)
+    end
+    if job.type == "production" and type(job.target) == "table"
+        and job.target.orderId then
+        return BaseLife.retryProductionOrder(job.target.orderId)
     end
     if job.state ~= "blocked" then return false, "job_not_blocked" end
     job.state, job.retryAt, job.blocker = "pending", 0, nil
@@ -1843,6 +2623,7 @@ function BaseLife.summary()
         rows = {}, zoneRows = {}, storageRows = {}, maintenanceRows = {},
         residentRows = {}, history = {}, operations = operations,
         workOrders = {}, workReceipts = 0,
+        productionOrders = {}, productionCounters = BaseLife.productionCounters(),
     }
     for id, resident in pairs(ensure().residents) do
         if base and resident.baseId == base.id then
@@ -1885,6 +2666,7 @@ function BaseLife.summary()
                 x = storage.x, y = storage.y, z = storage.z,
                 objectIndex = storage.objectIndex, objectId = storage.objectId,
                 deposits = storage.deposits ~= false,
+                withdrawals = storage.withdrawals ~= false,
             }
         end
         for _, target in ipairs(base.maintenanceTargets) do
@@ -1952,6 +2734,35 @@ function BaseLife.summary()
                     carried = counts.carried, pendingReceipts = counts.pending,
                     cleanupPending = counts.cleanupPending,
                     cleanupExhausted = counts.cleanupExhausted,
+                    workerPhases = workerPhases,
+                }
+            end
+        end
+        for _, order in ipairs(productionFor(base).orders) do
+            if not orderIsTerminal(order) or order.state == "completed" then
+                local workerPhases = {}
+                for _, workerId in ipairs(order.workers) do
+                    local workerRecord = SC.Registry and type(SC.Registry.byId) == "function"
+                        and SC.Registry.byId(workerId) or nil
+                    local phase = SC.Production and type(SC.Production.workerPhase) == "function"
+                        and SC.Production.workerPhase(order.id, workerId) or nil
+                    workerPhases[#workerPhases + 1] = {
+                        id = workerId,
+                        name = workerRecord and workerRecord.actor
+                            and U().nameOf(workerRecord.actor) or workerId,
+                        phase = order.state == "running" and (phase or "seeking") or order.state,
+                    }
+                end
+                local schema = BaseLife.PRODUCTION_OPERATIONS[order.operation] or {}
+                result.productionOrders[#result.productionOrders + 1] = {
+                    id = order.id, operation = order.operation, unit = schema.unit,
+                    zoneId = order.zoneId, sourceStorageId = order.sourceStorageId,
+                    destinationStorageId = order.destinationStorageId,
+                    requested = order.requested, completed = order.completed,
+                    workers = stableCopy(order.workers, 2, { count = 8 }),
+                    state = order.state, blocker = order.blocker,
+                    settings = stableCopy(order.settings, 2, { count = 16 }),
+                    linkedGatherOrderId = order.linkedGatherOrderId,
                     workerPhases = workerPhases,
                 }
             end
@@ -2053,7 +2864,10 @@ local function validWorkSource(base, path)
         orderIds[order.id] = normalizeWorkOrder(order)
         local zone, storage = false, false
         for _, row in ipairs(base.zones or {}) do
-            if row.id == order.zoneId and row.kind == "work" then zone = true break end
+            if row.id == order.zoneId and BaseLife.GATHER_ZONE_KINDS[row.kind] then
+                zone = true
+                break
+            end
         end
         for _, row in ipairs(base.storages or {}) do
             if row.id == order.destinationStorageId and row.deposits ~= false then
@@ -2121,6 +2935,85 @@ local function validWorkSource(base, path)
             and normalizedReceipt.destinationStorageId ~= parent.destinationStorageId then
             return restoreFailure(path .. ".receipts[" .. tostring(index)
                 .. "].destinationStorageId", "active work receipt destination mismatch")
+        end
+    end
+    if source.quarantine ~= nil then
+        local preserved, reason = stableCopy(source.quarantine, 12, { count = 8192 })
+        if preserved == nil then return restoreFailure(path .. ".quarantine", reason) end
+    end
+    return true
+end
+
+local function validProductionSource(base, path)
+    local source = base.production
+    if source == nil then return true end
+    if type(source) ~= "table" then return restoreFailure(path, "expected production document") end
+    if tonumber(source.version) ~= BaseLife.PRODUCTION_VERSION then
+        local preserved, reason = stableCopy(source, 12, { count = 8192 })
+        if preserved == nil then
+            return restoreFailure(path, reason or "future production document unreadable")
+        end
+        return true
+    end
+    if not finiteNumber(source.nextOrderSerial) or source.nextOrderSerial < 1
+        or source.nextOrderSerial ~= math.floor(source.nextOrderSerial) then
+        return restoreFailure(path .. ".nextOrderSerial", "expected positive integer")
+    end
+    local okay, countOrReason = denseArray(source.orders, path .. ".orders",
+        configuredLimit("productionOrderRecordLimit", 16))
+    if not okay then return false, countOrReason end
+    local ids = {}
+    for index = 1, countOrReason do
+        local row = source.orders[index]
+        local rowPath = path .. ".orders[" .. tostring(index) .. "]"
+        if type(row) ~= "table" then return restoreFailure(rowPath, "expected record") end
+        local order, reason = normalizeProductionOrder(row)
+        if order == nil and reason ~= "unknown_operation" then
+            return restoreFailure(rowPath, "invalid production order")
+        end
+        if order == nil then
+            local raw, rawReason = stableCopy(row, 8, { count = 1024 })
+            if raw == nil then return restoreFailure(rowPath, rawReason or "unreadable order") end
+        end
+        if ids[row.id] then return restoreFailure(rowPath .. ".id", "duplicate production order") end
+        ids[row.id] = true
+        if order and not orderIsTerminal(order) then
+            local schema = BaseLife.PRODUCTION_OPERATIONS[order.operation]
+            if schema.zoneKinds ~= nil then
+                local zoneFound = false
+                for _, zone in ipairs(base.zones or {}) do
+                    if zone.id == order.zoneId and schema.zoneKinds[zone.kind] then
+                        zoneFound = true
+                        break
+                    end
+                end
+                if not zoneFound then
+                    return restoreFailure(rowPath .. ".zoneId", "unknown production zone")
+                end
+            end
+            for _, field in ipairs({ "sourceStorageId", "destinationStorageId" }) do
+                if order[field] ~= nil then
+                    local storageFound = false
+                    for _, storage in ipairs(base.storages or {}) do
+                        if storage.id == order[field] then storageFound = true break end
+                    end
+                    if not storageFound then
+                        return restoreFailure(rowPath .. "." .. field, "unknown production storage")
+                    end
+                end
+            end
+        end
+    end
+    if source.counters ~= nil then
+        if type(source.counters) ~= "table" then
+            return restoreFailure(path .. ".counters", "expected counter map")
+        end
+        for key, value in pairs(source.counters) do
+            if type(key) ~= "string" or not finiteNumber(value) or value < 0
+                or value ~= math.floor(value) then
+                return restoreFailure(path .. ".counters[" .. tostring(key) .. "]",
+                    "invalid production counter")
+            end
         end
     end
     if source.quarantine ~= nil then
@@ -2241,6 +3134,8 @@ local function validBaseSource(source, id, path)
     end
     local workOkay, workReason = validWorkSource(source, path .. ".work")
     if not workOkay then return false, workReason end
+    local productionOkay, productionReason = validProductionSource(source, path .. ".production")
+    if not productionOkay then return false, productionReason end
     return true
 end
 

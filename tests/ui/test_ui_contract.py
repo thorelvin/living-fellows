@@ -435,12 +435,25 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("order.workerPhases", base)
         self.assertIn("UI_SC_Base_GatherWorkerPhase", base)
         self.assertIn("UI.confirmBaseAction", self.ui)
+        self.assertIn("self:buildProductionSection(panel, y, base, row)", base)
+        production = lua_function(
+            self.ui, "function SCUIDetail:buildProductionSection(panel, y, base, row)")
+        for action in ("start_production", "pause_production", "resume_production",
+                       "retry_production", "cancel_production", "add_production_worker"):
+            self.assertIn(f'action == "{action}"', dispatch)
+            self.assertIn(f'"{action}"', production)
+        for method in ("createProductionOrder", "pauseProductionOrder", "resumeProductionOrder",
+                       "retryProductionOrder", "cancelProductionOrder", "addProductionWorker"):
+            self.assertIn(f"SC.BaseLife.{method}", dispatch)
+        self.assertIn("UI_SC_Base_ProductionCancelConfirm", production)
+        self.assertIn("base.productionOrders", production)
 
     def test_base_context_is_hidden_outside_camp_and_dismiss_is_confirmed(self) -> None:
         relevant = lua_function(self.context, "local function baseMenuRelevant(square)")
         self.assertIn("if not SC.BaseLife.active() then return true end", relevant)
         self.assertIn("SC.BaseLife.zoneDraft()", relevant)
         self.assertIn("SC.BaseLife.isInside(square) == true", relevant)
+        self.assertIn("SC.BaseLife.withinWorkReach(square) == true", relevant)
         base = lua_function(
             self.context,
             "local function addBaseMenu(context, square, containerTarget, barricadeTarget, player)",

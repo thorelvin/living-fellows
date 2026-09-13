@@ -164,6 +164,72 @@ local GATHER_PHASE_KEYS = {
     cancelled = "UI_SC_Base_GatherPhase_cancelled",
 }
 local gatherDraft = { material = "logs", requested = 12, zoneId = nil, storageId = nil }
+local PRODUCTION_OPERATIONS = {
+    { id = "fell_trees", key = "UI_SC_Base_ProductionOperation_fell_trees" },
+    { id = "saw_planks", key = "UI_SC_Base_ProductionOperation_saw_planks" },
+    { id = "dig_graves", key = "UI_SC_Base_ProductionOperation_dig_graves" },
+    { id = "bury_bodies", key = "UI_SC_Base_ProductionOperation_bury_bodies" },
+}
+local PRODUCTION_OPERATION_KEYS = {}
+for _, option in ipairs(PRODUCTION_OPERATIONS) do PRODUCTION_OPERATION_KEYS[option.id] = option.key end
+local PRODUCTION_HINT_KEYS = {
+    fell_trees = "UI_SC_Base_ProductionHint_fell_trees",
+    saw_planks = "UI_SC_Base_ProductionHint_saw_planks",
+    dig_graves = "UI_SC_Base_ProductionHint_dig_graves",
+    bury_bodies = "UI_SC_Base_ProductionHint_bury_bodies",
+}
+local PRODUCTION_UNIT_KEYS = {
+    trees = "UI_SC_Base_ProductionUnit_trees",
+    planks = "UI_SC_Base_ProductionUnit_planks",
+    graves = "UI_SC_Base_ProductionUnit_graves",
+    bodies = "UI_SC_Base_ProductionUnit_bodies",
+}
+local PRODUCTION_ZONE_KIND = {
+    fell_trees = "lumber", dig_graves = "burial", bury_bodies = "burial",
+}
+local PRODUCTION_QUANTITIES = {
+    fell_trees = { 1, 3, 5, 10, 20, 40 },
+    saw_planks = { 3, 6, 12, 24, 36, 60 },
+    dig_graves = { 1, 2, 3, 6 },
+    bury_bodies = { 1, 3, 5, 10, 25 },
+}
+local PRODUCTION_YES_NO = {
+    { id = "yes", key = "UI_SC_Base_ProductionOption_yes" },
+    { id = "no", key = "UI_SC_Base_ProductionOption_no" },
+}
+local PRODUCTION_BELONGINGS = {
+    { id = "skip", key = "UI_SC_Base_ProductionBelongings_skip" },
+    { id = "bury", key = "UI_SC_Base_ProductionBelongings_bury" },
+}
+local PRODUCTION_MARKERS = {
+    { id = "none", key = "UI_SC_Base_ProductionMarker_none" },
+    { id = "wood", key = "UI_SC_Base_ProductionMarker_wood" },
+}
+local PRODUCTION_PHASE_KEYS = {
+    seeking = "UI_SC_Base_ProductionPhase_seeking",
+    approaching = "UI_SC_Base_ProductionPhase_approaching",
+    working = "UI_SC_Base_ProductionPhase_working",
+    digging = "UI_SC_Base_ProductionPhase_digging",
+    burying = "UI_SC_Base_ProductionPhase_burying",
+    filling = "UI_SC_Base_ProductionPhase_filling",
+    resting = "UI_SC_Base_ProductionPhase_resting",
+    fetching_tool = "UI_SC_Base_ProductionPhase_fetching_tool",
+    withdrawing = "UI_SC_Base_ProductionPhase_withdrawing",
+    depositing = "UI_SC_Base_ProductionPhase_depositing",
+    running = "UI_SC_Base_ProductionPhase_running",
+    paused = "UI_SC_Base_ProductionPhase_paused",
+    blocked = "UI_SC_Base_ProductionPhase_blocked",
+    completed = "UI_SC_Base_ProductionPhase_completed",
+    cancelled = "UI_SC_Base_ProductionPhase_cancelled",
+}
+local function newProductionDraft()
+    return {
+        operation = "fell_trees", requested = 5, zoneId = nil,
+        sourceStorageId = nil, destinationStorageId = nil,
+        haul = "yes", belongings = "skip", marker = "none",
+    }
+end
+local productionDraft = newProductionDraft()
 local GROUPS = {
     { id = "", key = "UI_SC_Select_GroupNone" },
     { id = "alpha", key = "UI_SC_Select_GroupAlpha" },
@@ -1298,6 +1364,24 @@ local function runBaseManagementAction(target, action, payload)
     elseif action == "change_gather_destination" then
         method, arguments = SC.BaseLife.changeGatherDestination,
             { payload.id, payload.storageId }
+    elseif action == "start_production" then
+        method, arguments = SC.BaseLife.createProductionOrder, { {
+            operation = payload.operation, requested = payload.requested,
+            zoneId = payload.zoneId, sourceStorageId = payload.sourceStorageId,
+            destinationStorageId = payload.destinationStorageId,
+            settings = payload.settings, workers = { payload.workerId }, enableDuty = true,
+        } }
+    elseif action == "pause_production" then
+        method, arguments = SC.BaseLife.pauseProductionOrder, { payload.id, "player_paused" }
+    elseif action == "resume_production" then
+        method, arguments = SC.BaseLife.resumeProductionOrder, { payload.id }
+    elseif action == "retry_production" then
+        method, arguments = SC.BaseLife.retryProductionOrder, { payload.id }
+    elseif action == "cancel_production" then
+        method, arguments = SC.BaseLife.cancelProductionOrder, { payload.id }
+    elseif action == "add_production_worker" then
+        method, arguments = SC.BaseLife.addProductionWorker,
+            { payload.id, payload.workerId }
     elseif action == "set_maintenance_enabled" then
         method, arguments = SC.BaseLife.setMaintenanceTargetEnabled,
             { payload.id, payload.enabled == true }
@@ -1377,6 +1461,30 @@ local function onGatherDraftSelector(target, combo)
     local option = combo:getOptionData(combo.selected)
     if type(option) ~= "table" then return end
     gatherDraft[combo.scGatherField] = option.value
+    UI.refresh()
+end
+
+local function productionQuantityOptions(operation)
+    local result = {}
+    for _, amount in ipairs(PRODUCTION_QUANTITIES[operation] or { 1 }) do
+        result[#result + 1] = { id = amount, label = tostring(amount) }
+    end
+    return result
+end
+
+local function onProductionDraftSelector(target, combo)
+    if not combo or not combo.selected then return end
+    local option = combo:getOptionData(combo.selected)
+    if type(option) ~= "table" then return end
+    local field = combo.scProductionField
+    if field == "operation" and productionDraft.operation ~= option.value then
+        local schema = SC.BaseLife and SC.BaseLife.PRODUCTION_OPERATIONS
+            and SC.BaseLife.PRODUCTION_OPERATIONS[option.value] or nil
+        productionDraft.requested = schema and schema.defaultRequested
+            or (PRODUCTION_QUANTITIES[option.value] or { 1 })[1]
+        productionDraft.zoneId = nil
+    end
+    productionDraft[field] = option.value
     UI.refresh()
 end
 
@@ -2377,6 +2485,200 @@ function SCUIDetail:addGatherDraftSelector(panel, y, labelKey, field, current, o
     return y + metrics.buttonHeight + 4
 end
 
+function SCUIDetail:addProductionDraftSelector(panel, y, labelKey, field, current, options)
+    local metrics = self.metrics or UI.layoutMetrics()
+    local width = math.max(100, panel:getWidth() - 28)
+    local combo = ISComboBox:new(8, y, width, metrics.buttonHeight,
+        self, onProductionDraftSelector)
+    combo:initialise()
+    combo:instantiate()
+    combo.backgroundColor = { r = 0.035, g = 0.04, b = 0.035,
+        a = configuredOpacity(0.88, 0.22, 0.78) }
+    combo.backgroundColorMouseOver = { r = 0.28, g = 0.30, b = 0.25,
+        a = configuredOpacity(1.18, 0.48, 0.9) }
+    combo.scProductionField = field
+    for index, option in ipairs(options or {}) do
+        local label = option.key and UI.text(option.key) or tostring(option.label or option.id)
+        combo:addOptionWithData(UI.text(labelKey, label), { value = option.id }, label)
+        if option.id == current then combo.selected = index end
+    end
+    combo.tooltip = UI.text(labelKey, UI.stateText(current))
+    panel:addChild(combo)
+    panel.scContentWidth = panel:getWidth()
+    return y + metrics.buttonHeight + 4
+end
+
+local function productionOptionExists(options, value)
+    for _, option in ipairs(options) do if option.id == value then return true end end
+    return false
+end
+
+-- Production orders reuse the gathering panel pattern: every choice is a
+-- bounded selector, and the start button carries the complete payload.
+function SCUIDetail:buildProductionSection(panel, y, base, row)
+    y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Production")
+    local operation = productionDraft.operation
+    local schemas = SC.BaseLife and SC.BaseLife.PRODUCTION_OPERATIONS or {}
+    local schema = schemas[operation] or {}
+    local zoneKind = PRODUCTION_ZONE_KIND[operation]
+    local zones, sources, destinations = {}, {}, {}
+    for _, zone in ipairs(base.zoneRows or {}) do
+        if zone.kind == zoneKind then zones[#zones + 1] = { id = zone.id, label = zone.name } end
+    end
+    for _, storage in ipairs(base.storageRows or {}) do
+        local option = {
+            id = storage.id,
+            label = UI.text("UI_SC_Base_GatherStorageOption",
+                UI.humanize(storage.category), storage.x, storage.y, storage.z),
+        }
+        if storage.withdrawals ~= false then sources[#sources + 1] = option end
+        if storage.deposits ~= false then destinations[#destinations + 1] = option end
+    end
+    if zoneKind and not productionOptionExists(zones, productionDraft.zoneId) then
+        productionDraft.zoneId = zones[1] and zones[1].id or nil
+    end
+    if not productionOptionExists(sources, productionDraft.sourceStorageId) then
+        productionDraft.sourceStorageId = sources[1] and sources[1].id or nil
+    end
+    if not productionOptionExists(destinations, productionDraft.destinationStorageId)
+        or (schema.source == true
+            and productionDraft.destinationStorageId == productionDraft.sourceStorageId) then
+        productionDraft.destinationStorageId = nil
+        for _, option in ipairs(destinations) do
+            if schema.source ~= true or option.id ~= productionDraft.sourceStorageId then
+                productionDraft.destinationStorageId = option.id
+                break
+            end
+        end
+    end
+    local quantities = productionQuantityOptions(operation)
+    if not productionOptionExists(quantities, productionDraft.requested) then
+        productionDraft.requested = quantities[1] and quantities[1].id or 1
+    end
+    local needsDestination = schema.destination == true
+        or (schema.destination == "optional" and productionDraft.haul == "yes")
+    y = self:addProductionDraftSelector(panel, y, "UI_SC_Base_ProductionOperationSelector",
+        "operation", operation, PRODUCTION_OPERATIONS)
+    y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+        UI.text(PRODUCTION_HINT_KEYS[operation] or "UI_SC_Base_Section_Production"))
+    local missing
+    if zoneKind and #zones == 0 then
+        missing = UI.text("UI_SC_Base_ProductionNeedsZone", UI.text("UI_SC_Base_Zone_" .. zoneKind))
+    elseif (schema.source == true and #sources == 0)
+        or (needsDestination and productionDraft.destinationStorageId == nil) then
+        missing = UI.text("UI_SC_Base_ProductionNeedsStorage")
+    elseif not row then
+        missing = UI.text("UI_SC_Base_ProductionNeedsWorker")
+    end
+    if missing then
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message", missing)
+    else
+        if zoneKind then
+            y = self:addProductionDraftSelector(panel, y, "UI_SC_Base_ProductionZoneSelector",
+                "zoneId", productionDraft.zoneId, zones)
+        end
+        if schema.source == true then
+            y = self:addProductionDraftSelector(panel, y, "UI_SC_Base_ProductionSourceSelector",
+                "sourceStorageId", productionDraft.sourceStorageId, sources)
+        end
+        if operation == "fell_trees" then
+            y = self:addProductionDraftSelector(panel, y, "UI_SC_Base_ProductionHaulSelector",
+                "haul", productionDraft.haul, PRODUCTION_YES_NO)
+        end
+        if needsDestination then
+            y = self:addProductionDraftSelector(panel, y,
+                "UI_SC_Base_ProductionDestinationSelector", "destinationStorageId",
+                productionDraft.destinationStorageId, destinations)
+        end
+        y = self:addProductionDraftSelector(panel, y, "UI_SC_Base_ProductionQuantitySelector",
+            "requested", productionDraft.requested, quantities)
+        if operation == "bury_bodies" then
+            y = self:addProductionDraftSelector(panel, y,
+                "UI_SC_Base_ProductionBelongingsSelector", "belongings",
+                productionDraft.belongings, PRODUCTION_BELONGINGS)
+            y = self:addProductionDraftSelector(panel, y, "UI_SC_Base_ProductionMarkerSelector",
+                "marker", productionDraft.marker, PRODUCTION_MARKERS)
+        end
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_Base_GatherWorker", row.name))
+        local label = UI.text(PRODUCTION_OPERATION_KEYS[operation] or "UI_SC_Base_Section_Production")
+        y = self:addBaseManagementAction(panel, y,
+            UI.text("UI_SC_Base_ProductionStart", label, productionDraft.requested),
+            "start_production", {
+                operation = operation, requested = productionDraft.requested,
+                zoneId = zoneKind and productionDraft.zoneId or nil,
+                sourceStorageId = schema.source == true and productionDraft.sourceStorageId or nil,
+                destinationStorageId = needsDestination
+                    and productionDraft.destinationStorageId or nil,
+                settings = {
+                    haulLogs = productionDraft.haul == "yes",
+                    withBelongings = productionDraft.belongings == "bury",
+                    marker = productionDraft.marker,
+                    closeWhenDone = true, digIfNeeded = true,
+                },
+                workerId = row.id,
+            }, UI.text("UI_SC_Base_ProductionStartConfirm", row.name))
+    end
+    for _, order in ipairs(base.productionOrders or {}) do
+        local label = PRODUCTION_OPERATION_KEYS[order.operation]
+            and UI.text(PRODUCTION_OPERATION_KEYS[order.operation])
+            or UI.humanize(order.operation)
+        local unit = PRODUCTION_UNIT_KEYS[order.unit]
+            and UI.text(PRODUCTION_UNIT_KEYS[order.unit]) or tostring(order.unit or "")
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_Base_ProductionProgress", label, order.completed, order.requested,
+                unit, UI.humanize(order.state)))
+        if order.blocker then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_ProductionBlocker", UI.humanize(order.blocker)))
+        end
+        for _, worker in ipairs(order.workerPhases or {}) do
+            local phaseKey = PRODUCTION_PHASE_KEYS[worker.phase]
+                or "UI_SC_Base_ProductionPhase_running"
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_ProductionWorkerPhase", worker.name, UI.text(phaseKey)))
+        end
+        if order.state == "running" then
+            y = self:addBaseManagementAction(panel, y, UI.text("UI_SC_Base_ProductionPause"),
+                "pause_production", { id = order.id }, nil)
+        elseif order.state == "paused" then
+            y = self:addBaseManagementAction(panel, y, UI.text("UI_SC_Base_ProductionResume"),
+                "resume_production", { id = order.id }, nil)
+        elseif order.state == "blocked" then
+            y = self:addBaseManagementAction(panel, y, UI.text("UI_SC_Base_ProductionRetry"),
+                "retry_production", { id = order.id }, nil)
+        end
+        if order.state ~= "completed" and order.state ~= "cancelled" then
+            if row and #(order.workers or {}) < 2 then
+                local alreadyAssigned = false
+                for _, workerId in ipairs(order.workers or {}) do
+                    if workerId == row.id then alreadyAssigned = true break end
+                end
+                if not alreadyAssigned then
+                    y = self:addBaseManagementAction(panel, y,
+                        UI.text("UI_SC_Base_ProductionAddWorker", row.name),
+                        "add_production_worker", { id = order.id, workerId = row.id }, nil)
+                end
+            end
+            y = self:addBaseManagementAction(panel, y, UI.text("UI_SC_Base_ProductionCancel"),
+                "cancel_production", { id = order.id },
+                UI.text("UI_SC_Base_ProductionCancelConfirm"))
+        end
+    end
+    local counters = base.productionCounters or {}
+    local anyCounter = false
+    for _, value in pairs(counters) do
+        if (tonumber(value) or 0) > 0 then anyCounter = true break end
+    end
+    if anyCounter then
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_Base_ProductionCounters", counters.treesFelled or 0,
+                counters.planksMade or 0, counters.gravesDug or 0,
+                counters.bodiesBuried or 0, counters.gravesClosed or 0))
+    end
+    return y
+end
+
 function SCUIDetail:addBaseManagementAction(panel, y, label, action, payload, confirmation)
     local metrics = self.metrics or UI.layoutMetrics()
     local width = math.max(100, panel:getWidth() - 28)
@@ -2971,6 +3273,7 @@ function SCUIDetail:buildBase(panel, row)
                     { id = order.id }, UI.text("UI_SC_Base_GatherReleaseConfirm"))
             end
         end
+        y = self:buildProductionSection(panel, y, base, row)
         y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Zones")
         if type(base.zoneRows) ~= "table" or #base.zoneRows == 0 then
             y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
@@ -4942,6 +5245,7 @@ function UI.reset()
     UI.clearDebugHouseLocator()
     UI.close()
     gatherDraft = { material = "logs", requested = 12, zoneId = nil, storageId = nil }
+    productionDraft = newProductionDraft()
     UI._gameStarted = false
     UI._scheduledRefreshJob = nil
 end

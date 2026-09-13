@@ -67,7 +67,7 @@ local required = {
     "Navigation", "Positioning", "Combat", "Medical", "Logistics", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal", "BaseObjectRef", "BaseLife",
     "BaseVisuals", "WorkTransport", "GatherWork",
-    "BaseWork", "InfectionCrisis", "LifeEvents", "Community", "Quirks", "Autonomy", "Commands",
+    "BaseWork", "Production", "InfectionCrisis", "LifeEvents", "Community", "Quirks", "Autonomy", "Commands",
     "FactionRecruitment", "Decision", "Support", "UIContext",
 }
 for _, name in ipairs(required) do SC[name] = SC[name] or {} end

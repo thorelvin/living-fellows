@@ -15,254 +15,227 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 [![Release](https://img.shields.io/badge/release-0.22.25-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
-Living Fellows turns isolated survivors into persistent people who can become teammates, establish routines, help run a base, and make their own survival decisions. Companions use native human actors, keep real inventories and injuries, and can follow, fight, retreat, scavenge, work, travel, grieve, argue, and remember what happened to them.
+Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
 
-This is a public playtest release. Back up important saves, expect balance and compatibility work, and include logs when reporting a problem.
+This is a public playtest release. Back up important saves and include logs when you report a problem.
 
 ## Contents
 
 - [Highlights](#highlights)
 - [Requirements](#requirements) · [Install (Workshop)](#install-from-steam-workshop) · [Install (standalone)](#install-with-installbat)
 - [First five minutes](#first-five-minutes)
-- [Companion panel](#companion-panel) · [Orders and policies](#orders-and-policies)
+- [Companion panel](#companion-panel) · [Orders](#orders)
 - [How companions behave](#how-companions-behave)
-- [Survivor households and factions](#survivor-households-and-factions)
-- [Saves, updates, and backups](#saves-updates-and-backups) · [Compatibility](#compatibility)
+- [Base life and production](#base-life-and-production)
+- [Survivor households and bandits](#survivor-households-and-bandits)
+- [Sandbox options](#sandbox-options)
+- [Saves and backups](#saves-and-backups) · [Compatibility](#compatibility)
 - [Troubleshooting](#troubleshooting) · [Reporting a bug](#reporting-a-bug)
-- [Building from source](#building-and-testing-from-source) · [Repository layout](#repository-layout)
+- [Building from source](#building-from-source) · [Repository layout](#repository-layout)
 - [Clean-room status and license](#clean-room-status-and-license)
 
-New to Living Fellows? Jump to **[First five minutes](#first-five-minutes)**. Full change history lives in [CHANGELOG.md](CHANGELOG.md).
+Full change history lives in [CHANGELOG.md](CHANGELOG.md).
 
 ## Highlights
 
-- Persistent companions with names, professions, traits, personalities, relationships, memories, needs, wounds, equipment, and permanent death.
-- Tactical movement with formations, corner checks, rear awareness, choke-point reservations, obstacle recovery, retreat routes, strafing, corner-safe diagonal travel, native low/high fence climbing, and player-mirroring movement.
-- Situational combat decisions based on health, endurance, panic, pain, skill, weapons, allies, nearby threats, footing, and escape quality.
-- Scavenging, nested bag management, armor and weapon upgrades, washing, eating, drinking, bandaging, supply crafting, and role-aware carry limits.
-- Follow, stay, guard, patrol, regroup, retreat, work, vehicle, weapon, combat, stealth, and Rules of Engagement policies.
-- Living-base routines, camp storage, finite physical log/plank gathering, readiness, watches, chores, repair, crafting, downtime, boredom, stress responses, conflict, and morale boosts.
-- Survivor households that barricade homes, warn strangers, defend territory, expose shortages, trade conditionally, remember player conduct, and offer social contracts, plus rare hostile bandit camps that patrol and fight both the player group and zombies.
-- An optional base-layout overlay with color-coded zone boundaries, storage outlines and live placement previews, plus faction and quest markers on the world map.
-- Debug, movement-recording, and profiling tools in development builds, with fail-closed runtime health checks in public builds.
-- A translucent companion panel, compact collapsed launcher, context commands, Support diagnostics, and recruited-teammate minimap markers.
+- Up to 16 persistent companions with names, professions, traits, personalities, relationships, memories, needs, wounds, equipment, and permanent death.
+- Squad movement in formation through doors, windows, fences, stairs, and vehicles, with corner checks, retreat routes, and running escapes.
+- Combat that weighs health, stamina, panic, skill, weapons, allies, and escape routes, under a team-wide Rules of Engagement.
+- Scavenging, bag management, gear upgrades, eating, drinking, washing, and wound care using the game's own actions.
+- A living base with zones, classified storage, roles, watches, chores, repairs, gathering, and production: felling trees, sawing planks, digging graves, and burying the dead.
+- Survivor households that trade, remember how you treat them, and offer contracts, quests, and recruitment, plus rare hostile bandit camps.
+- A translucent companion panel, context-menu commands, first-name labels, minimap markers, a base-layout overlay, and a Support page for diagnostics.
 
 ## Requirements
 
-Living Fellows currently targets **Project Zomboid Build 42.20.4**, is **single-player only**, and supports Windows for the standalone installer.
-
-Choose one installation method:
+Living Fellows targets **Project Zomboid Build 42.20.4** and is **single-player only**. Multiplayer and split-screen are refused so they cannot corrupt a save.
 
 | Method | What you need | Best for |
 | --- | --- | --- |
-| Steam Workshop | Project Zomboid 42.20.4 and ZombieBuddy 2.3.3 or newer | Normal Workshop updates |
-| `Install.bat` | Windows and Project Zomboid 42.20.4 | Manual/offline installation without ZombieBuddy |
+| Steam Workshop | Project Zomboid 42.20.4 and ZombieBuddy 2.3.3 or newer | Automatic Workshop updates |
+| `Install.bat` | Windows and Project Zomboid 42.20.4 | Manual or offline installation without ZombieBuddy |
 
-Do not enable a Workshop copy and a standalone copy together. They intentionally share the mod ID `SurvivorCompanion`, so the game should load only one copy.
-
-Multiplayer and split-screen are not supported. The runtime refuses to create companions there instead of risking save or player-state corruption.
+Use only one copy. The Workshop and standalone editions share the mod ID `SurvivorCompanion`.
 
 ## Install from Steam Workshop
 
 1. Close Project Zomboid.
-2. Subscribe to **ZombieBuddy 2.3.3 or newer**.
-3. Subscribe to **Living Fellows**.
-4. Start Project Zomboid and open **Mods**.
-5. Enable ZombieBuddy and Living Fellows.
-6. When loading an existing save, use **More... > Choose Mods** and enable both mods for that save.
-7. Back up the save before the first long playtest.
-
-The Workshop listing will be linked here when its public page is published. The repository's release archive also contains a Workshop-ready upload package for maintainers and testers.
+2. Subscribe to **ZombieBuddy 2.3.3 or newer** and to **Living Fellows**.
+3. Start the game, open **Mods**, and enable both.
+4. For an existing save, use **More... > Choose Mods** and enable both mods for that save.
+5. Back up the save before your first long session.
 
 ## Install with `Install.bat`
 
-The standalone release does not require ZombieBuddy.
+The standalone edition does not need ZombieBuddy.
 
 1. Download `LivingFellowsCompanion-<version>-STANDALONE-WINDOWS.zip` from [Releases](https://github.com/thorelvin/living-fellows/releases).
-2. Extract the entire ZIP to a normal folder. Do not run it from inside the ZIP viewer.
-3. Close Project Zomboid completely.
+2. Extract the whole ZIP to a normal folder. Do not run it from inside the ZIP viewer.
+3. Close Project Zomboid.
 4. Double-click **Install.bat**.
-5. Start the game, enable **Living Fellows**, and enable it for the save you want to test.
+5. Start the game and enable **Living Fellows** for your save.
 
-The installer normally finds Steam and the game's mod folder automatically. If Windows denies access to the Steam game directory, run `Install.bat` as Administrator. The installer never edits `projectzomboid.jar`.
-
-For a non-standard Steam library, open PowerShell in the extracted folder and provide the game path:
+The installer finds Steam automatically. If Windows denies access to the game folder, run it as Administrator. For a different Steam library:
 
 ```powershell
 .\Install.bat -GameRoot "D:\SteamLibrary\steamapps\common\ProjectZomboid"
 ```
 
-The standalone installer:
-
-- installs the mod under `%USERPROFILE%\Zomboid\mods\SurvivorCompanion`;
-- stores its owned bridge under `%LOCALAPPDATA%\LivingFellows`;
-- backs up `ProjectZomboid64.json` before adding the external bridge JAR to the classpath;
-- records ownership manifests so it will not remove unrelated files; and
-- restores the original launcher configuration when **Uninstall.bat** is run.
-
-To remove the standalone edition, close the game and run **Uninstall.bat** from the same extracted release. Keep the release folder until you are finished testing.
+It installs the mod under `%USERPROFILE%\Zomboid\mods\SurvivorCompanion`, keeps its bridge under `%LOCALAPPDATA%\LivingFellows`, and backs up `ProjectZomboid64.json` before changing it. It never edits `projectzomboid.jar`. Run **Uninstall.bat** from the same folder to remove it and restore the original launcher settings.
 
 ## First five minutes
 
-1. Load a single-player save in Build 42.20.4.
-2. Press **Home** to cycle the companion panel, or use the small **LF** launcher when the panel is collapsed.
-3. Explore until you meet a neutral survivor. A neutral survivor does not join automatically.
-4. Select the survivor in the panel and use the prominent **Recruit** action when it is available.
-5. Open **Orders** and choose a main order. New recruits default to **Follow**, **Copy player** movement, and **Ride with player**.
-6. If actors are missing, a button fails, or the panel behaves unexpectedly, open **More → Support** for runtime health and a copyable diagnostic report.
-
-Public builds do not automatically spawn a test companion every minute. Manual spawning and destructive state controls are available only in the debug build.
+1. Load a single-player save.
+2. Press **Home** to open the companion panel, or click the small **LF** launcher when the panel is collapsed.
+3. Explore until you meet a survivor. Survivors never join automatically.
+4. Select the survivor in the panel and press **Recruit** when it is offered.
+5. Open **Orders** and pick a main order. New recruits start on **Follow**, **Copy player** movement, and **Ride with player**.
+6. If something looks wrong, open **More → Support** for runtime health and a copyable report.
 
 ## Companion panel
 
-The panel is translucent so the world remains visible while commands are open. It can be docked left or right, collapsed to a compact launcher, or cycled with Home.
-
-The everyday controls live on five primary tabs. Deeper views open from the **More** tab so the common actions stay uncluttered.
+The panel is translucent so you can still see the world. It can be docked left or right, collapsed to the **LF** launcher, or toggled with Home (rebindable under Living Fellows in the key bindings).
 
 | Tab | Purpose |
 | --- | --- |
-| Status | Immediate health and needs, current action, order, distance, a short relationship summary, and essential conversation |
-| Orders | Direct orders, movement and follow distance, combat doctrine, and persistent work/autonomy policy |
-| Squad | Group assignment and orders, movement/fire signals, and companion membership |
-| Loadout | Wounds and treatment, inventory and carried supplies, weapon/carry policy, and vehicle status |
-| More | Opens Base (camp operations), Factions (households, trade, standing), Journal (history, relationships, memories, goals, and deeper conversation), Support (runtime/bridge health), and — in development builds — Debug |
+| Status | Health and needs, current action, order, distance, relationship summary, and conversation |
+| Orders | Direct orders, movement and follow distance, combat doctrine, and work policy |
+| Squad | Group assignment, group orders, movement and fire signals |
+| Loadout | Wounds and treatment, inventory, weapon and carry policy, and vehicle status |
+| More | Base (camp operations), Factions (households, trade, standing), Journal (history, relationships, memories, goals), and Support (runtime health) |
 
-Buttons show a confirmation message when an order is accepted. Selectors and checkboxes display the persistent policy that will be used after saving and reloading.
+## Orders
 
-## Orders and policies
+- **Main order:** Follow, Stay, or Guard. Guard patrols around its anchor. **Regroup** and **Retreat** are immediate emergency actions.
+- **Follow distance:** how far behind you the team keeps.
+- **Movement:** Copy player, walk, sneak, or run. Escapes and combat can override it.
+- **Work mode:** useful chores, downtime, or supply crafting when it is safe.
+- **Scavenging:** on or off.
+- **Weapon priority:** best available, melee, firearms, or quiet weapons.
+- **Combat doctrine:** Stealth, Close Defense, Ranged Support, or Weapons Free, for one companion or the whole team.
+- **Hold fire:** blocks ordinary shots whatever the doctrine allows.
+- **Ride with player:** takes free passenger seats and gets out with you. Extra followers wait safely on foot.
+- **Allow overload:** lets a companion carry more than its normal limit, up to a cap.
 
-- **Main order:** Follow, stay, or guard. Guard patrols around its anchor when conditions allow; contextual tasks such as moving or checking a room temporarily take ownership and then return to the previous stable order. Regroup and Retreat remain immediate emergency actions.
-- **Follow distance:** Controls the desired formation distance without forcing companions into one exact tile.
-- **Movement:** Copy player, walk, sneak, or run. Copy player mirrors ordinary crouch, walk, and run behavior. Escape and immediate combat may override it for survival.
-- **Work mode:** Useful chores, downtime, or supply crafting when conditions are safe.
-- **Scavenging:** One persistent checkbox. A companion completes the rummage animation before committing a verified transfer.
-- **Weapon priority:** Best available, melee, firearms, or quiet weapons.
-- **Combat doctrine:** Stealth, Close Defense, Ranged Support, or Weapons Free controls engagement behavior without silently changing weapon priority or Hold Fire. The selected doctrine can be applied to the whole team.
-- **Hold fire:** A separate hard override that prevents ordinary shots even when the current doctrine would permit them.
-- **Ride with player:** Uses available passenger seats, follows the player into a vehicle, exits with the player, and leaves excess companions safely on foot.
-- **Allow overload:** Lets the selected companion exceed its normal mobility-first carry policy within a bounded limit.
-
-World context commands use one **Living Fellows** root. The companion selected in the panel gets at most two top-level shortcuts: **Move here** and one action relevant to the clicked object (for example open a door or remove a barricade). **Check Room** appears only for a real indoor room; the companion enters cautiously, reports visible contacts or whether the room could be verified, and resumes its prior stable order. Its full menu keeps direct orders shallow, with separate **Talk**, **Target actions**, and **Care and inspect** groups. Other nearby companions, squad signals, relevant base work, and survivor households are grouped below it. Only authoritative recruited teammates appear, base construction is offered only inside camp, and dismissing a companion requires confirmation.
+Right-click the world for the **Living Fellows** menu. The selected companion gets **Move here** plus one action for the clicked object: open or close a door, barricade, remove a barricade, dismantle, or **Check room** for an indoor room. Talk, target actions, care, squad signals, base work, and households sit in submenus. Dismissing a companion asks for confirmation.
 
 ## How companions behave
 
-### Movement and awareness
+### Movement
 
-Followers use formation slots instead of stacking on the player. Each active fireteam (the unassigned squad or an Alpha/Bravo/Charlie group) automatically assigns a close fighter as point, keeps firearm support in the protected middle, and places a cautious survivor at the rear. That stable role order becomes a single-file column through doors, windows, fences, stairs, and slopes; the team stays collapsed until the last nearby follower clears the portal, then deliberately fans back out. They check blind corners and room thresholds, remember a recent route back outdoors, and replan around vehicles, furniture, crowds, vegetation, windows, gates, slopes, and player-built obstacles. Open and multi-tile garage gates remain recognized as passages. Low fences use the player's validated `hopFence` action, climbable tall walls use its wall capability check, and hoppable `IsoThumpable` constructions use the same contextual climb as the player's E action. Bushes and trees are costly terrain rather than universal walls, so an emergency route may still cross vegetation.
+Followers keep formation slots instead of stacking on you. Each fireteam puts a close fighter at point, firearm support in the middle, and a cautious survivor at the rear. They file through doors, windows, fences, and stairs, then spread out again. They check blind corners, climb fences and walls with the player's own actions, route around vehicles, furniture, and crowds, and remember the way back outside. When danger closes in they back off or strafe on safe ground, and turn and run when they are overrun.
 
-In open space the local route planner can move across all eight compass directions instead of forming a four-direction staircase. A visible leader within 14 tiles is intercepted across a fully validated clear chord, completed open-ground loops are erased from the shared trail, and movement aims several safe tiles ahead so ordinary bends flow instead of snapping from tile centre to tile centre. A diagonal step is accepted only when both routes around its corner are clear; it cannot cut between blocked walls, doors, fences, vehicles, or occupied geometry. When a chord is blocked, the follower joins the oldest reachable side of the player's retained track and replays the exact door, gate, window, stair, slope, or fence crossing. Short alignment steps have an exact stopping point, and native climbing keeps control until its animation finishes. Animation movement is consumed once per frame, preventing the accumulated-motion fault that caused a reproduced open-door stall and small position jumps.
-
-Fixed gathering, storage, building and needs targets use the same fully validated open-line shortcut before starting A*. Successful non-open work trips also leave a small session-only coordinate route that another recruited companion can join and reuse. This is route knowledge, not cached passability: closed doors, new barricades, fire, vehicles, trees, safehouse rules and camp boundaries are checked again on every retained edge, and any changed route falls back to the normal bounded planner. Combat, escape, moving targets and stealth-scored travel always bypass work-route reuse.
-
-In clear conditions a companion can acquire a zombie out to 24 tiles, roughly twice the previously practical distance. Candidate discovery is shared across the squad, but perception is not: every companion still proves current distance, floor, and native line of sight for itself. Walls, closed geometry, and other floors block visual targeting. Movement or fighting behind a wall may produce an uncertain heard-contact warning, never an invisible combat target.
-
-The pathing audit for 0.22.9 reduces Build 42.20.4's sprites and object states to **38 distinct collision conditions**. They are handled by one topology policy instead of scattered stuck exceptions:
-
-| Obstacle family | Conditions | Passage policy |
-| --- | ---: | --- |
-| Loaded ground and solid tiles | 4 | Wait for chunks; reject missing floors, solid tiles, and transparent-solid collision tiles |
-| Walls and corners | 3 | Detour around cardinal/non-hoppable walls; allow diagonals only when both cardinal decompositions are clear |
-| Doors and gates | 6 | Cross open doors; open unlocked doors; use a carried matching key; detour around other locks, barricades, and obstructions |
-| Windows and frames | 8 | Open, smash, remove glass, or climb only after the stock actor confirms the exact frame is usable |
-| Low fences and tall walls | 2 | Align perpendicularly, then use the native player vault or capability-checked wall climb |
-| Stairs, slopes, and sheet ropes | 3 | Give the complete transition to native player/path states; a companion already at a rope can climb or descend it |
-| Terrain and hazards | 6 | Treat water as blocked; prefer routes around fire, traps, glass, trees, and bushes; permit fire/traps only as high-cost emergency escape |
-| Vehicles, furniture, constructions, and pushables | 4 | Route around their real square or polygon footprint instead of discovering them through repeated collisions |
-| Living actors and safehouse policy | 2 | Yield/reserve space around actors and reject forbidden safehouse boundaries |
-
-Workshop objects are covered when they publish the standard `IsoGridSquare`, `IsoObject`, or `IsoThumpable` collision/affordance contracts. A custom ladder with no stock stair, slope, sheet-rope, or hoppable contract is conservatively treated as geometry rather than guessed climbable.
-
-Companions can backpedal or strafe while disengaging on safe ground. A true overrun, grab threat, blind turn, narrow transition, or poor footing makes them turn and run. Escape always outranks ordinary walking, crouching, formation, work, and animation preferences.
+In clear conditions companions spot zombies up to 24 tiles away. Each companion must see the target for itself: walls, closed doors, and other floors block sight, and noise behind a wall only produces an uncertain warning.
 
 ### Combat
 
-Combat decisions use the companion's real body condition, endurance reserve, panic, pain, tiredness, stress, morale, encumbrance, skills, weapon quality, support, threat directions, footing, and available exits. Allies try to split targets, avoid friendly fire, preserve stamina, shove when a lane is safe, finish isolated grounded zombies, kite, cover a retreat, or disengage before they are surrounded.
+Companions fight with the game's own attack animations and weapon timings. They weigh wounds, stamina, panic, pain, morale, skill, weapon condition, support, and escape routes. They split targets, avoid friendly fire, shove when it is safe, finish grounded zombies, and cover a retreat.
 
-Attack cadence follows the game's native animation and melee/recoil recovery, including weapon and character modifiers. Companions stop old approach input when holding range or swinging, aim to engage near useful weapon reach, and make room for closing threats. A finishing swing keeps its animation even after the last target dies, while actionable critical medical needs and incoming hit reactions can still take priority. Ground attacks require contact at the impact frame; a stomp is not a guaranteed execution.
-
-Against an isolated grounded zombie, the companion makes one stable choice for that victim instead of changing its mind every frame. A usable held melee weapon normally stays in hand and uses the matching native floor attack; a stomp remains an occasional believable choice when boots, fatigue, weapon condition, panic, and personality support it. Bare or injured feet strongly favor the weapon. If the weapon can already reach but a stomp cannot, the companion strikes from the safer distance instead of stepping into bite range. Native collision, animation, footwear power, hit location, and damage decide the result for both choices.
-
-Companion attacks land real damage, and companions are real targets in return: zombies notice, chase, and attack them, and a landed hit inflicts an actual wound. Bites can infect and eventually turn a companion, while scratches and lacerations wound and bleed without infecting — so a swarmed or careless companion is in genuine danger and can be lost. Hostile survivors are damaged the same way. When too many zombies pile on at once they can pull a companion to the ground and pin it — thin the swarm in time and you drag your friend back to their feet, bloodied but alive; leave them and the pack finishes the job.
-
-Combat barks report threat scale, engagement, prolonged effort, kills, and emergency withdrawal. They draw from varied English line pools and use actor, team, and intent cooldowns. Spoken yells create real sound and can attract zombies; quiet doctrine prefers silent hand signals when danger permits.
+Zombies hunt companions like players. Bites can infect and turn them, and a swarm can pin a companion to the ground unless you thin it in time. Combat calls make real noise; under Stealth doctrine companions use silent hand signals when they can.
 
 ### Scavenging and equipment
 
-A scavenger reserves one source and one item, approaches a safe interaction point, settles, completes the player rummage animation, transfers the exact item, verifies the destination, and only then resumes movement. Failed or unchanged containers receive a cooldown instead of being searched every second.
-
-Companions understand nested bags and prefer suitable worn backpacks. They keep role-relevant food, water, medicine, tools, weapons, ammunition, clothing, and building materials; deposit or drop unnecessary weight outside combat; freely loot useful items from dead zombies when safe; evaluate armor and clothing upgrades; and can wash themselves and dirty equipment near clean water. Weapons remain in the root inventory so combat can equip a newly gifted fallback immediately. Inventory visuals are supervised transactions: if a packing action stalls, times out, or the protected actor pose moves, it rolls back and releases control instead of trapping the companion in a logistics loop.
+A scavenger picks one container, walks to it, finishes the rummage animation, and moves one verified item. Empty containers are skipped for a while. Companions use backpacks, keep supplies suited to their role, drop dead weight outside combat, loot dead zombies when it is safe, upgrade clothing and armor, and wash themselves and their gear near clean water.
 
 ### Needs, medicine, and death
 
-Hunger and thirst advance at half the vanilla rate. Companions can eat, drink, seek clean sinks or wells, fetch from player-accessible camp storage, tear cloth into emergency bandages, treat themselves, and help an injured player when doing so does not become suicidal.
+By default hunger and thirst rise at half the player rate. Companions eat, drink, use clean water, fetch from camp storage, tear cloth into bandages, treat themselves, and help an injured player when it is safe. Death is permanent and follows the game's own corpse and reanimation rules. A known bite can lead to concealment, confession, quarantine, exile, or a farewell; lethal decisions always need your confirmation.
 
-Low health alone does not immobilize a living companion or block Follow with repeated, impossible treatment attempts. Medical care requires an actual treatable injury, while critical health still makes fighting or escaping real threats urgent. Explicit legacy downed states recover through the native action before normal movement resumes; ordinary low health does not create such a state.
+### Personality and relationships
 
-Companions are vulnerable to wounds and Knox infection. Death is permanent and is left to the game's native corpse and reanimation systems. A known bite can create concealment, confession, quarantine, exile, mercy, or farewell conflicts based on personality and relationships. A pinned companion calls for help, while terminal zombie wounds, failing health, and imminent conversion draw from separate last-word pools keyed to personality, relationship tier, and the player's name. Lethal group decisions require explicit player authorization.
+Every survivor has a profession, trait, personality, history, keepsake, preferred camp role, and personal goal. Trust, bonds, morale, stress, memories, grief, and relationships persist, and dialogue reacts to what actually happened. Stress can show as venting, pacing, arguments, withdrawal, or a breakdown; good morale gives small boosts. Danger interrupts all of it.
 
-### Personality, relationships, and base life
+## Base life and production
 
-Each survivor receives a deterministic profession, trait, personality profile, history, keepsake, camp role, and personal objective. Trust, bond, shared time, care, morale, stress, memories, grief, and pairwise relationships persist. Dialogue uses real context and varied line pools instead of one repeated response.
+**Setting up a camp.** Right-click the ground and choose **Living Fellows → Base life → Set camp core here**. Draw zones with **Start zone here** and **Finish zone here**, and use **Mark storage as...** on containers you have opened. Assign residents, roles, and policies in **More → Base**. **Show base layout** draws zones and storage on the ground.
 
-Safe companions can read, sit, wash, maintain gear, craft supplies, sort storage, repair, keep watch, patrol, or ask about the next supply run. The Base view can also assign one or two residents to gather a finite quantity of loose logs or planks from a selected work zone into one exact registered storage container. This is physical work: companions scan loaded camp squares, walk to an existing floor item, use a human loot pose, carry that exact item and deposit it; existing stock and unloaded areas never manufacture progress. Orders expose delivered quantity, carried cargo, blockers, pause/resume/retry, destination change, cancellation and explicit cargo release.
+Zones include the camp boundary, work area, lumber area, burial ground, rest, social, guard, rally, and quarantine areas. Every zone lies inside the camp except a lumber area, which may extend up to 30 tiles beyond the camp boundary.
 
-The Base view can remove non-core zones, reclassify storage and set withdrawal reserves, enable or remove maintenance targets, and retry or cancel queued work; destructive management actions ask for confirmation, and the final base area cannot be removed. **Show base layout** draws nearby zones as color-coded ground boundaries and loaded storage as category-colored outlines with labels. Individual zone and storage controls emphasize one record, while two-corner zoning gets a live preview even when the persistent overlay is hidden. Prolonged stress can produce venting, pacing, arguments, withdrawal, furniture strikes, thrown empty bottles, or depressive shutdown. Positive momentum can also improve behavior. Immediate danger interrupts every ambient activity.
+Residents on base duty sort storage, repair gear, craft supplies, keep watch, patrol, maintain barricades, and build queued construction. Immediate danger always interrupts base work.
 
-## Survivor households and factions
+**Gathering.** One or two residents carry a set number of loose logs or planks from a work area or lumber area into one storage container. They walk to each item, pick it up, and deposit that exact item; nothing is created from thin air.
 
-One faction archetype is a household of one to three survivors occupying a suitable house. They carry appropriate supplies, barricade secondary doors and windows while preserving an entrance, and remain separate from the companion roster.
+**Production.** The **Production** section of the Base view gives one or two residents a finite order. Tools and materials come from camp storage.
 
-Residents warn unknown players, defend their territory, react to trespass, theft, damage, and murder, and remember what happened. A household can expose a genuine shortage, offer conditional barter, pass imperfect rumors, negotiate a social contract, grant temporary access, or eventually consider one nonessential resident for a recruitment trial. Discovered groups, needs, standing, relations, news, promises, rumors, and access appear in the Factions view, opened from the **More** tab.
+| Job | You need | What happens |
+| --- | --- | --- |
+| Fell trees | A lumber area and an axe in storage | Residents chop standing trees with the game's own action. A tree counts only once it is down, and its logs can be hauled to storage automatically. |
+| Saw planks | Logs in one storage, a saw, and a second storage for planks | Residents take one log at a time, saw it into three planks with the vanilla recipe, and store the planks. |
+| Dig graves | A burial ground and a shovel | Residents dig vanilla graves on natural ground. |
+| Bury the dead | A burial ground and a shovel | Residents bury bodies lying within two tiles of an open grave, digging one if needed. They fill the grave when it is full or the order is done, and can add a wooden cross (hammer, two planks, two nails). |
 
-Households can also offer generated quests through an explicit **ACCEPT / DECLINE** window. Declining dismisses that exact offer, records it in faction history, and applies only a short offer cooldown—there is no broken-promise or standing penalty because no promise was accepted. Retrieval quests place one uniquely tagged story item in a real container inside a nearby house; horde quests materialize a tagged group only when the marked area is loaded. Local-threat contracts credit confirmed kills by either the player or an active recruited companion exactly once. The offer shows a map-derived nearest-street description plus exact coordinates, the active target is marked on the world map, and completion requires returning to the representative to choose one of two reserved reward bundles. Quest targets, spawn receipts, progress, and reward choices persist with the faction save, while quest items and rewards stay out of ordinary barter until the quest closes.
+- Chopping is loud. No tree is started while danger is visible nearby, winded residents rest, and a chop that gets stuck is abandoned after three minutes.
+- Outside the camp boundary, residents start no new tree at night (21:00–06:00).
+- Bodies still carrying items are left for you to loot unless the order buries them with their belongings.
+- A blocked order shows the reason and tries again on its own.
 
-Bandit camps are a separate, permanently hostile archetype. They begin appearing rarely after day four, use their own sandbox enable/chance/cap controls, scale from melee-only groups toward occasional pistols or shotguns as the world ages, and keep at least one member guarding while another patrols. They need direct same-floor sight to target a player or companion, investigate recent hostile sounds without gaining wall vision, and search only the fixed last-seen position after contact is lost. Once engaged, recruited companions treat them as human combat threats. A discovered camp is identified by a stronger red house marker and its generated name on the world map; bandits do not trade, offer contracts, or recruit.
+Every closed grave gets a few words: a short prayer or a line of bleak gallows humor depending on who holds the shovel, a salute, and sometimes an "Amen" from a friend nearby.
 
-## Saves, updates, and backups
+## Survivor households and bandits
 
-Living Fellows writes versioned state into world-scoped Project Zomboid Global ModData. The current world document is schema 3; recursive inventory nodes remain schema 2 for nested bags, worn and attached equipment, weapon parts, and fluid state. Companions, households, relationships, contracts, bases, and bounded memories therefore survive replacement of a dead player character.
+Households of one to three survivors occupy real houses, barricade them, warn strangers, and defend their territory. They remember theft, damage, help, and murder. A household can trade when it has a real shortage, share imperfect rumors, offer contracts and quests, grant temporary access, and eventually let one resident try out as your companion. What you learn appears in **More → Factions**, and quest targets are marked on the world map.
 
-Failed barter uses a durable per-item recovery journal. Reconstruction journals the exact factory-created object before inventory insertion, marks it before optional native-ID reads, verifies the finished item against its snapshot, and requires inventory membership to agree with the item's native owner pointer. A half-completed trade is compensated back to the original source before recovery closes. Ambiguous absence or an unlocated partial build is quarantined rather than guessed: the mod will not create a replacement merely because the marked original is no longer in either trader's inventory. Dead owners transition to a terminal descriptor before retirement, and bounded recovery rotates fairly without blocking unrelated households.
+Bandit camps are rare, always hostile, and appear from day four. Bandits guard and patrol their camp, need line of sight to target you, and fight zombies too. They never trade or recruit.
+
+## Sandbox options
+
+The **Living Fellows** sandbox page controls:
+
+| Option | Effect |
+| --- | --- |
+| Spawn independent survivors, frequency | Whether and how often new survivors appear |
+| Maximum active companions | Limit for new recruits and encounters (up to 16) |
+| Companion hunger and thirst rate | 0 disables, 0.5 is the default, 1 matches the player |
+| Spawn new survivor households, daily chance, maximum | Household spawning |
+| Spawn bandit camps, daily chance, maximum | Bandit camp spawning |
+| Companion menu opacity | Panel background opacity |
+| Show companion first names | Name labels above companions you can see |
+
+Lowering a limit never deletes companions, households, or camps already in the save.
+
+## Saves and backups
+
+Companions, households, relationships, contracts, bases, and production orders are saved with the world, so they survive the death of your character.
 
 Before installing or updating:
 
 1. Close the game.
-2. Copy the relevant folder from `%USERPROFILE%\Zomboid\Saves` to a safe location.
-3. Keep at least one backup from before the first Living Fellows load.
+2. Copy your save folder from `%USERPROFILE%\Zomboid\Saves` somewhere safe.
+3. Keep at least one backup from before your first Living Fellows session.
 
-Lowering a sandbox limit does not delete existing companions or households. Do not remove the mod from an important save without first making a backup.
+Do not remove the mod from an important save without a backup.
 
 ## Compatibility
 
-- Exact supported game version: **42.20.4**.
-- Single-player only; multiplayer and split-screen fail closed.
-- Workshop installation requires **ZombieBuddy 2.3.3 or newer**.
-- Standalone installation is Windows-only and uses the bundled bridge.
+- Supported game version: **42.20.4**.
+- Single-player only; multiplayer and split-screen are refused.
+- The Workshop edition requires **ZombieBuddy 2.3.3 or newer**.
+- The standalone edition is Windows-only and uses its bundled bridge.
 - Mods that replace player actor construction, animation ownership, pathfinding, vehicle passenger state, UI key bindings, or the same launcher `mainClass` may conflict.
-- The default panel key is **Home**. Rebind or report a conflict if another mod claims it.
+- The default panel key is **Home**. Rebind it or report a conflict if another mod uses it.
 - No Project Zomboid game file is redistributed or patched in place.
 
 ## Troubleshooting
 
 ### The panel is missing
 
-Press Home once, then look for the small LF launcher near the edge of the screen. Confirm Living Fellows is enabled for the current save. Workshop users must also confirm ZombieBuddy is enabled and current. Standalone users should rerun `Install.bat` after a game update and inspect **More → Support** after launch.
+Press Home once, then look for the small **LF** launcher at the edge of the screen. Confirm Living Fellows is enabled for the current save. Workshop users must also have ZombieBuddy enabled and current. Standalone users should rerun `Install.bat` after a game update and check **More → Support**.
 
 ### A companion is only a moving shadow
 
-This normally means the native actor bridge did not load or failed its health check. Open **More → Support** and copy its report. Do not continue a valuable save until the actor is rendering correctly.
+The native actor bridge did not load or failed its health check. Open **More → Support** and copy its report. Do not continue a valuable save until companions render correctly.
 
-### A companion is stuck or moonwalking
+### A companion is stuck
 
-Wait briefly for bounded recovery, then issue Regroup. If the actor remains stuck, note whether the obstruction is a door, open gate, low fence, tall fence, vehicle, stair, or movable object. Record the current order, movement policy, visible intent, animation, and whether the player changed floors. In a development build, capture the companion's 30-second movement recorder after the failure; its route edge, blocker classification, native-path state, and recovery reason are substantially more useful than a screenshot alone. Include that report, the logs, and a screenshot or short video.
+Wait a moment for automatic recovery, then use **Regroup**. If it stays stuck, note what is in the way (door, gate, fence, vehicle, stairs, or furniture) and the current order and movement setting, and send the Support report, logs, and a screenshot or short video.
 
 ### Workshop and standalone copies conflict
 
-Disable and remove one copy. Keep only one folder using the `SurvivorCompanion` mod ID, restart the game, and enable the remaining copy for the save.
+Remove one copy. Keep only one `SurvivorCompanion` mod folder, restart the game, and enable the remaining copy for the save.
 
 ### Standalone uninstall cannot restore the launcher
 
-Close Project Zomboid and rerun `Uninstall.bat` from the same release folder. The owned backup and manifests live under `%LOCALAPPDATA%\LivingFellows`. Do not delete that folder until rollback succeeds.
+Close Project Zomboid and rerun `Uninstall.bat` from the same release folder. Its backup lives under `%LOCALAPPDATA%\LivingFellows`; do not delete that folder until the uninstall succeeds.
 
 ## Reporting a bug
 
@@ -272,76 +245,61 @@ Use the repository's [bug report form](https://github.com/thorelvin/living-fello
 - exact Project Zomboid version;
 - new or existing save;
 - other enabled mods;
-- what you expected and what occurred;
-- repeatable steps, if known;
-- screenshots or a short video for visual/pathing problems; and
+- what you expected and what happened;
+- steps to reproduce, if known;
+- screenshots or a short video for visual or pathing problems; and
 - the relevant logs.
 
-Useful Windows log locations:
+Windows log locations:
 
 ```text
 %USERPROFILE%\Zomboid\console.txt
 %USERPROFILE%\Zomboid\logs.zip
 ```
 
-Remove private server addresses, usernames, chat, or other personal information before uploading logs publicly.
+Remove server addresses, usernames, chat, and other personal information before posting logs publicly.
 
-## Building and testing from source
+## Building from source
 
-The repository includes the versioned bridge JAR so a downloaded source archive can use `Install.bat`. A normal contributor build requires Project Zomboid 42.20.4 installed locally because the Java bridge compiles against the game's classes.
+Building requires Project Zomboid 42.20.4 installed locally (the Java bridge compiles against the game's classes), a Java 17+ JDK, and Python 3.12+. The repository includes the versioned bridge JAR, so a source archive can also use `Install.bat` directly.
 
-Run the complete deterministic gate:
+Run the complete test gate:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-Project.ps1
 ```
 
-The core gate includes a deterministic AI response/load harness for 1, 4, 8, and 16 companions. It verifies ordinary and emergency response latency, mixed-load fairness, frame-budget behavior, and that the sorted companion registry is materialized only once per decision callback. Gameplay contracts additionally cover safe diagonal routes, blocked-corner rejection, open-gate recognition, native low/high fence actions, and rollback of stalled inventory packing.
-
-Run only that fast response profile with:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\tests\core\run_ai_response_harness.ps1
-```
-
-Build the Workshop upload package:
+Build the Workshop upload package or the standalone Windows package:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Workshop.ps1
-```
-
-Build and transactionally test the standalone Windows package:
-
-```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Standalone.ps1
 ```
 
-The standalone builder installs and uninstalls the exact staged payload against an isolated fake game root, verifies launcher restoration, and emits a ZIP plus SHA-256 checksum under `build\release`.
+The standalone builder installs and uninstalls the package against an isolated fake game folder and writes a ZIP plus SHA-256 checksum under `build\release`.
 
-Protected real-engine sandbox tests are maintainer-only and require the game to be closed:
+Maintainers can run the real-engine sandbox tests with the game closed. They work on a cloned save and never touch a normal save in place:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Invoke-LiveSandboxTests.ps1
 ```
 
-They clone a save into a unique cache directory and must never run against the normal user save in place.
-
 ## Repository layout
 
 | Path | Contents |
 | --- | --- |
-| `SurvivorCompanion/` | Canonical public mod payload |
-| `bridge/` | Original Java bridge source for the isolated native companion actor |
+| `SurvivorCompanion/` | The mod payload |
+| `bridge/` | Java bridge source for the native companion actor |
 | `scripts/` | Build, install, uninstall, packaging, and test automation |
-| `tests/` | Deterministic Lua, Java, PowerShell, static, UI, scale, and sandbox tests |
-| `assets/` | Original project artwork and release images |
-| `Workshop/` | Steam Workshop metadata and generated upload staging |
+| `tests/` | Lua, Java, PowerShell, static, UI, and sandbox tests |
+| `assets/` | Project artwork and release images |
+| `Workshop/` | Steam Workshop metadata and upload staging |
 | `docs/` | Architecture, provider, safety, and subsystem notes |
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md) before changing actor ownership, native actions, persistence, or player-state isolation.
+Read [ARCHITECTURE.md](ARCHITECTURE.md) and [CONTRIBUTING.md](CONTRIBUTING.md) before changing actor ownership, native actions, persistence, or player-state isolation.
 
 ## Clean-room status and license
 
-Living Fellows is an original clean-room implementation. It does not contain the earlier inspiration mod, copied third-party Lua, decompiled Project Zomboid source, or proprietary game assets. Project Zomboid belongs to The Indie Stone; this unofficial mod is not affiliated with or endorsed by The Indie Stone.
+Living Fellows is an original clean-room implementation. It contains no code from the earlier inspiration mod, no copied third-party Lua, no decompiled Project Zomboid source, and no proprietary game assets. Project Zomboid belongs to The Indie Stone; this unofficial mod is not affiliated with or endorsed by The Indie Stone.
 
 Living Fellows source and original project assets are released under the [MIT License](LICENSE).

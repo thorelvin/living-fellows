@@ -42,6 +42,7 @@ OWNED = [
     "SCGatherWork.lua",
     "SCQuirks.lua",
     "SCBaseWork.lua",
+    "SCProduction.lua",
     "SCFactions.lua",
     "SCTrade.lua",
     "SCFactionLife.lua",
@@ -100,8 +101,18 @@ REQUIRED_EXPORTS = {
                        "guardStatus", "auditOperations", "createGatherOrder", "pauseGatherOrder",
                        "resumeGatherOrder", "retryGatherOrder", "cancelGatherOrder",
                        "changeGatherDestination", "addGatherWorker", "releaseGatherCargo",
-                       "accountGatherDelivery",
+                       "accountGatherDelivery", "extendGatherOrder",
+                       "registerProductionOperation", "createProductionOrder",
+                       "pauseProductionOrder", "resumeProductionOrder", "retryProductionOrder",
+                       "cancelProductionOrder", "addProductionWorker", "blockProductionOrder",
+                       "reopenProductionOrder", "recordProductionProgress",
+                       "completeProductionOrder", "noteProductionCounter",
+                       "noteProductionGrave", "forgetProductionGrave", "linkProductionHaul",
+                       "productionOrder", "productionOrders", "productionCounters",
+                       "dutyResidentIds",
                        "export", "restore"],
+    "SCProduction.lua": ["register", "descriptor", "operations", "update", "workerPhase",
+                         "forgetOrder", "retryOrder", "cancelActor", "diagnostics", "reset"],
     "SCWorkTransport.lua": ["reserve", "collect", "deposit", "reconcile",
                             "recoverPending", "transferVerified", "isCargoProtected",
                             "retryOrder", "retryCleanup", "releaseCarriedCargo", "prepareActorRetirement",
@@ -220,6 +231,33 @@ def main() -> int:
     require('job.type == "gather_materials"' in base_work_source
             and "SC.GatherWork.update(actor, state, job)" in base_work_source,
             "base dispatcher does not route gathering through the production worker")
+    production_source = sources["SCProduction.lua"]
+    require('job.type == "production"' in base_work_source
+            and "SC.Production.update(actor, state, job, runtime)" in base_work_source,
+            "base dispatcher does not route production orders")
+    for kind in ("chop_tree", "saw_logs", "dig_grave", "bury_body", "fill_grave"):
+        require(f'action = "{kind}"' in production_source,
+                f"production does not dispatch the verified native {kind} action")
+    require("productionScanSquaresPerSlice" in production_source
+            and "productionChopMaxMs" in production_source
+            and "productionActionMaxMs" in production_source
+            and "productionCandidateMaxAttempts" in production_source,
+            "production scans, actions and retries must stay bounded")
+    require("emulateWorkEvent" in production_source and "chopSession.native" in production_source,
+            "chop fallback must only emulate vanilla's event after native events are disproved")
+    require("transientRejection(reason)" in production_source
+            and '"production_pacing"' in production_source,
+            "pacing and busy rejections must wait instead of exhausting work targets")
+    require("workSquareAdmitted(square, requestIntent)" in sources["SCNavigation.lua"]
+            and "admitsWork" in sources["SCNavigation.lua"]
+            and "SC.BaseLife.admitsWork" in sources["SCWorkRoutes.lua"]
+            and "workReach = lumberOrder(order)" in gather_source
+            and "SC.BaseLife.jobAllowsWorkReach(job)" in base_work_source
+            and "productionLumberReach" in base_life_source
+            and "lumberNight()" in production_source,
+            "lumber work may cross only the bounded reach band around the camp")
+    require(re.search(r"[^\x00-\x7f]", production_source) is None,
+            "production dialogue and source must stay ASCII")
     require("verifiedContainerOwner" in transport_source
             and 'invoke(container, "hasRoomFor", actor, item)' in transport_source
             and "captureDetachedItem" in transport_source

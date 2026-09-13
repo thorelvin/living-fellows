@@ -80,7 +80,8 @@ function Routes.key(actor, goalSquare, intent)
     local goalKey = U().squareKey(goalSquare)
     if goalKey == nil then return nil end
     return activeBaseRouteScope() .. "|" .. tostring(routeClass or "work")
-        .. "|" .. (intent.workCampOnly == true and "camp" or "normal")
+        .. "|" .. (intent.workCampOnly == true
+            and (intent.workReach == true and "reach" or "camp") or "normal")
         .. "|" .. goalKey
 end
 
@@ -361,9 +362,16 @@ end
 
 function Routes.validateNext(actor, state, sourceSquare, nextSquare, goalSquare, intent, now)
     intent = type(intent) == "table" and intent or {}
-    if intent.workCampOnly == true and (not SC.BaseLife
-        or type(SC.BaseLife.isInside) ~= "function"
-        or SC.BaseLife.isInside(nextSquare) ~= true) then
+    local admitted = intent.workCampOnly ~= true
+    if not admitted and type(SC.BaseLife) == "table" then
+        if type(SC.BaseLife.admitsWork) == "function" then
+            local ok, value = pcall(SC.BaseLife.admitsWork, nextSquare, intent)
+            admitted = ok and value == true
+        elseif type(SC.BaseLife.isInside) == "function" then
+            admitted = SC.BaseLife.isInside(nextSquare) == true
+        end
+    end
+    if not admitted then
         Routes.invalidate(state.activeWorkRoute, now, "outside_admitted_area")
         return false, "outside_admitted_area"
     end

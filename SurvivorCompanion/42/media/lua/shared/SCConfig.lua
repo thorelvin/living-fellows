@@ -793,6 +793,37 @@ local valueData = {
     workRecoveryInventoryScanLimit = 4096,
     workInteractionSettleMs = 250,
 
+    -- Base production (fell trees, saw planks, dig graves, bury the dead)
+    -- shares base jobs and runs only verified vanilla timed actions. Scans,
+    -- attempts, action time, rest and speech are all bounded.
+    productionMaximumOrders = 6,
+    productionOrderRecordLimit = 16,
+    productionLumberMaximumTiles = 256,
+    -- Lumber areas may lie up to this many tiles beyond the camp boundary.
+    -- Lumber work may path across that band; outside the camp, new felling
+    -- pauses between the night hours below.
+    productionLumberReach = 30,
+    productionLumberNightStartHour = 21,
+    productionLumberNightEndHour = 6,
+    productionBurialMaximumTiles = 128,
+    productionScanSquaresPerSlice = 16,
+    productionCandidateCooldownMs = 20000,
+    productionCandidateMaxAttempts = 3,
+    productionMinimumTreeSize = 2,
+    productionChopStallMs = 6000,
+    productionChopFallbackHitMs = 1500,
+    productionChopMaxMs = 180000,
+    productionActionMaxMs = 120000,
+    productionBlockedRetryMs = 30000,
+    productionRestMaxMs = 60000,
+    productionLoudThreatRadius = 20,
+    productionBurialBodyRadius = 2,
+    productionSpeechActorCooldownMs = 45000,
+    productionSpeechGroupCooldownMs = 12000,
+    burialAmenChancePercent = 50,
+    burialAmenDistance = 8,
+    burialGallowsBias = 0,
+
     -- Bites start a social incident. Evidence and deliberation advance slowly,
     -- with an additional delay before any irreversible outcome is eligible.
     infectionCrisisIntervalMs = 500,

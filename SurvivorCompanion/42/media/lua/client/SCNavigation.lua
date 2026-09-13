@@ -805,6 +805,18 @@ local function pathHasBush(path)
     return false
 end
 
+-- Camp work stays inside the camp area; lumber work may also cross the
+-- bounded reach band around it. SCBaseLife owns both geometries.
+function Navigation._workSquareAdmitted(square, intent)
+    local base = SC.BaseLife
+    if type(base) ~= "table" then return false end
+    if type(base.admitsWork) == "function" then
+        local ok, admitted = pcall(base.admitsWork, square, intent)
+        return ok and admitted == true
+    end
+    return type(base.isInside) == "function" and base.isInside(square) == true
+end
+
 local function insideSecureBase(actor, snapshot)
     if type(SC.BaseLife) ~= "table" or type(SC.BaseLife.isInside) ~= "function" then return false end
     local ok, inside = pcall(SC.BaseLife.isInside, actor)
@@ -4594,8 +4606,7 @@ function Navigation.request(actor, target, movementMode, intent)
         }
         if requestIntent.workCampOnly == true then
             pathOptions.squareAdmission = function(square)
-                return SC.BaseLife and type(SC.BaseLife.isInside) == "function"
-                    and SC.BaseLife.isInside(square) == true
+                return SC.Navigation._workSquareAdmitted(square, requestIntent)
             end
         end
         if requestIntent.stealthAvoidance then
@@ -4918,8 +4929,7 @@ function Navigation.request(actor, target, movementMode, intent)
 
     local barrier, kind = barrierBetween(sourceSquare, nextSquare)
     if requestIntent.workCampOnly == true
-        and (not SC.BaseLife or type(SC.BaseLife.isInside) ~= "function"
-            or SC.BaseLife.isInside(nextSquare) ~= true) then
+        and not SC.Navigation._workSquareAdmitted(nextSquare, requestIntent) then
         state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
         return false, "work_path_outside_camp"
     end
@@ -5288,8 +5298,7 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         local square = utility.squareOf(candidate) or candidate
         local key = square and squareKey(square) or nil
         local admitted = intent.workCampOnly ~= true
-            or (SC.BaseLife and type(SC.BaseLife.isInside) == "function"
-                and SC.BaseLife.isInside(square) == true)
+            or SC.Navigation._workSquareAdmitted(square, intent)
         if key and admitted and not seen[key] and utility.isSquareFree(square)
             and not utility.safehouseBlocker(square, actor) then
             seen[key] = true

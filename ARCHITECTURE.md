@@ -45,6 +45,31 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   `Base.Log` and `Base.Plank` wrappers. It retains only cursor/cooldown runtime
   state, yields by square and object budgets, distinguishes incomplete evidence
   from proven absence, and delegates every mutation to `SCWorkTransport`.
+- `SCProduction` owns finite base production orders through a small operation
+  registry: `fell_trees`, `saw_planks`, `dig_graves` and `bury_bodies`. Each
+  operation is a descriptor plus an adapter; `SCBaseLife` owns the persisted
+  schema (`base.production`, its own version, unknown operations quarantined
+  and re-emitted unchanged). Every effect comes from the real vanilla timed
+  action queued through the `SCNativeWorkActions` family (`ISChopTreeAction`,
+  `ISHandcraftAction` with the pinned `SawLogs` inputs, `ISEmptyGraves` through
+  a companion build action, `ISBuryCorpse`, `ISFillGrave`); progress counts
+  only after the post-condition is re-proved in the world (tree gone, exactly
+  the new planks, both grave halves, body removed and grave count raised,
+  grave filled). A chop watchdog enables vanilla's own 1500 ms `ChopTree`
+  event emulation only after native events are disproved for the session, and
+  disables it on the first native hit. Scans are resumable and square-budgeted,
+  candidates back off and exhaust, loud work refuses visible threats, rest and
+  action time are capped, and blocked orders re-check on a 30-second cadence.
+  The native facade's pacing pause and busy/visual rejections are waits: they
+  never cool down or exhaust a work target. Lumber areas may lie in a bounded
+  reach band (`productionLumberReach`, 30 tiles) around the camp-area union.
+  `SCBaseLife.admitsWork` admits that band only for intents marked
+  `workReach` (felling and lumber-area gathering), `SCNavigation`/`SCWorkRoutes`
+  use it for every camp-work admission site, and `SCBaseWork` lets only lumber
+  jobs continue there; outside the camp no new tree is started at night.
+  Felled logs stay vanilla world items and are moved by one linked gathering
+  order over the lumber zone. Burial ceremonies add one prayer or gallows line
+  per grave, chosen by personality and mood.
 - `SCWorkTransport` owns persistent work cargo receipts and the strong transfer
   boundary shared by gathering and ordinary base hauling. Exact transactional
   membership uses native `ItemContainer.contains()` independently of the

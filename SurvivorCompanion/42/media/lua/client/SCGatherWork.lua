@@ -38,7 +38,10 @@ end
 local function zoneFor(order)
     local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active() or nil
     for _, zone in ipairs(base and base.zones or {}) do
-        if zone.id == order.zoneId and zone.kind == "work" then return zone end
+        -- Lumber zones also gather: felled trees leave their logs there.
+        if zone.id == order.zoneId and (zone.kind == "work" or zone.kind == "lumber") then
+            return zone
+        end
     end
     return nil
 end
@@ -60,7 +63,10 @@ function Gather.validateZone(order)
     if tiles < 1 or tiles > (U().config("workGatherMaximumTiles") or 256) then
         return false, "gather_work_zone_too_large"
     end
-    if not SC.BaseLife.zoneInsideAreaUnion(zone) then
+    local reachable = zone.kind == "lumber"
+        and type(SC.BaseLife.lumberZoneReachable) == "function"
+        and SC.BaseLife.lumberZoneReachable(zone) == true
+    if not reachable and not SC.BaseLife.zoneInsideAreaUnion(zone) then
         return false, "gather_work_zone_outside_camp"
     end
     return true, zone
@@ -364,7 +370,14 @@ local function runVisual(actor, receipt, kind, context)
     return false, "gather_interacting"
 end
 
-local function approach(actor, target, action)
+-- A lumber area may lie in the reach band outside the camp; its trips (to the
+-- log and back to storage) may cross that band but nothing beyond it.
+local function lumberOrder(order)
+    local zone = type(order) == "table" and zoneFor(order) or nil
+    return zone ~= nil and zone.kind == "lumber"
+end
+
+local function approach(actor, target, action, order)
     if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
         return "failed", "navigation_unavailable"
     end
@@ -379,6 +392,7 @@ local function approach(actor, target, action)
     local accepted, reason, reached = SC.Navigation.requestAny(actor, approaches, "walk", {
         action = action, targetSquare = targetSquare,
         object = target, requireSameSquare = true, workCampOnly = true,
+        workReach = lumberOrder(order),
     })
     if accepted ~= true then return "failed", reason or "gather_approach_failed" end
     if reason == "arrived" and reached ~= nil and U().sameSquare(actor, reached) then
@@ -397,7 +411,7 @@ local function updateSelected(actor, order, receipt, candidate)
     if receipt.phase ~= "selected" then return true, "gather_receipt_reconciled" end
     local square = U().gridSquare(receipt.source.x, receipt.source.y, receipt.source.z)
     if not square or not worldItem then return false, "gather_source_unloaded", true end
-    local approachState, reason = approach(actor, worldItem, "move_to_gather_item")
+    local approachState, reason = approach(actor, worldItem, "move_to_gather_item", order)
     if approachState ~= "arrived" then
         local terminal = approachState == "failed"
         if terminal and receipt.phase == "selected" then
@@ -463,7 +477,7 @@ local function updateCarried(actor, order, receipt)
         SC.BaseLife.blockGatherOrder(order.id, roomReason)
         return false, roomReason, true
     end
-    local approachState, reason = approach(actor, object, "move_to_gather_destination")
+    local approachState, reason = approach(actor, object, "move_to_gather_destination", order)
     if approachState ~= "arrived" then
         local terminal = approachState == "failed"
         if terminal then SC.BaseLife.blockGatherOrder(order.id, reason) end
