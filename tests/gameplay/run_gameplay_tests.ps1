@@ -44,6 +44,7 @@ $LuaFiles += @(
     'SCThreatSet.lua',
     'SCPerceptionScan.lua',
     'SCSenses.lua',
+    'SCWorkRoutes.lua',
     'SCNavigation.lua',
     'SCPositioning.lua',
     'SCCombat.lua',

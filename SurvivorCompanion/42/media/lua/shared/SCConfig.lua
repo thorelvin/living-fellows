@@ -328,6 +328,20 @@ local valueData = {
     wallClimbReactionActorCooldownMs = 10000,
     wallClimbReactionGroupCooldownMs = 3000,
     navigationFastFollowMaxSteps = 24,
+    -- Fixed work/needs targets may prove the same exact-cost open line used by
+    -- Follow before allocating an A-star frontier. Successful non-open work
+    -- paths are retained as a small coordinate-only, session-local candidate
+    -- cache and remain subject to live edge policy on every step.
+    navigationStationaryFastRouteMaximumSteps = 24,
+    navigationWorkRouteEnabled = true,
+    navigationWorkRouteMaximum = 32,
+    navigationWorkRouteVariants = 3,
+    navigationWorkRouteMaximumSquares = 192,
+    navigationWorkRouteJoinMaximumSteps = 12,
+    navigationWorkRouteJoinCandidates = 2,
+    navigationWorkRouteValidationEdges = 4,
+    navigationWorkRouteMaximumAgeMs = 1800000,
+    navigationWorkRouteRetryMs = 1500,
     navigationContinuousFollowLookahead = 6,
     formationTrackMaxSquares = 48,
     formationTrackJoinCandidates = 12,

@@ -1802,6 +1802,76 @@ do
 end
 
 do
+    local Navigation = SurvivorCompanion.Navigation
+    Navigation._resetWorkRoutesForTests()
+    local directActor = actor("sc-stationary-fast-route", -6, -6, {})
+    registry[directActor.id] = directActor
+    local directGoal = cell:getGridSquare(-2, -6, 0)
+    local accepted, reason = Navigation.request(directActor, directGoal, "walk", {
+        action = "move_to_base_storage", targetSquare = directGoal,
+    })
+    local directState = Navigation.peek(directActor)
+    check(accepted and reason == "moving" and directState.pathSearch == nil
+            and directState.pathReason == "fast_stationary_route"
+            and directState.expandedNodes == 0,
+        "a safe stationary work target installs the open route before allocating A-star")
+    Navigation.reset(directActor)
+    registry[directActor.id] = nil
+
+    local cachedGoal = cell:getGridSquare(0, -4, 0)
+    local wall = cell:getGridSquare(-3, -4, 0)
+    wall.solid = true
+    local cacheIntent = {
+        action = "move_to_base_storage", targetSquare = cachedGoal,
+    }
+    local learner = actor("sc-learn-work-route", -6, -4, {})
+    registry[learner.id] = learner
+    accepted, reason = Navigation.request(learner, cachedGoal, "walk", cacheIntent)
+    local learnedState = Navigation.peek(learner)
+    check(accepted and reason == "moving" and learnedState.path ~= nil
+            and learnedState.pathReason ~= "fast_stationary_route"
+            and learnedState.activeWorkRoute == nil,
+        "an obstructed first work trip falls through to the ordinary bounded planner")
+    learnedState.pathIndex = #learnedState.path
+    learner.square, learner.worldX, learner.worldY = cachedGoal, nil, nil
+    accepted, reason = Navigation.request(learner, cachedGoal, "walk", cacheIntent)
+    check(accepted and reason == "arrived"
+            and Navigation.workRouteStats().records == 1,
+        "a completed planned work trip records bounded coordinate-only route knowledge")
+    Navigation.reset(learner)
+    registry[learner.id] = nil
+
+    local cachedActor = actor("sc-shared-work-route", -6, -4, {})
+    registry[cachedActor.id] = cachedActor
+    accepted, reason = Navigation.request(cachedActor, cachedGoal, "walk", cacheIntent)
+    local cachedState = Navigation.peek(cachedActor)
+    check(accepted and reason == "moving" and cachedState.pathSearch == nil
+            and cachedState.pathReason == "work_route_cache"
+            and cachedState.activeWorkRoute ~= nil,
+        "a repeated obstructed work trip reuses its proven route without starting A-star")
+    local newlyBlocked = cachedState.path[cachedState.pathIndex]
+    newlyBlocked.solid = true
+    accepted, reason = Navigation.request(cachedActor, cachedGoal, "walk", cacheIntent)
+    local changedState = Navigation.peek(cachedActor)
+    local routeStats = Navigation.workRouteStats()
+    check(accepted and reason == "work_route_changed" and changedState.path == nil
+            and changedState.activeWorkRoute == nil and routeStats.invalidations == 1,
+        "a cached work route is live-rejected when its next square changes")
+    newlyBlocked.solid = false
+    wall.solid = false
+    Navigation.reset(cachedActor)
+    registry[cachedActor.id] = nil
+    Navigation._resetWorkRoutesForTests()
+
+    check(not SurvivorCompanion.WorkRoutes.stationaryFastRouteRequested({
+            action = "move_to_base_storage", urgent = true,
+        }) and not SurvivorCompanion.WorkRoutes.stationaryFastRouteRequested({
+            action = "move_to_base_storage", stealthAvoidance = true,
+        }),
+        "urgent and stealth movement never enter stationary work-route shortcuts")
+end
+
+do
     -- Egress has no fixed destination, so it remains a weighted Dijkstra search.
     -- Verify the heap-backed implementation prefers two clean indoor steps over
     -- the geometrically nearer but expensive tree square.

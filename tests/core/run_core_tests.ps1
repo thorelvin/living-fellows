@@ -112,6 +112,7 @@ try {
             (Join-Path $Client 'SCPathSearch.lua'),
             (Join-Path $Client 'SCNavTraffic.lua'),
             (Join-Path $Client 'SCNavTraversal.lua'),
+            (Join-Path $Client 'SCWorkRoutes.lua'),
             (Join-Path $Client 'SCNavigation.lua'),
             (Join-Path $TestRoot 'navigation_traversal_regression_harness.lua')
         )

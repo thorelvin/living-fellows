@@ -479,6 +479,8 @@ function Locomotion.report(actor)
     if not snapshot then return "Living Fellows movement recorder\nNo companion selected." end
     local nav, telemetry = snapshot.navigation or {}, snapshot.telemetry or {}
     local positioning, combat = snapshot.positioning or {}, snapshot.combat or {}
+    local routeStats = SC.Navigation and type(SC.Navigation.workRouteStats) == "function"
+        and SC.Navigation.workRouteStats() or {}
     local blocker = nav.lastBlocker or {}
     local evidence = type(combat.lastCombatEvidence) == "table"
         and combat.lastCombatEvidence or {}
@@ -520,6 +522,14 @@ function Locomotion.report(actor)
                 and #nav.chokeReservationKeys or 0)
             .. " | choke queue " .. tostring(nav.chokeQueueOwner and actorId(nav.chokeQueueOwner) or "none")
             .. " | step queue " .. tostring(nav.stepQueueOwner and actorId(nav.stepQueueOwner) or "none"),
+        "Planning: " .. tostring(nav.pathReason or "none")
+            .. " | expanded " .. tostring(nav.expandedNodes or 0)
+            .. " | plan " .. tostring(nav.lastPlanDurationMs or "-") .. "ms"
+            .. " | first motion " .. tostring(nav.lastFirstMotionMs or "-") .. "ms"
+            .. " via " .. tostring(nav.lastFirstMotionStrategy or "none")
+            .. " | work cache " .. tostring(routeStats.hits or 0) .. "/"
+            .. tostring(routeStats.lookups or 0) .. " hits, "
+            .. tostring(routeStats.entries or 0) .. " stored",
         "Formation: " .. tostring(positioning.formationMode or "none")
             .. " | CQB " .. tostring(positioning.cqbRole or "none")
             .. " | column " .. tostring(positioning.columnIndex or "-")

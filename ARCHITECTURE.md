@@ -27,6 +27,14 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
 - `SCNativeMovementActions` owns the final provider-versus-direct path/vector
   dispatch after supported-intent and native-busy validation; the guarded facade
   retains movement admission and the verified native primitives.
+- `SCWorkRoutes` owns the session-local candidate memory for repeated companion
+  work trips. It stores only flat coordinates, caps the shared cache at 32 route
+  variants, and can join a nearby proven suffix through a bounded open segment.
+  `SCNavigation` remains authoritative: short fixed targets must prove an
+  exact-cost open line, and every retained route edge is reclassified against
+  current topology, hazards, safehouse, camp and actor policy immediately before
+  movement. A changed route cools down and returns to the ordinary resumable A*
+  path; combat, survival, moving and stealth-scored requests never use this cache.
 - `SCRegistry` owns UUID maps and the `sc-` identity prefix.
 - `SCBaseObjectRef` owns the persistent `LF_BaseObjectId` reference contract for
   camp storage and maintenance objects: bounded describe/copy/normalize/resolve

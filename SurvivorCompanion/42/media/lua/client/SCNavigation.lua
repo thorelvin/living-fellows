@@ -8,6 +8,7 @@ if not SC.Performance and type(require) == "function" then pcall(require, "SCPer
 if not SC.PathSearch and type(require) == "function" then pcall(require, "SCPathSearch") end
 if not SC.NavTraffic and type(require) == "function" then pcall(require, "SCNavTraffic") end
 if not SC.NavTraversal and type(require) == "function" then pcall(require, "SCNavTraversal") end
+if not SC.WorkRoutes and type(require) == "function" then pcall(require, "SCWorkRoutes") end
 
 SC.Navigation = SC.Navigation or {}
 local Navigation = SC.Navigation
@@ -1211,7 +1212,8 @@ local function fastOpenRouteWithinBatch(startSquare, goalSquare, options)
     gx, gy = math.floor(gx), math.floor(gy)
     local dx, dy = gx - sx, gy - sy
     local steps = math.max(math.abs(dx), math.abs(dy))
-    local maximum = math.floor(tonumber(U().config("navigationFastFollowMaxSteps")) or 24)
+    local maximum = math.floor(tonumber(options.maximumSteps)
+        or tonumber(U().config("navigationFastFollowMaxSteps")) or 24)
     if steps <= 0 then return { startSquare }, nil end
     if maximum <= 0 or steps > maximum then return nil, "fast_route_out_of_range" end
 
@@ -1254,6 +1256,22 @@ end
 Navigation._fastOpenRouteForRequest = fastOpenRoute
 Navigation._fastOpenRouteForTests = fastOpenRoute
 
+Navigation._fastOpenRouteWithinBatchForWorkRoutes = fastOpenRouteWithinBatch
+Navigation._passableEdgeForWorkRoutes = passableEdge
+Navigation._sameSquareForWorkRoutes = sameSquare
+Navigation._adjacentStepForWorkRoutes = adjacentStep
+Navigation.workRouteStats = function()
+    return SC.WorkRoutes and SC.WorkRoutes.snapshot() or { entries = 0 }
+end
+Navigation._workRouteForTests = function(...)
+    return SC.WorkRoutes.lookup(...)
+end
+Navigation._recordWorkRouteForTests = function(...)
+    return SC.WorkRoutes.record(...)
+end
+Navigation._resetWorkRoutesForTests = function()
+    return SC.WorkRoutes.reset()
+end
 local function followTrackRouteWithinBatch(startSquare, goalSquare, track, options)
     if type(track) ~= "table" or track[1] == nil then return nil, "track_unavailable" end
     options = type(options) == "table" and options or {}
@@ -3674,6 +3692,11 @@ local function rememberFailure(actor, state, fromSquare, toSquare, reason, now, 
     recordBlocker(actor, state, blocker.type, blocker.object, blocker.square,
         blocker.actorState, recovery or "edge_blacklisted", now,
         blocker.evidenceClass, blocker.confidence)
+    if state.activeWorkRoute then
+        SC.WorkRoutes.invalidate(state.activeWorkRoute, now,
+            reason or blocker.type or "movement_failed")
+        state.activeWorkRoute = nil
+    end
     state.path = nil
     state.pathGoalSquare = nil
     state.pathSearch = nil
@@ -4170,6 +4193,7 @@ local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
             state.lastMovementReason = movementReason
             if moved then
                 state.lastProgressAt = now
+                SC.WorkRoutes.noteFirstMotion(actor, state, now, "native_sheet_rope")
                 return true, true, down and "sheet_rope_descent"
                     or "sheet_rope_climb"
             end
@@ -4205,6 +4229,7 @@ local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
             "native_multi_level_replan")
         return true, false, "multi_level_path_rejected"
     end
+    SC.WorkRoutes.noteFirstMotion(actor, state, now, "native_multi_level")
     if service and token then
         if token.phase == "recovering" and type(service.transition) == "function" then
             service.transition(token, "approaching", { strategy = "native_multi_level" })
@@ -4315,6 +4340,7 @@ function Navigation.request(actor, target, movementMode, intent)
     requestIntent.mode = movementMode or requestIntent.mode or "walk"
     requestIntent.stealthAvoidance = stealthAvoidanceRequested(
         actor, requestIntent.mode, requestIntent)
+    local requestedWorkRouteKey = SC.WorkRoutes.key(actor, goalSquare, requestIntent)
     local currentTokenSerial = tokenSerial(requestIntent)
     local currentTargetSignature = routeTargetSignature(goalSquare, requestIntent)
     local previousTokenSerial = state.actionTokenSerial
@@ -4343,6 +4369,19 @@ function Navigation.request(actor, target, movementMode, intent)
     if reachedGoal and state.nativeLease and state.nativeLease.affordance == "door"
         and not actorClearOfDoorway(actor, state.nativeLease) then reachedGoal = false end
     if reachedGoal then
+        if requestedWorkRouteKey ~= nil and state.workRouteKey == requestedWorkRouteKey
+            and type(state.path) == "table" and state.pathIndex >= #state.path then
+            if state.activeWorkRoute then
+                state.activeWorkRoute.successes =
+                    (tonumber(state.activeWorkRoute.successes) or 0) + 1
+                state.activeWorkRoute.failures = 0
+                state.activeWorkRoute.retryAt = nil
+                state.activeWorkRoute.lastUsedAt = now
+            elseif state.pathReason ~= "fast_stationary_route"
+                and state.pathReason ~= "fast_open_route" then
+                SC.WorkRoutes.record(requestedWorkRouteKey, state.path, now)
+            end
+        end
         state.goalSquare = goalSquare
         state.goalAction = requestIntent.action
         state.path = nil
@@ -4352,6 +4391,9 @@ function Navigation.request(actor, target, movementMode, intent)
         state.stuckAttempts = 0
         state.actionTokenSerial = currentTokenSerial
         state.routeTargetSignature = currentTargetSignature
+        state.workRouteKey = requestedWorkRouteKey
+        state.activeWorkRoute = nil
+        state.firstMotionRequestedAt = nil
         clearTerminalEpisode(actor, state, "arrived", now)
         clearMovementTransients(actor, state)
         if not utility.stop(actor) then return false, "arrival_stop_rejected" end
@@ -4405,6 +4447,10 @@ function Navigation.request(actor, target, movementMode, intent)
             state.nextRepathAt = 0
             state.stuckAttempts = 0
             state.lastProgressAt = now
+            state.firstMotionRequestedAt = now
+            state.lastPlanDurationMs = nil
+            state.workRouteKey = requestedWorkRouteKey
+            state.activeWorkRoute = nil
             clearTerminalEpisode(actor, state, "route_owner_or_goal_changed", now)
         end
     elseif ownershipChanged then
@@ -4413,7 +4459,15 @@ function Navigation.request(actor, target, movementMode, intent)
         state.pathGoalSquare = nil
         state.pathIndex = 1
         state.nextRepathAt = 0
+        state.firstMotionRequestedAt = now
+        state.lastPlanDurationMs = nil
+        state.workRouteKey = requestedWorkRouteKey
+        state.activeWorkRoute = nil
         clearTerminalEpisode(actor, state, "route_owner_changed", now)
+    end
+    if state.workRouteKey ~= requestedWorkRouteKey then
+        state.workRouteKey = requestedWorkRouteKey
+        state.activeWorkRoute = nil
     end
     state.actionTokenSerial = currentTokenSerial
     state.routeTargetSignature = currentTargetSignature
@@ -4544,8 +4598,10 @@ function Navigation.request(actor, target, movementMode, intent)
                 return stealthThreatPenalty(square, overlay)
             end
         end
-        if followRouting and state.pathSearch == nil then
-            local immediatePath, immediateReason
+        local stationaryRouting = SC.WorkRoutes.stationaryFastRouteRequested(requestIntent)
+        if (followRouting or stationaryRouting or requestedWorkRouteKey ~= nil)
+            and state.pathSearch == nil then
+            local immediatePath, immediateReason, cachedEntry
             if requestIntent.formationMode == "trail"
                 and type(requestIntent.followTrack) == "table" then
                 immediatePath = SC.Navigation._followTrackRouteForRequest(
@@ -4553,9 +4609,27 @@ function Navigation.request(actor, target, movementMode, intent)
                 if immediatePath ~= nil then immediateReason = "player_track_route" end
             end
             if immediatePath == nil then
+                if stationaryRouting then
+                    pathOptions.maximumSteps = utility.config(
+                        "navigationStationaryFastRouteMaximumSteps") or 24
+                    SC.WorkRoutes.count("navigation.stationary-fast.lookups")
+                end
                 immediatePath = SC.Navigation._fastOpenRouteForRequest(
                     sourceSquare, goalSquare, pathOptions)
-                if immediatePath ~= nil then immediateReason = "fast_open_route" end
+                if immediatePath ~= nil then
+                    immediateReason = stationaryRouting
+                        and "fast_stationary_route" or "fast_open_route"
+                    if stationaryRouting then
+                        SC.WorkRoutes.count("navigation.stationary-fast.hits")
+                    end
+                elseif stationaryRouting then
+                    SC.WorkRoutes.count("navigation.stationary-fast.misses")
+                end
+            end
+            if immediatePath == nil and requestedWorkRouteKey ~= nil then
+                immediatePath, cachedEntry = SC.WorkRoutes.lookup(
+                    actor, sourceSquare, requestedWorkRouteKey, pathOptions, now)
+                if immediatePath ~= nil then immediateReason = "work_route_cache" end
             end
             if immediatePath ~= nil then
                 state.path = immediatePath
@@ -4566,7 +4640,10 @@ function Navigation.request(actor, target, movementMode, intent)
                 state.pathIndex = 2
                 state.pathSearchHolding = nil
                 state.pathReason = immediateReason
+                state.activeWorkRoute = cachedEntry
+                state.workRouteKey = requestedWorkRouteKey
                 state.expandedNodes = 0
+                state.lastPlanDurationMs = 0
                 state.routeCandidateCount = 1
                 state.routeSelectedIndex = 1
                 state.routeSelectedScore = nil
@@ -4609,6 +4686,8 @@ function Navigation.request(actor, target, movementMode, intent)
             }
             state.routeReplanCount = (state.routeReplanCount or 0) + 1
             state.pathSearchHolding = nil
+            state.activeWorkRoute = nil
+            SC.WorkRoutes.count("navigation.astar.started")
         end
         -- A direct MoveForward pulse from the discarded route otherwise remains
         -- active while this Lua search yields. Acquire a stationary, posture-safe
@@ -4643,10 +4722,12 @@ function Navigation.request(actor, target, movementMode, intent)
             SC.Performance.record("navigation", utility.idOf(actor),
                 utility.nowMs() - searchStarted, usedNodes or 0, false)
         end
+        SC.WorkRoutes.count("navigation.astar.nodes", tonumber(usedNodes) or 0)
         state.pathReason = reason
         state.pathSearchYieldReason = state.pathSearch.route.lastYieldReason
         state.expandedNodes = expanded
         if searchStatus == "pending" then
+            SC.WorkRoutes.count("navigation.astar.yields")
             if SC.Performance and type(SC.Performance.markYield) == "function" then
                 SC.Performance.markYield("navigation", utility.idOf(actor), usedNodes or 0)
             end
@@ -4659,10 +4740,14 @@ function Navigation.request(actor, target, movementMode, intent)
         end
 
         local completedSearch = state.pathSearch and state.pathSearch.route or nil
+        local completedSearchStartedAt = state.pathSearch and state.pathSearch.startedAt or now
         state.pathSearch = nil
         state.pathSearchHolding = nil
         state.lastProgressAt = now
         state.path = path
+        state.lastPlanDurationMs = math.max(0, now - completedSearchStartedAt)
+        SC.WorkRoutes.count(path and "navigation.astar.completed"
+            or "navigation.astar.failed")
         SC.Navigation._resetRouteProjection(state)
         state.pathFailure = path and nil or (completedSearch and completedSearch.failure or {
             failureClass = reason == "budget" and "budget_exhausted" or "blocked_static",
@@ -4721,6 +4806,24 @@ function Navigation.request(actor, target, movementMode, intent)
         end
     end
 
+    -- Cached coordinates remain candidates: the route service re-runs full
+    -- topology and policy immediately before every retained edge.
+    if nextSquare and state.activeWorkRoute then
+        local stillPassable, changedReason = SC.WorkRoutes.validateNext(
+            actor, state, sourceSquare, nextSquare, goalSquare, requestIntent, now)
+        if stillPassable ~= true then
+            state.path, state.pathGoalSquare, state.pathSearch = nil, nil, nil
+            state.pathIndex, state.nextRepathAt = 1, 0
+            state.activeWorkRoute = nil
+            state.pathReason = "work_route_changed:"
+                .. tostring(changedReason or "route_edge_changed")
+            recordMovement(actor, "work_route_changed", {
+                status = changedReason or "route_edge_changed",
+                targetSquare = goalSquare, nextSquare = nextSquare,
+            })
+            return true, "work_route_changed"
+        end
+    end
     if poorSight(actor, sourceSquare, nextSquare or goalSquare, afterSquare, requestIntent) then
         state.weaponReadyUntil = now + (utility.config("navigationWeaponReadyHoldMs") or 1200)
     end
@@ -4777,6 +4880,7 @@ function Navigation.request(actor, target, movementMode, intent)
                 movementReason or "engine_path_rejected", now, "engine_replan")
             return false, "engine_path_rejected"
         end
+        SC.WorkRoutes.noteFirstMotion(actor, state, now, "engine_path")
         if service and token then
             if token.phase == "recovering" and type(service.transition) == "function" then
                 service.transition(token, "approaching", { strategy = "engine_path" })
@@ -5037,6 +5141,7 @@ function Navigation.request(actor, target, movementMode, intent)
             movementReason or "movement_rejected", now, "direct_replan")
         return false, "movement_rejected"
     end
+    SC.WorkRoutes.noteFirstMotion(actor, state, now, state.pathReason or "route_step")
     if service and token then
         if token.phase == "recovering" and type(service.transition) == "function" then
             service.transition(token, "approaching", { strategy = "route_step" })
@@ -5372,6 +5477,12 @@ function Navigation.status(actor)
         pathFailureClass = state.pathFailure and state.pathFailure.failureClass or nil,
         nativeFallbackAllowed = state.pathFailure
             and state.pathFailure.nativeFallbackAllowed == true or nil,
+        pathReason = state.pathReason,
+        expandedNodes = state.expandedNodes or 0,
+        lastPlanDurationMs = state.lastPlanDurationMs,
+        lastFirstMotionMs = state.lastFirstMotionMs,
+        lastFirstMotionStrategy = state.lastFirstMotionStrategy,
+        workRouteCached = state.activeWorkRoute ~= nil,
         actorState = blocker and blocker.actorState or state.actorStateName,
         recoveryResult = blocker and blocker.recoveryResult or nil,
     }
@@ -5474,6 +5585,7 @@ function Navigation.reset(actor)
     else
         states = setmetatable({}, { __mode = "k" })
         curtainTimes = setmetatable({}, { __mode = "k" })
+        SC.WorkRoutes.reset()
         T().reset()
         V().reset()
     end

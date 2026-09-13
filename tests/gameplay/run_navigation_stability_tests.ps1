@@ -13,7 +13,7 @@ $LuaFiles += @('SCNamespace.lua', 'SCCall.lua', 'SCStableValue.lua', 'SCTransact
     'SCNativeList.lua', 'SCConfig.lua') | ForEach-Object { Join-Path $SharedRoot $_ }
 $LuaFiles += @('SCGameplayUtil.lua', 'SCBaseObjectRef.lua', 'SCTopology.lua', 'SCPathSearch.lua',
     'SCNavTraffic.lua', 'SCNavTraversal.lua', 'SCActionSupervisor.lua', 'SCLocomotion.lua',
-    'SCPerformance.lua', 'SCNavigation.lua') | ForEach-Object { Join-Path $ClientRoot $_ }
+    'SCPerformance.lua', 'SCWorkRoutes.lua', 'SCNavigation.lua') | ForEach-Object { Join-Path $ClientRoot $_ }
 $LuaFiles += Join-Path $TestRoot 'navigation_stability_regression_harness.lua'
 New-Item -ItemType Directory -Path $BuildRoot | Out-Null
 try {

@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.22.22 - Responsive work routes
+
+- Started fixed gathering, storage, building and needs movement through a validated straight-route fast path before allocating A*. Successful obstructed companion work trips now populate a bounded, coordinate-only session cache with nearby suffix joining, first-edge/live per-step revalidation and ordinary resumable A* fallback. Combat, survival, moving targets and stealth routing bypass this cache.
+- Added navigation counters for stationary fast-path hits, work-route lookup/record/repair/invalidation, A* starts/nodes/yields/completion and request-to-first-motion latency. The movement recorder now reports route strategy, expanded nodes, planning/first-motion time and shared work-cache use.
+
 ## 0.22.21 - Maximum response and performance
 
 - Added protocol-8 main-thread bulk reads for scalar item capture, topology facts and coherent zombie snapshots, with strict Lua fallback and no game/Kahlua objects on worker threads.
