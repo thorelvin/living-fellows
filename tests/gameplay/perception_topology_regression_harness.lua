@@ -172,6 +172,80 @@ current = current + 100
 Scan.nativeCandidates(observer, {}, 24, 64)
 check(bulkCalls == 1, "protocol-8 zombie snapshot is shared during its 250 ms cadence")
 
+-- Producer sequence numbers advance twice as fast as an ordinary observer. A
+-- stable identity revision must therefore let 129 and 1000 distant entries
+-- finish without chasing the newest publication forever. The current spatial
+-- supplement still exposes a same-identity zombie that moves into range.
+local cadenceRoster = {}
+local function publishCadenceRoster(out)
+    bulkCalls = bulkCalls + 1
+    for key in pairs(out) do out[key] = nil end
+    for index, value in ipairs(cadenceRoster) do
+        local base = (index - 1) * 4 + 1
+        out[base], out[base + 1], out[base + 2], out[base + 3] =
+            value, value.x, value.y, value.z
+    end
+    return #cadenceRoster
+end
+SCBridge.fillZombieSnapshot = publishCadenceRoster
+for index = 1, 129 do cadenceRoster[index] = actor(100 + index, 100, 0, "IsoZombie") end
+Scan.reset()
+local cadenceState, cadenceMeta = {}, nil
+for pulse = 1, 2 do
+    current = current + 500
+    _, cadenceMeta = Scan.nativeCandidates(observer, cadenceState, 24, 64)
+end
+check(cadenceMeta.complete == true and cadenceMeta.freshComplete == true
+        and cadenceMeta.cycle ~= cadenceMeta.publishedCycle,
+    "129 unchanged distant zombies eventually certify clearance across newer producer cycles")
+
+cadenceRoster = {}
+for index = 1, 1000 do cadenceRoster[index] = actor(100 + index, 120, 0, "IsoZombie") end
+Scan.reset()
+cadenceState, cadenceMeta = {}, nil
+for pulse = 1, 8 do
+    current = current + 500
+    _, cadenceMeta = Scan.nativeCandidates(observer, cadenceState, 24, 64)
+end
+check(cadenceMeta.complete == true and cadenceMeta.freshComplete == true,
+    "1000 unchanged distant zombies obtain bounded fresh negative evidence")
+current = current + 500
+local heldResult, heldMeta = Scan.nativeCandidates(observer, cadenceState, 24, 64)
+check(#heldResult == 0 and heldMeta.freshComplete == true,
+    "unchanged completed bulk evidence remains continuously usable")
+
+local movedNear = cadenceRoster[1000]
+movedNear.x, movedNear.y = 2, 2
+current = current + 500
+local movedResult, movedMeta = Scan.nativeCandidates(observer, cadenceState, 24, 64)
+check(movedResult[1] == movedNear and movedMeta.freshComplete == true,
+    "the current spatial supplement discovers same-identity movement into range")
+
+local replacementNear = actor(3, 2, 0, "IsoZombie")
+cadenceRoster[1000] = replacementNear
+current = current + 500
+local replacementResult, replacementMeta = Scan.nativeCandidates(
+    observer, cadenceState, 24, 64)
+check(replacementResult[1] == replacementNear
+        and replacementMeta.freshComplete ~= true,
+    "same-count identity replacement invalidates negative evidence and exposes the newcomer")
+
+-- Malformed native coordinates are rejected as a whole; the discarded flat
+-- prefix must never be accepted merely because the helper returned success.
+SCBridge.fillZombieSnapshot = function(out)
+    for key in pairs(out) do out[key] = nil end
+    out[1], out[2], out[3], out[4] = bulkNear, { boxed = true }, bulkNear.y, bulkNear.z
+    return 1
+end
+zombies = { bulkFar }
+Scan.reset()
+current = current + 500
+local malformedReads = list.reads
+local malformedResult, malformedMeta = Scan.nativeCandidates(observer, {}, 24, 64)
+check(#malformedResult == 0 and malformedMeta.freshComplete ~= true
+        and list.reads > malformedReads,
+    "malformed native numeric output falls back without publishing negative evidence")
+
 local discardedPrefix = actor(2, 2, 0, "IsoZombie")
 SCBridge.fillZombieSnapshot = function(out, maximum)
     bulkCalls = bulkCalls + 1

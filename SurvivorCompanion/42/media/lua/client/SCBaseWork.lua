@@ -195,6 +195,23 @@ local function findSource(actor, requirement)
     return nil, nil, nil, requirement.types[1]
 end
 
+local function withdrawalAllowed(storage, expectedContainer, item)
+    if type(storage) ~= "table" or storage.withdrawals == false then
+        return false, "base_storage_withdrawals_disabled"
+    end
+    local currentContainer = SC.BaseLife.resolveContainer(storage)
+    if currentContainer == nil then return false, "base_storage_unloaded" end
+    if currentContainer ~= expectedContainer then return false, "base_storage_changed" end
+    if not U().inventoryContains(currentContainer, item) then
+        return false, "base_supply_moved"
+    end
+    local itemType = U().itemType(item)
+    if SC.BaseLife.availableCount(storage, itemType) <= 0 then
+        return false, "base_supply_reserved"
+    end
+    return true
+end
+
 local function transferFromStorage(actor, state, storage, container, item)
     local object = SC.BaseLife.resolveObject(storage)
     if not object then return false, "base_storage_unloaded" end
@@ -257,7 +274,10 @@ local function transferFromStorage(actor, state, storage, container, item)
             return false, "base_storage_animation_" .. tostring(status)
         end
     end
-    if not U().inventoryContains(container, item) then return false, "base_supply_moved" end
+    -- Selection is advisory. Re-read the registered source, its withdrawal
+    -- setting and its live reserve immediately before the authoritative move.
+    local allowed, withdrawalReason = withdrawalAllowed(storage, container, item)
+    if not allowed then return false, withdrawalReason end
     local transferred, reason
     if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
         transferred, reason = SC.WorkTransport.transferVerified(
@@ -420,7 +440,8 @@ local function findTransfer(job, actor)
         local container = SC.BaseLife.resolveContainer(source)
         if container then
             for _, item in ipairs(U().inventoryItems(container, 80)) do
-                if not (SC.PersonalItems and SC.PersonalItems.isProtected
+                if SC.BaseLife.availableCount(source, U().itemType(item)) > 0
+                    and not (SC.PersonalItems and SC.PersonalItems.isProtected
                     and SC.PersonalItems.isProtected(item, actor, "base_haul")) then
                     local destinationCategory = type(job.target) == "table"
                         and job.target.destinationCategory or classifyItem(item)
@@ -453,7 +474,17 @@ local function updateTransfer(actor, state, job)
         if not U().inventoryContains(U().inventory(actor), transfer.item) then
             local ok, reason = transferFromStorage(actor, state, transfer.source,
                 transfer.sourceContainer, transfer.item)
-            if not ok or reason ~= "base_supply_taken" then return ok, reason end
+            if not ok then
+                if reason == "base_supply_reserved"
+                    or reason == "base_storage_withdrawals_disabled"
+                    or reason == "base_storage_changed"
+                    or reason == "base_supply_moved" then
+                    state.transfer = nil
+                    return false, reason, true
+                end
+                return false, reason
+            end
+            if reason ~= "base_supply_taken" then return true, reason end
         end
         transfer.phase = "deposit"
     end
@@ -503,7 +534,10 @@ end
 
 local function updateChore(actor, state, job, player, runtime)
     if job.type == "replace_bandage" then
-        local ok, reason = SC.Medical and SC.Medical.replaceDirtyBandage(actor)
+        local ok, reason = false, "medical_unavailable"
+        if SC.Medical and type(SC.Medical.replaceDirtyBandage) == "function" then
+            ok, reason = SC.Medical.replaceDirtyBandage(actor)
+        end
         if ok and reason == "bandaged" then
             SC.BaseLife.completeJob(job.id, actorId(actor), reason)
         end
@@ -518,7 +552,10 @@ local function updateChore(actor, state, job, player, runtime)
     local before = SC.Commands and SC.Commands.export(actor) or nil
     local prior = before and before.lastDowntime
     local desired = job.type == "maintain" and "repair" or job.type
-    local handled, reason = SC.Downtime and SC.Downtime.update(actor, player, runtime, desired)
+    local handled, reason = false, "downtime_unavailable"
+    if SC.Downtime and type(SC.Downtime.update) == "function" then
+        handled, reason = SC.Downtime.update(actor, player, runtime, desired)
+    end
     local after = SC.Commands and SC.Commands.export(actor) or nil
     local completed = after and after.lastDowntime
     local priorKind = type(prior) == "table" and prior.kind or prior

@@ -23,6 +23,7 @@ local liveWorldItems = {}
 local metrics = {
     reservations = 0, collections = 0, deliveries = 0,
     recoveryAttempts = 0, reconstructions = 0, quarantines = 0,
+    markerCleanups = 0, markerCleanupFailures = 0,
     firstReservationAt = nil, lastDeliveryAt = nil,
 }
 local terminalPhases = { delivered = true, released = true, cancelled = true }
@@ -369,10 +370,19 @@ local function finishDelivery(receipt, item, destination)
         return setFailure(receipt, accountingReason or "delivery_accounting_failed", "recovery")
     end
     local cleared, clearReason = clearMarker(item, receipt.id)
-    if not cleared then
-        -- The physical delivery and receipt are already durable and exactly-once.
-        -- A stale marker is harmless because terminal receipts are not protected.
+    if cleared then
+        receipt.markerCleanupPending = false
+        receipt.markerCleanupAttempts, receipt.markerCleanupNextRetryAt = 0, 0
+        liveItems[receipt.id], liveWorldItems[receipt.id] = nil, nil
+        metrics.markerCleanups = metrics.markerCleanups + 1
+    else
+        -- Delivery and accounting are already durable. Keep the exact native
+        -- item alive until a separate bounded pass can remove its stale marker.
+        receipt.markerCleanupPending = true
+        receipt.markerCleanupAttempts = 0
+        receipt.markerCleanupNextRetryAt = now() + retryDelay(1)
         receipt.blocker = clean(clearReason, 160)
+        metrics.markerCleanupFailures = metrics.markerCleanupFailures + 1
     end
     metrics.deliveries = metrics.deliveries + 1
     metrics.lastDeliveryAt = now()
@@ -426,7 +436,10 @@ end
 
 local function detachedEvidence(receipt, item, worldItem, sourceSquare, actorInventory,
         destinationContainer)
-    local present = sourceSquare and worldItem and U().worldItemPresent(sourceSquare, worldItem) or nil
+    local present
+    if sourceSquare ~= nil and worldItem ~= nil then
+        present = U().worldItemPresent(sourceSquare, worldItem)
+    end
     local link, linkReadable = itemWorldLink(item)
     local owner, ownerReadable = itemOwner(item)
     local scanLimit = U().config("workRecoveryInventoryScanLimit") or 4096
@@ -437,6 +450,52 @@ local function detachedEvidence(receipt, item, worldItem, sourceSquare, actorInv
     end
     return present == false and linkReadable and link == nil and ownerReadable and owner == nil
         and actorHas == false and destinationHas == false
+end
+
+local function finishMarkerCleanup(receipt)
+    local storage = storageById(receipt and receipt.destinationStorageId)
+    local destination = storage and SC.BaseLife.resolveContainer(storage) or nil
+    if not destination then return false, "work_ownership_evidence_incomplete", true end
+
+    local item = liveItems[receipt.id]
+    if item ~= nil then
+        local owned = verifiedContainerOwner(destination, item)
+        if owned == nil then return false, "work_ownership_evidence_incomplete", true end
+        if owned ~= true then return false, "delivered_item_ownership_changed" end
+        local markerId = markerOf(item)
+        if markerId == nil then
+            receipt.markerCleanupPending = false
+            receipt.markerCleanupAttempts, receipt.markerCleanupNextRetryAt = 0, 0
+            receipt.blocker, receipt.updatedAt = nil, now()
+            liveItems[receipt.id], liveWorldItems[receipt.id] = nil, nil
+            return true, "work_marker_already_cleared"
+        end
+        if markerId ~= receipt.id then return false, "work_item_marker_identity_changed" end
+    else
+        local state, found = findMarkedInContainer(destination, receipt.id)
+        if state == "pending" or state == "unavailable" then
+            return false, "work_ownership_evidence_incomplete", true
+        end
+        if state == "absent" then
+            -- A crash can occur after the marker write but before the receipt
+            -- flag write. Absence in the verified destination is idempotent.
+            receipt.markerCleanupPending = false
+            receipt.markerCleanupAttempts, receipt.markerCleanupNextRetryAt = 0, 0
+            receipt.blocker, receipt.updatedAt = nil, now()
+            return true, "work_marker_already_cleared"
+        end
+        item = found
+        liveItems[receipt.id] = item
+    end
+
+    local cleared, reason = clearMarker(item, receipt.id)
+    if not cleared then return false, reason or "work_item_marker_clear_failed" end
+    receipt.markerCleanupPending = false
+    receipt.markerCleanupAttempts, receipt.markerCleanupNextRetryAt = 0, 0
+    receipt.blocker, receipt.updatedAt = nil, now()
+    liveItems[receipt.id], liveWorldItems[receipt.id] = nil, nil
+    metrics.markerCleanups = metrics.markerCleanups + 1
+    return true, "work_marker_cleared"
 end
 
 function Transport.collect(receipt, actor, item, worldItem)
@@ -574,6 +633,29 @@ local function reconstruct(receipt, actor)
         return quarantine(receipt, "detached_reconstruction_unproven", "unknown")
     end
     if not actor then return setFailure(receipt, "work_actor_unavailable", "recovery") end
+    local pending
+    if U().findPendingWorldRecovery then
+        pending = U().findPendingWorldRecovery(function(candidate)
+            return candidate ~= nil and markerOf(candidate) == receipt.id
+                and (receipt.nativeId == nil or itemNativeId(candidate) == receipt.nativeId)
+        end)
+    end
+    if pending and pending.item and pending.worldItem then
+        local recovered, recoveryReason = U().takeWorldItemVerified(
+            pending.worldItem, U().inventory(actor), pending.item)
+        if recovered == true
+            and verifiedContainerOwner(U().inventory(actor), pending.item) == true then
+            receipt.phase, receipt.owner, receipt.detachedProof = "carried", "actor", false
+            receipt.nativeId = itemNativeId(pending.item)
+            receipt.blocker, receipt.updatedAt = nil, now()
+            local marked, markerReason = mark(pending.item, receipt, "carried")
+            if not marked then return quarantine(receipt, markerReason, "actor") end
+            liveItems[receipt.id], liveWorldItems[receipt.id] = pending.item, nil
+            return true, "work_exact_item_recovered"
+        end
+        liveItems[receipt.id], liveWorldItems[receipt.id] = pending.item, pending.worldItem
+        return setFailure(receipt, recoveryReason or "work_exact_item_recovery_pending", "recovery")
+    end
     local item, reason, partial, partialNativeId, cleaned = SC.Persistence.restoreDetachedItem(
         actor, receipt.snapshot, receipt.id, Transport.MARKERS)
     if item then
@@ -665,11 +747,43 @@ local function settleQuarantinedDelivery(receipt)
 end
 
 function Transport.recoverPending(maximum)
-    local receipts = SC.BaseLife and SC.BaseLife.workReceipts
-        and SC.BaseLife.workReceipts(nil, false) or {}
-    if #receipts == 0 then return true, "no_work_recovery" end
     maximum = math.max(1, math.floor(tonumber(maximum)
         or U().config("workRecoveryPerPulse") or 2))
+    local allReceipts = SC.BaseLife and SC.BaseLife.workReceipts
+        and SC.BaseLife.workReceipts(nil, true) or {}
+    local cleanupAttempted = 0
+    for _, receipt in ipairs(allReceipts) do
+        if cleanupAttempted >= maximum then break end
+        local maximumAttempts = U().config("workRecoveryMaxAttempts") or 8
+        if receipt.markerCleanupPending == true
+            and (receipt.markerCleanupAttempts or 0) < maximumAttempts
+            and now() >= (receipt.markerCleanupNextRetryAt or 0) then
+            cleanupAttempted = cleanupAttempted + 1
+            local okay, reason, incomplete = finishMarkerCleanup(receipt)
+            if not okay then
+                if incomplete == true then
+                    receipt.markerCleanupNextRetryAt = now()
+                        + (U().config("workRecoveryRetryMaximumMs") or 5000)
+                else
+                    receipt.markerCleanupAttempts = (receipt.markerCleanupAttempts or 0) + 1
+                    receipt.markerCleanupNextRetryAt = now()
+                        + retryDelay(receipt.markerCleanupAttempts)
+                    receipt.blocker, receipt.updatedAt = clean(reason, 160), now()
+                    metrics.markerCleanupFailures = metrics.markerCleanupFailures + 1
+                    if receipt.markerCleanupAttempts >= maximumAttempts then
+                        receipt.markerCleanupNextRetryAt = 0
+                        receipt.blocker = "work_marker_cleanup_exhausted"
+                    end
+                end
+            end
+        end
+    end
+
+    local receipts = SC.BaseLife and SC.BaseLife.workReceipts
+        and SC.BaseLife.workReceipts(nil, false) or {}
+    if #receipts == 0 then
+        return true, cleanupAttempted > 0 and cleanupAttempted or "no_work_recovery"
+    end
     local start = math.min(#receipts, math.max(1, SC.BaseLife.workRecoveryCursor()))
     local visited, attempted = 0, 0
     while visited < #receipts and attempted < maximum do
@@ -702,13 +816,17 @@ function Transport.recoverPending(maximum)
         end
     end
     SC.BaseLife.workRecoveryCursor(((start + visited - 1) % #receipts) + 1)
-    return true, attempted
+    return true, attempted + cleanupAttempted
 end
 
 function Transport.retryOrder(orderId)
     local restored, blocked = 0, false
     for _, receipt in ipairs(SC.BaseLife.workReceipts(orderId, true)) do
-        if receipt.phase == "quarantined" then
+        if receipt.markerCleanupPending == true then
+            receipt.markerCleanupAttempts, receipt.markerCleanupNextRetryAt = 0, 0
+            receipt.blocker, receipt.updatedAt = nil, now()
+            restored = restored + 1
+        elseif receipt.phase == "quarantined" then
             local settled = settleQuarantinedDelivery(receipt)
             if settled == true then
                 restored = restored + 1
@@ -858,9 +976,9 @@ function Transport.diagnostics()
     for key, value in pairs(metrics) do result[key] = value end
     local current = now()
     local oldestCreatedAt = nil
-    local pending = 0
+    local pending, pendingMarkerCleanup = 0, 0
     local receipts = SC.BaseLife and SC.BaseLife.workReceipts
-        and SC.BaseLife.workReceipts(nil, false) or {}
+        and SC.BaseLife.workReceipts(nil, true) or {}
     for _, receipt in ipairs(receipts) do
         if receipt and not terminal(receipt) then
             pending = pending + 1
@@ -869,8 +987,12 @@ function Transport.diagnostics()
                 oldestCreatedAt = createdAt
             end
         end
+        if receipt and receipt.markerCleanupPending == true then
+            pendingMarkerCleanup = pendingMarkerCleanup + 1
+        end
     end
     result.pendingReceipts = pending
+    result.pendingMarkerCleanups = pendingMarkerCleanup
     result.oldestWaitingMs = oldestCreatedAt and math.max(0, current - oldestCreatedAt) or 0
     local startAt = tonumber(metrics.firstReservationAt)
     local elapsedMs = startAt and math.max(1, current - startAt) or 0
@@ -884,7 +1006,7 @@ function Transport.reset(actor)
         local id = U().idOf(actor)
         for _, receipt in ipairs(SC.BaseLife and SC.BaseLife.workReceipts
             and SC.BaseLife.workReceipts(nil, true) or {}) do
-            if receipt.actorId == id then
+            if receipt.actorId == id and receipt.markerCleanupPending ~= true then
                 liveItems[receipt.id], liveWorldItems[receipt.id] = nil, nil
             end
         end
@@ -893,6 +1015,7 @@ function Transport.reset(actor)
         metrics = {
             reservations = 0, collections = 0, deliveries = 0,
             recoveryAttempts = 0, reconstructions = 0, quarantines = 0,
+            markerCleanups = 0, markerCleanupFailures = 0,
             firstReservationAt = nil, lastDeliveryAt = nil,
         }
     end

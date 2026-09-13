@@ -262,7 +262,7 @@ local function normalizeWorkOrder(source)
     local workers = normalizeWorkerIds(source.workers)
     if not material or not validId(source.zoneId, "zone:")
         or not validId(source.destinationStorageId, "storage:")
-        or #workers < 1 then return nil end
+        or (state == "running" and #workers < 1) then return nil end
     if state == "completed" and delivered ~= requested then return nil end
     return {
         version = BaseLife.WORK_VERSION,
@@ -313,6 +313,9 @@ local function normalizeWorkReceipt(source)
     if source.phase == "released"
         and (owner ~= "released" or source.accounted ~= true) then return nil end
     if source.phase == "cancelled" and source.accounted ~= true then return nil end
+    local markerCleanupPending = source.markerCleanupPending == true
+    if markerCleanupPending and (source.phase ~= "delivered"
+        or owner ~= "destination" or source.accounted ~= true) then return nil end
     return {
         version = BaseLife.WORK_VERSION,
         id = source.id,
@@ -329,6 +332,9 @@ local function normalizeWorkReceipt(source)
         owner = owner,
         detachedProof = detachedProof,
         accounted = source.accounted == true,
+        markerCleanupPending = markerCleanupPending,
+        markerCleanupAttempts = integer(source.markerCleanupAttempts, 0, 0, 1000),
+        markerCleanupNextRetryAt = 0,
         attempts = integer(source.attempts, 0, 0, 1000),
         -- Wall/monotonic retry deadlines are runtime scheduling state. A
         -- restored receipt is eligible for one bounded reconciliation pulse.
@@ -788,8 +794,10 @@ function BaseLife.removeStorage(id)
         end
     end
     for _, receipt in ipairs(base.work and base.work.receipts or {}) do
-        if receipt.destinationStorageId == id and receipt.phase ~= "delivered"
-            and receipt.phase ~= "released" and receipt.phase ~= "cancelled" then
+        if receipt.destinationStorageId == id
+            and (receipt.markerCleanupPending == true
+                or (receipt.phase ~= "delivered" and receipt.phase ~= "released"
+                    and receipt.phase ~= "cancelled")) then
             return false, "work_receipt_uses_storage"
         end
     end
@@ -962,7 +970,8 @@ local function pruneWorkRows(work)
         for index, order in ipairs(work.orders) do
             local hasOpenReceipt = false
             for _, receipt in ipairs(work.receipts) do
-                if receipt.orderId == order.id and not receiptIsTerminal(receipt) then
+                if receipt.orderId == order.id and (not receiptIsTerminal(receipt)
+                    or receipt.markerCleanupPending == true) then
                     hasOpenReceipt = true
                     break
                 end
@@ -984,7 +993,8 @@ local function pruneWorkRows(work)
     while #work.receipts >= receiptLimit do
         local removed = false
         for index, receipt in ipairs(work.receipts) do
-            if receiptIsTerminal(receipt) and receipt.accounted == true then
+            if receiptIsTerminal(receipt) and receipt.accounted == true
+                and receipt.markerCleanupPending ~= true then
                 table.remove(work.receipts, index)
                 removed = true
                 break
@@ -1091,6 +1101,9 @@ function BaseLife.allocateWorkReceipt(spec)
     copied.owner = "world"
     copied.accounted = false
     copied.detachedProof = false
+    copied.markerCleanupPending = false
+    copied.markerCleanupAttempts = 0
+    copied.markerCleanupNextRetryAt = 0
     copied.attempts = 0
     copied.createdAt, copied.updatedAt = current, current
     local receipt = normalizeWorkReceipt(copied)
@@ -1106,6 +1119,9 @@ function BaseLife.removeWorkReceipt(id)
     if base then receipt, index = findById(workFor(base).receipts, id) end
     if not receipt then return false, "unknown_work_receipt" end
     if not receiptIsTerminal(receipt) then return false, "work_receipt_not_terminal" end
+    if receipt.markerCleanupPending == true then
+        return false, "work_receipt_marker_cleanup_pending"
+    end
     table.remove(base.work.receipts, index)
     return true
 end
@@ -1244,6 +1260,10 @@ end
 function BaseLife.resumeGatherOrder(id)
     local base, order = activeBase(), workOrderIn(activeBase(), id)
     if not order or orderIsTerminal(order) then return false, "unknown_work_order" end
+    if type(order.workers) ~= "table" or #order.workers < 1 then
+        order.state, order.blocker, order.updatedAt = "paused", "gather_worker_missing", now()
+        return false, "gather_worker_missing"
+    end
     order.state, order.blocker, order.updatedAt = "running", nil, now()
     local ready, reason = ensureGatherJobs(base, order)
     if not ready then
@@ -1989,13 +2009,26 @@ local function validWorkSource(base, path)
             return restoreFailure(path .. ".receipts[" .. tostring(index) .. "].itemType",
                 "work receipt material mismatch")
         end
-        local assigned = false
-        for _, workerId in ipairs(parent.workers) do
-            if workerId == normalizedReceipt.actorId then assigned = true break end
-        end
-        if not assigned then
+        -- Receipt ownership is immutable history. A worker may leave the live
+        -- assignment after releasing, cancelling or delivering its cargo, so
+        -- only the receipt's own actor identity and ownership invariants belong
+        -- in restore validation.
+        if not validId(normalizedReceipt.actorId, "sc-") then
             return restoreFailure(path .. ".receipts[" .. tostring(index) .. "].actorId",
-                "work receipt actor is not assigned")
+                "invalid work receipt actor")
+        end
+        if normalizedReceipt.markerCleanupPending == true then
+            local cleanupStorageExists = false
+            for _, row in ipairs(base.storages or {}) do
+                if row.id == normalizedReceipt.destinationStorageId then
+                    cleanupStorageExists = true
+                    break
+                end
+            end
+            if not cleanupStorageExists then
+                return restoreFailure(path .. ".receipts[" .. tostring(index)
+                    .. "].destinationStorageId", "unknown marker cleanup destination")
+            end
         end
         if not receiptIsTerminal(normalizedReceipt)
             and normalizedReceipt.destinationStorageId ~= parent.destinationStorageId then

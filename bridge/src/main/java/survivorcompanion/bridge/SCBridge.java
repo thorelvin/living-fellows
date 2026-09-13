@@ -253,8 +253,21 @@ public final class SCBridge {
         return Thread.currentThread() == MainThread.mainThread;
     }
 
+    private static Object luaValue(Object value) {
+        // Kahlua stores raw table values exactly as supplied. Reflected Java
+        // returns are converted by the call boundary, but rawset(Integer/Float)
+        // would otherwise leave boxed userdata where Lua requires a number.
+        return value instanceof Number number
+                ? Double.valueOf(number.doubleValue())
+                : value;
+    }
+
     private static void put(KahluaTable table, String key, Object value) {
-        table.rawset(key, value);
+        table.rawset(key, luaValue(value));
+    }
+
+    private static void put(KahluaTable table, int key, Object value) {
+        table.rawset(key, luaValue(value));
     }
 
     /**
@@ -372,10 +385,10 @@ public final class SCBridge {
             for (int index = 0; index < count; index++) {
                 IsoZombie zombie = zombies.get(index);
                 if (zombie == null) continue;
-                out.rawset(output++, (Object) zombie);
-                out.rawset(output++, Float.valueOf(zombie.getX()));
-                out.rawset(output++, Float.valueOf(zombie.getY()));
-                out.rawset(output++, Float.valueOf(zombie.getZ()));
+                put(out, output++, zombie);
+                put(out, output++, zombie.getX());
+                put(out, output++, zombie.getY());
+                put(out, output++, zombie.getZ());
             }
             int published = (output - 1) / 4;
             put(out, "count", published);

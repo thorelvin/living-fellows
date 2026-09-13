@@ -727,6 +727,346 @@ do
         "taking one of two workers off duty releases only that worker's selection")
 end
 
+-- Historical receipt ownership is independent from the current worker list.
+-- Zero-worker paused orders and terminal/unresolved history must round-trip,
+-- while malformed identities and active ownership shapes still fail closed.
+do
+    local ctx = setup("logs", 1)
+    check(SC.BaseLife.setDuty(ctx.actor.modData.SC_Id, false) == true
+            and ctx.order.state == "paused" and #ctx.order.workers == 0,
+        "the last worker leaving must pause an otherwise valid empty order")
+    local saved = SC.BaseLife.export()
+    check(SC.BaseLife.restore(saved) == true
+            and SC.BaseLife.workOrder(ctx.order.id).state == "paused",
+        "a one-worker duty-off order must restore without quarantine")
+    check(SC.BaseLife.restore(SC.BaseLife.export()) == true,
+        "the empty paused assignment must survive a second save cycle")
+    local resumed, resumeReason = SC.BaseLife.resumeGatherOrder(ctx.order.id)
+    check(resumed == false and resumeReason == "gather_worker_missing",
+        "an empty historical assignment must not become a running order")
+
+    ctx = setup("logs", 2, 2)
+    local delivered = makeItem("Base.Log")
+    putOnGround(ctx.source, delivered)
+    local receipt = reserveCandidate(ctx, ctx.actors[1], delivered)
+    check(SC.WorkTransport.collect(receipt, ctx.actors[1], delivered,
+            delivered.worldItem) == true
+            and SC.WorkTransport.deposit(receipt, ctx.actors[1], delivered) == true,
+        "terminal receipt history fixture must deliver once")
+    check(SC.BaseLife.setDuty(ctx.actors[1].modData.SC_Id, false) == true
+            and #ctx.order.workers == 1 and receipt.phase == "delivered",
+        "removing a worker must not erase its terminal receipt history")
+    check(SC.BaseLife.restore(SC.BaseLife.export()) == true
+            and SC.BaseLife.workReceipt(receipt.id).actorId
+                == ctx.actors[1].modData.SC_Id,
+        "terminal receipt ownership may outlive live assignment")
+
+    local invalid = SC.BaseLife.export()
+    invalid.bases[invalid.activeBaseId].work.receipts[1].actorId = "not-a-companion"
+    check(SC.BaseLife.restore(invalid) == false,
+        "receipt history must still reject invalid actor identities")
+
+    ctx = setup("logs", 1)
+    local selected = makeItem("Base.Log")
+    putOnGround(ctx.source, selected)
+    reserveCandidate(ctx, ctx.actor, selected)
+    local malformed = SC.BaseLife.export()
+    malformed.bases[malformed.activeBaseId].work.receipts[1].owner = "actor"
+    check(SC.BaseLife.restore(malformed) == false,
+        "active selected ownership must still reject an actor-owner mismatch")
+
+    ctx = setup("logs", 2, 2)
+    local detached = makeItem("Base.Log")
+    putOnGround(ctx.source, detached)
+    receipt = reserveCandidate(ctx, ctx.actors[1], detached)
+    check(SC.WorkTransport.collect(receipt, ctx.actors[1], detached,
+        detached.worldItem) == true, "unresolved history fixture must collect")
+    ctx.actors[1].inventory:Remove(detached)
+    receipt.phase, receipt.owner, receipt.detachedProof = "recovery", "detached", true
+    check(SC.BaseLife.setDuty(ctx.actors[1].modData.SC_Id, false) == true
+            and #ctx.order.workers == 1,
+        "unresolved detached ownership must not pin the live assignment")
+    check(SC.BaseLife.restore(SC.BaseLife.export()) == true
+            and SC.BaseLife.workReceipt(receipt.id).phase == "recovery",
+        "unresolved detached ownership must remain recoverable after restore")
+end
+
+-- Proven native absence remains false, not unknown. If floor removal mutates
+-- state and both immediate destinations reject the item, the exact recovery
+-- record survives save/reload and wins over snapshot reconstruction.
+do
+    local ctx = setup("logs", 1)
+    local item = makeItem("Base.Log", { condition = 49 })
+    local wrapper = putOnGround(ctx.source, item)
+    local receipt = reserveCandidate(ctx, ctx.actor, item)
+    local addWorld = ctx.source.AddWorldInventoryItem
+    ctx.source.AddWorldInventoryItem = function() return nil end
+    ctx.actor.inventory.rejectAdd = true
+    local collected = SC.WorkTransport.collect(receipt, ctx.actor, item, wrapper)
+    check(collected == false and receipt.phase == "recovery"
+            and receipt.owner == "detached" and receipt.detachedProof == true,
+        "mutation-then-failure pickup must enter explicit detached recovery")
+    check(SC.GameplayUtil.pendingWorldRecovery(item) ~= nil,
+        "detached native item must retain one exact recovery owner")
+    local saved = SC.BaseLife.export()
+    SC.WorkTransport.reset()
+    ctx.actor.inventory.rejectAdd = false
+    ctx.source.AddWorldInventoryItem = addWorld
+    check(SC.BaseLife.restore(saved) == true, "detached pickup must save and restore")
+    receipt = SC.BaseLife.workReceipt(receipt.id)
+    check(SC.WorkTransport.reconcile(receipt, ctx.actor) == true
+            and SC.WorkTransport.runtimeItem(receipt.id) == item
+            and ctx.actor.inventory:contains(item),
+        "retry must recover the exact native item instead of manufacturing a copy")
+    check(SC.WorkTransport.deposit(receipt, ctx.actor, item) == true
+            and SC.BaseLife.workOrder(ctx.order.id).delivered == 1,
+        "recovered pickup must deliver and account exactly once")
+end
+
+-- Chore delegates preserve both return values instead of collapsing the reason
+-- through boolean expressions.
+do
+    local ctx = setup("logs", 1)
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    ctx.base.settings.routines = false
+    local oldMedical = SC.Medical
+    local calls = 0
+    SC.Medical = {
+        replaceDirtyBandage = function()
+            calls = calls + 1
+            return true, "bandaged"
+        end,
+        peek = function() return nil end,
+    }
+    local accepted, job = SC.BaseLife.enqueueJob({
+        type = "replace_bandage", assignedId = ctx.actor.modData.SC_Id, priority = 5,
+    })
+    check(accepted == true and select(1, SC.BaseWork.update(ctx.actor, nil, {})) == true
+            and SC.BaseLife.job(job.id) == nil and calls == 1,
+        "successful bandaging must complete exactly once")
+    SC.BaseWork.update(ctx.actor, nil, {})
+    check(calls == 1, "completed bandage work must not run again")
+    SC.Medical = oldMedical
+
+    ctx = setup("logs", 1)
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    oldMedical = SC.Medical
+    SC.Medical = {
+        replaceDirtyBandage = function() return true, "treating" end,
+        peek = function() return { phase = "active" } end,
+    }
+    accepted, job = SC.BaseLife.enqueueJob({
+        type = "replace_bandage", assignedId = ctx.actor.modData.SC_Id, priority = 5,
+    })
+    local handled, reason = SC.BaseWork.update(ctx.actor, nil, {})
+    check(accepted == true and handled == true and reason == "treating"
+            and SC.BaseLife.job(job.id) ~= nil,
+        "intermediate medical state must stay active with its reason intact")
+    SC.Medical = oldMedical
+
+    ctx = setup("logs", 1)
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    oldMedical = SC.Medical
+    SC.Medical = nil
+    accepted, job = SC.BaseLife.enqueueJob({
+        type = "replace_bandage", assignedId = ctx.actor.modData.SC_Id, priority = 5,
+    })
+    handled, reason = SC.BaseWork.update(ctx.actor, nil, {})
+    check(accepted == true and handled == false and reason == "medical_unavailable"
+            and SC.BaseLife.job(job.id).state == "blocked",
+        "missing medical module must fail once with an explicit blocker")
+    SC.Medical = oldMedical
+
+    ctx = setup("logs", 1)
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    local oldDowntime = SC.Downtime
+    SC.Downtime = { update = function() return false, "stable_idle" end }
+    accepted, job = SC.BaseLife.enqueueJob({
+        type = "repair", assignedId = ctx.actor.modData.SC_Id, priority = 1,
+    })
+    handled, reason = SC.BaseWork.update(ctx.actor, nil, {})
+    SC_TEST_CLOCK = SC_TEST_CLOCK
+        + (SC.GameplayUtil.config("downtimeSafeMs") or 5000) + 3001
+    handled, reason = SC.BaseWork.update(ctx.actor, nil, {})
+    check(accepted == true and handled == false and reason == "stable_idle"
+            and SC.BaseLife.job(job.id).state == "blocked",
+        "stable idle after the chore deadline must exhaust instead of looping forever")
+    SC.Downtime = oldDowntime
+end
+
+-- Sort/haul selection and the authoritative post-animation commit both honor
+-- live reserves. Two workers may select distinct items, but cannot collectively
+-- withdraw below the configured reserve.
+do
+    local ctx = setup("logs", 1, 2)
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    SC.BaseLife.setStorageCategory(ctx.storage.id, "general")
+    local destinationObject = makeStorage(ctx.actor.square)
+    local destinationOk, destination = SC.BaseLife.registerStorage(
+        destinationObject, "medical")
+    check(destinationOk == true, "sorted destination fixture must register")
+    local first, second = makeItem("Base.Bandage"), makeItem("Base.Bandage")
+    ctx.storageObject.container:AddItem(first)
+    ctx.storageObject.container:AddItem(second)
+    SC.BaseLife.setReserve(ctx.storage.id, "Base.Bandage", 1)
+    local firstJobOk = SC.BaseLife.enqueueJob({
+        type = "sort", assignedId = ctx.actors[1].modData.SC_Id, priority = 2,
+    })
+    local secondJobOk, secondJob = SC.BaseLife.enqueueJob({
+        type = "sort", assignedId = ctx.actors[2].modData.SC_Id, priority = 2,
+    })
+    check(firstJobOk == true and secondJobOk == true, "two sort jobs must queue")
+    local oldProtected = SC.PersonalItems.isProtected
+    SC.PersonalItems.isProtected = function(item, actor, operation)
+        if operation == "base_haul" and actor == ctx.actors[2] and item == first then
+            return true
+        end
+        return oldProtected and oldProtected(item, actor, operation) or false
+    end
+    local oldVisualStatus = SC.NativeActions.visualStatus
+    local started = {}
+    SC.NativeActions.visualStatus = function(actor)
+        if not started[actor] then started[actor] = true return "active" end
+        return "completed"
+    end
+    check(select(2, SC.BaseWork.update(ctx.actors[1], nil, {})) == "base_storage_looting"
+            and select(2, SC.BaseWork.update(ctx.actors[2], nil, {}))
+                == "base_storage_looting",
+        "both workers may begin against the same pre-commit availability")
+    check(select(1, SC.BaseWork.update(ctx.actors[1], nil, {})) == true,
+        "the first worker may withdraw the one unreserved item")
+    local secondHandled, secondReason = SC.BaseWork.update(ctx.actors[2], nil, {})
+    check(secondHandled == false and secondReason == "base_supply_reserved"
+            and SC.BaseLife.job(secondJob.id).state == "blocked"
+            and #ctx.storageObject.container.items == 1
+            and #destinationObject.container.items == 1,
+        "the second authoritative commit must preserve the final reserved item")
+    SC.NativeActions.visualStatus = oldVisualStatus
+    SC.PersonalItems.isProtected = oldProtected
+end
+
+-- Terminal deliveries release live item references immediately. If marker
+-- removal itself fails, only that bounded cleanup record retains the item and
+-- remains durable through pruning, actor reset and save/reload.
+do
+    local ctx = setup("logs", 1)
+    local receiptIds = {}
+    for iteration = 1, 40 do
+        if iteration > 1 then
+            local accepted, order = SC.BaseLife.createGatherOrder({
+                material = "logs", requested = 1, zoneId = ctx.order.zoneId,
+                destinationStorageId = ctx.storage.id,
+                workers = { ctx.actor.modData.SC_Id },
+            })
+            check(accepted == true, "history stress order must fit after pruning")
+            ctx.order = order
+        end
+        local item = makeItem("Base.Log")
+        putOnGround(ctx.source, item)
+        dispatchUntilTerminal(ctx, 30)
+        local rows = SC.BaseLife.workReceipts(ctx.order.id, true)
+        check(ctx.order.state == "completed" and #rows == 1,
+            "history stress delivery must terminate")
+        receiptIds[#receiptIds + 1] = rows[1].id
+        check(SC.WorkTransport.runtimeItem(rows[1].id) == nil,
+            "successful terminal delivery must release its live item reference")
+    end
+    for _, receiptId in ipairs(receiptIds) do
+        check(SC.WorkTransport.runtimeItem(receiptId) == nil,
+            "pruned terminal histories must not orphan strong references")
+    end
+    check(#ctx.base.work.orders <= (SC.GameplayUtil.config("workOrderRecordLimit") or 32)
+            and #ctx.base.work.receipts
+                <= (SC.GameplayUtil.config("workRecoveryMaxEntries") or 32),
+        "work history stress must remain bounded by configured caps")
+
+    ctx = setup("logs", 1)
+    local rejectClear = false
+    local backing = {}
+    local proxy = setmetatable({}, {
+        __index = function(_, key) return backing[key] end,
+        __newindex = function(_, key, value)
+            if rejectClear and value == nil
+                and (key == SC.WorkTransport.MARKERS.id
+                    or key == SC.WorkTransport.MARKERS.state) then return end
+            backing[key] = value
+        end,
+    })
+    local item = makeItem("Base.Log", { modData = proxy })
+    putOnGround(ctx.source, item)
+    local receipt = reserveCandidate(ctx, ctx.actor, item)
+    check(SC.WorkTransport.collect(receipt, ctx.actor, item, item.worldItem) == true,
+        "marker cleanup fixture must collect")
+    rejectClear = true
+    check(SC.WorkTransport.deposit(receipt, ctx.actor, item) == true
+            and receipt.phase == "delivered" and receipt.markerCleanupPending == true
+            and SC.WorkTransport.runtimeItem(receipt.id) == item,
+        "failed marker removal must retain only its terminal cleanup record")
+    check(SC.BaseLife.removeWorkReceipt(receipt.id) == false,
+        "pruning must refuse a receipt whose marker cleanup is unresolved")
+    check(SC.BaseLife.removeStorage(ctx.storage.id) == false,
+        "unresolved marker cleanup must pin its exact destination storage")
+    SC.WorkTransport.reset(ctx.actor)
+    check(SC.WorkTransport.runtimeItem(receipt.id) == item,
+        "actor reset must not orphan destination marker cleanup")
+    local saved = SC.BaseLife.export()
+    SC.WorkTransport.reset()
+    check(SC.BaseLife.restore(saved) == true
+            and SC.BaseLife.workReceipt(receipt.id).markerCleanupPending == true,
+        "unresolved marker cleanup must survive save and restore")
+    rejectClear = false
+    SC_TEST_CLOCK = SC_TEST_CLOCK
+        + (SC.GameplayUtil.config("workRecoveryRetryMaximumMs") or 5000) + 1
+    SC.WorkTransport.recoverPending(1)
+    receipt = SC.BaseLife.workReceipt(receipt.id)
+    check(receipt.markerCleanupPending == false
+            and SC.WorkTransport.marker(item) == nil
+            and SC.WorkTransport.runtimeItem(receipt.id) == nil,
+        "bounded marker retry must clear the stale marker and strong reference")
+
+    ctx = setup("logs", 1)
+    rejectClear, backing = false, {}
+    proxy = setmetatable({}, {
+        __index = function(_, key) return backing[key] end,
+        __newindex = function(_, key, value)
+            if rejectClear and value == nil
+                and (key == SC.WorkTransport.MARKERS.id
+                    or key == SC.WorkTransport.MARKERS.state) then return end
+            backing[key] = value
+        end,
+    })
+    item = makeItem("Base.Log", { modData = proxy })
+    putOnGround(ctx.source, item)
+    receipt = reserveCandidate(ctx, ctx.actor, item)
+    check(SC.WorkTransport.collect(receipt, ctx.actor, item, item.worldItem) == true,
+        "bounded cleanup fixture must collect")
+    rejectClear = true
+    check(SC.WorkTransport.deposit(receipt, ctx.actor, item) == true
+            and receipt.markerCleanupPending == true,
+        "bounded cleanup fixture must enter marker recovery")
+    local maximumAttempts = SC.GameplayUtil.config("workRecoveryMaxAttempts") or 8
+    local maximumDelay = SC.GameplayUtil.config("workRecoveryRetryMaximumMs") or 5000
+    for _ = 1, maximumAttempts do
+        SC_TEST_CLOCK = SC_TEST_CLOCK + maximumDelay + 1
+        SC.WorkTransport.recoverPending(1)
+    end
+    check(receipt.markerCleanupAttempts == maximumAttempts
+            and receipt.blocker == "work_marker_cleanup_exhausted"
+            and SC.WorkTransport.runtimeItem(receipt.id) == item,
+        "marker cleanup must stop automatically while retaining its exact item")
+    SC_TEST_CLOCK = SC_TEST_CLOCK + maximumDelay + 1
+    SC.WorkTransport.recoverPending(1)
+    check(receipt.markerCleanupAttempts == maximumAttempts,
+        "exhausted marker cleanup must consume no further automatic attempts")
+    rejectClear = false
+    check(SC.WorkTransport.retryOrder(ctx.order.id) == true,
+        "explicit retry must re-arm exhausted marker cleanup")
+    SC.WorkTransport.recoverPending(1)
+    check(receipt.markerCleanupPending == false
+            and SC.WorkTransport.runtimeItem(receipt.id) == nil,
+        "explicit marker retry must release the retained exact item on success")
+end
+
 -- Repeated failures keep one FIFO entry for the identity. Trimming unrelated
 -- candidates must not erase a newer permanent cooldown through an old duplicate.
 do

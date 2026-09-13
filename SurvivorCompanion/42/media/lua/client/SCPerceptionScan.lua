@@ -12,10 +12,47 @@ local nativeSnapshotScratch = {}
 local nativeSnapshotShared = nil
 local nativeSnapshotEpoch = 1
 local nativeSnapshotRetryAt = 0
+local nativeEvidenceRevision = 0
+local NATIVE_SPATIAL_BUCKET = 8
 
 local function bridgeValue()
     if type(_G) ~= "table" then return nil end
     return rawget(_G, "SCBridge")
+end
+
+local function validCoordinate(value)
+    return type(value) == "number" and value == value
+        and value ~= math.huge and value ~= -math.huge
+end
+
+local function nativeSpatialKey(x, y, z)
+    return tostring(math.floor(z or 0)) .. ":"
+        .. tostring(math.floor(x / NATIVE_SPATIAL_BUCKET)) .. ":"
+        .. tostring(math.floor(y / NATIVE_SPATIAL_BUCKET))
+end
+
+local function buildNativeSpatial(list, count)
+    local spatial = {}
+    for index = 1, count do
+        local base = (index - 1) * 4 + 1
+        local actor, x, y, z = list[base], list[base + 1], list[base + 2], list[base + 3]
+        if actor == nil or not validCoordinate(x) or not validCoordinate(y)
+            or not validCoordinate(z) then return nil end
+        local key = nativeSpatialKey(x, y, z)
+        local bucket = spatial[key]
+        if bucket == nil then bucket = {} spatial[key] = bucket end
+        bucket[#bucket + 1] = base
+    end
+    return spatial
+end
+
+local function sameNativeRoster(left, right, count)
+    if type(left) ~= "table" or type(right) ~= "table" then return false end
+    for index = 1, count do
+        local offset = (index - 1) * 4 + 1
+        if left[offset] == nil or left[offset] ~= right[offset] then return false end
+    end
+    return true
 end
 
 -- Protocol 8 copies the mutable Java zombie list and its hot coordinates in a
@@ -49,11 +86,23 @@ local function nativeBulkSnapshot(now, clock)
         return nil
     end
     count = math.floor(count)
+    local published = nativeSnapshotScratch
+    local spatial = buildNativeSpatial(published, count)
+    if spatial == nil then
+        -- A successful bridge return with non-Lua numeric userdata is not a
+        -- usable bulk snapshot. Reject it as a unit and use sliced discovery.
+        nativeSnapshotScratch = {}
+        nativeSnapshotRetryAt = now + interval
+        return nil
+    end
     -- Publish the coherent buffer itself and rotate the scratch reference.
     -- Observers may drain an older snapshot while Java fills the next one;
     -- reading flat quadruples avoids allocating one Lua wrapper per zombie.
-    local published = nativeSnapshotScratch
     nativeSnapshotScratch = {}
+    local sameEvidence = nativeSnapshotShared ~= nil
+        and nativeSnapshotShared.publishedCount == count
+        and sameNativeRoster(nativeSnapshotShared.published, published, count)
+    if not sameEvidence then nativeEvidenceRevision = nativeEvidenceRevision + 1 end
     nativeGeneration = nativeGeneration + 1
     nativeSnapshotShared = {
         generation = "bridge:" .. tostring(nativeSnapshotEpoch),
@@ -70,6 +119,8 @@ local function nativeBulkSnapshot(now, clock)
         completedAt = now,
         evidenceValid = true,
         evidenceCount = count,
+        evidenceRevision = nativeEvidenceRevision,
+        spatial = spatial,
         rejectedCycles = 0,
         nextAdvanceAt = now + interval,
     }
@@ -251,6 +302,7 @@ local function resetActorNativeState(state, generation)
     state.nativeRosterSource = nil
     state.nativeRosterCount = nil
     state.nativeRosterFlat = nil
+    state.nativeRosterEvidenceRevision = nil
     state.nativeRosterCursor = 1
     state.nativeRosterComplete = false
     state.nativeLastCompleteCycle = nil
@@ -260,6 +312,9 @@ local function resetActorNativeState(state, generation)
     state.nativeDeliveredSeen = nil
     state.nativeCandidateQueue = nil
     state.nativeCandidateIndex = nil
+    state.nativeCurrentValidationCycle = nil
+    state.nativeCurrentValidationSeen = nil
+    state.nativeCurrentObserverKey = nil
 end
 
 local function compactCandidateQueue(state)
@@ -321,6 +376,7 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         state.nativeRosterSource = shared.published
         state.nativeRosterCount = 0
         state.nativeRosterFlat = shared.publishedFlat == true
+        state.nativeRosterEvidenceRevision = shared.evidenceRevision
         state.nativeRosterCursor = 1
         state.nativeRosterComplete = shared.completedCycle > 0
         state.nativeLastCompleteCycle = state.nativeRosterCycle
@@ -340,12 +396,16 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     -- completion mean that this observer inspected the whole coherent roster.
     if count > 0 and shared.completedCycle > 0
         and state.nativeRosterCycle ~= shared.completedCycle
-        and (state.nativeRosterCycle == nil or state.nativeRosterComplete == true) then
+        and (state.nativeRosterCycle == nil or state.nativeRosterComplete == true)
+        and not (state.nativeRosterComplete == true
+            and state.nativeRosterFlat == true and shared.publishedFlat == true
+            and state.nativeRosterEvidenceRevision == shared.evidenceRevision) then
         local previewMatches = state.nativeDeliveredCycle == shared.completedCycle
         state.nativeRosterCycle = shared.completedCycle
         state.nativeRosterSource = shared.published
         state.nativeRosterCount = shared.publishedCount
         state.nativeRosterFlat = shared.publishedFlat == true
+        state.nativeRosterEvidenceRevision = shared.evidenceRevision
         state.nativeRosterCursor = 1
         state.nativeRosterComplete = false
         if not previewMatches then
@@ -391,6 +451,43 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     local radiusSq = math.max(1, tonumber(radius) or 24) ^ 2
     local queued = setmetatable({}, { __mode = "k" })
     for _, value in ipairs(queue) do queued[value] = true end
+    local currentRelevantPending = 0
+    if shared.publishedFlat == true and type(shared.spatial) == "table" then
+        local observerKey = tostring(math.floor(x)) .. ":" .. tostring(math.floor(y))
+            .. ":" .. tostring(math.floor(z or 0))
+        if state.nativeCurrentValidationCycle ~= shared.completedCycle
+            or state.nativeCurrentObserverKey ~= observerKey then
+            state.nativeCurrentValidationCycle = shared.completedCycle
+            state.nativeCurrentObserverKey = observerKey
+            state.nativeCurrentValidationSeen = setmetatable({}, { __mode = "k" })
+        end
+        local seen = state.nativeCurrentValidationSeen
+        local minimumX = math.floor((x - radius) / NATIVE_SPATIAL_BUCKET)
+        local maximumX = math.floor((x + radius) / NATIVE_SPATIAL_BUCKET)
+        local minimumY = math.floor((y - radius) / NATIVE_SPATIAL_BUCKET)
+        local maximumY = math.floor((y + radius) / NATIVE_SPATIAL_BUCKET)
+        local floorZ = math.floor(z or 0)
+        for bucketX = minimumX, maximumX do
+            for bucketY = minimumY, maximumY do
+                local bucket = shared.spatial[tostring(floorZ) .. ":"
+                    .. tostring(bucketX) .. ":" .. tostring(bucketY)]
+                for _, base in ipairs(bucket or {}) do
+                    local value = shared.published[base]
+                    local zx, zy = shared.published[base + 1], shared.published[base + 2]
+                    local dx, dy = zx - x, zy - y
+                    if dx * dx + dy * dy <= radiusSq and not seen[value]
+                        and not queued[value] then
+                        if #queue < queueCap then
+                            queue[#queue + 1] = value
+                            queued[value] = true
+                        else
+                            currentRelevantPending = currentRelevantPending + 1
+                        end
+                    end
+                end
+            end
+        end
+    end
     local additions, distances = {}, setmetatable({}, { __mode = "k" })
     local inspected = 0
     while cursor <= sourceCount and inspected < queryLimit
@@ -446,6 +543,9 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         result[#result + 1] = queue[queueIndex]
         state.nativeDeliveredSeen = state.nativeDeliveredSeen or {}
         state.nativeDeliveredSeen[queue[queueIndex]] = true
+        if state.nativeCurrentValidationSeen then
+            state.nativeCurrentValidationSeen[queue[queueIndex]] = true
+        end
         queueIndex = queueIndex + 1
     end
     state.nativeCandidateQueue, state.nativeCandidateIndex = queue, queueIndex
@@ -461,11 +561,17 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     local observerCycle = tonumber(state.nativeRosterCycle) or 0
     local complete = observerCycle > 0 and state.nativeRosterComplete == true
         and state.nativeLastCompleteCycle == observerCycle
-    local freshComplete = complete and observerCycle == shared.completedCycle
+    local evidenceMatches = observerCycle == shared.completedCycle
+    if state.nativeRosterFlat == true and shared.publishedFlat == true
+        and state.nativeRosterEvidenceRevision ~= nil then
+        evidenceMatches = state.nativeRosterEvidenceRevision == shared.evidenceRevision
+    end
+    local freshComplete = complete and evidenceMatches
         and shared.evidenceValid == true
         and shared.evidenceCount == count
+        and currentRelevantPending == 0 and queuePending == 0
     local sourceRemaining = coherent and math.max(0, sourceCount - cursor + 1) or 0
-    local pending = queuePending + sourceRemaining
+    local pending = queuePending + sourceRemaining + currentRelevantPending
     local reportedCursor = count == 0 and 0
         or complete and (state.nativeRosterCount or #state.nativeRosterSource)
         or shared.cursor
@@ -494,6 +600,7 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         globalCompleted = globalCompleted,
         evidenceValid = shared.evidenceValid == true,
         evidenceCount = shared.evidenceCount,
+        evidenceRevision = shared.evidenceRevision,
         evidenceInvalidatedAt = shared.evidenceInvalidatedAt,
         rejectedCycles = shared.rejectedCycles or 0,
         verificationPending = shared.verification ~= nil,
@@ -657,6 +764,7 @@ function Scan.reset()
     nativeSnapshotShared = nil
     nativeSnapshotScratch = {}
     nativeSnapshotRetryAt = 0
+    nativeEvidenceRevision = 0
     nativeSnapshotEpoch = nativeSnapshotEpoch + 1
     -- Do not reuse an epoch: actor runtimes can outlive a global world/reset
     -- pulse and must discard any cursor that belonged to the old roster.

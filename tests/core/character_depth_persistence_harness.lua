@@ -504,6 +504,31 @@ local captured, captureReason = SC.Persistence.captureRecord(record)
 check(captured ~= nil,
     "plain native items without getInventory still capture: " .. tostring(captureReason))
 
+-- The Java bridge writes directly into a Kahlua table. If an incompatible
+-- bridge ever publishes boxed userdata (or any other malformed scalar), the
+-- complete bulk result must be rejected and the proven Lua getter path used.
+do
+    local priorBridge = SCBridge
+    SCBridge = {
+        captureItemFacts = function(item, out)
+            for key in pairs(out) do out[key] = nil end
+            out.type = item:getFullType()
+            out.condition = { boxedJavaNumber = true }
+            out.favorite = false
+            return 0
+        end,
+    }
+    local fallback, fallbackReason = SC.Persistence.captureRecord(record)
+    SCBridge = priorBridge
+    local weaponFallback
+    for _, entry in ipairs(fallback and fallback.inventory.roots or {}) do
+        if entry.type == "Base.VarmintRifle" then weaponFallback = entry break end
+    end
+    check(fallback ~= nil and weaponFallback ~= nil and weaponFallback.condition == 4,
+        "malformed native item facts fall back to typed Lua capture: "
+            .. tostring(fallbackReason))
+end
+
 -- A staged save must reject an internally mixed actor snapshot when inventory
 -- identity changes during capture, retry only that actor, and then atomically
 -- publish the stable retry. Mutate on the captureRecord getInventory call after
@@ -544,6 +569,140 @@ do
         "scheduled save retries a churning actor and atomically publishes only its stable retry: "
             .. tostring(requestReason) .. "/" .. tostring(status) .. "/"
             .. tostring(outgoing) .. " reads=" .. tostring(inventoryReads))
+end
+
+-- Per-actor before/after signatures are insufficient when ownership moves
+-- between actors after the earlier owner has already been captured. Exercise
+-- both directions and require the final global barrier to preserve the prior
+-- complete document rather than publishing a duplicate or omission.
+do
+    local actorA = makeActor(square)
+    local actorB = makeActor(square)
+    local recordA = SC.Registry.register(actorA, {
+        id = "sc-000-cross-owner-a", recruited = true,
+        identity = { forename = "Cross", surname = "A", gender = "female" },
+        state = { order = { current = "follow" }, personality = {}, downtime = {} },
+    })
+    local recordB = SC.Registry.register(actorB, {
+        id = "sc-zzz-cross-owner-b", recruited = true,
+        identity = { forename = "Cross", surname = "B", gender = "male" },
+        state = { order = { current = "follow" }, personality = {}, downtime = {} },
+    })
+    check(recordA ~= nil and recordB ~= nil, "cross-owner actors register for staging test")
+
+    local stagedPlayer = { getModData = function() return {} end }
+    local priorTimestamp = getTimestampMs
+    local stagedClock = 6000
+    getTimestampMs = function()
+        stagedClock = stagedClock + 0.2
+        return stagedClock
+    end
+
+    local function runCrossOwnerTransfer(source, destination, label)
+        check(SC.Persistence.reset() == true, label .. " resets scheduled state")
+        local transferred = makeItem("Base.CrossOwnerEvidence")
+        source.inventory:AddItem(transferred)
+        local priorGetInventory = actorB.getInventory
+        local moved = false
+        function actorB:getInventory()
+            if not moved then
+                moved = true
+                source.inventory:Remove(transferred)
+                destination.inventory:AddItem(transferred)
+            end
+            return priorGetInventory(self)
+        end
+        local priorDocument = { sentinel = label }
+        local stagedStore = SC_TEST_SET_WORLD_STORE({ document = priorDocument })
+        local requested, requestReason = SC.Persistence.requestScheduledSave(stagedPlayer)
+        local status, reason
+        if requested then
+            for _ = 1, 20000 do
+                status, reason = SC.Persistence.pulse()
+                if status ~= "yielded" then break end
+            end
+        end
+        actorB.getInventory = priorGetInventory
+        destination.inventory:Remove(transferred)
+        check(requested == true and moved == true and status == "failed"
+                and stagedStore.document == priorDocument
+                and string.find(tostring(reason), "inventory ownership changed", 1, true)
+                    ~= nil,
+            label .. " aborts atomically at global ownership barrier: "
+                .. tostring(requestReason) .. "/" .. tostring(status) .. "/"
+                .. tostring(reason))
+    end
+
+    runCrossOwnerTransfer(actorA, actorB, "earlier-to-later transfer")
+    runCrossOwnerTransfer(actorB, actorA, "later-to-earlier transfer")
+
+    local function runBarrierJob(label, expected)
+        local priorDocument = { sentinel = label }
+        local stagedStore = SC_TEST_SET_WORLD_STORE({ document = priorDocument })
+        local requested, requestReason = SC.Persistence.requestScheduledSave(stagedPlayer)
+        local status, reason
+        if requested then
+            for _ = 1, 20000 do
+                status, reason = SC.Persistence.pulse()
+                if status ~= "yielded" then break end
+            end
+        end
+        check(requested == true and status == "failed"
+                and stagedStore.document == priorDocument
+                and string.find(tostring(reason), expected, 1, true) ~= nil,
+            label .. " preserves the prior document: " .. tostring(requestReason)
+                .. "/" .. tostring(status) .. "/" .. tostring(reason))
+    end
+
+    local priorVehicle = SC.Vehicle
+    local vehicleChanged = false
+    SC.Vehicle = {
+        stateFor = function(actor)
+            if actor == actorA and vehicleChanged then
+                return { stored = false, vehicle = "test:vehicle", seat = 1 }
+            end
+            return nil
+        end,
+        exportStored = function() return {} end,
+    }
+    local priorBGetInventory = actorB.getInventory
+    function actorB:getInventory()
+        vehicleChanged = true
+        return priorBGetInventory(self)
+    end
+    check(SC.Persistence.reset() == true, "actor vehicle barrier resets scheduled state")
+    runBarrierJob("actor vehicle transition", "actor vehicle state changed")
+    actorB.getInventory = priorBGetInventory
+
+    local vehicleExports = 0
+    SC.Vehicle = {
+        stateFor = function() return nil end,
+        exportStored = function()
+            vehicleExports = vehicleExports + 1
+            if vehicleExports == 1 then return {} end
+            return { ["sc-stored-transition"] = { id = "sc-stored-transition" } }
+        end,
+    }
+    check(SC.Persistence.reset() == true, "stored vehicle barrier resets scheduled state")
+    runBarrierJob("virtual vehicle transition", "vehicle storage changed")
+    SC.Vehicle = priorVehicle
+
+    local priorTrade = SC.Trade
+    local tradeExports = 0
+    SC.Trade = {
+        export = function()
+            tradeExports = tradeExports + 1
+            return { sequence = tradeExports }
+        end,
+    }
+    check(SC.Persistence.reset() == true, "trade barrier resets scheduled state")
+    runBarrierJob("trade recovery transition", "trade recovery changed")
+    SC.Trade = priorTrade
+
+    getTimestampMs = priorTimestamp
+    SC.Persistence.reset()
+    SC.Registry.unregister(actorA)
+    SC.Registry.unregister(actorB)
 end
 
 local stablePosition = SC.Persistence.noteStablePosition(record, 100)

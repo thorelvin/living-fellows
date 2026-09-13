@@ -154,6 +154,37 @@ check(SC.Persistence.retrySubsystem("community") == true
     "successful disposable subsystem retry releases quarantine")
 SC.Community = priorCommunity
 
+-- tradeRecovery is a first-class quarantined subsystem and must use the same
+-- disposable retry boundary as the other subsystem documents.
+check(SC.Persistence.reset() == true, "community retry state resets before trade recovery")
+local priorTrade = SC.Trade
+local tradeRetryMode = "reject"
+local tradeRaw = { queue = { { id = "recovery-1", phase = "rollback" } } }
+SC.Trade = {
+    restore = function(input)
+        input.queue[1].phase = "mutated-disposable-copy"
+        if tradeRetryMode == "reject" then
+            return false, "injected trade recovery rejection"
+        end
+        return true
+    end,
+    export = function() return {} end,
+}
+local tradeDocument = {
+    schema = SC.Identity.saveSchema, companions = {}, factionActors = {},
+    tradeRecovery = tradeRaw,
+}
+local tradePlayer = playerFor(tradeDocument)
+check(SC.Persistence.restore(tradePlayer) == true
+        and SC.Persistence.quarantineSnapshot().subsystems.tradeRecovery ~= nil
+        and tradeRaw.queue[1].phase == "rollback",
+    "rejected trade recovery restore keeps untouched raw quarantine")
+tradeRetryMode = "success"
+check(SC.Persistence.retrySubsystem("tradeRecovery") == true
+        and SC.Persistence.quarantineSnapshot().subsystems.tradeRecovery == nil,
+    "manual trade recovery retry resolves through its canonical owner")
+SC.Trade = priorTrade
+
 -- Accepted actor records use a normalized working record for activation, but
 -- must retain and re-emit their untouched accepted raw value until activation
 -- succeeds. A legacy inventory makes any accidental normalized write visible.

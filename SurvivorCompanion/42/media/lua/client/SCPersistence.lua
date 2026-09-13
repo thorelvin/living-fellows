@@ -489,13 +489,32 @@ local function maskHas(mask, flag)
     return math.floor((tonumber(mask) or 0) / flag) % 2 >= 1
 end
 
-local function copiedFactGroup(prefix, fields)
+local requiredNativeScalarFields = {
+    uses = true, age = true, offAge = true, offAgeMax = true,
+    bloodLevel = true, repairs = true, cooked = true, burnt = true,
+    activated = true,
+}
+
+local function copiedFactGroup(prefix, fields, required)
     local result = {}
     for _, field in ipairs(fields) do
         local value = itemFactsScratch[prefix .. field.key]
-        if value ~= nil then result[field.key] = value end
+        if value == nil then
+            if required == true or type(required) == "table" and required[field.key] then
+                return nil, false
+            end
+        else
+            if field.kind == "boolean" then
+                if type(value) ~= "boolean" then return nil, false end
+            elseif type(value) ~= "number" or finite(value, nil) == nil then
+                return nil, false
+            elseif field.kind == "integer" then
+                value = math.floor(value)
+            end
+            result[field.key] = value
+        end
     end
-    return hasEntries(result) and result or nil
+    return hasEntries(result) and result or nil, true
 end
 
 local function captureNativeItemFacts(item)
@@ -514,34 +533,57 @@ local function captureNativeItemFacts(item)
                 and tonumber(getTimestampMs()) or started) - started), 1, false)
     end
     mask = called and tonumber(mask) or nil
-    if mask == nil or mask < 0 or itemFactsScratch.type == nil then return nil end
+    if mask == nil or mask < 0 or mask > 31 or mask ~= math.floor(mask)
+        or type(itemFactsScratch.type) ~= "string" or itemFactsScratch.type == ""
+        or type(itemFactsScratch.condition) ~= "number"
+        or finite(itemFactsScratch.condition, nil) == nil
+        or type(itemFactsScratch.favorite) ~= "boolean" then return nil end
+    local scalar, scalarValid = copiedFactGroup(
+        "scalar_", scalarItemFields, requiredNativeScalarFields)
+    if not scalarValid then return nil end
     local result = {
         type = text(itemFactsScratch.type, "", 128),
-        condition = math.floor(finite(itemFactsScratch.condition, 0)),
+        condition = math.floor(itemFactsScratch.condition),
         favorite = itemFactsScratch.favorite == true,
-        scalar = copiedFactGroup("scalar_", scalarItemFields),
+        scalar = scalar,
     }
     if maskHas(mask, 2) then
-        result.drainable = copiedFactGroup("drainable_", drainableItemFields)
+        local group, valid = copiedFactGroup(
+            "drainable_", drainableItemFields, { currentUses = true })
+        if not valid then return nil end
+        result.drainable = group
     end
     if maskHas(mask, 1) then
-        result.food = copiedFactGroup("food_", foodItemFields)
+        if type(itemFactsScratch.scalar_frozen) ~= "boolean" then return nil end
+        local group, valid = copiedFactGroup("food_", foodItemFields, true)
+        if not valid then return nil end
+        result.food = group
     end
-    if maskHas(mask, 16) and finite(itemFactsScratch.key_id, nil) ~= nil then
-        result.key = { id = math.floor(finite(itemFactsScratch.key_id, -1)) }
+    if maskHas(mask, 16) then
+        if type(itemFactsScratch.key_id) ~= "number"
+            or finite(itemFactsScratch.key_id, nil) == nil then return nil end
+        result.key = { id = math.floor(itemFactsScratch.key_id) }
     end
     if maskHas(mask, 4) then
+        if type(itemFactsScratch.firearm_currentAmmo) ~= "number"
+            or finite(itemFactsScratch.firearm_currentAmmo, nil) == nil
+            or type(itemFactsScratch.firearm_containsClip) ~= "boolean"
+            or type(itemFactsScratch.firearm_roundChambered) ~= "boolean"
+            or type(itemFactsScratch.firearm_jammed) ~= "boolean"
+            or (itemFactsScratch.firearm_fireMode ~= nil
+                and type(itemFactsScratch.firearm_fireMode) ~= "string") then return nil end
         result.firearm = {
-            currentAmmo = itemFactsScratch.firearm_currentAmmo,
+            currentAmmo = math.max(0, math.floor(itemFactsScratch.firearm_currentAmmo)),
             containsClip = itemFactsScratch.firearm_containsClip,
             roundChambered = itemFactsScratch.firearm_roundChambered,
             jammed = itemFactsScratch.firearm_jammed,
             fireMode = itemFactsScratch.firearm_fireMode,
         }
     elseif maskHas(mask, 8) then
+        if type(itemFactsScratch.magazine_currentAmmo) ~= "number"
+            or finite(itemFactsScratch.magazine_currentAmmo, nil) == nil then return nil end
         result.magazine = {
-            currentAmmo = math.max(0, math.floor(finite(
-                itemFactsScratch.magazine_currentAmmo, 0))),
+            currentAmmo = math.max(0, math.floor(itemFactsScratch.magazine_currentAmmo)),
         }
     end
     return result
@@ -1113,6 +1155,57 @@ local function scheduledSubsystemDefinitions()
     }
 end
 
+local function subsystemDefinition(field)
+    for _, definition in ipairs(scheduledSubsystemDefinitions()) do
+        if definition.field == field then return definition end
+    end
+    return nil
+end
+
+local function scheduledSubsystemSource(definition)
+    if type(definition) ~= "table" then
+        return nil, "subsystem definition is unavailable", false
+    end
+    local quarantine = quarantined.subsystems[definition.field]
+    if quarantine ~= nil then return quarantine.raw, nil, true end
+    if definition.owner and type(definition.owner.export) == "function" then
+        local called, value, reason = pcall(definition.owner.export)
+        if not called or value == nil and reason ~= nil then
+            return nil, tostring(called and reason or value), false
+        end
+        return value, nil, true
+    end
+    return nil, nil, true
+end
+
+local function scheduledVehicleSource()
+    if not SC.Vehicle or type(SC.Vehicle.exportStored) ~= "function" then
+        return {}, nil, true
+    end
+    local called, value, reason = pcall(SC.Vehicle.exportStored)
+    if not called or value == nil and reason ~= nil then
+        return nil, tostring(called and reason or value), false
+    end
+    if value ~= nil and type(value) ~= "table" then
+        return nil, "vehicle storage export is not a table", false
+    end
+    return value or {}, nil, true
+end
+
+local function scheduledActorVehicleState(actor)
+    if not SC.Vehicle or type(SC.Vehicle.stateFor) ~= "function" then
+        return nil, nil, true
+    end
+    local called, value = pcall(SC.Vehicle.stateFor, actor)
+    if not called then return nil, tostring(value), false end
+    if value ~= nil and type(value) ~= "table" then
+        return nil, "actor vehicle state is not a table", false
+    end
+    local copied, reason = stableCopy(value, 4, 96, "$.actorVehicleProof")
+    if reason ~= nil then return nil, reason, false end
+    return copied, nil, true
+end
+
 local function identityAppend(result, value)
     result[#result + 1] = value ~= nil and value or false
 end
@@ -1198,6 +1291,17 @@ local function sameIdentitySequence(left, right)
     return true
 end
 
+
+local function sameStableValue(left, right)
+    if type(left) ~= type(right) then return false end
+    if type(left) ~= "table" then return left == right end
+    for key, value in pairs(left) do
+        if not sameStableValue(value, right[key]) then return false end
+    end
+    for key in pairs(right) do if left[key] == nil then return false end end
+    return true
+end
+
 local function abortScheduledSave(job, reason, current)
     scheduledSave = nil
     scheduledSaveRetryAt = current + math.max(100,
@@ -1231,7 +1335,7 @@ function persistence.requestScheduledSave(player)
             tonumber(SC.Config.get("persistenceCaptureDeadlineMs")) or 5000),
         phase = "subsystems", index = 1,
         definitions = scheduledSubsystemDefinitions(), records = records,
-        actorAttempts = {},
+        actorAttempts = {}, actorProofs = {},
         document = {
             schema = SC.Identity.saveSchema,
             protocol = SC.Identity.bridgeProtocol,
@@ -1264,15 +1368,22 @@ local function resumeScheduledCopy(job, deadline)
 end
 
 local function scheduledActor(job, record)
-    if (record.recruited ~= true and type(record.factionId) ~= "string")
-        or record.actor == nil then return true end
+    local proof = {
+        record = record, id = record.id, actor = record.actor,
+        recruited = record.recruited == true, factionId = record.factionId,
+        eligible = record.recruited == true or type(record.factionId) == "string",
+        inactive = type(record.runtime) == "table" and record.runtime.inactive == true,
+    }
+    job.actorProofs[record] = proof
+    if not proof.eligible or record.actor == nil then return true end
     local destination = record.recruited == true
         and job.document.companions or job.document.factionActors
     local bucket = record.recruited == true and "companions" or "factionActors"
     local deadOk, dead = invoke(record.actor, "isDead")
+    if not deadOk then return false, "actor death state unavailable" end
+    proof.dead = dead == true
     if deadOk and dead == true then return true end
-    local inactive = type(record.runtime) == "table" and record.runtime.inactive == true
-    if inactive then
+    if proof.inactive then
         local previous = record.runtime.lastStableSnapshot
             or (pending[record.id] and (pending[record.id].raw or pending[record.id].record))
             or (type(job.priorDocument) == "table"
@@ -1288,11 +1399,14 @@ local function scheduledActor(job, record)
     end
     local before, beforeReason = inventoryIdentitySequence(record.actor)
     if before == nil then return false, beforeReason end
-    local vehicleState = SC.Vehicle and type(SC.Vehicle.stateFor) == "function"
-        and SC.Vehicle.stateFor(record.actor) or nil
+    local vehicleState, vehicleReason, vehicleOk = scheduledActorVehicleState(record.actor)
+    if not vehicleOk then return false, "actor vehicle state unavailable: "
+        .. tostring(vehicleReason) end
+    proof.vehicle = vehicleState
     local captured, reason = persistence.captureRecord(record, vehicleState)
     local after, afterReason = inventoryIdentitySequence(record.actor)
     if captured ~= nil and after ~= nil and sameIdentitySequence(before, after) then
+        proof.inventory = after
         destination[record.id] = captured
         return true
     end
@@ -1324,7 +1438,82 @@ local function resumeScheduledActor(job, record, deadline, clock)
     return values[2] == true, values[3], true
 end
 
+
+local function verifyScheduledOwnership(job)
+    local listed, currentRecords = pcall(SC.Registry.records)
+    if not listed or type(currentRecords) ~= "table" or #currentRecords ~= #job.records then
+        return false, "registry changed during scheduled capture"
+    end
+    local currentById = {}
+    for _, record in ipairs(currentRecords) do
+        if currentById[record.id] ~= nil then return false, "registry contains duplicate ids" end
+        currentById[record.id] = record
+    end
+    for _, original in ipairs(job.records) do
+        local proof = job.actorProofs[original]
+        local current = proof and currentById[proof.id] or nil
+        if proof == nil or current ~= proof.record or current.actor ~= proof.actor
+            or (current.recruited == true) ~= proof.recruited
+            or current.factionId ~= proof.factionId then
+            return false, "registry lifecycle changed during scheduled capture"
+        end
+        local inactive = type(current.runtime) == "table" and current.runtime.inactive == true
+        if inactive ~= proof.inactive then
+            return false, "actor activity changed during scheduled capture: "
+                .. tostring(proof.id)
+        end
+        if proof.eligible and proof.actor ~= nil then
+            local deadOk, dead = invoke(proof.actor, "isDead")
+            if not deadOk or (dead == true) ~= proof.dead then
+                return false, "actor life state changed during scheduled capture: "
+                    .. tostring(proof.id)
+            end
+            if proof.inventory ~= nil then
+                local identity, reason = inventoryIdentitySequence(proof.actor)
+                if identity == nil or not sameIdentitySequence(proof.inventory, identity) then
+                    return false, "inventory ownership changed before scheduled commit: "
+                        .. tostring(proof.id) .. ": " .. tostring(reason or "identity mismatch")
+                end
+            end
+            local vehicleState, vehicleReason, vehicleOk =
+                scheduledActorVehicleState(proof.actor)
+            if not vehicleOk or not sameStableValue(proof.vehicle, vehicleState) then
+                return false, "actor vehicle state changed before scheduled commit: "
+                    .. tostring(proof.id) .. ": "
+                    .. tostring(vehicleReason or "identity mismatch")
+            end
+        end
+    end
+
+    local stored, storedReason, storedOk = scheduledVehicleSource()
+    if not storedOk then
+        return false, "vehicle storage export failed: " .. tostring(storedReason)
+    end
+    local vehicleProof, vehicleReason = stableCopy(stored,
+        documentDepthLimit(), documentEntryLimit(), "$.vehicleCommitProof")
+    if vehicleReason ~= nil or not sameStableValue(job.vehicleProof or {}, vehicleProof or {}) then
+        return false, "vehicle storage changed during scheduled capture: "
+            .. tostring(vehicleReason or "identity mismatch")
+    end
+
+    local tradeDefinition = subsystemDefinition("tradeRecovery")
+    local tradeSource, tradeReason, tradeOk = scheduledSubsystemSource(tradeDefinition)
+    if not tradeOk then return false, "tradeRecovery export failed: " .. tostring(tradeReason) end
+    local tradeProof, copyReason = stableCopy(tradeSource, tradeDefinition.depth,
+        tradeDefinition.entries, "$.tradeRecoveryCommitProof")
+    if copyReason ~= nil or not sameStableValue(job.tradeRecoveryProof, tradeProof) then
+        return false, "trade recovery changed during scheduled capture: "
+            .. tostring(copyReason or "identity mismatch")
+    end
+    return true
+end
+
 local function commitScheduled(job, outgoing)
+    -- The staged copies span frames, but publication is guarded by one final
+    -- main-thread ownership barrier. No game/container mutation can interleave
+    -- between this exact revalidation and the assignment below.
+    local coherent, coherenceReason = verifyScheduledOwnership(job)
+    if not coherent then return false, coherenceReason end
     local assigned, assignmentReason = pcall(function() job.store.document = outgoing end)
     if not assigned then
         local rolledBack, rollbackReason = pcall(function()
@@ -1357,20 +1546,17 @@ function persistence.pulse()
             local definition = job.definitions[job.index]
             if definition == nil then job.phase, job.index = "actors", 1
             else
-                local source
-                local quarantine = quarantined.subsystems[definition.field]
-                if quarantine ~= nil then source = quarantine.raw
-                elseif definition.owner and type(definition.owner.export) == "function" then
-                    local called, value, reason = pcall(definition.owner.export)
-                    if not called or value == nil and reason ~= nil then
-                        return abortScheduledSave(job, definition.field .. " export failed: "
-                            .. tostring(called and reason or value), current)
-                    end
-                    source = value
+                local source, sourceReason, sourceOk = scheduledSubsystemSource(definition)
+                if not sourceOk then
+                    return abortScheduledSave(job, definition.field .. " export failed: "
+                        .. tostring(sourceReason), current)
                 end
                 local field = definition.field
                 beginScheduledCopy(job, source, definition.depth, definition.entries,
-                    "$." .. field, function(copied) job.document[field] = copied end)
+                    "$." .. field, function(copied)
+                        job.document[field] = copied
+                        if field == "tradeRecovery" then job.tradeRecoveryProof = copied end
+                    end)
                 job.index = job.index + 1
             end
         elseif job.phase == "actors" then
@@ -1393,11 +1579,23 @@ function persistence.pulse()
                 job.index = job.index + 1
             end
         elseif job.phase == "vehicle" then
-            local stored = SC.Vehicle and type(SC.Vehicle.exportStored) == "function"
-                and SC.Vehicle.exportStored() or {}
-            for id, entry in pairs(stored) do job.document.companions[id] = entry end
-            job.phase, job.index = "pending", 1
-            job.pendingKeys = sortedKeys(pending)
+            local stored, storedReason, storedOk = scheduledVehicleSource()
+            if not storedOk then
+                return abortScheduledSave(job, "vehicle storage export failed: "
+                    .. tostring(storedReason), current)
+            end
+            job.phase = "vehicle-copy"
+            beginScheduledCopy(job, stored, documentDepthLimit(), documentEntryLimit(),
+                "$.vehicleStorage", function(copied)
+                    job.vehicleProof = copied or {}
+                    for id, entry in pairs(job.vehicleProof) do
+                        job.document.companions[id] = entry
+                    end
+                    job.phase, job.index = "pending", 1
+                    job.pendingKeys = sortedKeys(pending)
+                end)
+        elseif job.phase == "vehicle-copy" then
+            return "yielded", "vehicle_copy_pending"
         elseif job.phase == "pending" then
             local id = job.pendingKeys[job.index]
             if id == nil then
@@ -1469,18 +1667,7 @@ function persistence.save(player)
         companions = {},
         factionActors = {},
     }
-    local subsystemDefinitions = {
-        { field = "factions", owner = SC.Factions, depth = 12, entries = 131072 },
-        { field = "factionWorld", owner = SC.FactionWorld, depth = 8, entries = 16384 },
-        -- Work receipts may contain one bounded schema-2 item snapshot. Preserve
-        -- that evidence deeply enough for save/reload recovery instead of
-        -- truncating it at the older base-only document budget.
-        { field = "baseLife", owner = SC.BaseLife, depth = 24, entries = 65536 },
-        { field = "infectionCrisis", owner = SC.InfectionCrisis,
-            depth = 10, entries = 16384 },
-        { field = "community", owner = SC.Community, depth = 10, entries = 32768 },
-        { field = "tradeRecovery", owner = SC.Trade, depth = 14, entries = 16384 },
-    }
+    local subsystemDefinitions = scheduledSubsystemDefinitions()
     for _, definition in ipairs(subsystemDefinitions) do
         local source
         local quarantine = quarantined.subsystems[definition.field]
@@ -2760,14 +2947,11 @@ function persistence.restore(player)
     local cancelled, cancelReason = preparePendingCancellation("document restore")
     if not cancelled then return blockSave(document, cancelReason) end
 
-    local subsystemDefinitions = {
-        { field = "factions", owner = SC.Factions, diagnostic = "factions" },
-        { field = "factionWorld", owner = SC.FactionWorld, diagnostic = "faction-world" },
-        { field = "baseLife", owner = SC.BaseLife, diagnostic = "base-life" },
-        { field = "infectionCrisis", owner = SC.InfectionCrisis,
-            diagnostic = "infection-crisis" },
-        { field = "community", owner = SC.Community, diagnostic = "community" },
-        { field = "tradeRecovery", owner = SC.Trade, diagnostic = "trade-recovery" },
+    local subsystemDefinitions = scheduledSubsystemDefinitions()
+    local subsystemDiagnostics = {
+        factions = "factions", factionWorld = "faction-world", baseLife = "base-life",
+        infectionCrisis = "infection-crisis", community = "community",
+        tradeRecovery = "trade-recovery",
     }
     for _, definition in ipairs(subsystemDefinitions) do
         local raw = candidateDocument[definition.field]
@@ -2794,7 +2978,7 @@ function persistence.restore(player)
                     raw = raw, reason = failure,
                     path = "$." .. definition.field, firstSeenAt = current,
                 }
-                SC.Diagnostics.report(definition.diagnostic, nil,
+                SC.Diagnostics.report(subsystemDiagnostics[definition.field], nil,
                     "subsystem save quarantined", failure)
             end
         end
@@ -3025,11 +3209,8 @@ end
 function persistence.retrySubsystem(field)
     local entry = type(field) == "string" and quarantined.subsystems[field] or nil
     if entry == nil then return false, "quarantined subsystem is unavailable" end
-    local owners = {
-        factions = SC.Factions, factionWorld = SC.FactionWorld, baseLife = SC.BaseLife,
-        infectionCrisis = SC.InfectionCrisis, community = SC.Community,
-    }
-    local owner = owners[field]
+    local definition = subsystemDefinition(field)
+    local owner = definition and definition.owner or nil
     if owner == nil or type(owner.restore) ~= "function" then
         return false, "subsystem restore adapter is unavailable"
     end

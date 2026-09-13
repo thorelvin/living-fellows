@@ -2,6 +2,20 @@
 
 # Changelog
 
+## Unreleased
+
+## 0.22.23 - Atomic state and work recovery
+
+- Separated immutable work-receipt ownership from current gather assignments, so duty-off can leave a valid zero-worker paused order and terminal or unresolved cargo history survives repeated save/restore without weakening active ownership validation.
+- Preserved proven floor-item absence through tri-state pickup recovery and prefer the exact managed native item over snapshot reconstruction after mutation-then-failure, preventing both lost recovery and duplicate cargo.
+- Preserved Medical/Downtime delegate result reasons, made completed bandages finish exactly once, and let expired stable-idle chores enter their ordinary blocked retry state.
+- Enforced storage withdrawal settings and per-item reserves both during haul/sort selection and at the authoritative post-animation transfer, so concurrent workers cannot collectively consume reserved stock.
+- Released successful delivery references immediately and added a durable, bounded marker-cleanup phase for the rare terminal delivery whose ModData marker cannot yet be cleared. Pending cleanup pins its receipt and destination until an explicit or scheduled retry resolves it.
+- Normalized every numeric native bulk-table write to Kahlua's Lua-number representation and reject malformed item/zombie bulk results before they can bypass the proven Lua fallback.
+- Decoupled coherent zombie-snapshot publication cadence from negative-evidence identity. Stable 129-1000 zombie rosters can now finish bounded observer scans while a current spatial validation catches zombies that move into range; identity churn still invalidates absence immediately.
+- Added a final atomic scheduled-save barrier over registry lifecycle, every active actor's complete inventory/equipment ownership sequence, actor/virtual vehicle state and trade-recovery state. Cross-actor transfers can no longer publish a duplicated or omitted item merely because each local capture was internally stable.
+- Routed quarantined `tradeRecovery` through the same canonical subsystem definition used by save and restore, so its explicit retry action is available and preserves the raw document until accepted.
+
 ## 0.22.22 - Responsive work routes
 
 - Started fixed gathering, storage, building and needs movement through a validated straight-route fast path before allocating A*. Successful obstructed companion work trips now populate a bounded, coordinate-only session cache with nearby suffix joining, first-edge/live per-step revalidation and ordinary resumable A* fallback. Combat, survival, moving targets and stealth routing bypass this cache.

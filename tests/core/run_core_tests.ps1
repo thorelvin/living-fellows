@@ -36,6 +36,7 @@ try {
         (Join-Path $ProjectRoot 'tests\gameplay\KahluaTestRunner.java') `
         (Join-Path $ProjectRoot 'tests\ui\ReflectLuaCompiler.java') `
         (Join-Path $TestRoot 'SCNativeApiSignatureTest.java') `
+        (Join-Path $TestRoot 'SCBridgeLuaNumberContractTest.java') `
         (Join-Path $TestRoot 'SCAnimationContractTest.java') `
         (Join-Path $TestRoot 'SCItemContainerContractTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCKahluaExposureTest.java') `
@@ -359,6 +360,8 @@ try {
 
     & $GameJava -cp "$BuildRoot;$NativeJar;$Jar" SCNativeApiSignatureTest
     if ($LASTEXITCODE -ne 0) { throw 'Native API signature gate failed.' }
+    & $GameJava -cp "$BuildRoot;$NativeJar;$Jar" SCBridgeLuaNumberContractTest
+    if ($LASTEXITCODE -ne 0) { throw 'Native Kahlua number contract gate failed.' }
     & $GameJava -cp "$BuildRoot;$Jar" SCAnimationContractTest $GameRoot
     if ($LASTEXITCODE -ne 0) { throw 'Installed Build 42 animation contract gate failed.' }
     & $GameJava -cp "$BuildRoot;$Jar" SCItemContainerContractTest
