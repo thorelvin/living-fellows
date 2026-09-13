@@ -540,6 +540,7 @@ local function normalizeProductionOrder(source)
         graves = graves,
         linkedGatherOrderId = validId(source.linkedGatherOrderId, "work-order:")
             and source.linkedGatherOrderId or nil,
+        pendingHaul = integer(source.pendingHaul, 0, 0, 999999),
         createdAt = math.max(0, finite(source.createdAt, 0)),
         updatedAt = math.max(0, finite(source.updatedAt, 0)),
         completedAt = source.completedAt ~= nil
@@ -1831,11 +1832,18 @@ local function interruptProductionWorkers(order, reason)
     for _, workerId in ipairs(order and order.workers or {}) do
         local actor = U().resolveActor(workerId)
         if actor and SC.BaseWork and type(SC.BaseWork.cancel) == "function" then
-            pcall(SC.BaseWork.cancel, actor, reason)
+            local called, cancelled, cancelReason = pcall(SC.BaseWork.cancel, actor, reason)
+            if not called or cancelled ~= true then
+                return false, cancelReason or cancelled or "production_interrupt_failed"
+            end
         elseif actor and SC.Production and type(SC.Production.cancelActor) == "function" then
-            pcall(SC.Production.cancelActor, actor, reason)
+            local called, cancelled, cancelReason = pcall(SC.Production.cancelActor, actor, reason)
+            if not called or cancelled ~= true then
+                return false, cancelReason or cancelled or "production_interrupt_failed"
+            end
         end
     end
+    return true
 end
 
 local function forgetProductionRuntime(order)
@@ -1961,6 +1969,7 @@ function BaseLife.createProductionOrder(spec)
         orderId = order.id, operation = order.operation, requested = order.requested,
         zoneId = order.zoneId,
     })
+    bumpWorkConsistencyRevision()
     return true, order, enabledDuty
 end
 
@@ -1971,6 +1980,7 @@ function BaseLife.blockProductionOrder(id, reason)
         cleanText(reason, "production_blocked", 160), now()
     -- Runtime-only cadence: a restored blocked order re-checks at once.
     order.retryAt = now() + math.max(1000, U().config("productionBlockedRetryMs") or 30000)
+    bumpWorkConsistencyRevision()
     return true, order
 end
 
@@ -1978,6 +1988,7 @@ function BaseLife.reopenProductionOrder(id)
     local order = productionOrderIn(activeBase(), id)
     if not order or order.state ~= "blocked" then return false, "production_order_not_blocked" end
     order.state, order.blocker, order.updatedAt = "running", nil, now()
+    bumpWorkConsistencyRevision()
     return true, order
 end
 
@@ -1985,7 +1996,9 @@ function BaseLife.pauseProductionOrder(id, reason)
     local base = activeBase()
     local order = productionOrderIn(base, id)
     if not order or orderIsTerminal(order) then return false, "unknown_production_order" end
-    interruptProductionWorkers(order, reason or "production_paused")
+    local interrupted, interruptReason = interruptProductionWorkers(order,
+        reason or "production_paused")
+    if interrupted ~= true then return false, interruptReason or "production_interrupt_failed" end
     order.state, order.blocker, order.updatedAt = "paused",
         cleanText(reason, "production_paused", 160), now()
     for _, job in ipairs(base.jobs) do
@@ -1994,6 +2007,7 @@ function BaseLife.pauseProductionOrder(id, reason)
             job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
         end
     end
+    bumpWorkConsistencyRevision()
     return true, order
 end
 
@@ -2015,6 +2029,7 @@ function BaseLife.resumeProductionOrder(id)
     if SC.Production and type(SC.Production.retryOrder) == "function" then
         SC.Production.retryOrder(id)
     end
+    bumpWorkConsistencyRevision()
     return true, order
 end
 
@@ -2026,13 +2041,15 @@ function BaseLife.cancelProductionOrder(id)
     local base = activeBase()
     local order = productionOrderIn(base, id)
     if not order or orderIsTerminal(order) then return false, "unknown_production_order" end
-    interruptProductionWorkers(order, "production_cancelled")
+    local interrupted, interruptReason = interruptProductionWorkers(order, "production_cancelled")
+    if interrupted ~= true then return false, interruptReason or "production_interrupt_failed" end
     order.state, order.blocker, order.updatedAt = "cancelled", nil, now()
     removeProductionJobs(base, id)
     forgetProductionRuntime(order)
     BaseLife.noteHistory("production_order_cancelled", {
         orderId = id, operation = order.operation, completed = order.completed,
     })
+    bumpWorkConsistencyRevision()
     return true, order
 end
 
@@ -2058,6 +2075,7 @@ function BaseLife.addProductionWorker(id, actorId)
         return false, jobReason
     end
     order.updatedAt = now()
+    bumpWorkConsistencyRevision()
     return true, order
 end
 
@@ -2068,8 +2086,10 @@ function BaseLife.recordProductionProgress(id, amount)
     local order = productionOrderIn(activeBase(), id)
     if not order or orderIsTerminal(order) then return false, "unknown_production_order" end
     amount = integer(amount, 0, 0, 999)
+    local previous = order.completed
     order.completed = math.min(order.requested, order.completed + amount)
     order.updatedAt, order.blocker = now(), nil
+    if order.completed ~= previous then bumpWorkConsistencyRevision() end
     return true, order
 end
 
@@ -2084,6 +2104,7 @@ function BaseLife.completeProductionOrder(id, result)
     BaseLife.noteHistory("production_order_completed", {
         orderId = order.id, operation = order.operation, completed = order.completed,
     })
+    bumpWorkConsistencyRevision()
     return true, order
 end
 
@@ -2095,8 +2116,9 @@ function BaseLife.noteProductionCounter(key, amount)
         if counter == key then known = true break end
     end
     if not known then return false, "unknown_production_counter" end
-    production.counters[key] = math.min(999999,
-        integer(production.counters[key], 0, 0, 999999) + integer(amount, 0, 0, 999))
+    local previous = integer(production.counters[key], 0, 0, 999999)
+    production.counters[key] = math.min(999999, previous + integer(amount, 0, 0, 999))
+    if production.counters[key] ~= previous then bumpWorkConsistencyRevision() end
     return true, production.counters[key]
 end
 
@@ -2111,6 +2133,7 @@ function BaseLife.noteProductionGrave(id, point)
     end
     order.graves[#order.graves + 1] = normalized
     while #order.graves > 8 do table.remove(order.graves, 1) end
+    bumpWorkConsistencyRevision()
     return true, order
 end
 
@@ -2118,12 +2141,15 @@ function BaseLife.forgetProductionGrave(id, point)
     local order = productionOrderIn(activeBase(), id)
     local normalized = type(point) == "table" and normalizePoint(point) or nil
     if not order or not normalized then return false, "invalid_production_grave" end
+    local removed = false
     for index = #order.graves, 1, -1 do
         local grave = order.graves[index]
         if grave.x == normalized.x and grave.y == normalized.y and grave.z == normalized.z then
             table.remove(order.graves, index)
+            removed = true
         end
     end
+    if removed then bumpWorkConsistencyRevision() end
     return true, order
 end
 
@@ -2131,9 +2157,12 @@ function BaseLife.extendGatherOrder(id, amount)
     local base = activeBase()
     local order = workOrderIn(base, id)
     if not order or orderIsTerminal(order) then return false, "unknown_work_order" end
-    amount = integer(amount, 0, 0, 100)
+    amount = integer(amount, 0, 0, 999999)
     if amount < 1 then return false, "gather_extension_empty" end
-    order.requested = math.min(100, order.requested + amount)
+    local accepted = math.min(amount, math.max(0, 100 - order.requested))
+    local remainder = amount - accepted
+    if accepted == 0 then return true, order, 0, remainder end
+    order.requested = order.requested + accepted
     order.updatedAt = now()
     if order.state == "blocked" then
         order.state, order.blocker = "running", nil
@@ -2149,11 +2178,62 @@ function BaseLife.extendGatherOrder(id, amount)
         end
     end
     bumpWorkConsistencyRevision()
-    return true, order
+    return true, order, accepted, remainder
 end
 
 -- Felled logs stay vanilla world items. One linked gathering order moves
--- them under the existing exact-item receipts instead of a second ledger.
+-- them under exact-item receipts instead of a second ledger. A gather child is
+-- deliberately capped at 100 items; overflow is persisted on the production
+-- order and split into further children instead of being silently discarded.
+local function flushProductionHaul(base, order)
+    local pending = integer(order.pendingHaul, 0, 0, 999999)
+    local latest
+    while pending > 0 do
+        local linked = order.linkedGatherOrderId
+            and workOrderIn(base, order.linkedGatherOrderId) or nil
+        if linked and not orderIsTerminal(linked) then
+            local extended, value, accepted, remainder = BaseLife.extendGatherOrder(
+                linked.id, pending)
+            if extended ~= true then return false, value end
+            latest, pending = value, remainder
+        end
+        if pending > 0 then
+            local chunk = math.min(100, pending)
+            local ok, gather = BaseLife.createGatherOrder({
+                material = "logs", requested = chunk, zoneId = order.zoneId,
+                destinationStorageId = order.destinationStorageId, workers = order.workers,
+                enableDuty = true,
+            })
+            if ok ~= true then
+                order.pendingHaul, order.updatedAt = pending, now()
+                bumpWorkConsistencyRevision()
+                return false, gather
+            end
+            order.linkedGatherOrderId = gather.id
+            latest, pending = gather, pending - chunk
+        end
+    end
+    if order.pendingHaul ~= 0 then
+        order.pendingHaul, order.updatedAt = 0, now()
+        bumpWorkConsistencyRevision()
+    end
+    return true, latest
+end
+
+function BaseLife.flushProductionHaul(id)
+    local base = activeBase()
+    local order = productionOrderIn(base, id)
+    if not order or order.operation ~= "fell_trees" or orderIsTerminal(order) then
+        return false, "unknown_production_order"
+    end
+    if type(order.settings) ~= "table" or order.settings.haulLogs ~= true
+        or not order.destinationStorageId then
+        return false, "production_haul_disabled"
+    end
+    if integer(order.pendingHaul, 0, 0, 999999) == 0 then return true, nil end
+    return flushProductionHaul(base, order)
+end
+
 function BaseLife.linkProductionHaul(id, amount)
     local base = activeBase()
     local order = productionOrderIn(base, id)
@@ -2164,20 +2244,13 @@ function BaseLife.linkProductionHaul(id, amount)
         or not order.destinationStorageId then
         return false, "production_haul_disabled"
     end
-    amount = integer(amount, 0, 0, 100)
+    amount = integer(amount, 0, 0, 999999)
     if amount < 1 then return false, "production_haul_empty" end
-    local linked = order.linkedGatherOrderId and workOrderIn(base, order.linkedGatherOrderId) or nil
-    if linked and not orderIsTerminal(linked) then
-        return BaseLife.extendGatherOrder(linked.id, amount)
-    end
-    local ok, gather = BaseLife.createGatherOrder({
-        material = "logs", requested = amount, zoneId = order.zoneId,
-        destinationStorageId = order.destinationStorageId, workers = order.workers,
-        enableDuty = true,
-    })
-    if ok ~= true then return false, gather end
-    order.linkedGatherOrderId, order.updatedAt = gather.id, now()
-    return true, gather
+    order.pendingHaul = math.min(999999,
+        integer(order.pendingHaul, 0, 0, 999999) + amount)
+    order.updatedAt = now()
+    bumpWorkConsistencyRevision()
+    return flushProductionHaul(base, order)
 end
 
 function BaseLife.workRecoveryCursor(value)
@@ -2763,6 +2836,7 @@ function BaseLife.summary()
                     state = order.state, blocker = order.blocker,
                     settings = stableCopy(order.settings, 2, { count = 16 }),
                     linkedGatherOrderId = order.linkedGatherOrderId,
+                    pendingHaul = order.pendingHaul,
                     workerPhases = workerPhases,
                 }
             end

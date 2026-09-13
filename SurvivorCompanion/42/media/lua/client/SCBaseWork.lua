@@ -816,7 +816,11 @@ function BaseWork.cancel(actor, reason)
         pcall(SC.GatherWork.cancelActor, actor, reason or "base_work_cancelled")
     end
     if SC.Production and type(SC.Production.cancelActor) == "function" then
-        pcall(SC.Production.cancelActor, actor, reason or "base_work_cancelled")
+        local called, cancelled, cancelReason = pcall(SC.Production.cancelActor, actor,
+            reason or "base_work_cancelled")
+        if not called or cancelled ~= true then
+            return false, cancelReason or cancelled or "production_cancel_failed"
+        end
     end
     if not state then return true end
     local id = actorId(actor)

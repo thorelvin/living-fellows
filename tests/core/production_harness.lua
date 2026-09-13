@@ -465,6 +465,48 @@ end
 
 do
     local ctx = setup()
+    local order = start(ctx, {
+        operation = "dig_graves", zoneId = ctx.burial.id, requested = 2,
+    })
+    local revision = SC.BaseLife.workConsistencyRevision()
+    check(SC.BaseLife.recordProductionProgress(order.id, 1) == true
+        and SC.BaseLife.workConsistencyRevision() > revision,
+        "production progress advances the scheduled-save consistency revision")
+    revision = SC.BaseLife.workConsistencyRevision()
+    check(SC.BaseLife.noteProductionGrave(order.id, { x = -2, y = -3, z = 0 }) == true
+        and SC.BaseLife.workConsistencyRevision() > revision,
+        "tracked grave mutations advance the scheduled-save consistency revision")
+    revision = SC.BaseLife.workConsistencyRevision()
+    check(SC.BaseLife.noteProductionCounter("gravesDug", 1) == true
+        and SC.BaseLife.workConsistencyRevision() > revision,
+        "production counter mutations advance the scheduled-save consistency revision")
+end
+
+do
+    local ctx = setup()
+    local order = start(ctx, {
+        operation = "fell_trees", zoneId = ctx.lumber.id, requested = 1,
+        destinationStorageId = ctx.logs.id,
+    })
+    check(SC.BaseLife.linkProductionHaul(order.id, 98) == true,
+        "the first linked hauling batch is created")
+    check(SC.BaseLife.linkProductionHaul(order.id, 4) == true,
+        "linked hauling accepts demand beyond one child cap")
+    local total, active = 0, 0
+    for _, gather in ipairs(SC.BaseLife.workOrders(false)) do
+        if gather.material == "logs" and gather.zoneId == ctx.lumber.id then
+            total, active = total + gather.requested, active + 1
+        end
+    end
+    local saved = SC.BaseLife.productionOrder(order.id)
+    check(total == 102 and active == 2 and saved.pendingHaul == 0,
+        "98 + 4 logs remain represented as 100 + 2 linked demand")
+    check(SC.BaseLife.workOrder(saved.linkedGatherOrderId).requested == 2,
+        "the production order points at the newest overflow child")
+end
+
+do
+    local ctx = setup()
     local exported = SC.BaseLife.export()
     local base = exported.bases[exported.activeBaseId]
     base.production = {
@@ -879,6 +921,99 @@ do
         "cancellation clears the order marker from carried cargo")
 end
 
+do
+    local ctx = setup()
+    ctx.actor.inventory:AddItem(makeItem("Base.Saw", { tags = { saw = true } }))
+    ctx.logsObject.container:AddItem("Base.Log")
+    ctx.logsObject.container:AddItem("Base.Log")
+    local order = start(ctx, {
+        operation = "saw_planks", sourceStorageId = ctx.logs.id,
+        destinationStorageId = ctx.planks.id, requested = 3,
+    })
+    local revision = SC.BaseLife.workConsistencyRevision()
+    for _ = 1, 4 do
+        tick(ctx)
+        if SC.NativeActions.workKind(ctx.actor) == "saw_logs" then break end
+    end
+    check(type(ctx.actor.modData.LF_ProductionSawReceipt) == "table"
+        and SC.BaseLife.workConsistencyRevision() > revision,
+        "a running saw action persists its precondition and invalidates staged saves")
+    current(ctx.actor):perform()
+    check(SC.BaseLife.pauseProductionOrder(order.id, "player_paused") == true,
+        "a completed-but-unpolled saw action reconciles while pausing")
+    local carried = 0
+    for _, item in ipairs(ctx.actor.inventory.items) do
+        if item.fullType == "Base.Plank" and item.modData.LF_ProductionOrderId == order.id then
+            carried = carried + 1
+        end
+    end
+    check(carried == 3 and ctx.actor.modData.LF_ProductionSawReceipt == nil
+        and countType(ctx.logsObject.container, "Base.Log") == 1,
+        "pause adopts each completed plank once without withdrawing a replacement log")
+    check(SC.BaseLife.resumeProductionOrder(order.id) == true, "the reconciled saw order resumes")
+    for _ = 1, 12 do
+        tick(ctx)
+        if SC.BaseLife.productionOrder(order.id).state == "completed" then break end
+    end
+    check(SC.BaseLife.productionOrder(order.id).state == "completed"
+        and countType(ctx.logsObject.container, "Base.Log") == 1
+        and countType(ctx.planksObject.container, "Base.Plank") == 3,
+        "resume delivers reconciled output without consuming another source log")
+end
+
+do
+    local ctx = setup()
+    ctx.actor.inventory:AddItem(makeItem("Base.Saw", { tags = { saw = true } }))
+    ctx.logsObject.container:AddItem("Base.Log")
+    local order = start(ctx, {
+        operation = "saw_planks", sourceStorageId = ctx.logs.id,
+        destinationStorageId = ctx.planks.id, requested = 3,
+    })
+    for _ = 1, 4 do
+        tick(ctx)
+        if SC.NativeActions.workKind(ctx.actor) == "saw_logs" then break end
+    end
+    local realCancelWork = SC.NativeActions.cancelWork
+    SC.NativeActions.cancelWork = function() return false, "fixture_cancel_refused" end
+    local paused, pauseReason = SC.BaseLife.pauseProductionOrder(order.id, "player_paused")
+    SC.NativeActions.cancelWork = realCancelWork
+    check(paused == false and pauseReason == "fixture_cancel_refused"
+        and SC.BaseLife.productionOrder(order.id).state == "running"
+        and SC.NativeActions.isWorkActive(ctx.actor) == true,
+        "a refused native cancellation preserves both the running order and action state")
+    check(SC.BaseLife.pauseProductionOrder(order.id, "player_paused") == true,
+        "the same saw action can be cancelled cleanly on a later attempt")
+    check(countType(ctx.actor.inventory, "Base.Log") == 1
+        and countType(ctx.actor.inventory, "Base.Plank") == 0,
+        "pausing before completion conserves the exact input and creates no output")
+end
+
+do
+    local ctx = setup()
+    local order = start(ctx, {
+        operation = "saw_planks", sourceStorageId = ctx.logs.id,
+        destinationStorageId = ctx.planks.id, requested = 3,
+    })
+    local oldA = ctx.actor.inventory:AddItem("Base.Plank")
+    local oldB = ctx.actor.inventory:AddItem("Base.Plank")
+    local made = {
+        ctx.actor.inventory:AddItem("Base.Plank"),
+        ctx.actor.inventory:AddItem("Base.Plank"),
+        ctx.actor.inventory:AddItem("Base.Plank"),
+    }
+    ctx.actor.modData.LF_ProductionSawReceipt = {
+        orderId = order.id, logKey = "native:gone", beforeCount = 2, startedAt = 10,
+    }
+    check(SC.Production.cancelActor(ctx.actor, "reload_teardown") == true,
+        "an orphaned persisted saw receipt reconciles during cancellation")
+    check(oldA.modData.LF_ProductionOrderId == nil and oldB.modData.LF_ProductionOrderId == nil,
+        "receipt reconciliation never adopts planks that predated the action")
+    check(made[1].modData.LF_ProductionOrderId == order.id
+        and made[2].modData.LF_ProductionOrderId == order.id
+        and made[3].modData.LF_ProductionOrderId == order.id,
+        "receipt reconciliation adopts only the restored action's output delta")
+end
+
 -- ---------------------------------------------------------------------------
 -- Graves: dig, bury, fill, ceremony
 -- ---------------------------------------------------------------------------
@@ -990,12 +1125,75 @@ do
 end
 
 do
+    local ctx = setup({ workers = 2 })
+    for _, actor in ipairs(ctx.actors) do
+        actor.inventory:AddItem(makeItem("Base.Shovel", { tags = { diggrave = true } }))
+    end
+    local grave = createGrave(-2, -3, 0, false)
+    makeBody(sq(-2, -2))
+    local order = start(ctx, {
+        operation = "bury_bodies", zoneId = ctx.burial.id, requested = 2,
+        workers = { ctx.actors[1].modData.SC_Id, ctx.actors[2].modData.SC_Id },
+        settings = { closeWhenDone = false, digIfNeeded = false },
+    })
+    local _, firstReason = tick(ctx, nil, ctx.actors[1])
+    check(firstReason == "production_burying" and current(ctx.actors[1]) ~= nil,
+        "the first burial worker owns the physical target")
+    local secondHandled, secondReason = tick(ctx, nil, ctx.actors[2])
+    check(secondHandled == true and current(ctx.actors[2]) == nil
+        and (secondReason == "production_burial_pair_pending"
+            or secondReason == "production_burial_targets_claimed"),
+        "a second worker cannot queue the claimed body or grave: " .. tostring(secondReason))
+    current(ctx.actors[1]):perform()
+    local _, buriedReason = tick(ctx, nil, ctx.actors[1])
+    tick(ctx, nil, ctx.actors[2])
+    check(buriedReason == "production_body_buried"
+        and SC.BaseLife.productionOrder(order.id).completed == 1
+        and SC.BaseLife.productionCounters().bodiesBuried == 1
+        and grave.modData.corpses == 1,
+        "one physical burial produces exactly one order credit with two workers")
+end
+
+do
+    local ctx = setup()
+    ctx.actor.inventory:AddItem(makeItem("Base.Shovel", { tags = { diggrave = true } }))
+    local empty = createGrave(-3, -4, 0, false)
+    local usable = createGrave(-2, -2, 0, false)
+    makeBody(sq(-2, -2))
+    local realConfig = SC.GameplayUtil.config
+    SC.GameplayUtil.config = function(key)
+        if key == "productionBurialBodyRadius" then return 0 end
+        return realConfig(key)
+    end
+    local order = start(ctx, {
+        operation = "bury_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { closeWhenDone = false, digIfNeeded = false },
+    })
+    local _, firstReason = tick(ctx)
+    local _, secondReason = tick(ctx)
+    SC.GameplayUtil.config = realConfig
+    check(firstReason == "production_burial_pair_pending"
+        and secondReason == "production_burying" and current(ctx.actor) ~= nil
+        and current(ctx.actor).grave == usable and current(ctx.actor).grave ~= empty,
+        "an empty remembered grave cannot starve a later viable grave/body pair")
+    current(ctx.actor):perform()
+    tick(ctx)
+    check(SC.BaseLife.productionOrder(order.id).completed == 1,
+        "burial progresses at the viable grave")
+end
+
+do
     local ctx = setup()
     ctx.actor.inventory:AddItem(makeItem("Base.Shovel", { tags = { diggrave = true } }))
     createGrave(-2, -3, 0, false)
     makeBody(sq(-1, -3), { items = { "Base.Hat" } })
     local order = start(ctx, { operation = "bury_bodies", zoneId = ctx.burial.id, requested = 1 })
-    local _, reason = tick(ctx)
+    local reason
+    for _ = 1, 4 do
+        local _, value = tick(ctx)
+        reason = value
+        if SC.BaseLife.productionOrder(order.id).state == "blocked" then break end
+    end
     check(reason == "bodies_carry_items:1"
         and SC.BaseLife.productionOrder(order.id).state == "blocked",
         "bodies carrying items block with a count: " .. tostring(reason))
@@ -1042,8 +1240,13 @@ do
     createGrave(-2, -3, 0, false)
     local order = start(ctx, { operation = "bury_bodies", zoneId = ctx.burial.id, requested = 1 })
     local _, reason = tick(ctx)
-    check(reason == "no_bodies_near_grave", "an open grave without bodies blocks: " .. tostring(reason))
-    for _ = 1, 3 do tick(ctx, nil, nil, 31000) end
+    check(reason == "production_burial_pair_pending"
+        and SC.BaseLife.productionOrder(order.id).state == "running",
+        "one empty grave is skipped before the whole burial area is exhausted")
+    for _ = 1, 8 do
+        _, reason = tick(ctx, nil, nil, 31000)
+        if SC.BaseLife.productionOrder(order.id).state == "blocked" then break end
+    end
     local digs = 0
     for x = -4, -1 do
         for y = -4, -2 do
@@ -1054,7 +1257,8 @@ do
     end
     check(digs == 1 and SC.NativeActions.workKind(ctx.actor) ~= "dig_grave"
         and SC.BaseLife.productionOrder(order.id).state == "blocked",
-        "an existing open grave is reused instead of digging another")
+        "without any eligible body, burial blocks without digging an unrelated grave: "
+            .. tostring(reason))
 end
 
 -- ---------------------------------------------------------------------------

@@ -46,6 +46,28 @@ local function record(id)
     }
 end
 
+do
+    local markerData = { LF_ProductionOrderId = "production-order:before" }
+    local item = { getModData = function() return markerData end }
+    local items = {
+        size = function() return 1 end,
+        get = function(_, index) return index == 0 and item or nil end,
+    }
+    local inventory = { getItems = function() return items end }
+    local actor = { getInventory = function() return inventory end }
+    local before = SC.Persistence._inventoryIdentitySequenceForTests(actor)
+    markerData.LF_ProductionOrderId = "production-order:after"
+    local after = SC.Persistence._inventoryIdentitySequenceForTests(actor)
+    local changed = type(before) == "table" and type(after) == "table" and #before == #after
+    if changed then
+        changed = false
+        for index = 1, #before do
+            if before[index] ~= after[index] then changed = true break end
+        end
+    end
+    check(changed, "production cargo marker mutation changes the final inventory identity proof")
+end
+
 -- Mixed numeric/string bucket keys must never enter table.sort's incomparable
 -- key path. Invalid numeric keys remain raw quarantine passthrough values.
 check(SC.Persistence.reset() == true, "persistence starts from a clean transaction")
@@ -67,6 +89,26 @@ local mixedSaved, mixedOutgoing = SC.Persistence.save(mixedPlayer)
 check(mixedSaved == true and mixedOutgoing.companions[7].marker == mixedRaw.marker
         and mixedData.document.companions[7].marker == mixedRaw.marker,
     "invalid numeric-key data is re-emitted without truncation")
+
+check(SC.Persistence.reset() == true, "saw receipt persistence starts cleanly")
+local sawRecord = record("sc-saw-recovery")
+sawRecord.productionAction = {
+    kind = "saw_logs", orderId = "production-order:7", logKey = "native:41",
+    beforeCount = 2, startedAt = 12345,
+}
+local sawDocument = {
+    schema = SC.Identity.saveSchema,
+    companions = { [sawRecord.id] = sawRecord }, factionActors = {},
+}
+local sawPlayer = playerFor(sawDocument)
+check(SC.Persistence.restore(sawPlayer) == true
+        and SC.Persistence.isPending(sawRecord.id),
+    "a completed-before-poll saw receipt survives document validation")
+local sawSaved, sawOutgoing = SC.Persistence.save(sawPlayer)
+check(sawSaved == true
+        and sawOutgoing.companions[sawRecord.id].productionAction.orderId
+            == "production-order:7",
+    "an unresolved saw receipt is re-emitted for later output reconciliation")
 
 -- A malformed top-level actor bucket cannot be treated as empty, because the
 -- next save would erase it. It also must fail before a subsystem is invoked.

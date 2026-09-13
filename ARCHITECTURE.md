@@ -55,7 +55,12 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   a companion build action, `ISBuryCorpse`, `ISFillGrave`); progress counts
   only after the post-condition is re-proved in the world (tree gone, exactly
   the new planks, both grave halves, body removed and grave count raised,
-  grave filled). A chop watchdog enables vanilla's own 1500 ms `ChopTree`
+  grave filled). Sawing retains a bounded actor receipt containing the order,
+  input identity and pre-action plank count; completed effects are reconciled
+  before cancellation and after restore, while cargo markers make adoption
+  idempotent. Burial claims both its exact body and grave and commits one
+  outcome per target; its bounded pass skips open graves with no eligible body
+  and automatic digging admits only sites near one. A chop watchdog enables vanilla's own 1500 ms `ChopTree`
   event emulation only after native events are disproved for the session, and
   disables it on the first native hit. Scans are resumable and square-budgeted,
   candidates back off and exhaust, loud work refuses visible threats, rest and
@@ -67,8 +72,11 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   `workReach` (felling and lumber-area gathering), `SCNavigation`/`SCWorkRoutes`
   use it for every camp-work admission site, and `SCBaseWork` lets only lumber
   jobs continue there; outside the camp no new tree is started at night.
-  Felled logs stay vanilla world items and are moved by one linked gathering
-  order over the lumber zone. Burial ceremonies add one prayer or gallows line
+  Felled logs stay vanilla world items and are moved by linked gathering
+  children over the lumber zone. Each child remains capped at 100; overflow is
+  persisted on the production order and split into later children without lost
+  demand. Production lifecycle/progress/grave/cargo mutations share the same
+  monotonic scheduled-save consistency barrier as gathering receipts. Burial ceremonies add one prayer or gallows line
   per grave, chosen by personality and mood.
 - `SCWorkTransport` owns persistent work cargo receipts and the strong transfer
   boundary shared by gathering and ordinary base hauling. Exact transactional

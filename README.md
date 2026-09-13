@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.20.4-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.22.25-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.22.26-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -159,10 +159,10 @@ Residents on base duty sort storage, repair gear, craft supplies, keep watch, pa
 
 | Job | You need | What happens |
 | --- | --- | --- |
-| Fell trees | A lumber area and an axe in storage | Residents chop standing trees with the game's own action. A tree counts only once it is down, and its logs can be hauled to storage automatically. |
-| Saw planks | Logs in one storage, a saw, and a second storage for planks | Residents take one log at a time, saw it into three planks with the vanilla recipe, and store the planks. |
+| Fell trees | A lumber area and an axe in storage | Residents chop standing trees with the game's own action. A tree counts only once it is down, and its logs can be hauled to storage automatically across as many bounded hauling batches as needed. |
+| Saw planks | Logs in one storage, a saw, and a second storage for planks | Residents take one log at a time, saw it into three planks with the vanilla recipe, and store the planks. Completed output is recovered after a pause or reload before another log can be taken. |
 | Dig graves | A burial ground and a shovel | Residents dig vanilla graves on natural ground. |
-| Bury the dead | A burial ground and a shovel | Residents bury bodies lying within two tiles of an open grave, digging one if needed. They fill the grave when it is full or the order is done, and can add a wooden cross (hammer, two planks, two nails). |
+| Bury the dead | A burial ground and a shovel | Residents match each body to a usable open grave, reserve both while working, and dig near an eligible body if needed. They fill the grave when it is full or the order is done, and can add a wooden cross (hammer, two planks, two nails). |
 
 - Chopping is loud. No tree is started while danger is visible nearby, winded residents rest, and a chop that gets stuck is abandoned after three minutes.
 - Outside the camp boundary, residents start no new tree at night (21:00–06:00).

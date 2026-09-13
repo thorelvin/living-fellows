@@ -1019,6 +1019,7 @@ function persistence.captureRecord(record, vehicleState)
     -- Persist it as order.anchor so a reloaded guard returns to its post rather than
     -- to wherever it happened to be standing when saved (R2-03).
     local orderAnchor
+    local productionAction
     local anchorDataOk, anchorData = invoke(actor, "getModData")
     if anchorDataOk and type(anchorData) == "table"
         and finite(anchorData.SC_AnchorX, nil) ~= nil
@@ -1027,6 +1028,22 @@ function persistence.captureRecord(record, vehicleState)
             x = finite(anchorData.SC_AnchorX, 0),
             y = finite(anchorData.SC_AnchorY, 0),
             z = finite(anchorData.SC_AnchorZ, 0),
+        }
+    end
+    local rawProductionAction = anchorDataOk and type(anchorData) == "table"
+        and anchorData.LF_ProductionSawReceipt or nil
+    if type(rawProductionAction) == "table"
+        and type(rawProductionAction.orderId) == "string"
+        and string.sub(rawProductionAction.orderId, 1, 17) == "production-order:"
+        and finite(rawProductionAction.beforeCount, nil) ~= nil then
+        productionAction = {
+            kind = "saw_logs",
+            orderId = text(rawProductionAction.orderId, "", 96),
+            logKey = type(rawProductionAction.logKey) == "string"
+                and text(rawProductionAction.logKey, "", 128) or nil,
+            beforeCount = math.max(0, math.min(256,
+                math.floor(finite(rawProductionAction.beforeCount, 0)))),
+            startedAt = math.max(0, finite(rawProductionAction.startedAt, 0)),
         }
     end
     local profile, copyReason = stableCopy(personality.profile, 3, 64,
@@ -1111,6 +1128,7 @@ function persistence.captureRecord(record, vehicleState)
         objectives = objectiveCopy,
         possessions = possessions,
         inventory = inventorySnapshot,
+        productionAction = productionAction,
         skills = captureSkills(actor),
         vitals = vitals,
         knox = vitals.infected == true,
@@ -1255,12 +1273,14 @@ local function inventoryIdentitySequence(actor)
         end
         -- Work cargo ownership also lives in item ModData. Object membership
         -- alone cannot detect a marker cleared or reassigned after actor capture.
-        local data, dataOk = invoke(item, "getModData")
+        local dataOk, data = invoke(item, "getModData")
         if dataOk and type(data) == "table" then
             identityAppend(result, data.LF_WorkReceiptId)
             identityAppend(result, data.LF_WorkReceiptState)
             identityAppend(result, data.LF_WorkReceiptBuildId)
+            identityAppend(result, data.LF_ProductionOrderId)
         else
+            identityAppend(result, false)
             identityAppend(result, false)
             identityAppend(result, false)
             identityAppend(result, false)
@@ -1320,6 +1340,8 @@ local function inventoryIdentitySequence(actor)
     end
     return result
 end
+
+persistence._inventoryIdentitySequenceForTests = inventoryIdentitySequence
 
 local function sameIdentitySequence(left, right)
     if type(left) ~= "table" or type(right) ~= "table" or #left ~= #right then return false end
@@ -2142,6 +2164,22 @@ local function validateRecord(id, source)
     clean.factionRole = type(source.factionRole) == "string" and text(source.factionRole, "", 32) or nil
     clean.factionLeader = source.factionLeader == true
     clean.inventory = inventory
+    if source.productionAction ~= nil then
+        local action = source.productionAction
+        if type(action) ~= "table" or action.kind ~= "saw_logs"
+            or type(action.orderId) ~= "string"
+            or string.sub(action.orderId, 1, 17) ~= "production-order:"
+            or finite(action.beforeCount, nil) == nil then
+            return nil, "invalid production action receipt"
+        end
+        clean.productionAction = {
+            kind = "saw_logs", orderId = text(action.orderId, "", 96),
+            logKey = type(action.logKey) == "string" and text(action.logKey, "", 128) or nil,
+            beforeCount = math.max(0, math.min(256,
+                math.floor(finite(action.beforeCount, 0)))),
+            startedAt = math.max(0, finite(action.startedAt, 0)),
+        }
+    end
     clean.skills, copyReason = copyList(clean.skills, 128,
         "$.records[" .. tostring(id) .. "].skills")
     if copyReason ~= nil then return nil, copyReason end
@@ -2732,6 +2770,18 @@ local function initializeRestoredActor(actor, input, saved)
     if not skillsOk then return false, skillsReason end
     local vitalsOk, vitalsReason = SC.Vitals.apply(actor, saved.vitals)
     if not vitalsOk then return false, vitalsReason end
+    if type(saved.productionAction) == "table" and saved.productionAction.kind == "saw_logs" then
+        local dataOk, data = invoke(actor, "getModData")
+        if not dataOk or type(data) ~= "table" then
+            return false, "production action receipt could not be restored"
+        end
+        data.LF_ProductionSawReceipt = {
+            orderId = saved.productionAction.orderId,
+            logKey = saved.productionAction.logKey,
+            beforeCount = saved.productionAction.beforeCount,
+            startedAt = saved.productionAction.startedAt,
+        }
+    end
     return true
 end
 

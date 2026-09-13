@@ -2,7 +2,7 @@
 
 # Changelog
 
-## Unreleased
+## 0.22.26 - Reliable base production
 
 - Added base production: finite, player-visible orders to fell trees, saw logs into planks, dig graves and bury the dead. Orders use the ordinary base job queue, one or two residents, camp storage for tools and materials, pause/resume/retry/cancel and readable blockers. New **Lumber area** and **Burial ground** zones mark where the work happens.
 - Lumber areas may lie up to 30 tiles outside the camp boundary. Only lumber work (felling and hauling its logs) may path across that band; every other job still walks home first, a worker beyond the band returns to camp, and outside the camp no new tree is started between 21:00 and 06:00. Outside the camp the Living Fellows base menu offers only the lumber area.
@@ -11,6 +11,11 @@
 - Burial digs vanilla graves on natural ground (digging one on demand), buries bodies already lying within two tiles of an open grave with the real `ISBuryCorpse`, fills the grave when it is full or the order is done, and can queue a wooden cross built from camp planks. Bodies still carrying items and fake-dead zombies are left alone unless the order explicitly buries belongings.
 - Each closed grave gets one short line: a prayer or a line of bleak gallows humor chosen by personality and mood, a salute, and sometimes an "Amen" from a nearby resident. Ritual quirks bring their own burial liturgy. Work lines stay occasional, respect actor and party cooldowns and fall silent when danger is visible.
 - Production orders persist in their own versioned base document. Unknown operations are quarantined and re-emitted unchanged, and an order bound to a missing zone or storage fails the restore closed.
+- Reconciled completed saw actions before pause/cancel teardown and persisted a bounded pre-action plank-count receipt, so finished output is adopted once after interruption or reload instead of consuming another log.
+- Extended the scheduled-save work revision across production lifecycle, progress, grave, counter and cargo-marker mutations, and added production cargo identity to the final actor-inventory proof.
+- Added exclusive body and grave claims plus an exactly-once burial outcome guard, preventing two assigned residents from crediting the same corpse or competing for the last grave slot.
+- Made burial search advance across remembered and discovered graves until it finds a viable grave/body pair, and constrained automatic grave sites to locations with an eligible body nearby.
+- Preserved linked log-hauling demand beyond the 100-item child cap by splitting overflow into additional gathering orders and retaining any temporarily unqueueable remainder on the production order.
 
 ## 0.22.25 - Coherent work and bounded perception
 

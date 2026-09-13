@@ -19,6 +19,7 @@ local Production = SC.Production
 -- supplies tools, proves post-conditions and keeps bounded runtime state.
 Production.VERSION = 1
 Production.CARGO_MARKER = "LF_ProductionOrderId"
+Production.SAW_RECEIPT = "LF_ProductionSawReceipt"
 
 local PRODUCTION_WORK_KINDS = {
     chop_tree = true, saw_logs = true, dig_grave = true, bury_body = true, fill_grave = true,
@@ -42,6 +43,8 @@ local descriptorOrder = {}
 local actorStates = setmetatable({}, { __mode = "k" })
 local scans = {}
 local claims = {}
+local burialOutcomes = {}
+local burialOutcomeOrder = {}
 local phases = {}
 local ceremonies = {}
 local ceremonyOrder = {}
@@ -453,6 +456,11 @@ local function blockOrder(order, reason)
 end
 
 local function completeOrder(order, result)
+    if order.operation == "fell_trees" and type(order.settings) == "table"
+        and order.settings.haulLogs == true and (tonumber(order.pendingHaul) or 0) > 0 then
+        local flushed, flushReason = SC.BaseLife.flushProductionHaul(order.id)
+        if flushed ~= true then return blockOrder(order, flushReason or "production_haul_pending") end
+    end
     local ok, reason = SC.BaseLife.completeProductionOrder(order.id, result)
     if ok ~= true then return false, reason or "production_completion_failed", false end
     return false, "production_order_completed", true
@@ -668,18 +676,30 @@ local function cargoOrder(item)
     return type(data) == "table" and data[Production.CARGO_MARKER] or nil
 end
 
+local function noteOwnershipMutation()
+    if SC.BaseLife and type(SC.BaseLife.noteWorkOwnershipMutation) == "function" then
+        SC.BaseLife.noteWorkOwnershipMutation()
+    end
+end
+
 local function markCargo(item, orderId)
     local data = U().modData(item)
     if type(data) ~= "table" then return false end
+    if data[Production.CARGO_MARKER] == orderId then return true end
     data[Production.CARGO_MARKER] = orderId
-    return data[Production.CARGO_MARKER] == orderId
+    if data[Production.CARGO_MARKER] ~= orderId then return false end
+    noteOwnershipMutation()
+    return true
 end
 
 local function clearCargo(item, orderId)
     local data = U().modData(item)
     if type(data) == "table" and data[Production.CARGO_MARKER] == orderId then
         data[Production.CARGO_MARKER] = nil
+        noteOwnershipMutation()
+        return true
     end
+    return false
 end
 
 local function markedCargo(inventory, orderId, itemType)
@@ -697,6 +717,39 @@ local function itemKey(item)
     return tostring(item)
 end
 
+local function sawReceiptFor(actor, orderId)
+    local data = actor and U().modData(actor) or nil
+    local receipt = type(data) == "table" and data[Production.SAW_RECEIPT] or nil
+    if type(receipt) ~= "table" or receipt.orderId ~= orderId
+        or tonumber(receipt.beforeCount) == nil then return nil end
+    return receipt
+end
+
+local function writeSawReceipt(actor, order, log, before)
+    local data = U().modData(actor)
+    if type(data) ~= "table" then return false end
+    local count = 0
+    for _, present in pairs(type(before) == "table" and before or {}) do
+        if present == true then count = count + 1 end
+    end
+    data[Production.SAW_RECEIPT] = {
+        orderId = order.id, logKey = itemKey(log), beforeCount = count, startedAt = now(),
+    }
+    noteOwnershipMutation()
+    return true
+end
+
+local function clearSawReceipt(actor, orderId)
+    local data = actor and U().modData(actor) or nil
+    local receipt = type(data) == "table" and data[Production.SAW_RECEIPT] or nil
+    if type(receipt) == "table" and (orderId == nil or receipt.orderId == orderId) then
+        data[Production.SAW_RECEIPT] = nil
+        noteOwnershipMutation()
+        return true
+    end
+    return false
+end
+
 local function workActive(actor, kind)
     local native = natives()
     return native and type(native.isWorkActive) == "function" and native.isWorkActive(actor) == true
@@ -705,14 +758,18 @@ end
 
 local function finishWork(actor)
     local native = natives()
-    if native and type(native.finishWork) == "function" then pcall(native.finishWork, actor) end
+    if not native or type(native.finishWork) ~= "function" then return false, "work_finish_unavailable" end
+    local called, finished, reason = pcall(native.finishWork, actor)
+    if not called then return false, tostring(finished) end
+    return finished == true, reason
 end
 
 local function cancelWork(actor, reason)
     local native = natives()
-    if native and type(native.cancelWork) == "function" then
-        pcall(native.cancelWork, actor, reason)
-    end
+    if not native or type(native.cancelWork) ~= "function" then return false, "work_cancel_unavailable" end
+    local called, cancelled, detail = pcall(native.cancelWork, actor, reason)
+    if not called then return false, tostring(cancelled) end
+    return cancelled == true, detail
 end
 
 local function actionTimedOut(state)
@@ -950,7 +1007,8 @@ local function pollChop(actor, order, state, context)
         if health ~= nil then work.lastHealth = health end
         claim(work.key, order.id, context.actorId)
         if current - work.startedAt > config("productionChopMaxMs", 180000) then
-            cancelWork(actor, "production_chop_timeout")
+            local cancelled, cancelReason = cancelWork(actor, "production_chop_timeout")
+            if cancelled ~= true then return false, cancelReason or "chop_cancel_failed" end
             state.work, state.target = nil, nil
             releaseClaim(work.key, context.actorId)
             noteCandidateFailure(order, "tree", work.key, "chop_timeout")
@@ -977,7 +1035,8 @@ local function pollChop(actor, order, state, context)
         end
         return true, "production_chopping"
     end
-    finishWork(actor)
+    local finished, finishReason = finishWork(actor)
+    if finished ~= true then return false, finishReason or "chop_finish_failed" end
     state.work = nil
     releaseClaim(work.key, context.actorId)
     local square = U().gridSquare(work.x, work.y, work.z)
@@ -1152,37 +1211,78 @@ local function sawFailure(order, state, reason)
     return false, reason
 end
 
+-- Reconcile the vanilla recipe's committed inventory effect exactly once. The
+-- actor ModData receipt survives interruption/save and carries the pre-action
+-- plank identities, while production cargo markers make an already-adopted
+-- result idempotent.
+local function reconcileSaw(actor, order, work)
+    local inventory = U().inventory(actor)
+    if inventory == nil then return false, "saw_inventory_unavailable", true end
+    local logGone
+    if work.log ~= nil then
+        logGone = U().containerContainsIdentity(inventory, work.log, 4096) == false
+    else
+        logGone = markedCargo(inventory, order.id, "Base.Log") == nil
+    end
+    local before = type(work.before) == "table" and work.before or nil
+    local allPlanks, created, attributed = {}, {}, 0
+    for _, item in ipairs(U().inventoryItems(inventory, 256)) do
+        if U().itemType(item) == "Base.Plank" then
+            allPlanks[#allPlanks + 1] = item
+            if cargoOrder(item) == order.id then attributed = attributed + 1
+            elseif cargoOrder(item) == nil and (before == nil or not before[itemKey(item)]) then
+                created[#created + 1] = item
+            end
+        end
+    end
+    if before == nil then
+        local produced = math.max(0, #allPlanks - math.max(0,
+            math.floor(tonumber(work.beforeCount) or 0)))
+        local needed = math.max(0, produced - attributed)
+        local selected = {}
+        for index = #created, math.max(1, #created - needed + 1), -1 do
+            selected[#selected + 1] = created[index]
+        end
+        created = selected
+    end
+    if not logGone then return false, "saw_not_committed", false end
+    if #created == 0 and attributed == 0 then return false, "saw_incomplete", true end
+    for _, item in ipairs(created) do
+        if not markCargo(item, order.id) then return false, "production_marker_failed", true end
+    end
+    if #created > 0 then
+        metrics.planksMade = metrics.planksMade + #created
+        SC.BaseLife.noteProductionCounter("planksMade", #created)
+    end
+    clearSawReceipt(actor, order.id)
+    return true, "production_planks_made", true
+end
+
 local function pollSaw(actor, order, state, context)
     local work = state.work
     if workActive(actor, "saw_logs") then
         if actionTimedOut(state) then
-            cancelWork(actor, "production_saw_timeout")
+            local cancelled, cancelReason = cancelWork(actor, "production_saw_timeout")
+            if cancelled ~= true then return false, cancelReason or "saw_cancel_failed" end
             state.work = nil
+            clearSawReceipt(actor, order.id)
             return blockOrder(order, "saw_timeout")
         end
         return true, "production_sawing"
     end
-    finishWork(actor)
-    state.work = nil
-    local inventory = U().inventory(actor)
-    local logGone = U().containerContainsIdentity(inventory, work.log, 4096) == false
-    local created = {}
-    for _, item in ipairs(U().inventoryItems(inventory, 256)) do
-        if U().itemType(item) == "Base.Plank" and not work.before[itemKey(item)]
-            and cargoOrder(item) == nil then
-            created[#created + 1] = item
-        end
-    end
+    local finished, finishReason = finishWork(actor)
+    if finished ~= true then return false, finishReason or "saw_finish_failed" end
     if work.saw and not notBroken(work.saw) then
         speak(actor, "work.tool.broken", { U().itemName(work.saw) },
             "broken:" .. tostring(work.startedAt), context.runtime)
     end
-    if not logGone or #created == 0 then return sawFailure(order, state, "saw_incomplete") end
+    local reconciled, reason = reconcileSaw(actor, order, work)
+    if reconciled ~= true then
+        return sawFailure(order, state, reason == "saw_not_committed" and "saw_incomplete" or reason)
+    end
+    state.work = nil
     state.sawFailures = 0
-    for _, item in ipairs(created) do markCargo(item, order.id) end
-    metrics.planksMade = metrics.planksMade + #created
-    SC.BaseLife.noteProductionCounter("planksMade", #created)
-    return true, "production_planks_made"
+    return true, reason
 end
 
 local function updateSaw(actor, order, state, context)
@@ -1192,6 +1292,29 @@ local function updateSaw(actor, order, state, context)
     local inventory = U().inventory(actor)
     local plank = markedCargo(inventory, order.id, "Base.Plank")
     if plank then return depositCargo(actor, order, state, plank, context.runtime) end
+    local receipt = sawReceiptFor(actor, order.id)
+    if receipt then
+        local log = markedCargo(inventory, order.id, "Base.Log")
+        if workActive(actor, "saw_logs") then
+            state.work = {
+                kind = "saw_logs", log = log, saw = findInventoryTool(actor, "saw"),
+                beforeCount = receipt.beforeCount,
+                startedAt = tonumber(receipt.startedAt) or now(),
+            }
+            return pollSaw(actor, order, state, context)
+        end
+        if log ~= nil then
+            -- The saved action never committed; the marked input remains the
+            -- exact retry candidate and no output attribution is necessary.
+            clearSawReceipt(actor, order.id)
+        else
+            local recovered, recoveryReason = reconcileSaw(actor, order, {
+                beforeCount = receipt.beforeCount, log = nil, startedAt = receipt.startedAt,
+            })
+            if recovered == true then return true, recoveryReason end
+            return sawFailure(order, state, recoveryReason)
+        end
+    end
     if order.completed >= order.requested then
         local leftover = markedCargo(inventory, order.id, "Base.Log")
         if leftover then clearCargo(leftover, order.id) end
@@ -1206,10 +1329,17 @@ local function updateSaw(actor, order, state, context)
         return blockOrder(order, "worker_overloaded")
     end
     local before = plankKeys(inventory)
+    if not writeSawReceipt(actor, order, log, before) then
+        return false, "production_saw_receipt_failed"
+    end
     state.phase = "working"
     local accepted, reason = U().move(actor, "walk", { action = "saw_logs", log = log, saw = saw })
-    if accepted ~= true and transientRejection(reason) then return true, reason end
+    if accepted ~= true and transientRejection(reason) then
+        clearSawReceipt(actor, order.id)
+        return true, reason
+    end
     if accepted ~= true or not workActive(actor, "saw_logs") then
+        clearSawReceipt(actor, order.id)
         return sawFailure(order, state, reason or "saw_rejected")
     end
     state.work = { kind = "saw_logs", log = log, saw = saw, before = before, startedAt = now() }
@@ -1283,7 +1413,10 @@ local function gravePartner(info)
     return info.x - 1, info.y
 end
 
-local function graveSiteInspector(zone)
+local burialBodyNear
+local burialBodyCandidate
+
+local function graveSiteInspector(zone, bodyAnchor)
     return function(square, x, y, z)
         if tonumber(z) ~= 0 or x - 1 < zone.x1 then return nil end
         local partner = U().gridSquare(x - 1, y, z)
@@ -1292,6 +1425,12 @@ local function graveSiteInspector(zone)
         if not naturalFloor(square) or not naturalFloor(partner) then return nil end
         if #graveObjects(square) > 0 or #graveObjects(partner) > 0 then return nil end
         if not U().isSquareFree(square) or not U().isSquareFree(partner) then return nil end
+        if bodyAnchor then
+            local radius = math.max(0, math.floor(config("productionBurialBodyRadius", 2)))
+            if bodyAnchor.z ~= z or bodyAnchor.x < x - 1 - radius
+                or bodyAnchor.x > x + radius or bodyAnchor.y < y - radius
+                or bodyAnchor.y > y + radius then return nil end
+        end
         return { key = "grave-site:" .. pointKey(x, y, z), x = x, y = y, z = z }
     end
 end
@@ -1299,18 +1438,25 @@ end
 local function pollDig(actor, order, state, context)
     local work = state.work
     if workActive(actor, "dig_grave") then
+        if work.bodyKey then claim(work.bodyKey, order.id, context.actorId) end
         if actionTimedOut(state) then
-            cancelWork(actor, "production_dig_timeout")
+            local cancelled, cancelReason = cancelWork(actor, "production_dig_timeout")
+            if cancelled ~= true then return false, cancelReason or "dig_cancel_failed" end
             state.work, state.digTarget = nil, nil
             releaseClaim(work.key, context.actorId)
+            releaseClaim(work.bodyKey, context.actorId)
+            state.burialDigBody = nil
             noteCandidateFailure(order, "grave-site", work.key, "dig_timeout")
             return false, "dig_timeout"
         end
         return true, "production_digging"
     end
-    finishWork(actor)
+    local finished, finishReason = finishWork(actor)
+    if finished ~= true then return false, finishReason or "dig_finish_failed" end
     state.work, state.digTarget = nil, nil
     releaseClaim(work.key, context.actorId)
+    releaseClaim(work.bodyKey, context.actorId)
+    state.burialDigBody = nil
     local square = U().gridSquare(work.x, work.y, work.z)
     local partner = U().gridSquare(work.x - 1, work.y, work.z)
     if not square or not partner or #graveObjects(square) == 0 or #graveObjects(partner) == 0 then
@@ -1323,6 +1469,7 @@ local function pollDig(actor, order, state, context)
     speak(actor, "burial.dig.done", nil, work.key, context.runtime)
     resetScan(order, "grave-site")
     resetScan(order, "grave")
+    resetScan(order, "burial-body")
     if work.forBurial ~= true then
         SC.BaseLife.recordProductionProgress(order.id, 1)
         if order.completed >= order.requested then return completeOrder(order, "graves_dug") end
@@ -1335,20 +1482,54 @@ local function digNext(actor, order, state, context, forBurial)
     if not shovel then return fetchTool(actor, order, state, "diggrave") end
     local zone = zoneFor(order)
     if not zone then return blockOrder(order, "invalid_production_zone") end
+    local bodyAnchor = forBurial == true and state.burialDigBody or nil
+    if bodyAnchor then
+        local present = false
+        U().squareStaticMovingObjects(bodyAnchor.square, function(object)
+            if object == bodyAnchor.body then present = true end
+        end, 16)
+        if not present then
+            releaseClaim(bodyAnchor.key, context.actorId)
+            state.burialDigBody, bodyAnchor = nil, nil
+        else claim(bodyAnchor.key, order.id, context.actorId) end
+    end
+    if forBurial == true and not bodyAnchor then
+        local candidate, reason, terminal = nextZoneCandidate(order, "burial-body", zone,
+            function(square, x, y, z)
+                return burialBodyCandidate and burialBodyCandidate(square, x, y, z,
+                    order, actor) or nil
+            end, context.actorId, false)
+        if not candidate then
+            if terminal then return blockOrder(order, "no_bodies_in_burial_area") end
+            return true, reason
+        end
+        claim(candidate.key, order.id, context.actorId)
+        state.burialDigBody, bodyAnchor = candidate, candidate
+    end
     local target = state.digTarget
     if not target then
         state.phase = "seeking"
         local candidate, reason, terminal = nextZoneCandidate(order, "grave-site", zone,
-            graveSiteInspector(zone), context.actorId, false)
+            graveSiteInspector(zone, bodyAnchor), context.actorId, false)
         if not candidate then
-            if terminal then return blockOrder(order, forBurial and "no_grave_site" or reason) end
+            if terminal then
+                releaseClaim(bodyAnchor and bodyAnchor.key, context.actorId)
+                state.burialDigBody = nil
+                return blockOrder(order, forBurial and "no_grave_site_near_body" or reason)
+            end
             return true, reason
         end
         claim(candidate.key, order.id, context.actorId)
         state.digTarget, target = candidate, candidate
     end
+    claim(target.key, order.id, context.actorId)
     local square = U().gridSquare(target.x, target.y, target.z)
-    if not square then return false, "production_target_unloaded" end
+    if not square then
+        releaseClaim(target.key, context.actorId)
+        releaseClaim(bodyAnchor and bodyAnchor.key, context.actorId)
+        state.digTarget, state.burialDigBody = nil, nil
+        return false, "production_target_unloaded"
+    end
     state.phase = "approaching"
     -- Never stand on either half of the grave being dug: the vanilla site
     -- check rejects an occupied square.
@@ -1375,6 +1556,7 @@ local function digNext(actor, order, state, context, forBurial)
     state.work = {
         kind = "dig_grave", x = target.x, y = target.y, z = target.z, key = target.key,
         startedAt = now(), forBurial = forBurial == true,
+        bodyKey = bodyAnchor and bodyAnchor.key or nil,
     }
     state.phase = "digging"
     speak(actor, "burial.dig.start", nil, target.key, context.runtime)
@@ -1395,6 +1577,17 @@ end
 
 local function bodyKey(body)
     return "body:" .. tostring(body)
+end
+
+local function commitBurialOutcome(orderId, key)
+    local outcome = tostring(orderId) .. ":" .. tostring(key)
+    if burialOutcomes[outcome] then return false end
+    burialOutcomes[outcome] = true
+    burialOutcomeOrder[#burialOutcomeOrder + 1] = outcome
+    while #burialOutcomeOrder > 256 do
+        burialOutcomes[table.remove(burialOutcomeOrder, 1)] = nil
+    end
+    return true
 end
 
 local function bodyPlayerNumber(actor)
@@ -1426,12 +1619,27 @@ local function bodyEligible(body, order, actor)
     return true
 end
 
-local function bodyNear(order, grave, actor)
+burialBodyCandidate = function(square, x, y, z, order, actor)
+    local found
+    U().squareStaticMovingObjects(square, function(object)
+        if found then return end
+        local eligible = bodyEligible(object, order, actor)
+        if eligible then
+            found = {
+                key = bodyKey(object), body = object, square = square,
+                x = x, y = y, z = z,
+            }
+        end
+    end, 16)
+    return found
+end
+
+burialBodyNear = function(order, grave, actor, id)
     local zone = zoneFor(order)
     if not zone then return nil, nil, "invalid_production_zone" end
     local radius = math.max(0, math.floor(config("productionBurialBodyRadius", 2)))
     local px, py = gravePartner(grave)
-    local carrying = 0
+    local carrying, claimed = 0, 0
     for y = math.min(grave.y, py) - radius, math.max(grave.y, py) + radius do
         for x = math.min(grave.x, px) - radius, math.max(grave.x, px) + radius do
             if x >= zone.x1 and x <= zone.x2 and y >= zone.y1 and y <= zone.y2 then
@@ -1444,7 +1652,8 @@ local function bodyNear(order, grave, actor)
                         local cooling = onCooldown(order, "body", key)
                         if not cooling then
                             local eligible, why = bodyEligible(object, order, actor)
-                            if eligible then found = object
+                            if eligible and claimActive(key, id) then claimed = claimed + 1
+                            elseif eligible then found = object
                             elseif why == "carries_items" then carrying = carrying + 1 end
                         end
                     end, 16)
@@ -1454,6 +1663,7 @@ local function bodyNear(order, grave, actor)
         end
     end
     if carrying > 0 then return nil, nil, "bodies_carry_items:" .. tostring(carrying) end
+    if claimed > 0 then return nil, nil, "burial_targets_claimed" end
     return nil, nil, "no_bodies_near_grave"
 end
 
@@ -1521,15 +1731,20 @@ end
 local function pollFill(actor, order, state, context)
     local work = state.work
     if workActive(actor, "fill_grave") then
+        claim(work.graveKey, order.id, context.actorId)
         if actionTimedOut(state) then
-            cancelWork(actor, "production_fill_timeout")
+            local cancelled, cancelReason = cancelWork(actor, "production_fill_timeout")
+            if cancelled ~= true then return false, cancelReason or "fill_cancel_failed" end
             state.work = nil
+            releaseClaim(work.graveKey, context.actorId)
             return blockOrder(order, "fill_timeout")
         end
         return true, "production_filling"
     end
-    finishWork(actor)
+    local finished, finishReason = finishWork(actor)
+    if finished ~= true then return false, finishReason or "fill_finish_failed" end
     state.work = nil
+    releaseClaim(work.graveKey, context.actorId)
     local info = primaryGraveAt(work.grave)
     if not info or not info.filled then
         state.fillFailures = (state.fillFailures or 0) + 1
@@ -1549,19 +1764,32 @@ local function pollFill(actor, order, state, context)
 end
 
 local function fillGrave(actor, order, state, grave, context)
+    if claimActive(grave.key, context.actorId) then return true, "production_grave_claimed" end
+    claim(grave.key, order.id, context.actorId)
     local shovel = findInventoryTool(actor, "diggrave")
-    if not shovel then return fetchTool(actor, order, state, "diggrave") end
+    if not shovel then
+        local handled, reason, terminal = fetchTool(actor, order, state, "diggrave")
+        if terminal == true or handled ~= true then releaseClaim(grave.key, context.actorId) end
+        return handled, reason, terminal
+    end
     local square = U().gridSquare(grave.x, grave.y, grave.z)
-    if not square then return false, "production_target_unloaded" end
+    if not square then
+        releaseClaim(grave.key, context.actorId)
+        return false, "production_target_unloaded"
+    end
     state.phase = "approaching"
     local approach, approachReason = approachSquare(actor, square, "move_to_production_grave")
-    if approach == "failed" then return blockOrder(order, approachReason) end
+    if approach == "failed" then
+        releaseClaim(grave.key, context.actorId)
+        return blockOrder(order, approachReason)
+    end
     if approach ~= "arrived" then return true, approachReason end
     local accepted, reason = U().move(actor, "walk", {
         action = "fill_grave", grave = grave.object, tool = shovel, targetSquare = square,
     })
     if accepted ~= true and transientRejection(reason) then return true, reason end
     if accepted ~= true or not workActive(actor, "fill_grave") then
+        releaseClaim(grave.key, context.actorId)
         state.fillFailures = (state.fillFailures or 0) + 1
         if state.fillFailures >= config("productionCandidateMaxAttempts", 3) then
             state.fillFailures = 0
@@ -1572,6 +1800,7 @@ local function fillGrave(actor, order, state, grave, context)
     state.work = {
         kind = "fill_grave", startedAt = now(),
         grave = { x = grave.x, y = grave.y, z = grave.z },
+        graveKey = grave.key,
     }
     state.phase = "filling"
     return true, "production_filling"
@@ -1580,16 +1809,22 @@ end
 local function pollBury(actor, order, state, context)
     local work = state.work
     if workActive(actor, "bury_body") then
+        claim(work.key, order.id, context.actorId)
+        claim(work.graveKey, order.id, context.actorId)
         if actionTimedOut(state) then
-            cancelWork(actor, "production_bury_timeout")
+            local cancelled, cancelReason = cancelWork(actor, "production_bury_timeout")
+            if cancelled ~= true then return false, cancelReason or "bury_cancel_failed" end
             untagBody(work.body, actor)
             state.work = nil
+            releaseClaim(work.key, context.actorId)
+            releaseClaim(work.graveKey, context.actorId)
             noteCandidateFailure(order, "body", work.key, "bury_timeout")
             return false, "bury_timeout"
         end
         return true, "production_burying"
     end
-    finishWork(actor)
+    local finished, finishReason = finishWork(actor)
+    if finished ~= true then return false, finishReason or "bury_finish_failed" end
     state.work = nil
     local stillThere = false
     U().squareStaticMovingObjects(work.bodySquare, function(object)
@@ -1599,37 +1834,102 @@ local function pollBury(actor, order, state, context)
     local corpses = info and info.corpses or work.corpsesBefore
     if stillThere or corpses <= work.corpsesBefore then
         if stillThere then untagBody(work.body, actor) end
+        releaseClaim(work.key, context.actorId)
+        releaseClaim(work.graveKey, context.actorId)
         noteCandidateFailure(order, "body", work.key, "burial_unverified")
         return false, "burial_unverified"
     end
+    local outcomeKey = tostring(order.id) .. ":" .. tostring(work.key)
+    if burialOutcomes[outcomeKey] then
+        releaseClaim(work.key, context.actorId)
+        releaseClaim(work.graveKey, context.actorId)
+        return true, "production_body_already_credited"
+    end
+    local progressed, progressReason = SC.BaseLife.recordProductionProgress(order.id, 1)
+    if progressed ~= true then
+        releaseClaim(work.key, context.actorId)
+        releaseClaim(work.graveKey, context.actorId)
+        return false, progressReason or "burial_progress_failed"
+    end
+    commitBurialOutcome(order.id, work.key)
     metrics.bodiesBuried = metrics.bodiesBuried + 1
-    SC.BaseLife.recordProductionProgress(order.id, 1)
     SC.BaseLife.noteProductionCounter("bodiesBuried", 1)
-    SC.BaseLife.noteProductionGrave(order.id, { x = info.x, y = info.y, z = info.z })
+    if info then SC.BaseLife.noteProductionGrave(order.id, { x = info.x, y = info.y, z = info.z }) end
+    releaseClaim(work.key, context.actorId)
+    releaseClaim(work.graveKey, context.actorId)
     speak(actor, "burial.lower", nil, work.key, context.runtime)
     return true, "production_body_buried"
 end
 
-local function openGraveFor(order, context)
+-- Inspect at most one remembered grave plus the ordinary square-budgeted zone
+-- slice per update. A no-body result advances this pass instead of pinning the
+-- order forever to the first open grave.
+local function burialPairFor(order, state, context, actor)
+    local search = state.burialSearch
+    if type(search) ~= "table" then
+        search = { checked = {}, carrying = 0, busy = false }
+        state.burialSearch = search
+    end
+    local function inspect(info)
+        if not graveOpen(info) or search.checked[info.key] then return nil end
+        search.checked[info.key] = true
+        if claimActive(info.key, context.actorId) then
+            search.busy = true
+            return nil, "production_grave_claimed"
+        end
+        local body, square, reason = burialBodyNear(order, info, actor, context.actorId)
+        if body then return info, body, square end
+        local count = tonumber(string.match(tostring(reason or ""), "^bodies_carry_items:(%d+)$"))
+        if count then search.carrying = search.carrying + count end
+        if reason == "burial_targets_claimed" then search.busy = true end
+        return nil, reason
+    end
     for _, point in ipairs(order.graves or {}) do
         local info = primaryGraveAt(point)
-        if graveOpen(info) then return info end
+        if graveOpen(info) and not search.checked[info.key] then
+            local grave, body, square = inspect(info)
+            if grave then
+                state.burialSearch = nil
+                return grave, body, square, "production_candidate_found", false
+            end
+            return nil, nil, nil, "production_burial_pair_pending", false
+        end
     end
     local zone = zoneFor(order)
-    if not zone then return nil, "invalid_production_zone", true end
+    if not zone then
+        state.burialSearch = nil
+        return nil, nil, nil, "invalid_production_zone", true
+    end
     local grave, reason, terminal = nextZoneCandidate(order, "grave", zone, function(square)
         for _, object in ipairs(graveObjects(square)) do
             local info = graveInfo(object)
-            if info and info.spriteType == "sprite1" and graveOpen(info) then return info end
+            if info and info.spriteType == "sprite1" and graveOpen(info)
+                and not search.checked[info.key] then
+                if claimActive(info.key, context.actorId) then
+                    search.checked[info.key], search.busy = true, true
+                else return info end
+            end
         end
         return nil
     end, context.actorId, true)
-    -- Remember a discovered grave: the resumable scan has already moved past
-    -- it, and a later pass must not mistake it for an empty burial ground.
     if grave then
         SC.BaseLife.noteProductionGrave(order.id, { x = grave.x, y = grave.y, z = grave.z })
+        local viable, body, square = inspect(grave)
+        if viable then
+            state.burialSearch = nil
+            return viable, body, square, reason, false
+        end
+        return nil, nil, nil, "production_burial_pair_pending", false
     end
-    return grave, reason, terminal
+    if terminal then
+        state.burialSearch = nil
+        if search.busy then return nil, nil, nil, "production_burial_targets_claimed", false end
+        if search.carrying > 0 then
+            return nil, nil, nil, "bodies_carry_items:" .. tostring(search.carrying), true
+        end
+        return nil, nil, nil, "no_bodies_near_open_grave", true
+    end
+    return nil, nil, nil, reason or "production_scan_pending", false
 end
 
 local function updateBury(actor, order, state, context)
@@ -1656,46 +1956,97 @@ local function updateBury(actor, order, state, context)
         end
         return completeOrder(order, "bodies_buried")
     end
-    local grave, reason, terminal = openGraveFor(order, context)
-    if not grave then
-        if terminal then
-            if settings.digIfNeeded == true then
-                return digNext(actor, order, state, context, true)
-            end
-            return blockOrder(order, "no_open_grave")
+    local target = state.buryTarget
+    if target then
+        local info = primaryGraveAt(target.grave)
+        local stillThere = false
+        U().squareStaticMovingObjects(target.bodySquare, function(object)
+            if object == target.body then stillThere = true end
+        end, 16)
+        if not graveOpen(info) or not stillThere then
+            releaseClaim(target.key, context.actorId)
+            releaseClaim(target.graveKey, context.actorId)
+            state.buryTarget, target = nil, nil
+        else
+            target.graveInfo = info
+            claim(target.key, order.id, context.actorId)
+            claim(target.graveKey, order.id, context.actorId)
         end
-        return true, reason or "production_scan_pending"
     end
-    local body, bodySquare, why = bodyNear(order, grave, actor)
-    if not body then return blockOrder(order, why or "no_bodies_near_grave") end
+    if not target then
+        local grave, body, bodySquare, reason, terminal = burialPairFor(order, state, context, actor)
+        if not grave then
+            if terminal then
+                if reason == "no_bodies_near_open_grave" and settings.digIfNeeded == true then
+                    return digNext(actor, order, state, context, true)
+                end
+                return blockOrder(order, reason or "no_open_grave")
+            end
+            return true, reason or "production_scan_pending"
+        end
+        local key = bodyKey(body)
+        claim(key, order.id, context.actorId)
+        claim(grave.key, order.id, context.actorId)
+        target = {
+            body = body, bodySquare = bodySquare, key = key,
+            grave = { x = grave.x, y = grave.y, z = grave.z },
+            graveInfo = grave, graveKey = grave.key,
+        }
+        state.buryTarget = target
+    end
+    local grave = target.graveInfo
+    if not grave then
+        releaseClaim(target.key, context.actorId)
+        releaseClaim(target.graveKey, context.actorId)
+        state.buryTarget = nil
+        return false, "production_grave_unavailable"
+    end
     local square = U().gridSquare(grave.x, grave.y, grave.z)
-    if not square then return false, "production_target_unloaded" end
+    if not square then
+        releaseClaim(target.key, context.actorId)
+        releaseClaim(target.graveKey, context.actorId)
+        state.buryTarget = nil
+        return false, "production_target_unloaded"
+    end
     state.phase = "approaching"
     local approach, approachReason = approachSquare(actor, square, "move_to_production_grave")
-    if approach == "failed" then return blockOrder(order, approachReason) end
+    if approach == "failed" then
+        releaseClaim(target.key, context.actorId)
+        releaseClaim(target.graveKey, context.actorId)
+        state.buryTarget = nil
+        return blockOrder(order, approachReason)
+    end
     if approach ~= "arrived" then return true, approachReason end
-    local key = bodyKey(body)
-    if not tagBody(body, bodySquare, actor) then
-        noteCandidateFailure(order, "body", key, "body_tag_failed")
+    if not tagBody(target.body, target.bodySquare, actor) then
+        noteCandidateFailure(order, "body", target.key, "body_tag_failed")
+        releaseClaim(target.key, context.actorId)
+        releaseClaim(target.graveKey, context.actorId)
+        state.buryTarget = nil
         return false, "body_tag_failed"
     end
     local accepted, moveReason = U().move(actor, "walk", {
-        action = "bury_body", grave = grave.object, bodySquare = bodySquare, targetSquare = square,
+        action = "bury_body", grave = grave.object, bodySquare = target.bodySquare,
+        targetSquare = square,
     })
     if accepted ~= true and transientRejection(moveReason) then
-        untagBody(body, actor)
+        untagBody(target.body, actor)
         return true, moveReason
     end
     if accepted ~= true or not workActive(actor, "bury_body") then
-        untagBody(body, actor)
-        noteCandidateFailure(order, "body", key, moveReason)
+        untagBody(target.body, actor)
+        noteCandidateFailure(order, "body", target.key, moveReason)
+        releaseClaim(target.key, context.actorId)
+        releaseClaim(target.graveKey, context.actorId)
+        state.buryTarget = nil
         return false, moveReason or "production_bury_rejected"
     end
     state.work = {
-        kind = "bury_body", body = body, bodySquare = bodySquare, key = key,
+        kind = "bury_body", body = target.body, bodySquare = target.bodySquare,
+        key = target.key, graveKey = target.graveKey,
         grave = { x = grave.x, y = grave.y, z = grave.z }, corpsesBefore = grave.corpses,
         startedAt = now(),
     }
+    state.buryTarget = nil
     state.phase = "burying"
     return true, "production_burying"
 end
@@ -1824,6 +2175,7 @@ function Production.forgetOrder(orderId, workers)
                 clearCargo(item, orderId)
             end
         end
+        clearSawReceipt(actor, orderId)
     end
     return true
 end
@@ -1839,14 +2191,41 @@ end
 
 function Production.cancelActor(actor, reason)
     local state = actor and actorStates[actor] or nil
-    if not state then return true end
+    local receipt = actor and U().modData(actor) or nil
+    receipt = type(receipt) == "table" and receipt[Production.SAW_RECEIPT] or nil
+    if not state and type(receipt) ~= "table" then return true end
     local native = natives()
-    if state.work and native and type(native.workKind) == "function"
+    local work = state and state.work or nil
+    local orderId = state and state.orderId or (type(receipt) == "table" and receipt.orderId or nil)
+    local order = SC.BaseLife and type(SC.BaseLife.productionOrder) == "function"
+        and SC.BaseLife.productionOrder(orderId) or nil
+    if work and native and type(native.workKind) == "function"
         and PRODUCTION_WORK_KINDS[native.workKind(actor)] then
-        cancelWork(actor, reason or "production_cancelled")
+        local active = workActive(actor, work.kind)
+        local settled, settleReason
+        if active then settled, settleReason = cancelWork(actor, reason or "production_cancelled")
+        else settled, settleReason = finishWork(actor) end
+        if settled ~= true then return false, settleReason or "production_work_cancel_failed" end
     end
-    if state.work and state.work.kind == "bury_body" then untagBody(state.work.body, actor) end
-    if state.visualAt ~= nil and native and type(native.cancelVisual) == "function" then
+    if order and ((work and work.kind == "saw_logs") or type(receipt) == "table") then
+        local sawWork = work
+        if not sawWork and type(receipt) == "table" then
+            sawWork = {
+                beforeCount = receipt.beforeCount,
+                log = markedCargo(U().inventory(actor), order.id, "Base.Log"),
+                startedAt = receipt.startedAt,
+            }
+        end
+        local reconciled, reconcileReason, committed = reconcileSaw(actor, order, sawWork)
+        if reconciled ~= true and committed == true then
+            return false, reconcileReason or "saw_reconciliation_failed"
+        end
+        if committed ~= true then clearSawReceipt(actor, order.id) end
+    elseif type(receipt) == "table" then
+        clearSawReceipt(actor, orderId)
+    end
+    if work and work.kind == "bury_body" then untagBody(work.body, actor) end
+    if state and state.visualAt ~= nil and native and type(native.cancelVisual) == "function" then
         pcall(native.cancelVisual, actor, reason or "production_cancelled")
     end
     local id = actorId(actor)
@@ -1871,9 +2250,15 @@ end
 
 function Production.reset(actor)
     if actor then return Production.cancelActor(actor, "production_reset") end
-    for value in pairs(actorStates) do Production.cancelActor(value, "production_reset") end
+    local actors = {}
+    for value in pairs(actorStates) do actors[#actors + 1] = value end
+    for _, value in ipairs(actors) do
+        local cancelled, reason = Production.cancelActor(value, "production_reset")
+        if cancelled ~= true then return false, reason or "production_reset_failed" end
+    end
     actorStates = setmetatable({}, { __mode = "k" })
     scans, claims, phases, ceremonies, ceremonyOrder = {}, {}, {}, {}, {}
+    burialOutcomes, burialOutcomeOrder = {}, {}
     pendingAmen = nil
     lastProductionSpeechAt = -math.huge
     chopSession = { native = false, fallback = false }
