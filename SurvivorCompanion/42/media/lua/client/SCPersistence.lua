@@ -1253,6 +1253,18 @@ local function inventoryIdentitySequence(actor)
         if count > (SC.Config.get("persistence", "maxSavedInventoryItems") or 2048) then
             return "inventory_identity_limit"
         end
+        -- Work cargo ownership also lives in item ModData. Object membership
+        -- alone cannot detect a marker cleared or reassigned after actor capture.
+        local data, dataOk = invoke(item, "getModData")
+        if dataOk and type(data) == "table" then
+            identityAppend(result, data.LF_WorkReceiptId)
+            identityAppend(result, data.LF_WorkReceiptState)
+            identityAppend(result, data.LF_WorkReceiptBuildId)
+        else
+            identityAppend(result, false)
+            identityAppend(result, false)
+            identityAppend(result, false)
+        end
         local nestedOk, nested = invoke(item, "getInventory")
         identityAppend(result, nestedOk and nested or false)
         if nestedOk and nested ~= nil then
@@ -1469,6 +1481,16 @@ end
 
 
 local function verifyScheduledOwnership(job)
+    if job.workConsistencyRevision ~= nil then
+        local owner = SC.BaseLife
+        local called, revision = false, nil
+        if owner ~= nil and type(owner.workConsistencyRevision) == "function" then
+            called, revision = pcall(owner.workConsistencyRevision)
+        end
+        if not called or revision ~= job.workConsistencyRevision then
+            return false, "gather work ownership changed during scheduled capture"
+        end
+    end
     local listed, currentRecords = pcall(SC.Registry.records)
     if not listed or type(currentRecords) ~= "table" or #currentRecords ~= #job.records then
         return false, "registry changed during scheduled capture"
@@ -1600,12 +1622,22 @@ function persistence.pulse()
             local definition = job.definitions[job.index]
             if definition == nil then job.phase, job.index = "actors", 1
             else
+                local field = definition.field
+                if field == "baseLife" and definition.owner ~= nil
+                    and type(definition.owner.workConsistencyRevision) == "function" then
+                    local revisionOk, revision = pcall(
+                        definition.owner.workConsistencyRevision)
+                    if not revisionOk or type(revision) ~= "number" then
+                        return abortScheduledSave(job,
+                            "baseLife work consistency revision unavailable", current)
+                    end
+                    job.workConsistencyRevision = revision
+                end
                 local source, sourceReason, sourceOk = scheduledSubsystemSource(definition)
                 if not sourceOk then
                     return abortScheduledSave(job, definition.field .. " export failed: "
                         .. tostring(sourceReason), current)
                 end
-                local field = definition.field
                 beginScheduledCopy(job, source, definition.depth, definition.entries,
                     "$." .. field, function(copied)
                         job.document[field] = copied

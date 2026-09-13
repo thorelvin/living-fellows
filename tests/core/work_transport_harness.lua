@@ -744,6 +744,73 @@ do
             and ctx.order.state == "running" and #ctx.order.workers == 1
             and ctx.order.workers[1] == ctx.actors[2].modData.SC_Id,
         "taking one of two workers off duty releases only that worker's selection")
+    local remainingGatherJobs, removedWorkerJobs = 0, 0
+    for _, job in ipairs(ctx.base.jobs) do
+        if job.type == "gather_materials" and job.target.orderId == ctx.order.id then
+            remainingGatherJobs = remainingGatherJobs + 1
+            if job.assignedId == ctx.actors[1].modData.SC_Id then
+                removedWorkerJobs = removedWorkerJobs + 1
+            end
+        end
+    end
+    check(remainingGatherJobs == 1 and removedWorkerJobs == 0,
+        "duty-off retires only the departing worker's live gather job")
+    check(SC.BaseLife.setDuty(ctx.actors[1].modData.SC_Id, true) == true,
+        "departing worker can return to ordinary base duty")
+    local staleOk, staleJob = SC.BaseLife.enqueueJob({
+        type = "gather_materials", assignedId = ctx.actors[1].modData.SC_Id,
+        priority = 5, target = { orderId = ctx.order.id },
+    })
+    local otherOk, otherJob = SC.BaseLife.enqueueJob({
+        type = "repair", assignedId = ctx.actors[1].modData.SC_Id, priority = 1,
+    })
+    local claimed = SC.BaseLife.claimJob(ctx.actors[1].modData.SC_Id)
+    check(staleOk == true and otherOk == true and claimed == otherJob
+            and SC.BaseLife.job(staleJob.id) == nil
+            and SC.BaseLife.job(otherJob.id) == otherJob,
+        "defensive claiming removes a restored stale gather row and permits legitimate work")
+end
+
+-- A finite candidate cooldown is waiting, not proof that the work area is
+-- empty. The same item becomes eligible automatically when its timer expires.
+do
+    local ctx = setup("logs", 1)
+    local item = makeItem("Base.Log")
+    putOnGround(ctx.source, item)
+    local candidate = select(1, SC.GatherWork.nextCandidate(ctx.order, ctx.actor))
+    check(candidate ~= nil and SC.GatherWork.noteCandidateFailure(
+        ctx.order.id, candidate, "transient_path_failure") == true,
+        "cooldown fixture records one transient candidate failure")
+    SC_TEST_CLOCK = SC_TEST_CLOCK
+        + (SC.GameplayUtil.config("baseJobRetryMs") or 10000) + 1
+    local waiting, waitingReason, waitingComplete =
+        SC.GatherWork.nextCandidate(ctx.order, ctx.actor)
+    check(waiting == nil
+            and waitingReason == "gather_candidates_temporarily_unavailable"
+            and waitingComplete == false and ctx.order.state == "running",
+        "candidate cooling beyond the job retry stays nonterminal and keeps the order running")
+    SC_TEST_CLOCK = SC_TEST_CLOCK
+        + math.max(1, (SC.GameplayUtil.config("workGatherCandidateCooldownMs") or 15000)
+            - (SC.GameplayUtil.config("baseJobRetryMs") or 10000))
+    local recovered, recoveredReason = SC.GatherWork.nextCandidate(ctx.order, ctx.actor)
+    check(recovered ~= nil and recovered.item == item
+            and recoveredReason == "gather_candidate_found",
+        "cooling candidate becomes collectable without a manual order retry")
+
+    ctx = setup("logs", 1)
+    item = makeItem("Base.Log")
+    putOnGround(ctx.source, item)
+    candidate = select(1, SC.GatherWork.nextCandidate(ctx.order, ctx.actor))
+    for _ = 1, (SC.GameplayUtil.config("workGatherCandidateMaxAttempts") or 3) do
+        SC.GatherWork.noteCandidateFailure(ctx.order.id, candidate, "permanent_path_failure")
+    end
+    SC_TEST_CLOCK = SC_TEST_CLOCK
+        + (SC.GameplayUtil.config("workGatherCandidateCooldownMs") or 15000) + 1
+    local exhausted, exhaustedReason, exhaustedComplete =
+        SC.GatherWork.nextCandidate(ctx.order, ctx.actor)
+    check(exhausted == nil and exhaustedReason == "gather_candidates_exhausted"
+            and exhaustedComplete == true,
+        "permanently exhausted candidates are distinct from a genuinely empty area")
 end
 
 -- Historical receipt ownership is independent from the current worker list.

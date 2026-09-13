@@ -243,11 +243,13 @@ local function verifyLocalCoverage(amount)
     end
     Scan.reset()
     local state, seen, seenCount, meta = {}, {}, 0, nil
+    local peakInspected = 0
     local maximumPulses = math.ceil(amount / 12) + 4
     for _ = 1, maximumPulses do
         current = current + 500
         local result
         result, meta = Scan.nativeCandidates(observer, state, 24, 64)
+        peakInspected = math.max(peakInspected, tonumber(meta.inspected) or 0)
         for _, candidate in ipairs(result) do
             if not seen[candidate] then
                 seen[candidate], seenCount = true, seenCount + 1
@@ -259,10 +261,41 @@ local function verifyLocalCoverage(amount)
         tostring(amount) .. " local native candidates receive bounded fair evaluation (seen="
             .. tostring(seenCount) .. ", pending=" .. tostring(meta and meta.pending)
             .. ", fresh=" .. tostring(meta and meta.freshComplete) .. ")")
+    check(peakInspected <= (SC.GameplayUtil.config(
+            "perceptionNativeRosterQueryPerSlice") or 128),
+        tostring(amount) .. " local spatial candidates obey the per-slice inspection budget")
 end
 verifyLocalCoverage(65)
 verifyLocalCoverage(128)
 verifyLocalCoverage(1000)
+
+-- The spatial bucket walk shares both the query budget and deadline with the
+-- fallback roster walk. Its exact bucket/entry cursor must survive the yield.
+Scan.reset()
+cadenceRoster = {}
+for index = 1, 1000 do
+    cadenceRoster[index] = actor(2 + (index % 20) * 0.03,
+        2 + (math.floor(index / 20) % 20) * 0.03, 0, "IsoZombie")
+end
+current = current + 500
+local spatialDeadlineState = {}
+local function expiredSpatialClock() return current + 100 end
+local spatialDeadlineResult, spatialDeadlineMeta = Scan.nativeCandidates(
+    observer, spatialDeadlineState, 24, 64, current, expiredSpatialClock)
+check(spatialDeadlineMeta.inspected == 4
+        and spatialDeadlineMeta.spatialComplete == false
+        and spatialDeadlineMeta.freshComplete == false
+        and #spatialDeadlineResult == 4,
+    "expired spatial admission performs only its bounded four-entry progress floor")
+local observerX, observerY = observer.x, observer.y
+observer.x, observer.y = 1000, 1000
+current = current + 500
+local movedObserverResult, movedObserverMeta = Scan.nativeCandidates(
+    observer, spatialDeadlineState, 24, 64)
+check(#movedObserverResult == 0 and movedObserverMeta.spatialComplete == true
+        and movedObserverMeta.freshComplete == true,
+    "observer movement resets the spatial cursor and discards its old queued candidates")
+observer.x, observer.y = observerX, observerY
 
 -- Malformed native coordinates are rejected as a whole; the discarded flat
 -- prefix must never be accepted merely because the helper returned success.

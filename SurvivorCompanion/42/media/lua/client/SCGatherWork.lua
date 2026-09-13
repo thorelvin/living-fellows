@@ -110,6 +110,8 @@ local function stateFor(order, zone)
             zoneId = zone.id, x = zone.x1, y = zone.y1, objectIndex = 0,
             pass = 0, incomplete = false, completed = false,
             cooldowns = {}, failures = {}, cooldownOrder = {},
+            waitUntil = 0, exhaustedCandidates = false,
+            temporaryCandidateRetries = {},
         }
         scans[order.id] = scan
     end
@@ -134,15 +136,6 @@ local function candidateKey(item, square, objectIndex)
         tostring(objectIndex), U().itemType(item) }, ":")
 end
 
-local function cooldownActive(scan, key)
-    local expires = tonumber(scan.cooldowns[key]) or 0
-    -- Keep the expired record until the bounded FIFO evicts it. This preserves
-    -- one queue entry per identity; otherwise a later failure appends a
-    -- duplicate whose older eviction also erases the new cooldown.
-    if expires <= now() then return false end
-    return true
-end
-
 function Gather.noteCandidateFailure(orderId, candidate, reason)
     local scan = scans[orderId]
     if not scan or type(candidate) ~= "table" or not candidate.key then return false end
@@ -154,10 +147,13 @@ function Gather.noteCandidateFailure(orderId, candidate, reason)
     local maximum = U().config("workGatherCandidateMaxAttempts") or 3
     if failures >= maximum then
         scan.cooldowns[key] = math.huge
+        scan.temporaryCandidateRetries[key] = nil
+        scan.exhaustedCandidates = true
         metrics.dormantCandidates = metrics.dormantCandidates + 1
     else
         local base = U().config("workGatherCandidateCooldownMs") or 15000
         scan.cooldowns[key] = now() + base * (2 ^ math.max(0, failures - 1))
+        scan.temporaryCandidateRetries[key] = scan.cooldowns[key]
     end
     while #scan.cooldownOrder > 32 do
         local removed = table.remove(scan.cooldownOrder, 1)
@@ -172,6 +168,11 @@ function Gather.nextCandidate(order, actor)
     local valid, zoneOrReason = Gather.validateZone(order)
     if not valid then return nil, zoneOrReason, true end
     local zone, scan = zoneOrReason, stateFor(order, zoneOrReason)
+    local current = now()
+    if current < (tonumber(scan.waitUntil) or 0) then
+        return nil, "gather_candidates_temporarily_unavailable", false
+    end
+    scan.waitUntil = 0
     scan.completed = false
     local squareBudget = math.max(1, U().config("workGatherSquaresPerSlice") or 16)
     local objectBudget = math.max(1, U().config("workGatherObjectsPerSlice") or 32)
@@ -214,14 +215,27 @@ function Gather.nextCandidate(order, actor)
                         if not itemReadable and type(worldItem) == "table" then item = worldItem.item end
                         if item and U().itemType(item) == order.itemType then
                             local key = candidateKey(item, square, index)
-                            local protected = SC.WorkTransport.foreignProtected(item, actor)
+                            local protected, protectionReason =
+                                SC.WorkTransport.foreignProtected(item, actor)
                             local present = U().worldItemPresent(square, worldItem)
-                            if not protected and not cooldownActive(scan, key) and present == true then
-                                metrics.candidates = metrics.candidates + 1
-                                return {
-                                    item = item, worldItem = worldItem, square = square,
-                                    key = key, x = scan.x, y = scan.y, z = zone.z,
-                                }, "gather_candidate_found", false
+                            if present == true then
+                                local expires = tonumber(scan.cooldowns[key]) or 0
+                                if not protected and expires <= current then
+                                    metrics.candidates = metrics.candidates + 1
+                                    return {
+                                        item = item, worldItem = worldItem, square = square,
+                                        key = key, x = scan.x, y = scan.y, z = zone.z,
+                                    }, "gather_candidate_found", false
+                                elseif not protected and expires == math.huge then
+                                    scan.exhaustedCandidates = true
+                                elseif not protected and expires > current then
+                                    scan.temporaryCandidateRetries[key] = expires
+                                elseif protectionReason == "work_item_owned"
+                                    or protectionReason == "work_item_building" then
+                                    local retryAt = current + math.max(1000,
+                                        tonumber(U().config("baseJobRetryMs")) or 10000)
+                                    scan.temporaryCandidateRetries[key] = retryAt
+                                end
                             elseif present == nil then
                                 scan.incomplete = true
                             end
@@ -232,11 +246,37 @@ function Gather.nextCandidate(order, actor)
         end
         if scan.completed then
             local incomplete = scan.incomplete
+            local temporary = false
+            local retryReady = false
+            local exhausted = scan.exhaustedCandidates == true
+            local earliestRetry
+            for _, retryAt in pairs(scan.temporaryCandidateRetries or {}) do
+                retryAt = tonumber(retryAt)
+                if retryAt ~= nil then
+                    if retryAt > current then
+                        temporary = true
+                        earliestRetry = math.min(earliestRetry or math.huge, retryAt)
+                    else
+                        retryReady = true
+                    end
+                end
+            end
             scan.incomplete = false
+            scan.exhaustedCandidates = false
+            scan.temporaryCandidateRetries = {}
             if incomplete then
                 metrics.incompletePasses = metrics.incompletePasses + 1
                 return nil, "gather_area_scan_incomplete", false
             end
+            if temporary then
+                scan.waitUntil = math.max(current + 1,
+                    earliestRetry and earliestRetry ~= math.huge and earliestRetry
+                        or current + math.max(1000,
+                            tonumber(U().config("baseJobRetryMs")) or 10000))
+                return nil, "gather_candidates_temporarily_unavailable", false
+            end
+            if retryReady then return nil, "gather_scan_pending", false end
+            if exhausted then return nil, "gather_candidates_exhausted", true end
             return nil, "gather_area_empty", true
         end
     end

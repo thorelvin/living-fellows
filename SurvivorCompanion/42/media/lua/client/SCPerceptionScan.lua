@@ -317,6 +317,16 @@ local function resetActorNativeState(state, generation)
     state.nativeCurrentValidationSeen = nil
     state.nativeCurrentObserverKey = nil
     state.nativeCurrentValidationComplete = nil
+    state.nativeCurrentSpatial = nil
+    state.nativeCurrentSpatialSource = nil
+    state.nativeCurrentSpatialMinimumX = nil
+    state.nativeCurrentSpatialMaximumX = nil
+    state.nativeCurrentSpatialMinimumY = nil
+    state.nativeCurrentSpatialMaximumY = nil
+    state.nativeCurrentSpatialX = nil
+    state.nativeCurrentSpatialY = nil
+    state.nativeCurrentSpatialEntry = nil
+    state.nativeCurrentSpatialComplete = nil
 end
 
 local function compactCandidateQueue(state)
@@ -455,6 +465,8 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     for _, value in ipairs(queue) do queued[value] = true end
     local currentRelevantPending = 0
     local evidenceChangedDuringValidation = false
+    local additions, distances = {}, setmetatable({}, { __mode = "k" })
+    local inspected = 0
     if shared.publishedFlat == true and type(shared.spatial) == "table" then
         local observerKey = tostring(math.floor(x)) .. ":" .. tostring(math.floor(y))
             .. ":" .. tostring(math.floor(z or 0))
@@ -464,9 +476,13 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         -- assignment is complete; resetting it on every snapshot repeatedly
         -- admitted the first 64 candidates and permanently starved the tail.
         -- Identity changes, observer movement, and a completed assignment all
-        -- begin a new validation epoch. Current positions are still inspected
-        -- every call, so a previously distant identity that moves into range is
-        -- admitted immediately because it has not yet been delivered.
+        -- begin a new validation epoch. Pin that epoch's coherent spatial
+        -- snapshot while its cursor drains so a faster producer cannot restart
+        -- the observer at the first bucket and starve the tail.
+        local minimumX = math.floor((x - radius) / NATIVE_SPATIAL_BUCKET)
+        local maximumX = math.floor((x + radius) / NATIVE_SPATIAL_BUCKET)
+        local minimumY = math.floor((y - radius) / NATIVE_SPATIAL_BUCKET)
+        local maximumY = math.floor((y + radius) / NATIVE_SPATIAL_BUCKET)
         if state.nativeCurrentValidationRevision ~= shared.evidenceRevision
             or state.nativeCurrentObserverKey ~= observerKey
             or state.nativeCurrentValidationComplete == true then
@@ -477,41 +493,66 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
             state.nativeCurrentObserverKey = observerKey
             state.nativeCurrentValidationSeen = {}
             state.nativeCurrentValidationComplete = false
+            state.nativeCandidateQueue, state.nativeCandidateIndex = {}, 1
+            queue, queued = state.nativeCandidateQueue, {}
+            state.nativeCurrentSpatial = shared.spatial
+            state.nativeCurrentSpatialSource = shared.published
+            state.nativeCurrentSpatialMinimumX = minimumX
+            state.nativeCurrentSpatialMaximumX = maximumX
+            state.nativeCurrentSpatialMinimumY = minimumY
+            state.nativeCurrentSpatialMaximumY = maximumY
+            state.nativeCurrentSpatialX = minimumX
+            state.nativeCurrentSpatialY = minimumY
+            state.nativeCurrentSpatialEntry = 1
+            state.nativeCurrentSpatialComplete = false
         end
         local seen = state.nativeCurrentValidationSeen
-        local minimumX = math.floor((x - radius) / NATIVE_SPATIAL_BUCKET)
-        local maximumX = math.floor((x + radius) / NATIVE_SPATIAL_BUCKET)
-        local minimumY = math.floor((y - radius) / NATIVE_SPATIAL_BUCKET)
-        local maximumY = math.floor((y + radius) / NATIVE_SPATIAL_BUCKET)
         local floorZ = math.floor(z or 0)
-        for bucketX = minimumX, maximumX do
-            for bucketY = minimumY, maximumY do
-                local bucket = shared.spatial[tostring(floorZ) .. ":"
-                    .. tostring(bucketX) .. ":" .. tostring(bucketY)]
-                for _, base in ipairs(bucket or {}) do
-                    local value = shared.published[base]
-                    local zx, zy = shared.published[base + 1], shared.published[base + 2]
-                    local dx, dy = zx - x, zy - y
-                    if dx * dx + dy * dy <= radiusSq and not seen[value]
-                        and not queued[value] then
-                        if #queue < queueCap then
-                            queue[#queue + 1] = value
-                            queued[value] = true
-                        else
-                            currentRelevantPending = currentRelevantPending + 1
-                        end
-                    end
+        local bucketX = tonumber(state.nativeCurrentSpatialX) or minimumX
+        local bucketY = tonumber(state.nativeCurrentSpatialY) or minimumY
+        local entryIndex = math.max(1,
+            math.floor(tonumber(state.nativeCurrentSpatialEntry) or 1))
+        local spatial = state.nativeCurrentSpatial or {}
+        local spatialSource = state.nativeCurrentSpatialSource or {}
+        while state.nativeCurrentSpatialComplete ~= true
+            and inspected < queryLimit and #queue < queueCap do
+            if bucketX > (state.nativeCurrentSpatialMaximumX or maximumX) then
+                state.nativeCurrentSpatialComplete = true
+                break
+            end
+            local bucket = spatial[tostring(floorZ) .. ":"
+                .. tostring(bucketX) .. ":" .. tostring(bucketY)] or {}
+            if entryIndex > #bucket then
+                entryIndex = 1
+                bucketY = bucketY + 1
+                if bucketY > (state.nativeCurrentSpatialMaximumY or maximumY) then
+                    bucketY = state.nativeCurrentSpatialMinimumY or minimumY
+                    bucketX = bucketX + 1
+                end
+            else
+                if deadline and inspected >= 4 and clock() >= deadline then break end
+                local base = bucket[entryIndex]
+                entryIndex = entryIndex + 1
+                inspected = inspected + 1
+                local value = spatialSource[base]
+                local zx, zy = spatialSource[base + 1], spatialSource[base + 2]
+                local dx, dy = zx - x, zy - y
+                if dx * dx + dy * dy <= radiusSq and not seen[value]
+                    and not queued[value] then
+                    queue[#queue + 1] = value
+                    queued[value] = true
                 end
             end
         end
+        state.nativeCurrentSpatialX = bucketX
+        state.nativeCurrentSpatialY = bucketY
+        state.nativeCurrentSpatialEntry = entryIndex
+        currentRelevantPending = state.nativeCurrentSpatialComplete == true and 0 or 1
         -- The bridge-built spatial index covers every entry in the coherent
-        -- flat snapshot. Walking the same roster from index one while the
-        -- bounded local queue is full duplicates work and prevents the roster
-        -- cursor from ever reaching completion in a dense horde.
+        -- flat snapshot. Its own persisted bucket/entry cursor now owns that
+        -- work, so the linear roster cursor can remain complete.
         if sourceFlat then cursor = sourceCount + 1 end
     end
-    local additions, distances = {}, setmetatable({}, { __mode = "k" })
-    local inspected = 0
     while cursor <= sourceCount and inspected < queryLimit
         and #queue + #additions < queueCap do
         if deadline and inspected >= 4 and clock() >= deadline then break end
@@ -621,6 +662,7 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
         globalCursor = shared.cursor,
         evaluated = #result,
         inspected = inspected,
+        spatialComplete = state.nativeCurrentSpatialComplete == true,
         pending = pending,
         previewPending = coherent and 0 or math.max(0, sourceCount - cursor + 1),
         listComplete = complete,

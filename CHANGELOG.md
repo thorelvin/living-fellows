@@ -4,6 +4,13 @@
 
 ## Unreleased
 
+## 0.22.25 - Coherent work and bounded perception
+
+- Bound scheduled actor-inventory capture to a monotonic gathering-ledger revision and included work-cargo markers in the final inventory proof, preventing cross-slice saves from publishing orphaned cargo or stale receipt accounting.
+- Retired only the departing worker's gather jobs on duty-off, cancelled its owned movement, and added claim-time cleanup for restored stale assignments without disturbing the remaining workers or receipt history.
+- Kept gather orders runnable while matching candidates are on finite cooldown or temporarily owned by another worker; expired candidates resume automatically and permanently exhausted candidates are reported separately from a genuinely empty area.
+- Made protocol-8 spatial candidate admission resumable by observer, charging every inspected entry to the existing query/deadline budget while retaining fair eventual coverage and incomplete negative evidence across yields.
+
 ## 0.22.24 - Fair work and perception
 
 - Made gathering distinguish accepted navigation from verified physical arrival. Workers retain multi-update movement, require a real same-square interaction position with direct contact, and only then settle, animate and transfer the exact item.

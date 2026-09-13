@@ -39,6 +39,12 @@ local function now()
     return U().nowMs()
 end
 
+local function touchWorkOwnership()
+    if SC.BaseLife and type(SC.BaseLife.noteWorkOwnershipMutation) == "function" then
+        SC.BaseLife.noteWorkOwnershipMutation()
+    end
+end
+
 local function invoke(object, name, ...)
     return U().call(object, name, ...)
 end
@@ -87,6 +93,9 @@ local function mark(item, receipt, state)
             data[Transport.MARKERS.build] = beforeId, beforeState, beforeBuild
         return false, "work_item_marker_not_retained"
     end
+    if beforeId ~= receipt.id or beforeState ~= state or beforeBuild ~= nil then
+        touchWorkOwnership()
+    end
     return true
 end
 
@@ -104,6 +113,7 @@ local function clearMarker(item, receiptId)
     if data[Transport.MARKERS.id] ~= nil or data[Transport.MARKERS.state] ~= nil then
         return false, "work_item_marker_clear_failed"
     end
+    touchWorkOwnership()
     return true
 end
 
@@ -210,9 +220,11 @@ end
 
 local function setFailure(receipt, reason, phase)
     if not receipt then return false, reason end
+    local beforePhase = receipt.phase
     receipt.phase = phase or receipt.phase or "recovery"
     receipt.blocker = clean(reason, 160)
     receipt.updatedAt = now()
+    if receipt.phase ~= beforePhase then touchWorkOwnership() end
     return false, receipt.blocker
 end
 
@@ -231,6 +243,7 @@ local function quarantine(receipt, reason, owner, preserveDetachedProof)
     receipt.nextRetryAt = 0
     receipt.updatedAt = now()
     liveItems[receipt.id], liveWorldItems[receipt.id] = nil, nil
+    touchWorkOwnership()
     if SC.BaseLife and SC.BaseLife.blockGatherOrder then
         SC.BaseLife.blockGatherOrder(receipt.orderId, receipt.blocker)
     end
@@ -468,6 +481,7 @@ local function finishMarkerCleanup(receipt)
             receipt.markerCleanupAttempts, receipt.markerCleanupNextRetryAt = 0, 0
             receipt.blocker, receipt.updatedAt = nil, now()
             liveItems[receipt.id], liveWorldItems[receipt.id] = nil, nil
+            touchWorkOwnership()
             return true, "work_marker_already_cleared"
         end
         if markerId ~= receipt.id then return false, "work_item_marker_identity_changed" end
@@ -482,6 +496,7 @@ local function finishMarkerCleanup(receipt)
             receipt.markerCleanupPending = false
             receipt.markerCleanupAttempts, receipt.markerCleanupNextRetryAt = 0, 0
             receipt.blocker, receipt.updatedAt = nil, now()
+            touchWorkOwnership()
             return true, "work_marker_already_cleared"
         end
         item = found
@@ -495,6 +510,7 @@ local function finishMarkerCleanup(receipt)
     receipt.blocker, receipt.updatedAt = nil, now()
     liveItems[receipt.id], liveWorldItems[receipt.id] = nil, nil
     metrics.markerCleanups = metrics.markerCleanups + 1
+    touchWorkOwnership()
     return true, "work_marker_cleared"
 end
 
@@ -548,6 +564,7 @@ function Transport.collect(receipt, actor, item, worldItem)
         receipt.phase, receipt.owner, receipt.detachedProof = "recovery", "detached", true
         receipt.blocker, receipt.updatedAt = clean(reason or "pickup_detached", 160), now()
         liveItems[receipt.id], liveWorldItems[receipt.id] = item, worldItem
+        touchWorkOwnership()
         return false, receipt.blocker
     end
     return quarantine(receipt, reason or (details and details.owner)
@@ -568,7 +585,9 @@ function Transport.deposit(receipt, actor, item)
         return setFailure(receipt, "destination_storage_invalid", "carried")
     end
     if not destination then return setFailure(receipt, "destination_storage_unloaded", "carried") end
+    local wasDepositing = receipt.phase == "depositing"
     receipt.phase, receipt.updatedAt = "depositing", now()
+    if not wasDepositing then touchWorkOwnership() end
     local marked, markerReason = mark(item, receipt, "depositing")
     if not marked then
         receipt.phase, receipt.owner = "carried", "actor"
@@ -593,6 +612,7 @@ function Transport.deposit(receipt, actor, item)
             U().config("workRecoveryInventoryScanLimit") or 4096) == false then
         receipt.phase, receipt.owner, receipt.detachedProof = "recovery", "detached", true
         receipt.blocker, receipt.updatedAt = clean(reason or "deposit_detached", 160), now()
+        touchWorkOwnership()
         return false, receipt.blocker
     end
     return quarantine(receipt, reason or "deposit_ownership_ambiguous", "unknown")
@@ -624,6 +644,7 @@ function Transport.abandonSelected(receipt, reason)
     receipt.phase, receipt.owner, receipt.accounted = "cancelled", "world", true
     receipt.blocker, receipt.updatedAt = clean(reason, 160), now()
     liveItems[receipt.id], liveWorldItems[receipt.id] = nil, nil
+    touchWorkOwnership()
     return true, "work_selection_released"
 end
 
@@ -715,9 +736,12 @@ function Transport.reconcile(receipt, actor)
         return true, "work_item_carried"
     end
     if worldState == "found" then
+        local ownershipChanged = receipt.phase ~= "selected" or receipt.owner ~= "world"
+            or receipt.detachedProof == true
         receipt.phase, receipt.owner, receipt.detachedProof = "selected", "world", false
         receipt.blocker, receipt.updatedAt = nil, now()
         liveItems[receipt.id], liveWorldItems[receipt.id] = worldItem, worldWrapper
+        if ownershipChanged then touchWorkOwnership() end
         local order = SC.BaseLife and SC.BaseLife.workOrder
             and SC.BaseLife.workOrder(receipt.orderId) or nil
         if order and order.state ~= "running" then
@@ -901,6 +925,7 @@ function Transport.releaseCarriedCargo(orderId, actorId)
                     receipt.phase, receipt.owner, receipt.accounted = "released", "released", true
                     receipt.detachedProof, receipt.blocker, receipt.updatedAt = false, nil, now()
                     liveItems[receipt.id], liveWorldItems[receipt.id] = nil, nil
+                    touchWorkOwnership()
                     released = released + 1
                 end
             end
@@ -912,6 +937,12 @@ end
 
 function Transport.yieldActor(actorId, reason)
     local affectedOrders = {}
+    local actor = U().resolveActor(actorId)
+    if actor and SC.BaseWork and type(SC.BaseWork.cancel) == "function" then
+        pcall(SC.BaseWork.cancel, actor, reason or "left_base_duty")
+    elseif actor and SC.GatherWork and type(SC.GatherWork.cancelActor) == "function" then
+        pcall(SC.GatherWork.cancelActor, actor, reason or "left_base_duty")
+    end
     for _, order in ipairs(SC.BaseLife.workOrders(false)) do
         for _, workerId in ipairs(type(order.workers) == "table" and order.workers or {}) do
             if workerId == actorId then affectedOrders[order.id] = true break end
@@ -938,17 +969,26 @@ function Transport.yieldActor(actorId, reason)
         -- Carried cargo is already in the worker's personal inventory. Release
         -- its marker in place instead of stopping unrelated workers.
         Transport.releaseCarriedCargo(orderId, actorId)
+        if SC.BaseLife and type(SC.BaseLife.removeGatherWorkerJobs) == "function" then
+            SC.BaseLife.removeGatherWorkerJobs(orderId, actorId, "gather_worker_removed")
+        end
         local order = SC.BaseLife.workOrder(orderId)
         if order and type(order.workers) == "table" then
+            local ownershipChanged = false
             for index = #order.workers, 1, -1 do
-                if order.workers[index] == actorId then table.remove(order.workers, index) end
+                if order.workers[index] == actorId then
+                    table.remove(order.workers, index)
+                    ownershipChanged = true
+                end
             end
             if order.state == "running" and #order.workers == 0 then
                 order.state, order.blocker = "paused", clean(reason, 160)
+                ownershipChanged = true
             elseif order.state == "running" then
                 order.blocker = nil
             end
             order.updatedAt = now()
+            if ownershipChanged then touchWorkOwnership() end
         end
     end
     return true

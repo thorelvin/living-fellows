@@ -495,6 +495,54 @@ check(stagedYielded and stagedStatus == "complete"
         and stagedStore.document.sentinel == nil,
     "scheduled save completes through bounded pulses and commits once")
 
+-- Work receipts and marked actor cargo are one persistence consistency unit.
+-- A ledger mutation after baseLife export must reject publication even when
+-- registry and inventory object identities would otherwise remain stable.
+check(SC.Persistence.reset() == true,
+    "work-ledger barrier test resets scheduled persistence")
+local realBaseLife = SC.BaseLife
+local workRevision, workExports = 41, 0
+local largeWorkExport = { work = { receipts = {}, orders = {} }, payload = {} }
+for index = 1, 1024 do largeWorkExport.payload[index] = index end
+SC.BaseLife = {
+    export = function()
+        workExports = workExports + 1
+        return largeWorkExport
+    end,
+    workConsistencyRevision = function() return workRevision end,
+}
+local workPrior = { sentinel = "prior-work-consistent" }
+local workStore = SC_TEST_SET_WORLD_STORE({ document = workPrior })
+local workRequested = SC.Persistence.requestScheduledSave(stagedPlayer)
+local workStatus, workReason, revisionChanged = nil, nil, false
+for _ = 1, 10000 do
+    workStatus, workReason = SC.Persistence.pulse()
+    if workExports > 0 and not revisionChanged then
+        workRevision, revisionChanged = workRevision + 1, true
+    end
+    if workStatus ~= "yielded" then break end
+end
+check(workRequested == true and revisionChanged and workStatus == "failed"
+        and string.find(tostring(workReason), "gather work ownership changed", 1, true)
+        and workStore.document == workPrior,
+    "cross-slice receipt/marker mutation preserves the prior complete document")
+
+check(SC.Persistence.reset() == true,
+    "unchanged work-ledger control resets scheduled persistence")
+workExports = 0
+local stableWorkStore = SC_TEST_SET_WORLD_STORE({ document = { sentinel = "stable-work" } })
+local stableWorkRequested = SC.Persistence.requestScheduledSave(stagedPlayer)
+local stableWorkStatus, stableWorkOutgoing
+for _ = 1, 10000 do
+    stableWorkStatus, stableWorkOutgoing = SC.Persistence.pulse()
+    if stableWorkStatus ~= "yielded" then break end
+end
+check(stableWorkRequested == true and workExports > 0
+        and stableWorkStatus == "complete"
+        and stableWorkStore.document == stableWorkOutgoing,
+    "unchanged work-ledger revision still permits one atomic scheduled commit")
+SC.BaseLife = realBaseLife
+
 check(SC.Persistence.requestScheduledSave(stagedPlayer) == true,
     "a second scheduled save can enter staging")
 local synchronous, synchronousDocument = SC.Persistence.save(stagedPlayer)

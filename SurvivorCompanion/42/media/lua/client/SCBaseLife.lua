@@ -60,6 +60,7 @@ local WORK_RECEIPT_PHASES = {
 local document
 local draftZone
 local operationsCache
+local workConsistencyRevision = 0
 
 local DEFENSE_POLICIES = { rotation = true, role_based = true, all_hands = true }
 local WORKLOAD_POLICIES = { essential = true, balanced = true, continuous = true }
@@ -69,6 +70,24 @@ local defaultStockTargets = {
 
 local function U()
     return SC.GameplayUtil
+end
+
+local function bumpWorkConsistencyRevision()
+    workConsistencyRevision = workConsistencyRevision + 1
+    if workConsistencyRevision >= 9007199254740000 then workConsistencyRevision = 1 end
+    return workConsistencyRevision
+end
+
+-- Scheduled persistence snapshots the work ledger before actor inventories.
+-- This monotonic main-thread revision binds both halves of that consistency
+-- unit without synchronously copying the potentially large receipt snapshots
+-- again at commit time.
+function BaseLife.noteWorkOwnershipMutation()
+    return bumpWorkConsistencyRevision()
+end
+
+function BaseLife.workConsistencyRevision()
+    return workConsistencyRevision
 end
 
 local function R()
@@ -1110,6 +1129,7 @@ function BaseLife.allocateWorkReceipt(spec)
     if not receipt then return false, "invalid_work_receipt" end
     work.receipts[#work.receipts + 1] = receipt
     order.updatedAt, order.blocker = current, nil
+    bumpWorkConsistencyRevision()
     return true, receipt
 end
 
@@ -1123,6 +1143,7 @@ function BaseLife.removeWorkReceipt(id)
         return false, "work_receipt_marker_cleanup_pending"
     end
     table.remove(base.work.receipts, index)
+    bumpWorkConsistencyRevision()
     return true
 end
 
@@ -1134,11 +1155,13 @@ function BaseLife.blockGatherOrder(id, reason)
     return true, order
 end
 
-local function removeGatherJobs(base, orderId, result)
+local function removeGatherJobs(base, orderId, result, actorId)
+    local removed = 0
     for index = #base.jobs, 1, -1 do
         local job = base.jobs[index]
         if job.type == "gather_materials" and type(job.target) == "table"
-            and job.target.orderId == orderId then
+            and job.target.orderId == orderId
+            and (actorId == nil or job.assignedId == actorId) then
             if result ~= nil then
                 base.completed[#base.completed + 1] = {
                     id = job.id, type = job.type, actorId = job.assignedId,
@@ -1147,8 +1170,21 @@ local function removeGatherJobs(base, orderId, result)
                 while #base.completed > 24 do table.remove(base.completed, 1) end
             end
             table.remove(base.jobs, index)
+            removed = removed + 1
         end
     end
+    return removed
+end
+
+function BaseLife.removeGatherWorkerJobs(orderId, actorId, result)
+    local base = activeBase()
+    if not base or type(orderId) ~= "string" or type(actorId) ~= "string" then
+        return false, "gather_worker_job_context_missing"
+    end
+    local removed = removeGatherJobs(base, orderId,
+        result or "gather_worker_removed", actorId)
+    if removed > 0 then bumpWorkConsistencyRevision() end
+    return true, removed
 end
 
 local function ensureGatherJobs(base, order)
@@ -1236,6 +1272,7 @@ function BaseLife.createGatherOrder(spec)
         orderId = order.id, material = material, requested = order.requested,
         zoneId = zone.id, destinationStorageId = storage.id,
     })
+    bumpWorkConsistencyRevision()
     return true, order, enabledDuty
 end
 
@@ -1308,6 +1345,7 @@ function BaseLife.changeGatherDestination(id, storageId)
             receipt.destinationStorageId, receipt.updatedAt = storage.id, now()
         end
     end
+    bumpWorkConsistencyRevision()
     return true, order
 end
 
@@ -1332,6 +1370,7 @@ function BaseLife.addGatherWorker(id, actorId)
         return false, jobReason
     end
     order.updatedAt = now()
+    bumpWorkConsistencyRevision()
     return true, order
 end
 
@@ -1347,6 +1386,7 @@ function BaseLife.cancelGatherOrder(id)
     BaseLife.noteHistory("gather_order_cancelled", {
         orderId = id, material = order.material, delivered = order.delivered,
     })
+    bumpWorkConsistencyRevision()
     return true, order
 end
 
@@ -1379,6 +1419,7 @@ function BaseLife.accountGatherDelivery(orderId, receiptId)
     elseif order.state == "blocked" then
         order.state = "running"
     end
+    bumpWorkConsistencyRevision()
     return true, order, "delivery_accounted"
 end
 
@@ -1430,6 +1471,11 @@ local function jobScore(actorId, job)
         local orderId = type(job.target) == "table" and job.target.orderId or nil
         local order = workOrderIn(activeBase(), orderId)
         if not order or order.state ~= "running" then return -math.huge end
+        local assigned = false
+        for _, workerId in ipairs(type(order.workers) == "table" and order.workers or {}) do
+            if workerId == actorId then assigned = true break end
+        end
+        if not assigned then return -math.huge end
     end
     local resident = ensure().residents[actorId] or { role = "generalist" }
     local role = BaseLife.ROLES[resident.role] and resident.role or "generalist"
@@ -1457,6 +1503,27 @@ function BaseLife.claimJob(actorId)
     if restriction == "quarantine" or restriction == "watch" then
         return nil, "infection_restriction"
     end
+    -- Restored or legacy rows may contain a gather job whose assigned worker
+    -- has already left the order. Retire it once instead of letting duty-on
+    -- repeatedly claim, fail and block the stale row.
+    local staleRemoved = false
+    for index = #base.jobs, 1, -1 do
+        local job = base.jobs[index]
+        if job.type == "gather_materials" then
+            local orderId = type(job.target) == "table" and job.target.orderId or nil
+            local order = workOrderIn(base, orderId)
+            local assigned = false
+            for _, workerId in ipairs(order and type(order.workers) == "table"
+                and order.workers or {}) do
+                if workerId == job.assignedId then assigned = true break end
+            end
+            if not order or orderIsTerminal(order) or not assigned then
+                table.remove(base.jobs, index)
+                staleRemoved = true
+            end
+        end
+    end
+    if staleRemoved then bumpWorkConsistencyRevision() end
     local existing = BaseLife.jobFor(actorId)
     if existing then return existing, "existing_job" end
     local best, bestScore
@@ -2258,11 +2325,13 @@ function BaseLife.restore(source)
     end
     document = candidate
     draftZone, operationsCache = nil, nil
+    bumpWorkConsistencyRevision()
     return true, document
 end
 
 function BaseLife.reset()
     document, draftZone, operationsCache = emptyDocument(), nil, nil
+    bumpWorkConsistencyRevision()
 end
 
 BaseLife.reset()
