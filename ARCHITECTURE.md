@@ -119,7 +119,7 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   snapshots.
 - `SCSpawn` performs bounded, loaded-square, unseen, collision, occupancy, and nearby-zombie validation.
 - `SCNeeds` samples positive native hunger/thirst deltas and rebates half while preserving every negative vanilla food/drink effect. It selects only conservative safe food and clean water, and dispatches the real Build 42 eat, bottle-drink, or water-source timed action.
-- `SCLogistics` inventories the companion recursively and requests one missing construction item at a time from `SCEncounter`'s reserved player-opened camp-storage boundary. Unknown world containers are never considered camp storage.
+- `SCLogistics` inventories the companion recursively and requests one missing construction item at a time from `SCEncounter`'s reserved camp-storage boundary: marked base storage inside the base (never memorial storage, never below its reserve) and player-opened containers away from it. Unknown world containers and unmarked containers inside the base are never considered camp storage.
 - `SCPathSearch` owns the resumable A* heap, search jobs, deterministic ties,
   bounded expansion, path reconstruction, and failure classification behind a
   world adapter. `SCNavTraffic` owns group-passage queues, stable waiter order,

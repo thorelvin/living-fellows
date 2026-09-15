@@ -87,13 +87,13 @@
 - [ ] Passenger firearms require Ranged Support or Weapons Free, an open/broken side window, safe speed, ammunition, range, sight, cadence, and a clear friendly-fire lane.
 - [ ] Three-sided close pressure forces a sustained break-contact response even in aggressive mode; distant targeting zombies alone do not trigger a false overrun.
 - [ ] Rescue, kneeling treatment, ripped emergency bandage, downed recovery and native bleeding are exercised.
-- [ ] Scavenging searches containers the player opened outside the base, leaves player-opened storage inside the base alone, and prevents dual reservation.
+- [ ] Scavenging searches any container outside the base, only marked non-memorial storage inside it (down to its reserve), and prevents dual reservation.
 - [ ] A companion equips a better backpack, packs role gear into it, and still finds/uses items stored inside nested bags.
 - [ ] With combat clear, a companion takes and equips only a materially better garment from a zombie corpse; danger interrupts corpse looting.
 - [ ] Safe idle near a clean sink or well washes visible body dirt/blood and then dirty clothing, bags or equipment while consuming water.
 - [ ] `Allow overload` is off by default, changes only the selected companion, survives save/load, and visibly changes that companion's load policy.
 - [ ] Hunger and thirst rise at half speed at 1x and accelerated time; eating and drinking retain vanilla item/moodle effects.
-- [ ] Hungry/thirsty companions use safe carried supplies, then player-opened camp storage, then nearby clean sinks/wells; they reject rotten, poisonous, dangerous-raw and tainted supplies.
+- [ ] Hungry/thirsty companions use safe carried supplies, then marked base storage (player-opened containers away from the base), then nearby clean sinks/wells; they reject rotten, poisonous, dangerous-raw and tainted supplies.
 - [ ] Two companions cannot take the same camp item, and an interrupted/reloaded supply run neither duplicates nor deletes it.
 - [ ] A build order fetches a hammer, plank and two nails from visited storage, waits safely if another worker owns the container, and reports genuinely missing supplies.
 - [ ] Distant visible danger uses a silent hand signal; immediate/player danger uses one rate-limited audible warning.

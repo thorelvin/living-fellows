@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.22.30 - Companions use marked base storage
+
+- Inside the base, companions now use the storage you have marked and leave the rest to you. Any container marked as storage, of any category, is theirs to use: scavengers take what they need from it, and hungry or thirsty companions eat and drink from it, whether or not you have ever opened it. They never take an item below the storage's reserve. Memorial storage keeps its keepsakes and is never touched. Containers in the base that are not marked are left for you, opened or not. Before, companions scavenged the unmarked ones you had never opened and ate from the ones you had. Outside the base nothing changes.
+
 ## 0.22.29 - Open looting, action sounds, fear lines and a save fix
 
 - Opened up looting. Scavenging companions now also search containers you have already opened, so a house you searched first is no longer closed to them. Inside your base, storage you have opened stays yours and is never scavenged. Hungry or thirsty companions still draw on your opened storage nearby as camp supplies, as before.

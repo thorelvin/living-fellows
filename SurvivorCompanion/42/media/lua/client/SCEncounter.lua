@@ -200,15 +200,69 @@ function Encounter.wasPlayerOpened(containerOrObject)
     return flags and flags.SC_PlayerOpened == true or false
 end
 
--- Storage the player has opened stays theirs inside their base. Anywhere
--- else it is ordinary loot for a scavenger, so a house the player searched
--- first is not closed to the companions who came along.
-function Encounter.isPlayerBaseStorage(container)
-    if not Encounter.wasPlayerOpened(container) then return false end
+-- Registered base storage by tile, so a scan can recognise marked storage
+-- without resolving every row for every container it passes.
+local function storageIndex()
+    local index = { count = 0 }
+    local baseLife = SC.BaseLife
+    if type(baseLife) ~= "table" or type(baseLife.storageRows) ~= "function" then return index end
+    for _, storage in ipairs(baseLife.storageRows()) do
+        local x, y = tonumber(storage.x), tonumber(storage.y)
+        if x and y then
+            local key = math.floor(x) .. ":" .. math.floor(y) .. ":"
+                .. math.floor(tonumber(storage.z) or 0)
+            index[key] = index[key] or {}
+            index[key][#index[key] + 1] = storage
+            index.count = index.count + 1
+        end
+    end
+    return index
+end
+
+-- The registered base storage a container belongs to, if any.
+local function registeredStorage(container, index)
+    local baseLife = SC.BaseLife
+    if index.count == 0 or type(baseLife) ~= "table"
+        or type(baseLife.resolveContainer) ~= "function" then return nil end
+    local x, y, z = U().position(containerOwner(container))
+    if x == nil then return nil end
+    local rows = index[math.floor(x) .. ":" .. math.floor(y) .. ":" .. math.floor(z or 0)]
+    for _, storage in ipairs(rows or {}) do
+        local ok, resolved = pcall(baseLife.resolveContainer, storage)
+        if ok and resolved == container then return storage end
+    end
+    return nil
+end
+
+local function insideBase(value)
     local baseLife = SC.BaseLife
     if type(baseLife) ~= "table" or type(baseLife.isInside) ~= "function" then return false end
-    local ok, inside = pcall(baseLife.isInside, containerOwner(container))
+    local ok, inside = pcall(baseLife.isInside, value)
     return ok and inside == true
+end
+
+-- Inside the base, companions use the storage the player has marked and
+-- leave every other container to the player, opened or not. Memorial storage
+-- keeps the keepsakes of the dead, and storage with withdrawals turned off
+-- stays shut. Outside the base any container is fair loot, so a house the
+-- player searched first is not closed to the companions who came along.
+-- Returns "outside", "shared" with its storage row, or "player".
+function Encounter.baseStorageAccess(container, index, inside)
+    if inside == nil then inside = insideBase(containerOwner(container)) end
+    if not inside then return "outside" end
+    local storage = registeredStorage(container, index or storageIndex())
+    if storage and storage.category ~= "memorial" and storage.withdrawals ~= false then
+        return "shared", storage
+    end
+    return "player"
+end
+
+-- Marked storage keeps its reserve: never take an item below it.
+local function storageAllows(storage, item)
+    local count = SC.BaseLife and SC.BaseLife.availableCount
+    if type(count) ~= "function" then return true end
+    local ok, available = pcall(count, storage, U().itemType(item))
+    return ok and (tonumber(available) or 0) > 0
 end
 
 local containerItems
@@ -228,11 +282,13 @@ local function releasePlayerSupply(actor, state)
     if state then state.supply = nil end
 end
 
--- Searches only world containers explicitly opened by the local player.  The
--- rotating outer-band sample keeps a 24-tile camp useful without turning every
--- companion decision into a full square scan.
+-- Searches the base's marked storage inside the base and, away from it, the
+-- world containers the local player has opened. The rotating outer-band
+-- sample keeps a 24-tile camp useful without turning every companion
+-- decision into a full square scan.
 local function findPlayerSupply(actor, predicate, options, state)
     local utility = U()
+    local storages = storageIndex()
     local origin = options.origin or actor
     local ox, oy, oz = utility.position(origin)
     if not ox then return nil end
@@ -259,9 +315,16 @@ local function findPlayerSupply(actor, predicate, options, state)
                     local square = utility.gridSquare(ox + dx, oy + dy, oz)
                     if square then
                         scanned = scanned + 1
+                        local squareInside = insideBase(square)
                         utility.squareObjects(square, function(object)
                             local container, containerOk = utility.call(object, "getContainer")
-                            if containerOk and container and Encounter.wasPlayerOpened(container) then
+                            local access, storage
+                            if containerOk and container then
+                                access, storage = Encounter.baseStorageAccess(
+                                    container, storages, squareInside)
+                            end
+                            if access == "shared" or (access == "outside"
+                                and Encounter.wasPlayerOpened(container)) then
                                 local reservation = pruneReservation(container, now())
                                 if not reservation or reservation.actor == actor then
                                     local examined = 0
@@ -273,6 +336,9 @@ local function findPlayerSupply(actor, predicate, options, state)
                                         if not protected then
                                             local ok, value = pcall(predicate, candidate)
                                             if ok then accepted = value == true end
+                                        end
+                                        if accepted and storage then
+                                            accepted = storageAllows(storage, candidate)
                                         end
                                         if accepted then
                                             local owner = containerOwner(container)
@@ -683,6 +749,8 @@ local function scoreContainer(actor, container, needs, objectives, commands, aud
     local utility = U()
     local bestItem, bestCategory, bestScore = nil, nil, 0
     local owner = containerOwner(container)
+    -- Marked base storage gives up nothing below its reserve.
+    local _, storage = Encounter.baseStorageAccess(container, storageIndex())
     local weaponLocationBonus = type(commands) == "table"
         and commands.prioritizeMeleeWeapon == true
         and logicalWeaponLocationBonus(container, owner) or 0
@@ -710,7 +778,9 @@ local function scoreContainer(actor, container, needs, objectives, commands, aud
                 end
             end
         end
-        if score > bestScore then bestItem, bestCategory, bestScore = item, category, score end
+        if score > bestScore and (storage == nil or storageAllows(storage, item)) then
+            bestItem, bestCategory, bestScore = item, category, score
+        end
     end)
     bestScore = bestScore - utility.distance(actor, owner) * 1.5
     return bestScore, bestItem, bestCategory, owner
@@ -803,6 +873,7 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
         granted = SC.Performance.claimUnits("scavengeSquares", requested, false)
     end
     local startedAt, processed = utility.nowMs(), 0
+    local storages = storageIndex()
     while processed < granted and job.index <= #job.offsets do
         local offset = job.offsets[job.index]
         job.index = job.index + 1
@@ -810,12 +881,14 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
         local square = utility.gridSquare(job.originX + offset.x, job.originY + offset.y, job.originZ)
         if square and (not player or utility.distanceSq(player, square) <= radius * radius)
             and not behindLockedDoor(actor, square, current) then
+            local squareInside = insideBase(square)
             utility.squareObjects(square, function(object)
                 local container, ok = utility.call(object, "getContainer")
                 if ok and container and not job.seenContainers[container]
                     and not containerOnCooldown(container, current)
                     and memoryAllows(state, container, current)
-                    and not Encounter.isPlayerBaseStorage(container) then
+                    and Encounter.baseStorageAccess(container, storages, squareInside)
+                        ~= "player" then
                     -- SC_CompanionVisited is informational. A prior companion
                     -- taking one item must not hide the remaining contents.
                     job.seenContainers[container] = true

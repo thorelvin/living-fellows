@@ -935,8 +935,8 @@ local valueData = {
     needsWaterSourceRadius = 12,
     needsWaterSquareBudget = 180,
 
-    -- A container becomes camp storage only after the local player has opened
-    -- it.  This prevents autonomous workers from raiding unseen world loot.
+    -- Camp storage is marked base storage inside the base and, away from it,
+    -- containers the local player has opened; unseen world loot never is.
     campStorageRadius = 24,
     campStorageSquareBudget = 220,
     campStorageItemBudget = 80,

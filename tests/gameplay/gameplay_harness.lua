@@ -6979,9 +6979,16 @@ end
 SurvivorCompanion.Commands.issue(fellow.id, "set_scavenge", true, player)
 fellow.hunger = 0.9
 do
-    -- Inside the player's base, storage the player opened stays theirs.
+    -- Inside the base, companions use marked storage and leave every other
+    -- container to the player, opened or not.
     SurvivorCompanion.BaseLife.reset()
     SurvivorCompanion.BaseLife.create(fellow.square, "Scavenge Camp")
+    local safeOwner = safeContainer.owner
+    for index, object in ipairs(fellow.square.objects) do
+        if object == safeOwner then safeOwner.objectIndex = index - 1 end
+    end
+    function safeOwner:getObjectIndex() return self.objectIndex end
+    local marked = SurvivorCompanion.BaseLife.registerStorage(safeOwner, "general")
     local scavenged = SurvivorCompanion.Encounter.tryScavenge(fellow, player, {
         snapshot = { threats = {}, immediateCount = 0, threatCount = 0, pressure = 0, escapeSquares = {} },
     })
@@ -6991,9 +6998,9 @@ do
         if value == safeFood then foundSafeFood = true end
         if value == openedFood then tookOpenedFood = true end
     end
-    check(scavenged and not openedFood.used and not tookOpenedFood,
-        "inside the base, scavenging leaves storage the player opened alone")
-    check(foundSafeFood, "scavenging transfers a needed item from an unvisited reserved container")
+    check(marked and scavenged and not openedFood.used and not tookOpenedFood,
+        "inside the base, scavenging leaves an unmarked container the player opened alone")
+    check(foundSafeFood, "scavenging transfers a needed item from marked base storage")
     -- Later fixtures scavenge around here; the opened food must not tempt them.
     openedContainer:Remove(openedFood)
 end
@@ -7029,6 +7036,93 @@ do
     check(SurvivorCompanion.Encounter.wasPlayerOpened(stashContainer) and acquired,
         "outside the base, a scavenger also loots storage the player has opened")
 end
+-- Inside the base companions use any marked storage, opened or not and down
+-- to its reserve, for scavenging and for meals. Unmarked containers stay the
+-- player's, opened or not, and memorial storage keeps its keepsakes.
+;(function()
+    local pantryClock = clock
+    local baseLife = SurvivorCompanion.BaseLife
+    local function placed(square, contents, opened)
+        local container, owner = containerObject(square, contents)
+        owner.objectIndex = #square.objects - 1
+        function owner:getObjectIndex() return self.objectIndex end
+        if opened ~= false then SurvivorCompanion.Encounter.markPlayerOpened(container) end
+        return container, owner
+    end
+    local runtime = { snapshot = { threats = {}, immediateCount = 0, threatCount = 0,
+        pressure = 0, escapeSquares = {} } }
+    local function scavengeFor(looter, wanted)
+        for _ = 1, 20 do
+            SurvivorCompanion.Performance.beginFrame(2, clock)
+            SurvivorCompanion.Encounter.tryScavenge(looter, player, runtime)
+            clock = clock + 16
+            SurvivorCompanion.Performance.endFrame(1, false)
+            for _, value in ipairs(looter.inventory.items) do
+                for _, target in ipairs(wanted) do
+                    if value == target then return value end
+                end
+            end
+        end
+        return nil
+    end
+    baseLife.reset()
+    local cook = actor("sc-pantry-cook", -4, 3, {})
+    local second = actor("sc-pantry-second", -4, 4, {})
+    registry[cook.id], registry[second.id] = cook, second
+    cook.hunger, second.hunger = 0.95, 0.95
+    baseLife.create(cook.square, "Pantry Camp")
+    local ration, spare = item("Base.CannedPeas", "Food"), item("Base.CannedPeas", "Food")
+    local soup, beans = item("Base.CannedSoup", "Food"), item("Base.CannedBeans", "Food")
+    local stew, keepsake = item("Base.CannedChili", "Food"), item("Base.CannedCorn", "Food")
+    -- Marked general storage nobody opened, an opened but unmarked closet, an
+    -- unmarked cupboard nobody opened, and a memorial shrine.
+    local shelf, shelfOwner = placed(cook.square, { ration }, false)
+    local closet = placed(cook.square, { soup })
+    local cupboard = placed(cook.square, { beans }, false)
+    local shrine, shrineOwner = placed(cook.square, { keepsake })
+    local registered, row = baseLife.registerStorage(shelfOwner, "general")
+    local shrineRegistered = baseLife.registerStorage(shrineOwner, "memorial")
+    SurvivorCompanion.Commands.issue(cook.id, "set_scavenge", true, player)
+    SurvivorCompanion.Commands.issue(second.id, "set_scavenge", true, player)
+    local first = registered and scavengeFor(cook, { ration, soup, beans, keepsake }) or nil
+    shelf:AddItem(spare)
+    local reserved = registered and baseLife.setReserve(row.id, "*", 1)
+    local blocked = scavengeFor(second, { spare, soup, beans, keepsake })
+    local function fetch(target)
+        for _ = 1, 6 do
+            local status = SurvivorCompanion.Encounter.takePlayerSupply(second, "needs_food",
+                function(candidate) return candidate == target end,
+                { origin = second, snapshot = runtime.snapshot })
+            if status ~= "in_progress" then return status end
+            clock = clock + 16
+        end
+        return "in_progress"
+    end
+    local closetStatus = fetch(soup)
+    local larder, larderOwner = placed(second.square, { stew }, false)
+    local larderRegistered = baseLife.registerStorage(larderOwner, "food")
+    local larderStatus = fetch(stew)
+    for _, entry in ipairs({ { shelf, spare }, { closet, soup }, { cupboard, beans },
+        { shrine, keepsake }, { larder, stew } }) do
+        entry[1]:Remove(entry[2])
+    end
+    for _, looter in ipairs({ cook, second }) do
+        SurvivorCompanion.Encounter.reset(looter)
+        SurvivorCompanion.Commands.reset(looter)
+        registry[looter.id] = nil
+    end
+    baseLife.reset()
+    SurvivorCompanion.Performance.reset()
+    clock = pantryClock
+    check(registered and shrineRegistered and larderRegistered and first == ration
+            and reserved and blocked == nil and closetStatus == "missing"
+            and larderStatus == "taken",
+        "in the base companions use any marked storage down to its reserve, and leave unmarked containers and the memorial alone: "
+            .. table.concat({ tostring(registered), tostring(shrineRegistered),
+                tostring(larderRegistered), tostring(first and first.itemType),
+                tostring(reserved), tostring(blocked and blocked.itemType),
+                tostring(closetStatus), tostring(larderStatus) }, "/"))
+end)()
 
 do
     local decisionScavenger = actor("sc-decision-scavenger", 0, 2, {})
