@@ -1046,6 +1046,13 @@ local valueData = {
     crisisConfideTimeoutMs = 45000,
     crisisConfideReplyMs = 3000,
     crisisConfessPauseMs = 4000,
+    -- The bitten companion's fear as the infection takes hold.
+    crisisFearFirstDelayMs = 20000,
+    crisisFearIntervalMs = 150000,
+    crisisFearLateIntervalMs = 90000,
+    crisisFearMidLevel = 40,
+    crisisFearLateLevel = 75,
+    crisisFearVisibleLevel = 55,
 
     dangerSignalMaxDistance = 10,
     dangerSignalImmediateRadius = 4,

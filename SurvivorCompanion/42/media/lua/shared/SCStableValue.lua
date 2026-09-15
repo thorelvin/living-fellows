@@ -26,6 +26,7 @@ function StableValue.beginCopy(value, options)
         maximumValues = math.max(1,
             math.floor(tonumber(options.maxEntries or options.maxValues) or 1024)),
         seen = {}, count = 0, result = nil, reason = nil,
+        foreignScalars = options.foreignScalars == true, skipped = 0,
         stack = {{
             phase = "value", value = value, depth = 0,
             path = options.path or "$", parent = nil, key = nil,
@@ -81,6 +82,16 @@ local function resumeSlice(job, maximumUnits, deadline, clock, minimumUnits)
                 elseif kind == "number" then
                     if not finite(current) then error("non-finite number at " .. frame.path) end
                     assign(frame, current, job)
+                elseif kind == "userdata" and job.foreignScalars then
+                    -- A boxed Java Float or Integer that game code wrote into
+                    -- a table becomes a plain number. Any other Java object is
+                    -- left out instead of failing the whole copy.
+                    local number = tonumber(tostring(current))
+                    if number ~= nil and finite(number) then
+                        assign(frame, number, job)
+                    else
+                        job.skipped = job.skipped + 1
+                    end
                 elseif kind ~= "table" then
                     error("unsupported " .. kind .. " at " .. frame.path)
                 else

@@ -97,9 +97,10 @@ local function text(value, fallback, limit)
     return value
 end
 
-local function stableCopy(value, depth, maximum, path)
+local function stableCopy(value, depth, maximum, path, foreignScalars)
     return SC.StableValue.copyStrict(value, {
         maxDepth = depth, maxEntries = maximum, path = path or "$",
+        foreignScalars = foreignScalars == true,
     })
 end
 
@@ -627,9 +628,12 @@ local function captureItemCore(item)
     end
     local dataOk, modData = invoke(item, "getModData")
     if dataOk and type(modData) == "table" then
+        -- Item modData is written by vanilla and other mods too, sometimes
+        -- from Java: torn sheets keep their filterLife as a boxed Float. One
+        -- such value must not abort every companion's save.
         local copied, copyReason = stableCopy(modData, 5,
             SC.Config.get("persistence", "maxItemModDataEntries") or 256,
-            "$.inventory[].modData")
+            "$.inventory[].modData", true)
         if copyReason ~= nil then return nil, copyReason end
         if hasEntries(copied) then entry.modData = copied end
     end

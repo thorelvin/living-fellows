@@ -26,6 +26,23 @@ do
     check(copied and copied.three == 3 and copyReason == nil and rejected == nil
             and string.find(tostring(rejectReason), "limit exceeded", 1, true),
         "strict stable copies succeed at the exact boundary and reject one over")
+    -- Game code writes some item modData from Java: torn sheets keep their
+    -- filterLife as a boxed Float. The test runner provides one, and a plain
+    -- Java object, as the real userdata they are in game.
+    local foreign = { filterLife = SC_TEST_BOXED_FLOAT, handle = SC_TEST_JAVA_OBJECT, kept = "yes" }
+    local strictCopy, strictReason = SC.StableValue.copyStrict(foreign, {
+        maxDepth = 2, maxEntries = 8, path = "$.item.modData",
+    })
+    local lenient, lenientReason = SC.StableValue.copyStrict(foreign, {
+        maxDepth = 2, maxEntries = 8, path = "$.item.modData", foreignScalars = true,
+    })
+    check(type(SC_TEST_BOXED_FLOAT) == "userdata" and type(SC_TEST_JAVA_OBJECT) == "userdata"
+            and strictCopy == nil
+            and string.find(tostring(strictReason), "unsupported userdata", 1, true) ~= nil
+            and lenient ~= nil and lenientReason == nil and lenient.filterLife == 0.75
+            and lenient.handle == nil and lenient.kept == "yes",
+        "a boxed Java number in item modData copies as a number and other Java objects are left out: "
+            .. tostring(lenientReason))
 end
 local immutable = pcall(function() SC.Config.defaults.frameBudgetMs = 99 end)
 check(not immutable and SC.Config.get("frameBudgetMs") == 2, "configuration is immutable")
@@ -1841,6 +1858,48 @@ do
         "cancelling a workout ends the exercise, so no pose is left behind")
     actor.setVariable, actor.reportEvent = savedSetVariable, savedReportEvent
     actor.clearVariable, actor.SetVariable = nil, nil
+    ISTimedActionQueue.queues[actor] = nil
+end
+do
+    -- Stand-in actions carry the sounds of the vanilla action they mirror:
+    -- washing at a sink runs WashYourself until done or cancelled, reading
+    -- opens, turns and closes the book, and a sneeze gets its voice.
+    local played, stopped, voiced = {}, {}, {}
+    local lastHandle = 100
+    function actor:playSound(name)
+        lastHandle = lastHandle + 1
+        played[#played + 1] = name
+        return lastHandle
+    end
+    function actor:stopOrTriggerSound(handle) stopped[#stopped + 1] = handle end
+    function actor:playerVoiceSound(name) voiced[#voiced + 1] = name return 1 end
+    ISTimedActionQueue.queues[actor] = nil
+    local washOk = SC.Actor.setMovement(actor, "walk", { action = "wash_self", durationMs = 3000 })
+    local washSound, washHandle = played[#played], lastHandle
+    local washCancelled = SC.NativeActions.cancelVisual(actor, "test_wash_cancel")
+    check(washOk and washSound == "WashYourself" and washCancelled
+            and stopped[#stopped] == washHandle,
+        "washing at a sink plays the stock washing sound and a cancel stops it: "
+            .. tostring(washSound))
+    ISTimedActionQueue.queues[actor] = nil
+    played = {}
+    local book = { getReadType = function() return "book" end,
+        getType = function() return "BookCarpentry1" end }
+    local readOk = SC.Actor.setMovement(actor, "walk", { action = "read", item = book })
+    local reading = ISTimedActionQueue.getTimedActionQueue(actor).current
+    if reading then
+        reading:animEvent("PageFlip")
+        reading:perform()
+    end
+    check(readOk and played[1] == "OpenBook" and played[2] == "PageFlipBook"
+            and played[3] == "CloseBook",
+        "reading opens the book, turns its pages and closes it: " .. table.concat(played, ","))
+    SC.NativeActions.clearVisual(actor)
+    ISTimedActionQueue.queues[actor] = nil
+    local sneezed = SC.Actor.setMovement(actor, "walk", { action = "ext_gesture", ext = "Sneeze1" })
+    check(sneezed and voiced[#voiced] == "SneezeLight",
+        "a companion's sneeze uses the stock sneeze voice: " .. tostring(voiced[#voiced]))
+    actor.playSound, actor.stopOrTriggerSound, actor.playerVoiceSound = nil, nil, nil
     ISTimedActionQueue.queues[actor] = nil
 end
 local barricadeOk, barricadeReason = SC.Actor.setMovement(actor, "walk", {

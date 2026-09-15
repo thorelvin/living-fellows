@@ -504,6 +504,26 @@ local captured, captureReason = SC.Persistence.captureRecord(record)
 check(captured ~= nil,
     "plain native items without getInventory still capture: " .. tostring(captureReason))
 
+-- Torn sheets from vanilla crafting carry filterLife as a boxed Java Float.
+-- Before, that one value made the strict copy refuse the item, and with it
+-- the companion's capture and every scheduled save.
+do
+    local sheets = makeItem("Base.RippedSheets", {
+        modData = { filterLife = SC_TEST_BOXED_FLOAT, handle = SC_TEST_JAVA_OBJECT },
+    })
+    original.inventory:AddItem(sheets)
+    local withSheets, sheetsReason = SC.Persistence.captureRecord(record)
+    original.inventory:Remove(sheets)
+    local saved
+    for _, entry in ipairs(withSheets and withSheets.inventory.roots or {}) do
+        if entry.type == "Base.RippedSheets" then saved = entry break end
+    end
+    check(withSheets ~= nil and saved ~= nil and type(saved.modData) == "table"
+            and saved.modData.filterLife == 0.75 and saved.modData.handle == nil,
+        "torn sheets with a Java filterLife still save, as a plain number: "
+            .. tostring(sheetsReason))
+end
+
 -- The Java bridge writes directly into a Kahlua table. If an incompatible
 -- bridge ever publishes boxed userdata (or any other malformed scalar), the
 -- complete bulk result must be rejected and the proven Lua getter path used.

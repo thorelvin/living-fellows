@@ -50,6 +50,9 @@ end
 -- so a gesture never stands a sitting companion up.
 Visual.EXT_GESTURES = { Yawn = true, TiredStretch = true, Sneeze1 = true, Sneeze2 = true,
     Cough = true }
+-- The stock voice for a sneeze or cough (VoiceMale/VoiceFemale + name); the
+-- Ext animations themselves carry no sound. Heard only; no world noise.
+Visual.EXT_VOICES = { Sneeze1 = "SneezeLight", Sneeze2 = "SneezeHeavy", Cough = "Cough" }
 
 function Visual.extGesture(actor, intent, provider)
     local name = intent.ext
@@ -61,6 +64,8 @@ function Visual.extGesture(actor, intent, provider)
     if not set then return false, failure end
     local reported, reportFailure = invoke(actor, "reportEvent", "EventDoExt")
     if not reported then return false, reportFailure end
+    local voice = Visual.EXT_VOICES[name]
+    if voice ~= nil then invoke(actor, "playerVoiceSound", voice) end
     return true, "ext_gesture_started"
 end
 

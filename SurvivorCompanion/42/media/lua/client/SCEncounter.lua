@@ -200,6 +200,17 @@ function Encounter.wasPlayerOpened(containerOrObject)
     return flags and flags.SC_PlayerOpened == true or false
 end
 
+-- Storage the player has opened stays theirs inside their base. Anywhere
+-- else it is ordinary loot for a scavenger, so a house the player searched
+-- first is not closed to the companions who came along.
+function Encounter.isPlayerBaseStorage(container)
+    if not Encounter.wasPlayerOpened(container) then return false end
+    local baseLife = SC.BaseLife
+    if type(baseLife) ~= "table" or type(baseLife.isInside) ~= "function" then return false end
+    local ok, inside = pcall(baseLife.isInside, containerOwner(container))
+    return ok and inside == true
+end
+
 local containerItems
 
 local function supplyStillPresent(supply)
@@ -804,7 +815,7 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
                 if ok and container and not job.seenContainers[container]
                     and not containerOnCooldown(container, current)
                     and memoryAllows(state, container, current)
-                    and not Encounter.wasPlayerOpened(container) then
+                    and not Encounter.isPlayerBaseStorage(container) then
                     -- SC_CompanionVisited is informational. A prior companion
                     -- taking one item must not hide the remaining contents.
                     job.seenContainers[container] = true

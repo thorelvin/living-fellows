@@ -102,20 +102,24 @@ local ropeActions = { climb_sheet_rope = true, climb_down_sheet_rope = true }
 -- timed action has demonstrably entered the actor's native action queue.  Using
 -- the real transfer/medical/craft actions here would apply each effect twice.
 local visualActionSpecs = {
-    loot_container = { animation = "Loot", event = "EventLootItem", lootPosition = "", ticks = 90 },
+    loot_container = { animation = "Loot", event = "EventLootItem", lootPosition = "", ticks = 90,
+        sound = "RummageInInventory" },
     kneel_treat = { animation = "Bandage", animationEnum = true,
-        event = "EventBandage", ticks = 100 },
-    rip_clothing_for_bandage = { animation = "Craft", animationEnum = true, ticks = 120 },
+        event = "EventBandage", ticks = 100, sound = "FirstAidApplyBandage" },
+    rip_clothing_for_bandage = { animation = "Craft", animationEnum = true, ticks = 120,
+        sound = "ClothesRipping" },
     read = { animation = "Read", animationEnum = true, event = "EventRead",
         secondaryItem = true, ticks = 360 },
     repair = { animation = "Craft", animationEnum = true, primaryItem = true, ticks = 180 },
     replace_bandage = { animation = "Bandage", animationEnum = true,
-        event = "EventBandage", ticks = 100 },
+        event = "EventBandage", ticks = 100, sound = "FirstAidApplyBandage" },
     craft_supply = { animation = "Craft", animationEnum = true, ticks = 180 },
-    wear_clothing = { animation = "WearClothing", event = "EventWearClothing", ticks = 90 },
-    wash_self = { animation = "WashFace", event = "EventWashClothing", ticks = 240 },
+    wear_clothing = { animation = "WearClothing", event = "EventWearClothing", ticks = 90,
+        sound = "RummageInInventory" },
+    wash_self = { animation = "WashFace", event = "EventWashClothing", ticks = 240,
+        sound = "WashYourself" },
     wash_equipment = { animation = "ScrubClothWithSoap", event = "EventWashClothing",
-        primaryItem = true, ticks = 240 },
+        primaryItem = true, ticks = 240, sound = "WashClothing" },
     -- No verified non-local projectile throw exists in Build 42.20.4. These
     -- stay effect-free; the autonomy layer applies sound/item consequences
     -- only after this human timed action reports successful completion.
@@ -124,8 +128,9 @@ local visualActionSpecs = {
     stress_furniture_hit = { animation = "Craft", animationEnum = true, ticks = 150 },
     -- Effect-free household routine poses. Resource accounting remains owned
     -- by SCFactionLife; these only make meals and drinks visible to the player.
-    ambient_eat = { animation = "Eat", animationEnum = true, ticks = 100 },
-    ambient_drink = { animation = "Drink", animationEnum = true, ticks = 100 },
+    ambient_eat = { animation = "Eat", animationEnum = true, ticks = 100, sound = "Eating" },
+    ambient_drink = { animation = "Drink", animationEnum = true, ticks = 100,
+        sound = "DrinkingFromBottle" },
     -- Crouched low over a zombie corpse while talking it through. Nothing on
     -- the body changes; SCDowntime only remembers that it was looked at.
     study_corpse = { animation = "Loot", lootPosition = "Low", ticks = 360 },
@@ -896,6 +901,76 @@ local function endFitnessPose(timedAction)
     invoke(character, "SetVariable", "FitnessFinished", "true")
 end
 
+-- The sounds the vanilla timed action makes for the same pose. The stand-in
+-- action carries none of its own, so washing, reading, bandaging and
+-- rummaging would otherwise be silent. Stock sounds only; they are heard,
+-- not noise that draws zombies.
+local function playActionSound(character, name)
+    if type(name) ~= "string" or name == "" then return nil end
+    local ok, handle = invoke(character, "playSound", name)
+    return ok and handle ~= nil and handle ~= 0 and handle or nil
+end
+
+local function itemTypeOf(item)
+    local ok, itemType = invoke(item, "getType")
+    return ok and tostring(itemType or "") or ""
+end
+
+-- ISReadABook tells books from magazines by the item type.
+local function isBook(item)
+    return string.match(itemTypeOf(item), "Book") ~= nil
+end
+
+-- ISWashClothing cleans bandages and rags with a different sound.
+local function isRag(item)
+    local name = string.lower(itemTypeOf(item))
+    return string.find(name, "bandage", 1, true) ~= nil
+        or string.find(name, "rippedsheets", 1, true) ~= nil
+        or string.find(name, "strips", 1, true) ~= nil
+end
+
+local function containerSound(container, getter)
+    local ok, name = invoke(container, getter)
+    return ok and type(name) == "string" and name ~= "" and name or nil
+end
+
+local function startActionSounds(timedAction)
+    local character = timedAction.character
+    local name = timedAction.actionName
+    if name == "read" then
+        playActionSound(character, isBook(timedAction.soundItem) and "OpenBook" or "OpenMagazine")
+        return
+    end
+    if name == "loot_container" and timedAction.soundContainer ~= nil then
+        playActionSound(character, containerSound(timedAction.soundContainer, "getOpenSound"))
+    end
+    local sound = timedAction.sound
+    if name == "wash_equipment" and isRag(timedAction.soundItem) then sound = "FirstAidCleanRag" end
+    timedAction.scSound = playActionSound(character, sound)
+end
+
+-- Stop the running sound once, on completion, stop or cancellation (forceStop
+-- does not always reach the Lua callbacks), then play the closing sound.
+local function endActionSounds(timedAction, completed)
+    if type(timedAction) ~= "table" or timedAction.scSoundsEnded == true then return end
+    timedAction.scSoundsEnded = true
+    local character = timedAction.character
+    if timedAction.scSound ~= nil then
+        invoke(character, "stopOrTriggerSound", timedAction.scSound)
+        timedAction.scSound = nil
+    end
+    local name = timedAction.actionName
+    if timedAction.scSoundsStarted ~= true then return end
+    if name == "read" then
+        playActionSound(character, isBook(timedAction.soundItem) and "CloseBook" or "CloseMagazine")
+    elseif name == "loot_container" and timedAction.soundContainer ~= nil then
+        playActionSound(character, containerSound(timedAction.soundContainer, "getCloseSound"))
+    elseif name == "wear_clothing" and completed and timedAction.soundItem ~= nil then
+        local ok, equip = invoke(timedAction.soundItem, "getEquipSound")
+        if ok then playActionSound(character, equip) end
+    end
+end
+
 local function visualActionClass()
     if VisualTimedAction ~= nil then
         return VisualTimedAction
@@ -967,14 +1042,24 @@ local function visualActionClass()
             invoke(self.character, "reportEvent", self.event)
         end
         if self.reading then invoke(self.character, "setReading", true) end
+        self.scSoundsStarted = true
+        startActionSounds(self)
     end
 
     function class:update()
         if self.faceTarget ~= nil then invoke(self.character, "faceThisObject", self.faceTarget) end
     end
 
+    -- The read animation reports its page turns, as it does for ISReadABook.
+    function class:animEvent(event, parameter)
+        if event ~= "PageFlip" or self.actionName ~= "read" then return end
+        if type(getGameSpeed) == "function" and getGameSpeed() ~= 1 then return end
+        playActionSound(self.character, isBook(self.soundItem) and "PageFlipBook" or "PageFlipMagazine")
+    end
+
     function class:stop()
         self.scStopped = true
+        endActionSounds(self, false)
         endFitnessPose(self)
         if self.reading then invoke(self.character, "setReading", false) end
         ISBaseTimedAction.stop(self)
@@ -982,6 +1067,7 @@ local function visualActionClass()
 
     function class:perform()
         self.scCompleted = true
+        endActionSounds(self, true)
         endFitnessPose(self)
         if self.reading then invoke(self.character, "setReading", false) end
         ISBaseTimedAction.perform(self)
@@ -1045,6 +1131,9 @@ local function visualActionClass()
         if actionName == "study_corpse" or actionName == "pay_respects" then
             value.faceTarget = intent.object
         end
+        value.sound = spec.sound
+        value.soundItem = intent.item
+        value.soundContainer = actionName == "loot_container" and intent.container or nil
         value.fitness = spec.fitness == true
         if value.fitness then
             value.exercise = fitnessExercises[intent.exercise] and intent.exercise or "pushups"
@@ -3013,6 +3102,7 @@ function actions.cancelVisual(actor, reason)
     if record.timedAction and record.timedAction.reading == true then
         invoke(actor, "setReading", false)
     end
+    endActionSounds(record.timedAction, false)
     endFitnessPose(record.timedAction)
     invoke(actor, "resetModelNextFrame")
     activeVisual[actor] = nil

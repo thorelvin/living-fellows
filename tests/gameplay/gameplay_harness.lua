@@ -6978,13 +6978,57 @@ do
 end
 SurvivorCompanion.Commands.issue(fellow.id, "set_scavenge", true, player)
 fellow.hunger = 0.9
-local scavenged = SurvivorCompanion.Encounter.tryScavenge(fellow, player, {
-    snapshot = { threats = {}, immediateCount = 0, threatCount = 0, pressure = 0, escapeSquares = {} },
-})
-check(scavenged and not openedFood.used, "scavenging ignores player-opened containers")
-local foundSafeFood = false
-for _, value in ipairs(fellow.inventory.items) do if value == safeFood then foundSafeFood = true end end
-check(foundSafeFood, "scavenging transfers a needed item from an unvisited reserved container")
+do
+    -- Inside the player's base, storage the player opened stays theirs.
+    SurvivorCompanion.BaseLife.reset()
+    SurvivorCompanion.BaseLife.create(fellow.square, "Scavenge Camp")
+    local scavenged = SurvivorCompanion.Encounter.tryScavenge(fellow, player, {
+        snapshot = { threats = {}, immediateCount = 0, threatCount = 0, pressure = 0, escapeSquares = {} },
+    })
+    SurvivorCompanion.BaseLife.reset()
+    local foundSafeFood, tookOpenedFood = false, false
+    for _, value in ipairs(fellow.inventory.items) do
+        if value == safeFood then foundSafeFood = true end
+        if value == openedFood then tookOpenedFood = true end
+    end
+    check(scavenged and not openedFood.used and not tookOpenedFood,
+        "inside the base, scavenging leaves storage the player opened alone")
+    check(foundSafeFood, "scavenging transfers a needed item from an unvisited reserved container")
+    -- Later fixtures scavenge around here; the opened food must not tempt them.
+    openedContainer:Remove(openedFood)
+end
+do
+    -- Outside the base, storage the player opened is ordinary loot.
+    local openedClock = clock
+    local stash = item("Base.CannedCorn", "Food")
+    local looter = actor("sc-opened-looter", 3, 5, {})
+    registry[looter.id] = looter
+    looter.hunger = 0.95
+    local stashContainer = containerObject(looter.square, { stash })
+    SurvivorCompanion.Encounter.markPlayerOpened(stashContainer)
+    SurvivorCompanion.Commands.issue(looter.id, "set_scavenge", true, player)
+    local runtime = {
+        snapshot = { threats = {}, immediateCount = 0, threatCount = 0,
+            pressure = 0, escapeSquares = {} },
+    }
+    local acquired = false
+    for _ = 1, 20 do
+        SurvivorCompanion.Performance.beginFrame(2, clock)
+        SurvivorCompanion.Encounter.tryScavenge(looter, player, runtime)
+        clock = clock + 16
+        SurvivorCompanion.Performance.endFrame(1, false)
+        if SurvivorCompanion.GameplayUtil.inventoryContains(looter.inventory, stash) then
+            acquired = true
+            break
+        end
+    end
+    SurvivorCompanion.Encounter.reset(looter)
+    registry[looter.id] = nil
+    SurvivorCompanion.Performance.reset()
+    clock = openedClock
+    check(SurvivorCompanion.Encounter.wasPlayerOpened(stashContainer) and acquired,
+        "outside the base, a scavenger also loots storage the player has opened")
+end
 
 do
     local decisionScavenger = actor("sc-decision-scavenger", 0, 2, {})
@@ -13673,6 +13717,50 @@ end)()
         "a far zombie no longer freezes stay, guard or base duty in an aiming hold")
 end)()
 
+-- Critical health makes combat an emergency, but when that is the only
+-- emergency and combat finds nothing it can reach, a badly wounded follower
+-- keeps following instead of freezing alone in an aiming hold. A zombie at
+-- arm's length still keeps it on guard.
+;(function()
+    local decision = SurvivorCompanion.Decision
+    local wounded = actor("sc-critical-follower", 44, 40, {})
+    wounded.modData.SC_Order = "follow"
+    registry[wounded.id] = wounded
+    local commandView = SurvivorCompanion.Commands.peek(wounded)
+    local function picture(immediate)
+        return {
+            threats = { { actor = { x = 55, y = 40, z = 0 }, distance = 11 } },
+            immediateAttackers = immediate and { { actor = { x = 45, y = 40, z = 0 } } } or {},
+            allies = {}, escapeSquares = {}, threatCount = 1,
+            immediateCount = immediate and 1 or 0, closeThreatCount = 0, pressure = 0,
+            indoors = false, player = { danger = 0, immediateThreats = 0 },
+        }
+    end
+    local critical = { alive = true, health = 30, critical = true, wounds = {} }
+    local function combatOf(snapshot)
+        local list = decision._evaluateForTests(wounded, player, snapshot, commandView,
+            critical, {}, {}, clock)
+        for _, candidate in ipairs(list) do
+            if candidate.kind == "combat" then return candidate end
+        end
+        return nil
+    end
+    local far, pressed = picture(false), picture(true)
+    local calmCombat, pressedCombat = combatOf(far), combatOf(pressed)
+    local follow = { kind = "follow" }
+    local followed = calmCombat and decision._targetlessFollowCandidate(calmCombat,
+        "no_credible_target", far, { calmCombat, follow }, { order = "follow" })
+    local held = pressedCombat and decision._targetlessFollowCandidate(pressedCombat,
+        "no_credible_target", pressed, { pressedCombat, follow }, { order = "follow" })
+    SurvivorCompanion.Commands.reset(wounded)
+    registry[wounded.id] = nil
+    check(calmCombat and calmCombat.emergency == true and calmCombat.criticalOnly == true
+            and pressedCombat and pressedCombat.emergency == true
+            and pressedCombat.criticalOnly ~= true
+            and followed == follow and held == nil,
+        "a badly wounded follower with only far zombies about keeps following; one under attack stays on guard")
+end)()
+
 -- Stay or guard given inside the base puts a companion on base duty; guard
 -- keeps the chosen square as its post and, while on shift, leaves generic
 -- chores to others. Outside the base both are plain orders again.
@@ -14988,6 +15076,74 @@ end)()
         SurvivorCompanion.Commands.reset(value)
         registry[id] = nil
     end
+end)()
+
+-- The bitten companion's fear deepens with the infection: dread, then fever
+-- and cold, then the fear of losing themselves. It waits until someone
+-- knows, keeps a slow cadence, and gives way to last words at the end.
+;(function()
+    local Crisis = SurvivorCompanion.InfectionCrisis
+    local dialogue = SurvivorCompanion.Dialogue
+    local savedCrises = Crisis.export()
+    local subject = actor("sc-fear-subject", 30, 52, {})
+    registry[subject.id] = subject
+    local function load(fields)
+        local crisis = {
+            id = "crisis:1", subjectId = subject.id, subjectName = "Ada", phase = "resolved",
+            strategy = "confess", outcome = "quarantine", createdAt = clock, updatedAt = clock,
+            irreversibleAfter = clock + 10000, deliberateAfter = clock, biteCount = 1,
+            infectionLevel = 80, confessedAt = clock,
+            participants = { [subject.id] = { knowledge = "confirmed", certainty = 100,
+                spoken = false } },
+            evidence = {}, artifacts = {}, finalAuthorized = false,
+        }
+        for key, entry in pairs(fields or {}) do
+            if key ~= "clear" then crisis[key] = entry end
+        end
+        -- A nil in a table constructor is no key at all; name fields to drop.
+        for _, key in ipairs(type(fields) == "table" and fields.clear or {}) do crisis[key] = nil end
+        Crisis.reset()
+        return Crisis.restore({ version = 1, nextSerial = 2, observations = {}, history = {},
+            crises = { ["crisis:1"] = crisis } })
+    end
+    local function firstLine(fields)
+        load(fields)
+        subject.speechCalls = 0
+        Crisis.pulse(player, clock)
+        local before = subject.speechCalls
+        Crisis.pulse(player, clock + 21000)
+        return before, subject.speechCalls, dialogue.lastSpokenTopic(subject)
+    end
+    local lateBefore, lateAfter, lateTopic = firstLine({ infectionLevel = 80 })
+    Crisis.pulse(player, clock + 40000)
+    local tooSoon = subject.speechCalls
+    Crisis.pulse(player, clock + 162000)
+    local later = subject.speechCalls
+    local _, _, midTopic = firstLine({ infectionLevel = 50 })
+    local _, _, earlyTopic = firstLine({ infectionLevel = 10 })
+    check(lateBefore == 0 and lateAfter == 1 and lateTopic == "crisis.fear.late"
+            and tooSoon == 1 and later == 2
+            and midTopic == "crisis.fear.mid" and earlyTopic == "crisis.fear.early",
+        "the bitten one's fear deepens with the infection, on a slow cadence: "
+            .. table.concat({ tostring(lateTopic), tostring(tooSoon), tostring(later),
+                tostring(midTopic), tostring(earlyTopic) }, "/"))
+    local _, hiddenCalls = firstLine({ phase = "discovered", strategy = "conceal",
+        infectionLevel = 20, clear = { "outcome", "confessedAt" } })
+    local _, _, turningTopic = firstLine({ infectionLevel = 98 })
+    check(hiddenCalls == 0 and string.sub(tostring(turningTopic), 1, 11) ~= "crisis.fear",
+        "a hidden bite stays silent until someone knows, and last words take over at the end: "
+            .. tostring(hiddenCalls) .. "/" .. tostring(turningTopic))
+    local problems = {}
+    for _, topic in ipairs({ "crisis.fear.early", "crisis.fear.mid", "crisis.fear.late" }) do
+        if not dialogue.has(topic) or dialogue.poolSize(topic, subject) < 12 then
+            problems[#problems + 1] = topic
+        end
+    end
+    check(#problems == 0, "fear lines are registered for every stage: " .. table.concat(problems, ","))
+    Crisis.reset()
+    Crisis.restore(savedCrises)
+    SurvivorCompanion.Commands.reset(subject)
+    registry[subject.id] = nil
 end)()
 
 check(SurvivorCompanion.Decision.resetAll(), "central gameplay runtime reset")

@@ -175,11 +175,12 @@ end
 
 -- Conversation timing that does not need saving: when each bystander set
 -- off to walk over, and when the next voice in a crisis may speak.
-local walks, turns = {}, {}
+local walks, turns, fearNext = {}, {}, {}
 
-local function say(actor, topic, fallback)
+local function say(actor, topic, fallback, arguments)
     if SC.Dialogue and type(SC.Dialogue.say) == "function" then
-        local ok, spoken = pcall(SC.Dialogue.say, actor, topic, nil, nil, { fallback = fallback })
+        local ok, spoken = pcall(SC.Dialogue.say, actor, topic, nil, arguments,
+            { fallback = fallback })
         return ok and spoken == true
     end
     return U().say(actor, fallback) == true
@@ -511,6 +512,76 @@ local function conversationBeats(crisis, subject, player, current)
     end
 end
 
+local fearFallbacks = {
+    early = "I'm scared. I'm really, really scared.",
+    mid = "I feel cold. Why am I so cold?",
+    late = "I don't wanna lose myself.",
+}
+
+local function fearTier(level)
+    local utility = U()
+    if level >= (utility.config("crisisFearLateLevel") or 75) then return "late" end
+    if level >= (utility.config("crisisFearMidLevel") or 40) then return "mid" end
+    return "early"
+end
+
+-- Is the bitten one somewhere quiet enough to talk? Reads its last senses
+-- snapshot; with none, assume it is.
+local function subjectCalm(subjectId)
+    local record = SC.Registry and type(SC.Registry.byId) == "function"
+        and SC.Registry.byId(subjectId) or nil
+    local runtime = type(record) == "table" and record.runtime or nil
+    local snapshot = type(runtime) == "table"
+        and (type(runtime.senses) == "table" and runtime.senses.current or runtime.snapshot) or nil
+    if type(snapshot) ~= "table" then return true end
+    return (tonumber(snapshot.threatCount) or 0) == 0
+        and (tonumber(snapshot.immediateCount) or 0) == 0 and snapshot.humanThreat == nil
+end
+
+-- The bitten one's fear, in their own words, as the infection takes hold:
+-- dread and denial first, then fever and cold, then the fear of losing
+-- themselves. It starts once someone else knows or the symptoms show, keeps
+-- a slow cadence (quicker near the end), waits for a quiet moment and for
+-- others to finish speaking, and gives way to last words at the very end.
+local function fearBeat(crisis, subject, player, current)
+    local utility = U()
+    if crisis.subjectId == "player:local" or subject == nil or subject == player then return false end
+    local level = finite(crisis.infectionLevel, 0)
+    if level >= (utility.config("lastWordsTurningThreshold") or 97) then return false end
+    local known = crisis.confessedAt ~= nil
+        or level >= (utility.config("crisisFearVisibleLevel") or 55)
+    if not known then
+        for id, member in pairs(crisis.participants) do
+            if id ~= crisis.subjectId and type(member) == "table"
+                and member.knowledge == "confirmed" then
+                known = true
+                break
+            end
+        end
+    end
+    if not known then return false end
+    local due = fearNext[crisis.id]
+    if due == nil then
+        fearNext[crisis.id] = current + (utility.config("crisisFearFirstDelayMs") or 20000)
+        return false
+    end
+    if current < due or current < (turns[crisis.id] or 0) then return false end
+    if not subjectCalm(crisis.subjectId) or utility.call(subject, "isAsleep") == true then
+        return false
+    end
+    local tier = fearTier(level)
+    local interval = tier == "late" and (utility.config("crisisFearLateIntervalMs") or 90000)
+        or (utility.config("crisisFearIntervalMs") or 150000)
+    local jitter = math.abs(tonumber(utility.stableHash(crisis.id .. ":fear:"
+        .. tostring(math.floor(current / 1000)))) or 0) % 30000
+    fearNext[crisis.id] = current + interval + jitter
+    turns[crisis.id] = current + (utility.config("crisisTurnGapMs") or 3500)
+    local name = player ~= nil and tostring(utility.nameOf(player) or "") or ""
+    return say(subject, "crisis.fear." .. tier, fearFallbacks[tier], {
+        string.match(name, "^(%S+)") or "friend",
+    })
+end
+
 local function advance(crisis, subject, player, medical, current)
     crisis.updatedAt = current
     crisis.infectionLevel = math.max(crisis.infectionLevel or 0, medical.infectionLevel or 0)
@@ -519,6 +590,7 @@ local function advance(crisis, subject, player, medical, current)
         and SC.Dialogue and type(SC.Dialogue.sayLastWords) == "function" then
         SC.Dialogue.sayLastWords(subject, "turning", player)
     end
+    if crisis.phase ~= "terminal" then fearBeat(crisis, subject, player, current) end
     if crisis.phase == "resolved" or crisis.phase == "terminal" then return end
     conversationBeats(crisis, subject, player, current)
     symptomDiscovery(crisis, subject, player, crisis.infectionLevel)
@@ -1077,7 +1149,7 @@ function Crisis.restore(source)
 end
 function Crisis.reset()
     document = emptyDocument()
-    walks, turns = {}, {}
+    walks, turns, fearNext = {}, {}, {}
 end
 
 Crisis.reset()

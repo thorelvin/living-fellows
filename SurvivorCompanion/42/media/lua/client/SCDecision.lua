@@ -370,6 +370,16 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
                 targetId = humanThreat.id,
                 humanThreat = humanThreat,
             } or nil)
+        -- Critical health alone made this an emergency: nothing is close,
+        -- attacking, human or surrounding the companion.
+        local added = candidates[#candidates]
+        if added and added.kind == "combat" then
+            added.criticalOnly = assessment.critical == true and immediate == 0
+                and snapshot.encircled ~= true
+                and not (humanThreat and humanThreat.visible == true)
+                and (tonumber(snapshot.closeThreatCount) or 0) == 0
+                and (snapshot.player and snapshot.player.immediateThreats or 0) == 0
+        end
     end
 
     if commands.recruited and commands.temporaryStay ~= true
@@ -1633,11 +1643,13 @@ end
 -- base duty goes back to its own work instead of aiming for minutes at a
 -- zombie behind the fence that it will never fight. Survival combat,
 -- immediate attackers, encirclement and hostile humans keep the stationary
--- hold.
+-- hold. A badly wounded companion whose only emergency is its own health
+-- still follows: alone in an aiming hold is the worse place to be.
 local dutyFallbackRanks = { base_work = 3, tactical = 2, downtime = 1 }
 function Decision._targetlessFollowCandidate(selected, failure, snapshot, candidates, commands)
     if failure ~= "no_credible_target" or type(selected) ~= "table"
-        or selected.kind ~= "combat" or selected.emergency == true then
+        or selected.kind ~= "combat"
+        or (selected.emergency == true and selected.criticalOnly ~= true) then
         return nil
     end
     if type(snapshot) ~= "table" or snapshot.encircled == true or snapshot.humanThreat ~= nil
@@ -2254,7 +2266,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     -- A combat re-check against zombies it just judged out of reach must not
     -- tear down the companion's own work; if it finds a real target, the next
     -- decision is no longer a re-check and preempts as usual.
-    local recheck = selected.kind == "combat" and selected.emergency ~= true
+    local recheck = selected.kind == "combat"
+        and (selected.emergency ~= true or selected.criticalOnly == true)
         and onlyUnreachableThreats(actor, snapshot, current)
     if previous == "ritual" and selected.kind ~= "ritual"
         and SC.Autonomy and type(SC.Autonomy.interrupt) == "function" then
@@ -2359,7 +2372,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
             end
             -- Nothing else to do while the only threats are out of reach:
             -- stand idle rather than freeze in an aiming hold.
-            local tolerated = selectedRank < safetyRank[Decision.SafetyTier.SURVIVAL]
+            local tolerated = (selectedRank < safetyRank[Decision.SafetyTier.SURVIVAL]
+                    or selected.criticalOnly == true)
                 and onlyUnreachableThreats(actor, snapshot, current)
             if not handled and not tolerated then
                 handled, reason = guardedSafetyHold(actor, snapshot, selected)

@@ -24,6 +24,11 @@ public final class KahluaTestRunner {
 
         Object platform = platformType.getMethod("getInstance").invoke(null);
         Object environment = platformType.getMethod("newEnvironment").invoke(platform);
+        // Real Java values as game code leaves them in Lua tables: a boxed
+        // Float (not a Lua number) and an arbitrary object, both userdata.
+        var rawset = tableType.getMethod("rawset", Object.class, Object.class);
+        rawset.invoke(environment, "SC_TEST_BOXED_FLOAT", Float.valueOf(0.75f));
+        rawset.invoke(environment, "SC_TEST_JAVA_OBJECT", new Object());
         Object thread = threadType.getConstructor(platformInterface, tableType).newInstance(platform, environment);
         var ownerField = threadType.getDeclaredField("debugOwnerThread");
         ownerField.setAccessible(true);

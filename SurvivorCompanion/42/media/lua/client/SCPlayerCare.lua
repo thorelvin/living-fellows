@@ -69,18 +69,29 @@ function SCApplyCompanionBandage:update()
     if self.companion then pcall(function() self.character:faceThisObject(self.companion) end) end
 end
 
+-- The same bandaging sound as ISApplyBandage, stopped when the action ends.
+local function stopCareSound(action)
+    if action.careSound ~= nil and action.careSound ~= 0 then
+        pcall(function() action.character:stopOrTriggerSound(action.careSound) end)
+    end
+    action.careSound = nil
+end
+
 function SCApplyCompanionBandage:start()
     -- Best-effort animation; a missing anim name must not break the action, which
     -- still completes on its timer.
     pcall(function() self:setActionAnim("Bandage") end)
+    pcall(function() self.careSound = self.character:playSound("FirstAidApplyBandage") end)
 end
 
 function SCApplyCompanionBandage:stop()
+    stopCareSound(self)
     releaseCompanion(self.companion)
     ISBaseTimedAction.stop(self)
 end
 
 function SCApplyCompanionBandage:perform()
+    stopCareSound(self)
     local applied, reason = false, "medical_unavailable"
     if SC.Medical and type(SC.Medical.applyPlayerBandage) == "function" then
         local ok, value, applyReason = pcall(SC.Medical.applyPlayerBandage,
