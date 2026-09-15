@@ -27,6 +27,9 @@ UI.SETTINGS_VISIBILITY_REVISION = 1
 -- existing saved F7 default cannot follow the upgrade into Build 42 debug mode.
 UI.HOTKEY_ACTION = "Toggle Living Fellows panel"
 UI.DEFAULT_HOTKEY = Keyboard.KEY_HOME
+-- Shows or hides the base layout overlay: zone tints and registered storage.
+UI.LAYOUT_HOTKEY_ACTION = "Toggle Living Fellows base layout"
+UI.DEFAULT_LAYOUT_HOTKEY = Keyboard.KEY_END
 UI.MENU_OPEN_SOUND = "UIVehicleMenuOpen"
 UI.MENU_CLOSE_SOUND = "UIVehicleMenuClose"
 UI.instance = UI.instance or nil
@@ -36,18 +39,27 @@ UI._gameStarted = UI._gameStarted or false
 
 local function registerHotkey()
     if type(keyBinding) ~= "table" then return false end
-    local categoryFound = false
+    local categoryFound, panelFound, layoutFound = false, false, false
     for _, binding in ipairs(keyBinding) do
         if binding.value == "[Living Fellows]" then categoryFound = true end
-        if binding.value == UI.HOTKEY_ACTION then return true end
+        if binding.value == UI.HOTKEY_ACTION then panelFound = true end
+        if binding.value == UI.LAYOUT_HOTKEY_ACTION then layoutFound = true end
     end
     if not categoryFound then
         table.insert(keyBinding, { value = "[Living Fellows]" })
     end
-    table.insert(keyBinding, {
-        value = UI.HOTKEY_ACTION,
-        key = UI.DEFAULT_HOTKEY,
-    })
+    if not panelFound then
+        table.insert(keyBinding, {
+            value = UI.HOTKEY_ACTION,
+            key = UI.DEFAULT_HOTKEY,
+        })
+    end
+    if not layoutFound then
+        table.insert(keyBinding, {
+            value = UI.LAYOUT_HOTKEY_ACTION,
+            key = UI.DEFAULT_LAYOUT_HOTKEY,
+        })
+    end
     return true
 end
 
@@ -169,6 +181,8 @@ local PRODUCTION_OPERATIONS = {
     { id = "saw_planks", key = "UI_SC_Base_ProductionOperation_saw_planks" },
     { id = "dig_graves", key = "UI_SC_Base_ProductionOperation_dig_graves" },
     { id = "bury_bodies", key = "UI_SC_Base_ProductionOperation_bury_bodies" },
+    { id = "collect_bodies", key = "UI_SC_Base_ProductionOperation_collect_bodies" },
+    { id = "burn_bodies", key = "UI_SC_Base_ProductionOperation_burn_bodies" },
 }
 local PRODUCTION_OPERATION_KEYS = {}
 for _, option in ipairs(PRODUCTION_OPERATIONS) do PRODUCTION_OPERATION_KEYS[option.id] = option.key end
@@ -177,6 +191,20 @@ local PRODUCTION_HINT_KEYS = {
     saw_planks = "UI_SC_Base_ProductionHint_saw_planks",
     dig_graves = "UI_SC_Base_ProductionHint_dig_graves",
     bury_bodies = "UI_SC_Base_ProductionHint_bury_bodies",
+    collect_bodies = "UI_SC_Base_ProductionHint_collect_bodies",
+    burn_bodies = "UI_SC_Base_ProductionHint_burn_bodies",
+}
+-- Collection may end in either disposal ground; the chosen area decides
+-- between burial and burning.
+local PRODUCTION_ZONE_CHOICES = { collect_bodies = { burial = true, pyre = true } }
+local PRODUCTION_SOURCES = {
+    { id = "all", key = "UI_SC_Base_ProductionSources_all" },
+    { id = "camp", key = "UI_SC_Base_ProductionSources_camp" },
+    { id = "lumber", key = "UI_SC_Base_ProductionSources_lumber" },
+}
+local PRODUCTION_DISPOSAL_BELONGINGS = {
+    { id = "skip", key = "UI_SC_Base_ProductionBelongings_skip" },
+    { id = "keep", key = "UI_SC_Base_ProductionBelongings_keep" },
 }
 local PRODUCTION_UNIT_KEYS = {
     trees = "UI_SC_Base_ProductionUnit_trees",
@@ -186,12 +214,15 @@ local PRODUCTION_UNIT_KEYS = {
 }
 local PRODUCTION_ZONE_KIND = {
     fell_trees = "lumber", dig_graves = "burial", bury_bodies = "burial",
+    collect_bodies = "burial", burn_bodies = "pyre",
 }
 local PRODUCTION_QUANTITIES = {
     fell_trees = { 1, 3, 5, 10, 20, 40 },
     saw_planks = { 3, 6, 12, 24, 36, 60 },
     dig_graves = { 1, 2, 3, 6 },
     bury_bodies = { 1, 3, 5, 10, 25 },
+    collect_bodies = { 1, 3, 5, 10, 25 },
+    burn_bodies = { 1, 3, 5, 10, 25 },
 }
 local PRODUCTION_YES_NO = {
     { id = "yes", key = "UI_SC_Base_ProductionOption_yes" },
@@ -221,12 +252,18 @@ local PRODUCTION_PHASE_KEYS = {
     blocked = "UI_SC_Base_ProductionPhase_blocked",
     completed = "UI_SC_Base_ProductionPhase_completed",
     cancelled = "UI_SC_Base_ProductionPhase_cancelled",
+    grabbing = "UI_SC_Base_ProductionPhase_grabbing",
+    dragging = "UI_SC_Base_ProductionPhase_dragging",
+    placing = "UI_SC_Base_ProductionPhase_placing",
+    burning = "UI_SC_Base_ProductionPhase_burning",
+    watching = "UI_SC_Base_ProductionPhase_watching",
 }
 local function newProductionDraft()
     return {
         operation = "fell_trees", requested = 5, zoneId = nil,
         sourceStorageId = nil, destinationStorageId = nil,
         haul = "yes", belongings = "skip", marker = "none",
+        sources = "all", dryOnly = "yes",
     }
 end
 local productionDraft = newProductionDraft()
@@ -2521,9 +2558,15 @@ function SCUIDetail:buildProductionSection(panel, y, base, row)
     local schemas = SC.BaseLife and SC.BaseLife.PRODUCTION_OPERATIONS or {}
     local schema = schemas[operation] or {}
     local zoneKind = PRODUCTION_ZONE_KIND[operation]
-    local zones, sources, destinations = {}, {}, {}
+    local zoneChoices = PRODUCTION_ZONE_CHOICES[operation]
+    local zones, sources, destinations, zoneKinds = {}, {}, {}, {}
     for _, zone in ipairs(base.zoneRows or {}) do
-        if zone.kind == zoneKind then zones[#zones + 1] = { id = zone.id, label = zone.name } end
+        if zone.kind == zoneKind or (zoneChoices and zoneChoices[zone.kind]) then
+            zones[#zones + 1] = { id = zone.id, label = zoneChoices
+                and (tostring(zone.name) .. " - " .. UI.text("UI_SC_Base_Zone_" .. zone.kind))
+                or zone.name }
+            zoneKinds[zone.id] = zone.kind
+        end
     end
     for _, storage in ipairs(base.storageRows or {}) do
         local option = {
@@ -2592,12 +2635,33 @@ function SCUIDetail:buildProductionSection(panel, y, base, row)
         end
         y = self:addProductionDraftSelector(panel, y, "UI_SC_Base_ProductionQuantitySelector",
             "requested", productionDraft.requested, quantities)
+        local selectedKind = zoneKinds[productionDraft.zoneId]
         if operation == "bury_bodies" then
             y = self:addProductionDraftSelector(panel, y,
                 "UI_SC_Base_ProductionBelongingsSelector", "belongings",
                 productionDraft.belongings, PRODUCTION_BELONGINGS)
             y = self:addProductionDraftSelector(panel, y, "UI_SC_Base_ProductionMarkerSelector",
                 "marker", productionDraft.marker, PRODUCTION_MARKERS)
+        elseif operation == "collect_bodies" or operation == "burn_bodies" then
+            if operation == "collect_bodies" then
+                y = self:addProductionDraftSelector(panel, y,
+                    "UI_SC_Base_ProductionSourcesSelector", "sources",
+                    productionDraft.sources, PRODUCTION_SOURCES)
+            end
+            y = self:addProductionDraftSelector(panel, y,
+                "UI_SC_Base_ProductionBelongingsSelector", "belongings",
+                productionDraft.belongings, PRODUCTION_DISPOSAL_BELONGINGS)
+            if selectedKind == "burial" then
+                y = self:addProductionDraftSelector(panel, y,
+                    "UI_SC_Base_ProductionMarkerSelector", "marker",
+                    productionDraft.marker, PRODUCTION_MARKERS)
+            elseif selectedKind == "pyre" then
+                y = self:addProductionDraftSelector(panel, y,
+                    "UI_SC_Base_ProductionDryOnlySelector", "dryOnly",
+                    productionDraft.dryOnly, PRODUCTION_YES_NO)
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    UI.text("UI_SC_Base_ProductionFireWarning"))
+            end
         end
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
             UI.text("UI_SC_Base_GatherWorker", row.name))
@@ -2612,9 +2676,13 @@ function SCUIDetail:buildProductionSection(panel, y, base, row)
                     and productionDraft.destinationStorageId or nil,
                 settings = {
                     haulLogs = productionDraft.haul == "yes",
-                    withBelongings = productionDraft.belongings == "bury",
+                    withBelongings = productionDraft.belongings == "bury"
+                        or productionDraft.belongings == "keep",
                     marker = productionDraft.marker,
                     closeWhenDone = true, digIfNeeded = true,
+                    fromCamp = productionDraft.sources ~= "lumber",
+                    fromLumber = productionDraft.sources ~= "camp",
+                    requireDry = productionDraft.dryOnly ~= "no",
                 },
                 workerId = row.id,
             }, UI.text("UI_SC_Base_ProductionStartConfirm", row.name))
@@ -2675,6 +2743,13 @@ function SCUIDetail:buildProductionSection(panel, y, base, row)
             UI.text("UI_SC_Base_ProductionCounters", counters.treesFelled or 0,
                 counters.planksMade or 0, counters.gravesDug or 0,
                 counters.bodiesBuried or 0, counters.gravesClosed or 0))
+        if (tonumber(counters.bodiesCollected) or 0) > 0 or (tonumber(counters.bodiesBurned) or 0) > 0
+            or (tonumber(counters.fallenBuried) or 0) > 0 then
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.text("UI_SC_Base_ProductionCountersDisposal", counters.bodiesCollected or 0,
+                    counters.bodiesBurned or 0, counters.pyresLit or 0,
+                    counters.fallenBuried or 0))
+        end
     end
     return y
 end
@@ -5219,13 +5294,31 @@ function UI.toggle()
     return UI.instance
 end
 
+-- Shows or hides the base layout overlay and confirms it over the player.
+function UI.toggleBaseLayout(player)
+    if not SC.BaseVisuals or type(SC.BaseVisuals.toggle) ~= "function" then return false end
+    local called, accepted, shown = pcall(SC.BaseVisuals.toggle)
+    if not called or accepted ~= true then return false end
+    local subject = player or playerForUI()
+    if subject then
+        safeMethod(subject, "setHaloNote", UI.text(shown and "UI_SC_Base_Visual_Shown"
+            or "UI_SC_Base_Visual_Hidden"))
+    end
+    UI.refresh()
+    return true, shown
+end
+
 function UI.onKeyPressed(key)
     if not playerForUI() then return end
     local configured = UI.DEFAULT_HOTKEY
     local core = getCore and getCore() or nil
     local bound = core and safeMethod(core, "getKey", UI.HOTKEY_ACTION) or nil
     if tonumber(bound) and tonumber(bound) > 0 then configured = tonumber(bound) end
-    if tonumber(key) == configured then UI.toggle() end
+    if tonumber(key) == configured then UI.toggle() return end
+    local layout = UI.DEFAULT_LAYOUT_HOTKEY
+    local layoutBound = core and safeMethod(core, "getKey", UI.LAYOUT_HOTKEY_ACTION) or nil
+    if tonumber(layoutBound) and tonumber(layoutBound) > 0 then layout = tonumber(layoutBound) end
+    if tonumber(key) == layout then UI.toggleBaseLayout() end
 end
 
 function UI.refresh()

@@ -400,8 +400,17 @@ public final class SCNativeApiSignatureTest {
                         && method(worldMapStreet, "getPointX", int.class).getReturnType()
                                 == float.class
                         && method(worldMapStreet, "getPointY", int.class).getReturnType()
-                                == float.class,
+                                == float.class
+                        && method(worldMapStreet, "getMinX").getReturnType() == float.class
+                        && method(worldMapStreet, "getMinY").getReturnType() == float.class
+                        && method(worldMapStreet, "getMaxX").getReturnType() == float.class
+                        && method(worldMapStreet, "getMaxY").getReturnType() == float.class,
                 "world-map nearest-street signatures changed");
+        // Build 42 exposes WorldMapStreetsV1 to Kahlua but not WorldMapStreets, so
+        // the street walk runs in the bridge and Lua passes the streets API object.
+        require(method(survivorcompanion.bridge.SCBridge.class, "nearestStreet", Object.class,
+                        double.class, double.class, double.class).getReturnType() == String.class,
+                "Kahlua-visible nearest-street bridge signature changed");
         require(method(worldMapBaseSymbol, "setAnchor", float.class, float.class).getReturnType()
                         == void.class
                         && method(worldMapBaseSymbol, "setRGBA", float.class, float.class,

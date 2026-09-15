@@ -33,6 +33,12 @@ local tacticalDecisionKinds = {
     combat = true, retreat = true, medical = true, tactical = true,
     alert = true, infection_crisis = true,
 }
+-- Orders that give a companion its own task to carry on with while combat
+-- has nothing it may engage.
+local ownTaskOrders = {
+    stay = true, guard = true, base_duty = true,
+    work = true, move_to = true, check_room = true, interact = true,
+}
 
 local function safetyTierFor(kind, emergency, detail)
     if emergency == true then return Decision.SafetyTier.SURVIVAL end
@@ -165,6 +171,67 @@ local function recentSharedAlert(actor, snapshot, state, current)
     return newest
 end
 
+-- Followers keep formation for a moment after the leader stops. Idle
+-- downtime, opportunistic scavenging and voluntary idle moods wait until the
+-- leader has stood still (no movement input, no position change) for
+-- followSettleMs, plus a stable per-companion share of followSettleStaggerMs
+-- so a group does not break formation in one beat.
+local leaderStillness = setmetatable({}, { __mode = "k" })
+
+local function leaderSettled(actor, player, current)
+    if player == nil or current == nil then return false end
+    local utility = U()
+    local record = leaderStillness[player]
+    if not record then
+        record = {}
+        leaderStillness[player] = record
+    end
+    local x, y, z = utility.position(player)
+    local moving, movingOk = utility.call(player, "isMoving")
+    local shifted = x ~= nil and record.x ~= nil
+        and ((x - record.x) * (x - record.x) + (y - record.y) * (y - record.y) > 0.04
+            or math.floor(z or 0) ~= math.floor(record.z or 0))
+    if x == nil or (movingOk and moving == true) or shifted then
+        record.since = nil
+    elseif record.since == nil then
+        record.since = current
+    end
+    record.x, record.y, record.z = x, y, z
+    if record.since == nil then return false end
+    local settle = tonumber(utility.config("followSettleMs")) or 2500
+    local stagger = math.floor(math.max(0, tonumber(utility.config("followSettleStaggerMs")) or 1500))
+    if stagger > 0 then
+        settle = settle + math.abs(tonumber(utility.stableHash(
+            tostring(utility.idOf(actor)) .. ":follow-settle")) or 0) % stagger
+    end
+    return current - record.since >= settle
+end
+
+-- True for a short window after this companion's combat pass found no target
+-- it may engage (every visible zombie out of reach or not credible for the
+-- doctrine).
+local function combatRecentlyTargetless(actor, current)
+    local combat = SC.Combat
+    if type(combat) ~= "table" or type(combat.peek) ~= "function" or current == nil then
+        return false
+    end
+    local ok, record = pcall(combat.peek, actor)
+    local at = ok and type(record) == "table" and tonumber(record.noCredibleAt) or nil
+    return at ~= nil and current >= at
+        and current - at < (tonumber(U().config("combatNoTargetFollowMs")) or 1500)
+end
+
+-- Every threat in view is one combat just judged it may not engage, and
+-- nothing is close, attacking, human or surrounding (SCCombat owns this).
+local function onlyUnreachableThreats(actor, snapshot, current)
+    local combat = SC.Combat
+    if type(combat) ~= "table" or type(combat.onlyUnreachableThreats) ~= "function" then
+        return false
+    end
+    local ok, result = pcall(combat.onlyUnreachableThreats, actor, snapshot, current)
+    return ok and result == true
+end
+
 local function evaluate(actor, player, snapshot, commands, assessment, needs, state, current)
     local candidates = {}
     local downtimeAdded = false
@@ -204,6 +271,13 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         candidates[#candidates].safetyRank = safetyRank[candidates[#candidates].safetyTier]
         if kind == "downtime" then downtimeAdded = true end
     end
+    -- Untreated bleeding: no chores until the wound is dressed.
+    local bleeding = (tonumber(assessment.bleedingCount) or 0) > 0
+    if SC.Medical and type(SC.Medical.isReceivingCare) == "function"
+        and SC.Medical.isReceivingCare(actor, current) then
+        -- The player is bandaging this companion: hold still for it.
+        add("medical", 150, true, { mode = "receiving_care" })
+    end
     if actionableMedical(actor, assessment, true) then
         if assessment.downed or (assessment.health > 0
             and assessment.health <= (U().config("downedHealth") or 18)) then
@@ -212,6 +286,14 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             add("medical", 96 + (assessment.bleedingCount or 0) * 8,
                 (tonumber(assessment.bleedingCount) or 0) > 0)
         end
+    end
+    -- A bleeding companion that cannot dress the wound itself stays with the
+    -- leader and asks for a bandage. When self-care fails the decision falls
+    -- back to this instead of scavenging or washing while it bleeds out.
+    if bleeding and commands.recruited and player
+        and SC.Medical and type(SC.Medical.selfCareBlocker) == "function"
+        and SC.Medical.selfCareBlocker(actor) ~= nil then
+        add("follow", 90, false, { mode = "seek_care" })
     end
     local rescue, rescueTarget = rescueNeed(actor, player, snapshot)
     if rescue > 0 and (snapshot.immediateCount or 0) == 0 then
@@ -234,7 +316,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         add("conversation", 68, false)
     end
     if SC.InfectionCrisis and type(SC.InfectionCrisis.intentFor) == "function" then
-        local crisis = SC.InfectionCrisis.intentFor(actor, player)
+        local crisis = SC.InfectionCrisis.intentFor(actor, player, snapshot)
         if crisis and crisis.priority and crisis.priority > 0 then
             add("infection_crisis", crisis.priority, false, crisis)
         end
@@ -266,6 +348,20 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         -- Critical health still makes real danger urgent, even when there is no
         -- wound medicine can treat. Combat retains its health-aware retreat logic.
         if assessment.critical then combatScore = math.max(combatScore, 112) end
+        -- A follower whose last combat pass found nothing it may engage keeps
+        -- moving with its leader, and a companion with its own task (stay,
+        -- guard, base duty, work) carries on with it. Combat re-checks on a
+        -- short cadence, and anything close, immediate or human wins at once.
+        local ownTask = ownTaskOrders[commands.order] == true
+        if commands.recruited
+            and (commands.order == "follow" or commands.order == "regroup" or ownTask)
+            and immediate == 0 and not humanThreat and snapshot.encircled ~= true
+            and not assessment.critical
+            and (tonumber(snapshot.closeThreatCount) or 0) == 0
+            and (snapshot.player and snapshot.player.immediateThreats or 0) == 0
+            and combatRecentlyTargetless(actor, current) then
+            combatScore = math.min(combatScore, ownTask and 20 or 28)
+        end
         add("combat", combatScore,
             assessment.critical or immediate > 0 or snapshot.encircled
                 or humanThreat and humanThreat.visible == true,
@@ -279,7 +375,16 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     if commands.recruited and commands.temporaryStay ~= true
         and SC.Autonomy and type(SC.Autonomy.intentFor) == "function" then
         local okay, intent = pcall(SC.Autonomy.intentFor, actor, player, snapshot, commands)
-        if okay and type(intent) == "table" and tonumber(intent.priority) then
+        -- A follower's voluntary idle moments (joy, restless or supply idles,
+        -- ordinary rituals) also wait for the leader to settle. Episodes, grief
+        -- and urgent ritual recovery are never held back.
+        local voluntary = okay and type(intent) == "table"
+            and (intent.kind == "joy_response" or intent.kind == "purposeful_idle"
+                or (intent.kind == "ritual" and (tonumber(intent.priority) or 0) < 84))
+        if okay and type(intent) == "table" and tonumber(intent.priority)
+            and not (voluntary and bleeding)
+            and not (voluntary and commands.order == "follow"
+                and not leaderSettled(actor, player, current)) then
             add(intent.kind, tonumber(intent.priority), false, intent)
         end
     end
@@ -297,10 +402,14 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     -- Generic companion logistics sees that weight as overload and otherwise
     -- preempts the faction policy forever, repeatedly trying to pack/deposit the
     -- exact materials the resident needs for barricade jobs.
-    if threatCount == 0 and factionIntent == nil
+    if threatCount == 0 and factionIntent == nil and not bleeding
         and SC.Logistics and type(SC.Logistics.status) == "function" then
         local ok, load = pcall(SC.Logistics.status, actor)
-        if ok and load and load.shouldManage then
+        -- Bag, clothing and packing chores wait for a following leader to
+        -- settle, like idle work; being overloaded does not.
+        if ok and load and load.shouldManage and (load.overloaded
+            or not (commands.recruited and commands.order == "follow")
+            or leaderSettled(actor, player, current)) then
             -- Overload beats routine follow/work, but never urgent medicine,
             -- needs, retreat, or combat survival.
             add("logistics", load.overloaded and 92 or 74, false, load)
@@ -325,14 +434,19 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             local distanceSq = tonumber(alert.distanceSq) or U().distanceSq(actor, alert)
             add("alert", distanceSq <= closeRadius * closeRadius and 66 or 45, false, alert)
         end
-        if commands.order == "retreat" then add("retreat", 122, true)
-        elseif commands.order == "regroup" then add("follow", 82, false)
+        -- Retreat runs from something; with nothing in view the order
+        -- regroups on the leader instead of freezing without a direction.
+        local retreatFrom = threatCount > 0 or immediate > 0 or humanThreat ~= nil
+        if commands.order == "retreat" and retreatFrom then add("retreat", 122, true)
+        elseif commands.order == "retreat" or commands.order == "regroup" then
+            add("follow", 82, false)
         elseif commands.order == "follow" then
-            local playerMoving, movingOk = U().call(player, "isMoving")
             local close = player and U().distance(actor, player)
                 <= math.max(3, (commands.followDistance or 3) + 1.5)
-            if close and snapshot.indoors == true
-                and (not movingOk or playerMoving ~= true) then
+            -- Indoor downtime only once the leader has settled: a follower
+            -- still stepping into its slot keeps formation.
+            if close and snapshot.indoors == true and not bleeding
+                and leaderSettled(actor, player, current) then
                 add("downtime", 52, false)
                 add("follow", 22, false)
             else
@@ -345,14 +459,15 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             local patrolDue = commands.order == "guard" and (
                 state.guardPatrolTarget ~= nil or current >= (state.guardPatrolDue or 0))
             if outside or patrolDue then add("tactical", 56, false) end
-            add("downtime", 30, false)
+            if not bleeding then add("downtime", 30, false) end
         elseif commands.order == "move_to" or commands.order == "check_room"
             or commands.order == "interact" or commands.order == "work" then
             add("tactical", commands.order == "work" and 62 or 56, false)
         elseif commands.order == "base_duty" then
-            add("base_work", 58, false)
+            if not bleeding then add("base_work", 58, false) end
         end
-        if commands.scavenge and threatCount == 0 and commands.order ~= "regroup"
+        if commands.scavenge and threatCount == 0 and not bleeding
+            and commands.order ~= "regroup"
             and commands.order ~= "retreat" then
             local scavengeScore = 32
             local ongoing
@@ -365,12 +480,12 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
                 -- its visual/verified conclusion unless a real need or danger wins.
                 scavengeScore = 76
             elseif commands.order == "follow" and player then
-                local playerMoving, movingOk = U().call(player, "isMoving")
                 local close = U().distance(actor, player)
                     <= math.max(3, (commands.followDistance or 3) + 1.5)
-                if close and (not movingOk or playerMoving ~= true) then
-                    -- Opportunistic looting beats a no-op formation hold when the
-                    -- leader has stopped, but never pulls a follower off a moving leader.
+                if close and leaderSettled(actor, player, current) then
+                    -- Opportunistic looting beats a no-op formation hold once the
+                    -- leader has settled, but never pulls a follower off a moving
+                    -- or just-stopped leader.
                     scavengeScore = 58
                 end
             elseif commands.order == "stay" or commands.order == "guard" then
@@ -378,7 +493,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             end
             add("scavenge", scavengeScore, false)
         end
-        if threatCount == 0 and not downtimeAdded
+        if threatCount == 0 and not downtimeAdded and not bleeding
             and (commands.order ~= "follow" or snapshot.indoors == true) then
             add("downtime", 10, false)
         end
@@ -1417,6 +1532,10 @@ local function delegate(candidate, actor, player, rootRuntime, commands, snapsho
             return SC.FactionBehavior.update(actor, player, rootRuntime, candidate.detail)
         end)
     elseif candidate.kind == "follow" then
+        if type(candidate.detail) == "table" and candidate.detail.mode == "seek_care"
+            and SC.Medical and type(SC.Medical.requestHelp) == "function" then
+            pcall(SC.Medical.requestHelp, actor, player)
+        end
         return callSubsystem("navigation", actor, function() return doFollow(actor, player, rootRuntime, commands, snapshot) end)
     elseif candidate.kind == "tactical" then
         return callSubsystem("navigation", actor, function() return doTactical(actor, player, rootRuntime, commands, snapshot, state) end)
@@ -1508,9 +1627,43 @@ function Decision._safetyLeashCandidate(actor, player, snapshot, selected, candi
     return nil
 end
 
+-- Combat that found nothing it may engage (a far or unreachable zombie, a
+-- doctrine that holds fire at that range) is not a failed defense. A
+-- follower keeps moving with its leader, and a companion on stay, guard or
+-- base duty goes back to its own work instead of aiming for minutes at a
+-- zombie behind the fence that it will never fight. Survival combat,
+-- immediate attackers, encirclement and hostile humans keep the stationary
+-- hold.
+local dutyFallbackRanks = { base_work = 3, tactical = 2, downtime = 1 }
+function Decision._targetlessFollowCandidate(selected, failure, snapshot, candidates, commands)
+    if failure ~= "no_credible_target" or type(selected) ~= "table"
+        or selected.kind ~= "combat" or selected.emergency == true then
+        return nil
+    end
+    if type(snapshot) ~= "table" or snapshot.encircled == true or snapshot.humanThreat ~= nil
+        or (tonumber(snapshot.immediateCount) or #(snapshot.immediateAttackers or {})) > 0 then
+        return nil
+    end
+    local order = commands.order
+    if order == "follow" or order == "regroup" then
+        for _, candidate in ipairs(candidates or {}) do
+            if candidate.kind == "follow" then return candidate end
+        end
+        return nil
+    end
+    if not ownTaskOrders[order] then return nil end
+    local best, bestRank
+    for _, candidate in ipairs(candidates or {}) do
+        local rank = dutyFallbackRanks[candidate.kind]
+        if rank and (bestRank == nil or rank > bestRank) then best, bestRank = candidate, rank end
+    end
+    return best
+end
+
 -- Bounded evidence for an otherwise silent stationary hold: which decision
 -- failed, why, how close the danger and the leader are, and for how long.
-function Decision._noteSafetyHold(actor, player, snapshot, kind, failure, state, current, outcome)
+function Decision._noteSafetyHold(actor, player, snapshot, kind, failure, state, current, outcome,
+        order)
     local utility = U()
     local threat = type(snapshot) == "table" and (snapshot.threats or {})[1] or nil
     local nearest = type(threat) == "table" and (tonumber(threat.distance)
@@ -1527,7 +1680,8 @@ function Decision._noteSafetyHold(actor, player, snapshot, kind, failure, state,
             .. " nearest=" .. (nearest and string.format("%.1f", nearest) or "none")
             .. " leader=" .. (leader and string.format("%.1f", leader) or "none")
             .. " heldMs=" .. tostring(math.floor(current
-                - (tonumber(state.safetyHoldSince) or current))))
+                - (tonumber(state.safetyHoldSince) or current)))
+            .. " order=" .. tostring(order or "unknown"))
 end
 
 local function candidateInterval(candidate)
@@ -2024,6 +2178,14 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         return false, "dead"
     end
 
+    -- Speech-only banter: a surrounded companion's deadpan distraction or a
+    -- taunt for a grabbed ally. It never changes what the companion does.
+    if SC.Banter and type(SC.Banter.combatPulse) == "function" then
+        utility.safeSubsystem("banter-combat", actor, function()
+            return SC.Banter.combatPulse(actor, player, snapshot, commands, assessment, current)
+        end)
+    end
+
     -- A completed hit may remove the final perceived threat before the native
     -- swing exits. Keep that animation owner even though evaluate() would no
     -- longer propose combat. Actionable critical medicine and native hit reactions
@@ -2089,23 +2251,29 @@ function Decision.update(actor, player, runtime, roundTimestamp)
 
     local previous = state.current
     local previousKey = state.currentKey
+    -- A combat re-check against zombies it just judged out of reach must not
+    -- tear down the companion's own work; if it finds a real target, the next
+    -- decision is no longer a re-check and preempts as usual.
+    local recheck = selected.kind == "combat" and selected.emergency ~= true
+        and onlyUnreachableThreats(actor, snapshot, current)
     if previous == "ritual" and selected.kind ~= "ritual"
         and SC.Autonomy and type(SC.Autonomy.interrupt) == "function" then
         pcall(SC.Autonomy.interrupt, actor, "decision_preempted")
     end
     if selected.kind ~= "mental_episode" and selected.kind ~= "social_participant"
         and (selected.kind == "combat" or selected.kind == "retreat"
-            or selected.kind == "medical" and selected.emergency) then
+            or selected.kind == "medical" and selected.emergency) and not recheck then
         if SC.Autonomy and type(SC.Autonomy.interrupt) == "function" then
             pcall(SC.Autonomy.interrupt, actor, "survival_priority")
         end
     end
-    if previous == "base_work" and selected.kind ~= "base_work"
+    if previous == "base_work" and selected.kind ~= "base_work" and not recheck
         and (selected.kind == "combat" or selected.kind == "retreat" or selected.emergency)
         and SC.BaseWork and type(SC.BaseWork.cancel) == "function" then
         SC.BaseWork.cancel(actor, "danger_preempted_base_work")
     end
-    if state.workAction and (selected.kind ~= "tactical" or commands.order ~= "work") then
+    if state.workAction and not recheck
+        and (selected.kind ~= "tactical" or commands.order ~= "work") then
         local cancelled, cancelReason = cancelWork(actor, state, "work_preempted")
         if not cancelled then
             state.intent = cancelReason
@@ -2115,7 +2283,7 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     -- Downtime owns a timed animation and sometimes a reserved object. Release
     -- both before another decision may translate the actor; otherwise the old
     -- kneeling pose can move with the new follow path.
-    if previous == "downtime" and selected.kind ~= "downtime"
+    if previous == "downtime" and selected.kind ~= "downtime" and not recheck
         and SC.Downtime and type(SC.Downtime.peek) == "function"
         and type(SC.Downtime.cancel) == "function" then
         local downtimeState = SC.Downtime.peek(actor)
@@ -2127,7 +2295,7 @@ function Decision.update(actor, player, runtime, roundTimestamp)
             end
         end
     end
-    if selected.kind ~= "needs" and (selected.kind == "combat"
+    if selected.kind ~= "needs" and not recheck and (selected.kind == "combat"
         or selected.kind == "retreat" or selected.emergency) then
         if SC.Needs and type(SC.Needs.cancel) == "function" then
             local cancelled, cancelReason = SC.Needs.cancel(actor, "needs_preempted")
@@ -2172,6 +2340,13 @@ function Decision.update(actor, player, runtime, roundTimestamp)
             local heldKind = selected.kind
             local leashFollow = Decision._safetyLeashCandidate(actor, player, snapshot,
                 selected, candidates, commands, state, current)
+            local followOutcome = "rejoined_leader"
+            if not leashFollow then
+                leashFollow = Decision._targetlessFollowCandidate(selected, selectedFailure,
+                    snapshot, candidates, commands)
+                followOutcome = leashFollow and leashFollow.kind ~= "follow"
+                    and "resumed_order" or "followed_leader"
+            end
             local outcome = "held"
             if leashFollow then
                 local followHandled, followReason = profiledDecisionPhase(
@@ -2179,14 +2354,20 @@ function Decision.update(actor, player, runtime, roundTimestamp)
                     rootRuntime, commands, snapshot, state)
                 if followHandled then
                     handled, reason, selected = true, followReason, leashFollow
-                    outcome = "rejoined_leader"
+                    outcome = followOutcome
                 end
             end
-            if not handled then
+            -- Nothing else to do while the only threats are out of reach:
+            -- stand idle rather than freeze in an aiming hold.
+            local tolerated = selectedRank < safetyRank[Decision.SafetyTier.SURVIVAL]
+                and onlyUnreachableThreats(actor, snapshot, current)
+            if not handled and not tolerated then
                 handled, reason = guardedSafetyHold(actor, snapshot, selected)
+            elseif not handled then
+                outcome = "idle_unreachable"
             end
             Decision._noteSafetyHold(actor, player, snapshot, heldKind, selectedFailure,
-                state, current, outcome)
+                state, current, outcome, commands.order)
         end
         if not handled then reason = selectedFailure end
     end
@@ -2269,6 +2450,7 @@ function Decision.resetAll()
     end
     states = setmetatable({}, { __mode = "k" })
     workReservations = {}
+    leaderStillness = setmetatable({}, { __mode = "k" })
     if SC.NativeActions and type(SC.NativeActions.resetWork) == "function" then
         SC.NativeActions.resetWork(nil)
     end

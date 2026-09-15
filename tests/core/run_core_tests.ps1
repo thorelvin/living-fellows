@@ -45,7 +45,8 @@ try {
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCIsoPlayerControlTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCIsoCompanionControlTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeCleanupTransactionTest.java') `
-        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeBridgeExposureTest.java')
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeBridgeExposureTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCStreetLookupTest.java')
     if ($LASTEXITCODE -ne 0) { throw 'Core Java test harness compilation failed.' }
 
     $allLua = @(Get-ChildItem -LiteralPath $Payload -Recurse -Filter '*.lua' -File | Sort-Object FullName | ForEach-Object FullName)
@@ -384,6 +385,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Deferred main-thread spawn queue gate failed.' }
     & $GameJava -cp "$BuildRoot;$NativeClasses" survivorcompanion.bridge.SCBootstrapLifecycleTest
     if ($LASTEXITCODE -ne 0) { throw 'Bootstrap generation lifecycle gate failed.' }
+    & $GameJava -cp "$BuildRoot;$NativeClasses" survivorcompanion.bridge.SCStreetLookupTest
+    if ($LASTEXITCODE -ne 0) { throw 'Native nearest-street lookup gate failed.' }
 
     $clothingCatalog = Join-Path $GameRoot 'media\clothing\clothing.xml'
     [xml]$clothing = Get-Content -LiteralPath $clothingCatalog -Raw -Encoding utf8

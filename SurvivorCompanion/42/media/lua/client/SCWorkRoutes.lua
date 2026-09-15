@@ -27,6 +27,7 @@ local stationaryFastActions = {
     move_to_camp_storage = true,
     move_to_water_source = true,
     move_to_seat = true,
+    move_to_corpse = true,
     return_to_base = true,
     base_guard_patrol = true,
 }

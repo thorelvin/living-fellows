@@ -296,7 +296,12 @@ local function resolveGrapple(actor, current, attackers)
         -- the companion is freed -- alive, if bloodied. This is the whole point of
         -- the grace window: a downed companion is savable.
         if attackers < threshold then
-            releaseCompanion(actor); grabState[actor] = nil
+            -- A freed companion gets a few seconds to stand and fight before
+            -- the same pile can pull it down again; re-pinning at once was the
+            -- long knock-down loop.
+            releaseCompanion(actor)
+            grabState[actor] = { pinned = false,
+                immuneUntil = current + config("zombieGrabRecoverMs", 4000) }
             grabBark(actor, "grab.rescued"); return "grab_broken"
         end
         local held = current - (grabbed.pinnedAt or current)
@@ -313,25 +318,39 @@ local function resolveGrapple(actor, current, attackers)
             return "grab_farewell"
         end
         -- SELF-ESCAPE: a tougher companion can struggle loose after a moment.
-        if held >= config("zombieGrabMinDurationMs", 1500) then
+        -- One struggle per interval, so the odds do not depend on how often
+        -- the critical lane happens to service this actor.
+        if held >= config("zombieGrabMinDurationMs", 1500)
+            and current >= (grabbed.nextEscapeAt or 0) then
+            grabbed.nextEscapeAt = current + config("zombieGrabEscapeIntervalMs", 1000)
             local escape = config("zombieGrabEscapeChance", 0.2) * (0.5 + grappleEffectiveness(actor))
             if randChance() < escape then
                 grabBark(actor, "grab.escaped")
-                releaseCompanion(actor); grabState[actor] = nil; return "grab_escaped"
+                releaseCompanion(actor)
+                grabState[actor] = { pinned = false,
+                    immuneUntil = current + config("zombieGrabRecoverMs", 4000) }
+                return "grab_escaped"
             end
         end
         -- Bleeding injury while held (real consequence), but the killing blow is
         -- gated on the grace window above so the player always has time to react.
+        -- The death drag-down pose belongs to the fatal moment only: playing it
+        -- on a living companion every drag interval was the jerky hug.
         if current >= (grabbed.nextDragAt or 0) then
             grabbed.nextDragAt = current + config("zombieGrabDragIntervalMs", 900)
             applyWound(actor, rollWound(config("zombieGrabBiteChance", 0.5)))
-            U().call(actor, "setDeathDragDown", true)
         end
-        -- Re-assert the pin each tick; the state machine would otherwise stand up.
-        U().call(actor, "setKnockedDown", true)
+        -- Keep the companion down, but only put it back once the state machine
+        -- has started to stand, and at most once per refresh window. Forcing
+        -- the flag every tick fought the get-up animation frame by frame.
+        if current >= (grabbed.pinRefreshAt or 0)
+            and select(1, U().call(actor, "isKnockedDown")) ~= true then
+            grabbed.pinRefreshAt = current + config("zombieGrabPinRefreshMs", 1000)
+            U().call(actor, "setKnockedDown", true)
+        end
         return "grabbed"
     end
-    if attackers >= threshold then
+    if attackers >= threshold and current >= (grabbed and grabbed.immuneUntil or 0) then
         local lastAttempt = grabbed and grabbed.lastAttemptAt or -math.huge
         if current - lastAttempt >= config("zombieGrabAttemptCooldownMs", 1200) then
             local chance = config("zombieGrabChance", 0.3)
@@ -345,6 +364,9 @@ local function resolveGrapple(actor, current, attackers)
                 grabState[actor] = { pinned = true, pinnedAt = current,
                     nextDragAt = current + 700 }
                 grabBark(actor, nil, "pinned")
+                if SC.Tales and type(SC.Tales.noteCloseCall) == "function" then
+                    pcall(SC.Tales.noteCloseCall, actor, "grabbed", current)
+                end
                 return "grabbed_now"
             end
             grabState[actor] = { pinned = false, lastAttemptAt = current }
@@ -435,8 +457,15 @@ function ZombieAttack.resolve(actor, current, zombies)
             local elapsed = math.max(0, current - swing.seenSince) / 1000
             local seen = number(zombie, "getTargetSeenTime") or 0
             U().call(zombie, "setTargetSeenTime", math.min(10, math.max(seen, elapsed)))
-            local assisted, _, attackStarted = sustainNativeEngagement(
-                zombie, actor, swing, current, elapsed, targetDistance)
+            local assisted, attackStarted = false, false
+            -- A pinned companion is already down: forcing fresh native swings
+            -- on it kept the zombies locked in a lunge-and-hold over the body.
+            -- The pin itself applies the drag wounds.
+            if not ZombieAttack.isGrabbed(actor) then
+                local _
+                assisted, _, attackStarted = sustainNativeEngagement(
+                    zombie, actor, swing, current, elapsed, targetDistance)
+            end
             if assisted then engagementAssists = engagementAssists + 1 end
             if attackStarted then nativeAttackStarts = nativeAttackStarts + 1 end
             swing.lastSightAt = current

@@ -32,9 +32,12 @@ end
 
 local function isActiveZombie(zombie)
     local U = util()
-    if not U.isZombie(zombie) or U.isDead(zombie) then return false end
+    if not U.isZombie(zombie) or U.isGoneTarget(zombie) then
+        return false
+    end
     return true
 end
+Senses._isActiveZombieForTests = isActiveZombie
 
 local function zombiePosture(zombie)
     if not isActiveZombie(zombie) then return "dead" end
@@ -73,6 +76,37 @@ local function squareIsOutdoor(square)
     return ok and room == nil
 end
 
+-- A zombie climbing through a window or over a fence or wall is helpless for a
+-- moment, and one that tumbles in lands on the floor. Both are the best chance
+-- to finish it before it stands, so they are flagged as breaching.
+local breachSeenAt = setmetatable({}, { __mode = "k" })
+local function breachingZombie(zombie, posture)
+    local U = util()
+    local climbing = truthyCall(zombie, "isClimbing")
+    if not climbing then
+        local state, stateOk = U.call(zombie, "getCurrentState")
+        local name = stateOk and state ~= nil and string.lower(tostring(state)) or ""
+        climbing = string.find(name, "climbthroughwindow", 1, true) ~= nil
+            or string.find(name, "climboverfence", 1, true) ~= nil
+            or string.find(name, "climboverwall", 1, true) ~= nil
+    end
+    local now = U.nowMs()
+    if climbing then
+        breachSeenAt[zombie] = now
+        return true
+    end
+    local seen = breachSeenAt[zombie]
+    if seen == nil then return false end
+    if now - seen > (tonumber(U.config("combatBreachLandingMs")) or 6000) then
+        breachSeenAt[zombie] = nil
+        return false
+    end
+    -- Still down after the climb: it fell in and has not stood up yet.
+    return posture == "downed" or posture == "crawler"
+end
+
+Senses._breachingZombieForTests = breachingZombie
+
 local function threatRecord(actor, player, zombie, actorSquare)
     local U = util()
     local zombieSquare = U.squareOf(zombie)
@@ -93,6 +127,7 @@ local function threatRecord(actor, player, zombie, actorSquare)
     local attacking = isAttacking(zombie)
     local targeting = isTargeting(zombie, actor, player)
     local posture = zombiePosture(zombie)
+    local breaching = breachingZombie(zombie, posture)
     local playerDistanceSq = player and U.distanceSq(player, zombie) or math.huge
     local score = 35 / (1 + math.sqrt(distanceSq))
     if attacking then score = score + 24 end
@@ -100,6 +135,7 @@ local function threatRecord(actor, player, zombie, actorSquare)
     if visible then score = score + 8 end
     if blocked then score = score - 5 end
     if fenced then score = score - 4 end
+    if breaching then score = score + 10 end
     if playerDistanceSq <= 6.25 then score = score + 14 end
     return {
         actor = zombie,
@@ -110,6 +146,7 @@ local function threatRecord(actor, player, zombie, actorSquare)
         visible = visible,
         obstructed = blocked,
         fenced = fenced,
+        breaching = breaching,
         targeting = targeting,
         attacking = attacking,
         posture = posture,

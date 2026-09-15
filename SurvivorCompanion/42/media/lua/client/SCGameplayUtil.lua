@@ -447,7 +447,32 @@ function U.isDead(value)
     -- and combat cannot select the corpse for one more attack.
     local health, healthOk = U.call(value, "getHealth")
     if healthOk and type(health) == "number" and health <= 0 then return true end
+    -- A corpse has no instance isDead (IsoDeadBody only has a static one) but
+    -- still answers isZombie(); it is dead all the same.
+    if not ok and U.instanceOf(value, "IsoDeadBody") then return true end
     return false
+end
+
+-- Build 42 turns a corpse that is being dragged back into a stand-in zombie
+-- (isReanimatedForGrappleOnly) for the grapple animation. It is in the zombie
+-- list, reports isDead() false and lies on the floor, so perception and combat
+-- must treat it as the corpse it is.
+function U.isCorpseProxy(value)
+    if value == nil then return false end
+    local grappleOnly, ok = U.call(value, "isReanimatedForGrappleOnly")
+    if ok then return grappleOnly == true end
+    return U.instanceOf(value, "IsoDeadBody")
+end
+
+-- A target that no longer counts: dead, a corpse or its dragged stand-in, or
+-- an object that has left the world. Build 42 recycles a dead zombie's object
+-- into a reuse pool and resets it to full health while its corpse lies where
+-- it fell; a kept reference to it looks like a live zombie on the corpse and
+-- drew endless swings at the body.
+function U.isGoneTarget(value)
+    if U.isDead(value) or U.isCorpseProxy(value) then return true end
+    local exists, ok = U.call(value, "isExistInTheWorld")
+    return ok and exists == false
 end
 
 function U.nativeHealth(value)
@@ -846,6 +871,20 @@ function U.squareSpecialObjects(square, callback, limit)
     if not square then return end
     local objects, ok = U.call(square, "getSpecialObjects")
     if ok then U.each(objects, limit or 48, callback) end
+end
+
+-- Room definition name of a square ("policestorage", "kitchen", ...), or nil
+-- outdoors.
+function U.roomName(square)
+    if square == nil then return nil end
+    local room, roomOk = U.call(square, "getRoom")
+    if not roomOk or room == nil then return nil end
+    local name
+    local roomDef, definitionOk = U.call(room, "getRoomDef")
+    if definitionOk and roomDef then name = select(1, U.call(roomDef, "getName")) end
+    if name == nil then name = select(1, U.call(room, "getName")) end
+    if name == nil and type(room) == "table" then name = room.name end
+    return name ~= nil and tostring(name) or nil
 end
 
 function U.squareMovingObjects(square, callback, limit)

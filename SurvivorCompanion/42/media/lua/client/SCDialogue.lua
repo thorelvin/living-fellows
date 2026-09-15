@@ -1166,6 +1166,28 @@ local pools = {
         "We decide this now, before they turn.", "Secure them. Nobody opens that door without permission.",
         "The risk is settled. Quarantine them immediately.",
     } },
+    ["crisis.confide"] = { common = {
+        "Keep your voice down. I got bit.", "I need to tell someone, and it's you. I was bitten.",
+        "Don't tell the others. Not yet. It's a bite.",
+        "Look at this. Just look. Then keep quiet about it.",
+    } },
+    ["crisis.confide.player"] = { common = {
+        "Boss. Just you and me. I got bit.", "I trust you, so you hear it first. I was bitten.",
+        "Don't make a scene. One of them got me.",
+        "I need you to know before anyone else. It's a bite.",
+    } },
+    ["crisis.keep"] = { common = {
+        "Okay. It stays between us. For now.", "I won't tell them. But I'm watching you.",
+        "Your secret. My problem now too.", "Fine. We handle this together. Quietly.",
+    } },
+    ["crisis.urge"] = { common = {
+        "You have to tell them. Now. Or I will.", "This isn't a secret you get to keep.",
+        "They deserve to know. Go on. Tell them.", "No. Everyone hears this, right now.",
+    } },
+    ["crisis.reply"] = { common = {
+        "I know.", "Thanks for not running.", "I'm still me. For now.",
+        "I know what it means. Let's just be smart about it.",
+    } },
     ["faction.warn.outer"] = { common = {
         "Stay away. This house is occupied.", "Stop there. We don't trust strangers.",
         "That is close enough. Turn around.", "Hold it. This place is claimed.",

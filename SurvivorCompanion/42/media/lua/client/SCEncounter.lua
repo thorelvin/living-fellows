@@ -584,16 +584,7 @@ local function logicalWeaponLocationBonus(container, owner)
         local source, sourceOk = utility.call(container, "getSourceGrid")
         if sourceOk then square = source end
     end
-    local room, roomOk = utility.call(square, "getRoom")
-    local roomName
-    if roomOk and room then
-        local roomDef, definitionOk = utility.call(room, "getRoomDef")
-        if definitionOk and roomDef then
-            roomName = select(1, utility.call(roomDef, "getName"))
-        end
-        if roomName == nil then roomName = select(1, utility.call(room, "getName")) end
-        if roomName == nil and type(room) == "table" then roomName = room.name end
-    end
+    local roomName = utility.roomName(square)
     if containsAny(roomName, logicalWeaponRoomTokens) then bonus = bonus + 42 end
     return bonus
 end
@@ -632,7 +623,8 @@ end
 local function rememberContainer(state, container, result, current)
     if not state or not container then return end
     state.visited = state.visited or setmetatable({}, { __mode = "k" })
-    if state.visited[container] == nil then
+    local previous = state.visited[container]
+    if previous == nil then
         local count, oldestContainer, oldestExpiry = 0, nil, math.huge
         for remembered, memory in pairs(state.visited) do
             count = count + 1
@@ -645,14 +637,33 @@ local function rememberContainer(state, container, result, current)
             state.visited[oldestContainer] = nil
         end
     end
-    local duration = result == "looted"
-        and (U().config("scavengeSuccessCooldownMs") or 4000)
-        or result == "nothing_needed"
-            and (U().config("scavengeNoUsefulCooldownMs") or 30000)
-            or (U().config("scavengeFailureCooldownMs") or 15000)
+    local utility = U()
+    local signature = containerSignature(container)
+    -- Unreachable containers and targets past the leash back off: every
+    -- repeat doubles the cooldown. Reaching the container resets the count;
+    -- an interruption keeps it.
+    local failures = type(previous) == "table" and previous.signature == signature
+        and (tonumber(previous.failures) or 0) or 0
+    local duration
+    if result == "looted" or result == "nothing_needed" then
+        failures = 0
+        duration = result == "looted"
+            and (utility.config("scavengeSuccessCooldownMs") or 4000)
+            or (utility.config("scavengeNoUsefulCooldownMs") or 30000)
+    elseif result == "navigation_failed" or result == "outside_formation" then
+        failures = failures + 1
+        local base = result == "outside_formation"
+            and (utility.config("scavengeOutsideFormationCooldownMs") or 30000)
+            or (utility.config("scavengeFailureCooldownMs") or 15000)
+        duration = math.min(base * 2 ^ math.min(failures - 1, 16),
+            utility.config("scavengeFailureMaxCooldownMs") or 600000)
+    else
+        duration = utility.config("scavengeFailureCooldownMs") or 15000
+    end
     state.visited[container] = {
-        signature = containerSignature(container),
+        signature = signature,
         result = result,
+        failures = failures,
         expires = current + duration,
     }
 end
@@ -746,6 +757,15 @@ local function containerSearchInvalid(job, actor, allowCorpses, radius, budget)
     return dx * dx + dy * dy > 16
 end
 
+-- Loot in a room whose route runs through a locked door fails on every
+-- approach, so all scavengers leave that room alone for a while.
+local function behindLockedDoor(actor, square, current)
+    local navigation = SC.Navigation
+    if not navigation or type(navigation.behindLockedDoor) ~= "function" then return false end
+    local ok, blocked = pcall(navigation.behindLockedDoor, actor, square, current)
+    return ok and blocked == true
+end
+
 local function candidateContainers(actor, player, state, allowCorpses, current, commands)
     local utility = U()
     local ax, ay, az = utility.position(actor)
@@ -777,7 +797,8 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
         job.index = job.index + 1
         processed = processed + 1
         local square = utility.gridSquare(job.originX + offset.x, job.originY + offset.y, job.originZ)
-        if square and (not player or utility.distanceSq(player, square) <= radius * radius) then
+        if square and (not player or utility.distanceSq(player, square) <= radius * radius)
+            and not behindLockedDoor(actor, square, current) then
             utility.squareObjects(square, function(object)
                 local container, ok = utility.call(object, "getContainer")
                 if ok and container and not job.seenContainers[container]
@@ -1091,7 +1112,7 @@ local function beginTask(actor, state, container, item, category, owner, utility
                 cleanupScavengeTarget(cancelActor, state, {
                     cancelVisual = true, stopMovement = true,
                     reason = cancelReason or "scavenge_cancelled",
-                    phase = "cancelled", memoryResult = "interrupted",
+                    phase = "cancelled", memoryResult = Encounter._cancelMemoryResult(cancelReason),
                     time = now(), fromSupervisor = true,
                 })
                 return true, cancelReason
@@ -1347,7 +1368,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         resetScavengeTarget(actor, state, {
             cancelVisual = true, stopMovement = state.task ~= nil,
             reason = formationReason, phase = "cancelled",
-            memoryResult = state.task and "interrupted" or nil,
+            memoryResult = state.task and Encounter._cancelMemoryResult(formationReason) or nil,
             time = time, status = state.task ~= nil,
         })
         return false, formationReason
@@ -1463,6 +1484,15 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     end
 
     if not atInteractionTarget then
+        task.approachStartedAt = task.approachStartedAt or time
+        if Encounter._approachExpired(task, time) then
+            resetScavengeTarget(actor, state, {
+                cancelVisual = true, stopMovement = true,
+                reason = "approach_timeout", phase = "failed", cooldown = true,
+                memoryResult = "navigation_failed", time = time,
+            })
+            return false, "approach_timeout"
+        end
         setTaskPhase(actor, state, task, "approach", "approaching_container")
         local ok, status = SC.Navigation.requestAny(actor, targets, "walk", {
             action = "move_to_scavenge", container = task.container,
@@ -1472,9 +1502,10 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         })
         local service = supervisor()
         if service and task.supervisorToken and type(service.progress) == "function" then
-            service.progress(task.supervisorToken, "approach:" .. tostring(status), {
-                navigation = status,
-            })
+            service.progress(task.supervisorToken,
+                Encounter._approachProgressSignature(task, utility.distance(actor, task.owner)), {
+                    navigation = status,
+                })
         end
         local navigationStatus = tostring(status or "")
         local terminalNavigation = not ok and (
@@ -1622,6 +1653,47 @@ function Encounter.formationRejoinRequired(actor, player, suppliedCommands)
         return true, "scavenge_target_outside_formation"
     end
     return false
+end
+
+-- How a cancelled excursion is remembered. A target that keeps pulling a
+-- follower past the leash (a detour around a wall, a container on the far
+-- side) or an approach the supervisor timed out cools down with an
+-- escalating backoff; a leader who simply starts walking again only
+-- interrupts the excursion.
+function Encounter._cancelMemoryResult(reason)
+    reason = tostring(reason or "")
+    if reason == "formation_leash_exceeded" or reason == "scavenge_target_outside_formation" then
+        return "outside_formation"
+    end
+    if string.find(reason, "phase_timeout:approach", 1, true) == 1 then
+        return "navigation_failed"
+    end
+    return "interrupted"
+end
+
+-- An approach that has not reached its container within this cap fails like
+-- an unreachable container.
+function Encounter._approachExpired(task, time)
+    if type(task) ~= "table" or tonumber(task.approachStartedAt) == nil
+        or tonumber(time) == nil then
+        return false
+    end
+    return tonumber(time) - tonumber(task.approachStartedAt)
+        > (tonumber(U().config("scavengeApproachMaxMs")) or 45000)
+end
+
+-- Approach progress means getting at least half a tile closer than ever
+-- before. A navigation status that merely flips between searching and
+-- recovering no longer keeps a stuck approach alive.
+function Encounter._approachProgressSignature(task, distance)
+    distance = tonumber(distance)
+    if type(task) ~= "table" or distance == nil then return "approach:unknown" end
+    local best = tonumber(task.bestApproachDistance)
+    if best == nil or distance < best - 0.5 then
+        task.bestApproachDistance = distance
+        best = distance
+    end
+    return "approach:" .. tostring(math.floor(best * 2))
 end
 
 local function zombieDensity(square, radius, limit)
@@ -1931,13 +2003,18 @@ function Encounter.cancelScavenge(actor, reason)
     resetScavengeTarget(actor, state, {
         cancelVisual = true, stopMovement = true,
         reason = reason or "cancelled", phase = "cancelled",
-        memoryResult = "interrupted", time = now(),
+        memoryResult = Encounter._cancelMemoryResult(reason), time = now(),
     })
     return true, reason or "scavenge_cancelled"
 end
 
 function Encounter.peek(actor)
     return actor and states[actor] or nil
+end
+
+-- Test seam: per-companion container memory and its backoff.
+function Encounter._containerMemoryForTests()
+    return rememberContainer, memoryAllows
 end
 
 function Encounter.reset(actor)

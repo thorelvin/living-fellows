@@ -379,9 +379,40 @@ local function streetName(street)
     return name
 end
 
+-- Build 42 exposes the map's street API to Lua but not the street files behind
+-- it: every call on one failed, so a lookup ended in coordinates and a logged
+-- stack trace. The native bridge walks those files instead. The Lua walk below
+-- stays for a build, or a fixture, whose street files Lua can read.
+local function nearestStreetFromBridge(api, x, y)
+    local bridge = type(_G) == "table" and rawget(_G, "SCBridge") or nil
+    if bridge == nil or not SC.Call or type(SC.Call.static) ~= "function" then
+        return nil, false
+    end
+    local maximum = tonumber(SC.Config and SC.Config.get("factionStreetMaxDistance")) or 300
+    local called, packed = SC.Call.static(bridge, "nearestStreet", api, x, y, maximum)
+    if not called then return nil, false end
+    if type(packed) ~= "string" then return nil, true end
+    local name, distance, streetX, streetY = string.match(packed,
+        "^([^\t]+)\t([^\t]+)\t([^\t]+)\t([^\t]+)$")
+    name = type(name) == "string" and trimmed(name) or ""
+    distance, streetX, streetY = tonumber(distance), tonumber(streetX), tonumber(streetY)
+    if name == "" or distance == nil or streetX == nil or streetY == nil
+        or distance ~= distance or streetX ~= streetX or streetY ~= streetY then
+        return nil, true
+    end
+    local function tenth(value) return math.floor(value * 10 + 0.5) / 10 end
+    return {
+        name = string.sub(name, 1, 128),
+        distance = tenth(distance), x = tenth(streetX), y = tenth(streetY),
+        source = "world_map_streets",
+    }, true
+end
+
 local function nearestStreetFromApi(api, x, y)
     x, y = tonumber(x), tonumber(y)
     if api == nil or x == nil or y == nil then return nil end
+    local bridged, handled = nearestStreetFromBridge(api, x, y)
+    if handled then return bridged end
     local dataCount, dataCountCalled = U().call(api, "getStreetDataCount")
     if not dataCountCalled then return nil end
     local bestDistanceSq, bestName, bestX, bestY = math.huge, nil, nil, nil
@@ -707,8 +738,12 @@ local function distanceSqPosition(a, b)
     return dx * dx + dy * dy
 end
 
-local function conflictsWithExisting(house)
-    local minimum = tonumber(SC.Config.get("factionMinHouseDistance")) or 300
+-- Natural spawns keep factions `factionMinHouseDistance` apart. A debug spawn
+-- passes a much smaller spacing: its search reaches only 55 tiles, so the world
+-- rule rejected every house near an existing faction and the next debug spawn
+-- (a bandit camp after a household) could never find one.
+local function conflictsWithExisting(house, spacing)
+    local minimum = tonumber(spacing) or tonumber(SC.Config.get("factionMinHouseDistance")) or 300
     for _, id in ipairs(groupOrder) do
         local group = groups[id]
         if group and group.lifecycle ~= "destroyed" and group.house
@@ -843,7 +878,9 @@ local function candidateAt(square, player, allowSeen, options)
             return nil, "house_claimed_by_faction"
         end
         if descriptor.questContainer == nil then return nil, "house_has_no_quest_container" end
-    elseif conflictsWithExisting(descriptor) then return nil, "house_too_close_to_faction" end
+    elseif conflictsWithExisting(descriptor, options.factionSpacing) then
+        return nil, "house_too_close_to_faction"
+    end
     return descriptor
 end
 
@@ -872,15 +909,38 @@ local function newHouseSearch(player, options)
         allowSeen = allowSeen,
         purpose = options.purpose,
         sourceFactionId = options.sourceFactionId,
+        factionSpacing = tonumber(options.factionSpacing),
         attempt = 1,
         visited = {},
+        rejections = {},
         best = nil,
         bestDistance = math.huge,
     }
 end
 
+-- The reason most candidate houses were turned down, so a failed search says
+-- why (the debug tab shows it) instead of a bare "no valid house".
+function Factions.houseSearchFailureReason(job)
+    local best, bestCount
+    local rejections = type(job) == "table" and type(job.rejections) == "table"
+        and job.rejections or {}
+    for reason, count in pairs(rejections) do
+        if bestCount == nil or count > bestCount
+            or (count == bestCount and tostring(reason) < tostring(best)) then
+            best, bestCount = reason, count
+        end
+    end
+    if best == nil then return "no_valid_loaded_house" end
+    return "no_valid_loaded_house:" .. tostring(best)
+end
+
 local function resumeHouseSearch(job, quota)
     if type(job) ~= "table" then return "failed", nil, "invalid_house_search", 0 end
+    job.rejections = type(job.rejections) == "table" and job.rejections or {}
+    local function reject(reason)
+        reason = tostring(reason or "unknown")
+        job.rejections[reason] = (job.rejections[reason] or 0) + 1
+    end
     local processed = 0
     quota = math.max(1, math.floor(tonumber(quota) or job.budget or 1))
     while job.attempt <= job.budget and processed < quota do
@@ -896,12 +956,15 @@ local function resumeHouseSearch(job, quota)
         local building = buildingAt(square)
         if building ~= nil and not job.visited[building] then
             job.visited[building] = true
-            local house = candidateAt(square, job.player, job.allowSeen, job)
-            if house then
+            local house, rejected = candidateAt(square, job.player, job.allowSeen, job)
+            if not house then
+                reject(rejected)
+            else
                 local actual = math.sqrt(distanceSqPosition(
                     house.anchor, { x = job.px, y = job.py }))
-                if actual >= job.minimum and actual <= job.maximum
-                    and actual < job.bestDistance then
+                if actual < job.minimum or actual > job.maximum then
+                    reject("house_outside_search_ring")
+                elseif actual < job.bestDistance then
                     job.best, job.bestDistance = house, actual
                 end
             end
@@ -909,8 +972,11 @@ local function resumeHouseSearch(job, quota)
     end
     if job.attempt <= job.budget then return "pending", nil, "house_searching", processed end
     if job.best then return "complete", job.best, nil, processed end
-    return "failed", nil, "no_valid_loaded_house", processed
+    return "failed", nil, Factions.houseSearchFailureReason(job), processed
 end
+
+Factions._conflictsWithExistingForTests = conflictsWithExisting
+Factions._searchFailureReasonForTests = Factions.houseSearchFailureReason
 
 function Factions.findHouse(player, options)
     local job, reason = newHouseSearch(player, options)
@@ -2426,6 +2492,7 @@ function Factions.debugSpawnHousehold(player, size)
     end
     local house, reason = Factions.findHouse(player, {
         allowSeen = true, minimumDistance = 8, maximumDistance = 55, sampleBudget = 160,
+        factionSpacing = tonumber(SC.Config.get("debugFactionMinHouseDistance")) or 16,
     })
     if not house then return false, reason end
     local minimum = tonumber(SC.Config.get("factionMemberMin")) or 1
@@ -2448,6 +2515,7 @@ function Factions.debugSpawnBanditCamp(player, size, loadoutOverride)
     end
     local house, reason = Factions.findHouse(player, {
         allowSeen = true, minimumDistance = 8, maximumDistance = 55, sampleBudget = 160,
+        factionSpacing = tonumber(SC.Config.get("debugFactionMinHouseDistance")) or 16,
     })
     if not house then return false, reason end
     if size == "random" or size == nil then size = banditMemberCount(worldDay()) end

@@ -1082,6 +1082,14 @@ function persistence.captureRecord(record, vehicleState)
     ritual, copyReason = stableCopy(personality.ritual, 5, 96,
         "$.personality.ritual")
     if copyReason ~= nil then return nil, copyReason end
+    local tales
+    tales, copyReason = stableCopy(personality.tales, 5, 256,
+        "$.personality.tales")
+    if copyReason ~= nil then return nil, copyReason end
+    local flavor
+    flavor, copyReason = stableCopy(personality.flavor, 3, 128,
+        "$.personality.flavor")
+    if copyReason ~= nil then return nil, copyReason end
     local objectiveCopy
     objectiveCopy, copyReason = stableCopy(objectives, 6, 512, "$.objectives")
     if copyReason ~= nil then return nil, copyReason end
@@ -1136,6 +1144,8 @@ function persistence.captureRecord(record, vehicleState)
             care = care,
             reveals = reveals,
             ritual = ritual,
+            tales = tales,
+            flavor = flavor,
             timeTogetherMs = math.max(0, finite(personality.timeTogetherMs, 0)),
             lastEncouragedAt = math.max(0, finite(personality.lastEncouragedAt, 0)),
         },
@@ -1306,14 +1316,20 @@ local function inventoryIdentitySequence(actor)
             if not itemsOk or items == nil then return "nested_inventory_unavailable" end
             identityAppend(result, listSize(items))
             for index = 0, listSize(items) - 1 do
-                local reason = appendItem(listGet(items, index), depth + 1)
+                local child, available = liveListItem(items, index)
+                if not available then return "inventory_changed" end
+                local reason = appendItem(child, depth + 1)
                 if reason then return reason end
             end
         end
         local partsOk, parts = invoke(item, "getAllWeaponParts")
         if partsOk and parts ~= nil then
             identityAppend(result, listSize(parts))
-            for index = 0, listSize(parts) - 1 do identityAppend(result, listGet(parts, index)) end
+            for index = 0, listSize(parts) - 1 do
+                local part, available = liveListItem(parts, index)
+                if not available then return "inventory_changed" end
+                identityAppend(result, part)
+            end
         else identityAppend(result, false) end
         active[item] = nil
         captureYieldPoint()
@@ -1323,7 +1339,9 @@ local function inventoryIdentitySequence(actor)
     if not itemsOk or items == nil then return nil, "inventory_items_unavailable" end
     identityAppend(result, listSize(items))
     for index = 0, listSize(items) - 1 do
-        local reason = appendItem(listGet(items, index), 1)
+        local item, available = liveListItem(items, index)
+        if not available then return nil, "inventory_changed" end
+        local reason = appendItem(item, 1)
         if reason then return nil, reason end
     end
     for _, getter in ipairs({ "getPrimaryHandItem", "getSecondaryHandItem" }) do
@@ -1340,7 +1358,8 @@ local function inventoryIdentitySequence(actor)
         else
             identityAppend(result, listSize(collection))
             for index = 0, listSize(collection) - 1 do
-                local wrapper = listGet(collection, index)
+                local wrapper, available = liveListItem(collection, index)
+                if not available then return nil, "inventory_changed" end
                 local itemOk, item = invoke(wrapper, "getItem")
                 local locationOk, location = invoke(wrapper, "getLocation")
                 identityAppend(result, itemOk and item or false)
@@ -1383,6 +1402,8 @@ local function abortScheduledSave(job, reason, current)
     return "failed", reason
 end
 
+persistence._scheduledSaveForTests = function() return scheduledSave end
+
 function persistence.cancelPendingSave(reason)
     if scheduledSave == nil then return false, "idle" end
     scheduledSave.cancelled = tostring(reason or "cancelled")
@@ -1398,10 +1419,19 @@ function persistence.requestScheduledSave(player)
     if store == nil or saveBlockedReason ~= nil then
         return false, reason or saveBlockedReason
     end
-    local records = {}
-    for _, record in ipairs(SC.Registry.records()) do records[#records + 1] = record end
-    local deadlineMs = math.max(250,
-        tonumber(SC.Config.get("persistenceCaptureDeadlineMs")) or 20000)
+    local records, tracked = {}, 0
+    for _, record in ipairs(SC.Registry.records()) do
+        records[#records + 1] = record
+        if record.recruited == true or type(record.factionId) == "string" then
+            tracked = tracked + 1
+        end
+    end
+    -- Every tracked actor adds its own capture allowance, within the hard cap.
+    local deadlineMs = math.min(
+        math.max(250, tonumber(SC.Config.get("persistenceCaptureHardDeadlineMs")) or 120000),
+        math.max(250, tonumber(SC.Config.get("persistenceCaptureDeadlineMs")) or 20000)
+            + tracked * math.max(0,
+                tonumber(SC.Config.get("persistenceCapturePerActorMs")) or 3000))
     scheduledSave = {
         player = player, store = store, priorDocument = store.document,
         startedAt = current, lastPulseAt = current,
@@ -1656,12 +1686,14 @@ function persistence.pulse()
         or function() return math.floor((os.clock and os.clock() or 0) * 1000) end
     local current = tonumber(clock()) or 0
     -- The deadline bounds live capture work. Real time spent paused, loading or
-    -- with the background lane shed is not capture work, so an unusually long
-    -- gap between pulses shifts the deadline, never past the hard cap.
+    -- with the background lane deferred by busy frames is not capture work, so
+    -- any delay past the grace shifts the deadline, never past the hard cap.
     local gap = current - (tonumber(job.lastPulseAt) or current)
     job.lastPulseAt = current
-    if gap > math.max(0, tonumber(SC.Config.get("persistencePulseGapGraceMs")) or 1000) then
-        job.deadline = math.min(job.deadline + gap, tonumber(job.hardDeadline) or job.deadline)
+    local grace = math.max(0, tonumber(SC.Config.get("persistencePulseGapGraceMs")) or 100)
+    if gap > grace then
+        job.deadline = math.min(job.deadline + gap - grace,
+            tonumber(job.hardDeadline) or job.deadline)
     end
     if current >= job.deadline then return abortScheduledSave(job, "capture deadline exceeded", current) end
     local sliceDeadline = current + math.max(0.1,

@@ -16,6 +16,9 @@ require "TimedActions/ISDismantleAction"
 require "TimedActions/ISChopTreeAction"
 require "TimedActions/ISBuryCorpse"
 require "TimedActions/ISFillGrave"
+require "TimedActions/ISGrabCorpseAction"
+require "TimedActions/ISDropCorpseAction"
+require "TimedActions/ISBurnCorpseAction"
 require "TimedActions/ISEatFoodAction"
 require "TimedActions/ISDrinkFromBottle"
 require "TimedActions/ISTakeWaterAction"
@@ -71,6 +74,7 @@ local movementActions = {
     move_to_memorial = true,
     move_to_water_source = true,
     move_to_seat = true,
+    move_to_corpse = true,
     move_to_treat = true,
     offscreen_safe_recovery = true,
     ordered_retreat = true,
@@ -122,6 +126,15 @@ local visualActionSpecs = {
     -- by SCFactionLife; these only make meals and drinks visible to the player.
     ambient_eat = { animation = "Eat", animationEnum = true, ticks = 100 },
     ambient_drink = { animation = "Drink", animationEnum = true, ticks = 100 },
+    -- Crouched low over a zombie corpse while talking it through. Nothing on
+    -- the body changes; SCDowntime only remembers that it was looked at.
+    study_corpse = { animation = "Loot", lootPosition = "Low", ticks = 360 },
+    -- The same crouch for a quiet moment at a body. Nothing on it is taken.
+    pay_respects = { animation = "Loot", lootPosition = "Low", ticks = 360 },
+    -- Visual-only workout: the stock fitness state (AnimSets/player/fitness)
+    -- entered through its own variables, never through ISFitnessAction, so no
+    -- fitness XP, stiffness or endurance change is applied.
+    workout = { fitness = true, ticks = 1800, maxTicks = 2700 },
 }
 
 local VisualTimedAction
@@ -628,8 +641,12 @@ end
 local function prepareForwardTurn(actor, actorX, actorY, nx, ny, tactical, intent)
     if tactical or type(intent) == "table" and (intent.allowMovingTurn == true
         or intent.urgent == true or intent.survivalCritical == true) then return nil end
+    -- A follower keeps walking through a turn already underway; only a change
+    -- sharper than the continuous threshold below stops it. Stopping for every
+    -- native turn made followers run, stop and run again.
+    local continuous = type(intent) == "table" and intent.continuousFollow == true
     local turningOk, turning = invoke(actor, "isTurning")
-    if turningOk and turning == true then
+    if turningOk and turning == true and not continuous then
         invoke(actor, "setMoving", false)
         invoke(actor, "setRunning", false)
         invoke(actor, "setSprinting", false)
@@ -864,6 +881,21 @@ SC.NativeVisualActions.configure({
     emoteAliases = emoteAliases,
 })
 
+local fitnessExercises = { pushups = true, situp = true, burpees = true, squats = true }
+
+-- Leave the stock fitness state the way ISFitnessAction does in single
+-- player: end the loop and mark the exercise finished. forceStop does not
+-- always reach the Lua stop callback, so cancellation calls this as well.
+local function endFitnessPose(timedAction)
+    if type(timedAction) ~= "table" or timedAction.fitness ~= true
+        or timedAction.scFitnessEnded == true then return end
+    timedAction.scFitnessEnded = true
+    local character = timedAction.character
+    invoke(character, "setVariable", "ExerciseStarted", false)
+    invoke(character, "setVariable", "ExerciseEnded", true)
+    invoke(character, "SetVariable", "FitnessFinished", "true")
+end
+
 local function visualActionClass()
     if VisualTimedAction ~= nil then
         return VisualTimedAction
@@ -880,7 +912,29 @@ local function visualActionClass()
         return not deadOk or dead ~= true
     end
 
+    -- Only the idle state has a transition into the fitness state. Wait for it
+    -- briefly, as ISFitnessAction does, then start regardless.
+    function class:waitToStart()
+        if not self.fitness then return false end
+        self.scWaitTicks = (self.scWaitTicks or 0) + 1
+        if self.scWaitTicks > 90 then return false end
+        local ok, idle = pcall(function()
+            return self.character:isCurrentState(IdleState.instance())
+        end)
+        return ok and idle == false
+    end
+
     function class:start()
+        if self.fitness then
+            self:setOverrideHandModels(nil, nil)
+            invoke(self.character, "setVariable", "FitnessStruggle", self.struggle == true)
+            invoke(self.character, "setVariable", "ExerciseType", self.exercise)
+            invoke(self.character, "reportEvent", "EventFitness")
+            invoke(self.character, "clearVariable", "ExerciseStarted")
+            invoke(self.character, "clearVariable", "ExerciseEnded")
+            invoke(self.character, "reportEvent", "EventUpdateFitness")
+            return
+        end
         local animation = self.animation
         if self.animationEnum then
             local resolved, enumValue = pcall(function()
@@ -921,12 +975,14 @@ local function visualActionClass()
 
     function class:stop()
         self.scStopped = true
+        endFitnessPose(self)
         if self.reading then invoke(self.character, "setReading", false) end
         ISBaseTimedAction.stop(self)
     end
 
     function class:perform()
         self.scCompleted = true
+        endFitnessPose(self)
         if self.reading then invoke(self.character, "setReading", false) end
         ISBaseTimedAction.perform(self)
     end
@@ -986,6 +1042,14 @@ local function visualActionClass()
             end
             value.bandageType = value.bandageType or "LeftLeg"
         end
+        if actionName == "study_corpse" or actionName == "pay_respects" then
+            value.faceTarget = intent.object
+        end
+        value.fitness = spec.fitness == true
+        if value.fitness then
+            value.exercise = fitnessExercises[intent.exercise] and intent.exercise or "pushups"
+            value.struggle = intent.struggle == true
+        end
         value.primaryItem = spec.primaryItem and intent.item or nil
         value.secondaryItem = spec.secondaryItem and intent.item or nil
         value.ignoreHandsWounds = true
@@ -997,7 +1061,8 @@ local function visualActionClass()
             requestedTicks = tonumber(intent.durationMs) * 60 / 1000
         end
         local minimum = tonumber(SC.Config.get("actionVisualMinTicks")) or 45
-        local maximum = tonumber(SC.Config.get("actionVisualMaxTicks")) or 420
+        local maximum = tonumber(spec.maxTicks)
+            or tonumber(SC.Config.get("actionVisualMaxTicks")) or 420
         value.maxTime = math.max(minimum, math.min(maximum,
             math.floor((requestedTicks or spec.ticks or 90) + 0.5)))
         return value
@@ -1763,6 +1828,82 @@ local function startFillGrave(actor, intent, provider)
         return false, tostring(timedAction)
     end
     return queueTrackedWork(actor, timedAction, record, "fill_grave")
+end
+
+-- Corpse dragging uses the stock grapple: ISGrabCorpseAction writes
+-- lastPlayerGrabbed and calls pickUpCorpse(body, "BwdDrag"). Hands must be
+-- empty while grappling; the previous hand items are remembered per actor
+-- and re-equipped only after the body has been let go.
+local dragSessions = setmetatable({}, { __mode = "k" })
+
+local function dragHandsRecord()
+    -- The grapple owns the hands until the drop, so finishing the grab or
+    -- drop action must not re-equip anything.
+    return { oldPrimaryOk = false, oldSecondaryOk = false, moved = {} }
+end
+
+local function startGrabBody(actor, intent, provider)
+    local body = intent.body
+    if body == nil then return false, "grab intent has no body" end
+    local handled, reason = useProvider(provider, "grabBody", actor, body, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISGrabCorpseAction) ~= "table" or type(ISGrabCorpseAction.new) ~= "function" then
+        return false, "native corpse grab is unavailable"
+    end
+    local draggingOk, dragging = invoke(actor, "isDraggingCorpse")
+    if not draggingOk then return false, "native corpse dragging is unavailable" end
+    if dragging == true then return false, "companion is already dragging a body" end
+    local _, primary = invoke(actor, "getPrimaryHandItem")
+    local _, secondary = invoke(actor, "getSecondaryHandItem")
+    if dragSessions[actor] == nil then
+        dragSessions[actor] = { primary = primary, secondary = secondary, startedAt = nowMs() }
+    end
+    invoke(actor, "setPrimaryHandItem", nil)
+    invoke(actor, "setSecondaryHandItem", nil)
+    local created, timedAction = pcall(ISGrabCorpseAction.new, ISGrabCorpseAction, actor, body)
+    if not created then return false, tostring(timedAction) end
+    return queueTrackedWork(actor, timedAction, dragHandsRecord(), "grab_body")
+end
+
+local function startDropBody(actor, intent, provider)
+    local handled, reason = useProvider(provider, "dropBody", actor, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISDropCorpseAction) ~= "table" or type(ISDropCorpseAction.new) ~= "function" then
+        return false, "native corpse drop is unavailable"
+    end
+    local draggingOk, dragging = invoke(actor, "isDraggingCorpse")
+    if not draggingOk or dragging ~= true then return false, "companion is not dragging a body" end
+    local created, timedAction = pcall(ISDropCorpseAction.new, ISDropCorpseAction, actor,
+        intent.targetSquare)
+    if not created then return false, tostring(timedAction) end
+    return queueTrackedWork(actor, timedAction, dragHandsRecord(), "drop_body")
+end
+
+-- ISBurnCorpseAction requires the lighter in the primary hand and the petrol
+-- container in the secondary hand; its complete() calls burnCorpse(), which
+-- starts a real IsoFireManager fire on the corpse square.
+local function startBurnBody(actor, intent, provider)
+    local body, lighter, petrol = intent.body, intent.lighter, intent.petrol
+    if body == nil or lighter == nil or petrol == nil then
+        return false, "burn intent needs a body, a lighter and petrol"
+    end
+    local handled, reason = useProvider(provider, "burnBody", actor, body, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISBurnCorpseAction) ~= "table" or type(ISBurnCorpseAction.new) ~= "function" then
+        return false, "native corpse burning is unavailable"
+    end
+    local record, prepareReason = prepareWorkInventory(actor, { lighter, petrol }, lighter, petrol)
+    if not record then return false, prepareReason end
+    local created, timedAction = pcall(ISBurnCorpseAction.new, ISBurnCorpseAction, actor,
+        body, lighter, petrol)
+    if not created then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "burn_body")
 end
 
 local function startBarricade(actor, intent, provider)
@@ -2624,6 +2765,42 @@ function actions.workKind(actor)
     return record and record.kind or nil
 end
 
+function actions.isDraggingCorpse(actor)
+    local ok, dragging = invoke(actor, "isDraggingCorpse")
+    return ok and dragging == true
+end
+
+-- Let go of a dragged body at once (danger or cancellation). The stock
+-- grapple drops it beside the companion; nothing leaves the world.
+function actions.releaseCorpse(actor)
+    if not actions.isDraggingCorpse(actor) then return true, "not_dragging" end
+    local ok = invoke(actor, "setDoGrappleLetGo")
+    if not ok then return false, "corpse_release_unavailable" end
+    return true, "corpse_released"
+end
+
+-- Re-equip the hand items remembered at the grab once the grapple has ended.
+-- Items that left the inventory meanwhile are never recreated.
+function actions.settleDrag(actor)
+    local session = actor and dragSessions[actor] or nil
+    if not session then return true, "no_drag_session" end
+    if actions.isDraggingCorpse(actor) then return false, "still_dragging" end
+    dragSessions[actor] = nil
+    local inventoryOk, inventory = invoke(actor, "getInventory")
+    local function held(item)
+        if item == nil or not inventoryOk or inventory == nil then return false end
+        local containsOk, contains = invoke(inventory, "contains", item)
+        return containsOk and contains == true
+    end
+    if held(session.primary) then invoke(actor, "setPrimaryHandItem", session.primary) end
+    if held(session.secondary) then invoke(actor, "setSecondaryHandItem", session.secondary) end
+    return true, "drag_settled"
+end
+
+function actions.dragSessionActive(actor)
+    return actor ~= nil and dragSessions[actor] ~= nil
+end
+
 -- Build 42's server path drives ISChopTreeAction by emulating its ChopTree
 -- animation event every 1500 ms. The production watchdog uses the same seam
 -- only after proving that no native event reached this companion's action;
@@ -2836,6 +3013,7 @@ function actions.cancelVisual(actor, reason)
     if record.timedAction and record.timedAction.reading == true then
         invoke(actor, "setReading", false)
     end
+    endFitnessPose(record.timedAction)
     invoke(actor, "resetModelNextFrame")
     activeVisual[actor] = nil
     return true, reason or "visual_action_cancelled"
@@ -2986,6 +3164,9 @@ SC.NativeWorkActions.configure({
     digGrave = startDigGrave,
     buryBody = startBuryBody,
     fillGrave = startFillGrave,
+    grabBody = startGrabBody,
+    dropBody = startDropBody,
+    burnBody = startBurnBody,
 })
 
 SC.NativeMovementActions.configure({
@@ -3083,6 +3264,7 @@ function actions.dispatch(actor, mode, intent, provider)
     -- movement, combat, rescue, construction, window and vehicle action must
     -- first leave furniture or the engine can retain a seated animation/state.
     local seatedActivity = action == "read" or action == "repair" or action == "craft_supply"
+        or action == "ext_gesture"
     if action == "sit_ground" then
         local standing, standingReason = leaveFurniture(actor)
         if not standing then return false, standingReason end
@@ -3145,6 +3327,8 @@ function actions.dispatch(actor, mode, intent, provider)
         return SC.NativeWorkActions.dispatch(actor, action, intent, provider)
     elseif action == "hand_signal" then
         return SC.NativeVisualActions.handSignal(actor, intent, provider)
+    elseif action == "ext_gesture" then
+        return SC.NativeVisualActions.extGesture(actor, intent, provider)
     elseif action == "ready_weapon" then
         if not actions.holdCombatPosition(actor) then return false, "native_combat_stop_failed" end
         setTacticalMovement(actor, false, 0, 0)

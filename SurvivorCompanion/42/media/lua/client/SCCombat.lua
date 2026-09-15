@@ -326,7 +326,7 @@ local function confirmRecentKill(actor, state, commands, now)
     if target == nil then return false, "no_recent_offense" end
     local attackedAt = tonumber(state.lastOffensiveAt) or -math.huge
     local creditWindow = U().config("combatBarkKillCreditMs") or 5000
-    if U().isDead(target) ~= true then
+    if not U().isGoneTarget(target) then
         if now - attackedAt > creditWindow then
             state.lastOffensiveTarget = nil
             state.lastOffensiveAt = nil
@@ -340,6 +340,9 @@ local function confirmRecentKill(actor, state, commands, now)
     if credited and state.lastConfirmedKill ~= target then
         state.lastConfirmedKill = target
         emitCombatBark(actor, state, commands, "combat.kill", now, false)
+        if SC.Tales and type(SC.Tales.noteKill) == "function" then
+            pcall(SC.Tales.noteKill, actor, target, now)
+        end
         return true, "recent_kill_confirmed"
     end
     return false, credited and "kill_already_confirmed" or "kill_credit_expired"
@@ -658,7 +661,7 @@ function Combat.holdNativeAttack(actor, runtime)
     local rootRuntime = U().actorState(actor, runtime)
     local now = U().nowMs()
     local target = state.target
-    if target == nil or U().isDead(target) then
+    if target == nil or U().isGoneTarget(target) then
         if state.nativeAttackOrphanSince == nil
             or state.nativeAttackOrphanTarget ~= target then
             state.nativeAttackOrphanSince = now
@@ -693,7 +696,7 @@ function Combat.holdNativeAttack(actor, runtime)
         state.nativeAttackOrphanTarget = nil
     end
     if not holdCombatPosition(actor) then return false, "native_combat_stop_failed" end
-    if state.target and not U().isDead(state.target) then
+    if state.target and not U().isGoneTarget(state.target) then
         claimTarget(state.target, actor, now, state.cohortKey, state.combatRole,
             "committed", math.sqrt(U().distanceSq(actor, state.target)))
     end
@@ -911,6 +914,10 @@ local function threatScore(threat, actor, player, snapshot)
     if threat.visible then score = score + 10 else score = score - 8 end
     if threat.obstructed then score = score - 12 end
     if threat.fenced then score = score - 7 end
+    -- A zombie mid-climb or just fallen in, and one holding an ally down, go
+    -- first: both are helpless or deadly for only a few seconds.
+    if threat.breaching then score = score + (utility.config("combatBreachPriority") or 40) end
+    if threat.rescue then score = score + (utility.config("combatRescuePriority") or 35) end
     local bearing, facingDot = threatBearing(actor, threat.actor)
     if bearing == "rear" then
         score = score + (utility.config("combatRearThreatPriority") or 30)
@@ -961,6 +968,38 @@ local function sampleTargetMotion(state, actor, target, distance, now)
     return closing, tti
 end
 
+-- Allies a zombie grab holds down right now. Their attackers are everyone's
+-- first target: a pinned companion cannot fight back.
+function Combat._pinnedAllies(actor, snapshot)
+    local pinned = {}
+    local attack = SC.ZombieAttack
+    if type(snapshot) ~= "table" or type(snapshot.allies) ~= "table"
+        or not attack or type(attack.isGrabbed) ~= "function" then
+        return pinned
+    end
+    for _, ally in ipairs(snapshot.allies) do
+        local other = type(ally) == "table" and ally.actor or ally
+        if other ~= nil and other ~= actor and attack.isGrabbed(other) == true then
+            pinned[#pinned + 1] = other
+        end
+    end
+    return pinned
+end
+
+function Combat._rescuing(actor, zombie, pinnedAllies)
+    if type(pinnedAllies) ~= "table" or #pinnedAllies == 0 then return false end
+    local utility = U()
+    local radius = utility.config("combatRescueRadius") or 15
+    if utility.distanceSq(actor, zombie) > radius * radius then return false end
+    local reach = utility.config("combatRescueReach") or 2.0
+    for _, ally in ipairs(pinnedAllies) do
+        if utility.sameFloor(ally, zombie) and utility.distanceSq(ally, zombie) <= reach * reach then
+            return true
+        end
+    end
+    return false
+end
+
 function Combat.scoreTargets(actor, player, snapshot, previousTarget)
     local scored = {}
     local utility = U()
@@ -968,13 +1007,20 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
     local state = stateFor(actor)
     local cohort = state.cohortKey or combatCohortKey(actor, player)
     if type(snapshot) ~= "table" or type(snapshot.threats) ~= "table" then return scored end
+    local pinnedAllies = Combat._pinnedAllies(actor, snapshot)
+    local liveSightRadius = utility.config("combatLiveSightRadius") or 2.5
     for index = 1, math.min(#snapshot.threats, utility.config("perceptionThreatLimit") or 32) do
         local threat = snapshot.threats[index]
         -- Treat the snapshot as a bounded candidate list. Native LOS is checked
         -- after cheap scoring, so a horde cannot force 32 expensive CanSee calls
-        -- on every combat pulse.
-        if threat.actor and not utility.isDead(threat.actor)
-            and threat.visible ~= false and threat.obstructed ~= true
+        -- on every combat pulse. A contact the last scan could not see still
+        -- reaches that live check when it is close, attacking or breaching: the
+        -- scan can be a pass old, and a zombie that just came through a window
+        -- must not bite a companion that ignores it.
+        local sightCandidate = (threat.visible ~= false and threat.obstructed ~= true)
+            or threat.attacking == true or threat.breaching == true
+            or (tonumber(threat.distanceSq) or math.huge) <= liveSightRadius * liveSightRadius
+        if threat.actor and not utility.isGoneTarget(threat.actor) and sightCandidate
             and utility.sameFloor(actor, threat.actor) then
             local record = utility.copyShallow(threat)
             record.square = utility.squareOf(threat.actor)
@@ -990,6 +1036,7 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
             record.distance = math.sqrt(record.distanceSq)
             record.visible = true
             record.obstructed = false
+            record.rescue = Combat._rescuing(actor, threat.actor, pinnedAllies)
             local score, bearing, facingDot = threatScore(record, actor, player, snapshot)
             local closing, tti = sampleTargetMotion(
                 state, actor, threat.actor, record.distance, now)
@@ -1065,6 +1112,7 @@ local function addNearbyGrounded(actor, scored)
             local square = utility.gridSquare(x + dx, y + dy, z)
             utility.squareMovingObjects(square, function(value)
                 if not seen[value] and utility.isZombie(value) and not utility.isDead(value)
+                    and not utility.isCorpseProxy(value)
                     and utility.sameFloor(actor, value)
                     and utility.canSee(actor, value)
                     and (boolCall(value, "isOnFloor") or boolCall(value, "isProne")) then
@@ -1587,7 +1635,7 @@ local function tryShoveFollowUp(actor, state, snapshot, now, commands)
     local followUp = state.shoveFollowUp
     if type(followUp) ~= "table" then return nil, nil end
     local target = followUp.target
-    if not target or U().isDead(target) or not U().isZombie(target)
+    if not target or U().isGoneTarget(target) or not U().isZombie(target)
         or not U().sameFloor(actor, target) or not U().canSee(actor, target) then
         state.shoveFollowUp = nil
         return nil, "shove_followup_invalid"
@@ -1922,6 +1970,18 @@ local function doctrineMayFight(actor, target, player, snapshot, commands)
             or commands.weaponPriority == "firearm" and "ranged_support"
             or "close_defense"
     end
+    -- A zombie holding an ally down is always fought. One coming through a
+    -- window or over a fence (or lying where it fell in) is fought within the
+    -- breach radius under every doctrine; stealth only answers it close by.
+    if target.rescue == true then return true end
+    if target.breaching == true then
+        local reach = doctrine == "stealth"
+            and (U().config("combatBreachStealthRadius") or 4)
+            or (U().config("combatBreachRadius") or 12)
+        if (target.distanceSq or U().distanceSq(actor, target.actor)) <= reach * reach then
+            return true
+        end
+    end
     if doctrine == "stealth" then return passiveMayFight(target, player, snapshot) end
     if doctrine == "close_defense" then
         return closeDefenseMayFight(actor, target, player, snapshot)
@@ -1933,6 +1993,8 @@ local function doctrineMayFight(actor, target, player, snapshot, commands)
     return target.attacking == true
         or (target.distanceSq or U().distanceSq(actor, target.actor)) <= radius * radius
 end
+
+Combat._doctrineMayFightForTests = doctrineMayFight
 
 local function selectDoctrineTarget(actor, scored, player, snapshot, commands, state, now)
     local best
@@ -2423,7 +2485,7 @@ local function executeRetreatCounter(actor, player, snapshot, target, weapon, co
         overrun, state, now)
     if not target or not target.actor then return false end
     local utility = U()
-    if utility.isDead(target.actor) then return false end
+    if utility.isGoneTarget(target.actor) then return false end
     local cooldown = utility.config("combatRetreatCounterCooldownMs") or 1100
     if now - (tonumber(state.lastRetreatCounterAt) or 0) < cooldown then return false end
     local immediate = tonumber(snapshot.closeImmediateCount)
@@ -2475,7 +2537,10 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
     end
     if action.kind == "shoot" or action.kind == "melee"
         or action.kind == "shove" or action.kind == "stomp" then
-        if targetActor == nil or utility.isDead(targetActor) then
+        if targetActor == nil or utility.isGoneTarget(targetActor) then
+            if targetActor ~= nil and not utility.isDead(targetActor) then
+                utility.diagnostic("combat", actor, "action=gone_target_dropped")
+            end
             utility.stop(actor)
             utility.call(actor, "setCompanionAimTarget", nil)
             state.attackAnchor = nil
@@ -2557,15 +2622,20 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         elseif moveX == nil then
             moveX, moveY = tx - ax, ty - ay
         end
-        accepted, nativeReason = utility.move(actor, "walk", {
+        -- Rush a breaching zombie or an ally's attacker at a run, weapon down,
+        -- and fall back to the guarded approach for the last steps.
+        local rushing = (target.breaching == true or target.rescue == true)
+            and math.sqrt(target.distanceSq or utility.distanceSq(actor, targetActor))
+                > (utility.config("combatBreachRunDistance") or 2.5)
+        accepted, nativeReason = utility.move(actor, rushing and "jog" or "walk", {
             action = "combat_approach",
             dx = moveX,
             dy = moveY,
             target = targetActor,
             facingTarget = targetActor,
-            keepFacing = true,
-            weaponReady = true,
-            tacticalStrafe = true,
+            keepFacing = not rushing,
+            weaponReady = not rushing,
+            tacticalStrafe = not rushing,
             microSteered = steered == true,
             combatMinimumDistance = action.minimumDistance
                 or (weapon and Combat.meleeSpacing(actor, weapon.item, target) or {}).desired,
@@ -2634,7 +2704,7 @@ end
 
 local function vehicleCombat(actor, player, snapshot, target, weapon, inventory, commands)
     local utility = U()
-    if not target or not target.actor or utility.isDead(target.actor) then
+    if not target or not target.actor or utility.isGoneTarget(target.actor) then
         utility.stop(actor)
         return false, "vehicle_target_dead"
     end
@@ -2768,6 +2838,9 @@ function Combat.update(actor, player, runtime)
 
     local target = selectDoctrineTarget(actor, scored, player, snapshot, commands, state, now)
     if not target then
+        -- Remembered briefly so Decision can keep a follower moving with its
+        -- leader instead of re-selecting a combat pass that has nothing to do.
+        state.noCredibleAt = now
         if state.active then utility.stop(actor) end
         state.active, state.target = false, nil
         state.retreating = false
@@ -2781,6 +2854,7 @@ function Combat.update(actor, player, runtime)
         rootRuntime.combatRole, rootRuntime.combatCohort = nil, nil
         return false, "no_credible_target"
     end
+    state.noCredibleAt = nil
     -- Continuously point the actor at the engaged target so the native swing's
     -- hit arc (getDirectionAngle) lands, like a player's mouse aim. Cleared above
     -- when there is no credible target.
@@ -3003,6 +3077,27 @@ function Combat.update(actor, player, runtime)
     rootRuntime.combatTarget = target.actor
     rootRuntime.combatAction = reason == "combat_recovery_wait" and reason or chosen.kind
     return true, reason
+end
+
+-- True while every threat in view is one this companion's last combat pass
+-- judged it may not engage (a zombie behind the base fence, out of reach or
+-- out of doctrine) and nothing is close, attacking, human or surrounding it.
+-- Stationary work and idle life may carry on meanwhile; combat re-checks.
+function Combat.onlyUnreachableThreats(actor, snapshot, now)
+    if actor == nil or type(snapshot) ~= "table" then return false end
+    if (tonumber(snapshot.immediateCount) or #(snapshot.immediateAttackers or {})) > 0
+        or (tonumber(snapshot.closeThreatCount) or 0) > 0 or snapshot.encircled == true
+        or snapshot.humanThreat ~= nil
+        or (type(snapshot.player) == "table"
+            and (tonumber(snapshot.player.immediateThreats) or 0) > 0) then
+        return false
+    end
+    local utility = SC.GameplayUtil
+    local ok, record = pcall(Combat.peek, actor)
+    local at = ok and type(record) == "table" and tonumber(record.noCredibleAt) or nil
+    now = tonumber(now) or utility.nowMs()
+    return at ~= nil and now >= at
+        and now - at < (tonumber(utility.config("combatNoTargetToleranceMs")) or 10000)
 end
 
 function Combat.peek(actor)

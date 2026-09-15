@@ -16,6 +16,15 @@ local function lookupMember(object, name)
     return object[name]
 end
 
+-- Kahlua gives every exposed Java class a metatable. A Java object whose class
+-- Build 42 does not expose has none, and indexing it throws; Kahlua then prints
+-- a Java stack trace to the log even though the lookup runs inside pcall. Such
+-- a value is refused up front. Strings keep their library methods.
+local function unindexable(object)
+    return type(object) ~= "table" and type(object) ~= "string"
+        and getmetatable(object) == nil
+end
+
 -- Kahlua exposes one stable metatable per Java class. Cache only successful
 -- Java lookups: Lua fixtures may install instance-specific functions, and a
 -- missing Java method may become available after a bridge exposure generation.
@@ -40,6 +49,7 @@ local function resolveMethod(object, name)
             return true, callback, true
         end
     end
+    if unindexable(object) then return false, "object type is not exposed to Lua" end
     local lookupOk, callback = pcall(lookupMember, object, name)
     if not lookupOk then return false, tostring(callback) end
     if type(callback) ~= "function" then
@@ -69,6 +79,7 @@ local function resolveStatic(object, name)
             return true, callback, true
         end
     end
+    if unindexable(object) then return false, "object type is not exposed to Lua" end
     local lookupOk, callback = pcall(lookupMember, object, name)
     if not lookupOk then return false, tostring(callback) end
     if type(callback) ~= "function" then

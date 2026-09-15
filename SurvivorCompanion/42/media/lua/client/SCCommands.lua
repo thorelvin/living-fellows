@@ -49,6 +49,8 @@ local copyLimits = {
     care = { maxDepth = 4, maxEntries = 192 },
     reveals = { maxDepth = 4, maxEntries = 128 },
     ritual = { maxDepth = 5, maxEntries = 96 },
+    tales = { maxDepth = 5, maxEntries = 256 },
+    flavor = { maxDepth = 3, maxEntries = 128 },
     objectives = { maxDepth = 6, maxEntries = 512 },
     possessions = { maxDepth = 6, maxEntries = 256 },
     downtime = { maxDepth = 4, maxEntries = 128 },
@@ -90,7 +92,7 @@ local stableDataKeys = {
 local stableEntryKeys = {
     "recruited", "factionId", "factionRole", "factionLeader", "order", "followDistance", "scavenge", "allowOverload", "rideWithPlayer",
     "moveMode", "moveModeVersion", "combatMode", "combatDoctrine", "holdFire", "weaponPriority", "group", "trust", "bond", "morale", "stress",
-    "timeTogetherMs", "memories", "background", "care", "reveals", "ritual", "lastDowntime", "state",
+    "timeTogetherMs", "memories", "background", "care", "reveals", "ritual", "tales", "flavor", "lastDowntime", "state",
     "personalityProfile", "objectives", "possessions",
     "workMode", "workTarget", "returnOrder", "returnWorkMode",
 }
@@ -182,6 +184,10 @@ local function snapshotState(actor, entry)
         persistedPersonality.reveals), copyLimits.reveals, "$.commands.reveals")
     local stableRitual = requiredCopy(valueFrom(entry, { "ritual" },
         persistedPersonality.ritual), copyLimits.ritual, "$.commands.ritual")
+    local stableTales = requiredCopy(valueFrom(entry, { "tales" },
+        persistedPersonality.tales), copyLimits.tales, "$.commands.tales")
+    local stableFlavor = requiredCopy(valueFrom(entry, { "flavor" },
+        persistedPersonality.flavor), copyLimits.flavor, "$.commands.flavor")
     local stableObjectives = requiredCopy(persistedObjectives, copyLimits.objectives,
         "$.commands.objectives") or {}
     local stablePossessions = requiredCopy(persistedPossessions, copyLimits.possessions,
@@ -250,6 +256,8 @@ local function snapshotState(actor, entry)
         care = stableCare,
         reveals = stableReveals,
         ritual = stableRitual,
+        tales = stableTales,
+        flavor = stableFlavor,
         timeTogetherMs = tonumber(valueFrom(data, { "SC_TimeTogetherMs" },
             valueFrom(entry, { "timeTogetherMs" }, persistedPersonality.timeTogetherMs or 0))) or 0,
         lastEncouragedAt = tonumber(persistedPersonality.lastEncouragedAt) or 0,
@@ -430,6 +438,10 @@ local function writeStable(actor, entry, state)
         "$.commands.reveals") or {}
     local stableRitual = requiredCopy(type(state.ritual) == "table" and state.ritual
         or priorPersonality.ritual, copyLimits.ritual, "$.commands.ritual")
+    local stableTales = requiredCopy(type(state.tales) == "table" and state.tales
+        or priorPersonality.tales, copyLimits.tales, "$.commands.tales")
+    local stableFlavor = requiredCopy(type(state.flavor) == "table" and state.flavor
+        or priorPersonality.flavor, copyLimits.flavor, "$.commands.flavor")
     local stableObjectives = requiredCopy(state.objectives or prior.objectives or {},
         copyLimits.objectives, "$.commands.objectives") or {}
     local stablePossessions = requiredCopy(state.possessions or prior.possessions or {},
@@ -524,6 +536,8 @@ local function writeStable(actor, entry, state)
                 care = stableCare,
                 reveals = stableReveals,
                 ritual = stableRitual,
+                tales = stableTales,
+                flavor = stableFlavor,
                 timeTogetherMs = tonumber(state.timeTogetherMs) or 0,
                 lastEncouragedAt = tonumber(state.lastEncouragedAt) or 0,
             },
@@ -563,6 +577,8 @@ local function writeStable(actor, entry, state)
         entry.care = stableCare
         entry.reveals = stableReveals
         entry.ritual = stableRitual
+        entry.tales = stableTales
+        entry.flavor = stableFlavor
         entry.lastDowntime = stableLastDowntime
         entry.workMode = state.workMode
         entry.workTarget = stableWorkTarget
@@ -674,20 +690,40 @@ local function setOrder(actor, entry, state, order, anchor)
     return true, order
 end
 
-local function handleBaseDuty(actor, entry, state)
+-- Put a companion on base duty. `role` overrides its current base role, and
+-- `post` is the square a guard keeps watch over (the base core otherwise).
+local function enterBaseDuty(actor, entry, state, role, post)
     if not SC.BaseLife or type(SC.BaseLife.active) ~= "function"
         or SC.BaseLife.active() == nil then return false, "base_missing" end
     local id = U().idOf(actor)
     local resident = type(SC.BaseLife.resident) == "function" and SC.BaseLife.resident(id) or nil
-    local role = resident and resident.role or "generalist"
-    local assigned, reason = SC.BaseLife.assign(id, role, true)
+    local assigned, reason
+    if role == nil and resident == nil and type(SC.BaseLife.setDuty) == "function" then
+        -- A new resident takes the role its background prefers.
+        assigned, reason = SC.BaseLife.setDuty(id, true)
+    else
+        assigned, reason = SC.BaseLife.assign(id,
+            role or (resident and resident.role) or "generalist", true)
+    end
     if assigned ~= true then return false, reason end
     clearWorkState(state)
     state.order = "base_duty"
-    state.anchor = U().copyShallow(SC.BaseLife.active().core)
+    state.anchor = post and positionTable(post) or U().copyShallow(SC.BaseLife.active().core)
     state.tacticalTarget, state.pendingInteraction = nil, nil
     markCommand(actor, entry, state)
     return true, "base_duty"
+end
+
+local function handleBaseDuty(actor, entry, state)
+    return enterBaseDuty(actor, entry, state)
+end
+
+-- Stay and guard given inside the active base mean "live here": the companion
+-- goes on base duty instead of standing on one square.
+local function insideActiveBase(point)
+    return point ~= nil and SC.BaseLife ~= nil
+        and type(SC.BaseLife.active) == "function" and SC.BaseLife.active() ~= nil
+        and type(SC.BaseLife.isInside) == "function" and SC.BaseLife.isInside(point) == true
 end
 
 local function handleSetBaseRole(actor, entry, state, payload)
@@ -921,11 +957,21 @@ local function handleCautiousFollow(actor, entry, state)
 end
 
 local function handleStay(actor, entry, state)
+    if insideActiveBase(actor) then
+        local onDuty, dutyReason = enterBaseDuty(actor, entry, state)
+        if onDuty then return onDuty, dutyReason end
+    end
     return setOrder(actor, entry, state, "stay", actor)
 end
 
+-- Guard inside the base joins the base as a guard who watches the chosen
+-- square; outside it, guard keeps its post as before.
 local function handleGuard(actor, entry, state, payload)
     local anchor = type(payload) == "table" and (payload.square or payload.target) or nil
+    if insideActiveBase(anchor or actor) then
+        local onDuty, dutyReason = enterBaseDuty(actor, entry, state, "guard", anchor or actor)
+        if onDuty then return onDuty, dutyReason end
+    end
     return setOrder(actor, entry, state, "guard", anchor or actor)
 end
 
@@ -1867,6 +1913,8 @@ copyCommandState = function(state)
         { "care", copyLimits.care },
         { "reveals", copyLimits.reveals },
         { "ritual", copyLimits.ritual },
+        { "tales", copyLimits.tales },
+        { "flavor", copyLimits.flavor },
         { "objectives", copyLimits.objectives },
         { "possessions", copyLimits.possessions },
         { "lastDowntime", copyLimits.downtime },
@@ -2475,6 +2523,8 @@ function Commands.export(actor)
         care = detached.care,
         reveals = detached.reveals,
         ritual = detached.ritual,
+        tales = detached.tales,
+        flavor = detached.flavor,
         timeTogetherMs = detached.timeTogetherMs,
         objectives = detached.objectives,
         possessions = detached.possessions,

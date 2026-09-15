@@ -162,7 +162,9 @@ function Personality.adjustDowntime(profile, activity)
     local delta = 0
     if kind == "repair" or kind == "craft_supply" then delta = practical * 6
     elseif kind == "replace_bandage" then delta = compassion * 3
-    elseif kind == "read" or kind == "sit" then delta = caution * 2 + practical end
+    elseif kind == "read" or kind == "sit" then delta = caution * 2 + practical
+    elseif kind == "study_corpse" then delta = practical * 3 - caution * 3
+    elseif kind == "pay_respects" then delta = compassion * 4 end
     if SC.Background and type(SC.Background.downtimeModifier) == "function" then
         delta = delta + SC.Background.downtimeModifier(profile, kind)
     end

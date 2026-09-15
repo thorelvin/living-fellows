@@ -76,6 +76,23 @@ local function livingActors(player)
     return result
 end
 
+-- Everyone within earshot of the bitten one: the player and any registered
+-- survivor, uncapped (the companion cap would hide companions behind
+-- households and camps), filtered by distance first so it stays cheap.
+local function nearbyActors(subject, player, radius)
+    local utility = U()
+    local result = {}
+    if player ~= nil and not utility.isDead(player) and utility.distance(player, subject) <= radius then
+        result[#result + 1] = player
+    end
+    for _, actor in ipairs(utility.registryLiving(false)) do
+        if actor ~= player and utility.distance(actor, subject) <= radius then
+            result[#result + 1] = actor
+        end
+    end
+    return result
+end
+
 local function assess(actor)
     if not actor or not SC.Medical or type(SC.Medical.assess) ~= "function" then return nil end
     local ok, value = pcall(SC.Medical.assess, actor)
@@ -156,6 +173,83 @@ local function discover(crisis, observer, observerId, certainty, kind)
     addEvidence(crisis, kind, observerId, certainty)
 end
 
+-- Conversation timing that does not need saving: when each bystander set
+-- off to walk over, and when the next voice in a crisis may speak.
+local walks, turns = {}, {}
+
+local function say(actor, topic, fallback)
+    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+        local ok, spoken = pcall(SC.Dialogue.say, actor, topic, nil, nil, { fallback = fallback })
+        return ok and spoken == true
+    end
+    return U().say(actor, fallback) == true
+end
+
+local function liveCommands(actor)
+    if SC.Commands and type(SC.Commands.peek) == "function" then
+        local ok, state = pcall(SC.Commands.peek, actor)
+        if ok and type(state) == "table" then return state end
+    end
+    return nil
+end
+
+-- Talking about a bite waits for a quiet moment, and a follower waits until
+-- the player has stopped walking.
+local function readyToTalk(actor, player, snapshot)
+    if type(snapshot) == "table" and ((tonumber(snapshot.threatCount) or 0) > 0
+        or (tonumber(snapshot.immediateCount) or 0) > 0 or snapshot.humanThreat ~= nil) then
+        return false
+    end
+    local commands = liveCommands(actor)
+    return not (type(commands) == "table" and commands.order == "follow" and player ~= nil
+        and U().call(player, "isMoving") == true)
+end
+
+local stanceEmotes = {
+    protective = "comehere", compassionate = "yes", pragmatic = "signalok",
+    fearful = "stop", authoritarian = "no",
+}
+
+-- Face the other person and make one gesture, the way two people talk.
+local function faceWithGesture(actor, target, emote)
+    local x, y, z = U().position(target)
+    if x == nil then return false end
+    return U().move(actor, "walk", {
+        action = "conversation_pose", targetPosition = { x = x, y = y, z = z or 0 },
+        emote = emote, humanAnimationOnly = true,
+    }) == true
+end
+
+-- Who a bitten companion would tell first: the companion it trusts most
+-- (their mutual trust plus half their opinion), or the player when it
+-- trusts the player more. Nobody when no one is trusted enough.
+local function confidantFor(subject, player)
+    local utility = U()
+    local best, bestScore
+    local state = liveCommands(subject)
+    if player ~= nil and not utility.isDead(player) then
+        best, bestScore = player, finite(state and state.trust, 0)
+    end
+    if SC.Community and type(SC.Community.relation) == "function" then
+        -- The whole registry: the companion cap would cut friends off behind
+        -- households and camps. Only recruited companions are told.
+        for _, other in ipairs(utility.registryLiving(false)) do
+            local otherCommands = other ~= subject and liveCommands(other) or nil
+            if otherCommands ~= nil and otherCommands.recruited == true
+                and not utility.isDead(other) then
+                local ok, pair = pcall(SC.Community.relation, subject, other, false)
+                if ok and type(pair) == "table" then
+                    local score = finite(pair.trust, 0) + finite(pair.opinion, 0) * 0.5
+                    if bestScore == nil or score > bestScore then best, bestScore = other, score end
+                end
+            end
+        end
+    end
+    if best == nil or bestScore < (utility.config("crisisConfideTrust") or 40) then return nil end
+    return best
+end
+Crisis._confidantForTests = confidantFor
+
 local function newCrisis(subject, subjectId, medical, player)
     local count, oldestId, oldestAt = 0, nil, math.huge
     for candidateId, candidate in pairs(ensure().crises) do
@@ -184,15 +278,26 @@ local function newCrisis(subject, subjectId, medical, player)
     participant(crisis, subjectId).knowledge = "confirmed"
     participant(crisis, subjectId).certainty = 100
     addEvidence(crisis, "bite", subjectId, 100, "new bite")
+    -- A companion who trusts the player walks over and tells them first; one
+    -- who would hide it may still confide in the one it trusts most.
+    if subjectId ~= "player:local" then
+        if crisis.strategy == "confess" and player ~= nil and not U().isDead(player) then
+            crisis.confidantId, crisis.confideState = "player:local", "pending"
+        elseif crisis.strategy == "conceal" then
+            local confidant = confidantFor(subject, player)
+            if confidant ~= nil then
+                crisis.confidantId, crisis.confideState = actorId(confidant, player), "pending"
+            end
+        end
+    end
     ensure().crises[id] = crisis
     history("created", { crisisId = id, subjectId = subjectId, strategy = crisis.strategy })
 
     -- Anyone close enough to see the attack knows immediately; otherwise the
     -- bitten survivor controls disclosure until symptoms or an examination.
-    for _, witness in ipairs(livingActors(player)) do
+    for _, witness in ipairs(nearbyActors(subject, player, 6)) do
         local witnessId = actorId(witness, player)
-        if witness ~= subject and U().distance(witness, subject) <= 6
-            and U().canSee(witness, subject) then
+        if witness ~= subject and U().canSee(witness, subject) then
             discover(crisis, witness, witnessId, 100, "witnessed_bite")
         end
     end
@@ -212,9 +317,9 @@ end
 
 local function confess(crisis, subject, player)
     local radius = atBase(subject) and 10 or 7
-    for _, actor in ipairs(livingActors(player)) do
+    for _, actor in ipairs(nearbyActors(subject, player, radius)) do
         local id = actorId(actor, player)
-        if actor ~= subject and U().distance(actor, subject) <= radius then
+        if actor ~= subject then
             discover(crisis, actor, id, 100, "confession")
         end
     end
@@ -233,9 +338,9 @@ end
 local function symptomDiscovery(crisis, subject, player, level)
     if level < 25 then return end
     local radius = atBase(subject) and 10 or 7
-    for _, actor in ipairs(livingActors(player)) do
+    for _, actor in ipairs(nearbyActors(subject, player, radius)) do
         local id = actorId(actor, player)
-        if actor ~= subject and U().distance(actor, subject) <= radius then
+        if actor ~= subject then
             local certainty = level >= 70 and 100 or math.min(90, 45 + level)
             discover(crisis, actor, id, certainty, "visible_symptoms")
         end
@@ -244,11 +349,10 @@ end
 
 local function medicInspection(crisis, subject, player)
     if crisis.examinedAt then return end
-    for _, actor in ipairs(livingActors(player)) do
+    for _, actor in ipairs(nearbyActors(subject, player, 4)) do
         local id = actorId(actor, player)
         local resident = SC.BaseLife and SC.BaseLife.resident(id) or nil
-        if resident and resident.role == "medic" and actor ~= subject
-            and U().distance(actor, subject) <= 4 then
+        if resident and resident.role == "medic" and actor ~= subject then
             crisis.examinedAt = now()
             discover(crisis, actor, id, crisis.strategy == "conceal" and 82 or 100,
                 crisis.strategy == "conceal" and "refused_exam" or "medical_exam")
@@ -370,6 +474,43 @@ local function applyOutcome(crisis, subject, outcome, player)
     })
 end
 
+-- The slow parts of a crisis conversation: a walk to confide that takes too
+-- long is given up, a confidant answers a few seconds after being told, and
+-- the bitten companion answers the first person who comes over.
+local function conversationBeats(crisis, subject, player, current)
+    local utility = U()
+    if crisis.confideState == "pending" and current - finite(crisis.createdAt, current)
+        > (utility.config("crisisConfideTimeoutMs") or 45000) then
+        crisis.confideState = "abandoned"
+        history("confide_abandoned", { crisisId = crisis.id, subjectId = crisis.subjectId })
+    end
+    if crisis.confideReplyDue ~= nil and current >= finite(crisis.confideReplyDue, current) then
+        crisis.confideReplyDue = nil
+        local friend = resolveActor(crisis.confidantId, player)
+        local member = crisis.participants[crisis.confidantId]
+        if friend ~= nil and member ~= nil and not utility.isDead(friend) then
+            member.stance = member.stance or stanceFor(friend, crisis.subjectId)
+            if member.stance == "protective" or member.stance == "compassionate" then
+                crisis.secretKept = true
+                say(friend, "crisis.keep", "Okay. It stays between us. For now.")
+            else
+                crisis.strategy = "confess"
+                crisis.confessAfter = current + (utility.config("crisisConfessPauseMs") or 4000)
+                say(friend, "crisis.urge", "You have to tell them. Now. Or I will.")
+            end
+            history("confidant_answered", {
+                crisisId = crisis.id, subjectId = crisis.subjectId,
+                confidantId = crisis.confidantId, kept = crisis.secretKept == true,
+            })
+        end
+    end
+    if crisis.replyDue ~= nil and current >= finite(crisis.replyDue, current)
+        and crisis.subjectReplied ~= true then
+        crisis.replyDue, crisis.subjectReplied = nil, true
+        say(subject, "crisis.reply", "I know.")
+    end
+end
+
 local function advance(crisis, subject, player, medical, current)
     crisis.updatedAt = current
     crisis.infectionLevel = math.max(crisis.infectionLevel or 0, medical.infectionLevel or 0)
@@ -379,9 +520,14 @@ local function advance(crisis, subject, player, medical, current)
         SC.Dialogue.sayLastWords(subject, "turning", player)
     end
     if crisis.phase == "resolved" or crisis.phase == "terminal" then return end
+    conversationBeats(crisis, subject, player, current)
     symptomDiscovery(crisis, subject, player, crisis.infectionLevel)
     medicInspection(crisis, subject, player)
-    if crisis.strategy == "confess" and current >= crisis.createdAt + 2000 then
+    -- A confession waits while the bitten one is still walking over to tell
+    -- someone first, and a moment after a friend has pushed for it.
+    if crisis.strategy == "confess" and crisis.confideState ~= "pending"
+        and current >= crisis.createdAt + 2000
+        and current >= finite(crisis.confessAfter, 0) then
         confess(crisis, subject, player)
     end
     local inCamp = atBase(subject)
@@ -400,20 +546,96 @@ local lines = {
     authoritarian = "We decide this now, before they turn.",
 }
 
-local function speakReaction(actor, crisis, member)
-    if member.spoken or member.knowledge ~= "confirmed" then return end
+local function speakReaction(actor, crisis, member, subject)
+    if member.spoken or member.knowledge ~= "confirmed" then return false end
     member.spoken = true
-    local fallback = lines[member.stance] or lines.pragmatic
-    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
-        SC.Dialogue.say(actor, "crisis." .. tostring(member.stance or "pragmatic"),
-            nil, nil, { fallback = fallback })
+    member.stance = member.stance or stanceFor(actor, crisis.subjectId)
+    if subject ~= nil then
+        faceWithGesture(actor, subject, stanceEmotes[member.stance] or "signalok")
+    end
+    say(actor, "crisis." .. tostring(member.stance or "pragmatic"),
+        lines[member.stance] or lines.pragmatic)
+    if crisis.subjectReplied ~= true and crisis.replyDue == nil then
+        crisis.replyDue = now() + (U().config("crisisReplyDelayMs") or 2500)
+    end
+    return true
+end
+
+-- A bystander walks over before saying anything, faces the bitten one and
+-- takes a turn: one voice every few seconds. Someone who cannot get there in
+-- time says it from where they stand.
+local function approachAndReact(actor, id, crisis, member, subject)
+    local utility = U()
+    local current = now()
+    local key = crisis.id .. "|" .. tostring(id)
+    walks[key] = walks[key] or current
+    local distance = utility.distance(actor, subject)
+    local near = distance <= (utility.config("crisisTalkDistance") or 2.2)
+    local late = current - walks[key] > (utility.config("crisisGatherTimeoutMs") or 20000)
+    local canWalk = SC.Navigation and type(SC.Navigation.request) == "function"
+    if crisis.phase == "deliberating" then
+        if distance > 3 and not late and canWalk then
+            return SC.Navigation.request(actor, utility.squareOf(subject), "walk", {
+                action = "crisis_approach", targetSquare = utility.squareOf(subject),
+            })
+        end
+        if member.spoken == true then return true, "crisis_gathered" end
+    elseif member.spoken == true then
+        walks[key] = nil
+        return false, "crisis_reacted"
+    elseif not near and not late and canWalk then
+        return SC.Navigation.request(actor, utility.squareOf(subject), "walk", {
+            action = "crisis_approach", targetSquare = utility.squareOf(subject),
+        })
+    end
+    if current < (turns[crisis.id] or 0) then
+        if near then utility.stop(actor) end
+        return true, "crisis_waiting_turn"
+    end
+    utility.stop(actor)
+    turns[crisis.id] = current + (utility.config("crisisTurnGapMs") or 3500)
+    walks[key] = nil
+    speakReaction(actor, crisis, member, subject)
+    return true, "crisis_reacting"
+end
+
+-- The bitten companion walks over to the one it trusts and tells them first:
+-- the player hears a confession (or a private word when it would rather
+-- hide it); a friend hears it privately and answers a moment later.
+local function confideStep(subject, crisis, player)
+    local utility = U()
+    local confidant = resolveActor(crisis.confidantId, player)
+    if confidant == nil or utility.isDead(confidant) then
+        crisis.confideState = "abandoned"
+        return false, "confidant_unavailable"
+    end
+    if utility.distance(subject, confidant) > (utility.config("crisisTalkDistance") or 2.2) then
+        if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
+            return false, "navigation_unavailable"
+        end
+        return SC.Navigation.request(subject, utility.squareOf(confidant), "walk", {
+            action = "crisis_approach", targetSquare = utility.squareOf(confidant),
+        })
+    end
+    utility.stop(subject)
+    local toPlayer = crisis.confidantId == "player:local"
+    faceWithGesture(subject, confidant, toPlayer and "comehere" or "undecided")
+    crisis.confideState, crisis.confideAt = "done", now()
+    if toPlayer and crisis.strategy == "confess" then
+        confess(crisis, subject, player)
+    elseif toPlayer then
+        say(subject, "crisis.confide.player", "Boss. Just you and me. I got bit.")
+        discover(crisis, confidant, crisis.confidantId, 100, "confided")
     else
-        U().say(actor, fallback)
+        say(subject, "crisis.confide", "Keep your voice down. I got bit.")
+        discover(crisis, confidant, crisis.confidantId, 100, "confided")
+        participant(crisis, crisis.confidantId).spoken = true
+        crisis.confideReplyDue = now() + (utility.config("crisisConfideReplyMs") or 3000)
     end
-    if SC.Relationship and type(SC.Relationship.playEmote) == "function" then
-        local emote = member.stance == "fearful" and "stop" or "come_here"
-        pcall(SC.Relationship.playEmote, actor, emote)
-    end
+    history("confided", {
+        crisisId = crisis.id, subjectId = crisis.subjectId, confidantId = crisis.confidantId,
+    })
+    return true, "crisis_confided"
 end
 
 local function updateResolvedActor(actor, id, crisis, subject)
@@ -497,24 +719,61 @@ function Crisis.pulse(player, current)
     return true, seen
 end
 
-function Crisis.intentFor(actor, player)
+-- What a crisis still asks of one person, and how urgently. The bitten
+-- companion lives normally until the group decides; then it follows the
+-- outcome (quarantine, exile, or waiting on a final act), except "watch",
+-- which is ordinary life under watch. Everyone else reacts once when they
+-- learn of it and gathers while the group deliberates; the authorized
+-- executor acts. A crisis whose subject died or turned asks nothing.
+local actingOutcomes = {
+    quarantine = true, exile = true, self_exile = true, mercy = true, self_sacrifice = true,
+}
+
+local function intentPriority(crisis, id, actor, player, snapshot)
+    if crisis.phase == "terminal" or crisis.phase == "closed" then return 0 end
+    local utility = U()
+    if crisis.subjectId == id then
+        if crisis.phase == "discovered" and crisis.confideState == "pending" then
+            local confidant = resolveActor(crisis.confidantId, player)
+            if confidant == nil or not readyToTalk(actor, player, snapshot)
+                or utility.distance(actor, confidant) > (utility.config("crisisConfideRadius") or 25) then
+                return 0
+            end
+            return 70
+        end
+        return crisis.phase == "resolved" and actingOutcomes[crisis.outcome] and 84 or 0
+    end
+    local member = crisis.participants[id]
+    if not member then return 0 end
+    if crisis.finalAuthorized and crisis.outcome == "mercy" and crisis.executorId == id then
+        return 125
+    end
+    if member.knowledge ~= "confirmed" then return 0 end
+    local talking = crisis.phase == "deliberating"
+        or (crisis.phase ~= "resolved" and member.spoken ~= true)
+    if not talking or not readyToTalk(actor, player, snapshot) then return 0 end
+    local subject = resolveActor(crisis.subjectId, player)
+    if subject == nil
+        or utility.distance(actor, subject) > (utility.config("crisisGatherRadius") or 20) then
+        return 0
+    end
+    return 66
+end
+
+function Crisis.intentFor(actor, player, snapshot)
     local id = actorId(actor, player)
     if not id then return nil end
+    local best
     for _, crisis in pairs(ensure().crises) do
-        local member = crisis.participants[id]
-        if crisis.phase ~= "closed" and (crisis.subjectId == id or member) then
-            local priority = crisis.subjectId == id and 84
-                or (member and member.knowledge == "confirmed" and 66 or 0)
-            if crisis.finalAuthorized and crisis.outcome == "mercy"
-                and crisis.executorId == id then priority = 125 end
-            return {
+        local priority = intentPriority(crisis, id, actor, player, snapshot)
+        if priority > 0 and (best == nil or priority > best.priority) then
+            best = {
                 crisisId = crisis.id, phase = crisis.phase, outcome = crisis.outcome,
-                subjectId = crisis.subjectId,
-                priority = priority,
+                subjectId = crisis.subjectId, priority = priority,
             }
         end
     end
-    return nil
+    return best
 end
 
 function Crisis.updateActor(actor, player)
@@ -534,13 +793,10 @@ function Crisis.updateActor(actor, player)
             if ok and U().isDead(subject) then crisis.phase, crisis.terminalAt = "terminal", now() end
             return ok == true, reason or "native_final_action_unavailable"
         end
-        speakReaction(actor, crisis, member)
-        if crisis.phase == "deliberating" and U().distance(actor, subject) > 3 and SC.Navigation then
-            return SC.Navigation.request(actor, U().squareOf(subject), "walk", {
-                action = "crisis_approach", targetSquare = U().squareOf(subject),
-            })
-        end
-        return true, "crisis_reacting"
+        return approachAndReact(actor, id, crisis, member, subject)
+    end
+    if crisis.phase == "discovered" and crisis.confideState == "pending" then
+        return confideStep(actor, crisis, player)
     end
     return updateResolvedActor(actor, id, crisis, subject)
 end
@@ -819,7 +1075,10 @@ function Crisis.restore(source)
     document = candidate
     return true, document
 end
-function Crisis.reset() document = emptyDocument() end
+function Crisis.reset()
+    document = emptyDocument()
+    walks, turns = {}, {}
+end
 
 Crisis.reset()
 return Crisis

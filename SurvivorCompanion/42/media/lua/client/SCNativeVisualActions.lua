@@ -45,6 +45,25 @@ function Visual.handSignal(actor, intent, provider)
     return true, "hand_signal_started"
 end
 
+-- Build 42 "Ext" idle animations (AnimSets/player/ext and sitext): a short
+-- yawn, stretch, sneeze or cough. The graph picks the seated variant itself,
+-- so a gesture never stands a sitting companion up.
+Visual.EXT_GESTURES = { Yawn = true, TiredStretch = true, Sneeze1 = true, Sneeze2 = true,
+    Cough = true }
+
+function Visual.extGesture(actor, intent, provider)
+    local name = intent.ext
+    if Visual.EXT_GESTURES[name] ~= true then return false, "unsupported ext gesture" end
+    local handled, reason = context.useProvider(provider, "ext", actor, name, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    local set, failure = invoke(actor, "setVariable", "Ext", name)
+    if not set then return false, failure end
+    local reported, reportFailure = invoke(actor, "reportEvent", "EventDoExt")
+    if not reported then return false, reportFailure end
+    return true, "ext_gesture_started"
+end
+
 function Visual.roomSweep(actor, intent, provider)
     local handled, reason = context.useProvider(provider, "look", actor, intent)
     if handled ~= nil then return handled, reason end

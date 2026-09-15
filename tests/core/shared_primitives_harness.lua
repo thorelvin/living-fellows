@@ -16,6 +16,23 @@ local function expectEqual(actual, expected, message)
     end
 end
 
+-- A value Lua cannot index (a Java object whose class Build 42 does not expose
+-- has no metatable) is refused without attempting the index, which would dump
+-- a Java stack trace to the log even inside pcall.
+do
+    local methodCalled, methodReason = Call.method(true, "getStreetCount")
+    local valueResult, valueCalled = Call.value(function() end, "getStreetCount")
+    local staticCalled, staticReason = Call.static(42, "nearestStreet")
+    expect(methodCalled == false
+            and tostring(methodReason) == "object type is not exposed to Lua",
+        "an unindexable method target is refused without indexing")
+    expect(valueResult == nil and valueCalled == false,
+        "an unindexable value target reports not-called")
+    expect(staticCalled == false
+            and tostring(staticReason) == "object type is not exposed to Lua",
+        "an unindexable static target is refused without indexing")
+end
+
 -- Protected calls and transactions must preserve nil holes and trailing nils.
 local noReturns = Call.pack(Call.protected(function() end))
 expectEqual(noReturns.n, 1, "no-return protected tuple count")

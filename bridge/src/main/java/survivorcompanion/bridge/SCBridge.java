@@ -550,6 +550,16 @@ public final class SCBridge {
         return SCNativeCompanion.combatCollisionFailure();
     }
 
+    /**
+     * Nearest named street to a world point as "name\tdistance\tx\ty", or null.
+     * Lua passes the map's WorldMapStreetsV1; the street files behind it are not
+     * exposed to Kahlua, so the bounded walk runs here (see SCStreetLookup).
+     */
+    public static String nearestStreet(Object streetsApi, double worldX, double worldY,
+            double maxDistance) {
+        return SCStreetLookup.nearest(streetsApi, worldX, worldY, maxDistance);
+    }
+
     public static boolean isCompanion(Object candidate) {
         return candidate instanceof SCNativeCompanion actor && isOwned(actor);
     }

@@ -63,9 +63,14 @@ local function completeDoorInteraction(actor, state, object, action, fromSquare,
     local pending = state.pendingInteraction
     if not pending or pending.object ~= object then return false, "missing_interaction" end
     if action == "open_door" and not invoke(context, "objectOpen", object) then
+        local wasLocked = invoke(context, "objectLocked", object) == true
         local result, toggled = utility.call(object, "ToggleDoor", actor)
         if not toggled or result == false or not invoke(context, "objectOpen", object) then
             return false, "door_open_failed"
+        end
+        if wasLocked then
+            -- Only a key the companion carries opens a locked door.
+            utility.diagnostic("navigation-door", actor, "action=opened_locked_door with_key=true")
         end
     elseif action == "close_door" and invoke(context, "objectOpen", object) then
         local result, toggled = utility.call(object, "ToggleDoor", actor)

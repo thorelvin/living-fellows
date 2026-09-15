@@ -16,6 +16,8 @@ param(
     [string[]]$ExcludeModId = @(),
     [string]$FactionMapScreenshot = '',
     [switch]$FactionMapOnly,
+    [string]$BaseLayoutScreenshot = '',
+    [switch]$BaseLayoutOnly,
     [switch]$PathingOnly,
     [switch]$PrepareOnly
 )
@@ -42,6 +44,21 @@ if ($FactionMapOnly -and -not $captureFactionMap) {
 }
 if ($PathingOnly -and $FactionMapOnly) {
     throw '-PathingOnly and -FactionMapOnly are mutually exclusive.'
+}
+$captureBaseLayout = -not [string]::IsNullOrWhiteSpace($BaseLayoutScreenshot)
+if ($captureBaseLayout) {
+    $BaseLayoutScreenshot = [System.IO.Path]::GetFullPath($BaseLayoutScreenshot)
+    $layoutDirectory = Split-Path -Parent $BaseLayoutScreenshot
+    if ([string]::IsNullOrWhiteSpace($layoutDirectory)) {
+        throw 'Base-layout screenshot needs an explicit parent directory.'
+    }
+    New-Item -ItemType Directory -Path $layoutDirectory -Force | Out-Null
+}
+if ($captureBaseLayout -ne $BaseLayoutOnly.IsPresent) {
+    throw '-BaseLayoutScreenshot and -BaseLayoutOnly must be used together.'
+}
+if ($BaseLayoutOnly -and ($PathingOnly -or $FactionMapOnly -or $captureFactionMap)) {
+    throw '-BaseLayoutOnly cannot be combined with pathing or faction-map runs.'
 }
 $RunsRoot = [System.IO.Path]::GetFullPath((Join-Path $ProjectRoot 'build\live-sandbox-runs'))
 $runsPrefix = $RunsRoot.TrimEnd('\') + '\'
@@ -112,6 +129,47 @@ namespace SCLiveHarness {
         private static extern bool SetForegroundWindow(IntPtr hWnd);
 
         [DllImport("user32.dll")]
+        private static extern IntPtr GetForegroundWindow();
+
+        [DllImport("user32.dll")]
+        private static extern bool BringWindowToTop(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern bool ShowWindow(IntPtr hWnd, int command);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsIconic(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr WindowFromPoint(Point point);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetAncestor(IntPtr hWnd, uint flags);
+
+        // A background process may take the foreground only right after input;
+        // a synthetic ALT tap satisfies Windows' foreground lock. Input is sent
+        // only once the client really is the foreground window, so a click or
+        // key can never land in another application.
+        public static bool Focus(IntPtr hWnd) {
+            const byte VK_MENU = 0x12;
+            const uint KEYEVENTF_KEYUP = 0x0002;
+            if (hWnd == IntPtr.Zero) return false;
+            if (IsIconic(hWnd)) ShowWindow(hWnd, 9);
+            if (GetForegroundWindow() == hWnd) return true;
+            keybd_event(VK_MENU, 0, 0, UIntPtr.Zero);
+            keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, UIntPtr.Zero);
+            BringWindowToTop(hWnd);
+            SetForegroundWindow(hWnd);
+            System.Threading.Thread.Sleep(200);
+            return GetForegroundWindow() == hWnd;
+        }
+
+        private static bool PointOnWindow(IntPtr hWnd, Point point) {
+            IntPtr hit = WindowFromPoint(point);
+            return hit == hWnd || GetAncestor(hit, 2) == hWnd;
+        }
+
+        [DllImport("user32.dll")]
         private static extern void mouse_event(uint flags, uint dx, uint dy,
             uint data, UIntPtr extraInfo);
 
@@ -136,7 +194,7 @@ namespace SCLiveHarness {
 
         public static bool PressVirtualKey(IntPtr hWnd, byte virtualKey) {
             const uint KEYEVENTF_KEYUP = 0x0002;
-            if (hWnd == IntPtr.Zero || !SetForegroundWindow(hWnd)) return false;
+            if (!Focus(hWnd)) return false;
             System.Threading.Thread.Sleep(250);
             keybd_event(virtualKey, 0, 0, UIntPtr.Zero);
             System.Threading.Thread.Sleep(120);
@@ -156,7 +214,7 @@ namespace SCLiveHarness {
                 Y = Math.Max(1, (rect.Bottom - rect.Top) / 2)
             };
             if (!ClientToScreen(hWnd, ref centre)) return false;
-            SetForegroundWindow(hWnd);
+            if (!Focus(hWnd) || !PointOnWindow(hWnd, centre)) return false;
             System.Threading.Thread.Sleep(250);
             if (!SetCursorPos(centre.X, centre.Y)) return false;
             mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0, UIntPtr.Zero);
@@ -358,6 +416,8 @@ $config = @(
     ('capture_faction_map=' + $captureFactionMap.ToString().ToLowerInvariant()),
     ('faction_map_only=' + $FactionMapOnly.IsPresent.ToString().ToLowerInvariant()),
     ('pathing_only=' + $PathingOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('capture_base_layout=' + $captureBaseLayout.ToString().ToLowerInvariant()),
+    ('base_layout_only=' + $BaseLayoutOnly.IsPresent.ToString().ToLowerInvariant()),
     ('internal_timeout_ms=' + (($TimeoutSeconds - 15) * 1000))
 ) -join [Environment]::NewLine
 [System.IO.File]::WriteAllText((Join-Path $SandboxLua 'config.ini'),
@@ -381,6 +441,8 @@ $manifest = [ordered]@{
     excludedModIds = @($ExcludeModId)
     factionMapScreenshot = if ($captureFactionMap) { $FactionMapScreenshot } else { $null }
     factionMapOnly = $FactionMapOnly.IsPresent
+    baseLayoutScreenshot = if ($captureBaseLayout) { $BaseLayoutScreenshot } else { $null }
+    baseLayoutOnly = $BaseLayoutOnly.IsPresent
     pathingOnly = $PathingOnly.IsPresent
     autoCleanup = $false
 }
@@ -473,6 +535,36 @@ try {
             [System.IO.File]::WriteAllText($factionMapCapturedPath,
                 ('captured=true' + [Environment]::NewLine), $utf8NoBom)
             $factionMapCaptureCompleted = $true
+        }
+        if ($captureBaseLayout -and -not $baseLayoutCaptureCompleted -and
+            (Test-Path -LiteralPath (Join-Path $SandboxLua 'base-layout-ready.txt') -PathType Leaf)) {
+            # 0x23 is the physical End key, the base layout hotkey's default.
+            if (-not (Invoke-WindowKey $process 0x23)) {
+                throw 'Could not focus the client and send the End key.'
+            }
+            Write-Output 'Sent End to show the base layout overlay.'
+            $layoutVisiblePath = Join-Path $SandboxLua 'base-layout-visible.txt'
+            $visibleDeadline = [DateTime]::UtcNow.AddSeconds(10)
+            while ([DateTime]::UtcNow -lt $visibleDeadline -and
+                -not (Test-Path -LiteralPath $layoutVisiblePath -PathType Leaf)) {
+                $process.Refresh()
+                if ($process.HasExited) { break }
+                Start-Sleep -Milliseconds 200
+            }
+            if (-not (Test-Path -LiteralPath $layoutVisiblePath -PathType Leaf)) {
+                throw 'The game did not confirm the base layout overlay after End was pressed.'
+            }
+            Start-Sleep -Milliseconds 1200
+            if (-not (Save-ClientScreenshot $process $BaseLayoutScreenshot)) {
+                throw "Could not capture the Project Zomboid client to $BaseLayoutScreenshot"
+            }
+            Write-Output "Captured base layout screenshot: $BaseLayoutScreenshot"
+            if (-not (Invoke-WindowKey $process 0x23)) {
+                throw 'Could not send End to hide the base layout after capture.'
+            }
+            [System.IO.File]::WriteAllText((Join-Path $SandboxLua 'base-layout-captured.txt'),
+                ('captured=true' + [Environment]::NewLine), $utf8NoBom)
+            $baseLayoutCaptureCompleted = $true
         }
         Start-Sleep -Milliseconds 500
     }

@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.20.4-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.22.27-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.22.28-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -42,7 +42,7 @@ Full change history lives in [CHANGELOG.md](CHANGELOG.md).
 - Squad movement in formation through doors, windows, fences, stairs, and vehicles, with corner checks, retreat routes, and running escapes.
 - Combat that weighs health, stamina, panic, skill, weapons, allies, and escape routes, under a team-wide Rules of Engagement.
 - Scavenging, bag management, gear upgrades, eating, drinking, washing, and wound care using the game's own actions.
-- A living base with zones, classified storage, roles, watches, chores, repairs, gathering, and production: felling trees, sawing planks, digging graves, and burying the dead.
+- A living base with zones, classified storage, roles, watches, chores, repairs, gathering, and production: felling trees, sawing planks, digging graves, collecting and burying the dead, and burning them on a pyre you mark.
 - Survivor households that trade, remember how you treat them, and offer contracts, quests, and recruitment, plus rare hostile bandit camps.
 - A translucent companion panel, context-menu commands, first-name labels, minimap markers, a base-layout overlay, and a Support page for diagnostics.
 
@@ -106,8 +106,8 @@ The panel is translucent so you can still see the world. It can be docked left o
 
 ## Orders
 
-- **Main order:** Follow, Stay, or Guard. Guard patrols around its anchor. **Regroup** and **Retreat** are immediate emergency actions.
-- **Follow distance:** how far behind you the team keeps.
+- **Main order:** Follow, Stay, or Guard. Guard patrols around its anchor. Inside your camp area, Stay and Guard put the companion on base duty instead; Guard makes it a guard that watches the square you picked. **Regroup** and **Retreat** are immediate emergency actions.
+- **Follow distance:** how far behind you the team keeps. When you stop, followers hold formation for a few seconds before they start downtime or scavenging nearby.
 - **Movement:** Copy player, walk, sneak, or run. Escapes and combat can override it.
 - **Work mode:** useful chores, downtime, or supply crafting when it is safe.
 - **Scavenging:** on or off.
@@ -137,21 +137,33 @@ Zombies hunt companions like players. Bites can infect and turn them, and a swar
 
 A scavenger picks one container, walks to it, finishes the rummage animation, and moves one verified item. Empty containers are skipped for a while. Companions use backpacks, keep supplies suited to their role, drop dead weight outside combat, loot dead zombies when it is safe, upgrade clothing and armor, and wash themselves and their gear near clean water.
 
+Now and then, when a spot has been quiet for a while, a companion crouches over a dead zombie nearby and talks through what it sees: the clothes, what the infection did to the person, and what Knox Knews and the radio said back in July 1993. Every companion does it in its own voice, which might be a quiet word, a civil-defense joke, or something about Kentucky. Doctors, nurses, police, and other hands-on professions are more curious. Cautious companions keep their distance, and a badly stressed one never looks. Each body gets one look.
+
+Sometimes a companion stops at a body for a different reason. It crouches and says a few quiet words, and if the dead carried a keepsake such as a photo or a locket, it mentions it and leaves it where it lies. Caring companions do this most, and more often right after a fight. A friend nearby may say something back.
+
 ### Needs, medicine, and death
 
-By default hunger and thirst rise at half the player rate. Companions eat, drink, use clean water, fetch from camp storage, tear cloth into bandages, treat themselves, and help an injured player when it is safe. Death is permanent and follows the game's own corpse and reanimation rules. A known bite can lead to concealment, confession, quarantine, exile, or a farewell; lethal decisions always need your confirmation.
+By default hunger and thirst rise at half the player rate. Companions eat, drink, use clean water, fetch from camp storage, tear cloth into bandages, treat themselves, and help an injured player when it is safe. Death is permanent and follows the game's own corpse and reanimation rules. A known bite can lead to concealment, confession, quarantine, exile, or a farewell; lethal decisions always need your confirmation. Those who learn of it walk over and talk it through face to face. A bitten companion may first confide in the one it trusts most, which might be you, and a protective friend might keep the secret for a while.
 
 ### Personality and relationships
 
 Every survivor has a profession, trait, personality, history, keepsake, preferred camp role, and personal goal. Trust, bonds, morale, stress, memories, grief, and relationships persist, and dialogue reacts to what actually happened. Stress can show as venting, pacing, arguments, withdrawal, or a breakdown; good morale gives small boosts. Danger interrupts all of it.
 
+Companions also talk in their own voice. A surrounded companion may yell a deadpan fake distraction at the zombies, one of them cracks a joke when you stand still for a few minutes, and the first walk into a notable place, such as a police station, church, bar, hospital, or gun store, earns a remark. Former police officers, doctors, nurses, and other professions have lines of their own for places like their old workplaces. It is all speech, spaced out so it never piles up, and it never changes what anyone does.
+
+Companions also remember their best fights. Four kills in one fight, or a kill after being pulled down, becomes a story. The companion tells it later, when things are calm at the base or you have stood still for a minute. Every retelling grows the numbers and the title, from "that thing at the gas station" to "the Legend of the Gas Station". A companion who was there may correct it, but the teller never backs down.
+
+Companions have body language too. They yawn late at night, and the yawn spreads to whoever stands nearby. They stretch after sitting and first thing in the morning at base, and sneeze in dusty storerooms or cough in the cold. Athletic companions do a short workout at base in the morning, and others sometimes join them. It is all animation, with no sound and no effect on stats.
+
 ## Base life and production
 
 **Setting up a camp.** Right-click the ground and choose **Living Fellows → Base life → Set camp core here**. Draw zones with **Start zone here** and **Finish zone here**, and use **Mark storage as...** on containers you have opened. Assign residents, roles, and policies in **More → Base**. **Show base layout** draws zones and storage on the ground.
 
-Zones include the camp boundary, work area, lumber area, burial ground, rest, social, guard, rally, and quarantine areas. Every zone lies inside the camp except a lumber area, which may extend up to 30 tiles beyond the camp boundary.
+Zones include the camp boundary, work area, lumber area, burial ground, pyre, rest, social, guard, rally, and quarantine areas. Every zone lies inside the camp except lumber areas, burial grounds, and pyres, which may also lie up to 30 tiles beyond the camp boundary. A pyre is at most nine tiles and must pass a fire-safety check when you draw it.
 
-Residents on base duty sort storage, repair gear, craft supplies, keep watch, patrol, maintain barricades, and build queued construction. Immediate danger always interrupts base work.
+Residents on base duty sort storage, repair gear, craft supplies, keep watch, patrol, maintain barricades, and build queued construction. Immediate danger always interrupts base work. Giving Stay or Guard inside the camp area also puts a companion on base duty. A guard on shift keeps watch around its post instead of taking general chores.
+
+To see the base layout, press End (rebindable under Options, Key bindings, Living Fellows), use right-click, Living Fellows, Base life, or use the button in the Base tab. Each zone gets a see-through floor tint and outline in its colour, registered storage gets a tile and outline in its category colour, and a legend lists what is on screen.
 
 **Gathering.** One or two residents carry a set number of loose logs or planks from a work area or lumber area into one storage container. They walk to each item, pick it up, and deposit that exact item; nothing is created from thin air.
 
@@ -163,13 +175,18 @@ Residents on base duty sort storage, repair gear, craft supplies, keep watch, pa
 | Saw planks | Logs in one storage, a saw, and a second storage for planks | Residents take one log at a time, saw it into three planks with the vanilla recipe, and store the planks. Completed output is recovered after a pause or reload before another log can be taken. |
 | Dig graves | A burial ground and a shovel | Residents dig vanilla graves on natural ground. |
 | Bury the dead | A burial ground and a shovel | Residents match each body to a usable open grave, reserve both while working, and dig near an eligible body if needed. They fill the grave when it is full or the order is done, and can add a wooden cross (hammer, two planks, two nails). |
+| Collect the dead (experimental) | A burial ground and a shovel, or a pyre with a lighter and a petrol can | Residents find bodies in the camp and lumber areas, take hold of one at a time with the game's own corpse grapple, drag it to the chosen burial ground or pyre, and bury or burn it there. The chosen area decides the method. |
+| Burn the dead (experimental) | A pyre, a lighter, and a petrol can | Residents light each body already on the pyre with the game's own action, one fire at a time, and watch from a distance until it is out. |
 
 - Chopping is loud. No tree is started while danger is visible nearby, winded residents rest, and a chop that gets stuck is abandoned after three minutes.
-- Outside the camp boundary, residents start no new tree at night (21:00–06:00).
-- Bodies still carrying items are left for you to loot unless the order buries them with their belongings.
-- A blocked order shows the reason and tries again on its own.
+- Outside the camp boundary, residents start no new tree and fetch no body at night (21:00–06:00).
+- Bodies still carrying items are left for you to loot unless the order handles them with their belongings.
+- A resident dragging a body takes no fences, windows, or stairs, and drops it at once when danger shows up. The body stays where it fell.
+- Fire is real. A pyre must be outdoors on open ground, away from buildings, stored goods, trees, vehicles, and loose items. Nothing is lit in the rain unless you allow it, nobody else may stand close to the body being lit, and if fire appears beyond the pyre every worker stops and the order waits for your Retry.
+- A fallen companion found by Collect the dead gets an empty grave of their own and always a cross, and the grave keeps their name. Fallen companions are never burned. A body whose identity is not certain is treated as a stranger, and your own body is never touched.
+- A blocked order shows the reason and tries again on its own; a spreading fire waits for Retry.
 
-Every closed grave gets a few words: a short prayer or a line of bleak gallows humor depending on who holds the shovel, a salute, and sometimes an "Amen" from a friend nearby.
+Every closed grave gets a few words: a short prayer or a line of bleak gallows humor depending on who holds the shovel, a salute, and sometimes an "Amen" from a friend nearby. Lighting a pyre may earn a "Burn, baby, burn!" or "Disco inferno!", a burned-out pyre gets its own prayer or gallows line, and a fallen companion's grave closes with their name instead of a joke.
 
 ## Survivor households and bandits
 

@@ -769,6 +769,40 @@ do
         "the hard deadline still bounds a staged save across an extreme pause: "
             .. tostring(cappedStatus) .. "/" .. tostring(cappedReason))
 
+    -- With seven companions, busy frames kept deferring the background lane
+    -- by a few hundred milliseconds and every scheduled save expired. A delay
+    -- past the grace moves the deadline, and each tracked actor adds its own
+    -- capture allowance within the hard cap.
+    do
+        check(SC.Persistence.reset() == true, "deferred staging resets scheduled state")
+        local priorTimestamp = getTimestampMs
+        local deferredClock = 10000000
+        getTimestampMs = function() return deferredClock end
+        SC_TEST_SET_WORLD_STORE({ document = { sentinel = "deferred staging" } })
+        local requested = SC.Persistence.requestScheduledSave(stagedPlayer)
+        local job = SC.Persistence._scheduledSaveForTests()
+        local tracked = 0
+        for _, entry in ipairs(SC.Registry.records()) do
+            if entry.recruited == true or type(entry.factionId) == "string" then
+                tracked = tracked + 1
+            end
+        end
+        local expected = math.min(SC.Config.get("persistenceCaptureHardDeadlineMs"),
+            SC.Config.get("persistenceCaptureDeadlineMs")
+                + tracked * SC.Config.get("persistenceCapturePerActorMs"))
+        local allowance = job and (job.deadline - job.startedAt) or nil
+        local before = job and job.deadline or 0
+        deferredClock = deferredClock + 400
+        SC.Persistence.pulse()
+        local moved = job and (job.deadline - before) or nil
+        getTimestampMs = priorTimestamp
+        SC.Persistence.reset()
+        check(requested == true and tracked > 0 and allowance == expected
+                and moved == 400 - SC.Config.get("persistencePulseGapGraceMs"),
+            "a pulse deferred by busy frames moves the save deadline, and each actor adds capture time: "
+                .. tostring(allowance) .. "/" .. tostring(expected) .. " moved=" .. tostring(moved))
+    end
+
     local function runBarrierJob(label, expected)
         local priorDocument = { sentinel = label }
         local stagedStore = SC_TEST_SET_WORLD_STORE({ document = priorDocument })

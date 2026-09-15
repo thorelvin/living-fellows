@@ -1199,6 +1199,45 @@ do
         "queue trimming cannot wake a permanently dormant duplicated identity")
 end
 
+-- A guard on shift keeps watch around the square it was told to guard and
+-- leaves generic chores to the other residents.
+do
+    local ctx = setup("logs", 1)
+    local guard = ctx.actor
+    local guardId = guard.modData.SC_Id
+    check(SC.BaseLife.assign(guardId, "guard", true) == true, "guard joins base duty")
+    for _, offset in ipairs({ { 0, 0 }, { 2, 0 }, { 0, 2 }, { -2, 0 }, { 0, -2 } }) do
+        addSquare(3 + offset[1], -2 + offset[2], 0)
+    end
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    local priorCommands = SC.Commands
+    SC.Commands = {
+        peek = function(actor)
+            if actor ~= guard then return nil end
+            return { order = "base_duty", anchor = { x = 3, y = -2, z = 0 } }
+        end,
+    }
+    local post = SC.BaseWork._guardPostForTests(guard)
+    local queued, chore = SC.BaseLife.enqueueJob({ type = "sort", priority = 2 })
+    local priorRequest = SC.Navigation.request
+    local patrolTarget
+    SC.Navigation.request = function(_, square)
+        patrolTarget = square
+        return true, "patrol_started"
+    end
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 50
+    local _, reason = SC.BaseWork.update(guard, nil, {})
+    local claimed = SC.BaseLife.jobFor(guardId)
+    SC.Navigation.request = priorRequest
+    SC.Commands = priorCommands
+    local px, py = patrolTarget and patrolTarget.x, patrolTarget and patrolTarget.y
+    check(post ~= nil and post.x == 3 and post.y == -2
+            and queued == true and chore ~= nil and chore.state == "pending" and claimed == nil
+            and px ~= nil and math.abs(px - 3) <= 2 and math.abs(py + 2) <= 2,
+        "a guard on shift patrols its own post and leaves generic chores to others: "
+            .. tostring(reason))
+end
+
 local gatherMetrics = SC.GatherWork.diagnostics()
 local transportMetrics = SC.WorkTransport.diagnostics()
 check(type(transportMetrics.pendingReceipts) == "number"

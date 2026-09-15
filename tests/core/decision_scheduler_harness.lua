@@ -132,6 +132,31 @@ do
         "all-critical load is bounded to criticalCap(6) with no duplicate ordinary-lane work")
 end
 
+-- Scenario 3b: a pinned actor is stopped once when the pin begins, not on every
+-- critical beat; stopping each beat reset its animation and made it jerk.
+do
+    SC.Scheduler.reset(true)
+    services = {}
+    grabbed = {}
+    records = { makeRecord(1) }
+    local stops = 0
+    local priorStop = SC.Actor.stop
+    SC.Actor.stop = function() stops = stops + 1 return true end
+    grabbed[records[1].actor] = true
+    local base = prime(1100000)
+    for step = 0, 9 do decisionTask(base + step * 50, 1000000) end
+    local pinnedStops = stops
+    grabbed = {}
+    for step = 1, 40 do decisionTask(base + 500 + step * 100, 1000000) end
+    grabbed[records[1].actor] = true
+    for step = 1, 3 do decisionTask(base + 5000 + step * 50, 1000000) end
+    SC.Actor.stop = priorStop
+    grabbed = {}
+    check(pinnedStops == 1 and stops == 2,
+        "a pinned actor is stopped once per pin, not on every critical beat: "
+            .. tostring(pinnedStops) .. "/" .. tostring(stops))
+end
+
 -- Scenario 4: recordIsCritical classifies emergencies from cheap cached state
 -- without depending on a fresh sensing pass.
 do

@@ -232,6 +232,42 @@ do
             and not attacked.followCalls,
         "an immediate attacker keeps the defensive hold regardless of leash time or distance: "
             .. tostring(attackedResult))
+    -- Combat that finds nothing it may engage (every zombie out of reach or not
+    -- credible for the doctrine) is not a failed defense: a follower keeps
+    -- moving with its leader instead of freezing into a guarded hold.
+    SC.Combat = { update = function() return false, "no_credible_target" end }
+    local roaming, roamingRuntime = patient(100), fencedRuntime(false)
+    local roamHandled, roamResult = holdTicks(roaming, nearLeader, roamingRuntime, 2)
+    check(roamHandled and roamResult == "followed" and (roaming.followCalls or 0) > 0
+            and (roaming.stopCalls or 0) == 0,
+        "a targetless combat pass keeps a follower moving with its leader: "
+            .. tostring(roamResult))
+    local pinned, pinnedRuntime = patient(100), fencedRuntime(true)
+    local pinnedHandled, pinnedResult = holdTicks(pinned, nearLeader, pinnedRuntime, 2)
+    check(pinnedHandled and pinnedResult == "safety_guarded_hold:combat"
+            and not pinned.followCalls,
+        "an immediate attacker still holds when combat reports no credible target: "
+            .. tostring(pinnedResult))
+    -- Once combat has found nothing to engage, a follower facing only distant
+    -- threats ranks Follow above combat until the short re-check window ends.
+    local noCredibleAt = SC_TEST_CLOCK
+    SC.Combat = {
+        update = function() return false, "no_credible_target" end,
+        peek = function() return { noCredibleAt = noCredibleAt } end,
+    }
+    local savedAutonomy = SC.Autonomy
+    SC.Autonomy = nil
+    local distant = quietRuntime()
+    distant.snapshot.threats = { { actor = patient(100), distanceSq = 400, visible = true } }
+    distant.snapshot.threatCount = 1
+    local weaponsFree = { recruited = true, order = "follow", combatDoctrine = "weapons_free" }
+    local cooled = SC.Decision._evaluateForTests(roaming, nearLeader, distant.snapshot,
+        weaponsFree, M.assess(roaming), {}, {}, noCredibleAt + 500)
+    local expired = SC.Decision._evaluateForTests(roaming, nearLeader, distant.snapshot,
+        weaponsFree, M.assess(roaming), {}, {}, noCredibleAt + 5000)
+    SC.Autonomy = savedAutonomy
+    check(cooled[1] and cooled[1].kind == "follow" and expired[1] and expired[1].kind == "combat",
+        "a recent no-target verdict lets Follow outrank distant-threat combat until it expires")
     SC.Combat = nil
 
     local criticalDirty, cleanRuntime = patient(19, { part(true, false, 0) }), quietRuntime()

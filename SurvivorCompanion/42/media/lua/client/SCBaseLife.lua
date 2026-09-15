@@ -16,7 +16,7 @@ BaseLife.ROLES = {
 }
 BaseLife.ZONE_TYPES = {
     area = true, work = true, rest = true, social = true, guard = true,
-    rally = true, quarantine = true, lumber = true, burial = true,
+    rally = true, quarantine = true, lumber = true, burial = true, pyre = true,
 }
 BaseLife.STORAGE_CATEGORIES = {
     food = true, water = true, medical = true, tools = true, construction = true,
@@ -42,6 +42,7 @@ BaseLife.GATHER_ZONE_KINDS = { work = true, lumber = true }
 BaseLife.PRODUCTION_VERSION = 1
 BaseLife.PRODUCTION_COUNTERS = {
     "treesFelled", "logsDropped", "planksMade", "gravesDug", "bodiesBuried", "gravesClosed",
+    "bodiesCollected", "bodiesBurned", "pyresLit", "fallenBuried",
 }
 BaseLife.PRODUCTION_OPERATIONS = {
     fell_trees = {
@@ -65,6 +66,27 @@ BaseLife.PRODUCTION_OPERATIONS = {
             closeWhenDone = { kind = "boolean", default = true },
             digIfNeeded = { kind = "boolean", default = true },
             marker = { kind = "enum", values = { none = true, wood = true }, default = "none" },
+        },
+    },
+    -- Collect bodies from the camp and lumber areas and dispose of them in the
+    -- chosen burial ground (bury) or pyre (burn): the zone kind decides.
+    collect_bodies = {
+        zoneKinds = { burial = true, pyre = true }, unit = "bodies", maxRequested = 25,
+        defaultRequested = 5,
+        settings = {
+            fromCamp = { kind = "boolean", default = true },
+            fromLumber = { kind = "boolean", default = true },
+            withBelongings = { kind = "boolean", default = false },
+            marker = { kind = "enum", values = { none = true, wood = true }, default = "none" },
+            requireDry = { kind = "boolean", default = true },
+        },
+    },
+    burn_bodies = {
+        zoneKinds = { pyre = true }, unit = "bodies", maxRequested = 25,
+        defaultRequested = 5,
+        settings = {
+            withBelongings = { kind = "boolean", default = false },
+            requireDry = { kind = "boolean", default = true },
         },
     },
 }
@@ -930,13 +952,22 @@ function BaseLife.finishZone(square, name)
         name = name or draftZone.kind, x1 = draftZone.first.x, y1 = draftZone.first.y,
         x2 = second.x, y2 = second.y, z = second.z, createdAt = now(),
     })
-    if zone.kind == "lumber" then
+    if BaseLife.REACH_ZONE_KINDS[zone.kind] then
         local tiles = (zone.x2 - zone.x1 + 1) * (zone.y2 - zone.y1 + 1)
-        if tiles > (U().config("productionLumberMaximumTiles") or 256) then
-            return false, "lumber_zone_too_large"
+        local limitKey = zone.kind == "burial" and "productionBurialMaximumTiles"
+            or zone.kind == "pyre" and "productionPyreMaximumTiles"
+            or "productionLumberMaximumTiles"
+        if tiles > (U().config(limitKey) or 256) then
+            return false, zone.kind .. "_zone_too_large"
         end
         if not BaseLife.lumberZoneReachable(zone, base.zones) then
-            return false, "lumber_zone_out_of_reach"
+            return false, zone.kind .. "_zone_out_of_reach"
+        end
+        -- A pyre starts real fire: refuse an unsafe site while it is drawn.
+        if zone.kind == "pyre" and SC.Production
+            and type(SC.Production.validatePyreZone) == "function" then
+            local safe, unsafeReason = SC.Production.validatePyreZone(zone)
+            if safe ~= true then return false, "pyre_unsafe:" .. tostring(unsafeReason) end
         end
     elseif zone.kind ~= "area" and not BaseLife.zoneInsideAreaUnion(zone, base.zones) then
         return false, "zone_outside_base_area"
@@ -1730,6 +1761,9 @@ local function productionOrderIn(base, id)
     return production and findById(production.orders, id) or nil
 end
 
+-- Zone kinds that may lie in the bounded reach band around the camp.
+BaseLife.REACH_ZONE_KINDS = { lumber = true, burial = true, pyre = true }
+
 local function productionZone(base, schema, id)
     local zone = findById(base and base.zones or {}, id)
     if not zone or type(schema.zoneKinds) ~= "table" or not schema.zoneKinds[zone.kind] then
@@ -1737,11 +1771,13 @@ local function productionZone(base, schema, id)
     end
     local tiles = (zone.x2 - zone.x1 + 1) * (zone.y2 - zone.y1 + 1)
     local limitKey = zone.kind == "burial" and "productionBurialMaximumTiles"
+        or zone.kind == "pyre" and "productionPyreMaximumTiles"
         or "productionLumberMaximumTiles"
     if tiles > (U().config(limitKey) or 256) then return nil, "production_zone_too_large" end
-    if zone.kind == "lumber" then
+    if BaseLife.REACH_ZONE_KINDS[zone.kind] then
         if not BaseLife.lumberZoneReachable(zone, base.zones) then
-            return nil, "lumber_zone_out_of_reach"
+            return nil, zone.kind == "lumber" and "lumber_zone_out_of_reach"
+                or "production_zone_out_of_reach"
         end
     elseif not BaseLife.zoneInsideAreaUnion(zone, base.zones) then
         return nil, "production_zone_outside_camp"
@@ -1749,8 +1785,9 @@ local function productionZone(base, schema, id)
     return zone
 end
 
--- Only lumber work may continue in the reach band outside the camp: felling
--- orders and gathering orders bound to a lumber area.
+-- Work may continue in the reach band outside the camp when it is bound to a
+-- lumber area, to a burial ground or pyre that actually lies outside the
+-- camp, or when body collection includes the lumber areas.
 function BaseLife.jobAllowsWorkReach(job)
     if type(job) ~= "table" or type(job.target) ~= "table" then return false end
     local base = activeBase()
@@ -1758,8 +1795,13 @@ function BaseLife.jobAllowsWorkReach(job)
     if job.type == "production" then order = productionOrderIn(base, job.target.orderId)
     elseif job.type == "gather_materials" then order = workOrderIn(base, job.target.orderId) end
     if not order then return false end
+    if job.type == "production" and order.operation == "collect_bodies"
+        and type(order.settings) == "table" and order.settings.fromLumber == true then
+        return true
+    end
     local zone = findById(base and base.zones or {}, order.zoneId)
-    return zone ~= nil and zone.kind == "lumber"
+    if zone == nil or BaseLife.REACH_ZONE_KINDS[zone.kind] ~= true then return false end
+    return zone.kind == "lumber" or not BaseLife.zoneInsideAreaUnion(zone, base.zones)
 end
 
 local function pruneProductionRows(production)
@@ -1900,6 +1942,16 @@ function BaseLife.createProductionOrder(spec)
         if not zone then return false, zoneReason end
     end
     local settings = normalizeProductionSettings(schema, spec.settings)
+    if spec.operation == "collect_bodies" and settings.fromCamp ~= true
+        and settings.fromLumber ~= true then
+        return false, "collect_sources_missing"
+    end
+    -- Burning happens only on a pyre that passes the fire-safety check now.
+    if zone and zone.kind == "pyre" and SC.Production
+        and type(SC.Production.validatePyreZone) == "function" then
+        local safe, unsafeReason = SC.Production.validatePyreZone(zone)
+        if safe ~= true then return false, "pyre_unsafe:" .. tostring(unsafeReason) end
+    end
     local sourceStorage, destinationStorage
     if schema.source == true then
         sourceStorage = findById(base.storages, spec.sourceStorageId)

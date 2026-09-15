@@ -29,6 +29,7 @@ local ZONE_COLORS = {
     quarantine = { r = 0.70, g = 0.22, b = 0.92 },
     lumber = { r = 0.36, g = 0.72, b = 0.20 },
     burial = { r = 0.62, g = 0.66, b = 0.78 },
+    pyre = { r = 1.00, g = 0.42, b = 0.10 },
 }
 
 local STORAGE_COLORS = {
@@ -197,16 +198,51 @@ local function bounds(row)
     return minimumX, minimumY, maximumX, maximumY
 end
 
+-- Build 42 declares renderIsoLine's thickness as an int.
 local function renderRectangle(row, color, thickness, alpha)
     if type(renderIsoLine) ~= "function" then return false end
     local x1, y1, x2, y2 = bounds(row)
     local z = tonumber(row.z)
     if not x1 or z == nil then return false end
+    thickness = math.max(1, math.floor((tonumber(thickness) or 1) + 0.5))
     renderIsoLine(x1, y1, z, x2, y1, z, thickness, color.r, color.g, color.b, alpha)
     renderIsoLine(x2, y1, z, x2, y2, z, thickness, color.r, color.g, color.b, alpha)
     renderIsoLine(x2, y2, z, x1, y2, z, thickness, color.r, color.g, color.b, alpha)
     renderIsoLine(x1, y2, z, x1, y1, z, thickness, color.r, color.g, color.b, alpha)
     return true
+end
+
+-- The camp area covers every other zone, so it gets only a faint tint.
+local AREA_FILL_ALPHA = 0.07
+local ZONE_FILL_ALPHA = 0.20
+local FOCUS_FILL_ALPHA = 0.36
+local STORAGE_FILL_ALPHA = 0.45
+local DRAFT_FILL_ALPHA = 0.16
+
+-- A translucent floor tint over a zone or under a container. Build 42 keeps an
+-- area highlight for a single frame, so it is added again every render tick
+-- and disappears on its own once the layout is hidden.
+local function fillArea(row, color, alpha)
+    local x1, y1, x2, y2 = bounds(row)
+    local z = tonumber(row.z)
+    if not x1 or z == nil then return false end
+    x1, y1 = math.floor(x1), math.floor(y1)
+    x2, y2, z = math.floor(x2), math.floor(y2), math.floor(z)
+    if type(addAreaHighlightForPlayer) == "function" then
+        addAreaHighlightForPlayer(0, x1, y1, x2, y2, z, color.r, color.g, color.b, alpha)
+        return true
+    end
+    if type(addAreaHighlight) == "function" then
+        addAreaHighlight(x1, y1, x2, y2, z, color.r, color.g, color.b, alpha)
+        return true
+    end
+    return false
+end
+
+local function storageTile(record)
+    local x, y, z = tonumber(record.x), tonumber(record.y), tonumber(record.z)
+    if x == nil or y == nil or z == nil then return nil end
+    return { x1 = x, y1 = y, x2 = x, y2 = y, z = z }
 end
 
 local function applyStorageHighlight(entry)
@@ -269,10 +305,20 @@ function Visuals.renderWorld()
         refreshCache(false)
         for _, zone in ipairs(cachedZones) do
             local focused = focusKind == "zone" and focusId == zone.id
-            renderRectangle(zone, colorFor(ZONE_COLORS, zone.kind),
-                focused and 3.0 or 1.35, focused and 0.98 or 0.70)
+            local color = colorFor(ZONE_COLORS, zone.kind)
+            fillArea(zone, color, focused and FOCUS_FILL_ALPHA
+                or (zone.kind == "area" and AREA_FILL_ALPHA or ZONE_FILL_ALPHA))
+            renderRectangle(zone, color, focused and 4 or 2, focused and 0.98 or 0.80)
         end
-        for _, entry in ipairs(cachedStorages) do pcall(applyStorageHighlight, entry) end
+        for _, entry in ipairs(cachedStorages) do
+            local tile = storageTile(entry.record)
+            if tile then
+                local focused = focusKind == "storage" and focusId == entry.record.id
+                fillArea(tile, focused and { r = 1.00, g = 1.00, b = 1.00 }
+                    or colorFor(STORAGE_COLORS, entry.record.category), STORAGE_FILL_ALPHA)
+            end
+            pcall(applyStorageHighlight, entry)
+        end
     end
     if draft and type(draft.first) == "table" then
         local subject = player()
@@ -287,7 +333,8 @@ function Visuals.renderWorld()
                 local valid = draftIsValid(draft, endpoint)
                 local color = valid and colorFor(ZONE_COLORS, draft.kind)
                     or { r = 1.00, g = 0.08, b = 0.04 }
-                renderRectangle(preview, color, 2.25, 0.92)
+                fillArea(preview, color, DRAFT_FILL_ALPHA)
+                renderRectangle(preview, color, 3, 0.92)
                 if type(renderIsoCircle) == "function" then
                     renderIsoCircle(draft.first.x + 0.5, draft.first.y + 0.5,
                         draft.first.z, 0.24, 12, 2, color.r, color.g, color.b, 0.95)
@@ -475,6 +522,65 @@ local function renderCompanionLabels(occupied)
     return drawn
 end
 
+local LEGEND_ZONES = { "area", "work", "lumber", "burial", "pyre", "rest", "social",
+    "guard", "rally", "quarantine" }
+local LEGEND_STORAGE = { "food", "water", "medical", "tools", "construction", "crafting",
+    "weapons", "ammunition", "general", "output", "memorial" }
+
+local function layoutKeyName()
+    local action = SC.UI and SC.UI.LAYOUT_HOTKEY_ACTION or nil
+    local core = type(getCore) == "function" and getCore() or nil
+    if not action or not core or type(getKeyName) ~= "function" then return nil end
+    local key, called = safeMethod(core, "getKey", action)
+    key = called and tonumber(key) or nil
+    if key == nil or key <= 0 then key = tonumber(SC.UI.DEFAULT_LAYOUT_HOTKEY) end
+    if key == nil or key <= 0 then return nil end
+    local ok, name = pcall(getKeyName, key)
+    return ok and type(name) == "string" and name ~= "" and name or nil
+end
+
+-- The colours only mean something next to their names, so the overlay carries a
+-- compact legend of the zone kinds and storage categories currently on screen.
+local function drawLegend()
+    local manager = type(getTextManager) == "function" and getTextManager() or nil
+    if not manager or type(manager.DrawString) ~= "function" then return 0 end
+    local x = tonumber(configured("baseLayoutLegendX", 90)) or 90
+    local y = tonumber(configured("baseLayoutLegendY", 160)) or 160
+    local lines = 0
+    local function line(value, color)
+        manager:DrawString(UIFont.Small, x, y + lines * 15, value,
+            color.r, color.g, color.b, 0.95)
+        lines = lines + 1
+    end
+    local title = translated("UI_SC_Base_Visual_Legend", "Base layout")
+    local keyName = layoutKeyName()
+    if keyName then title = title .. " (" .. keyName .. ")" end
+    line(title, { r = 1.00, g = 1.00, b = 1.00 })
+    local zones, storages = {}, {}
+    for _, zone in ipairs(cachedZones) do zones[tostring(zone.kind)] = true end
+    for _, entry in ipairs(cachedStorages) do
+        storages[tostring(entry.record.category)] = true
+    end
+    for _, kind in ipairs(LEGEND_ZONES) do
+        if zones[kind] then
+            line("  " .. translated("UI_SC_Base_Zone_" .. kind, humanize(kind)),
+                colorFor(ZONE_COLORS, kind))
+        end
+    end
+    for _, category in ipairs(LEGEND_STORAGE) do
+        if storages[category] then
+            line("  " .. translated("UI_SC_Base_Storage_" .. category, humanize(category))
+                .. " storage", colorFor(STORAGE_COLORS, category))
+        end
+    end
+    if lines == 1 then
+        line(translated("UI_SC_Base_Visual_Empty",
+            "No base zones or storage nearby on this floor."),
+            { r = 1.00, g = 0.70, b = 0.60 })
+    end
+    return lines
+end
+
 function Visuals.renderLabels()
     local occupied = {}
     if enabled then
@@ -497,6 +603,7 @@ function Visuals.renderLabels()
             drawLabel(label, row.x + 0.5, row.y + 0.5, row.z,
                 colorFor(STORAGE_COLORS, row.category), occupied)
         end
+        drawLegend()
     end
     renderCompanionLabels(occupied)
     return true

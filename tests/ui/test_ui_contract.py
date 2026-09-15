@@ -1215,6 +1215,25 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("getKey", hotkey)
         self.assertIn('self:drawTextCentre("LF"', self.ui)
 
+    def test_base_layout_overlay_has_hotkey_and_context_toggle(self) -> None:
+        self.assertIn('UI.LAYOUT_HOTKEY_ACTION = "Toggle Living Fellows base layout"', self.ui)
+        self.assertIn("UI.DEFAULT_LAYOUT_HOTKEY = Keyboard.KEY_END", self.ui)
+        hotkey = lua_function(self.ui, "function UI.onKeyPressed(key)")
+        self.assertIn("UI.LAYOUT_HOTKEY_ACTION", hotkey)
+        self.assertIn("UI.toggleBaseLayout()", hotkey)
+        toggle = lua_function(self.ui, "function UI.toggleBaseLayout(player)")
+        self.assertIn("SC.BaseVisuals.toggle", toggle)
+        base = lua_function(
+            self.context,
+            "local function addBaseMenu(context, square, containerTarget, barricadeTarget, player)",
+        )
+        self.assertIn("toggleBaseLayout", base)
+        self.assertIn("UI_SC_Base_Visual_Show", base)
+        translations = json.loads(read(TRANSLATE / "EN" / "UI.json"))
+        for key in ("UI_SC_Base_Visual_Legend", "UI_SC_Base_Visual_Empty",
+                    "UI_SC_Base_Visual_Shown", "UI_SC_Base_Visual_Hidden"):
+            self.assertIn(key, translations)
+
     def test_menu_toggle_uses_paired_vanilla_ui_sounds(self) -> None:
         self.assertIn('UI.MENU_OPEN_SOUND = "UIVehicleMenuOpen"', self.ui)
         self.assertIn('UI.MENU_CLOSE_SOUND = "UIVehicleMenuClose"', self.ui)

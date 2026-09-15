@@ -3390,6 +3390,145 @@ local function medicalProbe(current)
     end
 end
 
+-- Base layout capture: the runner presses End to show the overlay over the
+-- observer's camp, photographs the client, then presses End again. The cloned
+-- save's own base is used when the observer stands in it; otherwise a small
+-- disposable camp is laid out around the observer in the clone.
+Harness.BASE_LAYOUT_READY_FILE = "SurvivorCompanionHarness/base-layout-ready.txt"
+Harness.BASE_LAYOUT_VISIBLE_FILE = "SurvivorCompanionHarness/base-layout-visible.txt"
+Harness.BASE_LAYOUT_CAPTURED_FILE = "SurvivorCompanionHarness/base-layout-captured.txt"
+
+function Harness.nearestContainer(x, y, z, radius)
+    local U = SurvivorCompanion.GameplayUtil
+    local best, bestDistance
+    for dx = -radius, radius do
+        for dy = -radius, radius do
+            local square = U.gridSquare(x + dx, y + dy, z)
+            if square then
+                U.squareObjects(square, function(object)
+                    local container, ok = U.call(object, "getContainer")
+                    local spread = dx * dx + dy * dy
+                    if ok and container ~= nil and (bestDistance == nil or spread < bestDistance) then
+                        best, bestDistance = object, spread
+                    end
+                end, 32)
+            end
+        end
+    end
+    return best
+end
+
+function Harness.layOutBaseFixture(x, y, z)
+    local SC = SurvivorCompanion
+    local U = SC.GameplayUtil
+    local function square(dx, dy) return U.gridSquare(x + dx, y + dy, z) end
+    SC.BaseLife.reset()
+    if SC.BaseLife.create(square(0, 0), "Harness Camp") ~= true then
+        return false, "base_create_failed"
+    end
+    local zones = 0
+    for _, spec in ipairs({
+        { "work", 1, 1, 3, 3, "Workshop" },
+        { "rest", -4, -4, -2, -2, "Bunks" },
+        { "guard", 3, -4, 4, -3, "Lookout" },
+        { "social", -4, 2, -2, 4, "Yard" },
+    }) do
+        if SC.BaseLife.beginZone(spec[1], square(spec[2], spec[3])) == true then
+            if SC.BaseLife.finishZone(square(spec[4], spec[5]), spec[6]) == true then
+                zones = zones + 1
+            else
+                SC.BaseLife.cancelZone()
+            end
+        end
+    end
+    local container = Harness.nearestContainer(x, y, z, 6)
+    local stored = container ~= nil and SC.BaseLife.registerStorage(container, "food") == true
+    return true, "zones=" .. tostring(zones) .. " storage=" .. tostring(stored)
+end
+
+function Harness.beginBaseLayout(current)
+    local SC = SurvivorCompanion
+    -- Persistence restores the save's base after the runtime starts. Wait for it
+    -- (bounded) so an existing base is never mistaken for a missing one.
+    local restored = false
+    if SC.Persistence and type(SC.Persistence.restoreStatus) == "function" then
+        local called, committed = pcall(SC.Persistence.restoreStatus)
+        restored = called and committed == true
+    end
+    if current - Harness.phaseStartedAt < 3000
+        or (not restored and current - Harness.phaseStartedAt < 20000) then
+        return
+    end
+    local x, y, z = position(Harness.player)
+    if x == nil then
+        result("FAIL", "base_layout_fixture", "observer position unavailable")
+        setPhase("finish", current)
+        return
+    end
+    x, y, z = math.floor(x), math.floor(y), math.floor(z or 0)
+    local fixture, detail = "existing_base", nil
+    if not (SC.BaseLife.active() and SC.BaseLife.isInside(Harness.player) == true) then
+        local laidOut
+        laidOut, detail = Harness.layOutBaseFixture(x, y, z)
+        if not laidOut then
+            result("FAIL", "base_layout_fixture", detail)
+            setPhase("finish", current)
+            return
+        end
+        fixture = "disposable_camp"
+    end
+    SC.BaseVisuals.setEnabled(false)
+    local bound = SC.GameplayUtil.call(getCore(), "getKey", SC.UI.LAYOUT_HOTKEY_ACTION)
+    result("PASS", "base_layout_fixture", fixture .. " " .. clean(detail or "")
+        .. " end_key=" .. tostring(bound))
+    if not writeSignal(Harness.BASE_LAYOUT_READY_FILE, {
+        "fixture=" .. fixture, "x=" .. tostring(x), "y=" .. tostring(y), "z=" .. tostring(z),
+    }) then
+        result("FAIL", "base_layout_overlay", "could not write the base-layout-ready signal")
+        setPhase("finish", current)
+        return
+    end
+    Harness.baseLayoutShown, Harness.baseLayoutDrawn = false, false
+    Harness.baseLayoutSignaled, Harness.baseLayoutCapturedAt = false, nil
+    setPhase("base_layout_capture", current)
+end
+
+function Harness.probeBaseLayout(current)
+    local status = SurvivorCompanion.BaseVisuals.status() or {}
+    if status.enabled == true then
+        Harness.baseLayoutShown = true
+        if (tonumber(status.visibleZones) or 0) > 0 then
+            Harness.baseLayoutDrawn = true
+            Harness.baseLayoutZones = status.visibleZones
+            Harness.baseLayoutStorages = status.visibleStorages
+            if not Harness.baseLayoutSignaled then
+                Harness.baseLayoutSignaled = writeSignal(Harness.BASE_LAYOUT_VISIBLE_FILE, {
+                    "zones=" .. tostring(status.visibleZones),
+                    "storages=" .. tostring(status.visibleStorages),
+                })
+            end
+        end
+    end
+    if fileExists(Harness.BASE_LAYOUT_CAPTURED_FILE) then
+        Harness.baseLayoutCapturedAt = Harness.baseLayoutCapturedAt or current
+        -- The runner pressed End again after its capture, so the overlay hides.
+        if status.enabled ~= true or current - Harness.baseLayoutCapturedAt > 5000 then
+            check("base_layout_overlay", Harness.baseLayoutShown and Harness.baseLayoutDrawn
+                    and status.enabled ~= true,
+                "shown_by_end=" .. tostring(Harness.baseLayoutShown)
+                    .. " zones=" .. tostring(Harness.baseLayoutZones)
+                    .. " storages=" .. tostring(Harness.baseLayoutStorages)
+                    .. " hidden_by_end=" .. tostring(status.enabled ~= true))
+            setPhase("finish", current)
+        end
+    elseif current - Harness.phaseStartedAt > 30000 then
+        result("FAIL", "base_layout_overlay",
+            "runner did not complete the End-key capture within 30 seconds; shown="
+                .. tostring(Harness.baseLayoutShown) .. " zones=" .. tostring(status.visibleZones))
+        setPhase("finish", current)
+    end
+end
+
 local function tick()
     if Harness.finished then return end
     local current = nowMs()
@@ -3565,6 +3704,10 @@ local function tick()
         probeFactionHostility(current)
     elseif Harness.phase == "medical_probe" then
         medicalProbe(current)
+    elseif Harness.phase == "base_layout_begin" then
+        Harness.beginBaseLayout(current)
+    elseif Harness.phase == "base_layout_capture" then
+        Harness.probeBaseLayout(current)
     elseif Harness.phase == "finish" then
         finish()
     end
@@ -3699,7 +3842,9 @@ local function onGameStart()
         finish()
         return
     end
-    if Harness.config.faction_map_only == "true" then
+    if Harness.config.base_layout_only == "true" then
+        setPhase("base_layout_begin", Harness.startedAt)
+    elseif Harness.config.faction_map_only == "true" then
         setPhase("faction_begin", Harness.startedAt)
     else
         setPhase("wait_runtime", Harness.startedAt)

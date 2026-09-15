@@ -485,6 +485,16 @@ ritualState.ritual = {
         baseId = "test-base", x = 4, y = 5, z = 0,
     },
 }
+ritualState.tales = {
+    version = 1,
+    list = { { id = "tale:core", day = 11, place = "the church", placeKind = "room",
+        timeOfDay = "night", kills = 7, closeCall = "grabbed", weapon = "crowbar",
+        witnesses = { "sc-core-witness" }, playerThere = true, tellings = 2,
+        lastToldHour = 250 } },
+    witnessed = { { id = "tale:other", teller = "sc-core-teller", kills = 4 } },
+}
+ritualState.flavor = { version = 1, placesSeen = { police = true }, storiesTold = {},
+    lastWorkoutDay = 11 }
 check(SC.Commands.persist(actor), "personal ritual state commits through Commands")
 local commandSnapshot, commandSnapshotReason = SC.Persistence.captureRecord(record)
 check(commandSnapshot ~= nil and commandSnapshotReason == nil
@@ -507,7 +517,12 @@ check(commandSnapshot ~= nil and commandSnapshotReason == nil
     and commandSnapshot.personality.background.occupation == "mechanics"
     and commandSnapshot.personality.ritual.id == "rubber_duck_oracle"
     and commandSnapshot.personality.ritual.duck.phase == "recovery_pending"
-    and commandSnapshot.personality.ritual.duck.x == 4,
+    and commandSnapshot.personality.ritual.duck.x == 4
+    and commandSnapshot.personality.tales.list[1].kills == 7
+    and commandSnapshot.personality.tales.list[1].witnesses[1] == "sc-core-witness"
+    and commandSnapshot.personality.tales.witnessed[1].teller == "sc-core-teller"
+    and commandSnapshot.personality.flavor.lastWorkoutDay == 11
+    and commandSnapshot.personality.flavor.placesSeen.police == true,
     "real Commands -> Registry state -> Persistence schema preserves stable command fields: stance="
         .. tostring(commandSnapshot and commandSnapshot.order.combatStance)
         .. " doctrine=" .. tostring(commandSnapshot and commandSnapshot.order.combatDoctrine)
@@ -546,6 +561,10 @@ check(restoredCommandState.order == "guard" and restoredCommandState.followDista
     and restoredCommandState.timeTogetherMs == 7200000
     and restoredCommandState.ritual.id == "rubber_duck_oracle"
     and restoredCommandState.ritual.duck.phase == "recovery_pending"
+    and restoredCommandState.tales.list[1].kills == 7
+    and restoredCommandState.tales.list[1].place == "the church"
+    and restoredCommandState.tales.list[1].tellings == 2
+    and restoredCommandState.flavor.lastWorkoutDay == 11
     and restoredCommandState.background.occupation == "mechanics",
     "Registry persistence schema rehydrates independent policies without transient actor mod-data")
 
@@ -1047,6 +1066,24 @@ check(requested == true and requestedReason == "turning_for_movement"
 check(continuousCorner == nil and continuousReverse == true
         and continuousReverseReason == "turning_for_movement" and urgentTurn == nil,
     "continuous follow blends a right-angle bend but still stops before reversing")
+end
+
+do
+local oldForwardX, oldForwardY, oldTurning = actor.forwardX, actor.forwardY, actor.turning
+local oldMoving, oldRunning, oldSprinting = actor.moving, actor.running, actor.sprinting
+actor.forwardX, actor.forwardY, actor.turning = 1, 0, true
+local shallow = SC.NativeActions._prepareForwardTurnForTests(
+    actor, actor:getX(), actor:getY(), 0.8, 0.6, false, { continuousFollow = true })
+local reverse, reverseReason = SC.NativeActions._prepareForwardTurnForTests(
+    actor, actor:getX(), actor:getY(), -1, 0, false, { continuousFollow = true })
+actor.forwardX, actor.forwardY, actor.turning = 1, 0, true
+local track, trackReason = SC.NativeActions._prepareForwardTurnForTests(
+    actor, actor:getX(), actor:getY(), 0.8, 0.6, false, {})
+actor.forwardX, actor.forwardY, actor.turning = oldForwardX, oldForwardY, oldTurning
+actor.moving, actor.running, actor.sprinting = oldMoving, oldRunning, oldSprinting
+check(shallow == nil and reverse == true and reverseReason == "turning_for_movement"
+        and track == true and trackReason == "turning_for_movement",
+    "a follower keeps walking through a turn underway; a reversal or player-track step still waits")
 end
 
 actor.px, actor.py = 0.5, 0.5
@@ -1750,6 +1787,62 @@ do
         "activityStatus self-heals a dead interrupted visual and resets the kneel/read pose")
 end
 ISTimedActionQueue.queues[actor] = nil
+do
+    -- Body language: an Ext gesture sets the stock "Ext" variable and fires
+    -- EventDoExt; a workout enters the stock fitness state through its own
+    -- variables and leaves it again when cancelled.
+    local variables, events = {}, {}
+    local savedSetVariable, savedReportEvent = actor.setVariable, actor.reportEvent
+    function actor:setVariable(name, value)
+        variables[name] = value
+        return savedSetVariable(self, name, value)
+    end
+    function actor:reportEvent(event)
+        events[#events + 1] = event
+        return savedReportEvent(self, event)
+    end
+    function actor:clearVariable(name) variables[name] = nil end
+    function actor:SetVariable(name, value) variables[name] = value end
+    local function indexOf(list, value)
+        for index, candidate in ipairs(list) do
+            if candidate == value then return index end
+        end
+        return nil
+    end
+    local yawnOk, yawnReason = SC.Actor.setMovement(actor, "walk", {
+        action = "ext_gesture", ext = "Yawn",
+    })
+    local yawnEvent = events[#events]
+    local badOk, badReason = SC.Actor.setMovement(actor, "walk", {
+        action = "ext_gesture", ext = "Moonwalk",
+    })
+    check(yawnOk and yawnReason == "ext_gesture_started" and variables.Ext == "Yawn"
+            and yawnEvent == "EventDoExt" and not badOk
+            and string.find(tostring(badReason), "unsupported ext gesture", 1, true) ~= nil,
+        "an Ext gesture plays the stock yawn and refuses anything outside the list: "
+            .. tostring(yawnReason) .. "/" .. tostring(badReason))
+    events = {}
+    ISTimedActionQueue.queues[actor] = nil
+    local workoutOk, workoutReason = SC.Actor.setMovement(actor, "walk", {
+        action = "workout", exercise = "situp", struggle = true, durationMs = 30000,
+    })
+    local timed = ISTimedActionQueue.getTimedActionQueue(actor).current
+    local fitnessAt, updateAt = indexOf(events, "EventFitness"), indexOf(events, "EventUpdateFitness")
+    check(workoutOk and string.find(tostring(workoutReason), "visual_timed_action_started", 1, true) ~= nil
+            and variables.ExerciseType == "situp" and variables.FitnessStruggle == true
+            and fitnessAt ~= nil and updateAt ~= nil and fitnessAt < updateAt
+            and timed ~= nil and timed.maxTime == 1800
+            and SC.NativeActions.visualStatus(actor) == "active",
+        "a workout enters the stock fitness state for its full length, past the usual visual cap: "
+            .. tostring(workoutReason))
+    check(SC.NativeActions.cancelVisual(actor, "test_workout_cancel")
+            and variables.ExerciseEnded == true and variables.ExerciseStarted == false
+            and variables.FitnessFinished == "true",
+        "cancelling a workout ends the exercise, so no pose is left behind")
+    actor.setVariable, actor.reportEvent = savedSetVariable, savedReportEvent
+    actor.clearVariable, actor.SetVariable = nil, nil
+    ISTimedActionQueue.queues[actor] = nil
+end
 local barricadeOk, barricadeReason = SC.Actor.setMovement(actor, "walk", {
     action = "barricade", object = barricadeObject,
 })

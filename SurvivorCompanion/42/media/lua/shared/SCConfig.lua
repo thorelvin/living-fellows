@@ -121,12 +121,16 @@ local valueData = {
     persistenceSliceBudgetMs = 0.75,
     -- A scheduled capture receives at most one 0.75 ms slice per 50 ms pulse
     -- (about 15 ms of work per second). In a long session with several
-    -- companions, five seconds aborted staging repeatedly. Long pulse gaps
-    -- (pause, loading, shed background lanes) extend the deadline, bounded by
-    -- the hard cap measured from the request.
+    -- companions, five seconds aborted staging repeatedly. Each tracked actor
+    -- adds its own allowance, and a pulse delayed past the grace (pause,
+    -- loading, busy frames deferring the background lane) moves the deadline
+    -- by the delay. Seven companions kept deferring pulses by a few hundred
+    -- milliseconds that a one-second grace never credited, so every scheduled
+    -- save expired. The hard cap measured from the request still bounds a job.
     persistenceCaptureDeadlineMs = 20000,
+    persistenceCapturePerActorMs = 3000,
     persistenceCaptureHardDeadlineMs = 120000,
-    persistencePulseGapGraceMs = 1000,
+    persistencePulseGapGraceMs = 100,
     persistenceActorRetryLimit = 2,
     persistenceRetryDelayMs = 5000,
     tradeRecoveryIntervalMs = 500,
@@ -256,6 +260,24 @@ local valueData = {
     -- that shortcut is unavailable; re-sample and replan promptly.
     navigationFollowPathSearchLeaseMs = 2500,
     navigationFollowPathSearchHardMs = 5000,
+    -- A follow goal farther than this is reached with the engine pathfinder
+    -- directly instead of a long, stationary Lua search.
+    navigationFollowEngineDistance = 24,
+    -- An ally that moved within this window, walking the same way at least
+    -- this far ahead, is part of the file and does not trigger a yield.
+    navigationFlowMotionMs = 700,
+    navigationFlowMinimumGap = 0.75,
+    -- Engine routes ignore door collision, so Lua opens a closed door ahead
+    -- (or refuses a locked one). Look-ahead and opening distance grow with
+    -- the distance covered since the last check, so a jogging stranger that
+    -- is updated once a second cannot pass a garage door between checks.
+    navigationNativeDoorScanSteps = 6,
+    navigationNativeDoorMaxScanSteps = 12,
+    navigationNativeDoorOpenDistance = 1.6,
+    -- Scavengers skip a room reached only through a locked door for this
+    -- long, unless the door is opened, unlocked, or a key turns up.
+    navigationLockedRoomMemoryMs = 600000,
+    navigationLockedRoomLimit = 32,
     navigationNativePendingMs = 6500,
     -- Whole-building routes to another floor stay owned by PathFindBehavior2.
     -- Unlike a one-tile native affordance, reaching the staircase may itself take
@@ -419,6 +441,22 @@ local valueData = {
     combatStealthEmergencyRadius = 1.5,
     combatCloseDefenseRadius = 5,
     combatWeaponsFreeRadius = 14,
+    -- A zombie climbing through a window or over a fence, or lying where it
+    -- fell in, is fought within this radius under any doctrine that fights
+    -- (stealth only close by), ranks first, and is rushed at a run.
+    combatBreachRadius = 12,
+    combatBreachStealthRadius = 4,
+    combatBreachPriority = 40,
+    combatBreachLandingMs = 6000,
+    combatBreachRunDistance = 2.5,
+    -- Zombies within reach of a pinned ally are everyone's first target
+    -- inside the rescue radius.
+    combatRescueRadius = 15,
+    combatRescueReach = 2.0,
+    combatRescuePriority = 35,
+    -- Contacts this close get a live line-of-sight check even when the last
+    -- perception pass marked them unseen.
+    combatLiveSightRadius = 2.5,
     combatEngagementLeaseMs = 2000,
     combatTargetClaimPenalty = 42,
     combatTargetPrimaryChallengeDistance = 0.75,
@@ -523,6 +561,13 @@ local valueData = {
     scavengeItemBudget = 40,
     scavengeReservationMs = 12000,
     scavengeFailureCooldownMs = 15000,
+    -- Unreachable containers and targets that keep pulling a follower past its
+    -- leash cool down with a doubling backoff up to this cap.
+    scavengeFailureMaxCooldownMs = 600000,
+    scavengeOutsideFormationCooldownMs = 30000,
+    -- An approach that has not reached its container within this long fails
+    -- like an unreachable one.
+    scavengeApproachMaxMs = 45000,
     scavengeSettleMs = 250,
     scavengeNoUsefulCooldownMs = 30000,
     scavengeSuccessCooldownMs = 4000,
@@ -597,8 +642,91 @@ local valueData = {
 
     downtimeWashRadius = 4,
     downtimeWashMinimumWater = 4,
+    -- A water source a companion could not walk up to is skipped this long.
+    downtimeWashFailureCooldownMs = 60000,
+
+    -- A companion the player is bandaging holds still this long after each
+    -- refresh from the player's timed action.
+    medicalReceivingCareHoldMs = 6000,
+    -- A bleeding companion without a bandage asks for one at most this often.
+    medicalHelpRequestCooldownMs = 45000,
+
+    -- Party banter (speech only): distraction shouts, idle jokes and
+    -- first-visit place remarks. All flavor lines share one party gap.
+    banterEnabled = true,
+    banterPulseIntervalMs = 1000,
+    banterSpeakerQuietMs = 15000,
+    flavorPartySpeechGapMs = 20000,
+    distractionMinHealth = 40,
+    distractionChancePercent = 35,
+    distractionAllyChancePercent = 25,
+    distractionVerdictChancePercent = 50,
+    distractionVerdictDelayMs = 3500,
+    distractionCheckMs = 4000,
+    distractionQuietMs = 3000,
+    distractionAllyRadius = 8,
+    distractionActorCooldownMs = 60000,
+    distractionPartyCooldownMs = 20000,
+    idleJokeFirstMs = 180000,
+    idleJokeSecondMs = 600000,
+    idleJokeRearmMs = 300000,
+    placeCommentRadius = 8,
+    placeCommentPartyCooldownMs = 60000,
+    placeCommentMemoryLimit = 256,
+    -- Tall tales (SCTales): a fight worth retelling, and how it grows.
+    talesEnabled = true,
+    taleMinKills = 4,
+    taleEpisodeGapMs = 30000,
+    taleHurtDrop = 25,
+    taleWitnessRadius = 12,
+    taleMaxPerCompanion = 6,
+    taleRetellCooldownHours = 48,
+    taleTellPartyCooldownMs = 1800000,
+    taleIdleMs = 60000,
+    taleBeatMs = 5000,
+    taleWitnessCorrectChancePercent = 70,
+    taleCorrectionRadius = 8,
+    taleFadeDays = 60,
+    placesSeenLimit = 48,
+    -- Body language (SCGestures): short Ext animations and visual-only workouts.
+    gesturesEnabled = true,
+    gesturesPulseIntervalMs = 1000,
+    gestureActorCooldownMs = 90000,
+    gesturePartyGapMs = 15000,
+    gestureRollWindowMs = 60000,
+    gestureLineChancePercent = 35,
+    yawnChancePercent = 25,
+    yawnCatchChancePercent = 60,
+    yawnCatchRadius = 6,
+    yawnChainMax = 3,
+    yawnPartyCooldownMs = 600000,
+    yawnEveningHour = 21,
+    yawnMorningHour = 6,
+    yawnFatigue = 0.5,
+    stretchAfterSitChancePercent = 40,
+    stretchDelayMs = 1500,
+    sneezeDustyChancePercent = 5,
+    sneezeColdChancePercent = 5,
+    sneezeColdTemperature = 5,
+    sneezeColdWindowMs = 300000,
+    workoutMinMs = 20000,
+    workoutMaxMs = 40000,
+    workoutSafeMs = 10000,
+    workoutMorningStartHour = 6,
+    workoutMorningEndHour = 10,
+    workoutJoinChancePercent = 30,
+    workoutJoinRadius = 10,
+    workoutJoinWindowMs = 30000,
+    workoutIdleRequestMs = 60000,
+    workoutChatterMs = 12000,
 
     followDistance = 3,
+    -- After the leader stops, followers keep formation this long before idle
+    -- downtime, opportunistic scavenging or voluntary idle moods may start.
+    -- Each companion adds a stable share of the stagger so a group does not
+    -- break formation in one beat.
+    followSettleMs = 2500,
+    followSettleStaggerMs = 1500,
     followFarDistance = 18,
     followRecoveryDistance = 42,
     guardRadius = 5,
@@ -639,14 +767,21 @@ local valueData = {
     zombieBiteChance = 0.25,
     zombieBiteDamage = 12,
     zombieScratchDamage = 6,
-    zombieGrabThreshold = 2,
+    -- Three committed attackers pull a companion down, as a crowd drags a
+    -- player down; one or two only bite. A pinned companion struggles once a
+    -- second, is put back down at most once a second, and cannot be pulled
+    -- down again for a few seconds after it gets free.
+    zombieGrabThreshold = 3,
     zombieGrabReach = 1.6,
     zombieGrabChance = 0.5,
     zombieGrabTargetGraceMs = 1200,
     zombieGrabAttemptCooldownMs = 500,
-    zombieGrabEscapeChance = 0.2,
+    zombieGrabEscapeChance = 0.45,
+    zombieGrabEscapeIntervalMs = 1000,
     zombieGrabMinDurationMs = 1500,
-    zombieGrabGraceMs = 9000,
+    zombieGrabGraceMs = 6000,
+    zombieGrabPinRefreshMs = 1000,
+    zombieGrabRecoverMs = 4000,
     zombieGrabDragIntervalMs = 900,
     zombieGrabBiteChance = 0.5,
     sharedAlertCloseRadius = 8,
@@ -670,6 +805,28 @@ local valueData = {
     downtimeReservationMs = 30000,
     downtimeActivityMs = 6000,
     ambientRepeatCooldownMs = 60000,
+    -- Studying a zombie corpse: rare, only after a long quiet spell, once per
+    -- body, bounded per companion and for the whole party.
+    downtimeStudyRadius = 6,
+    downtimeStudyChancePercent = 18,
+    downtimeStudyRollWindowMs = 90000,
+    downtimeStudySafeMs = 20000,
+    downtimeStudyActorCooldownMs = 900000,
+    downtimeStudyPartyCooldownMs = 240000,
+    downtimeStudyMs = 7000,
+    downtimeStudyLineGapMs = 2600,
+    downtimeStudyCloserPercent = 75,
+    -- Paying respects: a quiet moment at a body, by temperament.
+    respectChancePercent = 10,
+    respectStressLimit = 72,
+    respectAfterFightMs = 120000,
+    respectPartyCooldownMs = 1200000,
+    respectActorCooldownMs = 2700000,
+    respectReactionPercent = 30,
+    respectReactionRadius = 8,
+    downtimeRespectMs = 6000,
+    downtimeStudyFreshHours = 12,
+    downtimeStudyOldHours = 96,
     ambientDialoguePulseMs = 5000,
     ambientDialogueActorCooldownMs = 90000,
     ambientDialogueGroupCooldownMs = 30000,
@@ -704,6 +861,16 @@ local valueData = {
     -- followDistance plus this leash distance in tiles.
     decisionSafetyHoldLeashMs = 4000,
     decisionSafetyHoldLeashDistance = 4,
+    -- After combat finds nothing it may engage, a follower facing only
+    -- distant threats ranks Follow above combat for this long.
+    combatNoTargetFollowMs = 1500,
+    -- How long a "nothing I may engage" combat verdict lets stationary work
+    -- and downtime carry on with that threat still in view.
+    combatNoTargetToleranceMs = 10000,
+    -- A failed or cancelled logistics move (pack, wear, deposit, drop) is not
+    -- proposed again before this backoff, doubling per failure up to the cap.
+    logisticsFailureCooldownMs = 30000,
+    logisticsFailureMaxCooldownMs = 600000,
     relationshipObservationIntervalMs = 1000,
     -- Living-survivor simulation uses world age for emotional time and the
     -- existing scheduler for CPU cadence. Major incidents are deliberately
@@ -822,6 +989,25 @@ local valueData = {
     productionLumberNightStartHour = 21,
     productionLumberNightEndHour = 6,
     productionBurialMaximumTiles = 128,
+    -- Pyre (burn site) safety and body handling. Burning starts a real fire,
+    -- so a pyre is small, outdoors and clear of anything that can carry it.
+    -- Grass is allowed by default; set productionPyreRejectGrass to demand a
+    -- bare or paved pyre after in-game fire spread proves grass unsafe.
+    productionPyreMaximumTiles = 9,
+    productionPyreClearance = 2,
+    productionPyreStructureDistance = 4,
+    productionPyreRejectGrass = false,
+    productionBurnWatchMaxMs = 240000,
+    productionBurnIgniteVerifyMs = 6000,
+    productionBurnFireSpreadMargin = 1,
+    productionCorpseDragStartMs = 4000,
+    productionCorpseDragTimeoutMs = 90000,
+    productionCorpseDropVerifyMs = 4000,
+    productionCorpsePlacementAttempts = 2,
+    productionCorpseScanSquaresPerSlice = 48,
+    productionBurnCreditMs = 20000,
+    productionPyreWatchDistance = 3,
+    productionPyreBystanderDistance = 2,
     productionScanSquaresPerSlice = 16,
     productionCandidateCooldownMs = 20000,
     productionCandidateMaxAttempts = 3,
@@ -848,6 +1034,18 @@ local valueData = {
     infectionCrisisHistoryLimit = 96,
     infectionCrisisEvidenceLimit = 32,
     infectionCrisisMaxRecords = 32,
+    -- Crisis conversations: bystanders walk over and take turns; a bitten
+    -- companion may first confide in the one it trusts most.
+    crisisGatherRadius = 20,
+    crisisTalkDistance = 2.2,
+    crisisGatherTimeoutMs = 20000,
+    crisisTurnGapMs = 3500,
+    crisisReplyDelayMs = 2500,
+    crisisConfideTrust = 40,
+    crisisConfideRadius = 25,
+    crisisConfideTimeoutMs = 45000,
+    crisisConfideReplyMs = 3000,
+    crisisConfessPauseMs = 4000,
 
     dangerSignalMaxDistance = 10,
     dangerSignalImmediateRadius = 4,
@@ -884,10 +1082,15 @@ local valueData = {
     factionPulseIntervalMs = 1000,
     factionProductionCheckIntervalMs = 30000,
     factionFirstEligibleDay = 7,
+    -- Faction locations name the nearest map street within this many tiles.
+    factionStreetMaxDistance = 300,
     factionSpawnCooldownDays = 7,
     factionDailySpawnChancePercent = 8,
     factionMaxHouseholds = 3,
     factionMinHouseDistance = 300,
+    -- Debug spawns only stay clear of an existing faction's house and its
+    -- immediate neighbours; their search reaches just 55 tiles.
+    debugFactionMinHouseDistance = 16,
     factionSpawnMinDistance = 35,
     factionSpawnMaxDistance = 90,
     factionHouseSampleBudget = 96,

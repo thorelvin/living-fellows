@@ -575,8 +575,44 @@ local function updateChore(actor, state, job, player, runtime)
     return handled == true, reason or "downtime_unavailable", exhausted
 end
 
+-- The square a companion was told to guard inside the base. Base duty from
+-- the menu anchors on the base core, which is no post of its own.
+local function guardPost(actor)
+    local commands = SC.Commands and type(SC.Commands.peek) == "function"
+        and SC.Commands.peek(actor) or nil
+    local anchor = type(commands) == "table" and commands.order == "base_duty"
+        and commands.anchor or nil
+    local base = SC.BaseLife.active()
+    if type(anchor) ~= "table" or tonumber(anchor.x) == nil or tonumber(anchor.y) == nil
+        or not base then
+        return nil
+    end
+    local core = type(base.core) == "table" and base.core or {}
+    if math.floor(anchor.x) == math.floor(tonumber(core.x) or -1)
+        and math.floor(anchor.y) == math.floor(tonumber(core.y) or -1) then
+        return nil
+    end
+    if SC.BaseLife.isInside(anchor) ~= true then return nil end
+    return { x = math.floor(anchor.x), y = math.floor(anchor.y), z = math.floor(anchor.z or 0) }
+end
+
+-- A job left for this resident by name (a bandage change, an assigned craft).
+local function namedJobWaiting(actorId)
+    local base = SC.BaseLife.active()
+    for _, job in ipairs(base and base.jobs or {}) do
+        if job.assignedId == actorId and (job.state == "pending"
+            or (job.state == "blocked" and (tonumber(job.retryAt) or 0) <= now())) then
+            return true
+        end
+    end
+    return false
+end
+
+BaseWork._guardPostForTests = guardPost
+
 local function guardRoutine(actor, state)
-    local center = SC.BaseLife.zoneCenter("guard") or SC.BaseLife.zoneCenter("rally")
+    local center = guardPost(actor)
+        or SC.BaseLife.zoneCenter("guard") or SC.BaseLife.zoneCenter("rally")
     if not center then return false, "guard_zone_missing" end
     if now() < (state.nextRoutineAt or 0) and U().distance(actor, center) <= 3 then
         return false, "guard_holding"
@@ -620,10 +656,14 @@ function BaseWork.update(actor, player, runtime)
             })
         end
     end
-    if not job then job = select(1, SC.BaseLife.claimJob(id)) end
+    local activeGuard = SC.BaseLife.guardStatus
+        and select(1, SC.BaseLife.guardStatus(id, now())) or resident.role == "guard"
+    -- A guard on shift keeps watch instead of wandering off to generic chores;
+    -- only a job left for it by name pulls it away.
+    if not job and (not (activeGuard and resident.role == "guard") or namedJobWaiting(id)) then
+        job = select(1, SC.BaseLife.claimJob(id))
+    end
     if not job then
-        local activeGuard = SC.BaseLife.guardStatus
-            and select(1, SC.BaseLife.guardStatus(id, now())) or resident.role == "guard"
         if activeGuard then
             local handled, reason = guardRoutine(actor, state)
             if handled or reason ~= "guard_zone_missing" then return handled, reason end

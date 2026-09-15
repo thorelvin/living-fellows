@@ -13,6 +13,9 @@ local productionActions = {
     dig_grave = "digGrave",
     bury_body = "buryBody",
     fill_grave = "fillGrave",
+    grab_body = "grabBody",
+    drop_body = "dropBody",
+    burn_body = "burnBody",
 }
 
 function Work.configure(value)

@@ -354,6 +354,24 @@ function Community.activeGrief(actorOrId)
     return result
 end
 
+-- A corpse carries its SurvivorDesc name. Match it against the bounded death
+-- history so base production can give a fallen companion a named burial.
+-- Only an exact, unique name match counts; an ambiguous name is never guessed.
+function Community.deathMatching(name)
+    if type(name) ~= "string" or name == "" then return nil end
+    local deaths = document and type(document.deaths) == "table" and document.deaths or {}
+    local foundId, foundRow
+    for id, row in pairs(deaths) do
+        if type(row) == "table" and row.subjectName == name then
+            if foundId ~= nil then return nil end
+            foundId, foundRow = id, row
+        end
+    end
+    if foundId == nil then return nil end
+    return foundId, { subjectId = foundId, subjectName = foundRow.subjectName,
+        subjectGender = foundRow.subjectGender, startedAt = foundRow.startedAt }
+end
+
 function Community.finishGriefReaction(actorOrId, subjectId)
     local mind = Community.mindFor(actorOrId)
     if not mind then return false, "mind_unavailable" end

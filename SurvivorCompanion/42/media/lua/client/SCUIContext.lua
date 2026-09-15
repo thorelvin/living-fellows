@@ -444,6 +444,12 @@ local function baseAction(target, action, payload, player)
     if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
 end
 
+local function toggleBaseLayout(_, player)
+    if SC.UI and type(SC.UI.toggleBaseLayout) == "function" then
+        SC.UI.toggleBaseLayout(player)
+    end
+end
+
 local function baseMenuRelevant(square)
     if not square or not SC.BaseLife or type(SC.BaseLife.active) ~= "function" then
         return false
@@ -470,6 +476,10 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
             { square = square }, player)
         return true
     end
+    local layoutShown = SC.BaseVisuals and type(SC.BaseVisuals.status) == "function"
+        and SC.BaseVisuals.status().enabled == true
+    menu:addOption(text(layoutShown and "UI_SC_Base_Visual_Hide" or "UI_SC_Base_Visual_Show"),
+        nil, toggleBaseLayout, player)
     local draft = SC.BaseLife.zoneDraft()
     local inside = type(SC.BaseLife.isInside) == "function"
         and SC.BaseLife.isInside(square) == true
@@ -481,9 +491,10 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
         local zoneOption = menu:addOption(text("UI_SC_Base_StartZone"), nil, nil)
         local zoneMenu = ISContextMenu:getNew(menu)
         menu:addSubMenu(zoneOption, zoneMenu)
-        -- Outside the camp only a lumber area may start, inside its reach band.
-        local kinds = inside and { "area", "work", "lumber", "burial", "rest", "social",
-            "guard", "rally", "quarantine" } or { "lumber" }
+        -- Outside the camp only lumber, burial and pyre areas may start, inside
+        -- the bounded reach band around the camp.
+        local kinds = inside and { "area", "work", "lumber", "burial", "pyre", "rest", "social",
+            "guard", "rally", "quarantine" } or { "lumber", "burial", "pyre" }
         for _, kind in ipairs(kinds) do
             zoneMenu:addOption(text("UI_SC_Base_Zone_" .. kind), nil, baseAction, "zone_begin",
                 { square = square, kind = kind }, player)
@@ -623,17 +634,37 @@ local function addViews(menu, row, player)
     addCommand(menu, "UI_SC_Action_OpenHealth", row.id, "open_health", nil, player)
 end
 
--- Show a Bandage option only when the player can actually treat this companion now
--- (it has a treatable wound, the player is holding a bandage, and it is in range),
--- so the option is never a dead click.
+-- Offer Bandage when the player can treat this companion now. When it has a
+-- wound to dress but the player carries no bandage or stands too far away, show
+-- the option disabled with the reason instead of hiding it.
 local function addCare(menu, row, player)
     if not SC.Medical or type(SC.Medical.playerBandagePreflight) ~= "function" then return end
     if not SC.Registry or type(SC.Registry.byId) ~= "function" then return end
     local ok, record = pcall(SC.Registry.byId, row.id)
     if not ok or type(record) ~= "table" or not record.actor then return end
-    local ready = SC.Medical.playerBandagePreflight(record.actor, player)
-    if ready ~= true then return end
-    addCommand(menu, "UI_SC_Action_Bandage", row.id, "bandage", nil, player)
+    local ready, reason = SC.Medical.playerBandagePreflight(record.actor, player)
+    if ready == true then
+        addCommand(menu, "UI_SC_Action_Bandage", row.id, "bandage", nil, player)
+        return
+    end
+    local reasonText
+    if reason == "no_bandage" then
+        reasonText = text("UI_SC_Disabled_NoBandage")
+    elseif reason == "out_of_range" then
+        local limit = SC.Config and type(SC.Config.get) == "function"
+            and tonumber(SC.Config.get("medicalPlayerBandageRange")) or 2
+        reasonText = text("UI_SC_Disabled_TooFar", limit)
+    else
+        return
+    end
+    local option = addUnavailableOption(menu, text("UI_SC_Action_Bandage"))
+    if option and type(ISToolTip) == "table" then
+        local tooltip = ISToolTip:new()
+        tooltip:initialise()
+        tooltip:setVisible(false)
+        tooltip.description = reasonText
+        option.toolTip = tooltip
+    end
 end
 
 local function selectedNearbyRow(rows)

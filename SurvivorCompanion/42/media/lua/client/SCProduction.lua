@@ -23,7 +23,16 @@ Production.SAW_RECEIPT = "LF_ProductionSawReceipt"
 
 local PRODUCTION_WORK_KINDS = {
     chop_tree = true, saw_logs = true, dig_grave = true, bury_body = true, fill_grave = true,
+    grab_body = true, drop_body = true, burn_body = true,
 }
+-- Written on a body before it is grabbed; the grapple respawns the body as a
+-- new object but carries its modData, so the tag finds it after the drop.
+Production.HAUL_TAG = "LF_CorpseHaul"
+Production.BURNED_TAG = "LF_CorpseBurned"
+Production.FALLEN_NAME = "LF_FallenName"
+-- Collect/burn helpers live in one table so the module keeps its local count
+-- and each function's upvalues well inside Kahlua's limits.
+local Disposal = { urgentAt = {} }
 local TOOL_TAGS = { choptree = "CHOP_TREE", saw = "SAW", diggrave = "DIG_GRAVE" }
 local TOOL_CATEGORIES = { "tools", "construction", "crafting", "general" }
 local SPEECH = {
@@ -35,6 +44,16 @@ local SPEECH = {
     ["burial.dig.start"] = { chance = 30, actorMs = 60000 },
     ["burial.dig.done"] = { chance = 40, actorMs = 60000 },
     ["burial.lower"] = { chance = 35, actorMs = 30000 },
+    ["burial.haul.start"] = { chance = 35, actorMs = 60000 },
+    ["burial.haul.drag"] = { chance = 20, actorMs = 45000 },
+    ["burial.haul.drop"] = { chance = 25, actorMs = 30000 },
+    -- Spoken exactly when danger forces the drop, so it ignores the usual
+    -- silence-near-threats rule (still bounded by its actor cooldown).
+    ["burial.haul.threat"] = { chance = 100, actorMs = 20000, urgent = true },
+    ["burn.ignite"] = { chance = 60, actorMs = 30000 },
+    ["burn.watch"] = { chance = 15, actorMs = 60000 },
+    ["burn.rain"] = { chance = 50, actorMs = 60000 },
+    ["burn.fire_spread"] = { chance = 100, actorMs = 20000, urgent = true },
 }
 local GALLOWS_CHANCE = { caring = 20, cautious = 35, practical = 50, brave = 50 }
 
@@ -53,6 +72,7 @@ local lastProductionSpeechAt = -math.huge
 local chopSession = { native = false, fallback = false }
 local metrics = {
     treesFelled = 0, planksMade = 0, gravesDug = 0, bodiesBuried = 0, gravesClosed = 0,
+    bodiesDragged = 0, bodiesBurned = 0, fallenBuried = 0,
     emulatedChopHits = 0, candidateFailures = 0, blocked = 0, errors = 0, lastError = nil,
 }
 
@@ -284,6 +304,98 @@ local POOLS = {
     ["burial.ritual.mannequin_apology"] = { common = {
         "Sorry. You were real, weren't you? I'm so sorry.",
     } },
+    ["burial.haul.start"] = {
+        common = {
+            "Grab the ankles. Lift with the legs. Theirs, not yours.",
+            "Come on, friend. One last walk. Well, drag.",
+            "Room's ready for you. Let's go.",
+            "Up you come. Nobody gets left in the yard.",
+        },
+        brave = { "On three. One... two... never mind, I've got you." },
+        cautious = { "Checking twice. Still dead. Okay, moving." },
+        caring = { "Easy now. I've got you. You're going somewhere quiet." },
+        practical = { "Body secured. Moving." },
+        stressed = { "Don't look at me. Don't look at me." },
+    },
+    ["burial.haul.drag"] = {
+        common = {
+            "Heavier than they look. They always are.",
+            "You could help, you know. No? Figures.",
+            "Nearly there. Don't wake up.",
+            "Mind the bumps. Not that you'd complain.",
+        },
+        practical = { "Keep it steady. Almost there." },
+        stressed = { "Just keep walking. Just keep walking." },
+        low = { "Everybody gets dragged somewhere in the end." },
+    },
+    ["burial.haul.drop"] = {
+        common = { "Your stop.", "Wait here. Not like you're going anywhere.", "And... down." },
+        practical = { "Placed. Next." },
+    },
+    ["burial.haul.threat"] = {
+        common = { "Dropping the body! Contact!", "Sorry, pal. Hold that thought." },
+        brave = { "Put it down! We've got live ones!" },
+        cautious = { "Contact! Leaving the body!" },
+    },
+    ["burn.ignite"] = {
+        common = {
+            "Burn, baby, burn!",
+            "Disco inferno!",
+            "Light 'em up.",
+            "Ashes to ashes. We'll skip the dust.",
+            "Warmest you've been in weeks, friend.",
+            "Cremation. Cheaper than a plot, and no digging.",
+        },
+        brave = { "Let it burn. Nothing gets up from ash." },
+        cautious = { "Stand back. Watch the grass!" },
+        caring = { "Go up easy. Nothing down here can hurt you now." },
+        practical = { "Fuel poured. Lighter lit. Stand clear." },
+        stressed = { "Don't breathe it in. Don't breathe it in." },
+        low = { "Used to be barbecues on Sundays." },
+        hopeful = { "Up with the smoke, friend. Somewhere better." },
+    },
+    ["burn.watch"] = {
+        common = { "Nobody poke it.", "Keep an eye on the embers.",
+            "Smells like... no. Not finishing that sentence." },
+        practical = { "Watching the burn. Nothing moves." },
+    },
+    ["burn.prayer"] = {
+        common = {
+            "From dust you came. We sped things up. Amen.",
+            "Lord, take the smoke. It's all that's left of them.",
+            "Let the fire keep what the world couldn't.",
+            "Rise with the smoke. Stay up there this time.",
+        },
+        caring = { "Nothing left to hurt you now. Go on home." },
+        cautious = { "Burned clean. Nothing comes back from that. Amen." },
+    },
+    ["burn.gallows"] = {
+        common = {
+            "Well done. And I mean that literally.",
+            "Another satisfied customer of the Knox County Crematorium.",
+            "*hums* Burn, baby, burn... disco inferno. ...Sorry. Someone had to.",
+            "Smokey says only you can prevent forest fires. Smokey isn't here.",
+            "Nobody gets up from that. Nobody.",
+        },
+        practical = { "Burn complete. Ash doesn't bite." },
+        stressed = { "Okay. It's out. It's out. We're fine." },
+    },
+    ["burn.fire_spread"] = {
+        common = { "Fire's spreading! Get back!", "That's not the pyre anymore! Move!" },
+    },
+    ["burn.rain"] = {
+        common = { "Rain's got the fire. We'll try again later.", "Too wet to burn. Figures." },
+    },
+    -- A fallen companion's own grave. %1 is the name; never gallows humor.
+    ["burial.fallen"] = {
+        common = {
+            "Rest easy, %1. You watched our backs. We've got it from here.",
+            "%1. We'll remember. Every one of us.",
+            "Sleep, %1. The road's quiet now.",
+        },
+        caring = { "Goodbye, %1. You were one of us. You always will be." },
+        brave = { "%1 fought to the end. Nobody forgets that." },
+    },
 }
 
 local function registerDialogue()
@@ -337,19 +449,28 @@ end
 local function speak(actor, topic, arguments, salt, runtime)
     local spec = SPEECH[topic]
     if not spec or not SC.Dialogue or type(SC.Dialogue.say) ~= "function" then return false end
-    if threatNearby(actor, runtime) then return false end
+    if spec.urgent ~= true and threatNearby(actor, runtime) then return false end
     local current = now()
-    if current - lastProductionSpeechAt < config("productionSpeechGroupCooldownMs", 12000) then
+    if spec.urgent ~= true
+        and current - lastProductionSpeechAt < config("productionSpeechGroupCooldownMs", 12000) then
         return false
     end
-    if spec.actorMs > 0 and type(SC.Dialogue.lastSpokenAt) == "function"
+    -- An urgent line is bounded by its own per-actor cooldown, not by
+    -- whatever the companion happened to say a moment before the danger.
+    local urgentKey = spec.urgent == true and (tostring(actorId(actor)) .. ":" .. topic) or nil
+    if urgentKey then
+        if current - (Disposal.urgentAt[urgentKey] or -math.huge) < spec.actorMs then return false end
+    elseif spec.actorMs > 0 and type(SC.Dialogue.lastSpokenAt) == "function"
         and current - (tonumber(SC.Dialogue.lastSpokenAt(actor)) or -math.huge) < spec.actorMs then
         return false
     end
     local key = tostring(actorId(actor)) .. ":" .. topic .. ":" .. tostring(salt or current)
     if stableHash(key) % 100 >= spec.chance then return false end
     local spoken = SC.Dialogue.say(actor, topic, nil, arguments, { recentLimit = 4, salt = key })
-    if spoken == true then lastProductionSpeechAt = current end
+    if spoken == true then
+        lastProductionSpeechAt = current
+        if urgentKey then Disposal.urgentAt[urgentKey] = current end
+    end
     return spoken == true
 end
 
@@ -402,7 +523,7 @@ local function scheduleAmen(speaker, key)
     return nil
 end
 
--- One guaranteed closing line per grave: prayer or gallows humor by
+-- One guaranteed closing line per grave or pyre fire: prayer or gallows humor by
 -- personality and mood, sometimes an amen. Returns true when the ceremony
 -- ran; the caller then queues the effect-free salute for after the native
 -- pacing pause that follows the fill action.
@@ -415,7 +536,16 @@ local function ceremony(actor, grave, runtime)
     if threatNearby(actor, runtime) or not SC.Dialogue or type(SC.Dialogue.say) ~= "function" then
         return false
     end
-    local spoken = SC.Dialogue.say(actor, ceremonyTopic(actor, key), nil, nil, {
+    -- A fallen companion's grave closes with their name, never a joke; a
+    -- pyre gets the fire-side version of the same prayer or gallows line.
+    local topic, arguments = ceremonyTopic(actor, key), nil
+    if grave.fallenName then
+        topic, arguments = "burial.fallen", { grave.fallenName }
+    elseif grave.pyre == true then
+        if topic == "burial.prayer" then topic = "burn.prayer"
+        elseif topic == "burial.gallows" then topic = "burn.gallows" end
+    end
+    local spoken = SC.Dialogue.say(actor, topic, nil, arguments, {
         recentLimit = 4, salt = key,
     })
     if spoken == true then lastProductionSpeechAt = now() end
@@ -516,8 +646,8 @@ local function onCooldown(order, purpose, key)
     return expires > now(), expires == math.huge
 end
 
-local function noteCandidateFailure(order, purpose, key, reason)
-    local zone = zoneFor(order)
+local function noteCandidateFailure(order, purpose, key, reason, zone)
+    zone = zone or zoneFor(order)
     if not zone or key == nil then return false end
     local scan = scanFor(order, purpose, zone)
     if scan.cooldowns[key] == nil then scan.cooldownOrder[#scan.cooldownOrder + 1] = key end
@@ -545,11 +675,12 @@ end
 -- Resumable row-major scan of one zone. Unloaded squares mark the pass
 -- incomplete instead of proving absence; the per-call square budget keeps
 -- each update bounded regardless of zone size.
-local function nextZoneCandidate(order, purpose, zone, inspect, id, shared)
+local function nextZoneCandidate(order, purpose, zone, inspect, id, shared, budget)
     local scan = scanFor(order, purpose, zone)
     local current = now()
     if current < scan.waitUntil then return nil, "production_candidates_waiting", false end
-    local budget = math.max(1, math.floor(config("productionScanSquaresPerSlice", 16)))
+    budget = math.max(1, math.floor(tonumber(budget)
+        or config("productionScanSquaresPerSlice", 16)))
     for _ = 1, budget do
         local x, y = scan.x, scan.y
         local square = U().gridSquare(x, y, zone.z)
@@ -843,9 +974,10 @@ end
 
 -- Work stands beside its target square: trees and grave pits are never the
 -- worker's own square, and callers may exclude further squares (a grave's
--- second half). Paths stay inside the camp area like gathering; lumber work
--- (reach) may also cross the bounded band around it.
-local function approachSquare(actor, square, action, avoid, reach)
+-- second half). Paths stay inside the camp area like gathering; work bound to
+-- an area in the reach band (reach) may also cross the bounded band around
+-- it. A worker dragging a body asks for a route without climbs or stairs.
+local function approachSquare(actor, square, action, avoid, reach, dragging)
     if adjacentTo(actor, square) and not avoided(actor, avoid) then
         return "arrived", "production_in_range"
     end
@@ -865,7 +997,7 @@ local function approachSquare(actor, square, action, avoid, reach)
     if #targets == 0 then return "failed", "production_approach_missing" end
     local accepted, reason = SC.Navigation.requestAny(actor, targets, "walk", {
         action = action, targetSquare = square, arrivalDistance = 0.8, workCampOnly = true,
-        workReach = reach == true,
+        workReach = reach == true, draggingBody = dragging == true or nil,
     })
     if accepted ~= true then
         if transientRejection(reason) then return "pending", reason end
@@ -1386,11 +1518,13 @@ local function graveInfo(object)
     local x, y, z = U().position(U().squareOf(object))
     if x == nil then return nil end
     local north, northOk = invoke(object, "getNorth")
+    local fallenName = data[Production.FALLEN_NAME]
     return {
         object = object, x = x, y = y, z = z or 0,
         corpses = tonumber(data.corpses) or 0, filled = data.filled == true,
         spriteType = data.spriteType, north = northOk and north == true,
         key = "grave:" .. pointKey(x, y, z or 0),
+        fallenName = type(fallenName) == "string" and fallenName or nil,
     }
 end
 
@@ -1404,8 +1538,10 @@ local function primaryGraveAt(point)
     return nil
 end
 
+-- A fallen companion's grave belongs to them alone: never open for others.
 local function graveOpen(info)
-    return info ~= nil and not info.filled and info.corpses < graveCapacity(info.object)
+    return info ~= nil and not info.filled and info.fallenName == nil
+        and info.corpses < graveCapacity(info.object)
 end
 
 local function gravePartner(info)
@@ -1515,7 +1651,7 @@ local function digNext(actor, order, state, context, forBurial)
             if terminal then
                 releaseClaim(bodyAnchor and bodyAnchor.key, context.actorId)
                 state.burialDigBody = nil
-                return blockOrder(order, forBurial and "no_grave_site_near_body" or reason)
+                return blockOrder(order, forBurial == true and "no_grave_site_near_body" or reason)
             end
             return true, reason
         end
@@ -1535,7 +1671,7 @@ local function digNext(actor, order, state, context, forBurial)
     -- check rejects an occupied square.
     local approach, approachReason = approachSquare(actor, square, "move_to_production_grave", {
         { x = target.x, y = target.y, z = target.z }, { x = target.x - 1, y = target.y, z = target.z },
-    })
+    }, Disposal.reach(order, zone))
     if approach == "failed" then
         noteCandidateFailure(order, "grave-site", target.key, approachReason)
         releaseClaim(target.key, context.actorId)
@@ -1555,7 +1691,9 @@ local function digNext(actor, order, state, context, forBurial)
     end
     state.work = {
         kind = "dig_grave", x = target.x, y = target.y, z = target.z, key = target.key,
-        startedAt = now(), forBurial = forBurial == true,
+        -- "capacity" digs ahead of a body collection: the grave is never
+        -- counted as order progress, exactly like a grave dug for a burial.
+        startedAt = now(), forBurial = forBurial == true or forBurial == "capacity",
         bodyKey = bodyAnchor and bodyAnchor.key or nil,
     }
     state.phase = "digging"
@@ -1709,7 +1847,11 @@ local function headSquare(grave)
 end
 
 local function placeMarker(order, grave)
-    if type(order.settings) ~= "table" or order.settings.marker ~= "wood" then return false end
+    -- A fallen companion's grave always gets a cross, whatever the order says.
+    local fallen = type(grave) == "table" and grave.fallenName ~= nil
+    if not fallen and (type(order.settings) ~= "table" or order.settings.marker ~= "wood") then
+        return false
+    end
     if not SC.BaseWork or type(SC.BaseWork.recipeForKind) ~= "function"
         or type(SC.BaseWork.recipeInfo) ~= "function" then return false end
     local recipeId = SC.BaseWork.recipeForKind("grave_marker")
@@ -1778,7 +1920,8 @@ local function fillGrave(actor, order, state, grave, context)
         return false, "production_target_unloaded"
     end
     state.phase = "approaching"
-    local approach, approachReason = approachSquare(actor, square, "move_to_production_grave")
+    local approach, approachReason = approachSquare(actor, square, "move_to_production_grave",
+        nil, Disposal.reach(order, zoneFor(order)))
     if approach == "failed" then
         releaseClaim(grave.key, context.actorId)
         return blockOrder(order, approachReason)
@@ -1833,7 +1976,10 @@ local function pollBury(actor, order, state, context)
     local info = primaryGraveAt(work.grave)
     local corpses = info and info.corpses or work.corpsesBefore
     if stillThere or corpses <= work.corpsesBefore then
-        if stillThere then untagBody(work.body, actor) end
+        if stillThere then
+            untagBody(work.body, actor)
+            if work.haulTag then Disposal.clearTag(work.body) end
+        end
         releaseClaim(work.key, context.actorId)
         releaseClaim(work.graveKey, context.actorId)
         noteCandidateFailure(order, "body", work.key, "burial_unverified")
@@ -1854,10 +2000,14 @@ local function pollBury(actor, order, state, context)
     commitBurialOutcome(order.id, work.key)
     metrics.bodiesBuried = metrics.bodiesBuried + 1
     SC.BaseLife.noteProductionCounter("bodiesBuried", 1)
+    if order.operation == "collect_bodies" then
+        SC.BaseLife.noteProductionCounter("bodiesCollected", 1)
+    end
     if info then SC.BaseLife.noteProductionGrave(order.id, { x = info.x, y = info.y, z = info.z }) end
+    if work.fallen and info then Disposal.markFallenGrave(info, work.fallen) end
     releaseClaim(work.key, context.actorId)
     releaseClaim(work.graveKey, context.actorId)
-    speak(actor, "burial.lower", nil, work.key, context.runtime)
+    if not work.fallen then speak(actor, "burial.lower", nil, work.key, context.runtime) end
     return true, "production_body_buried"
 end
 
@@ -1994,6 +2144,340 @@ local function updateBury(actor, order, state, context)
         }
         state.buryTarget = target
     end
+    return Disposal.startBurial(actor, order, state, context, target)
+end
+
+-- ---------------------------------------------------------------------------
+-- Collect and burn the dead
+-- ---------------------------------------------------------------------------
+-- One worker moves one body at a time: picked in a camp or lumber area, taken
+-- hold of with the stock grapple, dragged to the order's burial ground or
+-- pyre, laid down and found again by its haul tag (the drop respawns the body
+-- as a new object that keeps its modData). A burial ground buries it; a pyre
+-- burns it. Nothing is ever set alight except on a pyre the player marked
+-- that passes the fire-safety check. Danger drops the body at once.
+
+-- Classes and sprite families that must not stand near a pyre. Ground cover
+-- is judged separately (productionPyreRejectGrass): whether fire crosses
+-- grass is the sandbox's call, and the watch stops everyone when it does.
+Disposal.HAZARD_CLASSES = {
+    IsoTree = "tree_near", IsoDoor = "structure_near", IsoWindow = "structure_near",
+    IsoThumpable = "structure_near", IsoBarricade = "structure_near",
+    IsoCurtain = "structure_near", IsoGenerator = "generator_near",
+}
+Disposal.STRUCTURE_PREFIXES = {
+    "walls_", "fencing_", "fixtures_", "furniture_", "appliances_", "location_",
+    "construction_", "industry_", "carpentry_", "crafted_", "lighting_",
+    "recreational_", "street_", "security_",
+}
+Disposal.VEGETATION_PREFIXES = {
+    "vegetation_farming", "vegetation_foliage", "vegetation_ornamental",
+    "vegetation_trees", "f_bushes", "f_flowerbed",
+}
+Disposal.GRASS_PREFIXES = {
+    "e_newgrass", "blends_grassoverlays", "vegetation_groundcover", "d_plants",
+}
+Disposal.tagSerial = 0
+
+-- Areas ----------------------------------------------------------------------
+
+function Disposal.zones()
+    local base = SC.BaseLife and type(SC.BaseLife.active) == "function"
+        and SC.BaseLife.active() or nil
+    return base and base.zones or {}
+end
+
+function Disposal.inside(zone, x, y, z)
+    if type(zone) ~= "table" or x == nil or y == nil then return false end
+    x, y = math.floor(x), math.floor(y)
+    return x >= zone.x1 and x <= zone.x2 and y >= zone.y1 and y <= zone.y2
+        and math.floor(tonumber(z) or 0) == (tonumber(zone.z) or 0)
+end
+
+-- Chebyshev distance from a tile to the zone rectangle; 0 inside it.
+function Disposal.ringDistance(zone, x, y)
+    return math.max(0, zone.x1 - x, x - zone.x2, zone.y1 - y, y - zone.y2)
+end
+
+-- Burial grounds and pyres are destinations, never sources.
+function Disposal.inDisposalArea(x, y, z)
+    for _, zone in ipairs(Disposal.zones()) do
+        if (zone.kind == "burial" or zone.kind == "pyre") and Disposal.inside(zone, x, y, z) then
+            return true
+        end
+    end
+    return false
+end
+
+-- A burial ground or pyre in the reach band needs reach admission for its
+-- trips; collection that includes lumber areas always may cross the band.
+function Disposal.zoneNeedsReach(zone)
+    if type(zone) ~= "table" then return false end
+    if zone.kind == "lumber" then return true end
+    if type(SC.BaseLife.zoneInsideAreaUnion) ~= "function" then return false end
+    return SC.BaseLife.zoneInsideAreaUnion(zone, Disposal.zones()) ~= true
+end
+
+function Disposal.reach(order, zone)
+    if order.operation == "collect_bodies" and type(order.settings) == "table"
+        and order.settings.fromLumber == true then
+        return true
+    end
+    return Disposal.zoneNeedsReach(zone)
+end
+
+-- Bodies ---------------------------------------------------------------------
+
+function Disposal.bodyData(body)
+    local data = body ~= nil and U().modData(body) or nil
+    return type(data) == "table" and data or nil
+end
+
+function Disposal.bodyAt(body, square)
+    local present = false
+    U().squareStaticMovingObjects(square, function(object)
+        if object == body then
+            present = true
+            return false
+        end
+    end, 16)
+    return present
+end
+
+function Disposal.hasBody(square)
+    local found = false
+    U().squareStaticMovingObjects(square, function(object)
+        if U().instanceOf(object, "IsoDeadBody") then
+            found = true
+            return false
+        end
+    end, 16)
+    return found
+end
+
+function Disposal.descriptorName(body)
+    local descriptor, ok = invoke(body, "getDescriptor")
+    if not ok or descriptor == nil then return nil end
+    local first, firstOk = invoke(descriptor, "getForename")
+    local last, lastOk = invoke(descriptor, "getSurname")
+    first = firstOk and type(first) == "string" and first or ""
+    last = lastOk and type(last) == "string" and last or ""
+    local name = first .. ((first ~= "" and last ~= "") and " " or "") .. last
+    if name == "" then return nil end
+    local female, femaleOk = invoke(descriptor, "isFemale")
+    return name, femaleOk and (female == true and "female" or "male") or "unknown"
+end
+
+-- Only an exact, unique match in the companion death register names a body;
+-- anything uncertain stays an unnamed stranger. A player body that matches
+-- no fallen companion (the player's own) is never touched.
+function Disposal.identity(body)
+    local name, gender = Disposal.descriptorName(body)
+    local community = SC.Community
+    if name and type(community) == "table" and type(community.deathMatching) == "function" then
+        local ok, subjectId, row = pcall(community.deathMatching, name)
+        if ok and subjectId ~= nil and type(row) == "table" then
+            local known = row.subjectGender or "unknown"
+            if known == "unknown" or gender == "unknown" or known == gender then
+                return "fallen", { name = row.subjectName or name, subjectId = subjectId }
+            end
+        end
+    end
+    local player, playerOk = invoke(body, "isPlayer")
+    if playerOk and player == true then return "protected" end
+    return "ordinary"
+end
+
+-- Returns the identity and the fallen record, or nil and a reason. Burning
+-- never takes a fallen companion; nothing ever takes an unmatched player.
+function Disposal.candidate(body, order, actor, burning)
+    if not U().instanceOf(body, "IsoDeadBody") then return nil end
+    local data = Disposal.bodyData(body)
+    if data and data[Production.BURNED_TAG] ~= nil then return nil, "burned" end
+    local eligible, why = bodyEligible(body, order, actor)
+    if not eligible then return nil, why end
+    local kind, fallen = Disposal.identity(body)
+    if kind == "protected" then return nil, "protected_body" end
+    if kind == "fallen" and burning then return nil, "fallen_companion" end
+    return kind, fallen
+end
+
+function Disposal.newTag(order, id)
+    Disposal.tagSerial = Disposal.tagSerial + 1
+    return tostring(order.id) .. "|" .. tostring(id) .. "|" .. tostring(now()) .. "|"
+        .. tostring(Disposal.tagSerial)
+end
+
+function Disposal.setTag(body, tag)
+    local data = Disposal.bodyData(body)
+    if not data then return false end
+    data[Production.HAUL_TAG] = tag
+    return data[Production.HAUL_TAG] == tag
+end
+
+function Disposal.clearTag(body)
+    local data = Disposal.bodyData(body)
+    if data and data[Production.HAUL_TAG] ~= nil then
+        data[Production.HAUL_TAG] = nil
+        return true
+    end
+    return false
+end
+
+-- Find a laid-down body by its haul tag, nearest ring first.
+function Disposal.findTagged(origin, tag, radius)
+    local x, y, z = U().position(origin)
+    if x == nil or tag == nil then return nil end
+    x, y, z = math.floor(x), math.floor(y), math.floor(z or 0)
+    for ring = 0, radius do
+        for dy = -ring, ring do
+            for dx = -ring, ring do
+                if math.max(math.abs(dx), math.abs(dy)) == ring then
+                    local square = U().gridSquare(x + dx, y + dy, z)
+                    local found
+                    U().squareStaticMovingObjects(square, function(object)
+                        local data = Disposal.bodyData(object)
+                        if data and data[Production.HAUL_TAG] == tag then
+                            found = object
+                            return false
+                        end
+                    end, 16)
+                    if found then return found, square end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+function Disposal.sources(order, zone)
+    local settings = type(order.settings) == "table" and order.settings or {}
+    local result = {}
+    -- Bodies already inside the burial ground only need the last few steps.
+    if zone.kind == "burial" then result[1] = zone end
+    for _, source in ipairs(Disposal.zones()) do
+        if (source.kind == "area" and settings.fromCamp == true)
+            or (source.kind == "lumber" and settings.fromLumber == true) then
+            result[#result + 1] = source
+        end
+    end
+    return result
+end
+
+-- Round robin over the source areas, each with its own resumable scan. Only
+-- a full pass over every area without an eligible body is terminal.
+function Disposal.nextSource(actor, order, state, context, zone)
+    local sources = Disposal.sources(order, zone)
+    if #sources == 0 then return nil, "no_collection_areas", true end
+    local search = state.collect
+    if type(search) ~= "table" then
+        search = { index = 1, done = {}, carrying = 0, seen = {} }
+        state.collect = search
+    end
+    local burning = zone.kind == "pyre"
+    local budget = config("productionCorpseScanSquaresPerSlice", 48)
+    for _ = 1, #sources do
+        if search.index > #sources then search.index = 1 end
+        local source = sources[search.index]
+        if not search.done[source.id] then
+            local purpose = "corpse:" .. tostring(source.id)
+            local candidate, reason, terminal = nextZoneCandidate(order, purpose, source,
+                function(square, x, y, z)
+                    if source.kind ~= "burial" and Disposal.inDisposalArea(x, y, z) then return nil end
+                    local found
+                    U().squareStaticMovingObjects(square, function(object)
+                        local kind, detail = Disposal.candidate(object, order, actor, burning)
+                        if kind then
+                            found = {
+                                key = bodyKey(object), body = object, square = square,
+                                x = x, y = y, z = z, identity = kind, fallen = detail,
+                                purpose = purpose, sourceZone = source,
+                            }
+                            return false
+                        end
+                        local key = bodyKey(object)
+                        if detail == "carries_items" and not search.seen[key]
+                            and search.carrying < 99 then
+                            search.seen[key] = true
+                            search.carrying = search.carrying + 1
+                        end
+                    end, 16)
+                    return found
+                end, context.actorId, false, budget)
+            if candidate then return candidate, reason, false end
+            if not terminal then return nil, reason, false end
+            search.done[source.id] = true
+        end
+        search.index = search.index + 1
+    end
+    local carrying = search.carrying
+    state.collect = nil
+    if carrying > 0 then return nil, "bodies_carry_items:" .. tostring(carrying), true end
+    return nil, "no_bodies_in_collection_areas", true
+end
+
+-- Graves ---------------------------------------------------------------------
+
+-- An open grave for the next body: remembered graves first, then any grave in
+-- the burial ground. A fallen companion needs an empty one of their own.
+function Disposal.openGrave(order, context, needEmpty)
+    local function usable(info)
+        return info ~= nil and info.spriteType == "sprite1" and graveOpen(info)
+            and (needEmpty ~= true or info.corpses == 0)
+            and not claimActive(info.key, context.actorId)
+    end
+    for _, point in ipairs(order.graves or {}) do
+        local info = primaryGraveAt(point)
+        if usable(info) then return info end
+    end
+    local zone = zoneFor(order)
+    if not zone then return nil end
+    for y = zone.y1, zone.y2 do
+        for x = zone.x1, zone.x2 do
+            for _, object in ipairs(graveObjects(U().gridSquare(x, y, zone.z))) do
+                local info = graveInfo(object)
+                if usable(info) then
+                    SC.BaseLife.noteProductionGrave(order.id, { x = info.x, y = info.y, z = info.z })
+                    return info
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- A fallen companion's grave keeps their name on both halves: nobody else is
+-- ever buried in it, its ceremony speaks the name and a cross is always
+-- queued. The base history remembers where they lie.
+function Disposal.markFallenGrave(info, fallen)
+    local name = type(fallen) == "table" and fallen.name or nil
+    if type(name) ~= "string" or name == "" then return false end
+    local halves = { info.object }
+    local px, py = gravePartner(info)
+    for _, object in ipairs(graveObjects(U().gridSquare(px, py, info.z))) do
+        local data = U().modData(object)
+        if type(data) == "table" and data.spriteType == "sprite2" then
+            halves[#halves + 1] = object
+        end
+    end
+    for _, object in ipairs(halves) do
+        local data = U().modData(object)
+        if type(data) == "table" then data[Production.FALLEN_NAME] = name end
+    end
+    info.fallenName = name
+    noteOwnershipMutation()
+    metrics.fallenBuried = metrics.fallenBuried + 1
+    SC.BaseLife.noteProductionCounter("fallenBuried", 1)
+    SC.BaseLife.noteHistory("fallen_buried", {
+        name = name, subjectId = fallen.subjectId, x = info.x, y = info.y, z = info.z,
+    })
+    return true
+end
+
+-- Lower one body into its reserved grave. Shared by graveside burial and body
+-- collection; a collected body carries its haul tag and, for a fallen
+-- companion, the name its grave will keep.
+function Disposal.startBurial(actor, order, state, context, target)
     local grave = target.graveInfo
     if not grave then
         releaseClaim(target.key, context.actorId)
@@ -2009,7 +2493,8 @@ local function updateBury(actor, order, state, context)
         return false, "production_target_unloaded"
     end
     state.phase = "approaching"
-    local approach, approachReason = approachSquare(actor, square, "move_to_production_grave")
+    local approach, approachReason = approachSquare(actor, square, "move_to_production_grave",
+        nil, Disposal.reach(order, zoneFor(order)))
     if approach == "failed" then
         releaseClaim(target.key, context.actorId)
         releaseClaim(target.graveKey, context.actorId)
@@ -2044,11 +2529,1034 @@ local function updateBury(actor, order, state, context)
         kind = "bury_body", body = target.body, bodySquare = target.bodySquare,
         key = target.key, graveKey = target.graveKey,
         grave = { x = grave.x, y = grave.y, z = grave.z }, corpsesBefore = grave.corpses,
-        startedAt = now(),
+        startedAt = now(), fallen = target.fallen, haulTag = target.haulTag,
     }
     state.buryTarget = nil
     state.phase = "burying"
     return true, "production_burying"
+end
+
+-- A collected body laid at the graveside keeps its burial target until the
+-- burial starts; a vanished body or a full grave returns it to the pool.
+function Disposal.resumeBurial(actor, order, state, context)
+    local target = state.buryTarget
+    local info = primaryGraveAt(target.grave)
+    if not Disposal.bodyAt(target.body, target.bodySquare) or not graveOpen(info)
+        or (target.fallen ~= nil and info.corpses > 0) then
+        releaseClaim(target.key, context.actorId)
+        releaseClaim(target.graveKey, context.actorId)
+        state.buryTarget = nil
+        return nil
+    end
+    target.graveInfo = info
+    claim(target.key, order.id, context.actorId)
+    claim(target.graveKey, order.id, context.actorId)
+    return Disposal.startBurial(actor, order, state, context, target)
+end
+
+-- A grave closes when it is full, at once when it holds a fallen companion,
+-- and (all) when the order is done.
+function Disposal.closeGraves(actor, order, state, context, all)
+    for _, point in ipairs(order.graves or {}) do
+        local info = primaryGraveAt(point)
+        if info and not info.filled and info.corpses > 0 and (all == true
+            or info.fallenName ~= nil or info.corpses >= graveCapacity(info.object)) then
+            return fillGrave(actor, order, state, info, context)
+        end
+    end
+    return nil
+end
+
+-- Pyre safety ----------------------------------------------------------------
+
+function Disposal.spriteName(object)
+    local name, ok = invoke(object, "getSpriteName")
+    if ok and type(name) == "string" then return name end
+    local sprite, spriteOk = invoke(object, "getSprite")
+    if spriteOk and sprite ~= nil then
+        local spriteName, nameOk = invoke(sprite, "getName")
+        if nameOk and type(spriteName) == "string" then return spriteName end
+    end
+    return ""
+end
+
+function Disposal.prefixed(name, prefixes)
+    for _, prefix in ipairs(prefixes) do
+        if string.sub(name, 1, #prefix) == prefix then return true end
+    end
+    return false
+end
+
+function Disposal.objectHazard(object)
+    for className, reason in pairs(Disposal.HAZARD_CLASSES) do
+        if U().instanceOf(object, className) then return reason end
+    end
+    local container, containerOk = invoke(object, "getContainer")
+    if containerOk and container ~= nil then return "container_near" end
+    local name = Disposal.spriteName(object)
+    if Disposal.prefixed(name, Disposal.STRUCTURE_PREFIXES) then return "structure_near" end
+    if Disposal.prefixed(name, Disposal.VEGETATION_PREFIXES) then return "vegetation_near" end
+    if U().config("productionPyreRejectGrass") == true
+        and Disposal.prefixed(name, Disposal.GRASS_PREFIXES) then
+        return "grass"
+    end
+    return nil
+end
+
+function Disposal.squareHazard(square, onPyre)
+    if onPyre then
+        local outside, outsideOk = invoke(square, "isOutside")
+        if (outsideOk and outside == false) or inRoom(square) then return "indoors" end
+    end
+    local vehicle, vehicleOk = invoke(square, "getVehicleContainer")
+    if vehicleOk and vehicle ~= nil then return "vehicle_near" end
+    if treeOn(square) then return "tree_near" end
+    local items, itemsOk = invoke(square, "getWorldObjects")
+    if itemsOk and items ~= nil and U().listSize(items) > 0 then return "loose_items" end
+    local floor = invoke(square, "getFloor")
+    local hazard
+    U().squareObjects(square, function(object)
+        if object ~= floor then hazard = Disposal.objectHazard(object) end
+        if hazard then return false end
+    end, 32)
+    return hazard
+end
+
+-- The only place anything is set alight. Checked when the zone is drawn,
+-- when an order is created and again before every ignition.
+function Production.validatePyreZone(zone)
+    if type(zone) ~= "table" or tonumber(zone.x1) == nil then return false, "invalid_zone" end
+    if (tonumber(zone.z) or 0) ~= 0 then return false, "not_ground_level" end
+    local clearance = math.max(0, math.floor(config("productionPyreClearance", 2)))
+    local distance = math.max(clearance,
+        math.floor(config("productionPyreStructureDistance", 4)))
+    for _, storage in ipairs(SC.BaseLife.storageRows(nil, false)) do
+        local sx, sy = tonumber(storage.x), tonumber(storage.y)
+        if sx and sy and (tonumber(storage.z) or 0) == zone.z
+            and Disposal.ringDistance(zone, math.floor(sx), math.floor(sy)) <= distance then
+            return false, "storage_near"
+        end
+    end
+    for y = zone.y1 - distance, zone.y2 + distance do
+        for x = zone.x1 - distance, zone.x2 + distance do
+            local ring = Disposal.ringDistance(zone, x, y)
+            local square = U().gridSquare(x, y, zone.z)
+            if square == nil then
+                if ring <= clearance then return false, "area_unloaded" end
+            else
+                local building, buildingOk = invoke(square, "getBuilding")
+                if (buildingOk and building ~= nil) or inRoom(square) then
+                    return false, ring == 0 and "indoors" or "building_near"
+                end
+                if ring <= clearance then
+                    local hazard = Disposal.squareHazard(square, ring == 0)
+                    if hazard then return false, hazard end
+                end
+            end
+        end
+    end
+    return true
+end
+
+function Disposal.squareOnFire(square)
+    if square == nil then return false end
+    local fire, ok = invoke(square, "haveFire")
+    return ok and fire == true
+end
+
+function Disposal.pyreBurning(zone)
+    for y = zone.y1, zone.y2 do
+        for x = zone.x1, zone.x2 do
+            if Disposal.squareOnFire(U().gridSquare(x, y, zone.z)) then return true end
+        end
+    end
+    return false
+end
+
+-- Fire on any tile beyond the pyre and its margin is a spreading fire.
+function Disposal.fireSpread(zone)
+    local margin = math.max(0, math.floor(config("productionBurnFireSpreadMargin", 1)))
+    local reach = margin + 3
+    for y = zone.y1 - reach, zone.y2 + reach do
+        for x = zone.x1 - reach, zone.x2 + reach do
+            if Disposal.ringDistance(zone, x, y) > margin
+                and Disposal.squareOnFire(U().gridSquare(x, y, zone.z)) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
+-- Supplies, weather and bystanders ---------------------------------------------
+
+function Disposal.petrolFluid()
+    local fluids = type(_G) == "table" and rawget(_G, "Fluid") or nil
+    if fluids == nil then return nil end
+    local ok, petrol = pcall(function() return fluids.Petrol end)
+    return ok and petrol or nil
+end
+
+function Disposal.petrolAmount(item)
+    local petrol = Disposal.petrolFluid()
+    if item == nil or petrol == nil then return 0 end
+    local fluid, fluidOk = invoke(item, "getFluidContainer")
+    if not fluidOk or fluid == nil then return 0 end
+    local contains, containsOk = invoke(fluid, "contains", petrol)
+    if not containsOk or contains ~= true then return 0 end
+    local amount, amountOk = invoke(fluid, "getAmount")
+    return amountOk and tonumber(amount) or 0
+end
+
+-- ISBurnCorpseAction takes ZomboidGlobals.BurnCorpsePetrolAmount per body.
+function Disposal.fuelPerBody()
+    local globals = type(_G) == "table" and rawget(_G, "ZomboidGlobals") or nil
+    local ok, amount = pcall(function() return globals.BurnCorpsePetrolAmount end)
+    return ok and tonumber(amount) or 0.1
+end
+
+function Disposal.isLighter(item)
+    if item == nil or not notBroken(item) then return false end
+    local fullType = U().itemType(item)
+    if fullType ~= "Base.Lighter" and fullType ~= "Base.Matches"
+        and U().itemHasTag(item, "StartFire") ~= true then
+        return false
+    end
+    local uses, usesOk = invoke(item, "getCurrentUsesFloat")
+    return not usesOk or tonumber(uses) == nil or tonumber(uses) > 0
+end
+
+function Disposal.supplyMatches(item, kind)
+    if kind == "lighter" then return Disposal.isLighter(item) end
+    return Disposal.petrolAmount(item) >= Disposal.fuelPerBody() - 0.001
+end
+
+function Disposal.inventorySupply(actor, kind)
+    for _, item in ipairs(U().inventoryItems(U().inventory(actor), 256)) do
+        if Disposal.supplyMatches(item, kind) then return item end
+    end
+    return nil
+end
+
+function Disposal.missingSupply(actor)
+    if not Disposal.inventorySupply(actor, "lighter") then return "lighter" end
+    if not Disposal.inventorySupply(actor, "petrol") then return "petrol" end
+    return nil
+end
+
+function Disposal.storageSupply(actor, kind)
+    for _, storage in ipairs(SC.BaseLife.storageRows(nil, true)) do
+        local container = SC.BaseLife.resolveContainer(storage)
+        if container then
+            for _, item in ipairs(U().inventoryItems(container,
+                config("campStorageItemBudget", 80))) do
+                if Disposal.supplyMatches(item, kind) and not protectedItem(item, actor)
+                    and SC.BaseLife.availableCount(storage, U().itemType(item)) > 0 then
+                    return storage, container, item
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- Same verified storage withdrawal as tools; a missing supply blocks with a
+-- readable reason and re-checks on the ordinary retry cadence.
+function Disposal.fetchSupply(actor, order, state, kind)
+    if not SC.BaseWork or type(SC.BaseWork.withdrawFromStorage) ~= "function" then
+        return blockOrder(order, "base_work_unavailable")
+    end
+    local pending = state.supplyFetch
+    if pending and (pending.kind ~= kind
+        or U().inventoryContains(pending.container, pending.item) ~= true) then
+        pending, state.supplyFetch = nil, nil
+    end
+    if not pending then
+        local storage, container, item = Disposal.storageSupply(actor, kind)
+        if not storage then
+            return blockOrder(order, kind == "lighter" and "missing_lighter" or "missing_fuel")
+        end
+        pending = { kind = kind, storage = storage, container = container, item = item }
+        state.supplyFetch = pending
+    end
+    state.phase = "fetching_tool"
+    local ok, reason = SC.BaseWork.withdrawFromStorage(actor, state, pending.storage,
+        pending.container, pending.item)
+    if ok == true and reason == "base_supply_taken" then
+        state.supplyFetch = nil
+        return true, "production_supply_taken"
+    end
+    if ok ~= true then
+        state.supplyFetch = nil
+        return false, reason or "production_supply_fetch_failed"
+    end
+    return true, reason
+end
+
+function Disposal.raining()
+    if type(getClimateManager) ~= "function" then return false end
+    local ok, manager = pcall(getClimateManager)
+    if not ok or manager == nil then return false end
+    local raining, called = invoke(manager, "isRaining")
+    return called and raining == true
+end
+
+function Disposal.requireDry(order)
+    return type(order.settings) ~= "table" or order.settings.requireDry ~= false
+end
+
+-- Nobody but the igniter stands within reach of the body being lit.
+function Disposal.bystanderNear(actor, square)
+    local limit = config("productionPyreBystanderDistance", 2)
+    local function near(other)
+        return other ~= nil and other ~= actor and not U().isDead(other)
+            and U().distance(other, square) <= limit
+    end
+    if type(getPlayer) == "function" then
+        local ok, player = pcall(getPlayer)
+        if ok and near(player) then return true end
+    end
+    for _, other in ipairs(U().registryLiving(32)) do
+        if near(other) then return true end
+    end
+    return false
+end
+
+-- Burning --------------------------------------------------------------------
+
+function Disposal.watchSquare(actor, zone)
+    local distance = math.max(1, math.floor(config("productionPyreWatchDistance", 3)))
+    local cx, cy = math.floor((zone.x1 + zone.x2) / 2), math.floor((zone.y1 + zone.y2) / 2)
+    local best, bestDistance
+    for _, point in ipairs({
+        { zone.x1 - distance, cy }, { zone.x2 + distance, cy },
+        { cx, zone.y1 - distance }, { cx, zone.y2 + distance },
+    }) do
+        local square = U().gridSquare(point[1], point[2], zone.z)
+        if square and U().isSquareFree(square) and not Disposal.squareOnFire(square) then
+            local value = U().distance(actor, square)
+            if bestDistance == nil or value < bestDistance then best, bestDistance = square, value end
+        end
+    end
+    return best
+end
+
+-- Stand clear of a burning pyre: at least the watch distance from every tile.
+function Disposal.keepWatch(actor, order, zone)
+    local distance = math.max(1, math.floor(config("productionPyreWatchDistance", 3)))
+    local x, y = U().position(actor)
+    if x ~= nil and Disposal.ringDistance(zone, math.floor(x), math.floor(y)) >= distance then
+        return "production_watching_fire"
+    end
+    local square = Disposal.watchSquare(actor, zone)
+    if not square or not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
+        return "production_watching_fire"
+    end
+    local accepted, reason = SC.Navigation.requestAny(actor, { square }, "walk", {
+        action = "move_to_pyre_watch", targetSquare = square, arrivalDistance = 0.8,
+        workCampOnly = true, workReach = Disposal.reach(order, zone),
+    })
+    if accepted == true then return reason or "production_moving_to_watch" end
+    return "production_watching_fire"
+end
+
+-- The free pyre tile nearest the middle, so a body laid there lands inside.
+function Disposal.freePyreSquare(zone)
+    local cx, cy = (zone.x1 + zone.x2) / 2, (zone.y1 + zone.y2) / 2
+    local best, bestScore
+    for y = zone.y1, zone.y2 do
+        for x = zone.x1, zone.x2 do
+            local square = U().gridSquare(x, y, zone.z)
+            if square and U().isSquareFree(square) and not Disposal.squareOnFire(square)
+                and not Disposal.hasBody(square) then
+                local score = math.abs(x - cx) + math.abs(y - cy)
+                if bestScore == nil or score < bestScore then best, bestScore = square, score end
+            end
+        end
+    end
+    return best
+end
+
+function Disposal.releaseBurnTarget(state, context)
+    local target = state.burnTarget
+    state.burnTarget = nil
+    if target then releaseClaim(target.key, context.actorId) end
+end
+
+-- Fire beyond the pyre: every worker stops (the order blocks), nobody lights
+-- anything again until the player presses Retry.
+function Disposal.fireEmergency(actor, order, state, context)
+    local native = natives()
+    if state.work and workActive(actor, state.work.kind) then
+        cancelWork(actor, "production_fire_spread")
+    end
+    if native and type(native.isDraggingCorpse) == "function" and native.isDraggingCorpse(actor) then
+        pcall(native.releaseCorpse, actor)
+    end
+    speak(actor, "burn.fire_spread", nil, tostring(order.id) .. ":" .. tostring(now()),
+        context.runtime)
+    SC.BaseLife.noteHistory("pyre_fire_spread", { orderId = order.id, zoneId = order.zoneId })
+    Disposal.abandonHaul(state, context)
+    Disposal.releaseBurnTarget(state, context)
+    state.work, state.burn = nil, nil
+    releaseClaim("pyre:" .. tostring(order.zoneId), context.actorId)
+    U().stop(actor)
+    return blockOrder(order, "fire_spread")
+end
+
+-- One body, one fire. The igniter stands beside the body with the lighter and
+-- the petrol can in hand, then watches from a distance.
+function Disposal.ignite(actor, order, state, context, zone, target)
+    local pyreKey = "pyre:" .. tostring(zone.id)
+    if claimActive(pyreKey, context.actorId) then
+        state.phase = "watching"
+        return true, Disposal.keepWatch(actor, order, zone)
+    end
+    claim(pyreKey, order.id, context.actorId)
+    claim(target.key, order.id, context.actorId)
+    local safe, unsafe = Production.validatePyreZone(zone)
+    if safe ~= true then
+        Disposal.releaseBurnTarget(state, context)
+        releaseClaim(pyreKey, context.actorId)
+        return blockOrder(order, "pyre_unsafe:" .. tostring(unsafe))
+    end
+    if Disposal.requireDry(order) and Disposal.raining() then
+        Disposal.releaseBurnTarget(state, context)
+        releaseClaim(pyreKey, context.actorId)
+        speak(actor, "burn.rain", nil, pyreKey, context.runtime)
+        return blockOrder(order, "raining")
+    end
+    local missing = Disposal.missingSupply(actor)
+    if missing then return Disposal.fetchSupply(actor, order, state, missing) end
+    state.phase = "approaching"
+    local approach, approachReason = approachSquare(actor, target.square, "move_to_pyre_body",
+        nil, Disposal.reach(order, zone))
+    if approach == "failed" then
+        noteCandidateFailure(order, "pyre-body", target.key, approachReason, zone)
+        Disposal.releaseBurnTarget(state, context)
+        releaseClaim(pyreKey, context.actorId)
+        return false, approachReason
+    end
+    if approach ~= "arrived" then return true, approachReason end
+    if threatNearby(actor, context.runtime) then return false, "unsafe_area" end
+    if Disposal.bystanderNear(actor, target.square) then
+        state.phase = "watching"
+        return true, "pyre_bystander_near"
+    end
+    local accepted, reason = U().move(actor, "walk", {
+        action = "burn_body", body = target.body,
+        lighter = Disposal.inventorySupply(actor, "lighter"),
+        petrol = Disposal.inventorySupply(actor, "petrol"), targetSquare = target.square,
+    })
+    if accepted ~= true and transientRejection(reason) then return true, reason end
+    if accepted ~= true or not workActive(actor, "burn_body") then
+        noteCandidateFailure(order, "pyre-body", target.key, reason, zone)
+        Disposal.releaseBurnTarget(state, context)
+        releaseClaim(pyreKey, context.actorId)
+        return false, reason or "production_burn_rejected"
+    end
+    local x, y, z = U().position(target.square)
+    state.work = {
+        kind = "burn_body", body = target.body, key = target.key, zoneId = zone.id,
+        x = x, y = y, z = z or 0, startedAt = now(),
+    }
+    state.burnTarget = nil
+    state.phase = "burning"
+    return true, "production_burning"
+end
+
+-- The vanilla action starts a real fire on the corpse tile; only that fire
+-- proves the ignition. The lit body is marked so it is never lit twice.
+function Disposal.pollBurn(actor, order, state, context)
+    local work = state.work
+    local pyreKey = "pyre:" .. tostring(work.zoneId)
+    claim(pyreKey, order.id, context.actorId)
+    claim(work.key, order.id, context.actorId)
+    if workActive(actor, "burn_body") then
+        if actionTimedOut(state) then
+            local cancelled, cancelReason = cancelWork(actor, "production_burn_timeout")
+            if cancelled ~= true then return false, cancelReason or "burn_cancel_failed" end
+            state.work = nil
+            releaseClaim(pyreKey, context.actorId)
+            releaseClaim(work.key, context.actorId)
+            return blockOrder(order, "burn_timeout")
+        end
+        return true, "production_burning"
+    end
+    if work.finishedAt == nil then
+        local finished, finishReason = finishWork(actor)
+        if finished ~= true then return false, finishReason or "burn_finish_failed" end
+        work.finishedAt = now()
+    end
+    local lit = Disposal.squareOnFire(U().gridSquare(work.x, work.y, work.z))
+    if not lit and now() - work.finishedAt < config("productionBurnIgniteVerifyMs", 6000) then
+        return true, "production_burn_verifying"
+    end
+    state.work = nil
+    if not lit then
+        releaseClaim(pyreKey, context.actorId)
+        releaseClaim(work.key, context.actorId)
+        noteCandidateFailure(order, "pyre-body", work.key, "burn_unverified", zoneFor(order))
+        if Disposal.raining() then return blockOrder(order, "raining") end
+        state.burnFailures = (state.burnFailures or 0) + 1
+        if state.burnFailures >= config("productionCandidateMaxAttempts", 3) then
+            state.burnFailures = 0
+            return blockOrder(order, "burn_unverified")
+        end
+        return false, "burn_unverified"
+    end
+    state.burnFailures = 0
+    local data = Disposal.bodyData(work.body)
+    if data then data[Production.BURNED_TAG] = tostring(order.id) end
+    Disposal.clearTag(work.body)
+    SC.BaseLife.noteProductionCounter("pyresLit", 1)
+    speak(actor, "burn.ignite", nil, work.key, context.runtime)
+    state.burn = {
+        key = work.key, body = work.body, x = work.x, y = work.y, z = work.z, litAt = now(),
+    }
+    state.phase = "watching"
+    return true, "production_pyre_lit"
+end
+
+-- Watch from a distance until the fire is out (bounded). The body counts once
+-- it burned long enough or is gone; a fire the rain put out early is retried
+-- later instead.
+function Disposal.pollWatch(actor, order, state, context)
+    local burn = state.burn
+    local zone = zoneFor(order)
+    if not zone then
+        state.burn = nil
+        return blockOrder(order, "invalid_production_zone")
+    end
+    local pyreKey = "pyre:" .. tostring(zone.id)
+    claim(pyreKey, order.id, context.actorId)
+    claim(burn.key, order.id, context.actorId)
+    state.phase = "watching"
+    local current = now()
+    if current - (burn.checkedAt or 0) >= 1000 then
+        burn.checkedAt = current
+        if Disposal.fireSpread(zone) then return Disposal.fireEmergency(actor, order, state, context) end
+    end
+    local burning = Disposal.pyreBurning(zone)
+    local burnedFor = current - burn.litAt
+    if burning and burnedFor < config("productionBurnWatchMaxMs", 240000) then
+        speak(actor, "burn.watch", nil, burn.key .. ":" .. tostring(math.floor(burnedFor / 30000)),
+            context.runtime)
+        return true, Disposal.keepWatch(actor, order, zone)
+    end
+    state.burn = nil
+    releaseClaim(pyreKey, context.actorId)
+    releaseClaim(burn.key, context.actorId)
+    if not burning and burnedFor < config("productionBurnCreditMs", 20000)
+        and Disposal.bodyAt(burn.body, U().gridSquare(burn.x, burn.y, burn.z)) then
+        local data = Disposal.bodyData(burn.body)
+        if data then data[Production.BURNED_TAG] = nil end
+        noteCandidateFailure(order, "pyre-body", burn.key, "burn_went_out", zone)
+        if Disposal.raining() then
+            speak(actor, "burn.rain", nil, burn.key, context.runtime)
+            return blockOrder(order, "raining")
+        end
+        return false, "burn_went_out"
+    end
+    local progressed, progressReason = SC.BaseLife.recordProductionProgress(order.id, 1)
+    if progressed ~= true then return false, progressReason or "burn_progress_failed" end
+    metrics.bodiesBurned = metrics.bodiesBurned + 1
+    SC.BaseLife.noteProductionCounter("bodiesBurned", 1)
+    if order.operation == "collect_bodies" then
+        SC.BaseLife.noteProductionCounter("bodiesCollected", 1)
+    end
+    if ceremony(actor, { key = "pyre:" .. tostring(burn.key) .. ":" .. tostring(burn.litAt),
+        pyre = true }, context.runtime) then
+        state.pendingSalute = true
+    end
+    return true, "production_body_burned"
+end
+
+-- Burn the next body lying on the pyre. While the pyre burns, workers keep
+-- their distance and watch for spreading fire instead.
+function Disposal.burnOnPyre(actor, order, state, context, zone, optional)
+    if Disposal.pyreBurning(zone) then
+        state.phase = "watching"
+        if Disposal.fireSpread(zone) then return Disposal.fireEmergency(actor, order, state, context) end
+        return true, Disposal.keepWatch(actor, order, zone)
+    end
+    local target = state.burnTarget
+    if target and not Disposal.bodyAt(target.body, target.square) then
+        Disposal.releaseBurnTarget(state, context)
+        target = nil
+    end
+    if not target then
+        local carrying = 0
+        for y = zone.y1, zone.y2 do
+            for x = zone.x1, zone.x2 do
+                local square = U().gridSquare(x, y, zone.z)
+                U().squareStaticMovingObjects(square, function(object)
+                    local key = bodyKey(object)
+                    local kind, why = Disposal.candidate(object, order, actor, true)
+                    if kind and not claimActive(key, context.actorId)
+                        and not onCooldown(order, "pyre-body", key) then
+                        target = { body = object, square = square, key = key }
+                        return false
+                    end
+                    if why == "carries_items" then carrying = carrying + 1 end
+                end, 16)
+                if target then break end
+            end
+            if target then break end
+        end
+        if not target then
+            if optional then return nil end
+            if carrying > 0 then
+                return blockOrder(order, "bodies_carry_items:" .. tostring(carrying))
+            end
+            return blockOrder(order, "no_bodies_on_pyre")
+        end
+        state.burnTarget = target
+    end
+    return Disposal.ignite(actor, order, state, context, zone, target)
+end
+
+-- Hauling --------------------------------------------------------------------
+
+function Disposal.abandonHaul(state, context)
+    local haul = state.haul
+    state.haul = nil
+    if not haul then return end
+    releaseClaim(haul.key, context.actorId)
+    if type(haul.destination) == "table" and haul.destination.key then
+        releaseClaim(haul.destination.key, context.actorId)
+    end
+    if haul.pyreKey then releaseClaim(haul.pyreKey, context.actorId) end
+end
+
+-- A grab that never becomes a drag cools the body down; repeated failures
+-- mean the grapple does not work for this companion at all.
+function Disposal.dragFailure(order, state, context, reason)
+    local haul = state.haul
+    if haul then
+        if Disposal.bodyAt(haul.body, haul.square) then Disposal.clearTag(haul.body) end
+        noteCandidateFailure(order, haul.purpose, haul.key, reason, haul.sourceZone)
+    end
+    Disposal.abandonHaul(state, context)
+    state.dragFailures = (state.dragFailures or 0) + 1
+    if state.dragFailures >= config("productionCandidateMaxAttempts", 3) then
+        state.dragFailures = 0
+        return blockOrder(order, "drag_unavailable")
+    end
+    return false, reason
+end
+
+-- Let go where the worker stands. The body stays in the world; its stale
+-- haul tag is harmless and is overwritten by the next grab.
+function Disposal.dropHere(actor, order, state, context, reason, block)
+    local native = natives()
+    if native and type(native.releaseCorpse) == "function" then pcall(native.releaseCorpse, actor) end
+    Disposal.abandonHaul(state, context)
+    if block == true then return blockOrder(order, reason) end
+    return false, reason
+end
+
+function Disposal.emergencyDrop(actor, order, state, context)
+    speak(actor, "burial.haul.threat", nil, tostring(now()), context.runtime)
+    return Disposal.dropHere(actor, order, state, context, "unsafe_area")
+end
+
+-- Reserve where the body goes before touching it: the pyre (one haul at a
+-- time) or an open grave, dug first when none is free.
+function Disposal.reserveDestination(actor, order, state, context, zone, haul)
+    if zone.kind == "pyre" then
+        local pyreKey = "pyre:" .. tostring(zone.id)
+        if claimActive(pyreKey, context.actorId) then
+            state.phase = "watching"
+            return true, "production_pyre_claimed"
+        end
+        claim(pyreKey, order.id, context.actorId)
+        haul.pyreKey, haul.destination = pyreKey, { kind = "pyre" }
+        return nil
+    end
+    local grave = Disposal.openGrave(order, context, haul.identity == "fallen")
+    if grave then
+        claim(grave.key, order.id, context.actorId)
+        haul.destination = { kind = "grave", x = grave.x, y = grave.y, z = grave.z, key = grave.key }
+        return nil
+    end
+    -- The new grave is capacity for the collection, never order progress.
+    return digNext(actor, order, state, context, "capacity")
+end
+
+-- Choose a body, reserve where it goes, walk over and take hold of it.
+-- Everything a trip needs is checked before a body is touched.
+function Disposal.beginHaul(actor, order, state, context, zone)
+    local haul = state.haul
+    if threatNearby(actor, context.runtime) then
+        Disposal.abandonHaul(state, context)
+        return false, "unsafe_area"
+    end
+    if not haul then
+        if zone.kind == "pyre" then
+            if claimActive("pyre:" .. tostring(zone.id), context.actorId) then
+                state.phase = "watching"
+                return true, Disposal.keepWatch(actor, order, zone)
+            end
+            local safe, unsafe = Production.validatePyreZone(zone)
+            if safe ~= true then return blockOrder(order, "pyre_unsafe:" .. tostring(unsafe)) end
+            if Disposal.requireDry(order) and Disposal.raining() then
+                return blockOrder(order, "raining")
+            end
+            local missing = Disposal.missingSupply(actor)
+            if missing then return Disposal.fetchSupply(actor, order, state, missing) end
+        elseif not findInventoryTool(actor, "diggrave") then
+            return fetchTool(actor, order, state, "diggrave")
+        end
+        state.phase = "seeking"
+        local candidate, reason, terminal = Disposal.nextSource(actor, order, state, context, zone)
+        if not candidate then
+            if terminal then return blockOrder(order, reason) end
+            return true, reason
+        end
+        if lumberNight() and SC.BaseLife.isInside(candidate.square) ~= true then
+            state.collect = nil
+            return blockOrder(order, "lumber_night")
+        end
+        claim(candidate.key, order.id, context.actorId)
+        candidate.stage = "destination"
+        state.haul, haul = candidate, candidate
+    end
+    claim(haul.key, order.id, context.actorId)
+    if not Disposal.bodyAt(haul.body, haul.square) then
+        Disposal.abandonHaul(state, context)
+        return false, "body_moved"
+    end
+    if haul.stage == "destination" then
+        local handled, reason, terminal = Disposal.reserveDestination(actor, order, state,
+            context, zone, haul)
+        if handled ~= nil then return handled, reason, terminal end
+        haul.stage = "approach"
+    end
+    state.phase = "approaching"
+    local reach = Disposal.reach(order, zone) or SC.BaseLife.isInside(haul.square) ~= true
+    local approach, approachReason = approachSquare(actor, haul.square,
+        "move_to_production_body", nil, reach)
+    if approach == "failed" then
+        noteCandidateFailure(order, haul.purpose, haul.key, approachReason, haul.sourceZone)
+        Disposal.abandonHaul(state, context)
+        return false, approachReason
+    end
+    if approach ~= "arrived" then return true, approachReason end
+    local tag = Disposal.newTag(order, context.actorId)
+    if not Disposal.setTag(haul.body, tag) then
+        noteCandidateFailure(order, haul.purpose, haul.key, "body_tag_failed", haul.sourceZone)
+        Disposal.abandonHaul(state, context)
+        return false, "body_tag_failed"
+    end
+    local accepted, reason = U().move(actor, "walk", {
+        action = "grab_body", body = haul.body, targetSquare = haul.square,
+    })
+    if accepted ~= true and transientRejection(reason) then
+        Disposal.clearTag(haul.body)
+        return true, reason
+    end
+    if accepted ~= true or not workActive(actor, "grab_body") then
+        Disposal.clearTag(haul.body)
+        return Disposal.dragFailure(order, state, context, reason or "production_grab_rejected")
+    end
+    haul.tag = tag
+    state.work = { kind = "grab_body", key = haul.key, startedAt = now() }
+    state.phase = "grabbing"
+    return true, "production_grabbing"
+end
+
+-- The grab is proven only by a real grapple (isDraggingCorpse) shortly after
+-- the vanilla action finishes.
+function Disposal.pollGrab(actor, order, state, context)
+    local work, haul = state.work, state.haul
+    if workActive(actor, "grab_body") then
+        if actionTimedOut(state) then
+            local cancelled, cancelReason = cancelWork(actor, "production_grab_timeout")
+            if cancelled ~= true then return false, cancelReason or "grab_cancel_failed" end
+            state.work = nil
+            return Disposal.dragFailure(order, state, context, "grab_timeout")
+        end
+        return true, "production_grabbing"
+    end
+    if work.finishedAt == nil then
+        local finished, finishReason = finishWork(actor)
+        if finished ~= true then return false, finishReason or "grab_finish_failed" end
+        work.finishedAt = now()
+    end
+    local native = natives()
+    local dragging = native ~= nil and type(native.isDraggingCorpse) == "function"
+        and native.isDraggingCorpse(actor) == true
+    if not dragging then
+        if haul and now() - work.finishedAt < config("productionCorpseDragStartMs", 4000) then
+            return true, "production_grab_verifying"
+        end
+        state.work = nil
+        return Disposal.dragFailure(order, state, context, "grab_unverified")
+    end
+    state.work = nil
+    if not haul then return Disposal.dropHere(actor, order, state, context, "production_haul_missing") end
+    state.dragFailures = 0
+    haul.stage, haul.dragStartedAt = "dragging", now()
+    metrics.bodiesDragged = metrics.bodiesDragged + 1
+    state.phase = "dragging"
+    speak(actor, "burial.haul.start", nil, haul.tag, context.runtime)
+    return true, "production_dragging"
+end
+
+-- Where a dragged body is laid down: beside its reserved grave (switching to
+-- another open grave if that one filled up), or on the free pyre tile
+-- nearest the middle of the pyre.
+function Disposal.dropTarget(order, context, zone, haul)
+    if zone.kind == "pyre" then
+        local square = haul.dropSquare
+        if square and (Disposal.hasBody(square) or Disposal.squareOnFire(square)) then square = nil end
+        if not square then
+            square = Disposal.freePyreSquare(zone)
+            haul.dropSquare = square
+        end
+        return square, nil
+    end
+    local info = primaryGraveAt(haul.destination)
+    if not graveOpen(info) or (haul.identity == "fallen" and info.corpses > 0) then
+        if type(haul.destination) == "table" then
+            releaseClaim(haul.destination.key, context.actorId)
+        end
+        info = Disposal.openGrave(order, context, haul.identity == "fallen")
+        if not info then return nil end
+        claim(info.key, order.id, context.actorId)
+        haul.destination = { kind = "grave", x = info.x, y = info.y, z = info.z, key = info.key }
+    end
+    local px, py = gravePartner(info)
+    return U().gridSquare(info.x, info.y, info.z), {
+        { x = info.x, y = info.y, z = info.z }, { x = px, y = py, z = info.z },
+    }
+end
+
+-- Drag onto a pyre tile itself: the body lands behind the worker.
+function Disposal.dragInto(actor, square, reach)
+    if U().sameSquare(actor, square) then return "arrived", "production_in_range" end
+    if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
+        return "failed", "navigation_unavailable"
+    end
+    local accepted, reason = SC.Navigation.requestAny(actor, { square }, "walk", {
+        action = "drag_body_to_pyre", targetSquare = square, arrivalDistance = 0.5,
+        workCampOnly = true, workReach = reach == true, draggingBody = true,
+    })
+    if accepted ~= true then
+        if transientRejection(reason) then return "pending", reason end
+        return "failed", reason or "drag_route_blocked"
+    end
+    if U().sameSquare(actor, square) then return "arrived", "production_in_range" end
+    return "pending", reason or "production_dragging"
+end
+
+function Disposal.continueDrag(actor, order, state, context, zone)
+    local haul = state.haul
+    local native = natives()
+    if not (native and type(native.isDraggingCorpse) == "function"
+        and native.isDraggingCorpse(actor)) then
+        -- The grapple ended on its own; the body lies wherever it fell.
+        Disposal.abandonHaul(state, context)
+        return false, "drag_lost"
+    end
+    if threatNearby(actor, context.runtime) then
+        return Disposal.emergencyDrop(actor, order, state, context)
+    end
+    if type(haul.destination) == "table" and haul.destination.key then
+        claim(haul.destination.key, order.id, context.actorId)
+    end
+    if haul.pyreKey then claim(haul.pyreKey, order.id, context.actorId) end
+    local elapsed = now() - (haul.dragStartedAt or now())
+    if elapsed > config("productionCorpseDragTimeoutMs", 90000) then
+        return Disposal.dropHere(actor, order, state, context, "drag_timeout")
+    end
+    state.phase = "dragging"
+    speak(actor, "burial.haul.drag", nil,
+        tostring(haul.tag) .. ":" .. tostring(math.floor(elapsed / 15000)), context.runtime)
+    local target, avoid = Disposal.dropTarget(order, context, zone, haul)
+    if not target then
+        return Disposal.dropHere(actor, order, state, context, "drag_destination_missing")
+    end
+    local reach = Disposal.reach(order, zone) or SC.BaseLife.isInside(actor) ~= true
+    local result, moveReason
+    if zone.kind == "pyre" then
+        result, moveReason = Disposal.dragInto(actor, target, reach)
+    else
+        result, moveReason = approachSquare(actor, target, "drag_body_to_grave", avoid, reach, true)
+    end
+    if result == "failed" then
+        return Disposal.dropHere(actor, order, state, context, "drag_route_blocked", true)
+    end
+    if result ~= "arrived" then return true, moveReason end
+    local accepted, reason = U().move(actor, "walk", {
+        action = "drop_body", targetSquare = U().squareOf(actor),
+    })
+    if accepted ~= true and transientRejection(reason) then return true, reason end
+    if accepted ~= true or not workActive(actor, "drop_body") then
+        return Disposal.dropHere(actor, order, state, context, reason or "production_drop_rejected")
+    end
+    state.work = { kind = "drop_body", startedAt = now() }
+    state.phase = "placing"
+    return true, "production_placing"
+end
+
+-- The drop is proven only by the tagged body lying near the worker again.
+function Disposal.pollDrop(actor, order, state, context)
+    local work, haul = state.work, state.haul
+    local native = natives()
+    if workActive(actor, "drop_body") then
+        if actionTimedOut(state) then
+            local cancelled, cancelReason = cancelWork(actor, "production_drop_timeout")
+            if cancelled ~= true then return false, cancelReason or "drop_cancel_failed" end
+            state.work = nil
+            return Disposal.dropHere(actor, order, state, context, "drop_timeout")
+        end
+        return true, "production_placing"
+    end
+    if work.finishedAt == nil then
+        local finished, finishReason = finishWork(actor)
+        if finished ~= true then return false, finishReason or "drop_finish_failed" end
+        work.finishedAt = now()
+    end
+    local stillDragging = native ~= nil and type(native.isDraggingCorpse) == "function"
+        and native.isDraggingCorpse(actor) == true
+    local body, square
+    if not stillDragging and haul then body, square = Disposal.findTagged(actor, haul.tag, 2) end
+    if not body then
+        if now() - work.finishedAt < config("productionCorpseDropVerifyMs", 4000) then
+            return true, "production_drop_verifying"
+        end
+        state.work = nil
+        return Disposal.dropHere(actor, order, state, context, "drop_unverified")
+    end
+    state.work = nil
+    if native and type(native.settleDrag) == "function" then pcall(native.settleDrag, actor) end
+    haul.body, haul.square, haul.key = body, square, bodyKey(body)
+    haul.stage = "placed"
+    claim(haul.key, order.id, context.actorId)
+    speak(actor, "burial.haul.drop", nil, haul.tag, context.runtime)
+    return Disposal.disposePlaced(actor, order, state, context, zoneFor(order))
+end
+
+-- A body laid at its destination is buried in its reserved grave or burned on
+-- the pyre. One that landed beside the pyre is taken hold of again, bounded.
+function Disposal.disposePlaced(actor, order, state, context, zone)
+    local haul = state.haul
+    if not zone then
+        Disposal.abandonHaul(state, context)
+        return blockOrder(order, "invalid_production_zone")
+    end
+    if not Disposal.bodyAt(haul.body, haul.square) then
+        Disposal.abandonHaul(state, context)
+        return false, "body_moved"
+    end
+    if zone.kind == "pyre" then
+        local x, y, z = U().position(haul.square)
+        if not Disposal.inside(zone, x, y, z) then
+            haul.attempts = (haul.attempts or 0) + 1
+            if haul.attempts >= config("productionCorpsePlacementAttempts", 2) then
+                Disposal.clearTag(haul.body)
+                Disposal.abandonHaul(state, context)
+                return blockOrder(order, "pyre_placement_failed")
+            end
+            haul.stage, haul.dropSquare = "approach", nil
+            return true, "production_replacing_body"
+        end
+        Disposal.clearTag(haul.body)
+        state.haul = nil
+        state.burnTarget = { body = haul.body, square = haul.square, key = haul.key }
+        return Disposal.burnOnPyre(actor, order, state, context, zone, false)
+    end
+    local grave = primaryGraveAt(haul.destination)
+    if not graveOpen(grave) or (haul.identity == "fallen" and grave.corpses > 0) then
+        -- The grave filled up meanwhile; the body waits here for another trip.
+        Disposal.clearTag(haul.body)
+        Disposal.abandonHaul(state, context)
+        return false, "production_grave_unavailable"
+    end
+    local target = {
+        body = haul.body, bodySquare = haul.square, key = haul.key,
+        grave = { x = grave.x, y = grave.y, z = grave.z }, graveInfo = grave, graveKey = grave.key,
+        fallen = haul.identity == "fallen" and haul.fallen or nil, haulTag = haul.tag,
+    }
+    state.haul = nil
+    state.buryTarget = target
+    return Disposal.startBurial(actor, order, state, context, target)
+end
+
+-- Orders ---------------------------------------------------------------------
+
+-- A grapple that outlived its haul (cancellation, an emergency drop, a lost
+-- record) is let go, and the hand items put away at the grab come back.
+function Disposal.settleIdle(actor)
+    local state = actorStates[actor]
+    if state and state.haul then return end
+    local native = natives()
+    if not native or type(native.dragSessionActive) ~= "function" then return end
+    if type(native.isDraggingCorpse) == "function" and native.isDraggingCorpse(actor) then
+        pcall(native.releaseCorpse, actor)
+    end
+    if native.dragSessionActive(actor) then pcall(native.settleDrag, actor) end
+end
+
+function Disposal.finishCollect(actor, order, state, context, zone)
+    if zone.kind == "burial" then
+        local handled, reason, terminal = Disposal.closeGraves(actor, order, state, context, true)
+        if handled ~= nil then return handled, reason, terminal end
+    end
+    return completeOrder(order, "bodies_collected")
+end
+
+function Disposal.updateCollect(actor, order, state, context)
+    local work = state.work
+    if work then
+        if work.kind == "grab_body" then return Disposal.pollGrab(actor, order, state, context) end
+        if work.kind == "drop_body" then return Disposal.pollDrop(actor, order, state, context) end
+        if work.kind == "burn_body" then return Disposal.pollBurn(actor, order, state, context) end
+        if work.kind == "bury_body" then return pollBury(actor, order, state, context) end
+        if work.kind == "fill_grave" then return pollFill(actor, order, state, context) end
+        if work.kind == "dig_grave" then return pollDig(actor, order, state, context) end
+    end
+    if state.burn then return Disposal.pollWatch(actor, order, state, context) end
+    local zone = zoneFor(order)
+    if not zone then return blockOrder(order, "invalid_production_zone") end
+    local haul = state.haul
+    if haul and haul.stage == "dragging" then
+        return Disposal.continueDrag(actor, order, state, context, zone)
+    end
+    if haul and haul.stage == "placed" then
+        return Disposal.disposePlaced(actor, order, state, context, zone)
+    end
+    if not haul then
+        if state.buryTarget then
+            local handled, reason, terminal = Disposal.resumeBurial(actor, order, state, context)
+            if handled ~= nil then return handled, reason, terminal end
+        end
+        if zone.kind == "burial" then
+            local handled, reason, terminal = Disposal.closeGraves(actor, order, state, context, false)
+            if handled ~= nil then return handled, reason, terminal end
+        end
+        if order.completed >= order.requested then
+            return Disposal.finishCollect(actor, order, state, context, zone)
+        end
+        if zone.kind == "pyre" then
+            local handled, reason, terminal = Disposal.burnOnPyre(actor, order, state, context,
+                zone, true)
+            if handled ~= nil then return handled, reason, terminal end
+        end
+    end
+    return Disposal.beginHaul(actor, order, state, context, zone)
+end
+
+function Disposal.updateBurn(actor, order, state, context)
+    local work = state.work
+    if work and work.kind == "burn_body" then return Disposal.pollBurn(actor, order, state, context) end
+    if state.burn then return Disposal.pollWatch(actor, order, state, context) end
+    if order.completed >= order.requested then return completeOrder(order, "bodies_burned") end
+    local zone = zoneFor(order)
+    if not zone or zone.kind ~= "pyre" then return blockOrder(order, "no_pyre_site") end
+    return Disposal.burnOnPyre(actor, order, state, context, zone, false)
 end
 
 -- ---------------------------------------------------------------------------
@@ -2116,6 +3624,7 @@ end
 
 function Production.update(actor, baseState, job, runtime)
     processPendingAmen()
+    Disposal.settleIdle(actor)
     local orderId = type(job) == "table" and type(job.target) == "table"
         and job.target.orderId or nil
     local order = SC.BaseLife.productionOrder(orderId)
@@ -2126,7 +3635,9 @@ function Production.update(actor, baseState, job, runtime)
     end
     -- A blocked order re-checks its blocker on a bounded cadence (missing
     -- tool, empty area, no bodies yet) instead of retrying the failed action.
-    if order.state == "blocked" and (tonumber(order.retryAt) or 0) <= now()
+    -- A fire that spread beyond its pyre waits for the player's Retry.
+    if order.state == "blocked" and order.blocker ~= "fire_spread"
+        and (tonumber(order.retryAt) or 0) <= now()
         and (job.state ~= "blocked" or (tonumber(job.retryAt) or 0) <= now()) then
         SC.BaseLife.reopenProductionOrder(order.id)
     end
@@ -2225,6 +3736,12 @@ function Production.cancelActor(actor, reason)
         clearSawReceipt(actor, orderId)
     end
     if work and work.kind == "bury_body" then untagBody(work.body, actor) end
+    -- Never leave a companion holding a body: let go, then hand back the
+    -- items the grab put away once the grapple has ended.
+    if native and type(native.isDraggingCorpse) == "function" and native.isDraggingCorpse(actor) then
+        pcall(native.releaseCorpse, actor)
+    end
+    if native and type(native.settleDrag) == "function" then pcall(native.settleDrag, actor) end
     if state and state.visualAt ~= nil and native and type(native.cancelVisual) == "function" then
         pcall(native.cancelVisual, actor, reason or "production_cancelled")
     end
@@ -2260,6 +3777,7 @@ function Production.reset(actor)
     scans, claims, phases, ceremonies, ceremonyOrder = {}, {}, {}, {}, {}
     burialOutcomes, burialOutcomeOrder = {}, {}
     pendingAmen = nil
+    Disposal.urgentAt = {}
     lastProductionSpeechAt = -math.huge
     chopSession = { native = false, fallback = false }
     for key in pairs(metrics) do
@@ -2281,6 +3799,8 @@ Production.register({ id = "fell_trees", family = "harvest", update = updateFell
 Production.register({ id = "saw_planks", family = "craft", update = updateSaw })
 Production.register({ id = "dig_graves", family = "earthwork", update = updateDig })
 Production.register({ id = "bury_bodies", family = "disposal", update = updateBury })
+Production.register({ id = "collect_bodies", family = "disposal", update = Disposal.updateCollect })
+Production.register({ id = "burn_bodies", family = "disposal", update = Disposal.updateBurn })
 registerDialogue()
 
 return Production

@@ -8,6 +8,10 @@ SC.Medical = SC.Medical or {}
 local Medical = SC.Medical
 local downed = setmetatable({}, { __mode = "k" })
 local treatmentState = setmetatable({}, { __mode = "k" })
+-- Companions the player is bandaging right now; they hold still until the
+-- player's timed action ends or stops refreshing the hold.
+local receivingCare = setmetatable({}, { __mode = "k" })
+local helpRequestedAt = setmetatable({}, { __mode = "k" })
 
 local function U()
     return SC.GameplayUtil
@@ -204,7 +208,10 @@ local function bandageRank(item)
     local isBandageType = string.find(itemType, "bandage", 1, true) ~= nil
     local isRippedSheet = string.find(itemType, "rippedsheet", 1, true) ~= nil
         or string.find(itemType, "ripped_sheet", 1, true) ~= nil
+    -- CanBandage is an item property in Build 42 (denim and leather strips
+    -- carry it), not a tag.
     local canBandage = utility.itemHasTag(item, "CanBandage") == true
+        or booleanMethod(item, { "isCanBandage" })
     if not (isBandageType or isRippedSheet or canBandage) then return nil end
     -- Quality among eligible dressings (lower rank = preferred): sterile, then
     -- alcohol-treated, then a plain bandage, then a tagged dressing, then a ripped
@@ -265,6 +272,7 @@ Medical._findBandageForTests = findBandage
 local essentialClothingTerms = {
     "coat", "jacket", "parka", "trouser", "pants", "shoe", "boot",
     "underwear", "bullet", "firefighter", "hazmat",
+    "belt", "holster", "helmet", "armor", "armour",
 }
 
 local expendableWornTerms = { "tshirt", "shirt_", "socks", "scarf" }
@@ -301,7 +309,43 @@ local function restoreWornItem(character, item, location)
     return isWorn(character, item)
 end
 
-local function isExpendableClothing(character, item)
+-- Build 42 rules: cotton tears into ripped sheets by hand; denim and leather
+-- need scissors or a sharp knife and give denim or leather strips. All three
+-- dress a wound.
+local fabricMaterials = {
+    cotton = "Base.RippedSheets", denim = "Base.DenimStrips", leather = "Base.LeatherStrips",
+}
+local cuttingToolCache = setmetatable({}, { __mode = "k" })
+
+-- Fabric of a clothing item, and whether the game reported one at all. An
+-- object without the fabric API falls back to the conservative name rules.
+local function clothingFabric(item)
+    local fabric, ok = U().call(item, "getFabricType")
+    if not ok then return nil, false end
+    fabric = fabric ~= nil and string.lower(tostring(fabric)) or nil
+    if fabric and fabricMaterials[fabric] then return fabric, true end
+    return nil, true
+end
+
+local function carriesCuttingTool(character)
+    local utility = U()
+    local current = utility.nowMs()
+    local cached = cuttingToolCache[character]
+    if cached and current - cached.at >= 0 and current - cached.at < 5000 then
+        return cached.value
+    end
+    local found = false
+    for _, item in ipairs(utility.inventoryItems(utility.inventory(character), 100)) do
+        if utility.itemHasTag(item, "Scissors") or utility.itemHasTag(item, "SharpKnife") then
+            found = true
+            break
+        end
+    end
+    cuttingToolCache[character] = { value = found, at = current }
+    return found
+end
+
+local function isExpendableClothing(character, item, context)
     local utility = U()
     if SC.PersonalItems and SC.PersonalItems.isProtected(item, character, "clothing_tear") then
         return false
@@ -318,19 +362,35 @@ local function isExpendableClothing(character, item)
     local primary, primaryOk = utility.call(character, "getPrimaryHandItem")
     local secondary, secondaryOk = utility.call(character, "getSecondaryHandItem")
     if (primaryOk and primary == item) or (secondaryOk and secondary == item) then return false end
+    local fabric, fabricKnown = clothingFabric(item)
+    local material = "Base.RippedSheets"
+    if fabricKnown then
+        if not fabric then return false end
+        if fabric ~= "cotton" then
+            if not (type(context) == "table" and type(context.hasCuttingTool) == "function"
+                and context.hasCuttingTool()) then
+                if type(context) == "table" then context.neededTool = true end
+                return false
+            end
+        end
+        material = fabricMaterials[fabric]
+    end
     local worn = isWorn(character, item)
     if worn then
         if not isRecruitedTeam(character) then return false end
-        local whitelisted = false
-        for _, term in ipairs(expendableWornTerms) do
-            if string.find(itemType, term, 1, true) then whitelisted = true break end
+        if not fabricKnown then
+            -- Without a fabric type only the conservative worn whitelist applies.
+            local whitelisted = false
+            for _, term in ipairs(expendableWornTerms) do
+                if string.find(itemType, term, 1, true) then whitelisted = true break end
+            end
+            if not whitelisted then return false end
         end
-        if not whitelisted then return false end
         local location, locationOk = utility.call(item, "getBodyLocation")
         if not locationOk or location == nil then return false end
-        return true, true, location
+        return true, true, location, material
     end
-    return true, false, nil
+    return true, false, nil, material
 end
 
 local function emergencyClothing(character)
@@ -338,19 +398,34 @@ local function emergencyClothing(character)
     if not utility.isCompanion(character) then return nil, nil, nil, "not_companion" end
     local inventory = utility.inventory(character)
     if not inventory then return nil, nil, nil, "inventory_unavailable" end
-    for _, item in ipairs(utility.inventoryItems(inventory, 100)) do
-        local expendable, worn, wornLocation = isExpendableClothing(character, item)
-        if expendable then
-            return item, inventory, {
-                character = character,
-                clothing = item,
-                worn = worn == true,
-                wornLocation = wornLocation,
-            }, nil
+    local context = {
+        hasCuttingTool = function() return carriesCuttingTool(character) end,
+    }
+    local items = utility.inventoryItems(inventory, 100)
+    -- Spare clothes go first; worn clothes only when nothing else will do.
+    for pass = 1, 2 do
+        for _, item in ipairs(items) do
+            if (pass == 1) ~= (isWorn(character, item) == true) then
+                local expendable, worn, wornLocation, material =
+                    isExpendableClothing(character, item, context)
+                if expendable then
+                    return item, inventory, {
+                        character = character,
+                        clothing = item,
+                        worn = worn == true,
+                        wornLocation = wornLocation,
+                        material = material,
+                    }, nil
+                end
+            end
         end
     end
-    return nil, inventory, nil, "no_expendable_clothing"
+    return nil, inventory, nil,
+        context.neededTool and "no_cutting_tool" or "no_expendable_clothing"
 end
+
+-- Test seam: which clothing a companion would tear for a dressing, and why not.
+Medical._emergencyClothingForTests = emergencyClothing
 
 local function commitEmergencyBandage(inventory, candidate)
     if type(candidate) ~= "table" or not candidate.clothing then
@@ -371,7 +446,7 @@ local function commitEmergencyBandage(inventory, candidate)
         return nil, nil, restored and "clothing_remove_failed"
             or "clothing_remove_rollback_failed"
     end
-    local rag = utility.addItem(inventory, "Base.RippedSheets")
+    local rag = utility.addItem(inventory, candidate.material or "Base.RippedSheets")
     if not rag then
         local restored = restoreInventoryItem(inventory, item)
         if candidate.worn then
@@ -1180,6 +1255,104 @@ function Medical.applyPlayerBandage(companion, player)
     return true, "bandaged"
 end
 
+function Medical.noteReceivingCare(companion, player, current)
+    if companion == nil then return false end
+    current = tonumber(current) or U().nowMs()
+    receivingCare[companion] = {
+        player = player,
+        untilAt = current + (tonumber(U().config("medicalReceivingCareHoldMs")) or 6000),
+    }
+    return true
+end
+
+function Medical.clearReceivingCare(companion)
+    if companion ~= nil then receivingCare[companion] = nil end
+end
+
+function Medical.isReceivingCare(actor, current)
+    local entry = actor and receivingCare[actor] or nil
+    if not entry then return false end
+    current = tonumber(current) or U().nowMs()
+    if current > (tonumber(entry.untilAt) or 0) then
+        receivingCare[actor] = nil
+        return false
+    end
+    return true
+end
+
+-- Why this companion cannot dress its own wound right now, or nil when it can
+-- (it carries a bandage, or clothing it can tear into one).
+function Medical.selfCareBlocker(actor)
+    if not U().isValidActor(actor) then return "invalid_actor" end
+    local capability, reason = treatmentCapability(actor, actor, {})
+    if type(capability) == "table" and capability.available == true then return nil end
+    return reason or "no_bandage"
+end
+
+local HELP_LINES = {
+    common = {
+        "I'm bleeding and I've got nothing to wrap it with!",
+        "I need a bandage. Anything clean. Now would be good.",
+        "I'm hit and I'm leaking. Got a bandage?",
+        "Somebody patch me up before I paint the floor.",
+    },
+    brave = { "Just a scratch. A big, bleeding scratch. Bandage?" },
+    cautious = { "I'm losing blood. A bandage, please, before it gets worse." },
+    caring = { "I hate asking, but I need a bandage. I'm bleeding." },
+    practical = { "Bleeding, no dressing. I need a bandage or a clean rag." },
+    stressed = { "I'm bleeding out here! Bandage! Please!" },
+}
+
+-- A bleeding companion that cannot treat itself asks the player for a bandage,
+-- at most once per cooldown.
+function Medical.requestHelp(actor, player, current)
+    if not U().isValidActor(actor) then return false, "invalid_actor" end
+    current = tonumber(current) or U().nowMs()
+    if current - (helpRequestedAt[actor] or -math.huge)
+        < (tonumber(U().config("medicalHelpRequestCooldownMs")) or 45000) then
+        return false, "help_request_cooldown"
+    end
+    helpRequestedAt[actor] = current
+    local assessment = Medical.assess(actor)
+    U().diagnostic("medical", actor, "action=seek_care bleeding="
+        .. tostring(assessment.bleedingCount or 0)
+        .. " health=" .. tostring(math.floor(tonumber(assessment.health) or 0))
+        .. " selfCare=" .. tostring(Medical.selfCareBlocker(actor) or "able"))
+    if SC.Dialogue and type(SC.Dialogue.say) == "function" then
+        pcall(SC.Dialogue.say, actor, "medical.need_bandage", HELP_LINES)
+    end
+    return true, "help_requested"
+end
+
+-- One line describing a companion's body at death, for the log.
+function Medical.deathSummary(actor)
+    local assessment = Medical.assess(actor)
+    local parts = {}
+    for index, wound in ipairs(assessment.wounds or {}) do
+        if index > 6 then break end
+        local tags = {}
+        if wound.bleeding then tags[#tags + 1] = "bleeding" end
+        if wound.bitten then tags[#tags + 1] = "bite" end
+        if wound.deepWound then tags[#tags + 1] = "deep" end
+        if wound.scratched then tags[#tags + 1] = "scratch" end
+        if wound.cut then tags[#tags + 1] = "cut" end
+        if wound.lodged then tags[#tags + 1] = "lodged" end
+        if wound.fractured then tags[#tags + 1] = "fracture" end
+        if wound.burned then tags[#tags + 1] = "burn" end
+        if wound.infected then tags[#tags + 1] = "infected" end
+        if wound.bandaged then
+            tags[#tags + 1] = wound.dirtyBandage and "dirty_bandage" or "bandaged"
+        end
+        parts[#parts + 1] = tostring(wound.name) .. ":" .. table.concat(tags, "+")
+    end
+    return "died health=" .. tostring(math.floor(tonumber(assessment.health) or 0))
+        .. " bleeding=" .. tostring(assessment.bleedingCount or 0)
+        .. " bites=" .. tostring(assessment.bites or 0)
+        .. " knox=" .. tostring(assessment.knoxInfected == true)
+        .. " infection=" .. tostring(math.floor(tonumber(assessment.infectionLevel) or 0))
+        .. " wounds=" .. (#parts > 0 and table.concat(parts, ",") or "none")
+end
+
 local function leaveDowned(actor, runtime)
     local utility = U()
     if not utility.move(actor, "walk", { action = "recover_from_downed", immobile = false }) then
@@ -1238,6 +1411,23 @@ function Medical.update(actor, player, runtime)
         downed[actor] = nil
         rootRuntime.downed = nil
         return false, assessment.terminalKnox and "terminal_knox" or "dead"
+    end
+
+    if Medical.isReceivingCare(actor) then
+        -- The player is bandaging this companion: stand still for it.
+        utility.stop(actor)
+        return true, "receiving_care"
+    end
+    if (tonumber(assessment.bleedingCount) or 0) > 0 then
+        local names = {}
+        for _, wound in ipairs(assessment.wounds or {}) do
+            if wound.bleeding and not wound.bandaged and #names < 4 then
+                names[#names + 1] = tostring(wound.name)
+            end
+        end
+        utility.diagnostic("medical", actor, "bleeding=" .. tostring(assessment.bleedingCount)
+            .. " health=" .. tostring(math.floor(tonumber(assessment.health) or 0))
+            .. " parts=" .. table.concat(names, ","))
     end
 
     -- Knox and injuries lower a companion's health but never immobilize it. Like a
@@ -1318,6 +1508,8 @@ function Medical.reset(actor)
     if actor then
         return Medical.releaseActor(actor)
     else
+        for subject in pairs(receivingCare) do receivingCare[subject] = nil end
+        for subject in pairs(helpRequestedAt) do helpRequestedAt[subject] = nil end
         local helpers = {}
         for helper in pairs(treatmentState) do helpers[#helpers + 1] = helper end
         for _, helper in ipairs(helpers) do
@@ -1336,6 +1528,8 @@ end
 
 function Medical.releaseActor(actor)
     if actor == nil then return false end
+    receivingCare[actor] = nil
+    helpRequestedAt[actor] = nil
     local helpers = {}
     for helper, state in pairs(treatmentState) do
         if helper == actor or (state and state.patient == actor) then

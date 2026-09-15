@@ -68,6 +68,33 @@ do
     check(changed, "production cargo marker mutation changes the final inventory identity proof")
 end
 
+-- A scheduled capture yields between items, so a companion can drop an item
+-- mid-walk. The shrunken list reads as churn, never as an out-of-range get()
+-- (a Java IndexOutOfBoundsException with a stack trace in the game log).
+do
+    local shrunk, requested = false, {}
+    local first = { getModData = function() shrunk = true return {} end }
+    local second = { getModData = function() return {} end }
+    local items = {
+        size = function() return shrunk and 1 or 2 end,
+        get = function(_, index)
+            requested[#requested + 1] = index
+            if index >= (shrunk and 1 or 2) then error("IndexOutOfBoundsException") end
+            return index == 0 and first or second
+        end,
+    }
+    local inventory = { getItems = function() return items end }
+    local actor = { getInventory = function() return inventory end }
+    local identity, reason = SC.Persistence._inventoryIdentitySequenceForTests(actor)
+    local outOfRange = false
+    for _, index in ipairs(requested) do
+        if index >= 1 then outOfRange = true end
+    end
+    check(identity == nil and reason == "inventory_changed" and not outOfRange,
+        "an inventory that shrinks during the identity walk reads as churn without an out-of-range get: "
+            .. tostring(reason))
+end
+
 -- Mixed numeric/string bucket keys must never enter table.sort's incomparable
 -- key path. Invalid numeric keys remain raw quarantine passthrough values.
 check(SC.Persistence.reset() == true, "persistence starts from a clean transaction")

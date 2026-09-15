@@ -35,6 +35,9 @@ OWNED = [
     "SCPersonality.lua",
     "SCPersonalItems.lua",
     "SCRelationship.lua",
+    "SCTales.lua",
+    "SCBanter.lua",
+    "SCGestures.lua",
     "SCObjectives.lua",
     "SCJournal.lua",
     "SCBaseLife.lua",
@@ -93,6 +96,9 @@ REQUIRED_EXPORTS = {
     "SCPersonality.lua": ["initialize", "adjustDecision", "overrunThresholdDelta"],
     "SCPersonalItems.lua": ["ensure", "isProtected", "restoreMarker"],
     "SCRelationship.lua": ["initialize", "observe", "respond"],
+    "SCBanter.lua": ["update", "combatPulse", "grabbedPulse", "reset"],
+    "SCTales.lua": ["noteKill", "noteCloseCall", "update", "normalize", "reset"],
+    "SCGestures.lua": ["update", "noteStoodUp", "workoutActivity", "requestIdleWorkout", "reset"],
     "SCObjectives.lua": ["initialize", "update", "respondPlans"],
     "SCJournal.lua": ["build"],
     "SCBaseLife.lua": ["create", "describeObject", "resolveObject", "removeZone", "removeStorage", "setStorageCategory",
@@ -235,7 +241,8 @@ def main() -> int:
     require('job.type == "production"' in base_work_source
             and "SC.Production.update(actor, state, job, runtime)" in base_work_source,
             "base dispatcher does not route production orders")
-    for kind in ("chop_tree", "saw_logs", "dig_grave", "bury_body", "fill_grave"):
+    for kind in ("chop_tree", "saw_logs", "dig_grave", "bury_body", "fill_grave",
+                 "grab_body", "drop_body", "burn_body"):
         require(f'action = "{kind}"' in production_source,
                 f"production does not dispatch the verified native {kind} action")
     require("productionScanSquaresPerSlice" in production_source

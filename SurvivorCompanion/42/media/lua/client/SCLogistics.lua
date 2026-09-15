@@ -510,6 +510,11 @@ end
 
 local function selectPackMove(actor, audit)
     local best
+    -- Only loose items in the main inventory are packed. An item already in
+    -- one worn bag is never moved into another: with two worn bags (a duffel
+    -- and a fanny pack) that ping-ponged the same items back and forth
+    -- forever, each move succeeding and replaying the Loot pose.
+    local root = U().inventory(actor)
     for _, bagRecord in ipairs(audit.items) do
         local bagValue, location, bagInventory = bagScore(bagRecord.item)
         if bagValue and isWorn(actor, bagRecord.item, location) then
@@ -520,6 +525,7 @@ local function selectPackMove(actor, audit)
                 local bagUpgrade = record.category == "container"
                     and select(1, Logistics.bagUpgrade(actor, record.item)) == true
                 if record.item ~= bagRecord.item and record.source ~= bagInventory
+                    and record.source == root
                     and not (nestedOk and nested) and not isProtected(actor, record.item)
                     -- Keep weapons in the root inventory. Combat/equip actions
                     -- need immediate ownership of newly gifted fallback weapons;
@@ -645,6 +651,49 @@ function Logistics.selectSurplus(actor, audit)
     return best
 end
 
+-- Moves that failed or were cancelled (a Loot pose knocked loose, a bag that
+-- will not take the item, an upgrade that will not equip) cool down with an
+-- exponential backoff. Without this memory the next audit proposed the same
+-- move at once, and a companion could loop the Loot pose indefinitely instead
+-- of following its leader.
+local moveMemory = { byActor = setmetatable({}, { __mode = "k" }) }
+
+function moveMemory.key(kind, item)
+    return tostring(kind) .. "|" .. tostring(item)
+end
+
+function moveMemory.cooling(actor, kind, item, current)
+    local ledger = actor and moveMemory.byActor[actor] or nil
+    local record = ledger and item ~= nil and ledger[moveMemory.key(kind, item)] or nil
+    return record ~= nil and current < (tonumber(record.retryAt) or 0)
+end
+
+function moveMemory.note(actor, kind, item, current)
+    if actor == nil or item == nil then return end
+    local ledger = moveMemory.byActor[actor]
+    if not ledger then
+        ledger = { order = {} }
+        moveMemory.byActor[actor] = ledger
+    end
+    local key = moveMemory.key(kind, item)
+    local record = ledger[key]
+    if not record then
+        record = { failures = 0 }
+        ledger[key] = record
+        ledger.order[#ledger.order + 1] = key
+        while #ledger.order > 32 do ledger[table.remove(ledger.order, 1)] = nil end
+    end
+    record.failures = record.failures + 1
+    local base = tonumber(U().config("logisticsFailureCooldownMs")) or 30000
+    local cap = tonumber(U().config("logisticsFailureMaxCooldownMs")) or 600000
+    record.retryAt = current + math.min(cap, base * (2 ^ math.min(8, record.failures - 1)))
+end
+
+function moveMemory.clear(actor, kind, item)
+    local ledger = actor and moveMemory.byActor[actor] or nil
+    if ledger and item ~= nil then ledger[moveMemory.key(kind, item)] = nil end
+end
+
 function Logistics.status(actor)
     local state = states[actor]
     local current = U().nowMs()
@@ -655,9 +704,24 @@ function Logistics.status(actor)
     audit.bagUpgrade = selectBagUpgrade(actor, audit)
     audit.clothingUpgrade = selectOwnedClothingUpgrade(actor, audit)
     audit.packMove = selectPackMove(actor, audit)
+    -- A move that just failed cools down instead of being proposed again.
+    if audit.bagUpgrade and moveMemory.cooling(actor, "wear", audit.bagUpgrade.item, current) then
+        audit.bagUpgrade = nil
+    end
+    if audit.clothingUpgrade
+        and moveMemory.cooling(actor, "wear", audit.clothingUpgrade.item, current) then
+        audit.clothingUpgrade = nil
+    end
+    if audit.packMove and moveMemory.cooling(actor, "pack", audit.packMove.item, current) then
+        audit.packMove = nil
+    end
     local surplus = nil
     if audit.capacity > 0 and audit.ratio > audit.softRatio then
         surplus = Logistics.selectSurplus(actor, audit)
+    end
+    if surplus and (moveMemory.cooling(actor, "deposit", surplus.item, current)
+        or moveMemory.cooling(actor, "drop", surplus.item, current)) then
+        surplus = nil
     end
     audit.surplus = surplus
     audit.shouldUnload = surplus ~= nil
@@ -794,6 +858,13 @@ end
 local function terminalTransaction(actor, state, succeeded, reason, receipt)
     local transaction = state and state.transaction or nil
     local token = transaction and transaction.supervisorToken or nil
+    if transaction then
+        if succeeded == true then
+            moveMemory.clear(actor, transaction.kind, transaction.item)
+        elseif reason ~= "logistics_unsafe" then
+            moveMemory.note(actor, transaction.kind, transaction.item, U().nowMs())
+        end
+    end
     cleanupTransaction(actor, state, reason)
     if SC.Navigation and type(SC.Navigation.cancel) == "function" then
         pcall(SC.Navigation.cancel, actor, "logistics_interaction")
@@ -1079,6 +1150,9 @@ function Logistics.update(actor, player, runtime)
         local service = supervisor()
         if service and type(service.update) == "function" then service.update(actor) end
         if existing.transaction ~= transaction then
+            -- The supervisor ended the move (a moved protected pose, a
+            -- deadline): cool it down so the same Loot pose is not restarted.
+            moveMemory.note(actor, transaction.kind, transaction.item, U().nowMs())
             states[actor] = nil
             return false, "logistics_action_cancelled"
         end
@@ -1248,11 +1322,13 @@ function Logistics.reset(actor)
     if actor then
         cancelTransaction(actor, states[actor], "logistics_reset")
         states[actor] = nil
+        moveMemory.byActor[actor] = nil
     else
         for value, state in pairs(states) do
             cancelTransaction(value, state, "logistics_reset")
         end
         states = setmetatable({}, { __mode = "k" })
+        moveMemory.byActor = setmetatable({}, { __mode = "k" })
     end
     return true
 end

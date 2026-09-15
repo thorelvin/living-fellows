@@ -229,8 +229,19 @@ local function serviceRecord(record, current, currentPlayer)
         and SC.ZombieAttack.isGrabbed(record.actor) == true then
         record.runtime.lastDecision = "grabbed_by_zombies"
         record.runtime.lastDecisionHandled = false
-        pcall(SC.Actor.stop, record.actor)
+        -- Stop once when the pin begins. Stopping on every critical beat reset
+        -- the native animation each time and made the pinned companion jerk.
+        if record.runtime.grabStopped ~= true then
+            pcall(SC.Actor.stop, record.actor)
+            record.runtime.grabStopped = true
+        end
+        if SC.Banter ~= nil and type(SC.Banter.grabbedPulse) == "function" then
+            local rt = record.runtime
+            pcall(SC.Banter.grabbedPulse, record.actor, currentPlayer,
+                type(rt.senses) == "table" and rt.senses.current or rt.snapshot, current)
+        end
     else
+        record.runtime.grabStopped = nil
         local decisionStarted = nowMs()
         local guarded, ok, reason = SC.Diagnostics.guard("decision", record.id,
             SC.Decision.update, record.actor, currentPlayer, record.runtime, current)
@@ -472,6 +483,18 @@ local function vitalsTask(current)
     if deadOk and dead == true then
         record.runtime = type(record.runtime) == "table" and record.runtime or {}
         record.runtime.dying = true
+        -- One line in the log with the body's state at death: which wounds,
+        -- whether it was still bleeding, bitten or infected.
+        if record.runtime.deathReported ~= true then
+            record.runtime.deathReported = true
+            local utility = SC.GameplayUtil
+            if utility and type(utility.diagnostic) == "function"
+                and SC.Medical and type(SC.Medical.deathSummary) == "function" then
+                local summaryOk, summary = pcall(SC.Medical.deathSummary, record.actor)
+                utility.diagnostic("death", record.actor,
+                    summaryOk and tostring(summary) or "died summary_unavailable")
+            end
+        end
         if record.runtime.griefNotified ~= true and SC.Community
             and type(SC.Community.noteCompanionDeath) == "function" then
             local callOk, handled, griefReason = pcall(SC.Community.noteCompanionDeath, record)
@@ -835,6 +858,20 @@ local function communityTask(current)
     end
 end
 
+-- Party banter: first-visit place remarks and idle jokes. Speech only.
+local function banterTask(current)
+    if SC.Banter ~= nil and type(SC.Banter.update) == "function" then
+        SC.Banter.update(player(), SC.Registry.records(), current)
+    end
+end
+
+-- Body language: yawns, stretches, sneezes and workout chatter. Animation only.
+local function gesturesTask(current)
+    if SC.Gestures ~= nil and type(SC.Gestures.update) == "function" then
+        SC.Gestures.update(player(), SC.Registry.records(), current)
+    end
+end
+
 local function vehicleTask()
     local currentPlayer = player()
     if currentPlayer == nil then return end
@@ -882,6 +919,10 @@ local function registerTasks()
             infectionCrisisTask, "normal" },
         { "community", SC.Config.get("communityPulseIntervalMs"), 17,
             communityTask, "background" },
+        { "banter", SC.Config.get("banterPulseIntervalMs"), 16,
+            banterTask, "background" },
+        { "gestures", SC.Config.get("gesturesPulseIntervalMs"), 15,
+            gesturesTask, "background" },
         { "persistence-request", SC.Config.get("persistenceIntervalMs"), 10,
             saveRequestTask, "background", true },
         { "persistence", SC.Config.get("persistencePulseIntervalMs"), 9,

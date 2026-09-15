@@ -235,4 +235,104 @@ function ISFillGrave:perform()
     ISBaseTimedAction.perform(self)
 end
 
+-- ---------------------------------------------------------------------------
+-- Corpse grapple and burning (Build 42 ISGrabCorpseAction, ISDropCorpseAction,
+-- ISBurnCorpseAction). The grab writes lastPlayerGrabbed and removes the body
+-- from its square while dragged; letting go respawns it as a new object that
+-- carries the same modData; burning starts a fire on the corpse square.
+-- ---------------------------------------------------------------------------
+
+ItemTag.START_FIRE = ItemTag.START_FIRE or { name = "START_FIRE", tag = "startfire" }
+Fluid = Fluid or {}
+Fluid.Petrol = Fluid.Petrol or { name = "Petrol" }
+ZomboidGlobals = ZomboidGlobals or {}
+ZomboidGlobals.BurnCorpsePetrolAmount = ZomboidGlobals.BurnCorpsePetrolAmount or 0.1
+SC_PRODUCTION_CALLS.grab, SC_PRODUCTION_CALLS.drop, SC_PRODUCTION_CALLS.burn = {}, {}, {}
+
+ISGrabCorpseAction = ISBaseTimedAction:derive("ISGrabCorpseAction")
+
+function ISGrabCorpseAction:new(character, corpseBody)
+    local action = ISBaseTimedAction.new(self, character)
+    action.corpseBody, action.maxTime = corpseBody, 5
+    SC_PRODUCTION_CALLS.grab[#SC_PRODUCTION_CALLS.grab + 1] = action
+    return action
+end
+
+function ISGrabCorpseAction:isValid()
+    return self.corpseBody ~= nil and not self.character:isDraggingCorpse()
+end
+
+function ISGrabCorpseAction:start() end
+
+function ISGrabCorpseAction:perform()
+    if SC_TEST_GRAB_FAILS ~= true then
+        local body = self.corpseBody
+        body.modData.lastPlayerGrabbed = self.character:getPlayerNum()
+        local square = body.square
+        for index, value in ipairs(square and square.staticMoving or {}) do
+            if value == body then table.remove(square.staticMoving, index) break end
+        end
+        body.square = nil
+        self.character.draggedBody = body
+    end
+    ISBaseTimedAction.perform(self)
+end
+
+function SC_TEST_LAND_DRAGGED(character, square)
+    local body = character.draggedBody
+    if not body then return nil end
+    character.draggedBody = nil
+    local target = square or character.square
+    local copy = {}
+    for key, value in pairs(body) do copy[key] = value end
+    copy.square, copy.x, copy.y, copy.z = target, target.x, target.y, target.z
+    target.staticMoving[#target.staticMoving + 1] = copy
+    return copy
+end
+
+ISDropCorpseAction = ISBaseTimedAction:derive("ISDropCorpseAction")
+
+function ISDropCorpseAction:new(character, targetSquare)
+    local action = ISBaseTimedAction.new(self, character)
+    action.targetSquare, action.maxTime = targetSquare, 5
+    SC_PRODUCTION_CALLS.drop[#SC_PRODUCTION_CALLS.drop + 1] = action
+    return action
+end
+
+function ISDropCorpseAction:isValid()
+    return self.character:isDraggingCorpse()
+end
+
+function ISDropCorpseAction:start() end
+
+function ISDropCorpseAction:perform()
+    SC_TEST_LAND_DRAGGED(self.character, SC_TEST_DROP_SQUARE)
+    ISBaseTimedAction.perform(self)
+end
+
+ISBurnCorpseAction = ISBaseTimedAction:derive("ISBurnCorpseAction")
+
+function ISBurnCorpseAction:new(character, corpse, lighter, petrol)
+    local action = ISBaseTimedAction.new(self, character)
+    action.corpse, action.lighter, action.petrol, action.maxTime = corpse, lighter, petrol, 110
+    SC_PRODUCTION_CALLS.burn[#SC_PRODUCTION_CALLS.burn + 1] = action
+    return action
+end
+
+function ISBurnCorpseAction:isValid()
+    return self.character:getPrimaryHandItem() == self.lighter
+        and self.character:getSecondaryHandItem() == self.petrol
+end
+
+function ISBurnCorpseAction:start() end
+
+function ISBurnCorpseAction:perform()
+    local square = self.corpse and self.corpse.square or nil
+    if square and SC_TEST_BURN_FAILS ~= true then square.fire = true end
+    if self.petrol and self.petrol.fluid then
+        self.petrol.fluid.amount = self.petrol.fluid.amount - ZomboidGlobals.BurnCorpsePetrolAmount
+    end
+    ISBaseTimedAction.perform(self)
+end
+
 return true

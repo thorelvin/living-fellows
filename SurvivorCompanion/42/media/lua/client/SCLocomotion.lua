@@ -21,7 +21,8 @@ local interactionActions = {
     read = true, repair = true, craft_supply = true, wash = true,
     wear_clothing = true, wash_self = true, wash_equipment = true,
     stress_bottle_smash = true, stress_furniture_hit = true,
-    ambient_eat = true, ambient_drink = true,
+    ambient_eat = true, ambient_drink = true, study_corpse = true, pay_respects = true,
+    workout = true,
     sit = true, sit_ground = true, stand_ground = true,
     barricade = true, remove_barricade = true, dismantle = true,
     open_door = true, close_door = true, open_window = true, close_window = true,
@@ -36,7 +37,7 @@ local interactionActions = {
 local turnActions = {
     room_sweep = true, face_alert = true, rear_scan = true, rear_guard_watch = true,
     face_formation = true, face_conversation = true, conversation_pose = true,
-    ready_weapon = true, lower_weapon = true, hand_signal = true,
+    ready_weapon = true, lower_weapon = true, hand_signal = true, ext_gesture = true,
     copy_player_posture = true,
 }
 

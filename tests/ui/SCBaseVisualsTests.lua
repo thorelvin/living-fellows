@@ -51,6 +51,25 @@ assert(fixture.labels[1].value == "Camp area"
         and fixture.labels[5].value == "Food" and fixture.labels[7].value == "Addy",
     "labels must identify zones, localized storage categories, and the companion first name")
 
+assert(#fixture.fills == 3 and fixture.fills[1].player == 0
+        and fixture.fills[1].x1 == 8 and fixture.fills[1].x2 == 19
+        and fixture.fills[1].alpha < fixture.fills[2].alpha
+        and fixture.fills[2].red == 0.96,
+    "each visible zone needs a colored floor tint, fainter for the camp area")
+assert(fixture.fills[3].x1 == 13 and fixture.fills[3].y1 == 13
+        and fixture.fills[3].x2 == 14 and fixture.fills[3].y2 == 14
+        and fixture.fills[3].green == 0.86,
+    "registered storage needs a tile in its category color under the container")
+for _, line in ipairs(fixture.lines) do
+    assert(line.thickness == math.floor(line.thickness),
+        "Build 42 renderIsoLine takes a whole-number thickness")
+end
+assert(#fixture.legend == 4 and fixture.legend[1].value == "Base layout"
+        and fixture.legend[2].value == "  Area" and fixture.legend[3].value == "  Work"
+        and fixture.legend[3].red == 0.96 and fixture.legend[4].value == "  Food storage",
+    "the legend must name each visible zone kind and storage category in its color")
+fixture.legend = {}
+
 fixture.companion.square.visible = false
 fixture.labels = {}
 Events.OnPreUIDraw.callback()
@@ -68,7 +87,7 @@ fixture.lines = {}
 Events.OnRenderTick.callback()
 local focusedLines = 0
 for _, line in ipairs(fixture.lines) do
-    if line.thickness == 3.0 then focusedLines = focusedLines + 1 end
+    if line.thickness == 4 then focusedLines = focusedLines + 1 end
 end
 assert(focusedLines == 4, "the selected zone must use a stronger perimeter")
 

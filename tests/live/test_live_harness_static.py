@@ -84,6 +84,17 @@ require("[string]$FactionMapScreenshot" in runner
 require("faction-map-ready.txt" in runner and "faction-map-visible.txt" in runner
         and "faction-map-captured.txt" in runner,
         "runner must handshake with the in-game faction-map assertion")
+require("[string]$BaseLayoutScreenshot" in runner
+        and "[switch]$BaseLayoutOnly" in runner
+        and "Invoke-WindowKey $process 0x23" in runner,
+        "runner must toggle the base layout overlay with the real End key and capture it")
+require("base-layout-ready.txt" in runner and "base-layout-visible.txt" in runner
+        and "base-layout-captured.txt" in runner
+        and "('base_layout_only=' +" in runner,
+        "runner must handshake with the in-game base-layout assertion")
+for token in ("base-layout-ready.txt", "base-layout-visible.txt", "base-layout-captured.txt",
+              "base_layout_overlay", 'Harness.config.base_layout_only == "true"'):
+    require(token in lua, f"live base-layout capture contract missing: {token}")
 
 for token in (
     "Events.OnMainMenuEnter",

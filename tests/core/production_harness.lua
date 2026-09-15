@@ -107,6 +107,7 @@ local function makeSquare(x, y, z)
     function square:getStaticMovingObjects() return self.staticMoving end
     function square:getTree() return self.tree end
     function square:isInARoom() return self.room == true end
+    function square:haveFire() return self.fire == true end
     function square:getFloor()
         local floor = { owner = self }
         function floor:getTextureName() return self.owner.floorTexture end
@@ -164,6 +165,11 @@ local function makeActor(id, square)
     function actor:isEnduranceSufficientForAction() return self.enduranceOk end
     function actor:addLineChatElement(line) self.lines[#self.lines + 1] = line end
     function actor:isMoving() return false end
+    function actor:isDraggingCorpse() return self.draggedBody ~= nil end
+    function actor:setDoGrappleLetGo()
+        SC_TEST_LAND_DRAGGED(self, nil)
+        return true
+    end
     return actor
 end
 
@@ -241,6 +247,16 @@ local function makeBody(square, options)
     function body:isFakeDead() return self.fake end
     function body:isAnimal() return self.animal end
     function body:getContainer() return self.container end
+    if options.descriptor then
+        local descriptor = options.descriptor
+        function descriptor:getForename() return self.forename end
+        function descriptor:getSurname() return self.surname end
+        function descriptor:isFemale() return self.female == true end
+        function body:getDescriptor() return descriptor end
+    end
+    if options.player == true then
+        function body:isPlayer() return true end
+    end
     for _, itemType in ipairs(options.items or {}) do body.container:AddItem(itemType) end
     square.staticMoving[#square.staticMoving + 1] = body
     return body
@@ -1262,6 +1278,428 @@ do
 end
 
 -- ---------------------------------------------------------------------------
+-- Collect and burn the dead: grapple, drag, tag, then bury or burn
+-- ---------------------------------------------------------------------------
+
+local function makeLighter()
+    return makeItem("Base.Lighter", { tags = { startfire = true } })
+end
+
+local function makePetrol(amount)
+    local can = makeItem("Base.PetrolCan")
+    can.fluid = { amount = amount or 1 }
+    local fluid = { owner = can }
+    function fluid:contains(kind) return kind == Fluid.Petrol and self.owner.fluid.amount > 0 end
+    function fluid:getAmount() return self.owner.fluid.amount end
+    function can:getFluidContainer() return fluid end
+    return can
+end
+
+local function pyreArea()
+    for x = 14, 30 do
+        for y = -6, 8 do makeSquare(x, y, 0) end
+    end
+end
+
+local function outsidePyre()
+    pyreArea()
+    check(SC.BaseLife.beginZone("pyre", sq(20, 0)) == true, "a pyre draft begins")
+    local ok, zone = SC.BaseLife.finishZone(sq(22, 2), "Pyre")
+    check(ok == true and zone.kind == "pyre",
+        "a clear pyre in the reach band is accepted: " .. tostring(zone))
+    return zone
+end
+
+local function tickUntil(ctx, predicate, limit, runtime, advance)
+    local reason
+    for _ = 1, limit or 12 do
+        local _, value = tick(ctx, runtime, nil, advance)
+        reason = value
+        if predicate(value) then return true, value end
+    end
+    return false, reason
+end
+
+local function spoke(topic)
+    for _, entry in ipairs(spokenTopics) do
+        if entry.topic == topic then return true end
+    end
+    return false
+end
+
+local function fallenRegister()
+    local previous = SC.Community
+    SC.Community = {
+        deathMatching = function(name)
+            if name == "Ada Vance" then
+                return "sc-ada", { subjectName = "Ada Vance", subjectGender = "female" }
+            end
+            return nil
+        end,
+    }
+    return previous
+end
+
+local ADA = { forename = "Ada", surname = "Vance", female = true }
+
+do
+    local ctx = setup()
+    local ok, reason = SC.BaseLife.createProductionOrder({
+        operation = "burn_bodies", zoneId = ctx.burial.id, workers = { ctx.id },
+    })
+    check(ok == false and reason == "invalid_production_zone", "burning needs a pyre")
+    ok, reason = SC.BaseLife.createProductionOrder({
+        operation = "collect_bodies", zoneId = ctx.burial.id, workers = { ctx.id },
+        settings = { fromCamp = false, fromLumber = false },
+    })
+    check(ok == false and reason == "collect_sources_missing", "collection needs a source area")
+    check(SC.BaseLife.beginZone("pyre", sq(2, -2)) == true, "a pyre beside storage begins")
+    ok, reason = SC.BaseLife.finishZone(sq(3, -1), "Too close")
+    check(ok == false and reason == "pyre_unsafe:storage_near",
+        "a pyre within reach of stored goods is refused: " .. tostring(reason))
+    SC.BaseLife.cancelZone()
+    pyreArea()
+    makeTree(sq(24, 1), 10)
+    check(SC.BaseLife.beginZone("pyre", sq(20, 0)) == true, "a pyre beside a tree begins")
+    ok, reason = SC.BaseLife.finishZone(sq(22, 2), "By the tree")
+    check(ok == false and reason == "pyre_unsafe:tree_near",
+        "a pyre within its clearance of a tree is refused: " .. tostring(reason))
+    SC.BaseLife.cancelZone()
+    sq(24, 1).tree = nil
+    sq(21, -1):AddWorldInventoryItem(makeItem("Base.Hat"))
+    check(SC.BaseLife.beginZone("pyre", sq(20, 0)) == true, "a pyre beside loose items begins")
+    ok, reason = SC.BaseLife.finishZone(sq(22, 2), "Cluttered")
+    check(ok == false and reason == "pyre_unsafe:loose_items",
+        "loose items within the clearance are refused: " .. tostring(reason))
+    SC.BaseLife.cancelZone()
+    check(SC.BaseLife.beginZone("pyre", sq(20, 0)) == true, "an oversized pyre begins")
+    ok, reason = SC.BaseLife.finishZone(sq(23, 2), "Too big")
+    check(ok == false and reason == "pyre_zone_too_large",
+        "a pyre is at most nine tiles: " .. tostring(reason))
+    SC.BaseLife.cancelZone()
+    local pyre = outsidePyre()
+    local order
+    ok, order = SC.BaseLife.createProductionOrder({
+        operation = "burn_bodies", zoneId = pyre.id, workers = { ctx.id },
+    })
+    check(ok == true and order.settings.requireDry == true,
+        "a safe pyre takes a burn order that waits for dry weather")
+    check(SC.BaseLife.jobAllowsWorkReach({ type = "production", target = { orderId = order.id } })
+        == true, "a pyre outside the camp admits reach-band trips")
+    local dig
+    ok, dig = SC.BaseLife.createProductionOrder({
+        operation = "dig_graves", zoneId = ctx.burial.id, workers = { ctx.id },
+    })
+    check(ok == true and SC.BaseLife.jobAllowsWorkReach({
+        type = "production", target = { orderId = dig.id } }) == false,
+        "a burial ground inside the camp keeps its work inside the camp")
+end
+
+do
+    local ctx = setup()
+    ctx.actor.inventory:AddItem(makeItem("Base.Shovel", { tags = { diggrave = true } }))
+    local machete = ctx.actor.inventory:AddItem(makeItem("Base.Machete"))
+    ctx.actor.primary = machete
+    local grave, partner = createGrave(-2, -3, 0, false)
+    local victim = makeBody(sq(4, -4))
+    local order = start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local intents = {}
+    local originalRequestAny = SC.Navigation.requestAny
+    SC.Navigation.requestAny = function(actor, candidates, mode, intent)
+        intents[#intents + 1] = intent
+        return originalRequestAny(actor, candidates, mode, intent)
+    end
+    local grabbing, reason = tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
+    check(grabbing, "the collector takes hold of a camp body: " .. tostring(reason))
+    local grab = current(ctx.actor)
+    check(grab ~= nil and grab.Type == "ISGrabCorpseAction" and grab.corpseBody == victim,
+        "vanilla ISGrabCorpseAction receives the body")
+    check(ctx.actor.primary == nil, "the grapple starts with empty hands")
+    local tag = victim.modData.LF_CorpseHaul
+    check(type(tag) == "string" and string.find(tag, order.id, 1, true) == 1,
+        "the body carries its haul tag before the grab")
+    grab:perform()
+    local _, dragReason = tick(ctx)
+    check(dragReason == "production_dragging" and ctx.actor:isDraggingCorpse(),
+        "a verified grab becomes a drag: " .. tostring(dragReason))
+    local _, placeReason = tick(ctx)
+    check(placeReason == "production_placing",
+        "the drag reaches the graveside: " .. tostring(placeReason))
+    check(intents[#intents].draggingBody == true and intents[#intents].action == "drag_body_to_grave",
+        "the drag asks navigation for a route a dragged body can take")
+    local drop = current(ctx.actor)
+    check(drop ~= nil and drop.Type == "ISDropCorpseAction",
+        "vanilla ISDropCorpseAction lays the body down")
+    drop:perform()
+    local _, buryReason = tick(ctx)
+    check(buryReason == "production_burying",
+        "the respawned body is found by its tag and buried: " .. tostring(buryReason))
+    local bury = current(ctx.actor)
+    check(bury.Type == "ISBuryCorpse" and bury.grave == grave and bury.bodySquare ~= sq(4, -4),
+        "the burial uses the reserved grave and the body where it was laid")
+    bury:perform()
+    local _, buriedReason = tick(ctx)
+    check(buriedReason == "production_body_buried" and grave.modData.corpses == 1
+        and partner.modData.corpses == 1, "the collected body is buried: " .. tostring(buriedReason))
+    check(ctx.actor.primary == machete, "the weapon put away for the grab comes back")
+    local counters = SC.BaseLife.productionCounters()
+    check(counters.bodiesCollected == 1 and counters.bodiesBuried == 1,
+        "collection counters are exact")
+    local _, fillReason = tick(ctx)
+    check(fillReason == "production_filling",
+        "a finished collection closes its grave: " .. tostring(fillReason))
+    current(ctx.actor):perform()
+    local done = tickUntil(ctx, function(value) return value == "production_order_completed" end, 5)
+    SC.Navigation.requestAny = originalRequestAny
+    check(done and SC.BaseLife.productionOrder(order.id).state == "completed"
+        and grave.modData.filled == true, "the collection order completes after the grave closes")
+end
+
+do
+    local ctx = setup()
+    local pyre = outsidePyre()
+    local lighter = ctx.actor.inventory:AddItem(makeLighter())
+    local petrol = ctx.actor.inventory:AddItem(makePetrol(1))
+    makeBody(sq(4, 0))
+    local order = start(ctx, {
+        operation = "collect_bodies", zoneId = pyre.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local grabbing, reason = tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
+    check(grabbing, "the collector takes hold of a body bound for the pyre: " .. tostring(reason))
+    current(ctx.actor):perform()
+    tick(ctx)
+    local _, placeReason = tick(ctx)
+    check(placeReason == "production_placing" and ctx.actor.square == sq(21, 1),
+        "the body is dragged onto the middle of the pyre: " .. tostring(placeReason))
+    current(ctx.actor):perform()
+    local _, burnReason = tick(ctx)
+    local burn = current(ctx.actor)
+    check(burnReason == "production_burning" and burn ~= nil and burn.Type == "ISBurnCorpseAction",
+        "the body on the pyre is lit with the vanilla action: " .. tostring(burnReason))
+    check(ctx.actor.primary == lighter and ctx.actor.secondary == petrol,
+        "the lighter and the petrol can are in hand")
+    burn:perform()
+    local _, litReason = tick(ctx)
+    check(litReason == "production_pyre_lit" and sq(21, 1).fire == true and petrol.fluid.amount < 1,
+        "a verified fire lights the pyre: " .. tostring(litReason))
+    check(SC.BaseLife.productionCounters().pyresLit == 1
+        and SC.BaseLife.productionOrder(order.id).completed == 0,
+        "lighting counts the fire, not yet the body")
+    tick(ctx)
+    local ring = math.max(0, 20 - ctx.actor.x, ctx.actor.x - 22, 0 - ctx.actor.y, ctx.actor.y - 2)
+    check(ring >= 3, "the worker watches the fire from a safe distance")
+    local body = sq(21, 1).staticMoving[1]
+    check(body ~= nil and body.modData.LF_CorpseBurned == order.id,
+        "a lit body is marked so it is never lit twice")
+    sq(21, 1).fire = false
+    table.remove(sq(21, 1).staticMoving, 1)
+    local before = #spokenTopics
+    local _, burnedReason = tick(ctx, nil, nil, 21000)
+    check(burnedReason == "production_body_burned"
+        and SC.BaseLife.productionOrder(order.id).completed == 1,
+        "the burned body counts once the fire is out: " .. tostring(burnedReason))
+    local topic = spokenTopics[#spokenTopics] and spokenTopics[#spokenTopics].topic or nil
+    check(#spokenTopics > before and (topic == "burn.prayer" or topic == "burn.gallows"),
+        "the pyre closes with a fire-side prayer or gallows line: " .. tostring(topic))
+    local counters = SC.BaseLife.productionCounters()
+    check(counters.bodiesBurned == 1 and counters.bodiesCollected == 1, "burn counters are exact")
+    local done = tickUntil(ctx, function(value) return value == "production_order_completed" end, 4)
+    check(done, "the collection completes after the pyre ceremony")
+end
+
+do
+    local ctx = setup()
+    local pyre = outsidePyre()
+    ctx.actor.inventory:AddItem(makeLighter())
+    ctx.actor.inventory:AddItem(makePetrol(1))
+    makeBody(sq(21, 1))
+    local order = start(ctx, { operation = "burn_bodies", zoneId = pyre.id, requested = 2 })
+    local _, reason = tick(ctx)
+    check(reason == "production_burning", "a body already on the pyre is lit: " .. tostring(reason))
+    current(ctx.actor):perform()
+    local _, litReason = tick(ctx)
+    check(litReason == "production_pyre_lit", "the pyre burns: " .. tostring(litReason))
+    sq(26, 1).fire = true
+    local _, spreadReason = tick(ctx)
+    check(spreadReason == "fire_spread" and SC.BaseLife.productionOrder(order.id).state == "blocked",
+        "fire beyond the pyre stops the order: " .. tostring(spreadReason))
+    check(spoke("burn.fire_spread"), "the worker shouts a fire warning")
+    tick(ctx, nil, nil, 31000)
+    tick(ctx, nil, nil, 31000)
+    check(SC.BaseLife.productionOrder(order.id).state == "blocked"
+        and SC.BaseLife.productionOrder(order.id).blocker == "fire_spread",
+        "a spreading fire never re-opens the order on its own")
+    sq(26, 1).fire, sq(21, 1).fire = false, false
+    check(SC.BaseLife.retryProductionOrder(order.id) == true
+        and SC.BaseLife.productionOrder(order.id).state == "running",
+        "the player's Retry re-opens it")
+end
+
+do
+    local ctx = setup()
+    local pyre = outsidePyre()
+    makeBody(sq(21, 1))
+    local order = start(ctx, { operation = "burn_bodies", zoneId = pyre.id, requested = 1 })
+    local _, reason = tick(ctx)
+    check(reason == "missing_lighter" and SC.BaseLife.productionOrder(order.id).state == "blocked",
+        "no lighter blocks with a readable reason: " .. tostring(reason))
+    local lighter = makeLighter()
+    ctx.toolsObject.container:AddItem(lighter)
+    check(SC.BaseLife.retryProductionOrder(order.id) == true, "retry after stocking a lighter")
+    for _ = 1, 6 do
+        local _, value = tick(ctx)
+        reason = value
+        if lighter.container == ctx.actor.inventory then break end
+    end
+    check(lighter.container == ctx.actor.inventory,
+        "the lighter is fetched from camp storage: " .. tostring(reason))
+    local _, fuelReason = tickUntil(ctx, function(value) return value == "missing_fuel" end, 3)
+    check(fuelReason == "missing_fuel", "no petrol blocks with a readable reason: " .. tostring(fuelReason))
+    ctx.actor.inventory:AddItem(makePetrol(0.05))
+    SC.BaseLife.retryProductionOrder(order.id)
+    _, reason = tick(ctx)
+    check(reason == "missing_fuel", "a nearly empty can is not enough for one body: " .. tostring(reason))
+    ctx.actor.inventory:AddItem(makePetrol(1))
+    local previousClimate = getClimateManager
+    getClimateManager = function()
+        local climate = {}
+        function climate:isRaining() return true end
+        return climate
+    end
+    SC.BaseLife.retryProductionOrder(order.id)
+    _, reason = tick(ctx)
+    getClimateManager = previousClimate
+    check(reason == "raining" and current(ctx.actor) == nil,
+        "nothing is lit in the rain: " .. tostring(reason))
+    SC.BaseLife.retryProductionOrder(order.id)
+    _, reason = tick(ctx)
+    check(reason == "production_burning", "dry weather lights the pyre: " .. tostring(reason))
+end
+
+do
+    local ctx = setup()
+    ctx.actor.inventory:AddItem(makeItem("Base.Shovel", { tags = { diggrave = true } }))
+    local used = createGrave(-2, -4, 0, false)
+    used.modData.corpses, used.partner.modData.corpses = 1, 1
+    local own = createGrave(-2, -2, 0, false)
+    makeBody(sq(4, -4), { descriptor = ADA })
+    local previousCommunity = fallenRegister()
+    start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local grabbing, reason = tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
+    check(grabbing, "a fallen companion is collected: " .. tostring(reason))
+    current(ctx.actor):perform()
+    tick(ctx)
+    tick(ctx)
+    current(ctx.actor):perform()
+    local _, buryReason = tick(ctx)
+    check(buryReason == "production_burying" and current(ctx.actor).grave == own,
+        "a fallen companion gets an empty grave of their own: " .. tostring(buryReason))
+    current(ctx.actor):perform()
+    local _, buriedReason = tick(ctx)
+    check(buriedReason == "production_body_buried" and own.modData.LF_FallenName == "Ada Vance"
+        and own.partner.modData.LF_FallenName == "Ada Vance",
+        "the grave keeps the companion's name: " .. tostring(buriedReason))
+    check(SC.BaseLife.productionCounters().fallenBuried == 1, "named burials are counted")
+    local _, fillReason = tick(ctx)
+    check(fillReason == "production_filling", "a named grave closes at once: " .. tostring(fillReason))
+    current(ctx.actor):perform()
+    local before = #spokenTopics
+    local _, closedReason = tick(ctx)
+    local topic = spokenTopics[#spokenTopics] and spokenTopics[#spokenTopics].topic or nil
+    SC.Community = previousCommunity
+    check(closedReason == "production_grave_closed" and #spokenTopics == before + 1
+        and topic == "burial.fallen", "the ceremony speaks the companion's name: " .. tostring(topic))
+    check(used.modData.corpses == 1 and used.modData.filled == false and used.modData.LF_FallenName == nil,
+        "the shared grave is left alone")
+end
+
+do
+    local ctx = setup()
+    local pyre = outsidePyre()
+    ctx.actor.inventory:AddItem(makeLighter())
+    ctx.actor.inventory:AddItem(makePetrol(1))
+    makeBody(sq(21, 1), { descriptor = ADA })
+    local previousCommunity = fallenRegister()
+    start(ctx, { operation = "burn_bodies", zoneId = pyre.id, requested = 1 })
+    local _, reason = tick(ctx)
+    SC.Community = previousCommunity
+    check(reason == "no_bodies_on_pyre" and current(ctx.actor) == nil and sq(21, 1).fire ~= true,
+        "a fallen companion is never burned: " .. tostring(reason))
+end
+
+do
+    local ctx = setup()
+    ctx.actor.inventory:AddItem(makeItem("Base.Shovel", { tags = { diggrave = true } }))
+    createGrave(-2, -3, 0, false)
+    local player = makeBody(sq(4, -4), { player = true })
+    local order = start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local blocked, reason = tickUntil(ctx, function()
+        return SC.BaseLife.productionOrder(order.id).state == "blocked"
+    end, 10)
+    check(blocked and reason == "no_bodies_in_collection_areas" and onSquare(sq(4, -4), player)
+        and player.modData.LF_CorpseHaul == nil,
+        "an unmatched player body is never touched: " .. tostring(reason))
+end
+
+do
+    local ctx = setup()
+    ctx.actor.inventory:AddItem(makeItem("Base.Shovel", { tags = { diggrave = true } }))
+    createGrave(-2, -3, 0, false)
+    local victim = makeBody(sq(4, -4))
+    SC_TEST_GRAB_FAILS = true
+    local order = start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local reason
+    for _ = 1, 40 do
+        local queued = current(ctx.actor)
+        if queued then queued:perform() end
+        local _, value = tick(ctx, nil, nil, 21000)
+        reason = value
+        if SC.BaseLife.productionOrder(order.id).state == "blocked" then break end
+    end
+    SC_TEST_GRAB_FAILS = false
+    check(reason == "drag_unavailable",
+        "a grapple that never takes hold blocks after bounded attempts: " .. tostring(reason))
+    check(onSquare(sq(4, -4), victim) and victim.modData.LF_CorpseHaul == nil,
+        "a failed grab leaves the body where it lay, untagged")
+end
+
+do
+    local ctx = setup()
+    ctx.actor.inventory:AddItem(makeItem("Base.Shovel", { tags = { diggrave = true } }))
+    createGrave(-2, -3, 0, false)
+    makeBody(sq(4, -4))
+    local order = start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local grabbing = tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
+    check(grabbing, "the danger test takes hold of a body")
+    current(ctx.actor):perform()
+    local _, dragReason = tick(ctx)
+    check(dragReason == "production_dragging", "the danger test is dragging: " .. tostring(dragReason))
+    local runtime = { snapshot = { threats = { { distanceSq = 25 } } } }
+    local _, reason = tick(ctx, runtime)
+    check(reason == "unsafe_area" and not ctx.actor:isDraggingCorpse(),
+        "danger drops the body at once: " .. tostring(reason))
+    check(#ctx.actor.square.staticMoving == 1, "the dropped body stays in the world where it fell")
+    check(spoke("burial.haul.threat"), "the worker calls out the drop")
+    check(SC.BaseLife.productionOrder(order.id).completed == 0, "an abandoned drag is not progress")
+end
+
+-- ---------------------------------------------------------------------------
 -- Speech policy and native action guards
 -- ---------------------------------------------------------------------------
 
@@ -1297,7 +1735,9 @@ do
     SC.Commands.peek = originalPeek
     check(ritualLines > 0 and ritualLines < 40, "ritual quirks blend their own burial liturgy")
     for _, topic in ipairs({ "work.fell.start", "work.fell.timber", "work.saw.done",
-        "burial.dig.start", "burial.lower", "burial.prayer", "burial.gallows", "burial.amen" }) do
+        "burial.dig.start", "burial.lower", "burial.prayer", "burial.gallows", "burial.amen",
+        "burial.haul.start", "burial.haul.threat", "burial.fallen", "burn.ignite",
+        "burn.prayer", "burn.gallows", "burn.fire_spread" }) do
         check(SC.Dialogue.has(topic) and SC.Dialogue.poolSize(topic, ctx.actor) > 0,
             "dialogue pool registered: " .. topic)
     end

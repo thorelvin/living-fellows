@@ -303,6 +303,14 @@ local function defaultState(source, recruited)
     ritual, copyReason = ownedCopy(personality.ritual,
         "personality.ritual", 5, 96, {})
     if copyReason then return nil, copyReason end
+    local tales
+    tales, copyReason = ownedCopy(personality.tales,
+        "personality.tales", 5, 256, {})
+    if copyReason then return nil, copyReason end
+    local flavor
+    flavor, copyReason = ownedCopy(personality.flavor,
+        "personality.flavor", 3, 128, {})
+    if copyReason then return nil, copyReason end
     local objectives
     objectives, copyReason = ownedCopy(source.objectives, "objectives", 6, 320, {})
     if copyReason then return nil, copyReason end
@@ -349,6 +357,8 @@ local function defaultState(source, recruited)
             care = care,
             reveals = reveals,
             ritual = ritual,
+            tales = tales,
+            flavor = flavor,
             timeTogetherMs = boundedNumber(personality.timeTogetherMs,
                 0, 0, maximumSafeInteger, true),
             lastEncouragedAt = boundedNumber(personality.lastEncouragedAt,

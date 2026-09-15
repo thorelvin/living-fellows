@@ -5934,6 +5934,32 @@ check(corpseLease == nil and corpseLeaseReason == "dead_target_attack_released"
     "a stale native attack releases its dead target and restores later movement ownership")
 SurvivorCompanion.NativeActions = nativeActionsBeforeStaleRelease
 swordZed.dead = false
+do
+    -- A kept reference to a zombie object Build 42 recycled after death looks
+    -- alive but has left the world; its swing is released the same way.
+    local nativeBeforeRecycled = SurvivorCompanion.NativeActions
+    SurvivorCompanion.NativeActions = {
+        releaseStaleAttack = function(value)
+            return value:releaseCompanionStaleAttack(), "stale_native_attack_released"
+        end,
+    }
+    swordActor.staleAttackCleared = nil
+    swordActor.attackStarted, swordActor.attackAnimation = true, true
+    SurvivorCompanion.Combat.peek(swordActor).target = swordZed
+    function swordZed:isExistInTheWorld() return false end
+    clock = clock + 1
+    local recycledHeld = SurvivorCompanion.Combat.holdNativeAttack(swordActor, rejectedRuntime)
+    clock = clock + SurvivorCompanion.Config.values.combatDeadTargetAttackLeaseMs + 1
+    local recycledLease, recycledReason = SurvivorCompanion.Combat.holdNativeAttack(
+        swordActor, rejectedRuntime)
+    swordZed.isExistInTheWorld = nil
+    SurvivorCompanion.NativeActions = nativeBeforeRecycled
+    check(recycledHeld == true and recycledLease == nil
+            and recycledReason == "dead_target_attack_released"
+            and swordActor.staleAttackCleared == true
+            and SurvivorCompanion.Combat.peek(swordActor).target == nil,
+        "a swing at a recycled zombie object that left the world is released like one at a dead target")
+end
 local oldNativeCombat = SurvivorCompanion.NativeActions
 SurvivorCompanion.NativeActions = {
     combatReadiness = function() return false, "native_melee_recovery" end,
@@ -6972,18 +6998,67 @@ do
     }
     local savedAutonomy = SurvivorCompanion.Autonomy
     SurvivorCompanion.Autonomy = nil
-    player.moving = false
-    local stoppedCandidates = SurvivorCompanion.Decision._evaluateForTests(
-        decisionScavenger, player, safeSnapshot, commandView,
-        { alive = true, health = 100, wounds = {} }, {}, {}, clock)
-    check(stoppedCandidates[1] and stoppedCandidates[1].kind == "scavenge",
-        "checked scavenging beats a no-op formation hold while the player is stopped")
+    local healthy = { alive = true, health = 100, wounds = {} }
+    local function decide(at)
+        return SurvivorCompanion.Decision._evaluateForTests(
+            decisionScavenger, player, safeSnapshot, commandView, healthy, {}, {}, at)
+    end
+    local settleMs = (SurvivorCompanion.GameplayUtil.config("followSettleMs") or 2500)
+        + (SurvivorCompanion.GameplayUtil.config("followSettleStaggerMs") or 1500)
     player.moving = true
-    local movingCandidates = SurvivorCompanion.Decision._evaluateForTests(
-        decisionScavenger, player, safeSnapshot, commandView,
-        { alive = true, health = 100, wounds = {} }, {}, {}, clock)
+    local movingCandidates = decide(clock)
     check(movingCandidates[1] and movingCandidates[1].kind == "follow",
         "opportunistic scavenging never pulls a companion away from a moving leader")
+    player.moving = false
+    local justStopped = decide(clock + 200)
+    check(justStopped[1] and justStopped[1].kind == "follow",
+        "followers keep formation for a moment after the leader stops")
+    local stoppedCandidates = decide(clock + 200 + settleMs)
+    check(stoppedCandidates[1] and stoppedCandidates[1].kind == "scavenge",
+        "checked scavenging beats a no-op formation hold once the leader has settled")
+    player.moving = true
+    local resumed = decide(clock + 300 + settleMs)
+    check(resumed[1] and resumed[1].kind == "follow",
+        "a leader moving again ends the settle at once")
+    player.moving = false
+    SurvivorCompanion.Autonomy = {
+        intentFor = function()
+            return { kind = "purposeful_idle", priority = 56, purpose = "minor_stress" }
+        end,
+    }
+    local function hasIdle(candidates)
+        for _, candidate in ipairs(candidates) do
+            if candidate.kind == "purposeful_idle" then return true end
+        end
+        return false
+    end
+    local idleEarly = decide(clock + 400 + settleMs)
+    local idleLate = decide(clock + 400 + settleMs * 2)
+    SurvivorCompanion.Autonomy = nil
+    check(not hasIdle(idleEarly) and hasIdle(idleLate),
+        "a follower's voluntary idle mood also waits for the leader to settle")
+    local savedLogistics = SurvivorCompanion.Logistics
+    local chores = { shouldManage = true, overloaded = false }
+    SurvivorCompanion.Logistics = { status = function() return chores end }
+    local function hasChore(candidates)
+        for _, candidate in ipairs(candidates) do
+            if candidate.kind == "logistics" then return true end
+        end
+        return false
+    end
+    player.moving = true
+    decide(clock + 500 + settleMs * 3)
+    player.moving = false
+    local choreEarly = decide(clock + 600 + settleMs * 3)
+    local choreLate = decide(clock + 600 + settleMs * 4)
+    player.moving = true
+    decide(clock + 700 + settleMs * 4)
+    player.moving = false
+    chores.overloaded = true
+    local overloadedNow = decide(clock + 800 + settleMs * 4)
+    SurvivorCompanion.Logistics = savedLogistics
+    check(not hasChore(choreEarly) and hasChore(choreLate) and hasChore(overloadedNow),
+        "bag and packing chores wait for the leader to settle; an overload does not")
     player.moving = false
     local originalEncounterPeek = SurvivorCompanion.Encounter.peek
     SurvivorCompanion.Encounter.peek = function(subject)
@@ -7049,6 +7124,100 @@ do
     registry[formationLooter.id] = nil
     SurvivorCompanion.Performance.reset()
     clock = formationClock
+end
+
+do
+    -- Unreachable containers and targets past the leash back off instead of
+    -- being retried every 15 seconds, and an approach needs real distance
+    -- gained to count as progress.
+    local Encounter = SurvivorCompanion.Encounter
+    local remember, allows = Encounter._containerMemoryForTests()
+    local memoryState = {}
+    local unreachable = { items = {} }
+    remember(memoryState, unreachable, "navigation_failed", 1000)
+    local first = memoryState.visited[unreachable].expires
+    remember(memoryState, unreachable, "navigation_failed", first)
+    local second = memoryState.visited[unreachable].expires - first
+    remember(memoryState, unreachable, "interrupted", first + second)
+    local keptCount = memoryState.visited[unreachable].failures
+    remember(memoryState, unreachable, "navigation_failed", 0)
+    local third = memoryState.visited[unreachable].expires
+    check(first - 1000 == 15000 and second == 30000 and keptCount == 2 and third == 60000
+            and not allows(memoryState, unreachable, 59999)
+            and allows(memoryState, unreachable, 60000),
+        "an unreachable scavenging container backs off 15, 30 and 60 seconds and an interruption keeps the count")
+    for _ = 1, 20 do remember(memoryState, unreachable, "navigation_failed", 0) end
+    check(memoryState.visited[unreachable].expires == 600000,
+        "an unreachable scavenging container's backoff caps at ten minutes")
+    remember(memoryState, unreachable, "looted", 0)
+    remember(memoryState, unreachable, "navigation_failed", 0)
+    check(memoryState.visited[unreachable].failures == 1
+            and memoryState.visited[unreachable].expires == 15000,
+        "reaching a scavenging container resets its unreachable backoff")
+    local farTarget = { items = {} }
+    remember(memoryState, farTarget,
+        Encounter._cancelMemoryResult("scavenge_target_outside_formation"), 0)
+    remember(memoryState, farTarget,
+        Encounter._cancelMemoryResult("formation_leash_exceeded"), 0)
+    check(memoryState.visited[farTarget].expires == 60000
+            and Encounter._cancelMemoryResult("formation_leader_moving") == "interrupted"
+            and Encounter._cancelMemoryResult("phase_timeout:approaching") == "navigation_failed"
+            and Encounter._cancelMemoryResult("preempted") == "interrupted",
+        "targets that pull a follower past its leash back off from 30 seconds while a walking leader only interrupts")
+    local approach = {}
+    local near = Encounter._approachProgressSignature(approach, 6)
+    local jitter = Encounter._approachProgressSignature(approach, 5.8)
+    local backwards = Encounter._approachProgressSignature(approach, 6.4)
+    local closer = Encounter._approachProgressSignature(approach, 5.4)
+    check(near == jitter and jitter == backwards and closer ~= near,
+        "scavenge approach progress needs half a tile gained, not a changed navigation status")
+    approach.approachStartedAt = 1000
+    check(not Encounter._approachExpired(approach, 46000)
+            and Encounter._approachExpired(approach, 46001)
+            and not Encounter._approachExpired({}, 99999999),
+        "a scavenge approach fails after 45 seconds without reaching its container")
+
+    local stuckFood = item("Base.CannedBologneseStuck", "Food")
+    local stuckLooter = actor("sc-loot-stuck-approach", 50, 50, {})
+    registry[stuckLooter.id] = stuckLooter
+    SurvivorCompanion.Commands.issue(stuckLooter.id, "set_scavenge", true, player)
+    stuckLooter.hunger = 0.95
+    local stuckSquare = cell:getGridSquare(53, 50, 0)
+    local stuckSource, stuckOwner = containerObject(stuckSquare, { stuckFood })
+    local navigation = SurvivorCompanion.Navigation
+    local savedRequestAny, savedTargets = navigation.requestAny, navigation.interactionTargets
+    local flips = 0
+    navigation.interactionTargets = function()
+        return { cell:getGridSquare(52, 50, 0) }
+    end
+    navigation.requestAny = function()
+        flips = flips + 1
+        return true, flips % 2 == 0 and "recovering" or "walking"
+    end
+    local stuckRuntime = { snapshot = { threats = {}, immediateCount = 0, threatCount = 0,
+        pressure = 0, escapeSquares = {} } }
+    local approaching = SurvivorCompanion.Encounter.tryScavenge(stuckLooter, nil, stuckRuntime)
+    local stuckTask = SurvivorCompanion.Encounter.peek(stuckLooter).task
+    local stuckPhase = stuckTask and stuckTask.phase
+    for _ = 1, 20 do
+        clock = clock + 1000
+        SurvivorCompanion.ActionSupervisor.update(stuckLooter)
+        SurvivorCompanion.Encounter.tryScavenge(stuckLooter, nil, stuckRuntime)
+    end
+    local stuckState = SurvivorCompanion.Encounter.peek(stuckLooter)
+    local stuckMemory = stuckState.visited and stuckState.visited[stuckSource]
+    navigation.requestAny, navigation.interactionTargets = savedRequestAny, savedTargets
+    check(approaching and stuckPhase == "approach" and flips > 10
+            and stuckState.task == nil and stuckMemory ~= nil
+            and stuckMemory.result == "navigation_failed" and stuckMemory.failures == 1
+            and not stuckLooter.inventory:contains(stuckFood),
+        "a scavenging approach whose route status only flickers times out and backs off")
+    SurvivorCompanion.Encounter.reset(stuckLooter)
+    SurvivorCompanion.Commands.reset(stuckLooter)
+    registry[stuckLooter.id] = nil
+    for index = #stuckSquare.objects, 1, -1 do
+        if stuckSquare.objects[index] == stuckOwner then table.remove(stuckSquare.objects, index) end
+    end
 end
 
 do
@@ -7411,6 +7580,40 @@ check(nestedManaged and nestedLoad:contains(carriedBag)
     and nestedActor.square.worldItems[#nestedActor.square.worldItems].item == nestedJunk,
     "load management removes nested surplus without discarding the companion's bag")
 
+-- Two worn bags (a duffel on the back, a fanny pack in front) must not
+-- ping-pong packed items between them: each successful move replayed the
+-- Loot pose and kept the companion from ever following.
+do
+    local bigInventory, smallInventory = inventory(), inventory()
+    bigInventory.capacity, smallInventory.capacity = 18, 4
+    local bigBag = item("Base.Bag_DuffelBagPingPong", "Container", {
+        nestedInventory = bigInventory, bagCapacity = 18, weightReduction = 60,
+        bodyLocation = "Back", equipLocation = "Back", weight = 1,
+    })
+    local smallBag = item("Base.Bag_FannyPackPingPong", "Container", {
+        nestedInventory = smallInventory, bagCapacity = 4, weightReduction = 30,
+        bodyLocation = "FannyPackFront", equipLocation = "FannyPackFront", weight = 0.5,
+    })
+    local packed = item("Base.CannedTunaPingPong", "Food", { weight = 1 })
+    bigInventory:AddItem(packed)
+    local carrier = actor("sc-logistics-two-bags", 11, 2,
+        { inventory = inventory({ bigBag, smallBag }) })
+    carrier:setWornItem("Back", bigBag)
+    carrier:setWornItem("FannyPackFront", smallBag)
+    SurvivorCompanion.Logistics.reset(carrier)
+    local settledAudit = SurvivorCompanion.Logistics.status(carrier)
+    check(settledAudit.packMove == nil,
+        "an item already packed in one worn bag is never shuffled into another")
+    local loose = item("Base.CannedCornPingPong", "Food", { weight = 1 })
+    carrier.inventory:AddItem(loose)
+    SurvivorCompanion.Logistics.reset(carrier)
+    local looseAudit = SurvivorCompanion.Logistics.status(carrier)
+    check(looseAudit.packMove ~= nil and looseAudit.packMove.item == loose
+            and looseAudit.packMove.destination == bigInventory,
+        "a loose item is still packed, into the roomiest worn bag")
+    SurvivorCompanion.Logistics.reset(carrier)
+end
+
 local fullInventory = inventory({ item("Base.HeavyJunk", "Item", { weight = 4 }) })
 fullInventory.capacity = 5
 local fullActor = actor("sc-loadout-full", 9, 0, { inventory = fullInventory })
@@ -7566,6 +7769,18 @@ check(stalledStarted and not stalledContinued and stalledReason == "logistics_ac
         and SurvivorCompanion.ActionSupervisor.snapshot(stalledActor).phase == "idle"
         and SurvivorCompanion.ActionSupervisor.reservationCount(stalledActor) == 0,
     "packing cancels and rolls back as soon as its protected pose moves")
+local stalledRetry, stalledRetryReason = SurvivorCompanion.Logistics.update(
+    stalledActor, nil, { snapshot = {
+        threats = {}, immediateCount = 0, threatCount = 0, pressure = 0,
+    } })
+local cooledStatus = SurvivorCompanion.Logistics.status(stalledActor)
+check(not stalledRetry and cooledStatus.packMove == nil and cooledStatus.shouldManage ~= true
+        and stalledActor.inventory:contains(stalledFood),
+    "a cancelled pack cools down instead of restarting the Loot pose at once: "
+        .. tostring(stalledRetryReason))
+clock = clock + (SurvivorCompanion.GameplayUtil.config("logisticsFailureCooldownMs") or 30000) + 1
+check(SurvivorCompanion.Logistics.status(stalledActor).packMove ~= nil,
+    "the cooled pack move is offered again after its backoff")
 SurvivorCompanion.Logistics.reset(stalledActor)
 SurvivorCompanion.Actor.setMovement = originalSetMovement
 SurvivorCompanion.NativeActions = nil
@@ -7716,9 +7931,13 @@ local rejectedClothingRetry, rejectedClothingRetryReason =
     SurvivorCompanion.Logistics.update(rollbackClothingActor, nil, {
         snapshot = { threats = {}, immediateCount = 0, threatCount = 0, pressure = 0 },
     })
-check(not rejectedClothingRetry and rejectedClothingRetryReason == "retry_cooldown"
-    and rollbackClothingActor:getWornItem("Shirt") == rollbackShirt,
-    "an unchanged failed wearable transaction cannot restart on the next AI tick")
+check(not rejectedClothingRetry
+    and (rejectedClothingRetryReason == "retry_cooldown"
+        or rejectedClothingRetryReason == "load_balanced")
+    and rollbackClothingActor:getWornItem("Shirt") == rollbackShirt
+    and SurvivorCompanion.Logistics.status(rollbackClothingActor).clothingUpgrade == nil,
+    "an unchanged failed wearable transaction cannot restart on the next AI tick: "
+        .. tostring(rejectedClothingRetryReason))
 
 local unsafeCorpseFood = item("Base.CannedSardines", "Food", { weight = 1 })
 local unsafeCorpseLooter = actor("sc-corpse-unsafe", 11, 0, {})
@@ -7949,6 +8168,117 @@ check(not SurvivorCompanion.Downtime.update(rejectedIdle, player, safeRuntime)
     and SurvivorCompanion.Downtime.peek(rejectedIdle).active == nil
     and SurvivorCompanion.Downtime.peek(rejectedIdle).lastFact == nil,
     "rejected downtime start records neither an active action nor completion")
+
+-- Studying the dead: after a long quiet spell a companion crouches over a
+-- zombie corpse beside it, talks it through in its own voice, and never
+-- studies the same body twice.
+do
+    local utility = SurvivorCompanion.GameplayUtil
+    local study = SurvivorCompanion.Downtime._studyForTests()
+    local function corpse(x, y, options)
+        options = options or {}
+        local square = cell:getGridSquare(x, y, 0)
+        local body = { __class = "IsoDeadBody", square = square, modData = {} }
+        function body:getSquare() return self.square end
+        function body:getX() return self.square.x + 0.5 end
+        function body:getY() return self.square.y + 0.5 end
+        function body:getZ() return 0 end
+        function body:getModData() return self.modData end
+        function body:isZombie() return options.zombie ~= false end
+        function body:isFakeDead() return options.fake == true end
+        function body:getReanimateTime() return options.reanimate or 0 end
+        function body:getOutfitName() return options.outfit end
+        function body:isCrawling() return options.crawling == true end
+        function body:isSkeleton() return false end
+        function body:getDeathTime() return options.died or 0 end
+        function body:getKilledBy() return options.killer end
+        square.staticMoving[#square.staticMoving + 1] = body
+        return body
+    end
+    check(study.outfitGroup("PoliceStripper") == "party" and study.outfitGroup("Police") == "law"
+        and study.outfitGroup("BaseballFan_Rangers") == "sports"
+        and study.outfitGroup("Ranger") == "law" and study.outfitGroup("Waiter_Spiffo") == "food"
+        and study.outfitGroup("Jockey03") == "jockey"
+        and study.outfitGroup("HospitalPatientBathrobe") == "patient"
+        and study.outfitGroup("Generic01") == nil,
+        "vanilla outfit names map to what a companion would notice first")
+    local faking = corpse(9, -8, { fake = true })
+    local rising = corpse(9, -7, { reanimate = 250 })
+    local human = corpse(8, -8, { zombie = false })
+    check(not study.eligible(faking) and not study.eligible(rising) and not study.eligible(human),
+        "a faking, reanimating or non-zombie body is never studied")
+    for _, point in ipairs({ { 9, -8 }, { 9, -7 }, { 8, -8 } }) do
+        cell:getGridSquare(point[1], point[2], 0).staticMoving = {}
+    end
+    local doctorChance = study.chance({ personalityProfile = {
+        practicality = 90, caution = 20, courage = 50, profession = "doctor" } })
+    local cautiousChance = study.chance({ personalityProfile = {
+        practicality = 20, caution = 95, courage = 30 } })
+    local frayedChance = study.chance({ stress = 80, personalityProfile = { practicality = 90 } })
+    check(doctorChance > cautiousChance and frayedChance == 0,
+        "practical, hands-on companions are curious; cautious ones hang back; a frayed nerve never looks")
+
+    local realConfig = utility.config
+    utility.config = function(key)
+        if key == "downtimeStudyChancePercent" then return 100 end
+        return realConfig(key)
+    end
+    local body = corpse(11, -7, { outfit = "Jockey03",
+        died = getGameTime():getWorldAgeHours() - 1 })
+    local scholar = actor("sc-study-dead", 10, -7, {})
+    scholar.modData.SC_Order = "stay"
+    scholar.modData.SC_WorkMode = "idle"
+    registry[scholar.id] = scholar
+    local commands = SurvivorCompanion.Commands.peek(scholar)
+    check(type(commands) == "table", "the studying companion has command state")
+    commands.personalityProfile = { courage = 50, caution = 20, compassion = 50,
+        practicality = 90, archetype = "practical", profession = "doctor" }
+    local quiet = { snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+        player = { danger = 0 } } }
+    local started, reason = false, nil
+    for _ = 1, 10 do
+        local handled, value = SurvivorCompanion.Downtime.update(scholar, player, quiet)
+        reason = value
+        if handled and value == "study_corpse" then started = true break end
+        clock = clock + 6000
+    end
+    check(started and SurvivorCompanion.Downtime.peek(scholar).active.kind == "study_corpse",
+        "after a quiet spell the companion crouches over the nearby corpse: " .. tostring(reason))
+    local topics = { SurvivorCompanion.Dialogue.lastSpokenTopic(scholar) }
+    check(topics[1] == "study.outfit.jockey",
+        "the first line is about what the body is wearing: " .. tostring(topics[1]))
+    for _ = 1, 6 do
+        clock = clock + 3000
+        SurvivorCompanion.Downtime.update(scholar, player, quiet)
+        local topic = SurvivorCompanion.Dialogue.lastSpokenTopic(scholar)
+        if topic ~= topics[#topics] then topics[#topics + 1] = topic end
+        local fact = SurvivorCompanion.Downtime.peek(scholar).lastFact
+        if type(fact) == "table" and fact.activity == "study_corpse" then break end
+    end
+    local fact = SurvivorCompanion.Downtime.peek(scholar).lastFact
+    check(type(fact) == "table" and fact.activity == "study_corpse" and fact.outfit == "jockey"
+        and #topics >= 2 and string.sub(tostring(topics[2]), 1, 6) == "study.",
+        "the companion talks it through over a few paced lines and finishes: "
+            .. table.concat(topics, ","))
+    check(body.modData.LF_Studied == true and not study.eligible(body),
+        "a studied body is remembered and never studied again")
+    clock = clock + 6000
+    SurvivorCompanion.Downtime.update(scholar, player, quiet)
+    local after = SurvivorCompanion.Downtime.peek(scholar).active
+    check(after == nil or after.kind ~= "study_corpse",
+        "the companion cooldown keeps studying rare")
+    for _, topic in ipairs({ "study.open", "study.symptoms", "study.lore", "study.psa",
+        "study.kentucky", "study.close", "study.profession.doctor", "study.outfit.law",
+        "study.ritual.bourbon_blessing" }) do
+        check(SurvivorCompanion.Dialogue.has(topic)
+            and SurvivorCompanion.Dialogue.poolSize(topic, scholar) > 0,
+            "study dialogue pool registered: " .. topic)
+    end
+    utility.config = realConfig
+    cell:getGridSquare(11, -7, 0).staticMoving = {}
+    SurvivorCompanion.Downtime.reset(scholar)
+    registry[scholar.id] = nil
+end
 
 local damagedTool = item("Base.Crowbar", "Weapon", { condition = 2, conditionMax = 10 })
 local repairGlue = item("Base.Woodglue", "Item")
@@ -8752,11 +9082,35 @@ local retreatActor = actor("sc-decision-retreat", -6, -2, {})
 retreatActor.modData.SC_Order = "retreat"
 retreatActor.rejectActions = { ordered_retreat = true }
 registry[retreatActor.id] = retreatActor
-check(decisionAfterDue(retreatActor, player, {
-    snapshot = { threats = {}, threatCount = 0, immediateCount = 0, escapeSquares = {}, allies = {}, player = { danger = 0 } },
-}, 101) and string.find(tostring(SurvivorCompanion.Decision.peek(retreatActor).intent),
-        "safety_guarded_hold:retreat", 1, true) ~= nil,
-    "a rejected survival retreat becomes a stationary safety hold instead of routine work")
+do
+    -- Senses refreshes the snapshot each perception tick, so the threat is
+    -- supplied through it: a Retreat order only retreats from something.
+    local threatSnapshot = { threats = { { actor = zed, distanceSq = 64 } }, threatCount = 1,
+        immediateCount = 0, escapeSquares = {}, allies = {}, player = { danger = 0 } }
+    local savedSenses = SurvivorCompanion.Senses
+    SurvivorCompanion.Senses = setmetatable({
+        snapshot = function() return threatSnapshot end,
+    }, { __index = savedSenses })
+    local held = decisionAfterDue(retreatActor, player, { snapshot = threatSnapshot }, 101)
+    SurvivorCompanion.Senses = savedSenses
+    check(held and string.find(tostring(SurvivorCompanion.Decision.peek(retreatActor).intent),
+            "safety_guarded_hold:retreat", 1, true) ~= nil,
+        "a rejected survival retreat becomes a stationary safety hold instead of routine work: "
+            .. tostring(SurvivorCompanion.Decision.peek(retreatActor).intent))
+end
+do
+    local calmRetreat = SurvivorCompanion.Decision._evaluateForTests(retreatActor, player,
+        { threats = {}, threatCount = 0, immediateCount = 0, escapeSquares = {}, allies = {},
+            player = { danger = 0 } },
+        { recruited = true, order = "retreat" }, { alive = true, health = 100, wounds = {} },
+        {}, {}, clock)
+    local calmHasRetreat = false
+    for _, candidate in ipairs(calmRetreat) do
+        if candidate.kind == "retreat" then calmHasRetreat = true end
+    end
+    check(calmRetreat[1] and calmRetreat[1].kind == "follow" and not calmHasRetreat,
+        "a Retreat order with nothing in view regroups on the leader instead of freezing")
+end
 
 local roomActor = actor("sc-room-sweep", -6, 1, {})
 roomActor.square.room = { name = "rejected-sweep-room" }
@@ -9537,10 +9891,14 @@ check(type(reservedSentence) == "string" and reservedChanged == false
     "plans conversation respects its trust threshold without revealing early")
 depthState.trust = 10
 local planSentence, _, planChanged = Objectives.respondPlans(depthState)
+-- The wording is one varied pool line (clock-salted); every variant names the
+-- meal, so the check must not pin a single phrasing.
 check(type(planSentence) == "string" and planChanged == true
     and depthState.objectives.active.revealed == true
-    and string.find(planSentence, "proper meal", 1, true) ~= nil,
-    "plans conversation reveals exactly the existing objective with personality wording")
+    and (string.find(planSentence, "meal", 1, true) ~= nil
+        or string.find(planSentence, "eat", 1, true) ~= nil),
+    "plans conversation reveals exactly the existing objective with personality wording: "
+        .. tostring(planSentence))
 local revealedJournal = Journal.build(depthActor, depthState, { name = "Depth Fellow" })
 check(revealedJournal.objective.known == true
     and revealedJournal.objective.kind == "share_a_proper_meal",
@@ -10823,6 +11181,28 @@ do
         "faction locations select the nearest named map street by polyline distance")
 end
 do
+    -- Build 42 does not expose the street files to Lua, so the native bridge
+    -- reads them; no street within range is a final answer, not a Lua retry.
+    local originalSCBridge = SCBridge
+    local requested
+    SCBridge = {
+        nearestStreet = function(api, x, y, maximum)
+            requested = { api = api, x = x, y = y, maximum = maximum }
+            return "Knox Avenue\t3\t2.04\t5"
+        end,
+    }
+    local streetsApi = { marker = "streets-api" }
+    local bridged = Factions._nearestStreetFromApiForTests(streetsApi, 2, 2)
+    SCBridge.nearestStreet = function() return nil end
+    local none = Factions._nearestStreetFromApiForTests(streetsApi, 2, 2)
+    SCBridge = originalSCBridge
+    check(bridged and bridged.name == "Knox Avenue" and bridged.distance == 3
+            and bridged.x == 2 and bridged.y == 5 and bridged.source == "world_map_streets"
+            and requested and requested.api == streetsApi and requested.x == 2
+            and requested.maximum == 300 and none == nil,
+        "faction locations read the nearest street through the native bridge")
+end
+do
     local sliceClock = clock
     SurvivorCompanion.Performance.reset()
     SurvivorCompanion.Performance.beginFrame(2, clock)
@@ -10882,6 +11262,45 @@ local document = {
 local restoredFactions, factionCount = Factions.restore(document)
 check(restoredFactions and factionCount == 1 and #Factions.list(true) == 1,
     "persistent faction document restores one discovered household")
+do
+    -- Natural spawns keep factions 300 tiles apart, but the debug search only
+    -- reaches 55 tiles, so debug spawns use their own small spacing and a
+    -- bandit camp can still be placed after a household. A failed search names
+    -- the rejection it hit most instead of a bare "no valid house".
+    local conflicts = Factions._conflictsWithExistingForTests
+    local nearby = { anchor = { x = 22, y = 2, z = 0 } }
+    local adjacent = { anchor = { x = 10, y = 2, z = 0 } }
+    local debugSpacing = SurvivorCompanion.Config.get("debugFactionMinHouseDistance")
+    check(conflicts(nearby) == true and conflicts(nearby, debugSpacing) == false
+            and conflicts(adjacent, debugSpacing) == true,
+        "debug faction spawns use a small house spacing while natural spawns keep theirs")
+    local failure = Factions._searchFailureReasonForTests
+    check(failure({ rejections = {} }) == "no_valid_loaded_house"
+            and failure({ rejections = { house_seen = 2, house_too_close_to_faction = 5 } })
+                == "no_valid_loaded_house:house_too_close_to_faction",
+        "a failed house search reports the rejection it hit most")
+    local values = SurvivorCompanion.Config.values
+    local priorDebug = values.debugSpawnEnabled
+    local priorFindHouse = Factions.findHouse
+    local priorCheckBridge = SurvivorCompanion.Actor.checkBridge
+    local requested = {}
+    values.debugSpawnEnabled = true
+    SurvivorCompanion.Actor.checkBridge = function() return true end
+    Factions.findHouse = function(_, options)
+        requested[#requested + 1] = options
+        return nil, "stubbed_house_search"
+    end
+    local banditOk, banditReason = Factions.debugSpawnBanditCamp(player, "random")
+    local householdOk, householdReason = Factions.debugSpawnHousehold(player, 1)
+    Factions.findHouse = priorFindHouse
+    SurvivorCompanion.Actor.checkBridge = priorCheckBridge
+    values.debugSpawnEnabled = priorDebug
+    check(not banditOk and banditReason == "stubbed_house_search"
+            and not householdOk and householdReason == "stubbed_house_search"
+            and #requested == 2 and requested[1].factionSpacing == debugSpacing
+            and requested[2].factionSpacing == debugSpacing,
+        "debug bandit and household spawns search with the debug house spacing")
+end
 local migratedIdentity = Factions.summary("faction-test")
 local migratedName = migratedIdentity and migratedIdentity.name
 check(type(migratedName) == "string" and string.sub(migratedName, 1, 4) == "The "
@@ -12763,6 +13182,1812 @@ end
 check(loopState and #loopState.trail == 1 and loopState.totalDistance == 0,
     "returning to a retained open square erases the completed leader loop")
 SurvivorCompanion.Positioning.reset(loopLeader)
+end)()
+
+-- A companion dragging a body walks backwards through the stock grapple: the
+-- planner offers it no climbs, windows, stairs or slopes, but doors stay open.
+;(function()
+    local navigation = SurvivorCompanion.Navigation
+    local hadTopology = SurvivorCompanion.Topology ~= nil
+    local topology = SurvivorCompanion.Topology or {}
+    SurvivorCompanion.Topology = topology
+    local originalClassify = topology.classifyEdge
+    local affordance = "fence"
+    topology.classifyEdge = function()
+        return { traversable = true, affordance = affordance, cost = 1 }
+    end
+    local from, to = cell:getGridSquare(45, 12, 0), cell:getGridSquare(46, 12, 0)
+    local results = {}
+    for _, kind in ipairs({ "fence", "window", "window_frame", "stairs", "slope", "door", "open" }) do
+        affordance = kind
+        local passable, _, reason = navigation._passableEdgeForTests(from, to, 1,
+            { draggingBody = true })
+        results[kind] = { passable = passable, reason = reason }
+    end
+    affordance = "fence"
+    local _, _, plainReason = navigation._passableEdgeForTests(from, to, 1, {})
+    topology.classifyEdge = originalClassify
+    if not hadTopology then SurvivorCompanion.Topology = nil end
+    check(results.fence.passable == false and results.fence.reason == "drag_fence"
+        and results.window.reason == "drag_window"
+        and results.window_frame.reason == "drag_window_frame"
+        and results.stairs.reason == "drag_stairs" and results.slope.reason == "drag_slope",
+        "a companion dragging a body never plans a climb, window, stairs or slope")
+    check(results.door.reason ~= "drag_door" and results.open.reason ~= "drag_open",
+        "doors and open ground stay available to a dragged body")
+    check(plainReason ~= "drag_fence", "ordinary routes may still climb a fence")
+end)()
+
+-- A follow search that outlives its hard limit, or is starved of frame budget
+-- past its lease, is closed as an exhausted budget so the engine pathfinder
+-- may take over (a parked car between a companion and its leader); ordinary
+-- searches keep their longer limits.
+;(function()
+    local overdue = SurvivorCompanion.Navigation._pathSearchOverdue
+    local utility = SurvivorCompanion.GameplayUtil
+    local followLease = utility.config("navigationFollowPathSearchLeaseMs") or 2500
+    local followHard = utility.config("navigationFollowPathSearchHardMs") or 5000
+    local generalHard = utility.config("navigationPathSearchHardMs") or 30000
+    local recent = 1000 + followHard - 100
+    check(not overdue({ startedAt = 1000, progressAt = recent, followRouting = true },
+            1000 + followHard)
+        and overdue({ startedAt = 1000, progressAt = recent, followRouting = true },
+            1001 + followHard)
+        and not overdue({ startedAt = 1000, followRouting = true }, 1000 + followLease)
+        and overdue({ startedAt = 1000, followRouting = true }, 1001 + followLease)
+        and not overdue({ startedAt = 1000 }, 1001 + followHard)
+        and overdue({ startedAt = 1000, progressAt = 1000 + generalHard - 100 },
+            1001 + generalHard)
+        and not overdue(nil, 99999),
+        "a search past its hard limit or starved past its lease is closed as an exhausted budget")
+end)()
+
+-- Stuck recovery leaves an exhausted follow search to the planner's engine
+-- fallback instead of clearing it and starting the same search again, and a
+-- leader far away is followed with the engine pathfinder from the start.
+;(function()
+    local navigation = SurvivorCompanion.Navigation
+    local stuckFollower = actor("sc-nav-overdue-search", 30, 30, {})
+    local state = navigation._stateForTests(stuckFollower)
+    local pending = { startedAt = clock - 6000, progressAt = clock - 6000,
+        followRouting = true }
+    state.pathSearch = pending
+    state.lastProgressAt = clock - 60000
+    local recovering = navigation._recoverFromStuckForTests(stuckFollower, state,
+        stuckFollower.square, "walk", { action = "follow_formation" }, clock)
+    check(recovering == false and state.pathSearch == pending
+            and (state.stuckAttempts or 0) == 0
+            and state.lastMovementReason == "path_search_timeout:hard_limit",
+        "an overdue follow search is left for the engine fallback instead of being restarted as stuck")
+    local origin, far = cell:getGridSquare(0, 0, 0), cell:getGridSquare(30, 0, 0)
+    check(navigation._followUsesEngine({ action = "follow_formation" }, origin, far, true)
+        and not navigation._followUsesEngine({ action = "follow_formation" },
+            origin, cell:getGridSquare(10, 0, 0), true)
+        and not navigation._followUsesEngine({ action = "move_to_scavenge" }, origin, far, false)
+        and not navigation._followUsesEngine({ action = "follow_formation",
+            draggingBody = true }, origin, far, true)
+        and not navigation._followUsesEngine({ action = "follow_formation",
+            stealthAvoidance = true }, origin, far, true),
+        "a leader far away is followed with the engine pathfinder instead of a long Lua search")
+end)()
+
+-- A companion walking the same way just ahead does not make the follower
+-- behind stop and sidestep; a stopped or oncoming one still does.
+;(function()
+    local navigation = SurvivorCompanion.Navigation
+    local walker = actor("sc-flow-walker", 20, 20, {})
+    local ahead = actor("sc-flow-ahead", 21, 20, {})
+    local nextSquare = cell:getGridSquare(21, 20, 0)
+    local flowSnapshot = { allies = { { actor = ahead } } }
+    local aheadState = navigation._stateForTests(ahead)
+    aheadState.motionX, aheadState.motionY, aheadState.motionAt = 1, 0, clock
+    local flowing = navigation._personalSpaceBlockerForTests(
+        walker, nextSquare, flowSnapshot, clock)
+    aheadState.motionX, aheadState.motionY = -1, 0
+    local oncoming = navigation._personalSpaceBlockerForTests(
+        walker, nextSquare, flowSnapshot, clock)
+    aheadState.motionX, aheadState.motionY, aheadState.motionAt = 1, 0, clock - 5000
+    local stopped = navigation._personalSpaceBlockerForTests(
+        walker, nextSquare, flowSnapshot, clock)
+    check(flowing == nil and oncoming == ahead and stopped == ahead,
+        "a follower keeps walking behind a companion moving the same way but yields to a stopped or oncoming one")
+end)()
+
+-- A corpse, and the stand-in zombie Build 42 makes while a body is dragged,
+-- are neither perceived as threats nor attacked.
+;(function()
+    local utility = SurvivorCompanion.GameplayUtil
+    local corpse = { __class = "IsoDeadBody", isZombie = function() return true end }
+    local live = { __class = "IsoZombie", isDead = function() return false end,
+        getHealth = function() return 1 end,
+        isReanimatedForGrappleOnly = function() return false end }
+    local dragged = { __class = "IsoZombie", isDead = function() return false end,
+        getHealth = function() return 1 end,
+        isReanimatedForGrappleOnly = function() return true end }
+    local recycled = { __class = "IsoZombie", isDead = function() return false end,
+        getHealth = function() return 1 end,
+        isReanimatedForGrappleOnly = function() return false end,
+        isExistInTheWorld = function() return false end }
+    local present = { __class = "IsoZombie", isDead = function() return false end,
+        getHealth = function() return 1 end,
+        isReanimatedForGrappleOnly = function() return false end,
+        isExistInTheWorld = function() return true end }
+    local active = SurvivorCompanion.Senses._isActiveZombieForTests
+    check(utility.isDead(corpse) and utility.isCorpseProxy(corpse)
+            and utility.isCorpseProxy(dragged) and not utility.isCorpseProxy(live)
+            and not utility.isDead(live) and active(live) and not active(dragged)
+            and not active(corpse),
+        "corpses and dragged-body stand-ins are never live zombie threats")
+    check(utility.isGoneTarget(recycled) and not utility.isDead(recycled)
+            and not utility.isGoneTarget(present) and not utility.isGoneTarget(live)
+            and utility.isGoneTarget(corpse) and utility.isGoneTarget(dragged)
+            and not active(recycled) and active(present),
+        "a recycled zombie object that left the world is never a threat or a target")
+end)()
+
+-- A companion being bandaged holds still, and a bleeding companion that cannot
+-- dress its own wound gives up chores and stays with the leader instead.
+;(function()
+    local medical = SurvivorCompanion.Medical
+    local decision = SurvivorCompanion.Decision
+    local patient = actor("sc-care-patient", 34, 34, {})
+    check(not medical.isReceivingCare(patient, clock)
+            and medical.noteReceivingCare(patient, player, clock)
+            and medical.isReceivingCare(patient, clock + 1000)
+            and not medical.isReceivingCare(patient, clock + 60000),
+        "a companion being bandaged is held only while the player's action keeps refreshing it")
+    medical.noteReceivingCare(patient, player)
+    local held, heldReason = medical.update(patient, player, {})
+    medical.clearReceivingCare(patient)
+    check(held == true and heldReason == "receiving_care"
+            and not medical.isReceivingCare(patient),
+        "a companion being bandaged stands still instead of treating itself or moving off")
+
+    local savedBlocker = medical.selfCareBlocker
+    medical.selfCareBlocker = function() return "no_bandage" end
+    local careCommands = { recruited = true, order = "follow", scavenge = true, followDistance = 3 }
+    local calm = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0,
+        escapeSquares = {}, allies = {}, player = { danger = 0, immediateThreats = 0 } }
+    local function kinds(assessment)
+        local found = {}
+        for _, candidate in ipairs(decision._evaluateForTests(patient, player, calm,
+            careCommands, assessment, {}, {}, clock)) do
+            local mode = type(candidate.detail) == "table" and candidate.detail.mode or ""
+            found[candidate.kind .. ":" .. tostring(mode)] = true
+        end
+        return found
+    end
+    local bleedingKinds = kinds({ alive = true, health = 60, bleedingCount = 1,
+        needsBandage = true, wounds = {} })
+    local healthyKinds = kinds({ alive = true, health = 100, bleedingCount = 0, wounds = {} })
+    medical.selfCareBlocker = savedBlocker
+    check(bleedingKinds["follow:seek_care"] == true and bleedingKinds["medical:"] == true
+            and not bleedingKinds["scavenge:"] and not bleedingKinds["downtime:"]
+            and healthyKinds["scavenge:"] == true and not healthyKinds["follow:seek_care"],
+        "a bleeding companion without a bandage gives up chores and stays with the leader")
+    local summary = medical.deathSummary(patient)
+    check(type(summary) == "string" and string.find(summary, "died health=", 1, true) == 1,
+        "a companion's death is summarised with its wounds for the log")
+end)()
+
+-- A route handed to the engine pathfinder stops at a closed, locked door
+-- instead of walking through it, and marks that doorway blocked.
+;(function()
+    local navigation = SurvivorCompanion.Navigation
+    local walker = actor("sc-door-walker", 40, 12, {})
+    local doorFrom = cell:getGridSquare(40, 12, 0)
+    local doorTo = cell:getGridSquare(41, 12, 0)
+    local beyond = cell:getGridSquare(43, 12, 0)
+    local lockedDoor = { open = false, locked = true }
+    function lockedDoor:IsOpen() return self.open end
+    function lockedDoor:isLocked() return self.locked end
+    function lockedDoor:getKeyId() return 4242 end
+    local priorDoorTo = doorFrom.getDoorTo
+    function doorFrom:getDoorTo(other) return other == doorTo and lockedDoor or nil end
+    local found, foundFrom, foundTo = navigation._nativePathDoorAheadForTests(walker,
+        { nativeNextSquare = beyond })
+    local state = navigation._stateForTests(walker)
+    state.nativeLease = { fromSquare = doorFrom, toSquare = beyond, nativeNextSquare = beyond,
+        ultimateGoal = beyond, affordance = "engine_goal", startedAt = clock, targets = {} }
+    local leaseStatus, leaseReason = navigation._maintainNativeLeaseForTests(
+        walker, state, beyond, clock)
+    lockedDoor.open = true
+    local openAhead = navigation._nativePathDoorAheadForTests(walker, { nativeNextSquare = beyond })
+    doorFrom.getDoorTo = priorDoorTo
+    local blocked = false
+    for _, entry in pairs(state.blockedEdges or {}) do
+        if type(entry) == "table" then blocked = true end
+    end
+    check(found == lockedDoor and foundFrom == doorFrom and foundTo == doorTo
+            and leaseStatus == "failed" and leaseReason == "path_blocked:door_locked"
+            and state.nativeLease == nil and blocked and openAhead == nil,
+        "an engine route stops at a closed locked door and marks the doorway blocked instead of walking through")
+end)()
+
+-- An actor covering several tiles between checks (a stranger on the
+-- one-second faction pulse) opens a closed door on its engine route early
+-- instead of passing it between two checks; a walker checked every few
+-- steps still waits until it reaches the door.
+;(function()
+    local navigation = SurvivorCompanion.Navigation
+    local runner = actor("sc-door-runner", 40, 16, {})
+    local start = cell:getGridSquare(40, 16, 0)
+    local doorFrom = cell:getGridSquare(42, 16, 0)
+    local doorTo = cell:getGridSquare(43, 16, 0)
+    local beyond = cell:getGridSquare(47, 16, 0)
+    local garageDoor = { open = false }
+    function garageDoor:IsOpen() return self.open end
+    function garageDoor:isLocked() return false end
+    function garageDoor:ToggleDoor() self.open = not self.open end
+    local priorDoorTo = doorFrom.getDoorTo
+    function doorFrom:getDoorTo(other) return other == doorTo and garageDoor or nil end
+    local function run(checkX)
+        garageDoor.open = false
+        navigation.reset(runner)
+        local state = navigation._stateForTests(runner)
+        state.nativeLease = { fromSquare = start, toSquare = beyond, nativeNextSquare = beyond,
+            ultimateGoal = beyond, affordance = "engine_goal", reason = "test_engine",
+            startedAt = clock, expires = clock + 6500, leaseMs = 6500, progressAt = clock,
+            positionProgressAt = clock, activityHeartbeatAt = clock, targets = {},
+            doorCheckX = checkX, doorCheckY = 16, doorCheckZ = 0 }
+        navigation._maintainNativeLeaseForTests(runner, state, beyond, clock)
+        SurvivorCompanion.NavTraversal.release(garageDoor, runner)
+        return garageDoor.open
+    end
+    local walkerOpened = run(40)
+    local runnerOpened = run(37)
+    doorFrom.getDoorTo = priorDoorTo
+    navigation.reset(runner)
+    check(not walkerOpened and runnerOpened,
+        "an actor covering several tiles between checks opens a closed door on its engine route before reaching it")
+end)()
+
+-- Once an engine route meets a locked door, every other scavenger skips the
+-- room behind it until the door opens or the memory lapses; an actor already
+-- inside that room is not affected.
+;(function()
+    local navigation = SurvivorCompanion.Navigation
+    local walker = actor("sc-locked-room-walker", 40, 18, {})
+    local other = actor("sc-locked-room-other", 36, 18, {})
+    local start = cell:getGridSquare(40, 18, 0)
+    local doorFrom = cell:getGridSquare(41, 18, 0)
+    local doorTo = cell:getGridSquare(42, 18, 0)
+    local inside = cell:getGridSquare(44, 18, 0)
+    local beyond = cell:getGridSquare(45, 18, 0)
+    local door = { open = false, locked = true }
+    function door:IsOpen() return self.open end
+    function door:isLocked() return self.locked end
+    function door:getKeyId() return 5151 end
+    local priorDoorTo = doorFrom.getDoorTo
+    function doorFrom:getDoorTo(target) return target == doorTo and door or nil end
+    local function armory() return "room-armory" end
+    doorTo.getRoomIDString, inside.getRoomIDString, beyond.getRoomIDString = armory, armory, armory
+    local rooms = navigation._lockedRoomsForTests()
+    for key in pairs(rooms) do rooms[key] = nil end
+    local function meetDoor()
+        local state = navigation._stateForTests(walker)
+        state.nativeLease = { fromSquare = start, toSquare = beyond, nativeNextSquare = beyond,
+            ultimateGoal = beyond, affordance = "engine_goal", startedAt = clock, targets = {} }
+        return navigation._maintainNativeLeaseForTests(walker, state, beyond, clock)
+    end
+    local status, reason = meetDoor()
+    local skipped = navigation.behindLockedDoor(other, inside, clock + 1000)
+    local priorSquare = other.square
+    other.square = inside
+    local insideSkips = navigation.behindLockedDoor(other, inside, clock + 1000)
+    other.square = priorSquare
+    local lapsed = navigation.behindLockedDoor(other, inside, clock + 700000)
+    meetDoor()
+    local rearmed = navigation.behindLockedDoor(other, inside, clock + 1000)
+    door.open = true
+    local afterOpen = navigation.behindLockedDoor(other, inside, clock + 2000)
+    doorFrom.getDoorTo = priorDoorTo
+    doorTo.getRoomIDString, inside.getRoomIDString, beyond.getRoomIDString = nil, nil, nil
+    navigation.reset(walker)
+    local forgotten = true
+    for _ in pairs(navigation._lockedRoomsForTests()) do forgotten = false end
+    check(status == "failed" and reason == "path_blocked:door_locked" and skipped
+            and not insideSkips and not lapsed and rearmed and not afterOpen and forgotten,
+        "a room behind a locked door is skipped by other scavengers until the door opens or the memory lapses")
+end)()
+
+-- A scavenger's approach through a locked door ends at once instead of
+-- replanning into the same door until the approach times out.
+;(function()
+    local navigation = SurvivorCompanion.Navigation
+    local seeker = actor("sc-locked-seeker", 40, 22, {})
+    registry[seeker.id] = seeker
+    local chest = { square = cell:getGridSquare(47, 22, 0) }
+    function chest:getSquare() return self.square end
+    local targets = navigation.interactionTargets(seeker, chest, { maximum = 4 })
+    local doorFrom = cell:getGridSquare(43, 22, 0)
+    local doorTo = cell:getGridSquare(44, 22, 0)
+    local door = { open = false, locked = true }
+    function door:IsOpen() return self.open end
+    function door:isLocked() return self.locked end
+    function door:getKeyId() return 6262 end
+    local priorDoorTo = doorFrom.getDoorTo
+    local previousNativeActions = SurvivorCompanion.NativeActions
+    SurvivorCompanion.NativeActions = {
+        pathToNearest = function() return true, "nearest_path_started" end,
+        pathTelemetry = function()
+            return { available = true, active = true, shouldBeMoving = true,
+                hasStartedMoving = true, pending = false }
+        end,
+        stopDirect = function() return true end,
+    }
+    local started = navigation.requestAny(seeker, targets, "walk", { action = "test_locked_loot" })
+    function doorFrom:getDoorTo(other) return other == doorTo and door or nil end
+    clock = clock + 500
+    local accepted, status = navigation.requestAny(seeker, targets, "walk",
+        { action = "test_locked_loot" })
+    doorFrom.getDoorTo = priorDoorTo
+    SurvivorCompanion.NativeActions = previousNativeActions
+    navigation.reset(seeker)
+    registry[seeker.id] = nil
+    local rooms = navigation._lockedRoomsForTests()
+    for key in pairs(rooms) do rooms[key] = nil end
+    check(started == true and accepted == false and status == "path_blocked:door_locked",
+        "a scavenging approach through a locked door ends at once instead of replanning until it times out: "
+            .. tostring(started) .. "/" .. tostring(accepted) .. "/" .. tostring(status))
+end)()
+
+-- Three zombies pull a companion down; two only bite. While it is pinned the
+-- death drag-down pose never plays on the living body, the knockdown is put
+-- back only after it starts to stand (once per window), one struggle is rolled
+-- per interval, and a freed companion is not pulled straight back down.
+;(function()
+    local attack = SurvivorCompanion.ZombieAttack
+    local values = SurvivorCompanion.Config.values
+    local savedChance, savedEscape = values.zombieGrabChance, values.zombieGrabEscapeChance
+    local savedGrace = values.zombieGrabGraceMs
+    local originalZombRand = ZombRand
+    ZombRand = function() return 0 end
+    values.zombieGrabChance, values.zombieGrabEscapeChance = 1, 0
+    values.zombieGrabGraceMs = 60000
+    attack.reset()
+    local victim = actor("sc-pin-victim", 44, 30, {})
+    local first = zombie(45, 30, { target = victim })
+    local second = zombie(44, 31, { target = victim })
+    local _, _, pair = attack.resolve(victim, 700000, { first, second })
+    local pairPinned = attack.isGrabbed(victim)
+    local crowd = { first, second, zombie(43, 30, { target = victim }) }
+    local _, _, pulled = attack.resolve(victim, 700100, crowd)
+    local _, _, dragged = attack.resolve(victim, 700900, crowd)
+    local draggedPose = victim.deathDragDown == true
+    victim.knockedDown = false
+    attack.resolve(victim, 701000, crowd)
+    local restored = victim.knockedDown == true
+    victim.knockedDown = false
+    attack.resolve(victim, 701200, crowd)
+    local heldBack = victim.knockedDown == false
+    values.zombieGrabEscapeChance = 1
+    local _, _, escaped = attack.resolve(victim, 701700, crowd)
+    local _, _, again = attack.resolve(victim, 702000, crowd)
+    ZombRand = originalZombRand
+    values.zombieGrabChance, values.zombieGrabEscapeChance = savedChance, savedEscape
+    values.zombieGrabGraceMs = savedGrace
+    for _, biter in ipairs(crowd) do biter.dead = true end
+    attack.reset()
+    check(pair.grapple == "no_grab" and not pairPinned
+            and pulled.grapple == "grabbed_now" and dragged.grapple == "grabbed"
+            and not draggedPose and restored and heldBack
+            and escaped.grapple == "grab_escaped" and not attack.isGrabbed(victim)
+            and again.grapple == "no_grab",
+        "three zombies pin a companion without the death pose; it struggles free and gets a moment before the next pull-down: "
+            .. tostring(pair.grapple) .. "/" .. tostring(pulled.grapple) .. "/"
+            .. tostring(escaped.grapple) .. "/" .. tostring(again.grapple))
+end)()
+
+-- A zombie climbing through a window or over a fence is breaching, and so is
+-- one still on the floor where it fell in. Combat fights it inside the breach
+-- radius under every doctrine that fights (stealth only close by), and always
+-- fights a zombie holding an ally down.
+;(function()
+    local senses = SurvivorCompanion.Senses
+    local combat = SurvivorCompanion.Combat
+    local climber = zombie(52, 30, {})
+    climber.currentState = "ClimbThroughWindowState"
+    local climbing = senses._breachingZombieForTests(climber, "standing")
+    climber.currentState = "ZombieOnGroundState"
+    clock = clock + 1000
+    local landed = senses._breachingZombieForTests(climber, "downed")
+    local upright = senses._breachingZombieForTests(climber, "standing")
+    clock = clock + 7000
+    local lapsed = senses._breachingZombieForTests(climber, "downed")
+    local idle = zombie(53, 30, {})
+    local never = senses._breachingZombieForTests(idle, "downed")
+    local defender = actor("sc-breach-defender", 40, 30, {})
+    local farLeader = actor("sc-breach-leader", 0, 0, {})
+    local function mayFight(target, orders)
+        target.actor = climber
+        return combat._doctrineMayFightForTests(defender, target, farLeader,
+            { allies = {} }, orders or {})
+    end
+    local closeBreach = mayFight({ breaching = true, distanceSq = 100 })
+    local farBreach = mayFight({ breaching = true, distanceSq = 400 })
+    local calmZombie = mayFight({ distanceSq = 100 })
+    local stealthFar = mayFight({ breaching = true, distanceSq = 100 }, { combatMode = "passive" })
+    local stealthNear = mayFight({ breaching = true, distanceSq = 9 }, { combatMode = "passive" })
+    local rescue = mayFight({ rescue = true, distanceSq = 200 }, { combatMode = "passive" })
+    climber.dead, idle.dead = true, true
+    check(climbing and landed and not upright and not lapsed and not never
+            and closeBreach and not farBreach and not calmZombie
+            and not stealthFar and stealthNear and rescue,
+        "a climbing or just-fallen zombie is breaching and is fought inside the breach radius; a pinned ally's attacker always is")
+end)()
+
+-- A zombie at arm's length that the last perception pass marked unseen still
+-- gets a live sight check, and a zombie holding a pinned ally down outranks an
+-- ordinary one.
+;(function()
+    local combat = SurvivorCompanion.Combat
+    local attack = SurvivorCompanion.ZombieAttack
+    local fighter = actor("sc-sight-fighter", 30, 44, {})
+    local pinnedAlly = actor("sc-sight-ally", 34, 44, {})
+    local lunger = zombie(31, 44, {})
+    local holder = zombie(35, 44, {})
+    local stranger = zombie(28, 44, {})
+    local savedGrabbed = attack.isGrabbed
+    attack.isGrabbed = function(value) return value == pinnedAlly end
+    local scored = combat.scoreTargets(fighter, player, {
+        allies = { { actor = pinnedAlly } },
+        threats = {
+            { actor = lunger, visible = false, obstructed = true, distanceSq = 1 },
+            { actor = holder, visible = true, obstructed = false, distanceSq = 25 },
+            { actor = stranger, visible = true, obstructed = false, distanceSq = 4 },
+        },
+    }, nil)
+    attack.isGrabbed = savedGrabbed
+    local byActor = {}
+    for _, record in ipairs(scored) do byActor[record.actor] = record end
+    lunger.dead, holder.dead, stranger.dead = true, true, true
+    combat.reset(fighter)
+    check(byActor[lunger] ~= nil and byActor[holder] ~= nil and byActor[holder].rescue == true
+            and byActor[stranger] ~= nil and byActor[stranger].rescue ~= true
+            and byActor[holder].score > byActor[stranger].score,
+        "an unseen zombie at arm's length gets a live sight check, and a pinned ally's attacker outranks others")
+end)()
+
+-- Combat with nothing credible to fight sends a companion on stay, guard or
+-- base duty back to its own work instead of an aiming hold; a follower still
+-- follows, and an immediate attacker keeps the hold.
+;(function()
+    local decision = SurvivorCompanion.Decision
+    local selected = { kind = "combat" }
+    local calm = { immediateCount = 0 }
+    local work, patrol = { kind = "base_work" }, { kind = "tactical" }
+    local rest, follow = { kind = "downtime" }, { kind = "follow" }
+    local function pick(snapshot, candidates, order)
+        return decision._targetlessFollowCandidate(selected, "no_credible_target",
+            snapshot, candidates, { order = order })
+    end
+    local dutyPick = pick(calm, { selected, rest, work }, "base_duty")
+    local guardPick = pick(calm, { selected, rest, patrol }, "guard")
+    local stayPick = pick(calm, { selected, rest }, "stay")
+    local workPick = pick(calm, { selected, patrol }, "work")
+    local followPick = pick(calm, { selected, follow, rest }, "follow")
+    local pressed = pick({ immediateCount = 1 }, { selected, work }, "base_duty")
+    check(dutyPick == work and guardPick == patrol and stayPick == rest and workPick == patrol
+            and followPick == follow and pressed == nil,
+        "a far zombie no longer freezes stay, guard or base duty in an aiming hold")
+end)()
+
+-- Stay or guard given inside the base puts a companion on base duty; guard
+-- keeps the chosen square as its post and, while on shift, leaves generic
+-- chores to others. Outside the base both are plain orders again.
+;(function()
+    local commands = SurvivorCompanion.Commands
+    local baseLife = SurvivorCompanion.BaseLife
+    local resident = actor("sc-duty-resident", 22, 21, {})
+    registry[resident.id] = resident
+    baseLife.reset()
+    baseLife.create(cell:getGridSquare(20, 20, 0), "Gas Station")
+    local stayed = commands.issue(resident.id, "stay", nil, player)
+    local stayOrder = commands.peek(resident).order
+    local stayDuty = baseLife.resident(resident.id)
+    stayDuty = stayDuty and stayDuty.duty == true
+    local guarded = commands.issue(resident.id, "guard",
+        { square = cell:getGridSquare(24, 18, 0) }, player)
+    local guardOrder = commands.peek(resident).order
+    local guardRole = (baseLife.resident(resident.id) or {}).role
+    local post = commands.peek(resident).anchor or {}
+    resident.square = cell:getGridSquare(44, 44, 0)
+    local outside = commands.issue(resident.id, "stay", nil, player)
+    local outsideOrder = commands.peek(resident).order
+    local outsideDuty = (baseLife.resident(resident.id) or {}).duty
+    SurvivorCompanion.Navigation.reset(resident)
+    baseLife.reset()
+    registry[resident.id] = nil
+    check(stayed and stayOrder == "base_duty" and stayDuty
+            and guarded and guardOrder == "base_duty" and guardRole == "guard"
+            and math.floor(tonumber(post.x) or 0) == 24 and math.floor(tonumber(post.y) or 0) == 18
+            and outside and outsideOrder == "stay" and outsideDuty == false,
+        "stay or guard inside the base starts base duty, a guard keeps its post, and outside the base they are plain orders: "
+            .. tostring(stayOrder) .. "/" .. tostring(guardOrder) .. "/" .. tostring(outsideOrder))
+end)()
+
+-- A bleeding companion tears clothing by Build 42's fabric rules: cotton by
+-- hand, denim or leather only with scissors or a sharp knife; spare clothes
+-- before worn ones, and never protective gear.
+;(function()
+    local pick = SurvivorCompanion.Medical._emergencyClothingForTests
+    local function fabricItem(itemType, fabric, options)
+        local value = item(itemType, "Clothing", options)
+        function value:getFabricType() return fabric end
+        return value
+    end
+    local function recruitedWearing(id, x, worn, spare)
+        local carried = {}
+        for _, value in ipairs(worn) do carried[#carried + 1] = value end
+        for _, value in ipairs(spare or {}) do carried[#carried + 1] = value end
+        local value = actor(id, x, 16, { inventory = inventory(carried) })
+        registry[value.id] = value
+        SurvivorCompanion.Commands.issue(value.id, "recruit", nil, player)
+        for _, clothing in ipairs(worn) do value:setWornItem(clothing.bodyLocation, clothing) end
+        return value
+    end
+
+    local hoodie = fabricItem("Base.HoodieUP_WhiteTINT", "Cotton", { bodyLocation = "Sweater" })
+    local jeans = fabricItem("Base.Trousers_Denim", "Denim", { bodyLocation = "Pants" })
+    local boots = fabricItem("Base.Shoes_ArmyBoots", nil, { bodyLocation = "Shoes" })
+    local geared = recruitedWearing("sc-rag-geared", 44, { hoodie, jeans, boots })
+    local gearedItem, _, gearedCandidate = pick(geared)
+    check(gearedItem == hoodie and gearedCandidate and gearedCandidate.worn == true
+            and gearedCandidate.material == "Base.RippedSheets",
+        "a companion in full gear tears its cotton hoodie by hand, never its jeans or boots")
+
+    local denimShirt = fabricItem("Base.Shirt_Denim", "Denim", { bodyLocation = "Shirt" })
+    local denimWearer = recruitedWearing("sc-rag-denim", 46, { denimShirt })
+    local noTool, _, _, noToolReason = pick(denimWearer)
+    denimWearer.inventory:AddItem(item("Base.KitchenKnife", "Weapon", {
+        tags = { SharpKnife = true },
+    }))
+    clock = clock + 6000
+    local withTool, _, toolCandidate = pick(denimWearer)
+    check(noTool == nil and noToolReason == "no_cutting_tool"
+            and withTool == denimShirt and toolCandidate
+            and toolCandidate.material == "Base.DenimStrips",
+        "denim is only cut into strips with a knife or scissors")
+
+    local wornTee = fabricItem("Base.Tshirt_Worn", "Cotton", { bodyLocation = "Tshirt" })
+    local spareTee = fabricItem("Base.Tshirt_Spare", "Cotton", { bodyLocation = "Tshirt" })
+    local spareFirst = recruitedWearing("sc-rag-spare", 48, { wornTee }, { spareTee })
+    local spareItem, _, spareCandidate = pick(spareFirst)
+    check(spareItem == spareTee and spareCandidate and spareCandidate.worn == false,
+        "spare clothes are torn before anything the companion is wearing")
+    for _, value in ipairs({ geared, denimWearer, spareFirst }) do
+        SurvivorCompanion.Commands.reset(value)
+        registry[value.id] = nil
+    end
+end)()
+
+-- P1 banter: distraction shouts, idle jokes and first-visit place remarks are
+-- speech only and bounded by cooldowns and a shared party gap.
+;(function()
+    local banter = SurvivorCompanion.Banter
+    local dialogue = SurvivorCompanion.Dialogue
+    local values = SurvivorCompanion.Config.values
+    local savedValues = {}
+    for _, key in ipairs({ "distractionChancePercent", "distractionAllyChancePercent",
+        "distractionVerdictChancePercent" }) do
+        savedValues[key] = values[key]
+        values[key] = 100
+    end
+    banter.reset()
+    local created = {}
+    local function recruit(id, x, y)
+        local value = actor(id, x, y, {})
+        registry[value.id] = value
+        SurvivorCompanion.Commands.peek(value).recruited = true
+        created[#created + 1] = value
+        return value
+    end
+    local t0 = clock
+    local encircled = { threats = {}, threatCount = 3, immediateCount = 3,
+        encircled = true, allies = {} }
+
+    local shouter = recruit("sc-banter-shouter", -6, -6)
+    local movesBefore = shouter.movementCalls
+    local shouted, shoutTopic = banter.combatPulse(shouter, player, encircled, nil,
+        { health = 80 }, t0)
+    local waiting = recruit("sc-banter-second", -4, -6)
+    local blocked, blockedReason = banter.combatPulse(waiting, player, encircled, nil,
+        { health = 80 }, t0 + 1000)
+    local cooled = banter.combatPulse(shouter, player, encircled, nil, { health = 80 }, t0 + 5000)
+    check(shouted == true and shoutTopic == "banter.distraction.self"
+            and not blocked and blockedReason == "distraction_party_cooldown"
+            and not cooled and dialogue.lastSpokenTopic(shouter) == "banter.distraction.verdict"
+            and shouter.movementCalls == movesBefore,
+        "a surrounded companion shouts one distraction, speech only, adds a verdict, and the party waits its turn")
+    local hurt = recruit("sc-banter-hurt", -6, -4)
+    local hurtShout, hurtReason = banter.combatPulse(hurt, player, encircled, nil,
+        { health = 20 }, t0 + 30000)
+    local pinned = recruit("sc-banter-pinned", -5, -5)
+    local savedGrabbed = SurvivorCompanion.ZombieAttack.isGrabbed
+    SurvivorCompanion.ZombieAttack.isGrabbed = function(value) return value == pinned end
+    local taunted, tauntTopic = banter.combatPulse(waiting, player, { threats = {},
+        threatCount = 1, immediateCount = 0, allies = { { actor = pinned } } }, nil,
+        { health = 90 }, t0 + 40000)
+    SurvivorCompanion.ZombieAttack.isGrabbed = savedGrabbed
+    check(not hurtShout and hurtReason == "distraction_too_hurt"
+            and taunted == true and tauntTopic == "banter.distraction.ally",
+        "a badly hurt companion does not joke, and a free one taunts the zombies holding an ally")
+
+    banter.reset()
+    local calmSnapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0,
+        player = { danger = 0 } }
+    local idler = recruit("sc-banter-idler", 2, 1)
+    local records = { { actor = idler, runtime = { snapshot = calmSnapshot } } }
+    local savedX, savedY = player.worldX, player.worldY
+    local i0 = t0 + 100000
+    banter.update(player, records, i0)
+    local early = banter.update(player, records, i0 + 179000)
+    local first, firstTopic = banter.update(player, records, i0 + 181000)
+    local between = banter.update(player, records, i0 + 400000)
+    local secondJoke, secondTopic = banter.update(player, records, i0 + 601000)
+    player.worldX = (player.worldX or 0.5) + 3
+    banter.update(player, records, i0 + 602000)
+    local tooSoon, tooSoonReason = banter.update(player, records, i0 + 783000)
+    player.worldX, player.worldY = savedX, savedY
+    check(not early and first == true and firstTopic == "banter.idle.first"
+            and not between and secondJoke == true and secondTopic == "gestures.workout.idle"
+            and not tooSoon and tooSoonReason == "idle_rearming",
+        "an idle player gets a joke at three minutes and another at ten; moving resets the clock and the next round waits")
+
+    banter.reset()
+    local building = {}
+    local roomSquare = cell:getGridSquare(10, 6, 0)
+    local copSquare = cell:getGridSquare(11, 6, 0)
+    local priorRoom, priorCopRoom = roomSquare.room, copSquare.room
+    local policeRoom = { name = "policestorage" }
+    roomSquare.room, copSquare.room = policeRoom, policeRoom
+    function roomSquare:getBuilding() return building end
+    function copSquare:getBuilding() return building end
+    local cop = recruit("sc-banter-cop", 11, 6)
+    SurvivorCompanion.Commands.peek(cop).personalityProfile = { archetype = "practical",
+        profession = "policeofficer" }
+    local savedSquare, savedWorldX, savedWorldY = player.square, player.worldX, player.worldY
+    player.square, player.worldX, player.worldY = roomSquare, nil, nil
+    local placeRecords = { { actor = cop, runtime = { snapshot = calmSnapshot } } }
+    local p0 = i0 + 900000
+    local remarked, remarkTopic = banter.update(player, placeRecords, p0)
+    local repeated = banter.update(player, placeRecords, p0 + 70000)
+    local afterRepeat = dialogue.lastSpokenTopic(cop)
+    local barRoom = { name = "bar" }
+    roomSquare.room, copSquare.room = barRoom, barRoom
+    local barRemark, barTopic = banter.update(player, placeRecords, p0 + 140000)
+    player.square, player.worldX, player.worldY = savedSquare, savedWorldX, savedWorldY
+    roomSquare.room, copSquare.room = priorRoom, priorCopRoom
+    roomSquare.getBuilding, copSquare.getBuilding = nil, nil
+    check(remarked == true and remarkTopic == "banter.place.police.policeofficer"
+            and not repeated and afterRepeat == "banter.place.police.policeofficer"
+            and barRemark == true and barTopic == "banter.place.bar",
+        "a former cop remarks once on the police station in their own words; a new kind of place gets a new line")
+
+    local pools, placeLines, roomGroups = banter._poolsForTests()
+    local problems = {}
+    local function printable(line)
+        for index = 1, #line do
+            local byte = string.byte(line, index)
+            if byte < 32 or byte > 126 then return false end
+        end
+        return true
+    end
+    local function checkLines(label, lines, minimum)
+        if type(lines) ~= "table" or #lines < minimum then
+            problems[#problems + 1] = label .. ":short"
+            return
+        end
+        local seen = {}
+        for _, line in ipairs(lines) do
+            if type(line) ~= "string" or line == "" or not printable(line) or seen[line] then
+                problems[#problems + 1] = label .. ":" .. tostring(line)
+            end
+            seen[line] = true
+        end
+    end
+    local function checkSpec(label, spec)
+        if type(spec.common) ~= "table" then problems[#problems + 1] = label .. ":no_common" end
+        for key, lines in pairs(spec) do
+            if key == "professions" then
+                for profession, professionLines in pairs(lines) do
+                    checkLines(label .. "." .. profession, professionLines, 1)
+                end
+            else
+                checkLines(label .. "." .. key, lines, key == "common" and 4 or 1)
+            end
+        end
+    end
+    for topic, spec in pairs(pools) do checkSpec(topic, spec) end
+    for group, entry in pairs(placeLines) do checkSpec("place." .. group, entry) end
+    for room, group in pairs(roomGroups) do
+        if placeLines[group] == nil then problems[#problems + 1] = "room:" .. room end
+    end
+    check(#problems == 0, "every banter line is printable ASCII and distinct, with at least four per topic: "
+        .. table.concat(problems, ", "))
+
+    for key, value in pairs(savedValues) do values[key] = value end
+    banter.reset()
+    for _, value in ipairs(created) do
+        SurvivorCompanion.Commands.reset(value)
+        registry[value.id] = nil
+    end
+end)()
+
+-- Ordinary trips turn on the move, and a wash trip walks to a free square
+-- beside the sink instead of to the sink's own square.
+;(function()
+    local navigation = SurvivorCompanion.Navigation
+    local walker = actor("sc-step-walker", 5, -7, {})
+    local destination = cell:getGridSquare(7, -7, 0)
+    for _ = 1, 3 do
+        if walker.lastIntent and walker.lastIntent.action == "move_to_scavenge" then break end
+        navigation.request(walker, destination, "walk", { action = "move_to_scavenge" })
+        clock = clock + 100
+    end
+    check(walker.lastIntent and walker.lastIntent.action == "move_to_scavenge"
+            and walker.lastIntent.continuousFollow == true,
+        "an ordinary step toward a container turns on the move instead of stopping at every bend")
+
+    local nearbyWashSource, approachWashSource, coolWashSource, washSourceCooling =
+        SurvivorCompanion.Downtime._washForTests()
+    local washer = actor("sc-wash-walker", -7, 6, {})
+    local sinkSquare = cell:getGridSquare(-5, 6, 0)
+    local sink = { square = sinkSquare }
+    function sink:getFluidAmount() return 10 end
+    function sink:isTaintedWater() return false end
+    function sink:getSquare() return self.square end
+    sinkSquare.objects[#sinkSquare.objects + 1] = sink
+    local washState = {}
+    local found = nearbyWashSource(washer, function(object)
+        return washSourceCooling(washState, object, clock)
+    end)
+    coolWashSource(washState, sink, clock)
+    local cooled = nearbyWashSource(washer, function(object)
+        return washSourceCooling(washState, object, clock + 1000)
+    end)
+    local recovered = nearbyWashSource(washer, function(object)
+        return washSourceCooling(washState, object, clock + 61000)
+    end)
+    check(found == sink and cooled == nil and recovered == sink,
+        "a wash source a companion could not reach is skipped for a minute")
+
+    local freeSquare = cell:getGridSquare(-6, 6, 0)
+    local savedTargets, savedRequestAny = navigation.interactionTargets, navigation.requestAny
+    local requested, anyCall
+    navigation.interactionTargets = function(_, objectOrSquare, options)
+        requested = { object = objectOrSquare, direct = options and options.requireDirectAccess }
+        return { freeSquare }
+    end
+    navigation.requestAny = function(_, targets, mode, intent)
+        anyCall = { targets = targets, mode = mode, intent = intent }
+        return true, "moving"
+    end
+    local accepted, status = approachWashSource(washer, { object = sink, square = sinkSquare })
+    navigation.interactionTargets = function() return {} end
+    local blocked, blockedStatus = approachWashSource(washer, { object = sink, square = sinkSquare })
+    navigation.interactionTargets, navigation.requestAny = savedTargets, savedRequestAny
+    sinkSquare.objects[#sinkSquare.objects] = nil
+    check(accepted and status == "moving" and requested and requested.object == sink
+            and requested.direct == true and anyCall and anyCall.targets[1] == freeSquare
+            and anyCall.intent.action == "move_to_water_source"
+            and not blocked and blockedStatus == "no_interaction_targets",
+        "a wash trip walks to a free square beside the sink, never to the sink's own square")
+end)()
+
+-- P2 tall tales: a good fight becomes a tale on the killer's command state;
+-- every telling grows the count and the title, and a witness nearby states
+-- the true number while the teller appeals to the player or doubles down.
+;(function()
+    local tales = SurvivorCompanion.Tales
+    local banter = SurvivorCompanion.Banter
+    local dialogue = SurvivorCompanion.Dialogue
+    local registryApi = SurvivorCompanion.Registry
+    local values = SurvivorCompanion.Config.values
+    local saved = {}
+    local function set(key, value)
+        if saved[key] == nil then saved[key] = { value = rawget(values, key) } end
+        values[key] = value
+    end
+    tales.reset()
+    banter.reset()
+    set("idleJokeFirstMs", 1000000000)
+    local calmSnapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0,
+        player = { danger = 0 } }
+    local records = {}
+    local function recruit(id, x, y)
+        local value = actor(id, x, y, {})
+        registry[value.id] = value
+        SurvivorCompanion.Commands.peek(value).recruited = true
+        records[#records + 1] = { id = id, actor = value, recruited = true,
+            runtime = { snapshot = calmSnapshot } }
+        return value
+    end
+    local teller = recruit("sc-tale-teller", 3, 2)
+    local witness = recruit("sc-tale-witness", 4, 2)
+    local savedRecords, savedById = registryApi.records, registryApi.byId
+    local savedSpecificPlayer = getSpecificPlayer
+    registryApi.records = function() return records end
+    registryApi.byId = function(id)
+        for _, record in ipairs(records) do
+            if record.id == id then return record end
+        end
+        return savedById(id)
+    end
+    getSpecificPlayer = function() return player end
+
+    local fightSquare = teller.square
+    local priorRoom = fightSquare.room
+    fightSquare.room = { name = "gasstore" }
+    local t0 = clock
+    for index = 1, 5 do tales.noteKill(teller, nil, t0 + index * 1000) end
+    fightSquare.room = priorRoom
+    local episode = tales._episodesForTests()[teller]
+    local episodeKills, episodeWitnesses = episode and episode.kills, episode and episode.witnessCount
+    tales.update(player, records, t0 + 20000)
+    local early = SurvivorCompanion.Commands.peek(teller).tales
+    tales.update(player, records, t0 + 40000)
+    local bucket = SurvivorCompanion.Commands.peek(teller).tales
+    local tale = bucket and bucket.list[1]
+    local witnessed = SurvivorCompanion.Commands.peek(witness).tales
+    local stub = witnessed and witnessed.witnessed[1]
+    check(episodeKills == 5 and episodeWitnesses == 1 and (early == nil or #early.list == 0)
+            and tale and tale.kills == 5 and tale.place == "the gas station"
+            and tale.playerThere == true and tale.witnesses[1] == witness.id
+            and tale.weapon == "bare hands" and tale.tellings == 0
+            and stub and stub.id == tale.id and stub.kills == 5 and stub.teller == teller.id
+            and tales._episodesForTests()[teller] == nil,
+        "five kills at the gas station become a tale once things calm down; the witness keeps the true count")
+    local stable = type(records[1].state) == "table" and records[1].state.personality
+        and records[1].state.personality.tales or nil
+    check(type(stable) == "table" and stable.list[1] and stable.list[1].kills == 5
+            and type(records[1].tales) == "table" and records[1].tales.list[1].id == tale.id,
+        "a new tale is written into the companion's stable command state")
+
+    for index = 1, 3 do tales.noteKill(witness, nil, t0 + 50000 + index * 1000) end
+    tales.update(player, records, t0 + 90000)
+    local weak = #SurvivorCompanion.Commands.peek(witness).tales.list
+    tales.noteKill(witness, nil, t0 + 100000)
+    tales.noteCloseCall(witness, "grabbed", t0 + 101000)
+    tales.update(player, records, t0 + 140000)
+    local grabbedTale = SurvivorCompanion.Commands.peek(witness).tales.list[1]
+    check(weak == 0 and grabbedTale and grabbedTale.kills == 1 and grabbedTale.closeCall == "grabbed"
+            and grabbedTale.witnesses[1] == teller.id,
+        "three kills are no story, but one kill after being pulled down is")
+
+    check(tales.toldCount(5, 1) == 5 and tales.toldCount(5, 2) == 8 and tales.toldCount(5, 3) == 13
+            and tales.toldCount(5, 4) == 20 and tales.toldCount(5, 5) == 35
+            and tales.toldCount(5, 9) == 60,
+        "each telling grows the count: 5, 8, 13, 20, 35, then 60")
+    local open = { place = "out in the open", placeKind = "open" }
+    local spiffos = { place = "Spiffo's", placeKind = "room" }
+    check(tales.title(tale, 1) == "that thing at the gas station"
+            and tales.title(tale, 2) == "the Battle of the Gas Station"
+            and tales.title(tale, 4) == "the Gas Station Massacre of '93"
+            and tales.title(tale, 5) == "the Legend of the Gas Station"
+            and tales.title(open, 1) == "that thing out in the open"
+            and tales.title(open, 3) == "the Battle of Nowhere"
+            and tales.title(spiffos, 2) == "the Battle of Spiffo's",
+        "the title climbs from that thing at the gas station to the Legend of the Gas Station")
+
+    local spoken = {}
+    local realSay = dialogue.say
+    dialogue.say = function(speaker, topic, specification, arguments, options)
+        local ok, line = realSay(speaker, topic, specification, arguments, options)
+        if ok == true and string.sub(tostring(topic), 1, 6) == "tales." then
+            spoken[#spoken + 1] = { topic = topic, line = tostring(line),
+                who = speaker == teller and "T" or speaker == witness and "W" or "?" }
+        end
+        return ok, line
+    end
+    local function run(from, calls)
+        spoken = {}
+        for step = 0, calls - 1 do banter.update(player, records, from + step * 5000) end
+        local labels = {}
+        for _, entry in ipairs(spoken) do labels[#labels + 1] = entry.who .. ":" .. entry.topic end
+        return table.concat(labels, ","), spoken
+    end
+    local function lineOf(entries, topic)
+        for _, entry in ipairs(entries) do
+            if entry.topic == topic then return entry.line end
+        end
+        return ""
+    end
+    local b0 = t0 + 200000
+    banter.update(player, records, b0)
+    local first = run(b0 + 61000, 4)
+    local firstTellings = tale.tellings
+    set("taleRetellCooldownHours", 0)
+    set("taleTellPartyCooldownMs", 0)
+    set("taleWitnessCorrectChancePercent", 100)
+    local s0 = b0 + 95000
+    local second, secondLines = run(s0, 7)
+    local secondTellings = tale.tellings
+    tale.playerThere = false
+    local u0 = s0 + 50000
+    local third, thirdLines = run(u0, 8)
+    check(first == "T:tales.open,T:tales.body,T:tales.close" and firstTellings == 1,
+        "a settled player hears the first telling straight: " .. first)
+    check(second == "T:tales.open,T:tales.body,T:tales.dark,T:tales.close,W:tales.correction,T:tales.appeal"
+            and string.find(lineOf(secondLines, "tales.open"), "the Battle of the Gas Station", 1, true)
+            and string.find(lineOf(secondLines, "tales.body"), "8", 1, true)
+            and string.find(lineOf(secondLines, "tales.correction"), "5", 1, true)
+            and secondTellings == 2,
+        "the second telling is eight kills in the pitch dark; the witness says five and the teller appeals to the player: "
+            .. second)
+    check(third == "T:tales.open,T:tales.body,T:tales.dark,T:tales.guest,T:tales.close,W:tales.correction,T:tales.doubledown"
+            and string.find(lineOf(thirdLines, "tales.body"), "13", 1, true) and tale.tellings == 3,
+        "the third telling gains an absurd guest, and with the player absent the teller doubles down: " .. third)
+
+    local v0 = u0 + 55000
+    local began, beganTopic = tales.update(player, records, v0)
+    records[1].runtime.snapshot = { threats = {}, threatCount = 1, immediateCount = 1 }
+    local stopped, stopReason = tales.update(player, records, v0 + 5000)
+    records[1].runtime.snapshot = calmSnapshot
+    check(began == true and beganTopic == "tales.open" and not stopped
+            and stopReason == "tale_interrupted" and tale.tellings == 3
+            and tales._partyForTests().telling == nil,
+        "danger cuts a telling short, and one cut off after a single line does not count")
+
+    set("taleTellPartyCooldownMs", 1000000000000)
+    set("taleMaxPerCompanion", 2)
+    local function fight(kills, at)
+        for index = 1, kills do tales.noteKill(teller, nil, at + index * 100) end
+        tales.update(player, records, at + 40000)
+    end
+    fight(6, v0 + 100000)
+    fight(4, v0 + 200000)
+    local list = SurvivorCompanion.Commands.peek(teller).tales.list
+    check(#list == 2 and list[1] == tale and list[2].kills == 6,
+        "a full memory drops the weakest untold tale, never one the companion already tells")
+
+    set("taleMaxPerCompanion", 3)
+    local normalized = tales.normalize({ list = {
+            { id = "a", kills = 9, day = 30, bogus = true },
+            { id = "b", kills = 4, day = 30, closeCall = "sneezed" },
+            { id = "c", kills = 12, tellings = 6, day = 1 },
+            { id = "d", kills = 7, tellings = 1, day = 1 },
+            { kills = 3 },
+            { id = "e", kills = 5, day = 30 },
+        }, witnessed = { { id = "x", teller = "sc-1", kills = 4 }, { id = "" }, "junk" },
+        junk = 1 }, 80)
+    local ids = {}
+    for _, value in ipairs(normalized.list) do ids[#ids + 1] = value.id end
+    check(normalized.version == 1 and table.concat(ids, ",") == "a,b,c"
+            and normalized.list[1].bogus == nil and normalized.list[2].closeCall == nil
+            and #normalized.witnessed == 1 and normalized.junk == nil,
+        "saved tales are normalized: unknown keys dropped, old tales fade unless they became legends: "
+            .. table.concat(ids, ","))
+
+    local problems = {}
+    for topic, pool in pairs(tales._poolsForTests()) do
+        for voice, lines in pairs(pool) do
+            for _, line in ipairs(lines) do
+                for index = 1, #line do
+                    local byte = string.byte(line, index)
+                    if byte < 32 or byte > 126 then problems[#problems + 1] = topic .. "." .. voice end
+                end
+            end
+        end
+        if not dialogue.has(topic) or dialogue.poolSize(topic, teller) <= 0 then
+            problems[#problems + 1] = topic .. ":missing"
+        end
+    end
+    check(#problems == 0, "every tale line is printable ASCII and registered: "
+        .. table.concat(problems, ","))
+
+    dialogue.say = realSay
+    registryApi.records, registryApi.byId = savedRecords, savedById
+    getSpecificPlayer = savedSpecificPlayer
+    for key, entry in pairs(saved) do values[key] = entry.value end
+    tales.reset()
+    banter.reset()
+    for _, value in ipairs({ teller, witness }) do
+        SurvivorCompanion.Commands.reset(value)
+        registry[value.id] = nil
+    end
+end)()
+
+-- P2 paying respects: a caring companion stops by a zombie corpse, says a few
+-- quiet words, mentions the keepsake it carries and leaves it there; a friend
+-- nearby answers, and the body is never studied or mourned again.
+;(function()
+    local downtime = SurvivorCompanion.Downtime
+    local respect = downtime._respectForTests()
+    local study = downtime._studyForTests()
+    local utility = SurvivorCompanion.GameplayUtil
+    local registryApi = SurvivorCompanion.Registry
+    local dialogue = SurvivorCompanion.Dialogue
+    SurvivorCompanion.Tales.reset()
+    local function temperament(archetype)
+        return { personalityProfile = { archetype = archetype } }
+    end
+    local caring = respect.chance(temperament("caring"), clock)
+    local practical = respect.chance(temperament("practical"), clock)
+    local cautious = respect.chance(temperament("cautious"), clock)
+    local frayed = respect.chance({ stress = 80, personalityProfile = { archetype = "caring" } }, clock)
+    SurvivorCompanion.Tales._partyForTests().lastEpisodeEndedAt = clock - 30000
+    local afterFight = respect.chance(temperament("practical"), clock)
+    SurvivorCompanion.Tales.reset()
+    check(caring == 25 and practical == 10 and cautious == 6 and frayed == 0 and afterFight == 20,
+        "caring companions stop for the dead most, cautious ones least, a frayed nerve never, and a fight just over doubles it: "
+            .. table.concat({ tostring(caring), tostring(practical), tostring(cautious),
+                tostring(frayed), tostring(afterFight) }, "/"))
+
+    local realConfig = utility.config
+    utility.config = function(key)
+        if key == "respectChancePercent" or key == "respectReactionPercent" then return 100 end
+        if key == "downtimeStudyChancePercent" then return -1000 end
+        return realConfig(key)
+    end
+    local square = cell:getGridSquare(15, -7, 0)
+    local locket = item("Base.Locket", "Memento")
+    function locket:getDisplayName() return "Locket" end
+    local pockets = inventory({ locket })
+    local body = { __class = "IsoDeadBody", square = square, modData = {} }
+    function body:getSquare() return self.square end
+    function body:getX() return self.square.x + 0.5 end
+    function body:getY() return self.square.y + 0.5 end
+    function body:getZ() return 0 end
+    function body:getModData() return self.modData end
+    function body:isZombie() return true end
+    function body:isFakeDead() return false end
+    function body:getReanimateTime() return 0 end
+    function body:getOutfitName() return nil end
+    function body:isCrawling() return false end
+    function body:isSkeleton() return false end
+    function body:getDeathTime() return 0 end
+    function body:getKilledBy() return nil end
+    function body:getContainer() return pockets end
+    square.staticMoving[#square.staticMoving + 1] = body
+
+    local mourner = actor("sc-respect-mourner", 14, -7, {})
+    mourner.modData.SC_Order = "stay"
+    mourner.modData.SC_WorkMode = "idle"
+    registry[mourner.id] = mourner
+    local commands = SurvivorCompanion.Commands.peek(mourner)
+    commands.personalityProfile = { courage = 50, caution = 50, compassion = 90,
+        practicality = 50, archetype = "caring" }
+    local friend = actor("sc-respect-friend", 14, -6, {})
+    registry[friend.id] = friend
+    SurvivorCompanion.Commands.peek(friend).recruited = true
+    local savedRecords = registryApi.records
+    registryApi.records = function()
+        return { { id = mourner.id, actor = mourner }, { id = friend.id, actor = friend } }
+    end
+    local quiet = { snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+        player = { danger = 0 } } }
+    local started, reason = false, nil
+    for _ = 1, 10 do
+        local handled, value = downtime.update(mourner, player, quiet)
+        reason = value
+        if handled and value == "pay_respects" then started = true break end
+        clock = clock + 6000
+    end
+    check(started and downtime.peek(mourner).active.kind == "pay_respects",
+        "after a quiet spell a caring companion stops by the nearby corpse: " .. tostring(reason))
+    local topics = { dialogue.lastSpokenTopic(mourner) }
+    for _ = 1, 6 do
+        clock = clock + 3000
+        downtime.update(mourner, player, quiet)
+        local topic = dialogue.lastSpokenTopic(mourner)
+        if topic ~= topics[#topics] then topics[#topics + 1] = topic end
+        local fact = downtime.peek(mourner).lastFact
+        if type(fact) == "table" and fact.activity == "pay_respects" then break end
+    end
+    local said = table.concat(topics, ",")
+    local fact = downtime.peek(mourner).lastFact
+    check(topics[1] == "respects.gesture" and string.find(said, "respects.act", 1, true)
+            and string.find(said, "respects.memento", 1, true)
+            and type(fact) == "table" and fact.activity == "pay_respects",
+        "the companion pauses, says a few words and mentions the keepsake: " .. said)
+    check(body.modData.LF_Respected == true and not study.eligible(body)
+            and #pockets.items == 1 and pockets.items[1] == locket,
+        "the body is remembered, never studied or mourned again, and its keepsake stays on it")
+    check(dialogue.lastSpokenTopic(friend) == "respects.reaction",
+        "a calm friend standing by answers: " .. tostring(dialogue.lastSpokenTopic(friend)))
+    clock = clock + 6000
+    downtime.update(mourner, player, quiet)
+    local after = downtime.peek(mourner).active
+    check(after == nil or after.kind ~= "pay_respects", "the cooldowns keep paying respects rare")
+
+    local problems = {}
+    for topic, pool in pairs(respect.POOLS) do
+        for voice, lines in pairs(pool) do
+            for _, line in ipairs(lines) do
+                for index = 1, #line do
+                    local byte = string.byte(line, index)
+                    if byte < 32 or byte > 126 then problems[#problems + 1] = topic .. "." .. voice end
+                end
+            end
+        end
+        if not dialogue.has(topic) or dialogue.poolSize(topic, mourner) <= 0 then
+            problems[#problems + 1] = topic .. ":missing"
+        end
+    end
+    check(#problems == 0, "every respects line is printable ASCII and registered: "
+        .. table.concat(problems, ","))
+
+    utility.config = realConfig
+    registryApi.records = savedRecords
+    square.staticMoving = {}
+    downtime.reset(mourner)
+    for _, value in ipairs({ mourner, friend }) do
+        SurvivorCompanion.Commands.reset(value)
+        registry[value.id] = nil
+    end
+end)()
+
+-- P3 body language: a yawn spreads to at most two neighbours, getting up
+-- earns a stretch, a dusty storeroom draws a sneeze, a morning at base brings
+-- a stretch and a workout others may join, and cooldowns keep it all rare.
+;(function()
+    local gestures = SurvivorCompanion.Gestures
+    local downtime = SurvivorCompanion.Downtime
+    local dialogue = SurvivorCompanion.Dialogue
+    local baseLife = SurvivorCompanion.BaseLife
+    local values = SurvivorCompanion.Config.values
+    local saved = {}
+    local function set(key, value)
+        if saved[key] == nil then saved[key] = { value = rawget(values, key) } end
+        values[key] = value
+    end
+    gestures.reset()
+    SurvivorCompanion.Banter.reset()
+    local savedHour, savedInside = worldHour, baseLife.isInside
+    local savedNative = SurvivorCompanion.NativeActions
+    local calmSnapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0,
+        player = { danger = 0 } }
+    local records, created = {}, {}
+    local function recruit(id, x, y)
+        local value = actor(id, x, y, {})
+        registry[value.id] = value
+        SurvivorCompanion.Commands.peek(value).recruited = true
+        records[#records + 1] = { id = id, actor = value, recruited = true,
+            runtime = { snapshot = calmSnapshot } }
+        created[#created + 1] = value
+        return value
+    end
+    local function extOf(value)
+        local intent = value.lastIntent
+        return type(intent) == "table" and intent.action == "ext_gesture" and intent.ext or nil
+    end
+    local a = recruit("sc-gesture-a", 30, 30)
+    local b = recruit("sc-gesture-b", 31, 30)
+    local c = recruit("sc-gesture-c", 32, 30)
+    local d = recruit("sc-gesture-d", 33, 30)
+    set("yawnChancePercent", 100)
+    set("yawnCatchChancePercent", 100)
+    set("gestureLineChancePercent", 100)
+    set("stretchAfterSitChancePercent", 100)
+    set("sneezeDustyChancePercent", 100)
+    set("flavorPartySpeechGapMs", 0)
+
+    worldHour = 23
+    local t0 = clock
+    local yawned, yawnReason = gestures.update(player, records, t0)
+    local originYawn = extOf(a)
+    local pendingCount = #gestures._partyForTests().pending
+    gestures.update(player, records, t0 + 7000)
+    local caught = 0
+    for _, value in ipairs({ b, c, d }) do
+        if extOf(value) == "Yawn" then caught = caught + 1 end
+    end
+    check(yawned == true and yawnReason == "yawn" and originYawn == "Yawn" and pendingCount == 2
+            and caught == 2 and extOf(d) == nil
+            and dialogue.lastSpokenTopic(b) == "gestures.yawn.catch",
+        "a late-night yawn spreads to two neighbours a few seconds later and stops at three: "
+            .. tostring(caught))
+    a.lastIntent = nil
+    local again, againReason = gestures.update(player, records, t0 + 30000)
+    check(not again and againReason == "yawn_cooldown" and extOf(a) == nil,
+        "the party goes ten minutes before the next yawn")
+
+    gestures.reset()
+    for _, record in ipairs(records) do
+        record.runtime.snapshot = { threats = {}, threatCount = 1, immediateCount = 0 }
+    end
+    local tense, tenseReason = gestures.update(player, records, t0 + 40000)
+    for _, record in ipairs(records) do record.runtime.snapshot = calmSnapshot end
+    check(not tense and tenseReason == "yawn_no_one", "nobody yawns with a threat in view")
+
+    gestures.reset()
+    worldHour = 12
+    c.lastIntent = nil
+    local noted = gestures.noteStoodUp(c, t0 + 50000)
+    gestures.update(player, records, t0 + 51000)
+    local early = extOf(c)
+    gestures.update(player, records, t0 + 52000)
+    check(noted == true and early == nil and extOf(c) == "TiredStretch"
+            and dialogue.lastSpokenTopic(c) == "gestures.stretch",
+        "getting up from a seat earns a stretch a moment later")
+
+    gestures.reset()
+    d.lastIntent = nil
+    gestures.update(player, records, t0 + 60000)
+    local dustSquare = d.square
+    local priorRoom = dustSquare.room
+    dustSquare.room = { name = "storageunit" }
+    gestures.update(player, records, t0 + 61000)
+    gestures.update(player, records, t0 + 63000)
+    local sneeze = extOf(d)
+    local sneezeLine = dialogue.lastSpokenTopic(d)
+    d.lastIntent = nil
+    gestures.update(player, records, t0 + 200000)
+    dustSquare.room = priorRoom
+    check((sneeze == "Sneeze1" or sneeze == "Sneeze2") and sneezeLine == "gestures.sneeze"
+            and extOf(d) == nil,
+        "walking into a dusty storeroom draws one sneeze; staying inside does not repeat it")
+
+    gestures.reset()
+    worldHour = 7
+    baseLife.isInside = function(value) return value == a end
+    a.lastIntent = nil
+    local stretched, stretchReason = gestures.update(player, records, t0 + 300000)
+    local morning = extOf(a)
+    a.lastIntent = nil
+    gestures.update(player, records, t0 + 400000)
+    check(stretched == true and stretchReason == "stretch" and morning == "TiredStretch"
+            and extOf(a) == nil,
+        "the first gesture of a morning at base is a stretch, once a day")
+
+    gestures.reset()
+    SurvivorCompanion.Banter.reset()
+    clock = math.max(clock, t0 + 500000)
+    SurvivorCompanion.NativeActions = nil
+    set("workoutJoinChancePercent", 100)
+    local coach = actor("sc-gesture-coach", 36, 30, {})
+    coach.modData.SC_Order = "stay"
+    coach.modData.SC_WorkMode = "idle"
+    registry[coach.id] = coach
+    SurvivorCompanion.Commands.peek(coach).personalityProfile = {
+        archetype = "brave", profession = "fitnessinstructor" }
+    local rookie = actor("sc-gesture-rookie", 37, 30, {})
+    rookie.modData.SC_Order = "stay"
+    rookie.modData.SC_WorkMode = "idle"
+    registry[rookie.id] = rookie
+    SurvivorCompanion.Commands.peek(rookie).personalityProfile = {
+        archetype = "cautious", profession = "unemployed" }
+    baseLife.isInside = function(value) return value == coach or value == rookie end
+    local quiet = { snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+        player = { danger = 0 } } }
+    local started, reason = false, nil
+    for _ = 1, 10 do
+        local handled, value = downtime.update(coach, player, quiet)
+        reason = value
+        if handled and value == "workout" then started = true break end
+        clock = clock + 6000
+    end
+    local coachActive = downtime.peek(coach).active
+    local coachIntent = coach.lastIntent
+    local coachStartClock = clock
+    check(started and coachActive and coachActive.kind == "workout" and coachActive.workout == "lead"
+            and coachIntent and coachIntent.action == "workout"
+            and (coachIntent.exercise == "pushups" or coachIntent.exercise == "situp")
+            and coachIntent.durationMs >= 20000 and coachIntent.durationMs <= 40000
+            and dialogue.lastSpokenTopic(coach) == "gestures.workout.start",
+        "a fitness instructor at base works out in the morning and says so: " .. tostring(reason))
+    local joined, joinReason = false, nil
+    for _ = 1, 6 do
+        local handled, value = downtime.update(rookie, player, quiet)
+        joinReason = value
+        if handled and value == "workout" then joined = true break end
+        clock = clock + 3000
+    end
+    local rookieActive = downtime.peek(rookie).active
+    check(joined and rookieActive and rookieActive.workout == "join"
+            and dialogue.lastSpokenTopic(rookie) == "gestures.workout.join",
+        "a companion nearby joins the morning workout: " .. tostring(joinReason))
+    local rookieStartClock = clock
+    clock = math.max(clock, coachStartClock + coachActive.durationMs + 1000)
+    downtime.update(coach, player, quiet)
+    clock = math.max(clock, rookieStartClock + rookieActive.durationMs + 1000)
+    downtime.update(rookie, player, quiet)
+    local day = math.floor(getGameTime():getWorldAgeHours() / 24)
+    local coachFlavor = SurvivorCompanion.Commands.peek(coach).flavor
+    local rookieFlavor = SurvivorCompanion.Commands.peek(rookie).flavor
+    local coachFact = downtime.peek(coach).lastFact
+    check(type(coachFact) == "table" and coachFact.activity == "workout"
+            and downtime.peek(coach).active == nil
+            and type(coachFlavor) == "table" and coachFlavor.lastWorkoutDay == day
+            and type(rookieFlavor) == "table" and rookieFlavor.lastWorkoutDay == day,
+        "both finish past the usual action deadline, and the day is recorded for each")
+    check(gestures.workoutActivity(coach, SurvivorCompanion.Commands.peek(coach),
+            { safeSince = 0 }, clock + 60000) == nil,
+        "a companion works out once a day")
+    local idleOk = gestures.requestIdleWorkout(b, clock)
+    local idleActivity = gestures.workoutActivity(b, SurvivorCompanion.Commands.peek(b),
+        { safeSince = 0 }, clock + 20000)
+    check(idleOk and type(idleActivity) == "table" and idleActivity.workout == "idle"
+            and idleActivity.score == 50 and idleActivity.deadlines.animating > idleActivity.durationMs,
+        "the ten-minute idle joke can turn into a workout anywhere")
+
+    local problems = {}
+    for topic, pool in pairs(gestures._poolsForTests()) do
+        local lines, seen = pool.common or {}, {}
+        if #lines < 4 then problems[#problems + 1] = topic .. ":short" end
+        for _, line in ipairs(lines) do
+            if seen[line] then problems[#problems + 1] = topic .. ":duplicate" end
+            seen[line] = true
+            for index = 1, #line do
+                local byte = string.byte(line, index)
+                if byte < 32 or byte > 126 then problems[#problems + 1] = topic .. ":ascii" end
+            end
+        end
+        if not dialogue.has(topic) then problems[#problems + 1] = topic .. ":missing" end
+    end
+    check(#problems == 0, "every gesture line is printable ASCII, unique, registered, four or more a topic: "
+        .. table.concat(problems, ","))
+
+    SurvivorCompanion.NativeActions = savedNative
+    baseLife.isInside = savedInside
+    worldHour = savedHour
+    for key, entry in pairs(saved) do values[key] = entry.value end
+    gestures.reset()
+    SurvivorCompanion.Banter.reset()
+    for _, value in ipairs({ coach, rookie }) do downtime.reset(value) end
+    for _, value in ipairs({ a, b, c, d, coach, rookie }) do
+        SurvivorCompanion.Commands.reset(value)
+        registry[value.id] = nil
+    end
+end)()
+
+-- P1 place remarks are saved with the companion: after a save and reload
+-- (fresh session memory, the saved flavor bucket normalized back in), a
+-- companion stays quiet about a kind of place it already remarked on, even
+-- in another building, while one who has not seen it still talks.
+;(function()
+    local banter = SurvivorCompanion.Banter
+    local dialogue = SurvivorCompanion.Dialogue
+    banter.reset()
+    local calmSnapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0,
+        player = { danger = 0 } }
+    local building, otherBuilding = {}, {}
+    local currentBuilding = building
+    local churchRoom = { name = "church" }
+    local squares = {
+        cell:getGridSquare(40, 40, 0), cell:getGridSquare(41, 40, 0), cell:getGridSquare(40, 41, 0),
+    }
+    local priorRooms = {}
+    for index, square in ipairs(squares) do
+        priorRooms[index] = square.room
+        square.room = churchRoom
+        function square:getBuilding() return currentBuilding end
+    end
+    local veteran = actor("sc-place-memory", 41, 40, {})
+    registry[veteran.id] = veteran
+    local commands = SurvivorCompanion.Commands.peek(veteran)
+    commands.recruited = true
+    local savedSquare, savedX, savedY = player.square, player.worldX, player.worldY
+    player.square, player.worldX, player.worldY = squares[1], nil, nil
+    local records = { { actor = veteran, runtime = { snapshot = calmSnapshot } } }
+    local p0 = clock + 3000000
+    local first, firstTopic = banter.update(player, records, p0)
+    local saved = banter.normalizeFlavor(commands.flavor)
+    banter.reset()
+    commands.flavor = saved
+    currentBuilding = otherBuilding
+    local callsBefore = veteran.speechCalls or 0
+    local again = banter.update(player, records, p0 + 200000)
+    local repeated = (veteran.speechCalls or 0) ~= callsBefore
+    local newcomer = actor("sc-place-newcomer", 40, 41, {})
+    registry[newcomer.id] = newcomer
+    SurvivorCompanion.Commands.peek(newcomer).recruited = true
+    records[#records + 1] = { actor = newcomer, runtime = { snapshot = calmSnapshot } }
+    local fresh, freshTopic = banter.update(player, records, p0 + 400000)
+    player.square, player.worldX, player.worldY = savedSquare, savedX, savedY
+    for index, square in ipairs(squares) do
+        square.room = priorRooms[index]
+        square.getBuilding = nil
+    end
+    check(first == true and string.sub(tostring(firstTopic), 1, 19) == "banter.place.church"
+            and type(saved) == "table" and saved.placesSeen.church == true
+            and not again and not repeated
+            and fresh == true and dialogue.lastSpokenTopic(newcomer) == freshTopic,
+        "a place remark is saved with the companion: no repeat after a reload, even in another building, while a newcomer still remarks: "
+            .. tostring(firstTopic) .. "/" .. tostring(freshTopic))
+    banter.reset()
+    for _, value in ipairs({ veteran, newcomer }) do
+        SurvivorCompanion.Commands.reset(value)
+        registry[value.id] = nil
+    end
+end)()
+
+-- A zombie that combat has just judged out of reach (behind the base fence)
+-- no longer freezes a companion on stay: combat steps back, downtime carries
+-- on, and a combat re-check leaves it alone. A zombie that comes close still
+-- preempts at once.
+;(function()
+    local decision = SurvivorCompanion.Decision
+    local combat = SurvivorCompanion.Combat
+    local downtime = SurvivorCompanion.Downtime
+    local senses = SurvivorCompanion.Senses
+    local saved = {
+        peek = combat.peek, update = combat.update,
+        downtimeUpdate = downtime.update, downtimeCancel = downtime.cancel,
+        downtimePeek = downtime.peek, snapshot = senses.snapshot,
+        autonomy = SurvivorCompanion.Autonomy,
+    }
+    local resident = actor("sc-unreachable-resident", 48, 30, {})
+    resident.modData.SC_Order = "stay"
+    resident.modData.SC_WorkMode = "idle"
+    registry[resident.id] = resident
+    local commandView = SurvivorCompanion.Commands.peek(resident)
+    commandView.combatDoctrine = "weapons_free"
+    local verdictAt
+    combat.peek = function(subject)
+        if subject == resident then return { noCredibleAt = verdictAt } end
+        return saved.peek(subject)
+    end
+    local fence = { x = resident:getX() + 7, y = resident:getY(), z = 0 }
+    local function picture(extra)
+        local value = {
+            threats = { { actor = fence, distance = 7 } }, immediateAttackers = {},
+            allies = {}, escapeSquares = {}, threatCount = 1, immediateCount = 0,
+            closeThreatCount = 0, pressure = 0, indoors = false,
+            player = { danger = 0, immediateThreats = 0 },
+        }
+        for key, entry in pairs(extra or {}) do value[key] = entry end
+        return value
+    end
+    local far = picture()
+    local t0 = clock
+    verdictAt = nil
+    local noVerdict = combat.onlyUnreachableThreats(resident, far, t0)
+    verdictAt = t0
+    local fresh = combat.onlyUnreachableThreats(resident, far, t0 + 500)
+    local close = combat.onlyUnreachableThreats(resident, picture({ closeThreatCount = 1 }), t0 + 500)
+    local attacked = combat.onlyUnreachableThreats(resident, picture({ immediateCount = 1 }), t0 + 500)
+    local human = combat.onlyUnreachableThreats(resident,
+        picture({ humanThreat = { id = "raider" } }), t0 + 500)
+    local stale = combat.onlyUnreachableThreats(resident, far, t0 + 20000)
+    check(not noVerdict and fresh and not close and not attacked and not human and not stale,
+        "only threats combat just judged out of reach, with nothing close, attacking or human, count as unreachable")
+
+    SurvivorCompanion.Autonomy = nil
+    local healthy = { alive = true, health = 100, wounds = {} }
+    verdictAt = nil
+    local before = decision._evaluateForTests(resident, player, far, commandView, healthy, {}, {}, t0)
+    verdictAt = t0
+    local after = decision._evaluateForTests(resident, player, far, commandView, healthy, {}, {}, t0 + 500)
+    local hasDowntime = false
+    for _, candidate in ipairs(after) do
+        if candidate.kind == "downtime" then hasDowntime = true end
+    end
+    check(before[1] and before[1].kind == "combat" and after[1] and after[1].kind ~= "combat"
+            and hasDowntime,
+        "after combat finds nothing it may engage, a companion on stay goes back to its own routine: "
+            .. tostring(before[1] and before[1].kind) .. "/" .. tostring(after[1] and after[1].kind))
+
+    downtime.reset(resident)
+    verdictAt = clock
+    local _, tolerantReason = downtime.update(resident, player, { snapshot = far })
+    verdictAt = nil
+    local refused, refusedReason = downtime.update(resident, player, { snapshot = far })
+    verdictAt = clock
+    local _, closeReason = downtime.update(resident, player,
+        { snapshot = picture({ closeThreatCount = 1 }) })
+    downtime.reset(resident)
+    check(tolerantReason ~= "unsafe_or_busy" and not refused and refusedReason == "unsafe_or_busy"
+            and closeReason == "unsafe_or_busy",
+        "downtime carries on beside a zombie combat cannot reach, but not beside one that is close: "
+            .. tostring(tolerantReason))
+
+    local combatCalls, downtimeCalls, cancels = 0, 0, 0
+    combat.update = function(subject, ...)
+        if subject ~= resident then return saved.update(subject, ...) end
+        combatCalls = combatCalls + 1
+        verdictAt = clock
+        return false, "no_credible_target"
+    end
+    downtime.update = function(subject, ...)
+        if subject ~= resident then return saved.downtimeUpdate(subject, ...) end
+        downtimeCalls = downtimeCalls + 1
+        return true, "sit"
+    end
+    downtime.cancel = function(subject, ...)
+        if subject == resident then
+            cancels = cancels + 1
+            return true
+        end
+        return saved.downtimeCancel(subject, ...)
+    end
+    downtime.peek = function(subject)
+        if subject == resident then return { active = { kind = "sit" } } end
+        return saved.downtimePeek(subject)
+    end
+    local sensed = far
+    senses.snapshot = function(subject, ...)
+        if subject == resident then return sensed end
+        return saved.snapshot(subject, ...)
+    end
+    verdictAt = nil
+    resident.lastIntent = nil
+    local runtime = { snapshot = far }
+    -- The first pass only primes the staggered decision cadence.
+    decision.update(resident, player, runtime)
+    clock = clock + 201
+    local first = decision.update(resident, player, runtime)
+    clock = clock + 2200
+    local combatBefore = combatCalls
+    local recheck = decision.update(resident, player, runtime)
+    local rechecked = combatCalls > combatBefore
+    local calmCancels = cancels
+    sensed = picture({ closeThreatCount = 1 })
+    clock = clock + 300
+    decision.update(resident, player, runtime)
+    local aimed = type(resident.lastIntent) == "table" and resident.lastIntent.action == "ready_weapon"
+
+    combat.peek, combat.update = saved.peek, saved.update
+    downtime.update, downtime.cancel, downtime.peek =
+        saved.downtimeUpdate, saved.downtimeCancel, saved.downtimePeek
+    senses.snapshot = saved.snapshot
+    SurvivorCompanion.Autonomy = saved.autonomy
+    check(first == true and rechecked and recheck == true and calmCancels == 0 and cancels == 1
+            and downtimeCalls >= 2 and not aimed,
+        "a combat re-check against an unreachable zombie leaves the companion's downtime alone and never raises an aiming hold; a close zombie still preempts: "
+            .. table.concat({ tostring(first), tostring(rechecked), tostring(recheck),
+                tostring(calmCancels), tostring(cancels), tostring(downtimeCalls) }, "/"))
+    downtime.reset(resident)
+    SurvivorCompanion.Commands.reset(resident)
+    registry[resident.id] = nil
+end)()
+
+-- A settled infection crisis no longer holds anyone: bystanders react once,
+-- the bitten companion follows only an outcome that asks something of them,
+-- the authorized executor acts, and a dead subject's crisis asks nothing.
+;(function()
+    local Crisis = SurvivorCompanion.InfectionCrisis
+    local savedCrises = Crisis.export()
+    local people = {}
+    for index, id in ipairs({ "sc-cq-subject", "sc-cq-seen", "sc-cq-quiet", "sc-cw-subject",
+        "sc-cn-subject", "sc-cn-new", "sc-cn-told", "sc-ct-subject", "sc-ct-mourner",
+        "sc-cm-subject", "sc-cm-exec" }) do
+        local value = actor(id, 20 + index, 44, {})
+        registry[value.id] = value
+        people[id] = value
+    end
+    local function participant(knowledge, spoken)
+        return { knowledge = knowledge, certainty = knowledge == "confirmed" and 100 or 0,
+            spoken = spoken == true }
+    end
+    local function crisis(id, subjectId, phase, outcome, participants, extra)
+        participants[subjectId] = participant("confirmed", false)
+        local value = {
+            id = id, subjectId = subjectId, subjectName = subjectId, phase = phase,
+            strategy = "confess", outcome = outcome, createdAt = 100, updatedAt = 100,
+            irreversibleAfter = 200, deliberateAfter = 300, biteCount = 1, infectionLevel = 40,
+            participants = participants, evidence = {}, artifacts = {}, finalAuthorized = false,
+        }
+        for key, entry in pairs(extra or {}) do value[key] = entry end
+        return value
+    end
+    local restored, restoreReason = Crisis.restore({
+        version = 1, nextSerial = 6, observations = {}, history = {},
+        crises = {
+            ["crisis:1"] = crisis("crisis:1", "sc-cq-subject", "resolved", "quarantine", {
+                ["sc-cq-seen"] = participant("confirmed", true),
+                ["sc-cq-quiet"] = participant("confirmed", false),
+            }),
+            ["crisis:2"] = crisis("crisis:2", "sc-cw-subject", "resolved", "watch", {}),
+            ["crisis:3"] = crisis("crisis:3", "sc-cn-subject", "discovered", nil, {
+                ["sc-cn-new"] = participant("confirmed", false),
+                ["sc-cn-told"] = participant("confirmed", true),
+            }),
+            ["crisis:4"] = crisis("crisis:4", "sc-ct-subject", "terminal", "watch", {
+                ["sc-ct-mourner"] = participant("confirmed", false),
+            }),
+            ["crisis:5"] = crisis("crisis:5", "sc-cm-subject", "resolved", "mercy", {
+                ["sc-cm-exec"] = participant("confirmed", true),
+            }, { finalAuthorized = true, executorId = "sc-cm-exec" }),
+        },
+    })
+    local function priority(id)
+        local intent = Crisis.intentFor(people[id], player)
+        return intent and intent.priority or 0
+    end
+    local values = {}
+    for _, id in ipairs({ "sc-cq-seen", "sc-cq-quiet", "sc-cq-subject", "sc-cw-subject",
+        "sc-cn-subject", "sc-cn-new", "sc-cn-told", "sc-ct-subject", "sc-ct-mourner",
+        "sc-cm-exec", "sc-cm-subject" }) do
+        values[#values + 1] = id .. "=" .. tostring(priority(id))
+    end
+    check(restored and priority("sc-cq-seen") == 0 and priority("sc-cq-quiet") == 0
+            and priority("sc-cq-subject") == 84 and priority("sc-cw-subject") == 0
+            and priority("sc-cn-subject") == 0 and priority("sc-cn-new") == 66
+            and priority("sc-cn-told") == 0 and priority("sc-ct-subject") == 0
+            and priority("sc-ct-mourner") == 0 and priority("sc-cm-exec") == 125
+            and priority("sc-cm-subject") == 84,
+        "a settled crisis holds only the bitten companion for its outcome and the authorized executor: "
+            .. tostring(restoreReason) .. " " .. table.concat(values, ","))
+    local reacted = Crisis.updateActor(people["sc-cn-new"], player)
+    local again = Crisis.updateActor(people["sc-cn-new"], player)
+    check(reacted == true and not again and priority("sc-cn-new") == 0,
+        "a bystander reacts to a new crisis once and then goes back to their own life")
+    Crisis.restore(savedCrises)
+    for id in pairs(people) do registry[id] = nil end
+end)()
+
+-- Crisis conversations: bystanders walk over and take turns before they
+-- speak, and wait for calm and for the player to stop; a bitten companion
+-- confides in the one it trusts most, who keeps the secret or pushes a
+-- confession by temperament; one that trusts the player walks to the player.
+;(function()
+    local Crisis = SurvivorCompanion.InfectionCrisis
+    local dialogue = SurvivorCompanion.Dialogue
+    local navigation = SurvivorCompanion.Navigation
+    local savedCrises = Crisis.export()
+    local savedRequest = navigation.request
+    local requests = {}
+    navigation.request = function(subject, target, mode, intent)
+        requests[#requests + 1] = { actor = subject, target = target, intent = intent }
+        return true, "moving"
+    end
+    local people = {}
+    local function person(id, x, y)
+        local value = actor(id, x, y, {})
+        registry[value.id] = value
+        people[id] = value
+        return value
+    end
+    local subject = person("sc-talk-subject", 40, 50)
+    local near = person("sc-talk-near", 41, 51)
+    local far = person("sc-talk-far", 46, 50)
+    local friend = person("sc-talk-friend", 40, 54)
+    local other = person("sc-talk-other", 42, 50)
+    SurvivorCompanion.Commands.peek(far).order = "follow"
+    local function participant(knowledge, spoken, stance)
+        return { knowledge = knowledge, certainty = knowledge == "confirmed" and 100 or 0,
+            spoken = spoken == true, stance = stance }
+    end
+    local function load(fields, participants)
+        participants[subject.id] = participant("confirmed", false)
+        local crisis = {
+            id = "crisis:1", subjectId = subject.id, subjectName = "Lev", phase = "discovered",
+            strategy = "conceal", createdAt = clock, updatedAt = clock,
+            irreversibleAfter = clock + 10000, deliberateAfter = clock + 1000000000,
+            biteCount = 1, infectionLevel = 10, participants = participants, evidence = {},
+            artifacts = {}, finalAuthorized = false,
+        }
+        for key, entry in pairs(fields or {}) do crisis[key] = entry end
+        Crisis.reset()
+        return Crisis.restore({ version = 1, nextSerial = 2, observations = {}, history = {},
+            crises = { ["crisis:1"] = crisis } })
+    end
+    local function current() return Crisis.export().crises["crisis:1"] end
+
+    load({}, {
+        [near.id] = participant("confirmed", false, "protective"),
+        [far.id] = participant("confirmed", false, "fearful"),
+    })
+    local farFirst = Crisis.updateActor(far, player)
+    local walked = requests[#requests]
+    local nearFirst, nearReason = Crisis.updateActor(near, player)
+    local nearPose = near.lastIntent
+    local nearLine = dialogue.lastSpokenTopic(near)
+    far.square = cell:getGridSquare(41, 49, 0)
+    local waited, waitReason = Crisis.updateActor(far, player)
+    clock = clock + 4000
+    local farSpoke, farReason = Crisis.updateActor(far, player)
+    local farLine = dialogue.lastSpokenTopic(far)
+    Crisis.pulse(player, clock)
+    check(farFirst and walked and walked.actor == far and walked.intent.action == "crisis_approach"
+            and nearFirst and nearReason == "crisis_reacting"
+            and nearPose and nearPose.action == "conversation_pose" and nearPose.emote == "comehere"
+            and nearLine == "crisis.protective"
+            and waited and waitReason == "crisis_waiting_turn"
+            and farSpoke and farReason == "crisis_reacting" and farLine == "crisis.fearful"
+            and dialogue.lastSpokenTopic(subject) == "crisis.reply",
+        "bystanders walk over, face the bitten one and take turns, and the bitten one answers: "
+            .. table.concat({ tostring(nearReason), tostring(waitReason), tostring(farReason),
+                tostring(nearLine), tostring(farLine) }, "/"))
+
+    load({}, { [far.id] = participant("confirmed", false) })
+    local tense = Crisis.intentFor(far, player, { threatCount = 1, immediateCount = 0 })
+    player.moving = true
+    local walking = Crisis.intentFor(far, player)
+    player.moving = false
+    local calm = Crisis.intentFor(far, player)
+    check(tense == nil and walking == nil and calm and calm.priority == 66,
+        "nobody walks over to talk in danger, or while the player is still walking")
+
+    local community = SurvivorCompanion.Community
+    community.adjustRelation(subject, friend, { trust = 50, opinion = 20 })
+    local chosen = Crisis._confidantForTests(subject, player)
+    SurvivorCompanion.Commands.peek(subject).trust = 95
+    local trustedPlayer = Crisis._confidantForTests(subject, player)
+    SurvivorCompanion.Commands.peek(subject).trust = 0
+    community.adjustRelation(subject, friend, { trust = -50, opinion = -20 })
+    local nobody = Crisis._confidantForTests(subject, player)
+    community.adjustRelation(subject, friend, { trust = 50, opinion = 20 })
+    local function label(value)
+        return value == nil and "nobody" or value == player and "player"
+            or tostring(value.id or value)
+    end
+    check(chosen == friend and trustedPlayer == player and nobody == nil,
+        "the bitten one picks the companion it trusts most, or the player when it trusts them more, or nobody: "
+            .. label(chosen) .. "/" .. label(trustedPlayer) .. "/" .. label(nobody))
+
+    requests = {}
+    load({ confidantId = friend.id, confideState = "pending" },
+        { [friend.id] = participant("unaware", false, "protective") })
+    local subjectIntent = Crisis.intentFor(subject, player)
+    local walkedOver = Crisis.updateActor(subject, player)
+    local toward = requests[#requests]
+    subject.square = cell:getGridSquare(40, 53, 0)
+    local confided, confideReason = Crisis.updateActor(subject, player)
+    local confideLine = dialogue.lastSpokenTopic(subject)
+    clock = clock + 3500
+    Crisis.pulse(player, clock)
+    local kept = current()
+    check(subjectIntent and subjectIntent.priority == 70 and walkedOver and toward
+            and toward.actor == subject and confided and confideReason == "crisis_confided"
+            and confideLine == "crisis.confide"
+            and dialogue.lastSpokenTopic(friend) == "crisis.keep"
+            and kept.participants[friend.id].knowledge == "confirmed" and kept.secretKept == true
+            and kept.participants[other.id] == nil and kept.strategy == "conceal",
+        "a bitten companion confides in the one it trusts most, and a protective friend keeps the secret")
+
+    load({ confidantId = friend.id, confideState = "pending" },
+        { [friend.id] = participant("unaware", false, "pragmatic") })
+    other.square = cell:getGridSquare(41, 53, 0)
+    Crisis.updateActor(subject, player)
+    clock = clock + 3500
+    Crisis.pulse(player, clock)
+    local urgedLine = dialogue.lastSpokenTopic(friend)
+    clock = clock + 4500
+    Crisis.pulse(player, clock)
+    local urged = current()
+    local otherKnows = urged.participants[other.id] and urged.participants[other.id].knowledge
+    check(urgedLine == "crisis.urge" and urged.strategy == "confess" and urged.confessedAt ~= nil
+            and otherKnows == "confirmed",
+        "a pragmatic friend pushes the bitten one to tell the group, and they do: "
+            .. table.concat({ tostring(urgedLine), tostring(urged.strategy),
+                tostring(urged.confessedAt), tostring(otherKnows) }, "/"))
+
+    requests = {}
+    subject.square = cell:getGridSquare(10, 1, 0)
+    load({ strategy = "confess", confidantId = "player:local", confideState = "pending" }, {})
+    Crisis.pulse(player, clock + 5000)
+    local notYet = current().confessedAt == nil
+    local headedOver = Crisis.updateActor(subject, player)
+    local towardPlayer = requests[#requests]
+    subject.square = cell:getGridSquare(player.square.x + 1, player.square.y, 0)
+    local told, toldReason = Crisis.updateActor(subject, player)
+    local afterTell = current()
+    check(notYet and headedOver and towardPlayer and towardPlayer.actor == subject
+            and told and toldReason == "crisis_confided" and afterTell.confessedAt ~= nil
+            and afterTell.participants["player:local"] ~= nil
+            and afterTell.participants["player:local"].knowledge == "confirmed",
+        "a companion who trusts the player walks over and tells the player first: "
+            .. table.concat({ tostring(notYet), tostring(headedOver), tostring(toldReason),
+                tostring(afterTell.confessedAt) }, "/"))
+
+    subject.square = cell:getGridSquare(40, 50, 0)
+    load({ strategy = "confess", confidantId = "player:local", confideState = "pending",
+        createdAt = clock - 60000 }, {})
+    Crisis.pulse(player, clock)
+    local gaveUp = current()
+    check(gaveUp.confideState == "abandoned" and gaveUp.confessedAt ~= nil,
+        "a walk to confide that takes too long is given up, and it is said where they stand")
+
+    local problems = {}
+    for _, topic in ipairs({ "crisis.confide", "crisis.confide.player", "crisis.keep",
+        "crisis.urge", "crisis.reply" }) do
+        if not dialogue.has(topic) or dialogue.poolSize(topic, subject) < 4 then
+            problems[#problems + 1] = topic
+        end
+    end
+    check(#problems == 0, "crisis conversation lines are registered: " .. table.concat(problems, ","))
+
+    navigation.request = savedRequest
+    Crisis.reset()
+    Crisis.restore(savedCrises)
+    for id, value in pairs(people) do
+        SurvivorCompanion.Commands.reset(value)
+        registry[id] = nil
+    end
 end)()
 
 check(SurvivorCompanion.Decision.resetAll(), "central gameplay runtime reset")

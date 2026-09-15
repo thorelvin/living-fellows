@@ -106,6 +106,14 @@ function renderIsoCircle(x, y, z, radius, segments, thickness, red, green, blue,
     }
 end
 
+fixture.fills = {}
+function addAreaHighlightForPlayer(playerIndex, x1, y1, x2, y2, z, red, green, blue, alpha)
+    fixture.fills[#fixture.fills + 1] = {
+        player = playerIndex, x1 = x1, y1 = y1, x2 = x2, y2 = y2, z = z,
+        red = red, green = green, blue = blue, alpha = alpha,
+    }
+end
+
 local textManager = {}
 function textManager:getFontHeight(font)
     assert(font == UIFont.Small)
@@ -113,6 +121,13 @@ function textManager:getFontHeight(font)
 end
 function textManager:DrawStringCentre(font, x, y, value, red, green, blue, alpha)
     fixture.labels[#fixture.labels + 1] = {
+        font = font, x = x, y = y, value = value,
+        red = red, green = green, blue = blue, alpha = alpha,
+    }
+end
+fixture.legend = {}
+function textManager:DrawString(font, x, y, value, red, green, blue, alpha)
+    fixture.legend[#fixture.legend + 1] = {
         font = font, x = x, y = y, value = value,
         red = red, green = green, blue = blue, alpha = alpha,
     }
