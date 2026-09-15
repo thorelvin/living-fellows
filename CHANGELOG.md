@@ -2,6 +2,10 @@
 
 # Changelog
 
+## Unreleased
+
+- More voice lines for the new moments. Infection crises gain more confessions, reactions for every stance, private confidences to a friend or to you, a friend keeping or refusing to keep the secret, and the bitten companion's replies; every crisis topic now has eight or more lines. Tall tales, paying respects and body language gain three or four new lines per topic.
+
 ## 0.22.28 - Flavor pack, base duty and crisis conversations
 
 - Added the **Pyre** (burn site) zone and two production jobs. **Collect the dead** drags bodies from the camp and lumber areas to a chosen burial ground or pyre and buries or burns them there; the chosen area decides the method. **Burn the dead** burns bodies already lying on a pyre. Burial grounds and pyres may lie in the same reach band around the camp as lumber areas. Experimental until verified in play.

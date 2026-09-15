@@ -31,6 +31,9 @@ local POOLS = {
             "Don't. Don't you dare. ...Too late.",
             "Great. Now it's going around.",
             "Cover your mouth. It's catching.",
+            "Oh, come on. Now it's everyone.",
+            "Rude. Now I'm tired too.",
+            "That's contagious, you know that?",
         },
     },
     ["gestures.stretch"] = {
@@ -40,6 +43,9 @@ local POOLS = {
             "Ow. Good ow. Mostly.",
             "My back is older than I am.",
             "Right. Legs work. Let's go.",
+            "Joints crack like popcorn these days.",
+            "Okay, body. We're doing this.",
+            "I'm up. Mostly.",
         },
     },
     ["gestures.sneeze"] = {
@@ -48,6 +54,9 @@ local POOLS = {
             "Dust. It's always dust.",
             "Nobody say anything.",
             "Whole place smells like an attic.",
+            "Allergic to the apocalypse, apparently.",
+            "Has anybody dusted this place? Ever?",
+            "That's three. I'm counting.",
         },
     },
     ["gestures.sneeze.sneaking"] = {
@@ -56,6 +65,9 @@ local POOLS = {
             "That wasn't me.",
             "I'm fine. Keep going. Quietly.",
             "Ugh. Sorry. Carry on.",
+            "Nobody heard that. Right?",
+            "Sorry. It snuck up on me.",
+            "Worst possible timing. I know.",
         },
     },
     ["gestures.cough"] = {
@@ -64,6 +76,9 @@ local POOLS = {
             "Just the cold. Just the cold.",
             "It's not a fever cough. I'd know.",
             "Somebody find me a scarf.",
+            "Just a tickle. Don't look at me like that.",
+            "It's the cold. Relax.",
+            "I need a hot drink. Or a fire. Or both.",
         },
     },
     ["gestures.workout.start"] = {
@@ -72,6 +87,9 @@ local POOLS = {
             "Morning reps. The dead don't skip leg day.",
             "Twenty minutes. Then coffee. If we had coffee.",
             "Fit people outrun zombies. That's the whole plan.",
+            "Up and at it. We're getting strong today.",
+            "Morning drills. No excuses.",
+            "Stay strong, stay alive. Let's move.",
         },
     },
     ["gestures.workout.join"] = {
@@ -80,6 +98,9 @@ local POOLS = {
             "If you're going to make me feel bad, I'll join.",
             "Move over. Show me how it's done.",
             "One set. One. Don't look at me like that.",
+            "Alright, alright. Count me in.",
+            "You're making the rest of us look bad.",
+            "Two sets. Then I'm done. Maybe.",
         },
     },
     ["gestures.workout.idle"] = {
@@ -88,6 +109,9 @@ local POOLS = {
             "You stand. I'll do pushups. Productive.",
             "Wake me when we move. I'll be on the floor.",
             "Might as well build some muscle while you think.",
+            "Standing still makes me restless. Pushups it is.",
+            "Waiting is just resting, but boring. Let's move.",
+            "Take your time. I'll be down here getting strong.",
         },
     },
     ["gestures.workout.count"] = {
@@ -96,6 +120,9 @@ local POOLS = {
             "Eleven... twelve... thirteen-ish.",
             "I've lost count. Starting over at twenty.",
             "Almost there. Wherever there is.",
+            "Fifteen... sixteen... I'll call it twenty.",
+            "One more. Then another one more.",
+            "Almost done. Don't quote me.",
         },
     },
     ["gestures.workout.struggle"] = {
@@ -104,6 +131,9 @@ local POOLS = {
             "Carrying all this gear is the real workout.",
             "I'm resting. On the floor. On purpose.",
             "Why is the ground so far away today?",
+            "My arms have filed a complaint.",
+            "Pretty sure this isn't how pushups go.",
+            "Give me a second. Or a minute. Or ten.",
         },
     },
 }
