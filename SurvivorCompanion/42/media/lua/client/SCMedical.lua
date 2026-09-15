@@ -81,6 +81,10 @@ local function inspectPart(part, index)
     if scratched or cut then severity = severity + 8 end
     if lodged then severity = severity + 10 end
     if bandaged and not dirtyBandage then severity = severity - 18 end
+    -- A wound that stopped bleeding before anyone dressed it: it heals slowly
+    -- and can get infected until it is covered. A bite is Knox's business.
+    local openWound = not bandaged and not bleeding and not bitten
+        and (scratched or cut or deep or burned)
     return {
         part = part,
         index = index,
@@ -90,6 +94,7 @@ local function inspectPart(part, index)
         infected = infected,
         bandaged = bandaged,
         dirtyBandage = dirtyBandage,
+        openWound = openWound,
         scratched = scratched,
         cut = cut,
         deepWound = deep,
@@ -107,7 +112,7 @@ function Medical.assess(character, runtime)
     local body = bodyDamage(character)
     local health = body and numberMethod(body, { "getHealth" }, utility.nativeHealth(character))
         or utility.nativeHealth(character)
-    local wounds, bleedingCount, dirtyBandages, bites = {}, 0, 0, 0
+    local wounds, bleedingCount, dirtyBandages, bites, openWounds = {}, 0, 0, 0, 0
     local bodyParts = body and select(1, utility.call(body, "getBodyParts")) or nil
     utility.each(bodyParts, 32, function(part, index)
         local wound = inspectPart(part, index)
@@ -115,6 +120,7 @@ function Medical.assess(character, runtime)
         if wound.bleeding and not wound.bandaged then bleedingCount = bleedingCount + 1 end
         if wound.dirtyBandage then dirtyBandages = dirtyBandages + 1 end
         if wound.bitten then bites = bites + 1 end
+        if wound.openWound then openWounds = openWounds + 1 end
     end)
     table.sort(wounds, function(a, b) return a.severity > b.severity end)
 
@@ -141,6 +147,8 @@ function Medical.assess(character, runtime)
         critical = health > 0 and health <= (utility.config("medicalCriticalHealth") or 35),
         needsBandage = bleedingCount > 0,
         needsBandageChange = dirtyBandages > 0,
+        openWounds = openWounds,
+        needsDressing = openWounds > 0,
     }
 end
 
@@ -194,12 +202,19 @@ local function restoreInventoryItem(inventory, item)
     return U().addItem(inventory, item) ~= nil
 end
 
-local function bandageRank(item)
+-- Vanilla lets a dirty rag or bandage dress a wound: it stops the bleeding but
+-- goes on already soiled (ISApplyBandage gives it no bandage life).
+local function dirtyDressing(item)
+    local itemType = string.lower(U().itemType(item))
+    return booleanMethod(item, { "isDirty", "isBloody" })
+        or string.find(itemType, "dirty", 1, true) ~= nil
+end
+
+local function bandageRank(item, allowDirty)
     local utility = U()
     local itemType = string.lower(utility.itemType(item))
-    local dirty = booleanMethod(item, { "isDirty", "isBloody" })
-        or string.find(itemType, "dirty", 1, true) ~= nil
-    if dirty then return nil end
+    local dirty = dirtyDressing(item)
+    if dirty and allowDirty ~= true then return nil end
     -- Eligibility BEFORE quality (LF-05): the item must actually be a dressing. An
     -- isAlcoholic() flag (whiskey, disinfectant) or a "steril" substring in an
     -- unrelated name is NOT proof of a dressing, so those only modify the ranking
@@ -213,6 +228,8 @@ local function bandageRank(item)
     local canBandage = utility.itemHasTag(item, "CanBandage") == true
         or booleanMethod(item, { "isCanBandage" })
     if not (isBandageType or isRippedSheet or canBandage) then return nil end
+    -- A dirty dressing is the last resort, after every clean one.
+    if dirty then return 6 end
     -- Quality among eligible dressings (lower rank = preferred): sterile, then
     -- alcohol-treated, then a plain bandage, then a tagged dressing, then a ripped
     -- sheet.
@@ -230,7 +247,7 @@ end
 -- carrying supplies. This descends into nested containers up to a depth/item
 -- budget, detects container cycles, and returns the item together with its ACTUAL
 -- source container so consumption and rollback operate where the bandage lives.
-local function findBandage(character)
+local function findBandage(character, allowDirty)
     local utility = U()
     local rootInventory = utility.inventory(character)
     local maxDepth = tonumber(utility.config("medicalBandageSearchDepth")) or 3
@@ -247,7 +264,7 @@ local function findBandage(character)
             local protected = SC.PersonalItems and SC.PersonalItems.isProtected(
                 item, character, "medical_consume")
             if not protected then
-                local rank = bandageRank(item)
+                local rank = bandageRank(item, allowDirty)
                 if rank and (not bestRank or rank < bestRank) then
                     best, bestRank, bestContainer = item, rank, inventory
                 end
@@ -483,11 +500,16 @@ local function rollbackEmergencyBandage(inventory, transaction)
     return ok
 end
 
-local function chooseWound(assessment, allowDirty)
+-- Bleeding first; with care included, then a wound that stopped bleeding
+-- undressed, then a soiled dressing.
+local function chooseWound(assessment, includeCare)
     for _, wound in ipairs(assessment.wounds) do
         if wound.bleeding and not wound.bandaged then return wound end
     end
-    if allowDirty then
+    if includeCare then
+        for _, wound in ipairs(assessment.wounds) do
+            if wound.openWound then return wound end
+        end
         for _, wound in ipairs(assessment.wounds) do
             if wound.dirtyBandage then return wound end
         end
@@ -532,6 +554,8 @@ local function commitBandage(patient, assessment, wound, bandage, inventory,
     end
     local bandageLife = numberMethod(bandage, { "getBandagePower", "getCondition" }, 10)
     bandageLife = math.max(1, bandageLife)
+    -- As in vanilla, a dirty dressing goes on already soiled.
+    if dirtyDressing(bandage) then bandageLife = 0 end
     local alcoholic = booleanMethod(bandage, { "isAlcoholic" })
     local fullType = utility.itemType(bandage)
     local previous = bandageSnapshot(wound)
@@ -617,8 +641,9 @@ local function treatmentWound(assessment, state)
     for _, wound in ipairs(assessment.wounds or {}) do
         if wound.index == state.woundIndex then
             if state.dirtyOnly then
-                if wound.dirtyBandage then return wound end
-            elseif (wound.bleeding and not wound.bandaged) or wound.dirtyBandage then
+                if wound.dirtyBandage or wound.openWound then return wound end
+            elseif (wound.bleeding and not wound.bandaged) or wound.dirtyBandage
+                or wound.openWound then
                 return wound
             end
         end
@@ -626,6 +651,9 @@ local function treatmentWound(assessment, state)
     if state.dirtyOnly then
         for _, wound in ipairs(assessment.wounds or {}) do
             if wound.dirtyBandage then return wound end
+        end
+        for _, wound in ipairs(assessment.wounds or {}) do
+            if wound.openWound then return wound end
         end
         return nil
     end
@@ -795,8 +823,12 @@ local function finishEmergencyRip(helper, state, startVisual)
     if committed ~= true then return clearTreatment(helper, state,
         reason or "rag_creation_failed") end
 
+    -- The rip is finished and final: the rag is kept even if applying it is
+    -- interrupted, so the next attempt uses it instead of tearing again.
+    -- Putting the clothing back made an interrupted treatment tear the same
+    -- clothing over and over while the wound kept bleeding.
     state.bandage = rag
-    state.emergencyTransaction = transaction
+    state.emergencyTransaction = nil
     state.emergencyCandidate = nil
     local verifying, verifyReason = supervisedTransition(state, "verifying", {
         itemType = U().itemType(rag), stage = "emergency_rip",
@@ -820,9 +852,8 @@ local function finishEmergencyRip(helper, state, startVisual)
     end
     state.supervisorToken = nil
 
-    -- Completion releases a queued survival intent.  Do not immediately claim
-    -- a second token over that hand-off; restore the clothing if treatment was
-    -- preempted between the two independently committed physical effects.
+    -- Completion releases a queued survival intent. Do not immediately claim a
+    -- second token over that hand-off; the rag stays for the next attempt.
     if urgent and (urgent.state == "queued" or urgent.state == "waiting_external") then
         local rolledBack = releaseTreatmentResources(helper, state,
             "urgent_preempted_after_emergency_rip")
@@ -878,7 +909,7 @@ local function finishTreatment(helper, state)
         if candidate.index == wound.index then verifiedWound = candidate break end
     end
     if not verifiedWound or verifiedWound.bandaged ~= true
-        or verifiedWound.dirtyBandage == true then
+        or (verifiedWound.dirtyBandage == true and not dirtyDressing(state.bandage)) then
         treatmentState[helper] = nil
         local service = supervisor()
         if service and state.supervisorToken and service.isCurrent(state.supervisorToken) then
@@ -1018,14 +1049,24 @@ local function treatmentCapability(helper, patient, options)
     if not Medical.isLivingPatient(patient, assessment) then return nil, "invalid_patient" end
     local wound
     if options.dirtyOnly then
+        -- Quiet-time wound care: change a soiled dressing first, then dress a
+        -- wound that stopped bleeding before anyone covered it.
         for _, value in ipairs(assessment.wounds or {}) do
             if value.dirtyBandage then wound = value break end
+        end
+        if not wound then
+            for _, value in ipairs(assessment.wounds or {}) do
+                if value.openWound then wound = value break end
+            end
         end
     else
         wound = chooseWound(assessment, true)
     end
     if not wound then return nil, "no_treatable_wound" end
-    local bandage, inventory = findBandage(helper)
+    -- A dirty dressing may stop fresh bleeding, but never replaces a dressing
+    -- or covers a wound that has already stopped bleeding.
+    local bandage, inventory = findBandage(helper,
+        options.dirtyOnly ~= true and wound.bleeding == true and wound.bandaged ~= true)
     local clothing, candidate, failure
     if not bandage then
         clothing, inventory, candidate, failure = emergencyClothing(helper)
@@ -1232,7 +1273,8 @@ function Medical.playerBandagePreflight(companion, player)
     if not Medical.isLivingPatient(companion, assessment) then return false, "invalid_companion" end
     local wound = chooseWound(assessment, true)
     if not wound then return false, "no_treatable_wound" end
-    local bandage, inventory = findBandage(player)
+    local bandage, inventory = findBandage(player,
+        wound.bleeding == true and wound.bandaged ~= true)
     if not bandage then return false, "no_bandage" end
     local range = tonumber(utility.config("medicalPlayerBandageRange")) or 2.0
     if utility.distance(player, companion) > range then return false, "out_of_range" end
@@ -1450,6 +1492,16 @@ function Medical.update(actor, player, runtime)
         and explicitTarget or rescueCandidate(actor, player, snapshot)
     if candidate and rescueViable(actor, snapshot) then
         local ok, reason = Medical.treat(actor, candidate, rootRuntime)
+        if ok then return true, reason end
+    end
+    -- Quiet-time wound care, also offered by the decision outside downtime:
+    -- dress a wound that stopped bleeding undressed or change a soiled
+    -- dressing, and carry on with one already under way.
+    if ((tonumber(assessment.openWounds) or 0) > 0
+            or (tonumber(assessment.dirtyBandages) or 0) > 0
+            or treatmentState[actor] ~= nil)
+        and bandageSemiSafe(actor, snapshot) then
+        local ok, reason = Medical.replaceDirtyBandage(actor)
         if ok then return true, reason end
     end
     return false, "no_medical_action"

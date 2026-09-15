@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.22.31 - Wound care and the bandage loop fix
+
+- Fixed a bleeding companion stuck tearing clothing and starting to bandage over and over while its health drained. If something else needed its attention just as it finished tearing a rag, the rag was thrown away and the clothing put back, so it tore the same clothing again, with no pause. A finished rag is now kept, and the next attempt dresses the wound with it. An attempt that keeps failing now waits longer each time before trying again.
+- Dirty rags and dirty bandages can now dress a bleeding wound, as in vanilla. Companions use them only when nothing clean is at hand, and you can use them when you bandage a companion yourself. Like vanilla, they stop the bleeding but go on already dirty, so the wound needs a clean dressing later; companions change it on their own once they have one. A dirty dressing is never used to replace another.
+- A companion bandaging itself no longer keeps turning toward itself while it works.
+- Companions now dress wounds that stopped bleeding before anyone covered them: scratches, cuts, deep wounds and burns. Before, only a bleeding wound was ever bandaged, so a neck cut that stopped bleeding stayed open and healed slowly, keeping the companion at low health. It is quiet-time wound care, the same chore that changes soiled dressings: done when it is safe, with a clean dressing or spare clothing torn into one, never a dirty rag. You can dress such a wound on a companion yourself too.
+
 ## 0.22.30 - Companions use marked base storage
 
 - Inside the base, companions now use the storage you have marked and leave the rest to you. Any container marked as storage, of any category, is theirs to use: scavengers take what they need from it, and hungry or thirsty companions eat and drink from it, whether or not you have ever opened it. They never take an item below the storage's reserve. Memorial storage keeps its keepsakes and is never touched. Containers in the base that are not marked are left for you, opened or not. Before, companions scavenged the unmarked ones you had never opened and ate from the ones you had. Outside the base nothing changes.

@@ -42,6 +42,11 @@ local ownTaskOrders = {
 
 local function safetyTierFor(kind, emergency, detail)
     if emergency == true then return Decision.SafetyTier.SURVIVAL end
+    -- Quiet-time wound care is a chore: if it cannot start, the companion
+    -- simply carries on following or working.
+    if kind == "medical" and type(detail) == "table" and detail.mode == "wound_care" then
+        return Decision.SafetyTier.ROUTINE
+    end
     if tacticalDecisionKinds[kind] then return Decision.SafetyTier.TACTICAL end
     if kind == "faction" and type(detail) == "table"
         and (detail.mode == "hostile" or detail.mode == "bandit_human") then
@@ -314,6 +319,19 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         and type(SC.Positioning.activeConversation) == "function"
         and SC.Positioning.activeConversation(actor) then
         add("conversation", 68, false)
+    end
+    -- Quiet-time wound care: dress a wound that stopped bleeding before anyone
+    -- covered it, or change a soiled dressing, once nothing is around and a
+    -- follower's leader has stopped. Offered only when there is something to
+    -- dress it with, so a companion without supplies never stands waiting.
+    local careDue = (tonumber(assessment.openWounds) or 0) > 0
+        or (tonumber(assessment.dirtyBandages) or 0) > 0
+    if careDue and not bleeding and threatCount == 0 and immediate == 0
+        and snapshot.humanThreat == nil
+        and (commands.order ~= "follow" or leaderSettled(actor, player, current))
+        and SC.Medical and type(SC.Medical.canReplaceDirtyBandage) == "function"
+        and SC.Medical.canReplaceDirtyBandage(actor) == true then
+        add("medical", 60, false, { mode = "wound_care" })
     end
     if SC.InfectionCrisis and type(SC.InfectionCrisis.intentFor) == "function" then
         local crisis = SC.InfectionCrisis.intentFor(actor, player, snapshot)

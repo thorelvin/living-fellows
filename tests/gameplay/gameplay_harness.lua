@@ -4948,6 +4948,41 @@ local farPlayer = actor("sc-hand-bandage-far", 40, 40, {
 local farOk, farReason = SurvivorCompanion.Medical.playerBandagePreflight(secondCompanion, farPlayer)
 check(not farOk and farReason == "out_of_range",
     "a player out of reach cannot hand-bandage a companion")
+
+-- As in vanilla, a dirty rag dresses a bleeding wound but goes on already soiled.
+local ragWound = bodyPart({ name = "UpperLeg_L", isBleeding = true })
+local ragCompanion = actor("sc-hand-bandage-rag", 12, 12, { body = bodyDamage(70, { ragWound }) })
+local dirtyRag = item("Base.RippedSheetsDirty", "Item")
+local ragCarer = actor("sc-hand-bandage-dirty", 12, 13, { inventory = inventory({ dirtyRag }) })
+local ragReady = SurvivorCompanion.Medical.playerBandagePreflight(ragCompanion, ragCarer)
+local ragApplied, ragReason = SurvivorCompanion.Medical.applyPlayerBandage(ragCompanion, ragCarer)
+check(ragReady and ragApplied and ragReason == "bandaged" and ragWound.isBandaged
+        and ragWound.dirty == true and (tonumber(ragWound.bandageLife) or -1) == 0 and dirtyRag.used,
+    "a dirty rag from the player's inventory dresses a bleeding companion, already soiled: "
+        .. tostring(ragReason))
+
+-- A cut that stopped bleeding before anyone covered it is still a wound to
+-- dress, with a clean dressing only.
+local neckCut = bodyPart({ name = "Neck", cut = true })
+local neckCompanion = actor("sc-hand-bandage-neck", 12, 12, { body = bodyDamage(30, { neckCut }) })
+local neckAssessment = SurvivorCompanion.Medical.assess(neckCompanion)
+local dirtyOnlyCarer = actor("sc-hand-bandage-dirty-only", 12, 13, {
+    inventory = inventory({ item("Base.RippedSheetsDirty", "Item") }),
+})
+local dirtyNeckOk, dirtyNeckReason = SurvivorCompanion.Medical.playerBandagePreflight(
+    neckCompanion, dirtyOnlyCarer)
+local neckBandage = item("Base.Bandage", "Medical")
+local neckCarer = actor("sc-hand-bandage-clean", 12, 13, { inventory = inventory({ neckBandage }) })
+local neckReady, _, neckContext = SurvivorCompanion.Medical.playerBandagePreflight(
+    neckCompanion, neckCarer)
+local neckApplied = SurvivorCompanion.Medical.applyPlayerBandage(neckCompanion, neckCarer)
+check(neckAssessment.openWounds == 1 and neckAssessment.needsDressing == true
+        and neckAssessment.needsBandage == false
+        and not dirtyNeckOk and dirtyNeckReason == "no_bandage"
+        and neckReady and neckContext.wound.part == neckCut
+        and neckApplied and neckCut.isBandaged and not neckCut.dirty and neckBandage.used,
+    "a neck cut that stopped bleeding undressed can be dressed, with a clean dressing only: "
+        .. tostring(dirtyNeckReason))
 end
 
 do
@@ -4967,6 +5002,10 @@ check(rank(item("Base.SterilizedBandage", "Medical")) == 1,
 check(rank(item("Base.Bandage", "Medical", { alcoholic = true }))
         < rank(item("Base.Bandage", "Medical")),
     "an alcohol-treated bandage outranks a plain one, but only because it is already a dressing")
+local dirtyRag = item("Base.RippedSheetsDirty", "Item", { tags = { CanBandage = true } })
+check(rank(dirtyRag) == nil and rank(dirtyRag, true) == 6
+        and rank(item("Base.RippedSheets", "Item"), true) < rank(dirtyRag, true),
+    "a dirty rag dresses a wound only when allowed, and only after every clean dressing")
 end
 
 do
@@ -4999,6 +5038,17 @@ check(findBandage(deepCarrier) == deepBandage,
 
 local emptyCarrier = actor("sc-find-none", 0, 0, { inventory = inventory({ item("Base.Junk", "Item") }) })
 check(findBandage(emptyCarrier) == nil, "no bandage anywhere returns nil")
+
+local cleanBeside = item("Base.Bandage", "Medical")
+local mixedCarrier = actor("sc-find-mixed", 0, 0, {
+    inventory = inventory({ item("Base.RippedSheetsDirty", "Item"), cleanBeside }),
+})
+local dirtyCarrier = actor("sc-find-dirty", 0, 0, {
+    inventory = inventory({ item("Base.RippedSheetsDirty", "Item") }),
+})
+check(findBandage(mixedCarrier, true) == cleanBeside and findBandage(dirtyCarrier) == nil
+        and findBandage(dirtyCarrier, true) ~= nil,
+    "a clean dressing comes first, and a dirty one is found only where a dirty dressing is allowed")
 end
 
 do
@@ -5455,6 +5505,79 @@ check(ownedFinished and ownedFinishedReason == "bandaged"
         and SurvivorCompanion.ActionSupervisor.snapshot(ownedDirtyActor).phase == "idle",
     "Medical completes and verifies the sole dirty-bandage transaction")
 
+do
+    -- A neck cut that stopped bleeding before anyone covered it is dressed as
+    -- quiet-time wound care, the chore that changes soiled dressings, even at
+    -- low health.
+    local openPart = bodyPart({ name = "Neck", cut = true })
+    local openBandage = item("Base.Bandage", "Medical")
+    local openActor = actor("sc-open-wound-care", 9, 2, {
+        body = bodyDamage(30, { openPart }),
+        inventory = inventory({ openBandage }),
+    })
+    openActor.square.room = { name = "safe_room" }
+    openActor.modData.SC_Order = "stay"
+    openActor.modData.SC_WorkMode = "idle"
+    SurvivorCompanion.Downtime.reset(openActor)
+    local calm = { threats = {}, threatCount = 0, immediateCount = 0,
+        player = { danger = 0 }, indoors = true }
+    local assessed = SurvivorCompanion.Medical.assess(openActor)
+    local started, startReason = SurvivorCompanion.Downtime.update(
+        openActor, player, { snapshot = calm }, "replace_bandage")
+    if visualStates[openActor] then visualStates[openActor].status = "completed" end
+    local finished, finishReason = SurvivorCompanion.Downtime.update(
+        openActor, player, { snapshot = calm }, "replace_bandage")
+    SurvivorCompanion.Downtime.reset(openActor)
+    check(assessed.openWounds == 1 and assessed.needsBandage == false
+            and started and startReason == "treatment_animation_started"
+            and finished and finishReason == "bandaged"
+            and openPart.isBandaged and not openPart.dirty and openBandage.used,
+        "a neck cut that stopped bleeding undressed is dressed as quiet-time wound care: "
+            .. tostring(startReason) .. "/" .. tostring(finishReason))
+end
+-- Outside downtime the decision offers the same wound care as a chore: with a
+-- clean dressing and nothing around, never with a zombie in view, and Medical
+-- carries it out.
+;(function()
+    local decision = SurvivorCompanion.Decision
+    local careActor = actor("sc-care-decision", 30, 30, {
+        body = bodyDamage(30, { bodyPart({ name = "Neck", cut = true }) }),
+        inventory = inventory({ item("Base.Bandage", "Medical") }),
+    })
+    careActor.modData.SC_Order = "stay"
+    registry[careActor.id] = careActor
+    local view = SurvivorCompanion.Commands.peek(careActor)
+    local assessment = SurvivorCompanion.Medical.assess(careActor)
+    local function picture(threat)
+        return {
+            threats = threat and { { actor = { x = 40, y = 30, z = 0 }, distance = 10 } } or {},
+            immediateAttackers = {}, allies = {}, escapeSquares = {},
+            threatCount = threat and 1 or 0, immediateCount = 0, pressure = 0,
+            indoors = false, player = { danger = 0, immediateThreats = 0 },
+        }
+    end
+    local function careOffered(snapshot)
+        for _, candidate in ipairs(decision._evaluateForTests(careActor, player, snapshot,
+            view, assessment, {}, {}, clock)) do
+            if candidate.kind == "medical" and type(candidate.detail) == "table"
+                and candidate.detail.mode == "wound_care" then return candidate end
+        end
+        return nil
+    end
+    local quiet = picture(false)
+    local offered, withThreat = careOffered(quiet), careOffered(picture(true))
+    local cared, careReason = SurvivorCompanion.Medical.update(careActor, player, { snapshot = quiet })
+    SurvivorCompanion.Medical.cancel(careActor, "fixture_done", true)
+    SurvivorCompanion.Commands.reset(careActor)
+    registry[careActor.id] = nil
+    check(offered ~= nil and offered.emergency ~= true
+            and offered.safetyTier == decision.SafetyTier.ROUTINE and withThreat == nil
+            and cared and careReason == "treatment_animation_started",
+        "quiet-time wound care is offered as a chore outside downtime and Medical carries it out: "
+            .. tostring(offered ~= nil) .. "/" .. tostring(withThreat ~= nil) .. "/"
+            .. tostring(careReason))
+end)()
+
 local interruptedPart = bodyPart({ name = "Hand_L", isBleeding = true })
 local interruptedBandage = item("Base.Bandage", "Medical")
 local interruptedMedic = actor("sc-interrupted-medical", 9, 6, {
@@ -5487,13 +5610,27 @@ check(ripFinished and ripReason == "treatment_animation_started"
         and stagedRagMedic.inventory:contains("Base.RippedSheets")
         and not stagedRagPart.isBandaged,
     "completed ripping commits the rag then chains into a separate treatment animation")
-visualStates[stagedRagMedic].status = "stopped"
-local ragInterrupted = SurvivorCompanion.Medical.treat(
-    stagedRagMedic, stagedRagMedic, {})
-check(not ragInterrupted and stagedRagMedic.inventory:contains(stagedShirt)
-        and not stagedRagMedic.inventory:contains("Base.RippedSheets")
-        and not stagedRagPart.isBandaged,
-    "interrupting chained treatment rolls emergency clothing conversion back exactly")
+do
+    -- A finished rip is final. Putting the shirt back on an interrupted
+    -- treatment made a bleeding companion tear it again, over and over.
+    visualStates[stagedRagMedic].status = "stopped"
+    local ragInterrupted = SurvivorCompanion.Medical.treat(
+        stagedRagMedic, stagedRagMedic, {})
+    check(not ragInterrupted and not stagedRagMedic.inventory:contains(stagedShirt)
+            and stagedRagMedic.inventory:contains("Base.RippedSheets")
+            and not stagedRagPart.isBandaged,
+        "interrupting chained treatment keeps the finished rag instead of restoring the shirt")
+    clock = clock + 20000
+    local retried, retryReason = SurvivorCompanion.Medical.treat(
+        stagedRagMedic, stagedRagMedic, {})
+    visualStates[stagedRagMedic].status = "completed"
+    local applied, appliedReason = SurvivorCompanion.Medical.treat(
+        stagedRagMedic, stagedRagMedic, {})
+    check(retried and retryReason == "treatment_animation_started"
+            and applied and appliedReason == "bandaged" and stagedRagPart.isBandaged,
+        "the next attempt dresses the wound with the kept rag instead of tearing again: "
+            .. tostring(retryReason) .. "/" .. tostring(appliedReason))
+end
 
 local stagedBook = item("Base.BookStaged", "Literature", { pages = 180 })
 local stagedReader = actor("sc-staged-reader", 8, 4,

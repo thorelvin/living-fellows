@@ -456,7 +456,7 @@ end
 
 local doingLabels = {
     bandage_treatment = "bandaging a wound",
-    replace_bandage = "replacing a bandage",
+    replace_bandage = "tending a wound",
     treat_patient = "treating an injury",
     scavenge = "searching for useful supplies",
     loot_container = "searching a container",

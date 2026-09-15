@@ -1047,7 +1047,9 @@ local function visualActionClass()
     end
 
     function class:update()
-        if self.faceTarget ~= nil then invoke(self.character, "faceThisObject", self.faceTarget) end
+        if self.faceTarget ~= nil and self.faceTarget ~= self.character then
+            invoke(self.character, "faceThisObject", self.faceTarget)
+        end
     end
 
     -- The read animation reports its page turns, as it does for ISReadABook.
@@ -1120,7 +1122,9 @@ local function visualActionClass()
             value.reading = true
         end
         if actionName == "kneel_treat" or actionName == "replace_bandage" then
-            value.faceTarget = intent.patient
+            -- Tending one's own wound faces nobody: facing oneself is a zero
+            -- vector that turns the companion on the spot every tick.
+            value.faceTarget = intent.patient ~= character and intent.patient or nil
             if type(ISHealthPanel) == "table" and type(ISHealthPanel.getBandageType) == "function"
                 and intent.bodyPart ~= nil then
                 local ok, bandageType = pcall(ISHealthPanel.getBandageType, intent.bodyPart)

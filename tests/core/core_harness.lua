@@ -1902,6 +1902,24 @@ do
     actor.playSound, actor.stopOrTriggerSound, actor.playerVoiceSound = nil, nil, nil
     ISTimedActionQueue.queues[actor] = nil
 end
+do
+    -- A companion dressing its own wound faces nobody; facing itself is a
+    -- zero vector that turned it on the spot every tick.
+    ISTimedActionQueue.queues[actor] = nil
+    local selfOk = SC.Actor.setMovement(actor, "walk", { action = "kneel_treat", patient = actor })
+    local selfAction = ISTimedActionQueue.getTimedActionQueue(actor).current
+    local selfFacing = selfAction and selfAction.faceTarget
+    SC.NativeActions.cancelVisual(actor, "test_self_treatment")
+    ISTimedActionQueue.queues[actor] = nil
+    local other = { x = 1, y = 1, z = 0 }
+    local otherOk = SC.Actor.setMovement(actor, "walk", { action = "kneel_treat", patient = other })
+    local otherAction = ISTimedActionQueue.getTimedActionQueue(actor).current
+    local otherFacing = otherAction and otherAction.faceTarget
+    SC.NativeActions.cancelVisual(actor, "test_rescue_treatment")
+    ISTimedActionQueue.queues[actor] = nil
+    check(selfOk and selfAction ~= nil and selfFacing == nil and otherOk and otherFacing == other,
+        "a companion dressing its own wound faces nobody, and tending another faces the patient")
+end
 local barricadeOk, barricadeReason = SC.Actor.setMovement(actor, "walk", {
     action = "barricade", object = barricadeObject,
 })

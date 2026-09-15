@@ -384,7 +384,9 @@ end
 local function dirtyBandageActivity(actor)
     if not SC.Medical or type(SC.Medical.assess) ~= "function" then return nil end
     local assessment = SC.Medical.assess(actor)
-    if assessment and assessment.dirtyBandages > 0 then
+    -- Change a soiled dressing, or dress a wound that stopped bleeding undressed.
+    if assessment and (assessment.dirtyBandages > 0
+        or (tonumber(assessment.openWounds) or 0) > 0) then
         if type(SC.Medical.canReplaceDirtyBandage) == "function" then
             local available = SC.Medical.canReplaceDirtyBandage(actor)
             if available ~= true then return nil end
