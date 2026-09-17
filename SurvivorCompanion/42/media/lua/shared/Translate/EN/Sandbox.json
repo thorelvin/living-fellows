@@ -27,5 +27,9 @@
     "Sandbox_LivingFellows_UIOpacity": "Companion menu opacity",
     "Sandbox_LivingFellows_UIOpacity_tooltip": "Adjusts the background opacity of the companion menu while preserving visibility of approaching threats.",
     "Sandbox_LivingFellows_ShowCompanionNames": "Show companion first names",
-    "Sandbox_LivingFellows_ShowCompanionNames_tooltip": "Draws a subtle first-name label above recruited companions that the player can currently see. Names yield to speech and are never shown through walls."
+    "Sandbox_LivingFellows_ShowCompanionNames_tooltip": "Draws a subtle first-name label above recruited companions that the player can currently see. Names yield to speech and are never shown through walls.",
+    "Sandbox_LivingFellows_DiariesEnabled": "Companions keep private diaries",
+    "Sandbox_LivingFellows_DiariesEnabled_tooltip": "Some companions carry a diary and, in quiet moments, write short entries about things that really happened to them. Existing diaries and their pages are never removed when this is disabled.",
+    "Sandbox_LivingFellows_DiaristChance": "Diary keeper chance",
+    "Sandbox_LivingFellows_DiaristChance_tooltip": "Chance, decided once per recruited companion and saved, that the companion keeps a diary. Changing it never re-decides companions that already had their chance."
 }

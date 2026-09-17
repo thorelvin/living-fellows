@@ -156,4 +156,17 @@
 - [ ] Packing, base-storage deposit, ground drop, camp-supply retrieval and build-supply retrieval mutate inventory only after their complete Loot animation.
 - [ ] One, four and eight actors stay within the target frame-time regression and show no sustained stutter.
 
+## Private diaries
+
+- [ ] Set Diary keeper chance to 100 and recruit a companion: exactly one `LivingFellows.PrivateDiary` named "<Name>'s diary" and, only if they had no pen, one pencil appear; the book is a favourite, and neither item is dropped or deposited by companion automation, and the pencil is never equipped as a weapon.
+- [ ] Load an older save with recruited companions: each gets one saved keeper decision and at most one book, with no "joined" page written after the fact; a second reload changes nothing.
+- [ ] In quiet downtime the keeper plays the read pose with the book in hand (open/close book sounds) and the page appears only after the pose completes; danger, a new order, or walking away mid-pose leaves no page.
+- [ ] Right-click the book in the companion's opened inventory: Read asks for privacy confirmation while the author lives; the reader shows dated entries, A-/A+ resize, Page up/down and the mouse wheel scroll, and a long name or `<`/`%` in a name renders literally.
+- [ ] Scratch, cut, burn, fracture and bite the keeper (debug health panel) and bandage them yourself: entries name the right body part and credit you; a companion's own dressing is written as self care; nothing names an unverified helper.
+- [ ] Infect a keeper without a bite (debug): no infection entry until the fever is felt; a bite with a concealed, confessed and self-exile strategy each produce matching entries; quarantine/exile/mercy outcomes reach the keeper's own diary.
+- [ ] Write one entry, save, quit to menu, reload: the page text is identical, no page is duplicated, and the next entry continues the book; repeat with the save taken during the writing pose.
+- [ ] Kill the keeper: nothing further is written; loot the corpse immediately and after a reload, and read the same pages with the author gone; carry, store and re-read the book from memorial storage.
+- [ ] Order Collect the dead or burial "with their belongings": a body carrying a diary is skipped until the book is taken.
+- [ ] Turn "Companions keep private diaries" off: no new books or pages; existing books still read.
+
 Record the game build, sandbox settings, save cycle, diagnostic log excerpts and any invariant rollback reason for every run.

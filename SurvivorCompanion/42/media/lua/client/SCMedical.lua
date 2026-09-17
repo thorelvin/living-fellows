@@ -828,6 +828,7 @@ local function finishEmergencyRip(helper, state, startVisual)
     -- Putting the clothing back made an interrupted treatment tear the same
     -- clothing over and over while the wound kept bleeding.
     state.bandage = rag
+    state.emergencyRag = true
     state.emergencyTransaction = nil
     state.emergencyCandidate = nil
     local verifying, verifyReason = supervisedTransition(state, "verifying", {
@@ -929,6 +930,13 @@ local function finishTreatment(helper, state)
     if service and state.supervisorToken and service.isCurrent(state.supervisorToken) then
         service.complete(state.supervisorToken, "bandaged", {
             woundIndex = wound.index, patientId = U().idOf(state.patient), verified = true,
+        })
+    end
+    -- Only a verified dressing reaches a private diary, with its real helper.
+    if SC.Diary and type(SC.Diary.noteBandage) == "function" then
+        local player = type(getPlayer) == "function" and getPlayer() or nil
+        pcall(SC.Diary.noteBandage, helper, state.patient, player, wound.name, {
+            bleeding = wound.bleeding == true, tornClothing = state.emergencyRag == true,
         })
     end
     return true, "bandaged"
@@ -1294,6 +1302,11 @@ function Medical.applyPlayerBandage(companion, player)
     local applied, applyReason = commitBandage(companion, context.assessment, context.wound,
         context.bandage, context.inventory, nil)
     if not applied then return false, applyReason or "bandage_failed" end
+    if SC.Diary and type(SC.Diary.noteBandage) == "function" then
+        pcall(SC.Diary.noteBandage, player, companion, player, context.wound.name, {
+            bleeding = context.wound.bleeding == true,
+        })
+    end
     return true, "bandaged"
 end
 

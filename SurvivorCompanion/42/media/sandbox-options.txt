@@ -111,3 +111,21 @@ option LivingFellows.ShowCompanionNames
     page = LivingFellows,
     translation = LivingFellows_ShowCompanionNames,
 }
+
+option LivingFellows.DiariesEnabled
+{
+    type = boolean,
+    default = true,
+    page = LivingFellows,
+    translation = LivingFellows_DiariesEnabled,
+}
+
+option LivingFellows.DiaristChance
+{
+    type = integer,
+    min = 0,
+    max = 100,
+    default = 35,
+    page = LivingFellows,
+    translation = LivingFellows_DiaristChance,
+}

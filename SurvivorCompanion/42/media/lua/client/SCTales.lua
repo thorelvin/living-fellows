@@ -482,6 +482,9 @@ local function storeTale(actor, episode, current)
     bucket.list[#bucket.list + 1] = tale
     evict(bucket)
     persist(actor)
+    if SC.Diary and type(SC.Diary.noteTale) == "function" then
+        pcall(SC.Diary.noteTale, actor, tale)
+    end
     for _, id in ipairs(tale.witnesses) do
         local record = SC.Registry and type(SC.Registry.byId) == "function"
             and SC.Registry.byId(id) or nil
@@ -683,6 +686,10 @@ local function finishTelling(current, completed)
         telling.tale.tellings = math.min(99, (telling.tale.tellings or 0) + 1)
         telling.tale.lastToldHour = worldHours()
         persist(telling.teller)
+        if SC.Diary and type(SC.Diary.noteTaleTold) == "function" and telling.number then
+            pcall(SC.Diary.noteTaleTold, telling.teller, telling.tale, telling.toldCount,
+                telling.number, Tales.title(telling.tale, telling.number))
+        end
     end
     party.lastTellAt = current
 end
@@ -758,10 +765,11 @@ local function startTelling(player, list, current)
         end
     end
     if best == nil then return false, "tales_no_teller" end
-    local beats = buildBeats(best, bestTale, player, current)
+    local beats, toldCount, tellingNumber = buildBeats(best, bestTale, player, current)
     party.telling = {
         teller = best, record = bestRecord, tale = bestTale, beats = beats,
         index = 1, nextAt = current, spoken = 0, startedAt = current,
+        toldCount = toldCount, number = tellingNumber,
     }
     return advanceTelling(current)
 end

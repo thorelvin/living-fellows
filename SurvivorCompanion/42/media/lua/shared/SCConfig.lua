@@ -1026,6 +1026,37 @@ local valueData = {
     burialAmenDistance = 8,
     burialGallowsBias = 0,
 
+    -- Private diaries. A persisted minority of recruited companions write short
+    -- first-person entries about verified experiences during safe downtime:
+    -- at most one per in-game day, normally every 16-60 game hours, sooner
+    -- (but not before 6 hours) for a major event. All state is bounded.
+    diaryEnabled = true,
+    diaryWriterChancePercent = 35,
+    diaryPulseIntervalMs = 2000,
+    diaryWriteCheckIntervalMs = 30000,
+    diaryWriteDurationMs = 6000,
+    diaryMaxWriters = 64,
+    diaryMaxCandidates = 8,
+    diaryMaxAnchors = 6,
+    diaryReceiptLimit = 48,
+    diaryMaxEntries = 60,
+    diaryMinGapHours = 16,
+    diaryMaxGapHours = 60,
+    diaryMajorGapHours = 6,
+    diaryMajorImportance = 85,
+    diaryCandidateMaxAgeHours = 120,
+    diaryBookCreateMaxAttempts = 3,
+    diaryTrustSustainHours = 24,
+    diaryScratchMemoryHours = 96,
+    -- A quiet-day page is only considered after this long without an entry,
+    -- and then only on about half of the days.
+    diaryQuietAfterHours = 40,
+    diaryQuietChancePercent = 50,
+    -- Apparent (felt) Knox fever tiers. Hidden infection is never read.
+    diarySymptomsEarlyLevel = 20,
+    diarySymptomsMidLevel = 45,
+    diarySymptomsLateLevel = 75,
+
     -- Bites start a social incident. Evidence and deliberation advance slowly,
     -- with an additional delay before any irreversible outcome is eligible.
     infectionCrisisIntervalMs = 500,
@@ -1436,6 +1467,11 @@ function SC.Config.refreshSandbox(source)
     if type(sandbox.ShowCompanionNames) == "boolean" then
         runtimeOverrides.companionNameLabels = sandbox.ShowCompanionNames
     end
+    if type(sandbox.DiariesEnabled) == "boolean" then
+        runtimeOverrides.diaryEnabled = sandbox.DiariesEnabled
+    end
+    local diaristChance = clamp(sandbox.DiaristChance, 0, 100)
+    if diaristChance then runtimeOverrides.diaryWriterChancePercent = math.floor(diaristChance) end
     return true
 end
 

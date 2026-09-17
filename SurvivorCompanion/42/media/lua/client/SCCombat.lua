@@ -528,6 +528,14 @@ end
 local function weaponRecord(item)
     local utility = U()
     if not item then return nil end
+    -- A diarist's own pencil is technically a HandWeapon; it is never a weapon
+    -- choice. hasModData() first: getModData() would allocate a table per item.
+    local hasData, hasDataOk = utility.call(item, "hasModData")
+    if (not hasDataOk or hasData == true) and SC.PersonalItems
+        and type(SC.PersonalItems.personalRecord) == "function" then
+        local personal = SC.PersonalItems.personalRecord(item)
+        if personal and personal.kind == "writing_implement" then return nil end
+    end
     local categoryValue = select(1, utility.call(item, "getCategory"))
     local isWeapon = utility.instanceOf(item, "HandWeapon")
         or utility.instanceOf(item, "zombie.inventory.types.HandWeapon")

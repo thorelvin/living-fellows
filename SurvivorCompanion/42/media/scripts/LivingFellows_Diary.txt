@@ -1,0 +1,13 @@
+module LivingFellows
+{
+    item PrivateDiary
+    {
+        DisplayCategory = Literature,
+        DisplayName = Private Diary,
+        ItemType = base:normal,
+        Weight = 0.3,
+        Icon = Notebook,
+        StaticModel = EmptyNotebook,
+        WorldStaticModel = EmptyNotebook,
+    }
+}

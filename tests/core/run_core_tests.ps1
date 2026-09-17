@@ -187,6 +187,7 @@ try {
             (Join-Path $Client 'SCWorkTransport.lua'),
             (Join-Path $Client 'SCGatherWork.lua'),
             (Join-Path $Client 'SCBaseWork.lua'),
+            (Join-Path $Client 'SCDiaryItem.lua'),
             (Join-Path $Client 'SCProduction.lua'),
             (Join-Path $TestRoot 'production_harness.lua')
         )

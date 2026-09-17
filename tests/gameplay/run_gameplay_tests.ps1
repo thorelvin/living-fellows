@@ -55,6 +55,10 @@ $LuaFiles += @(
     'SCDowntime.lua',
     'SCPersonality.lua',
     'SCPersonalItems.lua',
+    'SCDiaryText.lua',
+    'SCDiaryCatalog.lua',
+    'SCDiaryItem.lua',
+    'SCDiary.lua',
     'SCRelationship.lua',
     'SCTales.lua',
     'SCBanter.lua',
@@ -93,6 +97,24 @@ try {
         $medicalFiles += Join-Path $TestRoot 'medical_liveness_regression_harness.lua'
         & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @medicalFiles
         if ($LASTEXITCODE -ne 0) { throw 'Medical liveness/rescue regression harness failed.' }
+        $diaryFiles = @(
+            (Join-Path $TestRoot 'diary_fixture.lua'),
+            (Join-Path $SharedRoot 'SCNamespace.lua'),
+            (Join-Path $SharedRoot 'SCCall.lua'),
+            (Join-Path $SharedRoot 'SCStableValue.lua'),
+            (Join-Path $SharedRoot 'SCNativeList.lua'),
+            (Join-Path $SharedRoot 'SCConfig.lua'),
+            (Join-Path $SharedRoot 'SCDiagnostics.lua'),
+            (Join-Path $ClientRoot 'SCGameplayUtil.lua'),
+            (Join-Path $ClientRoot 'SCPersonalItems.lua'),
+            (Join-Path $ClientRoot 'SCDiaryText.lua'),
+            (Join-Path $ClientRoot 'SCDiaryCatalog.lua'),
+            (Join-Path $ClientRoot 'SCDiaryItem.lua'),
+            (Join-Path $ClientRoot 'SCDiary.lua'),
+            (Join-Path $TestRoot 'diary_harness.lua')
+        )
+        & $GameJava -cp "$BuildRoot;$Jar" KahluaTestRunner @diaryFiles
+        if ($LASTEXITCODE -ne 0) { throw 'Private diary harness failed.' }
     }
     finally {
         Pop-Location

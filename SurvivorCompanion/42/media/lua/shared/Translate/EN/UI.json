@@ -1095,5 +1095,15 @@
     "UI_SC_Base_ProductionPhase_placing": "Laying a body down",
     "UI_SC_Base_ProductionPhase_burning": "Lighting the pyre",
     "UI_SC_Base_ProductionPhase_watching": "Watching the fire",
-    "UI_SC_Base_ProductionCountersDisposal": "The dead: %1 collected, %2 burned, %3 pyres lit, %4 companions laid to rest by name"
+    "UI_SC_Base_ProductionCountersDisposal": "The dead: %1 collected, %2 burned, %3 pyres lit, %4 companions laid to rest by name",
+    "UI_SC_Diary_ItemName": "%1's diary",
+    "UI_SC_Diary_Read": "Read %1",
+    "UI_SC_Diary_Unreadable": "The pages of this diary cannot be read.",
+    "UI_SC_Diary_PrivacyPrompt": "%1 is still alive, and this diary is private. Read it anyway?",
+    "UI_SC_Diary_Empty": "The pages are still blank.",
+    "UI_SC_Diary_TextSmaller": "A-",
+    "UI_SC_Diary_TextLarger": "A+",
+    "UI_SC_Diary_PageUp": "Page up",
+    "UI_SC_Diary_PageDown": "Page down",
+    "UI_SC_Diary_Close": "Close"
 }

@@ -67,6 +67,10 @@ require "SCProduction"
 require "SCInfectionCrisis"
 require "SCLifeEvents"
 require "SCCommunity"
+require "SCDiaryText"
+require "SCDiaryCatalog"
+require "SCDiaryItem"
+require "SCDiary"
 require "SCQuirks"
 require "SCAutonomy"
 require "SCCommands"
@@ -78,6 +82,7 @@ require "SCDecision"
 require "SCSupport"
 require "SCUI"
 require "SCUIContext"
+require "SCDiaryUI"
 require "SCCompanionMap"
 require "ISUI/ISInventoryPage"
 require "SCRuntime"
@@ -112,7 +117,8 @@ local requiredModules = {
     "Logistics", "Needs", "Downtime", "Personality", "PersonalItems", "Relationship",
     "Objectives", "Journal", "BaseLife", "BaseVisuals", "WorkTransport", "GatherWork",
     "BaseWork", "Production", "InfectionCrisis",
-    "LifeEvents", "Community", "Quirks", "Autonomy",
+    "LifeEvents", "Community", "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",
+    "Quirks", "Autonomy",
     "Commands", "FactionRecruitment", "Decision", "Support", "UI", "UIContext",
     "CompanionMap",
 }

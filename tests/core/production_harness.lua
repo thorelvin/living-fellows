@@ -1232,6 +1232,32 @@ end
 do
     local ctx = setup()
     ctx.actor.inventory:AddItem(makeItem("Base.Shovel", { tags = { diggrave = true } }))
+    createGrave(-2, -3, 0, false)
+    local diary = makeItem("LivingFellows.PrivateDiary", { favorite = true, modData = {
+        LF_Diary = { schema = 1, diaryId = "diary:sc-fallen:1", authorId = "sc-fallen",
+            authorName = "Fallen Author", authoredLocale = "EN", volume = 1, revision = 0,
+            entryCount = 0, entries = {} },
+    } })
+    local body = makeBody(sq(-1, -3))
+    body.container:AddItem(diary)
+    local order = start(ctx, {
+        operation = "bury_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { withBelongings = true, closeWhenDone = false },
+    })
+    local buried = false
+    for _ = 1, 4 do
+        local _, value = tick(ctx)
+        if value == "production_burying" then buried = true end
+    end
+    check(SC.DiaryItem ~= nil and not buried and body.container:contains(diary)
+        and SC.BaseLife.productionOrder(order.id).completed == 0,
+        "a body carrying a private diary is never buried, even with its belongings")
+    SC.BaseLife.cancelProductionOrder(order.id)
+end
+
+do
+    local ctx = setup()
+    ctx.actor.inventory:AddItem(makeItem("Base.Shovel", { tags = { diggrave = true } }))
     local victim = makeBody(sq(-2, -2))
     local order = start(ctx, { operation = "bury_bodies", zoneId = ctx.burial.id, requested = 1 })
     local reason

@@ -20,6 +20,10 @@ OWNED = [
     "SCAllegiance.lua",
     "SCLifeEvents.lua",
     "SCCommunity.lua",
+    "SCDiaryText.lua",
+    "SCDiaryCatalog.lua",
+    "SCDiaryItem.lua",
+    "SCDiary.lua",
     "SCBackground.lua",
     "SCThreatSet.lua",
     "SCPerceptionScan.lua",
@@ -80,6 +84,13 @@ REQUIRED_EXPORTS = {
     "SCLifeEvents.lua": ["emit", "drain", "reset"],
     "SCCommunity.lua": ["mindFor", "peekMind", "processEvents", "noteCompanionDeath",
                          "activeGrief", "finishGriefReaction", "export", "restore"],
+    "SCDiaryText.lua": ["validToken", "prepareCatalog", "validateCatalog", "generate"],
+    "SCDiaryItem.lua": ["read", "readPayload", "initialize", "append", "parseEntry",
+                        "displayName", "findWritingImplement"],
+    "SCDiary.lua": ["clock", "pulse", "noteRecruited", "noteBandage", "noteSharedEscape",
+                    "noteAuthorDeath", "noteCompanionDeath", "noteCrisisKnowledge",
+                    "noteCrisisOutcome", "writeActivity", "commitWrite", "abandonWrite",
+                    "authorAlive", "contentRevision", "export", "restore", "reset"],
     "SCAutonomy.lua": ["observe", "intentFor", "update", "respond", "offerSupport"],
     "SCBackground.lua": ["initialize", "applyNative", "preferredRole"],
     "SCSenses.lua": ["snapshot"],
@@ -299,7 +310,8 @@ def main() -> int:
                   "SCPerceptionScan.lua": "Scan",
                   "SCWorkTransport.lua": "Transport", "SCGatherWork.lua": "Gather",
                   "SCFactionLife.lua": "Life", "SCFactionContracts.lua": "Contracts",
-                  "SCFactionWorld.lua": "World", "SCFactionRecruitment.lua": "Recruitment"}.get(
+                  "SCFactionWorld.lua": "World", "SCFactionRecruitment.lua": "Recruitment",
+                  "SCDiaryText.lua": "Text", "SCDiaryItem.lua": "Item"}.get(
             name, name.removeprefix("SC").removesuffix(".lua"))
         for export in exports:
             require(re.search(rf"function\s+{re.escape(module)}\.{re.escape(export)}\s*\(", text) is not None,
@@ -737,6 +749,48 @@ def main() -> int:
             "keepsake observation is not bounded to the objective audit cadence")
     require("SC.Actor.setMovement" not in "\n".join(sources.values()),
             "gameplay must resolve the movement bridge dynamically through the helper")
+
+    diary = sources["SCDiary.lua"]
+    diary_item = sources["SCDiaryItem.lua"]
+    diary_text = sources["SCDiaryText.lua"]
+    runtime_source = (CLIENT / "SCRuntime.lua").read_text(encoding="utf-8")
+    persistence_source = (CLIENT / "SCPersistence.lua").read_text(encoding="utf-8")
+    native_source = (CLIENT / "SCNativeActions.lua").read_text(encoding="utf-8")
+    require("knoxInfected" not in diary and "IsInfected" not in diary
+            and "getApparentInfectionLevel" not in diary,
+            "diaries must never read hidden Knox infection, only Medical's felt fever level")
+    for source in (diary, diary_text, diary_item):
+        require("ZombRand" not in source and "math.random" not in source,
+                "diary selection must be deterministic and never consume gameplay RNG")
+        require("Events." not in source, "diary gameplay modules own no global event hook")
+    require("SC.Diary.commitWrite(actor, activity.diary)" in downtime_source
+            and "SC.Diary.abandonWrite" in downtime_source
+            and "write_diary = true" in downtime_source,
+            "a diary page must commit only from a completed supervised downtime action")
+    require(re.search(r"\bwrite_diary\s*=\s*\{\s*animation", native_source) is not None,
+            "diary writing lacks its verified human visual action")
+    require(runtime_source.index("SC.Diary.noteAuthorDeath")
+            > runtime_source.index("SC.Community.noteCompanionDeath")
+            and runtime_source.index("SC.Diary.noteAuthorDeath")
+            < runtime_source.index("SC.Actor.retireDead(record.actor)"),
+            "author death must freeze the diary after grief and before actor retirement")
+    require('field = "diaries", owner = SC.Diary' in persistence_source
+            and "job.diaryContentRevision" in persistence_source
+            and "diary content changed during scheduled capture" in persistence_source,
+            "diary page content is not bound to the scheduled save barrier")
+    require("putShort" in diary_item and "MAX_ENTRY_BYTES = 1600" in diary_item
+            and "Item.MAX_TOTAL_BYTES" in diary_item,
+            "diary entries must stay individually bounded under the 16-bit ModData string save")
+    require("diary_harness.lua" in gameplay_runner,
+            "the private diary Kahlua harness is not part of the gameplay gate")
+    life_events = sources["SCLifeEvents.lua"]
+    require("SC.Diary.observeLifeEvent" in life_events
+            and "table.remove(queue, 1)" in life_events.split("SC.Diary.observeLifeEvent")[0],
+            "diaries must observe life events without draining SCCommunity's queue")
+    require('SC.Diary.noteDowntime' in downtime_source
+            and downtime_source.index("SC.Diary.noteDowntime")
+            > downtime_source.index('failureReasons[activity.kind] or "downtime_commit_failed"'),
+            "only a completed, verified downtime activity may reach a diary")
 
     print(
         f"Static gameplay contracts PASS: {CHECKS} assertions, "

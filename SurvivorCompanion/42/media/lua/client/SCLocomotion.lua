@@ -22,7 +22,7 @@ local interactionActions = {
     wear_clothing = true, wash_self = true, wash_equipment = true,
     stress_bottle_smash = true, stress_furniture_hit = true,
     ambient_eat = true, ambient_drink = true, study_corpse = true, pay_respects = true,
-    workout = true,
+    workout = true, write_diary = true,
     sit = true, sit_ground = true, stand_ground = true,
     barricade = true, remove_barricade = true, dismantle = true,
     open_door = true, close_door = true, open_window = true, close_window = true,

@@ -1192,6 +1192,9 @@ local function pollChop(actor, order, state, context)
     metrics.treesFelled = metrics.treesFelled + 1
     SC.BaseLife.recordProductionProgress(order.id, 1)
     SC.BaseLife.noteProductionCounter("treesFelled", 1)
+    if SC.Diary and type(SC.Diary.noteWork) == "function" then
+        pcall(SC.Diary.noteWork, actor, "trees", 1)
+    end
     if logs > 0 then
         SC.BaseLife.noteProductionCounter("logsDropped", logs)
         if type(order.settings) == "table" and order.settings.haulLogs == true then
@@ -1385,6 +1388,9 @@ local function reconcileSaw(actor, order, work)
     if #created > 0 then
         metrics.planksMade = metrics.planksMade + #created
         SC.BaseLife.noteProductionCounter("planksMade", #created)
+        if SC.Diary and type(SC.Diary.noteWork) == "function" then
+            pcall(SC.Diary.noteWork, actor, "planks", #created)
+        end
     end
     clearSawReceipt(actor, order.id)
     return true, "production_planks_made", true
@@ -1748,6 +1754,12 @@ local function bodyEligible(body, order, actor)
             return false, "carries_items"
         end
         for _, item in ipairs(items) do
+            -- A private diary is never buried or burned by automation, even
+            -- with belongings: the body waits until the book is recovered.
+            if SC.DiaryItem and type(SC.DiaryItem.hasPayload) == "function"
+                and SC.DiaryItem.hasPayload(item) then
+                return false, "carries_diary"
+            end
             if SC.WorkTransport and type(SC.WorkTransport.foreignProtected) == "function" then
                 local protected, reason = SC.WorkTransport.foreignProtected(item, actor)
                 if protected and reason ~= "favorite_item" then return false, "protected_items" end
@@ -2005,6 +2017,13 @@ local function pollBury(actor, order, state, context)
     end
     if info then SC.BaseLife.noteProductionGrave(order.id, { x = info.x, y = info.y, z = info.z }) end
     if work.fallen and info then Disposal.markFallenGrave(info, work.fallen) end
+    if SC.Diary and type(SC.Diary.noteWork) == "function" then
+        if type(work.fallen) == "table" then
+            pcall(SC.Diary.noteFallenBurial, actor, work.fallen.name)
+        else
+            pcall(SC.Diary.noteWork, actor, "buried", 1)
+        end
+    end
     releaseClaim(work.key, context.actorId)
     releaseClaim(work.graveKey, context.actorId)
     if not work.fallen then speak(actor, "burial.lower", nil, work.key, context.runtime) end
@@ -3062,6 +3081,9 @@ function Disposal.pollWatch(actor, order, state, context)
     if progressed ~= true then return false, progressReason or "burn_progress_failed" end
     metrics.bodiesBurned = metrics.bodiesBurned + 1
     SC.BaseLife.noteProductionCounter("bodiesBurned", 1)
+    if SC.Diary and type(SC.Diary.noteWork) == "function" then
+        pcall(SC.Diary.noteWork, actor, "burned", 1)
+    end
     if order.operation == "collect_bodies" then
         SC.BaseLife.noteProductionCounter("bodiesCollected", 1)
     end

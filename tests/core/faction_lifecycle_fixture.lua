@@ -174,6 +174,7 @@ for _, name in ipairs({
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal",
     "BaseObjectRef", "BaseLife", "WorkTransport", "GatherWork", "BaseWork", "Production",
     "InfectionCrisis", "LifeEvents", "Community",
+    "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",
     "Quirks", "Autonomy", "Commands", "FactionRecruitment", "Decision", "Support",
     "UIContext",
 }) do

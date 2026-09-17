@@ -95,6 +95,35 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   durable cleanup phase that pins the destination until resolved. Runtime
   native references are rebuilt from evidence and never enter the BaseLife save
   document.
+- Private diaries are four modules. `SCDiaryText` is a pure, deterministic
+  compiler: it selects a complete authored passage whose declared evidence
+  holds, avoids repeating a recent meaning or structure, and renders literal
+  tokens that may not contain control characters. It never reads game state or
+  consumes RNG. `SCDiaryCatalog` holds the reviewed passages in four voices,
+  each with its evidence prerequisites and a statement of what it asserts.
+  `SCDiaryItem` owns the physical `LivingFellows.PrivateDiary` payload
+  (`LF_Diary`, schema 1). Every entry is its own bounded string, because Build
+  42.20.4 saves ModData strings with a signed 16-bit length. Appends are
+  revision-checked, idempotent by entry id, and read back before success.
+  `SCDiary` owns the world subsystem `diaries`: a one-time saved diarist
+  decision and voice, a bounded inbox of verified experiences with durable
+  source receipts, callback anchors, and style history. Owning subsystems
+  report only verified outcomes: recruitment, `SCMedical`'s verified dressings
+  with their real helper, the writer's own visible wounds and felt fever from
+  `SCMedical.assess` (never hidden Knox state), `SCInfectionCrisis` knowledge
+  paths and outcomes, grief-proven deaths, and the recorded shared escape.
+  `SCDowntime` offers a `write_diary` activity (the verified human read pose)
+  only when a truthful draft exists and the exact book and a pen are carried.
+  The page commits only after that supervised action completes, the author,
+  calendar day, candidate and exact book revision are rechecked, and the book
+  accepts the append. Only then does controller state change and
+  `SCDiary.contentRevision()` advance. Scheduled persistence binds that
+  revision like the base work revision, so a page written mid-capture forces a
+  fresh capture. Confirmed native death freezes the author after grief and
+  before actor retirement. The book is never recreated and never written
+  remotely, and it stays readable with no author record. `SCDiaryUI` is an
+  item-bound, read-only, plain-text reader that asks for confirmation before
+  opening a living author's diary.
 - `SCVitals` observes native `BodyDamage`, moodles, XP, Knox state, hunger, thirst, and death. It persists native needs with the same bounded record but does not implement parallel health or infection.
 - `SCPersistence` owns the world-scoped Global ModData key `SC_WorldV1` with document schema 3, strict path-aware values, pending transactional restores, and save preservation while actor creation is unavailable. Character replacement after player death therefore keeps companions, factions, bases, and community state. Restore first copies and validates the complete envelope without publishing state. An envelope that cannot be copied exactly, or has malformed required buckets, blocks restore/save and leaves the original world document untouched. Copyable but schema-invalid actor and subsystem values are quarantined, never activated, and re-emitted unchanged on the next valid save; `tradeRecovery` uses the same canonical save/restore/retry owner definition rather than a separate retry map. Scheduled saves stage subsystem exports, resumable strict copies and resumable actor inventories in 0.75 ms background slices on a fixed 50 ms background pulse, verify each actor's exact inventory/equipment identity sequence before and after capture, then synchronously revalidate the complete registry lifecycle, all active ownership sequences, actor and virtual vehicle state, and trade-recovery state immediately before the one atomic publication. Inventory walks re-read live list sizes between resumable slices. Churn retries twice; an owner whose inventory moved between its capture and the commit barrier is recaptured alone within the same retry budget, its staged copy replaced, and the complete barrier repeated. A 20-second live-work deadline, extended by pause or stall gaps up to a two-minute hard cap, preserves the prior document on expiry and delays the next attempt by five seconds. `OnSave` cancels staging and performs the existing fresh synchronous atomic capture. Deterministic provider failures use bounded backoff and terminal quarantine with explicit manual retry. A record quarantined after unverified native removal is excluded from runtime work and saved from its last verified stable snapshot instead of recapturing the uncertain actor.
 - `SCTrade` owns item transfer authorization and a durable per-item recovery journal. Native reconstruction progresses through `original`, `building`, and `verified`: the factory-created object is journaled before inventory insertion, every generated identity receives a build marker before optional native-ID reads, and `SCPersistence` recaptures the completed root and weapon parts before publication. Recovery closes only after the exact item is compensated to its intended source and both list membership and `InventoryItem.getContainer()` agree. A destination-held half trade, an unlocated partial reconstruction, or absence without persisted detached proof remains unresolved rather than becoming a successful rollback or a copied item. Death rewrites referenced live actors to terminal `retired` descriptors before registry release. Active retries use bounded backoff and a persisted rotating cursor; a restored runtime gets a fresh availability window for asynchronously spawned owners. Quarantined records consume no automatic scheduler work, block neither unrelated factions nor unmarked items, and expire under a separate age/count cap so terminal evidence cannot exhaust the live recovery journal forever.

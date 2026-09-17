@@ -85,6 +85,10 @@ function LifeEvents.emit(kind, fields)
     row.participants = participants(type(fields) == "table" and fields.participants)
     queue[#queue + 1] = row
     while #queue > 128 do table.remove(queue, 1) end
+    -- Private diaries observe without draining; SCCommunity owns the queue.
+    if SC.Diary and type(SC.Diary.observeLifeEvent) == "function" then
+        pcall(SC.Diary.observeLifeEvent, row)
+    end
     return row
 end
 

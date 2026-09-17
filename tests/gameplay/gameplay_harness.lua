@@ -6,6 +6,19 @@ local function check(value, message)
     assert(value, "check " .. tostring(checks) .. " failed: " .. tostring(message))
 end
 
+-- Private diaries have their own harness and one downtime integration block
+-- at the end of this file. Keep them inert for every earlier scenario, so no
+-- test companion unexpectedly receives a book.
+SC_TEST_DIARIES_ENABLED = false
+do
+    local utility = SurvivorCompanion.GameplayUtil
+    local baseConfig = utility.config
+    utility.config = function(key)
+        if key == "diaryEnabled" and SC_TEST_DIARIES_ENABLED ~= true then return false end
+        return baseConfig(key)
+    end
+end
+
 local clock = 100000
 function getTimestampMs() return clock end
 local worldHour = 12
@@ -15375,6 +15388,88 @@ end)()
     Crisis.restore(savedCrises)
     SurvivorCompanion.Commands.reset(subject)
     registry[subject.id] = nil
+end)()
+
+-- A private diary page through the real downtime lifecycle: offered only in
+-- quiet safe downtime, interrupted by danger with no page, then committed
+-- exactly once when the supervised writing action completes.
+;(function()
+    local diary, diaryItem = SurvivorCompanion.Diary, SurvivorCompanion.DiaryItem
+    local downtime = SurvivorCompanion.Downtime
+    local utility = SurvivorCompanion.GameplayUtil
+    local savedGameTime, realConfig = getGameTime, utility.config
+    getGameTime = function()
+        return {
+            getWorldAgeHours = function() return 240 end,
+            getYear = function() return 1993 end,
+            getMonth = function() return 6 end,
+            getDay = function() return 20 end,
+            getHour = function() return 14 end,
+            getTimeOfDay = function() return 14 end,
+        }
+    end
+    SC_TEST_DIARIES_ENABLED = true
+    utility.config = function(key)
+        if key == "diaryWriterChancePercent" then return 100 end
+        return realConfig(key)
+    end
+    local writerActor = actor("sc-diary-writer", 30, -7, {})
+    writerActor.modData.SC_Order = "stay"
+    writerActor.modData.SC_WorkMode = "idle"
+    registry[writerActor.id] = writerActor
+    local commands = SurvivorCompanion.Commands.peek(writerActor)
+    commands.personalityProfile = { courage = 50, caution = 50, compassion = 50,
+        practicality = 50, archetype = "practical" }
+    check(diary.noteRecruited(writerActor, player) == true,
+        "a recruited diarist starts a diary with a joining experience")
+    local book
+    for _, value in ipairs(writerActor.inventory.items) do
+        if value.itemType == diaryItem.ITEM_TYPE then book = value end
+    end
+    check(book ~= nil and diaryItem.read(book).entryCount == 0, "the diarist carries an empty book")
+    local quiet = { snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+        player = { danger = 0 } } }
+    local function startWriting()
+        local reason
+        for _ = 1, 12 do
+            local handled, value = downtime.update(writerActor, player, quiet)
+            reason = value
+            if handled and value == "write_diary" then return true, value end
+            clock = clock + 6000
+        end
+        return false, reason
+    end
+    local started, reason = startWriting()
+    check(started and downtime.peek(writerActor).active.kind == "write_diary"
+            and diaryItem.read(book).entryCount == 0,
+        "quiet downtime starts writing and the page is not in the book yet: " .. tostring(reason))
+    downtime.update(writerActor, player, { snapshot = { threats = {}, threatCount = 1,
+        immediateCount = 1, player = { danger = 1 } } })
+    check(downtime.peek(writerActor).active == nil and diaryItem.read(book).entryCount == 0,
+        "danger interrupts writing and leaves no page")
+    clock = clock + 60000
+    started, reason = startWriting()
+    check(started, "writing resumes in the next quiet moment: " .. tostring(reason))
+    for _ = 1, 8 do
+        clock = clock + 3000
+        downtime.update(writerActor, player, quiet)
+        local fact = downtime.peek(writerActor).lastFact
+        if type(fact) == "table" and fact.activity == "write_diary" then break end
+    end
+    local payload = diaryItem.read(book)
+    check(payload and payload.entryCount == 1
+            and string.find(payload.entries[1], "21 July 1993\n", 1, true) == 1,
+        "the completed writing action commits exactly one dated page")
+    clock = clock + 60000
+    downtime.update(writerActor, player, quiet)
+    check(diaryItem.read(book).entryCount == 1, "no second page on the same day")
+    downtime.reset(writerActor)
+    SurvivorCompanion.Commands.reset(writerActor)
+    registry[writerActor.id] = nil
+    diary.reset()
+    utility.config = realConfig
+    SC_TEST_DIARIES_ENABLED = false
+    getGameTime = savedGameTime
 end)()
 
 check(SurvivorCompanion.Decision.resetAll(), "central gameplay runtime reset")

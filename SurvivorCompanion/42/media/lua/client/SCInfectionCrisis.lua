@@ -166,11 +166,17 @@ end
 
 local function discover(crisis, observer, observerId, certainty, kind)
     local row = participant(crisis, observerId)
+    local newlyConfirmed = certainty >= 95 and row.knowledge ~= "confirmed"
     if certainty >= 95 then row.knowledge = "confirmed"
     elseif row.knowledge ~= "confirmed" then row.knowledge = "suspected" end
     row.certainty = math.max(row.certainty or 0, certainty)
     row.stance = row.stance or stanceFor(observer, crisis.subjectId)
     addEvidence(crisis, kind, observerId, certainty)
+    -- A private diary may record how a companion came to know. Fault-isolated:
+    -- the crisis never depends on it.
+    if newlyConfirmed and SC.Diary and type(SC.Diary.noteCrisisKnowledge) == "function" then
+        pcall(SC.Diary.noteCrisisKnowledge, crisis, observerId, kind, row.stance)
+    end
 end
 
 -- Conversation timing that does not need saving: when each bystander set
@@ -310,6 +316,26 @@ local function activeForSubject(subjectId)
         if crisis.subjectId == subjectId and crisis.phase ~= "closed" then return crisis end
     end
     return nil
+end
+
+-- A small detached view of the bitten person's own choices, for their diary.
+-- othersConfirmed means someone else already knows for certain, so the bite
+-- can no longer honestly be described as a secret.
+function Crisis.peekForSubject(subjectId)
+    local crisis = type(subjectId) == "string" and activeForSubject(subjectId) or nil
+    if not crisis then return nil end
+    local othersConfirmed = false
+    for id, member in pairs(crisis.participants or {}) do
+        if id ~= subjectId and type(member) == "table" and member.knowledge == "confirmed" then
+            othersConfirmed = true
+            break
+        end
+    end
+    return {
+        id = crisis.id, phase = crisis.phase, strategy = crisis.strategy,
+        outcome = crisis.outcome, confessed = crisis.confessedAt ~= nil,
+        othersConfirmed = othersConfirmed,
+    }
 end
 
 local function atBase(actor)
@@ -473,6 +499,9 @@ local function applyOutcome(crisis, subject, outcome, player)
     history("resolved", {
         crisisId = crisis.id, subjectId = crisis.subjectId, outcome = outcome,
     })
+    if SC.Diary and type(SC.Diary.noteCrisisOutcome) == "function" then
+        pcall(SC.Diary.noteCrisisOutcome, crisis, player)
+    end
 end
 
 -- The slow parts of a crisis conversation: a walk to confide that takes too
@@ -862,7 +891,12 @@ function Crisis.updateActor(actor, player)
             and crisis.finalAuthorized and crisis.executorId == id then
             local ok, reason = SC.NativeActions and SC.NativeActions.performEndOfLife
                 and SC.NativeActions.performEndOfLife(actor, "mercy", subject)
-            if ok and U().isDead(subject) then crisis.phase, crisis.terminalAt = "terminal", now() end
+            if ok and U().isDead(subject) then
+                crisis.phase, crisis.terminalAt = "terminal", now()
+                if SC.Diary and type(SC.Diary.noteMercyKilling) == "function" then
+                    pcall(SC.Diary.noteMercyKilling, actor, crisis)
+                end
+            end
             return ok == true, reason or "native_final_action_unavailable"
         end
         return approachAndReact(actor, id, crisis, member, subject)

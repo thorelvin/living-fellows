@@ -11,7 +11,7 @@ local reservations = setmetatable({}, { __mode = "k" })
 local visualActivities = {
     read = true, repair = true, craft_supply = true,
     wash_self = true, wash_equipment = true, study_corpse = true, pay_respects = true,
-    workout = true,
+    workout = true, write_diary = true,
 }
 
 local function U()
@@ -1494,6 +1494,13 @@ local function candidates(actor, commands, state, current, desiredKind)
         local ok, workout = pcall(SC.Gestures.workoutActivity, actor, commands, state or {}, current)
         if ok and type(workout) == "table" then filtered[#filtered + 1] = workout end
     end
+    -- A private diary entry: SCDiary offers one only when a truthful page is
+    -- prepared and the exact book and a pen are carried.
+    if workMode ~= "craft" and (desiredKind == nil or desiredKind == "write_diary")
+        and SC.Diary and type(SC.Diary.writeActivity) == "function" then
+        local ok, writing = pcall(SC.Diary.writeActivity, actor, current)
+        if ok and type(writing) == "table" then filtered[#filtered + 1] = writing end
+    end
     if desiredKind ~= nil then
         for index = #filtered, 1, -1 do
             if filtered[index].kind ~= desiredKind then table.remove(filtered, index) end
@@ -1581,6 +1588,10 @@ local function releaseDowntimeResources(actor, state, activity, reason)
         pcall(SC.Navigation.cancel, actor, reason or "downtime_cancelled")
     end
     releaseActivity(actor, activity)
+    -- An interrupted diary entry leaves no page behind.
+    if activity.kind == "write_diary" and SC.Diary and type(SC.Diary.abandonWrite) == "function" then
+        pcall(SC.Diary.abandonWrite, actor, activity.diary)
+    end
     if state and state.active == activity then state.active = nil end
     return true, reason or "cancelled"
 end
@@ -1881,6 +1892,12 @@ local function finishActivity(actor, state, now)
     elseif activity.kind == "study_corpse" or activity.kind == "pay_respects"
         or activity.kind == "workout" then
         success = activity.actionAccepted == true
+    elseif activity.kind == "write_diary" then
+        -- The page is committed only now, after the verified writing pose
+        -- completed, and only if the author and exact book still qualify.
+        success = activity.actionAccepted == true and SC.Diary ~= nil
+            and type(SC.Diary.commitWrite) == "function"
+            and SC.Diary.commitWrite(actor, activity.diary) == true
     end
     local failureReasons = {
         repair = "repair_commit_failed",
@@ -1892,6 +1909,7 @@ local function finishActivity(actor, state, now)
         study_corpse = "study_verification_failed",
         pay_respects = "respects_verification_failed",
         workout = "workout_verification_failed",
+        write_diary = "diary_commit_failed",
     }
     if not success then
         return failActivity(actor, state,
@@ -1908,6 +1926,11 @@ local function finishActivity(actor, state, now)
         if activity.kind == "workout" and SC.Gestures
             and type(SC.Gestures.workoutFinished) == "function" then
             pcall(SC.Gestures.workoutFinished, actor, activity, now)
+        end
+        if SC.Diary and type(SC.Diary.noteDowntime) == "function" then
+            local memento = activity.kind == "pay_respects" and activity.object ~= nil
+                and Respect.memento(activity.object) or nil
+            pcall(SC.Diary.noteDowntime, actor, activity, { memento = memento })
         end
         local fact = U().copyShallow(activity.fact)
         fact.completedAt = now

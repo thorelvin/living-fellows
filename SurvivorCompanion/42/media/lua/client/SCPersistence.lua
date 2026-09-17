@@ -1197,6 +1197,7 @@ local function scheduledSubsystemDefinitions()
         { field = "infectionCrisis", owner = SC.InfectionCrisis,
             depth = 10, entries = 16384 },
         { field = "community", owner = SC.Community, depth = 10, entries = 32768 },
+        { field = "diaries", owner = SC.Diary, depth = 10, entries = 16384 },
         { field = "tradeRecovery", owner = SC.Trade, depth = 14, entries = 16384 },
     }
 end
@@ -1564,6 +1565,19 @@ local function verifyScheduledOwnership(job)
             return false, "gather work ownership changed during scheduled capture"
         end
     end
+    -- A diary page changes a book's content without moving it, so the actor
+    -- inventory identity sequence cannot see it. The diary controller and
+    -- every captured book must come from the same content revision.
+    if job.diaryContentRevision ~= nil then
+        local owner = SC.Diary
+        local called, revision = false, nil
+        if owner ~= nil and type(owner.contentRevision) == "function" then
+            called, revision = pcall(owner.contentRevision)
+        end
+        if not called or revision ~= job.diaryContentRevision then
+            return false, "diary content changed during scheduled capture"
+        end
+    end
     local listed, currentRecords = pcall(SC.Registry.records)
     if not listed or type(currentRecords) ~= "table" or #currentRecords ~= #job.records then
         return false, "registry changed during scheduled capture"
@@ -1723,6 +1737,15 @@ function persistence.pulse()
                             "baseLife work consistency revision unavailable", current)
                     end
                     job.workConsistencyRevision = revision
+                end
+                if field == "diaries" and definition.owner ~= nil
+                    and type(definition.owner.contentRevision) == "function" then
+                    local revisionOk, revision = pcall(definition.owner.contentRevision)
+                    if not revisionOk or type(revision) ~= "number" then
+                        return abortScheduledSave(job,
+                            "diary content revision unavailable", current)
+                    end
+                    job.diaryContentRevision = revision
                 end
                 local source, sourceReason, sourceOk = scheduledSubsystemSource(definition)
                 if not sourceOk then
@@ -3196,7 +3219,7 @@ function persistence.restore(player)
     local subsystemDiagnostics = {
         factions = "factions", factionWorld = "faction-world", baseLife = "base-life",
         infectionCrisis = "infection-crisis", community = "community",
-        tradeRecovery = "trade-recovery",
+        diaries = "diary", tradeRecovery = "trade-recovery",
     }
     for _, definition in ipairs(subsystemDefinitions) do
         local raw = candidateDocument[definition.field]

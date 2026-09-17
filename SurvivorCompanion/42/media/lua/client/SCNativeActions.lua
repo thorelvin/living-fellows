@@ -110,6 +110,11 @@ local visualActionSpecs = {
         sound = "ClothesRipping" },
     read = { animation = "Read", animationEnum = true, event = "EventRead",
         secondaryItem = true, ticks = 360 },
+    -- Writing in a private diary uses the same verified pose as vanilla's own
+    -- ISWriteSomething (the Read animation with the book in hand). The page
+    -- itself is committed by SCDiary only after this completes.
+    write_diary = { animation = "Read", animationEnum = true, event = "EventRead",
+        secondaryItem = true, ticks = 360 },
     repair = { animation = "Craft", animationEnum = true, primaryItem = true, ticks = 180 },
     replace_bandage = { animation = "Bandage", animationEnum = true,
         event = "EventBandage", ticks = 100, sound = "FirstAidApplyBandage" },
@@ -941,6 +946,10 @@ local function startActionSounds(timedAction)
         playActionSound(character, isBook(timedAction.soundItem) and "OpenBook" or "OpenMagazine")
         return
     end
+    if name == "write_diary" then
+        playActionSound(character, "OpenBook")
+        return
+    end
     if name == "loot_container" and timedAction.soundContainer ~= nil then
         playActionSound(character, containerSound(timedAction.soundContainer, "getOpenSound"))
     end
@@ -963,6 +972,8 @@ local function endActionSounds(timedAction, completed)
     if timedAction.scSoundsStarted ~= true then return end
     if name == "read" then
         playActionSound(character, isBook(timedAction.soundItem) and "CloseBook" or "CloseMagazine")
+    elseif name == "write_diary" then
+        playActionSound(character, "CloseBook")
     elseif name == "loot_container" and timedAction.soundContainer ~= nil then
         playActionSound(character, containerSound(timedAction.soundContainer, "getCloseSound"))
     elseif name == "wear_clothing" and completed and timedAction.soundItem ~= nil then
@@ -1119,6 +1130,9 @@ local function visualActionClass()
         if actionName == "read" then
             local typeOk, readType = invoke(intent.item, "getReadType")
             value.readType = typeOk and tostring(readType or "book") or "book"
+            value.reading = true
+        elseif actionName == "write_diary" then
+            value.readType = "book"
             value.reading = true
         end
         if actionName == "kneel_treat" or actionName == "replace_bandage" then
@@ -3358,7 +3372,7 @@ function actions.dispatch(actor, mode, intent, provider)
     -- movement, combat, rescue, construction, window and vehicle action must
     -- first leave furniture or the engine can retain a seated animation/state.
     local seatedActivity = action == "read" or action == "repair" or action == "craft_supply"
-        or action == "ext_gesture"
+        or action == "ext_gesture" or action == "write_diary"
     if action == "sit_ground" then
         local standing, standingReason = leaveFurniture(actor)
         if not standing then return false, standingReason end

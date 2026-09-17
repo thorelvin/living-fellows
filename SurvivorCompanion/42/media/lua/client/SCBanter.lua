@@ -871,6 +871,9 @@ local function placePulse(player, records, current)
     end
     if best == nil then return false, "place_no_speaker" end
     if not speak(best, bestTopic, bestCommands) then return false, "place_speech_rejected" end
+    if SC.Diary and type(SC.Diary.notePlace) == "function" then
+        pcall(SC.Diary.notePlace, best, group, string.find(bestTopic, group .. ".", 1, true) ~= nil)
+    end
     rememberSeenPlace(best, bestCommands, group)
     rememberPlace(key)
     party.lastPlaceAt = current

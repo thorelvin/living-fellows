@@ -506,6 +506,14 @@ local function vitalsTask(current)
                     "companion death grief notification failed", handled)
             end
         end
+        -- Confirmed native death only: the author's diary stops exactly where
+        -- it is, and diarists who now grieve may write about the loss.
+        if record.runtime.griefNotified == true and record.runtime.diaryNotified ~= true
+            and SC.Diary ~= nil and type(SC.Diary.noteAuthorDeath) == "function" then
+            record.runtime.diaryNotified = true
+            pcall(SC.Diary.noteAuthorDeath, record)
+            pcall(SC.Diary.noteCompanionDeath, record)
+        end
         local retired, retireReason = SC.Actor.retireDead(record.actor)
         if retired and SC.Factions and type(SC.Factions.memberDied) == "function" then
             pcall(SC.Factions.memberDied, retireReason)
@@ -858,6 +866,14 @@ local function communityTask(current)
     end
 end
 
+-- Private diaries: one recruited companion per pulse. Bounded observation only;
+-- writing itself happens later inside supervised downtime.
+local function diaryTask(current)
+    if SC.Diary ~= nil and type(SC.Diary.pulse) == "function" then
+        SC.Diary.pulse(player(), current)
+    end
+end
+
 -- Party banter: first-visit place remarks and idle jokes. Speech only.
 local function banterTask(current)
     if SC.Banter ~= nil and type(SC.Banter.update) == "function" then
@@ -923,6 +939,8 @@ local function registerTasks()
             banterTask, "background" },
         { "gestures", SC.Config.get("gesturesPulseIntervalMs"), 15,
             gesturesTask, "background" },
+        { "diary", SC.Config.get("diaryPulseIntervalMs"), 14,
+            diaryTask, "background" },
         { "persistence-request", SC.Config.get("persistenceIntervalMs"), 10,
             saveRequestTask, "background", true },
         { "persistence", SC.Config.get("persistencePulseIntervalMs"), 9,
@@ -1418,6 +1436,7 @@ function runtime.reset(detach)
     resetModule("autonomy", SC.Autonomy, "reset")
     resetModule("dialogue", SC.Dialogue, "reset")
     resetModule("community", SC.Community, "reset")
+    resetModule("diary", SC.Diary, "reset")
     resetModule("life events", SC.LifeEvents, "reset")
 
     local schedulerReset = false

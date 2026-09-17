@@ -1312,6 +1312,10 @@ local function handleRecruit(actor, entry, state, payload, player)
         U().say(actor, U().text("IGUI_SC_Recruit_Response", "All right. I will come with you."))
     end
     if type(U().playUISound) == "function" then U().playUISound("UIAchievement") end
+    -- Last, so a recruitment that rolls back never leaves a "joined" page behind.
+    if SC.Diary and type(SC.Diary.noteRecruited) == "function" then
+        pcall(SC.Diary.noteRecruited, actor, player)
+    end
     return true, "recruited"
 end
 
@@ -1755,6 +1759,10 @@ local function showConversation(actor, entry, state, id, action, player)
         end
         states[actor] = staged
         state = staged
+    end
+    if changed == true and (action == "praise" or action == "background" or action == "encourage")
+        and SC.Diary and type(SC.Diary.noteConversation) == "function" then
+        pcall(SC.Diary.noteConversation, actor, player, action, state)
     end
     if action == "encourage" and changed == true and SC.LifeEvents
         and type(SC.LifeEvents.emit) == "function" then
@@ -2431,6 +2439,9 @@ function Commands.completeFactionTrial(actor, origin, player)
         })
         Commands.persist(actor)
     end
+    if SC.Diary and type(SC.Diary.noteRecruited) == "function" then
+        pcall(SC.Diary.noteRecruited, actor, player)
+    end
     if type(U().playUISound) == "function" then U().playUISound("UIAchievement") end
     return true, "joined_permanently"
 end
@@ -2465,6 +2476,21 @@ function Commands.observeRelationship(actor, player, snapshot)
             local memory = state.memories[index]
             if type(memory) == "table" then
                 changed = SC.Objectives.noteEvent(state, memory.kind, memory) or changed
+            end
+        end
+    end
+    if ok and relationshipChanged == true and SC.Diary
+        and type(SC.Diary.noteSharedEscape) == "function"
+        and type(state.memories) == "table" then
+        -- The memory list is capped, so a full list keeps its length when a
+        -- memory is added. Inspect the newest rows by their timestamp instead.
+        local current = U().nowMs()
+        for index = #state.memories, math.max(1, #state.memories - 2), -1 do
+            local memory = state.memories[index]
+            if type(memory) == "table" and memory.kind == "shared_escape"
+                and current - (tonumber(memory.at) or -math.huge) <= 5000 then
+                pcall(SC.Diary.noteSharedEscape, actor, player)
+                break
             end
         end
     end
