@@ -94,31 +94,112 @@ local function mark(item, personal, favorite)
     return true, verified
 end
 
+-- One bounded pass over a container tree. `remaining.count` is the inspection
+-- budget and `remaining.skip` how many items to pass over untouched, which is
+-- what lets a caller resume where the previous bounded pass stopped.
+-- `remaining.exhausted` records that the budget ran out with items left, so a
+-- caller can tell "not here" from "not seen yet".
 local function walk(container, remaining, callback, depth, visited)
-    if not container or remaining.count <= 0 then return true end
+    if not container then return true end
+    if remaining.count <= 0 then
+        remaining.exhausted = true
+        return true
+    end
     visited = visited or setmetatable({}, { __mode = "k" })
     if visited[container] then return true end
     visited[container] = true
     local items, ok = U().call(container, "getItems")
     if not ok and type(container) == "table" then items = container.items or container end
     local continue = true
-    U().each(items, remaining.count, function(item)
-        remaining.count = remaining.count - 1
-        if callback(item, depth or 0) == false then continue = false return false end
+    local limit = remaining.count + math.max(0, remaining.skip or 0)
+    U().each(items, limit, function(item)
+        remaining.visited = (remaining.visited or 0) + 1
+        local inspect = true
+        if (remaining.skip or 0) > 0 then
+            remaining.skip = remaining.skip - 1
+            inspect = false
+        else
+            remaining.count = remaining.count - 1
+        end
+        if inspect and callback(item, depth or 0) == false then continue = false return false end
         local nested, nestedOk = U().call(item, "getInventory")
         if nestedOk and nested and not walk(nested, remaining, callback, (depth or 0) + 1, visited) then
             continue = false
             return false
         end
-        return remaining.count > 0 and continue
+        if remaining.count <= 0 and continue then
+            remaining.exhausted = true
+            return false
+        end
+        return continue
     end)
     return continue
 end
 
-function PersonalItems.walkActorInventory(actor, callback)
-    if not actor or type(callback) ~= "function" then return false end
-    local maximum = U().config("maxInventoryItems") or 256
-    return walk(U().inventory(actor), { count = maximum }, callback, 0)
+-- The same bounded recursive pass over any container, for callers that must
+-- know what a corpse, bag or storage really holds before acting on it.
+function PersonalItems.walkContainer(container, callback, options)
+    if container == nil or type(callback) ~= "function" then return false, false end
+    options = type(options) == "table" and options or {}
+    local maximum = math.max(1, math.floor(tonumber(options.budget)
+        or tonumber(U().config("maxInventoryItems")) or 256))
+    local remaining = { count = maximum, skip = math.max(0, math.floor(tonumber(options.skip) or 0)) }
+    local stopped = walk(container, remaining, callback, 0)
+    return stopped, remaining.exhausted ~= true, remaining.visited or 0
+end
+
+-- Returns (stopped, complete). `complete` is false when the budget ran out
+-- before the whole tree was inspected: incomplete observation is never proof
+-- that something is absent.
+function PersonalItems.walkActorInventory(actor, callback, options)
+    if not actor or type(callback) ~= "function" then return false, false end
+    options = type(options) == "table" and options or {}
+    local maximum = math.max(1, math.floor(tonumber(options.budget)
+        or tonumber(U().config("maxInventoryItems")) or 256))
+    local remaining = { count = maximum, skip = math.max(0, math.floor(tonumber(options.skip) or 0)) }
+    local stopped = walk(U().inventory(actor), remaining, callback, 0)
+    return stopped, remaining.exhausted ~= true, remaining.visited or 0
+end
+
+-- A resumable search over one actor's whole inventory tree. Each call inspects
+-- at most `budget` items starting at `cursor`; the caller keeps the returned
+-- cursor. Status is "found", "absent" (the tree ended) or "pending" (more to
+-- look at). Bags are entered, so nothing hides behind a full first bag.
+function PersonalItems.searchResumable(actor, predicate, cursor, budget)
+    if not actor or type(predicate) ~= "function" then return nil, 0, "absent" end
+    local found, foundDepth
+    local _, complete = PersonalItems.walkActorInventory(actor, function(item, depth)
+        if predicate(item, depth) then
+            found, foundDepth = item, depth
+            return false
+        end
+    end, { budget = budget, skip = cursor })
+    if found then return found, math.max(0, math.floor(tonumber(cursor) or 0)), "found", foundDepth end
+    if complete then return nil, 0, "absent" end
+    local inspected = math.max(1, math.floor(tonumber(budget)
+        or tonumber(U().config("maxInventoryItems")) or 256))
+    return nil, math.max(0, math.floor(tonumber(cursor) or 0)) + inspected, "pending"
+end
+
+-- Is this exact item still inside the actor's inventory tree, including bags?
+-- Returns true, false, or nil when the native owner chain cannot be read.
+function PersonalItems.ownedBy(item, actor)
+    if item == nil or actor == nil then return false end
+    local root = U().inventory(actor)
+    if root == nil then return nil end
+    local container, ok = U().call(item, "getContainer")
+    if not ok then return nil end
+    for _ = 1, 8 do
+        if container == nil then return false end
+        if container == root then return true end
+        local parent, parentOk = U().call(container, "getParent")
+        if parentOk and parent ~= nil and parent == actor then return true end
+        local holder, holderOk = U().call(container, "getContainingItem")
+        if not holderOk or holder == nil then return false end
+        container, ok = U().call(holder, "getContainer")
+        if not ok then return nil end
+    end
+    return nil
 end
 
 function PersonalItems.find(actor, key)

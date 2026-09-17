@@ -297,19 +297,64 @@ end
 
 --------------------------------------------------------------------- book
 
-local function findBook(actor, writer)
-    if not SC.PersonalItems or type(SC.PersonalItems.find) ~= "function" then return nil end
-    local item = SC.PersonalItems.find(actor, writer.bookKey)
-    if not item then return nil end
+local function transientFor(id)
+    local value = runtime[id]
+    if value == nil then
+        value = {}
+        runtime[id] = value
+    end
+    return value
+end
+
+local function bookPayload(item, writer)
+    if item == nil then return nil end
     local payload = DiaryItem().read(item)
     if not payload or payload.diaryId ~= writer.diaryId then return nil end
-    return item, payload
+    return payload
+end
+
+-- The exact book, found without ever scanning a whole inventory in one go.
+-- A previously found book is re-validated cheaply; otherwise a bounded,
+-- resumable search continues where the last one stopped, so a book behind a
+-- large bag is located over a few passes instead of never.
+-- Returns item, payload, status ("found", "pending" or "absent").
+local function findBook(actor, writer)
+    local personal = SC.PersonalItems
+    if type(personal) ~= "table" then return nil, nil, "absent" end
+    local transient = transientFor(writer.id)
+    local cached = transient.book
+    if cached ~= nil and personal.ownedBy(cached, actor) == true then
+        local payload = bookPayload(cached, writer)
+        if payload then return cached, payload, "found" end
+    end
+    transient.book = nil
+    if type(personal.searchResumable) ~= "function" then
+        local item = personal.find(actor, writer.bookKey)
+        local payload = bookPayload(item, writer)
+        if payload then transient.book = item end
+        return payload and item or nil, payload, payload and "found" or "absent"
+    end
+    local item, cursor, status = personal.searchResumable(actor, function(candidate)
+        local record = personal.personalRecord(candidate)
+        return record ~= nil and record.key == writer.bookKey
+    end, transient.bookCursor)
+    transient.bookCursor = cursor
+    if status ~= "found" then return nil, nil, status end
+    local payload = bookPayload(item, writer)
+    if not payload then return nil, nil, "absent" end
+    transient.book = item
+    return item, payload, "found"
 end
 
 local function giveWritingImplement(actor, writer)
     if writer.pencilGiven == true then return true end
+    local existing, _, status = DiaryItem().findWritingImplement(actor)
+    -- Only a completed search proves they have nothing to write with.
+    if existing ~= nil or status == "pending" then
+        writer.pencilGiven = existing ~= nil
+        return existing ~= nil
+    end
     writer.pencilGiven = true
-    if DiaryItem().findWritingImplement(actor) then return true end
     local pencil = U().addItem(U().inventory(actor), "Base.Pencil")
     if not pencil then return false end
     local marked = SC.PersonalItems.restoreMarker(pencil, {
@@ -330,12 +375,15 @@ local function ensureBook(actor, writer, clock)
     if not SC.PersonalItems or type(SC.PersonalItems.restoreMarker) ~= "function" then
         return false, "personal_items_unavailable"
     end
-    local existing = findBook(actor, writer)
+    local existing, _, bookStatus = findBook(actor, writer)
     if existing then
         writer.bookCreated = true
         giveWritingImplement(actor, writer)
         return true
     end
+    -- An unfinished search is not proof that there is no book yet. Creating
+    -- one now could hand the same companion a second diary.
+    if bookStatus == "pending" then return false, "book_search_incomplete" end
     local maximum = math.floor(finite(cfg("diaryBookCreateMaxAttempts", 3), 3))
     if writer.bookAttempts >= maximum or (clock and clock.hours < finite(writer.bookRetryHours, 0)) then
         return false, "book_creation_deferred"
@@ -1189,8 +1237,7 @@ function Diary.pulse(player, current)
     observeBody(actor, writer, clock, player)
     observeRelationship(actor, writer, clock, player)
     observeTime(actor, writer, clock, player)
-    local transient = runtime[writer.id] or {}
-    runtime[writer.id] = transient
+    local transient = transientFor(writer.id)
     if writer.bookCreated and clock.hours >= finite(transient.nameAuditHours, 0) then
         transient.nameAuditHours = clock.hours + 1
         local item, payload = findBook(actor, writer)
@@ -1434,8 +1481,7 @@ function Diary.writeActivity(actor, current)
     local id = utility.idOf(actor)
     local writer = id and ensure().writers[id] or nil
     if not activeDiarist(writer) or writer.bookCreated ~= true then return nil end
-    local transient = runtime[id] or {}
-    runtime[id] = transient
+    local transient = transientFor(id)
     current = finite(current, utility.nowMs())
     if current < finite(transient.nextCheckMs, 0) then return nil end
     transient.nextCheckMs = current + finite(cfg("diaryWriteCheckIntervalMs", 30000), 30000)
@@ -1445,7 +1491,10 @@ function Diary.writeActivity(actor, current)
     pruneStale(writer, clock)
     if not writeEligible(writer, clock) then return nil end
     local item, payload = findBook(actor, writer)
-    if not item or not DiaryItem().findWritingImplement(actor) then return nil end
+    if not item then return nil end
+    local pen, penCursor = DiaryItem().findWritingImplement(actor, transient.penCursor, transient.pen)
+    transient.penCursor, transient.pen = penCursor, pen
+    if not pen then return nil end
     if payload.entryCount >= DiaryItem().maxEntries() then return nil end
     local ordered = {}
     for _, candidate in ipairs(writer.candidates) do ordered[#ordered + 1] = candidate end
@@ -1500,8 +1549,10 @@ function Diary.commitWrite(actor, plan)
         if candidate.sourceKey == plan.sourceKey then candidateIndex = index break end
     end
     if not candidateIndex then return false, "candidate_withdrawn" end
-    local item = findBook(actor, writer)
-    if item ~= plan.item then return false, "book_not_carried" end
+    local item, _, bookStatus = findBook(actor, writer)
+    if item ~= plan.item then
+        return false, bookStatus == "pending" and "book_not_located" or "book_not_carried"
+    end
     local appended, payload, detail = DiaryItem().append(item, {
         diaryId = writer.diaryId, revision = plan.revision, entryId = plan.entryId,
         dateLabel = plan.dateLabel, text = plan.draft.text,

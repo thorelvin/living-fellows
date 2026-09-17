@@ -783,6 +783,37 @@ def main() -> int:
             "diary entries must stay individually bounded under the 16-bit ModData string save")
     require("diary_harness.lua" in gameplay_runner,
             "the private diary Kahlua harness is not part of the gameplay gate")
+
+    # Incomplete observation is never proof of absence, and an action
+    # stopping is never proof of completion.
+    production_source = sources["SCProduction.lua"]
+    personal_source = sources["SCPersonalItems.lua"]
+    base_work_source = sources["SCBaseWork.lua"]
+    require("bodyContentsStatus" in production_source
+            and "belongings_scan_incomplete" in production_source
+            and production_source.count("disposalStillPermitted(") >= 3,
+            "corpse disposal must scan nested belongings and re-check before the irreversible act")
+    require("function PersonalItems.walkContainer" in personal_source
+            and "function PersonalItems.searchResumable" in personal_source
+            and "function PersonalItems.ownedBy" in personal_source
+            and "remaining.exhausted" in personal_source,
+            "bounded inventory traversal must be resumable and report incompleteness")
+    require("book_search_incomplete" in sources["SCDiary.lua"],
+            "an unfinished book search must never authorise a second diary")
+    require("local function destinationsFor" in base_work_source
+            and "local function returnCargo" in base_work_source
+            and "state.cargo" in base_work_source,
+            "hauling must pick a destination with room and keep an exact cargo receipt")
+    require("local function buildOutcome" in base_work_source
+            and "scCompleted" in base_work_source
+            and "build_result_missing" in base_work_source,
+            "a build completes only with a receipt and the requested object present")
+    require("local function carriedSupplies" in base_work_source
+            and "local function stageCarriedSupply" in base_work_source,
+            "carried supplies must be found inside bags and staged for the build action")
+    require(re.search(r"return SC\.Navigation\.request(Any)?\(actor, (targets|approaches)",
+                      base_work_source) is None,
+            "an approach result must not leak a third value into the terminal flag")
     life_events = sources["SCLifeEvents.lua"]
     require("SC.Diary.observeLifeEvent" in life_events
             and "table.remove(queue, 1)" in life_events.split("SC.Diary.observeLifeEvent")[0],

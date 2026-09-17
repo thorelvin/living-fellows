@@ -141,6 +141,7 @@ local function newItem(fullType)
     function item:setFavorite(value) self.favorite = value == true end
     function item:isFavorite() return self.favorite end
     function item:getName() return self.name end
+    function item:getContainer() return self.container end
     function item:setName(value) self.name = value end
     function item:setCustomName(value) self.customName = value end
     function item:getDisplayName() return self.name end
@@ -152,13 +153,18 @@ local function newInventory()
     function inventory:getItems() return self.items end
     function inventory:AddItem(itemType)
         if self.rejected[itemType] then return nil end
-        local item = newItem(itemType)
+        local item = type(itemType) == "table" and itemType or newItem(itemType)
         self.items[#self.items + 1] = item
+        item.container = self
         return item
     end
     function inventory:Remove(item)
         for index, value in ipairs(self.items) do
-            if value == item then table.remove(self.items, index) return end
+            if value == item then
+                table.remove(self.items, index)
+                if item.container == self then item.container = nil end
+                return
+            end
         end
     end
     function inventory:contains(item)
@@ -840,6 +846,93 @@ check(quietWrite ~= nil and Diary.commitWrite(tom, quietWrite.diary), "a quiet d
 local quietEntry = Item.read(tomBook).entries[Item.read(tomBook).entryCount]
 check(not string.find(quietEntry, "[{}]"), "the quiet page renders completely")
 sampler[#sampler + 1] = "[quiet page written by the controller] " .. string.gsub(quietEntry, "\n", " / ")
+
+------------------------------------------- deep inventories (resumable find)
+
+do
+    local hoarder = newActor("sc-hoarder", "Nell", "Boyd", true)
+    register(hoarder, { recruited = true, personalityProfile = { archetype = "cautious" } })
+    for _ = 1, 10 do hoarder.inventory:AddItem("Base.Rock") end
+    local deepBook = newItem(Item.ITEM_TYPE)
+    hoarder.inventory.items[#hoarder.inventory.items + 1] = deepBook
+    deepBook.container = hoarder.inventory
+    local function isBook(candidate) return candidate.fullType == Item.ITEM_TYPE end
+    local found, cursor, status = SC.PersonalItems.searchResumable(hoarder, isBook, 0, 4)
+    check(found == nil and status == "pending" and cursor == 4,
+        "a bounded search reports pending, never absent, while items remain: " .. tostring(status))
+    local passes = 1
+    while status == "pending" and passes < 10 do
+        found, cursor, status = SC.PersonalItems.searchResumable(hoarder, isBook, cursor, 4)
+        passes = passes + 1
+    end
+    check(found == deepBook and status == "found",
+        "an item past one pass's budget is located over later passes: " .. tostring(status))
+    local absent, absentCursor, absentStatus = SC.PersonalItems.searchResumable(hoarder,
+        function(candidate) return candidate.fullType == "Base.Katana" end, 0, 64)
+    check(absent == nil and absentStatus == "absent" and absentCursor == 0,
+        "a completed pass over everything may report absent")
+
+    -- A full bag early in the inventory must not hide later root items.
+    local bagHoarder = newActor("sc-bagger", "Otis", "Vane", false)
+    register(bagHoarder, { recruited = true, personalityProfile = { archetype = "practical" } })
+    local bag = newItem("Base.Bag_Normal")
+    bag.nested = newInventory()
+    function bag:getInventory() return self.nested end
+    function bag.nested:getContainingItem() return bag end
+    bagHoarder.inventory.items[1] = bag
+    bag.container = bagHoarder.inventory
+    for _ = 1, 8 do bag.nested:AddItem("Base.Rock") end
+    local rootBook = newItem(Item.ITEM_TYPE)
+    bagHoarder.inventory.items[#bagHoarder.inventory.items + 1] = rootBook
+    rootBook.container = bagHoarder.inventory
+    local bagFound, bagCursor, bagStatus = SC.PersonalItems.searchResumable(bagHoarder, isBook, 0, 3)
+    local bagPasses = 1
+    while bagStatus == "pending" and bagPasses < 12 do
+        bagFound, bagCursor, bagStatus = SC.PersonalItems.searchResumable(bagHoarder, isBook,
+            bagCursor, 3)
+        bagPasses = bagPasses + 1
+    end
+    check(bagFound == rootBook, "a full bag early on does not starve later root items")
+    check(SC.PersonalItems.ownedBy(rootBook, bagHoarder) == true
+            and SC.PersonalItems.ownedBy(bag.nested.items[1], bagHoarder) == true
+            and SC.PersonalItems.ownedBy(deepBook, bagHoarder) == false,
+        "ownership follows the bag chain, and another survivor's item is not owned")
+    states[hoarder], states[bagHoarder] = { recruited = false }, { recruited = false }
+end
+
+-- A book that moves into a bag stays the writer's book, and a page still
+-- commits without a fresh full scan.
+do
+    local packer = newActor("sc-packer", "Ida", "Cole", true)
+    register(packer, { recruited = true, tier = "ally", mood = "steady",
+        personalityProfile = { archetype = "practical" }, background = {} })
+    setHours(DIARY_TEST_HOURS + 24)
+    check(Diary.noteRecruited(packer, player), "the packer joins as a diarist")
+    local packerWriter = Diary.writerFor(packer)
+    packerWriter.voice = "guarded_practical"
+    local packerBook
+    for _, item in ipairs(packer.inventory.items) do
+        if item.fullType == Item.ITEM_TYPE then packerBook = item end
+    end
+    check(packerBook ~= nil, "the packer carries a book")
+    local satchel = newItem("Base.Bag_Normal")
+    satchel.nested = newInventory()
+    function satchel:getInventory() return self.nested end
+    function satchel.nested:getContainingItem() return satchel end
+    packer.inventory:Remove(packerBook)
+    packer.inventory.items[#packer.inventory.items + 1] = satchel
+    satchel.container = packer.inventory
+    satchel.nested.items[#satchel.nested.items + 1] = packerBook
+    packerBook.container = satchel.nested
+    advanceToWritable(packerWriter)
+    local packed = tryWrite(packer)
+    check(packed ~= nil and packed.item == packerBook,
+        "a book packed into a bag is still found and offered")
+    check(Diary.commitWrite(packer, packed.diary)
+            and Item.read(packerBook).entryCount == 1,
+        "the page commits to the exact book inside the bag")
+    states[packer] = { recruited = false }
+end
 
 SC_TEST_REPORT = table.concat(report, "\n") .. table.concat(sampler, "\n")
     .. "\nDiary harness PASS: " .. checks .. " checks"

@@ -1739,6 +1739,56 @@ local function bodyPlayerNumber(actor)
     return ok and tonumber(number) or nil
 end
 
+-- Everything a body carries, bags included. Burial and burning are
+-- irreversible, so an incomplete look is never treated as "nothing there":
+-- the scan reports "pending" and the body waits for a later pass.
+-- Returns "clear", a blocking reason, or "pending".
+local function bodyContentsStatus(body, actor)
+    local container = invoke(body, "getContainer")
+    if container == nil then return "clear", 0 end
+    local budget = math.max(16, math.floor(tonumber(
+        U().config("productionDisposalScanBudget")) or 256))
+    local blocked, count = nil, 0
+    local complete = true
+    local function inspect(item)
+        count = count + 1
+        -- A private diary is never buried or burned by automation, wherever
+        -- it sits: the body waits until the book is recovered.
+        if SC.DiaryItem and type(SC.DiaryItem.hasPayload) == "function"
+            and SC.DiaryItem.hasPayload(item) then
+            blocked = "carries_diary"
+            return true
+        end
+        if SC.PersonalItems and type(SC.PersonalItems.personalRecord) == "function"
+            and SC.PersonalItems.personalRecord(item) ~= nil then
+            blocked = "carries_personal_item"
+            return true
+        end
+        if SC.WorkTransport and type(SC.WorkTransport.foreignProtected) == "function" then
+            local protected, reason = SC.WorkTransport.foreignProtected(item, actor)
+            if protected and reason ~= "favorite_item" then
+                blocked = "protected_items"
+                return true
+            end
+        end
+        return false
+    end
+    if SC.PersonalItems and type(SC.PersonalItems.walkContainer) == "function" then
+        local _, scanned = SC.PersonalItems.walkContainer(container, function(item)
+            if inspect(item) then return false end
+        end, { budget = budget })
+        complete = scanned
+    else
+        for _, item in ipairs(U().inventoryItems(container, budget)) do
+            if inspect(item) then break end
+        end
+        complete = false
+    end
+    if blocked then return blocked, count end
+    if not complete then return "pending", count end
+    return "clear", count
+end
+
 local function bodyEligible(body, order, actor)
     if not U().instanceOf(body, "IsoDeadBody") then return false end
     local fake, fakeOk = invoke(body, "isFakeDead")
@@ -1747,26 +1797,20 @@ local function bodyEligible(body, order, actor)
     if animalOk and animal == true then return false, "animal" end
     local _, _, z = U().position(body)
     if tonumber(z) ~= 0 then return false, "not_ground_level" end
-    local container = invoke(body, "getContainer")
-    local items = container and U().inventoryItems(container, 64) or {}
-    if #items > 0 then
-        if type(order.settings) ~= "table" or order.settings.withBelongings ~= true then
-            return false, "carries_items"
-        end
-        for _, item in ipairs(items) do
-            -- A private diary is never buried or burned by automation, even
-            -- with belongings: the body waits until the book is recovered.
-            if SC.DiaryItem and type(SC.DiaryItem.hasPayload) == "function"
-                and SC.DiaryItem.hasPayload(item) then
-                return false, "carries_diary"
-            end
-            if SC.WorkTransport and type(SC.WorkTransport.foreignProtected) == "function" then
-                local protected, reason = SC.WorkTransport.foreignProtected(item, actor)
-                if protected and reason ~= "favorite_item" then return false, "protected_items" end
-            end
-        end
+    local status, count = bodyContentsStatus(body, actor)
+    if count > 0 and (type(order.settings) ~= "table" or order.settings.withBelongings ~= true) then
+        return false, "carries_items"
     end
+    if status == "pending" then return false, "belongings_scan_incomplete" end
+    if status ~= "clear" then return false, status end
     return true
+end
+
+-- Re-checked immediately before an irreversible action, because the body's
+-- contents can change between selection and the burial or the lit pyre.
+local function disposalStillPermitted(body, order, actor)
+    local eligible, reason = bodyEligible(body, order, actor)
+    return eligible == true, reason
 end
 
 burialBodyCandidate = function(square, x, y, z, order, actor)
@@ -2528,6 +2572,17 @@ function Disposal.startBurial(actor, order, state, context, target)
         state.buryTarget = nil
         return false, "body_tag_failed"
     end
+    -- Burial is irreversible: prove again, here, that nothing protected is
+    -- still on this body.
+    local permitted, permittedReason = disposalStillPermitted(target.body, order, actor)
+    if not permitted then
+        untagBody(target.body, actor)
+        noteCandidateFailure(order, "body", target.key, permittedReason or "belongings_changed")
+        releaseClaim(target.key, context.actorId)
+        releaseClaim(target.graveKey, context.actorId)
+        state.buryTarget = nil
+        return false, permittedReason or "belongings_changed"
+    end
     local accepted, moveReason = U().move(actor, "walk", {
         action = "bury_body", grave = grave.object, bodySquare = target.bodySquare,
         targetSquare = square,
@@ -2961,6 +3016,16 @@ function Disposal.ignite(actor, order, state, context, zone, target)
     if Disposal.bystanderNear(actor, target.square) then
         state.phase = "watching"
         return true, "pyre_bystander_near"
+    end
+    -- Lighting the pyre is irreversible: prove again that this body carries
+    -- nothing protected, and never light on an incomplete look.
+    local permitted, permittedReason = disposalStillPermitted(target.body, order, actor)
+    if not permitted then
+        noteCandidateFailure(order, "pyre-body", target.key,
+            permittedReason or "belongings_changed", zone)
+        Disposal.releaseBurnTarget(state, context)
+        releaseClaim(pyreKey, context.actorId)
+        return false, permittedReason or "belongings_changed"
     end
     local accepted, reason = U().move(actor, "walk", {
         action = "burn_body", body = target.body,

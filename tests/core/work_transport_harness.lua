@@ -1031,6 +1031,131 @@ do
     SC.PersonalItems.isProtected = oldProtected
 end
 
+-- F2: a full destination must not strand cargo. The worker picks a store
+-- with room, keeps one exact cargo receipt when every store is full, and
+-- never withdraws a second item while still holding the first.
+do
+    local ctx = setup("logs", 1)
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    SC.BaseLife.setStorageCategory(ctx.storage.id, "general")
+    local fullObject = makeStorage(addSquare(2, 0, 0))
+    local fullOk, full = SC.BaseLife.registerStorage(fullObject, "medical")
+    local roomyObject = makeStorage(addSquare(3, 0, 0))
+    local roomyOk, roomy = SC.BaseLife.registerStorage(roomyObject, "medical")
+    check(fullOk == true and roomyOk == true and full.id ~= roomy.id,
+        "two sorted destinations must register")
+    fullObject.container.room = false
+    local function carried()
+        local count = 0
+        for _, item in ipairs(ctx.actor.inventory.items) do
+            if item.fullType == "Base.Bandage" then count = count + 1 end
+        end
+        return count
+    end
+    local first, second = makeItem("Base.Bandage"), makeItem("Base.Bandage")
+    ctx.storageObject.container:AddItem(first)
+    ctx.storageObject.container:AddItem(second)
+    local queued = SC.BaseLife.enqueueJob({
+        type = "sort", assignedId = ctx.actor.modData.SC_Id, priority = 2,
+    })
+    local oldVisualStatus = SC.NativeActions.visualStatus
+    SC.NativeActions.visualStatus = function() return "completed" end
+    check(queued == true, "a sort job must queue")
+    local trace = {}
+    for _ = 1, 6 do
+        SC_TEST_CLOCK = SC_TEST_CLOCK + 50
+        local handled, value = SC.BaseWork.update(ctx.actor, nil, {})
+        trace[#trace + 1] = tostring(handled) .. ":" .. tostring(value)
+        if #roomyObject.container.items > 0 then break end
+    end
+    check(#roomyObject.container.items == 1 and #fullObject.container.items == 0
+            and carried() == 0,
+        "a full destination is skipped for one that has room: " .. table.concat(trace, ", "))
+
+    -- Every destination full: the cargo goes back where it came from.
+    roomyObject.container.room = false
+    SC.BaseLife.enqueueJob({ type = "sort", assignedId = ctx.actor.modData.SC_Id, priority = 2 })
+    local fullReason
+    for _ = 1, 5 do
+        SC_TEST_CLOCK = SC_TEST_CLOCK + 50
+        local _, value = SC.BaseWork.update(ctx.actor, nil, {})
+        fullReason = value
+    end
+    check(carried() == 0 and #ctx.storageObject.container.items == 1,
+        "with every store full the cargo is returned to its source, not stranded: "
+            .. tostring(fullReason))
+
+    -- A deposit refused after pickup must not pile up more cargo, and
+    -- cancelling base work returns whatever the worker still holds.
+    roomyObject.container.room = true
+    local oldTransfer = SC.WorkTransport.transferVerified
+    SC.WorkTransport.transferVerified = function(source, destination, item, actor)
+        if destination == roomyObject.container or destination == fullObject.container then
+            return false, "fixture_deposit_refused"
+        end
+        return oldTransfer(source, destination, item, actor)
+    end
+    SC.BaseLife.enqueueJob({ type = "sort", assignedId = ctx.actor.modData.SC_Id, priority = 2 })
+    for _ = 1, 6 do
+        SC_TEST_CLOCK = SC_TEST_CLOCK + 50
+        SC.BaseWork.update(ctx.actor, nil, {})
+    end
+    check(carried() <= 1, "a refused deposit never lets the worker accumulate cargo: "
+        .. tostring(carried()))
+    SC.WorkTransport.transferVerified = oldTransfer
+    SC.BaseWork.cancel(ctx.actor, "harness_cleanup")
+    check(carried() == 0, "cancelling base work returns any cargo the worker still holds")
+    SC.NativeActions.visualStatus = oldVisualStatus
+end
+
+-- F3: a build is complete only with a real completion receipt and the
+-- requested object actually present.
+do
+    local square = addSquare(7, 7, 0)
+    local function object(spriteName)
+        local sprite = { getName = function() return spriteName end }
+        return { getSprite = function() return sprite end }
+    end
+    local outcome = SC.BaseWork._buildOutcomeForTests
+    local cancelled = { action = { scStopped = true }, buildSpriteName = "walls_01",
+        initialObjectCount = 0 }
+    check(outcome(cancelled, square) == "cancelled",
+        "a cancelled action with nothing built is never complete")
+    square.objects[#square.objects + 1] = object("unrelated_02")
+    check(outcome(cancelled, square) == "cancelled",
+        "an unrelated object appearing is not the requested build")
+    local performed = { action = { scCompleted = true }, buildSpriteName = "walls_01",
+        initialObjectCount = 0 }
+    check(outcome(performed, square) == "missing",
+        "a finished action without its object reports a missing result, not success")
+    square.objects[#square.objects + 1] = object("walls_01")
+    check(outcome(performed, square) == "complete",
+        "the requested sprite at the target square completes the job")
+end
+
+-- F4: supplies inside a bag count, and are staged where the build action
+-- can use them.
+do
+    local ctx = setup("logs", 1)
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    local bag = makeItem("Base.Bag_Normal")
+    bag.nested = makeInventory("bag")
+    function bag:getInventory() return self.nested end
+    local hammer = makeItem("Base.Hammer")
+    ctx.actor.inventory:AddItem(bag)
+    bag.nested:AddItem(hammer)
+    local counted = SC.BaseWork._carriedSuppliesForTests(ctx.actor, "Base.Hammer")
+    check(counted == 1, "a hammer inside a bag is carried, not missing: " .. tostring(counted))
+    local staged, stagedReason = SC.BaseWork._stageCarriedSupplyForTests(ctx.actor, "Base.Hammer", 1)
+    check(staged == true and ctx.actor.inventory:contains(hammer)
+            and not bag.nested:contains(hammer),
+        "the nested hammer is staged into the worker's own hands: " .. tostring(stagedReason))
+    local again = select(2, SC.BaseWork._stageCarriedSupplyForTests(ctx.actor, "Base.Hammer", 1))
+    check(again == "supply_at_hand", "an already staged supply needs no second move")
+    check(SC.BaseWork._carriedSuppliesForTests(ctx.actor, "Base.Saw") == 0,
+        "a tool nobody carries is still missing")
+end
+
 -- Terminal deliveries release live item references immediately. If marker
 -- removal itself fails, only that bounded cleanup record retains the item and
 -- remains durable through pruning, actor reset and save/reload.

@@ -1020,6 +1020,8 @@ local valueData = {
     productionRestMaxMs = 60000,
     productionLoudThreatRadius = 20,
     productionBurialBodyRadius = 2,
+    -- Bounded recursive look inside a corpse before an irreversible disposal.
+    productionDisposalScanBudget = 256,
     productionSpeechActorCooldownMs = 45000,
     productionSpeechGroupCooldownMs = 12000,
     burialAmenChancePercent = 50,

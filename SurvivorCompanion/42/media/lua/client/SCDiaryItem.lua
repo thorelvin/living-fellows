@@ -219,14 +219,26 @@ function Item.isWritingImplement(item)
         or utility.itemHasTag(item, "pencil")
 end
 
-function Item.findWritingImplement(actor)
-    local found
-    if SC.PersonalItems and type(SC.PersonalItems.walkActorInventory) == "function" then
-        SC.PersonalItems.walkActorInventory(actor, function(item)
+-- Bounded and resumable: a pen in the twelfth bag is found eventually rather
+-- than never. `cursor` comes back for the caller to hand in next time, and a
+-- previously found implement is re-validated cheaply before a new search.
+function Item.findWritingImplement(actor, cursor, cached)
+    local personal = SC.PersonalItems
+    if type(personal) ~= "table" then return nil, 0, "absent" end
+    if cached ~= nil and Item.isWritingImplement(cached)
+        and personal.ownedBy(cached, actor) == true then
+        return cached, cursor or 0, "found"
+    end
+    if type(personal.searchResumable) ~= "function" then
+        local found
+        personal.walkActorInventory(actor, function(item)
             if Item.isWritingImplement(item) then found = item return false end
         end)
+        return found, 0, found and "found" or "absent"
     end
-    return found
+    return personal.searchResumable(actor, function(item)
+        return Item.isWritingImplement(item)
+    end, cursor)
 end
 
 return Item

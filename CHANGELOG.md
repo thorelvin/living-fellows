@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.22.33 - Review fixes
+
+- Fixed automated corpse disposal being able to bury or burn a body whose diary sat inside a bag, or past the first 64 items. Companions now look through bags before any burial or burning, and check again just before the irreversible act. If that look cannot finish, the body waits instead of being treated as safe. Nested personal and quest items are protected the same way.
+- Fixed base hauling stranding items. Workers now choose a store that actually has room, keep an exact record of what they carry, and on a refused deposit try another store or put the item back where it came from. A blocked or cancelled job no longer forgets cargo the worker is still holding, and no longer withdraws a second item on top of the first.
+- Fixed every base job being blocked the moment a worker walked toward a storage or build site. The approach result was mistaken for a "this job is finished" signal.
+- Fixed construction jobs reporting success when the build was cancelled or when an unrelated object appeared. A job completes only when the action actually finished and the requested object is standing at the target square; otherwise it stays open for another attempt.
+- Fixed builders being blocked with "missing supply" while carrying the tool in a backpack. Bags are now counted, and a required item is moved into the worker's own hands before the build starts.
+- Fixed bounded inventory searches restarting from the beginning every time, which could hide a diary or pen forever behind a big bag. Searches now resume where they stopped, remember an item they already found, and tell "not found yet" apart from "not there" so no second diary is ever created.
+
 ## 0.22.32 - Private diaries
 
 - Added private diaries. When a companion joins, the game decides once whether they keep a diary (35% by default) and saves that choice. A diary keeper gets a book named after them (Living Fellows Private Diary) and a pencil if they carry nothing to write with. The pencil is never picked as a weapon. In a quiet, safe moment, and at most once per in-game day, they write a short entry using the game's reading pose. If the writing is interrupted, the page is not written. An entry started before midnight is not saved under the next day's date.

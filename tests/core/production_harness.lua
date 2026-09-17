@@ -1255,6 +1255,64 @@ do
     SC.BaseLife.cancelProductionOrder(order.id)
 end
 
+-- F1: the same protection reaches inside bags, and an incomplete look at a
+-- corpse never authorises an irreversible disposal.
+do
+    local ctx = setup()
+    ctx.actor.inventory:AddItem(makeItem("Base.Shovel", { tags = { diggrave = true } }))
+    createGrave(-2, -3, 0, false)
+    local function diaryItem(id)
+        return makeItem("LivingFellows.PrivateDiary", { favorite = true, modData = {
+            LF_Diary = { schema = 1, diaryId = id, authorId = "sc-fallen",
+                authorName = "Fallen Author", authoredLocale = "EN", volume = 1,
+                revision = 0, entryCount = 0, entries = {} },
+        } })
+    end
+    local bag = makeItem("Base.Bag_Normal")
+    bag.nested = makeInventory("bag")
+    function bag:getInventory() return self.nested end
+    local hidden = diaryItem("diary:sc-fallen:2")
+    bag.nested:AddItem(hidden)
+    local body = makeBody(sq(-1, -3))
+    body.container:AddItem(bag)
+    local order = start(ctx, {
+        operation = "bury_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { withBelongings = true, closeWhenDone = false },
+    })
+    local buried = false
+    for _ = 1, 4 do
+        local _, value = tick(ctx)
+        if value == "production_burying" then buried = true end
+    end
+    check(not buried and bag.nested:contains(hidden)
+            and SC.BaseLife.productionOrder(order.id).completed == 0,
+        "a diary inside a bag on the body blocks burial just like one in plain sight")
+    SC.BaseLife.cancelProductionOrder(order.id)
+
+    -- With a scan budget too small to see everything, disposal waits.
+    local realConfig = SC.GameplayUtil.config
+    SC.GameplayUtil.config = function(key)
+        if key == "productionDisposalScanBudget" then return 1 end
+        return realConfig(key)
+    end
+    local deepBody = makeBody(sq(-1, -2))
+    deepBody.container:AddItem(makeItem("Base.Hat"))
+    deepBody.container:AddItem(diaryItem("diary:sc-fallen:3"))
+    local deepOrder = start(ctx, {
+        operation = "bury_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { withBelongings = true, closeWhenDone = false },
+    })
+    local deepBuried = false
+    for _ = 1, 4 do
+        local _, value = tick(ctx)
+        if value == "production_burying" then deepBuried = true end
+    end
+    SC.GameplayUtil.config = realConfig
+    check(not deepBuried and SC.BaseLife.productionOrder(deepOrder.id).completed == 0,
+        "an incomplete look inside a corpse never authorises burial")
+    SC.BaseLife.cancelProductionOrder(deepOrder.id)
+end
+
 do
     local ctx = setup()
     ctx.actor.inventory:AddItem(makeItem("Base.Shovel", { tags = { diggrave = true } }))

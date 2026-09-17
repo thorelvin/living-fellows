@@ -113,13 +113,65 @@ function BaseWork.recipeForKind(kind)
     return candidates[1]
 end
 
-local function inventoryCount(actor, itemType)
-    local count = 0
-    for _, item in ipairs(U().inventoryItems(U().inventory(actor), 256)) do
-        if U().itemType(item) == itemType then count = count + 1 end
-    end
-    return count
+local function buildProtected(actor, item)
+    return SC.PersonalItems and type(SC.PersonalItems.isProtected) == "function"
+        and SC.PersonalItems.isProtected(item, actor, "base_build") == true
 end
+
+-- What the worker really carries for this type, bags included, and where the
+-- nested ones are. A hammer in a backpack is carried, not missing.
+local function carriedSupplies(actor, itemType)
+    local count, nested = 0, {}
+    local inspect = function(item, depth)
+        if U().itemType(item) == itemType and not buildProtected(actor, item) then
+            count = count + 1
+            if (depth or 0) > 0 then nested[#nested + 1] = item end
+        end
+    end
+    if SC.PersonalItems and type(SC.PersonalItems.walkActorInventory) == "function" then
+        SC.PersonalItems.walkActorInventory(actor, inspect)
+    else
+        for _, item in ipairs(U().inventoryItems(U().inventory(actor), 256)) do inspect(item, 0) end
+    end
+    return count, nested
+end
+
+local function inventoryCount(actor, itemType)
+    return (carriedSupplies(actor, itemType))
+end
+BaseWork._carriedSuppliesForTests = carriedSupplies
+
+-- The native build action reads the worker's main inventory, so a required
+-- item sitting in a bag is moved to the root first, through the same verified
+-- transfer used everywhere else.
+local function stageCarriedSupply(actor, itemType, needed)
+    local rootCount = 0
+    for _, item in ipairs(U().inventoryItems(U().inventory(actor), 256)) do
+        if U().itemType(item) == itemType and not buildProtected(actor, item) then
+            rootCount = rootCount + 1
+        end
+    end
+    if rootCount >= needed then return true, "supply_at_hand" end
+    local _, nested = carriedSupplies(actor, itemType)
+    for _, item in ipairs(nested) do
+        if rootCount >= needed then break end
+        local source = select(1, U().call(item, "getContainer"))
+        if source ~= nil then
+            local moved, reason
+            if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
+                moved, reason = SC.WorkTransport.transferVerified(source,
+                    U().inventory(actor), item, actor)
+            else
+                moved, reason = U().transferItemVerified(source, U().inventory(actor), item)
+            end
+            if moved == true then rootCount = rootCount + 1
+            elseif reason ~= nil then return false, reason end
+        end
+    end
+    if rootCount >= needed then return true, "supply_staged" end
+    return false, "carried_supply_unreachable"
+end
+BaseWork._stageCarriedSupplyForTests = stageCarriedSupply
 
 local function possibleTypes(input)
     local result = {}
@@ -222,10 +274,13 @@ local function transferFromStorage(actor, state, storage, container, item)
             return false, "navigation_unavailable"
         end
         local targets = SC.Navigation.interactionTargets(actor, object)
-        return SC.Navigation.requestAny(actor, targets, "walk", {
+        -- Only (handled, reason): a third navigation value would be read as
+        -- the terminal flag and block the job on every approach.
+        local approached, approachReason = SC.Navigation.requestAny(actor, targets, "walk", {
             action = "move_to_base_storage", targetSquare = U().squareOf(object),
             object = object, arrivalDistance = 1.0,
         })
+        return approached == true, approachReason
     end
     if state.visualAt ~= nil then
         local status = nil
@@ -300,6 +355,14 @@ local function prepareBuild(actor, state, job, info)
         if storage ~= false then
             return transferFromStorage(actor, state, storage, container, item)
         end
+        -- Carried already: make sure it is somewhere the build action can use.
+        for _, carriedType in ipairs(requirement.types) do
+            if carriedSupplies(actor, carriedType) >= requirement.count then
+                local staged, stagedReason = stageCarriedSupply(actor, carriedType, requirement.count)
+                if not staged then return false, stagedReason or "carried_supply_unreachable" end
+                break
+            end
+        end
     end
     state.requirementsReady = true
     return true, "build_supplies_ready"
@@ -324,6 +387,11 @@ end
 
 local SCCompanionBuildAction = ISBuildAction:derive("SCCompanionBuildAction")
 
+function SCCompanionBuildAction:stop()
+    self.scStopped = true
+    if type(ISBuildAction.stop) == "function" then ISBuildAction.stop(self) end
+end
+
 function SCCompanionBuildAction:perform()
     -- Build 42's entity builder calls getSpecificPlayer(self.player) while
     -- assigning construction health.  Companions deliberately do not occupy a
@@ -337,7 +405,43 @@ function SCCompanionBuildAction:perform()
     local ok, reason = pcall(ISBuildAction.perform, self)
     getSpecificPlayer = original
     if not ok then error(reason) end
+    -- A real completion receipt. Queue absence alone never proves a build.
+    self.scCompleted = true
 end
+
+-- Did the requested construction actually appear? true, false, or nil when
+-- the expected sprite cannot be read and the question stays open.
+local function squareHasSprite(square, spriteName)
+    if type(spriteName) ~= "string" or spriteName == "" then return nil end
+    local found, readable = false, false
+    U().squareObjects(square, function(object)
+        local sprite = select(1, invoke(object, "getSprite"))
+        local name = sprite and select(1, invoke(sprite, "getName")) or nil
+        if type(name) == "string" then
+            readable = true
+            if name == spriteName then found = true end
+        end
+    end, 128)
+    if found then return true end
+    -- `readable and false or nil` would always be nil; be explicit.
+    if readable then return false end
+    return nil
+end
+
+-- "complete", "missing" or "cancelled". A cancelled action, an unrelated
+-- object appearing, or placement turning invalid are never a finished build.
+local function buildOutcome(state, square)
+    local completed = type(state.action) == "table" and state.action.scCompleted == true
+    if not completed then return "cancelled" end
+    local built = squareHasSprite(square, state.buildSpriteName)
+    if built == true then return "complete" end
+    if built == false then return "missing" end
+    -- Sprite identity unreadable: fall back to the old evidence, but only
+    -- together with a real completion receipt.
+    if squareObjectCount(square) > (state.initialObjectCount or 0) then return "complete" end
+    return "missing"
+end
+BaseWork._buildOutcomeForTests = buildOutcome
 
 local function startBuildAction(actor, state, job, info, square)
     local entity = ISBuildIsoEntity:new(actor, info, tonumber(job.face) or 1, { U().inventory(actor) })
@@ -370,6 +474,7 @@ local function startBuildAction(actor, state, job, info, square)
         return false, queued and "build_action_not_retained" or tostring(reason)
     end
     state.action, state.entity = action, entity
+    state.buildSpriteName = type(sprite) == "string" and sprite or nil
     state.initialObjectCount, state.startedAt = squareObjectCount(square), now()
     state.phase = "building"
     SC.BaseLife.touchJob(job.id, actorId(actor), "active")
@@ -393,10 +498,11 @@ local function updateBuild(actor, state, job)
             if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
                 return false, "navigation_unavailable", true
             end
-            return SC.Navigation.requestAny(actor, approaches, "walk", {
+            local approached, approachReason = SC.Navigation.requestAny(actor, approaches, "walk", {
                 action = "move_to_base_build", targetSquare = square,
                 arrivalDistance = 0.8,
             })
+            return approached == true, approachReason
         end
         return startBuildAction(actor, state, job, info, square)
     end
@@ -404,17 +510,20 @@ local function updateBuild(actor, state, job)
         SC.BaseLife.touchJob(job.id, actorId(actor), "active")
         return true, "building"
     end
-    local created = squareObjectCount(square) > (state.initialObjectCount or 0)
-        or (state.entity and state.entity:isValid(square) ~= true)
-    if created then
+    local outcome = buildOutcome(state, square)
+    if outcome == "complete" then
         SC.BaseLife.completeJob(job.id, actorId(actor), "built")
         state.phase, state.action, state.entity = "idle", nil, nil
+        state.buildSpriteName = nil
         if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
             SC.NativeActions.noteResult(actor, "base_build", "built", { kind = "long" })
         end
         return true, "build_complete"
     end
-    return false, "build_action_cancelled", true
+    state.phase, state.action, state.entity = "idle", nil, nil
+    state.buildSpriteName = nil
+    -- The job stays unfinished, so a later attempt can still build it.
+    return false, outcome == "missing" and "build_result_missing" or "build_action_cancelled", true
 end
 
 local function classifyItem(item)
@@ -435,6 +544,33 @@ local function classifyItem(item)
     return "crafting"
 end
 
+local function destinationHasRoom(container, actor, item)
+    if SC.WorkTransport and type(SC.WorkTransport.hasRoom) == "function" then
+        local ok, room = pcall(SC.WorkTransport.hasRoom, container, actor, item)
+        if ok then return room ~= false end
+    end
+    local room, roomOk = U().call(container, "hasRoomFor", actor, item)
+    if roomOk then return room ~= false end
+    return true
+end
+
+-- Every registered destination that can actually take this exact item now.
+-- A full store is not a destination; choosing one would strand the cargo.
+local function destinationsFor(job, item, actor, sourceId)
+    local category = type(job.target) == "table" and job.target.destinationCategory
+        or classifyItem(item)
+    local rows = {}
+    for _, destination in ipairs(SC.BaseLife.storageRows(category, false)) do
+        if destination.id ~= sourceId and destination.deposits ~= false then
+            local container = SC.BaseLife.resolveContainer(destination)
+            if container and destinationHasRoom(container, actor, item) then
+                rows[#rows + 1] = { destination = destination, container = container }
+            end
+        end
+    end
+    return rows
+end
+
 local function findTransfer(job, actor)
     local sourceCategory = job.type == "sort" and "general"
         or (type(job.target) == "table" and job.target.sourceCategory) or "general"
@@ -445,15 +581,9 @@ local function findTransfer(job, actor)
                 if SC.BaseLife.availableCount(source, U().itemType(item)) > 0
                     and not (SC.PersonalItems and SC.PersonalItems.isProtected
                     and SC.PersonalItems.isProtected(item, actor, "base_haul")) then
-                    local destinationCategory = type(job.target) == "table"
-                        and job.target.destinationCategory or classifyItem(item)
-                    for _, destination in ipairs(SC.BaseLife.storageRows(destinationCategory, false)) do
-                        if destination.id ~= source.id and destination.deposits ~= false then
-                            local destinationContainer = SC.BaseLife.resolveContainer(destination)
-                            if destinationContainer then
-                                return source, container, destination, destinationContainer, item
-                            end
-                        end
+                    local rows = destinationsFor(job, item, actor, source.id)
+                    if #rows > 0 then
+                        return source, container, rows[1].destination, rows[1].container, item
                     end
                 end
             end
@@ -462,7 +592,45 @@ local function findTransfer(job, actor)
     return nil
 end
 
+-- Put carried cargo back where it came from, so a blocked job never leaves a
+-- worker quietly holding base stock.
+local function returnCargo(actor, cargo)
+    if type(cargo) ~= "table" or cargo.item == nil then return true end
+    if not U().inventoryContains(U().inventory(actor), cargo.item) then return true end
+    local container = cargo.source and SC.BaseLife.resolveContainer(cargo.source)
+        or cargo.sourceContainer
+    if container == nil then return false end
+    local moved
+    if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
+        moved = SC.WorkTransport.transferVerified(U().inventory(actor), container, cargo.item, actor)
+    else
+        moved = U().transferItemVerified(U().inventory(actor), container, cargo.item)
+    end
+    return moved == true
+end
+
 local function updateTransfer(actor, state, job)
+    -- Cargo from an earlier attempt is still owned by this worker: deliver
+    -- that before withdrawing anything else.
+    if state.transfer == nil and type(state.cargo) == "table" then
+        local cargo = state.cargo
+        if U().inventoryContains(U().inventory(actor), cargo.item) then
+            local rows = destinationsFor(job, cargo.item, actor, cargo.sourceId)
+            if #rows > 0 then
+                state.transfer = {
+                    source = cargo.source, sourceContainer = cargo.sourceContainer,
+                    destination = rows[1].destination, destinationContainer = rows[1].container,
+                    item = cargo.item, phase = "deposit",
+                }
+            else
+                local returned = returnCargo(actor, cargo)
+                if returned then state.cargo = nil end
+                return false, returned and "haul_cargo_returned" or "haul_destinations_full", true
+            end
+        else
+            state.cargo = nil
+        end
+    end
     if state.transfer == nil then
         local source, sourceContainer, destination, destinationContainer, item = findTransfer(job, actor)
         if not source then return false, "no_sortable_supply", true end
@@ -489,6 +657,13 @@ local function updateTransfer(actor, state, job)
             if reason ~= "base_supply_taken" then return true, reason end
         end
         transfer.phase = "deposit"
+        -- An exact receipt for what this worker now carries, kept until the
+        -- item is delivered or verifiably returned.
+        state.cargo = {
+            item = transfer.item, source = transfer.source,
+            sourceContainer = transfer.sourceContainer,
+            sourceId = type(transfer.source) == "table" and transfer.source.id or nil,
+        }
     end
     local object = SC.BaseLife.resolveObject(transfer.destination)
     if not object then return false, "destination_storage_unloaded", true end
@@ -497,10 +672,11 @@ local function updateTransfer(actor, state, job)
             return false, "navigation_unavailable", true
         end
         local targets = SC.Navigation.interactionTargets(actor, object)
-        return SC.Navigation.requestAny(actor, targets, "walk", {
+        local approached, approachReason = SC.Navigation.requestAny(actor, targets, "walk", {
             action = "move_to_base_storage", targetSquare = U().squareOf(object),
             object = object, arrivalDistance = 1.0,
         })
+        return approached == true, approachReason
     end
     if not U().inventoryContains(U().inventory(actor), transfer.item) then
         return false, "hauled_item_missing", true
@@ -513,7 +689,25 @@ local function updateTransfer(actor, state, job)
         moved, moveReason = U().transferItem(
             U().inventory(actor), transfer.destinationContainer, transfer.item)
     end
-    if not moved then return false, moveReason or "base_deposit_failed", true end
+    if not moved then
+        -- A refused deposit is not the end of the cargo. Try another store
+        -- that has room, and only then put the item back where it came from.
+        local rows = destinationsFor(job, transfer.item, actor,
+            type(transfer.source) == "table" and transfer.source.id or nil)
+        for _, row in ipairs(rows) do
+            if row.container ~= transfer.destinationContainer then
+                transfer.destination, transfer.destinationContainer = row.destination, row.container
+                return true, "haul_destination_changed"
+            end
+        end
+        local returned = returnCargo(actor, state.cargo)
+        if returned then
+            state.cargo, state.transfer = nil, nil
+            return false, "haul_cargo_returned", true
+        end
+        return false, moveReason or "base_deposit_failed", true
+    end
+    state.cargo = nil
     SC.BaseLife.completeJob(job.id, actorId(actor), "hauled")
     state.transfer, state.phase = nil, "idle"
     if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
@@ -679,6 +873,8 @@ function BaseWork.update(actor, player, runtime)
     if state.jobId ~= job.id then
         state.jobId, state.phase, state.action, state.transfer = job.id, "idle", nil, nil
         state.visualAt, state.requirementsReady = nil, nil
+        -- state.cargo deliberately survives: a worker still holding base
+        -- stock must deliver or return it, whatever job comes next.
     end
     local handled, reason, terminal
     if job.type == "build" then handled, reason, terminal = updateBuild(actor, state, job)
@@ -703,6 +899,7 @@ function BaseWork.update(actor, player, runtime)
     if terminal then
         SC.BaseLife.blockJob(job.id, id, reason, U().config("baseJobRetryMs") or 10000)
         state.jobId, state.phase, state.action, state.transfer = nil, "idle", nil, nil
+        -- A blocked job forgets its selection, never the cargo it still owns.
     elseif handled then
         SC.BaseLife.touchJob(job.id, id, job.state == "reserved" and "active" or job.state)
     end
@@ -873,6 +1070,8 @@ function BaseWork.cancel(actor, reason)
         and type(SC.NativeActions.cancelVisual) == "function" then
         pcall(SC.NativeActions.cancelVisual, actor, reason or "base_work_cancelled")
     end
+    -- Cancellation must not quietly leave base stock in a worker's bag.
+    if type(state.cargo) == "table" then pcall(returnCargo, actor, state.cargo) end
     states[actor] = nil
     return true
 end
