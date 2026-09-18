@@ -262,6 +262,18 @@
   .presets { display: flex; flex-wrap: wrap; gap: 9px; }
   .empty { color: var(--muted); font-size: 12.5px; font-style: italic; padding: 3px 2px; }
 
+  /* Re-pairing has to be reachable from inside the page: a home-screen launch
+     is a fresh context that may carry no stored key, and the manifest no longer
+     hands one out. */
+  .repair { margin: 4px 2px 0; }
+  .repair-note { margin: 0 0 9px; font-size: 12px; color: var(--muted); }
+  input[type=text] {
+    flex: 1; min-height: 46px; padding: 0 12px;
+    font: 13px/1 ui-monospace, Menlo, Consolas, monospace;
+    color: var(--text); background: #14161a;
+    border: 1px solid #383d46; border-radius: 7px;
+  }
+
   footer {
     margin: 14px 2px 0; padding-top: 11px;
     border-top: 1px solid #383c44;
@@ -315,7 +327,18 @@
   <div class="label">Presets</div>
   <div class="presets" id="presets"><span class="empty">—</span></div>
 
-  <footer id="status">Waiting for the game…</footer>
+  <div class="repair" id="repair" hidden>
+    <div class="label">Pair this device</div>
+    <p class="repair-note">Scan the QR code in the host window. If you cannot
+      scan it, type the key shown beneath it.</p>
+    <div class="row">
+      <input type="text" id="keyInput" inputmode="latin" autocomplete="off"
+             autocapitalize="off" spellcheck="false" placeholder="pairing key">
+      <button id="keySubmit">Pair</button>
+    </div>
+  </div>
+
+  <footer id="status" role="status" aria-live="polite">Waiting for the game…</footer>
 </main>
 
 <script>
@@ -327,11 +350,12 @@ const lcdName = el("lcdName"), lcdPower = el("lcdPower");
 const power = el("power"), down = el("down"), up = el("up");
 const volume = el("volume"), presets = el("presets"), status = el("status");
 const dialWrap = el("dialWrap"), dialCanvas = el("dial"), scopeCanvas = el("scope");
+const repair = el("repair"), keyInput = el("keyInput"), keySubmit = el("keySubmit");
 
 // localStorage rather than sessionStorage: a home-screen launch is a fresh
 // session every time, and re-scanning the QR on each launch would defeat the
 // point. The host's key is stable across restarts to match.
-const TOKEN = (() => {
+let TOKEN = (() => {
   const fromUrl = new URLSearchParams(location.search).get("t");
   if (fromUrl) {
     try { localStorage.setItem("pzrl_token", fromUrl); } catch (e) { /* private mode */ }
@@ -341,6 +365,39 @@ const TOKEN = (() => {
   try { return localStorage.getItem("pzrl_token") || ""; } catch (e) { return ""; }
 })();
 const authHeaders = (extra) => Object.assign({ "X-PZRL-Token": TOKEN }, extra || {});
+
+// The manifest no longer carries the key, and localStorage is origin-scoped and
+// can be empty or unavailable, so a standalone launch may legitimately arrive
+// with nothing. Re-pairing must be possible without going back to a browser tab.
+function showRepair(show) {
+  repair.hidden = !show;
+}
+
+keySubmit.addEventListener("click", async () => {
+  const candidate = keyInput.value.trim().toLowerCase();
+  if (!/^[0-9a-f]{16,64}$/.test(candidate)) {
+    setStatus("That does not look like a pairing key.", "err");
+    return;
+  }
+  // Prove the key before storing it, so a typo does not silently persist.
+  try {
+    const res = await fetch("/api/state", {
+      cache: "no-store", headers: { "X-PZRL-Token": candidate },
+    });
+    if (res.status === 401) {
+      setStatus("That key was not accepted.", "err");
+      return;
+    }
+    TOKEN = candidate;
+    try { localStorage.setItem("pzrl_token", candidate); } catch (e) { /* private mode */ }
+    keyInput.value = "";
+    showRepair(false);
+    setStatus("Paired.");
+    poll();
+  } catch (err) {
+    setStatus("Could not reach the host.", "err");
+  }
+});
 
 const BOOT_STATUS = "Waiting for the game…";
 let view = null;
@@ -569,10 +626,15 @@ async function poll() {
     if (res.status === 401) {
       led.className = "led warn";
       linkText.textContent = "not paired";
-      setStatus("Scan the QR code shown by the host to pair this device.", "err");
+      setStatus(TOKEN ? "This device's pairing key is no longer valid."
+                      : "Pair this device to control the radio.", "err");
+      // Stale telemetry must not stay interactive once we are unauthenticated.
+      view = null;
       disableAll();
+      showRepair(true);
       return;
     }
+    showRepair(false);
     view = await res.json();
     render();
   } catch (err) {

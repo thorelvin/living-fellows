@@ -47,6 +47,10 @@ URLS = [
     "http://10.0.0.7:8777/?t=deadbeefcafe1234",
     "A",
     "http://192.168.100.200:65535/?t=ffffffffffffffff",
+    # BF-01 lengthened the pairing key to 128 bits. The encoder tops out at
+    # version 6, so the security fix must not quietly become a pairing failure.
+    "http://192.168.100.200:65535/?t=" + "f" * 32,
+    "http://255.255.255.255:65535/?t=" + "0" * 32,
     "x" * 100,
 ]
 

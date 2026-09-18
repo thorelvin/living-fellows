@@ -169,29 +169,46 @@ def key_path() -> Path:
     return Path(base) / "PZRadioLink" / "hostkey.txt"
 
 
-def load_or_create_key(rotate: bool = False) -> str:
+KEY_CHARS = 32  # 128 bits of randomness, hex-encoded
+
+
+def load_or_create_key(rotate: bool = False) -> tuple[str, str]:
     """The pairing key persists across host restarts.
 
     A key regenerated on every launch would make a home-screen shortcut useless:
     the saved URL carries the key, so the shortcut would break the next time the
     host started. The key lives in the user's local app data, readable only by
     this Windows account. Rotate it with --new-key.
+
+    Keys shorter than KEY_CHARS are from a build whose web manifest published
+    the key in `start_url`, so any device that could reach the host could read
+    it without scanning the QR. Those are retired on sight rather than carried
+    forward. Returns (key, reason) where reason is "kept", "rotated",
+    "migrated" or "unsaved".
     """
     path = key_path()
-    if not rotate:
-        try:
-            existing = path.read_text(encoding="utf-8").strip()
-            if len(existing) == 16 and all(c in "0123456789abcdef" for c in existing):
-                return existing
-        except OSError:
-            pass
-    key = secrets.token_hex(8)
+    previous = None
+    try:
+        previous = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        pass
+
+    if not rotate and previous and len(previous) == KEY_CHARS \
+            and all(c in "0123456789abcdef" for c in previous):
+        return previous, "kept"
+
+    reason = "rotated" if rotate else ("migrated" if previous else "kept")
+    key = secrets.token_hex(KEY_CHARS // 2)
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(key, encoding="utf-8")
+        temp = path.with_suffix(".tmp")
+        temp.write_text(key, encoding="utf-8")
+        os.replace(temp, path)
     except OSError:
-        pass  # a key that cannot be saved still works for this session
-    return key
+        # A key that cannot be saved still works for this session; say so rather
+        # than implying pairing will survive a restart.
+        return key, "unsaved"
+    return key, reason
 
 
 def default_lua_dir() -> Path:
@@ -370,10 +387,15 @@ class Handler(http.server.BaseHTTPRequestHandler):
         # Added to the home screen, the page runs without browser chrome. iOS
         # needs the apple-* meta tags in the document; Android needs this.
         if route == "/manifest.webmanifest":
+            # The manifest is public, so it must never carry the pairing key.
+            # An earlier build put it in start_url, which handed the credential
+            # to any device that could reach the port. A home-screen launch
+            # re-uses the key the page already stored, and offers re-pairing
+            # when it has none.
             manifest = {
                 "name": "PZ Radio Link",
                 "short_name": "Radio",
-                "start_url": f"/?t={self.token}" if self.token else "/",
+                "start_url": "/",
                 "scope": "/",
                 "display": "standalone",
                 "orientation": "portrait",
@@ -530,13 +552,13 @@ def main() -> int:
 
     lan_ip = None if args.localhost else detect_lan_ip()
     if args.localhost:
-        bind, shown, Handler.token = "127.0.0.1", "127.0.0.1", ""
+        bind, shown, Handler.token, key_reason = "127.0.0.1", "127.0.0.1", "", "none"
     elif lan_ip:
         bind, shown = "0.0.0.0", lan_ip
-        Handler.token = load_or_create_key(rotate=args.new_key)
+        Handler.token, key_reason = load_or_create_key(rotate=args.new_key)
     else:
         print("[PZRL] no LAN address found; falling back to loopback only")
-        bind, shown, Handler.token = "127.0.0.1", "127.0.0.1", ""
+        bind, shown, Handler.token, key_reason = "127.0.0.1", "127.0.0.1", "", "none"
 
     url = f"http://{shown}:{args.port}/"
     if Handler.token:
@@ -563,6 +585,14 @@ def main() -> int:
     print()
     print(f"[PZRL] mailbox  {Handler.mailbox.dir}")
     if Handler.token:
+        if key_reason == "migrated":
+            print("[PZRL] your previous pairing key was retired: an earlier build")
+            print("[PZRL] published it in the web manifest. Re-scan the QR above.")
+        elif key_reason == "rotated":
+            print("[PZRL] new pairing key generated; previously paired devices must re-scan")
+        elif key_reason == "unsaved":
+            print(f"[PZRL] WARNING could not write {key_path()}")
+            print("[PZRL] this key works now but will NOT survive a restart")
         print(f"[PZRL] pairing key kept in {key_path()} - reset it with --new-key")
         print("[PZRL] Windows may ask to allow this app through the firewall - say yes")
         print("[PZRL] plain HTTP on your LAN: not encrypted, so use a network you trust")

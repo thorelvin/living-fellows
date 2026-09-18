@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import sys
+import os
 import tempfile
 import threading
 import time
@@ -235,7 +236,10 @@ def main() -> int:
         manifest = json.loads(response.read())
     check("manifest served", manifest["name"] == "PZ Radio Link")
     check("manifest is standalone", manifest["display"] == "standalone")
-    check("start_url carries the key", manifest["start_url"] == f"/?t={TOKEN}",
+    # BF-01: an earlier build put the pairing key in start_url, handing the
+    # credential to any device that could reach the port. The manifest is
+    # public, so it must be byte-identical for everyone and carry no key.
+    check("start_url carries no key", manifest["start_url"] == "/",
           manifest["start_url"])
     for path, expected in (("/icon-192.png", 192), ("/icon-512.png", 512),
                            ("/apple-touch-icon.png", 180)):
@@ -246,6 +250,61 @@ def main() -> int:
         check(f"{path} is a {expected}px PNG",
               blob[:8] == b"\x89PNG\r\n\x1a\n" and width == height == expected,
               f"{width}x{height}")
+
+    print("credential disclosure (BF-01)")
+    # Sweep every route an unauthenticated device can reach, including error
+    # responses and headers, and assert the key appears in none of them.
+    public_routes = ["/", "/index.html", "/manifest.webmanifest", "/icon-192.png",
+                     "/icon-512.png", "/apple-touch-icon.png", "/favicon.ico",
+                     "/api/state", "/api/command", "/nope", "/../hostkey.txt"]
+    leaked = []
+    for route in public_routes:
+        try:
+            request = urllib.request.Request(base + route)
+            with urllib.request.urlopen(request, timeout=5) as response:
+                body, headers = response.read(), str(response.headers)
+        except urllib.error.HTTPError as error:
+            body, headers = error.read(), str(error.headers)
+        except urllib.error.URLError:
+            continue
+        blob = body + headers.encode()
+        if TOKEN.encode() in blob:
+            leaked.append(route)
+    check("no public route discloses the key", not leaked, f"leaked via {leaked}")
+
+    # Anonymous requests to the manifest must be identical to paired ones:
+    # a manifest that varied by caller could still leak through a paired device.
+    with urllib.request.urlopen(f"{base}/manifest.webmanifest", timeout=5) as r1:
+        anon = r1.read()
+    paired_req = urllib.request.Request(f"{base}/manifest.webmanifest",
+                                        headers={"X-PZRL-Token": TOKEN})
+    with urllib.request.urlopen(paired_req, timeout=5) as r2:
+        paired = r2.read()
+    check("manifest identical for all callers", anon == paired)
+
+    print("key strength and migration (BF-01)")
+    check("new keys are 128-bit", H.KEY_CHARS == 32)
+    import tempfile as _tf
+    with _tf.TemporaryDirectory() as tmp:
+        keyfile = Path(tmp) / "PZRadioLink" / "hostkey.txt"
+        keyfile.parent.mkdir(parents=True)
+        original = os.environ.get("LOCALAPPDATA")
+        os.environ["LOCALAPPDATA"] = tmp
+        try:
+            keyfile.write_text("0123456789abcdef", encoding="utf-8")  # old 64-bit
+            migrated, reason = H.load_or_create_key()
+            check("short legacy key is retired", reason == "migrated"
+                  and migrated != "0123456789abcdef")
+            check("migrated key is the new length", len(migrated) == H.KEY_CHARS)
+            again, reason2 = H.load_or_create_key()
+            check("a good key is kept", again == migrated and reason2 == "kept")
+            rotated, reason3 = H.load_or_create_key(rotate=True)
+            check("--new-key rotates", rotated != migrated and reason3 == "rotated")
+        finally:
+            if original is None:
+                del os.environ["LOCALAPPDATA"]
+            else:
+                os.environ["LOCALAPPDATA"] = original
 
     print("origin check")
     request = urllib.request.Request(

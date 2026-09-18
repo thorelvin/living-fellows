@@ -159,9 +159,31 @@ No audio of any kind. No received-text captions: `OnDeviceText` in 42.20.4 is
 GUID used for `isKnownMediaLine` de-duplication and the coordinates are the
 speaking device's position — which for a carried radio is just the player's
 position. `DeviceData.currentMediaLine` is a protected field with no accessor.
-There is therefore no way to attribute received text to a specific device, so
-the feature is not offered rather than offered wrongly. See
-`../pz-radio-link-plan-review.md` F1.
+So **the adapter investigated here** has no way to attribute received text to a
+specific device, and the feature is not offered rather than offered wrongly.
+That is a limitation of this event path as inspected on 42.20.4 — not a proof
+that no future approach could work.
 
 No preset creation, editing or deletion: the preset list is the player's saved
-data. See review F3.
+data, and a mod has no business rewriting it to reach a frequency.
+
+---
+
+## Security fixes
+
+### BF-01 — the manifest published the pairing key (fixed in 0.2.1)
+
+`/manifest.webmanifest` is served without authentication and carried the key in
+`start_url`, so any device that could reach the port could read the credential
+without scanning the QR. Introduced when the home-screen install support was
+added, because a standalone launch needs `start_url` to work and the key was
+the obvious way to make it do so.
+
+Fixed by serving one credential-free manifest to every caller and letting a
+standalone launch re-use the key the page already stored, with in-page
+re-pairing when it has none. Keys are now 128-bit, and any key shorter than
+that is treated as exposed and retired on the next start.
+
+Covered by tests: every public route is swept for the key (including error
+bodies and headers), the manifest is asserted byte-identical for anonymous and
+paired callers, and the migration/rotation paths are exercised directly.

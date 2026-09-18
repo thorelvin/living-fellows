@@ -8,7 +8,7 @@ Pick up a walkie-talkie in game, right-click it, choose **Link to phone**, and
 you get the faceplate above on your phone over Wi-Fi. Power, tuning, volume and
 presets — while your survivor keeps doing something else.
 
-**Version 0.2** — for **Project Zomboid build 42.20.4**, single-player. No audio;
+**Version 0.2.1** — for **Project Zomboid build 42.20.4**, single-player. No audio;
 see [Limits](#limits).
 
 ---
@@ -95,7 +95,7 @@ phone should never do that while you are not watching the screen. So it says
 |---|---|
 | **"game not running"** | The game is closed, at the main menu, or the mod is not enabled **for that save**. See step 3. |
 | **"no radio linked"** | The mod is running fine. Right-click a radio in game and pick *Link to phone*. |
-| **"not paired"** | This phone has no key. Scan the QR again. |
+| **"not paired"** | This phone has no valid key. Scan the QR again, or type the key into the box the page shows. |
 | **"out of reach"** | A placed radio you have walked away from. Go stand next to it. |
 | **"too far"** on a command | Same thing. Nothing was changed. |
 | **"paused"** | The game is paused. Commands wait rather than queue up. |
@@ -122,6 +122,16 @@ and unpair every device:
 ```powershell
 Start-Host.bat --new-key
 ```
+
+If the page ever says **"not paired"** — a fresh phone, cleared storage, or a
+rotated key — type the key into the box it shows. It is printed under the QR
+code in the host window.
+
+> **Upgrading from 0.2 or earlier:** those builds published the pairing key in
+> the web app manifest, so any device that could reach the host could read it
+> without scanning the QR. Keys from those versions are **retired automatically**
+> the first time 0.2.1 starts, and new keys are 128-bit. You will need to
+> re-scan the QR once.
 
 **Sharing screenshots.** A picture of the host console contains a working key,
 in the QR *and* in the text under it. Run it through the redactor before posting:
