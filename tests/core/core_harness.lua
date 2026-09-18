@@ -630,6 +630,50 @@ local vitalsApplied, vitalsReason = SC.Vitals.apply(brokenActor, {
 check(not vitalsApplied and string.find(tostring(vitalsReason), "SetHealth", 1, true) ~= nil,
     "native-vitals restore rejects a missing setter instead of reporting success")
 
+do
+    -- CB-08 (extended). BodyPart.setScratched and setCut take
+    -- (flag, forceNoInfection); verified in the 42.20.4 bytecode, a FALSE
+    -- second argument calls generateZombieInfection(). Restore passed false,
+    -- so reapplying a companion's saved scratch or cut rolled a fresh Knox
+    -- infection every single time vitals were restored. Restore must reproduce
+    -- saved state, never create new infection.
+    local recorded = {}
+    local woundPart = { woundInfection = 0 }
+    function woundPart:getType() return "ForeArm_R" end
+    local function note(name, ...)
+        recorded[name] = { ... }
+        return true
+    end
+    function woundPart:SetHealth(v) return note("SetHealth", v) end
+    function woundPart:SetBitten(v) return note("SetBitten", v) end
+    function woundPart:setScratched(a, b) return note("setScratched", a, b) end
+    function woundPart:setCut(a, b) return note("setCut", a, b) end
+    function woundPart:setWoundInfectionLevel(v) return note("setWoundInfectionLevel", v) end
+    setmetatable(woundPart, { __index = function() return function() return true end end })
+
+    local woundParts = { woundPart }
+    function woundParts:size() return #self end
+    function woundParts:get(index) return self[index + 1] end
+    local woundBody = {}
+    function woundBody:getBodyParts() return woundParts end
+    local woundActor = {}
+    function woundActor:getBodyDamage() return woundBody end
+
+    SC.Vitals.apply(woundActor, {
+        health = 100, overallHealth = 100, infected = false, parts = {
+            { type = "ForeArm_R", health = 70, scratched = true, cut = true,
+              woundInfection = 0.4 },
+        },
+    })
+    check(recorded.setScratched ~= nil and recorded.setScratched[2] == true,
+        "restoring a saved scratch suppresses the engine's fresh infection roll")
+    check(recorded.setCut ~= nil and recorded.setCut[2] == true,
+        "restoring a saved cut suppresses the engine's fresh infection roll")
+    check(recorded.setWoundInfectionLevel ~= nil
+        and recorded.setWoundInfectionLevel[1] == 0.4,
+        "the saved wound infection level is what gets restored, not a new roll")
+end
+
 local needsParts = {}
 function needsParts:size() return 0 end
 function needsParts:get() return nil end

@@ -288,6 +288,56 @@ local function bodyPart(options)
     function value:getBandageLife() return self.bandageLife or 0 end
     function value:isAlcoholicBandage() return self.bandageAlcoholic == true end
     function value:getBandageType() return self.bandageType end
+
+    -- Wound mutation surface, mirroring the 42.20.4 BodyPart methods
+    -- SCZombieAttack.applyWound drives. `failSetters[name] = true` makes that
+    -- one setter throw, so a partial commit can be exercised: the health
+    -- deduction lands and a later setter does not.
+    value.health = value.health or 100
+    value.woundInfectionLevel = value.woundInfectionLevel or 0
+    value.failSetters = value.failSetters or {}
+    value.setterCalls = value.setterCalls or {}
+    local function record(part, name, ...)
+        part.setterCalls[name] = (part.setterCalls[name] or 0) + 1
+        part.lastArgs = part.lastArgs or {}
+        part.lastArgs[name] = { ... }
+        if part.failSetters[name] then error(name .. " rejected by fixture") end
+    end
+    function value:getHealth() return self.health end
+    function value:SetHealth(amount)
+        record(self, "SetHealth", amount)
+        self.health = amount
+    end
+    function value:setBleeding(flag)
+        record(self, "setBleeding", flag)
+        self.isBleeding = flag == true
+    end
+    function value:SetBitten(flag)
+        record(self, "SetBitten", flag)
+        self.isBitten = flag == true
+    end
+    -- Signature verified against the pinned JAR:
+    -- setScratched(scratched, forceNoInfection). When the second argument is
+    -- false the engine rolls generateZombieInfection(7), so the fixture models
+    -- that roll being *reachable* rather than its randomness.
+    function value:setScratched(flag, forceNoInfection)
+        record(self, "setScratched", flag, forceNoInfection)
+        self.isScratched = flag == true
+        self.infectionRollReachable = forceNoInfection ~= true
+    end
+    function value:setCut(flag)
+        record(self, "setCut", flag)
+        self.cut = flag == true
+    end
+    function value:setDeepWounded(flag)
+        record(self, "setDeepWounded", flag)
+        self.deep = flag == true
+    end
+    function value:getWoundInfectionLevel() return self.woundInfectionLevel end
+    function value:setWoundInfectionLevel(level)
+        record(self, "setWoundInfectionLevel", level)
+        self.woundInfectionLevel = level
+    end
     return value
 end
 
@@ -1037,19 +1087,41 @@ do
     -- true across many frames, so the old level check re-applied the same swing
     -- every tick, bounded only by a time cooldown that in turn swallowed a genuine
     -- fast second swing. Each distinct swing must now land exactly one wound.
-    local function woundableBody()
-        local part = { health = 100 }
+    local function woundableBody(failSetter)
+        local part = { health = 100, woundInfection = 0 }
         function part:getHealth() return self.health end
         function part:SetHealth(value) self.health = value return true end
-        function part:setBleeding(value) self.bleeding = value == true end
-        function part:SetBitten(value) self.bitten = value == true end
+        local function guard(self, name)
+            self.calls = self.calls or {}
+            self.calls[name] = (self.calls[name] or 0) + 1
+            if failSetter == name then error(name .. " rejected by fixture") end
+        end
+        function part:setBleeding(value)
+            guard(self, "setBleeding"); self.bleeding = value == true
+        end
+        function part:SetBitten(value)
+            guard(self, "SetBitten"); self.bitten = value == true
+        end
+        -- BodyPart.setScratched(scratched, forceNoInfection) as verified in the
+        -- pinned JAR: a FALSE second argument makes the engine roll
+        -- generateZombieInfection(7). The fixture records whether that roll
+        -- would have been reachable.
         function part:setScratched(...)
+            guard(self, "setScratched")
             self.scratchArgumentCount = select("#", ...)
             self.scratched = select(1, ...) == true
-            self.scratchFromWeapon = select(2, ...)
+            self.scratchForceNoInfection = select(2, ...)
+            self.infectionRollReachable = select(2, ...) ~= true
         end
-        function part:setDeepWounded(value) self.deep = value == true end
-        function part:setWoundInfectionLevel(value) self.infection = value end
+        function part:setCut(value)
+            guard(self, "setCut"); self.cut = value == true
+        end
+        function part:setDeepWounded(value)
+            guard(self, "setDeepWounded"); self.deep = value == true
+        end
+        function part:setWoundInfectionLevel(value)
+            guard(self, "setWoundInfectionLevel"); self.infection = value
+        end
         local parts = { part }
         local partList = {}
         function partList:size() return #parts end
@@ -1071,10 +1143,18 @@ do
         return maximum == 1000 and 300 or 0
     end
     local _, _, s1 = SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
+    -- CB-08. This previously asserted a FALSE second argument, calling it
+    -- "scratchFromWeapon" -- which locked in the defect: in 42.20.4 that
+    -- argument is forceNoInfection, and false makes the engine roll
+    -- generateZombieInfection(7). The module documents bites-only
+    -- transmission, so the scratch must suppress the roll.
     check(s1.landed == 1 and s1.applied == 1
             and edgePart.scratched == true and edgePart.scratchArgumentCount == 2
-            and edgePart.scratchFromWeapon == false,
-        "the rising edge applies a scratch with Build 42's two-argument setter")
+            and edgePart.scratchForceNoInfection == true
+            and edgePart.infectionRollReachable == false,
+        "a scratch wounds without making the engine's Knox roll reachable")
+    check(edgePart.infection == nil,
+        "a new scratch does not erase an existing wound infection level")
     clockE = clockE + 50
     local _, _, s2 = SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
     check(s2.landed == 1 and s2.applied == 0,
@@ -1100,8 +1180,147 @@ do
             and edgePart.health == healthBeforeNative,
         "a native Build 42 attack collision is not followed by a duplicate fallback wound")
     SurvivorCompanion.ZombieAttack.reset()
+
+    -- CB-08: a laceration is a cut, not automatically a deep wound. The old
+    -- code called setDeepWounded(true) for every laceration, upgrading the
+    -- injury the roll actually chose.
+    local lacBody, lacPart = woundableBody()
+    local lacVictim = actor("sc-lac-victim", 26, 20, { body = lacBody })
+    local lacZombie = zombie(27, 20, {
+        target = lacVictim, attacking = true, attackOutcome = "success",
+    })
+    ZombRand = function(maximum)
+        -- Above the bite threshold and above the scratch/laceration midpoint.
+        return maximum == 1000 and 900 or 0
+    end
+    local _, _, lacStats = SurvivorCompanion.ZombieAttack.resolve(lacVictim, 600000, { lacZombie })
+    check(lacStats.applied == 1 and lacPart.cut == true,
+        "a laceration is applied through the engine's cut operation")
+    check(lacPart.deep ~= true,
+        "a laceration is not silently upgraded to a deep wound")
+    check(lacPart.infection == nil,
+        "a laceration does not erase an existing wound infection level")
+    SurvivorCompanion.ZombieAttack.reset()
+
+    -- CB-08: a secondary setter failing after the health deduction must be
+    -- reported, not swallowed. Previously only SetHealth was checked, so the
+    -- part lost health while the swing reported a clean wound.
+    local failBody, failPart = woundableBody("setBleeding")
+    local failVictim = actor("sc-partial-victim", 28, 20, { body = failBody })
+    local failZombie = zombie(29, 20, {
+        target = failVictim, attacking = true, attackOutcome = "success",
+    })
+    local healthBeforePartial = failPart.health
+    local _, _, failStats = SurvivorCompanion.ZombieAttack.resolve(
+        failVictim, 700000, { failZombie })
+    check(failStats.landed == 1 and failStats.applied == 0,
+        "a partially applied wound is not counted as a completed one")
+    check(failPart.health < healthBeforePartial,
+        "the health deduction that already happened is left alone, not retried")
+    SurvivorCompanion.ZombieAttack.reset()
+
     ZombRand = originalZombRand
     edgeZombie.dead = true
+end
+
+do
+    -- CB-06: the pile counts zombies committed to THIS companion. The grace
+    -- window exists for a lock that flickers off between perception scans, so
+    -- it may only apply to a zombie with no current target. A zombie that has
+    -- chosen a live alternate victim must stop counting immediately, however
+    -- recently it targeted us and however close it still is.
+    SurvivorCompanion.ZombieAttack.reset()
+    local mine = actor("sc-pile-mine", 40, 40, {})
+    local other = actor("sc-pile-other", 41, 41, {})
+    local switcher = zombie(40, 41, { target = mine })
+    local clock = 800000
+
+    local _, _, first = SurvivorCompanion.ZombieAttack.resolve(mine, clock, { switcher })
+    check(first.pile == 1, "a zombie targeting this companion counts toward its pile")
+
+    -- Lock flickers off entirely: the grace window is exactly for this.
+    switcher.target = nil
+    clock = clock + 100
+    local _, _, flicker = SurvivorCompanion.ZombieAttack.resolve(mine, clock, { switcher })
+    check(flicker.pile == 1,
+        "a momentarily null target still counts inside the grace window")
+
+    -- Now it commits to a living alternate victim. Before the fix this still
+    -- counted for the full 1200 ms grace, letting another companion's attacker
+    -- help pin this one.
+    switcher.target = other
+    clock = clock + 100
+    local _, _, switched = SurvivorCompanion.ZombieAttack.resolve(mine, clock, { switcher })
+    check(switched.pile == 0,
+        "a zombie that has chosen a live alternate victim stops counting at once")
+
+    -- The memory is gone, not merely skipped: dropping the target again must
+    -- not resurrect the old claim.
+    switcher.target = nil
+    clock = clock + 50
+    local _, _, afterSwitch = SurvivorCompanion.ZombieAttack.resolve(mine, clock, { switcher })
+    check(afterSwitch.pile == 0,
+        "participation memory is invalidated, not just suppressed for one pass")
+
+    -- A dead alternate target is not a live commitment, so the grace may apply.
+    switcher.target = other
+    other.dead = true
+    clock = clock + 50
+    local _, _, deadOther = SurvivorCompanion.ZombieAttack.resolve(mine, clock, { switcher })
+    check(deadOther.pile == 0,
+        "a stale claim is not revived by the alternate victim dying")
+
+    SurvivorCompanion.ZombieAttack.reset()
+    switcher.dead = true
+end
+
+do
+    -- CB-03: the engine has a real paired-grapple lifecycle (IGrappleable;
+    -- isBeingGrappled / getGrappledBy resolve by reflection on a companion in
+    -- 42.20.4). The mod's crowd pin is a separate synthetic mechanism. When the
+    -- engine owns a pair it owns the damage too, so the two must never run at
+    -- once, and the synthetic one must never be reported as native.
+    SurvivorCompanion.ZombieAttack.reset()
+    local held = actor("sc-native-grapple", 50, 50, {})
+    local grappler = zombie(51, 50, { target = held })
+
+    -- Not grappled: ordinary resolution, and isGrabbed says so.
+    local grabbed, source = SurvivorCompanion.ZombieAttack.isGrabbed(held)
+    check(grabbed == false, "an unheld companion is not reported as grabbed")
+
+    -- The engine reports a real pair.
+    held.beingGrappled = true
+    held.grappledBy = grappler
+    held.grappledByType = "Zombie"
+    function held:isBeingGrappled() return self.beingGrappled == true end
+    function held:getGrappledBy() return self.grappledBy end
+    function held:getGrappledByType() return self.grappledByType end
+    function held:isPerformingGrappleGrabAnimation() return true end
+
+    local nativeInfo = SurvivorCompanion.ZombieAttack.nativeGrapple(held)
+    check(nativeInfo ~= nil and nativeInfo.by == grappler
+        and nativeInfo.kind == "Zombie",
+        "a native paired grapple is read from the engine, not from our own record")
+
+    local heldNow, heldSource = SurvivorCompanion.ZombieAttack.isGrabbed(held)
+    check(heldNow == true and heldSource == "native",
+        "a native grapple is reported as native, never as the synthetic pin")
+
+    local ok, reason, stats = SurvivorCompanion.ZombieAttack.resolve(
+        held, 900000, { grappler })
+    check(ok == true and reason == "native_grapple",
+        "resolution stands down while the engine owns the pair")
+    check(stats.applied == 0 and stats.nativeGrapple == true,
+        "no synthetic wound is written on top of native grapple processing")
+
+    -- Releasing the native pair hands resolution back.
+    held.beingGrappled = false
+    local freed, freedSource = SurvivorCompanion.ZombieAttack.isGrabbed(held)
+    check(freed == false and freedSource == nil,
+        "releasing the native pair returns the companion to ordinary handling")
+
+    SurvivorCompanion.ZombieAttack.reset()
+    grappler.dead = true
 end
 
 do

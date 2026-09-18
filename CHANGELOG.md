@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.22.34 - Combat audit fixes
+
+- Fixed scratches infecting companions with the Knox virus. `BodyPart.setScratched` takes `(scratched, forceNoInfection)`, and the mod passed `false`, which makes the game roll a 7% infection on every scratch. The mod's own rule is that only bites transmit, so scratched companions could sicken and turn for no visible reason. Confirmed against the game's own code, not guessed.
+- Fixed the same problem in vitals restore, which is worse: every time a companion's saved body state was reapplied, each saved scratch **and** each saved cut rolled a fresh infection. Restoring a companion now reproduces exactly the infection level that was saved.
+- Fixed lacerations being upgraded to deep wounds. A laceration now uses the game's cut operation, which is the injury actually rolled.
+- Fixed a new scratch or laceration wiping out an existing infected wound on the same body part.
+- Fixed a wound being reported as applied when only part of it landed. Previously only the health loss was checked, so a failing wound setter left a companion damaged with no wound, no bleeding and no bite. A partial wound is now reported as such, and the health loss is never applied twice.
+- Fixed a zombie counting toward the wrong companion's pile-on. A zombie that switched to the player or another companion still counted toward the first companion's pin for over a second, so a crowd around one survivor could drag down a different one. A zombie that has picked a live alternate victim now stops counting immediately.
+- Fixed a fatal drag-down reporting a completed kill when the kill was never carried out. The result of ending the companion's life was discarded; it is now checked, and death is confirmed before it is reported.
+- The game's own paired-grapple system is now recognised. When a zombie really has hold of a companion, the mod stands aside: it no longer writes its own timed wounds on top, and no longer fights the get-up animation with repeated knockdown flags. A real grab and the mod's crowd pile-on are reported as what they are instead of being treated as the same thing.
+
 ## 0.22.33 - Review fixes
 
 - Fixed automated corpse disposal being able to bury or burn a body whose diary sat inside a bag, or past the first 64 items. Companions now look through bags before any burial or burning, and check again just before the irreversible act. If that look cannot finish, the body waits instead of being treated as safe. Nested personal and quest items are protected the same way.

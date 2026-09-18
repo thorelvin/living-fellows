@@ -133,8 +133,15 @@ local function applyPart(part, saved)
     local operations = {
         { "SetHealth", finite(saved.health, 100) },
         { "SetBitten", saved.bitten == true },
-        { "setScratched", saved.scratched == true, false },
-        { "setCut", saved.cut == true, false },
+        -- BodyPart.setScratched / setCut take (flag, forceNoInfection).
+        -- Verified in the 42.20.4 bytecode: a FALSE second argument makes the
+        -- engine call generateZombieInfection(), a fresh Knox roll. Restoring a
+        -- previously saved scratch or cut therefore re-rolled infection every
+        -- time vitals were reapplied. Restore must reproduce the saved state,
+        -- never invent new infection -- the real saved level is written back by
+        -- setWoundInfectionLevel below.
+        { "setScratched", saved.scratched == true, true },
+        { "setCut", saved.cut == true, true },
         { "setDeepWounded", saved.deepWound == true },
         { "setBleeding", saved.bleeding == true },
         { "setBandaged", saved.bandaged == true, finite(saved.bandageLife, 0),

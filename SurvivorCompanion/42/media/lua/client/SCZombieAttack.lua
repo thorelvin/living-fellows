@@ -102,19 +102,43 @@ local function applyWound(actor, kind)
     local health = number(part, "getHealth") or 100
     local _, healthOk, healthErr = U().call(part, "SetHealth", math.max(0.0, health - damage))
     if healthOk ~= true then return false, "SetHealth:" .. tostring(healthErr) end
-    U().call(part, "setBleeding", true)
-    if kind == "bite" then
-        U().call(part, "SetBitten", true)
-    elseif kind == "laceration" then
-        U().call(part, "setDeepWounded", true)
-        U().call(part, "setWoundInfectionLevel", 0.0)
-    else
-        -- Build 42 requires the second `weapon` flag. Calling the old one-argument
-        -- shape throws from Kahlua after health loss, leaving attack resolution in
-        -- a partially-applied state and spamming the console on subsequent swings.
-        U().call(part, "setScratched", true, false)
-        U().call(part, "setWoundInfectionLevel", 0.0)
+
+    -- Every setter after the health deduction is checked. Previously only
+    -- SetHealth was: a failing wound setter left the part damaged with no wound,
+    -- no bleeding and no bite flag, and the function still reported success.
+    -- Neither caller retries on false, so the health loss is never applied twice.
+    local partial = nil
+    local function apply(method, ...)
+        local _, ok, err = U().call(part, method, ...)
+        if ok ~= true and partial == nil then
+            partial = method .. ":" .. tostring(err)
+        end
+        return ok == true
     end
+
+    apply("setBleeding", true)
+    if kind == "bite" then
+        apply("SetBitten", true)
+    elseif kind == "laceration" then
+        -- setCut is the engine's laceration operation, and setCut(true) delegates
+        -- to setCut(true, true) which never rolls infection. setDeepWounded(true)
+        -- was silently upgrading every laceration into a deep wound, a different
+        -- and far more serious injury than the one being rolled.
+        apply("setCut", true)
+    else
+        -- BodyPart.setScratched(scratched, forceNoInfection). Verified from the
+        -- 42.20.4 bytecode: when the second argument is FALSE the engine calls
+        -- generateZombieInfection(7), a 7% Knox roll gated by sandbox
+        -- transmission. Passing false therefore infected companions from
+        -- scratches, contradicting this module's stated bites-only policy. The
+        -- old comment called this argument a "weapon" flag; it is not.
+        apply("setScratched", true, true)
+    end
+
+    -- Deliberately NOT clearing setWoundInfectionLevel. Resetting it to 0 erased
+    -- a pre-existing infected wound as a side effect of an unrelated new scratch.
+
+    if partial ~= nil then return false, "partial:" .. partial end
     return true, kind
 end
 
@@ -287,8 +311,24 @@ local function resolveGrapple(actor, current, attackers)
                 return "grab_farewell"
             end
             releaseCompanion(actor); grabState[actor] = nil
-            if SC.Actor and type(SC.Actor.endLife) == "function" then
-                pcall(SC.Actor.endLife, actor)
+            -- The kill must be confirmed before it is reported. The pcall result
+            -- was discarded and "grab_killed" returned regardless, so a failed
+            -- or unavailable endLife was indistinguishable from a completed
+            -- death -- the caller saw a kill that never happened.
+            if SC.Actor == nil or type(SC.Actor.endLife) ~= "function" then
+                return "grab_kill_unavailable"
+            end
+            local invoked, result = pcall(SC.Actor.endLife, actor)
+            if invoked ~= true then
+                return "grab_kill_failed"
+            end
+            if result == false then
+                return "grab_kill_refused"
+            end
+            -- endLife reported success; confirm the actor is actually dead
+            -- rather than trusting the return value alone.
+            if U().isDead(actor) ~= true then
+                return "grab_kill_unconfirmed"
             end
             return "grab_killed"
         end
@@ -377,9 +417,43 @@ end
 
 -- True while a zombie grab holds the companion down; the runtime skips its
 -- decision so it cannot move or fight until freed.
+--[[
+CB-03. Build 42.20.4 has a real paired-grapple lifecycle: IsoGameCharacter
+implements IGrappleableWrapper, and isBeingGrappled / getGrappledBy /
+getGrappledByType / isPerformingGrappleGrabAnimation all resolve by reflection
+on a companion, with IsoZombie grapple-capable on the other side. Verified
+against the pinned JAR, not assumed from a method name.
+
+The mod's own crowd pin is a separate, synthetic mechanism: a probability roll
+that sets knockdown flags and writes wounds on a timer. It is NOT a native
+grapple and must never be reported as one. Where the engine owns a real pair,
+the engine owns the damage too -- running both at once would bite the companion
+twice for one hold.
+
+Returns nil when no native pair is held, otherwise a small descriptor.
+]]
+function ZombieAttack.nativeGrapple(actor)
+    if actor == nil then return nil end
+    local ok, held = pcall(function()
+        return select(1, U().call(actor, "isBeingGrappled")) == true
+    end)
+    if not ok or held ~= true then return nil end
+    local by = select(1, U().call(actor, "getGrappledBy"))
+    local kind = select(1, U().call(actor, "getGrappledByType"))
+    return {
+        by = by,
+        kind = type(kind) == "string" and kind or nil,
+        grabbing = select(1, U().call(actor, "isPerformingGrappleGrabAnimation")) == true,
+    }
+end
+
+-- True while the companion is held, by either authority. `source` tells them
+-- apart so no caller can mistake the synthetic pin for a native grapple.
 function ZombieAttack.isGrabbed(actor)
+    if ZombieAttack.nativeGrapple(actor) ~= nil then return true, "native" end
     local g = grabState[actor]
-    return type(g) == "table" and g.pinned == true
+    if type(g) == "table" and g.pinned == true then return true, "synthetic" end
+    return false
 end
 
 -- Resolve incoming zombie attacks against one companion. `zombies` is the
@@ -388,6 +462,28 @@ function ZombieAttack.resolve(actor, current, zombies)
     if not eligible(actor) then return false, "invalid_actor" end
     if zombies == nil then return false, "zombie_candidates_unavailable" end
     current = tonumber(current) or (U() and U().nowMs()) or 0
+
+    -- CB-03. When the engine owns a real paired grapple, it owns the damage,
+    -- the pose and the release. The synthetic pin must not run alongside it:
+    -- two authorities holding one victim meant timer wounds landing on top of
+    -- native processing, and the pin's knockdown refresh fighting the engine's
+    -- own get-up transitions. Stand down and let the native pair resolve.
+    local native = ZombieAttack.nativeGrapple(actor)
+    if native ~= nil then
+        local held = grabState[actor]
+        if type(held) == "table" and held.pinned == true then
+            -- A native grapple started underneath our synthetic one. Drop ours
+            -- rather than running both; the engine is now the authority.
+            releaseCompanion(actor)
+            grabState[actor] = nil
+        end
+        return true, "native_grapple", {
+            checked = 0, applied = 0, landed = 0, pile = 0,
+            targeting = 0, engagementAssists = 0,
+            nativeGrapple = true, grappleKind = native.kind,
+        }
+    end
+
     local reswingFloor = config("zombieAttackReswingMinMs", 300)
     local maximum = config("zombieAttackMaxChecks", 64)
     local biteChance = config("zombieBiteChance", 0.25)
@@ -427,9 +523,23 @@ function ZombieAttack.resolve(actor, current, zombies)
             if targetsMe then
                 pileWindow[zombie] = current
                 pile = pile + 1
-            elseif pileWindow[zombie] ~= nil
-                and current - pileWindow[zombie] <= grabGrace then
-                pile = pile + 1
+            else
+                -- The grace window exists for a lock that flickers off between
+                -- perception scans, i.e. a zombie with NO current target. It
+                -- previously counted on elapsed time alone, so a zombie that had
+                -- switched to the player or another companion still counted
+                -- toward this companion's pile for the whole grace period --
+                -- exactly what the comment above says never happens. A live
+                -- alternate victim invalidates our claim immediately.
+                local existing = select(1, U().call(zombie, "getTarget"))
+                local committedElsewhere = existing ~= nil and existing ~= actor
+                    and U().isDead(existing) ~= true
+                if committedElsewhere then
+                    pileWindow[zombie] = nil
+                elseif pileWindow[zombie] ~= nil
+                    and current - pileWindow[zombie] <= grabGrace then
+                    pile = pile + 1
+                end
             end
         end
         local swing = swings[zombie]
