@@ -1,6 +1,14 @@
 name=PZ Radio Link
 id=PZRadioLink
-description=Control one carried radio from a browser on the same PC. Requires the PZ Radio Link host application to be running.
-modversion=0.1.0
+poster=poster.png
+icon=icon.png
+authors=thorelvin
+modversion=0.2.0
 versionMin=42.20.4
 versionMax=42.20.4
+description=Turn your phone into a remote for a radio you are actually carrying.<br><br>
+description=Right-click a walkie-talkie, or a radio placed in your base, and pick "Link to phone". A small program on your PC shows a QR code. Scan it and the radio's faceplate opens in your phone's browser over Wi-Fi: power, tuning, volume and presets, while your survivor gets on with something else.<br><br>
+description=The game stays in charge. Every change goes through the same timed action the in-game radio window uses, so battery drain, reception and world noise behave exactly as they always did. The phone reports success only once the game has actually applied the change, never just because a button was pressed.<br><br>
+description=Drop the radio, hand it over, die or reload a save and the link goes with it. Two identical radios stay separate. Your saved presets are never edited.<br><br>
+description=Single-player only; multiplayer and split-screen are refused. No audio and no transmitting.<br><br>
+description=Needs the PZ Radio Link host program running on the same PC. Without it, the radio simply works the way it always has.
