@@ -2,7 +2,10 @@ name: Source CI
 
 on:
   push:
-    branches: [main]
+    # Release branches are where work actually lands, and the newest one is the
+    # repository default. A wildcard keeps this working when the next release
+    # branch is cut, rather than needing an edit every time.
+    branches: ['release/**', main]
   pull_request:
   workflow_dispatch:
 
