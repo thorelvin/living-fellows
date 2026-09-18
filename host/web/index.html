@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>PZ Radio Link</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta name="theme-color" content="#1a1c20">
+<!-- iPhone Safari has no Fullscreen API, so Add to Home Screen is the only way
+     to drop the browser chrome there. These two make that launch standalone. -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Radio">
+<style>
+  /* Palette taken from the game's own radio UI (ISSineWaveDisplay): a black
+     CRT with grid lines at rgb(0,0.3,0) and the trace in pure green. */
+  :root {
+    --bg: #101114;
+    --case: #2b2e34;
+    --case-dark: #1e2126;
+    --case-edge: #3a3e46;
+    --screw: #15171a;
+    --crt: #030705;
+    --phosphor: #00ff41;
+    --phosphor-dim: #0a7a28;
+    --grid: #004d00;
+    --grid-off: #3a3a3a;
+    --text: #cdd2d8;
+    --muted: #7d848f;
+    --accent: #d08a3c;
+    --danger: #c2563f;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: radial-gradient(ellipse at 50% 0%, #1b1e23 0%, var(--bg) 70%);
+    color: var(--text);
+    font: 15px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    padding: 18px 14px 36px;
+    min-height: 100vh;
+  }
+  @media (display-mode: standalone) {
+    body { padding-top: calc(18px + env(safe-area-inset-top)); }
+  }
+
+  /* ---------------------------------------------------------- the case ---- */
+  .radio {
+    width: 100%;
+    max-width: 430px;
+    margin: 0 auto;
+    position: relative;
+    border-radius: 16px;
+    padding: 16px 16px 18px;
+    background:
+      linear-gradient(180deg, var(--case) 0%, var(--case-dark) 100%);
+    border: 1px solid var(--case-edge);
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,.07),
+      inset 0 -2px 6px rgba(0,0,0,.5),
+      0 20px 44px rgba(0,0,0,.55);
+  }
+  @media (display-mode: standalone) {
+    .radio { padding-bottom: calc(18px + env(safe-area-inset-bottom)); }
+  }
+  /* Brushed-metal grain, drawn rather than downloaded. */
+  .radio::before {
+    content: "";
+    position: absolute; inset: 0;
+    border-radius: 16px;
+    pointer-events: none;
+    opacity: .35;
+    background: repeating-linear-gradient(
+      90deg, rgba(255,255,255,.028) 0 1px, rgba(0,0,0,.028) 1px 2px);
+  }
+  .screw {
+    position: absolute;
+    width: 9px; height: 9px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #4a4f57, var(--screw));
+    box-shadow: inset 0 1px 1px rgba(255,255,255,.18), 0 1px 1px rgba(0,0,0,.5);
+  }
+  .screw::after {
+    content: ""; position: absolute; left: 1.5px; top: 4px;
+    width: 6px; height: 1px; background: rgba(0,0,0,.65);
+  }
+  .screw.tl { top: 8px; left: 8px; }
+  .screw.tr { top: 8px; right: 8px; }
+  .screw.bl { bottom: 8px; left: 8px; }
+  .screw.br { bottom: 8px; right: 8px; }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin: 0 10px 12px;
+  }
+  h1 {
+    font-size: 10px; letter-spacing: .22em; text-transform: uppercase;
+    margin: 0; color: var(--muted); font-weight: 700;
+  }
+  .link-state { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); }
+  .led {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: #2a2d33;
+    box-shadow: inset 0 0 3px rgba(0,0,0,.9);
+    transition: background .2s, box-shadow .2s;
+  }
+  .led.live { background: #3ee06b; box-shadow: 0 0 9px 1px rgba(62,224,107,.75), inset 0 0 2px rgba(255,255,255,.5); }
+  .led.warn { background: var(--accent); box-shadow: 0 0 9px 1px rgba(208,138,60,.7); }
+
+  /* ------------------------------------------------------------- CRT ----- */
+  .crt {
+    position: relative;
+    background: var(--crt);
+    border-radius: 7px;
+    padding: 13px 15px 10px;
+    margin-bottom: 14px;
+    border: 1px solid #0b0f0c;
+    box-shadow:
+      inset 0 0 26px rgba(0,255,65,.055),
+      inset 0 2px 12px rgba(0,0,0,.9),
+      0 1px 0 rgba(255,255,255,.05);
+    overflow: hidden;
+  }
+  /* Scanlines + a soft vignette. Kept subtle: this has to stay readable. */
+  .crt::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none;
+    background:
+      repeating-linear-gradient(180deg, rgba(0,0,0,.28) 0 1px, transparent 1px 3px),
+      radial-gradient(ellipse at 50% 50%, transparent 55%, rgba(0,0,0,.5) 100%);
+  }
+  .freq {
+    font: 700 42px/1 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    color: var(--phosphor);
+    text-shadow: 0 0 10px rgba(0,255,65,.55), 0 0 26px rgba(0,255,65,.22);
+    display: flex; align-items: baseline; gap: 7px;
+    letter-spacing: .01em;
+  }
+  .freq small { font-size: 13px; font-weight: 600; letter-spacing: .14em; opacity: .8; }
+  .freq.off { color: #17381f; text-shadow: none; }
+  canvas#scope { display: block; width: 100%; height: 44px; margin: 10px 0 8px; }
+  .crt-row {
+    display: flex; justify-content: space-between; gap: 10px;
+    font: 600 10px/1.4 ui-monospace, Menlo, Consolas, monospace;
+    letter-spacing: .13em; text-transform: uppercase;
+    color: var(--phosphor-dim);
+  }
+  .crt-row .hot { color: var(--phosphor); text-shadow: 0 0 7px rgba(0,255,65,.5); }
+  .crt-row span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  /* ------------------------------------------------------------ dial ----- */
+  .label {
+    font-size: 9.5px; letter-spacing: .2em; text-transform: uppercase;
+    color: var(--muted); margin: 0 2px 6px; font-weight: 700;
+  }
+  .dial-wrap {
+    position: relative; margin-bottom: 12px;
+    border-radius: 6px; overflow: hidden;
+    background: linear-gradient(180deg, #14161a, #0d0f12);
+    border: 1px solid #101216;
+    box-shadow: inset 0 2px 7px rgba(0,0,0,.75);
+    touch-action: none;
+  }
+  canvas#dial { display: block; width: 100%; height: 62px; cursor: ew-resize; }
+  /* The needle is a fixed marker; the scale slides behind it, like a real set. */
+  .needle {
+    position: absolute; left: 50%; top: 4px; bottom: 4px; width: 2px;
+    transform: translateX(-50%);
+    background: linear-gradient(180deg, #ff7a55, #a6301c);
+    box-shadow: 0 0 8px rgba(255,96,64,.8);
+    pointer-events: none;
+    border-radius: 1px;
+  }
+  .dial-wrap.disabled { opacity: .42; }
+  .dial-wrap.disabled .needle { box-shadow: none; }
+
+  /* --------------------------------------------------------- controls ---- */
+  .row { display: flex; gap: 9px; align-items: center; margin-bottom: 13px; }
+  button {
+    font: inherit; font-size: 13px; color: var(--text);
+    background: linear-gradient(180deg, #3a3e46 0%, #2a2d33 100%);
+    border: 1px solid #454a53;
+    border-radius: 7px;
+    padding: 11px 13px; min-height: 46px; cursor: pointer;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.09), 0 2px 3px rgba(0,0,0,.35);
+    transition: filter .12s, transform .06s;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.14); }
+  button:active:not(:disabled) {
+    transform: translateY(1px);
+    box-shadow: inset 0 2px 5px rgba(0,0,0,.5);
+  }
+  button:disabled { opacity: .35; cursor: not-allowed; }
+  button.power { flex: 1; font-weight: 700; letter-spacing: .04em; }
+  button.power.is-on {
+    background: linear-gradient(180deg, #47a86a 0%, #2f7f4c 100%);
+    border-color: #58c07d; color: #06170d;
+  }
+  button.step { flex: 0 0 54px; font: 700 19px/1 ui-monospace, monospace; }
+  button.preset {
+    flex: 1 1 calc(50% - 5px); text-align: left; padding: 9px 11px;
+    font-size: 12.5px; min-height: 44px;
+  }
+  button.preset .pf {
+    display: block; color: var(--muted);
+    font: 600 10px/1.5 ui-monospace, monospace; letter-spacing: .06em;
+  }
+  button.preset.active {
+    border-color: var(--accent);
+    background: linear-gradient(180deg, #46331f 0%, #2f2317 100%);
+  }
+  button.preset.active .pf { color: var(--accent); }
+  button.expand {
+    min-height: 0; padding: 3px 7px; font-size: 12px; line-height: 1;
+    border-radius: 6px; color: var(--muted);
+  }
+
+  /* The browser default slider is a white pill that looks nothing like the
+     rest of the panel, so it is drawn by hand. */
+  input[type=range] {
+    flex: 1; height: 44px; background: transparent;
+    -webkit-appearance: none; appearance: none;
+  }
+  /* WebKit has no ::-moz-range-progress equivalent, so the filled portion is
+     painted into the track from a --fill variable the script keeps updated. */
+  input[type=range]::-webkit-slider-runnable-track {
+    height: 8px; border-radius: 4px;
+    background:
+      linear-gradient(90deg, #8a5a26 0 var(--fill, 0%), transparent var(--fill, 0%)),
+      linear-gradient(180deg, #14161a, #1e2126);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,.85), 0 1px 0 rgba(255,255,255,.05);
+  }
+  input[type=range]:disabled::-webkit-slider-runnable-track {
+    background: linear-gradient(180deg, #14161a, #1e2126);
+  }
+  input[type=range]::-moz-range-track {
+    height: 8px; border-radius: 4px;
+    background: linear-gradient(180deg, #14161a, #1e2126);
+    box-shadow: inset 0 1px 3px rgba(0,0,0,.85);
+  }
+  input[type=range]::-moz-range-progress {
+    height: 8px; border-radius: 4px;
+    background: linear-gradient(90deg, #7a5122, var(--accent));
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 22px; height: 22px; margin-top: -7px;
+    border-radius: 50%;
+    background: radial-gradient(circle at 36% 30%, #6a7079, #34383f 70%);
+    border: 1px solid #50555e;
+    box-shadow: 0 2px 4px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.2);
+  }
+  input[type=range]::-moz-range-thumb {
+    width: 22px; height: 22px; border-radius: 50%;
+    background: radial-gradient(circle at 36% 30%, #6a7079, #34383f 70%);
+    border: 1px solid #50555e;
+    box-shadow: 0 2px 4px rgba(0,0,0,.55);
+  }
+  input[type=range]:disabled::-webkit-slider-thumb { background: #2f333a; }
+  input[type=range]:disabled::-moz-range-thumb { background: #2f333a; }
+
+  .presets { display: flex; flex-wrap: wrap; gap: 9px; }
+  .empty { color: var(--muted); font-size: 12.5px; font-style: italic; padding: 3px 2px; }
+
+  footer {
+    margin: 14px 2px 0; padding-top: 11px;
+    border-top: 1px solid #383c44;
+    font-size: 12px; color: var(--muted); min-height: 32px;
+  }
+  footer .err { color: var(--danger); }
+  footer .pending { color: var(--accent); }
+</style>
+</head>
+<body>
+<main class="radio">
+  <span class="screw tl"></span><span class="screw tr"></span>
+  <span class="screw bl"></span><span class="screw br"></span>
+
+  <header>
+    <h1>PZ Radio Link</h1>
+    <span class="link-state">
+      <button class="expand" id="expand" hidden title="Full screen">⛶</button>
+      <span class="led" id="led"></span><span id="linkText">connecting</span>
+    </span>
+  </header>
+
+  <div class="crt">
+    <div class="freq off" id="freq">—<small>MHz</small></div>
+    <canvas id="scope"></canvas>
+    <div class="crt-row">
+      <span id="lcdName">no radio linked</span>
+      <span id="lcdPower"></span>
+    </div>
+  </div>
+
+  <div class="row">
+    <button class="power" id="power" disabled>Power</button>
+  </div>
+
+  <div class="label">Frequency</div>
+  <div class="dial-wrap disabled" id="dialWrap">
+    <canvas id="dial"></canvas>
+    <span class="needle"></span>
+  </div>
+  <div class="row">
+    <button class="step" id="down" disabled>−</button>
+    <button class="step" id="up" disabled>+</button>
+  </div>
+
+  <div class="label">Volume</div>
+  <div class="row">
+    <input type="range" id="volume" min="0" max="1" step="0.05" value="0" disabled>
+  </div>
+
+  <div class="label">Presets</div>
+  <div class="presets" id="presets"><span class="empty">—</span></div>
+
+  <footer id="status">Waiting for the game…</footer>
+</main>
+
+<script>
+"use strict";
+
+const el = (id) => document.getElementById(id);
+const led = el("led"), linkText = el("linkText"), freq = el("freq");
+const lcdName = el("lcdName"), lcdPower = el("lcdPower");
+const power = el("power"), down = el("down"), up = el("up");
+const volume = el("volume"), presets = el("presets"), status = el("status");
+const dialWrap = el("dialWrap"), dialCanvas = el("dial"), scopeCanvas = el("scope");
+
+// localStorage rather than sessionStorage: a home-screen launch is a fresh
+// session every time, and re-scanning the QR on each launch would defeat the
+// point. The host's key is stable across restarts to match.
+const TOKEN = (() => {
+  const fromUrl = new URLSearchParams(location.search).get("t");
+  if (fromUrl) {
+    try { localStorage.setItem("pzrl_token", fromUrl); } catch (e) { /* private mode */ }
+    history.replaceState(null, "", location.pathname);
+    return fromUrl;
+  }
+  try { return localStorage.getItem("pzrl_token") || ""; } catch (e) { return ""; }
+})();
+const authHeaders = (extra) => Object.assign({ "X-PZRL-Token": TOKEN }, extra || {});
+
+const BOOT_STATUS = "Waiting for the game…";
+let view = null;
+let dragging = null;
+let pending = new Map();
+let lastPresetSignature = "";
+let dialOverride = null;   // frequency being dragged, not yet committed
+
+const mhz = (raw) => (raw / 1000).toFixed(1);
+const radio = () => (view && view.radio) || null;
+const liveNow = () => {
+  const r = radio();
+  return !!(view && view.connected && view.status === "linked" && r
+            && r.in_reach && !view.paused);
+};
+
+/* ------------------------------------------------------------ oscilloscope */
+// A direct port of the game's ISSineWaveDisplay: cosine-interpolated half
+// waves, regenerated at random intervals and scrolled horizontally, on a 20x2
+// grid. Idle and active parameter sets are the ones vanilla uses.
+const IDLE_WAVE = { minLen: 0.3, maxLen: 1.0, minH: 0.1, maxH: 0.3, minUpd: 30, maxUpd: 150, minSpeed: 5, maxSpeed: 15 };
+const BUSY_WAVE = { minLen: 0.15, maxLen: 0.5, minH: 0.3, maxH: 1.0, minUpd: 1, maxUpd: 10, minSpeed: 1, maxSpeed: 6 };
+
+const scope = {
+  ctx: scopeCanvas.getContext("2d"),
+  wave: null, offset: 0, waveCntr: 0, offsetCntr: 0,
+  waveUpdInt: 30, offsetUpdInt: 4,
+  params: IDLE_WAVE, busyUntil: 0, last: performance.now(),
+};
+
+const rnd = (a, b) => a + Math.random() * (b - a);
+const clerp = (t, a, b) => {
+  const t2 = (1 - Math.cos(t * Math.PI)) / 2;
+  return a * (1 - t2) + b * t2;
+};
+
+function waveData(len, minH, maxH) {
+  const out = [];
+  let flip = false;
+  for (let i = 1; i <= len; i++) {
+    if (i > len / 2) flip = true;
+    const ii = flip ? i - len / 2 : i;
+    out.push(clerp(ii * (1 / (len / 2)), flip ? maxH : minH, flip ? minH : maxH));
+  }
+  return out;
+}
+
+function fitCanvas(canvas) {
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth, h = canvas.clientHeight;
+  if (canvas.width !== Math.round(w * dpr) || canvas.height !== Math.round(h * dpr)) {
+    canvas.width = Math.round(w * dpr);
+    canvas.height = Math.round(h * dpr);
+  }
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  return { w, h, ctx };
+}
+
+function drawScope(now) {
+  const { w, h, ctx } = fitCanvas(scopeCanvas);
+  const r = radio();
+  const on = !!(r && r.on && view && view.connected);
+
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#030705";
+  ctx.fillRect(0, 0, w, h);
+
+  // Grid: 20 columns, 2 rows, exactly as the game draws it.
+  ctx.fillStyle = on ? "#004d00" : "#2e2e2e";
+  for (let i = 1; i < 2; i++) ctx.fillRect(0, (h / 2) * i, w, 1);
+  for (let i = 1; i < 20; i++) ctx.fillRect(Math.round((w / 20) * i), 0, 1, h);
+
+  if (!on) {
+    ctx.fillStyle = "#2e2e2e";
+    ctx.fillRect(0, Math.round(h / 2), w, 1);
+    return;
+  }
+
+  const ticks = ((now - scope.last) / 1000) * 30;
+  scope.params = now < scope.busyUntil ? BUSY_WAVE : IDLE_WAVE;
+  const p = scope.params;
+
+  scope.waveCntr += ticks;
+  if (!scope.wave || scope.waveCntr >= scope.waveUpdInt) {
+    const amp = rnd((h / 2) * p.minH, (h / 2) * p.maxH);
+    scope.wave = waveData(Math.round(rnd(100 * p.minLen, 100 * p.maxLen)), -amp, amp);
+    scope.waveUpdInt = rnd(p.minUpd, p.maxUpd);
+    scope.offsetUpdInt = rnd(p.minSpeed, p.maxSpeed);
+    scope.waveCntr = 0;
+  }
+  scope.offsetCntr += ticks;
+  if (scope.offsetCntr >= scope.offsetUpdInt) {
+    scope.offsetCntr = 0;
+    scope.offset = (scope.offset + 1) % Math.max(1, scope.wave.length - 1);
+  }
+
+  const mean = h / 2;
+  ctx.fillStyle = "#00ff41";
+  ctx.shadowColor = "rgba(0,255,65,.85)";
+  ctx.shadowBlur = 5;
+  for (let x = 0; x < w; x++) {
+    const idx = ((x + scope.offset) % (scope.wave.length - 1));
+    const y = mean + scope.wave[idx];
+    ctx.fillRect(x, y, 1.4, 1.4);
+  }
+  ctx.shadowBlur = 0;
+}
+
+// Agitate the trace on a real event only -- a confirmed tune or power change.
+// Never on a timer, so the display cannot imply activity that did not happen.
+function jolt() { scope.busyUntil = performance.now() + 1400; }
+
+/* -------------------------------------------------------------- the dial */
+// A sliding scale behind a fixed needle, like a real analogue set. Far more
+// usable than one slider across a 50-200 MHz range, which is 750 steps wide.
+const DIAL_SPAN_KHZ = 6000;   // how much of the band is visible at once
+
+function drawDial() {
+  const { w, h, ctx } = fitCanvas(dialCanvas);
+  const r = radio();
+  ctx.clearRect(0, 0, w, h);
+
+  const grad = ctx.createLinearGradient(0, 0, 0, h);
+  grad.addColorStop(0, "#15181c");
+  grad.addColorStop(1, "#0c0e11");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, w, h);
+  if (!r) return;
+
+  const centre = dialOverride !== null ? dialOverride : r.channel;
+  const pxPerKhz = w / DIAL_SPAN_KHZ;
+  const from = centre - DIAL_SPAN_KHZ / 2;
+  const to = centre + DIAL_SPAN_KHZ / 2;
+  const live = liveNow() && r.on;
+
+  // Minor ticks every 200 kHz (the tuning grid), major every 1 MHz.
+  const step = 200;
+  const first = Math.ceil(from / step) * step;
+  ctx.textAlign = "center";
+  for (let f = first; f <= to; f += step) {
+    const x = Math.round((f - from) * pxPerKhz) + 0.5;
+    const major = f % 1000 === 0;
+    const inBand = f >= r.channel_min && f <= r.channel_max;
+    if (!inBand) {
+      ctx.fillStyle = "#24262a";
+      ctx.fillRect(x, h - 11, 1, 7);
+      continue;
+    }
+    ctx.fillStyle = major ? (live ? "#9aa3ad" : "#5a6068") : (live ? "#4d545c" : "#34383e");
+    ctx.fillRect(x, major ? h - 21 : h - 11, 1, major ? 17 : 7);
+    if (major && f % 2000 === 0) {
+      ctx.fillStyle = live ? "#aeb6c0" : "#5d636b";
+      ctx.font = "600 10px ui-monospace, Menlo, Consolas, monospace";
+      ctx.fillText((f / 1000).toFixed(0), x, h - 26);
+    }
+  }
+
+  // Band edges, so you can see where the set stops.
+  for (const edge of [r.channel_min, r.channel_max]) {
+    if (edge > from && edge < to) {
+      const x = Math.round((edge - from) * pxPerKhz) + 0.5;
+      ctx.fillStyle = "rgba(208,138,60,.55)";
+      ctx.fillRect(x, 3, 1, h - 6);
+    }
+  }
+}
+
+function dialFromDrag(deltaPx) {
+  const r = radio();
+  if (!r) return;
+  const w = dialCanvas.clientWidth || 1;
+  const khzPerPx = DIAL_SPAN_KHZ / w;
+  const step = r.channel_step;
+  let next = (dialOverride === null ? r.channel : dialOverride) - deltaPx * khzPerPx;
+  next = Math.round(next / step) * step;
+  next = Math.min(r.channel_max, Math.max(r.channel_min, next));
+  dialOverride = next;
+  freq.innerHTML = `${mhz(next)}<small>MHz</small>`;
+  drawDial();
+}
+
+(() => {
+  let lastX = null;
+  const start = (e) => {
+    if (!liveNow() || !radio() || !radio().on) return;
+    lastX = e.clientX;
+    dragging = "dial";
+    dialCanvas.setPointerCapture(e.pointerId);
+  };
+  const move = (e) => {
+    if (dragging !== "dial" || lastX === null) return;
+    const dx = e.clientX - lastX;
+    lastX = e.clientX;
+    dialFromDrag(dx);
+  };
+  const end = () => {
+    if (dragging !== "dial") return;
+    dragging = null; lastX = null;
+    const r = radio();
+    if (r && dialOverride !== null && dialOverride !== r.channel) {
+      send({ command: "set_channel", value: dialOverride });
+    }
+    dialOverride = null;
+  };
+  dialCanvas.addEventListener("pointerdown", start);
+  dialCanvas.addEventListener("pointermove", move);
+  dialCanvas.addEventListener("pointerup", end);
+  dialCanvas.addEventListener("pointercancel", end);
+})();
+
+/* ------------------------------------------------------------- rendering */
+function disableAll() {
+  for (const node of [power, down, up, volume]) node.disabled = true;
+  dialWrap.classList.add("disabled");
+}
+
+function setStatus(text, cls) {
+  status.textContent = text;
+  status.className = cls || "";
+}
+
+async function poll() {
+  try {
+    const res = await fetch("/api/state", { cache: "no-store", headers: authHeaders() });
+    if (res.status === 401) {
+      led.className = "led warn";
+      linkText.textContent = "not paired";
+      setStatus("Scan the QR code shown by the host to pair this device.", "err");
+      disableAll();
+      return;
+    }
+    view = await res.json();
+    render();
+  } catch (err) {
+    view = null;
+    led.className = "led";
+    linkText.textContent = "host offline";
+    setStatus("Lost the host process.", "err");
+    disableAll();
+  }
+}
+
+function render() {
+  if (!view) return;
+  const r = view.radio;
+
+  if (!view.connected) {
+    led.className = "led";
+    linkText.textContent = "game not running";
+  } else if (view.status === "linked" && r && !r.in_reach) {
+    led.className = "led warn";
+    linkText.textContent = "out of reach";
+  } else if (view.status === "linked") {
+    led.className = "led live";
+    linkText.textContent = view.paused ? "paused" : "linked";
+  } else {
+    led.className = "led warn";
+    linkText.textContent = view.status.replace(/_/g, " ");
+  }
+
+  if (!r) {
+    freq.className = "freq off";
+    freq.innerHTML = "—<small>MHz</small>";
+    lcdName.textContent = view.connected ? "no radio linked" : "no game";
+    lcdPower.textContent = "";
+    presets.innerHTML = '<span class="empty">—</span>';
+    lastPresetSignature = "";
+    disableAll();
+    drawDial();
+    if (view.connected && view.status !== "linked") {
+      setStatus('Right-click a radio in game and choose "Link to phone".');
+    }
+    return;
+  }
+
+  const live = liveNow();
+
+  if (dragging !== "dial") {
+    freq.className = r.on ? "freq" : "freq off";
+    freq.innerHTML = `${mhz(r.channel)}<small>MHz</small>`;
+  }
+  lcdName.textContent = r.name;
+  // getPower() is a battery charge only on a battery-powered set; a mains or
+  // generator-fed radio must not show a fake percentage.
+  const powerText = r.mains ? "MAINS" : `BATT ${Math.round(r.battery * 100)}%`;
+  lcdPower.innerHTML = r.on
+    ? `<span class="hot">ON</span> · ${powerText}`
+    : `OFF · ${powerText}`;
+
+  power.textContent = r.on ? "Turn off" : "Turn on";
+  power.className = r.on ? "power is-on" : "power";
+  power.disabled = !live;
+
+  const tunable = live && r.on;
+  dialWrap.classList.toggle("disabled", !tunable);
+  down.disabled = !tunable || r.channel <= r.channel_min;
+  up.disabled = !tunable || r.channel >= r.channel_max;
+  if (dragging !== "volume") volume.value = r.volume;
+  volume.disabled = !tunable;
+  volume.style.setProperty("--fill", `${Math.round(parseFloat(volume.value) * 100)}%`);
+
+  // The opening placeholder must not still read "waiting" once we are plainly
+  // connected; clear it the first time real state arrives.
+  if (status.textContent === BOOT_STATUS) setStatus("");
+
+  if (!r.in_reach) {
+    setStatus("Still linked, but you need to stand next to this radio to change it.");
+  }
+
+  drawDial();
+  renderPresets(r, live);
+  renderResults();
+}
+
+function renderPresets(r, live) {
+  const signature = r.presets.map((p) => `${p.name}:${p.freq}`).join("|")
+    + `#${r.channel}#${live}#${r.on}`;
+  if (signature === lastPresetSignature) return;
+  lastPresetSignature = signature;
+
+  presets.innerHTML = "";
+  if (!r.presets.length) {
+    presets.innerHTML = '<span class="empty">No presets saved on this radio.</span>';
+    return;
+  }
+  r.presets.forEach((preset, index) => {
+    const button = document.createElement("button");
+    button.className = "preset" + (preset.freq === r.channel ? " active" : "");
+    button.innerHTML = `${escapeHtml(preset.name || "Preset")}<span class="pf">${mhz(preset.freq)} MHz</span>`;
+    button.disabled = !live || !r.on;
+    button.addEventListener("click", () => send({ command: "select_preset", index: index + 1 }));
+    presets.appendChild(button);
+  });
+}
+
+function escapeHtml(text) {
+  const div = document.createElement("div");
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+function renderResults() {
+  if (!view.results.length) return;
+  for (const result of view.results) {
+    if (!pending.has(result.id)) continue;
+    if (result.status === "pending") continue;
+    pending.delete(result.id);
+    if (result.status === "applied") {
+      setStatus("Done.");
+      jolt();
+    } else if (result.status === "rejected" && result.reason === "too_far") {
+      setStatus("Too far away — stand next to this radio to change it.", "err");
+    } else if (result.status === "rejected") {
+      setStatus(`Refused by the game: ${result.reason.replace(/_/g, " ")}`, "err");
+    } else if (result.status === "cancelled") {
+      setStatus("The action was interrupted in-game.", "err");
+    }
+  }
+  if (pending.size) setStatus("Waiting for the game…", "pending");
+}
+
+async function send(body) {
+  try {
+    const res = await fetch("/api/command", {
+      method: "POST",
+      headers: authHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      setStatus(`Rejected: ${(data.error || "unknown").replace(/_/g, " ")}`, "err");
+      return;
+    }
+    pending.set(data.command_id, body.command);
+    setStatus("Waiting for the game…", "pending");
+  } catch (err) {
+    setStatus("Could not reach the host.", "err");
+  }
+}
+
+power.addEventListener("click", () => {
+  const r = radio();
+  if (r) send({ command: "set_power", value: !r.on });
+});
+
+const nudge = (delta) => {
+  const r = radio();
+  if (!r) return;
+  const next = Math.min(r.channel_max,
+    Math.max(r.channel_min, r.channel + delta * r.channel_step));
+  if (next !== r.channel) send({ command: "set_channel", value: next });
+};
+down.addEventListener("click", () => nudge(-1));
+up.addEventListener("click", () => nudge(1));
+
+// The volume slider commits on release: one timed action per pixel of travel
+// would flood the game's action queue.
+volume.addEventListener("pointerdown", () => { dragging = "volume"; });
+volume.addEventListener("input", () => {
+  volume.style.setProperty("--fill", `${Math.round(parseFloat(volume.value) * 100)}%`);
+});
+const commitVolume = () => {
+  if (dragging !== "volume") return;
+  dragging = null;
+  const r = radio();
+  const value = parseFloat(volume.value);
+  if (r && Math.abs(value - r.volume) > 0.001) send({ command: "set_volume", value });
+};
+volume.addEventListener("pointerup", commitVolume);
+volume.addEventListener("pointercancel", () => { dragging = null; });
+volume.addEventListener("change", commitVolume);
+
+// Full screen. Android Chrome and desktop support the Fullscreen API; iPhone
+// Safari does not implement it at all, so the button stays hidden there and
+// Add to Home Screen is the route instead.
+(() => {
+  const standalone = window.matchMedia("(display-mode: standalone)").matches
+    || window.navigator.standalone === true;
+  const supported = !!(document.documentElement.requestFullscreen
+    || document.documentElement.webkitRequestFullscreen);
+  if (standalone || !supported) return;
+  expand.hidden = false;
+  expand.addEventListener("click", async () => {
+    try {
+      if (document.fullscreenElement || document.webkitFullscreenElement) {
+        await (document.exitFullscreen?.() ?? document.webkitExitFullscreen?.());
+      } else {
+        const node = document.documentElement;
+        await (node.requestFullscreen?.() ?? node.webkitRequestFullscreen?.());
+      }
+    } catch (err) {
+      setStatus("This browser refused full screen.", "err");
+    }
+  });
+})();
+
+function frame(now) {
+  drawScope(now);
+  scope.last = now;
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+window.addEventListener("resize", () => { drawDial(); });
+
+poll();
+setInterval(poll, 500);
+</script>
+</body>
+</html>
