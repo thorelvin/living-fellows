@@ -2,8 +2,11 @@
 
 # Changelog
 
-## 0.22.34 - Combat audit fixes
+## 0.22.35 - Combat and scavenging fixes
 
+- Fixed companions refusing to arm themselves and fleeing every fight bare-handed. A pen is defined as a weapon by the game, so a diarist's two pens filled their whole weapon loadout: they reported themselves armed, stopped looking for weapons, and then could not fight, because a diarist's pen is deliberately never swung. Pens no longer count, and neither does a weapon broken beyond use, so a companion carrying only those will go and find a real one.
+- Combat reports now say how many weapons a companion is carrying and how many of those can actually be used, so "fighting bare-handed" can be told apart from "carrying a broken axe".
+- Fixed companions scavenging zombies' injuries. A zombie's visible wounds are implemented as hidden, weightless clothing worn in a `wound` slot, so a corpse offered them as loot and a companion would announce that they had found a wound. Companions now refuse any item the game marks as hidden or cosmetic, whatever kind of item it claims to be.
 - Fixed scratches infecting companions with the Knox virus. `BodyPart.setScratched` takes `(scratched, forceNoInfection)`, and the mod passed `false`, which makes the game roll a 7% infection on every scratch. The mod's own rule is that only bites transmit, so scratched companions could sicken and turn for no visible reason. Confirmed against the game's own code, not guessed.
 - Fixed the same problem in vitals restore, which is worse: every time a companion's saved body state was reapplied, each saved scratch **and** each saved cut rolled a fresh infection. Restoring a companion now reproduces exactly the infection level that was saved.
 - Fixed lacerations being upgraded to deep wounds. A laceration now uses the game's cut operation, which is the injury actually rolled.

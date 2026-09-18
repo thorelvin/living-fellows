@@ -140,7 +140,28 @@ function Logistics.itemCategory(item)
     end
     if typeContains(itemType, { "ammo", "bullet", "shell", "cartridge", "magazine" })
         or category == "ammunition" then return "ammunition" end
+    --[[
+    A pen is defined in the game's own weapon.txt with ItemType = base:weapon,
+    so it used to count toward the weapon loadout. Combat refuses to swing a
+    diarist's pen (weaponRecord skips writing implements), so a companion
+    carrying two pens reported a satisfied weapon loadout, stopped scavenging
+    weapons entirely, and then fled every fight bare-handed. The two systems
+    have to agree on what a weapon is.
+
+    A weapon at zero condition is likewise not one for loadout purposes:
+    weaponUsableNow rejects it in combat, so counting it as satisfying the
+    need would keep a companion "armed" with something it will never swing.
+    ]]
     if utility.instanceOf(item, "HandWeapon") or category == "weapon" then
+        local hasData, hasDataOk = utility.call(item, "hasModData")
+        if (not hasDataOk or hasData == true) and SC.PersonalItems
+            and type(SC.PersonalItems.personalRecord) == "function" then
+            local personal = SC.PersonalItems.personalRecord(item)
+            if personal and personal.kind == "writing_implement" then return "general" end
+        end
+        local conditionValue = select(1, utility.call(item, "getCondition"))
+        local condition = tonumber(conditionValue)
+        if condition ~= nil and condition <= 0 then return "general" end
         return "weapon"
     end
     if typeContains(itemType, { "plank", "nails", "log", "cement", "concrete",
@@ -308,7 +329,12 @@ end
 local function cosmeticWearable(item)
     local location = lower(wearableLocation(item))
     local itemType = lower(U().itemType(item))
-    local cosmeticLocation = location == "leftwrist" or location == "rightwrist"
+    -- `wound` is the slot a zombie's visible injuries are worn in. They are
+    -- hidden script items, so notRealGear() already refuses them before
+    -- canTake reaches here; this keeps clothingScore consistent for any other
+    -- path that consults the cosmetic test directly.
+    local cosmeticLocation = location == "wound"
+        or location == "leftwrist" or location == "rightwrist"
         or string.find(location, "wristwatch", 1, true) ~= nil
         or string.find(location, "necklace", 1, true) ~= nil
         or string.find(location, "earring", 1, true) ~= nil
@@ -413,8 +439,33 @@ local function selectBagUpgrade(actor, audit)
     return best
 end
 
+--[[
+Some script items are not gear at all. A zombie's visible injuries are
+implemented as clothing worn in the `wound` body location -- weightless,
+WorldRender = false, and marked `hidden = true` -- so a corpse "contains" items
+like Wound_Abdomen_Bite_Male. A companion looted one and announced that they
+had found a wound.
+
+The cosmetic filter below is a hand-maintained list of slot names and type
+substrings, and `wound` was not on it. Rather than add one more name, ask the
+engine: Item.isHidden() marks anything not meant for a player's inventory, and
+Item.isCosmetic() is the game's own notion of jewellery and similar. Both are
+checked for every category, because a hidden item is never worth carrying
+whatever bucket it is sorted into.
+]]
+local function notRealGear(item)
+    local script = select(1, U().call(item, "getScriptItem"))
+    if script == nil then return false end
+    local hidden, hiddenOk = U().call(script, "isHidden")
+    if hiddenOk and hidden == true then return true end
+    local cosmetic, cosmeticOk = U().call(script, "isCosmetic")
+    if cosmeticOk and cosmetic == true then return true end
+    return false
+end
+
 function Logistics.canTake(actor, item, category, audit)
     if not actor or not item then return false, "invalid_loot" end
+    if notRealGear(item) then return false, "not_real_gear" end
     audit = audit or Logistics.audit(actor)
     category = category or Logistics.itemCategory(item)
     if category == "clothing" then

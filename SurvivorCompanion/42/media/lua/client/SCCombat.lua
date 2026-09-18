@@ -110,11 +110,26 @@ function Combat.noteRejection(actor, state, runtime, action, reason, target, dis
     runtime.combatRejectedReason = reason
     runtime.combatRejectedDistance = tonumber(distance)
     runtime.combatRejectedWeapon = weapon and U().itemName(weapon.item) or nil
+    --[[
+    "weapon=none" alone cannot distinguish the two reasons a companion fights
+    bare-handed, and a playtest report of companions not using weapons could
+    not be resolved from the log because of it:
+
+      carried=0            they never acquired a weapon -- a scavenging or
+                           loadout question, not a combat one
+      carried>0 usable=0   they have one but nothing passed weaponUsableNow:
+                           broken (condition 0), or a firearm with no ammo
+                           and no reload available
+
+    Counting is bounded by the same inventory walk combat already performs.
+    ]]
+    local carried, usable = Combat.weaponAvailability(actor)
     U().diagnostic("combat", actor,
         "action=" .. tostring(action or "none")
             .. " reason=" .. reason
             .. " distance=" .. string.format("%.2f", tonumber(distance) or -1)
             .. " weapon=" .. tostring(runtime.combatRejectedWeapon or "none")
+            .. " carried=" .. tostring(carried) .. " usable=" .. tostring(usable)
             .. " target=" .. tostring(target and U().objectLabel(target) or "none"))
 end
 
@@ -652,6 +667,12 @@ function Combat.holdNativeAttack(actor, runtime)
         if state then
             state.nativeAttackOrphanSince = nil
             state.nativeAttackOrphanTarget = nil
+            -- The stall watchdog is per attack episode. Leaving it set between
+            -- episodes let a stale timestamp from an earlier fight expire the
+            -- very first pass of a new one.
+            state.stalledHoldSince = nil
+            state.stalledHoldTarget = nil
+            state.stalledHoldHealth = nil
         end
         return nil, "no_native_attack"
     end
@@ -702,6 +723,63 @@ function Combat.holdNativeAttack(actor, runtime)
     else
         state.nativeAttackOrphanSince = nil
         state.nativeAttackOrphanTarget = nil
+        --[[
+        CB-10. Recovery above is bounded only for a target that is gone. With a
+        LIVING target the orphan timer was reset on every pass, so an owned
+        native attack could hold forever: companions stood locked beside a
+        zombie that never died, still treating it as a live threat, and nothing
+        in the log recorded it.
+
+        This is a progress watchdog, not a blanket timer. Progress is the
+        target actually losing health; a slow fight keeps resetting the clock
+        and is never cut short. Only a genuinely stalled episode -- an attack
+        in progress, a living target, and no damage at all for the configured
+        window -- releases, and it releases through the same verified path the
+        dead-target branch uses, touching only this mod's own lease.
+
+        Reactions, grapples, knockdowns and death already returned
+        native_attack_interrupted above, so none of those can reach here.
+        ]]
+        -- Assign the multi-return to a local before tonumber: select() in
+        -- argument position forwards U.call's ok flag as tonumber's BASE
+        -- argument, which throws. Same trap SCZombieAttack documents.
+        local healthValue = select(1, U().call(target, "getHealth"))
+        local health = tonumber(healthValue)
+        if state.stalledHoldTarget ~= target then
+            state.stalledHoldTarget = target
+            state.stalledHoldSince = now
+            state.stalledHoldHealth = health
+        elseif health ~= nil and state.stalledHoldHealth ~= nil
+            and health < state.stalledHoldHealth - 0.001 then
+            -- Damage landed: the episode is progressing.
+            state.stalledHoldSince = now
+            state.stalledHoldHealth = health
+        elseif now - (state.stalledHoldSince or now)
+            >= (tonumber(U().config("combatStalledAttackLeaseMs")) or 8000) then
+            local released, releaseReason = false, "native_attack_release_unavailable"
+            if SC.NativeActions and type(SC.NativeActions.releaseStaleAttack) == "function" then
+                local ok, value, reason = pcall(SC.NativeActions.releaseStaleAttack, actor)
+                released = ok and value == true
+                releaseReason = ok and reason or tostring(value)
+            end
+            clearEngagement(state, actor)
+            state.active, state.target, state.retreating = false, nil, false
+            state.stalledHoldTarget, state.stalledHoldSince = nil, nil
+            state.stalledHoldHealth = nil
+            state.aimTarget, state.aimStartedAt, state.aimRequiredMs = nil, nil, nil
+            rootRuntime.combatTarget, rootRuntime.combatAction = nil, nil
+            rootRuntime.combatRole, rootRuntime.combatCohort = nil, nil
+            U().call(actor, "setCompanionAimTarget", nil)
+            -- Always logged: the absence of any record was why the first
+            -- report of this could not be diagnosed at all.
+            U().diagnostic("combat", actor,
+                "action=stalled_attack_release native=" .. tostring(released)
+                    .. " reason=" .. tostring(releaseReason)
+                    .. " targetHealth=" .. tostring(health)
+                    .. " onFloor=" .. tostring(boolCall(target, "isOnFloor")))
+            return nil, released and "stalled_attack_released"
+                or "stalled_attack_lease_expired"
+        end
     end
     if not holdCombatPosition(actor) then return false, "native_combat_stop_failed" end
     if state.target and not U().isGoneTarget(state.target) then
@@ -782,6 +860,22 @@ local function weaponUsableNow(inventory, weapon)
     if not weapon.ranged then return true end
     return weapon.jammed == true or (tonumber(weapon.ammo) or 0) > 0
         or hasReloadAmmo(inventory, weapon)
+end
+
+-- How many weapons the companion is carrying, and how many of those could be
+-- swung or fired right now. The gap between the two is the difference between
+-- "never picked one up" and "carrying a broken axe or an empty rifle".
+function Combat.weaponAvailability(actor)
+    local ok, carried, usable = pcall(function()
+        local weapons, inventory = inventoryWeapons(actor)
+        local fit = 0
+        for _, weapon in ipairs(weapons) do
+            if weaponUsableNow(inventory, weapon) then fit = fit + 1 end
+        end
+        return #weapons, fit
+    end)
+    if not ok then return -1, -1 end
+    return carried, usable
 end
 
 local function chooseWeapon(actor, preference, distance, pressure)
@@ -1544,9 +1638,34 @@ function Combat.groundedFinisher(actor, target, weapon, readiness, commands, opt
     if available == nil and native and type(native.floorAttackAvailable) == "function" then
         available = native.floorAttackAvailable(actor)
     end
-    if available == false then return { kind = "hold_range", reason = "floor_input_unavailable" } end
+    --[[
+    Reported from a playtest: a shoved, fallen zombie lay gargling on the
+    ground with two companions standing over it, neither finishing it and both
+    still treating it as a live threat. Nothing was written to the log, so
+    there was no way to tell which refusal below produced it.
+
+    Refusing is often correct -- no floor input lease, exhausted, bad footwear
+    -- but refusing *silently* and standing there forever is not diagnosable.
+    Report it, throttled per actor so a held pose cannot flood the console.
+    ]]
+    local function refuse(reason)
+        local last = state.finisherRefusedAt
+        if last == nil or utility.nowMs() - last >= 4000
+            or state.finisherRefusedReason ~= reason then
+            state.finisherRefusedAt = utility.nowMs()
+            state.finisherRefusedReason = reason
+            utility.diagnostic("combat", actor,
+                "action=grounded_finisher_refused reason=" .. tostring(reason)
+                    .. " targetOnGround=" .. tostring(boolCall(target, "isOnFloor")
+                        or boolCall(target, "isProne"))
+                    .. " targetDead=" .. tostring(utility.isDead(target)))
+        end
+        return { kind = "hold_range", reason = reason }
+    end
+
+    if available == false then return refuse("floor_input_unavailable") end
     local endurance = utility.clamp(tonumber(readiness.endurance) or 0.5, 0, 1)
-    if endurance <= 0.08 then return { kind = "hold_range", reason = "finisher_exhausted" } end
+    if endurance <= 0.08 then return refuse("finisher_exhausted") end
     local now = utility.nowMs()
     local footwear = options.footwear
     if not footwear then

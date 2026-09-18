@@ -169,7 +169,15 @@ local function item(itemType, category, options)
     function value:isCooked() return self.cooked == true end
     function value:getPoisonPower() return self.poisonPower or 0 end
     function value:getScriptItem()
-        return { isCantEat = function() return value.cantEat == true end }
+        return {
+            isCantEat = function() return value.cantEat == true end,
+            -- Script-item flags the engine sets on things that are not gear.
+            -- A zombie's visible injuries are hidden clothing worn in the
+            -- `wound` slot, which is how a companion ended up looting
+            -- Wound_Abdomen_Bite_Male off a corpse.
+            isHidden = function() return value.hidden == true end,
+            isCosmetic = function() return value.cosmetic == true end,
+        }
     end
     function value:getFluidContainer() return self.fluidContainer end
     function value:isWaterSource()
@@ -6329,6 +6337,62 @@ do
             and SurvivorCompanion.Combat.peek(swordActor).target == nil,
         "a swing at a recycled zombie object that left the world is released like one at a dead target")
 end
+
+do
+    -- CB-10, reported from a playtest: two companions stood locked beside a
+    -- zombie that lay on the ground and never died, still treating it as a
+    -- live threat. Recovery was bounded only for a target that had GONE; with
+    -- a living target the orphan timer was reset on every pass, so an owned
+    -- native attack could hold forever and nothing was written to the log.
+    local nativeBeforeStall = SurvivorCompanion.NativeActions
+    SurvivorCompanion.NativeActions = {
+        releaseStaleAttack = function(value)
+            return value:releaseCompanionStaleAttack(), "stale_native_attack_released"
+        end,
+    }
+    -- End any previous episode first, so the watchdog starts fresh. This also
+    -- exercises the per-episode reset: a stale timestamp from an earlier fight
+    -- must not expire the first pass of a new one.
+    swordActor.attackStarted, swordActor.attackAnimation = false, false
+    SurvivorCompanion.Combat.holdNativeAttack(swordActor, rejectedRuntime)
+    swordActor.staleAttackCleared = nil
+    swordActor.attackStarted, swordActor.attackAnimation = true, true
+    swordZed.dead = false
+    swordZed.health = 100
+    function swordZed:getHealth() return self.health end
+    function swordZed:isOnFloor() return true end
+    SurvivorCompanion.Combat.peek(swordActor).target = swordZed
+
+    clock = clock + 1
+    check(SurvivorCompanion.Combat.holdNativeAttack(swordActor, rejectedRuntime) == true,
+        "an attack on a living target is held normally at first")
+
+    -- A slow fight must never be cut short: damage resets the watchdog.
+    local stallWindow = SurvivorCompanion.Config.values.combatStalledAttackLeaseMs
+    clock = clock + stallWindow - 100
+    swordZed.health = 80
+    local dmgHeld, dmgReason = SurvivorCompanion.Combat.holdNativeAttack(
+        swordActor, rejectedRuntime)
+    check(dmgHeld == true, "damage landing resets the stall watchdog")
+    clock = clock + stallWindow - 100
+    check(SurvivorCompanion.Combat.holdNativeAttack(swordActor, rejectedRuntime) == true,
+        "a slow but progressing fight is not cut short")
+
+    -- No damage at all for the whole window: genuinely stalled.
+    clock = clock + stallWindow + 1
+    local stalled, stalledReason = SurvivorCompanion.Combat.holdNativeAttack(
+        swordActor, rejectedRuntime)
+    check(stalled == nil and stalledReason == "stalled_attack_released"
+            and swordActor.staleAttackCleared == true
+            and SurvivorCompanion.Combat.peek(swordActor).target == nil
+            and rejectedRuntime.combatTarget == nil,
+        "an attack that lands no damage on a living target eventually releases")
+
+    swordZed.getHealth, swordZed.isOnFloor = nil, nil
+    swordZed.health = nil
+    SurvivorCompanion.NativeActions = nativeBeforeStall
+    swordActor.attackStarted, swordActor.attackAnimation = false, false
+end
 local oldNativeCombat = SurvivorCompanion.NativeActions
 SurvivorCompanion.NativeActions = {
     combatReadiness = function() return false, "native_melee_recovery" end,
@@ -8362,6 +8426,42 @@ check(SurvivorCompanion.Logistics.clothingScore(redDigitalWatch) == -math.huge
         and watchScore == 0 and not watchAccepted and watchReason == "cosmetic_wearable",
     "cosmetic watches never become clothing-upgrade scavenging targets")
 
+do
+    -- Reported from a playtest: a companion announced that they had found a
+    -- wound. Zombie injuries are clothing worn in the `wound` body location --
+    -- weightless, WorldRender = false, hidden = true -- so a corpse container
+    -- offers them as loot. The cosmetic filter is a hand-maintained list of
+    -- slot names and `wound` was not on it, so they passed as ordinary
+    -- clothing worth carrying.
+    local zombieWound = item("Base.Wound_Abdomen_Bite_Male", "Clothing", {
+        bodyLocation = "Wound", hidden = true, weight = 0,
+        condition = 10, conditionMax = 10,
+    })
+    local woundAccepted, woundReason = SurvivorCompanion.Logistics.canTake(
+        clothingLooter, zombieWound, "clothing")
+    check(not woundAccepted and woundReason == "not_real_gear",
+        "a zombie's visible wound is never scavenged as clothing")
+    check(SurvivorCompanion.Logistics.itemNeedScore(clothingLooter, zombieWound) == 0,
+        "a wound decal scores nothing, so it cannot win a scavenging contest")
+    check(SurvivorCompanion.Logistics.clothingScore(zombieWound) == -math.huge,
+        "a wound decal is not a clothing upgrade candidate")
+
+    -- The engine's own flags are used rather than another name on the list, so
+    -- any hidden or cosmetic script item is refused whatever category it lands in.
+    local hiddenTool = item("Base.SomeHiddenInternalItem", "Tool", {
+        hidden = true, weight = 0.1,
+    })
+    check(select(2, SurvivorCompanion.Logistics.canTake(
+            clothingLooter, hiddenTool, "tool")) == "not_real_gear",
+        "any hidden script item is refused, not just wounds")
+    local cosmeticFlagged = item("Base.SomeCosmetic", "Clothing", {
+        cosmetic = true, bodyLocation = "Hat", condition = 10, conditionMax = 10,
+    })
+    check(select(2, SurvivorCompanion.Logistics.canTake(
+            clothingLooter, cosmeticFlagged, "clothing")) == "not_real_gear",
+        "the engine's own cosmetic flag is honoured")
+end
+
 local protectiveCoat = item("Base.Coat_Long", "Clothing", {
     bodyLocation = "JacketSuit", condition = 10, conditionMax = 10,
     biteDefense = 35, scratchDefense = 45, combatSpeedModifier = 0.97,
@@ -8407,6 +8507,51 @@ check(SurvivorCompanion.Logistics.itemCategory(bulletproofVest) == "clothing"
     and not vestInventory:contains(bulletproofVest),
     "protective Clothing subclasses are equipped from a backpack before generic packing: "
         .. tostring(vestReason))
+
+do
+    -- Reported from a playtest: companions fled every fight bare-handed while
+    -- carrying two broken pens. A pen is defined in the game's own weapon.txt
+    -- (ItemType = base:weapon), so it filled the weapon loadout and the
+    -- companion reported "satisfied" and stopped scavenging weapons -- while
+    -- combat correctly refuses to swing a diarist's pen. The two systems must
+    -- agree on what counts as a weapon.
+    -- Deliberately an INTACT pen. A broken one is also refused by the
+    -- condition guard below, which would let this check pass even if the
+    -- writing-implement rule were removed -- the two guards overlap.
+    local pen = item("Base.Pen", "Weapon", { condition = 9, conditionMax = 10, weight = 0.1 })
+    -- The real marker shape PersonalItems.personalRecord reads: flat keys,
+    -- and owner plus key must both be non-empty or no record is returned.
+    pen.modData = {
+        SC_PersonalOwnerId = "sc-diarist-1",
+        SC_PersonalKey = "diary-pen",
+        SC_PersonalKind = "writing_implement",
+    }
+    function pen:hasModData() return true end
+    function pen:getModData() return self.modData end
+
+    check(SurvivorCompanion.Logistics.itemCategory(pen) ~= "weapon",
+        "a diarist's pen does not count toward the weapon loadout")
+
+    -- A real weapon that is broken cannot be swung, so it must not satisfy the
+    -- need either -- otherwise a companion stays "armed" with a useless axe.
+    local brokenAxe = item("Base.Axe", "Weapon", { condition = 0, conditionMax = 10 })
+    check(SurvivorCompanion.Logistics.itemCategory(brokenAxe) ~= "weapon",
+        "a broken weapon does not satisfy the weapon loadout")
+
+    local goodAxe = item("Base.Axe", "Weapon", { condition = 8, conditionMax = 10 })
+    check(SurvivorCompanion.Logistics.itemCategory(goodAxe) == "weapon",
+        "an intact weapon still counts as one")
+
+    -- Consequence of the above, stated for the record: because neither a pen
+    -- nor a broken weapon counts, a companion carrying only those has a weapon
+    -- count of zero and therefore an unmet target, so a kitchen knife is still
+    -- wanted. The category mapping is what decides that.
+    local kitchenKnife = item("Base.KitchenKnife", "Weapon", {
+        condition = 9, conditionMax = 10, weight = 0.3,
+    })
+    check(SurvivorCompanion.Logistics.itemCategory(kitchenKnife) == "weapon",
+        "a kitchen knife is a weapon worth scavenging")
+end
 
 local rollbackShirt = item("Base.Shirt_FormalWhite", "Clothing", {
     bodyLocation = "Shirt", condition = 4, conditionMax = 10,

@@ -106,6 +106,11 @@ local valueData = {
     -- but do not leave a non-local companion visibly looping on a corpse for
     -- several seconds when Build 42 retains an attack/shove animation latch.
     combatDeadTargetAttackLeaseMs = 600,
+    -- CB-10: how long an owned native attack may hold a LIVING target without
+    -- landing any damage before the lease is released. A slow fight resets
+    -- this every time the target loses health, so only a genuinely stalled
+    -- episode expires.
+    combatStalledAttackLeaseMs = 8000,
     combatSpacingReversalGuardMs = 225,
     combatSteeringProbeDistance = 0.45,
     combatTargetActionCandidates = 3,
