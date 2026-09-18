@@ -1,15 +1,24 @@
 --[[
 PZ Radio Link -- tick loop, command dispatch and state export.
 
-One Events.OnTick handler. Command polling only runs while a radio is linked;
-state export runs at a slower cadence regardless, so the host can show
-"game running, nothing linked" without the mod scanning anything.
+One Events.OnTickEvenPaused handler. Single-player pauses on focus loss and
+OnTick stops with the game loop, which would make the page report that the game
+had gone away at exactly the moment the player looked at it.
 
-An accepted command is never reported as `applied` on the strength of having
-been queued. The runtime records what the device should look like afterwards and
-only reports success once it observes that state. If the deadline passes first
-the result is `cancelled` (the device moved, or the action was interrupted) or
-`unknown` (nothing observable changed) -- and the command is not retried.
+BF-09: work is scheduled by elapsed milliseconds, not by counting callbacks.
+The old code assumed 60 callbacks per second; at 30 fps it silently halved the
+transport rate. After a stall at most one due operation runs per callback, so
+returning from a pause cannot burst file I/O.
+
+BF-03: a command owns its timed action and reports what actually happened.
+`applied` requires the owned action to have run AND the device to show the
+requested state. When neither completion nor cancellation can be established
+the result is `unknown` -- never `cancelled`, which previously meant nothing
+more than "four seconds passed" while the action was still queued and able to
+execute later.
+
+BF-04: the pending record captures the exact item, player and binding it was
+created for, so a relink cannot make the observer judge a different radio.
 ]]
 
 PZRL = PZRL or {}
@@ -17,25 +26,30 @@ PZRL = PZRL or {}
 local Runtime = {}
 PZRL.Runtime = Runtime
 
-Runtime.COMMAND_INTERVAL_TICKS = 15   -- ~4 Hz at 60 fps
-Runtime.STATE_INTERVAL_TICKS = 30     -- ~2 Hz
-Runtime.PENDING_TIMEOUT_MS = 4000
-Runtime.RESULT_RETENTION = 6
+Runtime.COMMAND_INTERVAL_MS = 250
+Runtime.STATE_INTERVAL_MS = 500
+Runtime.HEARTBEAT_MS = 1000
 
-Runtime._tick = 0
+-- Time allowed waiting in the player's queue, separate from time executing.
+-- A radio action may legitimately sit behind a long task.
+Runtime.QUEUE_WAIT_MS = 20000
+Runtime.EXECUTING_MS = 8000
+
+Runtime.RESULT_RETENTION = 8
+
 Runtime._installed = false
 Runtime._pending = nil
 Runtime._results = {}
-Runtime._lastSnapshot = nil
+Runtime._nextCommandAt = 0
+Runtime._nextStateAt = 0
+Runtime._lastPublishedKey = nil
+Runtime._snapshotCache = nil
+Runtime._snapshotAt = 0
 
 local function now()
     return getTimestampMs()
 end
 
--- One entry per command id, updated in place. Appending a second row when a
--- `pending` later becomes `applied` would halve the useful size of the buffer,
--- and a result could then be evicted before the page had read it -- so a
--- command would silently never report Done.
 local function recordResult(id, status, reason)
     if id == nil or id == "" then return end
     for _, existing in ipairs(Runtime._results) do
@@ -56,37 +70,99 @@ end
 
 --[[ ---------------------------------------------------------------- pending ]]
 
-local function beginPending(id, kind, predicate)
+local function beginPending(id, kind, owned, postcondition, identity)
     Runtime._pending = {
         id = id,
         kind = kind,
-        predicate = predicate,
-        deadline = now() + Runtime.PENDING_TIMEOUT_MS,
+        owned = owned,
+        postcondition = postcondition,
+        -- BF-04: judge the radio this command was composed against.
+        item = identity.item,
+        player = identity.player,
+        binding = identity.binding,
+        queuedAt = now(),
     }
-    recordResult(id, "pending")
+    recordResult(id, "queued")
 end
 
+local function finishPending(status, reason)
+    local pending = Runtime._pending
+    if pending == nil then return end
+    Runtime._pending = nil
+    recordResult(pending.id, status, reason)
+end
+
+--[[
+Truthful outcome rules:
+
+  applied    the owned action ran (or completed as a verified no-op) AND the
+             device shows the requested state.
+  cancelled  the owned action is known to be unable to execute again.
+  unknown    we cannot establish either. The command is not retried and the
+             page shows a recovery state rather than a spinner.
+]]
 local function resolvePending(snapshot, paused)
     local pending = Runtime._pending
     if pending == nil then return end
-    if snapshot ~= nil and pending.predicate(snapshot) then
-        Runtime._pending = nil
-        PZRL.Session.bumpRevision()
-        recordResult(pending.id, "applied")
+    local owned = pending.owned
+
+    -- The binding must still be the one this command was made for.
+    if PZRL.Session.bindingId ~= pending.binding
+            or PZRL.Session.item ~= pending.item then
+        PZRL.Device.cancelOwnedAction(owned)
+        finishPending("cancelled", "rebound")
         return
     end
-    -- The deadline is wall-clock, but ISTimedActionQueue does not advance while
-    -- the game is paused. Without this, alt-tabbing right after pressing a
-    -- button would time the command out and report a "cancelled" that never
-    -- happened.
+
+    if owned.performed then
+        if owned.noop then
+            PZRL.Session.bumpRevision()
+            finishPending("applied", "noop")
+            return
+        end
+        if snapshot ~= nil and pending.postcondition(snapshot) then
+            PZRL.Session.bumpRevision()
+            finishPending("applied")
+            return
+        end
+        -- Ran, but the device does not show it. Do not claim success.
+        if now() - (owned.startedAt or pending.queuedAt) > Runtime.EXECUTING_MS then
+            finishPending("unknown", "postcondition_not_observed")
+        end
+        return
+    end
+
+    if owned.invalidated then
+        finishPending("cancelled", "preconditions_changed")
+        return
+    end
+
+    if owned.stopped then
+        -- Stopped before performing: it cannot execute again.
+        finishPending("cancelled", "interrupted")
+        return
+    end
+
+    -- Pause freezes the action queue, so neither deadline should advance.
     if paused then
-        pending.deadline = now() + Runtime.PENDING_TIMEOUT_MS
+        pending.queuedAt = pending.queuedAt + (now() - (pending.tickedAt or now()))
+    end
+    pending.tickedAt = now()
+
+    if owned.started then
+        if now() - owned.startedAt > Runtime.EXECUTING_MS then
+            PZRL.Device.cancelOwnedAction(owned)
+            finishPending("unknown", "execution_did_not_finish")
+        end
         return
     end
-    if now() >= pending.deadline then
-        Runtime._pending = nil
-        -- stopOnRun = true on ISRadioAction, so an interrupted sprint lands here.
-        recordResult(pending.id, "cancelled", "not_observed")
+
+    -- Still waiting in the queue behind the player's own work.
+    if now() - pending.queuedAt > Runtime.QUEUE_WAIT_MS then
+        -- Stop it first: expiring while it can still run is exactly the bug
+        -- that made "cancelled" commands apply themselves later.
+        local cancelled = PZRL.Device.cancelOwnedAction(owned)
+        finishPending(cancelled and "cancelled" or "unknown", "queue_wait_expired")
     end
 end
 
@@ -94,55 +170,68 @@ end
 
 local HANDLERS = {}
 
-HANDLERS.set_power = function(fields, player, item)
+HANDLERS.set_power = function(fields, player, item, revalidate)
     local desired = PZRL.Codec.boolean(fields, "value")
-    if desired == nil then return false, "bad_value" end
-    local accepted, reason = PZRL.Device.requestPower(player, item, desired)
-    if not accepted then return false, reason end
-    return true, nil, function(snap) return snap.turnedOn == desired end
+    if desired == nil then return nil, "bad_value" end
+    local owned, reason = PZRL.Device.requestPower(player, item, desired, revalidate)
+    if owned == nil then return nil, reason end
+    return owned, nil, function(snap) return snap.turnedOn == desired end
 end
 
-HANDLERS.set_channel = function(fields, player, item)
+HANDLERS.set_channel = function(fields, player, item, revalidate)
     local channel = PZRL.Codec.integer(fields, "value")
-    if channel == nil then return false, "bad_value" end
-    local accepted, reason = PZRL.Device.requestChannel(player, item, channel)
-    if not accepted then return false, reason end
-    return true, nil, function(snap) return snap.channel == channel end
+    if channel == nil then return nil, "bad_value" end
+    local owned, reason = PZRL.Device.requestChannel(player, item, channel, revalidate)
+    if owned == nil then return nil, reason end
+    return owned, nil, function(snap) return snap.channel == channel end
 end
 
-HANDLERS.set_volume = function(fields, player, item)
+HANDLERS.set_volume = function(fields, player, item, revalidate)
     local volume = PZRL.Codec.number(fields, "value")
-    if volume == nil then return false, "bad_value" end
-    local accepted, reason = PZRL.Device.requestVolume(player, item, volume)
-    if not accepted then return false, reason end
-    -- The volume bar quantises to its own step count, so an exact float match is
-    -- the wrong postcondition; accept anything inside one coarse step.
-    return true, nil, function(snap)
-        return type(snap.volume) == "number" and math.abs(snap.volume - volume) <= 0.05
+    if volume == nil then return nil, "bad_value" end
+    local owned, reason = PZRL.Device.requestVolume(player, item, volume, revalidate)
+    if owned == nil then return nil, reason end
+    return owned, nil, function(snap)
+        return type(snap.volume) == "number"
+            and math.abs(snap.volume - volume) <= PZRL.Device.VOLUME_EPSILON
     end
 end
 
-HANDLERS.select_preset = function(fields, player, item)
+HANDLERS.select_preset = function(fields, player, item, revalidate)
     local index = PZRL.Codec.integer(fields, "index")
-    if index == nil then return false, "bad_value" end
+    if index == nil then return nil, "bad_value" end
+    local expectedFreq = PZRL.Codec.integer(fields, "freq")
+    local expectedRev = PZRL.Codec.integer(fields, "prev")
     local data = PZRL.Device.dataOf(item)
-    if data == nil then return false, "unreadable" end
+    if data == nil then return nil, "unreadable" end
     local entry = PZRL.Device.presets(data)[index]
-    local accepted, reason = PZRL.Device.requestPreset(player, item, index)
-    if not accepted then return false, reason end
+    local owned, reason = PZRL.Device.requestPreset(
+        player, item, index, expectedFreq, expectedRev, revalidate)
+    if owned == nil then return nil, reason end
     local target = entry and entry.freq
-    return true, nil, function(snap) return snap.channel == target end
+    return owned, nil, function(snap) return snap.channel == target end
 end
 
 HANDLERS.unlink = function()
     PZRL.Session.clear("unlinked_by_host")
-    return false, "noop"
+    return nil, "noop"
 end
 
 local function dispatch(fields)
     local id = fields.id
     if id == nil or id == "" then return end
 
+    -- BF-08: the protocol version is enforced, not merely carried.
+    if PZRL.Codec.integer(fields, "proto") ~= PZRL.Codec.PROTOCOL then
+        recordResult(id, "rejected", "protocol_mismatch")
+        return
+    end
+    -- BF-02: an envelope the mod did not read in time must not execute late.
+    local deadline = PZRL.Codec.number(fields, "deadline")
+    if deadline ~= nil and now() > deadline then
+        recordResult(id, "expired", "acceptance_deadline")
+        return
+    end
     if fields.epoch ~= PZRL.Session.gameEpoch then
         recordResult(id, "rejected", "stale_epoch")
         return
@@ -161,8 +250,6 @@ local function dispatch(fields)
         recordResult(id, "rejected", reason)
         return
     end
-    -- A placed radio stays linked when you walk away, but cannot be operated
-    -- from a distance: we refuse rather than walking the survivor over to it.
     if fields.cmd ~= "unlink" and not PZRL.Session.reachable() then
         recordResult(id, "rejected", "too_far")
         return
@@ -174,8 +261,16 @@ local function dispatch(fields)
         return
     end
 
-    local accepted, failReason, predicate = handler(fields, PZRL.Session.player, PZRL.Session.item)
-    if not accepted then
+    -- Re-proved at the moment the engine is about to execute, not now.
+    local binding, item, player = PZRL.Session.bindingId, PZRL.Session.item, PZRL.Session.player
+    local revalidate = function()
+        if PZRL.Session.bindingId ~= binding or PZRL.Session.item ~= item then return false end
+        local stillOk = PZRL.Session.validate()
+        return stillOk and PZRL.Session.reachable()
+    end
+
+    local owned, failReason, postcondition = handler(fields, player, item, revalidate)
+    if owned == nil then
         if failReason == "noop" then
             PZRL.Session.bumpRevision()
             recordResult(id, "applied", "noop")
@@ -184,14 +279,12 @@ local function dispatch(fields)
         end
         return
     end
-    beginPending(id, fields.cmd, predicate)
+    beginPending(id, fields.cmd, owned, postcondition,
+                 { item = item, player = player, binding = binding })
 end
 
 --[[ ------------------------------------------------------------------ state ]]
 
--- Entries are "<name>:<freq>" joined by '|'. The name has '|' stripped so it can
--- never split an entry, and the reader takes the LAST ':' so a name may keep its
--- own colons.
 local function presetPairs(snapshot)
     local parts = {}
     for _, entry in ipairs(snapshot.presets or {}) do
@@ -202,30 +295,39 @@ local function presetPairs(snapshot)
     return table.concat(parts, "|")
 end
 
-local function publish(snapshot, statusReason)
+local function publish(snapshot, statusReason, paused)
     local pairs_ = {
-        { "proto", "1" },
+        { "proto", tostring(PZRL.Codec.PROTOCOL) },
         { "epoch", PZRL.Session.gameEpoch or "" },
         { "binding", PZRL.Session.bindingId or "" },
         { "rev", PZRL.Session.controlRevision },
         { "status", statusReason },
-        { "paused", isGamePaused() and "1" or "0" },
+        { "paused", paused and "1" or "0" },
+        -- BF-05: lets the host reconcile which commands the game consumed.
+        { "watermark", tostring(PZRL.Mailbox.commandWatermark()) },
+        { "active", Runtime._pending and Runtime._pending.id or "" },
     }
 
     if snapshot ~= nil then
         local vol = snapshot.volume
         pairs_[#pairs_ + 1] = { "kind", snapshot.kind or "item" }
         pairs_[#pairs_ + 1] = { "reach", PZRL.Session.reachable() and "1" or "0" }
-        pairs_[#pairs_ + 1] = { "mains", snapshot.mains and "1" or "0" }
+        pairs_[#pairs_ + 1] = { "power_src", snapshot.powerSource or "unknown" }
         pairs_[#pairs_ + 1] = { "name", PZRL.Codec.sanitize(snapshot.name, 40) }
         pairs_[#pairs_ + 1] = { "on", snapshot.turnedOn and "1" or "0" }
         pairs_[#pairs_ + 1] = { "ch", tostring(math.floor(snapshot.channel or 0)) }
-        pairs_[#pairs_ + 1] = { "chmin", tostring(math.floor(snapshot.channelMin or 0)) }
-        pairs_[#pairs_ + 1] = { "chmax", tostring(math.floor(snapshot.channelMax or 0)) }
-        pairs_[#pairs_ + 1] = { "chstep", tostring(PZRL.Device.CHANNEL_STEP) }
+        -- Omitted entirely when the range could not be read, so the host can
+        -- tell "unknown" from a real band.
+        if snapshot.channelMin ~= nil and snapshot.channelMax ~= nil then
+            pairs_[#pairs_ + 1] = { "chmin", tostring(math.floor(snapshot.channelMin)) }
+            pairs_[#pairs_ + 1] = { "chmax", tostring(math.floor(snapshot.channelMax)) }
+            pairs_[#pairs_ + 1] = { "chstep", tostring(PZRL.Device.CHANNEL_STEP) }
+        end
         pairs_[#pairs_ + 1] = { "vol", string.format("%.3f", type(vol) == "number" and vol or 0) }
-        pairs_[#pairs_ + 1] = { "batt", string.format("%.3f", snapshot.power or 0) }
-        pairs_[#pairs_ + 1] = { "battery", snapshot.battery and "1" or "0" }
+        if snapshot.battery ~= nil then
+            pairs_[#pairs_ + 1] = { "batt", string.format("%.3f", snapshot.battery) }
+        end
+        pairs_[#pairs_ + 1] = { "prev", tostring(snapshot.presetRevision or 0) }
         pairs_[#pairs_ + 1] = { "presets", presetPairs(snapshot), 512 }
     end
 
@@ -243,13 +345,12 @@ end
 --[[ ------------------------------------------------------------------- tick ]]
 
 function Runtime.onTick()
-    Runtime._tick = Runtime._tick + 1
-
     -- No local player means the main menu or a load screen, not a paused game.
-    -- Publishing nothing lets the host's own staleness timer report "game not
+    -- Publishing nothing lets the host's staleness timer report "game not
     -- running", which is the truthful answer.
     if getSpecificPlayer(0) == nil then return end
 
+    local stamp = now()
     local linked, reason = PZRL.Session.validate()
     local snapshot = nil
     if linked then
@@ -258,13 +359,13 @@ function Runtime.onTick()
             PZRL.Session.clear("item_unreadable")
             linked, reason = false, "item_unreadable"
         else
-            Runtime._lastSnapshot = snapshot
+            PZRL.Session.observeControlState(snapshot)
         end
     end
 
     if not linked and Runtime._pending ~= nil then
-        recordResult(Runtime._pending.id, "cancelled", reason)
-        Runtime._pending = nil
+        PZRL.Device.cancelOwnedAction(Runtime._pending.owned)
+        finishPending("cancelled", reason)
     end
 
     local paused = isGamePaused()
@@ -272,9 +373,10 @@ function Runtime.onTick()
     if linked then
         resolvePending(snapshot, paused)
 
-        -- A command that arrives while the game is paused is answered, not
-        -- queued for unpause: ISTimedActionQueue does not advance while paused.
-        if Runtime._tick % Runtime.COMMAND_INTERVAL_TICKS == 0 then
+        -- At most one due operation per callback: a long stall must not turn
+        -- into a burst of file I/O on the frame the game resumes.
+        if stamp >= Runtime._nextCommandAt then
+            Runtime._nextCommandAt = stamp + Runtime.COMMAND_INTERVAL_MS
             local fields = PZRL.Mailbox.pollCommand()
             if fields ~= nil then
                 if paused then
@@ -283,11 +385,16 @@ function Runtime.onTick()
                     dispatch(fields)
                 end
             end
+        elseif stamp >= Runtime._nextStateAt then
+            Runtime._nextStateAt = stamp + Runtime.STATE_INTERVAL_MS
+            publish(snapshot, "linked", paused)
         end
+        return
     end
 
-    if Runtime._tick % Runtime.STATE_INTERVAL_TICKS == 0 then
-        publish(snapshot, linked and "linked" or (reason or "unlinked"))
+    if stamp >= Runtime._nextStateAt then
+        Runtime._nextStateAt = stamp + Runtime.STATE_INTERVAL_MS
+        publish(snapshot, reason or "unlinked", paused)
     end
 end
 
@@ -296,28 +403,26 @@ function Runtime.onGameStart()
     PZRL.Mailbox.beginSession()
     Runtime._results = {}
     Runtime._pending = nil
-    Runtime._lastSnapshot = nil
+    Runtime._nextCommandAt = 0
+    Runtime._nextStateAt = 0
     if not PZRL.Session.modeSupported() then
         print("[PZRL] multiplayer or split-screen detected; external control stays disabled")
     end
-    publish(nil, PZRL.Session.modeSupported() and "unlinked" or "unsupported_mode")
+    publish(nil, PZRL.Session.modeSupported() and "unlinked" or "unsupported_mode", false)
 end
 
 function Runtime.onPlayerDeath(player)
     if PZRL.Session.player == player then
+        if Runtime._pending ~= nil then
+            PZRL.Device.cancelOwnedAction(Runtime._pending.owned)
+            finishPending("cancelled", "player_died")
+        end
         PZRL.Session.clear("player_died")
     end
 end
 
 function Runtime.install()
     if Runtime._installed then return true end
-    -- OnTickEvenPaused, not OnTick. Project Zomboid pauses single-player when
-    -- its window loses focus, and OnTick stops with the game loop -- so a player
-    -- alt-tabbing to the browser would stop the state feed and the page would
-    -- report "game not running" at exactly the moment they started looking at
-    -- it. On this event the feed survives the pause and the page can say
-    -- "paused" and keep showing live values. Commands are still refused while
-    -- paused, because ISTimedActionQueue does not advance either.
     Events.OnTickEvenPaused.Add(Runtime.onTick)
     Events.OnGameStart.Add(Runtime.onGameStart)
     Events.OnPlayerDeath.Add(Runtime.onPlayerDeath)

@@ -54,7 +54,8 @@ if (-not $haveGame) {
 
         Write-Section 'Kahlua behaviour gate'
         & $java -cp "$tests;$jar" ReflectLuaCompiler --run `
-            (Join-Path $luaDir 'PZRL_Codec.lua') (Join-Path $tests 'codec_harness.lua')
+            (Join-Path $luaDir 'PZRL_Codec.lua') (Join-Path $luaDir 'PZRL_Device.lua') `
+            (Join-Path $tests 'codec_harness.lua')
         if ($LASTEXITCODE -ne 0) {
             $failed = $true
             Write-Host 'CODEC HARNESS FAILED' -ForegroundColor Red

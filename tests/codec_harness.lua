@@ -51,7 +51,7 @@ check("presets intact", fields and fields.presets == "WKTV:88500|Noise Maker:912
 
 -- Byte-for-byte agreement with the frame pzrl_host.frame() produces for the
 -- same input. Field order, separators, length and checksum all have to match.
-check("header matches Python", lines[1] == "PZRL1 seq=41 len=87 crc=1139857419")
+check("header matches Python", lines[1] == "PZRL2 seq=41 len=87 crc=1139857419")
 check("payload matches Python",
     lines[2] == "epoch=g123;binding=b1;rev=3;status=linked;ch=93400;presets=WKTV:88500|Noise Maker:91200")
 
@@ -84,3 +84,63 @@ if failures > 0 then
     error(tostring(failures) .. " codec check(s) failed")
 end
 print("ALL CODEC CHECKS PASSED")
+
+--[[ ------------------------------------------- protocol 2 and tuning grid ]]
+
+print("protocol")
+check("codec declares protocol 2", Codec.PROTOCOL == 2)
+check("magic changed with it", Codec.MAGIC == "PZRL2")
+-- A v1 document must not parse: protocol 1 dispatch ignored the proto field,
+-- so a mixed install has to fail loudly rather than act on the wrong schema.
+local v1 = "PZRL1 seq=1 len=7 crc=" .. tostring(Codec.checksum("proto=1"))
+check("v1 framing rejected", Codec.parse(v1, "proto=1", "PZRLEND") == nil)
+
+print("tuning grid (BF-10)")
+-- A device whose saved frequency sits off the 200-unit grid. Adding 200 keeps
+-- the invalid remainder, so the nudge used to produce a value the mod itself
+-- rejects and the button appeared dead.
+local fakeData = {
+    getMinChannelRange = function() return 88000 end,
+    getMaxChannelRange = function() return 108000 end,
+}
+local D = PZRL.Device
+check("off-grid steps up to a legal point",
+    D.nextGridChannel(fakeData, 88500, 1) == 88600)
+check("off-grid steps down to a legal point",
+    D.nextGridChannel(fakeData, 88500, -1) == 88400)
+check("on-grid steps by exactly one step",
+    D.nextGridChannel(fakeData, 93400, 1) == 93600)
+check("on-grid steps down by one step",
+    D.nextGridChannel(fakeData, 93400, -1) == 93200)
+check("clamps to the top legal point",
+    D.nextGridChannel(fakeData, 108000, 1) == nil)
+check("clamps to the bottom legal point",
+    D.nextGridChannel(fakeData, 88000, -1) == nil)
+check("result is always on the grid",
+    D.nextGridChannel(fakeData, 88500, 1) % 200 == 0)
+
+-- A band whose edges are themselves off-grid must clamp to legal points inside
+-- it, not to the raw endpoints.
+local oddBand = {
+    getMinChannelRange = function() return 88050 end,
+    getMaxChannelRange = function() return 107950 end,
+}
+check("odd band clamps to an interior grid point",
+    D.nextGridChannel(oddBand, 88050, -1) == 88200)
+check("odd band top clamps inside the band",
+    D.nextGridChannel(oddBand, 107900, 1) == nil
+        or D.nextGridChannel(oddBand, 107900, 1) <= 107950)
+
+local unreadable = {
+    getMinChannelRange = function() error("no range") end,
+    getMaxChannelRange = function() error("no range") end,
+}
+check("unreadable range yields no step",
+    D.nextGridChannel(unreadable, 93400, 1) == nil)
+check("unreadable range is not a 0..0 band",
+    select(1, D.channelRange(unreadable)) == nil)
+
+if failures > 0 then
+    error(tostring(failures) .. " check(s) failed")
+end
+print("PROTOCOL AND GRID CHECKS PASSED")

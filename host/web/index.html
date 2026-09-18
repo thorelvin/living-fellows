@@ -603,16 +603,33 @@ function dialFromDrag(deltaPx) {
     }
     dialOverride = null;
   };
+  // BF-07: a cancelled gesture must discard its draft, not tune the radio.
+  // pointercancel previously ran the same handler as pointerup and committed.
+  const abandon = () => {
+    if (dragging !== "dial") return;
+    dragging = null; lastX = null; dialOverride = null;
+    render();
+  };
   dialCanvas.addEventListener("pointerdown", start);
   dialCanvas.addEventListener("pointermove", move);
   dialCanvas.addEventListener("pointerup", end);
-  dialCanvas.addEventListener("pointercancel", end);
+  dialCanvas.addEventListener("pointercancel", abandon);
 })();
 
 /* ------------------------------------------------------------- rendering */
+// BF-07: the preset buttons are generated, so the old disableAll() left them
+// live while everything else was blocked.
 function disableAll() {
   for (const node of [power, down, up, volume]) node.disabled = true;
+  for (const node of presets.querySelectorAll("button")) node.disabled = true;
   dialWrap.classList.add("disabled");
+}
+
+// One place decides whether a mutation may be attempted, checked by the UI and
+// again in send(), so a stale click cannot slip past a disabled button.
+let submitting = false;
+function mayMutate() {
+  return liveNow() && !submitting && !!TOKEN;
 }
 
 function setStatus(text, cls) {
@@ -620,9 +637,36 @@ function setStatus(text, cls) {
   status.className = cls || "";
 }
 
+// BF-07: one awaited request at a time with a bounded timeout, and responses
+// from a superseded generation are discarded. setInterval allowed overlapping
+// polls, so a slow response could land after a rebind and restore old state.
+let pollGeneration = 0;
+let polling = false;
+
+function bumpGeneration() { pollGeneration += 1; }
+
+async function pollLoop() {
+  while (true) {
+    if (document.visibilityState === "hidden") {
+      await new Promise((r) => setTimeout(r, 2000));
+      continue;
+    }
+    await poll();
+    await new Promise((r) => setTimeout(r, 500));
+  }
+}
+
 async function poll() {
+  if (polling) return;
+  polling = true;
+  const generation = pollGeneration;
+  const abort = new AbortController();
+  const timer = setTimeout(() => abort.abort(), 4000);
   try {
-    const res = await fetch("/api/state", { cache: "no-store", headers: authHeaders() });
+    const res = await fetch("/api/state", {
+      cache: "no-store", headers: authHeaders(), signal: abort.signal,
+    });
+    if (generation !== pollGeneration) return;
     if (res.status === 401) {
       led.className = "led warn";
       linkText.textContent = "not paired";
@@ -635,14 +679,20 @@ async function poll() {
       return;
     }
     showRepair(false);
-    view = await res.json();
+    const next = await res.json();
+    if (generation !== pollGeneration) return;
+    view = next;
     render();
   } catch (err) {
+    if (generation !== pollGeneration) return;
     view = null;
     led.className = "led";
-    linkText.textContent = "host offline";
+    linkText.textContent = err.name === "AbortError" ? "host not responding" : "host offline";
     setStatus("Lost the host process.", "err");
     disableAll();
+  } finally {
+    clearTimeout(timer);
+    polling = false;
   }
 }
 
@@ -663,6 +713,10 @@ function render() {
     led.className = "led warn";
     linkText.textContent = view.status.replace(/_/g, " ");
   }
+
+  // BF-07: outcomes are processed before any radio-specific rendering, so a
+  // result still resolves after an unlink or death when no panel is drawn.
+  renderResults();
 
   if (!r) {
     freq.className = "freq off";
@@ -688,16 +742,21 @@ function render() {
   lcdName.textContent = r.name;
   // getPower() is a battery charge only on a battery-powered set; a mains or
   // generator-fed radio must not show a fake percentage.
-  const powerText = r.mains ? "MAINS" : `BATT ${Math.round(r.battery * 100)}%`;
+  // BF-10: only a battery-powered set has a charge level. A mains or
+  // unpowered device must not show an invented percentage.
+  const powerText = r.power_source === "battery" && typeof r.battery === "number"
+    ? `BATT ${Math.round(r.battery * 100)}%`
+    : { mains: "MAINS", unpowered: "NO POWER", unknown: "POWER ?" }[r.power_source]
+      || "POWER ?";
   lcdPower.innerHTML = r.on
     ? `<span class="hot">ON</span> · ${powerText}`
     : `OFF · ${powerText}`;
 
   power.textContent = r.on ? "Turn off" : "Turn on";
   power.className = r.on ? "power is-on" : "power";
-  power.disabled = !live;
+  power.disabled = !mayMutate();
 
-  const tunable = live && r.on;
+  const tunable = mayMutate() && r.on && r.tunable;
   dialWrap.classList.toggle("disabled", !tunable);
   down.disabled = !tunable || r.channel <= r.channel_min;
   up.disabled = !tunable || r.channel >= r.channel_max;
@@ -715,7 +774,6 @@ function render() {
 
   drawDial();
   renderPresets(r, live);
-  renderResults();
 }
 
 function renderPresets(r, live) {
@@ -733,8 +791,17 @@ function renderPresets(r, live) {
     const button = document.createElement("button");
     button.className = "preset" + (preset.freq === r.channel ? " active" : "");
     button.innerHTML = `${escapeHtml(preset.name || "Preset")}<span class="pf">${mhz(preset.freq)} MHz</span>`;
-    button.disabled = !live || !r.on;
-    button.addEventListener("click", () => send({ command: "select_preset", index: index + 1 }));
+    button.disabled = !mayMutate() || !r.on;
+    button.setAttribute("aria-label",
+      `Tune to ${preset.name || "preset"}, ${mhz(preset.freq)} megahertz`);
+    // BF-04: name the list and frequency this click was made against, so a
+    // reordered list refuses instead of tuning whatever now sits at the index.
+    button.addEventListener("click", () => send({
+      command: "select_preset",
+      index: index + 1,
+      frequency: preset.freq,
+      preset_revision: r.preset_revision,
+    }));
     presets.appendChild(button);
   });
 }
@@ -765,23 +832,75 @@ function renderResults() {
   if (pending.size) setStatus("Waiting for the game…", "pending");
 }
 
+const newRequestId = () => {
+  // crypto.getRandomValues is available on plain HTTP; crypto.randomUUID and
+  // crypto.subtle are not, so neither is used here.
+  const bytes = new Uint8Array(12);
+  (self.crypto || {}).getRandomValues
+    ? crypto.getRandomValues(bytes)
+    : bytes.forEach((_, i) => { bytes[i] = Math.floor(Math.random() * 256); });
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+};
+
 async function send(body) {
+  if (!mayMutate()) return;
+  const r = radio();
+  if (!view || !r) return;
+
+  // BF-04: state the radio this was composed against. The host compares rather
+  // than substituting whatever is current, so a delayed request cannot be
+  // re-aimed at a radio the user never saw.
+  const request = Object.assign({
+    request_id: newRequestId(),
+    expected: { epoch: view.epoch, binding: view.binding,
+                control_revision: view.revision },
+  }, body);
+
+  // Controls lock the moment submission starts, not when the reply arrives.
+  submitting = true;
+  disableAll();
+  setStatus("Waiting for the game…", "pending");
+
   try {
     const res = await fetch("/api/command", {
       method: "POST",
       headers: authHeaders({ "Content-Type": "application/json" }),
-      body: JSON.stringify(body),
+      body: JSON.stringify(request),
     });
-    const data = await res.json();
-    if (!res.ok) {
-      setStatus(`Rejected: ${(data.error || "unknown").replace(/_/g, " ")}`, "err");
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 202) {
+      pending.set(request.request_id, body.command);
       return;
     }
-    pending.set(data.command_id, body.command);
-    setStatus("Waiting for the game…", "pending");
+    if (res.status === 409 && data.error === "busy") {
+      setStatus("The game is still working on the last change.", "err");
+      return;
+    }
+    setStatus(`Rejected: ${(data.error || "unknown").replace(/_/g, " ")}`, "err");
   } catch (err) {
-    setStatus("Could not reach the host.", "err");
+    // A lost response is NOT permission to send again: the command may have
+    // been delivered. Recover the outcome by id instead.
+    pending.set(request.request_id, body.command);
+    setStatus("Lost contact — checking what happened…", "err");
+    recover(request.request_id);
+  } finally {
+    submitting = false;
   }
+}
+
+async function recover(requestId) {
+  try {
+    const res = await fetch(`/api/result?request_id=${encodeURIComponent(requestId)}`,
+                            { cache: "no-store", headers: authHeaders() });
+    if (!res.ok) return;
+    const receipt = await res.json();
+    if (receipt.status && receipt.status !== "emitted") {
+      pending.delete(requestId);
+      setStatus(receipt.status === "applied" ? "Done."
+                : `Outcome: ${String(receipt.status).replace(/_/g, " ")}`,
+                receipt.status === "applied" ? "" : "err");
+    }
+  } catch (err) { /* the poll loop will try again */ }
 }
 
 power.addEventListener("click", () => {
@@ -789,11 +908,19 @@ power.addEventListener("click", () => {
   if (r) send({ command: "set_power", value: !r.on });
 });
 
+// BF-10: a saved preset can sit off the 200-unit grid, and adding 200 to 88500
+// gives 88700 -- still off-grid, so the mod rejects it and the button appears
+// dead. Step to the next legal grid point instead.
 const nudge = (delta) => {
   const r = radio();
-  if (!r) return;
-  const next = Math.min(r.channel_max,
-    Math.max(r.channel_min, r.channel + delta * r.channel_step));
+  if (!r || !r.tunable) return;
+  const step = r.channel_step;
+  let next = delta > 0
+    ? Math.floor(r.channel / step) * step + step
+    : Math.ceil(r.channel / step) * step - step;
+  const lowest = Math.ceil(r.channel_min / step) * step;
+  const highest = Math.floor(r.channel_max / step) * step;
+  next = Math.min(highest, Math.max(lowest, next));
   if (next !== r.channel) send({ command: "set_channel", value: next });
 };
 down.addEventListener("click", () => nudge(-1));
@@ -804,6 +931,13 @@ up.addEventListener("click", () => nudge(1));
 volume.addEventListener("pointerdown", () => { dragging = "volume"; });
 volume.addEventListener("input", () => {
   volume.style.setProperty("--fill", `${Math.round(parseFloat(volume.value) * 100)}%`);
+});
+// BF-07: keyboard input never created the pointer `dragging` state, so arrow
+// keys changed the slider and committed nothing.
+volume.addEventListener("keydown", () => { dragging = "volume"; });
+volume.addEventListener("keyup", (event) => {
+  if (["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End",
+       "PageUp", "PageDown"].includes(event.key)) commitVolume();
 });
 const commitVolume = () => {
   if (dragging !== "volume") return;
@@ -849,7 +983,7 @@ requestAnimationFrame(frame);
 window.addEventListener("resize", () => { drawDial(); });
 
 poll();
-setInterval(poll, 500);
+pollLoop();
 </script>
 </body>
 </html>

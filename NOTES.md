@@ -118,9 +118,10 @@ Events `OnTick`, `OnGameStart`, `OnPlayerDeath` and
   match the Python host's **byte for byte** (hardcoded constants from
   `pzrl_host.checksum`). Confirmed the harness fails when an expected value is
   wrong, so a pass means something.
-- **Host end-to-end** — `tests/test_host.py`, 33 checks against the real HTTP
+- **Host end-to-end** — `tests/test_host.py`, 98 checks against the real HTTP
   server over a temporary mailbox: command round trip, torn-write recovery,
-  staleness, cross-origin rejection, and type validation for every command.
+  staleness, credential disclosure, broker single-flight and idempotency,
+  outcome recovery, target identity, hostile input, and protocol mismatch.
 - **Live path** — with the host running against the real
   `C:\Users\thore\Zomboid\Lua\PZRL`, a hand-written state document produced the
   correct page state, a `set_channel` produced a well-formed `cmd.txt`, and
@@ -134,9 +135,10 @@ Everything where the mod touches the engine. These paths are written against
 verified signatures but have not been executed:
 
 - `ISRadioAction` actually applying a change, and the postcondition observer
-  seeing it. In particular the `set_volume` tolerance (±0.05) is a guess at the
-  volume bar's step size; the real step count comes from `getVolumeSteps()`,
-  which is UI-side and was not read.
+  seeing it. (The volume tolerance is no longer the ±0.05 guess described in
+  earlier versions: `DeviceData` stores the float it is given, quantisation is
+  a display concern in the volume bar, so the window is now half the protocol's
+  three-decimal precision. See the 0.3.0 table below.)
 - `Device.heldBy` against a radio in a nested bag, in the hotbar, and equipped
   in a hand slot. Only the plain-inventory case is reasoned about.
 - Whether `getIsPortable()` is true for every handheld the player expects
@@ -187,3 +189,40 @@ that is treated as exposed and retired on the next start.
 Covered by tests: every public route is swept for the key (including error
 bodies and headers), the manifest is asserted byte-identical for anonymous and
 paired callers, and the migration/rotation paths are exercised directly.
+
+---
+
+## Reliability fixes (0.3.0)
+
+Addresses BF-02 through BF-10 of the 0.2 review. What changed, and what is
+still not proven:
+
+| ID | Change |
+|---|---|
+| BF-02 | `host/pzrl_broker.py`. One outstanding command, admitted under a single lock. Idempotent by client request id; the same id with a different payload is refused. Receipts survive the response and are fetchable at `/api/result`, so a phone that slept through an outcome recovers instead of resending. The active receipt is persisted before emission, so a crash around the file replace is reconciled rather than forgotten. Envelopes carry an acceptance deadline the mod enforces. |
+| BF-03 | The mod keeps the actual `ISRadioAction` via per-instance overrides — no global patch, no touched game files. `applied` now requires the owned action to have run *and* the device to show the requested state. Power re-reads immediately before toggling, so a manual flip completes as a verified no-op instead of inverting. Queue-wait and executing time are separate, and both freeze while paused. An unestablished outcome reports `unknown`, never `cancelled`. |
+| BF-04 | Every mutation carries the epoch and binding the browser displayed; the host compares rather than substituting current values. The pending record captures the exact item, player and binding. Preset clicks carry the list revision and expected frequency, so a reordered list gives `stale_preset`. `controlRevision` now tracks observed controllable state and still ignores battery drain. |
+| BF-05 | Command sequence starts above the highest value on disk instead of from the clock. State identity is (epoch, sequence). An existing file is *unverified* until a heartbeat advances, so yesterday's mailbox with the game closed leaves controls disabled. The POST path enforces staleness, pause and link status. A real OS lock on the mailbox directory stops a second host. |
+| BF-06 | `close()` is the flush boundary, so its failure is a failed publication and the A/B slot does not rotate. Consecutive failures are counted separately from lifetime diagnostics and reset on success; the threshold now triggers bounded backoff with retry instead of permanent shutdown. |
+| BF-07 | One awaited poll with a timeout and generation check, so a slow response cannot restore state after a rebind. Preset buttons are included in `disableAll()`. Receipts are processed before radio rendering, so results resolve after an unlink. Keyboard volume commits; a cancelled dial gesture discards its draft. |
+| BF-08 | Command type is validated before the set lookup (an array used to raise). Non-finite and oversized numbers refused, protocol version enforced at both ends, auth header validated before `compare_digest`, `Host` checked against what this server serves and `Origin` against that. |
+| BF-09 | Scheduling is by elapsed milliseconds, not callback count: 250 ms commands, 500 ms state. At most one due operation per callback, so resuming from a stall cannot burst file I/O. |
+| BF-10 | Off-grid nudges step to the next *legal* grid point (88500 → 88600 / 88400). An unreadable channel range is omitted rather than exported as 0..0. Power is modelled as battery / mains / unpowered / unknown, and only the first shows a percentage. |
+
+### Still not verified against a running game
+
+The owned-action work is the largest untested surface. Specifically:
+
+- That per-instance overrides on `ISRadioAction` survive `ISTimedActionQueue`'s
+  handling — the methods are shadowed on the instance, which is sound Lua, but
+  it has not been executed in the engine.
+- Whether `forceStop` or `stop` is the correct cancellation entry point in
+  42.20.4, and whether stopping an action mid-queue is safe.
+- Whether a mains-powered radio can report `getPower() == 0` while working,
+  which would make the tuning/volume guard refuse a working device.
+- The queue-wait and executing timeouts (20 s / 8 s) are chosen, not measured.
+- Nested bags, hotbar and equipped slots for possession.
+- Frame cost of the file I/O at the new cadence. **Still unmeasured.**
+
+The automated gates cover the transport, protocol, broker and browser logic
+against fakes. A passing gate here does not prove an engine hook is correct.

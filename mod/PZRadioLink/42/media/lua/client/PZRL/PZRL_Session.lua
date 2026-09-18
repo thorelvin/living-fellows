@@ -93,6 +93,32 @@ function Session.bumpRevision()
     Session.controlRevision = Session.controlRevision + 1
 end
 
+--[[
+BF-04. The revision previously advanced only when a remote command succeeded,
+so a player turning the dial in game left it unchanged and a phone request
+composed against the old reading still looked current.
+
+It now tracks the controllable state -- power, channel, volume and the preset
+list -- and deliberately ignores battery drain and heartbeats, which would
+otherwise invalidate a user's in-flight edit for no reason.
+]]
+function Session.observeControlState(snapshot)
+    if snapshot == nil then
+        Session._controlKey = nil
+        return
+    end
+    local key = table.concat({
+        snapshot.turnedOn and "1" or "0",
+        tostring(snapshot.channel or ""),
+        string.format("%.3f", type(snapshot.volume) == "number" and snapshot.volume or 0),
+        tostring(snapshot.presetRevision or 0),
+    }, "|")
+    if Session._controlKey ~= nil and Session._controlKey ~= key then
+        Session.controlRevision = Session.controlRevision + 1
+    end
+    Session._controlKey = key
+end
+
 -- Re-proves the binding from scratch every time it is asked. A linked but
 -- inaccessible device is dropped, never silently replaced by a similar item.
 -- Returns (ok, reason).

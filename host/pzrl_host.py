@@ -9,7 +9,14 @@ is the web server, and it talks to the mod through small framed files under
 <userdir>/Zomboid/Lua/PZRL. The game stays authoritative for every radio state;
 nothing here simulates power, battery, channel or reception.
 
-MVP scope: binds to 127.0.0.1 only. No pairing, no credentials, no LAN exposure.
+Binds the LAN interface by default so a phone can reach it, with `--localhost`
+for loopback only. Access is gated by a pairing key delivered through the QR
+code the launcher prints.
+
+Trust boundary: this is plain HTTP on a local network. Python documents
+http.server as providing only basic security checks, and the key is a bearer
+token, not encryption. It keeps another device on your LAN from driving the
+radio; it is not a reason to expose this to the internet.
 """
 
 from __future__ import annotations
@@ -18,6 +25,7 @@ import argparse
 import http.server
 import json
 import os
+import re
 import secrets
 import socket
 import socketserver
@@ -26,15 +34,22 @@ import threading
 import time
 import uuid
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
+import pzrl_broker
 import pzrl_icon
 import pzrl_qr
 
-PROTOCOL = 1
-MAGIC = "PZRL1"
+# Protocol 2. The framing magic changed with it because protocol 1 dispatch did
+# not enforce the version field, so a v1 mod handed a v2 command would act on
+# it. A mixed install now fails to parse instead of half-working.
+PROTOCOL = 2
+MAGIC = "PZRL2"
 FOOTER = "PZRLEND"
 MAX_PAYLOAD_BYTES = 16384
+# Lua numbers are doubles; stay inside exact-integer range on both sides.
+MAX_SAFE_INT = 2 ** 53 - 1
+MAX_BODY_BYTES = 4096
 
 WEB_ROOT = Path(__file__).resolve().parent / "web"
 
@@ -90,7 +105,9 @@ def frame(seq: int, pairs: list[tuple[str, object]]) -> str:
 
 def parse(text: str) -> tuple[dict[str, str], int] | None:
     """Returns (fields, seq) only for a completely valid document."""
-    lines = text.split("\n")
+    # Tolerate either line ending: Lua's readLine() strips both, so the two
+    # sides must agree on that rather than only on \n.
+    lines = [line.rstrip("\r") for line in text.split("\n")]
     if len(lines) < 3:
         return None
     header, payload, footer = lines[0], lines[1], lines[2]
@@ -117,48 +134,147 @@ def parse(text: str) -> tuple[dict[str, str], int] | None:
 # ------------------------------------------------------------------- mailbox
 
 
+MAX_STATE_BYTES = 64 * 1024
+
+
+class MailboxBusy(Exception):
+    """Another host already owns this mailbox directory."""
+
+
 class Mailbox:
     """Reads the mod's A/B state slots; writes the single command document."""
 
-    def __init__(self, lua_dir: Path) -> None:
+    def __init__(self, lua_dir: Path, take_lock: bool = True) -> None:
         self.dir = lua_dir / "PZRL"
         self.dir.mkdir(parents=True, exist_ok=True)
         self.command_path = self.dir / "cmd.txt"
         self.state_paths = [self.dir / "state_a.txt", self.dir / "state_b.txt"]
-        self._seq = int(time.time())
         self._lock = threading.Lock()
         self._last_good: dict[str, str] | None = None
-        self._last_good_seq = -1
+        self._last_identity: tuple[str, int] | None = None
         self._last_change = 0.0
+        self._seen_heartbeat = False
+        self._lock_handle = None
+        if take_lock:
+            self._acquire_directory_lock()
+        # BF-05: the command sequence must start above anything the mod may
+        # still treat as consumed. Seeding from the clock meant a restart after
+        # a burst could emit *lower* numbers, which the mod silently drops.
+        self._seq = self._recover_sequence()
+
+    # ------------------------------------------------------ directory lock
+
+    def _acquire_directory_lock(self) -> None:
+        """Binding the HTTP port is not enough: two hosts on different ports
+        would happily write the same cmd.txt. The lock is held open for the
+        process lifetime, so the OS releases it even on a hard exit."""
+        path = self.dir / "host.lock"
+        try:
+            handle = open(path, "a+b")
+        except OSError:
+            return  # cannot lock; better to run than to refuse over this
+        try:
+            import msvcrt
+
+            handle.seek(0)
+            msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+        except ImportError:
+            try:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except (ImportError, OSError):
+                handle.close()
+                raise MailboxBusy(str(path))
+        except OSError:
+            handle.close()
+            raise MailboxBusy(str(path))
+        self._lock_handle = handle
+
+    def _recover_sequence(self) -> int:
+        """Start above the highest command sequence still on disk."""
+        try:
+            text = self.command_path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            return 0
+        parsed = parse(text)
+        return parsed[1] if parsed else 0
+
+    # ------------------------------------------------------------- reading
+
+    def _read_bounded(self, path: Path) -> str | None:
+        """Bound the read before allocating the whole file: a corrupt or
+        hostile state file must not be loaded in full first."""
+        try:
+            with open(path, "rb") as handle:
+                blob = handle.read(MAX_STATE_BYTES + 1)
+        except OSError:
+            return None
+        if len(blob) > MAX_STATE_BYTES:
+            return None
+        try:
+            # Binary reads skip the newline translation read_text() performs, so
+            # normalize here: a CRLF-written document would otherwise leave a
+            # stray \r on every line and never match the footer.
+            return blob.decode("utf-8").replace("\r\n", "\n")
+        except UnicodeDecodeError:
+            return None
 
     def read_state(self) -> tuple[dict[str, str] | None, float]:
-        """Highest validating slot wins. A torn slot is ignored, never fatal."""
+        """Highest validating slot wins. A torn slot is ignored, never fatal.
+
+        BF-05: identity is (epoch, sequence), not a bare sequence. A new game
+        session restarts its sequence, so sequence alone made a fresh document
+        look like a repeat of an old one.
+        """
         best: tuple[dict[str, str], int] | None = None
         for path in self.state_paths:
-            try:
-                text = path.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError):
+            text = self._read_bounded(path)
+            if text is None:
                 continue
             parsed = parse(text)
             if parsed is None:
                 continue
             if best is None or parsed[1] > best[1]:
                 best = parsed
-        if best is not None and best[1] != self._last_good_seq:
-            self._last_good, self._last_good_seq = best[0], best[1]
-            self._last_change = time.monotonic()
-        age = time.monotonic() - self._last_change if self._last_good else 999.0
-        return self._last_good, age
 
-    def send_command(self, pairs: list[tuple[str, object]]) -> int:
+        if best is not None:
+            identity = (best[0].get("epoch", ""), best[1])
+            if identity != self._last_identity:
+                # Only an *advancing* document proves a live game. The first
+                # read of a file left over from yesterday does not.
+                if self._last_identity is not None:
+                    self._seen_heartbeat = True
+                self._last_good, self._last_identity = best[0], identity
+                self._last_change = time.monotonic()
+
+        if self._last_good is None:
+            return None, 999.0
+        if not self._seen_heartbeat:
+            # Present but unproven: treat as stale until it moves.
+            return self._last_good, 999.0
+        return self._last_good, time.monotonic() - self._last_change
+
+    # ------------------------------------------------------------- writing
+
+    def send_command(self, pairs: list[tuple[str, object]], request_id: str = "") -> int:
         with self._lock:
             self._seq += 1
             text = frame(self._seq, pairs)
             # The host can do what the mod cannot: replace the file atomically.
             temp = self.command_path.with_suffix(".tmp")
-            temp.write_text(text, encoding="utf-8")
-            os.replace(temp, self.command_path)
-            return self._seq
+            last: OSError | None = None
+            for attempt in range(4):
+                try:
+                    temp.write_text(text, encoding="utf-8")
+                    os.replace(temp, self.command_path)
+                    return self._seq
+                except OSError as error:
+                    # Windows sharing violations are transient; retries are
+                    # bounded so a locked file cannot hang a request.
+                    last = error
+                    time.sleep(0.02 * (attempt + 1))
+            raise last if last else OSError("command write failed")
 
 
 # --------------------------------------------------------------- state model
@@ -240,6 +356,18 @@ def build_view(fields: dict[str, str] | None, age: float) -> dict:
         value = num(key)
         return int(value) if value is not None else None
 
+    # BF-08: a corrupt or unexpected document becomes an explicit invalid
+    # state, never an exception or plausible zero-valued telemetry.
+    if fields.get("proto") and fields["proto"] != str(PROTOCOL):
+        return {
+            "connected": False,
+            "status": "protocol_mismatch",
+            "stale": True,
+            "radio": None,
+            "results": [],
+            "detail": f"mod speaks protocol {fields['proto']}, host speaks {PROTOCOL}",
+        }
+
     radio = None
     if "ch" in fields:
         presets = []
@@ -247,22 +375,29 @@ def build_view(fields: dict[str, str] | None, age: float) -> dict:
             name, sep, freq = chunk.rpartition(":")
             if sep and freq.isdigit():
                 presets.append({"name": name, "freq": int(freq)})
+        # BF-10: the mod omits the range entirely when it could not be read,
+        # rather than exporting 0..0 as if the band were authoritatively empty.
+        lo, hi = integer("chmin"), integer("chmax")
+        tunable = lo is not None and hi is not None and hi > lo
         radio = {
             "name": fields.get("name") or "Radio",
             # A placed radio stays linked when the player walks away, but cannot
             # be operated from a distance.
             "kind": fields.get("kind", "item"),
             "in_reach": fields.get("reach", "1") == "1",
-            "mains": fields.get("mains") == "1",
+            # battery | mains | unpowered | unknown. `battery` is a charge level
+            # only in the first case; the others must not show a percentage.
+            "power_source": fields.get("power_src", "unknown"),
             "on": fields.get("on") == "1",
             "channel": integer("ch"),
-            "channel_min": integer("chmin"),
-            "channel_max": integer("chmax"),
+            "channel_min": lo,
+            "channel_max": hi,
             "channel_step": integer("chstep") or 200,
+            "tunable": tunable,
             "volume": num("vol"),
             "battery": num("batt"),
-            "battery_powered": fields.get("battery") == "1",
             "presets": presets,
+            "preset_revision": integer("prev") or 0,
         }
 
     results = []
@@ -286,8 +421,11 @@ def build_view(fields: dict[str, str] | None, age: float) -> dict:
         "epoch": fields.get("epoch", ""),
         "binding": fields.get("binding", ""),
         "revision": integer("rev") or 0,
+        "watermark": integer("watermark"),
+        "active": fields.get("active", ""),
         "stale": stale,
         "age": round(age, 2),
+        "protocol": PROTOCOL,
         "radio": radio,
         "results": results,
     }
@@ -330,9 +468,11 @@ def detect_lan_ip() -> str | None:
 
 
 class Handler(http.server.BaseHTTPRequestHandler):
-    server_version = "PZRadioLink/0.1"
+    server_version = "PZRadioLink/0.3"
     mailbox: Mailbox
+    broker: "pzrl_broker.Broker"
     token: str = ""
+    allowed_hosts: set[str] = {"127.0.0.1", "localhost", "::1"}
 
     def log_message(self, fmt, *args):  # quieter than the default one-line-per-hit
         pass
@@ -352,11 +492,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
     # same-origin Host and rejecting cross-site Origins keeps a random browser
     # tab from driving the radio.
     def _origin_ok(self) -> bool:
+        """BF-08: validate Host against what this server actually serves, then
+        Origin against that. Comparing Origin to a caller-supplied Host merely
+        checks the caller is self-consistent, which any attacker trivially is.
+        """
+        host = self.headers.get("Host", "")
+        hostname = host.rsplit(":", 1)[0].strip("[]") if host else ""
+        if hostname and hostname not in self.allowed_hosts:
+            return False
         origin = self.headers.get("Origin")
         if origin is None:
-            return True
-        host = self.headers.get("Host", "")
-        return origin in (f"http://{host}", f"https://{host}")
+            return True  # not a browser cross-site request
+        parsed = urlsplit(origin)
+        if parsed.scheme not in ("http", "https"):
+            return False
+        origin_host = (parsed.hostname or "").strip("[]")
+        return bool(origin_host) and origin_host in self.allowed_hosts
 
     # Once the host is reachable from the LAN, every other device on the network
     # can reach this port too. The token from the QR gates the control surface.
@@ -366,6 +517,14 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if not self.token:
             return True
         supplied = self.headers.get("X-PZRL-Token", "")
+        # BF-08: compare_digest raises on non-ASCII, so a malformed header must
+        # fail validation before it reaches the comparison, not inside it.
+        if not isinstance(supplied, str) or len(supplied) != len(self.token):
+            return False
+        try:
+            supplied.encode("ascii")
+        except (UnicodeEncodeError, AttributeError):
+            return False
         return secrets.compare_digest(supplied, self.token)
 
     # The pairing URL carries ?t=<token>, so the raw path is "/?t=..." and never
@@ -424,7 +583,34 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._json(401, {"error": "unauthorized"})
                 return
             fields, age = self.mailbox.read_state()
-            self._json(200, build_view(fields, age))
+            view = build_view(fields, age)
+            # BF-02: outcomes are folded into receipts here rather than in the
+            # browser, so a phone that slept through a result does not prevent
+            # the host from learning the command finished.
+            self.broker.apply_results(view.get("results", []), view.get("watermark"))
+            self.broker.expire_stale()
+            view["active_request"] = self.broker.active
+            self._json(200, view)
+            return
+
+        # BF-02: a browser that lost its POST response recovers the outcome
+        # here instead of resending and causing a second game action.
+        if route == "/api/result":
+            if not self._authorized():
+                self._json(401, {"error": "unauthorized"})
+                return
+            wanted = parse_qs(urlsplit(self.path).query).get("request_id", [""])[0]
+            if wanted:
+                receipt = self.broker.receipt(wanted)
+                if receipt is None:
+                    # An expired record is NOT proof the command never ran.
+                    self._json(404, {"error": "unknown_request",
+                                     "note": "outside the retention window"})
+                    return
+                self._json(200, receipt)
+                return
+            self._json(200, {"receipts": self.broker.receipts(),
+                             "active": self.broker.active})
             return
 
         self._send(404, b"not found", "text/plain")
@@ -445,7 +631,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         except ValueError:
             self._json(400, {"error": "bad_length"})
             return
-        if length <= 0 or length > 4096:
+        if length <= 0 or length > MAX_BODY_BYTES:
             self._json(400, {"error": "bad_length"})
             return
 
@@ -458,53 +644,134 @@ class Handler(http.server.BaseHTTPRequestHandler):
             self._json(400, {"error": "bad_json"})
             return
 
+        # BF-08: check the type BEFORE the set lookup. `[] in ALLOWED_COMMANDS`
+        # on an unhashable value raises, turning a malformed body into a 500.
         command = payload.get("command")
-        if command not in ALLOWED_COMMANDS:
+        if not isinstance(command, str) or command not in ALLOWED_COMMANDS:
             self._json(400, {"error": "unknown_command"})
             return
 
-        fields, _age = self.mailbox.read_state()
+        request_id = payload.get("request_id")
+        if not isinstance(request_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{8,64}", request_id):
+            self._json(400, {"error": "bad_request_id"})
+            return
+
+        fields, age = self.mailbox.read_state()
         if fields is None:
             self._json(409, {"error": "no_game"})
             return
+        # BF-05: the POST path read the age and ignored it.
+        if age > 3.0:
+            self._json(409, {"error": "stale_state"})
+            return
+        if fields.get("proto") != str(PROTOCOL):
+            self._json(409, {"error": "protocol_mismatch"})
+            return
+        if fields.get("status") != "linked":
+            self._json(409, {"error": fields.get("status") or "not_linked"})
+            return
+        if fields.get("paused") == "1":
+            self._json(409, {"error": "paused"})
+            return
 
-        command_id = uuid.uuid4().hex[:12]
-        pairs: list[tuple[str, object]] = [
-            ("proto", PROTOCOL),
-            ("id", command_id),
-            ("epoch", fields.get("epoch", "")),
-            ("binding", fields.get("binding", "")),
-            ("cmd", command),
-        ]
+        # BF-04: the browser states which radio it was looking at. The host
+        # compares rather than substituting whatever is current, so a request
+        # composed against radio A can never be applied to radio B.
+        expected = payload.get("expected")
+        if not isinstance(expected, dict):
+            self._json(400, {"error": "missing_expected"})
+            return
+        for key in ("epoch", "binding"):
+            if not isinstance(expected.get(key), str):
+                self._json(400, {"error": "missing_expected"})
+                return
+            if expected[key] != fields.get(key, ""):
+                self._json(409, {"error": f"stale_{key}",
+                                 "epoch": fields.get("epoch", ""),
+                                 "binding": fields.get("binding", "")})
+                return
+
+        try:
+            extra = self._command_fields(command, payload, fields)
+        except ValueError as error:
+            self._json(400, {"error": str(error)})
+            return
+
+        payload_key = json.dumps([command, extra], sort_keys=True)
+
+        def envelope(deadline_ms: int) -> list[tuple[str, object]]:
+            return [
+                ("proto", PROTOCOL),
+                ("id", request_id),
+                ("epoch", expected["epoch"]),
+                ("binding", expected["binding"]),
+                ("deadline", deadline_ms),
+                ("cmd", command),
+            ] + extra
+
+        try:
+            receipt = self.broker.admit(request_id, payload_key, envelope)
+        except pzrl_broker.Busy as busy:
+            self._json(409, {"error": "busy", "active": busy.active_id})
+            return
+        except pzrl_broker.Conflict:
+            self._json(409, {"error": "request_id_reused"})
+            return
+
+        self._json(202, {
+            "request_id": receipt["request_id"],
+            "status": receipt["status"],
+            "reason": receipt.get("reason", ""),
+            "sequence": receipt.get("sequence"),
+        })
+
+    @staticmethod
+    def _command_fields(command: str, payload: dict,
+                        state: dict[str, str]) -> list[tuple[str, object]]:
+        """Per-command validation. Raises ValueError with a stable code."""
+
+        def finite_number(value):
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError("bad_value")
+            number = float(value)
+            if number != number or number in (float("inf"), float("-inf")):
+                raise ValueError("bad_value")
+            return number
+
+        def bounded_int(value):
+            if isinstance(value, bool) or not isinstance(value, int):
+                raise ValueError("bad_value")
+            if abs(value) > MAX_SAFE_INT:
+                raise ValueError("bad_value")
+            return value
 
         value = payload.get("value")
         if command == "set_power":
             if not isinstance(value, bool):
-                self._json(400, {"error": "bad_value"})
-                return
-            pairs.append(("value", "1" if value else "0"))
-        elif command == "set_channel":
-            if not isinstance(value, int) or isinstance(value, bool):
-                self._json(400, {"error": "bad_value"})
-                return
-            pairs.append(("value", value))
-        elif command == "set_volume":
-            if not isinstance(value, (int, float)) or isinstance(value, bool):
-                self._json(400, {"error": "bad_value"})
-                return
-            if not (0.0 <= float(value) <= 1.0):
-                self._json(400, {"error": "bad_value"})
-                return
-            pairs.append(("value", f"{float(value):.3f}"))
-        elif command == "select_preset":
-            index = payload.get("index")
-            if not isinstance(index, int) or isinstance(index, bool) or index < 1:
-                self._json(400, {"error": "bad_value"})
-                return
-            pairs.append(("index", index))
+                raise ValueError("bad_value")
+            return [("value", "1" if value else "0")]
 
-        seq = self.mailbox.send_command(pairs)
-        self._json(200, {"command_id": command_id, "sequence": seq})
+        if command == "set_channel":
+            channel = bounded_int(value)
+            return [("value", channel)]
+
+        if command == "set_volume":
+            volume = finite_number(value)
+            if not (0.0 <= volume <= 1.0):
+                raise ValueError("bad_value")
+            return [("value", f"{volume:.3f}")]
+
+        if command == "select_preset":
+            index = bounded_int(payload.get("index"))
+            if index < 1:
+                raise ValueError("bad_value")
+            # BF-04: name the list this click was made against, so a reordered
+            # or edited preset list refuses instead of tuning slot N blindly.
+            revision = bounded_int(payload.get("preset_revision", 0))
+            frequency = bounded_int(payload.get("frequency", 0))
+            return [("index", index), ("prev", revision), ("freq", frequency)]
+
+        return []
 
 
 class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
@@ -564,7 +831,19 @@ def main() -> int:
     if Handler.token:
         url += f"?t={Handler.token}"
 
-    Handler.mailbox = Mailbox(args.lua_dir)
+    try:
+        Handler.mailbox = Mailbox(args.lua_dir)
+    except MailboxBusy:
+        print(f"[PZRL] another host already owns {args.lua_dir / 'PZRL'}")
+        print("[PZRL] close the other window; two hosts must not share a mailbox")
+        return 1
+    Handler.broker = pzrl_broker.Broker(
+        Handler.mailbox, key_path().parent / "active-command.json")
+    # BF-08: Host headers are checked against what this server actually serves.
+    Handler.allowed_hosts = {"127.0.0.1", "localhost", "::1"}
+    if shown not in ("127.0.0.1",):
+        Handler.allowed_hosts.add(shown)
+
     try:
         server = Server((bind, args.port), Handler)
     except OSError as error:

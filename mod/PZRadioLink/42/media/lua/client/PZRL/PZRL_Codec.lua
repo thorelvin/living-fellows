@@ -22,7 +22,11 @@ PZRL = PZRL or {}
 local Codec = {}
 PZRL.Codec = Codec
 
-Codec.MAGIC = "PZRL1"
+-- Protocol 2. The magic changed with it on purpose: protocol 1 dispatch did not
+-- enforce the `proto` field, so a v1 reader handed a v2 command would act on it.
+-- A different magic makes a mixed install fail to parse instead.
+Codec.MAGIC = "PZRL2"
+Codec.PROTOCOL = 2
 Codec.FOOTER = "PZRLEND"
 Codec.MAX_PAYLOAD_BYTES = 16384
 

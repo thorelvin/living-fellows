@@ -22,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "host"))
 
 import pzrl_host as H  # noqa: E402
+import pzrl_broker as broker_mod  # noqa: E402
 
 FAILURES: list[str] = []
 
@@ -36,11 +37,12 @@ def check(name: str, condition: bool, detail: str = "") -> None:
 
 def state_pairs(**over) -> list[tuple[str, object]]:
     base = {
-        "proto": "1", "epoch": "g999", "binding": "b1", "rev": 4,
-        "status": "linked", "paused": "0", "name": "HamRadio", "on": "1",
+        "proto": str(H.PROTOCOL), "epoch": "g999", "binding": "b1", "rev": 4,
+        "status": "linked", "paused": "0", "watermark": "0", "active": "",
+        "name": "HamRadio", "on": "1",
         "ch": 93400, "chmin": 88000, "chmax": 108000, "chstep": 200,
-        "vol": "0.350", "batt": "0.720", "battery": "1",
-        "presets": "WKTV:88500|Noise Maker:91200",
+        "vol": "0.350", "batt": "0.720", "power_src": "battery",
+        "prev": "12345", "presets": "WKTV:88500|Noise Maker:91200",
     }
     base.update(over)
     return list(base.items())
@@ -91,7 +93,21 @@ def get(url: str, token: str | None = TOKEN):
         return error.code, json.loads(error.read())
 
 
-def post(url: str, payload: dict, token: str | None = TOKEN):
+_request_counter = [0]
+
+
+def post(url: str, payload: dict, token: str | None = TOKEN, *,
+         request_id: str | None = None, expected: dict | None = None,
+         raw: bool = False):
+    """Fills in the v2 envelope unless a test is exercising its absence."""
+    if not raw:
+        payload = dict(payload)
+        if request_id is None:
+            _request_counter[0] += 1
+            request_id = f"req{_request_counter[0]:016d}"
+        payload.setdefault("request_id", request_id)
+        payload.setdefault("expected", expected if expected is not None
+                           else {"epoch": "g999", "binding": "b1"})
     headers = {"Content-Type": "application/json"}
     if token is not None:
         headers["X-PZRL-Token"] = token
@@ -112,8 +128,10 @@ def main() -> int:
     root = Path(tempfile.mkdtemp(prefix="pzrl-test-"))
     mod = FakeMod(root)
 
-    H.Handler.mailbox = H.Mailbox(root)
+    H.Handler.mailbox = H.Mailbox(root, take_lock=False)
+    H.Handler.broker = broker_mod.Broker(H.Handler.mailbox, root / "active.json")
     H.Handler.token = TOKEN
+    H.Handler.allowed_hosts = {"127.0.0.1", "localhost", "::1"}
     server = H.Server(("127.0.0.1", 0), H.Handler)
     port = server.server_address[1]
     threading.Thread(target=server.serve_forever, daemon=True).start()
@@ -126,10 +144,18 @@ def main() -> int:
     code, body = post(f"{base}/api/command", {"command": "set_power", "value": True})
     check("command refused with no game", code == 409, str(body))
 
-    print("linked radio")
+    print("historical files are not a running game (BF-05)")
     mod.publish()
     code, view = get(f"{base}/api/state")
-    check("connected", view["connected"] is True)
+    check("one unmoving document is not 'connected'", view["connected"] is False,
+          "a file on disk must not imply a live game")
+    code, body = post(f"{base}/api/command", {"command": "set_power", "value": True})
+    check("command refused on unproven state", code == 409, str(body))
+
+    print("linked radio")
+    mod.publish()  # an advancing heartbeat proves the game is actually running
+    code, view = get(f"{base}/api/state")
+    check("connected once the heartbeat advances", view["connected"] is True)
     check("channel", view["radio"]["channel"] == 93400)
     check("volume", abs(view["radio"]["volume"] - 0.35) < 1e-6)
     check("power flag", view["radio"]["on"] is True)
@@ -138,14 +164,20 @@ def main() -> int:
     check("step exposed", view["radio"]["channel_step"] == 200)
 
     print("command round trip")
-    code, body = post(f"{base}/api/command", {"command": "set_channel", "value": 93600})
-    check("accepted", code == 200, str(body))
+    code, body = post(f"{base}/api/command", {"command": "set_channel", "value": 93600},
+                      request_id="roundtrip0000001")
+    check("accepted as async", code == 202, str(body))
     fields = mod.read_command()
     check("mod sees command", fields is not None)
     check("carries value", fields and fields["value"] == "93600")
     check("carries epoch", fields and fields["epoch"] == "g999")
     check("carries binding", fields and fields["binding"] == "b1")
-    check("has command id", fields and fields["id"] == body["command_id"])
+    check("carries protocol", fields and fields["proto"] == str(H.PROTOCOL))
+    check("carries acceptance deadline", fields and int(fields["deadline"]) > 0)
+    check("uses the client request id", fields and fields["id"] == "roundtrip0000001")
+    # Free the slot so later sections are not blocked by this one.
+    mod.publish(r1="roundtrip0000001:applied:")
+    get(f"{base}/api/state")
 
     print("torn write")
     before = get(f"{base}/api/state")[1]["radio"]["channel"]
@@ -187,17 +219,30 @@ def main() -> int:
     check("reason parsed", view["results"][0]["reason"] == "device_off")
 
     print("placed (world) radios")
-    mod.publish(kind="world", reach="0", mains="1", battery="0", batt="0.000",
-                name="HAM radio")
+    mod.publish(kind="world", reach="0", power_src="mains", name="HAM radio")
     code, view = get(f"{base}/api/state")
     radio = view["radio"]
     check("kind reported", radio["kind"] == "world")
     check("out of reach reported", radio["in_reach"] is False)
-    check("mains power reported", radio["mains"] is True)
+    check("mains power reported", radio["power_source"] == "mains")
     check("still linked while out of reach", view["status"] == "linked")
-    mod.publish(kind="world", reach="1", mains="1", battery="0", batt="0.000")
+    mod.publish(kind="world", reach="1", power_src="mains")
     code, view = get(f"{base}/api/state")
     check("back in reach", view["radio"]["in_reach"] is True)
+
+    print("power model (BF-10)")
+    for source in ("battery", "mains", "unpowered", "unknown"):
+        mod.publish(power_src=source)
+        code, view = get(f"{base}/api/state")
+        check(f"{source} reported verbatim", view["radio"]["power_source"] == source)
+    # An unreadable channel range must not be exported as an authoritative band.
+    pairs = [(k, v) for k, v in state_pairs() if k not in ("chmin", "chmax", "chstep")]
+    mod.seq += 1
+    (mod.dir / "state_a.txt").write_text(H.frame(mod.seq, pairs), encoding="utf-8")
+    code, view = get(f"{base}/api/state")
+    check("missing range is not 0..0", view["radio"]["channel_min"] is None)
+    check("missing range marks untunable", view["radio"]["tunable"] is False)
+    mod.publish()
     # A mod that never sends the field (carried radio) must not read as unreachable.
     mod.publish()
     code, view = get(f"{base}/api/state")
@@ -250,6 +295,121 @@ def main() -> int:
         check(f"{path} is a {expected}px PNG",
               blob[:8] == b"\x89PNG\r\n\x1a\n" and width == height == expected,
               f"{width}x{height}")
+
+    print("single-flight command broker (BF-02)")
+    mod.publish()
+    # A burst must produce exactly one outstanding command and explicit
+    # refusals for the rest -- never silent overwriting of cmd.txt.
+    codes = [post(f"{base}/api/command",
+                  {"command": "set_channel", "value": 93600 + i * 200})[0]
+             for i in range(20)]
+    check("exactly one of 20 accepted", codes.count(202) == 1, str(codes.count(202)))
+    check("the rest are explicitly busy", codes.count(409) == 19, str(codes.count(409)))
+    active = H.Handler.broker.active
+    check("broker holds one active command", active is not None)
+
+    # Free the burst's slot first, or the idempotency checks below would all
+    # hit "busy" and pass for the wrong reason.
+    mod.publish(r1=f"{active}:applied:")
+    get(f"{base}/api/state")
+    check("slot freed before idempotency checks", H.Handler.broker.active is None)
+
+    # The same request id must not produce a second game action.
+    first = post(f"{base}/api/command", {"command": "set_power", "value": False},
+                 request_id="idem000000000001")
+    check("first submission accepted", first[0] == 202, str(first))
+    seq_before = H.Handler.mailbox._seq   # count only what the REPLAY emits
+    replay = post(f"{base}/api/command", {"command": "set_power", "value": False},
+                  request_id="idem000000000001")
+    check("replayed id returns the same receipt", first[1] == replay[1], str(replay))
+    check("replay emits no second command",
+          H.Handler.mailbox._seq == seq_before, "sequence advanced twice")
+
+    conflict = post(f"{base}/api/command", {"command": "set_power", "value": True},
+                    request_id="idem000000000001")
+    check("same id, different payload is refused", conflict[0] == 409
+          and conflict[1].get("error") == "request_id_reused", str(conflict))
+
+    # Resolving the outcome frees the slot.
+    mod.publish(r1="idem000000000001:applied:")
+    get(f"{base}/api/state")
+    check("terminal outcome frees the slot", H.Handler.broker.active is None)
+
+    print("outcome recovery (BF-02)")
+    accepted = post(f"{base}/api/command", {"command": "set_volume", "value": 0.4},
+                    request_id="recover000000001")
+    check("accepted for recovery test", accepted[0] == 202, str(accepted))
+    with urllib.request.urlopen(urllib.request.Request(
+            f"{base}/api/result?request_id=recover000000001",
+            headers={"X-PZRL-Token": TOKEN}), timeout=5) as response:
+        receipt = json.loads(response.read())
+    check("receipt is retrievable by id", receipt["request_id"] == "recover000000001")
+    code, _ = get(f"{base}/api/result?request_id=nope000000000000")
+    check("unknown receipt is 404, not a lie", code == 404)
+    mod.publish(r1="recover000000001:applied:")
+    get(f"{base}/api/state")
+
+    print("target identity (BF-04)")
+    mod.publish()
+    stale = post(f"{base}/api/command", {"command": "set_power", "value": True},
+                 expected={"epoch": "g999", "binding": "OLD-BINDING"})
+    check("stale binding refused", stale[0] == 409
+          and stale[1].get("error") == "stale_binding", str(stale))
+    stale_epoch = post(f"{base}/api/command", {"command": "set_power", "value": True},
+                       expected={"epoch": "ANCIENT", "binding": "b1"})
+    check("stale epoch refused", stale_epoch[0] == 409
+          and stale_epoch[1].get("error") == "stale_epoch", str(stale_epoch))
+    missing = post(f"{base}/api/command", {"command": "set_power", "value": True},
+                   raw=True)
+    check("missing expected block refused", missing[0] == 400, str(missing))
+    preset = post(f"{base}/api/command",
+                  {"command": "select_preset", "index": 1,
+                   "frequency": 88500, "preset_revision": 12345})
+    check("preset carries list identity", preset[0] == 202, str(preset))
+    fields = mod.read_command()
+    check("preset revision reaches the mod", fields and fields["prev"] == "12345")
+    check("preset frequency reaches the mod", fields and fields["freq"] == "88500")
+    mod.publish(r1=f"{H.Handler.broker.active}:applied:")
+    get(f"{base}/api/state")
+
+    print("hostile input (BF-08)")
+    for name, body in [
+        ("array as command", {"command": [], "value": 1}),
+        ("object as command", {"command": {}, "value": 1}),
+        ("null command", {"command": None}),
+        ("huge integer", {"command": "set_channel", "value": 10 ** 30}),
+        ("missing request id", {"command": "set_power", "value": True}),
+    ]:
+        if name == "missing request id":
+            code, _ = post(f"{base}/api/command", body, raw=True)
+            # raw omits request_id entirely
+            check(f"rejects {name}", code == 400, str(code))
+            continue
+        code, _ = post(f"{base}/api/command", body)
+        check(f"rejects {name}", code == 400, str(code))
+    # A NaN literal is not valid JSON, but Python emits it; the server must not
+    # turn it into a command.
+    request = urllib.request.Request(
+        f"{base}/api/command",
+        data=b'{"request_id":"nanx000000000001","expected":{"epoch":"g999",'
+             b'"binding":"b1"},"command":"set_volume","value":NaN}',
+        headers={"Content-Type": "application/json", "X-PZRL-Token": TOKEN},
+        method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=5) as response:
+            check("NaN volume refused", response.status == 400, str(response.status))
+    except urllib.error.HTTPError as error:
+        check("NaN volume refused", error.code == 400, str(error.code))
+
+    print("protocol version (BF-08)")
+    mismatched = [(k, "1" if k == "proto" else v) for k, v in state_pairs()]
+    mod.seq += 1
+    (mod.dir / "state_a.txt").write_text(H.frame(mod.seq, mismatched), encoding="utf-8")
+    code, view = get(f"{base}/api/state")
+    check("mod on the wrong protocol is explicit", view["status"] == "protocol_mismatch")
+    check("and not connected", view["connected"] is False)
+    mod.publish()
+    get(f"{base}/api/state")
 
     print("credential disclosure (BF-01)")
     # Sweep every route an unauthenticated device can reach, including error

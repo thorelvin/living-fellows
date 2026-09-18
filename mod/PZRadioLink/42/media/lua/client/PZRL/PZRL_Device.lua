@@ -176,6 +176,38 @@ function Device.channelAllowed(data, channel)
     return (channel % Device.CHANNEL_STEP) == 0
 end
 
+--[[
+BF-10. A saved preset can sit off the 200-unit grid, and simply adding 200 to
+88500 gives 88700 -- still off-grid, so channelAllowed() rejects it and the
+nudge buttons do nothing. Step to the next or previous *legal grid point*
+instead: from 88500, up is 88600 and down is 88400.
+
+Returns nil when no legal point exists in that direction.
+]]
+function Device.nextGridChannel(data, from, direction)
+    if type(from) ~= "number" then return nil end
+    local lo, hi = Device.channelRange(data)
+    if lo == nil then return nil end
+    local step = Device.CHANNEL_STEP
+
+    local target
+    if direction > 0 then
+        target = math.floor(from / step) * step + step
+    else
+        target = math.ceil(from / step) * step - step
+    end
+
+    -- Clamp to legal grid points inside the band, not to the raw endpoints,
+    -- which may themselves be off-grid.
+    local lowest = math.ceil(lo / step) * step
+    local highest = math.floor(hi / step) * step
+    if lowest > highest then return nil end
+    if target < lowest then target = lowest end
+    if target > highest then target = highest end
+    if target == from then return nil end
+    return target
+end
+
 function Device.presets(data)
     local out = {}
     local ok = pcall(function()
@@ -204,36 +236,154 @@ function Device.snapshot(target, kind)
     kind = kind or Device.kindOf(target)
     local ok, snap = pcall(function()
         local lo, hi = Device.channelRange(data)
-        -- A placed radio may run off mains or a generator, in which case
-        -- getPower() is not a battery charge and must not be shown as one.
+        --[[
+        BF-10. getPower() is a battery charge only on a battery-powered set.
+        A non-battery device without mains power was previously shown as
+        "BATT 0%", which is fiction. The four states are modelled explicitly
+        and an unreadable one stays "unknown" rather than defaulting to
+        something plausible.
+        ]]
         local battery = data:getIsBatteryPowered() == true
+        local source, charge
+        if battery then
+            source, charge = "battery", data:getPower()
+        elseif data:canBePoweredHere() == true then
+            source, charge = "mains", nil
+        else
+            source, charge = "unpowered", nil
+        end
+
         return {
             name       = Device.stableName(target, kind),
             kind       = kind,
             turnedOn   = data:getIsTurnedOn() == true,
             channel    = data:getChannel(),
+            -- nil when the range could not be read. Never exported as 0..0,
+            -- which would look like an authoritative empty band.
             channelMin = lo,
             channelMax = hi,
             volume     = data:getDeviceVolume(),
-            power      = data:getPower(),
-            battery    = battery,
-            mains      = (not battery) and data:canBePoweredHere() == true,
+            powerSource = source,
+            battery    = charge,
             presets    = Device.presets(data),
+            presetRevision = Device.presetRevision(data),
         }
     end)
     if not ok then return nil end
+    if snap ~= nil and snap.powerSource == nil then snap.powerSource = "unknown" end
     return snap
 end
 
-local function queue(mode, player, item, secondary)
+--[[
+BF-04. Preset selection by index alone tunes "whatever now occupies slot 3".
+A cheap revision over the list lets a command name the list it was composed
+against, so a reordered or edited list produces stale_preset rather than a
+wrong frequency.
+]]
+function Device.presetRevision(data)
+    local list = Device.presets(data)
+    local acc = #list
+    for index, entry in ipairs(list) do
+        acc = (acc * 31 + (tonumber(entry.freq) or 0) + index) % 4294967296
+    end
+    return acc
+end
+
+--[[
+BF-03. The old code threw the action reference away, so "cancelled" was really
+just "four seconds passed" -- while the action sat in the queue and could still
+execute afterwards. Now every request keeps its action and observes its real
+lifecycle.
+
+Per-instance overrides rather than a global patch: assigning a function to the
+action table shadows the class method for that one object, so no other radio
+action in the game is affected and no shipped file is touched. The vanilla
+implementations are captured first and still do the work.
+
+The override points are the mode functions (performToggleOnOff and friends),
+not perform() itself, so ISRadioAction's own completion bookkeeping still runs.
+
+Returns an `owned` handle:
+  started    the action left the queue and began
+  performed  the mode function ran to completion
+  stopped    the action was stopped (sprint, cancel, queue clear)
+  invalidated  isValid() refused it at the execution boundary
+  noop       the desired state already held, so nothing was mutated
+]]
+function Device.beginOwnedAction(mode, player, item, secondary, options)
+    options = options or {}
+    local owned = {
+        mode = mode, started = false, performed = false,
+        stopped = false, invalidated = false, noop = false,
+        queuedAt = getTimestampMs(), startedAt = nil,
+    }
+
     local ok, err = pcall(function()
-        ISTimedActionQueue.add(ISRadioAction:new(mode, player, item, secondary))
+        local action = ISRadioAction:new(mode, player, item, secondary)
+
+        local baseIsValid = action.isValid
+        local baseStart = action.start
+        local baseStop = action.stop
+        local baseMode = action["perform" .. mode]
+
+        action.isValid = function(self)
+            -- Preconditions are re-proved where the engine actually asks,
+            -- which is the moment before execution, not when we queued.
+            if options.revalidate and options.revalidate() ~= true then
+                owned.invalidated = true
+                return false
+            end
+            return baseIsValid(self)
+        end
+
+        action.start = function(self)
+            owned.started = true
+            owned.startedAt = getTimestampMs()
+            return baseStart(self)
+        end
+
+        action.stop = function(self)
+            owned.stopped = true
+            return baseStop(self)
+        end
+
+        if baseMode ~= nil then
+            action["perform" .. mode] = function(self)
+                -- Desired-state commands re-read immediately before mutating.
+                -- Vanilla only exposes a toggle, so a power request whose state
+                -- changed in the meantime would otherwise invert it.
+                if options.alreadySatisfied and options.alreadySatisfied() == true then
+                    owned.noop = true
+                    owned.performed = true
+                    return
+                end
+                baseMode(self)
+                owned.performed = true
+            end
+        end
+
+        owned.action = action
+        ISTimedActionQueue.add(action)
     end)
+
     if not ok then
         print("[PZRL] failed to queue " .. tostring(mode) .. ": " .. tostring(err))
-        return false
+        return nil
     end
-    return true
+    return owned
+end
+
+-- Stops only our own action. Never clears the player's queue.
+function Device.cancelOwnedAction(owned)
+    if owned == nil or owned.action == nil then return false end
+    local ok = pcall(function()
+        if owned.action.forceStop then
+            owned.action:forceStop()
+        elseif owned.action.stop then
+            owned.action:stop()
+        end
+    end)
+    return ok
 end
 
 --[[
@@ -247,70 +397,113 @@ This matters for set_power: vanilla only exposes a toggle, so issuing it against
 an already-correct state would invert it.
 ]]
 
-function Device.requestPower(player, item, desiredOn)
+-- The protocol carries volume to three decimals and DeviceData stores the float
+-- it is given, so a completed SetVolume reads back as what we sent. Half the
+-- protocol precision is the right window. The old 0.05 was wide enough that
+-- changing 0.30 to 0.34 matched the *unchanged* 0.30 and reported success.
+Device.VOLUME_EPSILON = 0.0005
+
+local function powered(data)
+    local ok, ready = pcall(function()
+        return data:getIsTurnedOn() and data:getPower() > 0
+    end)
+    if not ok then return nil end
+    return ready == true
+end
+
+function Device.requestPower(player, item, desiredOn, revalidate)
     local data = Device.dataOf(item)
-    if data == nil then return false, "unreadable" end
-    local isOn = (data:getIsTurnedOn() == true)
-    if isOn == desiredOn then return false, "noop" end
+    if data == nil then return nil, "unreadable" end
+    if (data:getIsTurnedOn() == true) == desiredOn then return nil, "noop" end
     local ok, valid = pcall(function()
         return (data:getIsBatteryPowered() and data:getPower() > 0) or data:canBePoweredHere()
     end)
-    if not ok then return false, "unreadable" end
-    if valid ~= true then return false, "no_power" end
-    if not queue("ToggleOnOff", player, item) then return false, "queue_failed" end
-    return true, "queued"
+    if not ok then return nil, "unreadable" end
+    if valid ~= true then return nil, "no_power" end
+
+    local owned = Device.beginOwnedAction("ToggleOnOff", player, item, nil, {
+        revalidate = revalidate,
+        -- Re-read at the execution boundary: if the player already flipped it
+        -- by hand, completing as a no-op is correct and toggling is not.
+        alreadySatisfied = function()
+            return (data:getIsTurnedOn() == true) == desiredOn
+        end,
+    })
+    if owned == nil then return nil, "queue_failed" end
+    return owned, "queued"
 end
 
-function Device.requestChannel(player, item, channel)
+function Device.requestChannel(player, item, channel, revalidate)
     local data = Device.dataOf(item)
-    if data == nil then return false, "unreadable" end
-    if not Device.channelAllowed(data, channel) then return false, "channel_rejected" end
-    local ok, ready = pcall(function()
-        return data:getIsTurnedOn() and data:getPower() > 0
-    end)
-    if not ok then return false, "unreadable" end
-    if ready ~= true then return false, "device_off" end
-    if data:getChannel() == channel then return false, "noop" end
-    if not queue("SetChannel", player, item, channel) then return false, "queue_failed" end
-    return true, "queued"
+    if data == nil then return nil, "unreadable" end
+    if not Device.channelAllowed(data, channel) then return nil, "channel_rejected" end
+    local ready = powered(data)
+    if ready == nil then return nil, "unreadable" end
+    if not ready then return nil, "device_off" end
+    if data:getChannel() == channel then return nil, "noop" end
+
+    local owned = Device.beginOwnedAction("SetChannel", player, item, channel, {
+        revalidate = revalidate,
+        alreadySatisfied = function() return data:getChannel() == channel end,
+    })
+    if owned == nil then return nil, "queue_failed" end
+    return owned, "queued"
 end
 
-function Device.requestVolume(player, item, volume)
+function Device.requestVolume(player, item, volume, revalidate)
     local data = Device.dataOf(item)
-    if data == nil then return false, "unreadable" end
-    if type(volume) ~= "number" or volume ~= volume then return false, "volume_rejected" end
-    if volume < 0 or volume > 1 then return false, "volume_rejected" end
-    local ok, ready = pcall(function()
-        return data:getIsTurnedOn() and data:getPower() > 0
-    end)
-    if not ok then return false, "unreadable" end
-    if ready ~= true then return false, "device_off" end
-    if not queue("SetVolume", player, item, volume) then return false, "queue_failed" end
-    return true, "queued"
+    if data == nil then return nil, "unreadable" end
+    if type(volume) ~= "number" or volume ~= volume then return nil, "volume_rejected" end
+    if volume < 0 or volume > 1 then return nil, "volume_rejected" end
+    local ready = powered(data)
+    if ready == nil then return nil, "unreadable" end
+    if not ready then return nil, "device_off" end
+
+    local owned = Device.beginOwnedAction("SetVolume", player, item, volume, {
+        revalidate = revalidate,
+        alreadySatisfied = function()
+            local current = data:getDeviceVolume()
+            return type(current) == "number"
+                and math.abs(current - volume) <= Device.VOLUME_EPSILON
+        end,
+    })
+    if owned == nil then return nil, "queue_failed" end
+    return owned, "queued"
 end
 
--- Resolves a preset by index against the device's own list and tunes to its
--- frequency. The index is never trusted as a frequency, and the preset list is
--- never modified.
-function Device.requestPreset(player, item, index)
+--[[
+Resolves a preset against the device's own list and tunes to its frequency. The
+index is never trusted as a frequency, and the list is never modified.
+
+BF-04: the caller passes the frequency and list revision it displayed. If the
+list changed between render and click, this refuses rather than tuning whatever
+now sits at that index.
+]]
+function Device.requestPreset(player, item, index, expectedFreq, expectedRevision, revalidate)
     local data = Device.dataOf(item)
-    if data == nil then return false, "unreadable" end
+    if data == nil then return nil, "unreadable" end
     if type(index) ~= "number" or math.floor(index) ~= index or index < 1 then
-        return false, "preset_rejected"
+        return nil, "preset_rejected"
     end
-    local list = Device.presets(data)
-    local entry = list[index]
-    if entry == nil then return false, "preset_missing" end
+    if expectedRevision ~= nil and Device.presetRevision(data) ~= expectedRevision then
+        return nil, "stale_preset"
+    end
+    local entry = Device.presets(data)[index]
+    if entry == nil or type(entry.freq) ~= "number" then return nil, "preset_missing" end
+    if expectedFreq ~= nil and entry.freq ~= expectedFreq then return nil, "stale_preset" end
+
     local freq = entry.freq
-    if type(freq) ~= "number" then return false, "preset_missing" end
-    local ok, ready = pcall(function()
-        return data:getIsTurnedOn() and data:getPower() > 0
-    end)
-    if not ok then return false, "unreadable" end
-    if ready ~= true then return false, "device_off" end
-    if data:getChannel() == freq then return false, "noop" end
-    if not queue("SetChannel", player, item, freq) then return false, "queue_failed" end
-    return true, "queued"
+    local ready = powered(data)
+    if ready == nil then return nil, "unreadable" end
+    if not ready then return nil, "device_off" end
+    if data:getChannel() == freq then return nil, "noop" end
+
+    local owned = Device.beginOwnedAction("SetChannel", player, item, freq, {
+        revalidate = revalidate,
+        alreadySatisfied = function() return data:getChannel() == freq end,
+    })
+    if owned == nil then return nil, "queue_failed" end
+    return owned, "queued"
 end
 
 return Device

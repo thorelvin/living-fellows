@@ -8,7 +8,7 @@ Pick up a walkie-talkie in game, right-click it, choose **Link to phone**, and
 you get the faceplate above on your phone over Wi-Fi. Power, tuning, volume and
 presets — while your survivor keeps doing something else.
 
-**Version 0.2.1** — for **Project Zomboid build 42.20.4**, single-player. No audio;
+**Version 0.3.0** — for **Project Zomboid build 42.20.4**, single-player. No audio;
 see [Limits](#limits).
 
 ---
@@ -96,9 +96,11 @@ phone should never do that while you are not watching the screen. So it says
 | **"game not running"** | The game is closed, at the main menu, or the mod is not enabled **for that save**. See step 3. |
 | **"no radio linked"** | The mod is running fine. Right-click a radio in game and pick *Link to phone*. |
 | **"not paired"** | This phone has no valid key. Scan the QR again, or type the key into the box the page shows. |
+| **"busy"** | One change at a time. Wait for the current one to finish. |
+| **"outcome unknown"** | The game could not confirm what happened. Nothing is retried automatically — check the radio and try again if needed. |
 | **"out of reach"** | A placed radio you have walked away from. Go stand next to it. |
 | **"too far"** on a command | Same thing. Nothing was changed. |
-| **"paused"** | The game is paused. Commands wait rather than queue up. |
+| **"paused"** | The game is paused. Commands are refused outright, not queued for when it resumes. |
 | Phone cannot load the page at all | Firewall prompt was dismissed, or the phone is on a different network — guest Wi-Fi is usually isolated from the main one. |
 | Page works on the PC but not the phone | Almost always the firewall or the wrong Wi-Fi network. |
 | Controls grey out when you alt-tab | Single-player pauses on focus loss. Set **Options → Pause on Focus Loss → No**. Not an issue when you use a phone. |
