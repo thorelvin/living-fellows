@@ -361,6 +361,11 @@ function Background.initialize(seed, source)
         occupation = code,
         aptitude = aptitude,
         traitId = aptitudes[aptitude] and aptitudes[aptitude].id or nil,
+        -- Ability scores and character traits are rolled from this once and
+        -- then kept, so a companion is the same person after every reload. A
+        -- record written before the seed existed keeps its identity seed.
+        abilitySeed = type(source.abilitySeed) == "string" and source.abilitySeed ~= ""
+            and source.abilitySeed or tostring(seed),
         preferredRole = definition.role or "generalist",
         history = type(source.history) == "string" and source.history or code,
         home = source.home or choose(homes, seed, "home"),
@@ -509,7 +514,208 @@ end
 -- an unconditional climb failure -- a companion that can never cross a fence.
 local passiveBaseline = { Strength = 5, Fitness = 5 }
 
-local function applySkills(actor, skillMaps)
+-- The four perks the engine reads as raw physical capability, as opposed to the
+-- learned skill tree. These are a companion's ability scores: nothing here is a
+-- mod-side number, and every one of them is consumed by the game itself --
+-- Strength by carry capacity and melee damage, Fitness by stamina and
+-- endurance recovery, Nimble by movement while aiming, Sprinting by run speed,
+-- and all but Sprinting by the climbing score above.
+local abilityOrder = { "Strength", "Fitness", "Nimble", "Sprinting" }
+local abilityLabels = {
+    Strength = "Strength", Fitness = "Fitness",
+    Nimble = "Nimble", Sprinting = "Sprinting",
+}
+
+-- Spread around the baseline so two companions of one profession are not the
+-- same person. Weighted toward the middle; the pool is read with the shared
+-- deterministic chooser, so a given companion rolls this once and for ever.
+local abilitySpread = { -4, -3, -2, -2, -1, -1, 0, 0, 0, 0, 1, 1, 2, 2, 3 }
+local agilitySpread = { 0, 0, 0, 1, 1, 2 }
+
+-- A companion below this cannot reliably cross a fence, and a companion that
+-- cannot cross a fence strands itself against the first one it meets. Vanilla
+-- lets a player choose that for themselves; a generated survivor should not
+-- inherit it by accident.
+local abilityFloor = 3
+
+-- Exactly Build 42.20.4's own mapping, from XpUpdate.lua's LevelPerk listener:
+-- the engine re-derives these band traits from the perk level whenever a perk
+-- is levelled normally. The mod sets levels with setPerkLevelDebug, which does
+-- not fire that event, so the same mapping is applied here instead. Keeping it
+-- identical means the traits the engine reads always agree with the levels.
+local bandTraits = {
+    Strength = {
+        { maximum = 1, id = "base:weak", label = "Weak" },
+        { maximum = 4, id = "base:feeble", label = "Feeble" },
+        { minimum = 9, id = "base:strong", label = "Strong" },
+        { minimum = 6, id = "base:stout", label = "Stout" },
+    },
+    Fitness = {
+        { maximum = 1, id = "base:unfit", label = "Unfit" },
+        { maximum = 4, id = "base:out of shape", label = "Out of Shape" },
+        { minimum = 9, id = "base:athletic", label = "Athletic" },
+        { minimum = 6, id = "base:fit", label = "Fit" },
+    },
+}
+
+-- Curated from Build 42.20.4's generated character_traits.txt: every id, cost
+-- and exclusion below is the game's own. Only traits the engine actually acts
+-- on are offered, so a line on the character sheet always means something in
+-- play. One pick per axis, and the axis itself makes its options mutually
+-- exclusive without needing the full exclusion graph.
+local traitAxes = {
+    { axis = "hands", options = {
+        { id = "base:dextrous", label = "Dextrous", cost = 2 },
+        { none = true }, { none = true },
+        { id = "base:allthumbs", label = "All Thumbs", cost = -2 },
+    } },
+    { axis = "poise", options = {
+        { id = "base:graceful", label = "Graceful", cost = 4 },
+        { none = true }, { none = true },
+        { id = "base:clumsy", label = "Clumsy", cost = -2 },
+    } },
+    { axis = "nerve", options = {
+        { id = "base:brave", label = "Brave", cost = 4 },
+        { id = "base:adrenalinejunkie", label = "Adrenaline Junkie", cost = 4 },
+        { none = true }, { none = true },
+        { id = "base:cowardly", label = "Cowardly", cost = -2 },
+    } },
+    { axis = "hearing", options = {
+        { id = "base:keenhearing", label = "Keen Hearing", cost = 6 },
+        { none = true }, { none = true },
+        { id = "base:hardofhearing", label = "Hard of Hearing", cost = -4 },
+    } },
+    { axis = "sight", options = {
+        { id = "base:eagleeyed", label = "Eagle Eyed", cost = 4 },
+        { id = "base:nightvision", label = "Cat's Eyes", cost = 3 },
+        { none = true }, { none = true },
+        { id = "base:shortsighted", label = "Short Sighted", cost = -2 },
+    } },
+    { axis = "skin", options = {
+        { id = "base:thickskinned", label = "Thick Skinned", cost = 8 },
+        { none = true }, { none = true }, { none = true },
+        { id = "base:thinskinned", label = "Thin Skinned", cost = -8 },
+    } },
+    { axis = "recovery", options = {
+        { id = "base:fasthealer", label = "Fast Healer", cost = 6 },
+        { id = "base:resilient", label = "Resilient", cost = 4 },
+        { none = true }, { none = true },
+        { id = "base:slowhealer", label = "Slow Healer", cost = -3 },
+        { id = "base:pronetoillness", label = "Prone to Illness", cost = -4 },
+    } },
+    { axis = "appetite", options = {
+        { id = "base:lighteater", label = "Light Eater", cost = 2 },
+        { id = "base:irongut", label = "Iron Gut", cost = 2 },
+        { none = true }, { none = true },
+        { id = "base:heartyappetite", label = "Hearty Appetite", cost = -4 },
+        { id = "base:highthirst", label = "High Thirst", cost = -2 },
+    } },
+    { axis = "presence", options = {
+        { id = "base:inconspicuous", label = "Inconspicuous", cost = 4 },
+        { none = true }, { none = true },
+        { id = "base:conspicuous", label = "Conspicuous", cost = -4 },
+        { id = "base:smoker", label = "Smoker", cost = -3 },
+    } },
+}
+
+-- Vanilla's own exclusion data, for the pairs that cross an axis boundary.
+local traitExclusions = {
+    ["base:adrenalinejunkie"] = { "base:cowardly" },
+    ["base:cowardly"] = { "base:adrenalinejunkie", "base:brave" },
+    ["base:brave"] = { "base:cowardly" },
+    ["base:inconspicuous"] = { "base:conspicuous" },
+    ["base:conspicuous"] = { "base:inconspicuous" },
+}
+
+-- A generated survivor should still read as the job they had. These are the
+-- mismatches worth refusing outright; everything else is allowed to surprise.
+local traitMismatch = {
+    fitnessinstructor = { ["base:smoker"] = true, ["base:pronetoillness"] = true,
+        ["base:clumsy"] = true },
+    doctor = { ["base:allthumbs"] = true },
+    nurse = { ["base:allthumbs"] = true },
+    veteran = { ["base:cowardly"] = true, ["base:shortsighted"] = true },
+    policeofficer = { ["base:cowardly"] = true },
+    securityguard = { ["base:hardofhearing"] = true },
+    fireofficer = { ["base:cowardly"] = true, ["base:smoker"] = true },
+    burglar = { ["base:conspicuous"] = true, ["base:clumsy"] = true },
+    surgeon = { ["base:allthumbs"] = true },
+}
+
+-- Character creation spends a points budget; a generated survivor keeps roughly
+-- to one so nobody rolls as nine gifts or nine afflictions. The bound is
+-- deliberately loose -- being a little blessed or a little cursed is character.
+local traitBudget = 6
+
+-- Ability scores for one companion: the vanilla baseline, the seeded spread
+-- that makes them an individual, then whatever the profession and aptitude add.
+function Background.abilities(background, seed)
+    background = type(background) == "table" and background or {}
+    seed = seed or background.abilitySeed or background.profession or "fellow"
+    local definition = Background.definition(background)
+    local aptitude = Background.aptitude(background)
+    local boosts = {}
+    for _, skills in ipairs({ definition and definition.skills, aptitude and aptitude.skills }) do
+        for name, boost in pairs(type(skills) == "table" and skills or {}) do
+            boosts[name] = (boosts[name] or 0) + (tonumber(boost) or 0)
+        end
+    end
+    local result = {}
+    for _, name in ipairs(abilityOrder) do
+        local baseline = passiveBaseline[name]
+        local spread = choose(baseline and abilitySpread or agilitySpread, seed, "ability:" .. name)
+        local low = baseline and abilityFloor or 0
+        result[name] = clamp((baseline or 0) + spread + (boosts[name] or 0), low, 10)
+    end
+    return result
+end
+
+-- The band trait Build 42 would itself attach at this level, or nil at the
+-- unremarkable middle of the range.
+function Background.bandTrait(name, level)
+    level = tonumber(level)
+    if level == nil then return nil end
+    for _, entry in ipairs(bandTraits[name] or {}) do
+        if entry.maximum ~= nil and level <= entry.maximum then return entry end
+        if entry.minimum ~= nil and level >= entry.minimum then return entry end
+    end
+    return nil
+end
+
+local function traitConflicts(chosen, id)
+    for _, other in ipairs(traitExclusions[id] or {}) do
+        if chosen[other] then return true end
+    end
+    return false
+end
+
+-- Deterministic per companion, bounded by the axis list, and stable across
+-- reloads because it is driven by the same seeded chooser as the rest of the
+-- background. Returns an ordered list so the character sheet reads the same way
+-- every time it is opened.
+function Background.characterTraits(background, seed)
+    background = type(background) == "table" and background or {}
+    seed = seed or background.abilitySeed or background.profession or "fellow"
+    local code = select(2, Background.definition(background))
+    local forbidden = traitMismatch[code] or {}
+    local chosen, ordered, spent = {}, {}, 0
+    for _, group in ipairs(traitAxes) do
+        local option = choose(group.options, seed, "trait:" .. group.axis)
+        local cost = tonumber(option and option.cost) or 0
+        local usable = option ~= nil and option.none ~= true and option.id ~= nil
+            and not forbidden[option.id] and not traitConflicts(chosen, option.id)
+            and clamp(spent + cost, -traitBudget, traitBudget) == spent + cost
+        if usable then
+            chosen[option.id] = true
+            spent = spent + cost
+            ordered[#ordered + 1] = { id = option.id, label = option.label,
+                cost = cost, axis = group.axis }
+        end
+    end
+    return ordered, spent
+end
+
+local function applySkills(actor, skillMaps, abilities)
     local perkTable = type(_G) == "table" and rawget(_G, "Perks") or nil
     if perkTable == nil then return false end
     local targets = {}
@@ -521,17 +727,44 @@ local function applySkills(actor, skillMaps)
                 clamp(baseline + (tonumber(boost) or 0), 0, 10))
         end
     end
+    -- Ability scores win where they are supplied. They already fold in the same
+    -- profession and aptitude boosts as the loop above, plus this companion's
+    -- own spread, and unlike a learned skill they may sit below the baseline.
+    for name, level in pairs(type(abilities) == "table" and abilities or {}) do
+        targets[name] = clamp(level, 0, 10)
+    end
     for name, target in pairs(targets) do
         local perkOk, perk = pcall(function() return perkTable[name] end)
         local current, currentOk
         if perkOk then current, currentOk = invoke(actor, "getPerkLevel", perk) end
         if not perkOk or perk == nil or not currentOk then return false end
-        if (tonumber(current) or 0) < target then
+        if (tonumber(current) or 0) ~= target then
             local result, setOk = invoke(actor, "setPerkLevelDebug", perk, target)
             if not setOk or result == false then return false end
         end
     end
     return true
+end
+
+-- Attach the band trait Build 42 would derive from each ability score, plus the
+-- companion's own character traits. A missing trait script is skipped rather
+-- than failed: a trait that cannot be resolved costs flavour, never a spawn.
+local function applyCharacterTraits(actor, background, abilities)
+    local applied = {}
+    for _, name in ipairs(abilityOrder) do
+        local band = Background.bandTrait(name, abilities[name])
+        local trait = band and resolveScriptObject("CharacterTrait", band.id) or nil
+        if trait ~= nil and addTrait(actor, trait) then
+            applied[#applied + 1] = { id = band.id, label = band.label, band = name }
+        end
+    end
+    for _, entry in ipairs((Background.characterTraits(background))) do
+        local trait = resolveScriptObject("CharacterTrait", entry.id)
+        if trait ~= nil and addTrait(actor, trait) then
+            applied[#applied + 1] = entry
+        end
+    end
+    return applied
 end
 
 -- Sets the same descriptor profession object used by normal Build 42 players,
@@ -574,14 +807,97 @@ function Background.applyNative(actor, background)
     if aptitudeTrait == nil or not addTrait(actor, aptitudeTrait) then
         return false, "native_aptitude_rejected:" .. tostring(background.aptitude)
     end
-    if not applySkills(actor, { professionDefinition.skills, aptitude.skills }) then
+    local abilities = Background.abilities(background)
+    if not applySkills(actor, { professionDefinition.skills, aptitude.skills }, abilities) then
         return false, "native_background_skills_rejected"
     end
+    applyCharacterTraits(actor, background, abilities)
     invoke(actor, "applyProfessionRecipes")
     invoke(actor, "applyCharacterTraitsRecipes")
     local current, currentOk = invoke(descriptor, "getCharacterProfession")
     if not currentOk or current ~= profession then return false, "native_profession_not_retained" end
     return true, "native_background_applied"
+end
+
+-- Everything the character sheet shows, read from the live actor rather than
+-- from the background record, so the sheet reports what the engine currently
+-- believes. Bounded: a companion cannot grow an unbounded perk or trait list,
+-- but the reads are capped regardless.
+function Background.sheet(actor, background)
+    local abilities, learned, traits = {}, {}, {}
+    local perkTable = type(_G) == "table" and rawget(_G, "Perks") or nil
+    for _, name in ipairs(abilityOrder) do
+        local level
+        if perkTable ~= nil then
+            local perkOk, perk = pcall(function() return perkTable[name] end)
+            if perkOk and perk ~= nil then
+                local value, valueOk = invoke(actor, "getPerkLevel", perk)
+                if valueOk then level = tonumber(value) end
+            end
+        end
+        local band = Background.bandTrait(name, level)
+        abilities[#abilities + 1] = {
+            name = name, label = abilityLabels[name] or name,
+            level = level, band = band and band.label or nil,
+        }
+    end
+    local perkList, listOk = invoke(actor, "getPerkList")
+    if listOk and perkList ~= nil then
+        for index = 0, math.min(listSize(perkList), 64) - 1 do
+            local info = listGet(perkList, index)
+            local perk = info and info.perk or nil
+            local id, idOk = invoke(perk, "getId")
+            if idOk and type(id) == "string" and abilityLabels[id] == nil then
+                local value, valueOk = invoke(actor, "getPerkLevel", perk)
+                local level = valueOk and tonumber(value) or 0
+                if level and level > 0 and #learned < 24 then
+                    learned[#learned + 1] = { id = id, level = level }
+                end
+            end
+        end
+    end
+    local characterTraits, traitsOk = invoke(actor, "getCharacterTraits")
+    local known = traitsOk and characterTraits ~= nil
+        and (invoke(characterTraits, "getKnownTraits")) or nil
+    if known ~= nil then
+        for index = 0, math.min(listSize(known), 32) - 1 do
+            local trait = listGet(known, index)
+            local id = invoke(trait, "getName")
+            if type(id) ~= "string" then id = invoke(trait, "getId") end
+            if type(id) == "string" and #traits < 24 then
+                traits[#traits + 1] = { id = id, label = Background.traitLabel(id) }
+            end
+        end
+    end
+    return {
+        profession = Background.professionLabel(background),
+        aptitude = Background.aptitudeLabel(background),
+        role = Background.preferredRole(background),
+        abilities = abilities,
+        skills = learned,
+        traits = traits,
+    }
+end
+
+-- Prefer the mod's own wording where it has one; otherwise present the raw
+-- script id in a readable form rather than an empty cell.
+function Background.traitLabel(id)
+    id = tostring(id or "")
+    for _, group in ipairs(traitAxes) do
+        for _, option in ipairs(group.options) do
+            if option.id == id then return option.label end
+        end
+    end
+    for _, entries in pairs(bandTraits) do
+        for _, entry in ipairs(entries) do
+            if entry.id == id then return entry.label end
+        end
+    end
+    for _, aptitude in pairs(aptitudes) do
+        if aptitude.id == id then return aptitude.label end
+    end
+    local trimmed = string.gsub(id, "^base:", "")
+    return (string.gsub(trimmed, "^%l", string.upper))
 end
 
 function Background.copy(background)

@@ -80,6 +80,7 @@ local TAB_KEYS = {
     -- Secondary views opened from the More launcher (not in the tab row).
     factions = "UI_SC_Tab_Factions",
     journal = "UI_SC_Tab_Journal",
+    sheet = "UI_SC_Tab_Sheet",
     support = "UI_SC_Tab_Support",
     debug = "UI_SC_Tab_Debug",
 }
@@ -94,6 +95,7 @@ local MORE_TABS = {
     base = true,
     factions = true,
     journal = true,
+    sheet = true,
     support = true,
     debug = true,
 }
@@ -3125,6 +3127,7 @@ function SCUIDetail:buildMore(panel, row)
     for _, entry in ipairs({
         { key = "UI_SC_Tab_Base", tab = "base", description = "UI_SC_More_Base" },
         { key = "UI_SC_Tab_Factions", tab = "factions", description = "UI_SC_More_Factions" },
+        { key = "UI_SC_Tab_Sheet", tab = "sheet", description = "UI_SC_More_Sheet" },
         { key = "UI_SC_Tab_Journal", tab = "journal", description = "UI_SC_More_Journal" },
         { key = "UI_SC_Tab_Support", tab = "support", description = "UI_SC_More_Support" },
     }) do
@@ -4279,6 +4282,87 @@ function SCUIDetail:buildDebug(panel)
     return y
 end
 
+-- A bar drawn from a 0..10 perk level. Deliberately the same glyph run for
+-- every ability so a companion's shape is readable at a glance rather than
+-- needing the numbers to be compared one at a time.
+local function abilityBar(level)
+    level = math.max(0, math.min(10, math.floor(tonumber(level) or 0)))
+    local filled, bar = level, ""
+    for index = 1, 10 do
+        bar = bar .. (index <= filled and "|" or ".")
+    end
+    return bar
+end
+
+local function sheetActor(row)
+    if not row or row.id == nil or not SC.Registry
+        or type(SC.Registry.byId) ~= "function" then
+        return nil
+    end
+    local ok, record = pcall(SC.Registry.byId, row.id)
+    if not ok or type(record) ~= "table" then return nil end
+    return record.actor
+end
+
+-- The character sheet. Every number here is read back from the live actor, so
+-- it reports what Build 42 currently believes about this companion rather than
+-- what the mod intended when it spawned them.
+function SCUIDetail:buildSheet(panel, row)
+    local y = self:addMoreNavigation(panel, 7, "UI_SC_Tab_Sheet")
+    local actor = sheetActor(row)
+    if actor == nil or not SC.Background or type(SC.Background.sheet) ~= "function" then
+        return self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_Sheet_Unavailable"))
+    end
+    local ok, sheet = pcall(SC.Background.sheet, actor, row.background)
+    if not ok or type(sheet) ~= "table" then
+        return self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_Sheet_Unavailable"))
+    end
+
+    y = self:addSection(panel, y, "UI_SC_Sheet_Who")
+    y = self:addInformationLine(panel, y, "UI_SC_Sheet_Profession",
+        tostring(sheet.profession or UI.text("UI_SC_Value_Unknown")))
+    y = self:addInformationLine(panel, y, "UI_SC_Sheet_Aptitude",
+        tostring(sheet.aptitude or UI.text("UI_SC_Value_Unknown")))
+    y = self:addInformationLine(panel, y, "UI_SC_Sheet_Role",
+        UI.humanize(sheet.role or "generalist"))
+
+    y = self:addSection(panel, y + 4, "UI_SC_Sheet_Abilities")
+    for _, ability in ipairs(sheet.abilities or {}) do
+        local level = tonumber(ability.level)
+        local value = level == nil and UI.text("UI_SC_Value_Unknown")
+            or (abilityBar(level) .. "  " .. tostring(level)
+                .. (ability.band and ("  " .. ability.band) or ""))
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tostring(ability.label) .. "   " .. value)
+    end
+
+    y = self:addSection(panel, y + 4, "UI_SC_Sheet_Traits")
+    if #(sheet.traits or {}) == 0 then
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_Value_None"))
+    else
+        local line = ""
+        for _, trait in ipairs(sheet.traits) do
+            line = line == "" and trait.label or (line .. ", " .. trait.label)
+        end
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message", line)
+    end
+
+    y = self:addSection(panel, y + 4, "UI_SC_Sheet_Skills")
+    if #(sheet.skills or {}) == 0 then
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_Sheet_NoSkills"))
+    else
+        for _, skill in ipairs(sheet.skills) do
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                UI.humanize(skill.id) .. "   " .. tostring(skill.level))
+        end
+    end
+    return y
+end
+
 function SCUIDetail:buildSupport(panel)
     local y = self:addMoreNavigation(panel, 7, "UI_SC_Tab_Support")
     y = self:addSection(panel, y, "UI_SC_Support_Health")
@@ -4378,6 +4462,8 @@ function SCUIDetail:rebuild(preserveScroll)
         bottom = self:buildMore(panel, row)
     elseif self.tab == "journal" then
         bottom = self:buildJournal(panel, row)
+    elseif self.tab == "sheet" then
+        bottom = self:buildSheet(panel, row)
     elseif self.tab == "groups" then
         bottom = self:buildGroups(panel, row)
     elseif self.tab == "factions" then

@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.22.37 - Ability scores and character sheets
+
+- Companions now have ability scores: Strength, Fitness, Nimble and Sprinting. These are the game's own perks, not a separate set of mod numbers, so a strong companion really does carry more and hit harder, and a fit one really does keep going longer.
+- Every companion is now an individual. Two Lumberjacks are no longer the same person: each one rolls their own scores around the baseline every player starts from, decided once when they are created and kept for good. Nobody can roll badly enough to be unable to climb a fence.
+- Companions have traits. Some describe their build and follow their scores exactly the way the game assigns them to a player -- Weak, Feeble, Stout, Strong, Unfit, Out of Shape, Fit, Athletic. The rest are rolled per person from the game's own trait list: Dextrous or All Thumbs, Brave or Cowardly, Keen Hearing, Thick Skinned, Fast Healer, Smoker, and so on. Only traits the game actually acts on are used, so everything shown about a companion means something in play. A Fire Officer is never Cowardly.
+- New character sheet, under More -> Character. It shows a companion's trade and aptitude, their four ability scores with the build they add up to, their traits, and every skill they have learned. It reads the companion as the game currently sees them rather than as they were written down.
+
 ## 0.22.36 - Companions can climb again
 
 - Fixed companions being physically unable to climb a fence or wall. Most of them spawned with Strength 0 and Fitness 0, where every player starts at 5 and 5. The game scores a climb from those perks, and the mod applied its intended baseline of 5 only to backgrounds whose profession already trained that skill -- 24 of the 31 backgrounds name neither, so most companions never received it. In the last playtest the game's own log recorded 40 companion wall-climbs and 40 failures; the player, in the same session, succeeded. Companions now start with the same physical baseline as the player.

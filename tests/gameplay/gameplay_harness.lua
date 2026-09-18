@@ -10365,7 +10365,16 @@ function grantedTraits:size() return #self end
 function grantedTraits:get(index) return self[index + 1] end
 ResourceLocation = { of = function(id) return id end }
 CharacterProfession = { get = function(id) return id == "base:lumberjack" and professionObject or nil end }
-CharacterTrait = { get = function(id) return id == "base:jogger" and aptitudeTrait or nil end }
+-- Every trait id resolves, so band and character traits really reach the actor
+-- and can be read back the way the character sheet reads them.
+local traitObjects = { ["base:jogger"] = aptitudeTrait }
+CharacterTrait = { get = function(id)
+    if type(id) ~= "string" then return nil end
+    if traitObjects[id] == nil then
+        traitObjects[id] = { id = id, getName = function() return id end }
+    end
+    return traitObjects[id]
+end }
 CharacterProfessionDefinition = { getCharacterProfessionDefinition = function(profession)
     if profession ~= professionObject then return nil end
     return {
@@ -10373,14 +10382,16 @@ CharacterProfessionDefinition = { getCharacterProfessionDefinition = function(pr
     }
 end }
 Perks = { Axe = "Axe", Strength = "Strength", Maintenance = "Maintenance",
-    Sprinting = "Sprinting", Fitness = "Fitness", Cooking = "Cooking",
-    SmallBlade = "SmallBlade" }
+    Sprinting = "Sprinting", Fitness = "Fitness", Nimble = "Nimble",
+    Cooking = "Cooking", SmallBlade = "SmallBlade" }
 local descriptor = { profession = nil }
 function descriptor:setCharacterProfession(profession) self.profession = profession end
 function descriptor:getCharacterProfession() return self.profession end
 function descriptor:setProfessionSkills() self.skillsSet = true end
 local known = { rows = {}, set = {} }
 function known:add(trait) self.rows[#self.rows + 1] = trait; self.set[trait] = true; return true end
+function known:size() return #self.rows end
+function known:get(index) return self.rows[index + 1] end
 local nativeBackgroundActor = { levels = {}, traits = known }
 function nativeBackgroundActor:getDescriptor() return descriptor end
 function nativeBackgroundActor:getCharacterTraits()
@@ -10398,12 +10409,15 @@ check(nativeApplied and nativeReason == "native_background_applied"
     and nativeBackgroundActor:hasTrait(professionTrait)
     and nativeBackgroundActor:hasTrait(aptitudeTrait)
     and nativeBackgroundActor.levels.Axe == 2
-    and nativeBackgroundActor.levels.Strength == 6
-    and nativeBackgroundActor.levels.Sprinting == 1
     and nativeBackgroundActor.professionRecipes and nativeBackgroundActor.traitRecipes,
     "native background application assigns profession, traits, recipes, and conservative skills")
-check(nativeBackgroundActor.levels.Fitness == 5,
-    "a background that never names Fitness still receives the vanilla passive baseline")
+
+local lumberjackAbilities = Background.abilities(lumberjackJogger)
+check((nativeBackgroundActor.levels.Strength or 0) == lumberjackAbilities.Strength
+        and (nativeBackgroundActor.levels.Fitness or 0) == lumberjackAbilities.Fitness
+        and (nativeBackgroundActor.levels.Nimble or 0) == lumberjackAbilities.Nimble
+        and (nativeBackgroundActor.levels.Sprinting or 0) == lumberjackAbilities.Sprinting,
+    "the four ability scores reach the actor exactly as the background rolled them")
 
 -- Build 42.20.4 seeds Strength and Fitness at 5 during character creation, and
 -- getClimbingFailChanceFloat is int(sqrt(2*Fitness + 2*Strength + 2*Nimble -
@@ -10419,9 +10433,7 @@ local organizedTrait = { id = "base:organized" }
 CharacterProfession = { get = function(id)
     return id == "base:burgerflipper" and cookProfession or nil
 end }
-CharacterTrait = { get = function(id)
-    return id == "base:organized" and organizedTrait or nil
-end }
+traitObjects["base:organized"] = organizedTrait
 CharacterProfessionDefinition = { getCharacterProfessionDefinition = function() return nil end }
 local cookDescriptor = { profession = nil }
 function cookDescriptor:setCharacterProfession(profession) self.profession = profession end
@@ -10439,10 +10451,128 @@ function cookActor:setPerkLevelDebug(perk, level) self.levels[perk] = level end
 function cookActor:applyProfessionRecipes() self.professionRecipes = true end
 function cookActor:applyCharacterTraitsRecipes() self.traitRecipes = true end
 local cookApplied, cookReason = Background.applyNative(cookActor, cookOrganized)
+local cookAbilities = Background.abilities(cookOrganized)
 check(cookApplied and cookReason == "native_background_applied"
-    and cookActor.levels.Strength == 5 and cookActor.levels.Fitness == 5
+    and (cookActor.levels.Strength or 0) == cookAbilities.Strength
+    and (cookActor.levels.Fitness or 0) == cookAbilities.Fitness
     and cookActor.levels.Cooking == 2 and cookActor.levels.SmallBlade == 1,
-    "a background naming neither physical perk still spawns at Strength 5 and Fitness 5")
+    "a background naming neither physical perk still receives scored abilities")
+
+-- Ability scores and character traits
+do
+    -- No companion may spawn unable to cross a fence. Build 42.20.4 scores a
+    -- climb as int(sqrt(2*Fitness + 2*Strength + 2*Nimble - penalties)), and
+    -- ClimbOverWallState.setParams turns a 0 there plus any heavy-load moodle
+    -- into an unconditional failure -- a survivor stranded by the first fence.
+    local floorHeld, varied, seen = true, false, {}
+    local first
+    for index = 1, 40 do
+        local background = Background.initialize("ability-spread-" .. index, {})
+        local scores = Background.abilities(background)
+        if scores.Strength < 3 or scores.Fitness < 3 then floorHeld = false end
+        if scores.Strength > 10 or scores.Fitness > 10
+            or scores.Nimble > 10 or scores.Sprinting > 10 then floorHeld = false end
+        local signature = scores.Strength .. ":" .. scores.Fitness
+            .. ":" .. scores.Nimble .. ":" .. scores.Sprinting
+        first = first or signature
+        if signature ~= first then varied = true end
+        seen[signature] = true
+    end
+    check(floorHeld, "every rolled companion stays inside the climbable ability range")
+    check(varied, "companions do not all roll the same ability scores")
+
+    local stable = Background.initialize("ability-stability", {})
+    local once, twice = Background.abilities(stable), Background.abilities(stable)
+    check(once.Strength == twice.Strength and once.Fitness == twice.Fitness
+            and once.Nimble == twice.Nimble and once.Sprinting == twice.Sprinting,
+        "a companion rolls the same ability scores every time they are asked for")
+    -- Character traits are reproduced from the persisted seed rather than
+    -- stored, so a reload must roll the same person from the same record.
+    local reloaded = Background.initialize("a-different-identity-entirely", stable)
+    local beforeTraits, afterTraits = "", ""
+    for _, entry in ipairs((Background.characterTraits(stable))) do
+        beforeTraits = beforeTraits .. entry.id .. ","
+    end
+    for _, entry in ipairs((Background.characterTraits(reloaded))) do
+        afterTraits = afterTraits .. entry.id .. ","
+    end
+    check(reloaded.abilitySeed == stable.abilitySeed
+            and Background.abilities(reloaded).Strength == once.Strength
+            and Background.abilities(reloaded).Fitness == once.Fitness
+            and afterTraits == beforeTraits,
+        "a restored background keeps its own seed instead of rerolling the survivor")
+
+    -- The mapping is Build 42.20.4's own, from XpUpdate.lua's LevelPerk
+    -- listener, so the traits the engine reads agree with the levels the mod
+    -- writes with setPerkLevelDebug (which does not fire that event).
+    check(Background.bandTrait("Strength", 0).id == "base:weak"
+            and Background.bandTrait("Strength", 4).id == "base:feeble"
+            and Background.bandTrait("Strength", 5) == nil
+            and Background.bandTrait("Strength", 7).id == "base:stout"
+            and Background.bandTrait("Strength", 10).id == "base:strong"
+            and Background.bandTrait("Fitness", 1).id == "base:unfit"
+            and Background.bandTrait("Fitness", 9).id == "base:athletic",
+        "band traits follow the engine's own level mapping")
+
+    local budgetHeld, mismatchHeld, traitsVaried = true, true, false
+    local firstTraits
+    for index = 1, 40 do
+        local background = Background.initialize("trait-spread-" .. index, {})
+        local traits, spent = Background.characterTraits(background)
+        if spent > 6 or spent < -6 then budgetHeld = false end
+        local signature, chosen = "", {}
+        for _, entry in ipairs(traits) do
+            signature = signature .. entry.id .. ","
+            chosen[entry.id] = true
+        end
+        if chosen["base:brave"] and chosen["base:cowardly"] then mismatchHeld = false end
+        if chosen["base:inconspicuous"] and chosen["base:conspicuous"] then mismatchHeld = false end
+        firstTraits = firstTraits or signature
+        if signature ~= firstTraits then traitsVaried = true end
+    end
+    check(budgetHeld, "character traits stay inside the points budget")
+    check(mismatchHeld, "mutually exclusive traits are never taken together")
+    check(traitsVaried, "companions do not all roll the same character traits")
+
+    local officer = Background.initialize("mismatch-check",
+        { profession = "fireofficer", aptitude = "brave" })
+    local officerTraits = Background.characterTraits(officer)
+    local cowardly = false
+    for _, entry in ipairs(officerTraits) do
+        if entry.id == "base:cowardly" or entry.id == "base:smoker" then cowardly = true end
+    end
+    check(not cowardly, "a profession never rolls a trait that contradicts it")
+
+    local sheet = Background.sheet(nativeBackgroundActor, lumberjackJogger)
+    local sheetStrength
+    for _, entry in ipairs(sheet.abilities) do
+        if entry.name == "Strength" then sheetStrength = entry end
+    end
+    check(sheet.profession == "Lumberjack" and #sheet.abilities == 4
+            and sheetStrength ~= nil
+            and sheetStrength.level == lumberjackAbilities.Strength,
+        "the character sheet reports the live actor's ability scores")
+
+    -- The band trait the engine derives from a level, and this companion's own
+    -- rolled traits, both have to actually reach the actor: the sheet reads the
+    -- actor back, so anything it shows is something the engine can also see.
+    local expectedBand = Background.bandTrait("Strength", lumberjackAbilities.Strength)
+    local rolled = Background.characterTraits(lumberjackJogger)
+    local onActor = {}
+    for _, trait in ipairs(sheet.traits) do onActor[trait.id] = true end
+    local rolledPresent = #rolled == 0
+    for _, entry in ipairs(rolled) do
+        if onActor[entry.id] then rolledPresent = true end
+    end
+    check((expectedBand == nil or onActor[expectedBand.id] == true) and rolledPresent
+            and sheetStrength.band == (expectedBand and expectedBand.label or nil),
+        "band traits and rolled character traits are applied to the actor, not just computed")
+    check(Background.traitLabel("base:thickskinned") == "Thick Skinned"
+            and Background.traitLabel("base:strong") == "Strong"
+            and Background.traitLabel("base:jogger") == "Jogger"
+            and Background.traitLabel("base:unmapped") == "Unmapped",
+        "every trait on the sheet reads as words rather than a script id")
+end
 
 ResourceLocation, CharacterProfession = oldResourceLocation, oldCharacterProfession
 CharacterProfessionDefinition, CharacterTrait, Perks = oldProfessionDefinition,
