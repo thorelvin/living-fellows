@@ -154,11 +154,11 @@ local function blockerDuration(evidenceClass)
 end
 
 local function blacklistEdge(state, fromSquare, toSquare, blockerType, object, now,
-        evidenceClass, confidence)
+        evidenceClass, confidence, durationOverride)
     local key = edgeKey(fromSquare, toSquare)
     if not key then return nil end
     state.blockedEdges = state.blockedEdges or {}
-    local duration = blockerDuration(evidenceClass)
+    local duration = tonumber(durationOverride) or blockerDuration(evidenceClass)
     state.blockedEdges[key] = {
         type = blockerType or "unknown",
         object = object,
@@ -3950,6 +3950,28 @@ local function addBlockerEvidence(blocker)
     return blocker
 end
 
+-- Build 42.20.4 scores a climb from the actor, not from the edge:
+-- ClimbOverWallState.setParams rolls against getClimbingFailChanceFloat and the
+-- heavy-load moodle (see docs/navigation-climb-capabilities.md). An actor that
+-- cannot clear this fence cannot clear the one beside it either, so the short
+-- per-edge blacklist on its own lets a companion walk the length of a fence
+-- retrying until something else interrupts it. Escalate the hold once the
+-- failures repeat, which is what makes the route search give up on the whole
+-- line and go around instead.
+local function exhaustedTraversalDuration(state, reason, now)
+    if type(reason) ~= "string"
+        or string.sub(reason, 1, 25) ~= "traversal_exited_without_" then
+        state.traversalFailures = 0
+        return nil
+    end
+    local window = U().config("navigationTraversalRetryWindowMs") or 30000
+    local within = now - (tonumber(state.traversalFailureAt) or 0) <= window
+    local count = (within and (tonumber(state.traversalFailures) or 0) or 0) + 1
+    state.traversalFailures, state.traversalFailureAt = count, now
+    if count < (U().config("navigationTraversalRetryLimit") or 3) then return nil end
+    return U().config("navigationExhaustedTraversalEdgeMs") or 120000
+end
+
 local function rememberFailure(actor, state, fromSquare, toSquare, reason, now, recovery)
     state.lastMovementReason = reason
     state.lastAttemptFrom, state.lastAttemptTo = fromSquare, toSquare
@@ -3962,9 +3984,10 @@ local function rememberFailure(actor, state, fromSquare, toSquare, reason, now, 
         local remembered = state.routeMemory and state.routeMemory[edgeKey(fromSquare, toSquare)]
         if remembered then remembered.expires = now + blockerDuration("unknown") end
     end
+    local exhausted = exhaustedTraversalDuration(state, reason, now)
     if blocker.type ~= "actor_state" and fromSquare and toSquare then
         blacklistEdge(state, fromSquare, toSquare, blocker.type, blocker.object, now,
-            blocker.evidenceClass, blocker.confidence)
+            blocker.evidenceClass, blocker.confidence, exhausted)
     end
     if squareEvidenceClasses[blocker.evidenceClass] and adjacentStep(fromSquare, toSquare) then
         -- A collision capsule can fail on an otherwise topologically open tile
@@ -4587,6 +4610,9 @@ function Navigation._maintainTraversalForRequest(actor, state, sourceSquare, now
                 state.lastAttemptFrom = traversal.fromSquare or sourceSquare
                 state.lastAttemptTo = traversal.toSquare or sourceSquare
                 state.lastProgressAt = now
+                -- A completed crossing proves the actor can still climb, so the
+                -- exhaustion escalation above starts counting again from zero.
+                state.traversalFailures = 0
             end
         end
     end

@@ -252,6 +252,13 @@ local valueData = {
     navigationBlockedEdgeMs = 4500,
     navigationDynamicBlockedEdgeMs = 750,
     navigationUnknownBlockedEdgeMs = 500,
+    -- A traversal the engine refuses is scored from the actor rather than the
+    -- edge, so repeating it along a fence line never succeeds. After this many
+    -- exits-without-arrival inside the window, hold the edge long enough that
+    -- the route search abandons the line instead of retrying it all day.
+    navigationTraversalRetryLimit = 3,
+    navigationTraversalRetryWindowMs = 30000,
+    navigationExhaustedTraversalEdgeMs = 120000,
     navigationNativeLeaseMs = 6500,
     -- Lua route planning and native PathFindBehavior2 startup are both allowed
     -- to span multiple frames without being mistaken for an idle/stuck actor.

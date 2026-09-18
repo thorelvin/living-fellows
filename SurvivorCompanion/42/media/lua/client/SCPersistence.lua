@@ -2861,6 +2861,10 @@ local function applyNestedKeepsake(actor, possessions, context)
     return addInventoryNode(inventory, entry, context, 1)
 end
 
+-- Perks Build 42 grants at character creation rather than earning from zero.
+-- Mirrors SCBackground's passive baseline.
+local passivePerkFloor = { Strength = true, Fitness = true }
+
 local function applySkills(actor, skills)
     skills = type(skills) == "table" and skills or {}
     local factory = type(_G) == "table" and rawget(_G, "PerkFactory") or nil
@@ -2877,6 +2881,15 @@ local function applySkills(actor, skills)
                 return false, "unknown perk in save record: " .. entry.id
             end
             local level = math.max(0, math.min(10, math.floor(finite(entry.level, 0))))
+            if passivePerkFloor[entry.id] then
+                -- The background already seeded the vanilla passive baseline on
+                -- this freshly created actor. A save written before that seeding
+                -- carries Strength/Fitness 0, and restoring it verbatim would put
+                -- the companion back below character creation. Restore earned
+                -- progress, never a regression past what spawn established.
+                local currentOk, current = invoke(actor, "getPerkLevel", perk)
+                if currentOk then level = math.max(level, math.floor(finite(current, 0))) end
+            end
             local setOk = invoke(xp, "setXPToLevel", perk, level)
             if not setOk then
                 return false, "perk level could not be restored: " .. entry.id
@@ -2890,6 +2903,8 @@ local function applySkills(actor, skills)
     end
     return true
 end
+
+persistence._applySkillsForTests = applySkills
 
 local function initializeRestoredActor(actor, input, saved)
     local inventoryOk, contextOrReason = applyInventory(actor, saved.inventory, saved.id)

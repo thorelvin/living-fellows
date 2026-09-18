@@ -499,13 +499,24 @@ local function addTrait(actor, trait)
     return presentOk and present == true
 end
 
+-- Character creation gives every Build 42 player these passive perks before a
+-- profession adds anything; a profession map only ever boosts them. Seeding the
+-- pair unconditionally keeps the 24 of 31 backgrounds that never name Strength
+-- or Fitness from spawning a 0/0 companion. Build 42.20.4's
+-- IsoGameCharacter.getClimbingFailChanceFloat is int(sqrt(2*Fitness +
+-- 2*Strength + 2*Nimble - moodle penalties)), so 0/0 scores 0, and
+-- ClimbOverWallState.setParams treats a 0 score plus any heavy-load moodle as
+-- an unconditional climb failure -- a companion that can never cross a fence.
+local passiveBaseline = { Strength = 5, Fitness = 5 }
+
 local function applySkills(actor, skillMaps)
     local perkTable = type(_G) == "table" and rawget(_G, "Perks") or nil
     if perkTable == nil then return false end
     local targets = {}
+    for name, level in pairs(passiveBaseline) do targets[name] = level end
     for _, skills in ipairs(skillMaps) do
         for name, boost in pairs(type(skills) == "table" and skills or {}) do
-            local baseline = (name == "Strength" or name == "Fitness") and 5 or 0
+            local baseline = passiveBaseline[name] or 0
             targets[name] = math.max(targets[name] or 0,
                 clamp(baseline + (tonumber(boost) or 0), 0, 10))
         end

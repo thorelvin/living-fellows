@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.22.36 - Companions can climb again
+
+- Fixed companions being physically unable to climb a fence or wall. Most of them spawned with Strength 0 and Fitness 0, where every player starts at 5 and 5. The game scores a climb from those perks, and the mod applied its intended baseline of 5 only to backgrounds whose profession already trained that skill -- 24 of the 31 backgrounds name neither, so most companions never received it. In the last playtest the game's own log recorded 40 companion wall-climbs and 40 failures; the player, in the same session, succeeded. Companions now start with the same physical baseline as the player.
+- The same two perks also set carry capacity, melee damage and stamina, so companions were quietly weak, permanently overloaded and out of breath as well. All of that improves with the fix.
+- Fixed a reloaded save undoing the above. Restoring a companion replayed its saved Strength and Fitness verbatim, so a companion saved before this fix came back at 0 again. Restore no longer lowers those two below what the companion is created with, while any progress earned above it is restored exactly.
+- Fixed companions walking the length of a fence retrying a climb they cannot make. The game decides a climb from the climber, not from the panel, so the panel next door was never going to work either. After three failed crossings a companion now gives up on that line and finds another way around.
+
 ## 0.22.35 - Combat and scavenging fixes
 
 - Fixed companions refusing to arm themselves and fleeing every fight bare-handed. A pen is defined as a weapon by the game, so a diarist's two pens filled their whole weapon loadout: they reported themselves armed, stopped looking for weapons, and then could not fight, because a diarist's pen is deliberately never swung. Pens no longer count, and neither does a weapon broken beyond use, so a companion carrying only those will go and find a real one.

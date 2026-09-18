@@ -496,6 +496,37 @@ check(failedState.lastBlocker.diagnostic:find("pos=", 1, true)
     and failedState.lastBlocker.diagnostic:find("fsm=", 1, true)
     and failedState.lastBlocker.diagnostic:find("native_path_stalled", 1, true),
     "bounded blocker event preserves coordinates, real state and failure reason")
+
+do
+    -- Build 42.20.4 rolls a climb from the actor, never from the edge, so a
+    -- companion that cannot clear one fence panel cannot clear its neighbour
+    -- either. The 16-per-session fence walk in the 0.22.35 playtest was exactly
+    -- that: a short per-edge cooldown, a step sideways, and another attempt.
+    local fence = { isTallHoppable = function() return true end }
+    local priorFenceBarrier = SC.Topology.barrierBetween
+    SC.Topology.barrierBetween = function() return fence, "fence" end
+    local climber = actor()
+    local climbState, holds = { openedDoors = {} }, {}
+    for index = 1, 3 do
+        local panel = square(index, 3)
+        N._rememberFailureForTests(climber, climbState, climber.square, panel,
+            "traversal_exited_without_destination", current, "traversal_replan")
+        local entry = climbState.blockedEdges["0:0:0>" .. index .. ":3:0"]
+        holds[index] = entry and entry.expires - current or -1
+    end
+    check(holds[1] == 4500 and holds[2] == 4500 and holds[3] == 120000,
+        "a third exit-without-arrival holds the edge long enough to abandon the fence line")
+    N._rememberFailureForTests(climber, climbState, climber.square, square(4, 3),
+        "native_path_failed", current, "audit")
+    N._rememberFailureForTests(climber, climbState, climber.square, square(5, 3),
+        "traversal_exited_without_progress", current, "traversal_replan")
+    local afterReset = climbState.blockedEdges["0:0:0>5:3:0"]
+    check(climbState.traversalFailures == 1
+            and afterReset and afterReset.expires - current == 4500,
+        "an unrelated failure clears the streak so ordinary retries stay short")
+    SC.Topology.barrierBetween = priorFenceBarrier
+end
+
 SC.Topology.barrierBetween = oldBarrier
 local debris = { __class = "ZombieGiblets", isCollidable = function() return false end }
 destination.moving = { debris }

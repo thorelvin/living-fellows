@@ -10373,7 +10373,8 @@ CharacterProfessionDefinition = { getCharacterProfessionDefinition = function(pr
     }
 end }
 Perks = { Axe = "Axe", Strength = "Strength", Maintenance = "Maintenance",
-    Sprinting = "Sprinting" }
+    Sprinting = "Sprinting", Fitness = "Fitness", Cooking = "Cooking",
+    SmallBlade = "SmallBlade" }
 local descriptor = { profession = nil }
 function descriptor:setCharacterProfession(profession) self.profession = profession end
 function descriptor:getCharacterProfession() return self.profession end
@@ -10401,6 +10402,48 @@ check(nativeApplied and nativeReason == "native_background_applied"
     and nativeBackgroundActor.levels.Sprinting == 1
     and nativeBackgroundActor.professionRecipes and nativeBackgroundActor.traitRecipes,
     "native background application assigns profession, traits, recipes, and conservative skills")
+check(nativeBackgroundActor.levels.Fitness == 5,
+    "a background that never names Fitness still receives the vanilla passive baseline")
+
+-- Build 42.20.4 seeds Strength and Fitness at 5 during character creation, and
+-- getClimbingFailChanceFloat is int(sqrt(2*Fitness + 2*Strength + 2*Nimble -
+-- moodle penalties)). A companion left at 0/0 scores 0, which
+-- ClimbOverWallState.setParams turns into an unconditional climb failure once
+-- any heavy-load moodle is present. 24 of the 31 backgrounds name neither perk,
+-- so the baseline has to come from the seed rather than from the skill map.
+local cookOrganized = Background.initialize("explicit-background", {
+    profession = "burgerflipper", aptitude = "organized",
+})
+local cookProfession = { id = "base:burgerflipper" }
+local organizedTrait = { id = "base:organized" }
+CharacterProfession = { get = function(id)
+    return id == "base:burgerflipper" and cookProfession or nil
+end }
+CharacterTrait = { get = function(id)
+    return id == "base:organized" and organizedTrait or nil
+end }
+CharacterProfessionDefinition = { getCharacterProfessionDefinition = function() return nil end }
+local cookDescriptor = { profession = nil }
+function cookDescriptor:setCharacterProfession(profession) self.profession = profession end
+function cookDescriptor:getCharacterProfession() return self.profession end
+function cookDescriptor:setProfessionSkills() self.skillsSet = true end
+local cookKnown = { rows = {}, set = {} }
+function cookKnown:add(trait) self.rows[#self.rows + 1] = trait; self.set[trait] = true; return true end
+local cookActor = { levels = {} }
+function cookActor:getDescriptor() return cookDescriptor end
+function cookActor:getCharacterTraits() return { getKnownTraits = function() return cookKnown end } end
+function cookActor:hasTrait(trait) return cookKnown.set[trait] == true end
+function cookActor:modifyTraitXPBoost() return true end
+function cookActor:getPerkLevel(perk) return self.levels[perk] or 0 end
+function cookActor:setPerkLevelDebug(perk, level) self.levels[perk] = level end
+function cookActor:applyProfessionRecipes() self.professionRecipes = true end
+function cookActor:applyCharacterTraitsRecipes() self.traitRecipes = true end
+local cookApplied, cookReason = Background.applyNative(cookActor, cookOrganized)
+check(cookApplied and cookReason == "native_background_applied"
+    and cookActor.levels.Strength == 5 and cookActor.levels.Fitness == 5
+    and cookActor.levels.Cooking == 2 and cookActor.levels.SmallBlade == 1,
+    "a background naming neither physical perk still spawns at Strength 5 and Fitness 5")
+
 ResourceLocation, CharacterProfession = oldResourceLocation, oldCharacterProfession
 CharacterProfessionDefinition, CharacterTrait, Perks = oldProfessionDefinition,
     oldCharacterTrait, oldPerks

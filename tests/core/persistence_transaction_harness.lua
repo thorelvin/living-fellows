@@ -68,6 +68,41 @@ do
     check(changed, "production cargo marker mutation changes the final inventory identity proof")
 end
 
+do
+    -- A save written before companions were seeded with the vanilla passive
+    -- baseline carries Strength/Fitness 0. Spawn now applies 5 before restore
+    -- runs, so replaying the record verbatim would push the actor back below
+    -- character creation and leave it unable to climb anything. Earned progress
+    -- above the seeded level must still restore exactly.
+    local priorPerkFactory = PerkFactory
+    PerkFactory = { getPerkFromName = function(name) return name end }
+    local applied = {}
+    local xp = {
+        setXPToLevel = function(_, perk, level) applied[perk] = level return true end,
+        getXP = function() return 0 end,
+    }
+    local seeded = { Strength = 5, Fitness = 5, Axe = 0 }
+    local actor = {
+        getXp = function() return xp end,
+        getPerkLevel = function(_, perk) return seeded[perk] or 0 end,
+    }
+    local ok = SC.Persistence._applySkillsForTests(actor, {
+        { id = "Strength", level = 0 },
+        { id = "Fitness", level = 3 },
+        { id = "Axe", level = 4 },
+    })
+    check(ok == true and applied.Strength == 5 and applied.Fitness == 5
+            and applied.Axe == 4,
+        "restore never lowers a passive perk below the level spawn seeded")
+
+    applied, seeded = {}, { Strength = 5, Fitness = 5 }
+    check(SC.Persistence._applySkillsForTests(actor, {
+            { id = "Strength", level = 8 },
+        }) == true and applied.Strength == 8,
+        "earned progress above the passive baseline restores unchanged")
+    PerkFactory = priorPerkFactory
+end
+
 -- A scheduled capture yields between items, so a companion can drop an item
 -- mid-walk. The shrunken list reads as churn, never as an out-of-range get()
 -- (a Java IndexOutOfBoundsException with a stack trace in the game log).
