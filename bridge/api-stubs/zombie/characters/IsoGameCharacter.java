@@ -87,6 +87,12 @@ public class IsoGameCharacter extends IsoMovingObject {
     public boolean isDead() { return false; }
     public boolean isOnFloor() { return false; }
     public boolean isClimbing() { return false; }
+    // IsoGameCharacter implements IGrappleableWrapper in 42.20.4, which supplies
+    // these as public default methods. Compile-only declarations; the real
+    // implementations come from the game at runtime. Verified present by
+    // reflection on IsoPlayer -- see docs/combat-native-capabilities.md.
+    public boolean isBeingGrappled() { return false; }
+    public boolean isGrappling() { return false; }
     public boolean isManualFloorAtkButtonDown() { return false; }
     public boolean isMeleeButtonDown() { return false; }
     public zombie.pathfind.Path getPath2() { return null; }

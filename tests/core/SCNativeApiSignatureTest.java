@@ -646,6 +646,28 @@ public final class SCNativeApiSignatureTest {
                 "BodyPart.SetBitten(boolean) signature changed");
         require(method(bodyPart, "setScratched", boolean.class, boolean.class).getReturnType() == void.class,
                 "BodyPart.setScratched(boolean,boolean) signature changed");
+        // The second argument is forceNoInfection: a false value reaches
+        // generateZombieInfection(7). The mod's policy is bites-only
+        // transmission, so both the wound path and vitals restore pass true.
+        // A signature check cannot prove that meaning -- this only guarantees
+        // the operation we rely on to avoid it still exists.
+        require(method(bodyPart, "generateZombieInfection", int.class).getReturnType() == void.class,
+                "BodyPart.generateZombieInfection(int) signature changed");
+        require(method(bodyPart, "setCut", boolean.class).getReturnType() == void.class,
+                "BodyPart.setCut(boolean) signature changed");
+        require(method(bodyPart, "setWoundInfectionLevel", float.class).getReturnType() == void.class
+                        && method(bodyPart, "getWoundInfectionLevel").getReturnType() == float.class,
+                "BodyPart wound-infection-level signature changed");
+        // Native paired grapple. IsoGameCharacter implements IGrappleableWrapper,
+        // so these resolve on a companion; the mod reads the real pair instead
+        // of trusting its own record, and yields root motion while it is held.
+        require(method(companion, "isBeingGrappled").getReturnType() == boolean.class
+                        && method(companion, "isGrappling").getReturnType() == boolean.class,
+                "IGrappleable pair-state signature changed");
+        require(method(companion, "getGrappledByType").getReturnType() == String.class,
+                "IGrappleable.getGrappledByType() signature changed");
+        require(method(companion, "isPerformingGrappleGrabAnimation").getReturnType() == boolean.class,
+                "IGrappleable.isPerformingGrappleGrabAnimation() signature changed");
         require(method(zombie, "setAttackOutcome", String.class).getReturnType() == void.class
                         && method(zombie, "getAttackOutcome").getReturnType() == String.class,
                 "IsoZombie attack-outcome signature changed");

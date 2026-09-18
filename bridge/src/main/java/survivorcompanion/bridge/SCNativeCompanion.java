@@ -430,6 +430,32 @@ public final class SCNativeCompanion extends IsoPlayer {
         }
     }
 
+    /**
+     * Is a verified native paired grapple holding this companion?
+     *
+     * <p>Read from the engine's own pair state rather than from any mod record.
+     * {@code IsoGameCharacter} implements {@code IGrappleableWrapper}, so both
+     * sides of the relationship are available on a companion.
+     *
+     * <p>This matters for root motion. {@code IsoGameCharacter.doDeferredMovement()}
+     * adds {@code getGrappleOffset()} to the movement vector whenever
+     * {@code isGrappling()} or {@code isBeingGrappled()} holds -- that offset is
+     * what keeps a grappled victim positioned against its grappler. Discarding
+     * the accumulator during a grapple therefore pulls the paired animation
+     * apart: the clip plays while the collision body stays where it was.
+     *
+     * <p>Verified against the pinned 42.20.4 JAR; see
+     * docs/combat-native-capabilities.md.
+     */
+    public boolean isCompanionNativeGrappleActive() {
+        try {
+            return isBeingGrappled() || isGrappling();
+        } catch (RuntimeException | LinkageError failure) {
+            // Losing observation must not silently release a movement owner.
+            return false;
+        }
+    }
+
     private static boolean isTraversalState(State state) {
         if (state == null) return false;
         String name = state.getClass().getSimpleName();
@@ -1577,7 +1603,7 @@ public final class SCNativeCompanion extends IsoPlayer {
         // ordinary path/manual locomotion already translates through PFB or
         // MoveForward and must continue to consume without applying a second
         // displacement.
-        if (isCompanionTraversalActive()) {
+        if (isCompanionTraversalActive() || isCompanionNativeGrappleActive()) {
             doDeferredMovement();
             return;
         }

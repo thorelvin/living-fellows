@@ -87,19 +87,55 @@ PlayerFallDownState         PlayerFallingState          PlayerGetUpState
 PlayerOnGroundState         PlayerSitOnGroundState
 ```
 
+### How the engine actually applies root motion
+
+`IsoPlayer.updateInternal2()` calls `doDeferredMovement()` **unconditionally** —
+there is no state guard at the call site. The method guards itself:
+
+| Guard, in order | Effect |
+|---|---|
+| `hasAnimationPlayer()` | returns if absent |
+| `GameClient.client` + `HitReactionNetworkAI` branches | multiplayer only |
+| `isAnimationUpdatingThisFrame()` | returns if not — this is the engine's own "exactly once per simulation step" |
+| `getPath2() != null`, not a climb state | reconciles against the path, or returns without applying |
+| `WalkTowardState` | clamps root motion to the path-follow vector |
+| `GameClient.client` block (offsets 262–468) | **entirely skipped in single-player** |
+| `isGrappling() \|\| isBeingGrappled()` | **adds `getGrappleOffset()` to the movement vector** |
+
+Two conclusions, both from the pinned JAR:
+
+1. **The engine already prevents double application.** Path-owned movement is
+   reconciled inside `doDeferredMovement`, which is why vanilla can call it
+   unconditionally. The bridge's traversal-only allowlist re-implements that
+   decision more narrowly and discards reaction displacement as a side effect.
+2. **A grapple needs the accumulator.** `getGrappleOffset()` is what holds a
+   grappled victim in position against its grappler. Discarding it during a
+   grapple pulls the paired animation apart: the clip plays while the collision
+   body stays put.
+
+The multiplayer block, although skipped in single-player, is still evidence of
+engine intent: it is an allowlist of states where root motion *is* applied for
+a remote zombie, and it names `StaggerBackState`, `ZombieHitReactionState`,
+`ZombieFallDownState`, `ZombieFallingState` and `ZombieOnGroundState`. The
+non-local **player** list in the same block is narrower —
+`CollideWithWallState`, `PlayerGetUpState`, `BumpedState`.
+
 | Question | Status |
 |---|---|
-| The states exist and are distinguishable | **available** |
-| Which of them require root motion to be applied, and in which phase | **semantics-unverified** |
-| Whether `doDeferredMovement()` is safe to call during each | **semantics-unverified** |
+| The reaction states exist and are distinguishable | **available** |
+| `doDeferredMovement()` is self-guarding and safe to call while a grapple holds | **available** |
+| Grapple offset requires the accumulator | **available** |
+| Which *reaction* states (hit, stagger, falldown) need it for a non-local companion in single-player | **semantics-unverified** |
 
-`SCNativeCompanion.consumeBridgeDeferredMovement()` currently applies root
-motion **only** during verified traversal and discards the accumulator
-otherwise, so any reaction needing displacement gets none. Extending that
-allowlist is W2, and it is deliberately **not** done here: guessing which states
-consume root motion risks applying displacement twice, which is worse than the
-current under-application. The state list above narrows the question; a live
-trace has to answer it.
+**Done:** `consumeBridgeDeferredMovement()` now also applies root motion while
+`isCompanionNativeGrappleActive()`, so a held companion is positioned by the
+engine's grapple offset.
+
+**Not done:** extending the allowlist to the hit/stagger/falldown states. The
+evidence above narrows it a great deal but does not settle whether the bridge's
+own manual translation would double up during those states, and applying
+displacement twice is worse than the current under-application. That needs a
+live trace.
 
 ---
 

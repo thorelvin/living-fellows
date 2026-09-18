@@ -11,6 +11,7 @@
 - Fixed a wound being reported as applied when only part of it landed. Previously only the health loss was checked, so a failing wound setter left a companion damaged with no wound, no bleeding and no bite. A partial wound is now reported as such, and the health loss is never applied twice.
 - Fixed a zombie counting toward the wrong companion's pile-on. A zombie that switched to the player or another companion still counted toward the first companion's pin for over a second, so a crowd around one survivor could drag down a different one. A zombie that has picked a live alternate victim now stops counting immediately.
 - Fixed a fatal drag-down reporting a completed kill when the kill was never carried out. The result of ending the companion's life was discarded; it is now checked, and death is confirmed before it is reported.
+- A companion held in a real grab is now positioned by the game instead of standing still inside the animation. The engine adds a grapple offset to the held character's movement each frame, and the bridge was throwing that away, so the grab animation played while the body stayed where it was.
 - The game's own paired-grapple system is now recognised. When a zombie really has hold of a companion, the mod stands aside: it no longer writes its own timed wounds on top, and no longer fights the get-up animation with repeated knockdown flags. A real grab and the mod's crowd pile-on are reported as what they are instead of being treated as the same thing.
 
 ## 0.22.33 - Review fixes
