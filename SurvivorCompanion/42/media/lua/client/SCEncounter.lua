@@ -696,11 +696,28 @@ end
 local function containerReach(actor, task)
     local utility = U()
     local owner = task and task.owner or nil
+    -- Resolve the container's position from whatever is available. The owner
+    -- is normally the IsoObject holding the ItemContainer, but a container that
+    -- reports no parent falls back to itself, and a task that has already
+    -- recorded where it was heading is better evidence than nothing.
     local square = owner and utility.squareOf(owner) or nil
-    if square == nil then return true, "container_square_unknown" end
+    if square == nil and task then square = utility.squareOf(task.container) end
+    local cx, cy, cz
+    if square ~= nil then
+        cx, cy, cz = utility.position(square)
+    elseif task then
+        cx, cy, cz = task.containerX, task.containerY, task.containerZ
+    end
     local ax, ay, az = utility.position(actor)
-    local cx, cy, cz = utility.position(square)
-    if ax == nil or cx == nil then return true, "position_unavailable" end
+    if ax == nil or cx == nil then
+        -- Fail open rather than making every container of this shape
+        -- unlootable, but say so: a silent pass here is indistinguishable from
+        -- the very defect this gate exists to stop.
+        utility.diagnostic("scavenge-reach", actor,
+            "outcome=unverified reason=container_position_unavailable owner="
+            .. tostring(utility.objectLabel(owner)))
+        return true, "position_unavailable"
+    end
     if math.floor(az or 0) ~= math.floor(cz or 0) then
         return false, "container_out_of_reach"
     end
@@ -709,7 +726,11 @@ local function containerReach(actor, task)
     -- standing off-centre within one.
     local reach = tonumber(utility.config("scavengeReachTiles")) or 1.6
     local dx, dy = cx - ax, cy - ay
-    if (dx * dx + dy * dy) > reach * reach then
+    local distance = math.sqrt(dx * dx + dy * dy)
+    if distance > reach then
+        utility.diagnostic("scavenge-reach", actor, string.format(
+            "outcome=refused distance=%.2f reach=%.2f actor=%.2f,%.2f container=%.2f,%.2f",
+            distance, reach, ax, ay, cx, cy))
         return false, "container_out_of_reach"
     end
     return true, "within_reach", cx, cy
@@ -1252,6 +1273,10 @@ local function beginTask(actor, state, container, item, category, owner, utility
     state.item = item
     state.itemCategory = category
     state.containerOwner = task.owner
+    -- Where the container was when the task was created. A shelf does not move,
+    -- and this is the fallback the reach gate uses when neither the owner nor
+    -- the container resolves to a square at transfer time.
+    task.containerX, task.containerY, task.containerZ = U().position(task.owner)
     local service = supervisor()
     if service and type(service.begin) == "function" then
         local x, y, z = U().position(task.owner)

@@ -8865,6 +8865,24 @@ do
     check(nearEnough == false and reachReason == "container_out_of_reach",
         "a companion three tiles away was allowed to reach into the shelf")
 
+    -- The first version of this gate failed open whenever the container's
+    -- square could not be resolved -- which is exactly the case it exists to
+    -- catch, since a shelf whose owner does not resolve is still a shelf across
+    -- the room. An owner with no square now falls back to the container, and
+    -- then to the position recorded when the task was created.
+    local ownerlessShelf = { }
+    local viaContainer = reachOf(farReacher,
+        { owner = ownerlessShelf, container = shelf })
+    check(viaContainer == false,
+        "an unresolvable owner let a companion reach across the room")
+    local viaRecorded = reachOf(farReacher, { owner = ownerlessShelf,
+        containerX = 41.5, containerY = 40.5, containerZ = 0 })
+    check(viaRecorded == false,
+        "the recorded container position was ignored, so the gate failed open")
+    check(reachOf(reacher, { owner = ownerlessShelf,
+        containerX = 41.5, containerY = 40.5, containerZ = 0 }) == true,
+        "the recorded position refused a companion standing right beside it")
+
     -- Facing: the shelf is east of the companion.
     reacher.forwardX, reacher.forwardY = 1, 0
     check(facingOf(reacher, 41.5, 40.5) == true,

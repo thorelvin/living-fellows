@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.23.4 - Close the hole in the reach check
+
+- The reach check added last release let a companion through whenever it could not work out where the container was -- which is the one case it exists to catch, because a shelf it cannot locate is still a shelf across the room. It now falls back to the container itself, and then to where the container was when the companion set out for it, and says so in the log if it still cannot tell.
+- Every refused reach is now logged with the actual distance, so a companion looting from across a room is answerable from the log instead of from a guess.
+
 ## 0.23.3 - Walk there, stand next to it, look at it
 
 - Companions no longer walk to loot in visible single paces. Crossing a room to a shelf was being treated as a tactical reposition, so the strict turn-before-you-move rule applied to every step: step, turn, step. A follower covering the same ground was smooth for no reason other than a flag, and an approach walk now gets the same treatment.
