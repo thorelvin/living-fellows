@@ -729,6 +729,18 @@ public final class SCNativeApiSignatureTest {
                 "state-machine sub-state accessors used by the reaction classifier changed");
         // CB-09: the outgoing receipt channel must stay separate from the
         // completed-hit serial, or a consumer can read a failure as a hit.
+        // The closed-door path guard rests on two engine facts: the boolean
+        // overload's first flag really is LCC_IGNORE_DOORS, and IsoGameCharacter
+        // sets that flag for every non-animal, non-zombie character -- which is
+        // why the engine plans straight through closed doors in the first place.
+        Class<?> polygonalMap = Class.forName("zombie.pathfind.PolygonalMap2");
+        require(polygonalMap.getField("LCC_IGNORE_DOORS").getInt(null) == 1
+                && polygonalMap.getField("LCC_CLOSE_TO_WALLS").getInt(null) == 2
+                && polygonalMap.getMethod("lineClearCollide", float.class, float.class,
+                        float.class, float.class, int.class,
+                        Class.forName("zombie.iso.IsoMovingObject"),
+                        boolean.class, boolean.class).getReturnType() == boolean.class,
+                "PolygonalMap2 door-aware line test changed shape");
         require(companion.getMethod("getCompanionAttackAttemptSerial")
                         .getReturnType() == int.class
                 && companion.getMethod("getCompanionAttackReceiptSerial")
@@ -754,6 +766,6 @@ public final class SCNativeApiSignatureTest {
                 + " readable-speech=true"
                 + " reflection-contract=true cleanup-retry=true"
                 + " reaction-states=" + reactionStates.length + " movement-owner=true"
-                + " attack-continuation=true outgoing-receipts=true");
+                + " attack-continuation=true outgoing-receipts=true door-guard=true");
     }
 }

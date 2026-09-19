@@ -495,6 +495,20 @@ require("public String getCompanionActiveAnimationNames()" in native_companion
         and "track.isPlaying" in native_companion
         and "track.getBlendWeight() <= 0.001f" in native_companion,
         "native companion lacks direct diagnostics for visibly weighted animation clips")
+# The closed-door path guard asks PolygonalMap2 the same question twice: once
+# with doors ignored, once respecting them. Those two boolean literals are the
+# whole fix, and no harness world contains a door to exercise them through, so
+# assert the call shape at the source. LCC_IGNORE_DOORS == 1 is pinned against
+# the real JAR by SCNativeApiSignatureTest.
+require("closedDoorBlocksStep" in native_companion
+        and "level, this, true, true);" in native_companion
+        and "level, this, false, true);" in native_companion
+        and "doorIsSoleObstruction(blockedIgnoringDoors, blockedRespectingDoors)"
+            in native_companion
+        and "return !blockedIgnoringDoors && blockedRespectingDoors;" in native_companion,
+        "the closed-door path probe no longer compares a door-ignoring and a "
+        "door-respecting line test, so companions can path through closed doors")
+
 require("shouldApplyCompanionAim" in native_companion
         and "isBridgeLocomotionActive()," in native_companion
         and "bridgeTacticalMovement, attackOwnsFacing" in native_companion

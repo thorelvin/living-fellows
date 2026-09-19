@@ -881,6 +881,34 @@ public final class SCIsoCompanionControlTest {
                 "started native path state recursed through IsoPlayer movement callbacks");
         pathStarted.setBoolean(actor, false);
         pathActive.setBoolean(actor, false);
+        // Companions used to walk through closed doors. Build 42 sets
+        // LCC_IGNORE_DOORS for every non-animal, non-zombie character in
+        // IsoGameCharacter.pathToAux, so the engine plans straight through a
+        // closed door expecting the character to open it -- and a companion's
+        // contextual actions are deliberately suppressed, so nothing did.
+        require(SCNativeCompanion.doorIsSoleObstruction(false, true),
+                "a step clear of everything but a door was not held");
+        require(!SCNativeCompanion.doorIsSoleObstruction(true, true),
+                "a wall was misreported as a door and would stall the actor");
+        require(!SCNativeCompanion.doorIsSoleObstruction(false, false),
+                "an open doorway was treated as blocked");
+        require(!SCNativeCompanion.doorIsSoleObstruction(true, false),
+                "an impossible probe result was treated as a door");
+        require(!((SCNativeCompanion) actor).isCompanionPathBlockedByDoor(),
+                "an actor with no active native path claimed a door block");
+        // The guard has to be part of the step decision, not merely available.
+        require(SCNativeCompanion.shouldAdvanceBridgePath(false, false, true, false, false),
+                "an ordinary path step was refused");
+        require(!SCNativeCompanion.shouldAdvanceBridgePath(false, false, true, false, true),
+                "a native path step crossed a closed door");
+        require(!SCNativeCompanion.shouldAdvanceBridgePath(false, false, false, false, false),
+                "a path step advanced with no active path");
+        require(!SCNativeCompanion.shouldAdvanceBridgePath(false, false, true, true, false),
+                "a path step competed with an exclusive native owner");
+        require(!SCNativeCompanion.shouldAdvanceBridgePath(true, false, true, false, false)
+                        && !SCNativeCompanion.shouldAdvanceBridgePath(
+                                false, true, true, false, false),
+                "a disabled bridge or a seated companion still advanced its path");
         require(!SCNativeCompanion.shouldApplyCompanionAim(true, false, false),
                 "ordinary forward locomotion can be reversed by a stale combat aim target");
         require(SCNativeCompanion.shouldApplyCompanionAim(true, true, false),

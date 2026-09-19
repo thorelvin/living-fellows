@@ -116,6 +116,9 @@ public final class SCNativeCompanion extends IsoPlayer {
     // are a terminal-receipt channel that is published on BOTH paths, and they
     // are deliberately separate counters so no existing consumer can read a
     // failure as a hit.
+    // Diagnostic count of native path steps held at a closed door, so the
+    // guard's effect is observable rather than inferred.
+    private volatile long bridgePathDoorHolds;
     private volatile int bridgeAttackAttemptSerial;
     private volatile int bridgeAttackReceiptSerial;
     private volatile String bridgeAttackReceiptOutcome = "none";
@@ -893,6 +896,11 @@ public final class SCNativeCompanion extends IsoPlayer {
      * Impact attempts claimed, including ones that then failed. Distinct from
      * the completed-hit serial so a failure can never be counted as a hit.
      */
+    /** Native path steps refused because a closed door sat on the next step. */
+    public long getCompanionPathDoorHolds() {
+        return bridgePathDoorHolds;
+    }
+
     public int getCompanionAttackAttemptSerial() {
         return bridgeAttackAttemptSerial;
     }
@@ -1748,9 +1756,82 @@ public final class SCNativeCompanion extends IsoPlayer {
      * this preserves its route, collision, facing and terminal cleanup behavior
      * while the ordinary player graph remains responsible for the visible walk.
      */
+    /**
+     * Is a closed door the <em>only</em> thing between here and a point?
+     *
+     * <p>Build 42's own straight-line path test sets {@code LCC_IGNORE_DOORS}
+     * for every character that is not an animal or a zombie (see
+     * {@code IsoGameCharacter.pathToAux}), because a player is expected to open
+     * what it walks into. The engine pathfinder therefore plans straight
+     * through closed doors, and a detached companion -- whose contextual
+     * actions are deliberately suppressed, so nothing opens them -- walked
+     * through as if they were not there.
+     *
+     * <p>Asking the same question twice, once ignoring doors and once not,
+     * isolates exactly that case: clear when doors are ignored but blocked when
+     * they are not means a door and nothing else. A wall still behaves as it
+     * always did.
+     */
+    private boolean closedDoorBlocksStep(float toX, float toY, int level) {
+        try {
+            boolean blockedIgnoringDoors = PolygonalMap2.instance.lineClearCollide(
+                    getX(), getY(), toX, toY, level, this, true, true);
+            boolean blockedRespectingDoors = blockedIgnoringDoors
+                    || PolygonalMap2.instance.lineClearCollide(
+                            getX(), getY(), toX, toY, level, this, false, true);
+            return doorIsSoleObstruction(blockedIgnoringDoors, blockedRespectingDoors);
+        } catch (RuntimeException | LinkageError failure) {
+            // Losing the probe must not invent a barrier that stops the actor.
+            return false;
+        }
+    }
+
+    /**
+     * A door is the sole obstruction when the step is clear with doors ignored
+     * and blocked once they are not. Blocked both ways is a wall, which was
+     * never the companion's problem; clear both ways is an open doorway.
+     */
+    static boolean doorIsSoleObstruction(boolean blockedIgnoringDoors,
+            boolean blockedRespectingDoors) {
+        return !blockedIgnoringDoors && blockedRespectingDoors;
+    }
+
+    /**
+     * True when the companion's next native path step would cross a closed
+     * door. Holding the step there turns silent clipping into an ordinary
+     * blocked-route condition, which the navigation layer already knows how to
+     * resolve: it opens the door, or reports the doorway blocked.
+     */
+    public boolean isCompanionPathBlockedByDoor() {
+        if (bridgeDisabled || getVehicle() != null || !bridgePathActive) return false;
+        PathFindBehavior2 behavior = getPathFindBehavior2();
+        if (behavior == null || !behavior.pathNextIsSet) return false;
+        float dx = behavior.pathNextX - getX();
+        float dy = behavior.pathNextY - getY();
+        // An effectively-zero step carries no edge to cross.
+        if (dx * dx + dy * dy < 0.0001f) return false;
+        return closedDoorBlocksStep(behavior.pathNextX, behavior.pathNextY,
+                (int) Math.floor(getZ()));
+    }
+
+    /**
+     * The whole decision to advance one native path step, as a pure rule so it
+     * can be tested without a world. Every term is a refusal; a closed door is
+     * one of them, because stopping at a door is recoverable -- the navigation
+     * layer opens it on the same lease -- and crossing one is not.
+     */
+    static boolean shouldAdvanceBridgePath(boolean disabled, boolean inVehicle,
+            boolean pathActive, boolean nativeOwnsBody, boolean doorBlocked) {
+        return !disabled && !inVehicle && pathActive && !nativeOwnsBody && !doorBlocked;
+    }
+
     private void advanceBridgePath() {
-        if (bridgeDisabled || getVehicle() != null || !bridgePathActive
-                || nativeOwnsBody()) return;
+        boolean doorBlocked = bridgePathActive && isCompanionPathBlockedByDoor();
+        if (!shouldAdvanceBridgePath(bridgeDisabled, getVehicle() != null,
+                bridgePathActive, nativeOwnsBody(), doorBlocked)) {
+            if (doorBlocked) bridgePathDoorHolds++;
+            return;
+        }
         // Avoid a double step if a future Build 42 player graph gains a native
         // pathfind state and the generic update has already executed it.
         if (getStateMachine().getCurrent() != PathFindState.instance()) {

@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.22.41 - Companions stop at closed doors
+
+- Fixed companions walking straight through closed doors. The game's own pathfinder deliberately plans through them, because it expects whoever is walking to open the door on the way -- that is how the player works. A companion never opens doors that way, and nothing was stopping its body either, so it simply passed through. A companion now stops at a closed door instead of crossing it, and the existing door-opening behaviour takes over from there. Walls and open doorways are unaffected.
+
 ## 0.22.40 - Honest reporting for a companion's own swings
 
 - Fixed a companion's swing failing silently. If the game's hit code errored partway, the mod saw nothing at all and eventually gave up with a timeout -- which invites trying again, on a swing that may already have connected. A failed swing is now reported as failed, says whether it might have partly landed, and is never repeated to get a tidier answer.
