@@ -61,6 +61,29 @@ function New-ScStep {
     }
 }
 
+<#
+Spawn the same PowerShell host that is running, rather than hardcoding
+powershell.exe.
+
+PSModulePath is inherited, and pwsh's does not contain the Windows PowerShell
+5.1 module directories. A 5.1 child launched from pwsh therefore cannot load
+Microsoft.PowerShell.Utility, and ordinary cmdlets -- Get-FileHash was the one
+that surfaced it -- fail with CommandNotFoundException. Source CI runs
+`shell: pwsh`, so every spawned step died there while passing on a developer
+machine whose shell is 5.1. Matching the host keeps the module path coherent
+whichever way round it is.
+#>
+function Get-ScPowerShellHost {
+    try {
+        $path = (Get-Process -Id $PID).Path
+        if (-not [string]::IsNullOrWhiteSpace($path) -and
+            (Test-Path -LiteralPath $path -PathType Leaf)) {
+            return $path
+        }
+    } catch { }
+    return 'powershell.exe'
+}
+
 function New-ScPowerShellStep {
     [CmdletBinding()]
     param(
@@ -69,7 +92,7 @@ function New-ScPowerShellStep {
         [string[]]$Arguments = @(),
         [string]$Failure = ''
     )
-    New-ScStep -Name $Name -FilePath 'powershell.exe' -Failure $Failure -Arguments (
+    New-ScStep -Name $Name -FilePath (Get-ScPowerShellHost) -Failure $Failure -Arguments (
         @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $Script) + $Arguments)
 }
 

@@ -32,6 +32,19 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+# A case runs in its own host, so it inherits whatever PSModulePath the parent
+# had. When those do not match -- a 5.1 child launched from pwsh -- the stock
+# Utility module never loads and every case fails deep inside the installer on a
+# missing Get-FileHash. Say so here instead, in one line, rather than 35 times.
+foreach ($required in @('Get-FileHash', 'ConvertFrom-Json', 'ConvertTo-Json', 'Get-ChildItem')) {
+    if (-not (Get-Command $required -ErrorAction SilentlyContinue)) {
+        throw ("Required cmdlet '$required' is unavailable in this PowerShell host " +
+            "($([System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName)). " +
+            "PSModulePath=$env:PSModulePath")
+    }
+}
+
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
 . (Join-Path $PSScriptRoot 'InstallerFixtures.ps1')
 
