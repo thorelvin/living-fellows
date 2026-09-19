@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.23.2 - Companions scavenge what they actually need
+
+- Companions now pick things up in order of need instead of by a flat score. Previously a survivor with nothing to fight with could rate a TV dinner, or a trash bag, above a machete lying in the same room. The order is: a weapon first and emphatically so while unarmed, then a spare, then something to stop bleeding, then food and water as hunger and thirst demand, then clothing and armour, then everything else.
+- Each step is judged on the companion's actual state, not a fixed weighting. A bleeding companion with no bandages treats finding one as an emergency; one already carrying bandages does not. A fed companion stops hoarding food. Ammunition matters to somebody holding a gun and to nobody else.
+- An unarmed companion now walks toward the places weapons are actually kept, without being told to. The list of rooms and containers comes from the game's own loot tables rather than guesswork: gun and knife stores and their stockrooms, tool stores, hunting and army surplus, pawn shops, the bat, golf and knife factories and their shipping bays, camping and outdoor supply, sports and gym storage, and the ordinary domestic fallbacks - kitchens for knives, garages and sheds for tools.
+
 ## 0.23.1 - Companions finish the last step
 
 - Fixed companions giving up on things they were walking to. A companion would stop a fraction of a tile short of where it was going, turn on the spot until the attempt timed out, and report that it could not reach a container it was standing next to. That is why scavenging failed while following looked fine: following has a generous arrival tolerance and a target that keeps moving, so the last fraction of a tile never mattered. Very close to a goal the direction to it is mostly rounding error, so the companion kept deciding to turn instead of taking the step. Steps shorter than a quarter tile are now taken directly.

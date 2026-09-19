@@ -631,14 +631,28 @@ local function itemNeedScore(actor, item, needs, commands, audit)
     return score, category
 end
 
+-- Where Build 42 actually puts weapons. Taken from the game's own loot tables
+-- rather than guessed: every room type below is one that Distributions.lua
+-- links to a weapon-bearing entry in ProceduralDistributions.lua (gun and
+-- knife stores and their stockrooms, tool stores, hunting and army surplus,
+-- pawn shops, the bat/golf/knife factories and their shipping bays, camping
+-- and outdoor supply, sports and gym storage, plus the ordinary domestic
+-- fallbacks -- kitchens for knives, garages and sheds for tools).
 local logicalWeaponRoomTokens = {
-    "kitchen", "garage", "shed", "tool", "storage", "warehouse",
-    "factory", "workshop", "mechanic", "maintenance",
+    "gun", "knife", "tool", "hunting", "army", "military", "pawn",
+    "camping", "outdoor", "sport", "baseball", "golf", "bat",
+    "garage", "shed", "kitchen", "storage", "warehouse", "factory",
+    "shipping", "workshop", "mechanic", "maintenance", "construction",
+    "closet", "attic", "gym",
 }
 
+-- Container types the same tables sit in, most productive first. displaycase
+-- and metal_shelves are where store weapons live; militarylocker/militarycrate
+-- carry the army tables.
 local logicalWeaponContainerTokens = {
-    "counter", "cupboard", "cabinet", "crate", "shelf", "locker",
-    "toolbox", "workbench", "metal",
+    "displaycase", "metal_shelves", "militarylocker", "militarycrate",
+    "locker", "crate", "counter", "toolcabinet", "toolbox", "workbench",
+    "cupboard", "cabinet", "shelf", "smallbox", "cardboardbox", "metal",
 }
 
 local function containsAny(value, tokens)
@@ -751,8 +765,17 @@ local function scoreContainer(actor, container, needs, objectives, commands, aud
     local owner = containerOwner(container)
     -- Marked base storage gives up nothing below its reserve.
     local _, storage = Encounter.baseStorageAccess(container, storageIndex())
-    local weaponLocationBonus = type(commands) == "table"
+    -- A survivor with nothing to fight with should walk toward the places that
+    -- hold weapons, whether or not the player has said so out loud. The
+    -- explicit order still applies; it is no longer the only thing that does.
+    local wantsWeapon = type(commands) == "table"
         and commands.prioritizeMeleeWeapon == true
+    if not wantsWeapon and SC.Combat
+        and type(SC.Combat.weaponAvailability) == "function" then
+        local _, usable = SC.Combat.weaponAvailability(actor)
+        wantsWeapon = tonumber(usable) ~= nil and tonumber(usable) <= 0
+    end
+    local weaponLocationBonus = wantsWeapon
         and logicalWeaponLocationBonus(container, owner) or 0
     local budget = utility.config("scavengeItemBudget") or 40
     utility.each(containerItems(container), budget, function(item)

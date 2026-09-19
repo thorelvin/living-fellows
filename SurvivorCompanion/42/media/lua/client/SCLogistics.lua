@@ -498,20 +498,123 @@ function Logistics.canTake(actor, item, category, audit)
     return true, "loadout_needed"
 end
 
+-- Need-driven scavenging priority.
+--
+-- Scoring used to be one flat formula -- a base, a stock deficit and a small
+-- role weight -- so a survivor with no weapon at all could rate a TV dinner
+-- above a machete sitting in the same room. The ladder below makes urgency
+-- dominate: a higher tier always outranks a lower one, and the old formula
+-- only decides order *within* a tier.
+--
+-- The order is the player's: a weapon first (and emphatically so while
+-- unarmed), then a spare, then something to stop bleeding, then food and
+-- water, then clothing and armour, then everything else. Each tier is
+-- conditional on the survivor's actual state, so a bleeding companion does not
+-- step over bandages to collect a second axe, and a well-fed one does not
+-- hoard food.
+local TIER = {
+    desperate = 900,   -- no usable weapon, or bleeding with nothing to dress it
+    urgent = 700,      -- starving, dying of thirst, wounded and untreated
+    important = 500,   -- a spare weapon, ammunition for a carried firearm
+    useful = 300,      -- ordinary restocking below target
+    marginal = 120,    -- an upgrade worth taking if it is on the way
+    ignore = 0,        -- nothing this survivor needs
+}
+
+local function statValue(actor, name)
+    local value = U().characterStatValue(actor, name, 0)
+    return tonumber(value) or 0
+end
+
+-- Does the survivor have something they could actually swing right now? Reuses
+-- the combat layer's own answer so "armed" means the same thing to the
+-- scavenger as it does to the fighter -- a broken axe and a diarist's pen
+-- count for neither.
+local function armedState(actor)
+    if SC.Combat == nil or type(SC.Combat.weaponAvailability) ~= "function" then
+        return nil, nil
+    end
+    local carried, usable = SC.Combat.weaponAvailability(actor)
+    carried, usable = tonumber(carried), tonumber(usable)
+    if carried == nil or carried < 0 then return nil, nil end
+    return carried, usable
+end
+
+local function untreatedInjury(actor)
+    if SC.Medical == nil or type(SC.Medical.assess) ~= "function" then return false, false end
+    local ok, assessment = pcall(SC.Medical.assess, actor)
+    if not ok or type(assessment) ~= "table" then return false, false end
+    -- Field names are Medical.assess's own: bleedingCount counts parts that
+    -- are bleeding and NOT already bandaged, so it is exactly "needs a bandage
+    -- right now"; openWounds counts dressing that is missing but not urgent.
+    local bleeding = assessment.needsBandage == true
+        or (tonumber(assessment.bleedingCount) or 0) > 0
+    local wounded = bleeding
+        or (tonumber(assessment.openWounds) or 0) > 0
+        or (tonumber(assessment.dirtyBandages) or 0) > 0
+    return bleeding, wounded
+end
+
+-- The urgency tier for one category, given what this survivor is short of.
+function Logistics.needTier(actor, category, audit, hasStock)
+    audit = audit or Logistics.audit(actor)
+    if category == "weapon" then
+        local carried, usable = armedState(actor)
+        if usable ~= nil and usable <= 0 then return TIER.desperate end
+        if usable ~= nil and usable == 1 then return TIER.important end
+        if carried == nil then return TIER.important end
+        return hasStock and TIER.marginal or TIER.useful
+    end
+    if category == "medicine" then
+        local bleeding, wounded = untreatedInjury(actor)
+        local stocked = (audit.counts.medicine or 0) > 0
+        if bleeding and not stocked then return TIER.desperate end
+        if wounded then return TIER.urgent end
+        return hasStock and TIER.marginal or TIER.useful
+    end
+    if category == "food" then
+        local hunger = statValue(actor, "HUNGER")
+        if hunger >= 0.7 then return TIER.urgent end
+        if hunger >= 0.35 then return TIER.useful end
+        return hasStock and TIER.ignore or TIER.marginal
+    end
+    if category == "water" then
+        local thirst = statValue(actor, "THIRST")
+        if thirst >= 0.7 then return TIER.urgent end
+        if thirst >= 0.35 then return TIER.useful end
+        return hasStock and TIER.ignore or TIER.marginal
+    end
+    if category == "ammunition" then
+        -- Ammunition is only urgent to somebody holding a firearm.
+        local carried = select(1, armedState(actor))
+        return carried ~= nil and carried > 0 and TIER.important or TIER.marginal
+    end
+    if category == "clothing" then return TIER.marginal end
+    return hasStock and TIER.ignore or TIER.marginal
+end
+
 function Logistics.itemNeedScore(actor, item, commands, audit)
     audit = audit or Logistics.audit(actor)
     local category = Logistics.itemCategory(item)
     local accepted, reason = Logistics.canTake(actor, item, category, audit)
     if not accepted then return 0, category end
     local target = math.max(1, dynamicTarget(audit, category, actor))
-    local deficit = math.max(0, target - (audit.counts[category] or 0)) / target
-    local score = 22 + deficit * 64 + ((roleWeights[audit.role] or {})[category] or 0)
+    local held = audit.counts[category] or 0
+    local deficit = math.max(0, target - held) / target
+    -- The tier decides the order; the old formula only ranks within it, so a
+    -- deficit, a role preference and item condition still choose between two
+    -- equally urgent finds.
+    local tier = Logistics.needTier(actor, category, audit, held >= target)
+    local score = tier + 22 + deficit * 64
+        + ((roleWeights[audit.role] or {})[category] or 0)
     if reason == "clothing_upgrade" then
         local _, difference = Logistics.clothingUpgrade(actor, item)
-        score = 72 + math.min(48, math.max(0, difference))
+        score = TIER.marginal + 72 + math.min(48, math.max(0, difference))
     elseif reason == "bag_upgrade" then
+        -- A better bag raises everything else this survivor can carry, so it
+        -- outranks ordinary restocking without displacing a real emergency.
         local _, difference = Logistics.bagUpgrade(actor, item)
-        score = 78 + math.min(42, math.max(0, difference) * 3)
+        score = TIER.useful + 78 + math.min(42, math.max(0, difference) * 3)
     end
     local condition, conditionOk = U().call(item, "getCondition")
     local maximum, maxOk = U().call(item, "getConditionMax")

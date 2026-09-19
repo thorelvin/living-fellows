@@ -8755,6 +8755,99 @@ check(SurvivorCompanion.Logistics.clothingScore(redDigitalWatch) == -math.huge
         and watchScore == 0 and not watchAccepted and watchReason == "cosmetic_wearable",
     "cosmetic watches never become clothing-upgrade scavenging targets")
 
+-- Playtest report 8: "He does not really need tv dinner and trash bags with No
+-- weapon." Scoring was one flat formula, so a stock deficit in any category
+-- could outrank a machete lying in the same room. Urgency now decides the
+-- order and the old formula only ranks within a tier.
+do
+    local logistics = SurvivorCompanion.Logistics
+    check(type(logistics.needTier) == "function", "the need ladder is exposed")
+
+    local priorityActor = actor("sc-priority", 40, 40)
+    local priorCombat = SurvivorCompanion.Combat
+    local usableWeapons = 0
+    SurvivorCompanion.Combat = setmetatable({
+        weaponAvailability = function() return usableWeapons, usableWeapons end,
+    }, { __index = priorCombat })
+    local priorMedical = SurvivorCompanion.Medical
+    local assessment = { bleedingCount = 0, openWounds = 0, dirtyBandages = 0 }
+    SurvivorCompanion.Medical = setmetatable({
+        assess = function() return assessment end,
+    }, { __index = priorMedical })
+
+    local emptyAudit = { role = "generalist", counts = {}, items = {},
+        profile = { target = {} } }
+
+    -- Unarmed: a weapon must outrank every other category outright.
+    usableWeapons = 0
+    local weaponTier = logistics.needTier(priorityActor, "weapon", emptyAudit, false)
+    local foodTier = logistics.needTier(priorityActor, "food", emptyAudit, false)
+    local waterTier = logistics.needTier(priorityActor, "water", emptyAudit, false)
+    local clothingTier = logistics.needTier(priorityActor, "clothing", emptyAudit, false)
+    local medicineTier = logistics.needTier(priorityActor, "medicine", emptyAudit, false)
+    check(weaponTier > foodTier and weaponTier > waterTier
+            and weaponTier > clothingTier and weaponTier > medicineTier,
+        "an unarmed companion did not rank a weapon above food, water, clothing and medicine")
+
+    -- Armed with one usable weapon: a spare still matters, but no longer
+    -- outranks a real emergency.
+    usableWeapons = 1
+    local spareTier = logistics.needTier(priorityActor, "weapon", emptyAudit, false)
+    check(spareTier < weaponTier,
+        "a companion already holding a weapon still treated another as desperate")
+
+    -- Bleeding with nothing to dress it beats a spare weapon.
+    assessment = { bleedingCount = 1, openWounds = 0, dirtyBandages = 0, needsBandage = true }
+    local bleedingTier = logistics.needTier(priorityActor, "medicine", emptyAudit, false)
+    check(bleedingTier > spareTier,
+        "a bleeding companion ranked a second weapon above a bandage")
+    -- ...but not an unarmed companion's first weapon.
+    usableWeapons = 0
+    check(logistics.needTier(priorityActor, "weapon", emptyAudit, false) >= bleedingTier,
+        "an unarmed companion stopped prioritising its first weapon while bleeding")
+    assessment = { bleedingCount = 0, openWounds = 0, dirtyBandages = 0 }
+
+    -- Already carrying bandages, the bleeding is treatable: medicine drops back.
+    assessment = { bleedingCount = 1, openWounds = 0, dirtyBandages = 0, needsBandage = true }
+    local stockedAudit = { role = "generalist", counts = { medicine = 2 }, items = {},
+        profile = { target = {} } }
+    check(logistics.needTier(priorityActor, "medicine", stockedAudit, false) < bleedingTier,
+        "a companion with bandages in the bag still treated finding more as desperate")
+    assessment = { bleedingCount = 0, openWounds = 0, dirtyBandages = 0 }
+
+    -- Food follows hunger, not a fixed weight. This is the TV dinner.
+    priorityActor.stats = priorityActor.stats or {}
+    local fedTier = logistics.needTier(priorityActor, "food", emptyAudit, true)
+    check(fedTier < spareTier,
+        "a fed companion still rated a TV dinner above a spare weapon")
+
+    -- Ammunition is only worth anything to somebody carrying a gun.
+    usableWeapons = 0
+    local unarmedAmmo = logistics.needTier(priorityActor, "ammunition", emptyAudit, false)
+    usableWeapons = 1
+    local armedAmmo = logistics.needTier(priorityActor, "ammunition", emptyAudit, false)
+    check(armedAmmo > unarmedAmmo,
+        "ammunition mattered as much to an unarmed companion as to an armed one")
+
+    -- Proving the ladder is not the same as proving the score uses it. This is
+    -- the reported scenario end to end: an unarmed companion, a machete and a
+    -- TV dinner in the same container.
+    usableWeapons = 0
+    local machete = item("Base.Machete", "Weapon", {
+        condition = 10, conditionMax = 10, maxDamage = 2.2,
+    })
+    local tvDinner = item("Base.TVDinner", "Food", { condition = 10, conditionMax = 10 })
+    local trashBag = item("Base.Bag_TrashBag", "Container", { condition = 10, conditionMax = 10 })
+    local macheteScore = logistics.itemNeedScore(priorityActor, machete)
+    local dinnerScore = logistics.itemNeedScore(priorityActor, tvDinner)
+    local bagScore = logistics.itemNeedScore(priorityActor, trashBag)
+    check(macheteScore > dinnerScore and macheteScore > bagScore,
+        "an unarmed companion scored a TV dinner or a trash bag above a machete")
+
+    SurvivorCompanion.Combat = priorCombat
+    SurvivorCompanion.Medical = priorMedical
+end
+
 do
     -- Reported from a playtest: a companion announced that they had found a
     -- wound. Zombie injuries are clothing worn in the `wound` body location --
