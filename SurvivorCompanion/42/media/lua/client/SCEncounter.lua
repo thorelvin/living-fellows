@@ -686,6 +686,60 @@ containerItems = function(container)
     return type(container) == "table" and (container.items or container) or nil
 end
 
+-- Reaching into a container is a physical act: the survivor has to be beside it
+-- and looking at it. Neither was checked at the moment of the transfer. The
+-- only positional test happens back in the approach phase, so once a task got
+-- past that, nothing re-verified it -- a companion reached into a shelf from
+-- across the room, and could do it with its back turned. Verify both
+-- immediately before the animation, the way native actions verify their own
+-- preconditions before an effect is applied.
+local function containerReach(actor, task)
+    local utility = U()
+    local owner = task and task.owner or nil
+    local square = owner and utility.squareOf(owner) or nil
+    if square == nil then return true, "container_square_unknown" end
+    local ax, ay, az = utility.position(actor)
+    local cx, cy, cz = utility.position(square)
+    if ax == nil or cx == nil then return true, "position_unavailable" end
+    if math.floor(az or 0) ~= math.floor(cz or 0) then
+        return false, "container_out_of_reach"
+    end
+    -- One tile in every direction, diagonals included: exactly the squares
+    -- interactionTargets offers as approach goals, plus a little tolerance for
+    -- standing off-centre within one.
+    local reach = tonumber(utility.config("scavengeReachTiles")) or 1.6
+    local dx, dy = cx - ax, cy - ay
+    if (dx * dx + dy * dy) > reach * reach then
+        return false, "container_out_of_reach"
+    end
+    return true, "within_reach", cx, cy
+end
+
+-- Turn toward the container, and report whether the survivor is looking at it
+-- yet. The caller keeps this inside its settle deadline, so a refused turn
+-- cannot hold the task open indefinitely.
+local function facingContainer(actor, cx, cy)
+    local utility = U()
+    local ax, ay = utility.position(actor)
+    if ax == nil or cx == nil then return true end
+    local dx, dy = cx - ax, cy - ay
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length <= 0.0001 then return true end
+    dx, dy = dx / length, dy / length
+    local forwardX, fxOk = utility.call(actor, "getForwardDirectionX")
+    local forwardY, fyOk = utility.call(actor, "getForwardDirectionY")
+    if not fxOk or not fyOk then return true end
+    forwardX, forwardY = tonumber(forwardX) or 0, tonumber(forwardY) or 0
+    local forwardLength = math.sqrt(forwardX * forwardX + forwardY * forwardY)
+    if forwardLength > 0.0001 then
+        local dot = (forwardX * dx + forwardY * dy) / forwardLength
+        local threshold = tonumber(utility.config("scavengeFacingDot")) or 0.55
+        if dot >= threshold then return true end
+    end
+    utility.call(actor, "faceLocationF", cx, cy)
+    return false
+end
+
 local function containerSignature(container)
     local utility = U()
     local count, hash = 0, 0
@@ -1605,6 +1659,12 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             action = "move_to_scavenge", container = task.container,
             item = task.item, object = task.owner, snapshot = snapshot,
             arrivalDistance = 0.35, requireSameSquare = true,
+            -- Walking across a room to a shelf is cruising, not a tactical
+            -- reposition. Without this the strict turn-before-move rule applies
+            -- to every step and the companion advances in visible single
+            -- paces -- step, turn, step -- while a follower covers the same
+            -- ground smoothly for no reason other than this flag.
+            continuousApproach = true,
             supervisorToken = task.supervisorToken,
         })
         local service = supervisor()
@@ -1695,6 +1755,20 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             setTaskPhase(actor, state, task, "commit", "animation_untracked_complete")
         end
     elseif task.phase == "settle" then
+        local reachable, reachStatus, containerX, containerY = containerReach(actor, task)
+        if not reachable then
+            -- Not a failure of the item or the container: the survivor simply
+            -- is not there. Re-approach rather than reaching across the room.
+            task.approachStartedAt = nil
+            setTaskPhase(actor, state, task, "approach", "reacquiring_container")
+            return true, "reacquiring_container"
+        end
+        if containerX ~= nil and not facingContainer(actor, containerX, containerY) then
+            -- Turning is bounded by the settle phase timeout above, so a
+            -- companion that cannot face the container gives the task up
+            -- instead of spinning next to it.
+            return true, "facing_container"
+        end
         local service = supervisor()
         if service and task.supervisorToken and type(service.expectVisual) == "function" then
             service.expectVisual(task.supervisorToken, { action = "loot_container" })
@@ -2120,6 +2194,9 @@ function Encounter.peek(actor)
 end
 
 -- Test seam: per-companion container memory and its backoff.
+Encounter._containerReachForTests = containerReach
+Encounter._facingContainerForTests = facingContainer
+
 function Encounter._containerMemoryForTests()
     return rememberContainer, memoryAllows
 end

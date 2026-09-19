@@ -159,6 +159,14 @@ local valueData = {
     -- quarter tile the direction vector is mostly noise, so waiting for a turn
     -- means turning for ever and never arriving.
     movementTurnSkipDistance = 0.25,
+    -- Reaching into a container: how far away the survivor may stand, and how
+    -- squarely they must be looking at it. One tile plus a little tolerance for
+    -- standing off-centre; the dot product is generous enough that a diagonal
+    -- glance counts, strict enough that a turned back does not.
+    -- Developer switch: report why an owned garment was or was not put on.
+    logisticsClothingTrace = false,
+    scavengeReachTiles = 1.6,
+    scavengeFacingDot = 0.55,
     movementTurnBeforeMoveDot = 0.8,
     -- A validated open-ground follow vector may bend while the actor is already
     -- moving. Keep translation through ordinary 45/90-degree corrections and

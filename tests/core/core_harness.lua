@@ -1148,6 +1148,21 @@ actor.faceLocationF = originalFaceLocation
 actor.forwardX, actor.forwardY, actor.turning = oldForwardX, oldForwardY, false
 check(reversedShortStep == nil and turningShortStep == nil,
     "a final fractional step waited for a turn and could never arrive")
+-- Walking across a room to a shelf is cruising, not a tactical reposition.
+-- Without this a scavenger advances in visible single paces while a follower
+-- covers the same ground smoothly.
+check(SC.NativeActions._prepareForwardTurnForTests(
+        actor, actor:getX(), actor:getY(), 0, 1, false,
+        { continuousApproach = true }, 4) == nil,
+    "an approach walk stopped for a shallow turn the way a follower does not")
+check(SC.NativeActions._prepareForwardTurnForTests(
+        actor, actor:getX(), actor:getY(), 0, 1, false, {}, 4) ~= nil,
+    "an ordinary walk stopped relaxing its turn rule, so the approach flag proves nothing")
+-- That last probe deliberately requests a turn, and the fixture does not
+-- advance the animation graph. Complete it, as the block above does, or every
+-- later movement check inherits a turning actor.
+actor.forwardX, actor.forwardY, actor.turning = oldForwardX, oldForwardY, false
+actor.moving, actor.running, actor.sprinting = false, oldRunning, oldSprinting
 check(reversedFullStep == true and reversedFullReason == "turning_for_movement",
     "an ordinary reversal no longer turns before moving")
 actor.moving, actor.running, actor.sprinting = oldMoving, oldRunning, oldSprinting

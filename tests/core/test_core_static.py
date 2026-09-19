@@ -495,6 +495,25 @@ require("public String getCompanionActiveAnimationNames()" in native_companion
         and "track.isPlaying" in native_companion
         and "track.getBlendWeight() <= 0.001f" in native_companion,
         "native companion lacks direct diagnostics for visibly weighted animation clips")
+# Reaching into a container is gated on being beside it and looking at it, at
+# the moment of the transfer rather than only back at the approach phase. No
+# harness drives a whole scavenge task, so assert the wiring at the source.
+encounter_source = (CLIENT / "SCEncounter.lua").read_text(encoding="utf-8")
+require("local function containerReach(actor, task)" in encounter_source
+        and "local function facingContainer(actor, cx, cy)" in encounter_source
+        and "local reachable, reachStatus, containerX, containerY = containerReach(actor, task)"
+            in encounter_source
+        # The branch matters as much as the call: keeping the call and dropping
+        # the test would read as gated while gating nothing.
+        and "if not reachable then" in encounter_source
+        and 'setTaskPhase(actor, state, task, "approach", "reacquiring_container")'
+            in encounter_source
+        and "if containerX ~= nil and not facingContainer(actor, containerX, containerY) then"
+            in encounter_source
+        and "continuousApproach = true," in encounter_source,
+        "the loot settle phase no longer verifies reach and facing before the "
+        "transfer, so a companion can loot a shelf from across the room")
+
 # The closed-door path guard asks PolygonalMap2 the same question twice: once
 # with doors ignored, once respecting them. Those two boolean literals are the
 # whole fix, and no harness world contains a door to exercise them through, so

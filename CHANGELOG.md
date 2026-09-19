@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.23.3 - Walk there, stand next to it, look at it
+
+- Companions no longer walk to loot in visible single paces. Crossing a room to a shelf was being treated as a tactical reposition, so the strict turn-before-you-move rule applied to every step: step, turn, step. A follower covering the same ground was smooth for no reason other than a flag, and an approach walk now gets the same treatment.
+- Companions no longer reach into a container from across the room, or with their back to it. Being beside the container was only ever checked while walking there; nothing re-checked it at the moment of the transfer, and which way they were facing was never checked at all. Both are now verified immediately before the animation. A companion that has drifted walks back rather than reaching, and one facing the wrong way turns around first.
+- New developer switch reports why an owned garment was or was not put on, after a report of kneepads being carried around instead of worn. The cause is not yet known and nothing about clothing behaviour has been changed on a guess.
+
 ## 0.23.2 - Companions scavenge what they actually need
 
 - Companions now pick things up in order of need instead of by a flat score. Previously a survivor with nothing to fight with could rate a TV dinner, or a trash bag, above a machete lying in the same room. The order is: a weapon first and emphatically so while unarmed, then a spare, then something to stop bleeding, then food and water as hunger and thirst demand, then clothing and armour, then everything else.

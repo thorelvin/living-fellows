@@ -648,6 +648,20 @@ local function isProtected(actor, item)
     return false
 end
 
+-- Playtest: a companion looted kneepads and never put them on, and nothing in
+-- the log said why. A clothing upgrade can be refused for several unrelated
+-- reasons -- not classified as clothing at all, no wearable body location, a
+-- cosmetic or broken garment, a non-comparable wearable already in the slot, or
+-- simply too small an improvement -- and they were indistinguishable from
+-- outside. Report the decision so the next one is answerable.
+local function reportClothingDecision(actor, item, outcome, detail)
+    if SC.Diagnostics == nil or type(SC.Diagnostics.report) ~= "function" then return end
+    if U().config("logisticsClothingTrace") ~= true then return end
+    pcall(SC.Diagnostics.report, "logistics-clothing", U().idOf(actor),
+        "item=" .. tostring(U().itemType(item))
+        .. " outcome=" .. tostring(outcome) .. " " .. tostring(detail or ""))
+end
+
 local function selectOwnedClothingUpgrade(actor, audit)
     local best
     for _, record in ipairs(audit.items) do
@@ -656,7 +670,19 @@ local function selectOwnedClothingUpgrade(actor, audit)
             if accepted and (not best or difference > best.difference) then
                 best = { item = record.item, source = record.source, current = current,
                     location = location, difference = difference }
+            elseif not accepted then
+                reportClothingDecision(actor, record.item, "refused",
+                    "location=" .. tostring(location)
+                    .. " score=" .. tostring(Logistics.clothingScore(record.item))
+                    .. " difference=" .. tostring(difference)
+                    .. " current=" .. tostring(current and U().itemType(current) or "none"))
             end
+        elseif record.category ~= "clothing" and isClothingItem(record.item) then
+            -- A wearable that the category pass did not call clothing: this is
+            -- the shape the kneepad report would take if classification is the
+            -- problem rather than the score.
+            reportClothingDecision(actor, record.item, "not_categorised_clothing",
+                "category=" .. tostring(record.category))
         end
     end
     return best

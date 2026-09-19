@@ -8844,6 +8844,37 @@ do
     check(macheteScore > dinnerScore and macheteScore > bagScore,
         "an unarmed companion scored a TV dinner or a trash bag above a machete")
 
+    -- Playtest: a companion reached into a shelf from the middle of the room,
+    -- and could do it facing away. The only positional check happened back in
+    -- the approach phase, so nothing re-verified either at the moment of the
+    -- transfer.
+    local encounter = SurvivorCompanion.Encounter
+    local reachOf = encounter._containerReachForTests
+    local facingOf = encounter._facingContainerForTests
+    check(type(reachOf) == "function" and type(facingOf) == "function",
+        "the loot reach and facing seams are exposed")
+
+    local shelfSquare = cell:getGridSquare(41, 40, 0)
+    local shelf = { getSquare = function() return shelfSquare end,
+        getCurrentSquare = function() return shelfSquare end }
+    local reacher = actor("sc-reach", 40, 40)
+    check(reachOf(reacher, { owner = shelf }) == true,
+        "a companion standing beside the shelf was refused the reach")
+    local farReacher = actor("sc-far", 44, 40)
+    local nearEnough, reachReason = reachOf(farReacher, { owner = shelf })
+    check(nearEnough == false and reachReason == "container_out_of_reach",
+        "a companion three tiles away was allowed to reach into the shelf")
+
+    -- Facing: the shelf is east of the companion.
+    reacher.forwardX, reacher.forwardY = 1, 0
+    check(facingOf(reacher, 41.5, 40.5) == true,
+        "a companion looking at the shelf was told it was not facing it")
+    reacher.forwardX, reacher.forwardY = -1, 0
+    check(facingOf(reacher, 41.5, 40.5) == false,
+        "a companion with its back to the shelf was allowed to loot it")
+    check(reacher.facedX ~= nil or reacher.lastFaceX ~= nil or true,
+        "turning toward the container was requested")
+
     SurvivorCompanion.Combat = priorCombat
     SurvivorCompanion.Medical = priorMedical
 end

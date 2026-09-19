@@ -666,7 +666,10 @@ local function prepareForwardTurn(actor, actorX, actorY, nx, ny, tactical, inten
     -- A follower keeps walking through a turn already underway; only a change
     -- sharper than the continuous threshold below stops it. Stopping for every
     -- native turn made followers run, stop and run again.
-    local continuous = type(intent) == "table" and intent.continuousFollow == true
+    -- Cruising: a follow, or a walk across a room to a container. Both keep
+    -- walking through a turn; only a tactical reposition stops for one.
+    local continuous = type(intent) == "table"
+        and (intent.continuousFollow == true or intent.continuousApproach == true)
     local turningOk, turning = invoke(actor, "isTurning")
     if turningOk and turning == true and not continuous then
         invoke(actor, "setMoving", false)
@@ -683,7 +686,7 @@ local function prepareForwardTurn(actor, actorX, actorY, nx, ny, tactical, inten
     local forwardLength = math.sqrt(forwardX * forwardX + forwardY * forwardY)
     if forwardLength <= 0.000001 then return nil end
     local facingDot = (forwardX * nx + forwardY * ny) / forwardLength
-    local thresholdKey = type(intent) == "table" and intent.continuousFollow == true
+    local thresholdKey = continuous
         and "movementContinuousTurnBeforeMoveDot" or "movementTurnBeforeMoveDot"
     local threshold = tonumber(SC.Config.get(thresholdKey))
         or (thresholdKey == "movementContinuousTurnBeforeMoveDot" and -0.25 or 0.8)
