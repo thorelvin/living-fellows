@@ -10,7 +10,7 @@ disassembling the installed `projectzomboid.jar` and by reading the engine's own
 **Runtime inspected:** Project Zomboid 42.20.4,
 `C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid\projectzomboid.jar`
 (64,514,905 bytes, the hash pinned in the runtime manifest).
-**Session inspected:** `C:\Users\thore\Zomboid\console.txt`, 0.22.35 playtest.
+**Session inspected:** the 0.22.35 playtest console log.
 **Date:** 18 September 2026.
 
 ---

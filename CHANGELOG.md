@@ -2,6 +2,26 @@
 
 # Changelog
 
+## 0.23.0 - Combat audit complete, and companions with a character
+
+This release gathers the 0.22.36-0.22.41 work into one version. Two themes.
+
+**Companions are individuals.** They have ability scores -- Strength, Fitness,
+Nimble and Sprinting, the game's own perks rather than a separate set of mod
+numbers -- rolled once per companion and kept for good, plus traits drawn from
+the game's own list. There is a character sheet under More -> Character. And
+they can climb again: most of them were spawning with no physical ability at
+all, which made fences literally impossible.
+
+**Combat was audited end to end.** Companions yield their body to the game
+during a hit or a knockdown, keep watching for attackers while pinned, sustain
+an attack instead of restarting it every few frames, take one wound per bite
+instead of two, report their own swings honestly, and stop at closed doors
+rather than walking through them.
+
+A disableable combat phase tracer ships with it, off by default, switchable
+from the debug tab.
+
 ## 0.22.41 - Companions stop at closed doors
 
 - Fixed companions walking straight through closed doors. The game's own pathfinder deliberately plans through them, because it expects whoever is walking to open the door on the way -- that is how the player works. A companion never opens doors that way, and nothing was stopping its body either, so it simply passed through. A companion now stops at a closed door instead of crossing it, and the existing door-opening behaviour takes over from there. Walls and open doorways are unaffected.
