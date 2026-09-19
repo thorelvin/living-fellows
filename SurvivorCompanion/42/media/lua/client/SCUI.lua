@@ -2054,11 +2054,28 @@ local function onFactionButton(target, button)
 end
 
 local function onSupportButton(target, button)
+    local action = button and button.scSupportAction or "refresh"
+    -- The combat tracer is a developer switch, not a support action, so it does
+    -- not require the support module to be present.
+    if action == "combat_trace" then
+        if SC.Config == nil or type(SC.Config.get) ~= "function"
+            or type(SC.Config._values) ~= "table" then
+            setButtonFeedback(target, UI.text("UI_SC_Debug_TraceUnavailable"), false)
+            return
+        end
+        local nextState = SC.Config.get("combatTraceEnabled") ~= true
+        SC.Config._values.combatTraceEnabled = nextState
+        if nextState and SC.CombatTrace and type(SC.CombatTrace.reset) == "function" then
+            pcall(SC.CombatTrace.reset)
+        end
+        setButtonFeedback(target, UI.text(nextState
+            and "UI_SC_Debug_TraceEnabled" or "UI_SC_Debug_TraceDisabled"), true)
+        return
+    end
     if not SC.Support then
         setButtonFeedback(target, UI.text("UI_SC_Support_Unavailable"), false)
         return
     end
-    local action = button and button.scSupportAction or "refresh"
     if action == "copy" then
         local ok, reason = SC.Support.copySummary(true)
         setButtonFeedback(target, tostring(reason), ok == true)
@@ -4073,6 +4090,26 @@ function SCUIDetail:buildDebug(panel)
         return self:addInformationLine(panel, y, "UI_SC_Info_Message",
             UI.text("UI_SC_Debug_Disabled"))
     end
+    -- CB-01 combat phase tracer. Off by default; flipping it here means a
+    -- playtest can start capturing the attack-continuation stutter without
+    -- restarting the game or editing a config file.
+    y = self:addSection(panel, y, "UI_SC_Debug_Trace")
+    local traceOn = SC.Config.get("combatTraceEnabled") == true
+    y = self:addInformationLine(panel, y, "UI_SC_Debug_TraceState",
+        UI.booleanText(traceOn))
+    if SC.CombatTrace and type(SC.CombatTrace.snapshot) == "function" then
+        local ok, snapshot = pcall(SC.CombatTrace.snapshot)
+        if ok and type(snapshot) == "table" then
+            y = self:addInformationLine(panel, y, "UI_SC_Debug_TraceCounts",
+                "pairs " .. tostring(snapshot.peakPairs)
+                    .. " / sustained " .. tostring(snapshot.sustained)
+                    .. " / entries " .. tostring(snapshot.entries)
+                    .. " / dropped " .. tostring(snapshot.dropped))
+        end
+    end
+    y = self:addSupportAction(panel, y,
+        traceOn and "UI_SC_Debug_TraceOff" or "UI_SC_Debug_TraceOn", "combat_trace")
+
     local selected = self.root and self.root.selectedRow or nil
     local movement = selected and selected.actor and SC.Locomotion
         and type(SC.Locomotion.snapshot) == "function"

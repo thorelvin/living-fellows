@@ -581,7 +581,47 @@ public final class SCBridge {
      * clips, AttackCollisionCheck, victim reaction, sound and BodyDamage code do
      * all subsequent work.
      */
-    public static String startZombieAttack(IsoZombie zombie, SCNativeCompanion actor) {
+    /**
+     * CB-01. Refresh an already-live attacker/victim pair's eligibility without
+     * ever requesting attack entry.
+     *
+     * <p>{@code IsoZombie.postUpdateInternal()} ends with
+     * {@code canSeeTarget = isTargetVisible()} and zeroes {@code targetSeenTime}
+     * with it. {@code isTargetVisible()} cannot find a deliberately detached
+     * companion, so both are cleared <em>every frame</em>. Restoring them was
+     * previously fused into {@link #startZombieAttack}, which also selects the
+     * attack state -- so the only way to keep an attack alive was to keep asking
+     * the graph to start one. This method is the maintenance half on its own: it
+     * revalidates the pair and writes the two fields, and touches neither the
+     * ActionContext nor the state machine.
+     *
+     * <p>Returns {@code "sustained"} when the pair is still eligible, or the
+     * reason it is not, so the caller can drop a pair that has gone stale.
+     */
+    public static String sustainZombieAttack(IsoZombie zombie, SCNativeCompanion actor) {
+        String eligibility = checkZombieAttackEligibility(zombie, actor);
+        if (eligibility != null) return eligibility;
+        if (ZOMBIE_CAN_SEE_TARGET == null) return "visibility_adapter_unavailable";
+        try {
+            ZOMBIE_CAN_SEE_TARGET.setBoolean(zombie, true);
+        } catch (IllegalAccessException | IllegalArgumentException failure) {
+            return "visibility_adapter_failed";
+        }
+        // postUpdateInternal also zeroes targetSeenTime whenever it clears
+        // canSeeTarget, and getShouldAttack() reads it. Restoring one without
+        // the other leaves the pair half-eligible.
+        zombie.setTargetSeenTime(Math.max(0.51f, zombie.getTargetSeenTime()));
+        return "sustained";
+    }
+
+    /**
+     * The shared precondition check for both halves of a companion-directed
+     * zombie attack. Returns null when the pair is eligible, otherwise the
+     * reason it is not. Also refreshes {@code vectorToTarget}, which
+     * {@code getShouldAttack()} reads instead of recomputing the distance.
+     */
+    private static String checkZombieAttackEligibility(IsoZombie zombie,
+            SCNativeCompanion actor) {
         if (zombie == null) return "invalid_zombie";
         if (!isOwned(actor)) return "unowned_companion";
         if (zombie.isDead() || actor.isDead() || actor.isOnFloor()) return "invalid_life_state";
@@ -592,10 +632,9 @@ public final class SCBridge {
         float dx = actor.getX() - zombie.getX();
         float dy = actor.getY() - zombie.getY();
         float dz = Math.abs(actor.getZ() - zombie.getZ());
-        // getShouldAttack() reads this cached vector rather than recomputing the
-        // distance. The local-player vision pass normally refreshes it; a detached
-        // companion never participates in that pass, which is the actual reason
-        // the otherwise-valid action state fell straight back to idle.
+        // The local-player vision pass normally refreshes this cached vector; a
+        // detached companion never participates in that pass, which is the
+        // actual reason an otherwise-valid action state fell straight to idle.
         zombie.vectorToTarget.x = dx;
         zombie.vectorToTarget.y = dy;
         if (dz >= 0.2f || dx * dx + dy * dy > 0.72f * 0.72f) {
@@ -607,20 +646,18 @@ public final class SCBridge {
         if (zombieSquare != actorSquare && zombieSquare.isSomethingTo(actorSquare)) {
             return "attack_obstructed";
         }
+        return null;
+    }
 
-        // IsoZombie.postupdate() recalculates this from isTargetVisible(), which
-        // cannot find a deliberately detached companion, after the animation
-        // graph has updated. Lua invokes this adapter after postupdate on every
-        // close-range resolver tick, keeping the bit valid for the next graph
-        // update. The target/range/z-level/obstruction checks above make this a
-        // narrow replacement for the missing local-player visibility slot, not
-        // a way for zombies to attack through walls or at a distance.
-        if (ZOMBIE_CAN_SEE_TARGET == null) return "visibility_adapter_unavailable";
-        try {
-            ZOMBIE_CAN_SEE_TARGET.setBoolean(zombie, true);
-        } catch (IllegalAccessException | IllegalArgumentException failure) {
-            return "visibility_adapter_failed";
-        }
+    /**
+     * Request attack <em>entry</em> for a pair. Maintenance of an already-live
+     * attack is {@link #sustainZombieAttack}: keeping the two separate is what
+     * stops a per-frame visibility refresh from repeatedly re-entering the
+     * attack state (CB-01).
+     */
+    public static String startZombieAttack(IsoZombie zombie, SCNativeCompanion actor) {
+        String sustained = sustainZombieAttack(zombie, actor);
+        if (!"sustained".equals(sustained)) return sustained;
         if (!zombie.isFacingTarget()) return "not_facing_target";
 
         ActionContext context = zombie.getActionContext();
@@ -644,7 +681,6 @@ public final class SCBridge {
         }
         ActionState attack = group.findState("attack");
         if (attack == null) return "attack_state_unavailable";
-        zombie.setTargetSeenTime(Math.max(0.51f, zombie.getTargetSeenTime()));
         context.setCurrentState(attack);
         // Build 42 keeps the ActionContext animation state and legacy AI state
         // as separate layers. Selecting only the former is overwritten before

@@ -783,6 +783,17 @@ local valueData = {
     -- player down; one or two only bite. A pinned companion struggles once a
     -- second, is put back down at most once a second, and cannot be pulled
     -- down again for a few seconds after it gets free.
+    -- CB-01: the per-frame attack-continuation service. It walks only pairs a
+    -- resolve pass already validated, never the world, so the bound is on how
+    -- many companions can be under attack at once. An entry that stops being
+    -- refreshed ages out rather than being maintained for ever.
+    zombieAttackSustainMaxPairs = 24,
+    zombieAttackSustainExpiryMs = 1500,
+    -- Disableable combat phase tracing. Off in public builds; turn it on for a
+    -- playtest to see attack-continuation hiccups in the console.
+    combatTraceEnabled = false,
+    combatTraceIntervalMs = 2000,
+    combatTraceReentryPerSecond = 3,
     zombieGrabThreshold = 3,
     zombieGrabReach = 1.6,
     zombieGrabChance = 0.5,

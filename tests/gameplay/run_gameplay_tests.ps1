@@ -74,6 +74,7 @@ $LuaFiles += @(
     'SCFactionWorld.lua',
     'SCFactionBehavior.lua',
     'SCZombieTargeting.lua',
+    'SCCombatTrace.lua',
     'SCZombieAttack.lua',
     'SCInfectionCrisis.lua',
     'SCAutonomy.lua',

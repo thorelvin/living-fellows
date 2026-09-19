@@ -164,6 +164,47 @@ call proven for the other three paths.
 
 ---
 
+## Attack continuation phase (CB-01)
+
+The audit's blocker was: *"Determine the actual ordering from the installed JAR
+and traces; do not assume an event's name proves that it runs before or after
+zombie postupdate."* Established from the pinned JAR.
+
+| Fact | Evidence |
+|---|---|
+| `IsoZombie.postUpdateInternal()` ends with `canSeeTarget = isTargetVisible()` | Bytecode offsets 435-440 |
+| It zeroes `targetSeenTime` in the same breath when visibility is lost | Offsets 443-461 |
+| `isTargetVisible()` cannot find a companion outside `players[]` | The detached-actor design; the existing adapter already depends on it |
+| Lua's `OnTick` fires **after** the world update in the same frame | `IngameState.update()` calls `IsoWorld.update()` at offset 1067 and `onTick()` at offset 1331 |
+
+**The phase was already correct; the cadence was not.** Restoring visibility
+from `OnTick` lands after postupdate and is read by the next frame's graph
+update, which is exactly right. But the restore was reached through
+`serviceRecord`, on the budgeted decision lane: `decisionCriticalIntervalMs` is
+50 ms, with capped actors per callback and a 2 ms frame budget, while a frame is
+roughly 16 ms. The bit is cleared **every frame** and was restored roughly every
+third frame at best — so for most frames the attack graph saw an invisible
+target, exited `AttackState`, and the next service asked it to start again.
+That re-entry loop is the lunge/bite-start stutter the audit predicted.
+
+**Changed.** `SCBridge.sustainZombieAttack` is the maintenance half on its own:
+it revalidates the pair and writes `canSeeTarget` and `targetSeenTime`, and
+touches neither the `ActionContext` nor the state machine, so a refresh cannot
+re-enter. `startZombieAttack` now builds on it, so both halves share one
+eligibility check. `ZombieAttack.sustainPulse` runs that maintenance once per
+frame from the runtime tick over a bounded registry of pairs a resolve pass
+already validated — never the world, never the zombie list — with entries aged
+out by expiry and dropped immediately on a structural refusal.
+
+**Not established by this work:** that the stutter is gone in play. The cause is
+proved from the JAR and the mod's own configuration; the *symptom* needs the
+live trace the audit's B4 asks for. `SCCombatTrace` exists to capture it:
+enable it from the debug tab and the console reports entries per second, with
+an explicit `RE-ENTRY STUTTER` marker when the rate says the graph is still
+dropping and restarting attacks.
+
+---
+
 ## What this file is not
 
 None of the above establishes visual correctness. Clip synchronisation, facing

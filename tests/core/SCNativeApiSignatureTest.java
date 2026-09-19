@@ -715,6 +715,15 @@ public final class SCNativeApiSignatureTest {
                     && resolved.getSimpleName().equals(reactionState),
                     "native reaction state missing or renamed: " + reactionState);
         }
+        // CB-01: postUpdateInternal recomputes canSeeTarget from
+        // isTargetVisible() and zeroes targetSeenTime with it, every frame. The
+        // per-frame continuation service restores exactly those two, so both
+        // must keep the shape the bridge writes through.
+        require(zombie.getDeclaredField("canSeeTarget").getType() == boolean.class
+                && method(zombie, "setTargetSeenTime", float.class)
+                        .getReturnType() == void.class
+                && method(zombie, "getTargetSeenTime").getReturnType() == float.class,
+                "zombie visibility/target-seen fields used by attack continuation changed");
         require(method(stateMachine, "getSubStateCount").getReturnType() == int.class
                 && method(stateMachine, "getSubStateAt", int.class).getReturnType() == state,
                 "state-machine sub-state accessors used by the reaction classifier changed");
@@ -731,6 +740,7 @@ public final class SCNativeApiSignatureTest {
                 + " faction-life=true world-map-rumours=true world-map-streets=true"
                 + " readable-speech=true"
                 + " reflection-contract=true cleanup-retry=true"
-                + " reaction-states=" + reactionStates.length + " movement-owner=true");
+                + " reaction-states=" + reactionStates.length + " movement-owner=true"
+                + " attack-continuation=true");
     }
 }

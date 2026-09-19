@@ -1427,6 +1427,161 @@ do
     attack.reset()
 end
 
+-- CB-01. IsoZombie.postUpdateInternal() recomputes canSeeTarget from
+-- isTargetVisible() every frame, and isTargetVisible() cannot find a detached
+-- companion, so the attack graph loses its target between decision services
+-- (decisionCriticalIntervalMs is 50 ms; a frame is ~16 ms). Continuation must
+-- therefore run per frame -- and must never be able to re-enter the attack
+-- state, or "keep this attack alive" becomes "start another one".
+do
+    local attack = SurvivorCompanion.ZombieAttack
+    attack.reset()
+    local originalSCBridge = SCBridge
+    local victim = fellow
+    local biter = zombie(0.5, 0, { target = victim })
+    local entryCalls, sustainCalls = 0, 0
+    local sustainVerdict = "sustained"
+    SCBridge = {
+        startZombieAttack = function() entryCalls = entryCalls + 1 return "attack_started" end,
+        sustainZombieAttack = function(candidate, target)
+            sustainCalls = sustainCalls + 1
+            check(candidate == biter and target == victim,
+                "the continuation service received the registered pair")
+            return sustainVerdict
+        end,
+    }
+
+    check(attack.engagedPairCount() == 0, "CB-01 fixture started with a stale pair registry")
+    -- sustainNativeEngagement only engages once the zombie has held the target
+    -- for zombieAttackEngageAssistDelayMs, so let that grace accumulate first.
+    local clock = 200000
+    attack.resolve(victim, clock, { biter })
+    attack.resolve(victim, clock + 300, { biter })
+    attack.resolve(victim, clock + 700, { biter })
+    check(entryCalls >= 1 and attack.engagedPairCount() == 1,
+        "a validated attacker/victim pair did not join the continuation set")
+    clock = clock + 700
+
+    -- Ten frames pass with no decision service at all. Every one of them must
+    -- refresh the pair, and none of them may request entry again.
+    local entriesBefore = entryCalls
+    for frame = 1, 10 do
+        attack.sustainPulse(clock + frame * 16)
+    end
+    check(sustainCalls == 10,
+        "the continuation service did not run once per frame between decision services")
+    check(entryCalls == entriesBefore,
+        "per-frame continuation re-entered the attack state instead of only sustaining it")
+
+    -- A pair the bridge refuses structurally is dropped at once rather than
+    -- retried every frame for ever.
+    sustainVerdict = "different_target"
+    attack.sustainPulse(clock + 200)
+    check(attack.engagedPairCount() == 0,
+        "a pair the bridge structurally refused stayed in the continuation set")
+
+    -- A pair that merely stops being refreshed ages out on its own.
+    sustainVerdict = "sustained"
+    attack.reset()
+    attack.resolve(victim, clock, { biter })
+    attack.resolve(victim, clock + 300, { biter })
+    attack.resolve(victim, clock + 700, { biter })
+    clock = clock + 700
+    check(attack.engagedPairCount() == 1, "CB-01 expiry fixture did not register a pair")
+    attack.sustainPulse(clock + SurvivorCompanion.Config.get("zombieAttackSustainExpiryMs") + 100)
+    check(attack.engagedPairCount() == 0,
+        "an unrefreshed pair was maintained past its expiry")
+
+    -- Bounded: the per-frame path can never walk more than the configured cap,
+    -- and it never touches anything but pairs a resolve already validated.
+    attack.reset()
+    local swarm = {}
+    for index = 1, 40 do
+        swarm[index] = zombie(0.5, 0, { target = victim })
+    end
+    for index = 1, 40 do
+        attack.resolve(victim, clock + index * 1000, { swarm[index] })
+        attack.resolve(victim, clock + index * 1000 + 300, { swarm[index] })
+        attack.resolve(victim, clock + index * 1000 + 700, { swarm[index] })
+    end
+    check(attack.engagedPairCount()
+            <= SurvivorCompanion.Config.get("zombieAttackSustainMaxPairs"),
+        "the continuation set grew past its configured bound")
+    -- Remove the fixture swarm from the world; leaving 40 live zombies standing
+    -- on the test square changes what every later perception check observes.
+    for index = 1, 40 do
+        swarm[index].dead = true
+        swarm[index].target = nil
+        swarm[index].square = nil
+    end
+
+    attack.reset()
+    SCBridge = originalSCBridge
+    biter.dead = true
+end
+
+-- The disableable combat tracer. Off by default, and when on it reports the
+-- rate that actually indicates the CB-01 stutter rather than one line per event.
+do
+    local trace = SurvivorCompanion.CombatTrace
+    check(type(trace) == "table" and type(trace.pulse) == "function",
+        "the combat tracer module is loaded")
+    local values = SurvivorCompanion.Config._values
+    local priorEnabled = values.combatTraceEnabled
+    local priorInterval = values.combatTraceIntervalMs
+
+    values.combatTraceEnabled = false
+    trace.reset()
+    trace.entry(nil, nil, 1000, "attack_started", true)
+    trace.pulse(1000, 1, 0, 1)
+    check(trace.snapshot().enabled == false and trace.snapshot().entries == 0,
+        "the tracer counted events while disabled")
+
+    values.combatTraceEnabled = true
+    values.combatTraceIntervalMs = 2000
+    trace.reset()
+    local reported = {}
+    -- SCDiagnostics is not part of this harness's module list, so the tracer
+    -- takes its documented print() fallback. Capture that rather than indexing
+    -- a Diagnostics table that does not exist here.
+    local priorPrint = print
+    print = function(line) reported[#reported + 1] = tostring(line) end
+
+    -- One entry then quiet frames: a healthy sustained attack, no stutter flag.
+    trace.entry(nil, nil, 5000, "attack_started", true)
+    for frame = 1, 10 do trace.pulse(5000 + frame * 16, 1, 0, 1) end
+    trace.pulse(7500, 1, 0, 1)
+    check(#reported == 1 and string.find(reported[1], "entries=1", 1, true) ~= nil
+            and string.find(reported[1], "RE-ENTRY STUTTER", 1, true) == nil,
+        "a healthy sustained attack was reported as a stutter")
+
+    -- Many entries inside one window: this is the hiccup, and it must be named.
+    reported = {}
+    trace.reset()
+    for index = 1, 40 do trace.entry(nil, nil, 9000, "attack_started", true) end
+    trace.pulse(9000, 0, 0, 1)
+    trace.pulse(11500, 0, 0, 1)
+    check(#reported == 1 and string.find(reported[1], "RE-ENTRY STUTTER", 1, true) ~= nil,
+        "a repeated-entry stutter was not flagged in the trace output")
+
+    -- A runaway variety of refusal reasons cannot grow the window table.
+    reported = {}
+    trace.reset()
+    for index = 1, 50 do
+        trace.entry(nil, nil, 13000, "refusal_" .. index, false)
+    end
+    trace.pulse(13000, 0, 0, 1)
+    trace.pulse(15500, 0, 0, 1)
+    local kinds = 0
+    for _ in string.gmatch(reported[1] or "", "refusal_%d+=") do kinds = kinds + 1 end
+    check(kinds <= 12, "the tracer's refusal table grew without bound")
+
+    print = priorPrint
+    values.combatTraceEnabled = priorEnabled
+    values.combatTraceIntervalMs = priorInterval
+    trace.reset()
+end
+
     firstGrabber.dead, secondGrabber.dead = false, false
     SurvivorCompanion.ZombieAttack.reset(grappleVictim)
     SurvivorCompanion.Dialogue.reset(grappleVictim)

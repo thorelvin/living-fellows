@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.22.38 - Combat audit: reactions, pinned sensing, attack continuation
+
+- Fixed companions playing a hit, stagger or knockdown animation without actually moving, keeping a stale walking step through it, and turning back toward whatever they were fighting mid-grab. The game owns a companion's body during those moments; the mod now yields position and facing to it, and only moves them itself when nothing native is in charge.
+- Fixed a pinned companion going blind. While a companion is held it cannot make decisions, and the pass that finds attackers was switched off with them -- so newcomers were never noticed and, worse, a scan that simply had not looked yet could read as "nobody is holding you" and free a companion still being torn at. Companions now keep watching while pinned, and the mod can tell "nobody is there" apart from "nothing looked". Uncertainty can never hold a companion down indefinitely.
+- Fixed the stutter when a zombie attacks a companion. The game clears a detached companion's visibility every single frame, and the mod restored it only a few times a second, so the attack kept being dropped and restarted -- the repeated lunge and bite-start poses. Keeping an attack alive is now separate from starting one, and the cheap half runs every frame for the handful of fights actually in progress.
+- New developer tool: a combat phase tracer, off by default, switchable from the debug tab. When on it reports how often attacks are being restarted and flags the moment that rate means a stutter, so a playtest can show the problem rather than describe it.
+
 ## 0.22.37 - Ability scores and character sheets
 
 - Companions now have ability scores: Strength, Fitness, Nimble and Sprinting. These are the game's own perks, not a separate set of mod numbers, so a strong companion really does carry more and hit harder, and a fit one really does keep going longer.

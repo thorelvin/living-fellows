@@ -183,6 +183,94 @@ local function requestNativeAttack(zombie, actor)
         reason, reason == "attack_started"
 end
 
+-- CB-01. IsoZombie.postUpdateInternal() ends with
+-- `canSeeTarget = isTargetVisible()` and zeroes targetSeenTime alongside it.
+-- isTargetVisible() cannot find a deliberately detached companion, so both are
+-- cleared EVERY FRAME. Restoring them only from the budgeted decision lane
+-- (decisionCriticalIntervalMs = 50 ms, capped actors per callback, a 2 ms frame
+-- budget) leaves the attack graph seeing an invisible target for most frames
+-- between services: it exits AttackState, the next service asks for entry
+-- again, and the result is the repeated lunge/bite-start stutter.
+--
+-- IngameState.update() calls IsoWorld.update() before it fires Lua's OnTick, so
+-- a refresh from the tick lands after postupdate and is read by the next
+-- frame's graph update. The phase was already right; only the cadence was not.
+--
+-- This registry is the set of pairs a resolve pass has already validated. The
+-- per-frame service walks only that set -- never the world, never the zombie
+-- list -- so the frame cost is proportional to the number of companions
+-- actually being attacked.
+local engagedPairs = {}
+local engagedCount = 0
+
+local function forgetPair(zombie)
+    if engagedPairs[zombie] == nil then return end
+    engagedPairs[zombie] = nil
+    engagedCount = engagedCount - 1
+end
+
+local function rememberPair(zombie, actor, current)
+    local entry = engagedPairs[zombie]
+    if entry == nil then
+        if engagedCount >= config("zombieAttackSustainMaxPairs", 24) then return false end
+        engagedCount = engagedCount + 1
+        entry = {}
+        engagedPairs[zombie] = entry
+    end
+    entry.actor = actor
+    entry.expiresAt = current + config("zombieAttackSustainExpiryMs", 1500)
+    return true
+end
+
+-- Maintenance only: never requests attack entry. Returns the bridge's verdict
+-- so a pair that has stopped being eligible is dropped rather than retried
+-- every frame for ever.
+local function sustainPair(zombie, actor)
+    local bridge = type(_G) == "table" and rawget(_G, "SCBridge") or nil
+    if bridge == nil or not SC.Call or type(SC.Call.static) ~= "function" then
+        return false, "bridge_unavailable"
+    end
+    local ok, result = SC.Call.static(bridge, "sustainZombieAttack", zombie, actor)
+    if not ok then return false, "bridge_call_failed" end
+    local reason = tostring(result or "sustain_rejected")
+    return reason == "sustained", reason
+end
+
+-- Run once per frame from the runtime tick, outside the budgeted per-actor
+-- lane. Bounded by the registry size and by each entry's own expiry.
+function ZombieAttack.sustainPulse(current)
+    current = tonumber(current) or (U() and U().nowMs()) or 0
+    local sustained, dropped = 0, 0
+    for zombie, entry in pairs(engagedPairs) do
+        local actor = entry.actor
+        if current >= (tonumber(entry.expiresAt) or 0) then
+            forgetPair(zombie); dropped = dropped + 1
+        elseif actor == nil or not eligible(actor) then
+            forgetPair(zombie); dropped = dropped + 1
+        else
+            local held, reason = sustainPair(zombie, actor)
+            if held then
+                sustained = sustained + 1
+            else
+                entry.lastRefusal = reason
+                -- A momentarily-out-of-range pair stays registered until its
+                -- expiry; a structurally dead one goes at once.
+                if reason == "invalid_zombie" or reason == "invalid_life_state"
+                    or reason == "different_target" or reason == "unowned_companion"
+                    or reason == "companion_in_vehicle" then
+                    forgetPair(zombie); dropped = dropped + 1
+                end
+            end
+        end
+    end
+    if SC.CombatTrace and type(SC.CombatTrace.pulse) == "function" then
+        SC.CombatTrace.pulse(current, sustained, dropped, engagedCount)
+    end
+    return sustained, dropped, engagedCount
+end
+
+function ZombieAttack.engagedPairCount() return engagedCount end
+
 local function sustainNativeEngagement(zombie, actor, swing, current, elapsed, distance)
     local delay = config("zombieAttackEngageAssistDelayMs", 500)
     if elapsed * 1000 < delay then return false, "warning_delay" end
@@ -196,6 +284,14 @@ local function sustainNativeEngagement(zombie, actor, swing, current, elapsed, d
         false, "outside_native_start_range", false
     if distance <= config("zombieAttackNativeStartRadius", 1.0) then
         attackAccepted, attackReason, attackStarted = requestNativeAttack(zombie, actor)
+    end
+    if attackAccepted or attackStarted then
+        -- A validated live pair joins the per-frame maintenance set, so its
+        -- visibility survives the frames between decision services.
+        rememberPair(zombie, actor, current)
+        if SC.CombatTrace and type(SC.CombatTrace.entry) == "function" then
+            SC.CombatTrace.entry(zombie, actor, current, attackReason, attackStarted)
+        end
     end
     if attackStarted then return true, attackReason, true end
     if attackAccepted then return false, attackReason, false end
@@ -661,10 +757,14 @@ function ZombieAttack.reset(actor)
         if grabState[actor] ~= nil then releaseCompanion(actor) end
         grabState[actor] = nil
         pileSeen[actor] = nil
+        for zombie, entry in pairs(engagedPairs) do
+            if entry.actor == actor then forgetPair(zombie) end
+        end
     else
         lastHitAt = setmetatable({}, { __mode = "k" })
         grabState = setmetatable({}, { __mode = "k" })
         pileSeen = setmetatable({}, { __mode = "k" })
+        engagedPairs, engagedCount = {}, 0
     end
     return true
 end

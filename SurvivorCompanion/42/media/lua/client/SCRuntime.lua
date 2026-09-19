@@ -1036,6 +1036,17 @@ local function productionTick(current)
         scheduleRepairAt = now
         scheduleRepairKey = key
     end
+    -- CB-01. The zombie attack graph loses its target every frame: postupdate
+    -- recomputes canSeeTarget from isTargetVisible(), which cannot find a
+    -- detached companion. Restoring it only on the budgeted decision lane left
+    -- the graph blind for most frames between services, so an attack the engine
+    -- should have sustained was dropped and re-entered -- the bite/lunge
+    -- stutter. This pass walks only pairs a resolve already validated (never
+    -- the world, never the zombie list) and never requests attack entry, so it
+    -- is cheap enough to run before the budgeted work rather than inside it.
+    if SC.ZombieAttack and type(SC.ZombieAttack.sustainPulse) == "function" then
+        pcall(SC.ZombieAttack.sustainPulse, now)
+    end
     SC.Scheduler.tick()
 end
 runtime._productionTickForTests = productionTick
