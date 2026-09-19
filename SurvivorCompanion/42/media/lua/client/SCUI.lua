@@ -2057,15 +2057,22 @@ local function onSupportButton(target, button)
     local action = button and button.scSupportAction or "refresh"
     -- The combat tracer is a developer switch, not a support action, so it does
     -- not require the support module to be present.
-    if action == "combat_trace" then
+    local traceSwitches = {
+        combat_trace = "combatTraceEnabled",
+        ranged_trace = "combatRangedTrace",
+        clothing_trace = "logisticsClothingTrace",
+    }
+    if traceSwitches[action] then
         if SC.Config == nil or type(SC.Config.get) ~= "function"
             or type(SC.Config._values) ~= "table" then
             setButtonFeedback(target, UI.text("UI_SC_Debug_TraceUnavailable"), false)
             return
         end
-        local nextState = SC.Config.get("combatTraceEnabled") ~= true
-        SC.Config._values.combatTraceEnabled = nextState
-        if nextState and SC.CombatTrace and type(SC.CombatTrace.reset) == "function" then
+        local key = traceSwitches[action]
+        local nextState = SC.Config.get(key) ~= true
+        SC.Config._values[key] = nextState
+        if nextState and action == "combat_trace" and SC.CombatTrace
+            and type(SC.CombatTrace.reset) == "function" then
             pcall(SC.CombatTrace.reset)
         end
         setButtonFeedback(target, UI.text(nextState
@@ -4109,6 +4116,20 @@ function SCUIDetail:buildDebug(panel)
     end
     y = self:addSupportAction(panel, y,
         traceOn and "UI_SC_Debug_TraceOff" or "UI_SC_Debug_TraceOn", "combat_trace")
+    -- The two investigation switches. Both are off in any shipped build and
+    -- exist so a playtest can answer a question rather than describe it.
+    local rangedOn = SC.Config.get("combatRangedTrace") == true
+    y = self:addInformationLine(panel, y, "UI_SC_Debug_RangedTraceState",
+        UI.booleanText(rangedOn))
+    y = self:addSupportAction(panel, y,
+        rangedOn and "UI_SC_Debug_RangedTraceOff" or "UI_SC_Debug_RangedTraceOn",
+        "ranged_trace")
+    local clothingOn = SC.Config.get("logisticsClothingTrace") == true
+    y = self:addInformationLine(panel, y, "UI_SC_Debug_ClothingTraceState",
+        UI.booleanText(clothingOn))
+    y = self:addSupportAction(panel, y,
+        clothingOn and "UI_SC_Debug_ClothingTraceOff" or "UI_SC_Debug_ClothingTraceOn",
+        "clothing_trace")
 
     local selected = self.root and self.root.selectedRow or nil
     local movement = selected and selected.actor and SC.Locomotion

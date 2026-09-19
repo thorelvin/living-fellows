@@ -1882,6 +1882,31 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
             + readiness.strength * 0.6 - pressure * 2 - fatiguePenalty * 0.45
         actions[#actions + 1] = finisher
     end
+    -- Companions have never once attempted a ranged attack in any playtest log,
+    -- and the chain that could stop them is long: the weapon they selected, its
+    -- ammunition, the doctrine, line of sight, the floor, a friendly in the
+    -- line, and then the engine's own readiness. Report the first refusal so
+    -- the next session names it instead of leaving it to inference.
+    if weapon and weapon.ranged and not grounded
+        and utility.config("combatRangedTrace") == true then
+        local refusal
+        if weapon.jammed then refusal = "jammed"
+        elseif weapon.ammo <= 0 then
+            refusal = hasReloadAmmo(inventory, weapon) and "empty_will_reload" or "no_ammunition"
+        elseif commands.holdFire then refusal = "hold_fire"
+        elseif not target.visible then refusal = "target_not_visible"
+        elseif not utility.sameFloor(actor, target.actor) then refusal = "different_floor"
+        elseif target.obstructed then refusal = "target_obstructed"
+        elseif lineBlockedByFriendly(actor, target.actor, player, snapshot) then
+            refusal = "friendly_in_line"
+        else refusal = "shoot_offered" end
+        local readiness = select(2, utility.call(actor, "getCompanionRangedReadiness"))
+        utility.diagnostic("combat-ranged", actor, string.format(
+            "refusal=%s weapon=%s ammo=%s/%s range=%.1f distance=%.1f %s",
+            refusal, tostring(weapon.type), tostring(weapon.ammo),
+            tostring(weapon.maxAmmo), tonumber(weapon.range) or -1, distance,
+            tostring(readiness or "readiness_unavailable")))
+    end
     if weapon and not grounded then
         if weapon.ranged then
             if weapon.jammed then

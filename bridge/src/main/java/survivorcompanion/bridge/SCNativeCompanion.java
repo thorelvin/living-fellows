@@ -48,6 +48,9 @@ public final class SCNativeCompanion extends IsoPlayer {
     private static final Method GET_USE_HAND_WEAPON = resolveNoArg(IsoGameCharacter.class, "getUseHandWeapon");
     private static final Method GET_ATTACK_TYPE = resolveNoArg(IsoPlayer.class, "getAttackType");
     private static final Method COMBAT_MANAGER_GET_WEAPON = resolveCombatManagerGetWeapon();
+    private static final Method WEAPON_IS_AIMED_FIREARM = resolveWeaponIsAimedFirearm();
+    private static final Method UPDATE_AIMING_DELAY =
+            resolveNoArg(IsoGameCharacter.class, "updateAimingDelay");
     private static final Method WEAPON_SOUND_BY_ID = resolveWeaponSoundById();
     private static final Method WEAPON_SWING_SOUND = resolveWeaponSwingSound();
     private static final Method CHARACTER_PLAY_SOUND = resolveCharacterPlaySound();
@@ -124,6 +127,8 @@ public final class SCNativeCompanion extends IsoPlayer {
     // guard's effect is observable rather than inferred.
     private volatile long bridgePathDoorHolds;
     private volatile long bridgeSwingSounds;
+    private volatile long bridgeAimingDelayUpdates;
+    private volatile String bridgeAimingDelayFailure = "";
     private volatile long bridgeSwingSoundEvents;
     private volatile String bridgeSwingSoundFailure = "";
     private volatile int bridgeAttackAttemptSerial;
@@ -974,6 +979,91 @@ public final class SCNativeCompanion extends IsoPlayer {
      * Impact attempts claimed, including ones that then failed. Distinct from
      * the completed-hit serial so a failure can never be counted as a hit.
      */
+    /**
+     * Why a firearm would or would not fire, read from the engine rather than
+     * inferred.
+     *
+     * <p>{@code CombatManager.pressedAttack} refuses outright unless
+     * {@code isDoShove() || isWeaponReady()}. For a firearm
+     * {@code isWeaponReady()} needs the primary hand model loaded AND a MUZZLE
+     * attachment on its model script -- readiness that has nothing to do with
+     * the mod's own notion of being armed, and that no Lua-side check can see.
+     *
+     * <p>Encouragingly, the firing itself is not gated on the local player:
+     * inside {@code attackCollisionCheck}, {@code isAimedFirearm()} alone
+     * decides whether the muzzle flash, the ballistics update and
+     * {@code fireWeapon} run. So the engine will shoot for a companion; the
+     * question is only what stops the attack reaching that point.
+     */
+    public String getCompanionRangedReadiness() {
+        StringBuilder out = new StringBuilder(96);
+        try {
+            Object weapon = GET_USE_HAND_WEAPON == null ? null
+                    : GET_USE_HAND_WEAPON.invoke(this);
+            out.append("useWeapon=").append(weapon == null ? "none"
+                    : weapon.getClass().getSimpleName());
+            boolean aimedFirearm = false;
+            if (weapon != null && WEAPON_IS_AIMED_FIREARM != null) {
+                Object value = WEAPON_IS_AIMED_FIREARM.invoke(weapon);
+                aimedFirearm = Boolean.TRUE.equals(value);
+            }
+            out.append(" aimedFirearm=").append(aimedFirearm);
+            // Reached reflectively: these are real engine methods that the
+            // compile-only stubs do not declare, and widening the stubs for a
+            // diagnostic would weaken the boundary the stub gate protects.
+            out.append(" weaponReady=").append(probeBoolean("isWeaponReady"));
+            out.append(" handModel=").append(probeBoolean("isPrimaryHandModelReady"));
+            out.append(" aiming=").append(isAiming());
+            out.append(" attackStarted=").append(isAttackStarted());
+            out.append(" handToHand=").append(probeBoolean("isAuthorizedHandToHandAction"));
+            out.append(" shove=").append(probeBoolean("isDoShove"));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            out.append(" probeFailed=").append(failure.getClass().getSimpleName());
+        }
+        return out.toString();
+    }
+
+    /**
+     * Run the engine's own aim-steadying step for this companion.
+     *
+     * <p>Reflective because the compile-only stubs do not declare it; a failure
+     * is recorded rather than thrown, since a companion that cannot steady its
+     * aim should still be able to shoot.
+     */
+    private void updateCompanionAimingDelay() {
+        if (bridgeDisabled || isDead()) return;
+        if (UPDATE_AIMING_DELAY == null) return;
+        try {
+            UPDATE_AIMING_DELAY.invoke(this);
+            bridgeAimingDelayUpdates++;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            bridgeAimingDelayFailure = failure.getClass().getSimpleName();
+        }
+    }
+
+    /** Aim-steadying steps run for this companion. */
+    public long getCompanionAimingDelayUpdates() {
+        return bridgeAimingDelayUpdates;
+    }
+
+    /** One no-argument boolean read from the live class, or "unreadable". */
+    private String probeBoolean(String methodName) {
+        try {
+            var method = getClass().getMethod(methodName);
+            method.setAccessible(true);
+            return String.valueOf(method.invoke(this));
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError first) {
+            try {
+                var method = zombie.characters.IsoGameCharacter.class
+                        .getDeclaredMethod(methodName);
+                method.setAccessible(true);
+                return String.valueOf(method.invoke(this));
+            } catch (ReflectiveOperationException | RuntimeException | LinkageError second) {
+                return "unreadable";
+            }
+        }
+    }
+
     /** Native path steps refused because a closed door sat on the next step. */
     public long getCompanionPathDoorHolds() {
         return bridgePathDoorHolds;
@@ -1691,6 +1781,20 @@ public final class SCNativeCompanion extends IsoPlayer {
             advanceBridgePath();
             consumeBridgeDeferredMovement();
             genericUpdateActive = false;
+            // A companion's aim never steadied. IsoGameCharacter.updateAimingDelay()
+            // decays aimingDelay toward zero while isAiming() holds, and that value
+            // is subtracted from ranged crit chance through
+            // CombatManager.getAimDelayPenalty -- so an unsteadied shot is a snap
+            // shot with almost no chance of a critical. It is called only from
+            // IsoPlayer.updateInternal2 (the local-input update this actor
+            // deliberately omits) and from the in-vehicle path, so for a companion
+            // it never ran: guns fired, bullets flew, and headshots never came.
+            //
+            // Safe to call unconditionally. The method guards itself on isAiming(),
+            // on recoil and on the racking variable, and it owns its own reset, so
+            // a companion that is not aiming simply has its delay reset the way the
+            // player's is.
+            updateCompanionAimingDelay();
             refreshBridgeFloorAttackInput();
             // The generic update advanced the native pathfinder; clear a path that
             // finished on its own so the movement flags do not stay pinned (3.1).
@@ -2218,6 +2322,17 @@ public final class SCNativeCompanion extends IsoPlayer {
         try {
             Method method = Class.forName("zombie.CombatManager")
                     .getMethod("getWeapon", IsoGameCharacter.class);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveWeaponIsAimedFirearm() {
+        try {
+            Method method = Class.forName("zombie.inventory.types.HandWeapon")
+                    .getMethod("isAimedFirearm");
             method.setAccessible(true);
             return method;
         } catch (ReflectiveOperationException | RuntimeException failure) {

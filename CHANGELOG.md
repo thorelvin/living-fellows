@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.24.0 - Companions can aim
+
+- Fixed companions never steadying their aim. The game lowers a character's aim delay while they hold a weapon on a target, and subtracts what is left of it from the chance of a critical hit. That step lives in the player's own update, which a companion deliberately does not run -- so every companion shot was fired as though snapped off the instant the gun came up. They hit, eventually, but almost never well: bullets flew, zombies took several rounds, and headshots essentially never happened.
+- Companions now run the same aim-steadying step the player does. A companion who holds a target should now land the occasional clean kill rather than grinding a zombie down.
+- New developer switches, both off by default and toggleable from the debug tab: one reports why a companion holding a firearm did not fire, including the engine's own weapon-readiness state, and one reports why a garment was or was not worn.
+
 ## 0.23.5 - Companions make a noise when they swing and shoot
 
 - Fixed companions firing guns in silence. The game plays a weapon's swing or gunshot sound only for the player character, so a companion's shot made no noise at all -- while the bullet striking the zombie was still audible, because that sound belongs to the hit rather than to the shot. Companions now play their own weapon sounds, from where they are standing, once per swing.

@@ -514,6 +514,16 @@ require("local function containerReach(actor, task)" in encounter_source
         "the loot settle phase no longer verifies reach and facing before the "
         "transfer, so a companion can loot a shelf from across the room")
 
+# A companion's aim must steady like the player's, or every shot is a snap shot
+# with almost no chance of a critical. updateAimingDelay() lives in
+# IsoPlayer.updateInternal2, which this actor omits, so the update has to run it.
+update_tail = native_companion.split("genericUpdateActive = false;")
+require("updateCompanionAimingDelay();" in native_companion
+        and len(update_tail) > 1
+        and "updateCompanionAimingDelay();" in update_tail[1][:1200],
+        "the companion update no longer runs the engine's aim-steadying step, so "
+        "ranged criticals are lost")
+
 # The closed-door path guard asks PolygonalMap2 the same question twice: once
 # with doors ignored, once respecting them. Those two boolean literals are the
 # whole fix, and no harness world contains a door to exercise them through, so

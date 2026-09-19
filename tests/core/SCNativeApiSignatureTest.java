@@ -727,6 +727,15 @@ public final class SCNativeApiSignatureTest {
         require(method(stateMachine, "getSubStateCount").getReturnType() == int.class
                 && method(stateMachine, "getSubStateAt", int.class).getReturnType() == state,
                 "state-machine sub-state accessors used by the reaction classifier changed");
+        // Ranged criticals depend on a steadied aim: updateAimingDelay() decays
+        // aimingDelay while aiming, and CombatManager.getAimDelayPenalty
+        // subtracts that from crit chance. It is called only from
+        // IsoPlayer.updateInternal2, which a companion deliberately omits.
+        require(method(character, "updateAimingDelay").getReturnType() == void.class
+                && method(character, "getAimingDelay").getReturnType() == float.class
+                && method(character, "resetAimingDelay").getReturnType() == void.class,
+                "aim-steadying accessors changed shape");
+
         // The companion drives its own swing/gunshot sound because
         // SwipeStatePlayer.OnAnimEvent_PlaySwingSound -- and the "Always"
         // variant it delegates to -- both return unless the character is the
@@ -778,6 +787,6 @@ public final class SCNativeApiSignatureTest {
                 + " readable-speech=true"
                 + " reflection-contract=true cleanup-retry=true"
                 + " reaction-states=" + reactionStates.length + " movement-owner=true"
-                + " attack-continuation=true outgoing-receipts=true door-guard=true swing-sound=true");
+                + " attack-continuation=true outgoing-receipts=true door-guard=true swing-sound=true aim-steadying=true");
     }
 }

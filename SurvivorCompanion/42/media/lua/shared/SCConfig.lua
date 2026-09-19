@@ -165,6 +165,9 @@ local valueData = {
     -- glance counts, strict enough that a turned back does not.
     -- Developer switch: report why an owned garment was or was not put on.
     logisticsClothingTrace = false,
+    -- Developer switch: report why a companion holding a firearm did not fire,
+    -- including the engine's own weapon-readiness state.
+    combatRangedTrace = false,
     scavengeReachTiles = 1.6,
     scavengeFacingDot = 0.55,
     movementTurnBeforeMoveDot = 0.8,

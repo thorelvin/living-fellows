@@ -886,6 +886,22 @@ public final class SCIsoCompanionControlTest {
         // IsoGameCharacter.pathToAux, so the engine plans straight through a
         // closed door expecting the character to open it -- and a companion's
         // contextual actions are deliberately suppressed, so nothing did.
+        // A companion's aim never steadied, so every shot was a snap shot with
+        // almost no chance of a critical -- guns fired, bullets flew, no
+        // headshots. The engine's own step has to run for this actor.
+        {
+            SCNativeCompanion aimer = (SCNativeCompanion) actor;
+            long before = aimer.getCompanionAimingDelayUpdates();
+            var step = SCNativeCompanion.class.getDeclaredMethod("updateCompanionAimingDelay");
+            step.setAccessible(true);
+            step.invoke(aimer);
+            require(aimer.getCompanionAimingDelayUpdates() == before + 1,
+                    "the engine's aim-steadying step did not run for a companion");
+            // That it is CALLED from the update is asserted at the source by
+            // test_core_static.py: driving a whole update here needs a world
+            // this harness does not have.
+        }
+
         // A companion swung and fired in silence: SwipeStatePlayer's swing-sound
         // handler, and the "Always" variant it delegates to, both return unless
         // the character is the local player. The bridge drives it instead, so
