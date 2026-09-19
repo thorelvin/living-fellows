@@ -787,6 +787,10 @@ local valueData = {
     -- resolve pass already validated, never the world, so the bound is on how
     -- many companions can be under attack at once. An entry that stops being
     -- refreshed ages out rather than being maintained for ever.
+    -- CB-04: how long a successful swing may go without either a victim
+    -- processing verdict or a finished bite clip before the mod stops waiting
+    -- and reports the processing as unobserved rather than guessing.
+    zombieAttackProcessingGraceMs = 900,
     zombieAttackSustainMaxPairs = 24,
     zombieAttackSustainExpiryMs = 1500,
     -- Disableable combat phase tracing. Off in public builds; turn it on for a

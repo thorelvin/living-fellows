@@ -147,20 +147,91 @@ end
 -- out. Damage at state entry looked like an invisible bite. Build 42 changes the
 -- outcome to "success" from the animation's SetAttackOutcome event, and records
 -- whether the native collision already wrote damage.
-local function isLandingAttack(zombie, actor)
-    if U().isZombie(zombie) ~= true or U().isDead(zombie) == true then return false end
-    if select(1, U().call(zombie, "getTarget")) ~= actor then return false end
+-- CB-04/CB-05. Build 42.20.4's zombie attack has a real episode lifecycle, and
+-- reading it is what lets one swing produce exactly one result:
+--
+--   AttackState.enter()  attackOutcome = "start"; clears AttackDidDamage and
+--                        ZombieBiteDone                      <- episode begins
+--   animEvent            SetAttackOutcome -> "success" or "fail"
+--   Zombie_Bite_Success  AttackCollisionCheck at 20% of the clip; the handler
+--                        resolves the victim from zombie.target (NOT from the
+--                        local players[] array), calls
+--                        BodyDamage.AddRandomDamageFromZombie on it and writes
+--                        the result into the AttackDidDamage variable
+--   clip end             ZombieBiteDone = true
+--   AttackState.exit()   clears AttackOutcome/AttackType/PlayerHitReaction
+--
+-- Two consequences drive the code below.
+--
+-- First, the engine's damage path *does* reach a detached companion: it looks
+-- the victim up through the zombie's own target. So AttackDidDamage being
+-- present at all is a receipt that victim processing ran, and its value is the
+-- verdict. "Processed, no injury" is a real protected/defended outcome and must
+-- be terminal -- re-wounding there would invent damage the engine declined.
+--
+-- Second, "start" is written by the engine at the top of every episode. That
+-- is a true episode boundary, unlike the old rising edge of a sampled
+-- predicate over target, distance and outcome: a momentary target or range
+-- flicker used to reopen a resolved swing and let the same episode wound twice.
+local function attackEpisodeFacts(zombie, actor)
+    local facts = { eligible = false }
+    if U().isZombie(zombie) ~= true or U().isDead(zombie) == true then return facts end
+    facts.outcome = tostring(select(1, U().call(zombie, "getAttackOutcome")) or "")
+    -- Presence, not truth: the variable is cleared on episode entry and written
+    -- only by the collision handler, so a non-empty value is the receipt that
+    -- victim processing actually ran.
+    local damageVariable = select(1, U().call(zombie, "getVariableString", "AttackDidDamage"))
+    facts.processed = type(damageVariable) == "string" and damageVariable ~= ""
+    facts.damaged = select(1, U().call(zombie, "getAttackDidDamage")) == true
+        or damageVariable == "true"
+    facts.clipDone = select(1, U().call(zombie, "getVariableBoolean", "ZombieBiteDone")) == true
+
+    if select(1, U().call(zombie, "getTarget")) ~= actor then return facts end
     local distance = U().distance(zombie, actor)
-    if distance == math.huge then return false end
-    if distance > config("zombieAttackHoldRadius", 3.0) then return false end
+    if distance == math.huge then return facts end
+    if distance > config("zombieAttackHoldRadius", 3.0) then return facts end
     local stateName = tostring(select(1, U().call(zombie, "getCurrentState")))
     local attacking = stateName:find("AttackState") ~= nil
         or select(1, U().call(zombie, "isZombieAttacking", actor)) == true
-    if not attacking then return false end
-    if tostring(select(1, U().call(zombie, "getAttackOutcome"))) ~= "success" then
-        return false
+    if not attacking then return facts end
+    facts.eligible = true
+    return facts
+end
+
+-- Retained for callers and tests that only ask "is this zombie mid-swing at me
+-- with a successful outcome"; the episode bookkeeping above is what resolve
+-- actually uses.
+local function isLandingAttack(zombie, actor)
+    local facts = attackEpisodeFacts(zombie, actor)
+    if not facts.eligible or facts.outcome ~= "success" then return false end
+    return true, facts.damaged
+end
+
+-- One decision per episode. Returns the terminal receipt and whether the mod
+-- should apply its own fallback wound, or nil while the episode is still in
+-- flight and nothing can honestly be concluded yet.
+local function episodeReceipt(swing, facts, current)
+    if facts.outcome == "fail" then return "attack_failed", false end
+    if facts.outcome ~= "success" then return nil, false end
+    if facts.processed then
+        -- The engine found this companion and decided. Either way it is done.
+        return facts.damaged and "native_injury" or "processed_without_injury", false
     end
-    return true, select(1, U().call(zombie, "getAttackDidDamage")) == true
+    if facts.clipDone then
+        -- The clip ran to its end and the collision handler never wrote a
+        -- verdict, so one of its own guards refused (no teeth, blocked line of
+        -- sight, out of its tighter range). The swing visibly landed and
+        -- nothing came of it: this is the case the fallback exists for.
+        return "processing_omitted", true
+    end
+    local since = tonumber(swing.successAt)
+    if since ~= nil and current - since
+        >= config("zombieAttackProcessingGraceMs", 900) then
+        -- Neither a verdict nor a finished clip within the grace. Surface it as
+        -- its own outcome rather than silently guessing either way.
+        return "processing_unobserved", true
+    end
+    return nil, false
 end
 
 -- `spotted()` selects a non-local companion, but Build 42's stock vision loop
@@ -617,6 +688,7 @@ function ZombieAttack.resolve(actor, current, zombies, evidence)
     local grabReach = config("zombieGrabReach", 1.6)
     local grabGrace = config("zombieGrabTargetGraceMs", 1200)
     local applied, checked, targeting, landed, pile, engagementAssists = 0, 0, 0, 0, 0, 0
+    local receipts = {}
     local nativeAttackStarts = 0
     local targetReacquisitions = 0
     U().each(zombies, maximum, function(zombie)
@@ -659,7 +731,12 @@ function ZombieAttack.resolve(actor, current, zombies, evidence)
         local swing = swings[zombie]
         if not targetsMe then
             if swing then
-                swing.resolved = false
+                -- CB-05: losing the target for one pass is NOT an episode
+                -- boundary. Clearing swing.resolved here is what let a momentary
+                -- lock flicker reopen an already-resolved swing, so the same
+                -- native episode could wound a second time once the reswing
+                -- floor elapsed. Only AttackState.enter writing "start" ends an
+                -- episode; the sighting bookkeeping below is separate.
                 swing.lastSightAt = nil
                 swing.seenSince = nil
             end
@@ -706,25 +783,35 @@ function ZombieAttack.resolve(actor, current, zombies, evidence)
         -- and hold it until the zombie leaves the attack, so each distinct swing
         -- lands exactly once. A short reswing floor absorbs sub-swing state flicker
         -- without suppressing a real follow-up swing.
-        local landing, nativeDamage = isLandingAttack(zombie, actor)
-        if landing then
+        local facts = attackEpisodeFacts(zombie, actor)
+        if not swing then swing = {} swings[zombie] = swing end
+
+        -- The engine writes "start" at the top of every episode, so this is the
+        -- episode boundary rather than a mod-sampled edge. Nothing else may
+        -- reopen a resolved swing: that was the flicker defect.
+        if facts.outcome == "start" and swing.outcome ~= "start" then
+            swing.episode = (tonumber(swing.episode) or 0) + 1
+            swing.resolved, swing.receipt = false, nil
+            swing.successAt = nil
+        end
+        swing.outcome = facts.outcome
+
+        -- `landed` stays a per-pass observation ("this zombie is mid-swing at
+        -- me right now"); only the wound decision is once per episode.
+        if facts.eligible and facts.outcome == "success" then
+            swing.successAt = swing.successAt or current
             landed = landed + 1
-            if not swing then swing = {} swings[zombie] = swing end
-            if swing.resolved ~= true
-                and (swing.at == nil or current - swing.at >= reswingFloor) then
-                swing.resolved = true
-                swing.at = current
-                -- The stock collision may now work for this IsoPlayer subtype. Do
-                -- not double-wound it; retain the fallback only when the visible
-                -- impact event succeeded without native body-damage application.
-                if not nativeDamage and applyWound(actor, rollWound(biteChance)) then
+        end
+
+        if facts.eligible and swing.resolved ~= true then
+            local receipt, wound = episodeReceipt(swing, facts, current)
+            if receipt ~= nil then
+                swing.resolved, swing.receipt, swing.at = true, receipt, current
+                receipts[receipt] = (receipts[receipt] or 0) + 1
+                if wound and applyWound(actor, rollWound(biteChance)) then
                     applied = applied + 1
                 end
             end
-        elseif swing ~= nil then
-            -- Episode closed: the zombie left the attack, so the next commit is a
-            -- fresh swing that resolves its own wound.
-            swing.resolved = false
         end
     end)
 
@@ -745,7 +832,7 @@ function ZombieAttack.resolve(actor, current, zombies, evidence)
         { checked = checked, targeting = targeting, landed = landed, applied = applied,
           pile = pile, attackers = attackers, grapple = grapple,
           engagementAssists = engagementAssists, nativeAttackStarts = nativeAttackStarts,
-          targetReacquisitions = targetReacquisitions }
+          targetReacquisitions = targetReacquisitions, receipts = receipts }
 end
 
 function ZombieAttack.reset(actor)

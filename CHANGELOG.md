@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.22.39 - One wound per bite
+
+- Fixed a single zombie bite wounding a companion twice. The mod decided a swing was over by watching whether the zombie still looked like it was attacking; a momentary loss of target -- which happens constantly for a companion the game does not track -- made it think a new swing had begun, and the same bite landed again. The game marks the start of every attack itself, and the mod now uses that instead of guessing.
+- Fixed companions taking a wound from a bite the game had already decided did no damage. It turns out the game's own damage code does reach companions -- it finds its victim through the zombie, not through the player list -- so a bite that came up empty was genuinely blocked or defended. Adding an injury on top was inventing damage that never happened.
+- Bites are now resolved from what the game actually reports: whether it processed the victim, whether it injured them, and whether the bite animation ran to the end. A bite the game handled is left alone; a bite it visibly never finished handling is the only one the mod completes itself, and one it cannot read either way is reported rather than assumed.
+
 ## 0.22.38 - Combat audit: reactions, pinned sensing, attack continuation
 
 - Fixed companions playing a hit, stagger or knockdown animation without actually moving, keeping a stale walking step through it, and turning back toward whatever they were fighting mid-grab. The game owns a companion's body during those moments; the mod now yields position and facing to it, and only moves them itself when nothing native is in charge.

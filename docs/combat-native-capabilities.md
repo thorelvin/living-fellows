@@ -205,6 +205,53 @@ dropping and restarting attacks.
 
 ---
 
+## Incoming impact lifecycle (CB-04, CB-05)
+
+Build 42.20.4's zombie attack has a real episode lifecycle, all of it readable:
+
+| Stage | What the engine does |
+|---|---|
+| `AttackState.enter()` | `attackOutcome = "start"`; clears `AttackDidDamage` and `ZombieBiteDone` |
+| `animEvent SetAttackOutcome` | sets `attackOutcome` to `"success"` or `"fail"` |
+| `Zombie_Bite_Success` @ 20% | fires `AttackCollisionCheck` |
+| the collision handler | resolves the victim as **`zombie.target`**, calls `BodyDamage.AddRandomDamageFromZombie` on it, writes the result into the `AttackDidDamage` variable |
+| clip end | `ZombieBiteDone = true` |
+| `AttackState.exit()` | clears `AttackOutcome`, `AttackType`, `PlayerHitReaction` |
+
+**The engine's damage path does reach a detached companion.** It looks the
+victim up through the zombie's own target, not through the local `players[]`
+array. This corrects the module's previous premise. So `AttackDidDamage` being
+*present at all* is a receipt that victim processing ran, and its value is the
+verdict — which makes "processed, no injury" a real protected result that must
+be terminal, not a reason to re-wound.
+
+**The five facts CB-04 asks to separate**, and how each is read:
+
+| Fact | Signal |
+|---|---|
+| outcome selected | `getAttackOutcome()` → `start` / `success` / `fail` |
+| impact emitted | the success clip running past its 20% collision event |
+| victim processing executed | `AttackDidDamage` variable **present** |
+| defence/protection outcome | present and `false` |
+| injury applied | present and `true`, or `getAttackDidDamage()` |
+
+The resolver now produces exactly one terminal receipt per episode:
+`native_injury`, `processed_without_injury` and `attack_failed` are terminal
+with no fallback; `processing_omitted` (clip finished, no verdict — the
+handler's own guards refused) applies the fallback once; and
+`processing_unobserved` applies it once after a bounded grace and *says so*,
+rather than guessing silently.
+
+**CB-05** is fixed by taking the episode boundary from the engine. `"start"` is
+written by `AttackState.enter()`, so it is a true boundary; the old code reset
+`swing.resolved` whenever a sampled predicate over target, distance and outcome
+went false, in **two** places — the landing check and, more damagingly, the
+target-flicker path. A lock that flickered off for one pass reopened a resolved
+swing, and the same native episode could wound again once the reswing floor
+elapsed. Neither reset remains.
+
+---
+
 ## What this file is not
 
 None of the above establishes visual correctness. Clip synchronisation, facing

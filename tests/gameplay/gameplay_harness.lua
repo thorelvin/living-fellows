@@ -754,6 +754,33 @@ local function zombie(x, y, options)
     end
     function value:getAttackOutcome() return self.attackOutcome end
     function value:getAttackDidDamage() return self.attackDidDamage == true end
+    -- Build 42 clears AttackDidDamage on AttackState.enter and writes it only
+    -- from the collision handler, so presence -- not truth -- is the receipt
+    -- that victim processing ran. ZombieBiteDone is set at the clip's end.
+    value.animVariables = {}
+    function value:getVariableString(name)
+        local held = self.animVariables[name]
+        return held == nil and "" or tostring(held)
+    end
+    function value:getVariableBoolean(name) return self.animVariables[name] == true end
+    function value:setVariable(name, held) self.animVariables[name] = held end
+    function value:clearVariable(name) self.animVariables[name] = nil end
+    -- Drive one whole native episode the way AttackState does, so a fixture
+    -- cannot accidentally assert on a half-formed one.
+    function value:beginAttackEpisode()
+        self.attackOutcome = "start"
+        self.attackDidDamage = false
+        self.animVariables.AttackDidDamage = nil
+        self.animVariables.ZombieBiteDone = nil
+        self.attacking = true
+        self.currentState = "AttackState"
+    end
+    function value:swingOutcome(outcome) self.attackOutcome = outcome end
+    function value:reportVictimProcessed(damaged)
+        self.animVariables.AttackDidDamage = damaged and "true" or "false"
+        self.attackDidDamage = damaged == true
+    end
+    function value:finishBiteClip() self.animVariables.ZombieBiteDone = true end
     function value:getCurrentState()
         return self.currentState or (self.attacking and "AttackState" or "ZombieIdleState")
     end
@@ -1150,6 +1177,14 @@ do
         -- 0.300 is above the 0.25 bite threshold and inside the scratch band.
         return maximum == 1000 and 300 or 0
     end
+    -- CB-04/CB-05: a wound now follows a native episode rather than a sampled
+    -- success flag. Drive the lifecycle the engine drives -- enter, outcome,
+    -- then the bite clip finishing with no victim-processing verdict, which is
+    -- the one case the mod's fallback is for.
+    edgeZombie:beginAttackEpisode()
+    SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
+    edgeZombie:swingOutcome("success")
+    edgeZombie:finishBiteClip()
     local _, _, s1 = SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
     -- CB-08. This previously asserted a FALSE second argument, calling it
     -- "scratchFromWeapon" -- which locked in the defect: in 42.20.4 that
@@ -1167,26 +1202,86 @@ do
     local _, _, s2 = SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
     check(s2.landed == 1 and s2.applied == 0,
         "the same ongoing swing does not re-apply while the zombie stays committed")
-    edgeZombie.attacking = false
+    -- CB-05: target and range flicker inside ONE episode must not reopen it.
+    -- Only the engine writing "start" begins a new one.
     clockE = clockE + 50
+    local flickerTarget = edgeZombie.target
+    edgeZombie.target = nil
     SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
-    edgeZombie.attacking = true
+    edgeZombie.target = flickerTarget
     clockE = clockE + 400
+    local _, _, flicker = SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
+    check(flicker.applied == 0,
+        "a sampled-flag flicker reopened a resolved swing and wounded twice in one episode")
+
+    -- A genuinely new episode does wound again.
+    clockE = clockE + 400
+    edgeZombie:beginAttackEpisode()
+    SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
+    edgeZombie:swingOutcome("success")
+    edgeZombie:finishBiteClip()
     local _, _, s4 = SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
     check(s4.applied == 1,
-        "a fresh swing after the zombie leaves and re-enters its attack lands another wound")
-    edgeZombie.attacking = false
-    edgeZombie.attackOutcome = nil
-    SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE + 50, { edgeZombie })
-    edgeZombie.attacking = true
-    edgeZombie.attackOutcome = "success"
-    edgeZombie.attackDidDamage = true
+        "a fresh native episode after the previous one closed lands another wound")
+
+    -- CB-04: when the engine reports that it processed the victim, that is
+    -- terminal. It resolves the victim through zombie.target, so it really does
+    -- reach a detached companion -- no fallback on top, injured or not.
+    clockE = clockE + 400
+    edgeZombie:beginAttackEpisode()
+    SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
+    edgeZombie:swingOutcome("success")
+    edgeZombie:reportVictimProcessed(true)
     local healthBeforeNative = edgePart.health
     local _, _, nativeSwing = SurvivorCompanion.ZombieAttack.resolve(
-        edgeVictim, clockE + 400, { edgeZombie })
+        edgeVictim, clockE, { edgeZombie })
     check(nativeSwing.landed == 1 and nativeSwing.applied == 0
-            and edgePart.health == healthBeforeNative,
+            and edgePart.health == healthBeforeNative
+            and nativeSwing.receipts.native_injury == 1,
         "a native Build 42 attack collision is not followed by a duplicate fallback wound")
+
+    -- Processed with no injury is a protected/defended result, and equally
+    -- terminal: re-wounding there invents damage the engine declined.
+    clockE = clockE + 400
+    edgeZombie:beginAttackEpisode()
+    SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
+    edgeZombie:swingOutcome("success")
+    edgeZombie:reportVictimProcessed(false)
+    local healthBeforeProtected = edgePart.health
+    local _, _, protectedSwing = SurvivorCompanion.ZombieAttack.resolve(
+        edgeVictim, clockE, { edgeZombie })
+    check(protectedSwing.applied == 0 and edgePart.health == healthBeforeProtected
+            and protectedSwing.receipts.processed_without_injury == 1,
+        "a processed-but-protected hit was re-wounded by the fallback")
+
+    -- A failed swing is terminal too, and never wounds.
+    clockE = clockE + 400
+    edgeZombie:beginAttackEpisode()
+    SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
+    edgeZombie:swingOutcome("fail")
+    local _, _, failedSwing = SurvivorCompanion.ZombieAttack.resolve(
+        edgeVictim, clockE, { edgeZombie })
+    check(failedSwing.applied == 0 and failedSwing.receipts.attack_failed == 1,
+        "a failed swing produced a wound")
+
+    -- Neither a verdict nor a finished clip: the mod waits, then surfaces the
+    -- gap as its own outcome instead of guessing either way.
+    clockE = clockE + 400
+    edgeZombie:beginAttackEpisode()
+    SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
+    edgeZombie:swingOutcome("success")
+    local _, _, waiting = SurvivorCompanion.ZombieAttack.resolve(
+        edgeVictim, clockE, { edgeZombie })
+    -- Kahlua does not reliably expose the global next(), so count by iteration.
+    local waitingReceipts = 0
+    for _ in pairs(waiting.receipts or {}) do waitingReceipts = waitingReceipts + 1 end
+    check(waiting.applied == 0 and waitingReceipts == 0,
+        "the resolver concluded an outcome while the episode was still in flight")
+    local _, _, unobserved = SurvivorCompanion.ZombieAttack.resolve(edgeVictim,
+        clockE + SurvivorCompanion.Config.get("zombieAttackProcessingGraceMs") + 50,
+        { edgeZombie })
+    check(unobserved.applied == 1 and unobserved.receipts.processing_unobserved == 1,
+        "an unobserved victim-processing step was neither completed nor surfaced")
     SurvivorCompanion.ZombieAttack.reset()
 
     -- CB-08: a laceration is a cut, not automatically a deep wound. The old
@@ -1201,6 +1296,10 @@ do
         -- Above the bite threshold and above the scratch/laceration midpoint.
         return maximum == 1000 and 900 or 0
     end
+    lacZombie:beginAttackEpisode()
+    SurvivorCompanion.ZombieAttack.resolve(lacVictim, 600000, { lacZombie })
+    lacZombie:swingOutcome("success")
+    lacZombie:finishBiteClip()
     local _, _, lacStats = SurvivorCompanion.ZombieAttack.resolve(lacVictim, 600000, { lacZombie })
     check(lacStats.applied == 1 and lacPart.cut == true,
         "a laceration is applied through the engine's cut operation")
@@ -1219,6 +1318,10 @@ do
         target = failVictim, attacking = true, attackOutcome = "success",
     })
     local healthBeforePartial = failPart.health
+    failZombie:beginAttackEpisode()
+    SurvivorCompanion.ZombieAttack.resolve(failVictim, 700000, { failZombie })
+    failZombie:swingOutcome("success")
+    failZombie:finishBiteClip()
     local _, _, failStats = SurvivorCompanion.ZombieAttack.resolve(
         failVictim, 700000, { failZombie })
     check(failStats.landed == 1 and failStats.applied == 0,
