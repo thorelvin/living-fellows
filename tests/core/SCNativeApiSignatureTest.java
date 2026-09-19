@@ -698,12 +698,39 @@ public final class SCNativeApiSignatureTest {
                 boolean.class, String.class).getReturnType() == void.class,
                 "BodyPart.setBandaged(boolean,float,boolean,String) signature changed");
 
+        // CB-02: SCNativeCompanion classifies an incoming reaction by exact
+        // state-class name so it can yield position and facing to the engine.
+        // A renamed or removed state would silently turn that classifier into
+        // one that matches nothing, handing a reacting companion back to path
+        // and manual movement. Resolve every name against the installed game.
+        String[] reactionStates = {
+            "PlayerHitReactionState", "PlayerHitReactionPVPState",
+            "StaggerBackState", "PlayerFallDownState", "PlayerFallingState",
+            "PlayerGetUpState", "PlayerOnGroundState", "PlayerSitOnGroundState",
+            "BumpedState", "CollideWithWallState",
+        };
+        for (String reactionState : reactionStates) {
+            Class<?> resolved = Class.forName("zombie.ai.states." + reactionState);
+            require(state.isAssignableFrom(resolved)
+                    && resolved.getSimpleName().equals(reactionState),
+                    "native reaction state missing or renamed: " + reactionState);
+        }
+        require(method(stateMachine, "getSubStateCount").getReturnType() == int.class
+                && method(stateMachine, "getSubStateAt", int.class).getReturnType() == state,
+                "state-machine sub-state accessors used by the reaction classifier changed");
+        require(declaredMethodInHierarchy(character, "doDeferredMovement")
+                        .getReturnType() == void.class
+                && method(character, "isBeingGrappled").getReturnType() == boolean.class
+                && method(character, "isGrappling").getReturnType() == boolean.class,
+                "root-motion and grapple-pair accessors used by the owner view changed");
+
         System.out.println("NATIVE_API_SIGNATURE_PASS IsoSurvivor-final=true IsoCompanion=true"
                 + " IsoPlayer-NPC-constructor=true AttackType=true room-facing=true"
                 + " player-accessors=true descriptor=true direct-native=true removal=true vitals=true"
                 + " needs=true water-source=true emote=true fatal-injury=true deferred-spawn=true"
                 + " faction-life=true world-map-rumours=true world-map-streets=true"
                 + " readable-speech=true"
-                + " reflection-contract=true cleanup-retry=true");
+                + " reflection-contract=true cleanup-retry=true"
+                + " reaction-states=" + reactionStates.length + " movement-owner=true");
     }
 }

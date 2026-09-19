@@ -463,6 +463,110 @@ public final class SCNativeCompanion extends IsoPlayer {
                 || name.equals("SmashWindowState");
     }
 
+    /**
+     * Player-side states in which the engine itself owns the companion's
+     * position and facing: an incoming hit, a stagger, a knockdown, lying on
+     * the floor, and getting back up.
+     *
+     * <p>Exact names, matched whole, taken from the pinned 42.20.4 JAR rather
+     * than from a substring guess -- {@code SCNativeApiSignatureTest} resolves
+     * every one of them against the installed game and fails if any is renamed
+     * or removed, so this set cannot silently rot into a classifier that
+     * matches nothing.
+     *
+     * <p>{@code IsoPlayer.updateInternal2()}'s multiplayer block is the engine's
+     * own statement of intent here: it is an allowlist of exactly the states in
+     * which root motion is applied to a character the local machine does not
+     * drive.
+     */
+    private static final java.util.Set<String> NATIVE_REACTION_STATES =
+            java.util.Collections.unmodifiableSet(new java.util.HashSet<>(
+                    java.util.Arrays.asList(
+                            "PlayerHitReactionState", "PlayerHitReactionPVPState",
+                            "StaggerBackState", "PlayerFallDownState",
+                            "PlayerFallingState", "PlayerGetUpState",
+                            "PlayerOnGroundState", "PlayerSitOnGroundState",
+                            "BumpedState", "CollideWithWallState")));
+
+    /** Pure classifier, kept testable without a live state machine. */
+    static boolean isReactionStateName(String name) {
+        return name != null && NATIVE_REACTION_STATES.contains(name);
+    }
+
+    private static boolean isReactionState(State state) {
+        return state != null && isReactionStateName(state.getClass().getSimpleName());
+    }
+
+    /**
+     * Is the engine playing an incoming reaction that owns this companion's
+     * body? Checks child states as well: Build 42 runs several of these as
+     * sub-states of the player action graph.
+     */
+    public boolean isCompanionNativeReactionActive() {
+        try {
+            var machine = getStateMachine();
+            if (machine == null) return false;
+            if (isReactionState(machine.getCurrent())) return true;
+            for (int index = 0; index < machine.getSubStateCount(); index++) {
+                if (isReactionState(machine.getSubStateAt(index))) return true;
+            }
+            return false;
+        } catch (RuntimeException | LinkageError failure) {
+            // Losing observation must not hand the body back to path or manual
+            // movement mid-reaction; hold the more restrictive answer.
+            return true;
+        }
+    }
+
+    /** Owner names published to Lua. Ordered most exclusive first. */
+    public static final String OWNER_GRAPPLE = "grapple";
+    public static final String OWNER_REACTION = "reaction";
+    public static final String OWNER_TRAVERSAL = "traversal";
+    public static final String OWNER_ATTACK = "attack";
+    public static final String OWNER_TACTICAL = "tactical";
+    public static final String OWNER_MANUAL = "manual";
+    public static final String OWNER_PATH = "path";
+    public static final String OWNER_NONE = "none";
+
+    /**
+     * The single coherent answer to "who owns this companion's movement and
+     * facing right now", consulted by every movement, facing, root-motion and
+     * path entry point so they cannot disagree with one another.
+     *
+     * <p>Precedence is most-exclusive first. A grapple outranks a reaction
+     * because a held victim is frequently also in an on-ground state, and it is
+     * the grapple offset that positions them against the grappler.
+     */
+    public String getCompanionMovementOwner() {
+        if (isCompanionNativeGrappleActive()) return OWNER_GRAPPLE;
+        if (isCompanionNativeReactionActive()) return OWNER_REACTION;
+        if (isCompanionTraversalActive()) return OWNER_TRAVERSAL;
+        try {
+            if (isAttackStarted() || isPerformingAttackAnimation()) return OWNER_ATTACK;
+        } catch (RuntimeException | LinkageError ignored) {
+            // Fall through: an unreadable attack flag is not an owner claim.
+        }
+        if (bridgeTacticalMovement) return OWNER_TACTICAL;
+        if (bridgeMoveRequested && bridgeMoving) return OWNER_MANUAL;
+        if (bridgePathActive) return OWNER_PATH;
+        return OWNER_NONE;
+    }
+
+    /**
+     * Does a native state own the body outright this frame? While one does, the
+     * bridge contributes no translation of its own and the engine's root motion
+     * is the only thing that moves the actor -- which is what makes applying
+     * that root motion safe rather than a second displacement.
+     */
+    static boolean ownerIsExclusiveNative(String owner) {
+        return OWNER_GRAPPLE.equals(owner) || OWNER_REACTION.equals(owner)
+                || OWNER_TRAVERSAL.equals(owner);
+    }
+
+    private boolean nativeOwnsBody() {
+        return ownerIsExclusiveNative(getCompanionMovementOwner());
+    }
+
     public boolean cancelCompanionTraversal() {
         try {
             // Climb methods enqueue events; cancellation can arrive before the
@@ -1357,6 +1461,9 @@ public final class SCNativeCompanion extends IsoPlayer {
         // direction during non-tactical locomotion. Manual tactical movement has
         // DeltaX/DeltaY and a proper strafe blend, while a started attack still
         // needs the exact target angle for CombatManager's hit arc.
+        // CB-02: a retained combat target used to keep turning a companion who
+        // was mid-reaction or held in a grapple, fighting the paired animation.
+        if (nativeOwnsBody()) return;
         boolean attackOwnsFacing = isAttackStarted() || isPerformingAttackAnimation();
         if (!shouldApplyCompanionAim(isBridgeLocomotionActive(),
                 bridgeTacticalMovement, attackOwnsFacing)) {
@@ -1502,7 +1609,7 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     private void applyBridgeMovement() {
         if (getVehicle() != null || !bridgeMoveRequested || !bridgeMoving) return;
-        if (System.nanoTime() >= bridgeMoveExpiresNanos || isDead() || isCompanionTraversalActive()
+        if (System.nanoTime() >= bridgeMoveExpiresNanos || isDead() || nativeOwnsBody()
                 || isBlockMovement() || isAttackStarted() || isPerformingAttackAnimation()) {
             setMoving(false);
             return;
@@ -1555,6 +1662,7 @@ public final class SCNativeCompanion extends IsoPlayer {
      * angle even though {@link #applyCompanionAim()} correctly yielded ownership.
      */
     private void applyBridgeMovementFacing() {
+        if (nativeOwnsBody()) return;
         boolean attackOwnsFacing = isAttackStarted() || isPerformingAttackAnimation();
         if (!shouldBridgeMovementOwnFacing(isBridgeLocomotionActive(),
                 bridgeTacticalMovement, attackOwnsFacing)) {
@@ -1583,7 +1691,7 @@ public final class SCNativeCompanion extends IsoPlayer {
      */
     private void advanceBridgePath() {
         if (bridgeDisabled || getVehicle() != null || !bridgePathActive
-                || isCompanionTraversalActive()) return;
+                || nativeOwnsBody()) return;
         // Avoid a double step if a future Build 42 player graph gains a native
         // pathfind state and the generic update has already executed it.
         if (getStateMachine().getCurrent() != PathFindState.instance()) {
@@ -1603,7 +1711,13 @@ public final class SCNativeCompanion extends IsoPlayer {
         // ordinary path/manual locomotion already translates through PFB or
         // MoveForward and must continue to consume without applying a second
         // displacement.
-        if (isCompanionTraversalActive() || isCompanionNativeGrappleActive()) {
+        // An incoming reaction is the same case: PlayerHitReactionState,
+        // StaggerBackState and the knockdown/get-up states carry the body with
+        // root motion, and while one of them owns the actor the bridge
+        // contributes no translation of its own (advanceBridgePath and
+        // applyBridgeMovement both stand down below), so this is the only
+        // displacement applied -- not a second one.
+        if (nativeOwnsBody()) {
             doDeferredMovement();
             return;
         }

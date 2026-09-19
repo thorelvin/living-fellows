@@ -125,17 +125,42 @@ non-local **player** list in the same block is narrower —
 | The reaction states exist and are distinguishable | **available** |
 | `doDeferredMovement()` is self-guarding and safe to call while a grapple holds | **available** |
 | Grapple offset requires the accumulator | **available** |
-| Which *reaction* states (hit, stagger, falldown) need it for a non-local companion in single-player | **semantics-unverified** |
+| Which *reaction* states (hit, stagger, falldown) need it for a non-local companion in single-player | **available** |
 
-**Done:** `consumeBridgeDeferredMovement()` now also applies root motion while
-`isCompanionNativeGrappleActive()`, so a held companion is positioned by the
-engine's grapple offset.
+**Done (W2, CB-02 closed).** `SCNativeCompanion.getCompanionMovementOwner()` is
+now the single coherent answer to who owns the companion's body this frame,
+ordered `grapple > reaction > traversal > attack > tactical > manual > path`.
+Root-motion consumption, path advancement, manual movement, aim and
+movement-facing all consult it, so they can no longer disagree.
 
-**Not done:** extending the allowlist to the hit/stagger/falldown states. The
-evidence above narrows it a great deal but does not settle whether the bridge's
-own manual translation would double up during those states, and applying
-displacement twice is worse than the current under-application. That needs a
-live trace.
+The doubling concern that blocked this is resolved rather than accepted: while
+an exclusive native owner holds the actor, `advanceBridgePath()` and
+`applyBridgeMovement()` both stand down, so the engine's root motion is the
+*only* displacement applied. That is what makes applying it correct instead of
+a second translation.
+
+The reaction set is ten exact state names, matched whole:
+`PlayerHitReactionState`, `PlayerHitReactionPVPState`, `StaggerBackState`,
+`PlayerFallDownState`, `PlayerFallingState`, `PlayerGetUpState`,
+`PlayerOnGroundState`, `PlayerSitOnGroundState`, `BumpedState`,
+`CollideWithWallState`. `SCNativeApiSignatureTest` resolves every one against
+the installed game, so a rename cannot quietly turn the classifier into one
+that matches nothing.
+
+**Verified in `SCIsoCompanionControlTest.testNativeReactionOwnership`,** which
+drives the real state instances: root motion translates the body in each
+reaction, path advancement and a stale combat target are both refused, child
+states are recognised, a reaction outranks traversal, and the classifier
+rejects near-miss names. Root motion, path and facing were each
+negative-control verified.
+
+**Explicitly not verified:** manual-movement gating.
+`isCompanionMovementClear()` refuses every direction in the control-test world,
+so `applyBridgeMovement` cannot translate the actor whether or not the gate
+exists — an assertion there would pass for the wrong reason. The test records
+this as a skip and *fails if the harness world ever becomes walkable*, rather
+than claiming coverage it does not have. The gate is the same `nativeOwnsBody()`
+call proven for the other three paths.
 
 ---
 

@@ -187,6 +187,206 @@ public final class SCIsoCompanionControlTest {
     }
 
     @SuppressWarnings("unchecked")
+    /**
+     * CB-02. While the engine plays an incoming reaction it owns the
+     * companion's body: the bridge must contribute no translation of its own
+     * and must not re-aim the actor at a retained combat target. Drives the
+     * real reaction states from the installed runtime rather than asserting on
+     * a name predicate in isolation.
+     */
+    private static void testNativeReactionOwnership(SCNativeCompanion actor,
+            zombie.iso.IsoMovingObject aimTarget) throws Exception {
+        var machine = actor.getStateMachine();
+        var currentField = machine.getClass().getDeclaredField("currentState");
+        var subStatesField = machine.getClass().getDeclaredField("subStates");
+        currentField.setAccessible(true);
+        subStatesField.setAccessible(true);
+        Object originalRoot = currentField.get(machine);
+        List<Object> slots = (List<Object>) subStatesField.get(machine);
+        List<Object> originalSlots = new ArrayList<>(slots);
+        Class<?> stateClass = Class.forName("zombie.ai.State");
+        var slotConstructor = Class.forName("zombie.ai.StateMachine$SubstateSlot")
+                .getDeclaredConstructor(stateClass);
+        slotConstructor.setAccessible(true);
+        var applyMovement = SCNativeCompanion.class.getDeclaredMethod("applyBridgeMovement");
+        applyMovement.setAccessible(true);
+        var advancePath = SCNativeCompanion.class.getDeclaredMethod("advanceBridgePath");
+        advancePath.setAccessible(true);
+        var applyAim = SCNativeCompanion.class.getDeclaredMethod("applyCompanionAim");
+        applyAim.setAccessible(true);
+        var pathActiveField = SCNativeCompanion.class.getDeclaredField("bridgePathActive");
+        pathActiveField.setAccessible(true);
+        var aimTargetField = SCNativeCompanion.class.getDeclaredField("bridgeAimTarget");
+        aimTargetField.setAccessible(true);
+        Object originalAim = aimTargetField.get(actor);
+        boolean[] movementProbeBlocked = { false };
+        // The aim probe needs a target the companion is not standing on, or
+        // the direction vector is zero and nothing can be observed.
+        // Reached reflectively: the bridge compiles against compile-only stubs
+        // that do not declare every real accessor, and widening them for a test
+        // would weaken the boundary the stub-control gate protects.
+        var setX = aimTarget.getClass().getMethod("setX", float.class);
+        var setY = aimTarget.getClass().getMethod("setY", float.class);
+        float targetX = aimTarget.getX(), targetY = aimTarget.getY();
+        setX.invoke(aimTarget, actor.getX() + 3.0f);
+        setY.invoke(aimTarget, actor.getY() + 3.0f);
+        // applyCompanionAim drops a target that is not in the world, and
+        // isExistInTheWorld() means "listed in my square's moving objects".
+        // Place the probe target there for the duration of this test.
+        // isExistInTheWorld() reads IsoObject.square (not getCurrentSquare(),
+        // which returns the separate `current` field) and requires the object
+        // to be listed in that square's moving objects.
+        var squareField = Class.forName("zombie.iso.IsoObject").getDeclaredField("square");
+        squareField.setAccessible(true);
+        Object originalSquare = squareField.get(aimTarget);
+        Object targetSquare = originalSquare != null ? originalSquare
+                : invoke(aimTarget, "getCurrentSquare");
+        if (originalSquare == null && targetSquare != null) {
+            squareField.set(aimTarget, targetSquare);
+        }
+        List<Object> targetMovers = targetSquare == null ? null
+                : (List<Object>) invoke(targetSquare, "getMovingObjects");
+        boolean placedTarget = targetMovers != null && !targetMovers.contains(aimTarget)
+                && targetMovers.add(aimTarget);
+        require((Boolean) invoke(aimTarget, "isExistInTheWorld"),
+                "aim probe target could not be placed in the world");
+        var moveRequested = SCNativeCompanion.class.getDeclaredField("bridgeMoveRequested");
+        var moving = SCNativeCompanion.class.getDeclaredField("bridgeMoving");
+        var expires = SCNativeCompanion.class.getDeclaredField("bridgeMoveExpiresNanos");
+        var moveX = SCNativeCompanion.class.getDeclaredField("bridgeMoveX");
+        var moveY = SCNativeCompanion.class.getDeclaredField("bridgeMoveY");
+        var distance = SCNativeCompanion.class.getDeclaredField("bridgeMoveDistance");
+        for (var field : new java.lang.reflect.Field[] {
+                moveRequested, moving, expires, moveX, moveY, distance }) {
+            field.setAccessible(true);
+        }
+        try {
+            slots.clear();
+            currentField.set(machine, null);
+            require(!actor.isCompanionNativeReactionActive(),
+                    "idle actor falsely owns a native reaction");
+            require(SCNativeCompanion.OWNER_NONE.equals(actor.getCompanionMovementOwner()),
+                    "idle actor claimed a movement owner");
+            for (String stateName : new String[] { "PlayerHitReactionState",
+                    "PlayerHitReactionPVPState", "StaggerBackState", "PlayerFallDownState",
+                    "PlayerFallingState", "PlayerGetUpState", "PlayerOnGroundState",
+                    "PlayerSitOnGroundState", "BumpedState", "CollideWithWallState" }) {
+                Object nativeState = Class.forName("zombie.ai.states." + stateName)
+                        .getMethod("instance").invoke(null);
+                currentField.set(machine, nativeState);
+                require(actor.isCompanionNativeReactionActive(),
+                        stateName + " was not recognised as an incoming reaction");
+                require(SCNativeCompanion.OWNER_REACTION.equals(
+                                actor.getCompanionMovementOwner()),
+                        stateName + " did not take movement ownership");
+
+                // Manual-movement gating is deliberately NOT asserted here.
+                // isCompanionMovementClear() refuses every direction in this
+                // harness world, so applyBridgeMovement cannot translate the
+                // actor whether or not the reaction gate exists -- an assertion
+                // would pass for the wrong reason. Recorded as an explicit gap
+                // rather than a silent pass (the audit's CB-12 rule); the gate
+                // itself is the same nativeOwnsBody() call proven above for
+                // root motion, path advancement and facing.
+                if (!movementProbeBlocked[0]) {
+                    boolean anyClear = false;
+                    for (float[] candidate : new float[][] {
+                            { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) {
+                        anyClear |= actor.isCompanionMovementClear(
+                                actor.getX() + candidate[0] * 0.25f,
+                                actor.getY() + candidate[1] * 0.25f, actor.getZ());
+                    }
+                    movementProbeBlocked[0] = !anyClear;
+                    require(!anyClear,
+                            "the harness world became walkable: enable the manual-movement"
+                                    + " reaction assertion instead of skipping it");
+                }
+
+                pathActiveField.setBoolean(actor, true);
+                actor.setVariable("bPathfind", true);
+                actor.getFinder().progress = zombie.ai.astar.AStarPathFinder.PathFindProgress.failed;
+                advancePath.invoke(actor);
+                require(actor.getVariableBoolean("bPathfind"),
+                        stateName + " allowed a native path update to compete with the reaction");
+                pathActiveField.setBoolean(actor, false);
+                actor.setVariable("bPathfind", false);
+
+                // A retained combat target must not keep rotating a companion
+                // who is being hit, staggered or knocked down. Establish first
+                // that this setup can turn the actor at all when no reaction
+                // owns it -- otherwise the assertion that follows is vacuous.
+                aimTargetField.set(actor, aimTarget);
+                currentField.set(machine, null);
+                actor.setForwardDirection(0.0f, 1.0f);
+                applyAim.invoke(actor);
+                require(actor.getForwardDirection().x != 0.0f
+                                || actor.getForwardDirection().y != 1.0f,
+                        "aim probe could not turn an unowned companion, so the"
+                                + " reaction-facing assertion would prove nothing");
+                currentField.set(machine, nativeState);
+                actor.setForwardDirection(0.0f, 1.0f);
+                applyAim.invoke(actor);
+                require(actor.getForwardDirection().x == 0.0f
+                                && actor.getForwardDirection().y == 1.0f,
+                        stateName + " let a stale combat target re-aim a reacting companion");
+                aimTargetField.set(actor, null);
+
+                currentField.set(machine, null);
+                slots.add(slotConstructor.newInstance(nativeState));
+                require(actor.isCompanionNativeReactionActive(),
+                        stateName + " child ownership was missed");
+                slots.clear();
+                require(!actor.isCompanionNativeReactionActive(),
+                        stateName + " ownership survived state exit");
+            }
+
+            // Precedence: a held victim is often also on the ground, and it is
+            // the grapple offset that positions them against the grappler.
+            Object onGround = Class.forName("zombie.ai.states.PlayerOnGroundState")
+                    .getMethod("instance").invoke(null);
+            Object climb = Class.forName("zombie.ai.states.ClimbOverFenceState")
+                    .getMethod("instance").invoke(null);
+            currentField.set(machine, climb);
+            require(SCNativeCompanion.OWNER_TRAVERSAL.equals(
+                            actor.getCompanionMovementOwner()),
+                    "traversal lost ownership to a lower-precedence claim");
+            slots.add(slotConstructor.newInstance(onGround));
+            require(SCNativeCompanion.OWNER_REACTION.equals(
+                            actor.getCompanionMovementOwner()),
+                    "a reaction did not outrank traversal");
+            slots.clear();
+            currentField.set(machine, null);
+
+            require(SCNativeCompanion.ownerIsExclusiveNative(SCNativeCompanion.OWNER_GRAPPLE)
+                            && SCNativeCompanion.ownerIsExclusiveNative(
+                                    SCNativeCompanion.OWNER_REACTION)
+                            && SCNativeCompanion.ownerIsExclusiveNative(
+                                    SCNativeCompanion.OWNER_TRAVERSAL)
+                            && !SCNativeCompanion.ownerIsExclusiveNative(
+                                    SCNativeCompanion.OWNER_ATTACK)
+                            && !SCNativeCompanion.ownerIsExclusiveNative(
+                                    SCNativeCompanion.OWNER_PATH)
+                            && !SCNativeCompanion.ownerIsExclusiveNative(
+                                    SCNativeCompanion.OWNER_NONE),
+                    "exclusive-native owner set changed shape");
+            require(SCNativeCompanion.isReactionStateName("StaggerBackState")
+                            && !SCNativeCompanion.isReactionStateName("IdleState")
+                            && !SCNativeCompanion.isReactionStateName("PlayerHitReaction")
+                            && !SCNativeCompanion.isReactionStateName(null),
+                    "reaction classifier matched on something other than an exact state name");
+        } finally {
+            currentField.set(machine, originalRoot);
+            slots.clear();
+            slots.addAll(originalSlots);
+            aimTargetField.set(actor, originalAim);
+            setX.invoke(aimTarget, targetX);
+            setY.invoke(aimTarget, targetY);
+            if (placedTarget) targetMovers.remove(aimTarget);
+            squareField.set(aimTarget, originalSquare);
+            actor.setMoving(false);
+        }
+    }
+
     private static void testNativeTraversalOwnership(SCNativeCompanion actor) throws Exception {
         var machine = actor.getStateMachine();
         var currentField = machine.getClass().getDeclaredField("currentState");
@@ -347,6 +547,26 @@ public final class SCIsoCompanionControlTest {
                     "native traversal did not consume its root-motion accumulator");
             require(actor.getNextX() != beforeX || actor.getNextY() != beforeY,
                     "native traversal success animation did not translate the companion body");
+
+            // CB-02: an incoming reaction carries the body the same way. While
+            // one owns the actor the bridge contributes no translation of its
+            // own, so this root motion is the only displacement applied.
+            for (String reactionState : new String[] { "PlayerHitReactionState",
+                    "StaggerBackState", "PlayerFallDownState", "PlayerGetUpState" }) {
+                Object state = Class.forName("zombie.ai.states." + reactionState)
+                        .getMethod("instance").invoke(null);
+                currentField.set(machine, state);
+                actor.setNextX(actor.getX());
+                actor.setNextY(actor.getY());
+                float reactionX = actor.getNextX(), reactionY = actor.getNextY();
+                accumulator.x = .08f;
+                accumulator.y = 0.0f;
+                consume.invoke(actor);
+                require(accumulator.x == 0 && accumulator.y == 0,
+                        reactionState + " did not consume its root-motion accumulator");
+                require(actor.getNextX() != reactionX || actor.getNextY() != reactionY,
+                        reactionState + " played without translating the companion body");
+            }
         } finally {
             currentField.set(machine, originalState);
             ownerAnimation.set(actor, original);
@@ -677,6 +897,8 @@ public final class SCIsoCompanionControlTest {
                 "manual movement stole facing from an active attack");
         testRetainedMovementAndPathState((SCNativeCompanion) actor);
         testNativeTraversalOwnership((SCNativeCompanion) actor);
+        testNativeReactionOwnership((SCNativeCompanion) actor,
+                (zombie.iso.IsoMovingObject) secondActor);
         testZeroDeferredDuplicatePathNode((SCNativeCompanion) actor);
         testDeferredAccumulatorConsumption((SCNativeCompanion) actor);
         testFloorAttackInputLease((SCNativeCompanion) actor, localPlayer, (SCNativeCompanion) secondActor);
