@@ -71,7 +71,7 @@ $stages = @(
         -Failure 'Core suite failed.'),
     (New-ScPowerShellStep -Name 'source' `
         -Script (Join-Path $ProjectRoot 'scripts\Test-Source.ps1') `
-        -Arguments @('-SkipNativeBridge') `
+        -Arguments @('-SkipNativeBridge', '-Jobs', "$Jobs") `
         -Failure 'Source gate failed.'),
     (New-ScPowerShellStep -Name 'gameplay' `
         -Script (Join-Path $ProjectRoot 'tests\gameplay\run_gameplay_tests.ps1') `

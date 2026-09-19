@@ -302,10 +302,11 @@ Run the complete test gate:
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Test-Project.ps1
 ```
 
-The stages run in parallel. `-Jobs N` sets how many run at once (it defaults to
-the processor count, capped at 8) and `-Serial` runs them one at a time, which
-is the thing to reach for when a parallel run reports something that does not
-make sense on its own.
+The stages run in parallel, and the core Kahlua harnesses and the installer's
+fault-injection cases each fan out again inside their own stage. `-Jobs N` sets
+how many run at once (it defaults to the processor count, capped at 8) and
+`-Serial` runs everything one at a time, which is the thing to reach for when a
+parallel run reports something that does not make sense on its own.
 
 Build the Workshop upload package or the standalone Windows package:
 

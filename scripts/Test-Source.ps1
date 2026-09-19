@@ -7,7 +7,10 @@ param(
     # stages can run side by side without destroying each other's classes.
     # The committed-payload comparison below is unaffected: it still measures a
     # freshly built JAR against the one checked in.
-    [switch]$SkipNativeBridge
+    [switch]$SkipNativeBridge,
+    # Handed to the installer test's own case pool. Test-Project passes 1
+    # under -Serial so the whole gate really does run one thing at a time.
+    [int]$Jobs = 0
 )
 
 $ErrorActionPreference = 'Stop'
@@ -82,7 +85,8 @@ try {
         & $Python (Join-Path $ProjectRoot $test)
         if ($LASTEXITCODE -ne 0) { throw "Source test failed: $test" }
     }
-    & (Join-Path $ProjectRoot 'tests\core\test_installer.ps1') -ProjectRoot $ProjectRoot
+    & (Join-Path $ProjectRoot 'tests\core\test_installer.ps1') `
+        -ProjectRoot $ProjectRoot -Jobs $Jobs
 }
 finally {
     if (Test-Path -LiteralPath $BuildRoot) {
