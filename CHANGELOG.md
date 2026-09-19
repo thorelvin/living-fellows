@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.23.5 - Companions make a noise when they swing and shoot
+
+- Fixed companions firing guns in silence. The game plays a weapon's swing or gunshot sound only for the player character, so a companion's shot made no noise at all -- while the bullet striking the zombie was still audible, because that sound belongs to the hit rather than to the shot. Companions now play their own weapon sounds, from where they are standing, once per swing.
+- This was never only about guns: melee swings were silent for the same reason, and now are not.
+
 ## 0.23.4 - Close the hole in the reach check
 
 - The reach check added last release let a companion through whenever it could not work out where the container was -- which is the one case it exists to catch, because a shelf it cannot locate is still a shelf across the room. It now falls back to the container itself, and then to where the container was when the companion set out for it, and says so in the log if it still cannot tell.

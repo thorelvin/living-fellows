@@ -727,6 +727,18 @@ public final class SCNativeApiSignatureTest {
         require(method(stateMachine, "getSubStateCount").getReturnType() == int.class
                 && method(stateMachine, "getSubStateAt", int.class).getReturnType() == state,
                 "state-machine sub-state accessors used by the reaction classifier changed");
+        // The companion drives its own swing/gunshot sound because
+        // SwipeStatePlayer.OnAnimEvent_PlaySwingSound -- and the "Always"
+        // variant it delegates to -- both return unless the character is the
+        // local player. Pin the three calls that reproduction needs.
+        require(Class.forName("zombie.CombatManager")
+                        .getMethod("getWeapon", character).getReturnType() == handWeapon
+                && handWeapon.getMethod("getSoundByID", String.class)
+                        .getReturnType() == String.class
+                && handWeapon.getMethod("getSwingSound").getReturnType() == String.class
+                && method(character, "playSound", String.class).getReturnType() == long.class,
+                "weapon swing-sound accessors changed shape");
+
         // CB-09: the outgoing receipt channel must stay separate from the
         // completed-hit serial, or a consumer can read a failure as a hit.
         // The closed-door path guard rests on two engine facts: the boolean
@@ -766,6 +778,6 @@ public final class SCNativeApiSignatureTest {
                 + " readable-speech=true"
                 + " reflection-contract=true cleanup-retry=true"
                 + " reaction-states=" + reactionStates.length + " movement-owner=true"
-                + " attack-continuation=true outgoing-receipts=true door-guard=true");
+                + " attack-continuation=true outgoing-receipts=true door-guard=true swing-sound=true");
     }
 }

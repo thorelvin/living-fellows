@@ -47,6 +47,10 @@ public final class SCNativeCompanion extends IsoPlayer {
     private static final Method ATTACK_COLLISION_CHECK = resolveAttackCollisionCheck();
     private static final Method GET_USE_HAND_WEAPON = resolveNoArg(IsoGameCharacter.class, "getUseHandWeapon");
     private static final Method GET_ATTACK_TYPE = resolveNoArg(IsoPlayer.class, "getAttackType");
+    private static final Method COMBAT_MANAGER_GET_WEAPON = resolveCombatManagerGetWeapon();
+    private static final Method WEAPON_SOUND_BY_ID = resolveWeaponSoundById();
+    private static final Method WEAPON_SWING_SOUND = resolveWeaponSwingSound();
+    private static final Method CHARACTER_PLAY_SOUND = resolveCharacterPlaySound();
     private static volatile String RUNTIME_CONTRACT_FAILURE_FOR_TESTS = "";
     private static final int MIN_SPEECH_DISPLAY_MILLIS = 4_000;
     private static final int MAX_SPEECH_DISPLAY_MILLIS = 30_000;
@@ -119,6 +123,9 @@ public final class SCNativeCompanion extends IsoPlayer {
     // Diagnostic count of native path steps held at a closed door, so the
     // guard's effect is observable rather than inferred.
     private volatile long bridgePathDoorHolds;
+    private volatile long bridgeSwingSounds;
+    private volatile long bridgeSwingSoundEvents;
+    private volatile String bridgeSwingSoundFailure = "";
     private volatile int bridgeAttackAttemptSerial;
     private volatile int bridgeAttackReceiptSerial;
     private volatile String bridgeAttackReceiptOutcome = "none";
@@ -784,11 +791,82 @@ public final class SCNativeCompanion extends IsoPlayer {
     @Override
     public void OnAnimEvent(AnimLayer layer, AnimationTrack track, AnimEvent event) {
         super.OnAnimEvent(layer, track, event);
-        if (event != null && "AttackCollisionCheck".equals(event.eventName)) {
+        if (event == null) return;
+        if ("AttackCollisionCheck".equals(event.eventName)) {
             if (driveCompanionAttackCollision(event.parameterValue)) {
                 bridgeAttackCollisionSerial++;
             }
+        } else if ("PlaySwingSound".equalsIgnoreCase(event.eventName)) {
+            driveCompanionSwingSound(event.parameterValue);
         }
+    }
+
+    /**
+     * Play the weapon's own swing or gunshot sound.
+     *
+     * <p>{@code SwipeStatePlayer.OnAnimEvent_PlaySwingSound} returns immediately
+     * unless {@code IsoPlayer.isLocalPlayer(character)}, and so does the
+     * "Always" variant it delegates to -- so a companion swung and fired in
+     * silence. The bullet still made a noise on impact, because that belongs to
+     * the hit, not to the shot, which is exactly how the missing gunshot was
+     * noticed.
+     *
+     * <p>This reproduces the stock body rather than reaching into it: prefer
+     * the sound the anim event names, fall back to the weapon's swing sound,
+     * and play it through the character's own emitter so it is heard from where
+     * the companion is standing.
+     */
+    private void driveCompanionSwingSound(String soundId) {
+        // Counted before any early return: "the event never reached us" and
+        // "it reached us and there was nothing to play" are different problems
+        // and the log should be able to tell them apart.
+        bridgeSwingSoundEvents++;
+        if (bridgeDisabled || isDead()) return;
+        if (COMBAT_MANAGER_INSTANCE == null || COMBAT_MANAGER_GET_WEAPON == null
+                || CHARACTER_PLAY_SOUND == null) {
+            return;
+        }
+        // The stock handler plays once per swing and latches this variable to
+        // say so. Honour the same latch: duplicate animation layers must not
+        // stack two gunshots on one shot.
+        try {
+            if (getVariableBoolean("PlayedSwingSound")) return;
+            Object manager = COMBAT_MANAGER_INSTANCE.invoke(null);
+            if (manager == null) return;
+            Object weapon = COMBAT_MANAGER_GET_WEAPON.invoke(manager, this);
+            if (weapon == null) return;
+            String sound = null;
+            if (soundId != null && !soundId.isBlank() && WEAPON_SOUND_BY_ID != null) {
+                Object named = WEAPON_SOUND_BY_ID.invoke(weapon, soundId);
+                if (named instanceof String value && !value.isBlank()) sound = value;
+            }
+            if (sound == null && WEAPON_SWING_SOUND != null) {
+                Object swing = WEAPON_SWING_SOUND.invoke(weapon);
+                if (swing instanceof String value && !value.isBlank()) sound = value;
+            }
+            if (sound == null) return;
+            setVariable("PlayedSwingSound", true);
+            CHARACTER_PLAY_SOUND.invoke(this, sound);
+            bridgeSwingSounds++;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            // A missing sound is cosmetic; never let it break the update.
+            bridgeSwingSoundFailure = failure.getClass().getSimpleName();
+        }
+    }
+
+    /** PlaySwingSound anim events this companion received. */
+    public long getCompanionSwingSoundEvents() {
+        return bridgeSwingSoundEvents;
+    }
+
+    /** Swing/gunshot sounds played for this companion, for diagnostics. */
+    public long getCompanionSwingSounds() {
+        return bridgeSwingSounds;
+    }
+
+    /** Last reason a swing sound could not be played, or an empty string. */
+    public String getCompanionSwingSoundFailure() {
+        return bridgeSwingSoundFailure;
     }
 
     private boolean driveCompanionAttackCollision(String attackTypeName) {
@@ -2134,6 +2212,49 @@ public final class SCNativeCompanion extends IsoPlayer {
             }
         }
         return null;
+    }
+
+    private static Method resolveCombatManagerGetWeapon() {
+        try {
+            Method method = Class.forName("zombie.CombatManager")
+                    .getMethod("getWeapon", IsoGameCharacter.class);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveWeaponSoundById() {
+        try {
+            Method method = Class.forName("zombie.inventory.types.HandWeapon")
+                    .getMethod("getSoundByID", String.class);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveWeaponSwingSound() {
+        try {
+            Method method = Class.forName("zombie.inventory.types.HandWeapon")
+                    .getMethod("getSwingSound");
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveCharacterPlaySound() {
+        try {
+            Method method = IsoGameCharacter.class.getMethod("playSound", String.class);
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
     }
 
     private static Method resolveStatic(String className, String methodName) {

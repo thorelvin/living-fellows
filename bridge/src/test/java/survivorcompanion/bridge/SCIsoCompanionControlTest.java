@@ -886,6 +886,26 @@ public final class SCIsoCompanionControlTest {
         // IsoGameCharacter.pathToAux, so the engine plans straight through a
         // closed door expecting the character to open it -- and a companion's
         // contextual actions are deliberately suppressed, so nothing did.
+        // A companion swung and fired in silence: SwipeStatePlayer's swing-sound
+        // handler, and the "Always" variant it delegates to, both return unless
+        // the character is the local player. The bridge drives it instead, so
+        // the event has to actually reach that code.
+        {
+            SCNativeCompanion sounded = (SCNativeCompanion) actor;
+            long before = sounded.getCompanionSwingSoundEvents();
+            var unrelated = new zombie.core.skinnedmodel.advancedanimation.AnimEvent();
+            unrelated.eventName = "SomeOtherEvent";
+            sounded.OnAnimEvent(null, null, unrelated);
+            require(sounded.getCompanionSwingSoundEvents() == before,
+                    "an unrelated animation event was treated as a swing sound");
+            var swing = new zombie.core.skinnedmodel.advancedanimation.AnimEvent();
+            swing.eventName = "PlaySwingSound";
+            swing.parameterValue = "";
+            sounded.OnAnimEvent(null, null, swing);
+            require(sounded.getCompanionSwingSoundEvents() == before + 1,
+                    "a PlaySwingSound event never reached the companion's own sound path");
+        }
+
         require(SCNativeCompanion.doorIsSoleObstruction(false, true),
                 "a step clear of everything but a door was not held");
         require(!SCNativeCompanion.doorIsSoleObstruction(true, true),
