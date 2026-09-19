@@ -286,7 +286,7 @@ end
 -- it is torn at (drag-down damage) and cannot fight, and it is freed only when
 -- the pile thins below the threshold or it struggles loose. If the drag-down
 -- kills it, ordinary permadeath applies -- a swarmed companion can be lost.
-local function resolveGrapple(actor, current, attackers)
+local function resolveGrapple(actor, current, attackers, evidence)
     if select(1, U().call(actor, "getVehicle")) ~= nil then
         -- A seated companion can never be pinned. If it was grabbed and then
         -- boarded, clear the grab and its native knockdown/drag-down flags so the
@@ -331,6 +331,24 @@ local function resolveGrapple(actor, current, attackers)
                 return "grab_kill_unconfirmed"
             end
             return "grab_killed"
+        end
+        -- CB-07. A thin pile frees the companion, so an empty candidate slice
+        -- reads as a rescue. That is only true if the absence was actually
+        -- observed: while the pin suspends the decision pass, a partial or
+        -- stale scan can report nobody simply because nothing looked. Require a
+        -- complete observation before believing the attackers are gone -- but
+        -- bound it, because refusing to act on uncertainty forever would pin a
+        -- companion indefinitely, which is worse than releasing one early.
+        local established = type(evidence) ~= "table"
+            or evidence.complete == true or evidence.observed == false
+        if attackers < threshold and not established then
+            grabbed.unestablishedSince = grabbed.unestablishedSince or current
+            if current - grabbed.unestablishedSince
+                < config("zombieGrabEvidenceGraceMs", 2500) then
+                return "grab_evidence_incomplete"
+            end
+        elseif attackers >= threshold then
+            grabbed.unestablishedSince = nil
         end
         -- RESCUE: thin the pile below the threshold (kill/pull off attackers) and
         -- the companion is freed -- alive, if bloodied. This is the whole point of
@@ -458,7 +476,7 @@ end
 
 -- Resolve incoming zombie attacks against one companion. `zombies` is the
 -- already-bounded Senses threat list the runtime supplies; never rescan here.
-function ZombieAttack.resolve(actor, current, zombies)
+function ZombieAttack.resolve(actor, current, zombies, evidence)
     if not eligible(actor) then return false, "invalid_actor" end
     if zombies == nil then return false, "zombie_candidates_unavailable" end
     current = tonumber(current) or (U() and U().nowMs()) or 0
@@ -625,7 +643,7 @@ function ZombieAttack.resolve(actor, current, zombies)
         and type(SC.Dialogue.monitorMortality) == "function" then
         SC.Dialogue.monitorMortality(actor, nil, "zombie")
     end
-    local grapple = resolveGrapple(actor, current, attackers)
+    local grapple = resolveGrapple(actor, current, attackers, evidence)
 
     return true, applied > 0 and "companion_wounded" or "no_landed_attack",
         { checked = checked, targeting = targeting, landed = landed, applied = applied,

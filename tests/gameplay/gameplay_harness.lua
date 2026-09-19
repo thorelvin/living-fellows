@@ -1372,6 +1372,61 @@ do
             and not SurvivorCompanion.ZombieAttack.isGrabbed(grappleVictim),
         "removing the zombie pile releases the companion and clears native grapple flags")
 
+-- CB-07. A pin suspends the decision pass, and with it the perception work that
+-- discovers attackers, so an empty candidate slice can mean "nothing looked"
+-- rather than "nobody is there". A thin pile frees the victim, so believing an
+-- unobserved absence releases a companion who is still being held.
+do
+    local attack = SurvivorCompanion.ZombieAttack
+    attack.reset()
+    firstGrabber.dead, secondGrabber.dead = false, false
+    local evidenceClock = 700000
+    local _, _, pinned = attack.resolve(grappleVictim, evidenceClock,
+        { firstGrabber, secondGrabber }, { complete = true, observed = true })
+    check(pinned.grapple == "grabbed_now" and attack.isGrabbed(grappleVictim),
+        "CB-07 fixture did not reach a pinned companion")
+
+    -- The attackers vanish from the slice, but the scan that produced it never
+    -- completed. That is not evidence they left.
+    evidenceClock = evidenceClock + 50
+    local _, _, incomplete = attack.resolve(grappleVictim, evidenceClock, {},
+        { complete = false, observed = true })
+    check(incomplete.grapple == "grab_evidence_incomplete"
+            and attack.isGrabbed(grappleVictim),
+        "an incomplete scan reporting nobody released a companion still being held")
+
+    -- Uncertainty must not hold a companion for ever, so the refusal is bounded.
+    evidenceClock = evidenceClock + values.zombieGrabEvidenceGraceMs + 50
+    local _, _, expired = attack.resolve(grappleVictim, evidenceClock, {},
+        { complete = false, observed = true })
+    check(expired.grapple == "grab_broken" and not attack.isGrabbed(grappleVictim),
+        "an unconfirmed absence pinned the companion past its bounded grace")
+
+    -- A scan that did complete is believed at once: this is the ordinary rescue.
+    attack.reset()
+    evidenceClock = evidenceClock + 10000
+    local _, _, repinned = attack.resolve(grappleVictim, evidenceClock,
+        { firstGrabber, secondGrabber }, { complete = true, observed = true })
+    check(repinned.grapple == "grabbed_now" and attack.isGrabbed(grappleVictim),
+        "CB-07 rescue fixture did not re-pin the companion")
+    evidenceClock = evidenceClock + 50
+    local _, _, complete = attack.resolve(grappleVictim, evidenceClock, {},
+        { complete = true, observed = true })
+    check(complete.grapple == "grab_broken" and not attack.isGrabbed(grappleVictim),
+        "a completed scan reporting nobody failed to free the companion")
+
+    -- Callers that supply no evidence at all keep the original behaviour, so
+    -- this cannot quietly change any path that has not been taught to report.
+    attack.reset()
+    evidenceClock = evidenceClock + 10000
+    attack.resolve(grappleVictim, evidenceClock, { firstGrabber, secondGrabber })
+    evidenceClock = evidenceClock + 50
+    local _, _, legacy = attack.resolve(grappleVictim, evidenceClock, {})
+    check(legacy.grapple == "grab_broken" and not attack.isGrabbed(grappleVictim),
+        "a caller supplying no evidence lost the existing rescue behaviour")
+    attack.reset()
+end
+
     firstGrabber.dead, secondGrabber.dead = false, false
     SurvivorCompanion.ZombieAttack.reset(grappleVictim)
     SurvivorCompanion.Dialogue.reset(grappleVictim)

@@ -147,18 +147,46 @@ local function commandState(record)
     return { recruited = record.recruited == true }
 end
 
+-- CB-07. The candidate list alone cannot tell "nobody is holding this
+-- companion" apart from "nothing was observed this pass", and the pinned path
+-- treats a thin pile as a rescue. Return the evidence quality alongside the
+-- candidates so the caller can refuse to act on an absence it never actually
+-- established.
 local function observedZombieCandidates(runtime)
     runtime = type(runtime) == "table" and runtime or {}
     local snapshot = type(runtime.senses) == "table" and runtime.senses.current
         or runtime.snapshot
     local threats = type(snapshot) == "table" and snapshot.threats or nil
     local candidates = {}
-    if type(threats) ~= "table" then return candidates end
+    local complete = false
+    if type(snapshot) == "table" and SC.Senses
+        and type(SC.Senses.isCompleteObservation) == "function" then
+        local called, result = pcall(SC.Senses.isCompleteObservation, snapshot)
+        complete = called and result == true
+    end
+    if type(threats) ~= "table" then
+        return candidates, { complete = false, observed = false }
+    end
     for _, threat in ipairs(threats) do
         local actor = type(threat) == "table" and threat.actor or threat
         if actor ~= nil then candidates[#candidates + 1] = actor end
     end
-    return candidates
+    return candidates, { complete = complete, observed = true }
+end
+
+-- A pinned companion's decision pass is suspended, and with it the perception
+-- work that discovers newly arriving attackers. Run the bounded reflex refresh
+-- that SCDecision already uses -- it revalidates known contacts and inspects
+-- only squares overlapping the immediate radius, and rate-limits itself -- so a
+-- pin is resolved against who is actually there rather than against whoever was
+-- there when the pin began.
+local function refreshPinnedContacts(record, currentPlayer)
+    if SC.Senses == nil or type(SC.Senses.refreshImmediate) ~= "function" then return end
+    local runtime = record.runtime
+    local snapshot = type(runtime.senses) == "table" and runtime.senses.current
+        or runtime.snapshot
+    if type(snapshot) ~= "table" then return end
+    pcall(SC.Senses.refreshImmediate, record.actor, currentPlayer, snapshot, runtime)
 end
 
 local function recoverySquare(currentPlayer)
@@ -240,6 +268,8 @@ local function serviceRecord(record, current, currentPlayer)
             pcall(SC.Banter.grabbedPulse, record.actor, currentPlayer,
                 type(rt.senses) == "table" and rt.senses.current or rt.snapshot, current)
         end
+        -- CB-07: keep discovering attackers while voluntary decisions are off.
+        refreshPinnedContacts(record, currentPlayer)
     else
         record.runtime.grabStopped = nil
         local decisionStarted = nowMs()
@@ -253,7 +283,8 @@ local function serviceRecord(record, current, currentPlayer)
     end
     if SC.ZombieTargeting and type(SC.ZombieTargeting.scan) == "function" then
         local targetingStarted = nowMs()
-        local candidates = observedZombieCandidates(record.runtime)
+        local candidates, evidence = observedZombieCandidates(record.runtime)
+        record.runtime.candidateEvidence = evidence
         local targetingGuarded, scanned, scanReason, scanDetail = SC.Diagnostics.guard(
             "zombie-targeting", record.id, SC.ZombieTargeting.scan,
             record.actor, current, candidates)
@@ -272,7 +303,7 @@ local function serviceRecord(record, current, currentPlayer)
             local attackStarted = nowMs()
             local attackGuarded, resolved, attackReason, attackDetail = SC.Diagnostics.guard(
                 "zombie-attack", record.id, SC.ZombieAttack.resolve,
-                record.actor, current, candidates)
+                record.actor, current, candidates, evidence)
             if SC.Performance and type(SC.Performance.record) == "function" then
                 SC.Performance.record("zombie-attack", record.id, nowMs() - attackStarted)
             end
@@ -433,6 +464,8 @@ local function decisionTask(current, budgetRemaining)
 end
 runtime._decisionTaskForTests = decisionTask
 runtime._recordIsCriticalForTests = recordIsCritical
+runtime._observedZombieCandidatesForTests = observedZombieCandidates
+runtime._refreshPinnedContactsForTests = refreshPinnedContacts
 runtime._resetDecisionDispatchForTests = function()
     decisionCursor = 1
     criticalCursor = 1

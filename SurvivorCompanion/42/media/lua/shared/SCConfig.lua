@@ -793,6 +793,10 @@ local valueData = {
     zombieGrabMinDurationMs = 1500,
     zombieGrabGraceMs = 6000,
     zombieGrabPinRefreshMs = 1000,
+    -- CB-07: how long a pinned companion may be held on the strength of an
+    -- incomplete observation before an unconfirmed absence is allowed to free
+    -- them anyway. Uncertainty must never sustain a pin indefinitely.
+    zombieGrabEvidenceGraceMs = 2500,
     zombieGrabRecoverMs = 4000,
     zombieGrabDragIntervalMs = 900,
     zombieGrabBiteChance = 0.5,

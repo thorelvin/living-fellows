@@ -303,6 +303,98 @@ do
         "the lone ordinary actor still receives its reserved service every callback even while the critical lane consumes the frame budget (no ordinary starvation)")
 end
 
+-- CB-07. A pinned companion's decision pass is skipped, and with it the
+-- perception work that finds newly arriving attackers. Two things must hold:
+-- the bounded reflex refresh still runs while a pin is active, and the
+-- candidate slice carries enough information to tell "nobody is there" apart
+-- from "nothing was observed this pass".
+do
+    local observed = SC.Runtime._observedZombieCandidatesForTests
+    local refreshPinned = SC.Runtime._refreshPinnedContactsForTests
+    check(type(observed) == "function" and type(refreshPinned) == "function",
+        "CB-07 runtime seams are exposed")
+
+    local priorSenses = SC.Senses
+    local completeAnswer = true
+    local refreshed = {}
+    SC.Senses = {
+        isCompleteObservation = function() return completeAnswer end,
+        refreshImmediate = function(actor, player, snapshot)
+            refreshed[#refreshed + 1] = { actor = actor, player = player, snapshot = snapshot }
+            return snapshot
+        end,
+    }
+
+    local zombieA, zombieB = { id = "za" }, { id = "zb" }
+    local runtimeState = {
+        senses = { current = { time = 1000, threats = { { actor = zombieA }, zombieB } } },
+    }
+
+    local candidates, evidence = observed(runtimeState)
+    check(#candidates == 2 and candidates[1] == zombieA and candidates[2] == zombieB,
+        "candidate slice lost an observed attacker")
+    check(type(evidence) == "table" and evidence.observed == true
+            and evidence.complete == true,
+        "a complete observation was not reported as complete")
+
+    completeAnswer = false
+    local _, partial = observed(runtimeState)
+    check(partial.observed == true and partial.complete == false,
+        "a partial observation was reported as complete")
+
+    -- An absent snapshot is "not observed", which is different again from an
+    -- observed empty world; neither may be read as proof the attackers left.
+    local _, missing = observed({})
+    check(missing.observed == false and missing.complete == false,
+        "a missing snapshot was reported as an observation")
+
+    -- The pinned refresh must reach the real bounded reflex pass.
+    local pinnedActor, pinnedPlayer = { id = "pinned" }, { id = "player" }
+    refreshPinned({ actor = pinnedActor, runtime = runtimeState }, pinnedPlayer)
+    check(#refreshed == 1 and refreshed[1].actor == pinnedActor
+            and refreshed[1].player == pinnedPlayer
+            and refreshed[1].snapshot == runtimeState.senses.current,
+        "a pinned companion stopped discovering newly arriving attackers")
+
+    -- No snapshot yet: nothing to revalidate, and no crash.
+    refreshPinned({ actor = pinnedActor, runtime = {} }, pinnedPlayer)
+    check(#refreshed == 1, "the pinned refresh invented a scan with no snapshot to revalidate")
+
+    -- Proving the helper works is not the same as proving the pin branch calls
+    -- it. Drive the real service path: a grabbed actor skips Decision.update,
+    -- and that is exactly the pass that must still refresh contacts.
+    SC.Scheduler.reset(true)
+    services = {}
+    grabbed = {}
+    records = {}
+    refreshed = {}
+    local pinnedRecord = makeRecord(1, {
+        senses = { current = { time = 1000, threats = {} } },
+    })
+    grabbed[pinnedRecord.actor] = true
+    records[1] = pinnedRecord
+    decisionTask(900000, 1000000)
+    services = {}
+    decisionTask(900100, 1000000)
+    check(#refreshed >= 1 and refreshed[1].actor == pinnedRecord.actor,
+        "servicing a pinned companion did not run the bounded contact refresh")
+
+    -- An unpinned companion keeps its ordinary decision pass and must not gain
+    -- a second perception producer on top of it.
+    refreshed = {}
+    grabbed = {}
+    SC.Scheduler.reset(true)
+    records = { makeRecord(2, { senses = { current = { time = 1000, threats = {} } } }) }
+    decisionTask(910000, 1000000)
+    decisionTask(910100, 1000000)
+    check(#refreshed == 0,
+        "an unpinned companion gained a duplicate reflex pass beside its decision")
+    grabbed = {}
+    records = {}
+
+    SC.Senses = priorSenses
+end
+
 print("DECISION_SCHEDULER_PASS checks=" .. tostring(checks)
     .. " multi-actor=true critical-lane=true starvation-capped=true schedule-repair=pulsed"
     .. " hardened=true critical-fairness=rotating")
