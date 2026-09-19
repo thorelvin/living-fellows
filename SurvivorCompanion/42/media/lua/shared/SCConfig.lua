@@ -155,6 +155,10 @@ local valueData = {
     movementSoundDelta = 1.0,
     -- Manual player-track movement waits for the stock turn-in-place animation
     -- only on sharp heading changes. This is a dot product: 0.8 is about 37°.
+    -- A step shorter than this takes no turn-before-move. Closer than a
+    -- quarter tile the direction vector is mostly noise, so waiting for a turn
+    -- means turning for ever and never arriving.
+    movementTurnSkipDistance = 0.25,
     movementTurnBeforeMoveDot = 0.8,
     -- A validated open-ground follow vector may bend while the actor is already
     -- moving. Keep translation through ordinary 45/90-degree corrections and

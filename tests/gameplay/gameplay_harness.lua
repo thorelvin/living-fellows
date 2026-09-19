@@ -1654,9 +1654,25 @@ do
     trace.entry(nil, nil, 5000, "attack_started", true)
     for frame = 1, 10 do trace.pulse(5000 + frame * 16, 1, 0, 1) end
     trace.pulse(7500, 1, 0, 1)
-    check(#reported == 1 and string.find(reported[1], "entries=1", 1, true) ~= nil
+    check(#reported == 1 and string.find(reported[1], "entered=1", 1, true) ~= nil
             and string.find(reported[1], "RE-ENTRY STUTTER", 1, true) == nil,
         "a healthy sustained attack was reported as a stutter")
+
+    -- The 0.23.0 playtest flagged a perfectly healthy fight: 195 entry
+    -- REQUESTS in two seconds while the graph had actually entered an attack
+    -- five times. Requests climb with the service rate because an ongoing swing
+    -- answers "attack_active"; only real entries indicate a stutter.
+    reported = {}
+    trace.reset()
+    for index = 1, 195 do trace.entry(nil, nil, 20000, "attack_active", false) end
+    for index = 1, 5 do trace.entry(nil, nil, 20000, "attack_started", true) end
+    trace.pulse(20000, 700, 0, 2)
+    trace.pulse(22500, 4, 0, 2)
+    check(#reported == 1
+            and string.find(reported[1], "requests=200", 1, true) ~= nil
+            and string.find(reported[1], "entered=5", 1, true) ~= nil
+            and string.find(reported[1], "RE-ENTRY STUTTER", 1, true) == nil,
+        "a busy but healthy fight was flagged as a re-entry stutter")
 
     -- Many entries inside one window: this is the hiccup, and it must be named.
     reported = {}

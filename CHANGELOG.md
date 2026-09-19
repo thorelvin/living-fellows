@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.23.1 - Companions finish the last step
+
+- Fixed companions giving up on things they were walking to. A companion would stop a fraction of a tile short of where it was going, turn on the spot until the attempt timed out, and report that it could not reach a container it was standing next to. That is why scavenging failed while following looked fine: following has a generous arrival tolerance and a target that keeps moving, so the last fraction of a tile never mattered. Very close to a goal the direction to it is mostly rounding error, so the companion kept deciding to turn instead of taking the step. Steps shorter than a quarter tile are now taken directly.
+- The combat phase tracer no longer cries wolf. It was counting requests to attack rather than attacks actually started, and a request is answered "already attacking" for a perfectly healthy swing -- so a normal fight read as 97 stutters per second when the truth was five swings in two seconds. It now reports both and judges on the real one.
+- Keeping an attack alive no longer goes through the code that starts one. That separation existed underneath but the combat layer was still calling the starting path every pass and relying on it to decline.
+
 ## 0.23.0 - Combat audit complete, and companions with a character
 
 This release gathers the 0.22.36-0.22.41 work into one version. Two themes.

@@ -100,12 +100,15 @@ function Trace.pulse(current, sustained, dropped, livePairs)
     local elapsed = current - window.startedAt
     if elapsed < interval then return end
 
-    -- Entries per second is the number that matters. A sustained attack should
-    -- need one entry and then nothing: a rate above the threshold means the
-    -- graph is dropping the attack and being asked to restart it, which is the
-    -- stutter CB-01 describes.
+    -- The rate that matters is how often the attack graph is actually ENTERED,
+    -- not how often entry is asked for. The request path reports "attack_active"
+    -- for a healthy ongoing swing, so requests climb with the service rate and
+    -- say nothing about stuttering: the first version of this tracer flagged a
+    -- perfectly healthy fight at 97 requests/second while the graph had entered
+    -- an attack five times in two seconds, which is simply five swings.
     local seconds = elapsed / 1000
-    local entryRate = seconds > 0 and (window.entries / seconds) or 0
+    local requestRate = seconds > 0 and (window.entries / seconds) or 0
+    local entryRate = seconds > 0 and (window.started / seconds) or 0
     local threshold = tonumber(config("combatTraceReentryPerSecond", 3)) or 3
     if window.entries > 0 or window.sustained > 0 or window.dropped > 0 then
         local detail = ""
@@ -113,10 +116,10 @@ function Trace.pulse(current, sustained, dropped, livePairs)
             detail = detail .. " " .. reason .. "=" .. tostring(count)
         end
         report(string.format(
-            "window=%dms pairs=%d sustained=%d dropped=%d entries=%d started=%d"
-            .. " entries/s=%.1f%s%s",
+            "window=%dms pairs=%d sustained=%d dropped=%d requests=%d entered=%d"
+            .. " entered/s=%.1f requests/s=%.1f%s%s",
             elapsed, window.peakPairs, window.sustained, window.dropped,
-            window.entries, window.started, entryRate,
+            window.entries, window.started, entryRate, requestRate,
             detail,
             entryRate > threshold and "  <-- RE-ENTRY STUTTER" or ""))
     end

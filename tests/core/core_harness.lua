@@ -1129,10 +1129,27 @@ local continuousReverse, continuousReverseReason = SC.NativeActions._prepareForw
     actor, actor:getX(), actor:getY(), -1, 0, false, { continuousFollow = true })
 local urgentTurn = SC.NativeActions._prepareForwardTurnForTests(
     actor, actor:getX(), actor:getY(), -1, 0, false, { urgent = true })
+
+-- The 0.23.0 playtest stalled every scavenge approach a hair short of its goal
+-- square: 0.036 tiles away, the actor turned instead of stepping for 1500
+-- frames and the approach timed out. Within a fraction of a tile the direction
+-- vector is mostly noise, so the facing test fails on nearly every tick.
+local reversedShortStep = SC.NativeActions._prepareForwardTurnForTests(
+    actor, actor:getX(), actor:getY(), -1, 0, false, {}, 0.036)
+local reversedFullStep, reversedFullReason = SC.NativeActions._prepareForwardTurnForTests(
+    actor, actor:getX(), actor:getY(), -1, 0, false, {}, 1.5)
+actor.turning = true
+local turningShortStep = SC.NativeActions._prepareForwardTurnForTests(
+    actor, actor:getX(), actor:getY(), -1, 0, false, {}, 0.036)
+actor.turning = false
 actor.faceLocationF = originalFaceLocation
 -- The fixture does not advance the native animation graph between checks. The
 -- turn requested above is explicitly completed before later movement tests.
 actor.forwardX, actor.forwardY, actor.turning = oldForwardX, oldForwardY, false
+check(reversedShortStep == nil and turningShortStep == nil,
+    "a final fractional step waited for a turn and could never arrive")
+check(reversedFullStep == true and reversedFullReason == "turning_for_movement",
+    "an ordinary reversal no longer turns before moving")
 actor.moving, actor.running, actor.sprinting = oldMoving, oldRunning, oldSprinting
 check(requested == true and requestedReason == "turning_for_movement"
         and retained == true and retainedReason == "turning_for_movement"

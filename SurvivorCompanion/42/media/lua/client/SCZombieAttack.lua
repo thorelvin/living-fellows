@@ -242,10 +242,27 @@ end
 -- normal warning delay. This is deliberately not a movement or damage fallback;
 -- Project Zomboid still owns pathfinding, facing, attack state, animation events,
 -- collision, hit reaction, sound and the actual bite/grapple.
+-- CB-01 split maintaining an attack from requesting one. The bridge honours
+-- that split, but this path was still calling the entry method on every
+-- service pass and relying on it to bail out with "attack_active". That is the
+-- shape the audit asked to remove -- a visibility refresh must not be able to
+-- reach attack entry at all -- and it also made the tracer unreadable, because
+-- requests climbed with the service rate while nothing was actually
+-- re-entering. Maintain first; only ask for entry when there is no attack to
+-- maintain.
 local function requestNativeAttack(zombie, actor)
     local bridge = type(_G) == "table" and rawget(_G, "SCBridge") or nil
     if bridge == nil or not SC.Call or type(SC.Call.static) ~= "function" then
         return false, "bridge_unavailable"
+    end
+    local stateName = tostring(select(1, U().call(zombie, "getCurrentState")))
+    if stateName:find("AttackState") ~= nil then
+        local held, sustainResult = SC.Call.static(bridge, "sustainZombieAttack", zombie, actor)
+        if held and tostring(sustainResult) == "sustained" then
+            return true, "attack_active", false
+        end
+        -- The pair stopped being eligible mid-swing; fall through so the entry
+        -- path can report exactly why rather than silently claiming an attack.
     end
     local ok, result = SC.Call.static(bridge, "startZombieAttack", zombie, actor)
     if not ok then return false, "bridge_call_failed", false end

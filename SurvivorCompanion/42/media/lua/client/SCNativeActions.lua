@@ -648,9 +648,21 @@ end
 -- makes the feet continue along the old facing for a frame or two. Let the
 -- stock player turn animation own sharp changes first; straight and shallow
 -- bends still start in the same pulse.
-local function prepareForwardTurn(actor, actorX, actorY, nx, ny, tactical, intent)
+local function prepareForwardTurn(actor, actorX, actorY, nx, ny, tactical, intent,
+        remaining)
     if tactical or type(intent) == "table" and (intent.allowMovingTurn == true
         or intent.urgent == true or intent.survivalCritical == true) then return nil end
+    -- A final fractional step must never wait for a turn. Within a fraction of
+    -- a tile the direction vector is dominated by numerical noise, so the
+    -- facing test below fails on almost every tick and the actor turns instead
+    -- of stepping. That is the Bob_IdleTurn90L loop seen in the 0.23.0
+    -- playtest: a companion stalled 0.036 tiles short of its goal square for
+    -- 1500 frames until the scavenge approach timed out, while following --
+    -- which has a generous arrival tolerance and a moving goal -- looked fine.
+    -- Facing is still applied by the caller immediately after this returns; all
+    -- that is skipped is waiting for the turn animation to finish.
+    local skipDistance = tonumber(SC.Config.get("movementTurnSkipDistance")) or 0.25
+    if finite(remaining) and remaining <= skipDistance then return nil end
     -- A follower keeps walking through a turn already underway; only a change
     -- sharper than the continuous threshold below stops it. Stopping for every
     -- native turn made followers run, stop and run again.
@@ -825,7 +837,7 @@ local function directMove(actor, mode, dx, dy, intent)
     local behaviorOk, behavior = invoke(actor, "getPathFindBehavior2")
     if behaviorOk and behavior ~= nil then invoke(behavior, "cancel") end
     local waitingForTurn, turnReason = prepareForwardTurn(
-        actor, x, y, nx, ny, tactical, intent)
+        actor, x, y, nx, ny, tactical, intent, length)
     if waitingForTurn ~= nil then return waitingForTurn, turnReason end
     invoke(actor, "setForwardDirection", facingX, facingY)
     invoke(actor, "setRunning", mode == "run" and not tactical and intent.weaponReady ~= true)
