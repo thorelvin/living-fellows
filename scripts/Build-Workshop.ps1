@@ -4,7 +4,11 @@
 param(
     [string]$ProjectRoot = '',
     [ValidateSet('playtest', 'public-beta', 'release')]
-    [string]$Channel = 'playtest'
+    [string]$Channel = 'playtest',
+    # build\native-bridge is a shared directory that every caller wipes and
+    # rebuilds. Test-Project builds it once up front and passes this, so the
+    # stages can run side by side without destroying each other's classes.
+    [switch]$SkipNativeBridge
 )
 
 $ErrorActionPreference = 'Stop'
@@ -52,8 +56,10 @@ function RelativeHashes([string]$Root) {
     return $result
 }
 
-& (Join-Path $ProjectRoot 'scripts\Build-NativeBridge.ps1') `
-    -ProjectRoot $ProjectRoot -InstallIntoPayload | Out-Null
+if (-not $SkipNativeBridge) {
+    & (Join-Path $ProjectRoot 'scripts\Build-NativeBridge.ps1') `
+        -ProjectRoot $ProjectRoot -InstallIntoPayload | Out-Null
+}
 if (-not (Test-Path -LiteralPath $Payload -PathType Container)) { throw "Payload not found: $Payload" }
 $configText = Get-Content -LiteralPath $Config -Raw -Encoding utf8
 if ($configText -notmatch '(?m)^\s*experimentalNpcPlayerActor\s*=\s*false,\s*$') {

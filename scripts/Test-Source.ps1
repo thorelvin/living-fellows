@@ -1,7 +1,14 @@
 # SPDX-License-Identifier: MIT
 
 [CmdletBinding()]
-param()
+param(
+    # build\native-bridge is a shared directory that every caller wipes and
+    # rebuilds. Test-Project builds it once up front and passes this, so the
+    # stages can run side by side without destroying each other's classes.
+    # The committed-payload comparison below is unaffected: it still measures a
+    # freshly built JAR against the one checked in.
+    [switch]$SkipNativeBridge
+)
 
 $ErrorActionPreference = 'Stop'
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
@@ -33,9 +40,14 @@ if ($parseErrors.Count -gt 0) {
     throw "PowerShell syntax failures:`n$($parseErrors -join "`n")"
 }
 
-& (Join-Path $ProjectRoot 'scripts\Build-NativeBridge.ps1') `
-    -ProjectRoot $ProjectRoot | Out-Null
+if (-not $SkipNativeBridge) {
+    & (Join-Path $ProjectRoot 'scripts\Build-NativeBridge.ps1') `
+        -ProjectRoot $ProjectRoot | Out-Null
+}
 $builtBridge = Join-Path $ProjectRoot 'build\native-bridge\SurvivorCompanionBridge.jar'
+if (-not (Test-Path -LiteralPath $builtBridge -PathType Leaf)) {
+    throw 'The reproducible native bridge build is missing; build it before skipping it.'
+}
 $payloadBridge = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\java\SurvivorCompanionBridge.jar'
 if (-not (Test-Path -LiteralPath $payloadBridge -PathType Leaf)) {
     throw 'Committed native bridge payload is missing.'

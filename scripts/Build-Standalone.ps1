@@ -3,7 +3,11 @@
 [CmdletBinding()]
 param(
     [string]$ProjectRoot = '',
-    [string]$OutputRoot = ''
+    [string]$OutputRoot = '',
+    # build\native-bridge is a shared directory that every caller wipes and
+    # rebuilds. Test-Project builds it once up front and passes this, so the
+    # stages can run side by side without destroying each other's classes.
+    [switch]$SkipNativeBridge
 )
 
 $ErrorActionPreference = 'Stop'
@@ -37,8 +41,10 @@ foreach ($path in @($stageRoot, $validationRoot)) {
 }
 
 New-Item -ItemType Directory -Path $stageRoot, $OutputRoot -Force | Out-Null
-& (Join-Path $ProjectRoot 'scripts\Build-NativeBridge.ps1') `
-    -ProjectRoot $ProjectRoot -InstallIntoPayload | Out-Null
+if (-not $SkipNativeBridge) {
+    & (Join-Path $ProjectRoot 'scripts\Build-NativeBridge.ps1') `
+        -ProjectRoot $ProjectRoot -InstallIntoPayload | Out-Null
+}
 & (Join-Path $ProjectRoot 'scripts\New-StandalonePayload.ps1') `
     -ProjectRoot $ProjectRoot -OutputRoot $stageRoot | Out-Null
 
