@@ -350,6 +350,88 @@ local function findStraightNativePathTarget(actor)
     return nil
 end
 
+-- Build 42 owns every locomotion speed through the animation: standing on a
+-- hedge raises the read-only "intrees" variable (bound straight to
+-- IsoGameCharacter.isInTreesNoBush), the movement state machine swaps in
+-- Bob_WalkTrees, and PathFindBehavior2.moveToPoint sizes its step from that
+-- clip's root motion. A direct companion step carries a fixed distance from Lua
+-- instead, so a companion crossed a hedge the player has to push through
+-- without losing a step. Find real foliage in the loaded world and make the
+-- engine answer for itself.
+local function findLiveFoliageSquare(actor)
+    local utility = SurvivorCompanion.GameplayUtil
+    local ax, ay, az = position(actor)
+    if ax == nil or type(getCell) ~= "function" then return nil end
+    local cell = getCell()
+    local hedges = { hedgelow = true, hedgehigh = true }
+    for radius = 1, 14 do
+        for dx = -radius, radius do
+            for dy = -radius, radius do
+                if math.max(math.abs(dx), math.abs(dy)) == radius then
+                    local square = cell:getGridSquare(
+                        math.floor(ax + dx), math.floor(ay + dy), math.floor(az or 0))
+                    if square ~= nil and utility.isSquareFree(square) then
+                        local properties = select(1, utility.call(square, "getProperties"))
+                        if properties ~= nil then
+                            local movement = select(1,
+                                utility.call(properties, "get", "Movement"))
+                            if type(movement) == "string"
+                                and hedges[string.lower(movement)] == true then
+                                return square, movement
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function probeFoliageParity()
+    local SC = SurvivorCompanion
+    local utility = SC.GameplayUtil
+    local actor = Harness.actor
+    local openFactor = select(1, utility.call(actor, "getCompanionTerrainSpeedFactor"))
+    local openFoliage = select(1, utility.call(actor, "isInTreesNoBush"))
+    -- The probe has to be live before anything is read from it, and open ground
+    -- must never be slowed.
+    if not check("native_foliage_probe_available",
+        tonumber(openFactor) ~= nil
+            and (openFoliage == true or tonumber(openFactor) == 1),
+        "factor=" .. tostring(openFactor) .. " in_foliage=" .. tostring(openFoliage)) then
+        skip("native_foliage_slows_direct_step", "terrain speed probe unavailable")
+        return
+    end
+    local square, movement = findLiveFoliageSquare(actor)
+    if square == nil then
+        skip("native_foliage_slows_direct_step",
+            "no loaded hedge square within reach of the companion")
+        return
+    end
+    local ax, ay, az = position(actor)
+    local returnPoint = { x = ax, y = ay, z = az or 0 }
+    local sx, sy, sz = position(square)
+    local placed, placeReason = Harness.placeCombatActor(actor,
+        { x = sx + 0.5, y = sy + 0.5, z = sz or 0 })
+    if not placed then
+        skip("native_foliage_slows_direct_step", "hedge placement rejected: " .. clean(placeReason))
+        return
+    end
+    local inFoliage = select(1, utility.call(actor, "isInTreesNoBush"))
+    -- select() hands back a Java Float; tonumber would read the trailing
+    -- ok-flag as its base. Isolate the value first.
+    local factorValue = select(1, utility.call(actor, "getCompanionTerrainSpeedFactor"))
+    local factor = tonumber(factorValue)
+    local detected = SC.Navigation._squareHasBushForTests(square) == true
+    check("native_foliage_slows_direct_step",
+        inFoliage == true and factor ~= nil and factor > 0 and factor < 1 and detected,
+        "movement=" .. clean(movement) .. " engine_in_foliage=" .. tostring(inFoliage)
+            .. " factor=" .. tostring(factor)
+            .. " navigation_detects=" .. tostring(detected))
+    Harness.placeCombatActor(actor, returnPoint)
+end
+
 local function finishNativeLocomotionProbe(current, timedOut)
     local SC = SurvivorCompanion
     local actor = Harness.actor
@@ -394,6 +476,7 @@ local function finishNativeLocomotionProbe(current, timedOut)
             .. " bPathfind=" .. tostring(Harness.nativePathLastPathfind))
     pcall(SC.Actor.stop, actor)
     SC.Navigation.reset(actor)
+    probeFoliageParity()
     endHarnessControl(Harness.nativePathControl, "native_locomotion_probe_complete")
     Harness.nativePathControl = nil
     setPhase("begin_backward_strafe", current)

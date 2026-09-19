@@ -922,6 +922,37 @@ public final class SCIsoCompanionControlTest {
                     "a PlaySwingSound event never reached the companion's own sound path");
         }
 
+        // Foliage parity. A direct step carries a fixed distance from Lua, so
+        // without this factor a companion crossed a hedge at full walking speed
+        // while the player has to push through it.
+        require(SCNativeCompanion.foliageSpeedFactor(false, false, 1.0f,
+                        SCNativeCompanion.FOLIAGE_SLOW_FACTOR) == 1.0f,
+                "open ground was slowed as if it were foliage");
+        require(SCNativeCompanion.foliageSpeedFactor(true, false, 1.0f,
+                        SCNativeCompanion.FOLIAGE_SLOW_FACTOR)
+                        == SCNativeCompanion.FOLIAGE_SLOW_FACTOR,
+                "a hedge square did not slow a direct companion step");
+        require(SCNativeCompanion.foliageSpeedFactor(true, true, 0.8f,
+                        SCNativeCompanion.FOLIAGE_SLOW_FACTOR) == 0.8f,
+                "a sapling ignored the engine's own IsoTree slow factor");
+        require(SCNativeCompanion.foliageSpeedFactor(true, true, 1.5f,
+                        SCNativeCompanion.FOLIAGE_SLOW_FACTOR) == 1.0f,
+                "a profession bonus let foliage make a companion faster than open ground");
+        require(SCNativeCompanion.foliageSpeedFactor(true, true, 0.0f,
+                        SCNativeCompanion.FOLIAGE_SLOW_FACTOR)
+                        == SCNativeCompanion.FOLIAGE_SLOW_FACTOR,
+                "an unusable tree factor was taken literally instead of falling back");
+        require(SCNativeCompanion.foliageSpeedFactor(true, false, 1.0f, Float.NaN) == 1.0f
+                        && SCNativeCompanion.foliageSpeedFactor(true, false, 1.0f, 0.0f) == 1.0f,
+                "a broken foliage factor could stop a companion dead in a hedge");
+        require(((SCNativeCompanion) actor).getCompanionTerrainSpeedFactor() == 1.0f,
+                "a companion on no known square was slowed for foliage it cannot be in");
+        // The factor has to shorten the step, not merely be available.
+        require(SCNativeCompanion.boundedMovementDistance(
+                        0.045f * SCNativeCompanion.FOLIAGE_SLOW_FACTOR, 1.0f, 4.0f, 0.06f)
+                        < SCNativeCompanion.boundedMovementDistance(0.045f, 1.0f, 4.0f, 0.06f),
+                "a foliage-scaled walk step was no shorter than an open-ground step");
+
         require(SCNativeCompanion.doorIsSoleObstruction(false, true),
                 "a step clear of everything but a door was not held");
         require(!SCNativeCompanion.doorIsSoleObstruction(true, true),

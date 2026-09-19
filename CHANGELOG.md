@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.24.1 - Companions feel a hedge
+
+- Fixed companions walking through hedges at full speed. Build 42 slows a character in foliage entirely through the animation: standing on a hedge swaps the walk to a slower push-through clip, and the game sizes each step from that clip's own movement. Companions take most of their steps from a fixed distance decided by the mod instead, so nothing between the decision and the body ever consulted the animation -- a companion crossed a hedge the player has to slow-walk through without losing a step.
+- Companions are now slowed in foliage the way the player is. A tree square uses the game's own slow factor, including its Park Ranger and Lumberjack bonuses; a hedge, which has no tree to ask, uses the same value the game applies to a full-grown tree.
+- Fixed companions not recognising hedges when choosing a route. A hedge declares itself through a property on the square, not through a cuttable object, so the existing vegetation penalty never saw one. Companions now detour around hedges as they already did around bushes and trees.
+
 ## 0.24.0 - Companions can aim
 
 - Fixed companions never steadying their aim. The game lowers a character's aim delay while they hold a weapon on a target, and subtracts what is left of it from the chance of a critical hit. That step lives in the player's own update, which a companion deliberately does not run -- so every companion shot was fired as though snapped off the instant the gun came up. They hit, eventually, but almost never well: bullets flew, zombies took several rounds, and headshots essentially never happened.

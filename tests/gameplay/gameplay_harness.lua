@@ -433,6 +433,8 @@ local function makeSquare(x, y, z)
     function value:getWindow(north) return nil end
     function value:getRoom() return self.room end
     function value:HasTree() return self.hasTree == true end
+    function value:hasBush() return self.engineBush == true end
+    function value:getProperties() return self.properties end
     squares[squareKey(x, y, z or 0)] = value
     return value
 end
@@ -2642,6 +2644,52 @@ SurvivorCompanion.Navigation.reset(bushEscapeActor)
 registry[bushEscapeActor.id] = nil
 for _, wallSquare in ipairs(corridorWalls) do wallSquare.solid = false end
 for bushSquare in pairs(bushes) do bushSquare.objects = {} end
+end
+
+do
+-- A Build 42 hedge carries no cuttable object at all: the f_bushes_2_* tiles
+-- declare themselves with Movement=HedgeLow / HedgeHigh on the square, which is
+-- the same property IsoGameCharacter.isInTrees2 reads. Scanning objects for
+-- canBeCut never saw one, so companions walked a hedge line the player has to
+-- push through as if it were open lawn.
+local hedgeSource = cell:getGridSquare(0, 6, 0)
+local hedgeGoal = cell:getGridSquare(6, 6, 0)
+local hedges = {}
+for hedgeX = 1, 5 do
+    hedges[#hedges + 1] = cell:getGridSquare(hedgeX, 6, 0)
+end
+
+local function hedgeRouteCrosses()
+    local hedgePath = SurvivorCompanion.Navigation.findPath(hedgeSource, hedgeGoal)
+    if hedgePath == nil then return nil end
+    for _, pathSquare in ipairs(hedgePath) do
+        for _, hedgeSquare in ipairs(hedges) do
+            if pathSquare == hedgeSquare then return true end
+        end
+    end
+    return false
+end
+
+-- Control: these squares are ordinary until the property is on them. If the
+-- straight line were already avoided the assertion below would prove nothing.
+local hedgeBaseline = hedgeRouteCrosses()
+for _, hedgeSquare in ipairs(hedges) do
+    local properties = {}
+    function properties:get(key) return key == "Movement" and "HedgeHigh" or nil end
+    hedgeSquare.properties = properties
+end
+local hedgeAvoided = hedgeRouteCrosses()
+check(hedgeBaseline == true and hedgeAvoided == false,
+    "a hedge declared only by its Movement property is detoured around like any other vegetation")
+
+for _, hedgeSquare in ipairs(hedges) do hedgeSquare.properties = nil end
+-- The engine's own predicate has to count too: a bush object that answers
+-- IsoGridSquare:hasBush() carries no canBeCut sprite flag of its own.
+for _, hedgeSquare in ipairs(hedges) do hedgeSquare.engineBush = true end
+local engineBushAvoided = hedgeRouteCrosses()
+check(engineBushAvoided == false,
+    "vegetation reported by the engine's own hasBush predicate is detoured around")
+for _, hedgeSquare in ipairs(hedges) do hedgeSquare.engineBush = nil end
 end
 
 do

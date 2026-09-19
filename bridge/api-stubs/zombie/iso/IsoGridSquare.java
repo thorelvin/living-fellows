@@ -29,6 +29,7 @@ public class IsoGridSquare {
     public boolean testPathFindAdjacent(IsoMovingObject actor, int dx, int dy, int dz) { return false; }
     public boolean HasStairs() { return false; }
     public boolean HasTree() { return false; }
+    public boolean hasBush() { return false; }
     public IsoTree getTree() { return null; }
     public boolean hasWater() { return false; }
     public boolean haveFire() { return false; }

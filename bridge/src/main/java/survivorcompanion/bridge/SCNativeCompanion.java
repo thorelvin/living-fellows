@@ -84,6 +84,14 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile float bridgeMoveTargetZ;
     private volatile float bridgeMoveArrivalTolerance;
     private static final long MANUAL_INPUT_LIFETIME_NANOS = 250_000_000L;
+    /**
+     * Speed a companion keeps while pushing through a hedge or tall bush.
+     *
+     * <p>A hedge square carries no IsoTree to ask, so this stands in for
+     * {@code IsoTree.getSlowFactor}. It is the engine's own strongest foliage
+     * slow -- the value that method returns for a full-grown tree.
+     */
+    static final float FOLIAGE_SLOW_FACTOR = 0.5f;
     private volatile boolean bridgeTacticalMovement;
     private volatile float bridgeStrafeX;
     private volatile float bridgeStrafeY;
@@ -1866,6 +1874,12 @@ public final class SCNativeCompanion extends IsoPlayer {
         float multiplier = GameTime.getInstance().getMultiplier();
         if (!Float.isFinite(multiplier) || multiplier <= 0.0f) return;
         float distance = bridgeMoveDistance;
+        // Before the arrival clamp, so a short final step into a hedge is
+        // shortened by the same factor instead of overshooting the target.
+        float terrain = getCompanionTerrainSpeedFactor();
+        if (Float.isFinite(terrain) && terrain > 0.0f && terrain < 1.0f) {
+            distance *= terrain;
+        }
         if (bridgeMoveHasTarget) {
             if (Math.floor(getZ()) != Math.floor(bridgeMoveTargetZ)) {
                 setMoving(false);
@@ -1894,6 +1908,73 @@ public final class SCNativeCompanion extends IsoPlayer {
         // MoveForward/action variables may rotate a non-local player during the
         // same update. Leave the render-facing direction authoritative too.
         applyBridgeMovementFacing();
+    }
+
+    /**
+     * Speed multiplier for the foliage the companion is standing in.
+     *
+     * <p>Build 42 never scales a movement <em>distance</em> for foliage, because
+     * every locomotion speed it has is animation-owned. On a hedge square
+     * {@code IsoGameCharacter.isInTreesNoBush()} raises the read-only "intrees"
+     * animation variable (a callback bound straight to that method, with no
+     * local-player gate), {@code AnimSets/player/movement/inTrees.xml} swaps the
+     * clip to {@code Bob_WalkTrees}, and
+     * {@code PathFindBehavior2.moveToPoint} sizes each step from
+     * {@code getDeferredMovement()} -- the clip's own root motion. The slower
+     * clip <em>is</em> the slowdown, and a companion on an engine path already
+     * gets it for free.
+     *
+     * <p>A direct companion step does not: {@link #MoveForward} carries a fixed
+     * per-frame distance decided in Lua, and nothing between there and the
+     * physics body consults the animation. So a companion walked through a
+     * hedge the player has to push through without losing a step. This restores
+     * the parity for direct steps only -- {@link #applyBridgeMovement} is the
+     * one caller, it stands down while a native state owns the body, and the
+     * root-motion accumulator is discarded rather than applied, so nothing is
+     * slowed twice.
+     *
+     * <p>A tree square reuses the engine's own number rather than inventing
+     * one: {@code IsoTree.getSlowFactor} is 0.8 for a sapling and 0.5 for a
+     * full tree, and already folds in the Park Ranger and Lumberjack bonuses.
+     *
+     * @param inFoliage      the engine's {@code isInTreesNoBush()} verdict
+     * @param hasTree        whether that square carries an IsoTree to ask
+     * @param treeSlowFactor what {@code IsoTree.getSlowFactor} answered
+     * @param hedgeFactor    the stand-in for a hedge or tall bush
+     */
+    static float foliageSpeedFactor(boolean inFoliage, boolean hasTree,
+            float treeSlowFactor, float hedgeFactor) {
+        if (!inFoliage) return 1.0f;
+        float factor = hedgeFactor;
+        if (hasTree && Float.isFinite(treeSlowFactor) && treeSlowFactor > 0.0f) {
+            factor = treeSlowFactor;
+        }
+        // A non-finite or non-positive factor would stop the companion dead in a
+        // hedge with no way out. Foliage may never speed a companion up either.
+        if (!Float.isFinite(factor) || factor <= 0.0f) return 1.0f;
+        return Math.min(1.0f, factor);
+    }
+
+    /**
+     * Read {@link #foliageSpeedFactor} from the square the companion occupies.
+     * Returns 1.0 for anything it cannot establish: foliage must never be the
+     * reason a companion cannot move.
+     */
+    public float getCompanionTerrainSpeedFactor() {
+        try {
+            if (!isInTreesNoBush()) return 1.0f;
+            zombie.iso.IsoGridSquare square = getCurrentSquare();
+            boolean hasTree = square != null && square.HasTree();
+            float treeFactor = 1.0f;
+            if (hasTree) {
+                zombie.iso.objects.IsoTree tree = square.getTree();
+                if (tree == null) hasTree = false;
+                else treeFactor = tree.getSlowFactor(this);
+            }
+            return foliageSpeedFactor(true, hasTree, treeFactor, FOLIAGE_SLOW_FACTOR);
+        } catch (RuntimeException | LinkageError failure) {
+            return 1.0f;
+        }
     }
 
     static float boundedMovementDistance(float requested, float multiplier,

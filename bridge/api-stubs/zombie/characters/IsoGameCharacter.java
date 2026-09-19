@@ -59,6 +59,8 @@ public class IsoGameCharacter extends IsoMovingObject {
     public void triggerContextualAction(String action, Object first, Object second,
             Object third, Object fourth) {}
     public IsoGridSquare getCurrentSquare() { return null; }
+    public boolean isInTrees() { return false; }
+    public boolean isInTreesNoBush() { return false; }
     public BaseCharacterSoundEmitter getEmitter() { return null; }
     public Moodles getMoodles() { return null; }
     public BaseVisual getVisual() { return null; }

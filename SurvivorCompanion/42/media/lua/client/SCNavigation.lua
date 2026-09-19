@@ -775,9 +775,32 @@ local function resolveFollowGoal(sourceSquare, requestedSquare, intent)
     return best, best ~= nil
 end
 
+-- Build 42 tags a hedge on the square itself: the f_bushes_2_* tiles carry
+-- Movement=HedgeLow or HedgeHigh, and that property is what
+-- IsoGameCharacter.isInTrees2 reads to decide a character is pushing through
+-- foliage. Scanning objects for canBeCut misses every one of them, which is why
+-- a companion crossed a hedge the player has to slow-walk through as if it were
+-- open lawn.
+local hedgeMovement = { hedgelow = true, hedgehigh = true }
+
+local function squareIsHedge(square)
+    local utility = U()
+    local properties, propertiesOk = utility.call(square, "getProperties")
+    if not propertiesOk or properties == nil then return false end
+    local movement, movementOk = utility.call(properties, "get", "Movement")
+    if not movementOk or type(movement) ~= "string" then return false end
+    return hedgeMovement[string.lower(movement)] == true
+end
+
 local function squareHasBush(square)
     if not square then return false end
     local utility = U()
+    -- Ask the engine first: IsoGridSquare:hasBush() is the same predicate
+    -- IsoGameCharacter uses, and both answers are one call instead of a
+    -- bounded object sweep.
+    local engineBush, engineBushOk = utility.call(square, "hasBush")
+    if engineBushOk and engineBush == true then return true end
+    if squareIsHedge(square) then return true end
     local foundBush = false
     utility.squareObjects(square, function(object)
         local sprite, spriteOk = utility.call(object, "getSprite")
@@ -790,6 +813,9 @@ local function squareHasBush(square)
     end, 32)
     return foundBush
 end
+
+Navigation._squareHasBushForTests = squareHasBush
+Navigation._squareIsHedgeForTests = squareIsHedge
 
 local function squareVegetationCost(square)
     if not square then return 0, false end
