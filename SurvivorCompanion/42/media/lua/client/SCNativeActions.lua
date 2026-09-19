@@ -2318,6 +2318,34 @@ function actions.pollCombatEvents(actor)
     if type(record) ~= "table" then return false, "no_pending_combat" end
     local serialOk, serialValue = invoke(actor, "getCompanionAttackCollisionSerial")
     local serial = serialOk and tonumber(serialValue) or nil
+
+    -- CB-09. A terminal receipt is published whether the native collision
+    -- completed or threw, so a failure is now reportable instead of surfacing
+    -- as a timeout that invites a retry. A throw that arrived after the call
+    -- began may have left a partially applied hit; that is reported as such and
+    -- never replayed.
+    local receiptCountOk, receiptCountValue = invoke(actor, "getCompanionAttackReceiptSerial")
+    local receiptSerial = receiptCountOk and tonumber(receiptCountValue) or nil
+    local outcomeOk, outcomeValue = invoke(actor, "getCompanionAttackReceiptOutcome")
+    local receiptOutcome = tostring((outcomeOk and outcomeValue) or "none")
+    local receiptsSince = (receiptSerial ~= nil and record.receiptSerial ~= nil)
+        and (receiptSerial - record.receiptSerial) or 0
+    if receiptsSince > 0 and receiptOutcome ~= "completed"
+        and receiptOutcome ~= "none" then
+        pendingCombat[actor] = nil
+        invoke(actor, "setCompanionFloorTarget", nil)
+        local causeOk, causeValue = invoke(actor, "getCompanionAttackReceiptCause")
+        local cause = tostring((causeOk and causeValue) or "")
+        return false, tostring(record.action) .. "_collision_" .. receiptOutcome, {
+            result = receiptOutcome,
+            action = record.action, target = record.target, weapon = record.weapon,
+            serial = serial, receiptSerial = receiptSerial, cause = cause,
+            maybePartial = receiptOutcome == "failed_maybe_partial",
+            floorAttack = record.floorAttack == true, source = "native",
+            start = { x = record.actorX, y = record.actorY, z = record.actorZ },
+        }
+    end
+
     if serial ~= nil and serial ~= record.collisionSerial then
         pendingCombat[actor] = nil
         local hitOk, hitTarget = invoke(actor, "didCompanionAttackCollisionHitTarget")
@@ -2333,15 +2361,27 @@ function actions.pollCombatEvents(actor)
         local displacement = targetX and record.targetX
             and math.sqrt((targetX - record.targetX) ^ 2 + (targetY - record.targetY) ^ 2) or 0
         if record.action == "shove" and not nativeLanded then
-            -- A valid defensive shove intentionally ignores health damage. Its
-            -- observable native result is displacement or a newly grounded target.
-            nativeLanded = (grounded and record.groundedBefore ~= true)
-                or displacement >= 0.2
+            -- CB-11. A defensive shove deliberately does no health damage, so
+            -- its result cannot be read from the victim's health. It used to be
+            -- inferred from the target being newly grounded or having moved
+            -- 0.2 tiles -- which another actor's hit, or the target simply
+            -- walking, supplies just as well. Attribute it at the native
+            -- collision boundary instead: the collision must have run against
+            -- the exact target this request named, and must have included at
+            -- least one character in its hit list. Displacement stays in the
+            -- result as description, never as evidence of ownership.
+            nativeLanded = exactTarget and (tonumber(hitCount) or 0) > 0
         end
         if dead == true then invoke(actor, "setCompanionFloorTarget", nil) end
+        -- "Completed with no effect" is a real outcome and stays distinct from
+        -- a failure. Several completed events between two polls cannot be told
+        -- apart from one, so say so rather than silently collapsing them.
         local result = nativeLanded and "landed" or "no_effect"
         return true, tostring(record.action) .. "_collision_" .. result, {
             result = result,
+            receiptSerial = receiptSerial,
+            overflow = receiptsSince > 1,
+            eventsSincePoll = receiptsSince,
             action = record.action,
             target = record.target,
             weapon = record.weapon,
@@ -2508,10 +2548,22 @@ local function attack(actor, action, intent, provider)
         end
     end
 
-    local collisionSerial
-    if action == "stomp" or action == "shove" or action == "attack_melee" then
+    -- CB-11. A pending record used to carry only the completed-hit serial, so
+    -- it could not say which request a later result belonged to, nor notice
+    -- that several results had arrived since. Capture the attempt and receipt
+    -- sequences too; both are published by the bridge on every claimed impact,
+    -- including ones that then failed. Firearms are included: their damage
+    -- implementation is unchanged, but they no longer sit outside the receipt
+    -- contract.
+    local collisionSerial, attemptSerial, receiptSerial
+    if action == "stomp" or action == "shove" or action == "attack_melee"
+        or action == "attack_firearm" then
         local serialOk, serialValue = invoke(actor, "getCompanionAttackCollisionSerial")
         collisionSerial = serialOk and tonumber(serialValue) or nil
+        local attemptOk, attemptValue = invoke(actor, "getCompanionAttackAttemptSerial")
+        attemptSerial = attemptOk and tonumber(attemptValue) or nil
+        local receiptOk, receiptValue = invoke(actor, "getCompanionAttackReceiptSerial")
+        receiptSerial = receiptOk and tonumber(receiptValue) or nil
         if action == "stomp" and collisionSerial == nil then
             return false, "native attack collision serial is unavailable"
         end
@@ -2701,6 +2753,8 @@ local function attack(actor, action, intent, provider)
             target = intent.target,
             weapon = intent.weapon,
             collisionSerial = collisionSerial,
+            attemptSerial = attemptSerial,
+            receiptSerial = receiptSerial,
             startedAt = nowMs(),
             healthBefore = hpOk and tonumber(targetHealth) or nil,
             targetX = targetX,

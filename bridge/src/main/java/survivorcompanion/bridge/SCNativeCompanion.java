@@ -109,6 +109,17 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile int bridgeAttackCollisionHitCount;
     private volatile zombie.iso.IsoMovingObject bridgeAttackCollisionTarget;
     private volatile boolean bridgeAttackCollisionTargetHit;
+    // CB-09. The completed-hit serial above advances only when the native
+    // collision returns normally. A reflective throw used to leave no trace at
+    // all, so Lua saw a timeout even though the call may already have damaged
+    // one target before failing -- and a timeout invites a retry. These three
+    // are a terminal-receipt channel that is published on BOTH paths, and they
+    // are deliberately separate counters so no existing consumer can read a
+    // failure as a hit.
+    private volatile int bridgeAttackAttemptSerial;
+    private volatile int bridgeAttackReceiptSerial;
+    private volatile String bridgeAttackReceiptOutcome = "none";
+    private volatile String bridgeAttackReceiptCause = "";
     private boolean bridgeFloorInputArmed;
     private boolean bridgeFloorInputStomp;
     private boolean bridgeFloorInputObservedSwing;
@@ -778,6 +789,9 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     private boolean driveCompanionAttackCollision(String attackTypeName) {
+        // Tracks whether the native collision call itself had begun when a
+        // throw arrived: only then can a hit have been partially applied.
+        boolean inFlight = false;
         if (bridgeDisabled || getVehicle() != null || isDead()) return false;
         if (COMBAT_MANAGER_INSTANCE == null || ATTACK_COLLISION_CHECK == null
                 || SWIPE_STATE_INSTANCE == null || GET_USE_HAND_WEAPON == null
@@ -839,7 +853,10 @@ public final class SCNativeCompanion extends IsoPlayer {
             // Claim before calling: a thrown native check may already have hit
             // one target, and must not be replayed by a second animation layer.
             set(SwipeStatePlayer.ATTACKED, true);
+            bridgeAttackAttemptSerial++;
+            inFlight = true;
             ATTACK_COLLISION_CHECK.invoke(combatManager, this, weapon, swipeState, attackType);
+            inFlight = false;
             int hitCount = getLastHitCount();
             boolean targetHit = hitCount > 0 && collisionTarget != null
                     && collisionTargetAffected(targetHealthBefore, collisionTarget.getHealth(),
@@ -847,11 +864,53 @@ public final class SCNativeCompanion extends IsoPlayer {
             bridgeAttackCollisionTarget = collisionTarget;
             bridgeAttackCollisionHitCount = hitCount;
             bridgeAttackCollisionTargetHit = targetHit;
+            publishAttackReceipt("completed", "");
             return true;
-        } catch (ReflectiveOperationException | RuntimeException | LinkageError ignored) {
-            // Fail closed: no swing damage rather than an update-breaking throw.
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            // Fail closed on damage -- never replay the call to obtain a clean
+            // receipt -- but never fail silent either. A throw after the
+            // collision call began may have left a partially applied hit, and
+            // that is exactly the case the caller must not retry.
+            publishAttackReceipt(inFlight ? "failed_maybe_partial" : "failed_before_impact",
+                    failure.getClass().getSimpleName() + cleanMessage(failure.getMessage()));
             return false;
         }
+    }
+
+    /** Terminal receipt for one claimed collision attempt, success or failure. */
+    private void publishAttackReceipt(String outcome, String cause) {
+        bridgeAttackReceiptOutcome = outcome == null ? "unknown" : outcome;
+        bridgeAttackReceiptCause = cause == null ? "" : truncate(cause, 120);
+        bridgeAttackReceiptSerial++;
+    }
+
+    private static String truncate(String value, int limit) {
+        if (value == null) return "";
+        return value.length() <= limit ? value : value.substring(0, limit);
+    }
+
+    /**
+     * Impact attempts claimed, including ones that then failed. Distinct from
+     * the completed-hit serial so a failure can never be counted as a hit.
+     */
+    public int getCompanionAttackAttemptSerial() {
+        return bridgeAttackAttemptSerial;
+    }
+
+    /** Terminal receipts published. A caller comparing this across two polls
+     *  can see that it missed events rather than silently collapsing them. */
+    public int getCompanionAttackReceiptSerial() {
+        return bridgeAttackReceiptSerial;
+    }
+
+    /** completed | failed_maybe_partial | failed_before_impact | none */
+    public String getCompanionAttackReceiptOutcome() {
+        return bridgeAttackReceiptOutcome;
+    }
+
+    /** Bounded cause for a failed receipt; empty on completion. */
+    public String getCompanionAttackReceiptCause() {
+        return bridgeAttackReceiptCause;
     }
 
     static boolean shouldDriveAttackCollision(boolean currentSwing, boolean attacked) {

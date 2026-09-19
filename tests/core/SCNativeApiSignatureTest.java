@@ -727,6 +727,19 @@ public final class SCNativeApiSignatureTest {
         require(method(stateMachine, "getSubStateCount").getReturnType() == int.class
                 && method(stateMachine, "getSubStateAt", int.class).getReturnType() == state,
                 "state-machine sub-state accessors used by the reaction classifier changed");
+        // CB-09: the outgoing receipt channel must stay separate from the
+        // completed-hit serial, or a consumer can read a failure as a hit.
+        require(companion.getMethod("getCompanionAttackAttemptSerial")
+                        .getReturnType() == int.class
+                && companion.getMethod("getCompanionAttackReceiptSerial")
+                        .getReturnType() == int.class
+                && companion.getMethod("getCompanionAttackReceiptOutcome")
+                        .getReturnType() == String.class
+                && companion.getMethod("getCompanionAttackReceiptCause")
+                        .getReturnType() == String.class
+                && companion.getMethod("getCompanionAttackCollisionSerial")
+                        .getReturnType() == int.class,
+                "outgoing attack receipt channel changed shape");
         require(declaredMethodInHierarchy(character, "doDeferredMovement")
                         .getReturnType() == void.class
                 && method(character, "isBeingGrappled").getReturnType() == boolean.class
@@ -741,6 +754,6 @@ public final class SCNativeApiSignatureTest {
                 + " readable-speech=true"
                 + " reflection-contract=true cleanup-retry=true"
                 + " reaction-states=" + reactionStates.length + " movement-owner=true"
-                + " attack-continuation=true");
+                + " attack-continuation=true outgoing-receipts=true");
     }
 }

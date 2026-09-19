@@ -256,6 +256,20 @@ end
 function actor:didCompanionAttackCollisionHitTarget()
     return self.companionAttackCollisionTargetHit == true
 end
+-- CB-09: the bridge publishes a terminal receipt on both the completing and
+-- the throwing path, on counters kept separate from the completed-hit serial.
+function actor:getCompanionAttackAttemptSerial()
+    return self.companionAttackAttemptSerial or 0
+end
+function actor:getCompanionAttackReceiptSerial()
+    return self.companionAttackReceiptSerial or 0
+end
+function actor:getCompanionAttackReceiptOutcome()
+    return self.companionAttackReceiptOutcome or "none"
+end
+function actor:getCompanionAttackReceiptCause()
+    return self.companionAttackReceiptCause or ""
+end
 local bareHandsWeapon = {
     __class = "HandWeapon",
     getType = function() return "BareHands" end,
@@ -1314,6 +1328,121 @@ do
             and missedReason == "attack_melee_collision_no_effect"
             and missedEvidence and missedEvidence.result == "no_effect",
         "a collision frame without damage is exposed as no-effect evidence for recovery logic")
+    actor.attackStarted = false
+
+    -- CB-09. A reflective throw inside the native collision used to leave no
+    -- trace: the completed-hit serial never advanced, so Lua saw a timeout --
+    -- and a timeout invites a retry, on a call that may already have applied
+    -- part of a hit. Both paths now publish a terminal receipt.
+    do
+        local faultTarget = {
+            health = 4,
+            getX = function() return 1.5 end,
+            getY = function() return 0.5 end,
+            getZ = function() return 0 end,
+            getHealth = function(self) return self.health end,
+            isDead = function(self) return self.health <= 0 end,
+            isOnFloor = function() return false end,
+            isProne = function() return false end,
+        }
+        actor.companionAttackReceiptSerial = 5
+        actor.companionAttackReceiptOutcome = "completed"
+        local faultAttack = SC.Actor.setMovement(actor, "walk", {
+            action = "attack_melee", target = faultTarget, weapon = twoHandedWeapon,
+        })
+        -- The native call threw after it had begun: one claimed attempt, one
+        -- failure receipt, and the completed-hit serial deliberately unmoved.
+        faultTarget.health = 3.5
+        actor.companionAttackReceiptSerial = 6
+        actor.companionAttackReceiptOutcome = "failed_maybe_partial"
+        actor.companionAttackReceiptCause = "InvocationTargetException: boom"
+        local faultHandled, faultReason, faultEvidence =
+            SC.NativeActions.pollCombatEvents(actor)
+        check(faultAttack and faultHandled == false
+                and faultReason == "attack_melee_collision_failed_maybe_partial"
+                and faultEvidence and faultEvidence.result == "failed_maybe_partial"
+                and faultEvidence.maybePartial == true
+                and string.find(tostring(faultEvidence.cause), "boom", 1, true) ~= nil,
+            "a collision that threw after impact was not reported as a terminal failure")
+        local drained = SC.NativeActions.pollCombatEvents(actor)
+        check(drained == false,
+            "a failed collision left its pending record behind to be replayed")
+        actor.attackStarted = false
+        actor.companionAttackReceiptOutcome = "completed"
+        actor.companionAttackReceiptCause = ""
+    end
+
+    -- CB-11. A shove does no health damage, so its result used to be inferred
+    -- from the target being newly grounded or having moved a little. Another
+    -- actor's knockdown, or the target simply walking, supplies both.
+    do
+        local shoveTarget = {
+            health = 4, x = 1.5, grounded = false,
+            getX = function(self) return self.x end,
+            getY = function() return 0.5 end,
+            getZ = function() return 0 end,
+            getHealth = function(self) return self.health end,
+            isDead = function(self) return self.health <= 0 end,
+            isOnFloor = function(self) return self.grounded end,
+            isProne = function(self) return self.grounded end,
+        }
+        actor.companionAttackCollisionSerial = 40
+        local shoveStarted = SC.Actor.setMovement(actor, "walk", {
+            action = "shove", target = shoveTarget,
+        })
+        -- Somebody else knocks the target down and it drifts, while our own
+        -- collision reported a different target entirely.
+        shoveTarget.grounded = true
+        shoveTarget.x = 2.6
+        actor.companionAttackCollisionTarget = { other = true }
+        actor.companionAttackCollisionHitCount = 1
+        actor.companionAttackCollisionTargetHit = false
+        actor.companionAttackCollisionSerial = 41
+        local stolenOk, stolenReason, stolenEvidence =
+            SC.NativeActions.pollCombatEvents(actor)
+        check(shoveStarted and stolenOk
+                and stolenReason == "shove_collision_no_effect"
+                and stolenEvidence.result == "no_effect"
+                and stolenEvidence.collisionTargetMatched == false,
+            "a third party's knockdown was credited to this companion's shove")
+        actor.attackStarted = false
+
+        -- The same shove, attributed at the real collision boundary, lands.
+        shoveTarget.grounded = false
+        shoveTarget.x = 1.5
+        local ownStarted = SC.Actor.setMovement(actor, "walk", {
+            action = "shove", target = shoveTarget,
+        })
+        actor.companionAttackCollisionTarget = shoveTarget
+        actor.companionAttackCollisionHitCount = 1
+        actor.companionAttackCollisionTargetHit = false
+        actor.companionAttackCollisionSerial = 42
+        local ownOk, ownReason, ownEvidence = SC.NativeActions.pollCombatEvents(actor)
+        check(ownStarted and ownOk and ownReason == "shove_collision_landed"
+                and ownEvidence.result == "landed"
+                and ownEvidence.collisionTargetMatched == true,
+            "a shove attributed at its own collision boundary was not reported as landed")
+        actor.attackStarted = false
+
+        -- Several completed collisions between two polls cannot be told apart,
+        -- so that has to be said rather than silently collapsed.
+        local overflowStarted = SC.Actor.setMovement(actor, "walk", {
+            action = "attack_melee", target = shoveTarget, weapon = twoHandedWeapon,
+        })
+        actor.companionAttackCollisionTarget = shoveTarget
+        actor.companionAttackCollisionHitCount = 1
+        actor.companionAttackCollisionTargetHit = true
+        actor.companionAttackCollisionSerial = 45
+        actor.companionAttackReceiptSerial =
+            (actor.companionAttackReceiptSerial or 0) + 3
+        local _, _, overflowEvidence = SC.NativeActions.pollCombatEvents(actor)
+        check(overflowStarted and overflowEvidence ~= nil
+                and overflowEvidence.overflow == true
+                and overflowEvidence.eventsSincePoll == 3,
+            "several collisions between polls collapsed into one without reporting overflow")
+        actor.attackStarted = false
+    end
+
     actor.attackStarted = false
     function twoHandedWeapon:getCategory() return "Weapon" end
     function twoHandedWeapon:getMaxDamage() return 2 end

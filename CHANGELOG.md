@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.22.40 - Honest reporting for a companion's own swings
+
+- Fixed a companion's swing failing silently. If the game's hit code errored partway, the mod saw nothing at all and eventually gave up with a timeout -- which invites trying again, on a swing that may already have connected. A failed swing is now reported as failed, says whether it might have partly landed, and is never repeated to get a tidier answer.
+- Fixed a companion taking credit for someone else's work. A shove does no damage, so the mod judged it by whether the target ended up on the floor or had drifted a little -- which is equally true if you knocked the zombie down, or if it simply walked. A shove now counts only when the game's own collision ran against the zombie the companion actually shoved.
+- When several hits land between two checks, that is now said plainly instead of being quietly counted as one. Gunfire is covered by the same reporting as melee.
+
 ## 0.22.39 - One wound per bite
 
 - Fixed a single zombie bite wounding a companion twice. The mod decided a swing was over by watching whether the zombie still looked like it was attacking; a momentary loss of target -- which happens constantly for a companion the game does not track -- made it think a new swing had begun, and the same bite landed again. The game marks the start of every attack itself, and the mod now uses that instead of guessing.

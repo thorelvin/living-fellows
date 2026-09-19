@@ -252,6 +252,46 @@ elapsed. Neither reset remains.
 
 ---
 
+## Outgoing receipts and attribution (CB-09, CB-11)
+
+**CB-09.** `driveCompanionAttackCollision` claims the per-swing latch
+(`SwipeStatePlayer.ATTACKED`) before invoking the native check, which is
+correct and unchanged — a second animation layer must not replay a partially
+applied hit. But the completed-hit serial advanced only on a normal return, so
+a reflective throw left no trace at all: Lua saw a timeout, and a timeout
+invites a retry on a call that may already have damaged someone.
+
+A terminal receipt is now published on **both** paths, on counters kept
+deliberately separate from the completed-hit serial so nothing can read a
+failure as a hit:
+
+| Accessor | Meaning |
+|---|---|
+| `getCompanionAttackAttemptSerial()` | impacts *claimed*, including ones that then failed |
+| `getCompanionAttackReceiptSerial()` | terminal receipts published |
+| `getCompanionAttackReceiptOutcome()` | `completed` / `failed_maybe_partial` / `failed_before_impact` / `none` |
+| `getCompanionAttackReceiptCause()` | bounded cause, empty on completion |
+
+`failed_maybe_partial` is reserved for a throw that arrived *after* the
+collision call began — the only case where a hit may be half-applied. The call
+is never replayed to obtain a clean receipt.
+
+**CB-11.** A shove does no health damage, so its result used to be inferred
+from the target being newly grounded or having moved at least 0.2 tiles. Both
+are supplied just as well by another actor's knockdown or by the target simply
+walking, and neither says anything about *our* swing. Attribution now happens
+at the native collision boundary: the collision must have run against the exact
+target the request named, and its hit list must have been non-empty.
+Displacement survives in the evidence as description, never as ownership.
+
+Multiple completed collisions between two Lua polls cannot be told apart, so
+the evidence reports `overflow` and `eventsSincePoll` rather than silently
+collapsing them. Firearm attacks now create the same pending record as melee,
+so they sit inside the receipt contract; their damage implementation is
+unchanged.
+
+---
+
 ## What this file is not
 
 None of the above establishes visual correctness. Clip synchronisation, facing
