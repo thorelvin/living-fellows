@@ -516,6 +516,7 @@ local doingLabels = {
     repair = "repairing equipment",
     craft_supply = "making supplies",
     sit = "taking a short rest",
+    rest_bed = "resting on a bed",
     wash = "washing up",
     follow_formation = "keeping formation",
     approach_vehicle = "reaching the passenger door",
@@ -523,6 +524,8 @@ local doingLabels = {
     logistics_deposit = "putting surplus gear into storage",
     logistics_drop = "dropping surplus gear",
     logistics_wear = "changing my equipment",
+    unfinished_action = "finishing an action",
+    action_animation_state = "finishing an action",
 }
 
 -- A logistics target is the item being moved, not a place. Feeding its

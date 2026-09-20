@@ -529,7 +529,7 @@ local pools = {
         common = {
             "%1... sit with me a moment.", "I'm sorry. My body gave up before I did.",
             "Don't call this failure. We made a life in impossible days.", "I'm so tired now.",
-            "Open the curtains. I want to see the sky once more.", "Promise me you'll eat something tomorrow.",
+            "I want to see the sky once more.", "Promise me you'll eat something tomorrow.",
             "I kept thinking there would be more time.", "You don't have to fix this one, %1.",
             "Stay until it gets quiet. Then keep going.", "I don't hurt anymore. I think that's bad.",
             "Thank you for every ordinary morning.", "Take the things in my bag. I chose them for us.",

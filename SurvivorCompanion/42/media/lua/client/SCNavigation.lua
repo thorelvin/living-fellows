@@ -2529,6 +2529,15 @@ end
 
 local function checkRoomEntry(actor, state, sourceSquare, nextSquare, intent, now)
     local utility = U()
+    -- The explicit Check room command performs its own deliberate sweep after
+    -- reaching the selected room. Running the generic threshold sweep as well
+    -- made the actor stop twice at the door and left stale door-path ownership.
+    if type(intent) == "table" and intent.action == "check_room" then
+        state.roomEntryKey = nil
+        state.roomEntryObserveUntil = nil
+        state.roomEntrySweepPhase = nil
+        return true, "explicit_room_check"
+    end
     local sourceRoom, destinationRoom = roomOf(sourceSquare), roomOf(nextSquare)
     local entering = destinationRoom ~= nil and destinationRoom ~= sourceRoom
     if not entering or intent.urgent == true then
@@ -3879,7 +3888,11 @@ local function maintainNativeLease(actor, state, goalSquare, now)
             "navigationOpenDoorDirectAttempts")) or 2))
         if state.openDoorRetryAttempts > maximum then
             state.openDoorDirectKey, state.openDoorDirectUntil = nil, nil
-            return "failed", "open_door_direct_retry_exhausted"
+            state.openDoorRetryKey, state.openDoorRetryAttempts = nil, 0
+            -- An open threshold is not a locked/closed-door terminal. Hand the
+            -- request back to the route planner so it can choose the other side
+            -- of a double door or a slightly different collision-capsule line.
+            return "cancelled", "open_door_replan"
         end
         state.openDoorDirectKey = retryKey
         state.openDoorDirectUntil = now
@@ -3928,15 +3941,19 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
     collided, ok = utility.call(actor, "isCollidedWithDoor")
     if ok and collided == true then
         local object = select(1, utility.call(actor, "getCollidedObject"))
-        return { type = "door", object = object or barrier, square = toSquare or fromSquare,
-            evidenceClass = objectOpen(object or barrier) and "unknown" or nil,
-            confidence = objectOpen(object or barrier) and "low" or nil }
+        local collidedDoor = object or barrier
+        if objectOpen(collidedDoor) then
+            return { type = "open_door_threshold", object = collidedDoor,
+                square = toSquare or fromSquare, evidenceClass = "unknown",
+                confidence = "low", passageOnly = true }
+        end
+        return { type = "door", object = collidedDoor, square = toSquare or fromSquare }
     end
     local object, objectOk = utility.call(actor, "getCollidedObject")
     if objectOk and object ~= nil then
         if barrierKind == "door" and object == barrier and objectOpen(object) then
-            return { type = "door", object = object, square = toSquare,
-                evidenceClass = "unknown", confidence = "low" }
+            return { type = "open_door_threshold", object = object, square = toSquare,
+                evidenceClass = "unknown", confidence = "low", passageOnly = true }
         end
         local moved, movedOk = utility.call(object, "isMovedThumpable")
         local blockAll, blockOk = utility.call(object, "isBlockAllTheSquare")
@@ -3960,7 +3977,8 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
     local moving, movingKind = utility.movingBlocker(toSquare, actor, { swept = true })
     if moving then return { type = movingKind, object = moving, square = toSquare, dynamic = true } end
     if barrierKind == "door" then
-        return { type = "door", object = barrier, square = toSquare or fromSquare,
+        return { type = objectOpen(barrier) and "open_door_threshold" or "door",
+            object = barrier, square = toSquare or fromSquare,
             evidenceClass = "unknown", confidence = "low", passageOnly = true }
     end
     if polygonCollision then
@@ -4045,14 +4063,17 @@ local function rememberFailure(actor, state, fromSquare, toSquare, reason, now, 
     local blocker = addBlockerEvidence(
         classifyMovementBlocker(actor, fromSquare, toSquare, reason))
     local object, kind = barrierBetween(fromSquare, toSquare)
-    rememberRouteEdge(state, fromSquare, toSquare, false,
-        blocker.type or kind, blocker.object or object, now)
+    if blocker.passageOnly ~= true then
+        rememberRouteEdge(state, fromSquare, toSquare, false,
+            blocker.type or kind, blocker.object or object, now)
+    end
     if blocker.confidence == "low" then
         local remembered = state.routeMemory and state.routeMemory[edgeKey(fromSquare, toSquare)]
         if remembered then remembered.expires = now + blockerDuration("unknown") end
     end
     local exhausted = exhaustedTraversalDuration(state, reason, now)
-    if blocker.type ~= "actor_state" and fromSquare and toSquare then
+    if blocker.type ~= "actor_state" and blocker.passageOnly ~= true
+        and fromSquare and toSquare then
         blacklistEdge(state, fromSquare, toSquare, blocker.type, blocker.object, now,
             blocker.evidenceClass, blocker.confidence, exhausted)
     end
@@ -4357,6 +4378,14 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         and now <= (tonumber(state.openDoorDirectUntil) or 0) then
         return false, nil, nil
     end
+    -- Turning toward the next movement vector is normal locomotion, not proof
+    -- of an unknown physical blocker. Let the next dispatch continue the turn;
+    -- action-level deadlines still bound a genuinely broken native state.
+    if state.lastMovementReason == "turning_for_movement" then
+        state.lastMovementReason = nil
+        state.lastProgressAt = now
+        return false, nil, nil
+    end
     local attemptedFrom = state.lastAttemptFrom or actorSquare
     local attemptedTo = state.lastAttemptTo or goalSquare
     local nearbyDoor = nearbyOpenedDoor(state, actor, attemptedFrom, attemptedTo)
@@ -4416,7 +4445,7 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
                 })
         end
     end
-    if blocker.type ~= "actor_state" then
+    if blocker.type ~= "actor_state" and blocker.passageOnly ~= true then
         blacklistEdge(state, failedFrom, failedTo, blocker.type, blocker.object, now,
             blocker.evidenceClass, blocker.confidence)
     end
@@ -5411,6 +5440,8 @@ function Navigation.request(actor, target, movementMode, intent)
 
     local blocker = not requestIntent.urgent
         and personalSpaceBlocker(actor, nextSquare, requestIntent.snapshot) or nil
+    local crowdChoke = kind == "door" or kind == "fence"
+        or kind == "stairs" or kind == "slope"
     local blockerType = blocker and (utility.isCompanion(blocker)
         and "companion_crowd" or "player_crowd") or nil
     if not blocker then blocker, blockerType = utility.movingBlocker(nextSquare, actor, { swept = true }) end
@@ -5445,13 +5476,29 @@ function Navigation.request(actor, target, movementMode, intent)
         end
         local companionBlocker = utility.isCompanion(blocker)
         local ownRightOfWay = companionBlocker and hasRightOfWay(actor, requestIntent, blocker)
-        if ownRightOfWay and waited < (utility.config("navigationTrafficDeadlockMs") or 2200) then
+        local yieldAfter = utility.config("navigationYieldMs") or 900
+        -- In open terrain the moving actor first steps around silently. A spoken
+        -- "move" request is appropriate only after that failed, while a true
+        -- door/fence/stair choke may request clearance sooner.
+        if ownRightOfWay and not crowdChoke and waited >= yieldAfter
+            and lateralYield(actor, state, sourceSquare, nextSquare, requestIntent, now) then
+            recordMovement(actor, "silent_lateral_avoidance", {
+                blocker = blockerType, nextSquare = nextSquare,
+                status = "avoided:" .. tostring(utility.idOf(blocker)),
+            })
+            return true, "yielding_personal_space"
+        end
+        local requestAfter = crowdChoke
+            and (utility.config("navigationChokeCrowdRequestMs") or 350)
+            or (utility.config("navigationCrowdRequestMs") or 1400)
+        if ownRightOfWay and waited >= requestAfter
+            and waited < (utility.config("navigationTrafficDeadlockMs") or 2200) then
             local otherState = stateFor(blocker)
             if otherState.forcedYieldFor ~= actor then
-                otherState.forcedYieldFor = actor
                 local clearance = SC.Navigation._crowdClearanceSquareForRequest(blocker, actor, nextSquare,
                     requestIntent.snapshot)
                 if clearance then
+                    otherState.forcedYieldFor = actor
                     otherState.crowdMove = {
                         square = clearance, requestedBy = actor,
                         requestedAt = now,
@@ -5460,19 +5507,19 @@ function Navigation.request(actor, target, movementMode, intent)
                     if SC.Banter and type(SC.Banter.crowdYield) == "function" then
                         pcall(SC.Banter.crowdYield, actor, blocker, now)
                     end
+                    recordMovement(actor, "yield_requested", {
+                        status = "asked:" .. tostring(utility.idOf(blocker)),
+                        nextSquare = nextSquare,
+                    })
+                    recordMovement(blocker, "yield_received", {
+                        status = "requested_by:" .. tostring(utility.idOf(actor)),
+                    })
                 end
-                recordMovement(actor, "yield_requested", {
-                    status = "asked:" .. tostring(utility.idOf(blocker)),
-                    nextSquare = nextSquare,
-                })
-                recordMovement(blocker, "yield_received", {
-                    status = "requested_by:" .. tostring(utility.idOf(actor)),
-                })
             end
             if not utility.stop(actor) then return false, "traffic_priority_stop_rejected" end
             return true, "waiting_for_companion_yield"
         end
-        if waited >= (utility.config("navigationYieldMs") or 900)
+        if waited >= yieldAfter
             and lateralYield(actor, state, sourceSquare, nextSquare, requestIntent, now) then
             blacklistEdge(state, sourceSquare, nextSquare, blockerType, blocker, now,
                 "dynamic_square", "high")
@@ -5784,7 +5831,8 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         clearMovementTransients(actor, state)
     end
 
-    if intent.workCampOnly ~= true and intent.cohortKey == nil and intent.object == nil
+    if intent.workCampOnly ~= true and intent.cohortKey == nil
+        and (intent.object == nil or intent.nativeNearest == true)
         and now >= (state.nativeMultiUnavailableUntil or 0) and SC.NativeActions
         and type(SC.NativeActions.pathToNearest) == "function" then
         local started, reason = SC.NativeActions.pathToNearest(actor, valid, movementMode or "walk")

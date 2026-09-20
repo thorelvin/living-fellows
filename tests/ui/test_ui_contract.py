@@ -486,6 +486,10 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn('operation == "collect_bodies"', production)
         self.assertIn('"UI_SC_Base_ProductionDisposalSelector", "disposal"', production)
         self.assertIn('and productionDraft.disposal or PRODUCTION_ZONE_KIND[operation]', production)
+        detail_signature = lua_function(self.ui, "local function baseDetailSignature()")
+        self.assertIn("productionDraft = {", detail_signature)
+        self.assertIn("operation = productionDraft.operation", detail_signature)
+        self.assertIn("disposal = productionDraft.disposal", detail_signature)
 
     def test_base_context_is_hidden_outside_camp_and_dismiss_is_confirmed(self) -> None:
         relevant = lua_function(self.context, "local function baseMenuRelevant(square)")

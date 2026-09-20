@@ -3808,6 +3808,15 @@ registry[bumpStateActor.id] = nil
 end
 
 do
+local bedStateActor = actor("sc-bed-state-blocker", 30, 31, {})
+bedStateActor.currentState = { __class = "PlayerOnBedState" }
+bedStateActor.blockMovement = true
+local blocker = SurvivorCompanion.GameplayUtil.movementStateBlocker(bedStateActor)
+check(blocker == "furniture_state",
+    "PlayerOnBedState is a known furniture owner, not an unknown stuck collision")
+end
+
+do
 local climbStateActor = actor("sc-climb-state-blocker", -7, -1, {})
 registry[climbStateActor.id] = climbStateActor
 climbStateActor.climbing = true
@@ -4982,8 +4991,10 @@ do
         "an angled doorway approach centres the capsule before native crossing")
     local classifiedDoor = SurvivorCompanion.Navigation._classifyMovementBlockerForTests(
         angledDoorActor, doorFrom, doorTo, "native_path_failed")
-    check(classifiedDoor.type == "door" and classifiedDoor.object == testDoor,
-        "a failed known door edge remains a door blocker without a transient collision flag")
+    check(classifiedDoor.type == "open_door_threshold"
+            and classifiedDoor.object == testDoor
+            and classifiedDoor.passageOnly == true,
+        "an open known door edge remains a retryable threshold instead of a closed-door blacklist")
     SurvivorCompanion.Navigation.reset(angledDoorActor)
     registry[angledDoorActor.id] = nil
     testDoor.open = false
@@ -5542,6 +5553,85 @@ check(SurvivorCompanion.Commands.issue(fellow.id, "board_vehicle", nil, player)
     and fellow.lastIntent.vehicle == livePlayerVehicle,
     "individual nil-payload boarding resolves the player's live vehicle")
 player.vehicle = nil
+
+do
+    -- Exercise the real follow controller and vehicle transaction together.
+    -- Adapter-only tests cannot catch a Decision regression which builds a
+    -- manifest but never dispatches entry or exit.
+    local carActor = actor("sc-follow-car-roundtrip", 4, 4, {})
+    registry[carActor.id] = carActor
+    local car = { id = 912, passenger = nil, speed = 0 }
+    function car:getId() return self.id end
+    function car:getScriptName() return "Base.TestRoundtrip" end
+    function car:getX() return 4 end
+    function car:getY() return 4 end
+    function car:getZ() return 0 end
+    function car:getCell() return cell end
+    function car:getMaxPassengers() return 2 end
+    function car:isSeatInstalled(seat) return seat == 1 end
+    function car:isSeatOccupied(seat) return seat == 1 and self.passenger ~= nil end
+    function car:getCurrentSpeedKmHour() return self.speed end
+    function car:getEnterSeatDistance(seat, x, y)
+        if seat ~= 1 then return -1 end
+        return (x - 4.5) * (x - 4.5) + (y - 4.5) * (y - 4.5)
+    end
+    function car:enter(seat, candidate)
+        if seat ~= 1 or self.passenger ~= nil then return false end
+        self.passenger, candidate.vehicle = candidate, self
+        return true
+    end
+    function car:exit(candidate)
+        if self.passenger ~= candidate then return false end
+        self.passenger, candidate.vehicle = nil, nil
+        return true
+    end
+    function car:getSeat(candidate) return self.passenger == candidate and 1 or -1 end
+    function car:getCharacter(seat) return seat == 1 and self.passenger or nil end
+
+    check(SurvivorCompanion.Commands.issue(carActor.id, "follow", nil, player)
+            and SurvivorCompanion.Commands.issue(carActor.id,
+                "set_ride_with_player", { enabled = true }, player),
+        "vehicle roundtrip fixture enables automatic follow boarding")
+    local oldMove, oldRecover = SurvivorCompanion.Actor.setMovement,
+        SurvivorCompanion.Actor.recover
+    local oldLiving = SurvivorCompanion.Registry.living
+    SurvivorCompanion.Registry.living = function() return { carActor } end
+    SurvivorCompanion.Actor.setMovement = function(candidate, mode, intent)
+        if candidate == carActor and intent and intent.action == "board_vehicle" then
+            return SurvivorCompanion.Vehicle.board(candidate, intent.vehicle,
+                intent.seat, intent)
+        elseif candidate == carActor and intent and intent.action == "exit_vehicle" then
+            return SurvivorCompanion.Vehicle.exit(candidate, intent.vehicle,
+                intent.seat, intent)
+        end
+        return oldMove(candidate, mode, intent)
+    end
+    SurvivorCompanion.Actor.recover = function(candidate, square)
+        if candidate == carActor then candidate.square = square return true, "recovered" end
+        if oldRecover then return oldRecover(candidate, square) end
+        return false, "recover_unavailable"
+    end
+    player.vehicle = car
+    SurvivorCompanion.Vehicle.invalidateManifests(car)
+    local commands = SurvivorCompanion.Commands.peek(carActor)
+    local quiet = { threats = {}, threatCount = 0, immediateCount = 0,
+        pressure = 0, escapeSquares = {}, allies = {}, player = { danger = 0 } }
+    local boardedByFollow, boardStatus = SurvivorCompanion.Decision._doFollowForTests(
+        carActor, player, {}, commands, quiet)
+    player.vehicle = nil
+    local exitedByFollow, exitStatus = SurvivorCompanion.Decision._doFollowForTests(
+        carActor, player, {}, commands, quiet)
+    SurvivorCompanion.Actor.setMovement, SurvivorCompanion.Actor.recover = oldMove, oldRecover
+    SurvivorCompanion.Registry.living = oldLiving
+    SurvivorCompanion.Vehicle.invalidateManifests(car)
+    check(boardedByFollow == true and boardStatus == "boarding_vehicle"
+            and exitedByFollow == true and exitStatus == "exiting_vehicle"
+            and carActor:getVehicle() == nil and car.passenger == nil
+            and SurvivorCompanion.ActionSupervisor.snapshot(carActor).phase == "idle",
+        "automatic follow boards a stopped car and exits after the player leaves it: "
+            .. tostring(boardStatus) .. "/" .. tostring(exitStatus))
+    registry[carActor.id] = nil
+end
 
 local treated, treatmentReason = SurvivorCompanion.Medical.treat(fellow, player, { snapshot = { threats = {}, immediateCount = 0, escapeSquares = { { square = fellow.square } } } })
 check(treated and woundedPart.isBandaged and helperBandage.used, "native body part bandaging consumes a real supply")
@@ -6139,6 +6229,49 @@ do
     check(held == true and reason == "production_chopping" and polls == 1,
         "owned base work is polled during its native animation so its lease and watchdog stay live")
     registry[workingActor.id] = nil
+end
+do
+    local restingActor = actor("sc-owned-downtime-poll", 9, 8, {})
+    registry[restingActor.id] = restingActor
+    local oldDowntimeUpdate = SurvivorCompanion.Downtime.update
+    local polls, cancels = 0, 0
+    local downtimeRuntime = { ownedDowntimePoll = true }
+    SurvivorCompanion.Downtime.update = function(candidate, leader, runtime)
+        if candidate == restingActor then
+            polls = polls + 1
+            return runtime == downtimeRuntime, "resting_on_bed"
+        end
+        return oldDowntimeUpdate(candidate, leader, runtime)
+    end
+    local downtimeToken = assert(SurvivorCompanion.ActionSupervisor.begin(restingActor, {
+        owner = "downtime", action = "rest_bed",
+        priority = SurvivorCompanion.ActionSupervisor.Priority.AMBIENT,
+        phase = "animating", deadlines = { animating = 0 },
+        metadata = { commandSerial = 7 },
+        onCancel = function() cancels = cancels + 1 return true end,
+        ignoreRetry = true,
+    }))
+    local quiet = { threats = {}, immediateCount = 0, pressure = 0,
+        player = { danger = 0 } }
+    local commands = { order = "stay", recruited = true, commandSerial = 7 }
+    local held, reason = SurvivorCompanion.Decision._holdOwnedActivityOrPacingForTests(
+        restingActor, player, quiet,
+        { alive = true, health = 100, wounds = {}, bleedingCount = 0 }, {},
+        commands, {}, clock, downtimeRuntime)
+    check(held == true and reason == "resting_on_bed" and polls == 1
+            and cancels == 0
+            and SurvivorCompanion.ActionSupervisor.isCurrent(downtimeToken),
+        "an owned bed-rest controller is polled instead of decision-preempted")
+    SurvivorCompanion.Decision._holdOwnedActivityOrPacingForTests(
+        restingActor, player,
+        { threats = {}, immediateCount = 1, pressure = 1, player = { danger = 0 } },
+        { alive = true, health = 100, wounds = {}, bleedingCount = 0 }, {},
+        commands, {}, clock, downtimeRuntime)
+    SurvivorCompanion.Downtime.update = oldDowntimeUpdate
+    check(polls == 1 and cancels == 1
+            and not SurvivorCompanion.ActionSupervisor.isCurrent(downtimeToken),
+        "immediate danger still preempts an owned downtime controller")
+    registry[restingActor.id] = nil
 end
 local stagedActive, stagedActiveReason = SurvivorCompanion.Medical.treat(
     stagedMedic, stagedMedic, {})
@@ -8423,12 +8556,13 @@ do
     local stuckSource, stuckOwner = containerObject(stuckSquare, { stuckFood })
     local navigation = SurvivorCompanion.Navigation
     local savedRequestAny, savedTargets = navigation.requestAny, navigation.interactionTargets
-    local flips = 0
+    local flips, scavengeApproachIntent = 0, nil
     navigation.interactionTargets = function()
         return { cell:getGridSquare(52, 50, 0) }
     end
-    navigation.requestAny = function()
+    navigation.requestAny = function(_, _, _, intent)
         flips = flips + 1
+        scavengeApproachIntent = intent
         return true, flips % 2 == 0 and "recovering" or "walking"
     end
     local stuckRuntime = { snapshot = { threats = {}, immediateCount = 0, threatCount = 0,
@@ -8445,6 +8579,7 @@ do
     local stuckMemory = stuckState.visited and stuckState.visited[stuckSource]
     navigation.requestAny, navigation.interactionTargets = savedRequestAny, savedTargets
     check(approaching and stuckPhase == "approach" and flips > 10
+            and scavengeApproachIntent and scavengeApproachIntent.nativeNearest == true
             and stuckState.task == nil and stuckMemory ~= nil
             and stuckMemory.result == "navigation_failed" and stuckMemory.failures == 1
             and not stuckLooter.inventory:contains(stuckFood),
@@ -9201,6 +9336,10 @@ do
     local nearEnough, reachReason = reachOf(farReacher, { owner = shelf })
     check(nearEnough == false and reachReason == "container_out_of_reach",
         "a companion three tiles away was allowed to reach into the shelf")
+    local diagonalReacher = actor("sc-reach-diagonal", 40, 39)
+    diagonalReacher.x, diagonalReacher.y = 40.5, 39.5
+    check(reachOf(diagonalReacher, { owner = shelf }) == true,
+        "a companion on a diagonally adjacent tile was refused the shelf centre")
 
     -- The first version of this gate failed open whenever the container's
     -- square could not be resolved -- which is exactly the case it exists to
@@ -9865,32 +10004,127 @@ check(not rejectedSeatApproach and SurvivorCompanion.Downtime.peek(seatActor).ac
     "ongoing seat approach propagates navigation rejection and releases the activity")
 
 ;(function()
-local bedSquare = squares[squareKey(-2, 6, 0)]
-local testBed = { square = bedSquare }
-function testBed:getSquare() return self.square end
-function testBed:getX() return self.square.x end
-function testBed:getY() return self.square.y end
-function testBed:getZ() return self.square.z end
-function testBed:getName() return "Double Bed" end
-bedSquare.objects[#bedSquare.objects + 1] = testBed
-local furnitureKind, _, approachFurniture = SurvivorCompanion.Downtime._furnitureForTests()
-local bedActor = actor("sc-bed-approach", -5, 6, {})
+local function furnitureFixture(spec)
+    local square = squares[squareKey(spec.x, spec.y, 0)]
+    local properties = { values = spec.properties or {} }
+    function properties:Is(key) return self.values[key] ~= nil end
+    function properties:Val(key) return self.values[key] end
+    function properties:get(key) return self.values[key] end
+    function properties:has(flag)
+        return spec.bedFlag == true
+            and (flag == IsoFlagType.bed or tostring(flag) == tostring(IsoFlagType.bed))
+    end
+    local sprite = { name = spec.sprite, properties = properties }
+    function sprite:getName() return self.name end
+    function sprite:getProperties() return self.properties end
+    local object = {
+        square = square, name = spec.name, sprite = sprite,
+        seatingPositions = spec.seatingPositions,
+    }
+    function object:getSquare() return self.square end
+    function object:getX() return self.square.x end
+    function object:getY() return self.square.y end
+    function object:getZ() return self.square.z end
+    function object:getName() return self.name end
+    function object:getSprite() return self.sprite end
+    square.objects[#square.objects + 1] = object
+    return object, square
+end
+
+local oldSeatingManager = SeatingManager
+SeatingManager = {
+    getInstance = function()
+        return {
+            getTilePositionCount = function(_, object)
+                return tonumber(object and object.seatingPositions) or 0
+            end,
+        }
+    end,
+}
+
+-- These represent four real Build 42 discovery routes: a bedding sprite, a
+-- named sofa, a bar-stool sprite known by SeatingManager, and an ordinary
+-- seating tile carrying the engine's misleading BedType=averageChair property.
+local fixtures = {
+    { label = "bed", expected = "rest_bed", x = -2, y = 6,
+        name = "Cot", sprite = "furniture_bedding_01_56",
+        properties = { BedType = "averageBed" } },
+    { label = "sofa", expected = "sit", x = 0, y = 6,
+        name = "Brown Sofa", sprite = "furniture_seating_indoor_02_0",
+        properties = { BedType = "badChair" }, seatingPositions = 2 },
+    { label = "bar stool", expected = "sit", x = 2, y = 6,
+        name = nil, sprite = "location_restaurant_bar_01_26",
+        seatingPositions = 1 },
+    { label = "chair", expected = "sit", x = 4, y = 6,
+        name = nil, sprite = "furniture_seating_indoor_03_40",
+        properties = { BedType = "averageChair" }, seatingPositions = 1 },
+}
+
+local furnitureKind, _, approachFurniture, beginFurniture =
+    SurvivorCompanion.Downtime._furnitureForTests()
+local fixtureObjects = {}
+for index, fixture in ipairs(fixtures) do
+    local object, square = furnitureFixture(fixture)
+    fixtureObjects[index] = { object = object, square = square }
+    check(furnitureKind(object) == fixture.expected,
+        fixture.label .. " fixture is classified as " .. fixture.expected)
+end
+
 local requestedFurniture
 local originalFurnitureRequestAny = SurvivorCompanion.Navigation.requestAny
 SurvivorCompanion.Navigation.requestAny = function(_, candidates, _, intent)
     requestedFurniture = { candidates = candidates, intent = intent }
     return true, "moving"
 end
-local bedApproach = approachFurniture(bedActor, { object = testBed, square = bedSquare })
+local bedActor = actor("sc-bed-approach", -5, 6, {})
+local bedObject, bedSquare = fixtureObjects[1].object, fixtureObjects[1].square
+local bedApproach = approachFurniture(bedActor, { object = bedObject, square = bedSquare })
 SurvivorCompanion.Navigation.requestAny = originalFurnitureRequestAny
 local avoidsOccupiedBed = true
 for _, candidate in ipairs(requestedFurniture and requestedFurniture.candidates or {}) do
     if candidate == bedSquare then avoidsOccupiedBed = false end
 end
-check(furnitureKind(testBed) == "rest_bed" and bedApproach == true
+check(bedApproach == true
         and requestedFurniture and requestedFurniture.intent.action == "move_to_seat"
         and avoidsOccupiedBed,
-    "chairs, sofas and beds route to an adjacent interaction square instead of the occupied furniture tile")
+    "furniture approach routes to an adjacent interaction square instead of the occupied tile")
+
+for index, fixture in ipairs(fixtures) do
+    local placed = fixtureObjects[index]
+    local user = actor("sc-furniture-" .. tostring(index),
+        fixture.x - 1, fixture.y, {})
+    registry[user.id] = user
+    local state = { active = nil, idleStopped = false, nextEvaluationAt = 0 }
+    local activity = {
+        kind = fixture.expected,
+        object = placed.object,
+        square = placed.square,
+        durationMs = 30000,
+    }
+    local started, startReason = beginFurniture(user, state, activity,
+        { commandSerial = 700 + index }, clock)
+    local owner = SurvivorCompanion.ActionSupervisor.current(user)
+    check(started == true and state.active == activity and activity.actionAccepted == true
+            and user.lastIntent and user.lastIntent.action == fixture.expected
+            and owner == activity.supervisorToken and owner.owner == "downtime",
+        fixture.label .. " fixture dispatches its supervised native " .. fixture.expected
+            .. " action: " .. tostring(startReason))
+    local cancelled = SurvivorCompanion.ActionSupervisor.cancel(
+        user, "furniture_fixture_complete", nil, true)
+    check(cancelled == true and state.active == nil
+            and SurvivorCompanion.ActionSupervisor.current(user) == nil,
+        fixture.label .. " fixture releases seating ownership and reservation cleanly")
+    registry[user.id] = nil
+end
+for _, placed in ipairs(fixtureObjects) do
+    for index = #placed.square.objects, 1, -1 do
+        if placed.square.objects[index] == placed.object then
+            table.remove(placed.square.objects, index)
+            break
+        end
+    end
+end
+SeatingManager = oldSeatingManager
 end)()
 
 function SurvivorCompanion.__testCurtainHabits()
@@ -10545,7 +10779,7 @@ SurvivorCompanion.Medical = originalRoleTestMedical
 local boardActor = actor("sc-decision-board", -6, -4, {})
 registry[boardActor.id] = boardActor
 boardActor.rejectActions = { board_vehicle = true }
-local testVehicle = {}
+local testVehicle = { getCurrentSpeedKmHour = function() return 0 end }
 player.vehicle = testVehicle
 check(not decisionAfterDue(boardActor, player, {
     snapshot = { threats = {}, threatCount = 0, immediateCount = 0, escapeSquares = {}, allies = {}, player = { danger = 0 } },

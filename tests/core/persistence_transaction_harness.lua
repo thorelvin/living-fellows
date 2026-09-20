@@ -604,8 +604,9 @@ check(stagedYielded and stagedStatus == "complete"
     "scheduled save completes through bounded pulses and commits once")
 
 -- Work receipts and marked actor cargo are one persistence consistency unit.
--- A ledger mutation after baseLife export must reject publication even when
--- registry and inventory object identities would otherwise remain stable.
+-- A ledger mutation after baseLife export must reject that mixed staging pass
+-- even when registry and inventory object identities remain stable, then
+-- restart once and publish only the coherent revision.
 check(SC.Persistence.reset() == true,
     "work-ledger barrier test resets scheduled persistence")
 local realBaseLife = SC.BaseLife
@@ -630,10 +631,10 @@ for _ = 1, 10000 do
     end
     if workStatus ~= "yielded" then break end
 end
-check(workRequested == true and revisionChanged and workStatus == "failed"
-        and string.find(tostring(workReason), "gather work ownership changed", 1, true)
-        and workStore.document == workPrior,
-    "cross-slice receipt/marker mutation preserves the prior complete document")
+check(workRequested == true and revisionChanged and workStatus == "complete"
+        and workStore.document ~= workPrior and workStore.document == workReason
+        and workExports >= 2,
+    "one cross-slice receipt/marker mutation restarts and publishes a coherent document")
 
 check(SC.Persistence.reset() == true,
     "unchanged work-ledger control resets scheduled persistence")

@@ -152,6 +152,7 @@ local valueData = {
     persistenceCaptureHardDeadlineMs = 120000,
     persistencePulseGapGraceMs = 100,
     persistenceActorRetryLimit = 2,
+    persistenceSnapshotRestartLimit = 4,
     persistenceRetryDelayMs = 5000,
     tradeRecoveryIntervalMs = 500,
     tradeRecoveryPerPulse = 8,
@@ -380,6 +381,10 @@ local valueData = {
     navigationPersonalSpace = 0.9,
     navigationStepReservationMs = 450,
     navigationYieldMs = 900,
+    -- Open ground uses silent lateral avoidance first. A spoken/order-style
+    -- request is reserved for a sustained obstruction (doorways remain faster).
+    navigationCrowdRequestMs = 1400,
+    navigationChokeCrowdRequestMs = 350,
     navigationTrafficDeadlockMs = 2200,
     navigationTrafficWaiterMs = 5000,
     movementRecorderWindowMs = 30000,
@@ -438,6 +443,7 @@ local valueData = {
     curtainDecisionIntervalMs = 12000,
     curtainTaskTimeoutMs = 30000,
     curtainSearchRadius = 5,
+    bedEntryTimeoutMs = 12000,
     curtainSearchSquareBudget = 121,
     curtainSearchObjectBudget = 128,
     windowOpenMs = 1300,
@@ -1238,6 +1244,7 @@ local valueData = {
 
     dangerSignalMaxDistance = 10,
     dangerSignalImmediateRadius = 4,
+    dangerSignalMaxThreatDistance = 12,
     -- Let a visible warning gesture read clearly before ordinary follow/path
     -- input resumes. Immediate danger, vehicles, and new orders still interrupt.
     dangerSignalHoldMs = 900,

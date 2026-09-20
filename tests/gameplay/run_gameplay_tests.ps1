@@ -36,6 +36,7 @@ $LuaFiles += @(
     'SCNavTraffic.lua',
     'SCNavTraversal.lua',
     'SCActionSupervisor.lua',
+    'SCVehicle.lua',
     'SCLocomotion.lua',
     'SCPerformance.lua',
     'SCDialogue.lua',

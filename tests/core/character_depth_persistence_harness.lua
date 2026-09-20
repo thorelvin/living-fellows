@@ -768,8 +768,9 @@ do
     end
 
     -- Real time spent paused, loading or with the background lane shed is not
-    -- capture work: a long gap between pulses must not expire a healthy save,
-    -- while the hard cap still bounds how long one staged job may stay open.
+    -- capture work: even a gap beyond the active-work cap must not expire a
+    -- healthy save. The cap measures scheduled work, not wall time while this
+    -- background lane is paused or shed.
     local function runPausedJob(label, pauseMs)
         check(SC.Persistence.reset() == true, label .. " resets scheduled state")
         local priorTimestamp = getTimestampMs
@@ -799,10 +800,9 @@ do
         "a paused game does not expire an otherwise healthy scheduled save: "
             .. tostring(pausedStatus) .. "/" .. tostring(pausedReason))
     local cappedOk, cappedStatus, cappedReason, cappedPublished =
-        runPausedJob("hard-capped staging", 200000)
-    check(cappedOk and cappedStatus == "failed" and not cappedPublished
-            and cappedReason == "capture deadline exceeded",
-        "the hard deadline still bounds a staged save across an extreme pause: "
+        runPausedJob("extreme deferred staging", 200000)
+    check(cappedOk and cappedStatus == "complete" and cappedPublished,
+        "an extreme scheduler deferral does not consume the active-work cap: "
             .. tostring(cappedStatus) .. "/" .. tostring(cappedReason))
 
     -- With seven companions, busy frames kept deferring the background lane
@@ -828,18 +828,22 @@ do
                 + tracked * SC.Config.get("persistenceCapturePerActorMs"))
         local allowance = job and (job.deadline - job.startedAt) or nil
         local before = job and job.deadline or 0
+        local hardBefore = job and job.hardDeadline or 0
         deferredClock = deferredClock + 400
         SC.Persistence.pulse()
         local moved = job and (job.deadline - before) or nil
+        local hardMoved = job and (job.hardDeadline - hardBefore) or nil
         getTimestampMs = priorTimestamp
         SC.Persistence.reset()
         check(requested == true and tracked > 0 and allowance == expected
-                and moved == 400 - SC.Config.get("persistencePulseGapGraceMs"),
-            "a pulse deferred by busy frames moves the save deadline, and each actor adds capture time: "
-                .. tostring(allowance) .. "/" .. tostring(expected) .. " moved=" .. tostring(moved))
+                and moved == 400 - SC.Config.get("persistencePulseGapGraceMs")
+                and hardMoved == moved,
+            "a deferred pulse moves both active-work deadlines, and each actor adds capture time: "
+                .. tostring(allowance) .. "/" .. tostring(expected) .. " moved="
+                .. tostring(moved) .. "/" .. tostring(hardMoved))
     end
 
-    local function runBarrierJob(label, expected)
+    local function runBarrierJob(label, expected, shouldConverge)
         local priorDocument = { sentinel = label }
         local stagedStore = SC_TEST_SET_WORLD_STORE({ document = priorDocument })
         local requested, requestReason = SC.Persistence.requestScheduledSave(stagedPlayer)
@@ -850,11 +854,46 @@ do
                 if status ~= "yielded" then break end
             end
         end
-        check(requested == true and status == "failed"
-                and stagedStore.document == priorDocument
-                and string.find(tostring(reason), expected, 1, true) ~= nil,
-            label .. " preserves the prior document: " .. tostring(requestReason)
-                .. "/" .. tostring(status) .. "/" .. tostring(reason))
+        if shouldConverge then
+            check(requested == true and status == "complete"
+                    and stagedStore.document ~= priorDocument,
+                label .. " restarts from a fresh coherent snapshot: "
+                    .. tostring(requestReason) .. "/" .. tostring(status)
+                    .. "/" .. tostring(reason))
+        else
+            check(requested == true and status == "failed"
+                    and stagedStore.document == priorDocument
+                    and string.find(tostring(reason), expected, 1, true) ~= nil,
+                label .. " preserves the prior document after bounded restarts: "
+                    .. tostring(requestReason) .. "/" .. tostring(status)
+                    .. "/" .. tostring(reason))
+        end
+    end
+
+    do
+        -- Encounter spawn/despawn may change the registry once while a save is
+        -- staged. Discard the mixed snapshot and converge on the next stable
+        -- registry instead of waiting five seconds with an older document.
+        local priorRecords = SC.Registry.records
+        local reads, addedRecord = 0, nil
+        SC.Registry.records = function(...)
+            reads = reads + 1
+            if reads == 2 and addedRecord == nil then
+                local addedActor = makeActor(square)
+                addedRecord = SC.Registry.register(addedActor, {
+                    id = "sc-registry-during-capture", recruited = true,
+                    identity = { forename = "Registry", surname = "Arrival", gender = "female" },
+                    state = { order = { current = "follow" }, personality = {}, downtime = {} },
+                })
+            end
+            return priorRecords(...)
+        end
+        check(SC.Persistence.reset() == true, "registry-transition save resets scheduled state")
+        runBarrierJob("one-time registry transition", "registry changed", true)
+        SC.Registry.records = priorRecords
+        if addedRecord then SC.Registry.unregister(addedRecord.actor) end
+        check(addedRecord ~= nil and reads >= 3,
+            "scheduled save observed the registry transition and recaptured the fresh roster")
     end
 
     local priorVehicle = SC.Vehicle
@@ -916,13 +955,15 @@ do
         exportStored = function() return {} end,
     }
     check(SC.Persistence.reset() == true, "vehicle seat barrier resets scheduled state")
-    runBarrierJob("actor vehicle seat transition", "actor vehicle state changed")
+    runBarrierJob("actor vehicle seat transition", "actor vehicle state changed", true)
 
     local vehicleChanged = false
     SC.Vehicle = {
         stateFor = function(actor)
             if actor == actorA and vehicleChanged then
-                return { stored = false, vehicle = "test:vehicle", seat = 1 }
+                return { stored = false, seat = 1,
+                    vehicle = { id = 78, script = "Base.CarNormal",
+                        x = 10, y = 12, z = 0 } }
             end
             return nil
         end,
@@ -934,7 +975,7 @@ do
         return priorBGetInventory(self)
     end
     check(SC.Persistence.reset() == true, "actor vehicle barrier resets scheduled state")
-    runBarrierJob("actor vehicle transition", "actor vehicle state changed")
+    runBarrierJob("actor vehicle transition", "actor vehicle state changed", true)
     actorB.getInventory = priorBGetInventory
 
     local vehicleExports = 0
@@ -947,7 +988,7 @@ do
         end,
     }
     check(SC.Persistence.reset() == true, "stored vehicle barrier resets scheduled state")
-    runBarrierJob("virtual vehicle transition", "vehicle storage changed")
+    runBarrierJob("virtual vehicle transition", "vehicle storage changed", true)
     SC.Vehicle = priorVehicle
 
     local priorTrade = SC.Trade
@@ -959,7 +1000,7 @@ do
         end,
     }
     check(SC.Persistence.reset() == true, "trade barrier resets scheduled state")
-    runBarrierJob("trade recovery transition", "trade recovery changed")
+    runBarrierJob("trade recovery transition", "trade recovery changed", false)
     SC.Trade = priorTrade
 
     getTimestampMs = priorTimestamp

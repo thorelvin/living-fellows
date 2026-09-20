@@ -658,7 +658,8 @@ local function furnitureKind(object)
     local textValue = nameOk and string.lower(tostring(name)) or ""
     if string.find(textValue, "bed", 1, true) then return "rest_bed" end
     if string.find(textValue, "chair", 1, true) or string.find(textValue, "sofa", 1, true)
-        or string.find(textValue, "couch", 1, true) then return "sit" end
+        or string.find(textValue, "couch", 1, true)
+        or string.find(textValue, "stool", 1, true) then return "sit" end
     local sprite, spriteOk = utility.call(object, "getSprite")
     if spriteOk and sprite then
         local spriteName, spriteNameOk = utility.call(sprite, "getName")
@@ -666,17 +667,29 @@ local function furnitureKind(object)
         if string.find(lowered, "bedding", 1, true)
             or string.find(lowered, "_bed", 1, true) then return "rest_bed" end
         if string.find(lowered, "chair", 1, true) or string.find(lowered, "sofa", 1, true)
-            or string.find(lowered, "couch", 1, true) then return "sit" end
+            or string.find(lowered, "couch", 1, true)
+            or string.find(lowered, "stool", 1, true) then return "sit" end
         local properties, propertiesOk = utility.call(sprite, "getProperties")
         if propertiesOk and properties then
-            local bed, bedOk = utility.call(properties, "Is", "BedType")
-            if bedOk and bed then return "rest_bed" end
+            local chair, chairOk = utility.call(properties, "Is", "IsChair")
+            if chairOk and chair then return "sit" end
+            -- Build 42 applies BedType to both beds and seating. In particular,
+            -- ordinary chairs and sofas use values such as badChair and
+            -- averageChair, so testing only for the property's presence turns
+            -- most seats into beds. Classify the value, not the key.
+            local bedType, bedTypeOk = utility.call(properties, "Val", "BedType")
+            if (not bedTypeOk or bedType == nil) then
+                bedType, bedTypeOk = utility.call(properties, "get", "BedType")
+            end
+            local loweredBedType = bedTypeOk and bedType ~= nil
+                and string.lower(tostring(bedType)) or ""
+            if string.find(loweredBedType, "chair", 1, true)
+                or string.find(loweredBedType, "stool", 1, true) then return "sit" end
+            if string.find(loweredBedType, "bed", 1, true) then return "rest_bed" end
             if type(IsoFlagType) == "table" and IsoFlagType.bed ~= nil then
                 local flagged, flaggedOk = utility.call(properties, "has", IsoFlagType.bed)
                 if flaggedOk and flagged then return "rest_bed" end
             end
-            local chair, chairOk = utility.call(properties, "Is", "IsChair")
-            if chairOk and chair then return "sit" end
         end
     end
     if type(SeatingManager) == "table" and type(SeatingManager.getInstance) == "function" then
@@ -1833,6 +1846,13 @@ local function beginActivity(actor, state, activity, commands, now)
         return SC.Medical.replaceDirtyBandage(actor)
     end
     if not reserveActivity(actor, activity, now) then return false, "reserved" end
+    if activity.kind == "rest_bed" then
+        activity.deadlines = activity.deadlines or {}
+        activity.deadlines.animating = tonumber(
+            U().config("bedEntryTimeoutMs")) or 12000
+        activity.deadlines.waiting = math.max(
+            tonumber(activity.durationMs) or 0, 30000)
+    end
     activity.commandSerial = commands.commandSerial or 0
     local owned, ownerReason = beginSupervisedActivity(actor, state, activity)
     if owned ~= true then
@@ -1911,14 +1931,20 @@ local function beginActivity(actor, state, activity, commands, now)
             state.active = activity
             return failActivity(actor, state, "animation_rejected")
         end
-        activity.startedAt = now
+        if activity.kind == "rest_bed" then
+            activity.entryStartedAt = now
+            activity.startedAt = nil
+        else
+            activity.startedAt = now
+        end
         activity.actionAccepted = true
         if study then Study.speakNext(actor, activity, now) end
         if activity.kind == "workout" and SC.Gestures
             and type(SC.Gestures.workoutStarted) == "function" then
             pcall(SC.Gestures.workoutStarted, actor, activity, now)
         end
-        transitionActivity(activity, visualActivities[activity.kind]
+        transitionActivity(activity, activity.kind == "rest_bed" and "animating"
+            or visualActivities[activity.kind]
             and SC.NativeActions and type(SC.NativeActions.visualStatus) == "function"
             and "animating" or "settling", { action = activity.kind })
     end
@@ -2308,9 +2334,37 @@ function Downtime.update(actor, player, runtime, desiredKind)
             end
             state.active.approaching = nil
             state.active.actionAccepted = true
-            state.active.startedAt = current
-            transitionActivity(state.active, "settling", { action = state.active.kind })
+            if state.active.kind == "rest_bed" then
+                state.active.entryStartedAt = current
+                state.active.startedAt = nil
+                transitionActivity(state.active, "animating", { action = state.active.kind })
+            else
+                state.active.startedAt = current
+                transitionActivity(state.active, "settling", { action = state.active.kind })
+            end
             return true, state.active.kind
+        end
+        if state.active.kind == "rest_bed" and state.active.actionAccepted == true
+            and state.active.bedEntered ~= true then
+            local bedState = SC.NativeActions and type(SC.NativeActions.bedStatus) == "function"
+                and SC.NativeActions.bedStatus(actor) or "none"
+            if bedState == "entered" then
+                state.active.bedEntered = true
+                state.active.startedAt = current
+                local transitioned, transitionReason = transitionActivity(
+                    state.active, "waiting", { action = "rest_bed", entered = true })
+                if transitioned ~= true then
+                    return failActivity(actor, state,
+                        transitionReason or "bed_entry_transition_failed")
+                end
+                return true, "resting_on_bed"
+            end
+            local elapsed = current - (tonumber(state.active.entryStartedAt) or current)
+            if bedState ~= "entering" or elapsed >= (utility.config("bedEntryTimeoutMs") or 12000) then
+                return failActivity(actor, state, bedState == "entering"
+                    and "bed_entry_timeout" or "bed_entry_failed")
+            end
+            return true, "getting_on_bed"
         end
         local duration = state.active.durationMs or Study.duration(state.active.kind)
         -- Work speed shapes chores; an activity with its own length keeps it.
@@ -2377,7 +2431,7 @@ function Downtime._readingForTests()
 end
 
 function Downtime._furnitureForTests()
-    return furnitureKind, seatActivity, approachFurniture
+    return furnitureKind, seatActivity, approachFurniture, beginActivity
 end
 
 function Downtime.reset(actor)

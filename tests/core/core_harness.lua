@@ -749,6 +749,41 @@ do
             and visual.skinColor.r == 0.41 and appearanceActor.resets == 1,
         "save/load restores exact hair, beard, skin and body appearance: "
             .. tostring(appearanceReason))
+
+    local itemVisual = {
+        baseTexture = 7, textureChoice = 3, hue = 0.27,
+        decal = "Kentucky", alternateModelName = "Tucked",
+        tint = color(0.22, 0.44, 0.66, 1),
+    }
+    function itemVisual:getBaseTexture() return self.baseTexture end
+    function itemVisual:getTextureChoice() return self.textureChoice end
+    function itemVisual:getHue() return self.hue end
+    function itemVisual:getDecal() return self.decal end
+    function itemVisual:getAlternateModelName() return self.alternateModelName end
+    function itemVisual:getTint() return self.tint end
+    function itemVisual:setBaseTexture(value) self.baseTexture = value end
+    function itemVisual:setTextureChoice(value) self.textureChoice = value end
+    function itemVisual:setHue(value) self.hue = value end
+    function itemVisual:setDecal(value) self.decal = value end
+    function itemVisual:setAlternateModelName(value) self.alternateModelName = value end
+    function itemVisual:setTint(value) self.tint = value end
+    local clothing = { visual = itemVisual, synced = 0 }
+    function clothing:getVisual() return self.visual end
+    function clothing:getClothingItem() return self end
+    function clothing:synchWithVisual() self.synced = self.synced + 1 end
+    local savedItemVisual = SC.Persistence._captureItemVisualForTests(clothing)
+    itemVisual.baseTexture, itemVisual.textureChoice, itemVisual.hue = 1, 0, 0
+    itemVisual.decal, itemVisual.alternateModelName = "", ""
+    itemVisual.tint = color(1, 1, 1, 1)
+    local itemVisualApplied, itemVisualReason =
+        SC.Persistence._applyItemVisualForTests(clothing, savedItemVisual)
+    check(itemVisualApplied and itemVisualReason == nil
+            and itemVisual.baseTexture == 7 and itemVisual.textureChoice == 3
+            and itemVisual.hue == 0.27 and itemVisual.decal == "Kentucky"
+            and itemVisual.alternateModelName == "Tucked"
+            and itemVisual.tint.r == 0.22 and clothing.synced == 1,
+        "save/load restores clothing texture, model, decal, hue and tint: "
+            .. tostring(itemVisualReason))
     ImmutableColor = oldImmutableColor
 end
 

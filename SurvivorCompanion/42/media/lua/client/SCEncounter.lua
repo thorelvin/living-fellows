@@ -705,6 +705,11 @@ local function containerReach(actor, task)
     local cx, cy, cz
     if square ~= nil then
         cx, cy, cz = utility.position(square)
+        -- IsoGridSquare coordinates identify the tile corner while actors stand
+        -- around its centre. Comparing those coordinate systems rejected valid
+        -- adjacent (especially diagonal) looting positions as 1.7-2.5 tiles
+        -- away and sent scavengers through approach/settle forever.
+        if cx ~= nil then cx, cy = math.floor(cx) + 0.5, math.floor(cy) + 0.5 end
     elseif task then
         cx, cy, cz = task.containerX, task.containerY, task.containerZ
     end
@@ -1276,7 +1281,12 @@ local function beginTask(actor, state, container, item, category, owner, utility
     -- Where the container was when the task was created. A shelf does not move,
     -- and this is the fallback the reach gate uses when neither the owner nor
     -- the container resolves to a square at transfer time.
-    task.containerX, task.containerY, task.containerZ = U().position(task.owner)
+    local taskSquare = U().squareOf(task.owner) or U().squareOf(task.container)
+    task.containerX, task.containerY, task.containerZ = U().position(taskSquare or task.owner)
+    if taskSquare ~= nil and task.containerX ~= nil then
+        task.containerX = math.floor(task.containerX) + 0.5
+        task.containerY = math.floor(task.containerY) + 0.5
+    end
     local service = supervisor()
     if service and type(service.begin) == "function" then
         local x, y, z = U().position(task.owner)
@@ -1682,6 +1692,9 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         setTaskPhase(actor, state, task, "approach", "approaching_container")
         local ok, status = SC.Navigation.requestAny(actor, targets, "walk", {
             action = "move_to_scavenge", container = task.container,
+            -- Retain object identity for route invalidation without disabling
+            -- Build 42's continuous nearest-interaction path.
+            nativeNearest = true,
             item = task.item, object = task.owner, snapshot = snapshot,
             arrivalDistance = 0.35, requireSameSquare = true,
             -- Walking across a room to a shelf is cruising, not a tactical
@@ -2128,14 +2141,9 @@ local function neutralUpdate(actor, player, rootRuntime, snapshot, state)
             })
         end
     end
-    if player and utility.distance(actor, player) <= (utility.config("encounterActiveRadius") or 75)
-        and not utility.canSee(player, actor) and SC.Navigation and type(SC.Navigation.request) == "function" then
-        return SC.Navigation.request(actor, player, "sneak", {
-            action = "approach_player_cautiously",
-            snapshot = snapshot,
-            neutral = true,
-        })
-    end
+    -- Being inside the encounter radius does not make an unknown survivor home
+    -- in on the player. Meetings now come from crossed paths, sound interest or
+    -- explicit social contact rather than an invisible player magnet.
     return seekCover(actor, snapshot, "move_cautiously")
 end
 

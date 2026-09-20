@@ -44,7 +44,12 @@ local legalTransitions = {
         waiting = true, recovering = true,
     },
     settling = {
-        animating = true, committing = true, waiting = true, recovering = true,
+        -- A final interaction precondition may discover that the actor drifted
+        -- just outside reach while settling. Re-approaching is still safely
+        -- pre-commit and must reset the phase deadline instead of leaving the
+        -- old settling timer running until a false timeout.
+        approaching = true, animating = true, committing = true,
+        waiting = true, recovering = true,
     },
     animating = { committing = true, waiting = true, recovering = true },
     waiting = {

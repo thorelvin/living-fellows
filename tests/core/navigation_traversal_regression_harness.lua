@@ -474,11 +474,12 @@ local oldBarrier = SC.Topology.barrierBetween
 local door = { IsOpen = function() return true end }
 SC.Topology.barrierBetween = function() return door, "door" end
 local blocker = N._classifyMovementBlockerForTests(mover, mover.square, destination, "native_path_stalled")
-check(blocker.type == "door" and blocker.confidence == "low" and blocker.evidenceClass == "unknown",
-    "merely attempting an open door is not a high-confidence static collision")
+check(blocker.type == "open_door_threshold" and blocker.confidence == "low"
+        and blocker.evidenceClass == "unknown" and blocker.passageOnly == true,
+    "merely attempting an open door is a retryable threshold, not a static collision")
 function mover:isCollidedWithVehicle() return true end
 blocker = N._classifyMovementBlockerForTests(mover, mover.square, destination, "native_path_stalled")
-check(blocker.type == "door" and blocker.confidence == "low",
+check(blocker.type == "open_door_threshold" and blocker.confidence == "low",
     "misnamed native vehicle flag from a static polygon correction does not invent a parked car")
 local actualVehicle = { __class = "BaseVehicle" }
 function destination:getVehicleContainer() return actualVehicle end
@@ -489,9 +490,10 @@ destination.getVehicleContainer, mover.isCollidedWithVehicle = nil, nil
 local failedState = { openedDoors = {} }
 N._rememberFailureForTests(mover, failedState, mover.square, destination,
     "native_path_stalled", current, "audit")
-local edge = failedState.blockedEdges["0:0:0>1:0:0"]
-check(edge and edge.expires - current <= 500,
-    "uncertain open-door failure only uses short retry cooldown")
+local edge = failedState.blockedEdges
+    and failedState.blockedEdges["0:0:0>1:0:0"] or nil
+check(edge == nil,
+    "uncertain open-door failure is not written into the route blacklist")
 check(failedState.lastBlocker.diagnostic:find("pos=", 1, true)
     and failedState.lastBlocker.diagnostic:find("fsm=", 1, true)
     and failedState.lastBlocker.diagnostic:find("native_path_stalled", 1, true),

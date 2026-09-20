@@ -28,7 +28,7 @@ The installed private copy enables the debug-only tab, including explicit househ
 
 ## Release candidate and Workshop publication
 
-The current release-ready branch is `living_fellows/0.25.4`; later releases follow `living_fellows/<version>`. For every public candidate:
+The current release-ready branch is `living_fellows/0.25.5`; later releases follow `living_fellows/<version>`. For every public candidate:
 
 1. Update `VERSION.txt`, both `mod.info` files, `SC.Identity.release`, the README badge, the shipped `SurvivorCompanion/README.txt`, and the top changelog entry together.
 2. Run `scripts\Test-Project.ps1` against the pinned Project Zomboid runtime, then install the private native-bridge build and complete [PLAYTEST-CHECKLIST.md](PLAYTEST-CHECKLIST.md) on a disposable copy of a save.

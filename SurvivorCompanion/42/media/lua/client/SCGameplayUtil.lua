@@ -721,6 +721,15 @@ function U.movementStateBlocker(actor)
         if string.find(lower, "knock", 1, true) or string.find(lower, "getup", 1, true) then
             return "knocked_down", current
         end
+        if string.find(lower, "playeronbedstate", 1, true)
+            or string.find(lower, "sitonfurniture", 1, true) then
+            -- Furniture posture is a known native owner.  Classifying it
+            -- separately prevents navigation from treating a legitimate bed
+            -- pose as an unknown collision and attempting lateral/stuck
+            -- recovery through the furniture.  NativeActions leaves this
+            -- posture before accepting a movement action.
+            return "furniture_state", current
+        end
         if string.find(lower, "playeractions", 1, true) then
             return "action_animation_state", current
         end

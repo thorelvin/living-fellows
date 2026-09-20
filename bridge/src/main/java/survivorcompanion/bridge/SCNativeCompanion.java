@@ -54,6 +54,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     private static final Method WEAPON_SOUND_BY_ID = resolveWeaponSoundById();
     private static final Method WEAPON_SWING_SOUND = resolveWeaponSwingSound();
     private static final Method CHARACTER_PLAY_SOUND = resolveCharacterPlaySound();
+    private static final Method CHAT_ELEMENT_UPDATE = resolveNoArg(ChatElement.class, "update");
     private static volatile String RUNTIME_CONTRACT_FAILURE_FOR_TESTS = "";
     private static final int MIN_SPEECH_DISPLAY_MILLIS = 4_000;
     private static final int MAX_SPEECH_DISPLAY_MILLIS = 30_000;
@@ -1685,8 +1686,13 @@ public final class SCNativeCompanion extends IsoPlayer {
                 for (int playerIndex = 0; playerIndex < 4; playerIndex++) {
                     chat.clear(playerIndex);
                 }
+                // clear(index) expires each player's rows, while update()
+                // recomputes ChatElement's cached speaking/display flags. A
+                // same-frame teardown otherwise verifies the stale cache and
+                // quarantines an already invisible encounter actor for retry.
+                if (CHAT_ELEMENT_UPDATE != null) CHAT_ELEMENT_UPDATE.invoke(chat);
             }
-        } catch (RuntimeException | LinkageError failure) {
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
             cleared = false;
         }
         return cleared && !hasCompanionSpeech();

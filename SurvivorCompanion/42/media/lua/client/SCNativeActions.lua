@@ -40,10 +40,12 @@ local activeWork = setmetatable({}, { __mode = "k" })
 local activeNeeds = setmetatable({}, { __mode = "k" })
 local activeFinal = setmetatable({}, { __mode = "k" })
 local activeVisual = setmetatable({}, { __mode = "k" })
+local activeBedActions = setmetatable({}, { __mode = "k" })
 local pacingStates = setmetatable({}, { __mode = "k" })
 local resultHistory = setmetatable({}, { __mode = "k" })
 local pendingCombat = setmetatable({}, { __mode = "k" })
 local pacingSequence = 0
+local cancelOwnedTimedAction
 local humanEmotes = {
     wavehi = true, wavebye = true, clap = true, thumbsup = true, thankyou = true,
     insult = true, stop = true, surrender = true, thumbsdown = true,
@@ -400,6 +402,27 @@ local function requestGroundSeat(actor, seated)
 end
 
 local function leaveSeating(actor)
+    local bedRecord = activeBedActions[actor]
+    if bedRecord and cancelOwnedTimedAction then
+        local queue = type(ISTimedActionQueue) == "table"
+            and type(ISTimedActionQueue.getTimedActionQueue) == "function"
+            and ISTimedActionQueue.getTimedActionQueue(actor) or nil
+        cancelOwnedTimedAction(queue, bedRecord.timedAction)
+        activeBedActions[actor] = nil
+    end
+    local onBedOk, onBed = invoke(actor, "isOnBed")
+    if bedRecord ~= nil or (onBedOk and onBed == true) then
+        -- Clear both the animation request and the native posture. The stock bed
+        -- action is unbounded (-1) while it waits for OnBedStarted, so leaving
+        -- only the Lua queue entry behind strands the actor in PlayerOnBedState.
+        invoke(actor, "setVariable", "forceGetUp", true)
+        invoke(actor, "setVariable", "OnBedStarted", false)
+        invoke(actor, "setOnBed", false)
+        invoke(actor, "setbOnBed", false)
+        invoke(actor, "setSitOnFurnitureObject", nil)
+        local verifyOk, stillOnBed = invoke(actor, "isOnBed")
+        if verifyOk and stillOnBed == true then return false, "standing_from_bed" end
+    end
     local standing, reason = leaveFurniture(actor)
     if not standing then return false, reason end
     if groundSeatState(actor) then
@@ -1207,7 +1230,7 @@ end
 -- unrelated third-party action queued on the companion untouched. Never clear the
 -- whole queue (ISTimedActionQueue.clear(actor)) -- on a companion an unknown mod's
 -- action can be sharing the queue.
-local function cancelOwnedTimedAction(queue, timedAction)
+cancelOwnedTimedAction = function(queue, timedAction)
     if timedAction ~= nil and timedAction.character ~= nil and timedAction.action ~= nil then
         -- SCNativeCompanion defers StartAction until the originating Lua call has
         -- unwound. Cancellation must revoke that hand-off as well as stopping an
@@ -3138,6 +3161,18 @@ function actions.activityStatus(actor)
         actions.cancelVisual(actor, "visual_" .. tostring(visualState))
     end
 
+    local bed = activeBedActions[actor]
+    if bed then
+        local onBedOk, onBed = invoke(actor, "isOnBed")
+        if onBedOk and onBed == true then
+            return "active", "downtime", "rest_bed", bed.startedAt, bed
+        end
+        if trackedActionIsActive(actor, bed) then
+            return "active", "downtime", "rest_bed", bed.startedAt, bed
+        end
+        activeBedActions[actor] = nil
+    end
+
     local needs = activeNeeds[actor]
     if needs then
         if trackedActionIsActive(actor, needs) then
@@ -3266,6 +3301,7 @@ function actions.interruptOwnedActivity(actor, reason)
     if owner == "visual" then return actions.cancelVisual(actor, reason) end
     if owner == "needs" then return actions.cancelNeeds(actor, reason) end
     if owner == "work" then return actions.cancelWork(actor, reason) end
+    if owner == "downtime" then return leaveSeating(actor) end
     -- Never clear an unknown vanilla or third-party action. We did not acquire
     -- its resources and cannot safely invent its rollback contract.
     return false, "unowned_native_action_active"
@@ -3420,6 +3456,7 @@ function actions.releaseActor(actor)
     activeNeeds[actor] = nil
     activeFinal[actor] = nil
     activeVisual[actor] = nil
+    activeBedActions[actor] = nil
     pacingStates[actor] = nil
     resultHistory[actor] = nil
     pendingCombat[actor] = nil
@@ -3611,10 +3648,21 @@ function actions.dispatch(actor, mode, intent, provider)
         if not provider.directNative then return false, reason end
         local onBed, onBedOk = invoke(actor, "isOnBed")
         if onBedOk and onBed == true then return true, "resting_on_bed" end
+        local prior = activeBedActions[actor]
+        if prior and trackedActionIsActive(actor, prior) then
+            return true, "getting_on_bed"
+        end
+        activeBedActions[actor] = nil
         if type(ISGetOnBedAction) ~= "table" or type(ISGetOnBedAction.new) ~= "function"
             or type(ISTimedActionQueue) ~= "table"
             or type(ISTimedActionQueue.add) ~= "function" then
             return false, "native bed-rest action is unavailable"
+        end
+        local queue = type(ISTimedActionQueue.getTimedActionQueue) == "function"
+            and ISTimedActionQueue.getTimedActionQueue(actor) or nil
+        if type(queue) ~= "table" or queue.current ~= nil
+            or type(queue.queue) ~= "table" or #queue.queue ~= 0 then
+            return false, "actor already has a native timed action"
         end
         local created, bedAction = pcall(ISGetOnBedAction.new,
             ISGetOnBedAction, actor, intent.object)
@@ -3623,6 +3671,22 @@ function actions.dispatch(actor, mode, intent, provider)
         end
         local queued, failure = pcall(ISTimedActionQueue.add, bedAction)
         if not queued then return false, tostring(failure) end
+        queue = ISTimedActionQueue.getTimedActionQueue(actor)
+        local retained = type(queue) == "table" and (queue.current == bedAction)
+        if not retained and type(queue) == "table" and type(queue.queue) == "table" then
+            for _, queuedAction in ipairs(queue.queue) do
+                if queuedAction == bedAction then retained = true break end
+            end
+        end
+        if not retained then
+            cancelOwnedTimedAction(queue, bedAction)
+            return false, "native bed-rest action was not retained"
+        end
+        activeBedActions[actor] = {
+            timedAction = bedAction,
+            bed = intent.object,
+            startedAt = nowMs(),
+        }
         return true, "getting_on_bed"
     elseif SC.NativeWorkActions.handles(action) then
         return SC.NativeWorkActions.dispatch(actor, action, intent, provider)
@@ -3691,6 +3755,18 @@ end
 
 function actions.leaveSeating(actor)
     return leaveSeating(actor)
+end
+
+function actions.bedStatus(actor)
+    if actor == nil then return "none" end
+    local onBedOk, onBed = invoke(actor, "isOnBed")
+    if onBedOk and onBed == true then return "entered" end
+    local record = activeBedActions[actor]
+    if record and trackedActionIsActive(actor, record) then
+        return "entering", record.startedAt
+    end
+    if record then activeBedActions[actor] = nil return "failed", record.startedAt end
+    return "none"
 end
 
 return actions

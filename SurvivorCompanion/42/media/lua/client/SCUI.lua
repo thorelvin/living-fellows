@@ -630,6 +630,17 @@ local function baseDetailSignature()
         jobs = summary.jobs, rows = summary.rows, zoneRows = summary.zoneRows,
         storageRows = summary.storageRows, maintenanceRows = summary.maintenanceRows,
         residentRows = summary.residentRows,
+        -- Selector callbacks may fire while the native combo box is still open,
+        -- so refresh is intentionally deferred. Include the draft in the later
+        -- structural signature or logging -> graves leaves stale controls.
+        productionDraft = {
+            operation = productionDraft.operation,
+            disposal = productionDraft.disposal,
+            zoneId = productionDraft.zoneId,
+            sourceStorageId = productionDraft.sourceStorageId,
+            destinationStorageId = productionDraft.destinationStorageId,
+            haul = productionDraft.haul,
+        },
         operations = {
             readiness = operations.readiness, stock = operations.stock,
             alerts = operations.alerts, policies = operations.policies,

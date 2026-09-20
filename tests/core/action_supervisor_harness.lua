@@ -62,6 +62,15 @@ check(invalidAccepted ~= true
     "the explicit phase graph rejects verification before commit")
 Supervisor.cancel(actor, "invalid_order_fixture", nil, true)
 
+local reacquire = assert(Supervisor.begin(actor, {
+    owner = "scavenge", action = "loot_reacquire", ignoreRetry = true,
+}))
+check(Supervisor.transition(reacquire, "approaching") == true
+        and Supervisor.transition(reacquire, "settling") == true
+        and Supervisor.transition(reacquire, "approaching") == true,
+    "a pre-commit reach check can return from settling to approach")
+Supervisor.cancel(actor, "reacquire_fixture", nil, true)
+
 local resource = {}
 local transaction = assert(Supervisor.begin(actor, {
     owner = "medical", action = "replace_dirty_bandage", targetKey = "arm:left",

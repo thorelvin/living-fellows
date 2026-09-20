@@ -713,6 +713,7 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
             snapshot = snapshot,
             desiredDistance = 0,
             urgent = false,
+            continuousApproach = true,
             movementPriority = 30,
             supervisorToken = transaction.supervisorToken,
         })
@@ -795,6 +796,12 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
         groupParticipants = formation and formation.participants or nil,
     })
 end
+
+-- Test seam for the complete follow/vehicle policy path.  Keeping this on the
+-- controller (rather than testing Vehicle.board in isolation) catches the
+-- regression where a valid manifest was built but Decision never dispatched
+-- entry, or never dispatched exit after the player left the car.
+Decision._doFollowForTests = doFollow
 
 local function anchorSquare(commands)
     if type(commands.anchor) ~= "table" then return nil end
@@ -1805,6 +1812,7 @@ local function warnAboutThreat(actor, snapshot, commands, state, current)
     local threatDistance = threat and U().distance(actor, threat) or 0
     local quietSignal = immediate == 0
         and threatDistance > (U().config("dangerSignalImmediateRadius") or 4)
+        and threatDistance <= (U().config("dangerSignalMaxThreatDistance") or 12)
         and player ~= nil
         and U().distance(actor, player) <= (U().config("dangerSignalMaxDistance") or 10)
         and U().canSee(player, actor)
@@ -2031,7 +2039,29 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                     state.lastHandledAt = current
                     return true, state.intent
                 end
-            elseif token.rollbackObligation ~= nil or token.owner == "player_control"
+            elseif token.rollbackObligation ~= nil then
+                state.current = "activity"
+                state.intent = tostring(token.owner) .. ":" .. tostring(token.action)
+                state.lastHandledAt = current
+                return true, state.intent
+            elseif token.owner == "downtime" and SC.Downtime
+                and type(SC.Downtime.update) == "function" then
+                -- Downtime owns a controller, not just an animation.  Poll it
+                -- while its supervisor token is live so approaches, bed entry,
+                -- washing and their completion proofs advance to a terminal
+                -- state.  Falling through to the ordinary candidate pass used
+                -- to select follow/stay again and cancel these actions every
+                -- few seconds as "decision_preempted".
+                local safe, _, downtimeReason = U().safeSubsystem(
+                    "downtime", actor, function()
+                        return SC.Downtime.update(actor, player, rootRuntime or {})
+                    end)
+                state.current, state.currentKey = "downtime", "downtime"
+                state.intent = safe and (downtimeReason or "owned_downtime_polled")
+                    or "owned_downtime_poll_failed"
+                state.lastHandledAt = current
+                return true, state.intent
+            elseif token.owner == "player_control"
                 or token.phase == "committing" or token.phase == "verifying" then
                 state.current = "activity"
                 state.intent = tostring(token.owner) .. ":" .. tostring(token.action)

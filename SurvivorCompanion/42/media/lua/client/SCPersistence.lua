@@ -298,6 +298,17 @@ local function captureColor(color)
     }
 end
 
+local function immutableColor(saved)
+    if type(saved) ~= "table" then return nil, "saved appearance color is invalid" end
+    local immutable = type(_G) == "table" and rawget(_G, "ImmutableColor") or nil
+    local created, color = staticInvoke(immutable, "new",
+        finite(saved.r, 0), finite(saved.g, 0), finite(saved.b, 0), finite(saved.a, 1))
+    if not created or color == nil then
+        return nil, "native immutable color API is unavailable"
+    end
+    return color
+end
+
 local function humanVisual(actor)
     local visualOk, visual = invoke(actor, "getHumanVisual")
     if visualOk and visual ~= nil then return visual end
@@ -521,13 +532,40 @@ end
 
 local function captureItemVisual(item)
     local visualOk, visual = invoke(item, "getVisual")
+    if not visualOk or visual == nil then return nil end
+    local result = { parts = {} }
+    local populated = false
+    local function scalar(field, getter, kind)
+        local ok, value = invoke(visual, getter)
+        if not ok or value == nil then return end
+        if kind == "number" then value = finite(value, 0)
+        elseif kind == "integer" then value = math.floor(finite(value, 0))
+        else value = text(value, "", 128) end
+        result[field], populated = value, true
+    end
+    scalar("baseTexture", "getBaseTexture", "integer")
+    scalar("textureChoice", "getTextureChoice", "integer")
+    scalar("hue", "getHue", "number")
+    scalar("decal", "getDecal", "text")
+    scalar("alternateModelName", "getAlternateModelName", "text")
+    local clothingOk, clothing = invoke(item, "getClothingItem")
+    local tintOk, tint
+    if clothingOk and clothing ~= nil then
+        tintOk, tint = invoke(visual, "getTint", clothing)
+    else
+        tintOk, tint = invoke(visual, "getTint")
+    end
+    if tintOk then
+        result.tint = captureColor(tint)
+        populated = populated or result.tint ~= nil
+    end
+
     local enum = type(_G) == "table" and rawget(_G, "BloodBodyPartType") or nil
-    if not visualOk or visual == nil or enum == nil then return nil end
+    if enum == nil then return populated and result or nil end
     local maxOk, maximum = fieldValue(enum, "MAX")
     local indexOk, count = false, nil
     if maxOk and maximum ~= nil then indexOk, count = invoke(maximum, "index") end
-    if not indexOk or not tonumber(count) then return nil end
-    local result = { parts = {} }
+    if not indexOk or not tonumber(count) then return populated and result or nil end
     for index = 0, math.min(math.floor(tonumber(count)), 32) - 1 do
         local partOk, part = staticInvoke(enum, "FromIndex", index)
         if partOk and part ~= nil then
@@ -560,8 +598,9 @@ local function captureItemVisual(item)
             if any then result.parts[#result.parts + 1] = entry end
         end
     end
-    return #result.parts > 0 and result or nil
+    return (populated or #result.parts > 0) and result or nil
 end
+persistence._captureItemVisualForTests = captureItemVisual
 
 local function maskHas(mask, flag)
     return math.floor((tonumber(mask) or 0) / flag) % 2 >= 1
@@ -1487,6 +1526,32 @@ function persistence.cancelPendingSave(reason)
     return true, "cancelled"
 end
 
+local function scheduledRecordsAndAllowance()
+    local records, tracked = {}, 0
+    for _, record in ipairs(SC.Registry.records()) do
+        records[#records + 1] = record
+        if record.recruited == true or type(record.factionId) == "string" then
+            tracked = tracked + 1
+        end
+    end
+    local hard = math.max(250,
+        tonumber(SC.Config.get("persistenceCaptureHardDeadlineMs")) or 120000)
+    local allowance = math.min(hard,
+        math.max(250, tonumber(SC.Config.get("persistenceCaptureDeadlineMs")) or 20000)
+            + tracked * math.max(0,
+                tonumber(SC.Config.get("persistenceCapturePerActorMs")) or 3000))
+    return records, tracked, allowance, hard
+end
+
+local function scheduledDocument(current)
+    return {
+        schema = SC.Identity.saveSchema,
+        protocol = SC.Identity.bridgeProtocol,
+        savedAt = current,
+        companions = {}, factionActors = {},
+    }
+end
+
 function persistence.requestScheduledSave(player)
     local current = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0
     if scheduledSave ~= nil then return true, "already_pending" end
@@ -1495,34 +1560,19 @@ function persistence.requestScheduledSave(player)
     if store == nil or saveBlockedReason ~= nil then
         return false, reason or saveBlockedReason
     end
-    local records, tracked = {}, 0
-    for _, record in ipairs(SC.Registry.records()) do
-        records[#records + 1] = record
-        if record.recruited == true or type(record.factionId) == "string" then
-            tracked = tracked + 1
-        end
-    end
-    -- Every tracked actor adds its own capture allowance, within the hard cap.
-    local deadlineMs = math.min(
-        math.max(250, tonumber(SC.Config.get("persistenceCaptureHardDeadlineMs")) or 120000),
-        math.max(250, tonumber(SC.Config.get("persistenceCaptureDeadlineMs")) or 20000)
-            + tracked * math.max(0,
-                tonumber(SC.Config.get("persistenceCapturePerActorMs")) or 3000))
+    local records, _, deadlineMs, hardDeadlineMs = scheduledRecordsAndAllowance()
+    -- Every tracked actor adds its own capture allowance, within the active
+    -- capture cap. Time during which the background lane is not scheduled is
+    -- credited back in pulse(), including against that cap.
     scheduledSave = {
         player = player, store = store, priorDocument = store.document,
         startedAt = current, lastPulseAt = current,
         deadline = current + deadlineMs,
-        hardDeadline = current + math.max(deadlineMs,
-            tonumber(SC.Config.get("persistenceCaptureHardDeadlineMs")) or 120000),
+        hardDeadline = current + math.max(deadlineMs, hardDeadlineMs),
         phase = "subsystems", index = 1,
         definitions = scheduledSubsystemDefinitions(), records = records,
-        actorAttempts = {}, actorProofs = {},
-        document = {
-            schema = SC.Identity.saveSchema,
-            protocol = SC.Identity.bridgeProtocol,
-            savedAt = current,
-            companions = {}, factionActors = {},
-        },
+        actorAttempts = {}, actorProofs = {}, restartAttempts = 0,
+        document = scheduledDocument(current),
     }
     return true, "requested"
 end
@@ -1768,6 +1818,53 @@ local function actorRetryLimit()
         SC.Config.get("persistenceActorRetryLimit")) or 2))
 end
 
+local function restartableScheduledReason(reason)
+    reason = tostring(reason or "")
+    local prefixes = {
+        "gather work ownership changed",
+        "diary content changed",
+        "registry changed",
+        "registry lifecycle changed",
+        "actor activity changed",
+        "actor life state changed",
+        "actor vehicle state changed",
+        "actor vehicle position unavailable",
+        "staged actor record unavailable",
+        "vehicle storage changed",
+        "trade recovery changed",
+    }
+    for _, prefix in ipairs(prefixes) do
+        if string.find(reason, prefix, 1, true) == 1 then return true end
+    end
+    return false
+end
+
+local function restartScheduledCapture(job, current, reason)
+    local attempts = (tonumber(job.restartAttempts) or 0) + 1
+    local limit = math.max(0, math.floor(tonumber(
+        SC.Config.get("persistenceSnapshotRestartLimit")) or 4))
+    if attempts > limit then
+        return false, tostring(reason) .. "; coherent snapshot restart limit exceeded"
+    end
+    local records, _, allowance = scheduledRecordsAndAllowance()
+    job.restartAttempts = attempts
+    job.records = records
+    job.definitions = scheduledSubsystemDefinitions()
+    job.phase, job.index = "subsystems", 1
+    job.document = scheduledDocument(current)
+    job.actorAttempts, job.actorProofs = {}, {}
+    job.copyJob, job.copyAssign, job.activeActor = nil, nil, nil
+    job.workConsistencyRevision, job.diaryContentRevision = nil, nil
+    job.vehicleProof, job.tradeRecoveryProof = nil, nil
+    job.pendingKeys, job.quarantineEntries = nil, nil
+    job.outgoing, job.recaptureRecord = nil, nil
+    -- A restart discards every staged fragment and therefore earns a fresh
+    -- soft allowance, but never more than the job's active-work hard cap.
+    job.deadline = math.min(tonumber(job.hardDeadline) or current + allowance,
+        current + allowance)
+    return true, "snapshot_restarted"
+end
+
 function persistence.pulse()
     local job = scheduledSave
     if job == nil then return "idle" end
@@ -1776,13 +1873,17 @@ function persistence.pulse()
     local current = tonumber(clock()) or 0
     -- The deadline bounds live capture work. Real time spent paused, loading or
     -- with the background lane deferred by busy frames is not capture work, so
-    -- any delay past the grace shifts the deadline, never past the hard cap.
+    -- any delay past the grace shifts both the soft deadline and active-work
+    -- hard cap. A static wall-clock hard cap made a healthy save fail merely
+    -- because the 2 ms scheduler deferred this background lane for long enough.
+    -- Regular pulses still consume the same bounded active-work allowance.
     local gap = current - (tonumber(job.lastPulseAt) or current)
     job.lastPulseAt = current
     local grace = math.max(0, tonumber(SC.Config.get("persistencePulseGapGraceMs")) or 100)
     if gap > grace then
-        job.deadline = math.min(job.deadline + gap - grace,
-            tonumber(job.hardDeadline) or job.deadline)
+        local deferred = gap - grace
+        job.deadline = job.deadline + deferred
+        if tonumber(job.hardDeadline) then job.hardDeadline = job.hardDeadline + deferred end
     end
     if current >= job.deadline then return abortScheduledSave(job, "capture deadline exceeded", current) end
     local sliceDeadline = current + math.max(0.1,
@@ -1916,7 +2017,14 @@ function persistence.pulse()
                 scheduledSave, scheduledSaveRetryAt = nil, 0
                 return "complete", job.outgoing
             end
-            if changedRecord == nil then return abortScheduledSave(job, reason, current) end
+            if changedRecord == nil then
+                if restartableScheduledReason(reason) then
+                    local restarted, restartReason = restartScheduledCapture(job, current, reason)
+                    if restarted then return "yielded", restartReason end
+                    return abortScheduledSave(job, restartReason, current)
+                end
+                return abortScheduledSave(job, reason, current)
+            end
             local attempts = (job.actorAttempts[changedRecord.id] or 0) + 1
             job.actorAttempts[changedRecord.id] = attempts
             if attempts > actorRetryLimit() then return abortScheduledSave(job, reason, current) end
@@ -2512,13 +2620,42 @@ local function applyFluid(item, saved)
 end
 
 local function applyItemVisual(item, saved)
-    if type(saved) ~= "table" or type(saved.parts) ~= "table" then return true end
+    if type(saved) ~= "table" then return true end
     local visualOk, visual = invoke(item, "getVisual")
-    local enum = type(_G) == "table" and rawget(_G, "BloodBodyPartType") or nil
-    if not visualOk or visual == nil or enum == nil then
+    if not visualOk or visual == nil then
         return false, "saved clothing visual API is unavailable"
     end
-    for _, entry in ipairs(saved.parts) do
+    for _, field in ipairs({
+        { "baseTexture", "setBaseTexture", "integer" },
+        { "textureChoice", "setTextureChoice", "integer" },
+        { "hue", "setHue", "number" },
+        { "decal", "setDecal", "text" },
+        { "alternateModelName", "setAlternateModelName", "text" },
+    }) do
+        local value = saved[field[1]]
+        if value ~= nil then
+            if field[3] == "integer" then value = math.floor(finite(value, 0))
+            elseif field[3] == "number" then value = finite(value, 0)
+            else value = tostring(value) end
+            if not invoke(visual, field[2], value) then
+                return false, "saved clothing style could not be restored: " .. field[1]
+            end
+        end
+    end
+    if type(saved.tint) == "table" then
+        local tint, tintReason = immutableColor(saved.tint)
+        if tint == nil then return false, tintReason end
+        if not invoke(visual, "setTint", tint) then
+            return false, "saved clothing tint could not be restored"
+        end
+    end
+
+    local parts = type(saved.parts) == "table" and saved.parts or {}
+    local enum = type(_G) == "table" and rawget(_G, "BloodBodyPartType") or nil
+    if #parts > 0 and enum == nil then
+        return false, "saved clothing body-part API is unavailable"
+    end
+    for _, entry in ipairs(parts) do
         local index = math.floor(finite(entry.index, -1))
         local partOk, part = staticInvoke(enum, "FromIndex", index)
         if not partOk or part == nil then return false, "saved clothing body part is unavailable" end
@@ -2542,6 +2679,7 @@ local function applyItemVisual(item, saved)
     invoke(item, "synchWithVisual")
     return true
 end
+persistence._applyItemVisualForTests = applyItemVisual
 
 local function applyItemState(item, entry, restoredKeys, reservedModData)
     if entry.condition ~= nil and not invoke(item, "setCondition",
@@ -3076,14 +3214,7 @@ end
 persistence._applySkillsForTests = applySkills
 
 local function appearanceColor(saved)
-    if type(saved) ~= "table" then return nil, "saved appearance color is invalid" end
-    local immutable = type(_G) == "table" and rawget(_G, "ImmutableColor") or nil
-    local created, color = staticInvoke(immutable, "new",
-        finite(saved.r, 0), finite(saved.g, 0), finite(saved.b, 0), finite(saved.a, 1))
-    if not created or color == nil then
-        return nil, "native immutable color API is unavailable"
-    end
-    return color
+    return immutableColor(saved)
 end
 
 local function sameAppearanceColor(expected, actual)

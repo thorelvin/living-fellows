@@ -1,11 +1,13 @@
 -- SPDX-License-Identifier: MIT
 
-require "SCNamespace"
-require "SCCall"
-require "SCConfig"
-require "SCRegistry"
-require "SCDiagnostics"
-require "SCActionSupervisor"
+if type(require) == "function" then
+    require "SCNamespace"
+    require "SCCall"
+    require "SCConfig"
+    require "SCRegistry"
+    require "SCDiagnostics"
+    require "SCActionSupervisor"
+end
 
 local SC = SurvivorCompanion
 SC.Vehicle = SC.Vehicle or {}
@@ -18,6 +20,14 @@ local lastVehicleShotAt = setmetatable({}, { __mode = "k" })
 local transactions = setmetatable({}, { __mode = "k" })
 local seatResources = {}
 local stationary
+
+local function traceBoarding(actor, event, detail)
+    if not SC.Diagnostics or type(SC.Diagnostics.report) ~= "function" then return end
+    local id = SC.Registry and type(SC.Registry.idOf) == "function"
+        and SC.Registry.idOf(actor) or nil
+    SC.Diagnostics.report("vehicle-boarding-" .. tostring(event), id,
+        tostring(event), detail)
+end
 
 local function method(object, name)
     if object == nil then return nil end
@@ -101,6 +111,8 @@ local function cancelTransactionState(actor, reason, token)
         and reservations[transaction.reservation] == transaction.actorId then
         reservations[transaction.reservation] = nil
     end
+    traceBoarding(actor, "cancelled", "seat=" .. tostring(transaction.seat)
+        .. " reason=" .. tostring(reason))
     clearTransaction(actor, transaction)
     return true, reason or "vehicle_transaction_cancelled"
 end
@@ -115,6 +127,8 @@ local function finishTransaction(transaction, succeeded, reason, detail)
         and reservations[transaction.reservation] == transaction.actorId then
         reservations[transaction.reservation] = nil
     end
+    traceBoarding(transaction.actor, succeeded == true and "complete" or "failed",
+        "seat=" .. tostring(transaction.seat) .. " reason=" .. tostring(reason))
     clearTransaction(transaction.actor, transaction)
     if service == nil or type(token) ~= "table" then return succeeded, reason end
     if succeeded == true and type(service.complete) == "function" then
@@ -164,6 +178,10 @@ local function beginTransaction(actor, vehicle, seat, action, intent)
         targetKey = targetKey,
         targetLabel = tostring(identity.script or "vehicle") .. " seat " .. tostring(seat),
         phase = action == "board_vehicle" and "approaching" or "selected",
+        -- Followers can start from well outside the passenger-door radius and
+        -- must queue around other companions. The generic 15 second approach
+        -- deadline falsely expired a valid manifest before they reached the car.
+        deadlines = action == "board_vehicle" and { approaching = 45000 } or nil,
         allowedActions = {
             approach_vehicle = true,
             board_vehicle = true,
