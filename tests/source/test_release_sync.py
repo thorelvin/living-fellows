@@ -100,9 +100,9 @@ require(save_key == "SC_WorldV1" and save_schema == "3"
         and "Global ModData key `SC_WorldV1` with document schema 3" in architecture,
         "stable save key/schema documentation drifted")
 require("pull_request:" in source_workflow
-        and "branches: [lf, ci]" in source_workflow
+        and "branches: ['living_fellows/**']" in source_workflow
         and "./scripts/Test-Source.ps1" in source_workflow,
-        "lf, ci, and pull requests must execute the source-only reliability gate")
+        "Living Fellows release branches and pull requests must execute the source-only gate")
 require("self-hosted" in real_jar_workflow
         and "./scripts/Test-Project.ps1" in real_jar_workflow
         and "tags:" in real_jar_workflow and "'v*'" in real_jar_workflow

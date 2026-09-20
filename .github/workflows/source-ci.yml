@@ -2,9 +2,9 @@ name: Source CI
 
 on:
   push:
-    # `lf` is the release-ready default branch. `ci` is the integration branch
-    # used to prove candidate changes before they are promoted to `lf`.
-    branches: [lf, ci]
+    # Living Fellows release branches are versioned independently from the
+    # separate PZ Radio Link history retained in this repository.
+    branches: ['living_fellows/**']
   pull_request:
   workflow_dispatch:
 

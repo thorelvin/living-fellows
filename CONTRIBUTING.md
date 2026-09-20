@@ -6,7 +6,7 @@ Thank you for helping make survivors more believable, useful, and safe to play a
 
 ## Branches
 
-`lf` is the release-ready default branch. `ci` is the integration branch: candidate changes land there, pass Source CI and the local full gate, and are promoted to `lf` only after the relevant playtest. Both branches must remain buildable; public tags and packages are cut from `lf`.
+Living Fellows release branches use `living_fellows/<version>`; the current release-ready default is `living_fellows/0.25.4`. The separately retained PZ Radio Link line uses `pz_radio_link/<version>`. Living Fellows public tags and packages are cut from its current versioned branch after Source CI, the local full gate, and the relevant playtest pass.
 
 ## Before opening a pull request
 
