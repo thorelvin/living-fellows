@@ -179,10 +179,22 @@ SC.Navigation = {
         navigationCancels = navigationCancels + 1
         return true
     end,
-    interactionTargets = function(_, target) return { target } end,
+    interactionTargets = function(actor, target)
+        local square = SC.GameplayUtil.squareOf(target) or target
+        local actorSquare = SC.GameplayUtil.squareOf(actor)
+        if type(target) == "table" and type(target.getContainer) == "function"
+            and actorSquare and square
+            and math.abs(actorSquare.x - square.x) + math.abs(actorSquare.y - square.y) == 1 then
+            -- The fixture has no walls: the actor's adjacent tile is a valid
+            -- direct-use side, matching production interactionTargets().
+            return { actorSquare }
+        end
+        return { square }
+    end,
     requestAny = function(actor, candidates)
         if rejectNavigation then return false, "fixture_unreachable" end
-        local target = SC.GameplayUtil.squareOf(candidates and candidates[1])
+        local candidate = candidates and candidates[1]
+        local target = SC.GameplayUtil.squareOf(candidate) or candidate
         if target and SC.GameplayUtil.sameSquare(actor, target) then
             return true, "arrived", target
         end

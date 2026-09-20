@@ -335,6 +335,9 @@ function actor:isKnockedDown() return self.knockedDown == true end
 function actor:setSitOnFurnitureObject(value) self.seatObject = value end
 function actor:setSittingOnFurniture(value) self.sitting = value end
 function actor:isSittingOnFurniture() return self.sitting == true end
+function actor:isOnBed() return self.onBed == true end
+function actor:setOnBed(value) self.onBed = value == true end
+function actor:setbOnBed(value) self.onBed = value == true end
 function actor:isSitOnGround() return self.groundSitting == true end
 function actor:setVariable(name, value)
     self.lastVariable, self.lastVariableValue = name, value
@@ -755,19 +758,25 @@ do
         decal = "Kentucky", alternateModelName = "Tucked",
         tint = color(0.22, 0.44, 0.66, 1),
     }
+    local clothing = { visual = itemVisual, synced = 0 }
     function itemVisual:getBaseTexture() return self.baseTexture end
     function itemVisual:getTextureChoice() return self.textureChoice end
     function itemVisual:getHue() return self.hue end
-    function itemVisual:getDecal() return self.decal end
+    function itemVisual:getDecal(definition)
+        if definition ~= clothing then error("expected ClothingItem definition") end
+        return self.decal
+    end
     function itemVisual:getAlternateModelName() return self.alternateModelName end
-    function itemVisual:getTint() return self.tint end
+    function itemVisual:getTint(definition)
+        if definition ~= clothing then error("expected ClothingItem definition") end
+        return self.tint
+    end
     function itemVisual:setBaseTexture(value) self.baseTexture = value end
     function itemVisual:setTextureChoice(value) self.textureChoice = value end
     function itemVisual:setHue(value) self.hue = value end
     function itemVisual:setDecal(value) self.decal = value end
     function itemVisual:setAlternateModelName(value) self.alternateModelName = value end
     function itemVisual:setTint(value) self.tint = value end
-    local clothing = { visual = itemVisual, synced = 0 }
     function clothing:getVisual() return self.visual end
     function clothing:getClothingItem() return self end
     function clothing:synchWithVisual() self.synced = self.synced + 1 end
@@ -1442,11 +1451,12 @@ local equipOk, equipReason = SC.Actor.setMovement(actor, "walk", {
 check(equipOk and equipReason == "equipped" and actor.primaryHand == weapon,
     "direct-native adapter starts and verifies equipment")
 local readyOk, readyReason = SC.Actor.setMovement(actor, "walk", {
-    action = "ready_weapon", targetSquare = targetSquare,
+    action = "ready_weapon", target = target,
 })
 check(readyOk and readyReason == "weapon_ready" and actor.aiming == true
-        and actor.aimAtFloor == false,
-    "armed companion enters and verifies the native player weapon-ready state")
+        and actor.aimAtFloor == false and actor.companionAimTarget == target
+        and actor.forwardX > 0.9,
+    "armed companion retains its live combat target throughout the native weapon-ready state")
 actor.px, actor.py = 0.5, 0.5
 local backstepOk, backstepReason = SC.Actor.setMovement(actor, "walk", {
     action = "backstep", target = target, keepFacing = true, weaponReady = true,
@@ -1912,10 +1922,122 @@ end
 local downedOk = SC.Actor.setMovement(actor, "walk", { action = "downed" })
 check(downedOk and actor.knockedDown == true,
     "direct-native adapter verifies native downed state")
-local seat = {}
+-- The engine exits this state on a later frame; the fixture has no state-machine
+-- update loop, so complete that transition before testing voluntary rest.
+actor.knockedDown = false
+
+do
+local oldPathFindAction, oldRestAction, oldGetOnBedAction, oldSeatingManager =
+    ISPathFindAction, ISRestAction, ISGetOnBedAction, SeatingManager
+local lastFurniturePath, lastNearestLocations
+local function testPathAction(character, object)
+    local value = ISBaseTimedAction.new(ISBaseTimedAction, character)
+    value.goalFurnitureObject = object
+    function value:start() end
+    function value:setOnComplete(callback, ...)
+        self.completeCallback, self.completeArgs = callback, { ... }
+    end
+    function value:setOnFail(callback, ...)
+        self.failCallback, self.failArgs = callback, { ... }
+    end
+    function value:completePath()
+        if self.completeCallback then
+            self.completeCallback(self.completeArgs[1], self.completeArgs[2], self.completeArgs[3])
+        end
+        ISBaseTimedAction.perform(self)
+        local queue = ISTimedActionQueue.getTimedActionQueue(self.character)
+        if queue.current and queue.current.action == nil then queue.current:begin() end
+    end
+    return value
+end
+ISPathFindAction = {}
+function ISPathFindAction:pathToSitOnFurniture(character, object, anySpriteGridObject)
+    lastFurniturePath = testPathAction(character, object)
+    lastFurniturePath.anySpriteGridObject = anySpriteGridObject
+    return lastFurniturePath
+end
+function ISPathFindAction:pathToNearest(character, locations)
+    lastNearestLocations = locations
+    return testPathAction(character, nil)
+end
+ISRestAction = {}
+function ISRestAction:new(character, object, useAnimations)
+    local value = ISBaseTimedAction.new(ISBaseTimedAction, character)
+    value.bed, value.useAnimations = object, useAnimations
+    function value:start()
+        if self.bed and self.bed.setSatChair then self.bed:setSatChair(true) end
+        self.character:setSitOnFurnitureObject(self.bed)
+        self.character:setSittingOnFurniture(true)
+        self.character:reportEvent("EventSitOnFurniture")
+    end
+    return value
+end
+ISGetOnBedAction = {}
+function ISGetOnBedAction:new(character, object)
+    local value = ISBaseTimedAction.new(ISBaseTimedAction, character)
+    value.bed = object
+    function value:start()
+        self.character:setSitOnFurnitureObject(self.bed)
+        self.character:setOnBed(true)
+        self.character:reportEvent("EventGetOnBed")
+    end
+    return value
+end
+SeatingManager = {
+    getInstance = function()
+        return {
+            getFacingDirection = function() return "N" end,
+        }
+    end,
+}
+IsoFlagType = IsoFlagType or {}
+IsoFlagType.bed = IsoFlagType.bed or "bed"
+
+local seat = { occupied = false }
+function seat:setSatChair(value) self.occupied = value == true end
 local sitOk, sitReason = SC.Actor.setMovement(actor, "walk", { action = "sit", object = seat })
-check(sitOk and sitReason == "sitting" and actor.seatObject == seat,
-    "direct-native adapter verifies native furniture sitting")
+check(sitOk and sitReason == "taking_seat" and lastFurniturePath ~= nil
+        and lastFurniturePath.anySpriteGridObject == true and actor.sitting ~= true,
+    "furniture rest first paths to an exact SeatingManager position")
+lastFurniturePath:completePath()
+check(actor.sitting == true and actor.seatObject == seat and seat.occupied == true
+        and actor.lastEvent == "EventSitOnFurniture"
+        and SC.NativeActions.furnitureStatus(actor) == "entered",
+    "stock furniture-rest action enters and verifies the seat pose")
+local leftSeat = SC.NativeActions.leaveSeating(actor)
+check(leftSeat and actor.sitting == false and actor.seatObject == nil
+        and seat.occupied == false,
+    "leaving furniture cancels only its owned action and clears occupancy")
+
+local bedGrid = {}
+function bedGrid:getSpriteGridPosY() return 1 end
+function bedGrid:getSpriteGridPosX() return 1 end
+local bedSprite = {}
+function bedSprite:getSpriteGrid() return bedGrid end
+local bed = { x = 20, y = 20, z = 0 }
+function bed:getX() return self.x end
+function bed:getY() return self.y end
+function bed:getZ() return self.z end
+function bed:getSprite() return bedSprite end
+local bedOk, bedReason = SC.Actor.setMovement(actor, "walk", {
+    action = "rest_bed", object = bed,
+})
+check(bedOk and bedReason == "getting_on_bed"
+        and type(lastNearestLocations) == "table" and #lastNearestLocations == 15
+        and actor.onBed ~= true,
+    "bed rest queues the vanilla five-position entry path before its animation: ok="
+        .. tostring(bedOk) .. " reason=" .. tostring(bedReason) .. " locations="
+        .. tostring(type(lastNearestLocations) == "table" and #lastNearestLocations or "none")
+        .. " onBed=" .. tostring(actor.onBed))
+ISTimedActionQueue.getTimedActionQueue(actor).current:completePath()
+check(actor.onBed == true and actor.seatObject == bed
+        and actor.lastEvent == "EventGetOnBed"
+        and SC.NativeActions.bedStatus(actor) == "entered",
+    "bed-rest path hands off to the stock get-on-bed action")
+check(SC.NativeActions.leaveSeating(actor) and actor.onBed == false
+        and actor.seatObject == nil,
+    "leaving a bed clears the native bed posture and owned queue actions")
+
 local groundSitOk, groundSitReason = SC.Actor.setMovement(actor, "walk", {
     action = "sit_ground", reason = "bounded_shutdown_test",
 })
@@ -1930,13 +2052,17 @@ check(groundStandOk and groundStandReason == "ground_stand_requested"
     "shutdown recovery requests the vanilla force-get-up transition")
 -- The real state machine clears these flags after the animation completes.
 -- The lightweight fixture has no animation update loop, so finish it here.
-actor.knockedDown = false
 actor.climbing = false
+actor.sitting = true
+actor.seatObject = seat
 
 local sweepOk, sweepReason = SC.Actor.setMovement(actor, "walk", { action = "room_sweep" })
 check(sweepOk and sweepReason == "room_sweep_facing_started" and actor.forwardY > 0.9
     and actor.sitting == false and actor.seatObject == nil,
     "room sweep stands from furniture and verifies native human facing")
+ISPathFindAction, ISRestAction, ISGetOnBedAction, SeatingManager =
+    oldPathFindAction, oldRestAction, oldGetOnBedAction, oldSeatingManager
+end
 actor.forwardX, actor.forwardY = 1, 0
 local rightSweepOk = SC.Actor.setMovement(actor, "walk", {
     action = "room_sweep", sweepSide = "right", sweepForwardX = 1, sweepForwardY = 0,
@@ -2451,6 +2577,44 @@ player.__unloadedSnapshot = SC.Persistence.pendingSnapshot()["sc-pending-record"
 check(player.__unloadedSnapshot and player.__unloadedSnapshot.attempts == 0
         and player.__unloadedSnapshot.status == "waiting_environment",
     "an unloaded square waits without consuming destructive restore attempts")
+
+do
+    local restoreCell = { squares = {} }
+    local building = {}
+    local room = {}
+    function room:getBuilding() return building end
+    local function restoreSquare(x, y, available, assignedRoom)
+        local value = { x = x, y = y, z = 0, available = available,
+            room = assignedRoom, cell = restoreCell }
+        function value:getX() return self.x end
+        function value:getY() return self.y end
+        function value:getZ() return self.z end
+        function value:getCell() return self.cell end
+        function value:getChunk() return {} end
+        function value:isSolid() return false end
+        function value:isSolidTrans() return false end
+        function value:TreatAsSolidFloor() return true end
+        function value:isFree() return self.available == true end
+        function value:isSafeToSpawn() return self.available == true end
+        function value:getRoom() return self.room end
+        restoreCell.squares[tostring(x) .. ":" .. tostring(y)] = value
+        return value
+    end
+    function restoreCell:getGridSquare(x, y)
+        return self.squares[tostring(x) .. ":" .. tostring(y)]
+    end
+    local occupied = restoreSquare(100, 100, false, room)
+    local outside = restoreSquare(99, 100, true, nil)
+    local indoor = restoreSquare(102, 100, true, room)
+    local relocated = SC.Persistence._nearbyRestoreSquareForTests(occupied)
+    check(relocated == indoor,
+        "restore relocates an obstructed saved tile to nearby floor in the same building")
+    indoor.available = false
+    relocated = SC.Persistence._nearbyRestoreSquareForTests(occupied)
+    check(relocated == outside,
+        "restore uses the nearest safe same-floor fallback before quarantining a companion")
+end
+
 local saved, document = SC.Persistence.save(player)
 check(saved and document.companions["sc-pending-record"] ~= nil,
     "provider/square failure cannot erase a pending save record")

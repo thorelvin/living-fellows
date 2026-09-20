@@ -896,6 +896,34 @@ function U.sameSquare(a, b)
         and math.floor(az or 0) == math.floor(bz or 0)
 end
 
+-- Resolve whether an actor is standing on a genuine use position for a world
+-- object.  Distance alone is not sufficient: the square immediately across a
+-- wall is "near" a cabinet, sink or shelf but cannot touch it.  Navigation
+-- owns the topology-aware interaction candidates, so every inventory user can
+-- share the same fail-closed line-of-contact rule.
+function U.directInteractionAccess(actor, objectOrSquare, options)
+    local navigation = SC.Navigation
+    if not actor or not objectOrSquare or type(navigation) ~= "table"
+        or type(navigation.interactionTargets) ~= "function" then
+        return false, {}, "navigation_unavailable"
+    end
+    options = type(options) == "table" and U.copyShallow(options) or {}
+    options.requireDirectAccess = true
+    local targets = navigation.interactionTargets(actor, objectOrSquare, options)
+    if type(targets) ~= "table" then targets = {} end
+    local centre = U.squareOf(objectOrSquare) or objectOrSquare
+    if centre and U.sameSquare(actor, centre) then
+        return true, targets, "at_interaction_target"
+    end
+    for _, target in ipairs(targets) do
+        if U.sameSquare(actor, target) then
+            return true, targets, "at_interaction_target"
+        end
+    end
+    if #targets == 0 then return false, targets, "no_interaction_targets" end
+    return false, targets, "approach_required"
+end
+
 function U.squareObjects(square, callback, limit)
     if not square then return end
     local objects, ok = U.call(square, "getObjects")

@@ -1275,6 +1275,13 @@ local function executeTransaction(actor, state)
             kind = transaction.kind,
         })
     end
+    if transaction.kind == "deposit" then
+        local atStorage = U().directInteractionAccess(actor, transaction.owner)
+        if atStorage ~= true then
+            return terminalTransaction(actor, state, false,
+                "logistics_storage_contact_lost", { kind = transaction.kind })
+        end
+    end
     local ready, reason = advanceTransactionVisual(actor, transaction)
     if ready == false then return true, reason end
     if ready == nil then
@@ -1336,7 +1343,9 @@ end
 local function approachTransaction(actor, state, snapshot)
     local transaction = state and state.transaction or nil
     if not transaction or transaction.phase ~= "approach" then return nil end
-    if U().distance(actor, transaction.owner) <= 1.45 then
+    local atStorage, targets, accessReason = U().directInteractionAccess(
+        actor, transaction.owner, { snapshot = snapshot })
+    if atStorage == true then
         stopForInventoryAction(actor)
         transaction.phase = "selected"
         local service = supervisor()
@@ -1347,17 +1356,19 @@ local function approachTransaction(actor, state, snapshot)
         end
         return executeTransaction(actor, state)
     end
+    if accessReason == "no_interaction_targets" then
+        return terminalTransaction(actor, state, false,
+            accessReason, { kind = transaction.kind })
+    end
     if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
         return terminalTransaction(actor, state, false,
             "logistics_navigation_unavailable", { kind = transaction.kind })
     end
-    local targets = SC.Navigation.interactionTargets(actor, transaction.owner, {
-        snapshot = snapshot,
-    })
     local accepted, reason = SC.Navigation.requestAny(actor, targets, "walk", {
         action = "move_to_base_storage", container = transaction.destination,
         item = transaction.item, object = transaction.owner, snapshot = snapshot,
-        logistics = true, arrivalDistance = 1.0,
+        logistics = true, arrivalDistance = 0.35, requireSameSquare = true,
+        continuousApproach = true,
         supervisorToken = transaction.supervisorToken,
     })
     local service = supervisor()
@@ -1453,8 +1464,9 @@ function Logistics.update(actor, player, runtime)
     end
     if state.destination then
         local destination = state.destination
-        local phase = U().distance(actor, destination.owner) > 1.45
-            and "approach" or "selected"
+        -- Even an adjacent actor must prove it is on a usable side of the
+        -- container.  Raw range admits the tile across an exterior wall.
+        local phase = "approach"
         local started, reason = beginTransaction(actor, state, {
             kind = "deposit", item = state.item, source = state.source,
             destination = destination.container, owner = destination.owner,

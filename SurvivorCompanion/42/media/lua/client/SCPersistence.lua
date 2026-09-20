@@ -535,8 +535,15 @@ local function captureItemVisual(item)
     if not visualOk or visual == nil then return nil end
     local result = { parts = {} }
     local populated = false
-    local function scalar(field, getter, kind)
-        local ok, value = invoke(visual, getter)
+    local clothingOk, clothing = invoke(item, "getClothingItem")
+    local function scalar(field, getter, kind, argument, requiresArgument)
+        if requiresArgument == true and argument == nil then return end
+        local ok, value
+        if requiresArgument == true then
+            ok, value = invoke(visual, getter, argument)
+        else
+            ok, value = invoke(visual, getter)
+        end
         if not ok or value == nil then return end
         if kind == "number" then value = finite(value, 0)
         elseif kind == "integer" then value = math.floor(finite(value, 0))
@@ -546,9 +553,11 @@ local function captureItemVisual(item)
     scalar("baseTexture", "getBaseTexture", "integer")
     scalar("textureChoice", "getTextureChoice", "integer")
     scalar("hue", "getHue", "number")
-    scalar("decal", "getDecal", "text")
+    -- Build 42's ItemVisual:getDecal overload requires the ClothingItem
+    -- definition. Calling it without that argument logs a Kahlua error and a
+    -- full stack trace for every clothing item on every persistence capture.
+    scalar("decal", "getDecal", "text", clothing, true)
     scalar("alternateModelName", "getAlternateModelName", "text")
-    local clothingOk, clothing = invoke(item, "getClothingItem")
     local tintOk, tint
     if clothingOk and clothing ~= nil then
         tintOk, tint = invoke(visual, "getTint", clothing)
@@ -3367,6 +3376,74 @@ function persistence.restoreAt(saved, square)
     return nil, result
 end
 
+local function restoreSquareUsable(square)
+    if square == nil then return false end
+    local chunkOk, chunk = invoke(square, "getChunk")
+    local solidOk, solid = invoke(square, "isSolid")
+    local transOk, trans = invoke(square, "isSolidTrans")
+    local floorOk, floor = invoke(square, "TreatAsSolidFloor")
+    local freeOk, free = invoke(square, "isFree", true)
+    local safeOk, safe = invoke(square, "isSafeToSpawn")
+    if not chunkOk or not solidOk or not transOk or not floorOk
+        or not freeOk or not safeOk then
+        -- Test providers and compatibility shims may deliberately expose no
+        -- world-geometry API. In that case retain the historical exact-square
+        -- behavior and let the actor provider make the authoritative decision.
+        return nil
+    end
+    return chunk ~= nil and solid ~= true and trans ~= true
+        and floor == true and free == true and safe == true
+end
+
+local function restoreSquareContext(origin, candidate)
+    local originRoom, originRoomOk = invoke(origin, "getRoom")
+    local candidateRoom, candidateRoomOk = invoke(candidate, "getRoom")
+    if not originRoomOk or not candidateRoomOk then return nil end
+    if originRoom == nil or candidateRoom == nil then
+        return originRoom == nil and candidateRoom == nil
+    end
+    if originRoom == candidateRoom then return true end
+    local originBuilding, originBuildingOk = invoke(originRoom, "getBuilding")
+    local candidateBuilding, candidateBuildingOk = invoke(candidateRoom, "getBuilding")
+    return originBuildingOk and candidateBuildingOk and originBuilding ~= nil
+        and originBuilding == candidateBuilding
+end
+
+-- A saved tile can become occupied by the player, another restored companion,
+-- a vehicle or newly placed furniture. The native bridge correctly rejects
+-- construction there; restore should use the nearest valid tile on the saved
+-- floor instead of retrying that one obstruction until permanent quarantine.
+local function nearbyRestoreSquare(origin)
+    local usable = restoreSquareUsable(origin)
+    if usable == true or usable == nil then return origin end
+    local cellOk, cell = invoke(origin, "getCell")
+    local xOk, x = invoke(origin, "getX")
+    local yOk, y = invoke(origin, "getY")
+    local zOk, z = invoke(origin, "getZ")
+    if not cellOk or cell == nil or not xOk or not yOk or not zOk then return origin end
+    local sameContext, fallback
+    local radius = 6
+    for distance = 1, radius do
+        for dx = -distance, distance do
+            for dy = -distance, distance do
+                if math.max(math.abs(dx), math.abs(dy)) == distance then
+                    local squareOk, square = invoke(cell, "getGridSquare",
+                        math.floor(x) + dx, math.floor(y) + dy, math.floor(z))
+                    if squareOk and restoreSquareUsable(square) == true then
+                        fallback = fallback or square
+                        if restoreSquareContext(origin, square) == true then
+                            sameContext = square
+                            return sameContext
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return sameContext or fallback or origin
+end
+persistence._nearbyRestoreSquareForTests = nearbyRestoreSquare
+
 local function squareFor(record)
     if type(getCell) ~= "function" then return nil end
     local ok, cell = pcall(getCell)
@@ -3378,7 +3455,7 @@ local function squareFor(record)
     end
     local squareOk, square = invoke(cell, "getGridSquare",
         math.floor(position.x), math.floor(position.y), math.floor(position.z))
-    return squareOk and square or nil
+    return squareOk and nearbyRestoreSquare(square) or nil
 end
 
 local function importVehicleRecord(record)
@@ -3406,6 +3483,8 @@ local transientRestoreTokens = {
     "bridge bootstrap has not run", "bridge is still starting",
     "world is unavailable", "cell is unavailable", "square is not currently loaded",
     "vehicle is not loaded", "spawn_pending",
+    "spawn square is unsafe, obstructed, or unloaded",
+    "spawn square became unsafe, obstructed, or unloaded",
 }
 
 local function classifyRestoreFailure(reason)

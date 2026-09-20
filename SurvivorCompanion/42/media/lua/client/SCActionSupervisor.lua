@@ -54,7 +54,7 @@ local legalTransitions = {
     animating = { committing = true, waiting = true, recovering = true },
     waiting = {
         selected = true, reserved = true, approaching = true, settling = true,
-        animating = true, recovering = true,
+        animating = true, committing = true, recovering = true,
     },
     recovering = {
         selected = true, reserved = true, approaching = true, settling = true,

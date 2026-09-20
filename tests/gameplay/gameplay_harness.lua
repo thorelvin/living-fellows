@@ -9757,6 +9757,35 @@ do
     SurvivorCompanion.Downtime.reset(interruptedReader)
     SurvivorCompanion.Commands.reset(interruptedReader)
     registry[interruptedReader.id] = nil
+
+    -- Regression: Euclidean range used to check the book out immediately,
+    -- even when the resident was outdoors on the opposite side of the shelf's
+    -- wall.  The reader must first reach one of the shelf's direct-use tiles.
+    shelf:Remove(interruptedBook)
+    local wallBook = item("Base.BookCooking1", "Literature", { pages = 220 })
+    shelf:AddItem(wallBook)
+    local wallReader = actor("sc-camp-library-wall", -2, 0,
+        { inventory = inventory() })
+    wallReader.modData.SC_Order = "stay"
+    wallReader.modData.SC_WorkMode = "idle"
+    registry[wallReader.id] = wallReader
+    local readerSquare = wallReader.square
+    readerSquare.blocked[shelfObject.square] = true
+    shelfObject.square.blocked[readerSquare] = true
+    clock = clock + 10
+    local wallStarted = SurvivorCompanion.Downtime.update(
+        wallReader, player, safeRuntime)
+    local wallActivity = SurvivorCompanion.Downtime.peek(wallReader).active
+    check(wallStarted == true and wallActivity and wallActivity.approaching == true
+            and shelf:contains(wallBook) and not wallReader.inventory:contains(wallBook)
+            and wallReader.lastIntent
+            and wallReader.lastIntent.action == "move_to_base_storage",
+        "camp reading never checks a book out through the wall; the reader routes to a usable shelf side")
+    SurvivorCompanion.Downtime.reset(wallReader)
+    SurvivorCompanion.Commands.reset(wallReader)
+    registry[wallReader.id] = nil
+    readerSquare.blocked[shelfObject.square] = nil
+    shelfObject.square.blocked[readerSquare] = nil
     baseLife.isInside, baseLife.storageRows, baseLife.resolveContainer =
         savedInside, savedRows, savedResolve
 end
@@ -10042,9 +10071,9 @@ SeatingManager = {
     end,
 }
 
--- These represent four real Build 42 discovery routes: a bedding sprite, a
--- named sofa, a bar-stool sprite known by SeatingManager, and an ordinary
--- seating tile carrying the engine's misleading BedType=averageChair property.
+-- Build 42's seating.txt includes much more than chairs. Every engine-declared
+-- seating position must use the furniture-rest path even when the tile also
+-- carries the misleading BedType=badBed/averageBed property.
 local fixtures = {
     { label = "bed", expected = "rest_bed", x = -2, y = 6,
         name = "Cot", sprite = "furniture_bedding_01_56",
@@ -10058,9 +10087,31 @@ local fixtures = {
     { label = "chair", expected = "sit", x = 4, y = 6,
         name = nil, sprite = "furniture_seating_indoor_03_40",
         properties = { BedType = "averageChair" }, seatingPositions = 1 },
+    { label = "bench", expected = "sit", x = 6, y = 6,
+        name = "Park Bench", sprite = "location_community_park_01_8",
+        properties = { BedType = "badBed" }, seatingPositions = 2 },
+    { label = "pew", expected = "sit", x = 8, y = 6,
+        name = "Church Pew", sprite = "location_community_church_small_01_20",
+        properties = { BedType = "averageBed" }, seatingPositions = 3 },
+    { label = "booth", expected = "sit", x = 10, y = 6,
+        name = "Diner Booth", sprite = "location_restaurant_diner_01_24",
+        properties = { BedType = "badBed" }, seatingPositions = 2 },
+    { label = "toilet", expected = "sit", x = 12, y = 6,
+        name = "Toilet", sprite = "fixtures_bathroom_01_0",
+        properties = { BedType = "badBed" }, seatingPositions = 1 },
+    { label = "ottoman", expected = "sit", x = 6, y = 8,
+        name = "Ottoman", sprite = "furniture_seating_indoor_02_48",
+        properties = { BedType = "averageBed" }, seatingPositions = 1 },
+    { label = "picnic table", expected = "sit", x = 8, y = 8,
+        name = "Picnic Table", sprite = "furniture_seating_outdoor_01_16",
+        properties = { BedType = "badBed" }, seatingPositions = 2 },
+    { label = "bedside chair", expected = "sit", x = 10, y = 8,
+        name = "Bedside Chair", sprite = "location_community_medical_01_44",
+        properties = { BedType = "badBed" }, seatingPositions = 1 },
 }
 
-local furnitureKind, _, approachFurniture, beginFurniture =
+local furnitureKind, seatActivity, approachFurniture, beginFurniture,
+    coolFurniture, furnitureCooling =
     SurvivorCompanion.Downtime._furnitureForTests()
 local fixtureObjects = {}
 for index, fixture in ipairs(fixtures) do
@@ -10070,12 +10121,50 @@ for index, fixture in ipairs(fixtures) do
         fixture.label .. " fixture is classified as " .. fixture.expected)
 end
 
+local sleepSurface, sleepSurfaceSquare = furnitureFixture({
+    x = 12, y = 8, name = "Sleeping Bag", sprite = "camping_01_16",
+    properties = { BedType = "badBed" }, seatingPositions = 0,
+})
+check(furnitureKind(sleepSurface) == nil,
+    "a BedType-only sleep surface is not mistaken for furniture with a valid rest pose")
+
+local wallCouch, wallCouchSquare = furnitureFixture({
+    x = -6, y = -7, name = "Wall Couch",
+    sprite = "furniture_seating_indoor_02_0", seatingPositions = 2,
+})
+local wallActor = actor("sc-wall-couch", -7, -7, {})
+local wallActorSquare = wallActor.square
+local furnitureState = {}
+local outdoorSeat = seatActivity(wallActor, furnitureState, clock)
+check(outdoorSeat and outdoorSeat.object == wallCouch,
+    "an outdoor companion can select furniture in the same outdoor context")
+coolFurniture(furnitureState, wallCouch, clock)
+check(furnitureCooling(furnitureState, wallCouch, clock)
+        and seatActivity(wallActor, furnitureState, clock) == nil,
+    "failed furniture cools down instead of being selected every downtime pulse")
+wallCouchSquare.room = { name = "livingroom" }
+check(seatActivity(wallActor, {}, clock) == nil,
+    "an outdoor companion does not discover an indoor couch through the outer wall")
+wallActorSquare.blocked[wallCouchSquare] = true
+wallCouchSquare.blocked[wallActorSquare] = true
+
 local requestedFurniture
 local originalFurnitureRequestAny = SurvivorCompanion.Navigation.requestAny
 SurvivorCompanion.Navigation.requestAny = function(_, candidates, _, intent)
     requestedFurniture = { candidates = candidates, intent = intent }
     return true, "moving"
 end
+local wallApproach = approachFurniture(wallActor,
+    { object = wallCouch, square = wallCouchSquare })
+local exteriorAccepted = false
+for _, candidate in ipairs(requestedFurniture and requestedFurniture.candidates or {}) do
+    if candidate == wallActorSquare then exteriorAccepted = true end
+end
+check(wallApproach == true and requestedFurniture
+        and requestedFurniture.intent.requireSameSquare == true
+        and requestedFurniture.intent.continuousApproach == true
+        and not exteriorAccepted,
+    "furniture approach rejects raw proximity through a wall and routes to a valid side")
 local bedActor = actor("sc-bed-approach", -5, 6, {})
 local bedObject, bedSquare = fixtureObjects[1].object, fixtureObjects[1].square
 local bedApproach = approachFurniture(bedActor, { object = bedObject, square = bedSquare })
@@ -10124,6 +10213,21 @@ for _, placed in ipairs(fixtureObjects) do
         end
     end
 end
+for index = #sleepSurfaceSquare.objects, 1, -1 do
+    if sleepSurfaceSquare.objects[index] == sleepSurface then
+        table.remove(sleepSurfaceSquare.objects, index)
+        break
+    end
+end
+for index = #wallCouchSquare.objects, 1, -1 do
+    if wallCouchSquare.objects[index] == wallCouch then
+        table.remove(wallCouchSquare.objects, index)
+        break
+    end
+end
+wallCouchSquare.room = nil
+wallActorSquare.blocked[wallCouchSquare] = nil
+wallCouchSquare.blocked[wallActorSquare] = nil
 SeatingManager = oldSeatingManager
 end)()
 
@@ -12622,6 +12726,30 @@ check(libraryRegistered and libraryRow.category == "literature"
         .. tostring(shelvedReason))
 SurvivorCompanion.Logistics.reset(libraryResident)
 registry[libraryResident.id] = nil
+
+do
+    local wallMagazine = item("Base.MagazineWall", "Literature", { pages = 32 })
+    local wallResident = actor("sc-library-deposit-wall", 3, 2, {
+        inventory = inventory({ wallMagazine }),
+    })
+    registry[wallResident.id] = wallResident
+    wallResident.square.blocked[campSquare] = true
+    campSquare.blocked[wallResident.square] = true
+    local approached, approachReason = SurvivorCompanion.Logistics.update(
+        wallResident, player, {
+            snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 },
+        })
+    check(approached == true and wallResident.inventory:contains(wallMagazine)
+            and not library.container:contains(wallMagazine)
+            and wallResident.lastIntent
+            and wallResident.lastIntent.action == "move_to_base_storage",
+        "literature is never shelved through an exterior wall; the carrier approaches a direct-use tile: "
+            .. tostring(approachReason))
+    SurvivorCompanion.Logistics.reset(wallResident)
+    registry[wallResident.id] = nil
+    wallResident.square.blocked[campSquare] = nil
+    campSquare.blocked[wallResident.square] = nil
+end
 
 local BaseObjectRef = SurvivorCompanion.BaseObjectRef
 local copiedStorageRef = BaseObjectRef.copy(storageRow)

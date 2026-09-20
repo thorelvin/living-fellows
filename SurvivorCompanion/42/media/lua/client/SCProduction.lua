@@ -1242,11 +1242,15 @@ local function depositCargo(actor, order, state, item, runtime)
     local room, roomReason = SC.WorkTransport.hasRoom(container, actor, item)
     if not room then return blockOrder(order, roomReason or "destination_full") end
     state.phase = "depositing"
-    if U().distance(actor, object) > 1.5 then
-        local targets = SC.Navigation.interactionTargets(actor, object)
+    local atStorage, targets, accessReason = U().directInteractionAccess(actor, object)
+    if atStorage ~= true then
+        if accessReason == "no_interaction_targets" then
+            return blockOrder(order, accessReason)
+        end
         local accepted, reason = SC.Navigation.requestAny(actor, targets, "walk", {
             action = "move_to_base_storage", targetSquare = U().squareOf(object),
-            object = object, arrivalDistance = 1.0,
+            object = object, arrivalDistance = 0.35, requireSameSquare = true,
+            continuousApproach = true,
         })
         if accepted ~= true then return blockOrder(order, reason or "production_storage_unreachable") end
         return true, reason or "production_moving_to_storage"

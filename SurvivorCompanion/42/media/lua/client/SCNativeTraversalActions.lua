@@ -484,6 +484,28 @@ local function fenceDirection(intent)
     return ok and value or nil
 end
 
+-- ClimbOverFenceState snapshots isRunning()/isSprinting() synchronously in
+-- setParams().  A run-state action graph can survive stopDirect() for another
+-- frame, and deferred traversal submits later than that initial stop.  If
+-- either movement flag has been restored meanwhile, vanilla selects a vault
+-- and may roll the actor into its fall/trip outcome (fatigue, load, pain and
+-- traits all increase that chance).  Reassert and verify the walking flags at
+-- the exact native call so companion navigation never turns an ordinary fence
+-- crossing into a risky player-style running vault.
+local function prepareWalkingFenceCrossing(actor)
+    invoke(actor, "setRunning", false)
+    invoke(actor, "setSprinting", false)
+    local runningObserved, running = invoke(actor, "isRunning")
+    if runningObserved and running == true then
+        return false, "fence crossing could not clear running state"
+    end
+    local sprintingObserved, sprinting = invoke(actor, "isSprinting")
+    if sprintingObserved and sprinting == true then
+        return false, "fence crossing could not clear sprinting state"
+    end
+    return true
+end
+
 function Traversal.fence(actor, action, intent, provider)
     local existing, existingReason = existingRequest(actor, action, intent.object)
     if existing ~= nil then return existing, existingReason end
@@ -503,6 +525,8 @@ function Traversal.fence(actor, action, intent, provider)
         if not checked then return false, "native tall-wall climb check is unavailable" end
         if climbable ~= true then return false, "native tall wall is not climbable" end
         submit = function()
+            local prepared, prepareReason = prepareWalkingFenceCrossing(actor)
+            if not prepared then return false, prepareReason end
             -- Native companions are intentionally non-local IsoPlayers. Their
             -- bridge entry grants only ClimbOverWallState.setParams() the temporary
             -- local context it needs to roll vanilla success/struggle/fail. Ordinary
@@ -536,6 +560,8 @@ function Traversal.fence(actor, action, intent, provider)
         -- affordances with isPlayerAbleToHopWallTo(). Both kinds submit the
         -- engine's inherited climb under the same bounded startup verification.
         submit = function()
+            local prepared, prepareReason = prepareWalkingFenceCrossing(actor)
+            if not prepared then return false, prepareReason end
             local invoked, failure = invoke(actor, "climbOverFence", direction)
             if not invoked or failure == false then
                 return false, failure or "native fence climb failed"

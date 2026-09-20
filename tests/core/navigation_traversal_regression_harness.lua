@@ -284,6 +284,11 @@ check(T.window(thumpableFenceActor, "climb_window", {
     "hoppable IsoThumpables use ISClimbThroughWindow's native entry, never the player's contextual hook")
 T.reset(thumpableFenceActor)
 local lowFenceActor = actor()
+lowFenceActor.running, lowFenceActor.sprinting = true, true
+function lowFenceActor:setRunning(value) self.running = value == true end
+function lowFenceActor:setSprinting(value) self.sprinting = value == true end
+function lowFenceActor:isRunning() return self.running == true end
+function lowFenceActor:isSprinting() return self.sprinting == true end
 function lowFenceActor:hopFence(direction, testOnly)
     if testOnly == true then
         self.lowFenceTests = (self.lowFenceTests or 0) + 1
@@ -294,6 +299,8 @@ function lowFenceActor:hopFence(direction, testOnly)
 end
 function lowFenceActor:climbOverFence(direction)
     self.lowFenceDirection = direction
+    self.runningAtFence = self:isRunning()
+    self.sprintingAtFence = self:isSprinting()
     return self:request()
 end
 check(T.fence(lowFenceActor, "climb_fence", {
@@ -301,8 +308,10 @@ check(T.fence(lowFenceActor, "climb_fence", {
     }, provider)
         and lowFenceActor.lowFenceTests == 1
         and lowFenceActor.lowFenceDirection == IsoDirections.E
+        and lowFenceActor.runningAtFence == false
+        and lowFenceActor.sprintingAtFence == false
         and lowFenceActor.contextualHop == nil and lowFenceActor.contextualAction == nil,
-    "low fences validate with hopFence(test) and submit climbOverFence, never hopFence's contextual hook")
+    "low fences submit a walking climbOverFence, never a risky running vault or contextual hook")
 T.reset(lowFenceActor)
 local strafingActor = actor()
 strafingActor.actionState = "Strafe"

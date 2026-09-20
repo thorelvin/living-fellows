@@ -115,6 +115,7 @@ local target = { x = 2, y = 0, z = 0, health = 5, hits = 0 }
 function target:getX() return self.x end
 function target:getY() return self.y end
 function target:getZ() return self.z end
+function target:getCurrentSquare() return self.square or {} end
 function target:getHealth() return self.health end
 function target:isDead() return self.health <= 0 end
 function target:isOnFloor() return true end
@@ -146,8 +147,8 @@ approach()
 local before = actor.x
 local held = dispatch("ready_weapon", { combatSpacingHold = true })
 for _ = 1, 30 do actor:updateFrame() end
-check(held and actor.x == before and not actor.moveRequested,
-    "a successful stationary hold clears retained approach across delayed decisions")
+check(held and actor.x == before and not actor.moveRequested and actor.aimTarget == target,
+    "a stationary combat hold clears retained movement and keeps facing its live target")
 actor.moving, actor.rejectStop = true, true
 local stopFailureCount = actor.attacks
 local failedHold, failedHoldReason = dispatch("ready_weapon")

@@ -71,6 +71,16 @@ check(Supervisor.transition(reacquire, "approaching") == true
     "a pre-commit reach check can return from settling to approach")
 Supervisor.cancel(actor, "reacquire_fixture", nil, true)
 
+local resting = assert(Supervisor.begin(actor, {
+    owner = "downtime", action = "rest_bed", ignoreRetry = true,
+}))
+check(Supervisor.transition(resting, "approaching") == true
+        and Supervisor.transition(resting, "animating") == true
+        and Supervisor.transition(resting, "waiting") == true
+        and Supervisor.transition(resting, "committing") == true,
+    "an entered furniture-rest pose can commit after its waiting duration")
+Supervisor.cancel(actor, "resting_fixture", nil, true)
+
 local resource = {}
 local transaction = assert(Supervisor.begin(actor, {
     owner = "medical", action = "replace_dirty_bandage", targetKey = "arm:left",

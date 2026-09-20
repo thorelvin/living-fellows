@@ -273,16 +273,18 @@ end
 local function transferFromStorage(actor, state, storage, container, item)
     local object = SC.BaseLife.resolveObject(storage)
     if not object then return false, "base_storage_unloaded" end
-    if U().distance(actor, object) > 1.5 then
+    local atStorage, targets, accessReason = U().directInteractionAccess(actor, object)
+    if atStorage ~= true then
+        if accessReason == "no_interaction_targets" then return false, accessReason end
         if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
             return false, "navigation_unavailable"
         end
-        local targets = SC.Navigation.interactionTargets(actor, object)
         -- Only (handled, reason): a third navigation value would be read as
         -- the terminal flag and block the job on every approach.
         local approached, approachReason = SC.Navigation.requestAny(actor, targets, "walk", {
             action = "move_to_base_storage", targetSquare = U().squareOf(object),
-            object = object, arrivalDistance = 1.0,
+            object = object, arrivalDistance = 0.35, requireSameSquare = true,
+            continuousApproach = true,
         })
         return approached == true, approachReason
     end
@@ -368,14 +370,16 @@ local function transferToStorage(actor, state, storage, container, item, require
         local accepts, depositReason = SC.BaseLife.storageAcceptsDeposit(storage, container)
         if accepts ~= true then return false, depositReason end
     end
-    if U().distance(actor, object) > 1.5 then
+    local atStorage, targets, accessReason = U().directInteractionAccess(actor, object)
+    if atStorage ~= true then
+        if accessReason == "no_interaction_targets" then return false, accessReason end
         if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
             return false, "navigation_unavailable"
         end
-        local targets = SC.Navigation.interactionTargets(actor, object)
         local approached, approachReason = SC.Navigation.requestAny(actor, targets, "walk", {
             action = "move_to_base_storage", targetSquare = U().squareOf(object),
-            object = object, arrivalDistance = 1.0,
+            object = object, arrivalDistance = 0.35, requireSameSquare = true,
+            continuousApproach = true,
         })
         return approached == true, approachReason
     end
@@ -818,14 +822,18 @@ local function updateTransfer(actor, state, job)
     end
     local object = SC.BaseLife.resolveObject(transfer.destination)
     if not object then return false, "destination_storage_unloaded", true end
-    if U().distance(actor, object) > 1.5 then
+    local atStorage, targets, accessReason = U().directInteractionAccess(actor, object)
+    if atStorage ~= true then
+        if accessReason == "no_interaction_targets" then
+            return false, accessReason, true
+        end
         if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
             return false, "navigation_unavailable", true
         end
-        local targets = SC.Navigation.interactionTargets(actor, object)
         local approached, approachReason = SC.Navigation.requestAny(actor, targets, "walk", {
             action = "move_to_base_storage", targetSquare = U().squareOf(object),
-            object = object, arrivalDistance = 1.0,
+            object = object, arrivalDistance = 0.35, requireSameSquare = true,
+            continuousApproach = true,
         })
         return approached == true, approachReason
     end
