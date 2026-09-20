@@ -40,6 +40,7 @@ local workModes = { auto = true, idle = true, craft = true }
 local internalWorkModes = { auto = true, idle = true, craft = true, build = true }
 local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true }
 local groupStaging = false
+local groupCurrentPlan = nil
 local copyCommandState
 
 local copyLimits = {
@@ -627,17 +628,29 @@ local function positionTable(value)
     return { x = x, y = y, z = z or 0, square = U().squareOf(value) }
 end
 
-local function markCommand(actor, entry, state)
+local function sameAnchor(left, right)
+    if left == right then return true end
+    if type(left) ~= "table" or type(right) ~= "table" then return false end
+    return tonumber(left.x) == tonumber(right.x)
+        and tonumber(left.y) == tonumber(right.y)
+        and tonumber(left.z or 0) == tonumber(right.z or 0)
+end
+
+local function temporaryStaySuperseded(actor, state)
     local temporary = temporaryStays[actor]
     if temporary and (state.order ~= temporary.originalOrder
-        or state.anchor ~= temporary.originalAnchor) then
+        or not sameAnchor(state.anchor, temporary.originalAnchor)) then
         -- A real movement/order command supersedes the inventory hold. Settings
         -- changes leave the underlying order untouched and therefore keep it.
         temporaryStays[actor] = nil
     end
+end
+
+local function markCommand(actor, entry, state)
     state.commandSerial = (state.commandSerial or 0) + 1
     state.lastCommandAt = U().nowMs()
     if groupStaging then return end
+    temporaryStaySuperseded(actor, state)
     writeStable(actor, entry, state)
     if SC.Downtime and type(SC.Downtime.cancel) == "function" then
         pcall(SC.Downtime.cancel, actor, "command")
@@ -696,16 +709,29 @@ local function enterBaseDuty(actor, entry, state, role, post)
     if not SC.BaseLife or type(SC.BaseLife.active) ~= "function"
         or SC.BaseLife.active() == nil then return false, "base_missing" end
     local id = U().idOf(actor)
-    local resident = type(SC.BaseLife.resident) == "function" and SC.BaseLife.resident(id) or nil
-    local assigned, reason
-    if role == nil and resident == nil and type(SC.BaseLife.setDuty) == "function" then
-        -- A new resident takes the role its background prefers.
-        assigned, reason = SC.BaseLife.setDuty(id, true)
+    local assignment, reason
+    if type(SC.BaseLife.planResidentAssignment) == "function" then
+        assignment, reason = SC.BaseLife.planResidentAssignment(id, role, true)
     else
-        assigned, reason = SC.BaseLife.assign(id,
-            role or (resident and resident.role) or "generalist", true)
+        local resident = type(SC.BaseLife.resident) == "function" and SC.BaseLife.resident(id) or nil
+        assignment = { actorId = id, role = role or (resident and resident.role) or "generalist",
+            duty = true }
     end
-    if assigned ~= true then return false, reason end
+    if assignment == nil then return false, reason end
+    if groupStaging then
+        if not groupCurrentPlan then return false, "group_base_plan_missing" end
+        groupCurrentPlan.baseAssignment = assignment
+    else
+        local assigned
+        if type(SC.BaseLife.applyResidentAssignment) == "function" then
+            assigned, reason = SC.BaseLife.applyResidentAssignment(assignment)
+        elseif role == nil and type(SC.BaseLife.setDuty) == "function" then
+            assigned, reason = SC.BaseLife.setDuty(id, true)
+        else
+            assigned, reason = SC.BaseLife.assign(id, assignment.role, true)
+        end
+        if assigned ~= true then return false, reason end
+    end
     clearWorkState(state)
     state.order = "base_duty"
     state.anchor = post and positionTable(post) or U().copyShallow(SC.BaseLife.active().core)
@@ -734,11 +760,24 @@ local function handleSetBaseRole(actor, entry, state, payload)
     if type(role) ~= "string" or not SC.BaseLife.ROLES[role] then
         return false, "invalid_base_role"
     end
-    local resident = type(SC.BaseLife.resident) == "function"
-        and SC.BaseLife.resident(U().idOf(actor)) or nil
-    local assigned, reason = SC.BaseLife.assign(U().idOf(actor), role,
-        resident and resident.duty == true or state.order == "base_duty")
-    if assigned ~= true then return false, reason end
+    local id = U().idOf(actor)
+    local resident = type(SC.BaseLife.resident) == "function" and SC.BaseLife.resident(id) or nil
+    local duty = resident and resident.duty == true or state.order == "base_duty"
+    local assignment, reason = type(SC.BaseLife.planResidentAssignment) == "function"
+        and SC.BaseLife.planResidentAssignment(id, role, duty) or nil
+    if groupStaging then
+        if not assignment then return false, reason or "base_assignment_unavailable" end
+        if not groupCurrentPlan then return false, "group_base_plan_missing" end
+        groupCurrentPlan.baseAssignment = assignment
+    else
+        local assigned
+        if assignment and type(SC.BaseLife.applyResidentAssignment) == "function" then
+            assigned, reason = SC.BaseLife.applyResidentAssignment(assignment)
+        else
+            assigned, reason = SC.BaseLife.assign(id, role, duty)
+        end
+        if assigned ~= true then return false, reason end
+    end
     markCommand(actor, entry, state)
     return true, "base_role_" .. role
 end
@@ -2016,6 +2055,7 @@ local function issueMemberSetAtomic(members, command, payload, player)
     local results = {}
     for _, plan in ipairs(plans) do
         groupStaging = true
+        groupCurrentPlan = plan
         local ok, accepted, reason = pcall(
             handlers[command],
             plan.actor,
@@ -2024,13 +2064,35 @@ local function issueMemberSetAtomic(members, command, payload, player)
             cleanPayload,
             player
         )
+        groupCurrentPlan = nil
         groupStaging = false
         if not ok or accepted ~= true then
             local failure = ok and reason or accepted
             results[#results + 1] = { id = plan.id, ok = false, reason = failure }
             return false, "group_prevalidation:" .. tostring(failure), results
         end
+        if plan.baseAssignment then
+            if not SC.BaseLife or type(SC.BaseLife.snapshotResident) ~= "function" then
+                return false, "group_prevalidation:resident_snapshot_unavailable", results
+            end
+            local snapshot, snapshotReason = SC.BaseLife.snapshotResident(plan.id)
+            if snapshot == nil then
+                return false, "group_prevalidation:" .. tostring(snapshotReason), results
+            end
+            plan.residentSnapshot = snapshot
+        end
         results[#results + 1] = { id = plan.id, ok = true, reason = reason }
+    end
+
+    local function rollbackAll()
+        for _, rollback in ipairs(plans) do
+            states[rollback.actor] = rollback.before
+            restoreStorage(rollback.actor, rollback.entry, rollback.storage)
+            if rollback.residentSnapshot and SC.BaseLife
+                and type(SC.BaseLife.restoreResident) == "function" then
+                pcall(SC.BaseLife.restoreResident, rollback.id, rollback.residentSnapshot)
+            end
+        end
     end
 
     -- Persist the staged states. A failure restores every member's exact prior
@@ -2038,15 +2100,30 @@ local function issueMemberSetAtomic(members, command, payload, player)
     for index, plan in ipairs(plans) do
         local persisted, persistenceError = pcall(writeStable, plan.actor, plan.entry, plan.staged)
         if not persisted then
-            for _, rollback in ipairs(plans) do
-                states[rollback.actor] = rollback.before
-                restoreStorage(rollback.actor, rollback.entry, rollback.storage)
-            end
+            rollbackAll()
             results[index].ok = false
             results[index].reason = persistenceError
             return false, "group_rollback:persistence_failed", results
         end
         states[plan.actor] = plan.staged
+    end
+    -- Resident role/duty is part of the same logical command.  Apply it only
+    -- after every command state is durable, and restore both subsystems if an
+    -- apply is rejected or throws.
+    for index, plan in ipairs(plans) do
+        if plan.baseAssignment then
+            local called, applied, assignmentReason = pcall(
+                SC.BaseLife.applyResidentAssignment, plan.baseAssignment)
+            if not called or applied ~= true then
+                rollbackAll()
+                results[index].ok = false
+                results[index].reason = called and assignmentReason or applied
+                return false, "group_rollback:resident_assignment_failed", results
+            end
+        end
+    end
+    for _, plan in ipairs(plans) do
+        temporaryStaySuperseded(plan.actor, plan.staged)
     end
     -- All members persisted; only now apply the cross-subsystem base-duty release.
     -- Doing it inside the commit loop above meant a later member's write failure

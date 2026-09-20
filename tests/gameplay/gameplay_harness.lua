@@ -7858,6 +7858,12 @@ SurvivorCompanion.BaseLife.setDuty = function(...)
 end
 local rolledOk, rolledReason = SurvivorCompanion.Commands.issue(fellow.id, "follow",
     { scope = "group", group = "Alpha" }, player)
+local residentBeforeGuard = SurvivorCompanion.BaseLife.resident(fellow.id)
+local residentRoleBeforeGuard = residentBeforeGuard and residentBeforeGuard.role
+local residentDutyBeforeGuard = residentBeforeGuard and residentBeforeGuard.duty
+local guardedRollback, guardedRollbackReason = SurvivorCompanion.Commands.issue(fellow.id, "guard", {
+    scope = "group", group = "Alpha", square = cell:getGridSquare(1, 1, 0),
+}, player)
 SurvivorCompanion.BaseLife.setDuty = realSetDuty
 shooter.modDataProxy = nil
 check(not rolledOk and string.find(tostring(rolledReason), "rollback", 1, true) ~= nil
@@ -7866,6 +7872,12 @@ check(not rolledOk and string.find(tostring(rolledReason), "rollback", 1, true) 
         and fellow.modData.SC_WorkBarricadeSide == "same"
         and dutyReleases == 0,
     "a failed group commit rolls back command state and work metadata and releases no base duty")
+check(not guardedRollback
+        and string.find(tostring(guardedRollbackReason), "rollback", 1, true) ~= nil
+        and (SurvivorCompanion.BaseLife.resident(fellow.id) or {}).role == residentRoleBeforeGuard
+        and (SurvivorCompanion.BaseLife.resident(fellow.id) or {}).duty == residentDutyBeforeGuard
+        and SurvivorCompanion.BaseLife.resident(shooter.id) == nil,
+    "failed group guard staging changes no live resident role or duty before commit")
 fellow.modData.SC_WorkKind = nil
 fellow.modData.SC_WorkBarricadeSide = nil
 SurvivorCompanion.BaseLife.reset()
@@ -7940,6 +7952,30 @@ check(not failedNthGroup and SurvivorCompanion.Commands.peek(fellow).order == "f
     and SurvivorCompanion.Commands.peek(shooter).order == "follow"
     and fellow.modData.SC_Order == "follow" and shooter.modData.SC_Order == "follow",
     "failure on the second group member rolls every state and persistence record back exactly")
+
+do
+local fellowHold = SurvivorCompanion.Commands.beginTemporaryStay(fellow, "group_setting")
+local shooterHold = SurvivorCompanion.Commands.beginTemporaryStay(shooter, "group_setting")
+local heldSetting = SurvivorCompanion.Commands.issue(fellow.id, "set_follow_distance", {
+    scope = "group", group = "Alpha", distance = 3,
+}, player)
+check(heldSetting and SurvivorCompanion.Commands.isTemporaryStay(fellow)
+        and SurvivorCompanion.Commands.isTemporaryStay(shooter),
+    "a group scalar setting preserves inventory holds despite detached anchor copies")
+SurvivorCompanion.Commands.endTemporaryStay(fellow, fellowHold)
+SurvivorCompanion.Commands.endTemporaryStay(shooter, shooterHold)
+fellowHold = SurvivorCompanion.Commands.beginTemporaryStay(fellow, "group_move")
+shooterHold = SurvivorCompanion.Commands.beginTemporaryStay(shooter, "group_move")
+local heldMove = SurvivorCompanion.Commands.issue(fellow.id, "stay", {
+    scope = "group", group = "Alpha",
+}, player)
+local fellowReleased, fellowReleaseReason = SurvivorCompanion.Commands.endTemporaryStay(fellow, fellowHold)
+local shooterReleased, shooterReleaseReason = SurvivorCompanion.Commands.endTemporaryStay(shooter, shooterHold)
+check(heldMove and fellowReleased and shooterReleased
+        and fellowReleaseReason == "superseded_by_command"
+        and shooterReleaseReason == "superseded_by_command",
+    "a committed group movement order supersedes each temporary inventory hold")
+end
 
 local openedFood = item("Base.CannedSoup", "Food")
 local safeFood = item("Base.CannedBeans", "Food")

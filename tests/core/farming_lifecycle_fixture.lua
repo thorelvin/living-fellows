@@ -61,7 +61,7 @@ function F.item(fullType, nativeId, options)
     local item = {
         fullType = fullType, nativeId = nativeId, modData = {}, tags = options.tags or {},
         category = options.category, fluidAmount = options.fluidAmount,
-        fluidCapacity = options.fluidCapacity,
+        fluidCapacity = options.fluidCapacity, nestedInventory = options.inventory,
     }
     function item:getFullType() return self.fullType end
     function item:getType() return string.match(self.fullType, "[^%.]+$") end
@@ -69,6 +69,7 @@ function F.item(fullType, nativeId, options)
     function item:getModData() return self.modData end
     function item:getContainer() return self.container end
     function item:getCategory() return self.category end
+    function item:getInventory() return self.nestedInventory end
     function item:hasTag(tag) return self.tags[tostring(tag)] == true end
     function item:isBroken() return false end
     function item:getFluidContainer()
@@ -131,7 +132,8 @@ function F.waterSource(square, tainted)
 end
 
 function F.addStorage(id, category, items)
-    local storage = { id = id, category = category, withdrawals = true }
+    local storage = { id = id, category = category, withdrawals = true,
+        deposits = true, reserve = 0, reserves = {} }
     F.storages[#F.storages + 1] = storage
     F.storageContainers[id] = F.container(items)
     F.base.storages = F.storages
@@ -253,6 +255,27 @@ SC.BaseLife = {
         end
         return result
     end,
+    depositStorageRows = function(category)
+        local result = {}
+        for _, storage in ipairs(F.storages) do
+            if storage.category == category and storage.deposits ~= false then
+                result[#result + 1] = storage
+            end
+        end
+        return result
+    end,
+    storageReserve = function(storage, itemType)
+        return (storage.reserves and storage.reserves[itemType]) or storage.reserve or 0
+    end,
+    storageAcceptsDeposit = function(storage, expected)
+        local current
+        for _, row in ipairs(F.storages) do if row.id == storage.id then current = row break end end
+        if current ~= storage then return false, "base_storage_changed" end
+        if storage.deposits == false then return false, "base_storage_deposits_disabled" end
+        local container = F.storageContainers[storage.id]
+        if expected and expected ~= container then return false, "base_storage_changed" end
+        return true, container
+    end,
     resolveContainer = function(storage) return storage and F.storageContainers[storage.id] or nil end,
     availableCount = function(storage, itemType)
         local count = 0
@@ -337,6 +360,16 @@ SC.BaseWork = {
         if not removeIdentity(actor.inventory, item) then return false, "missing" end
         addIdentity(container, item)
         return true, "base_supply_returned"
+    end,
+    depositToStorage = function(actor, state, storage, container, item)
+        local allowed, reason = SC.BaseLife.storageAcceptsDeposit(storage, container)
+        if allowed ~= true then return false, reason end
+        return SC.BaseWork.returnToStorage(actor, state, storage, container, item)
+    end,
+    restoreDepositToStorage = function(actor, storage, container, item)
+        local allowed, reason = SC.BaseLife.storageAcceptsDeposit(storage, container)
+        if allowed ~= true then return false, reason end
+        return SC.BaseWork.restoreToStorage(actor, storage, container, item)
     end,
 }
 

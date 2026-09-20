@@ -504,6 +504,22 @@ local captured, captureReason = SC.Persistence.captureRecord(record)
 check(captured ~= nil,
     "plain native items without getInventory still capture: " .. tostring(captureReason))
 
+do
+    original.data.LF_ProductionSawReceipt = {
+        orderId = "production-order:stable-baseline", logKey = "stable:log",
+        beforeCount = 2,
+        beforeIds = "|stable:lf-item:plank-a|stable:lf-item:plank-b|",
+        startedAt = 24680,
+    }
+    local withSawReceipt, sawReceiptReason = SC.Persistence.captureRecord(record)
+    original.data.LF_ProductionSawReceipt = nil
+    check(withSawReceipt ~= nil and type(withSawReceipt.productionAction) == "table"
+            and withSawReceipt.productionAction.beforeIds
+                == "|stable:lf-item:plank-a|stable:lf-item:plank-b|",
+        "live capture preserves the saw action's stable output baseline: "
+            .. tostring(sawReceiptReason))
+end
+
 -- Torn sheets from vanilla crafting carry filterLife as a boxed Java Float.
 -- Before, that one value made the strict copy refuse the item, and with it
 -- the companion's capture and every scheduled save.

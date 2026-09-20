@@ -910,7 +910,7 @@ local function clearCargo(item, orderId)
 end
 
 local function markedCargo(inventory, orderId, itemType)
-    for _, item in ipairs(U().inventoryItems(inventory, 256)) do
+    for _, item in ipairs(U().inventoryItems(inventory, math.huge)) do
         if cargoOrder(item) == orderId and (itemType == nil or U().itemType(item) == itemType) then
             return item
         end
@@ -919,6 +919,8 @@ local function markedCargo(inventory, orderId, itemType)
 end
 
 local function itemKey(item)
+    local stable = type(U().itemStableId) == "function" and U().itemStableId(item, true) or nil
+    if stable ~= nil then return "stable:" .. tostring(stable) end
     local id, ok = invoke(item, "getID")
     if ok and id ~= nil then return "native:" .. tostring(id) end
     return tostring(item)
@@ -935,12 +937,17 @@ end
 local function writeSawReceipt(actor, order, log, before)
     local data = U().modData(actor)
     if type(data) ~= "table" then return false end
-    local count = 0
-    for _, present in pairs(type(before) == "table" and before or {}) do
-        if present == true then count = count + 1 end
+    local count, ids = 0, {}
+    for key, present in pairs(type(before) == "table" and before or {}) do
+        if present == true then
+            count = count + 1
+            ids[#ids + 1] = "|" .. tostring(key)
+        end
     end
+    table.sort(ids)
     data[Production.SAW_RECEIPT] = {
-        orderId = order.id, logKey = itemKey(log), beforeCount = count, startedAt = now(),
+        orderId = order.id, logKey = itemKey(log), beforeCount = count,
+        beforeIds = table.concat(ids) .. (#ids > 0 and "|" or ""), startedAt = now(),
     }
     noteOwnershipMutation()
     return true
@@ -1428,7 +1435,7 @@ end
 
 local function plankKeys(inventory)
     local keys = {}
-    for _, item in ipairs(U().inventoryItems(inventory, 256)) do
+    for _, item in ipairs(U().inventoryItems(inventory, math.huge)) do
         if U().itemType(item) == "Base.Plank" then keys[itemKey(item)] = true end
     end
     return keys
@@ -1496,27 +1503,21 @@ local function reconcileSaw(actor, order, work)
         logGone = markedCargo(inventory, order.id, "Base.Log") == nil
     end
     local before = type(work.before) == "table" and work.before or nil
-    local allPlanks, created, attributed = {}, {}, 0
-    for _, item in ipairs(U().inventoryItems(inventory, 256)) do
+    if before == nil and type(work.beforeIds) == "string" then
+        before = {}
+        for key in string.gmatch(work.beforeIds, "|([^|]+)") do before[key] = true end
+    end
+    local created, attributed = {}, 0
+    for _, item in ipairs(U().inventoryItems(inventory, math.huge)) do
         if U().itemType(item) == "Base.Plank" then
-            allPlanks[#allPlanks + 1] = item
             if cargoOrder(item) == order.id then attributed = attributed + 1
             elseif cargoOrder(item) == nil and (before == nil or not before[itemKey(item)]) then
                 created[#created + 1] = item
             end
         end
     end
-    if before == nil then
-        local produced = math.max(0, #allPlanks - math.max(0,
-            math.floor(tonumber(work.beforeCount) or 0)))
-        local needed = math.max(0, produced - attributed)
-        local selected = {}
-        for index = #created, math.max(1, #created - needed + 1), -1 do
-            selected[#selected + 1] = created[index]
-        end
-        created = selected
-    end
     if not logGone then return false, "saw_not_committed", false end
+    if before == nil then return false, "saw_baseline_unresolved", true end
     if #created == 0 and attributed == 0 then return false, "saw_incomplete", true end
     for _, item in ipairs(created) do
         if not markCargo(item, order.id) then return false, "production_marker_failed", true end
@@ -1552,9 +1553,18 @@ local function pollSaw(actor, order, state, context)
     end
     local reconciled, reason = reconcileSaw(actor, order, work)
     if reconciled ~= true then
+        if reason == "saw_not_committed" then
+            -- finishWork proved the native action ended and the exact marked
+            -- log proves it did not commit. Retire this dead attempt so Retry
+            -- can create a replacement instead of polling it forever.
+            state.work = nil
+            state.sawRetryAt = now() + config("productionRetryBaseMs", 750)
+            clearSawReceipt(actor, order.id)
+        end
         return sawFailure(order, state, reason == "saw_not_committed" and "saw_incomplete" or reason)
     end
     state.work = nil
+    state.sawRetryAt = nil
     state.sawFailures = 0
     return true, reason
 end
@@ -1572,7 +1582,7 @@ local function updateSaw(actor, order, state, context)
         if workActive(actor, "saw_logs") then
             state.work = {
                 kind = "saw_logs", log = log, saw = findInventoryTool(actor, "saw"),
-                beforeCount = receipt.beforeCount,
+                beforeCount = receipt.beforeCount, beforeIds = receipt.beforeIds,
                 startedAt = tonumber(receipt.startedAt) or now(),
             }
             return pollSaw(actor, order, state, context)
@@ -1583,7 +1593,8 @@ local function updateSaw(actor, order, state, context)
             clearSawReceipt(actor, order.id)
         else
             local recovered, recoveryReason = reconcileSaw(actor, order, {
-                beforeCount = receipt.beforeCount, log = nil, startedAt = receipt.startedAt,
+                beforeCount = receipt.beforeCount, beforeIds = receipt.beforeIds,
+                log = nil, startedAt = receipt.startedAt,
             })
             if recovered == true then return true, recoveryReason end
             return sawFailure(order, state, recoveryReason)
@@ -1596,6 +1607,10 @@ local function updateSaw(actor, order, state, context)
     end
     local log = markedCargo(inventory, order.id, "Base.Log")
     if not log then return withdrawLog(actor, order, state) end
+    if state.sawRetryAt and now() < state.sawRetryAt then
+        return true, "production_saw_retry_wait"
+    end
+    state.sawRetryAt = nil
     local saw = findInventoryTool(actor, "saw")
     if not saw then return fetchTool(actor, order, state, "saw") end
     local _, capacity, ratio = U().inventoryLoad(actor)
@@ -3960,6 +3975,34 @@ function Production.cancelActor(actor, reason)
     local orderId = state and state.orderId or (type(receipt) == "table" and receipt.orderId or nil)
     local order = SC.BaseLife and type(SC.BaseLife.productionOrder) == "function"
         and SC.BaseLife.productionOrder(orderId) or nil
+    -- Completed native work may already have changed inventory or the world.
+    -- Reuse each ordinary poller before teardown so its proof, counters and
+    -- follow-up work are committed exactly once. A poller still inside a
+    -- bounded verification window keeps ownership and refuses cancellation.
+    if work and work.kind ~= "saw_logs" and order
+        and not workActive(actor, work.kind) then
+        local context = { actorId = actorId(actor), runtime = nil }
+        local reconciled, reconcileReason
+        if work.kind == "chop_tree" then
+            reconciled, reconcileReason = pollChop(actor, order, state, context)
+        elseif work.kind == "dig_grave" then
+            reconciled, reconcileReason = pollDig(actor, order, state, context)
+        elseif work.kind == "fill_grave" then
+            reconciled, reconcileReason = pollFill(actor, order, state, context)
+        elseif work.kind == "bury_body" then
+            reconciled, reconcileReason = pollBury(actor, order, state, context)
+        elseif work.kind == "burn_body" then
+            reconciled, reconcileReason = Disposal.pollBurn(actor, order, state, context)
+        elseif work.kind == "grab_body" then
+            reconciled, reconcileReason = Disposal.pollGrab(actor, order, state, context)
+        elseif work.kind == "drop_body" then
+            reconciled, reconcileReason = Disposal.pollDrop(actor, order, state, context)
+        end
+        if state.work ~= nil then
+            return false, reconcileReason or "production_reconciliation_pending"
+        end
+        work = nil
+    end
     if work and native and type(native.workKind) == "function"
         and PRODUCTION_WORK_KINDS[native.workKind(actor)] then
         local active = workActive(actor, work.kind)
@@ -3972,7 +4015,7 @@ function Production.cancelActor(actor, reason)
         local sawWork = work
         if not sawWork and type(receipt) == "table" then
             sawWork = {
-                beforeCount = receipt.beforeCount,
+                beforeCount = receipt.beforeCount, beforeIds = receipt.beforeIds,
                 log = markedCargo(U().inventory(actor), order.id, "Base.Log"),
                 startedAt = receipt.startedAt,
             }

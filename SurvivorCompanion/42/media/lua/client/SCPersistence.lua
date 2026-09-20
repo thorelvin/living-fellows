@@ -1129,6 +1129,9 @@ function persistence.captureRecord(record, vehicleState)
                 and text(rawProductionAction.logKey, "", 128) or nil,
             beforeCount = math.max(0, math.min(256,
                 math.floor(finite(rawProductionAction.beforeCount, 0)))),
+            beforeIds = type(rawProductionAction.beforeIds) == "string"
+                and #rawProductionAction.beforeIds <= 32768
+                and rawProductionAction.beforeIds or nil,
             startedAt = math.max(0, finite(rawProductionAction.startedAt, 0)),
         }
     end
@@ -2369,7 +2372,9 @@ local function validateRecord(id, source)
         if type(action) ~= "table" or action.kind ~= "saw_logs"
             or type(action.orderId) ~= "string"
             or string.sub(action.orderId, 1, 17) ~= "production-order:"
-            or finite(action.beforeCount, nil) == nil then
+            or finite(action.beforeCount, nil) == nil
+            or (action.beforeIds ~= nil and (type(action.beforeIds) ~= "string"
+                or #action.beforeIds > 32768)) then
             return nil, "invalid production action receipt"
         end
         clean.productionAction = {
@@ -2377,6 +2382,7 @@ local function validateRecord(id, source)
             logKey = type(action.logKey) == "string" and text(action.logKey, "", 128) or nil,
             beforeCount = math.max(0, math.min(256,
                 math.floor(finite(action.beforeCount, 0)))),
+            beforeIds = type(action.beforeIds) == "string" and action.beforeIds or nil,
             startedAt = math.max(0, finite(action.startedAt, 0)),
         }
     end
@@ -3185,6 +3191,7 @@ local function initializeRestoredActor(actor, input, saved)
             orderId = saved.productionAction.orderId,
             logKey = saved.productionAction.logKey,
             beforeCount = saved.productionAction.beforeCount,
+            beforeIds = saved.productionAction.beforeIds,
             startedAt = saved.productionAction.startedAt,
         }
     end

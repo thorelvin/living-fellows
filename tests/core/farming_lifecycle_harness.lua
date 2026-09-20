@@ -183,13 +183,16 @@ fresh()
 original = F.actor("worker-a", 0, 1)
 local oldItem = F.item("Base.Hammer", 50)
 local tomato = F.item("Base.Tomato", 51, { category = "Food" })
+oldItem.modData.LF_ItemStableId = "saved-old-item"
+tomato.modData.LF_ItemStableId = "harvest-output-item"
 original.inventory:AddItem(oldItem)
 original.inventory:AddItem(tomato)
 F.square(1, 1, nil)
 F.addStorage("storage:food", "food", {})
 resumed = F.job("harvest", 1, 1, {
     id = "job:resume-original", actorId = original.id, cropType = "Tomato",
-    harvestStarted = true, harvestActorId = original.id, harvestBeforeIds = "|50|",
+    harvestStarted = true, harvestActorId = original.id,
+    harvestBaselineVersion = 1, harvestBeforeStableIds = "|saved-old-item|",
 })
 handled, reason = FarmWork.update(original, {}, resumed, {})
 check(handled == true and reason == "farm_harvest_recovered" and #F.receipts == 1
@@ -407,5 +410,118 @@ check(count == nil and complete == false,
 count, complete = FarmWork._seedCountForTests("Tomato")
 check(count == 1 and complete == true,
     "the restarted endpoint census includes items before the old cursor")
+
+-- LF-26/LF-30: harvest attribution scans the complete inventory tree and uses
+-- persistence-stable item identities instead of runtime native ids.
+fresh()
+F.itemBudget = 80
+actor = F.actor("worker-a", 0, 1)
+plant = F.plant()
+local largeHarvestSquare = F.square(1, 1, plant)
+F.addStorage("storage:food", "food", {})
+local nestedOld = F.item("Base.Tomato", 9001, { category = "Food" })
+local bag = F.item("Base.Bag", 9002, { inventory = F.container({ nestedOld }) })
+for index = 1, 255 do actor.inventory:AddItem(F.item("Base.Old" .. tostring(index), 9002 + index)) end
+actor.inventory:AddItem(bag)
+harvest = F.job("harvest", 1, 1, {
+    id = "job:large-harvest", actorId = actor.id, cropType = "Tomato",
+})
+for _ = 1, 4 do handled, reason = FarmWork.update(actor, {}, harvest, {}) end
+check(F.native[actor] and F.native[actor].active == true
+        and harvest.target.harvestBaselineVersion == 1,
+    "a resumable baseline reaches all root items and nested bags before harvest starts")
+local lateTomato = F.item("Base.Tomato", 9999, { category = "Food" })
+actor.inventory:AddItem(lateTomato)
+F.native[actor].active = false
+largeHarvestSquare.plant = nil
+handled, reason = FarmWork.update(actor, {}, harvest, {})
+check(handled == true and harvest.target.harvestStarted == true
+        and lateTomato.modData.LF_FarmReceiptId == nil,
+    "an incomplete post-harvest census preserves its checkpoint and attributes nothing early")
+for _ = 1, 4 do
+    handled, reason = FarmWork.update(actor, {}, harvest, {})
+    if lateTomato.modData.LF_FarmReceiptId ~= nil then break end
+end
+check(lateTomato.modData.LF_FarmReceiptId ~= nil
+        and nestedOld.modData.LF_FarmReceiptId == nil
+        and harvest.target.harvestStarted == nil,
+    "the completed full census adopts only the new plausible output after the old 256-item limit: "
+        .. tostring(reason) .. " late=" .. tostring(lateTomato.modData.LF_FarmReceiptId)
+        .. " old=" .. tostring(nestedOld.modData.LF_FarmReceiptId)
+        .. " started=" .. tostring(harvest.target.harvestStarted))
+
+fresh()
+original = F.actor("worker-a", 0, 1)
+local legacyTomato = F.item("Base.Tomato", 17, { category = "Food" })
+original.inventory:AddItem(legacyTomato)
+F.square(1, 1, nil)
+F.addStorage("storage:food", "food", {})
+resumed = F.job("harvest", 1, 1, {
+    id = "job:legacy-baseline", actorId = original.id, cropType = "Tomato",
+    harvestStarted = true, harvestActorId = original.id, harvestBeforeIds = "|16|",
+})
+handled, reason = FarmWork.update(original, {}, resumed, {})
+check(handled == false and reason == "farm_harvest_baseline_unresolved"
+        and legacyTomato.modData.LF_FarmReceiptId == nil,
+    "a count/native-id legacy checkpoint fails closed instead of adopting old inventory")
+
+-- LF-27: output storage honours deposit policy in normal recovery; borrowed
+-- exact returns remain a distinct contract.
+fresh()
+actor = F.actor("worker-a", 0, 1)
+local recoveredTomato = F.item("Base.Tomato", 10001, { category = "Food" })
+actor.inventory:AddItem(recoveredTomato)
+local rejectedStorage, rejectedContainer = F.addStorage("storage:no-deposit", "food", {})
+rejectedStorage.deposits = false
+local acceptedStorage, acceptedContainer = F.addStorage("storage:deposit", "food", {})
+recoveredTomato.modData.LF_FarmReceiptId = "farm-receipt:deposit-policy"
+F.receipts[#F.receipts + 1] = {
+    id = recoveredTomato.modData.LF_FarmReceiptId, jobId = "job:gone",
+    actorId = actor.id, kind = "output", itemType = "Base.Tomato",
+    destinationCategory = "food", phase = "recovery",
+}
+FarmWork.audit(F.base)
+check(recoveredTomato.container == acceptedContainer and #rejectedContainer.items == 0
+        and F.receipts[1].phase == "delivered",
+    "farm output recovery skips a marked container with deposits disabled")
+
+-- LF-28: successful sow consumption is terminal and cancellation must not try
+-- to return the now-consumed exact seed.
+fresh()
+actor = F.actor("worker-a", 0, 1)
+plant = F.plant({ state = "plow", harvestable = false })
+F.square(1, 1, plant)
+tomatoSeed = seed(11001)
+F.addStorage("storage:farm", "farming", { tomatoSeed })
+sowJob = F.job("sow", 1, 1, {
+    id = "job:cancel-consumed-sow", actorId = actor.id, cropType = "Tomato",
+})
+FarmWork.update(actor, {}, sowJob, {})
+FarmWork.update(actor, {}, sowJob, {})
+plant.state, plant.typeOfSeed = "seeded", "Tomato"
+actor.inventory:Remove(tomatoSeed)
+F.native[actor].active = false
+cancelled, reason = FarmWork.cancelJob(sowJob.id, "cancel_after_sow")
+check(cancelled == true and F.receipts[1].phase == "consumed"
+        and F.receipts[1].blocker == nil,
+    "cancelling after proven sow settles the consumed seed instead of reporting it missing")
+
+-- LF-29: harvest authorization counts only usable seeds after both per-storage
+-- reserve and protected receipt ownership.
+fresh()
+local reserveSeeds = { seed(12001), seed(12002), seed(12003) }
+local reserveStorage = F.addStorage("storage:reserved-seeds", "farming", reserveSeeds)
+reserveStorage.reserve = 2
+count, complete = FarmWork._seedCountForTests("Tomato")
+check(count == 1 and complete == true,
+    "seed availability subtracts the storage reserve from the complete census")
+reserveSeeds[1].modData.LF_FarmReceiptId = "farm-receipt:protected-seed"
+F.receipts[#F.receipts + 1] = {
+    id = reserveSeeds[1].modData.LF_FarmReceiptId, jobId = "job:other",
+    actorId = "other", kind = "borrowed", itemType = "Base.TomatoSeed", phase = "borrowed",
+}
+count, complete = FarmWork._seedCountForTests("Tomato")
+check(count == 0 and complete == true,
+    "protected committed seeds are excluded before the reserve is applied")
 
 print("FARMING_LIFECYCLE_PASS checks=" .. tostring(checks))

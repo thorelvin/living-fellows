@@ -297,11 +297,90 @@ local function rowItems(row)
     return items, count
 end
 
+-- Bounded depth-first inventory census used by harvest checkpoints. Unlike
+-- inventoryItems(..., 256), it reaches the complete root and nested bags while
+-- yielding between slices. Any endpoint-size mutation restarts the pass so a
+-- partial census is never mistaken for a complete baseline.
+local function scanActorInventory(actor, state, cursorKey, visitor, resetAccumulator)
+    local root = U().inventory(actor)
+    if root == nil then return "failed", "farm_inventory_unavailable" end
+    local function itemsFor(inventory)
+        local items = containerItems(inventory)
+        if items == nil then return nil, nil end
+        return items, listSize(items)
+    end
+    local function begin()
+        if resetAccumulator then resetAccumulator() end
+        local items, size = itemsFor(root)
+        if items == nil then return nil end
+        local cursor = {
+            root = root,
+            stack = { { inventory = root, items = items, size = size, index = 0 } },
+            endpoints = { { inventory = root, size = size } },
+            seen = { [root] = true },
+        }
+        state[cursorKey] = cursor
+        return cursor
+    end
+    local cursor = state[cursorKey]
+    local restart = cursor == nil or cursor.root ~= root
+    if not restart then
+        for _, endpoint in ipairs(cursor.endpoints or {}) do
+            local _, size = itemsFor(endpoint.inventory)
+            if size == nil or size ~= endpoint.size then restart = true break end
+        end
+    end
+    if restart then cursor = begin() end
+    if cursor == nil then return "failed", "farm_inventory_items_unavailable" end
+    local budget = math.max(1, math.floor(config("campStorageItemBudget", 80)))
+    local visited = 0
+    while #cursor.stack > 0 and visited < budget do
+        local frame = cursor.stack[#cursor.stack]
+        if frame.index >= frame.size then
+            table.remove(cursor.stack)
+        else
+            local item, available = listGet(frame.items, frame.index)
+            frame.index = frame.index + 1
+            visited = visited + 1
+            if not available or item == nil then
+                state[cursorKey] = nil
+                return "pending", "farm_inventory_changed"
+            end
+            local okay, reason = visitor(item)
+            if okay == false then
+                state[cursorKey] = nil
+                return "failed", reason or "farm_inventory_identity_failed"
+            end
+            local nested, nestedOk = invoke(item, "getInventory")
+            if nestedOk and nested ~= nil and not cursor.seen[nested] then
+                local nestedItems, nestedSize = itemsFor(nested)
+                if nestedItems == nil then
+                    state[cursorKey] = nil
+                    return "failed", "farm_nested_inventory_unavailable"
+                end
+                cursor.seen[nested] = true
+                cursor.endpoints[#cursor.endpoints + 1] = {
+                    inventory = nested, size = nestedSize,
+                }
+                cursor.stack[#cursor.stack + 1] = {
+                    inventory = nested, items = nestedItems, size = nestedSize, index = 0,
+                }
+            end
+        end
+    end
+    if #cursor.stack == 0 then
+        state[cursorKey] = nil
+        return "complete"
+    end
+    return "pending", "farm_inventory_scanning"
+end
+
 local function resetStorageScan(state)
     state.rowIndex, state.itemIndex = 1, 0
     state.container, state.containerSize = nil, nil
     state.rowContainers, state.rowSizes = nil, nil
     state.count = 0
+    state.matches, state.matchOrder, state.seedBuckets = nil, nil, nil
 end
 
 -- Walk registered containers in bounded, resumable slices. Changes to any
@@ -352,16 +431,37 @@ local function findSupply(actor, predicate, categories, scanKey)
     local key = tostring(scanKey or predicate) .. ":" .. tostring(actorId(actor) or "audit")
     local state = supplyScans[key] or {}
     supplyScans[key] = state
-    local status, storage, container, item = scanStorage(state, categories,
-        function(candidate, row)
-            return predicate(candidate) and not protected(candidate, actor)
-                and SC.BaseLife.availableCount(row, U().itemType(candidate)) > 0
-        end)
-    if status == "found" then
+    state.matches, state.matchOrder = state.matches or {}, state.matchOrder or {}
+    local status = scanStorage(state, categories, function(candidate, row, container)
+        if predicate(candidate) and not protected(candidate, actor) then
+            state.matches, state.matchOrder = state.matches or {}, state.matchOrder or {}
+            local itemType = U().itemType(candidate)
+            local bucketKey = tostring(row.id) .. "\0" .. tostring(itemType)
+            local bucket = state.matches[bucketKey]
+            if not bucket then
+                bucket = { storage = row, container = container, item = candidate,
+                    itemType = itemType, count = 0 }
+                state.matches[bucketKey] = bucket
+                state.matchOrder[#state.matchOrder + 1] = bucketKey
+            end
+            bucket.count = bucket.count + 1
+        end
+        return false
+    end)
+    if status == "complete" then
+        local selected
+        for _, bucketKey in ipairs(state.matchOrder or {}) do
+            local bucket = state.matches[bucketKey]
+            local reserve = type(SC.BaseLife.storageReserve) == "function"
+                and SC.BaseLife.storageReserve(bucket.storage, bucket.itemType) or 0
+            if bucket.count > reserve then selected = bucket break end
+        end
         supplyScans[key] = nil
-        return storage, container, item, "found"
+        if selected then
+            return selected.storage, selected.container, selected.item, "found"
+        end
+        return nil, nil, nil, "absent"
     end
-    if status == "complete" then supplyScans[key] = nil return nil, nil, nil, "absent" end
     return nil, nil, nil, "scanning"
 end
 
@@ -376,16 +476,30 @@ local function seedCount(cropType)
     ensureBaseState()
     local accepted = {}
     for _, itemType in ipairs(seedTypes(cropType)) do accepted[itemType] = true end
-    local state = seedScans[cropType] or { count = 0 }
+    local state = seedScans[cropType] or { count = 0, seedBuckets = {} }
     seedScans[cropType] = state
-    local status = scanStorage(state, { "farming" }, function(item, _, _, cursor)
-        if accepted[U().itemType(item)] and goodSeed(item) then
-            cursor.count = (tonumber(cursor.count) or 0) + 1
+    state.seedBuckets = state.seedBuckets or {}
+    local status = scanStorage(state, { "farming" }, function(item, storage, _, cursor)
+        local itemType = U().itemType(item)
+        if accepted[itemType] and goodSeed(item) and not protected(item, nil) then
+            local bucketKey = tostring(storage.id) .. "\0" .. tostring(itemType)
+            cursor.seedBuckets = cursor.seedBuckets or {}
+            local bucket = cursor.seedBuckets[bucketKey]
+            if not bucket then
+                bucket = { storage = storage, itemType = itemType, count = 0 }
+                cursor.seedBuckets[bucketKey] = bucket
+            end
+            bucket.count = bucket.count + 1
         end
         return false
     end)
     if status ~= "complete" then return nil, false end
-    local count = tonumber(state.count) or 0
+    local count = 0
+    for _, bucket in pairs(state.seedBuckets or {}) do
+        local reserve = type(SC.BaseLife.storageReserve) == "function"
+            and SC.BaseLife.storageReserve(bucket.storage, bucket.itemType) or 0
+        count = count + math.max(0, bucket.count - reserve)
+    end
     seedScans[cropType] = nil
     return count, true
 end
@@ -644,8 +758,10 @@ local function recoverPending(limit)
                 storage = storageById(receipt.sourceStorageId)
                 container = storage and SC.BaseLife.resolveContainer(storage) or nil
             else
-                for _, row in ipairs(SC.BaseLife.storageRows(
-                    receipt.destinationCategory or "food", false)) do
+                local rows = type(SC.BaseLife.depositStorageRows) == "function"
+                    and SC.BaseLife.depositStorageRows(receipt.destinationCategory or "food")
+                    or SC.BaseLife.storageRows(receipt.destinationCategory or "food", false)
+                for _, row in ipairs(rows) do
                     local candidate = SC.BaseLife.resolveContainer(row)
                     local room = candidate and (not SC.WorkTransport
                         or not SC.WorkTransport.hasRoom
@@ -655,7 +771,9 @@ local function recoverPending(limit)
             end
             if storage and container and SC.BaseWork and SC.BaseWork.restoreToStorage then
                 unmark(item, receipt.id)
-                local moved, reason = SC.BaseWork.restoreToStorage(actor, storage, container, item)
+                local restore = receipt.kind == "output"
+                    and SC.BaseWork.restoreDepositToStorage or SC.BaseWork.restoreToStorage
+                local moved, reason = restore(actor, storage, container, item)
                 if moved == true then
                     SC.BaseLife.updateFarmReceipt(receipt.id, {
                         phase = receipt.kind == "output" and "delivered" or "returned",
@@ -910,56 +1028,117 @@ local function plausibleHarvestOutput(item, target)
     return containsValue(seedTypes(target and target.cropType), itemType)
 end
 
+local function encodeIdentitySet(values)
+    local rows = {}
+    for key, present in pairs(type(values) == "table" and values or {}) do
+        if present == true then rows[#rows + 1] = "|" .. tostring(key) end
+    end
+    table.sort(rows)
+    return table.concat(rows) .. (#rows > 0 and "|" or "")
+end
+
+local function prepareHarvestBaseline(actor, state)
+    state.harvestBaseline = state.harvestBaseline or {}
+    local status, reason = scanActorInventory(actor, state, "harvestBaselineCursor",
+        function(item)
+            local id = type(U().itemStableId) == "function"
+                and U().itemStableId(item, true) or nil
+            if id == nil then return false, "farm_item_identity_unavailable" end
+            state.harvestBaseline[id] = true
+            return true
+        end,
+        function() state.harvestBaseline = {} end)
+    if status == "pending" then return nil, reason or "farm_harvest_snapshotting" end
+    if status ~= "complete" then return false, reason end
+    state.harvestBaselineEncoded = encodeIdentitySet(state.harvestBaseline)
+    return true, nil, state.harvestBaseline
+end
+
 local function collectHarvest(actor, job, state, snapshot)
     if job.target.harvestActorId ~= actorId(actor) then
         return false, job.target.harvestActorId and "farm_harvest_actor_mismatch"
             or "farm_harvest_actor_unknown"
     end
-    local inventory = U().inventory(actor)
-    state.outputs = {}
-    for _, item in ipairs(U().inventoryItems(inventory, 256)) do
-        local receiptId = marker(item)
-        local existing = receiptId and SC.BaseLife.farmReceipt
-            and SC.BaseLife.farmReceipt(receiptId) or nil
-        if existing and existing.kind == "output" and existing.jobId == job.id
-            and existing.actorId == actorId(actor) then
-            state.outputs[#state.outputs + 1] = {
-                item = item, receiptId = existing.id,
-                category = existing.destinationCategory or outputCategory(item),
-            }
-        elseif not snapshot[item] and receiptId == nil and plausibleHarvestOutput(item, job.target) then
-            local category = outputCategory(item)
-            local receipt, reason = allocateReceipt(actor, job, "output", item, nil, category)
+    if type(snapshot) ~= "table" then return false, "farm_harvest_baseline_unresolved" end
+    local status, scanReason = scanActorInventory(actor, state, "harvestCollectCursor",
+        function(item)
+            local stableId = type(U().itemStableId) == "function"
+                and U().itemStableId(item, true) or nil
+            if stableId == nil then return false, "farm_item_identity_unavailable" end
+            local receiptId = marker(item)
+            local existing = receiptId and SC.BaseLife.farmReceipt
+                and SC.BaseLife.farmReceipt(receiptId) or nil
+            if existing and existing.kind == "output" and existing.jobId == job.id
+                and existing.actorId == actorId(actor) then
+                state.harvestCandidates[#state.harvestCandidates + 1] = {
+                    item = item, receipt = existing,
+                }
+            elseif not snapshot[stableId] and receiptId == nil
+                and plausibleHarvestOutput(item, job.target) then
+                state.harvestCandidates[#state.harvestCandidates + 1] = { item = item }
+            end
+            return true
+        end,
+        function() state.harvestCandidates = {} end)
+    if status == "pending" then return nil, scanReason or "farm_harvest_collecting" end
+    if status ~= "complete" then return false, scanReason end
+    state.outputs = state.outputs or {}
+    local outputIds = {}
+    for _, output in ipairs(state.outputs) do outputIds[output.receiptId] = true end
+    for _, candidate in ipairs(state.harvestCandidates or {}) do
+        local existing = candidate.receipt
+        if existing then
+            if not outputIds[existing.id] then
+                state.outputs[#state.outputs + 1] = {
+                    item = candidate.item, receiptId = existing.id,
+                    category = existing.destinationCategory or outputCategory(candidate.item),
+                }
+                outputIds[existing.id] = true
+            end
+        else
+            local category = outputCategory(candidate.item)
+            local receipt, reason = allocateReceipt(
+                actor, job, "output", candidate.item, nil, category)
             if not receipt then return false, reason end
             state.outputs[#state.outputs + 1] = {
-                item = item, receiptId = receipt.id, category = category,
+                item = candidate.item, receiptId = receipt.id, category = category,
             }
+            outputIds[receipt.id] = true
         end
     end
+    state.harvestCandidates = nil
     job.target.harvestStarted = nil
     job.target.harvestBeforeIds = nil
+    job.target.harvestBeforeStableIds = nil
+    job.target.harvestBaselineVersion = nil
     job.target.harvestActorId = nil
     return true
 end
 
 local function restoredHarvestSnapshot(actor, target)
+    if target.harvestActorId ~= actorId(actor) then
+        return nil, target.harvestActorId and "farm_harvest_actor_mismatch"
+            or "farm_harvest_actor_unknown"
+    end
+    if tonumber(target.harvestBaselineVersion) ~= 1
+        or type(target.harvestBeforeStableIds) ~= "string" then
+        return nil, "farm_harvest_baseline_unresolved"
+    end
     local before = {}
-    for nativeId in string.gmatch(tostring(target.harvestBeforeIds or ""), "|([^|]+)") do
-        before[nativeId] = true
+    for stableId in string.gmatch(target.harvestBeforeStableIds, "|([^|]+)") do
+        before[stableId] = true
     end
-    local snapshot = {}
-    for _, item in ipairs(U().inventoryItems(U().inventory(actor), 256)) do
-        local nativeId = select(1, invoke(item, "getID"))
-        if nativeId ~= nil and before[tostring(nativeId)] then snapshot[item] = true end
-    end
-    return snapshot
+    return before
 end
 
 local function depositOutputs(actor, baseState, state)
     local output = state.outputs and state.outputs[1] or nil
     if not output then state.outputs = nil return true, "farm_outputs_deposited" end
     local storage, container
-    for _, row in ipairs(SC.BaseLife.storageRows(output.category, false)) do
+    local rows = type(SC.BaseLife.depositStorageRows) == "function"
+        and SC.BaseLife.depositStorageRows(output.category)
+        or SC.BaseLife.storageRows(output.category, false)
+    for _, row in ipairs(rows) do
         local candidate = SC.BaseLife.resolveContainer(row)
         local room = candidate and (not SC.WorkTransport or not SC.WorkTransport.hasRoom
             or SC.WorkTransport.hasRoom(candidate, actor, output.item) ~= false)
@@ -967,7 +1146,8 @@ local function depositOutputs(actor, baseState, state)
     end
     if not storage then return false, "farm_output_storage_missing", true end
     unmark(output.item, output.receiptId)
-    local moved, reason = SC.BaseWork.returnToStorage(actor, baseState, storage, container, output.item)
+    local deposit = SC.BaseWork.depositToStorage or SC.BaseWork.returnToStorage
+    local moved, reason = deposit(actor, baseState, storage, container, output.item)
     if moved == true and reason == "base_supply_returned" then
         SC.BaseLife.updateFarmReceipt(output.receiptId, { phase = "delivered", blocker = false })
         table.remove(state.outputs, 1)
@@ -1049,6 +1229,13 @@ local function findWaterSource(state, activeZone, emergency)
 end
 
 local function startAction(actor, job, state, square, plant, operation)
+    local inventorySnapshot
+    if operation == "harvest" then
+        local prepared, prepareReason, snapshot = prepareHarvestBaseline(actor, state)
+        if prepared == nil then return true, prepareReason or "farm_harvest_snapshotting" end
+        if prepared ~= true then return false, prepareReason end
+        inventorySnapshot = snapshot
+    end
     local supervisor = SC.ActionSupervisor
     if type(supervisor) ~= "table" or type(supervisor.begin) ~= "function" then
         return false, "farm_supervisor_unavailable"
@@ -1065,7 +1252,10 @@ local function startAction(actor, job, state, square, plant, operation)
     local function fail(reason, detail)
         if harvestPrepared then
             job.target.harvestStarted, job.target.harvestBeforeIds = nil, nil
+            job.target.harvestBeforeStableIds, job.target.harvestBaselineVersion = nil, nil
             job.target.harvestActorId = nil
+            state.harvestBaseline, state.harvestBaselineEncoded = nil, nil
+            state.harvestBaselineCursor = nil
             harvestPrepared = false
         end
         if type(supervisor.isCurrent) == "function" and supervisor.isCurrent(token) then
@@ -1079,19 +1269,12 @@ local function startAction(actor, job, state, square, plant, operation)
     elseif operation == "cure" then before = tonumber(plant[target.diseaseField]) or 0
     elseif operation == "fill_water" then before = waterUses(item)
     else before = plantSnapshot(plant, operation) end
-    local inventorySnapshot
     if operation == "harvest" then
         target.cropType = target.cropType or (plant and plant.typeOfSeed)
-        inventorySnapshot = {}
-        local ids = {}
-        for _, carried in ipairs(U().inventoryItems(U().inventory(actor), 256)) do
-            inventorySnapshot[carried] = true
-            local nativeId = select(1, invoke(carried, "getID"))
-            if nativeId ~= nil then ids[#ids + 1] = "|" .. tostring(nativeId) end
-        end
-        table.sort(ids)
         job.target.harvestStarted = true
-        job.target.harvestBeforeIds = table.concat(ids) .. (#ids > 0 and "|" or "")
+        job.target.harvestBeforeIds = nil
+        job.target.harvestBeforeStableIds = state.harvestBaselineEncoded
+        job.target.harvestBaselineVersion = 1
         job.target.harvestActorId = actorId(actor)
         harvestPrepared = true
     end
@@ -1119,7 +1302,10 @@ local function startAction(actor, job, state, square, plant, operation)
     if started ~= true then
         if operation == "harvest" then
             job.target.harvestStarted, job.target.harvestBeforeIds = nil, nil
+            job.target.harvestBeforeStableIds, job.target.harvestBaselineVersion = nil, nil
             job.target.harvestActorId = nil
+            state.harvestBaseline, state.harvestBaselineEncoded = nil, nil
+            state.harvestBaselineCursor = nil
             harvestPrepared = false
         end
         return fail(reason or "farm_start_failed")
@@ -1134,6 +1320,8 @@ local function startAction(actor, job, state, square, plant, operation)
         operation = operation, before = before, item = item,
         startedAt = now(), inventorySnapshot = inventorySnapshot,
     }
+    state.harvestBaseline, state.harvestBaselineEncoded = nil, nil
+    state.harvestBaselineCursor = nil
     state.phase = "working"
     return true, "farm_" .. operation .. "_started"
 end
@@ -1155,8 +1343,9 @@ local function finishAction(actor, baseState, job, state, square)
     if not actionProof(square, job.target, work) then return false, "farm_action_incomplete", true end
 
     if work.operation == "harvest" then
-        local collected, collectReason = collectHarvest(actor, job, state, work.inventorySnapshot or {})
-        if not collected then return false, collectReason, true end
+        local collected, collectReason = collectHarvest(actor, job, state, work.inventorySnapshot)
+        if collected == nil then return true, collectReason or "farm_harvest_collecting" end
+        if collected ~= true then return false, collectReason, true end
         metrics.harvested = metrics.harvested + 1
     elseif work.operation == "plow" and job.target.operation == "replant" then
         state.stage, state.afterReturn = "returning", "sow"
@@ -1204,9 +1393,11 @@ function FarmWork.update(actor, baseState, job, runtime)
         local nightPlant = plantOn(square)
         if target.operation == "harvest" and target.harvestStarted == true
             and (not nightPlant or select(1, invoke(nightPlant, "canHarvest")) ~= true) then
-            local collected, collectReason = collectHarvest(actor, job, state,
-                restoredHarvestSnapshot(actor, target))
-            if not collected then return false, collectReason, true end
+            local snapshot, snapshotReason = restoredHarvestSnapshot(actor, target)
+            if not snapshot then return false, snapshotReason, true end
+            local collected, collectReason = collectHarvest(actor, job, state, snapshot)
+            if collected == nil then return true, collectReason end
+            if collected ~= true then return false, collectReason, true end
             state.stage, state.afterReturn = "returning", "complete"
         end
         if state.work then
@@ -1257,9 +1448,11 @@ function FarmWork.update(actor, baseState, job, runtime)
     local plant = plantOn(square)
     if target.operation == "harvest" and target.harvestStarted == true
         and (not plant or select(1, invoke(plant, "canHarvest")) ~= true) then
-        local collected, collectReason = collectHarvest(actor, job, state,
-            restoredHarvestSnapshot(actor, target))
-        if not collected then return false, collectReason, true end
+        local snapshot, snapshotReason = restoredHarvestSnapshot(actor, target)
+        if not snapshot then return false, snapshotReason, true end
+        local collected, collectReason = collectHarvest(actor, job, state, snapshot)
+        if collected == nil then return true, collectReason end
+        if collected ~= true then return false, collectReason, true end
         if state.outputs and #state.outputs > 0 then return true, "farm_harvest_recovered" end
         state.stage, state.afterReturn = "returning", "complete"
         return true, "farm_harvest_reconciled"
@@ -1279,9 +1472,11 @@ function FarmWork.update(actor, baseState, job, runtime)
             and (tonumber(plant[target.diseaseField]) or 0) <= 0
     if target.operation == "harvest" and select(1, invoke(plant, "canHarvest")) ~= true then
         if target.harvestStarted == true then
-            local collected, collectReason = collectHarvest(actor, job, state,
-                restoredHarvestSnapshot(actor, target))
-            if not collected then return false, collectReason, true end
+            local snapshot, snapshotReason = restoredHarvestSnapshot(actor, target)
+            if not snapshot then return false, snapshotReason, true end
+            local collected, collectReason = collectHarvest(actor, job, state, snapshot)
+            if collected == nil then return true, collectReason end
+            if collected ~= true then return false, collectReason, true end
             if state.outputs and #state.outputs > 0 then
                 return true, "farm_harvest_recovered"
             end
@@ -1314,7 +1509,9 @@ function FarmWork.update(actor, baseState, job, runtime)
     if predicate and not state.borrowed then
         return borrowSupply(actor, baseState, job, state, predicate, categories, supplyKey)
     end
-    if operation == "harvest" and #SC.BaseLife.storageRows("food", false) == 0 then
+    local depositRows = type(SC.BaseLife.depositStorageRows) == "function"
+        and SC.BaseLife.depositStorageRows("food") or SC.BaseLife.storageRows("food", false)
+    if operation == "harvest" and #depositRows == 0 then
         return false, "farm_food_storage_missing", true
     end
     local approachState, approachReason = approach(actor, square)
@@ -1335,8 +1532,22 @@ local function restoreBorrowed(actor, state, reason)
     end
     if not state.borrowed then return true end
     local borrowed = state.borrowed
+    local receipt = SC.BaseLife and SC.BaseLife.farmReceipt
+        and SC.BaseLife.farmReceipt(borrowed.receiptId) or nil
+    if receipt and receipt.phase == "consumed" then
+        unmark(borrowed.item, borrowed.receiptId)
+        state.borrowed = nil
+        return true, "farm_supply_consumed"
+    end
     local inventory = U().inventory(actor)
     if not inventory or not U().inventoryContains(inventory, borrowed.item) then
+        if receipt and missingBorrowWasConsumed(receipt) then
+            SC.BaseLife.updateFarmReceipt(borrowed.receiptId, {
+                phase = "consumed", blocker = false,
+            })
+            state.borrowed = nil
+            return true, "farm_supply_consumed"
+        end
         SC.BaseLife.updateFarmReceipt(borrowed.receiptId, {
             phase = "recovery", blocker = "borrowed_supply_missing",
         })
@@ -1365,11 +1576,15 @@ function FarmWork.cancelActor(actor, reason)
         if not job or not square then return false, "farm_cancel_reconcile_unavailable" end
         local reconciled, reconcileReason = finishAction(actor, nil, job, state, square)
         if reconciled ~= true then return false, reconcileReason end
+        if job.target.harvestStarted == true then
+            return false, "farm_recovery_pending"
+        end
     end
     local restored, restoreReason = restoreBorrowed(actor, state, reason or "farm_cancelled")
     if restored ~= true then return false, restoreReason end
     if job and type(job.target) == "table" and state.work then
         job.target.harvestStarted, job.target.harvestBeforeIds = nil, nil
+        job.target.harvestBeforeStableIds, job.target.harvestBaselineVersion = nil, nil
         job.target.harvestActorId = nil
         state.work = nil
     end

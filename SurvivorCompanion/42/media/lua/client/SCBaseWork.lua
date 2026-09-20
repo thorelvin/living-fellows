@@ -261,7 +261,10 @@ local function withdrawalAllowed(storage, expectedContainer, item)
         return false, "base_supply_moved"
     end
     local itemType = U().itemType(item)
-    if SC.BaseLife.availableCount(storage, itemType) <= 0 then
+    local available = type(SC.BaseLife.availableCountExact) == "function"
+        and SC.BaseLife.availableCountExact(storage, itemType)
+        or SC.BaseLife.availableCount(storage, itemType)
+    if available <= 0 then
         return false, "base_supply_reserved"
     end
     return true
@@ -350,7 +353,7 @@ end
 -- Return an exact borrowed supply to the exact marked container it came from.
 -- This mirrors withdrawal: the worker approaches the storage, visibly uses it,
 -- revalidates the registration at commit time, and verifies the identity move.
-local function transferToStorage(actor, state, storage, container, item)
+local function transferToStorage(actor, state, storage, container, item, requireDeposits)
     if U().inventoryContains(container, item) then return true, "base_supply_returned" end
     if type(storage) ~= "table" then return false, "base_storage_invalid" end
     local object = SC.BaseLife.resolveObject(storage)
@@ -360,6 +363,10 @@ local function transferToStorage(actor, state, storage, container, item)
     local inventory = U().inventory(actor)
     if not inventory or not U().inventoryContains(inventory, item) then
         return false, "borrowed_supply_missing"
+    end
+    if requireDeposits == true then
+        local accepts, depositReason = SC.BaseLife.storageAcceptsDeposit(storage, container)
+        if accepts ~= true then return false, depositReason end
     end
     if U().distance(actor, object) > 1.5 then
         if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
@@ -423,6 +430,12 @@ local function transferToStorage(actor, state, storage, container, item)
         if called then room = allowed == true end
     end
     if room ~= true then return false, roomReason or "destination_full" end
+    -- Policy can change while the worker is walking or playing the loot pose.
+    -- Revalidate immediately before the identity transfer, not just selection.
+    if requireDeposits == true then
+        local accepts, depositReason = SC.BaseLife.storageAcceptsDeposit(storage, container)
+        if accepts ~= true then return false, depositReason end
+    end
     local moved, reason
     if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
         moved, reason = SC.WorkTransport.transferVerified(inventory, container, item, actor)
@@ -1221,6 +1234,10 @@ function BaseWork.returnToStorage(actor, state, storage, container, item)
     return transferToStorage(actor, state, storage, container, item)
 end
 
+function BaseWork.depositToStorage(actor, state, storage, container, item)
+    return transferToStorage(actor, state, storage, container, item, true)
+end
+
 -- Cancellation cannot start a new path, but it still returns a borrowed exact
 -- item whenever the registered container remains loaded and can accept it.
 function BaseWork.restoreToStorage(actor, storage, container, item)
@@ -1235,6 +1252,26 @@ function BaseWork.restoreToStorage(actor, storage, container, item)
     if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
         local moved, reason = SC.WorkTransport.transferVerified(inventory, container, item, actor)
         return moved == true, moved and "base_supply_returned" or reason
+    end
+    return U().transferItemVerified(inventory, container, item)
+end
+
+function BaseWork.restoreDepositToStorage(actor, storage, container, item)
+    if not actor or not item then return false, "farm_output_missing" end
+    local accepts, reason = SC.BaseLife.storageAcceptsDeposit(storage, container)
+    if accepts ~= true then return false, reason end
+    local inventory = U().inventory(actor)
+    if not inventory or not U().inventoryContains(inventory, item) then
+        return false, "farm_output_missing"
+    end
+    if SC.WorkTransport and type(SC.WorkTransport.hasRoom) == "function" then
+        local room, roomReason = SC.WorkTransport.hasRoom(container, actor, item)
+        if room ~= true then return false, roomReason or "destination_full" end
+    end
+    if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
+        local moved, transferReason = SC.WorkTransport.transferVerified(
+            inventory, container, item, actor)
+        return moved == true, moved and "base_supply_returned" or transferReason
     end
     return U().transferItemVerified(inventory, container, item)
 end

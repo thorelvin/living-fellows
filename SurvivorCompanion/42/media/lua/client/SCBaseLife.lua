@@ -1293,6 +1293,44 @@ function BaseLife.storageRows(category, withdrawals)
     return result
 end
 
+function BaseLife.depositStorageRows(category)
+    local base, result = activeBase(), {}
+    if not base then return result end
+    for _, storage in ipairs(base.storages) do
+        if (category == nil or storage.category == category)
+            and storage.deposits ~= false then result[#result + 1] = storage end
+    end
+    return result
+end
+
+function BaseLife.storage(id)
+    local base = activeBase()
+    return base and findById(base.storages, id) or nil
+end
+
+function BaseLife.storageReserve(storage, itemType)
+    if type(storage) ~= "table" then return 0 end
+    local reserve = itemType and type(storage.reserves) == "table"
+        and storage.reserves[itemType] or nil
+    reserve = reserve == nil and storage.reserve or reserve
+    return integer(reserve, 0, 0, 9999)
+end
+
+function BaseLife.storageAcceptsDeposit(storage, expectedContainer)
+    if type(storage) ~= "table" or type(storage.id) ~= "string" then
+        return false, "base_storage_invalid"
+    end
+    local current = BaseLife.storage(storage.id)
+    if current ~= storage then return false, "base_storage_changed" end
+    if current.deposits == false then return false, "base_storage_deposits_disabled" end
+    local container = BaseLife.resolveContainer(current)
+    if container == nil then return false, "base_storage_unloaded" end
+    if expectedContainer ~= nil and container ~= expectedContainer then
+        return false, "base_storage_changed"
+    end
+    return true, container
+end
+
 -- A deliberately narrow read model for overlays.  The full summary also audits
 -- stock, residents, guards and jobs; calling that from a render-adjacent cache
 -- refresh would do unrelated work merely because the player enabled outlines.
@@ -1331,9 +1369,20 @@ function BaseLife.availableCount(storage, itemType)
     for _, item in ipairs(U().inventoryItems(container, U().config("campStorageItemBudget") or 80)) do
         if itemType == nil or U().itemType(item) == itemType then count = count + 1 end
     end
-    local reserve = itemType and storage.reserves[itemType] or nil
-    reserve = reserve == nil and storage.reserve or reserve
-    return math.max(0, count - integer(reserve, 0, 0, 9999))
+    return math.max(0, count - BaseLife.storageReserve(storage, itemType))
+end
+
+-- Authoritative withdrawal checks cannot use the AI scan budget: an eligible
+-- item at position 81 must not become permanently unwithdrawable merely
+-- because selection was spread over multiple frames.
+function BaseLife.availableCountExact(storage, itemType)
+    local container = BaseLife.resolveContainer(storage)
+    if not container then return 0 end
+    local count = 0
+    for _, item in ipairs(U().inventoryItems(container, math.huge)) do
+        if itemType == nil or U().itemType(item) == itemType then count = count + 1 end
+    end
+    return math.max(0, count - BaseLife.storageReserve(storage, itemType))
 end
 
 function BaseLife.registerMaintenanceTarget(object, kind)
@@ -2809,6 +2858,66 @@ function BaseLife.assign(actorId, role, duty)
     if duty ~= nil then resident.duty = duty == true end
     ensure().residents[actorId] = resident
     return true, resident
+end
+
+-- Group commands stage resident changes beside detached command state.  These
+-- helpers deliberately avoid work cancellation/navigation side effects so the
+-- caller can commit every resident only after every command-state write has
+-- succeeded, and can restore the exact resident row if a later apply fails.
+function BaseLife.planResidentAssignment(actorId, role, duty)
+    local base = activeBase()
+    if not base or type(actorId) ~= "string" or actorId == "" then
+        return nil, "base_or_actor_missing"
+    end
+    local resident = ensure().residents[actorId]
+    if role == nil then
+        role = resident and resident.role or "generalist"
+        if resident == nil then
+            local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(actorId) or nil
+            local personality = record and type(record.state) == "table"
+                and type(record.state.personality) == "table" and record.state.personality or nil
+            local background = personality and personality.background or (record and record.background)
+            if background and SC.Background and type(SC.Background.preferredRole) == "function" then
+                local preferred = SC.Background.preferredRole(background)
+                if BaseLife.ROLES[preferred] then role = preferred end
+            end
+        end
+    end
+    role = BaseLife.ROLES[role] and role or "generalist"
+    return { actorId = actorId, baseId = base.id, role = role, duty = duty == true }
+end
+
+function BaseLife.snapshotResident(actorId)
+    local resident = ensure().residents[actorId]
+    if resident == nil then return { present = false } end
+    local copied, reason = stableCopy(resident, 4, { count = 64 })
+    if copied == nil then return nil, reason or "resident_snapshot_failed" end
+    return { present = true, value = copied }
+end
+
+function BaseLife.applyResidentAssignment(plan)
+    if type(plan) ~= "table" or type(plan.actorId) ~= "string"
+        or not BaseLife.ROLES[plan.role] then return false, "invalid_resident_assignment" end
+    local base = activeBase()
+    if not base or base.id ~= plan.baseId then return false, "base_changed" end
+    local resident = ensure().residents[plan.actorId] or {}
+    resident.baseId, resident.role, resident.duty = plan.baseId, plan.role, plan.duty == true
+    ensure().residents[plan.actorId] = resident
+    return true, resident
+end
+
+function BaseLife.restoreResident(actorId, snapshot)
+    if type(actorId) ~= "string" or type(snapshot) ~= "table" then
+        return false, "invalid_resident_snapshot"
+    end
+    if snapshot.present ~= true then
+        ensure().residents[actorId] = nil
+        return true
+    end
+    local copied, reason = stableCopy(snapshot.value, 4, { count = 64 })
+    if copied == nil then return false, reason or "resident_restore_failed" end
+    ensure().residents[actorId] = copied
+    return true
 end
 
 function BaseLife.setDuty(actorId, enabled)

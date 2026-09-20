@@ -673,6 +673,34 @@ end
 do
     local ctx = setup()
     local axe = makeItem("Base.Axe", {
+        tags = { choptree = true }, twoHanded = true, treeDamage = 20,
+    })
+    ctx.actor.inventory:AddItem(axe)
+    local tree = makeTree(sq(3, 2), 20, { logs = 2 })
+    local order = start(ctx, {
+        operation = "fell_trees", zoneId = ctx.lumber.id, requested = 1,
+        destinationStorageId = ctx.logs.id,
+    })
+    tick(ctx)
+    local action = current(ctx.actor)
+    action:animEvent("ChopTree")
+    action:perform()
+    check(tree.removed == true and SC.Production.cancelActor(ctx.actor, "player_paused") == true,
+        "teardown reconciles a completed-but-unpolled chop")
+    local saved = SC.BaseLife.productionOrder(order.id)
+    local counters = SC.BaseLife.productionCounters()
+    local gather = SC.BaseLife.workOrder(saved.linkedGatherOrderId)
+    check(saved.completed == 1 and counters.treesFelled == 1 and counters.logsDropped == 2
+            and gather and gather.material == "logs" and gather.requested == 2,
+        "completed chop cancellation accounts progress, counters and linked hauling exactly once")
+    check(SC.Production.cancelActor(ctx.actor, "second_teardown") == true
+            and SC.BaseLife.productionCounters().treesFelled == 1,
+        "repeated teardown cannot account the same felled tree twice")
+end
+
+do
+    local ctx = setup()
+    local axe = makeItem("Base.Axe", {
         tags = { choptree = true }, treeDamage = 20,
     })
     ctx.actor.inventory:AddItem(axe)
@@ -1116,13 +1144,16 @@ do
     })
     local oldA = ctx.actor.inventory:AddItem("Base.Plank")
     local oldB = ctx.actor.inventory:AddItem("Base.Plank")
+    oldA.modData.LF_ItemStableId = "old-plank-a"
+    oldB.modData.LF_ItemStableId = "old-plank-b"
     local made = {
         ctx.actor.inventory:AddItem("Base.Plank"),
         ctx.actor.inventory:AddItem("Base.Plank"),
         ctx.actor.inventory:AddItem("Base.Plank"),
     }
     ctx.actor.modData.LF_ProductionSawReceipt = {
-        orderId = order.id, logKey = "native:gone", beforeCount = 2, startedAt = 10,
+        orderId = order.id, logKey = "stable:gone", beforeCount = 2,
+        beforeIds = "|stable:old-plank-a|stable:old-plank-b|", startedAt = 10,
     }
     check(SC.Production.cancelActor(ctx.actor, "reload_teardown") == true,
         "an orphaned persisted saw receipt reconciles during cancellation")

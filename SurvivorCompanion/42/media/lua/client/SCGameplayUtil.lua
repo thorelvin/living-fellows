@@ -40,6 +40,8 @@ local pendingWorldRecoveryByItem = {}
 local pendingWorldRecoveryByWorld = {}
 local spatialReadBatch = nil
 local nativeCallTracer = nil
+local itemIdentitySerial = 0
+local ITEM_IDENTITY_KEY = "LF_ItemStableId"
 
 function U.setNativeCallTracer(callback)
     nativeCallTracer = type(callback) == "function" and callback or nil
@@ -183,6 +185,30 @@ function U.stableHash(value)
         hash = (hash * 16777619 + string.byte(textValue, index)) % 2147483647
     end
     return hash
+end
+
+-- Native inventory ids are runtime identities: companion persistence recreates
+-- items and therefore assigns fresh native ids.  Work receipts need an identity
+-- which follows the exact item through that recreation, so keep a small
+-- mod-owned token in item ModData (which SCPersistence already round-trips).
+function U.itemStableId(item, create)
+    if item == nil then return nil end
+    local data = U.modData(item)
+    if type(data) ~= "table" then return nil end
+    local existing = data[ITEM_IDENTITY_KEY]
+    if type(existing) == "string" and existing ~= "" then return existing end
+    if create ~= true then return nil end
+    itemIdentitySerial = itemIdentitySerial + 1
+    local nativeId = select(1, U.call(item, "getID"))
+    local token = "lf-item:" .. tostring(U.nowMs()) .. ":"
+        .. tostring(itemIdentitySerial) .. ":"
+        .. tostring(U.stableHash(tostring(item) .. ":" .. tostring(nativeId)))
+    data[ITEM_IDENTITY_KEY] = token
+    if data[ITEM_IDENTITY_KEY] ~= token then return nil end
+    if SC.BaseLife and type(SC.BaseLife.noteWorkOwnershipMutation) == "function" then
+        pcall(SC.BaseLife.noteWorkOwnershipMutation)
+    end
+    return token
 end
 
 function U.isDue(actor, slot, intervalMs, now)

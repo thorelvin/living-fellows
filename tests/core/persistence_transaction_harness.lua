@@ -156,7 +156,9 @@ check(SC.Persistence.reset() == true, "saw receipt persistence starts cleanly")
 local sawRecord = record("sc-saw-recovery")
 sawRecord.productionAction = {
     kind = "saw_logs", orderId = "production-order:7", logKey = "native:41",
-    beforeCount = 2, startedAt = 12345,
+    beforeCount = 2,
+    beforeIds = "|stable:lf-item:old-a|stable:lf-item:old-b|",
+    startedAt = 12345,
 }
 local sawDocument = {
     schema = SC.Identity.saveSchema,
@@ -169,8 +171,10 @@ check(SC.Persistence.restore(sawPlayer) == true
 local sawSaved, sawOutgoing = SC.Persistence.save(sawPlayer)
 check(sawSaved == true
         and sawOutgoing.companions[sawRecord.id].productionAction.orderId
-            == "production-order:7",
-    "an unresolved saw receipt is re-emitted for later output reconciliation")
+            == "production-order:7"
+        and sawOutgoing.companions[sawRecord.id].productionAction.beforeIds
+            == "|stable:lf-item:old-a|stable:lf-item:old-b|",
+    "an unresolved saw receipt keeps its stable output baseline for later reconciliation")
 
 -- A malformed top-level actor bucket cannot be treated as empty, because the
 -- next save would erase it. It also must fail before a subsystem is invoked.
