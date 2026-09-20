@@ -10,6 +10,7 @@ CLIENT = PROJECT / "SurvivorCompanion" / "42" / "media" / "lua" / "client"
 SHARED = CLIENT.parent / "shared"
 OWNED = [
     "SCGameplayUtil.lua",
+    "SCVitalsTrace.lua",
     "SCBaseObjectRef.lua",
     "SCTopology.lua",
     "SCPathSearch.lua",
@@ -47,6 +48,7 @@ OWNED = [
     "SCBaseLife.lua",
     "SCWorkTransport.lua",
     "SCGatherWork.lua",
+    "SCFarmWork.lua",
     "SCQuirks.lua",
     "SCBaseWork.lua",
     "SCProduction.lua",
@@ -87,7 +89,7 @@ REQUIRED_EXPORTS = {
     "SCDiaryText.lua": ["validToken", "prepareCatalog", "validateCatalog", "generate"],
     "SCDiaryItem.lua": ["read", "readPayload", "initialize", "append", "parseEntry",
                         "displayName", "findWritingImplement"],
-    "SCDiary.lua": ["clock", "pulse", "noteRecruited", "noteBandage", "noteSharedEscape",
+    "SCDiary.lua": ["clock", "pulse", "noteRecruited", "noteBandage", "noteSharedEscape", "noteInteriorState",
                     "noteAuthorDeath", "noteCompanionDeath", "noteCrisisKnowledge",
                     "noteCrisisOutcome", "writeActivity", "commitWrite", "abandonWrite",
                     "authorAlive", "contentRevision", "export", "restore", "reset"],
@@ -98,19 +100,22 @@ REQUIRED_EXPORTS = {
     "SCWorkRoutes.lua": ["stationaryFastRouteRequested", "key", "lookup", "record",
                          "invalidate", "snapshot", "reset"],
     "SCPositioning.lua": ["formationTarget", "cqbRole", "beginConversation", "updateConversation", "updateHoldAwareness"],
-    "SCCombat.lua": ["update"],
+    "SCCombat.lua": ["update", "assessOverrun"],
     "SCMedical.lua": ["update"],
     "SCEncounter.lua": ["update", "onPlayerContainerOpened"],
     "SCLogistics.lua": ["prepareBuild"],
-    "SCNeeds.lua": ["update", "updateRates", "assess"],
+    "SCNeeds.lua": ["update", "updateRates", "assess", "narrate"],
     "SCDowntime.lua": ["update", "canPerform"],
     "SCPersonality.lua": ["initialize", "adjustDecision", "overrunThresholdDelta"],
     "SCPersonalItems.lua": ["ensure", "isProtected", "restoreMarker"],
-    "SCRelationship.lua": ["initialize", "observe", "respond"],
-    "SCBanter.lua": ["update", "combatPulse", "grabbedPulse", "overrunRefusal", "reset"],
+    "SCRelationship.lua": ["initialize", "observe", "respond", "score",
+                             "overrunThresholdDelta", "pushThresholdDelta"],
+    "SCBanter.lua": ["update", "combatPulse", "grabbedPulse", "overrunRefusal",
+                      "interiorPulse", "reset"],
     "SCTales.lua": ["noteKill", "noteCloseCall", "update", "normalize", "reset"],
     "SCGestures.lua": ["update", "noteStoodUp", "workoutActivity", "requestIdleWorkout", "reset"],
-    "SCObjectives.lua": ["initialize", "update", "respondPlans"],
+    "SCObjectives.lua": ["initialize", "update", "respondPlans", "assignableKinds", "assign"],
+    "SCVitalsTrace.lua": ["report", "snapshot", "reset"],
     "SCJournal.lua": ["build"],
     "SCBaseLife.lua": ["create", "describeObject", "resolveObject", "removeZone", "removeStorage", "setStorageCategory",
                        "setReserve", "setMaintenanceTargetEnabled", "removeMaintenanceTarget",
@@ -136,6 +141,7 @@ REQUIRED_EXPORTS = {
                             "diagnostics", "reset"],
     "SCGatherWork.lua": ["validateZone", "nextCandidate", "update", "retryOrder",
                          "diagnostics", "reset"],
+    "SCFarmWork.lua": ["audit", "jobModifier", "update", "cancelActor", "reset", "summary"],
     "SCQuirks.lua": ["normalize", "describe", "acceptsLoot", "itemDesireBonus",
                        "onVerifiedLoot", "recognitionCandidate", "speakRecognition",
                        "observeRecognitionResolution", "ritualIntent", "updateRitual",
@@ -171,7 +177,7 @@ REQUIRED_COMMANDS = {
     "set_follow_distance", "set_scavenge", "set_work_mode", "set_move_mode", "set_combat_doctrine", "set_weapon_priority",
     "set_hold_fire",
     "hold_fire", "fire_at_will", "move_to", "open_door", "close_door", "finish_interaction", "check_room", "finish_room_check", "board_vehicle",
-    "designate_target", "avoid_target",
+    "designate_target", "avoid_target", "assign_objective",
     "barricade", "remove_barricade", "dismantle", "finish_work", "exit_vehicle",
     "open_inventory", "open_health", "set_group",
     "base_duty", "set_base_role",
@@ -312,7 +318,8 @@ def main() -> int:
                   "SCWorkTransport.lua": "Transport", "SCGatherWork.lua": "Gather",
                   "SCFactionLife.lua": "Life", "SCFactionContracts.lua": "Contracts",
                   "SCFactionWorld.lua": "World", "SCFactionRecruitment.lua": "Recruitment",
-                  "SCDiaryText.lua": "Text", "SCDiaryItem.lua": "Item"}.get(
+                  "SCDiaryText.lua": "Text", "SCDiaryItem.lua": "Item",
+                  "SCVitalsTrace.lua": "Trace"}.get(
             name, name.removeprefix("SC").removesuffix(".lua"))
         for export in exports:
             require(re.search(rf"function\s+{re.escape(module)}\.{re.escape(export)}\s*\(", text) is not None,
@@ -473,6 +480,12 @@ def main() -> int:
             and "isSafeWaterItem" in sources["SCNeeds.lua"]
             and "needsWaterSquareBudget" in sources["SCNeeds.lua"],
             "bounded safe autonomous food/water selection missing")
+    require('NEED_ORDER = { "thirst", "hunger", "fatigue" }' in sources["SCNeeds.lua"]
+            and "speech.pending" in sources["SCNeeds.lua"]
+            and all(f'["need.{need}.{severity}"]' in sources["SCDialogue.lua"]
+                    for need in ("hunger", "thirst", "fatigue")
+                    for severity in ("noted", "serious", "urgent")),
+            "transition-only hunger, thirst, and fatigue narration is incomplete")
     require("prepareBuild" in sources["SCLogistics.lua"]
             and "build_hammer" in sources["SCLogistics.lua"]
             and "build_plank" in sources["SCLogistics.lua"]
@@ -533,6 +546,24 @@ def main() -> int:
     require("validEmotes" in relationship_source and "function Relationship.isEmote" in relationship_source,
             "validated Build 42 human emote contract missing")
     dialogue_source = sources["SCDialogue.lua"]
+    require("local partyRecent = {}" in dialogue_source
+            and "sharesPartyRecent" in dialogue_source
+            and "commonLookup" in dialogue_source
+            and "A party list may never starve" in dialogue_source,
+            "bounded earshot-level recent memory for shared danger and combat barks is missing")
+    require(dialogue_source.count('"combat.kill"') >= 1
+            and "combatBarkRecentLimit" in sources["SCCombat.lua"]
+            and "combatBarkRecentLimit = 7" in (SHARED / "SCConfig.lua").read_text(encoding="utf-8"),
+            "hot combat bark depth or its per-topic recent window is missing")
+    farm_source = sources["SCFarmWork.lua"]
+    require("local FARM_SPEECH" in farm_source
+            and "local function speak(actor, topic" in farm_source
+            and all(f'["{topic}"]' in farm_source for topic in (
+                "farm.plot.start", "farm.sow.start", "farm.water.start",
+                "farm.harvest.start", "farm.harvest.done", "farm.crop.ruined",
+                "farm.crop.diseased", "farm.tool.trouble"))
+            and 'speak(actor, "farm.tool.trouble"' in farm_source,
+            "bounded farming start, outcome, crop-loss, and tool speech is incomplete")
     signal_start = dialogue_source.index('["signal.one"]')
     signal_end = dialogue_source.index('["combat.engage"]', signal_start)
     require("tap" not in dialogue_source[signal_start:signal_end].lower(),
@@ -654,7 +685,9 @@ def main() -> int:
             and "SC.Persistence.isPending(member.actorId)" in faction_source
             and "Only hibernated snapshots live" in faction_source,
             "faction streaming/persistence duplicate-prevention contract missing")
-    require("rewardReserved" in faction_source and "reservedRewards" in trade_source,
+    require("rewardReserved" in faction_source
+            and 'reserved[row.item] = "request_reward"' in trade_source
+            and "factionReserveItems" in trade_source,
             "request rewards are not excluded from ordinary barter stock")
     require("transaction_rollback_failed" in trade_source
             and "containerBelongsTo" in trade_source
@@ -748,6 +781,38 @@ def main() -> int:
     require('config("objectiveAuditIntervalMs") or 5000' in sources["SCPersonalItems.lua"]
             and "observations[actor] = current + interval" in sources["SCPersonalItems.lua"],
             "keepsake observation is not bounded to the objective audit cadence")
+    relationship_source = sources["SCRelationship.lua"]
+    combat_source = sources["SCCombat.lua"]
+    banter_source = sources["SCBanter.lua"]
+    objectives_source = sources["SCObjectives.lua"]
+    require("combatRelationshipOverrunModifierCap" in relationship_source
+            and "combatPushOverrunModifierCap" in relationship_source
+            and "context.playerRequested" in relationship_source
+            and "context.escapeCount" in relationship_source
+            and "context.support" in relationship_source
+            and "relationshipDelta" in combat_source and "pushDelta" in combat_source,
+            "earned combat control is not relationship-gated or escape/support bounded")
+    require('"combat_push"' in command_source and '"target_pushed"' in command_source
+            and "combatPushMoraleCost" in command_source
+            and "combatPushStressCost" in command_source
+            and '"combat_push_succeeded"' in combat_source
+            and '"combat_push_injury"' in combat_source,
+            "double-Focus push cost and outcome memories are incomplete")
+    require("assignedByPlayer" in objectives_source and "objectives.personal" in objectives_source
+            and "function Objectives.assign(" in objectives_source
+            and 'assign_objective = handleAssignObjective' in command_source,
+            "player-assigned objective overlay/restore contract is missing")
+    require("function Banter.interiorPulse" in banter_source
+            and 'trait(actor, "DEAF")' in banter_source
+            and 'trait(actor, "SMOKER")' in banter_source
+            and "SC.Vitals.effectiveNicotineStress" in banter_source
+            and "interior_refusal_priority" in banter_source
+            and "commands.stress" not in banter_source.split("function Banter.interiorPulse", 1)[1].split("end\n\nlocal function interiorPartyPulse", 1)[0],
+            "interior narration lacks native transition gates, refusal priority, or stress separation")
+    diary_source = sources["SCDiary.lua"]
+    require('scene = "interior"' in diary_source and '"interior.dread"' in diary_source
+            and '"interior.panic"' in diary_source and '"interior.nicotine"' in diary_source,
+            "interior-state diary evidence is not wired")
     require("SC.Actor.setMovement" not in "\n".join(sources.values()),
             "gameplay must resolve the movement bridge dynamically through the helper")
 

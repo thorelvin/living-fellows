@@ -58,9 +58,13 @@ end
 CharacterStat = {
     HUNGER = { name = "HUNGER" },
     THIRST = { name = "THIRST" },
+    FATIGUE = { name = "FATIGUE" },
     ENDURANCE = { name = "ENDURANCE" },
     STRESS = { name = "STRESS" },
+    NICOTINE_WITHDRAWAL = { name = "NICOTINE_WITHDRAWAL" },
 }
+CharacterTrait = { DEAF = "DEAF", SMOKER = "SMOKER" }
+SystemDisabler = { doCharacterStats = true }
 MoodleType = {
     PANIC = "PANIC", PAIN = "PAIN", TIRED = "TIRED", HEAVY_LOAD = "HEAVY_LOAD",
 }
@@ -591,18 +595,30 @@ local function actor(id, x, y, options)
             get = function(_, stat)
                 if stat == CharacterStat.HUNGER then return owner.hunger or 0 end
                 if stat == CharacterStat.THIRST then return owner.thirst or 0 end
+                if stat == CharacterStat.FATIGUE then return owner.fatigue or 0 end
                 if stat == CharacterStat.ENDURANCE then return owner.endurance or 1 end
                 if stat == CharacterStat.STRESS then return owner.nativeStress or 0 end
+                if stat == CharacterStat.NICOTINE_WITHDRAWAL then
+                    return owner.nicotineWithdrawal or 0
+                end
                 return 0
+            end,
+            getNicotineStress = function()
+                return math.min(1, (owner.nativeStress or 0)
+                    + (owner.nicotineWithdrawal or 0))
             end,
             set = function(_, stat, amount)
                 if stat == CharacterStat.HUNGER then owner.hunger = amount return true end
                 if stat == CharacterStat.THIRST then owner.thirst = amount return true end
+                if stat == CharacterStat.FATIGUE then owner.fatigue = amount return true end
                 if stat == CharacterStat.ENDURANCE then owner.endurance = amount return true end
                 if stat == CharacterStat.STRESS then owner.nativeStress = amount return true end
                 return false
             end,
         }
+    end
+    function value:hasTrait(nativeTrait)
+        return type(self.traits) == "table" and self.traits[nativeTrait] == true
     end
     function value:getPerkLevel(perk)
         if self.perks and self.perks[perk] ~= nil then return self.perks[perk] end
@@ -10971,6 +10987,73 @@ check(SurvivorCompanion.Needs.updateRates(rateActor, rateRuntime, clock)
     and math.abs(rateActor.hunger - 0.60) < 0.001,
     "accelerated-time positive hunger deltas are still halved")
 
+do
+    local settings = SurvivorCompanion.Config.values
+    local savedActorCooldown, savedQuiet = settings.needsSpeechActorCooldownMs,
+        settings.needsSpeechQuietMs
+    settings.needsSpeechActorCooldownMs, settings.needsSpeechQuietMs = 0, 0
+    local quiet = { snapshot = { immediateCount = 0, pressure = 0, threats = {} } }
+    local hungry = actor("sc-needs-speech-hunger", 29, 20, {})
+    local baseline, baselineReason = SurvivorCompanion.Needs.narrate(hungry, quiet, clock,
+        { hunger = 0.40, thirst = 0.20, fatigue = 0.20 })
+    clock = clock + 1
+    local noted, notedTopic = SurvivorCompanion.Needs.narrate(hungry, quiet, clock,
+        { hunger = 0.56, thirst = 0.20, fatigue = 0.20 })
+    clock = clock + 1
+    local repeated, repeatedReason = SurvivorCompanion.Needs.narrate(hungry, quiet, clock,
+        { hunger = 0.56, thirst = 0.20, fatigue = 0.20 })
+    clock = clock + 1
+    local serious, seriousTopic = SurvivorCompanion.Needs.narrate(hungry, quiet, clock,
+        { hunger = 0.72, thirst = 0.20, fatigue = 0.20 })
+    check(not baseline and baselineReason == "needs_speech_no_transition"
+            and noted and notedTopic == "need.hunger.noted"
+            and not repeated and repeatedReason == "needs_speech_no_transition"
+            and serious and seriousTopic == "need.hunger.serious",
+        "hunger speech fires on severity crossings and stays silent on unchanged ticks")
+
+    local thirsty = actor("sc-needs-speech-thirst", 30, 21, {})
+    SurvivorCompanion.Needs.narrate(thirsty, quiet, clock,
+        { hunger = 0.20, thirst = 0.20, fatigue = 0.20 })
+    clock = clock + 1
+    local thirstSpoken, thirstTopic = SurvivorCompanion.Needs.narrate(thirsty, quiet, clock,
+        { hunger = 0.20, thirst = 0.77, fatigue = 0.20 })
+    local tired = actor("sc-needs-speech-fatigue", 31, 21, {})
+    SurvivorCompanion.Needs.narrate(tired, quiet, clock,
+        { hunger = 0.20, thirst = 0.20, fatigue = 0.20 })
+    clock = clock + 1
+    local fatigueSpoken, fatigueTopic = SurvivorCompanion.Needs.narrate(tired, quiet, clock,
+        { hunger = 0.20, thirst = 0.20, fatigue = 0.84 })
+    check(thirstSpoken and thirstTopic == "need.thirst.urgent"
+            and fatigueSpoken and fatigueTopic == "need.fatigue.urgent",
+        "thirst and fatigue use their own native-stat severity topics")
+
+    local deferred = actor("sc-needs-speech-deferred", 32, 21, {})
+    local danger = { snapshot = { immediateCount = 1, pressure = 2, threats = { {} } } }
+    SurvivorCompanion.Needs.narrate(deferred, danger, clock,
+        { hunger = 0.20, thirst = 0.20, fatigue = 0.20 })
+    clock = clock + 1
+    local unsafe, unsafeReason = SurvivorCompanion.Needs.narrate(deferred, danger, clock,
+        { hunger = 0.84, thirst = 0.20, fatigue = 0.20 })
+    clock = clock + 1
+    local resumed, resumedTopic = SurvivorCompanion.Needs.narrate(deferred, quiet, clock,
+        { hunger = 0.84, thirst = 0.20, fatigue = 0.20 })
+    check(not unsafe and unsafeReason == "needs_speech_unsafe"
+            and resumed and resumedTopic == "need.hunger.urgent",
+        "a dangerous moment defers rather than loses a needs transition")
+
+    clock = clock + 1
+    local asked = SurvivorCompanion.Dialogue.say(hungry, "status.food", nil, nil,
+        { recentLimit = 4, salt = "asked-status" })
+    check(asked and SurvivorCompanion.Dialogue.lastSpokenTopic(hungry) == "status.food",
+        "asked food status remains on status.food instead of volunteered need topics")
+    settings.needsSpeechActorCooldownMs, settings.needsSpeechQuietMs =
+        savedActorCooldown, savedQuiet
+    SurvivorCompanion.Needs.reset(hungry)
+    SurvivorCompanion.Needs.reset(thirsty)
+    SurvivorCompanion.Needs.reset(tired)
+    SurvivorCompanion.Needs.reset(deferred)
+end
+
 local meal = item("Base.TestMeal", "Food", { hungerChange = -0.35 })
 local rottenMeal = item("Base.RottenMeal", "Food", { hungerChange = -0.35, rotten = true })
 local poisonedMeal = item("Base.PoisonMeal", "Food", { hungerChange = -0.35, poisonPower = 10 })
@@ -11629,6 +11712,48 @@ for serial = 2, 10 do
 end
 check(#depthState.objectives.history == 8,
     "objective completion history remains capped at eight rows")
+
+do
+    local mealActor = actor("sc-capped-meal-objective", 1, 1, { inventory = inventory() })
+    mealActor.hunger = 0.6
+    local mealMemories = {}
+    local mealMemoryCap = tonumber(SurvivorCompanion.GameplayUtil.config("maxMemories")) or 24
+    for index = 1, mealMemoryCap do
+        mealMemories[index] = { kind = "older_memory", at = clock - index }
+    end
+    local mealRecord = {
+        id = mealActor.id, actor = mealActor, recruited = true,
+        state = {
+            recruited = true, trust = 10, bond = 10, morale = 55, stress = 12,
+            memories = mealMemories, care = {}, reveals = {}, timeTogetherMs = 0,
+            objectives = {
+                version = 1, serial = 1, history = {}, nextEligibleAt = 0,
+                active = { version = 1, id = mealActor.id .. ":objective:1",
+                    kind = "share_a_proper_meal", status = "active", revealed = true,
+                    progress = 0, createdAt = clock },
+            },
+        },
+    }
+    registry[mealActor.id] = mealRecord
+    check(SurvivorCompanion.Commands.restore(mealActor, mealRecord),
+        "capped-meal fixture restores one companion relationship state")
+    local restoredMealState = SurvivorCompanion.Commands.peek(mealActor)
+    restoredMealState.memories = mealMemories
+    SurvivorCompanion.Commands.observeRelationship(mealActor, player, {})
+    clock = clock + 2000
+    mealActor.hunger = 0.2
+    local mealChanged = SurvivorCompanion.Commands.observeRelationship(mealActor, player, {})
+    local mealState = SurvivorCompanion.Commands.peek(mealActor)
+    check(mealChanged and #mealState.memories == mealMemoryCap
+            and mealState.objectives.active == nil
+            and #mealState.objectives.history == 1,
+        "a meal event completes exactly once even when capped memories retain the same length: "
+            .. tostring(mealChanged) .. "/" .. tostring(#mealState.memories)
+            .. "/" .. tostring(mealState.objectives.active)
+            .. "/" .. tostring(#mealState.objectives.history))
+    SurvivorCompanion.Commands.reset(mealActor)
+    registry[mealActor.id] = nil
+end
 
 depthState.reveals.background = 2
 local publicSummary = SurvivorCompanion.Relationship.summary(depthActor, depthState, {})
@@ -12551,6 +12676,107 @@ check(Dialogue.poolSize("traversal.wall.success", fellow, {}) >= 10
         and Dialogue.poolSize("traversal.wall.struggle", fellow, {}) >= 10
         and Dialogue.poolSize("traversal.wall.fail", fellow, {}) >= 10,
     "high-wall outcomes have broad voice-matched success, struggle, and fail pools")
+check(Dialogue.poolSize("combat.kill", fellow, {}) >= 22,
+    "the high-exposure kill bark has at least twenty shared lines plus voice depth")
+do
+    Dialogue.reset()
+    local first = actor("sc-party-recent-a", 4, 4, {})
+    local second = actor("sc-party-recent-b", 5, 4, {})
+    local third = actor("sc-party-recent-c", 5, 5, {})
+    local shared = { common = { "shared alpha", "shared beta", "shared gamma" } }
+    local firstLine = Dialogue.choose(first, "combat.kill", shared, nil,
+        { recentLimit = 2, salt = "party" })
+    local secondLine = Dialogue.choose(second, "combat.kill", shared, nil,
+        { recentLimit = 2, salt = "party" })
+    check(firstLine ~= nil and secondLine ~= nil and firstLine ~= secondLine,
+        "nearby companions cannot immediately repeat a shared combat bark")
+    local small = { common = { "small one", "small two" } }
+    local smallA = Dialogue.choose(first, "signal.one", small, nil,
+        { recentLimit = 7, salt = "small-a" })
+    local smallB = Dialogue.choose(second, "signal.one", small, nil,
+        { recentLimit = 7, salt = "small-b" })
+    local smallC = Dialogue.choose(third, "signal.one", small, nil,
+        { recentLimit = 7, salt = "small-c" })
+    check(smallA ~= nil and smallB ~= nil and smallC ~= nil,
+        "party anti-repeat memory cannot exhaust a small shared pool")
+    local ambient = { common = { "ordinary shared line" } }
+    local ambientA = Dialogue.choose(first, "ambient.test", ambient, nil,
+        { recentLimit = 7, salt = "ambient" })
+    local ambientB = Dialogue.choose(second, "ambient.test", ambient, nil,
+        { recentLimit = 7, salt = "ambient" })
+    check(ambientA == "ordinary shared line" and ambientB == ambientA,
+        "non-combat dialogue remains actor-local instead of using party memory")
+    Dialogue.reset()
+end
+do
+    local memoryActor = actor("sc-combat-memory-depth", 6, 4, {})
+    local rows = { common = {
+        "memory one", "memory two", "memory three", "memory four", "memory five",
+        "memory six", "memory seven", "memory eight", "memory nine",
+    } }
+    local unique = {}
+    for index = 1, 8 do
+        local line = Dialogue.choose(memoryActor, "combat.kill", rows, nil,
+            { recentLimit = 7, salt = tostring(index) })
+        unique[line] = true
+    end
+    local count = 0
+    for _ in pairs(unique) do count = count + 1 end
+    check(count == 8,
+        "combat dialogue honors the seven-line per-topic recent window")
+    Dialogue.reset()
+end
+do
+    local voiceActor = actor("sc-emotional-voice-depth", 7, 4, {})
+    local brave = { personalityProfile = { archetype = "brave" }, stress = 10, morale = 60 }
+    local stressed = { personalityProfile = { archetype = "brave" }, stress = 80, morale = 20 }
+    check(Dialogue.poolSize("stress.minor.venter", voiceActor, brave) >= 6
+            and Dialogue.poolSize("stress.minor.venter", voiceActor, stressed) >= 8
+            and Dialogue.poolSize("joy.focused", voiceActor, brave) >= 6
+            and Dialogue.poolSize("joy.focused", voiceActor, stressed) >= 8,
+        "stress and joy topics combine common, personality, and stressed variants")
+    local seen = {}
+    for index = 1, 6 do
+        local line = Dialogue.choose(voiceActor, "stress.minor.venter", nil, nil, {
+            state = brave, recentLimit = 5, salt = tostring(index),
+        })
+        seen[line] = true
+    end
+    check(seen["I'm angry, not afraid. I still need a minute."] == true
+            and seen["Let me burn this off before the next fight."] == true,
+        "personality-specific emotional variants participate in real selection")
+    Dialogue.reset()
+end
+do
+    local settings = SurvivorCompanion.Config.values
+    local savedGroup = settings.farmSpeechGroupCooldownMs
+    settings.farmSpeechGroupCooldownMs = 0
+    local topics = {
+        "farm.plot.start", "farm.sow.start", "farm.water.start",
+        "farm.harvest.start", "farm.harvest.done", "farm.crop.ruined",
+        "farm.crop.diseased", "farm.tool.trouble",
+    }
+    local spokenTopics = 0
+    SurvivorCompanion.FarmWork.reset()
+    for index, topic in ipairs(topics) do
+        clock = clock + 100000
+        local speaker = actor("sc-farm-speech-" .. tostring(index), 8 + index, 4, {})
+        local spoken = false
+        for attempt = 1, 200 do
+            spoken = SurvivorCompanion.FarmWork._speakForTests(speaker, topic, nil,
+                tostring(attempt), { snapshot = { threats = {} } }) == true
+            if spoken then break end
+        end
+        if spoken and Dialogue.lastSpokenTopic(speaker) == topic then
+            spokenTopics = spokenTopics + 1
+        end
+    end
+    check(spokenTopics == #topics,
+        "farming has bounded spoken coverage for starts, watering, harvest, crop loss, disease, and tool trouble")
+    settings.farmSpeechGroupCooldownMs = savedGroup
+    SurvivorCompanion.FarmWork.reset()
+    Dialogue.reset()
+end
 local variedLines = {}
 local dialogueDetail
 for index = 1, 4 do
@@ -13384,6 +13610,19 @@ do
             .. " offer=" .. tostring(group.social.contract.offer))
 end
 
+do
+    group = Factions.group("faction-test")
+    local contractState = group.social.contract
+    local sequenceBefore = contractState.sequence
+    local statusTalk = Contracts.talk(group, player, "status", false)
+    local needsTalk, needsReason = Contracts.talk(group, player, "needs", false)
+    local acceptedDuringCooldown, acceptReason = Contracts.accept(group, player, false)
+    check(statusTalk and not needsTalk and needsReason == "contract_cooldown"
+            and not acceptedDuringCooldown and acceptReason == "contract_cooldown"
+            and contractState.offer == nil and contractState.sequence == sequenceBefore,
+        "status talk remains available while needs talk and direct accept cannot bypass contract cooldown")
+end
+
 for _, contractKind in ipairs({ "supply", "medical", "local_threat" }) do
     local offered, offeredKind = Contracts.debugOffer("faction-test", contractKind)
     check(offered and offeredKind == contractKind
@@ -13412,10 +13651,16 @@ for _, contractKind in ipairs({ "supply", "medical", "local_threat" }) do
             return originalThreatConfig(key)
         end
         local partial, partialReason = Contracts.fulfill("faction-test", player, false)
+        if partialReason == "reported_area_scan_pending" then
+            partial, partialReason = Contracts.fulfill("faction-test", player, false)
+        end
         SurvivorCompanion.Config.get = originalThreatConfig
         player.square = originalThreatSquare
-        check(not partial and partialReason == "reported_area_not_fully_loaded",
-            "partially loaded threat areas cannot produce a false contract completion")
+        check(not partial and (string.find(tostring(partialReason),
+                "reported_area_not_fully_loaded", 1, true) == 1
+                or string.find(tostring(partialReason), "danger_remains:", 1, true) == 1),
+            "the bounded full-area threat scan cannot produce a false contract completion: "
+                .. tostring(partial) .. "/" .. tostring(partialReason))
     end
     check(Contracts.debugComplete("faction-test")
         and Factions.summary("faction-test").social.active == nil,
@@ -13425,13 +13670,57 @@ end
 do
     check(Contracts.debugOffer("faction-test", "local_threat")
             and Contracts.accept("faction-test", player, true),
+        "full-footprint scan fixture accepts a local-threat contract")
+    group = Factions.group("faction-test")
+    local boundaryThreat = group.social.contract.active
+    boundaryThreat.target = { x = 37, y = 37, z = 0 }
+    boundaryThreat.radius = 18
+    boundaryThreat.requiredKills = 0
+    boundaryThreat.progress.kills = 0
+    local savedThreatMoving = {}
+    for dx = -18, 18 do
+        for dy = -18, 18 do
+            if dx * dx + dy * dy <= 18 * 18 then
+                local square = cell:getGridSquare(37 + dx, 37 + dy, 0)
+                savedThreatMoving[square] = square.moving
+                square.moving = {}
+            end
+        end
+    end
+    local easternSquare = cell:getGridSquare(55, 37, 0)
+    local easternZombie = zombie(55, 37, { attackedBy = player })
+    easternSquare.moving[#easternSquare.moving + 1] = easternZombie
+    local originalPlayerSquare = player.square
+    player.square = cell:getGridSquare(37, 37, 0)
+    local cleared, clearReason = Contracts.fulfill(group, player, false)
+    check(not cleared and clearReason == "reported_area_scan_pending",
+        "radius-18 threat scans yield after their first bounded square batch")
+    cleared, clearReason = Contracts.fulfill(group, player, false)
+    player.square = originalPlayerSquare
+    for square, moving in pairs(savedThreatMoving) do square.moving = moving end
+    check(not cleared and clearReason == "danger_remains:1"
+            and boundaryThreat.progress.scanComplete == true
+            and boundaryThreat.progress.loadedSquares == 1009,
+        "the resumed scan inspects the eastern boundary before declaring a radius-18 area safe: "
+            .. tostring(cleared) .. "/" .. tostring(clearReason) .. "/"
+            .. tostring(boundaryThreat.progress.scanComplete) .. "/"
+            .. tostring(boundaryThreat.progress.loadedSquares))
+    check(Contracts.debugComplete("faction-test"),
+        "full-footprint scan fixture closes without leaking an active contract")
+end
+
+do
+    check(Contracts.debugOffer("faction-test", "local_threat")
+            and Contracts.accept("faction-test", player, true),
         "party-kill fixture accepts a local-threat contract")
     group = Factions.group("faction-test")
     local localThreat = group.social.contract.active
-    localThreat.requiredKills = 2
+    localThreat.requiredKills = 3
     localThreat.progress.kills = 0
     localThreat.progress.lastScanCount = 0
     localThreat.progress.loadedSquares = 1000
+    localThreat.progress.scanComplete = true
+    localThreat.progress.scanFinished = true
     local partyKiller = actor("sc-contract-party-killer", localThreat.target.x,
         localThreat.target.y, {})
     registry[partyKiller.id] = {
@@ -13458,14 +13747,22 @@ do
         { attackedBy = player })
     Contracts.onZombieDead(playerVictim)
     Contracts.onZombieDead(playerVictim)
+    local staleHordeVictim = zombie(localThreat.target.x, localThreat.target.y,
+        { attackedBy = player })
+    local staleData = staleHordeVictim:getModData()
+    staleData.LF_QuestHorde = true
+    staleData.LF_QuestId = "expired-horde-contract"
+    staleData.LF_QuestFactionId = group.id
+    Contracts.onZombieDead(staleHordeVictim)
+    Contracts.onZombieDead(staleHordeVictim)
     getPlayer = originalGetPlayer
     local partyProgress = Contracts.progress(group, player, false)
-    check(localThreat.progress.kills == 2 and partyProgress and partyProgress.ready,
-        "local-threat progress counts player and active companion kills once, but rejects neutral killers")
+    check(localThreat.progress.kills == 3 and partyProgress and partyProgress.ready,
+        "local-threat progress counts player, companion, and stale-horde-tag kills once, but rejects neutral killers")
     group.members[1].actorId, group.members[2].actorId = nil, nil
     local partyKillDocument = Factions.export()
     check(Factions.restore(partyKillDocument)
-            and Factions.group("faction-test").social.contract.active.progress.kills == 2,
+            and Factions.group("faction-test").social.contract.active.progress.kills == 3,
         "confirmed local-threat party kills survive save and restore")
     group = Factions.group("faction-test")
     group.members[1].actorId, group.members[2].actorId = residentOne.id, residentTwo.id
@@ -13510,6 +13807,20 @@ do
     check(questData and questData.LF_QuestItem == true and questData.LF_QuestId == activeQuest.id
             and #rewardChoiceOne > 0 and #rewardChoiceTwo > 0,
         "quest objective and both reward choices carry collision-safe persistent identities")
+    local holderReconciled, holderReason = Trade.reconcileQuestRewardHolder(
+        group, residentOne.id, activeQuest)
+    local rewardsMoved = activeQuest.rewardHolderActorId == residentTwo.id
+    for _, reward in ipairs(rewardChoiceOne) do
+        rewardsMoved = rewardsMoved and residentTwo.inventory:contains(reward)
+            and not residentOne.inventory:contains(reward)
+    end
+    for _, reward in ipairs(rewardChoiceTwo) do
+        rewardsMoved = rewardsMoved and residentTwo.inventory:contains(reward)
+            and not residentOne.inventory:contains(reward)
+    end
+    check(holderReconciled and rewardsMoved,
+        "a departing quest-reward holder transfers the exact tagged bundles to a surviving resident: "
+            .. tostring(holderReason))
     group.members[1].actorId, group.members[2].actorId = nil, nil
     local questDocument = Factions.export()
     check(Factions.restore(questDocument),
@@ -13520,7 +13831,8 @@ do
     check(activeQuest and activeQuest.kind == "retrieve_item"
             and activeQuest.progress.spawn.state == "spawned"
             and activeQuest.location.address == "House 4 tiles NE of Harness Road"
-            and #activeQuest.rewardChoices == 2,
+            and #activeQuest.rewardChoices == 2
+            and activeQuest.rewardHolderActorId == residentTwo.id,
         "quest restore keeps the exact target, item receipt, address, and immutable rewards")
     group.social.nextPulseAt = 0
     Contracts.pulseGroup(group, player, clock)
@@ -13657,6 +13969,15 @@ local candidateRecord = residentRecords[candidateMember.actorId]
 local candidateActor = candidateRecord.actor
 local candidateInventory = candidateActor.inventory
 local candidateIdentity = candidateRecord.identity
+check(Factions.forceStanding(group.id, "Tolerated"),
+    "recruitment revalidation fixture lowers standing after naming a candidate")
+local staleTrial, staleTrialReason = Recruitment.startTrial(group, player, false)
+check(not staleTrial and staleTrialReason == "trusted_standing_required"
+        and Recruitment.summary(group).status == "candidate"
+        and candidateMember.away == nil and candidateRecord.recruited == false,
+    "starting a named trial revalidates current eligibility before detaching the resident")
+check(Factions.forceStanding(group.id, "Trusted"),
+    "recruitment revalidation fixture restores trusted standing")
 local trialStarted, trialReason = Recruitment.debugTrial(group, player)
 local trialSummary = Recruitment.summary(group)
 check(trialStarted and trialSummary.status == "trial"
@@ -13807,6 +14128,39 @@ player.square = originalPlayerSquare
 check(not outsideRest and outsideRestReason == "enter_house_to_rest"
     and insideRest and insideRestReason == "safe_rest_available",
     "safe-rest permission distinguishes an armed boundary from a valid interior resting position")
+do
+    local theftBaseline = Factions.export()
+    local territorySquare = cell:getGridSquare(group.house.anchor.x,
+        group.house.anchor.y, group.house.anchor.z or 0)
+    local watchedContainer = inventory()
+    function watchedContainer:getSourceGrid() return territorySquare end
+    local unrelatedRemoval = item("Base.UnrelatedRemoval", "Item")
+    watchedContainer:AddItem(unrelatedRemoval)
+    local reputationBefore = Factions.summary(group.id).reputation
+    check(Factions.observeContainerOpened(watchedContainer, player),
+        "faction theft fixture begins observing an in-territory container")
+    watchedContainer:Remove(unrelatedRemoval)
+    residentTwo.inventory:AddItem(unrelatedRemoval)
+    Factions.pulse(player, clock)
+    local reputationAfterUnrelated = Factions.summary(group.id).reputation
+
+    local playerRemoval = item("Base.PlayerRemoval", "Item")
+    watchedContainer:AddItem(playerRemoval)
+    Factions.observeContainerOpened(watchedContainer, player)
+    watchedContainer:Remove(playerRemoval)
+    player.inventory:AddItem(playerRemoval)
+    Factions.pulse(player, clock + 1)
+    local reputationAfterPlayer = Factions.summary(group.id).reputation
+    check(reputationAfterUnrelated == reputationBefore
+            and reputationAfterPlayer == reputationBefore - 40,
+        "container observation attributes only the exact item received by the opening player")
+    player.inventory:Remove(playerRemoval)
+    residentTwo.inventory:Remove(unrelatedRemoval)
+    check(Factions.restore(theftBaseline),
+        "theft attribution fixture restores the household state")
+    group = Factions.group("faction-test")
+    group.members[1].actorId, group.members[2].actorId = residentOne.id, residentTwo.id
+end
 check(Contracts.noteAction("faction-test", "theft", "test theft")
     and not Contracts.hasAccess("faction-test", player),
     "theft is remembered and immediately revokes guest access")
@@ -13833,6 +14187,92 @@ do
             and Trade.itemValue(rottenFood) == 0
             and Trade.itemValue(heavyJunk) == 5,
         "trade valuation prices contents and condition instead of rewarding broken heavy junk")
+end
+do
+    local emptyFluid = { amount = 0, capacity = 1 }
+    function emptyFluid:getAmount() return self.amount end
+    function emptyFluid:getCapacity() return self.capacity end
+    function emptyFluid:contains() return false end
+    local emptyBottle = item("Base.WaterBottle", "Item", { fluidContainer = emptyFluid })
+    local rottenMeal = item("Base.CannedCornedBeef", "Food", { rotten = true })
+    local brokenHammer = item("Base.Hammer", "Tool", { broken = true, condition = 0 })
+    local deliveryActor = actor("sc-unusable-delivery", 1, 1, {
+        inventory = inventory({ emptyBottle, rottenMeal, brokenHammer }),
+    })
+    local _, waterReady = Trade.previewRequirements(deliveryActor,
+        { { category = "water", count = 1 } }, false)
+    local _, foodReady = Trade.previewRequirements(deliveryActor,
+        { { category = "food", count = 1 } }, false)
+    local _, toolReady = Trade.previewRequirements(deliveryActor,
+        { { type = "Base.Hammer", count = 1 } }, false)
+    check(not waterReady and not foodReady and not toolReady,
+        "delivery selection rejects empty water, rotten food, and broken required tools")
+end
+do
+    local originalInventory = residentOne.inventory
+    local originalRequest = group.request
+    local originalCrisis = group.life and group.life.crisis and group.life.crisis.active
+    local originalMedicineLevel = group.life and group.life.resources
+        and group.life.resources.levels and group.life.resources.levels.medicine
+    group.request = nil
+    if group.life and group.life.crisis then group.life.crisis.active = nil end
+    if group.life and group.life.resources and group.life.resources.levels then
+        group.life.resources.levels.medicine = "Stable"
+    end
+    local sterileA = item("Base.AlcoholBandage", "Medical")
+    local sterileB = item("Base.AlcoholBandage", "Medical")
+    residentOne.inventory = inventory({ sterileA, sterileB })
+    local catalog = Trade.catalog("faction-test")
+    local offeredSterile = false
+    for _, row in ipairs(catalog or {}) do
+        if row.item == sterileA or row.item == sterileB then offeredSterile = true end
+    end
+    residentOne.inventory = originalInventory
+    group.request = originalRequest
+    if group.life and group.life.crisis then group.life.crisis.active = originalCrisis end
+    if group.life and group.life.resources and group.life.resources.levels then
+        group.life.resources.levels.medicine = originalMedicineLevel
+    end
+    check(not offeredSterile,
+        "the medicine reserve recognizes supported sterile-bandage alternatives")
+end
+do
+    local originalInventory = residentOne.inventory
+    local originalRequest = group.request
+    local originalFoodLevel = group.life and group.life.resources
+        and group.life.resources.levels and group.life.resources.levels.food
+    group.request = nil
+    if group.life and group.life.resources and group.life.resources.levels then
+        group.life.resources.levels.food = "Stable"
+    end
+    local foods = {}
+    for index = 1, 9 do foods[index] = item("Base.CannedCornedBeef", "Food") end
+    residentOne.inventory = inventory(foods)
+    local staleCatalog = Trade.catalog("faction-test")
+    local staleRow = staleCatalog and staleCatalog[1] or nil
+    local consumed
+    for _, candidate in ipairs(foods) do
+        if not staleRow or candidate ~= staleRow.item then consumed = candidate break end
+    end
+    residentOne.inventory:Remove(consumed)
+    local offeredAxe = item("Base.Axe", "Tool")
+    player.inventory:AddItem(offeredAxe)
+    local originalSnapshot = SurvivorCompanion.Senses.snapshot
+    SurvivorCompanion.Senses.snapshot = completeTradeSafetySnapshot
+    local staleTrade, staleReason = Trade.barter("faction-test", player,
+        { { item = offeredAxe, container = player.inventory } }, { staleRow })
+    SurvivorCompanion.Senses.snapshot = originalSnapshot
+    player.inventory:Remove(offeredAxe)
+    residentOne.inventory = originalInventory
+    group.request = originalRequest
+    if group.life and group.life.resources and group.life.resources.levels then
+        group.life.resources.levels.food = originalFoodLevel
+    end
+    check(staleRow ~= nil and not staleTrade and staleReason == "household_reserve_changed"
+            and staleRow.item:getContainer() ~= player.inventory,
+        "barter commit rejects a catalog row that became part of the household food reserve: "
+            .. tostring(staleRow) .. "/" .. tostring(staleTrade) .. "/"
+            .. tostring(staleReason))
 end
 do
     local offeredTool = item("Base.Hammer", "Tool")
@@ -15516,6 +15956,96 @@ end)()
         "target designation changes preference, expires, respects Hold Fire and doctrine, while immediate danger overrides avoidance")
 end)()
 
+-- WP-E: an ordinary request earns only the relationship confidence the pair
+-- has built. Repeating Focus is a single costly push, bounded by the same real
+-- escape/support guard, and its outcome becomes relationship memory.
+;(function()
+    local combat = SurvivorCompanion.Combat
+    local commands = SurvivorCompanion.Commands
+    local relationship = SurvivorCompanion.Relationship
+    local caller = actor("sc-earned-control", 30, 52, {})
+    local ally = actor("sc-earned-control-ally", 29, 52, {})
+    local target = zombie(32, 52, {})
+    registry[caller.id] = caller
+    local state = commands.peek(caller)
+    state.trust, state.bond, state.morale, state.stress = 80, 80, 60, 10
+    local context = { playerRequested = true, escapeCount = 1, support = 1 }
+    local earned = relationship.overrunThresholdDelta(state, context)
+    local pushed = relationship.pushThresholdDelta(state, {
+        playerRequested = true, pushed = true, escapeCount = 1, support = 1,
+    })
+    local autonomous = relationship.overrunThresholdDelta(state, {
+        playerRequested = false, escapeCount = 1, support = 1,
+    })
+    local trapped = relationship.pushThresholdDelta(state, {
+        playerRequested = true, pushed = true, escapeCount = 0, support = 1,
+    })
+    check(earned > 0 and earned <= 4 and pushed > 0 and pushed <= 4
+            and autonomous == 0 and trapped <= 0,
+        "relationship confidence helps only requested combat and never invents an escape")
+
+    local first, firstReason = commands.issue(caller.id, "designate_target",
+        { target = target }, player)
+    clock = clock + 100
+    local moraleBefore, stressBefore = state.morale, state.stress
+    local second, secondReason = commands.issue(caller.id, "designate_target",
+        { target = target }, player)
+    local pushSerial = state.targetDesignation and state.targetDesignation.serial
+    local moraleAfter, stressAfter = state.morale, state.stress
+    clock = clock + 100
+    local third, thirdReason = commands.issue(caller.id, "designate_target",
+        { target = target }, player)
+    check(first and firstReason == "target_designated" and second
+            and secondReason == "target_pushed" and third
+            and thirdReason == "target_push_active"
+            and state.targetDesignation.pushed == true
+            and state.targetDesignation.serial == pushSerial
+            and moraleAfter == moraleBefore - 4 and stressAfter == stressBefore + 8
+            and state.morale == moraleAfter and state.stress == stressAfter
+            and state.memories[#state.memories].kind == "combat_push",
+        "double Focus creates one remembered push cost; extra clicks only renew it")
+
+    local bondBefore = state.bond
+    combat._pushOutcomeForTests(caller, state, target, "success", clock)
+    local trustBefore = state.trust
+    combat._pushOutcomeForTests(caller, state, target, "injury", clock + 1)
+    check(state.bond >= bondBefore + 2 and state.trust == trustBefore - 5
+            and state.memories[#state.memories - 1].kind == "combat_push_succeeded"
+            and state.memories[#state.memories].kind == "combat_push_injury",
+        "a successful push strengthens the bond while a pushed injury costs trust")
+
+    local planner = actor("sc-assigned-objective", 30, 54, {})
+    registry[planner.id] = planner
+    local plannerState = commands.peek(planner)
+    plannerState.objectives = {
+        version = 1, serial = 1, history = {}, nextEligibleAt = 0,
+        active = { version = 1, id = "personal:1", kind = "improve_shelter",
+            status = "active", revealed = true, progress = 0, createdAt = 1 },
+    }
+    local assigned, assignedReason = commands.issue(planner.id, "assign_objective",
+        { kind = "share_a_proper_meal" }, player)
+    local overlay = plannerState.objectives
+    local completed = SurvivorCompanion.Objectives.noteEvent(plannerState, "meal", {})
+    local invalid, invalidReason = commands.issue(planner.id, "assign_objective",
+        { kind = "become_a_wizard" }, player)
+    check(assigned and assignedReason == "objective_assigned"
+            and overlay.active.assignedByPlayer == true
+            and overlay.active.kind == "share_a_proper_meal"
+            and overlay.personal and overlay.personal.kind == "improve_shelter"
+            and completed and plannerState.objectives.active
+            and plannerState.objectives.active.kind == "improve_shelter"
+            and plannerState.objectives.personal == nil
+            and plannerState.objectives.history[#plannerState.objectives.history].assignedByPlayer == true
+            and not invalid and invalidReason == "invalid_objective",
+        "a player objective overlays, persists, completes, and restores the companion's personal goal")
+
+    target.dead = true
+    combat.reset(caller)
+    commands.reset(caller)
+    commands.reset(planner)
+    registry[caller.id], registry[planner.id] = nil, nil
+end)()
+
 -- Combat with nothing credible to fight sends a companion on stay, guard or
 -- base duty back to its own work instead of an aiming hold; a follower still
 -- follows, and an immediate attacker keeps the hold.
@@ -15687,7 +16217,9 @@ end)()
     local values = SurvivorCompanion.Config.values
     local savedValues = {}
     for _, key in ipairs({ "distractionChancePercent", "distractionAllyChancePercent",
-        "distractionVerdictChancePercent", "combatRefusalChancePercent" }) do
+        "distractionVerdictChancePercent", "combatRefusalChancePercent",
+        "interiorDreadChancePercent", "interiorPanicChancePercent",
+        "interiorNicotineChancePercent" }) do
         savedValues[key] = values[key]
         values[key] = 100
     end
@@ -15879,6 +16411,88 @@ end)()
     baseLife.isInside = savedInside
     SurvivorCompanion.Positioning.reset(camperA)
     SurvivorCompanion.Positioning.reset(camperB)
+
+    -- Part II: native environmental state creates speech and diary evidence,
+    -- never relationship stress or a hidden gameplay decision.
+    banter.reset()
+    local narrator = recruit("sc-interior-narrator", 1, 0)
+    local narratorState = SurvivorCompanion.Commands.peek(narrator)
+    narratorState.stress = 37
+    narrator.nativeStress, player.nativeStress = 0, 0
+    local d0 = campAt + 400000
+    local baseline, baselineReason = banter.interiorPulse(narrator, player, d0, narratorState)
+    narrator.nativeStress = 0.2
+    local dreaded, dreadTopic = banter.interiorPulse(narrator, player, d0 + 20000, narratorState)
+    local repeatedDread = banter.interiorPulse(narrator, player, d0 + 220000, narratorState)
+    check(not baseline and baselineReason == "interior_baseline"
+            and dreaded == true and dreadTopic == "banter.interior.dread"
+            and not repeatedDread and narratorState.stress == 37,
+        "companion-only native STRESS rise narrates sound dread once without changing relationship stress")
+
+    banter.reset()
+    local together = recruit("sc-interior-together", 1, 1)
+    together.nativeStress, player.nativeStress = 0, 0
+    banter.interiorPulse(together, player, d0 + 300000)
+    together.nativeStress, player.nativeStress = 0.2, 0.2
+    local sharedRise, sharedReason = banter.interiorPulse(together, player, d0 + 320000)
+    local deaf = recruit("sc-interior-deaf", 2, 0)
+    deaf.traits = { [CharacterTrait.DEAF] = true }
+    deaf.nativeStress, player.nativeStress = 0, 0
+    banter.interiorPulse(deaf, player, d0 + 400000)
+    deaf.nativeStress = 0.2
+    local deafDread, deafReason = banter.interiorPulse(deaf, player, d0 + 420000)
+    check(not sharedRise and sharedReason == "interior_no_transition"
+            and not deafDread and deafReason == "interior_no_transition",
+        "shared stress does not masquerade as a private sound, and a deaf survivor stays silent")
+
+    banter.reset()
+    local panicked = recruit("sc-interior-panic", 1, -1)
+    panicked.moodles = { [MoodleType.PANIC] = 0 }
+    player.nativeStress = 0
+    banter.interiorPulse(panicked, player, d0 + 500000)
+    panicked.moodles[MoodleType.PANIC] = 2
+    local onset, onsetTopic = banter.interiorPulse(panicked, player, d0 + 520000)
+    local held = banter.interiorPulse(panicked, player, d0 + 720000)
+    panicked.moodles[MoodleType.PANIC] = 0
+    local recovered, recoveryTopic = banter.interiorPulse(panicked, player, d0 + 920000)
+    check(onset and onsetTopic == "banter.interior.panic_onset" and not held
+            and recovered and recoveryTopic == "banter.interior.panic_recovery",
+        "panic narration fires on onset and recovery transitions, not every pulse")
+
+    banter.reset()
+    local priorityNarrator = recruit("sc-interior-priority", 2, -1)
+    local priorityRefuser = recruit("sc-interior-priority-refuser", 3, -1)
+    priorityNarrator.moodles = { [MoodleType.PANIC] = 0 }
+    banter.interiorPulse(priorityNarrator, player, d0 + 1000000)
+    local priorityRefusal = banter.overrunRefusal(priorityRefuser, nil, {
+        overrun = true, cause = "no_escape",
+    }, d0 + 1020000, { reliable = true })
+    priorityNarrator.moodles[MoodleType.PANIC] = 3
+    local prioritySpeech, priorityReason = banter.interiorPulse(
+        priorityNarrator, player, d0 + 1021000)
+    check(priorityRefusal == true and not prioritySpeech
+            and priorityReason == "interior_refusal_priority",
+        "an overrun refusal wins the same speech window over panic narration")
+
+    banter.reset()
+    local smoker = recruit("sc-interior-smoker", 1, 0)
+    smoker.traits = { [CharacterTrait.SMOKER] = true }
+    smoker.nicotineWithdrawal = 0
+    banter.interiorPulse(smoker, player, d0 + 1100000)
+    smoker.nicotineWithdrawal = 0.2
+    local asked, nicotineTopic = banter.interiorPulse(smoker, player, d0 + 1120000)
+    local nonSmoker = recruit("sc-interior-nonsmoker", 2, 0)
+    nonSmoker.nicotineWithdrawal = 0
+    banter.reset(nonSmoker)
+    banter.interiorPulse(nonSmoker, player, d0 + 1300000)
+    nonSmoker.nicotineWithdrawal = 0.2
+    local falseAsk, falseAskReason = banter.interiorPulse(nonSmoker, player, d0 + 1320000)
+    check(asked and nicotineTopic == "banter.interior.nicotine"
+            and not falseAsk and falseAskReason == "interior_no_transition"
+            and SurvivorCompanion.Vitals.characterStatsEnabled() == true
+            and SurvivorCompanion.Vitals.nicotineWithdrawal(smoker) == 0.2,
+        "only a smoker narrates native nicotine withdrawal, and the vitals probe reads engine state")
+    player.nativeStress = 0
 
     local pools, placeLines, roomGroups = banter._poolsForTests()
     local problems = {}

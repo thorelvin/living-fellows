@@ -410,6 +410,24 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn('"designate_target"', target_actions)
         self.assertIn('"avoid_target"', target_actions)
 
+    def test_context_exposes_player_objectives_and_push_feedback(self) -> None:
+        assignments = lua_function(
+            self.context, "local function addObjectiveAssignments(menu, row, player)"
+        )
+        dispatch = lua_function(self.context, "local function executeFromContext(")
+        self.assertIn("SC.Objectives.assignableKinds(row.actor, state)", assignments)
+        self.assertIn('"assign_objective"', assignments)
+        self.assertIn("SC.Objectives.label(kind)", assignments)
+        self.assertIn('second == "target_pushed"', dispatch)
+        self.assertIn('"UI_SC_Target_Pushed"', dispatch)
+
+    def test_debug_panel_can_toggle_bounded_native_vitals_probe(self) -> None:
+        debug = lua_function(self.ui, "function SCUIDetail:buildDebug(panel)")
+        handler = lua_function(self.ui, "local function onSupportButton(target, button)")
+        self.assertIn('SC.Config.get("vitalsStatTrace") == true', debug)
+        self.assertIn('"vitals_trace"', debug + handler)
+        self.assertIn("SC.VitalsTrace.reset", handler)
+
     def test_mouse_watch_selects_a_companion_and_has_a_right_click_exit(self) -> None:
         fill = lua_function(
             self.context,

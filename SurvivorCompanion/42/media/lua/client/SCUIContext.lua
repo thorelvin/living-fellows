@@ -54,11 +54,18 @@ local function executeFromContext(companionId, command, payload, player)
             elseif type(SC.UI.open) == "function" then
                 SC.UI.open("status", companionId)
             end
-        elseif (command == "designate_target" or command == "avoid_target") and player then
+        elseif (command == "designate_target" or command == "avoid_target"
+            or command == "assign_objective") and player then
+            local acceptedKey = command == "assign_objective" and "UI_SC_Objective_Assigned"
+                or command == "designate_target" and second == "target_pushed"
+                    and "UI_SC_Target_Pushed"
+                or command == "designate_target" and "UI_SC_Target_Designated"
+                or "UI_SC_Target_Avoided"
+            local rejectedKey = command == "assign_objective"
+                and "UI_SC_Objective_Rejected" or "UI_SC_Target_Rejected"
             safeMethod(player, "setHaloNote", ok and first == true
-                and text(command == "designate_target"
-                    and "UI_SC_Target_Designated" or "UI_SC_Target_Avoided")
-                or text("UI_SC_Target_Rejected", tostring(second or first or "unavailable")))
+                and text(acceptedKey)
+                or text(rejectedKey, tostring(second or first or "unavailable")))
             if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
         elseif SC.UI and type(SC.UI.refresh) == "function" then
             SC.UI.refresh()
@@ -697,6 +704,20 @@ local function addConversation(menu, row, player)
     }))
 end
 
+local function addObjectiveAssignments(menu, row, player)
+    if row.recruited ~= true or not SC.Objectives
+        or type(SC.Objectives.assignableKinds) ~= "function" then return end
+    local state = SC.Commands and type(SC.Commands.peek) == "function"
+        and SC.Commands.peek(row.actor) or nil
+    local kinds = SC.Objectives.assignableKinds(row.actor, state)
+    if type(kinds) ~= "table" or #kinds == 0 then return end
+    local category = addCategory(menu, "UI_SC_Context_AssignObjective")
+    for _, kind in ipairs(kinds) do
+        category:addOption(SC.Objectives.label(kind), nil, issueFromContext,
+            row.id, "assign_objective", { kind = kind }, player)
+    end
+end
+
 local function addDirectOrders(menu, row, player)
     addDescriptorCommands(menu, row, player, descriptorGroup("personalOrders", {
         { key = "UI_SC_Action_Follow", command = "follow" },
@@ -947,6 +968,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         addWatchControl(selectedMenu, selected, player)
         addDirectOrders(selectedMenu, selected, player)
         addConversation(addCategory(selectedMenu, "UI_SC_Context_Talk"), selected, player)
+        addObjectiveAssignments(selectedMenu, selected, player)
         local targetMenu = addCategory(selectedMenu, "UI_SC_Context_TargetActions")
         addWorldOrders(targetMenu, selected, square, targetPayload, door, doorPayload,
             barricadeTarget, barricadePayload, removeBarricadeTarget,
@@ -971,6 +993,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             addWatchControl(companionMenu, row, player)
             addDirectOrders(companionMenu, row, player)
             addConversation(addCategory(companionMenu, "UI_SC_Context_Talk"), row, player)
+            addObjectiveAssignments(companionMenu, row, player)
             addCompanionCare(addCategory(companionMenu, "UI_SC_Context_Care"), row, player)
             addCommand(companionMenu, "UI_SC_Action_Dismiss", row.id,
                 "dismiss", nil, player)

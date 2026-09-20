@@ -34,6 +34,57 @@ end
 -- ---------------------------------------------------------------------------
 
 local POOLS = {
+    ["banter.interior.dread"] = {
+        common = {
+            "Did you hear that? Something in here does not feel right.",
+            "That sound is getting under my skin.",
+            "I know you are calm, but this place is making me nervous.",
+            "There is something in these walls. I can feel it.",
+        },
+        brave = { "I heard it. I am fine. Mostly." },
+        cautious = { "That noise came from inside. We should check our way out." },
+        caring = { "Tell me you heard that too." },
+        practical = { "Unidentified sound, close by. Stay alert." },
+        stressed = { "There! Again. You heard that, right?" },
+    },
+    ["banter.interior.panic_onset"] = {
+        common = {
+            "I need a second. I cannot get my breathing right.",
+            "This is too close. I am starting to lose it.",
+            "My hands are shaking. Give me a moment.",
+            "I am panicking. I know it. Just stay near me.",
+        },
+        brave = { "I can do this. I just need one breath." },
+        cautious = { "We need space. Now. I cannot think in this crowd." },
+        caring = { "Stay where I can see you, please." },
+        practical = { "Panic is setting in. I need a clean exit." },
+        stressed = { "I cannot breathe. I cannot breathe." },
+    },
+    ["banter.interior.panic_recovery"] = {
+        common = {
+            "All right. I have my breathing back.",
+            "I am steady again. Sorry about that.",
+            "The shaking stopped. I can think now.",
+            "I am okay. Not good, but okay.",
+        },
+        brave = { "Back in control. Let us keep moving." },
+        cautious = { "Better. I still want an exit close." },
+        caring = { "Thank you for staying close. I am all right now." },
+        practical = { "Breathing normal. I am functional again." },
+    },
+    ["banter.interior.nicotine"] = {
+        common = {
+            "I could really use a cigarette right now.",
+            "If you see a pack, remember me. This is getting rough.",
+            "I hate to ask, but have you seen any cigarettes?",
+            "The nicotine is wearing off. I am getting twitchy.",
+        },
+        brave = { "I can face the dead. Apparently quitting is harder." },
+        cautious = { "Keep an eye out for cigarettes, if it is safe." },
+        caring = { "Sorry. I know we have bigger problems. I just need a smoke." },
+        practical = { "Low priority request: cigarettes, when we find some." },
+        stressed = { "I need a cigarette. Badly." },
+    },
     ["banter.crowd.yield"] = {
         common = {
             "Get out of my way, %1.",
@@ -742,6 +793,8 @@ local function freshParty()
         campPairs = {},
         campPairCount = 0,
         lastCampConversationAt = -math.huge,
+        lastInteriorAt = -math.huge,
+        interiorCursor = 0,
     }
 end
 
@@ -1255,6 +1308,138 @@ function Banter.grabbedPulse(actor, player, snapshot, current)
 end
 
 -- ---------------------------------------------------------------------------
+-- Interior state narration
+-- ---------------------------------------------------------------------------
+
+local function trait(actor, name)
+    if actor == nil or CharacterTrait == nil then return false end
+    local ok, native = pcall(function() return CharacterTrait[name] end)
+    if not ok then return false end
+    if native == nil then return false end
+    local value, called = U().call(actor, "hasTrait", native)
+    return called and value == true
+end
+
+local function nativeInteriorSample(actor)
+    local stress = SC.Vitals and type(SC.Vitals.environmentalStress) == "function"
+        and SC.Vitals.environmentalStress(actor)
+        or U().characterStatValue(actor, "STRESS", 0)
+    local nicotine = SC.Vitals and type(SC.Vitals.effectiveNicotineStress) == "function"
+        and SC.Vitals.effectiveNicotineStress(actor) or nil
+    if nicotine == nil then
+        nicotine = SC.Vitals and type(SC.Vitals.nicotineWithdrawal) == "function"
+            and SC.Vitals.nicotineWithdrawal(actor)
+            or U().characterStatValue(actor, "NICOTINE_WITHDRAWAL", 0)
+    end
+    return {
+        stress = tonumber(stress) or 0,
+        panic = tonumber(U().moodleLevel(actor, "PANIC", 0)) or 0,
+        nicotine = tonumber(nicotine) or 0,
+    }
+end
+
+local function interiorEligible(actor, player, commands, current)
+    if commands.recruited ~= true or not U().isValidActor(actor) or U().isDead(actor) then
+        return false, "interior_not_recruited"
+    end
+    if player == nil or U().isDead(player) or not U().sameFloor(actor, player)
+        or U().distance(actor, player) > config("interiorSpeechDistance", 10) then
+        return false, "interior_player_not_nearby"
+    end
+    if SC.ActionSupervisor and type(SC.ActionSupervisor.current) == "function"
+        and SC.ActionSupervisor.current(actor) ~= nil then
+        return false, "interior_actor_busy"
+    end
+    local spokenAt = lastSpokenAt(actor)
+    if spokenAt and current - spokenAt < config("banterSpeakerQuietMs", 15000) then
+        return false, "interior_recently_spoke"
+    end
+    return true
+end
+
+--- Observe engine vitals for speech only. In particular, this never writes
+--- commands.stress: relationship stress and environmental STRESS are separate.
+function Banter.interiorPulse(actor, player, current, suppliedCommands)
+    if not enabled() or actor == nil then return false, "banter_disabled" end
+    current = tonumber(current) or U().nowMs()
+    local commands = commandState(actor, suppliedCommands)
+    local own = actorState(actor)
+    local sample = nativeInteriorSample(actor)
+    local playerSample = nativeInteriorSample(player)
+    sample.playerStress = playerSample.stress
+    local prior = own.interiorSample
+    own.interiorSample = sample
+    if type(prior) ~= "table" then
+        own.nicotineArmed = sample.nicotine < config("interiorNicotineThreshold", 0.12)
+        return false, "interior_baseline"
+    end
+
+    if sample.nicotine <= config("interiorNicotineResetThreshold", 0.04) then
+        own.nicotineArmed = true
+    end
+    local panicThreshold = config("interiorPanicThreshold", 2)
+    local topic, chance, diaryKind
+    if prior.panic < panicThreshold and sample.panic >= panicThreshold then
+        topic, chance, diaryKind = "banter.interior.panic_onset",
+            config("interiorPanicChancePercent", 100), "panic"
+    elseif prior.panic >= panicThreshold and sample.panic < panicThreshold then
+        topic, chance, diaryKind = "banter.interior.panic_recovery",
+            config("interiorPanicChancePercent", 100), "panic"
+    else
+        local actorRise = sample.stress - prior.stress
+        local playerRise = playerSample.stress - (tonumber(prior.playerStress) or playerSample.stress)
+        if not trait(actor, "DEAF")
+            and actorRise >= config("interiorStressRiseThreshold", 0.08)
+            and playerRise <= config("interiorPlayerStressRiseTolerance", 0.03) then
+            topic, chance, diaryKind = "banter.interior.dread",
+                config("interiorDreadChancePercent", 60), "dread"
+        elseif trait(actor, "SMOKER") and own.nicotineArmed ~= false
+            and prior.nicotine < config("interiorNicotineThreshold", 0.12)
+            and sample.nicotine >= config("interiorNicotineThreshold", 0.12) then
+            topic, chance, diaryKind = "banter.interior.nicotine",
+                config("interiorNicotineChancePercent", 65), "nicotine"
+            own.nicotineArmed = false
+        end
+    end
+    if topic == nil then return false, "interior_no_transition" end
+    if current - party.lastRefusalAt < config("interiorRefusalPriorityMs", 5000) then
+        return false, "interior_refusal_priority"
+    end
+    if current - (own.interiorSpokenAt or -math.huge)
+        < config("interiorActorCooldownMs", 180000) then
+        return false, "interior_actor_cooldown"
+    end
+    if current - party.lastInteriorAt < config("interiorPartyCooldownMs", 45000) then
+        return false, "interior_party_cooldown"
+    end
+    if not budgetAllows(current) then return false, "flavor_budget" end
+    local eligible, reason = interiorEligible(actor, player, commands, current)
+    if not eligible then return false, reason end
+    if not roll(chance, actor, current) then return false, "interior_not_rolled" end
+    if not speak(actor, topic, commands, nil, { salt = topic .. ":" .. tostring(current) }) then
+        return false, "interior_speech_rejected"
+    end
+    own.interiorSpokenAt = current
+    party.lastInteriorAt = current
+    party.lastFlavorAt = current
+    if SC.Diary and type(SC.Diary.noteInteriorState) == "function" then
+        pcall(SC.Diary.noteInteriorState, actor, diaryKind)
+    end
+    return true, topic
+end
+
+local function interiorPartyPulse(player, records, current)
+    local count = #(records or {})
+    if count == 0 then return false, "interior_no_companions" end
+    party.interiorCursor = (tonumber(party.interiorCursor) or 0) % count + 1
+    local record = records[party.interiorCursor]
+    if type(record) ~= "table" or record.actor == nil then
+        return false, "interior_invalid_record"
+    end
+    return Banter.interiorPulse(record.actor, player, current)
+end
+
+-- ---------------------------------------------------------------------------
 -- Idle jokes
 -- ---------------------------------------------------------------------------
 
@@ -1437,6 +1622,8 @@ function Banter.update(player, records, current)
     if exchanged or exchangeBusy then return exchanged, exchangeReason end
     local greeted, greetingReason = greetingPulse(player, records, current)
     if greeted then return true, greetingReason end
+    local interiorSpoken, interiorReason = interiorPartyPulse(player, records, current)
+    if interiorSpoken then return true, interiorReason end
     local idle, inVehicle = trackIdle(player, current)
     if SC.Tales and type(SC.Tales.update) == "function" then
         local ok, telling, taleReason = pcall(SC.Tales.update, player, records, current)

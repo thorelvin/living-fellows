@@ -160,6 +160,22 @@ local function actorForGroup(group)
     return fallback
 end
 
+local function actorForGroupExcluding(group, excludedActorId)
+    if type(group) ~= "table" then return nil end
+    local fallback
+    for _, member in ipairs(group.members or {}) do
+        if member.alive ~= false and member.away == nil and member.departed ~= true
+            and member.actorId and member.actorId ~= excludedActorId then
+            local record = SC.Registry and SC.Registry.byId(member.actorId) or nil
+            if record and record.actor then
+                if member.role == "leader" then return record.actor end
+                fallback = fallback or record.actor
+            end
+        end
+    end
+    return fallback
+end
+
 local function isEquipped(actor, item)
     local ok, primary = invoke(actor, "getPrimaryHandItem")
     if ok and primary == item then return true end
@@ -263,6 +279,63 @@ local function matches(row, requirement)
     return false
 end
 
+local function requirementHasCategory(requirement, wanted)
+    if requirement.category == wanted then return true end
+    for _, value in ipairs(type(requirement.categories) == "table"
+        and requirement.categories or {}) do
+        if value == wanted then return true end
+    end
+    return false
+end
+
+local function positiveRemainingUses(item)
+    local inspected = false
+    for _, methodName in ipairs({ "getCurrentUses", "getDrainableUsesInt" }) do
+        local ok, value = invoke(item, methodName)
+        if ok and tonumber(value) ~= nil then
+            inspected = true
+            if tonumber(value) > 0 then return true end
+        end
+    end
+    local deltaOk, delta = invoke(item, "getUsedDelta")
+    if deltaOk and tonumber(delta) ~= nil then
+        inspected = true
+        if tonumber(delta) > 0 then return true end
+    end
+    return not inspected
+end
+
+local function suitableForRequirement(item, requirement)
+    local category = itemCategory(item)
+    local brokenOk, broken = invoke(item, "isBroken")
+    if brokenOk and broken == true then return false, "broken" end
+    local conditionOk, condition = invoke(item, "getCondition")
+    if conditionOk and tonumber(condition) ~= nil and tonumber(condition) <= 0 then
+        return false, "broken"
+    end
+    if category == "food" or requirementHasCategory(requirement, "food") then
+        local rottenOk, rotten = invoke(item, "isRotten")
+        local burntOk, burnt = invoke(item, "isBurnt")
+        if rottenOk and rotten == true then return false, "rotten" end
+        if burntOk and burnt == true then return false, "burnt" end
+    end
+    if category == "water" or requirementHasCategory(requirement, "water") then
+        local waterOk, water = invoke(item, "isWaterSource")
+        if not waterOk or water ~= true then return false, "empty_or_unsafe_water" end
+        local fluidOk, fluid = invoke(item, "getFluidContainer")
+        if fluidOk and fluid ~= nil then
+            local amountOk, amount = invoke(fluid, "getAmount")
+            if not amountOk or tonumber(amount) == nil or tonumber(amount) <= 0 then
+                return false, "empty_or_unsafe_water"
+            end
+        end
+    end
+    if category == "medicine" or requirementHasCategory(requirement, "medicine") then
+        if not positiveRemainingUses(item) then return false, "exhausted" end
+    end
+    return true
+end
+
 local function requirementLabel(requirement)
     if type(requirement.label) == "string" and requirement.label ~= "" then
         return requirement.label
@@ -288,14 +361,18 @@ local function selectRequirements(actor, requirements, allowProtected)
     local selected, used, progress, firstMissing = {}, {}, {}, nil
     for index, requirement in ipairs(requirements or {}) do
         local remaining = math.max(0, math.floor(tonumber(requirement.count) or 0))
-        local required, available, chosen, matched, protectedMatches = remaining, 0, 0, 0, 0
+        local required, available, chosen, matched, protectedMatches, unusable =
+            remaining, 0, 0, 0, 0, 0
         local observedTypes = {}
         for _, row in ipairs(rows) do
             if not used[row.item] and matches(row, requirement) then
                 matched = matched + 1
                 local rowType = fullType(row.item)
                 if #observedTypes < 8 then observedTypes[#observedTypes + 1] = rowType end
-                if allowProtected or not protected(actor, row.item) then
+                local suitable = suitableForRequirement(row.item, requirement)
+                if not suitable then
+                    unusable = unusable + 1
+                elseif allowProtected or not protected(actor, row.item) then
                     available = available + 1
                 else protectedMatches = protectedMatches + 1 end
             end
@@ -303,6 +380,7 @@ local function selectRequirements(actor, requirements, allowProtected)
         for _, row in ipairs(rows) do
             if remaining <= 0 then break end
             if not used[row.item] and matches(row, requirement)
+                and suitableForRequirement(row.item, requirement)
                 and (allowProtected or not protected(actor, row.item)) then
                 used[row.item] = true
                 selected[#selected + 1] = row
@@ -314,7 +392,8 @@ local function selectRequirements(actor, requirements, allowProtected)
             index = index, label = requirementLabel(requirement), required = required,
             available = available, selected = chosen, remaining = remaining,
             ready = remaining <= 0, matched = matched,
-            protected = protectedMatches, observedTypes = observedTypes,
+            protected = protectedMatches, unusable = unusable,
+            observedTypes = observedTypes,
         }
         if remaining > 0 then
             firstMissing = firstMissing or ("missing_" .. requirementLabel(requirement)
@@ -1117,6 +1196,12 @@ local function transaction(group, player, playerRows, factionRows, options)
     valid, validationReason = validateRows(factionRows, trader, factionInventory,
         options.allowProtectedFaction == true)
     if not valid then return false, validationReason end
+    if type(options.validate) == "function" then
+        local called, accepted, currentReason = pcall(options.validate,
+            playerRows, factionRows, trader)
+        if not called then return false, "transaction_validation_exception:" .. tostring(accepted) end
+        if accepted ~= true then return false, currentReason or "trade_selection_changed" end
+    end
     local groupSnapshot
     if type(options.finalize) == "function" then
         groupSnapshot, reason = snapshotGroup(group)
@@ -1248,6 +1333,114 @@ local function matchingQuestRows(actor, contractId, rewardChoice)
     return selected
 end
 
+local function expectedRewardCount(contract, choiceIndex)
+    local choice = type(contract.rewardChoices) == "table"
+        and contract.rewardChoices[choiceIndex] or nil
+    local expected = 0
+    for _, spec in ipairs(choice and choice.items or {}) do
+        expected = expected + math.max(1, math.floor(tonumber(spec.count) or 1))
+    end
+    return expected
+end
+
+local function completeRewardRows(actor, contract)
+    if actor == nil then return nil, "reward_holder_unavailable" end
+    local combined = {}
+    for choiceIndex = 1, 2 do
+        local rows, reason = matchingQuestRows(actor, contract.id, choiceIndex)
+        if not rows or #rows ~= expectedRewardCount(contract, choiceIndex) then
+            return nil, reason or "selected_quest_reward_missing"
+        end
+        for _, row in ipairs(rows) do combined[#combined + 1] = row end
+    end
+    return combined
+end
+
+local function markRewardUnavailable(contract, reason)
+    contract.rewardMaterialization = type(contract.rewardMaterialization) == "table"
+        and contract.rewardMaterialization or {}
+    contract.rewardMaterialization.state = "unavailable"
+    contract.rewardMaterialization.reason = tostring(reason or "reward_holder_lost")
+    return false, "quest_reward_unavailable:" .. contract.rewardMaterialization.reason
+end
+
+function Trade.reconcileQuestRewardHolder(group, departingActorId, suppliedContract)
+    local contract = suppliedContract or (type(group) == "table" and group.social
+        and group.social.contract and group.social.contract.active or nil)
+    if type(group) ~= "table" or type(contract) ~= "table"
+        or type(contract.rewardChoices) ~= "table" then
+        return true, "quest_reward_not_applicable"
+    end
+    local holderId = contract.rewardHolderActorId or departingActorId
+    if type(departingActorId) == "string" and type(contract.rewardHolderActorId) == "string"
+        and contract.rewardHolderActorId ~= departingActorId then
+        return true, "departing_actor_not_reward_holder"
+    end
+
+    local sourceRecord = holderId and SC.Registry and SC.Registry.byId(holderId) or nil
+    local source = sourceRecord and sourceRecord.actor or nil
+    local currentTrader = actorForGroup(group)
+    local currentId = currentTrader and U().idOf(currentTrader) or nil
+    if source == nil and currentTrader ~= nil then
+        local currentRows = completeRewardRows(currentTrader, contract)
+        if currentRows then
+            contract.rewardHolderActorId = currentId
+            contract.rewardMaterialization = {
+                state = "ready", itemCount = #currentRows, holderActorId = currentId,
+            }
+            return true, "quest_reward_holder_recovered"
+        end
+    end
+    if source == nil then return markRewardUnavailable(contract, "reward_holder_lost") end
+
+    local rows, rowReason = completeRewardRows(source, contract)
+    if not rows then return markRewardUnavailable(contract, rowReason) end
+    local sourceId = U().idOf(source) or holderId
+    local destination = type(departingActorId) == "string"
+        and actorForGroupExcluding(group, sourceId) or currentTrader
+    if destination == source then
+        contract.rewardHolderActorId = sourceId
+        contract.rewardMaterialization = {
+            state = "ready", itemCount = #rows, holderActorId = sourceId,
+        }
+        return true, "quest_reward_holder_current"
+    end
+    if destination == nil then return markRewardUnavailable(contract, "replacement_holder_unavailable") end
+    local sourceInventory, destinationInventory = actorInventory(source), actorInventory(destination)
+    if sourceInventory == nil or destinationInventory == nil then
+        return markRewardUnavailable(contract, "reward_inventory_unavailable")
+    end
+    local valid, validationReason = validateRows(rows, source, sourceInventory, true)
+    if not valid then return markRewardUnavailable(contract, validationReason) end
+    local capacity, capacityReason = destinationAcceptsAll(destinationInventory, destination, rows)
+    if not capacity then return markRewardUnavailable(contract, capacityReason) end
+
+    local journal = {}
+    journalRows(rows, source, destinationInventory, destination, journal)
+    authorizationSerial = authorizationSerial + 1
+    authorized = { serial = authorizationSerial, factionId = group.id }
+    local called, moved, moveReason = pcall(function()
+        local detached, detachReason = detachJournal(journal)
+        if not detached then return false, detachReason end
+        return attachJournal(journal)
+    end)
+    authorized = false
+    if not called then moved, moveReason = false, tostring(moved) end
+    if moved ~= true then
+        local restored, rollbackReason = rollback(journal)
+        if not restored then
+            rememberRecovery(journal, group, moveReason, rollbackReason, nil)
+        end
+        return markRewardUnavailable(contract, moveReason or rollbackReason)
+    end
+    local destinationId = U().idOf(destination)
+    contract.rewardHolderActorId = destinationId
+    contract.rewardMaterialization = {
+        state = "ready", itemCount = #rows, holderActorId = destinationId,
+    }
+    return true, "quest_reward_holder_reassigned"
+end
+
 function Trade.questItemProgress(player, contractId)
     if player == nil or type(contractId) ~= "string" then return 0, nil end
     local rows, reason = matchingQuestRows(player, contractId, nil)
@@ -1263,7 +1456,11 @@ function Trade.prepareQuestRewards(group, contract)
     local existing = matchingQuestRows(trader, contract.id, 1) or {}
     local second = matchingQuestRows(trader, contract.id, 2) or {}
     if #existing > 0 and #second > 0 then
-        contract.rewardMaterialization = { state = "ready", itemCount = #existing + #second }
+        local holderId = U().idOf(trader)
+        contract.rewardHolderActorId = holderId
+        contract.rewardMaterialization = {
+            state = "ready", itemCount = #existing + #second, holderActorId = holderId,
+        }
         return true, "quest_rewards_already_ready"
     end
     if #existing > 0 or #second > 0 then return false, "partial_quest_reward_materialization" end
@@ -1292,7 +1489,11 @@ function Trade.prepareQuestRewards(group, contract)
             end
         end
     end
-    contract.rewardMaterialization = { state = "ready", itemCount = #created }
+    local holderId = U().idOf(trader)
+    contract.rewardHolderActorId = holderId
+    contract.rewardMaterialization = {
+        state = "ready", itemCount = #created, holderActorId = holderId,
+    }
     return true, "quest_rewards_ready"
 end
 
@@ -1316,6 +1517,10 @@ function Trade.completeQuest(group, player, contract, choiceIndex, finalize)
     if choiceIndex < 1 or choiceIndex > 2 or type(choice) ~= "table" then
         return false, "select_quest_reward"
     end
+    local holderReady, holderReason = Trade.reconcileQuestRewardHolder(group, nil, contract)
+    local rewardUnavailable = contract.rewardMaterialization
+        and contract.rewardMaterialization.state == "unavailable"
+    if not holderReady and not rewardUnavailable then return false, holderReason end
     local trader = actorForGroup(group)
     local playerRows = {}
     if contract.kind == "retrieve_item" then
@@ -1323,12 +1528,15 @@ function Trade.completeQuest(group, player, contract, choiceIndex, finalize)
         if not found or #found == 0 then return false, reason or "quest_item_missing" end
         playerRows[1] = found[1]
     end
-    local factionRows, rewardReason = matchingQuestRows(trader, contract.id, choiceIndex)
+    local factionRows, rewardReason = {}, nil
+    if not rewardUnavailable then
+        factionRows, rewardReason = matchingQuestRows(trader, contract.id, choiceIndex)
+    end
     local expected = 0
     for _, spec in ipairs(choice.items or {}) do
         expected = expected + math.max(1, math.floor(tonumber(spec.count) or 1))
     end
-    if not factionRows or #factionRows ~= expected then
+    if not rewardUnavailable and (not factionRows or #factionRows ~= expected) then
         return false, rewardReason or "selected_quest_reward_missing"
     end
     local completed, reason = transaction(group, player, playerRows, factionRows, {
@@ -1340,6 +1548,7 @@ function Trade.completeQuest(group, player, contract, choiceIndex, finalize)
     for _, row in ipairs(playerRows) do clearQuestTags(row.item) end
     for _, row in ipairs(factionRows) do clearQuestTags(row.item) end
     Trade.releaseQuestRewards(group, contract)
+    if rewardUnavailable then return true, "quest_complete_reward_unavailable_no_blame" end
     return true, reason or "quest_complete"
 end
 
@@ -1442,6 +1651,73 @@ function Trade.reserveSummary(groupId)
     return rows
 end
 
+local function reserveTargets(group)
+    local living, firstPassOpen, finalPassOpen = 0, 0, 0
+    for _, member in ipairs(group.members or {}) do
+        if member.alive ~= false and member.away == nil and member.departed ~= true then
+            living = living + 1
+        end
+    end
+    for _, job in ipairs(group.jobs or {}) do
+        if job.phase == "first" and job.status ~= "completed" then
+            firstPassOpen = firstPassOpen + 1
+        end
+        if job.phase == "final" and job.status ~= "completed"
+            and job.status ~= "cancelled" then finalPassOpen = finalPassOpen + 1 end
+    end
+    return {
+        food = math.max(2, living * 4), water = math.max(2, living * 2),
+        medicine = math.max(2, living),
+        planks = math.min(48, math.max(firstPassOpen * 2, finalPassOpen * 4)),
+        nails = math.min(96, math.max(firstPassOpen * 4, finalPassOpen * 8)),
+    }
+end
+
+local function factionReserveItems(group, trader, rows, policy)
+    local reserved, targets = {}, reserveTargets(group)
+    if type(group.request) == "table" and group.request.status == "available"
+        and group.request.rewardReserved == true then
+        local selected = selectRequirements(trader, group.request.reward, true)
+        for _, row in ipairs(selected or {}) do reserved[row.item] = "request_reward" end
+    end
+    for _, row in ipairs(rows or {}) do
+        local item, category = row.item, itemCategory(row.item)
+        if reserved[item] == nil and policy and policy.refused
+            and policy.refused[category] == true then
+            reserved[item] = "category_refused"
+        elseif reserved[item] == nil and category == "food" and targets.food > 0
+            and suitableForRequirement(item, { category = "food" }) then
+            targets.food, reserved[item] = targets.food - 1, "food"
+        elseif reserved[item] == nil and category == "water" and targets.water > 0
+            and suitableForRequirement(item, { category = "water" }) then
+            targets.water, reserved[item] = targets.water - 1, "water"
+        elseif reserved[item] == nil and category == "medicine" and targets.medicine > 0
+            and suitableForRequirement(item, { category = "medicine" }) then
+            targets.medicine, reserved[item] = targets.medicine - 1, "medicine"
+        elseif reserved[item] == nil and fullType(item) == "Base.Plank" and targets.planks > 0 then
+            targets.planks, reserved[item] = targets.planks - 1, "planks"
+        elseif reserved[item] == nil and fullType(item) == "Base.Nails" and targets.nails > 0 then
+            targets.nails, reserved[item] = targets.nails - 1, "nails"
+        end
+    end
+    return reserved
+end
+
+local function currentFactionReserve(group, trader)
+    local inventory = actorInventory(trader)
+    if inventory == nil then return nil, "trader_inventory_unavailable" end
+    local rows, budget = {}, {
+        count = tonumber(SC.Config.get("factionTradeInventoryScanLimit")) or 4096,
+        complete = true,
+    }
+    collect(inventory, rows, 0, budget)
+    if budget.complete == false then return nil, "household_reserve_scan_incomplete" end
+    local policy = SC.FactionContracts
+        and type(SC.FactionContracts.tradePolicy) == "function"
+        and SC.FactionContracts.tradePolicy(group) or nil
+    return factionReserveItems(group, trader, rows, policy), nil, rows, policy
+end
+
 function Trade.catalog(groupId)
     local group = SC.Factions and SC.Factions.group(groupId) or nil
     if not group then return nil, "faction_unavailable" end
@@ -1455,42 +1731,11 @@ function Trade.catalog(groupId)
         and SC.FactionContracts.tradePolicy(group) or nil
     collect(inventory, rows, 0, { count = 512 })
     local result = {}
-    local living = 0
-    for _, member in ipairs(group.members or {}) do
-        if member.alive ~= false and member.away == nil and member.departed ~= true then
-            living = living + 1
-        end
-    end
-    local firstPassOpen, finalPassOpen = 0, 0
-    for _, job in ipairs(group.jobs or {}) do
-        if job.phase == "first" and job.status ~= "completed" then firstPassOpen = firstPassOpen + 1 end
-        if job.phase == "final" and job.status ~= "completed"
-            and job.status ~= "cancelled" then finalPassOpen = finalPassOpen + 1 end
-    end
-    local reserveFood, reserveWater, reserveMedical = math.max(2, living * 4),
-        math.max(2, living * 2), math.max(2, living)
-    local reservePlanks = math.min(48, math.max(firstPassOpen * 2, finalPassOpen * 4))
-    local reserveNails = math.min(96, math.max(firstPassOpen * 4, finalPassOpen * 8))
-    local reservedRewards = {}
-    if type(group.request) == "table" and group.request.status == "available"
-        and group.request.rewardReserved == true then
-        local selected = selectRequirements(trader, group.request.reward, true)
-        for _, row in ipairs(selected or {}) do reservedRewards[row.item] = true end
-    end
+    local reserved = factionReserveItems(group, trader, rows, policy)
     for _, row in ipairs(rows) do
         local category = itemCategory(row.item)
-        local reserve = reservedRewards[row.item] == true
-            or policy and policy.refused and policy.refused[category] == true
-        if not reserve and category == "food" and reserveFood > 0 then reserveFood, reserve = reserveFood - 1, true
-        elseif not reserve and category == "water" and reserveWater > 0 then reserveWater, reserve = reserveWater - 1, true
-        elseif not reserve and (fullType(row.item) == "Base.Bandage" or fullType(row.item) == "Base.FirstAidKit")
-            and reserveMedical > 0 then reserveMedical, reserve = reserveMedical - 1, true
-        elseif not reserve and fullType(row.item) == "Base.Plank" and reservePlanks > 0 then
-            reservePlanks, reserve = reservePlanks - 1, true
-        elseif not reserve and fullType(row.item) == "Base.Nails" and reserveNails > 0 then
-            reserveNails, reserve = reserveNails - 1, true
-        end
-        if not reserve and not protected(trader, row.item) and not hasContents(row.item) then
+        if reserved[row.item] == nil and not protected(trader, row.item)
+            and not hasContents(row.item) then
             result[#result + 1] = {
                 item = row.item, container = row.container, type = fullType(row.item),
                 category = category, value = baseValue(row.item),
@@ -1596,7 +1841,19 @@ function Trade.barter(groupId, player, offeredRows, requestedRows)
         end
         if protected(trader, row.item) then return false, "protected_faction_item" end
     end
-    local traded, reason = transaction(group, player, offeredRows, requestedRows)
+    local function reserveStillAvailable()
+        local reserved, reserveReason = currentFactionReserve(group, trader)
+        if not reserved then return false, reserveReason end
+        for _, row in ipairs(requestedRows or {}) do
+            if reserved[row.item] ~= nil then return false, "household_reserve_changed" end
+        end
+        return true
+    end
+    local available, reserveReason = reserveStillAvailable()
+    if not available then return false, reserveReason end
+    local traded, reason = transaction(group, player, offeredRows, requestedRows, {
+        validate = reserveStillAvailable,
+    })
     if traded and SC.FactionContracts and type(SC.FactionContracts.noteAction) == "function" then
         pcall(SC.FactionContracts.noteAction, group, "fair_trade", "A fair barter was completed.")
     end

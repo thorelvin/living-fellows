@@ -69,6 +69,9 @@ require("SC.ViewControl.update" in runtime
 require("SC.Steering.update" in runtime
         and 'resetModule("steering", SC.Steering, "reset")' in runtime,
         "central runtime does not own steering updates and lifecycle cleanup")
+require("SC.VitalsTrace.report" in runtime
+        and 'resetModule("vitals trace", SC.VitalsTrace, "reset")' in runtime,
+        "central runtime does not own the bounded native-vitals probe lifecycle")
 
 bootstrap = (CLIENT / "SCBootstrap.lua").read_text(encoding="utf-8")
 for module in ("SCSenses", "SCNavigation", "SCCombat", "SCMedical", "SCEncounter",
@@ -78,6 +81,8 @@ for module in ("SCSenses", "SCNavigation", "SCCombat", "SCMedical", "SCEncounter
                "SCAutonomy", "SCCommands", "SCDecision",
                "SCSupport", "SCUI", "SCViewControl", "SCSteering", "SCUIContext", "SCCompanionMap"):
     require(f'require "{module}"' in bootstrap, f"bootstrap requirement missing: {module}")
+require('require "SCVitalsTrace"' in bootstrap and '"VitalsTrace"' in bootstrap,
+        "native-vitals probe is not a required bootstrap module")
 
 view_control = (CLIENT / "SCViewControl.lua").read_text(encoding="utf-8")
 for forbidden in ("setCameraCharacter", "IsoPlayer.players", "setPlayer", "setIndex"):
@@ -276,12 +281,19 @@ require("setRequired" in vitals and "native vitals did not retain" in vitals,
         "native vitals restore does not truthfully verify mutations")
 require("setInfectedWound" not in vitals,
         "nonexistent B42 BodyPart.setInfectedWound call regressed")
+require("function vitals.environmentalStress" in vitals
+        and "function vitals.nicotineWithdrawal" in vitals
+        and "function vitals.statVector" in vitals
+        and "SystemDisabler.doCharacterStats" in vitals,
+        "read-only native interior-stat probe surface is incomplete")
 
 config = (SHARED / "SCConfig.lua").read_text(encoding="utf-8")
 require(re.search(r"(?m)^\s*experimentalNpcPlayerActor\s*=\s*false,\s*$", config) is not None,
         "release experimental actor provider must be OFF")
 require(re.search(r"(?m)^\s*debugSpawnEnabled\s*=\s*false,\s*$", config) is not None,
         "release debug spawn must be OFF")
+require(re.search(r"(?m)^\s*vitalsStatTrace\s*=\s*false,\s*$", config) is not None,
+        "release native-vitals probe must be OFF")
 require(re.search(r"(?m)^\s*productionEncounterEnabled\s*=\s*true,\s*$", config) is not None,
         "normal production encounter cadence must remain enabled")
 require(re.search(r"(?m)^\s*debugSpawnIntervalMs\s*=\s*60000,\s*$", config) is not None,

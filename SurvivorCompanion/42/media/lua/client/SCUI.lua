@@ -2122,6 +2122,7 @@ local function onSupportButton(target, button)
         combat_trace = "combatTraceEnabled",
         ranged_trace = "combatRangedTrace",
         clothing_trace = "logisticsClothingTrace",
+        vitals_trace = "vitalsStatTrace",
     }
     if traceSwitches[action] then
         if SC.Config == nil or type(SC.Config.get) ~= "function"
@@ -2136,8 +2137,15 @@ local function onSupportButton(target, button)
             and type(SC.CombatTrace.reset) == "function" then
             pcall(SC.CombatTrace.reset)
         end
-        setButtonFeedback(target, UI.text(nextState
-            and "UI_SC_Debug_TraceEnabled" or "UI_SC_Debug_TraceDisabled"), true)
+        if nextState and action == "vitals_trace" and SC.VitalsTrace
+            and type(SC.VitalsTrace.reset) == "function" then
+            pcall(SC.VitalsTrace.reset)
+        end
+        local enabledKey = action == "vitals_trace"
+            and "UI_SC_Debug_VitalsTraceEnabled" or "UI_SC_Debug_TraceEnabled"
+        local disabledKey = action == "vitals_trace"
+            and "UI_SC_Debug_VitalsTraceDisabled" or "UI_SC_Debug_TraceDisabled"
+        setButtonFeedback(target, UI.text(nextState and enabledKey or disabledKey), true)
         return
     end
     if not SC.Support then
@@ -4197,6 +4205,19 @@ function SCUIDetail:buildDebug(panel)
     y = self:addSupportAction(panel, y,
         clothingOn and "UI_SC_Debug_ClothingTraceOff" or "UI_SC_Debug_ClothingTraceOn",
         "clothing_trace")
+    local vitalsOn = SC.Config.get("vitalsStatTrace") == true
+    y = self:addInformationLine(panel, y, "UI_SC_Debug_VitalsTraceState",
+        UI.booleanText(vitalsOn))
+    if SC.VitalsTrace and type(SC.VitalsTrace.snapshot) == "function" then
+        local ok, snapshot = pcall(SC.VitalsTrace.snapshot)
+        if ok and type(snapshot) == "table" then
+            y = self:addInformationLine(panel, y, "UI_SC_Debug_VitalsTraceActors",
+                tostring(snapshot.actorCount or 0))
+        end
+    end
+    y = self:addSupportAction(panel, y,
+        vitalsOn and "UI_SC_Debug_VitalsTraceOff" or "UI_SC_Debug_VitalsTraceOn",
+        "vitals_trace")
 
     local selected = self.root and self.root.selectedRow or nil
     local movement = selected and selected.actor and SC.Locomotion

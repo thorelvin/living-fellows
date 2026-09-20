@@ -24,10 +24,12 @@ $LuaFiles = @(
     (Join-Path $SharedRoot 'SCStableValue.lua'),
     (Join-Path $SharedRoot 'SCTransaction.lua'),
     (Join-Path $SharedRoot 'SCNativeList.lua'),
-    (Join-Path $SharedRoot 'SCConfig.lua')
+    (Join-Path $SharedRoot 'SCConfig.lua'),
+    (Join-Path $SharedRoot 'SCVitals.lua')
 )
 $LuaFiles += @(
     'SCGameplayUtil.lua',
+    'SCVitalsTrace.lua',
     'SCBaseObjectRef.lua',
     'SCTopology.lua',
     'SCPathSearch.lua',
@@ -66,6 +68,7 @@ $LuaFiles += @(
     'SCObjectives.lua',
     'SCJournal.lua',
     'SCBaseLife.lua',
+    'SCFarmWork.lua',
     'SCQuirks.lua',
     'SCFactions.lua',
     'SCTrade.lua',

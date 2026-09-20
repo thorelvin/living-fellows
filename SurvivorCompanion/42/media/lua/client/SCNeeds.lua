@@ -19,6 +19,111 @@ local function stateFor(actor, runtime)
     return root.needs
 end
 
+local NEED_ORDER = { "thirst", "hunger", "fatigue" }
+local SEVERITY_NAME = { "noted", "serious", "urgent" }
+
+local function thresholds(kind)
+    if kind == "hunger" then
+        return U().config("needsHungerThreshold") or 0.55,
+            U().config("needsHungerSerious") or 0.70,
+            U().config("needsHungerEmergency") or 0.82
+    end
+    if kind == "thirst" then
+        return U().config("needsThirstThreshold") or 0.48,
+            U().config("needsThirstSerious") or 0.62,
+            U().config("needsThirstEmergency") or 0.75
+    end
+    return U().config("needsFatigueThreshold") or 0.50,
+        U().config("needsFatigueSerious") or 0.68,
+        U().config("needsFatigueEmergency") or 0.82
+end
+
+local function severity(kind, value)
+    local noted, serious, urgent = thresholds(kind)
+    value = tonumber(value) or 0
+    if value >= urgent then return 3 end
+    if value >= serious then return 2 end
+    if value >= noted then return 1 end
+    return 0
+end
+
+local function unsafeForSpeech(runtime)
+    local root = type(runtime) == "table" and runtime or {}
+    local snapshot = type(root.senses) == "table" and root.senses.current or root.snapshot
+    snapshot = type(snapshot) == "table" and snapshot or {}
+    return (tonumber(snapshot.immediateCount) or 0) > 0
+        or (tonumber(snapshot.pressure) or 0) >= 1.5
+end
+
+-- Needs narration is a state observer only. It never changes the native stat,
+-- the action choice, or the relationship stress domain.
+function Needs.narrate(actor, runtime, current, supplied)
+    if actor == nil then return false, "needs_speech_invalid_actor" end
+    local state = stateFor(actor, runtime)
+    state.speech = type(state.speech) == "table" and state.speech
+        or { levels = {}, pending = {}, lastAt = -math.huge }
+    local speech = state.speech
+    speech.levels = type(speech.levels) == "table" and speech.levels or {}
+    speech.pending = type(speech.pending) == "table" and speech.pending or {}
+    supplied = type(supplied) == "table" and supplied or {}
+    local values = {
+        hunger = supplied.hunger ~= nil and supplied.hunger
+            or U().characterStatValue(actor, "HUNGER", state.hunger or 0),
+        thirst = supplied.thirst ~= nil and supplied.thirst
+            or U().characterStatValue(actor, "THIRST", state.thirst or 0),
+        fatigue = supplied.fatigue ~= nil and supplied.fatigue
+            or U().characterStatValue(actor, "FATIGUE", state.fatigue or 0),
+    }
+    for _, kind in ipairs(NEED_ORDER) do
+        local level = severity(kind, values[kind])
+        local previous = speech.levels[kind]
+        if previous == nil then
+            speech.levels[kind] = level
+        else
+            if level > previous and level > 0 then
+                speech.pending[kind] = math.max(level,
+                    tonumber(speech.pending[kind]) or 0)
+            elseif level < previous then
+                speech.pending[kind] = nil
+            end
+            speech.levels[kind] = level
+        end
+    end
+    if unsafeForSpeech(runtime) then return false, "needs_speech_unsafe" end
+    if not SC.Dialogue or type(SC.Dialogue.say) ~= "function" then
+        return false, "needs_speech_dialogue_unavailable"
+    end
+    current = tonumber(current) or U().nowMs()
+    if current - (tonumber(speech.lastAt) or -math.huge)
+        < (U().config("needsSpeechActorCooldownMs") or 120000) then
+        return false, "needs_speech_cooldown"
+    end
+    if type(SC.Dialogue.lastSpokenAt) == "function"
+        and current - SC.Dialogue.lastSpokenAt(actor)
+            < (U().config("needsSpeechQuietMs") or 15000) then
+        return false, "needs_speech_quiet"
+    end
+    local selectedKind, selectedLevel
+    for _, kind in ipairs(NEED_ORDER) do
+        local pending = tonumber(speech.pending[kind]) or 0
+        if pending > 0 and (selectedLevel == nil or pending > selectedLevel) then
+            selectedKind, selectedLevel = kind, pending
+        end
+    end
+    if not selectedKind then return false, "needs_speech_no_transition" end
+    local topic = "need." .. selectedKind .. "." .. SEVERITY_NAME[selectedLevel]
+    local spoken, line = SC.Dialogue.say(actor, topic, nil, nil, {
+        recentLimit = 4,
+        salt = tostring(current) .. ":" .. selectedKind .. ":" .. tostring(selectedLevel),
+    })
+    if spoken == true then
+        speech.pending[selectedKind] = nil
+        speech.lastAt = current
+        return true, topic, line
+    end
+    return false, line or "needs_speech_rejected"
+end
+
 local function enumValue(name)
     if CharacterStat == nil then return nil end
     local ok, value = pcall(function() return CharacterStat[name] end)
@@ -63,9 +168,13 @@ function Needs.updateRates(actor, runtime, current)
     state.nextRateSampleAt = current + sampleMs
     local hunger = U().characterStatValue(actor, "HUNGER", 0)
     local thirst = U().characterStatValue(actor, "THIRST", 0)
+    local fatigue = U().characterStatValue(actor, "FATIGUE", 0)
     hunger = compensatePositiveDelta(actor, state, "sampledHunger", "HUNGER", hunger)
     thirst = compensatePositiveDelta(actor, state, "sampledThirst", "THIRST", thirst)
-    state.hunger, state.thirst = hunger, thirst
+    state.hunger, state.thirst, state.fatigue = hunger, thirst, fatigue
+    Needs.narrate(actor, runtime, current, {
+        hunger = hunger, thirst = thirst, fatigue = fatigue,
+    })
     return true, "needs_rate_updated"
 end
 
@@ -73,7 +182,8 @@ function Needs.assess(actor, runtime)
     local state = stateFor(actor, runtime)
     local hunger = U().characterStatValue(actor, "HUNGER", state.hunger or 0)
     local thirst = U().characterStatValue(actor, "THIRST", state.thirst or 0)
-    state.hunger, state.thirst = hunger, thirst
+    local fatigue = U().characterStatValue(actor, "FATIGUE", state.fatigue or 0)
+    state.hunger, state.thirst, state.fatigue = hunger, thirst, fatigue
     local active = false
     if SC.NativeActions and type(SC.NativeActions.needsStatus) == "function" then
         local ok, value, kind = pcall(SC.NativeActions.needsStatus, actor)
@@ -86,10 +196,12 @@ function Needs.assess(actor, runtime)
     return {
         hunger = hunger,
         thirst = thirst,
+        fatigue = fatigue,
         hungry = hunger >= (U().config("needsHungerThreshold") or 0.55),
         thirsty = thirst >= (U().config("needsThirstThreshold") or 0.48),
         emergency = hunger >= (U().config("needsHungerEmergency") or 0.82)
             or thirst >= (U().config("needsThirstEmergency") or 0.75),
+        exhausted = fatigue >= (U().config("needsFatigueEmergency") or 0.82),
         active = active,
     }
 end

@@ -43,6 +43,10 @@
 --   care.used_torn_clothing          that dressing was torn from clothing
 --   care.writer_bandaged_player|companion   the writer verified-bandaged them
 --   danger.escape_with_player        the recorded shared escape
+--   interior.dread                   native environmental stress rose for the
+--                                    writer while the nearby player stayed calm
+--   interior.panic                  native panic crossed an onset/recovery edge
+--   interior.nicotine               a smoker had native nicotine withdrawal
 --   anchor.<key>.committed           a committed page holds that anchor quote
 --   anchor.<key>.on_first_page       that page is the diary's first entry
 --   anchor.<key>.mentions_better_idea
@@ -1659,6 +1663,34 @@ packets[#packets + 1] = {
     asserts = "The named person is dead and it is raining as the writer writes.",
     variants = {
         { id = "a", text = "{subject} is dead.\n\nIt's raining, which feels like the world making an effort." },
+    },
+}
+
+packets[#packets + 1] = {
+    id = "interior.dread", scene = "interior", ideaId = "sound_in_the_walls",
+    shape = "light_note", voiceWeights = ALL, requires = { "interior.dread" },
+    asserts = "A sound caused the writer's environmental stress to rise while the player stayed calm.",
+    variants = {
+        { id = "a", text = "Heard something in the building today. Nobody else seemed bothered.\n\nI was." },
+        { id = "b", text = "A sound in the walls put every nerve on edge. It passed. The walls are still here." },
+    },
+}
+packets[#packets + 1] = {
+    id = "interior.panic", scene = "interior", ideaId = "panic_and_breath",
+    shape = "reflection", voiceWeights = ALL, requires = { "interior.panic" },
+    asserts = "The writer experienced a native panic transition.",
+    variants = {
+        { id = "a", text = "Panic got hold of me today.\n\nI got my breathing back before it got the rest." },
+        { id = "b", text = "Hands shaking. Breath too fast. Then, eventually, neither. Writing that down matters." },
+    },
+}
+packets[#packets + 1] = {
+    id = "interior.nicotine", scene = "interior", ideaId = "wanting_a_smoke",
+    shape = "light_note", voiceWeights = ALL, requires = { "interior.nicotine" },
+    asserts = "The smoker experienced native nicotine withdrawal.",
+    variants = {
+        { id = "a", text = "Wanted a cigarette badly enough to say it out loud.\n\nThe dead have not improved my habits." },
+        { id = "b", text = "No cigarettes today. Apparently the end of the world still expects me to quit." },
     },
 }
 

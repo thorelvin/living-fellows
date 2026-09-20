@@ -886,6 +886,31 @@ function Diary.noteConversation(actor, player, action, state)
     end)
 end
 
+-- Ambient engine-state observations are admitted as small private moments.
+-- The caller has already proven the transition; the diary never reinterprets
+-- native stress as relationship stress.
+function Diary.noteInteriorState(actor, kind)
+    return guarded("interior_state", function()
+        local factsByKind = {
+            dread = "interior.dread",
+            panic = "interior.panic",
+            nicotine = "interior.nicotine",
+        }
+        local fact = factsByKind[kind]
+        if fact == nil then return false, "invalid_interior_state" end
+        local clock = Diary.clock()
+        local writer = writerForActor(actor, clock)
+        if not writer then return false, "not_a_diarist" end
+        return admit(writer, {
+            scene = "interior",
+            importance = kind == "panic" and 28 or kind == "dread" and 20 or 16,
+            facts = { [fact] = true }, tokens = {},
+            sourceKey = "interior:" .. kind .. ":" .. writer.id .. ":"
+                .. tostring(clock and clock.dayKey or 0),
+        }, clock)
+    end)
+end
+
 local DOWNTIME_SCENES = {
     study_corpse = { scene = "study", importance = 26 },
     pay_respects = { scene = "respects", importance = 36 },

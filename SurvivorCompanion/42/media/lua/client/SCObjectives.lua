@@ -18,6 +18,11 @@ local kinds = {
     recover_keepsake = true,
 }
 
+local assignmentOrder = {
+    "keep_medical_ready", "find_something_to_read", "put_gear_in_order",
+    "improve_shelter", "share_a_proper_meal",
+}
+
 local labels = {
     keep_medical_ready = { "IGUI_SC_Objective_Medical", "Keep clean bandages ready" },
     find_something_to_read = { "IGUI_SC_Objective_Reading", "Find something worth reading" },
@@ -83,6 +88,7 @@ local function copyRow(source)
         kind = source.kind,
         status = source.status == "completed" and "completed" or "active",
         revealed = source.revealed == true,
+        assignedByPlayer = source.assignedByPlayer == true,
         progress = clamp(source.progress, 0, 1),
         createdAt = math.max(0, tonumber(source.createdAt) or 0),
         completedAt = source.completedAt and math.max(0, tonumber(source.completedAt) or 0) or nil,
@@ -95,10 +101,12 @@ function Objectives.normalize(source)
         version = 1,
         serial = math.max(0, math.floor(tonumber(source.serial) or 0)),
         active = copyRow(source.active),
+        personal = copyRow(source.personal),
         history = {},
         nextEligibleAt = math.max(0, tonumber(source.nextEligibleAt) or 0),
     }
     if result.active and result.active.status == "completed" then result.active = nil end
+    if result.personal and result.personal.status == "completed" then result.personal = nil end
     local maximum = U().config("maxObjectiveHistory") or 8
     for _, row in ipairs(type(source.history) == "table" and source.history or {}) do
         local copy = copyRow(row)
@@ -263,8 +271,13 @@ local function complete(state, objectives, current)
     objectives.history[#objectives.history + 1] = copyRow(active)
     local maximum = U().config("maxObjectiveHistory") or 8
     while #objectives.history > maximum do table.remove(objectives.history, 1) end
-    objectives.active = nil
-    objectives.nextEligibleAt = current + (U().config("objectiveCooldownMs") or 21600000)
+    if active.assignedByPlayer == true and type(objectives.personal) == "table" then
+        objectives.active = objectives.personal
+        objectives.personal = nil
+    else
+        objectives.active = nil
+        objectives.nextEligibleAt = current + (U().config("objectiveCooldownMs") or 21600000)
+    end
     if SC.Relationship and type(SC.Relationship.noteEvent) == "function" then
         SC.Relationship.noteEvent(state, "goal_completed", {
             bond = active.revealed and 1 or 0,
@@ -274,6 +287,56 @@ local function complete(state, objectives, current)
         })
     end
     return true
+end
+
+function Objectives.assignableKinds(actor, state)
+    local result = {}
+    for _, kind in ipairs(assignmentOrder) do result[#result + 1] = kind end
+    local possessions = type(state) == "table" and type(state.possessions) == "table"
+        and state.possessions or nil
+    if possessions and possessions.keepsake
+        and possessions.keepsake.status ~= "carried" then
+        result[#result + 1] = "recover_keepsake"
+    end
+    return result
+end
+
+--- Give a companion a concrete priority without deleting the personal goal
+--- they had already formed. Completing the assignment restores that goal.
+function Objectives.assign(actor, state, kind, current)
+    if not actor or type(state) ~= "table" then return false, "objective_state_unavailable" end
+    if not kinds[kind] then return false, "invalid_objective" end
+    if kind == "recover_keepsake" then
+        local possessions = type(state.possessions) == "table" and state.possessions or {}
+        if not possessions.keepsake or possessions.keepsake.status == "carried" then
+            return false, "keepsake_not_missing"
+        end
+    end
+    local objectives = Objectives.normalize(state.objectives)
+    local active = objectives.active
+    if active and active.kind == kind then
+        active.assignedByPlayer = true
+        active.revealed = true
+        state.objectives = objectives
+        return true, "objective_assigned"
+    end
+    if active and active.assignedByPlayer ~= true and objectives.personal == nil then
+        objectives.personal = copyRow(active)
+    end
+    objectives.serial = objectives.serial + 1
+    local id = U().idOf(actor) or "survivor"
+    objectives.active = {
+        version = 1,
+        id = id .. ":objective:" .. tostring(objectives.serial),
+        kind = kind,
+        status = "active",
+        revealed = true,
+        assignedByPlayer = true,
+        progress = inventoryProgress(actor, kind, state),
+        createdAt = tonumber(current) or objectiveNowMs(),
+    }
+    state.objectives = objectives
+    return true, "objective_assigned"
 end
 
 function Objectives.initialize(actor, state)
@@ -381,6 +444,7 @@ function Objectives.describe(source)
         label = Objectives.label(active.kind),
         status = active.status,
         progress = clamp(active.progress, 0, 1),
+        assignedByPlayer = active.assignedByPlayer == true,
     }
 end
 

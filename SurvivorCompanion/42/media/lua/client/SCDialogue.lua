@@ -782,6 +782,11 @@ local pools = {
         common = {
             "It's down!", "Target down!", "One less!", "Got it!",
             "That's one!", "Clear! It's down.", "Not getting back up.", "Dead for good.",
+            "Stay dead.", "That one is finished.", "Down and done.",
+            "It won't be following us.", "That's another cleared.",
+            "Confirmed. It's not moving.", "One problem handled.",
+            "The road's a little clearer.", "That one's done.",
+            "Keep moving. It is down.", "No pulse. Clear.", "That was the last hit.",
         },
         brave = { "Dropped it!", "Done. Who's next?" },
         cautious = { "It's down. Check around us!", "Target down. Keep watching!" },
@@ -825,6 +830,98 @@ local pools = {
         "I need to finish what I'm doing first.", "One thing at a time. I'm still busy.",
         "Give me a moment to finish this.", "I heard you. Let me complete this action first.",
     } },
+    ["farm.plot.start"] = {
+        common = {
+            "I'll start on this plot.", "This ground is next.",
+            "I'll get this patch into shape.", "Let me work this soil.",
+            "Starting on the plot now.", "I'll take care of this ground.",
+        },
+        brave = { "Give me the ground and a tool. I'll make it useful.", "Let's put this dirt to work." },
+        cautious = { "I'll check the soil before I commit the seed.", "Slow and clean. Bad ground wastes good seed." },
+        caring = { "A little work here could feed all of us.", "I'll make room for something living." },
+        practical = { "Plot selected. I'll prepare it properly.", "I'll work this patch from the edges in." },
+    },
+    ["farm.sow.start"] = {
+        common = {
+            "Seeds are going in.", "I'll sow this row now.",
+            "Time to get these planted.", "Let's see what takes root.",
+            "Planting this patch.", "Seed by seed. Here we go.",
+        },
+        brave = { "Grow strong or die trying. I understand that.", "Into the ground. Your turn to fight." },
+        cautious = { "Spacing these out. We cannot afford to waste them.", "Careful with the seed. Every one matters." },
+        caring = { "Come on, little things. Give us something green.", "I'll give these the best start I can." },
+        practical = { "Sowing at a useful spacing.", "Seed count checked. Planting now." },
+    },
+    ["farm.water.start"] = {
+        common = {
+            "These need water.", "I'll water this patch.",
+            "The soil is getting dry.", "Bringing the water over now.",
+            "This row needs a drink.", "I'll keep the roots from drying out.",
+        },
+        brave = { "Hold on, plants. Water is coming.", "Nothing dies of thirst on my watch." },
+        cautious = { "Not too much. Drowned roots are no better than dry ones.", "I'll give them only what the soil needs." },
+        caring = { "There you go. Drink up.", "Easy now. I'll get water to every one." },
+        practical = { "Water level is low. Correcting it.", "This patch is below its water target." },
+    },
+    ["farm.harvest.start"] = {
+        common = {
+            "This crop is ready.", "I'll bring the harvest in.",
+            "Time to pick what grew.", "We have food ready here.",
+            "I'll clear the ripe plants.", "This row finally paid us back.",
+        },
+        brave = { "Now that is a victory I can eat.", "We beat the dead and the weather. Harvest time." },
+        cautious = { "I'll take the ripe ones and leave the rest.", "Careful picking. We need seed as much as food." },
+        caring = { "This will put something fresh on everyone's plate.", "Good. Nobody has to go hungry tonight." },
+        practical = { "Crop is mature. Collecting usable yield.", "Harvesting now and preserving the seed reserve." },
+    },
+    ["farm.harvest.done"] = {
+        common = {
+            "Harvest is in.", "That's the crop collected.",
+            "Food is ready for storage.", "This patch is picked clean.",
+            "We got a useful yield.", "I'll get this under cover.",
+        },
+        brave = { "That is what surviving tastes like.", "Good harvest. We earned this one." },
+        cautious = { "Count it before we celebrate.", "Yield is in. Keep the seed separate." },
+        caring = { "Fresh food. Everyone gets some.", "This will do people good." },
+        practical = { "Harvest complete. Moving output to storage.", "Yield collected and ready to sort." },
+    },
+    ["farm.crop.ruined"] = {
+        common = {
+            "This crop is gone. I'll clear it and start again.",
+            "Nothing left to save here. We replant.",
+            "The plants did not make it. The ground still can.",
+            "Lost this patch. I'll turn it over for another try.",
+            "Rot took the crop. It does not get the soil too.",
+            "This row failed. I'm clearing it before it spreads.",
+        },
+        brave = { "It died. We plant again. That is the answer.", "The season gets another swing at us. So do we." },
+        cautious = { "We need to know why this failed before we repeat it.", "Clear it carefully. I don't want the next row catching this." },
+        caring = { "I know they are only plants. It still hurts to lose food.", "All that tending, gone. I'll try again." },
+        practical = { "Crop loss confirmed. Clearing and replanting.", "Failed plot. Salvage nothing; reset the bed." },
+        stressed = { "Damn it. We needed this crop.", "All that work, and now we start over." },
+    },
+    ["farm.crop.diseased"] = {
+        common = {
+            "This crop is sick. I'll treat it.", "Disease in the row. Getting the spray.",
+            "Something is eating at these plants.", "I'll deal with this before it spreads.",
+            "This patch needs treatment.", "Caught it early. I can still help it.",
+        },
+        brave = { "Tiny enemies still count. I'll handle them.", "The dead are not getting these plants, and neither are the bugs." },
+        cautious = { "Keep the treatment to this row until we know it worked.", "I'll check the neighboring plants too." },
+        caring = { "Easy. We caught it. Let me help.", "I'll tend every plant that still has a chance." },
+        practical = { "Disease identified. Applying the matching treatment.", "Treat first, then check the adjacent plots." },
+    },
+    ["farm.tool.trouble"] = {
+        common = {
+            "I need a working tool for this plot.", "The farm tools are missing or broken.",
+            "I cannot turn this soil by hand.", "Find me a usable digging tool.",
+            "This job stops until we have the right tool.", "The plot is ready. Our tools are not.",
+        },
+        brave = { "Give me a shovel and I'll finish the argument.", "I can fight dirt, but I still need a tool." },
+        cautious = { "A broken tool out here is how hands get hurt.", "I need a sound digging tool, not the first rusty thing we find." },
+        caring = { "Someone may have put the tools away. I'll wait.", "Please find a proper tool. I don't want anyone ruining their hands." },
+        practical = { "Work blocked: no serviceable digging tool.", "Tool requirement unresolved. The plot has to wait." },
+    },
     ["doing.active"] = { common = {
         "I'm %1 right now.", "I'm working on %1.",
         "Right now, I'm %1.", "Give me a moment. I'm %1.",
@@ -903,50 +1000,120 @@ local pools = {
       practical = { "We still have work to do. I just need a moment for %1 first." },
       brave = { "I'll keep moving. Just not this second. Not after losing %1." },
       cautious = { "I keep wondering which choice might have brought %1 home." } },
-    ["stress.minor.venter"] = { common = {
-        "This pressure is getting to me.", "I need to let some of this out.",
-        "I'm wound too tight. Give me a second.", "I can feel my temper getting shorter.",
-    } },
-    ["stress.minor.restless"] = { common = {
-        "I need something useful to do before I start climbing the walls.",
-        "Standing around is making this worse.", "Give me a job. Any useful job.",
-        "I need to move before I wear a hole in the floor.",
-    } },
-    ["stress.minor.confronter"] = { common = {
-        "We need to stop making the same mistakes.", "Something about our plan has to change.",
-        "We keep avoiding the hard conversation.", "I am not staying quiet if this keeps happening.",
-    } },
-    ["stress.minor.withdrawer"] = { common = {
-        "I could use a little space.", "I need a few quiet minutes.",
-        "Let me get my thoughts back in order.", "I am going to keep to myself for a bit.",
-    } },
-    ["stress.minor.shutdown"] = { common = {
-        "I am not doing well. I am trying to hold it together.", "Everything feels heavier today.",
-        "I am running out of ways to say I am tired.", "I can function. I just can't pretend I am fine.",
-    } },
-    ["joy.focused"] = { common = {
-        "I know what needs doing. Let me get through the list.", "My head is clear today. Put me to work.",
-        "For once, everything feels manageable.", "I have a rhythm going. Let me keep it.",
-    } },
-    ["joy.rallying"] = { common = {
-        "Look at us. We are still here, and we are getting better at this.",
-        "We made it this far together. That has to count for something.",
-        "This group is tougher than any of us expected.", "We have had worse days. We are still standing.",
-    } },
-    ["joy.caretaker"] = { common = {
-        "Everyone take a breath. I will check bandages and make sure we are all right.",
-        "Let me look after the small things before they become big things.",
-        "We are safe for a moment. Let me check on everyone.", "Nobody ignores a wound today. I mean it.",
-    } },
-    ["joy.organizer"] = { common = {
-        "This place is finally starting to work like a real camp.",
-        "The supplies are sorted, the doors hold, and I can finally breathe.",
-        "We are turning this place into something worth defending.", "A little order makes the world feel less broken.",
-    } },
-    ["joy.bold"] = { common = {
-        "We have momentum. Let us use it without getting careless.", "I feel ready. Let's make today count.",
-        "For once, I like our chances.", "We can handle the next run. Smart and steady.",
-    } },
+    ["stress.minor.venter"] = {
+        common = {
+            "This pressure is getting to me.", "I need to let some of this out.",
+            "I'm wound too tight. Give me a second.", "I can feel my temper getting shorter.",
+        },
+        brave = { "I'm angry, not afraid. I still need a minute.", "Let me burn this off before the next fight." },
+        cautious = { "I keep seeing every way that could have gone worse.", "We are taking risks faster than I can swallow them." },
+        caring = { "I don't want my temper landing on any of you.", "I care too much to keep pretending this feels fine." },
+        practical = { "I need to say what failed, then fix it.", "Give me a minute to turn this anger into a plan." },
+        stressed = { "Everything is too loud inside my head.", "If I don't let this out, I am going to snap." },
+    },
+    ["stress.minor.restless"] = {
+        common = {
+            "I need something useful to do before I start climbing the walls.",
+            "Standing around is making this worse.", "Give me a job. Any useful job.",
+            "I need to move before I wear a hole in the floor.",
+        },
+        brave = { "Point me at something hard. I need the fight out of me.", "I have too much energy to sit here safely." },
+        cautious = { "Waiting gives every bad possibility time to grow.", "I need to check the doors again. All of them." },
+        caring = { "Let me help somebody before I worry myself sick.", "Is there anyone who needs a hand? I need to move." },
+        practical = { "Idle hands are making this worse. Give me a task.", "I need a short job with a clear finish." },
+        stressed = { "I can't sit still. I can't even think sitting still.", "My skin feels too tight when there is nothing to do." },
+    },
+    ["stress.minor.confronter"] = {
+        common = {
+            "We need to stop making the same mistakes.", "Something about our plan has to change.",
+            "We keep avoiding the hard conversation.", "I am not staying quiet if this keeps happening.",
+        },
+        brave = { "Say it plainly. We cannot fix what nobody will name.", "I would rather have the argument than bury the mistake." },
+        cautious = { "We need to talk before that risk becomes a pattern.", "Ignoring this is how a bad call kills us later." },
+        caring = { "I am bringing this up because I want everyone home alive.", "We can disagree without tearing each other apart." },
+        practical = { "The plan failed in specific ways. Let's name them.", "This needs a review, not another excuse." },
+        stressed = { "No. We talk about this now, before I lose my nerve.", "I cannot carry this and everybody else's silence." },
+    },
+    ["stress.minor.withdrawer"] = {
+        common = {
+            "I could use a little space.", "I need a few quiet minutes.",
+            "Let me get my thoughts back in order.", "I am going to keep to myself for a bit.",
+        },
+        brave = { "I need one quiet corner, then I'll be ready again.", "Let me step away before I bring this mood into the group." },
+        cautious = { "I think better when nobody is watching me think.", "Give me space to go over what happened." },
+        caring = { "It isn't anyone's fault. I just need to be alone.", "I need quiet, not company. Please don't take it personally." },
+        practical = { "I need a short reset. I'll come back when my head is clear.", "Ten quiet minutes, then I can function properly." },
+        stressed = { "Please stop asking. I need the room to be empty.", "I can't hear myself think with anyone near me." },
+    },
+    ["stress.minor.shutdown"] = {
+        common = {
+            "I am not doing well. I am trying to hold it together.", "Everything feels heavier today.",
+            "I am running out of ways to say I am tired.", "I can function. I just can't pretend I am fine.",
+        },
+        brave = { "I can still stand. That is about all I can promise.", "I hate admitting it, but I have nothing in reserve." },
+        cautious = { "My thoughts keep stopping halfway through.", "I need things slow and simple for a while." },
+        caring = { "I want to help. I just don't have anything left to give.", "Please don't worry about me. Just let me be quiet." },
+        practical = { "I am operating below safe capacity.", "I need rest before I become another problem to solve." },
+        stressed = { "I can't make myself care what happens next.", "Everything in me has gone quiet, and not in a good way." },
+    },
+    ["joy.focused"] = {
+        common = {
+            "I know what needs doing. Let me get through the list.", "My head is clear today. Put me to work.",
+            "For once, everything feels manageable.", "I have a rhythm going. Let me keep it.",
+        },
+        brave = { "Clear head, steady hands. Let's use them.", "I feel sharp today. Give me the difficult job." },
+        cautious = { "I can see the steps clearly. No need to rush them.", "Everything is in order enough that I can breathe." },
+        caring = { "I have enough in me today to look after everyone.", "Let me handle the list so somebody else can rest." },
+        practical = { "Priorities are clear. I am working them in order.", "Good conditions, useful plan, no wasted motion." },
+        stressed = { "I have one clear thread. Let me hold onto it.", "Working the list is the only thing keeping me level." },
+    },
+    ["joy.rallying"] = {
+        common = {
+            "Look at us. We are still here, and we are getting better at this.",
+            "We made it this far together. That has to count for something.",
+            "This group is tougher than any of us expected.", "We have had worse days. We are still standing.",
+        },
+        brave = { "We have taken worse hits than this. Keep moving.", "They haven't broken us yet. They won't today." },
+        cautious = { "We are doing well because we watch out for each other.", "Keep the exits clear and this good day can stay good." },
+        caring = { "Every face still here is a reason to keep trying.", "We carried each other this far. That matters." },
+        practical = { "The group is working. Keep doing what works.", "Good discipline got us here. Let's maintain it." },
+        stressed = { "I need this to be a good sign, so let it be one.", "We are still here. Today, that has to be enough." },
+    },
+    ["joy.caretaker"] = {
+        common = {
+            "Everyone take a breath. I will check bandages and make sure we are all right.",
+            "Let me look after the small things before they become big things.",
+            "We are safe for a moment. Let me check on everyone.", "Nobody ignores a wound today. I mean it.",
+        },
+        brave = { "Sit down and let me check you. Yes, that was an order.", "We won the moment. Now let me keep everyone standing." },
+        cautious = { "A quiet minute is when we find the injuries we missed.", "Hold still. Small wounds become large problems." },
+        caring = { "Come here. Let me make sure you are really all right.", "I feel better when I know everyone has what they need." },
+        practical = { "Quick health check, then we return to work.", "Bandages, water, food. I am checking all three." },
+        stressed = { "Let me count everyone again. I need to know you're here.", "Please let me check you. It will help me breathe." },
+    },
+    ["joy.organizer"] = {
+        common = {
+            "This place is finally starting to work like a real camp.",
+            "The supplies are sorted, the doors hold, and I can finally breathe.",
+            "We are turning this place into something worth defending.", "A little order makes the world feel less broken.",
+        },
+        brave = { "Walls up, shelves full. Let the world try us now.", "This camp has a spine now. I like it." },
+        cautious = { "Everything has a place, which means we notice what goes missing.", "Good stores and clear exits. That is how we keep this." },
+        caring = { "It feels like people live here, not just hide here.", "There is room for everyone now. Real room." },
+        practical = { "Storage, defenses, routines. The system is working.", "The camp layout finally supports the work." },
+        stressed = { "If everything stays in its place, maybe I can too.", "The order helps. I need the order today." },
+    },
+    ["joy.bold"] = {
+        common = {
+            "We have momentum. Let us use it without getting careless.", "I feel ready. Let's make today count.",
+            "For once, I like our chances.", "We can handle the next run. Smart and steady.",
+        },
+        brave = { "I woke up ready to take something back.", "Today, the dead can make room for us." },
+        cautious = { "Confidence is useful as long as we keep the exit plan.", "I feel good. I am still checking every corner." },
+        caring = { "I have enough courage to lend some out today.", "Stay close. We can make this a good day together." },
+        practical = { "Readiness is high. This is the time for the hard job.", "We have the supplies and the daylight. Let's use both." },
+        stressed = { "I feel brave. Please let it last.", "If I keep moving, maybe the confidence will stay." },
+    },
     ["supply.answer.soon"] = { common = {
         "All right. I will hold you to that.", "Okay. Soon, then. I can work with that.",
         "Good. Just don't let it slip through the cracks.", "That is enough for now. Tell me when we leave.",
@@ -1003,6 +1170,111 @@ local pools = {
         "I have not eaten enough. It is starting to slow me down.", "My first need is food.",
         "I am hungry enough that it is getting hard to focus.",
     } },
+    ["need.hunger.noted"] = {
+        common = {
+            "I'm starting to get hungry.", "I could eat when we get a safe minute.",
+            "My stomach is reminding me it exists.", "Food should be on the next short list.",
+            "I haven't eaten in a while.", "Not urgent yet, but I am getting hungry.",
+        },
+        brave = { "I can keep moving. Just remember food when we stop.", "Hunger can wait a little. Not forever." },
+        cautious = { "I am getting hungry. We should not let that become weakness.", "Food soon, before it starts costing us attention." },
+        caring = { "I'm getting hungry. Check whether anyone else is too.", "Food soon would be good, if there is enough for everyone." },
+        practical = { "Hunger is becoming noticeable.", "Food need is rising, but not critical yet." },
+    },
+    ["need.hunger.serious"] = {
+        common = {
+            "I need food soon.", "Hunger is making it hard to concentrate.",
+            "We need to find something I can eat.", "I'm running low. Really low.",
+            "I cannot keep putting off a meal.", "Food needs to become a priority.",
+        },
+        brave = { "I can fight hungry, but not well. Find me food.", "This is past an empty stomach. I need a meal." },
+        cautious = { "My attention is slipping. I need food before we take another risk.", "We should stop and eat before I make a bad mistake." },
+        caring = { "I need food. I don't want anyone giving up their last meal for me.", "Please tell me we have enough for a meal." },
+        practical = { "Hunger is impairing me. Food is now a priority.", "I need calories before the next demanding job." },
+        stressed = { "I can't think past how hungry I am.", "Please. I need something to eat." },
+    },
+    ["need.hunger.urgent"] = {
+        common = {
+            "I need food now.", "I'm starving. I cannot keep going like this.",
+            "Find me something edible before I drop.", "This is bad. I need to eat.",
+            "I have nothing left to run on.", "Food. Now, please.",
+        },
+        brave = { "I am still on my feet, but I need food now.", "No heroics until I eat. I mean it." },
+        cautious = { "Stop. I am too hungry to be safe out here.", "I need food before we move into any more danger." },
+        caring = { "I hate asking, but I need someone to help me find food.", "Please help me eat before I become another person to carry." },
+        practical = { "Critical food deficit. I need a meal immediately.", "I am no longer fit for work without food." },
+        stressed = { "I feel sick with hunger. Please find something.", "I can't do this on an empty body anymore." },
+    },
+    ["need.thirst.noted"] = {
+        common = {
+            "I'm starting to get thirsty.", "I could use water at the next stop.",
+            "My mouth is getting dry.", "We should keep an eye out for clean water.",
+            "I need a drink before too long.", "Not urgent yet, but I am getting thirsty.",
+        },
+        brave = { "I can wait a little. Water at the next safe stop.", "Dry mouth, steady feet. For now." },
+        cautious = { "I am getting thirsty. Let's not let it slow my judgement.", "Clean water soon, before this becomes a problem." },
+        caring = { "I need a drink soon. Does everyone else have water?", "Water at the next stop, for all of us if we can." },
+        practical = { "Thirst is becoming noticeable.", "Water need is rising, not critical yet." },
+    },
+    ["need.thirst.serious"] = {
+        common = {
+            "I need water soon.", "I'm too thirsty to ignore it now.",
+            "We need to find clean water.", "My head is starting to ache. I need a drink.",
+            "Water has to become a priority.", "I cannot keep moving without a drink much longer.",
+        },
+        brave = { "I can push through a lot. Thirst is winning.", "Find me water before the next fight." },
+        cautious = { "Dehydration is slowing me down. We need water before another risk.", "I need a drink while I can still think clearly." },
+        caring = { "I need water. Please don't give me someone else's last bottle.", "Can we find enough water without leaving anyone short?" },
+        practical = { "Thirst is impairing me. Water is now a priority.", "I need safe fluid before the next demanding job." },
+        stressed = { "My mouth is so dry I can barely talk.", "Please find water. I can't focus." },
+    },
+    ["need.thirst.urgent"] = {
+        common = {
+            "I need water now.", "I'm dangerously thirsty.",
+            "Stop. I need something safe to drink.", "I cannot keep going without water.",
+            "Water, please. Anything clean.", "I'm drying out. We have to find water.",
+        },
+        brave = { "I am done pretending I can push through this. Water now.", "No more ground until I get a drink." },
+        cautious = { "This is unsafe. I need water before we move.", "I am too dehydrated for another run." },
+        caring = { "Please help me find water. I really need it.", "I don't want to become a burden. I need a drink now." },
+        practical = { "Critical dehydration. I need water immediately.", "I am no longer fit for work without fluids." },
+        stressed = { "I can't swallow. Please, water.", "Everything hurts and I need a drink now." },
+    },
+    ["need.fatigue.noted"] = {
+        common = {
+            "I'm starting to feel tired.", "I could use rest when we get a safe chance.",
+            "My legs are getting heavy.", "A short rest should go on the plan.",
+            "I have been awake too long.", "Not done yet, but I am getting tired.",
+        },
+        brave = { "Still moving. I will need rest later.", "Tired, not beaten. Put sleep on the list." },
+        cautious = { "Fatigue causes mistakes. I should rest soon.", "I am getting tired enough to watch my footing." },
+        caring = { "I'm getting tired. We should make sure everyone gets a turn to rest.", "I need sleep soon, but check the others too." },
+        practical = { "Fatigue is becoming noticeable.", "Rest need is rising, but I remain functional." },
+    },
+    ["need.fatigue.serious"] = {
+        common = {
+            "I need to rest soon.", "I'm too tired to stay sharp.",
+            "We need somewhere safe enough to sleep.", "My eyes keep losing focus.",
+            "Rest has to become a priority.", "I cannot keep this pace much longer.",
+        },
+        brave = { "I can force another mile. I should not have to.", "Tired fighters make dead fighters. I need rest." },
+        cautious = { "My reactions are slowing. We need shelter before another risk.", "I need sleep before I miss something important." },
+        caring = { "I need rest. Someone else may have to take my watch.", "Please find us somewhere safe enough to stop." },
+        practical = { "Fatigue is impairing me. Rest is now a priority.", "I need a sleep cycle before the next demanding job." },
+        stressed = { "I can't keep my thoughts in order. I need sleep.", "I'm so tired everything feels dangerous." },
+    },
+    ["need.fatigue.urgent"] = {
+        common = {
+            "I need to sleep now.", "I can barely stay awake.",
+            "Stop. I am going to collapse if I keep moving.", "I cannot keep watch like this.",
+            "Find me somewhere safe to lie down.", "I am past tired. I need sleep.",
+        },
+        brave = { "I have hit my limit. I need sleep now.", "No more pushing. I can barely stand." },
+        cautious = { "I am too tired to be safe. We stop here.", "My reactions are gone. I need shelter and sleep." },
+        caring = { "Please take over for me. I cannot stay awake.", "I need help finding somewhere safe to sleep." },
+        practical = { "Critical fatigue. I am no longer operational.", "I need immediate rest before I become a liability." },
+        stressed = { "I can't keep my eyes open. Please stop.", "I am falling apart. I need sleep now." },
+    },
     ["status.safety"] = { common = {
         "I need a quiet minute somewhere safe.", "I am too wound up. I need somewhere secure to breathe.",
         "Get me behind a locked door for a minute and I will be fine.",
@@ -1450,6 +1722,7 @@ local pools = {
 local actorHistory = setmetatable({}, { __mode = "k" })
 local idHistory = {}
 local lastAmbientGroupAt = -math.huge
+local partyRecent = {}
 
 local function U() return SC.GameplayUtil end
 
@@ -1530,6 +1803,64 @@ local function candidatesFor(specification, voice, mood)
     return result
 end
 
+local function commonLookup(specification)
+    local lookup, count = {}, 0
+    if type(specification) ~= "table" or #specification > 0 then return lookup, count end
+    local common = specification.common or specification.all
+    if type(common) == "string" then common = { common } end
+    if type(common) ~= "table" then return lookup, count end
+    for _, line in ipairs(common) do
+        if type(line) == "string" and line ~= "" and lookup[line] ~= true then
+            lookup[line], count = true, count + 1
+        end
+    end
+    return lookup, count
+end
+
+local function sharesPartyRecent(topic)
+    if type(topic) ~= "string" then return false end
+    if string.sub(topic, 1, 7) == "danger." or string.sub(topic, 1, 7) == "signal." then
+        return true
+    end
+    local stem = string.match(topic, "^(combat%.[^.]+)")
+    return stem == "combat.engage" or stem == "combat.retreat"
+        or stem == "combat.struggle" or stem == "combat.kill"
+end
+
+local function partyExclusions(topic, actor)
+    local result = {}
+    if not sharesPartyRecent(topic) then return result end
+    local utility, rows = U(), partyRecent[topic]
+    if not utility or type(utility.position) ~= "function" or type(rows) ~= "table" then
+        return result
+    end
+    local x, y, z = utility.position(actor)
+    if x == nil then return result end
+    local radius = tonumber(utility.config("combatBarkSoundRadius")) or 8
+    local radiusSq = radius * radius
+    for _, row in ipairs(rows) do
+        if math.floor(tonumber(row.z) or 0) == math.floor(tonumber(z) or 0) then
+            local dx, dy = x - (tonumber(row.x) or x), y - (tonumber(row.y) or y)
+            if dx * dx + dy * dy <= radiusSq then result[row.line] = true end
+        end
+    end
+    return result
+end
+
+local function rememberPartyLine(topic, actor, line, commonCount, recentLimit)
+    if not sharesPartyRecent(topic) or commonCount <= 1 then return end
+    local utility = U()
+    if not utility or type(utility.position) ~= "function" then return end
+    local x, y, z = utility.position(actor)
+    if x == nil then return end
+    local maximum = math.max(0, math.min(tonumber(recentLimit) or 3, commonCount - 1))
+    if maximum == 0 then return end
+    local rows = partyRecent[topic] or {}
+    rows[#rows + 1] = { line = line, x = x, y = y, z = z or 0 }
+    while #rows > maximum do table.remove(rows, 1) end
+    partyRecent[topic] = rows
+end
+
 local function interpolate(value, arguments)
     local result = tostring(value or "")
     for index, argument in ipairs(type(arguments) == "table" and arguments or {}) do
@@ -1579,6 +1910,7 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
     local voice, mood = styleFor(state, options)
     local source = specification or pools[topic]
     local candidates = candidatesFor(source, voice, mood)
+    local sharedCommon, commonCount = commonLookup(source)
     if #candidates == 0 then
         if type(options.fallback) ~= "string" or options.fallback == "" then
             return nil, "dialogue_pool_empty"
@@ -1586,9 +1918,22 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
         candidates[1] = options.fallback
     end
     local recent = runtime.recent[topic] or {}
+    local sharedRecent = partyExclusions(topic, actor)
     local available = {}
     for _, line in ipairs(candidates) do
-        if not recentlyUsed(line, recent) and line ~= runtime.last then available[#available + 1] = line end
+        if not recentlyUsed(line, recent) and line ~= runtime.last
+            and (sharedCommon[line] ~= true or sharedRecent[line] ~= true) then
+            available[#available + 1] = line
+        end
+    end
+    if #available == 0 then
+        -- A party list may never starve a small pool. Fall back to the actor's
+        -- own bounded memory before allowing an immediate self-repeat.
+        for _, line in ipairs(candidates) do
+            if not recentlyUsed(line, recent) and line ~= runtime.last then
+                available[#available + 1] = line
+            end
+        end
     end
     if #available == 0 then
         for _, line in ipairs(candidates) do
@@ -1606,6 +1951,9 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
     local maximum = math.max(1, math.min(tonumber(options.recentLimit) or 3, #candidates - 1))
     while #recent > maximum do table.remove(recent, 1) end
     runtime.recent[topic], runtime.last = recent, selected
+    if sharedCommon[selected] == true then
+        rememberPartyLine(topic, actor, selected, commonCount, options.recentLimit)
+    end
     return interpolate(selected, arguments), {
         topic = topic, voice = voice, mood = mood, poolSize = #candidates,
         sequence = runtime.sequence,
@@ -1879,6 +2227,7 @@ function Dialogue.reset(actor)
         actorHistory = setmetatable({}, { __mode = "k" })
         idHistory = {}
         lastAmbientGroupAt = -math.huge
+        partyRecent = {}
     end
     return true
 end

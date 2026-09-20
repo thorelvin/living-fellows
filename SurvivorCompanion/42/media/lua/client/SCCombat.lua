@@ -236,7 +236,7 @@ local function emitCombatBark(actor, state, commands, topic, now, survivalCritic
     end
     local spoken = SC.Dialogue.say(actor, topic, nil, nil, {
         state = commands,
-        recentLimit = 4,
+        recentLimit = U().config("combatBarkRecentLimit") or 7,
         salt = tostring(now),
     })
     if spoken ~= true then return false, "combat_bark_rejected" end
@@ -315,6 +315,21 @@ local function recordOffensiveAction(actor, state, commands, target, now, announ
     state.engagementActionCount = (tonumber(state.engagementActionCount) or 0) + 1
     state.lastOffensiveTarget = target
     state.lastOffensiveAt = now
+    local designation = type(commands) == "table" and commands.targetDesignation or nil
+    if type(designation) == "table" and designation.mode == "focus"
+        and designation.pushed == true and designation.actor == target
+        and now < (tonumber(designation.untilAt) or 0)
+        and state.pushResolvedSerial ~= designation.serial
+        and (type(state.pushEpisode) ~= "table"
+            or state.pushEpisode.serial ~= designation.serial) then
+        state.pushEpisode = {
+            serial = designation.serial,
+            target = target,
+            healthAt = U().nativeHealth(actor),
+            expires = now + math.max(1000,
+                tonumber(U().config("combatPushOutcomeWindowMs")) or 30000),
+        }
+    end
 
     if announceEngage == true and state.engagementAnnounced ~= true then
         state.engagementAnnounced = true
@@ -335,6 +350,58 @@ local function recordOffensiveAction(actor, state, commands, target, now, announ
             state.struggleAnnounced = true
         end
     end
+end
+
+local function finishPushEpisode(actor, state, commands, outcome, now)
+    local episode = type(state) == "table" and state.pushEpisode or nil
+    if type(episode) ~= "table" then return false end
+    state.pushEpisode = nil
+    state.pushResolvedSerial = episode.serial
+    if outcome == "success" and SC.Relationship
+        and type(SC.Relationship.noteEvent) == "function" then
+        SC.Relationship.noteEvent(commands, "combat_push_succeeded", {
+            at = now, bond = 3, morale = 2, stress = -3,
+            counter = "combatPushSuccesses",
+        })
+    elseif outcome == "injury" and SC.Relationship
+        and type(SC.Relationship.noteEvent) == "function" then
+        SC.Relationship.noteEvent(commands, "combat_push_injury", {
+            at = now, trust = -5, bond = -1, morale = -4, stress = 10,
+            counter = "combatPushInjuries",
+        })
+    else
+        return true
+    end
+    if SC.Commands and type(SC.Commands.persist) == "function" then
+        pcall(SC.Commands.persist, actor)
+    end
+    return true
+end
+
+local function resolvePushInjuryOrExpiry(actor, state, commands, now, allowExpiry)
+    local episode = type(state) == "table" and state.pushEpisode or nil
+    if type(episode) ~= "table" then return false end
+    local loss = (tonumber(episode.healthAt) or U().nativeHealth(actor))
+        - U().nativeHealth(actor)
+    if loss >= (tonumber(U().config("combatPushInjuryHealthLoss")) or 5) then
+        return finishPushEpisode(actor, state, commands, "injury", now)
+    end
+    if allowExpiry == true and now >= (tonumber(episode.expires) or 0) then
+        return finishPushEpisode(actor, state, commands, "expired", now)
+    end
+    return false
+end
+
+function Combat._pushOutcomeForTests(actor, commands, target, outcome, current)
+    local state = stateFor(actor)
+    state.pushEpisode = {
+        serial = (type(commands) == "table" and commands.commandSerial or 0),
+        target = target,
+        healthAt = U().nativeHealth(actor),
+        expires = (tonumber(current) or U().nowMs()) + 1000,
+    }
+    return finishPushEpisode(actor, state, commands, outcome,
+        tonumber(current) or U().nowMs())
 end
 
 local function enterRetreat(actor, state, commands, now, survivalCritical, snapshot)
@@ -362,6 +429,9 @@ local function confirmRecentKill(actor, state, commands, now)
     if state.engagementTarget == target then clearEngagement(state, actor) end
     if credited and state.lastConfirmedKill ~= target then
         state.lastConfirmedKill = target
+        if type(state.pushEpisode) == "table" and state.pushEpisode.target == target then
+            finishPushEpisode(actor, state, commands, "success", now)
+        end
         emitCombatBark(actor, state, commands, "combat.kill", now, false)
         if SC.Tales and type(SC.Tales.noteKill) == "function" then
             pcall(SC.Tales.noteKill, actor, target, now)
@@ -1524,9 +1594,10 @@ function Combat.readiness(actor, snapshot, weapon, commands)
     }
 end
 
-function Combat.assessOverrun(actor, snapshot, weapon, commands)
+function Combat.assessOverrun(actor, snapshot, weapon, commands, options)
     snapshot = type(snapshot) == "table" and snapshot or {}
     commands = type(commands) == "table" and commands or commandState(actor)
+    options = type(options) == "table" and options or {}
     local readiness = Combat.readiness(actor, snapshot, weapon, commands)
     local assessment = { health = readiness.health }
     local reportedImmediate = tonumber(snapshot.immediateCount) or #(snapshot.immediateAttackers or {})
@@ -1584,6 +1655,22 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands)
             indoors = actorIsIndoor(actor),
         })
     end
+    local relationshipDelta, pushDelta = 0, 0
+    local socialContext = {
+        playerRequested = options.playerRequested == true,
+        pushed = options.pushed == true,
+        escapeCount = #(snapshot.escapeSquares or {}),
+        support = support,
+        indoors = actorIsIndoor(actor),
+    }
+    if SC.Relationship and type(SC.Relationship.overrunThresholdDelta) == "function" then
+        relationshipDelta = SC.Relationship.overrunThresholdDelta(commands, socialContext)
+        threshold = threshold + relationshipDelta
+    end
+    if SC.Relationship and type(SC.Relationship.pushThresholdDelta) == "function" then
+        pushDelta = SC.Relationship.pushThresholdDelta(commands, socialContext)
+        threshold = threshold + pushDelta
+    end
     local overrun = immediate >= 3 or occupied >= 3
         or readiness.staminaCritical and (immediate >= 1 or close >= 2)
         or risk >= threshold
@@ -1614,6 +1701,10 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands)
         staminaCritical = readiness.staminaCritical,
         confidence = readiness.confidence,
         cause = cause,
+        relationshipDelta = relationshipDelta,
+        pushDelta = pushDelta,
+        playerRequested = socialContext.playerRequested,
+        pushed = socialContext.pushed,
     }
 end
 
@@ -2111,10 +2202,17 @@ Combat._actionUtilitiesForTests = actionUtilities
 local function tacticalAssessment(actor, state, snapshot, target, weapon, commands, now)
     local snapshotTime = tonumber(snapshot and snapshot.reflexTime)
         or tonumber(snapshot and snapshot.time)
+    local designation = type(commands.targetDesignation) == "table"
+        and commands.targetDesignation or nil
+    local designationActive = designation and designation.mode == "focus"
+        and designation.actor == target.actor
+        and now < (tonumber(designation.untilAt) or 0)
     local commandKey = table.concat({
         tostring(commands.combatMode), tostring(commands.combatDoctrine),
         tostring(commands.morale), tostring(commands.stress),
         tostring(commands.personalityProfile),
+        tostring(designationActive and designation.serial or nil),
+        tostring(designationActive and designation.pushed or false),
     }, "|")
     local cache = state.tacticalCache
     local weaponItem = weapon and weapon.item or nil
@@ -2126,7 +2224,10 @@ local function tacticalAssessment(actor, state, snapshot, target, weapon, comman
         return cache.overrun
     end
     state.tacticalCacheMisses = (state.tacticalCacheMisses or 0) + 1
-    local overrun = Combat.assessOverrun(actor, snapshot, weapon, commands)
+    local overrun = Combat.assessOverrun(actor, snapshot, weapon, commands, {
+        playerRequested = designationActive == true,
+        pushed = designationActive == true and designation.pushed == true,
+    })
     if snapshotTime ~= nil then
         state.tacticalCache = {
             snapshotTime = snapshotTime,
@@ -3016,7 +3117,9 @@ function Combat.update(actor, player, runtime)
     local commands = commandState(actor)
     local now = utility.nowMs()
     state.cohortKey = combatCohortKey(actor, player)
+    resolvePushInjuryOrExpiry(actor, state, commands, now, false)
     confirmRecentKill(actor, state, commands, now)
+    resolvePushInjuryOrExpiry(actor, state, commands, now, true)
     -- Acquire the swing lease before target selection/no-threat cleanup. Killing
     -- the target at impact does not end its recovery animation, and selecting a
     -- different zombie must not redirect the current swing or revive old input.

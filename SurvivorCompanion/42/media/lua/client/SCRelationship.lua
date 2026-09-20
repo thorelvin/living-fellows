@@ -110,12 +110,52 @@ end
 
 function Relationship.tier(state)
     state = type(state) == "table" and state or {}
-    local score = clamp(state.trust, 0, 100) * 0.55 + clamp(state.bond, 0, 100) * 0.45
+    local score = Relationship.score(state)
     if score >= 80 then return "family" end
     if score >= 55 then return "close" end
     if score >= 30 then return "trusted" end
     if score >= 10 then return "ally" end
     return "cautious"
+end
+
+function Relationship.score(state)
+    state = type(state) == "table" and state or {}
+    return clamp(state.trust, 0, 100) * 0.55 + clamp(state.bond, 0, 100) * 0.45
+end
+
+local function earnedThresholdDelta(state, context, configKey, lowScore)
+    context = type(context) == "table" and context or {}
+    if context.playerRequested ~= true then return 0 end
+    local cap = tonumber(U().config(configKey)) or 4
+    local score = Relationship.score(state)
+    local delta
+    if lowScore == 0 then
+        delta = math.max(0, (score - 25) / 75) * cap
+    else
+        delta = ((score - 50) / 50) * cap
+    end
+    if (tonumber(context.escapeCount) or 0) <= 0
+        or (tonumber(context.support) or 0) <= 0 then
+        delta = math.min(0, delta)
+    end
+    return clamp(delta, -cap, cap)
+end
+
+--- A request means more when it comes from somebody the survivor trusts. This
+--- is deliberately absent from autonomous engagements and can never create an
+--- escape route or supporting ally that the tactical model did not find.
+function Relationship.overrunThresholdDelta(state, context)
+    return earnedThresholdDelta(state, context,
+        "combatRelationshipOverrunModifierCap", -1)
+end
+
+--- A repeated Focus is a push. Its extra tactical effect is earned entirely by
+--- trust/bond, and is zero for a cautious relationship.
+function Relationship.pushThresholdDelta(state, context)
+    context = type(context) == "table" and context or {}
+    if context.pushed ~= true then return 0 end
+    context.playerRequested = true
+    return earnedThresholdDelta(state, context, "combatPushOverrunModifierCap", 0)
 end
 
 function Relationship.mood(state)
@@ -153,6 +193,9 @@ local memoryText = {
     background = { "IGUI_SC_Memory_Background", "You took the time to ask who I was before all this." },
     worked = { "IGUI_SC_Memory_Worked", "I used the quiet time to keep our gear and supplies in shape." },
     goal_completed = { "IGUI_SC_Memory_GoalCompleted", "We managed something that mattered to me." },
+    combat_push = { "IGUI_SC_Memory_CombatPush", "You pushed me to take a fight I did not want." },
+    combat_push_succeeded = { "IGUI_SC_Memory_CombatPushSucceeded", "You pushed me, and I got us through it." },
+    combat_push_injury = { "IGUI_SC_Memory_CombatPushInjury", "You pushed me into that fight, and I got hurt." },
 }
 
 function Relationship.memoryText(memory)
@@ -263,7 +306,12 @@ function Relationship.observe(actor, player, snapshot, state)
         return false
     end
 
-    local changed, meaningful = false, false
+    local changed, meaningful, events = false, false, {}
+    local function observed(kind, changes)
+        local memory = recordEvent(state, kind, changes)
+        if memory then events[#events + 1] = memory end
+        return memory
+    end
     local elapsed = math.max(0, math.min(30000, now - (runtime.sampledAt or now)))
     if close and elapsed > 0 then
         state.timeTogetherMs = (state.timeTogetherMs or 0) + elapsed
@@ -271,37 +319,37 @@ function Relationship.observe(actor, player, snapshot, state)
     end
     if close and ((health - (runtime.health or health)) >= 5 or wounds < (runtime.wounds or wounds))
         and eventReady(runtime, "treatment", now, 90000) then
-        recordEvent(state, "treatment", { trust = 5, bond = 4, morale = 4, stress = -8, counter = "treatments" })
+        observed("treatment", { trust = 5, bond = 4, morale = 4, stress = -8, counter = "treatments" })
         meaningful = true
     elseif close and health < (runtime.health or health) - 7
         and eventReady(runtime, "companion_hurt", now, 120000) then
-        recordEvent(state, "companion_hurt", { bond = 1, stress = 8, morale = -3, counter = "sharedInjuries" })
+        observed("companion_hurt", { bond = 1, stress = 8, morale = -3, counter = "sharedInjuries" })
         meaningful = true
     end
     if close and hunger < (runtime.hunger or hunger) - 0.12
         and eventReady(runtime, "meal", now, 90000) then
-        recordEvent(state, "meal", { trust = 3, bond = 2, morale = 3, stress = -2, counter = "meals" })
+        observed("meal", { trust = 3, bond = 2, morale = 3, stress = -2, counter = "meals" })
         meaningful = true
     end
     if close and thirst < (runtime.thirst or thirst) - 0.12
         and eventReady(runtime, "drink", now, 90000) then
-        recordEvent(state, "drink", { trust = 3, bond = 2, morale = 2, stress = -2, counter = "drinks" })
+        observed("drink", { trust = 3, bond = 2, morale = 2, stress = -2, counter = "drinks" })
         meaningful = true
     end
     if close and (runtime.danger or 0) >= 0.5 and danger < 0.2
         and eventReady(runtime, "shared_escape", now, 180000) then
-        recordEvent(state, "shared_escape", { trust = 2, bond = 4, morale = 3, stress = -5, counter = "sharedEscapes" })
+        observed("shared_escape", { trust = 2, bond = 4, morale = 3, stress = -5, counter = "sharedEscapes" })
         meaningful = true
     end
     if close and (runtime.playerDanger or 0) >= 0.5 and playerDanger < 0.2
         and eventReady(runtime, "rescued_player", now, 180000) then
-        recordEvent(state, "rescued_player", { trust = 2, bond = 5, morale = 4, stress = -3, counter = "rescues" })
+        observed("rescued_player", { trust = 2, bond = 5, morale = 4, stress = -3, counter = "rescues" })
         meaningful = true
     end
     if close and ((playerHealth - (runtime.playerHealth or playerHealth)) >= 5
         or playerWounds < (runtime.playerWounds or playerWounds))
         and eventReady(runtime, "player_helped", now, 120000) then
-        recordEvent(state, "player_helped", { bond = 3, morale = 3, counter = "playerTreatments" })
+        observed("player_helped", { bond = 3, morale = 3, counter = "playerTreatments" })
         meaningful = true
     end
 
@@ -311,7 +359,7 @@ function Relationship.observe(actor, player, snapshot, state)
     runtime.playerHealth, runtime.playerWounds = playerHealth, playerWounds
     if meaningful or (changed and now - (runtime.persistedAt or 0) >= 60000) then
         runtime.persistedAt = now
-        return true, meaningful and "relationship_event" or "time_together"
+        return true, meaningful and "relationship_event" or "time_together", events
     end
     return false
 end

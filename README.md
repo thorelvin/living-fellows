@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.20.4-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.25.2-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.25.3-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -114,7 +114,8 @@ The panel is translucent so you can still see the world. It can be docked left o
 ## Orders
 
 - **Main order:** Follow, Stay, or Guard. Guard patrols around its anchor. Inside your camp area, Stay and Guard put the companion on base duty instead; Guard makes it a guard that watches the square you picked. **Regroup** and **Retreat** are immediate emergency actions.
-- **World orders:** Right-click the destination, then use **Target actions → Guard here** to anchor the selected companion to that square. On a zombie, **Focus on this zombie** strongly prefers it and **Leave this zombie alone** lowers its priority for twelve seconds. Doctrine, Hold Fire, visibility, safe attack choice, and overrun judgement still apply; a companion may refuse a bad instruction rather than obeying blindly.
+- **World orders:** Right-click the destination, then use **Target actions → Guard here** to anchor the selected companion to that square. On a zombie, **Focus on this zombie** strongly prefers it and **Leave this zombie alone** lowers its priority for twelve seconds. Doctrine, Hold Fire, visibility, safe attack choice, and overrun judgement still apply; a companion may refuse a bad instruction rather than obeying blindly. Focus the same zombie again within four seconds to **push** the order. A push costs that companion morale and stress, works better when trust and bond are high, never overrides a missing escape or support, and is remembered differently if it succeeds or gets them hurt.
+- **Assigned objectives:** Right-click a recruited companion and choose **Assign objective** to set a concrete priority such as medical supplies, reading material, gear, shelter, or a proper meal. Their own personal goal is kept and resumes after the assigned objective is completed.
 - **Follow distance:** how far behind you the team keeps. When you stop, followers hold formation for a few seconds before they start downtime or scavenging nearby.
 - **Movement:** Copy player, walk, sneak, or run. Escapes and combat can override it.
 - **Work mode:** useful chores, downtime, or supply crafting when it is safe.
@@ -159,11 +160,17 @@ Sometimes a companion stops at a body for a different reason. It crouches and sa
 
 By default hunger and thirst rise at half the player rate. Companions eat, drink, use clean water, fetch from camp storage, tear cloth into bandages (or use a dirty rag when nothing clean is left), treat themselves, and help an injured player when it is safe. Death is permanent and follows the game's own corpse and reanimation rules. A known bite can lead to concealment, confession, quarantine, exile, or a farewell; lethal decisions always need your confirmation. Those who learn of it walk over and talk it through face to face. A bitten companion may first confide in the one it trusts most, which might be you, and a protective friend might keep the secret for a while.
 
+Companions now volunteer when native hunger, thirst, or fatigue crosses a noticeable, serious, or urgent threshold. They say it once per escalation instead of every decision tick, wait through danger and speech cooldowns, and can speak again only after the need improves and later returns. Asking about status still uses the separate direct-answer dialogue.
+
 ### Personality and relationships
 
 Every survivor has a profession, trait, personality, history, keepsake, preferred camp role, and personal goal. Trust, bonds, morale, stress, memories, grief, and relationships persist, and dialogue reacts to what actually happened. Stress can show as venting, pacing, arguments, withdrawal, or a breakdown; good morale gives small boosts. Danger interrupts all of it.
 
 Companions also talk in their own voice. Two idle residents at camp may turn toward one another for a short exchange, and a companion who meets a calm, non-hostile survivor says hello and gives them room to answer. A surrounded companion may yell a deadpan fake distraction at the zombies, one of them cracks a joke when you stand still for a few minutes, and the first walk into a notable place, such as a police station, church, bar, hospital, or gun store, earns a remark. Former police officers, doctors, nurses, and other professions have lines of their own for places like their old workplaces. Conversation is spaced out so it never becomes a chorus, and danger interrupts it.
+
+Combat, danger, and hand-signal lines also remember what nearby companions just said, so a squad does not echo the same shared bark. The high-frequency kill pool is deeper, while stress and joy lines now vary by brave, cautious, caring, practical, and stressed voices. Farmers comment occasionally when preparing ground, sowing, watering, harvesting, treating or losing a crop, or discovering that the tools are unusable; those remarks never gate the work.
+
+Native stress and panic can also show in what they say. A companion may react to a frightening sound that did not affect you, narrate the onset or recovery of panic, or ask for cigarettes when a smoker's withdrawal rises. Deaf survivors do not react to unheard sounds, combat refusals get first claim on the speech window, and these observations are flavor only: environmental stress never changes the separate relationship stress value or any AI decision.
 
 Companions also remember their best fights. Four kills in one fight, or a kill after being pulled down, becomes a story. The companion tells it later, when things are calm at the base or you have stood still for a minute. Every retelling grows the numbers and the title, from "that thing at the gas station" to "the Legend of the Gas Station". A companion who was there may correct it, but the teller never backs down.
 

@@ -53,6 +53,7 @@ public final class SCNativeApiSignatureTest {
         Class<?> isoObject = Class.forName("zombie.iso.IsoObject");
         Class<?> stats = Class.forName("zombie.characters.Stats");
         Class<?> characterStat = Class.forName("zombie.characters.CharacterStat");
+        Class<?> systemDisabler = Class.forName("zombie.SystemDisabler");
         Class<?> fluidContainer = Class.forName("zombie.entity.components.fluids.FluidContainer");
         Class<?> window = Class.forName("zombie.iso.objects.IsoWindow");
         Class<?> pathBehavior = Class.forName("zombie.pathfind.PathFindBehavior2");
@@ -606,6 +607,12 @@ public final class SCNativeApiSignatureTest {
                 "Stats.get(CharacterStat) signature changed");
         require(method(stats, "set", characterStat, float.class).getReturnType() == boolean.class,
                 "Stats.set(CharacterStat,float) signature changed");
+        require(method(stats, "getNicotineStress").getReturnType() == float.class
+                        && characterStat.getField("STRESS").getType() == characterStat
+                        && characterStat.getField("NICOTINE_WITHDRAWAL").getType() == characterStat
+                        && Modifier.isStatic(systemDisabler.getField("doCharacterStats").getModifiers())
+                        && systemDisabler.getField("doCharacterStats").getType() == boolean.class,
+                "native interior-state probe signatures changed");
         require(method(isoObject, "hasFluid").getReturnType() == boolean.class
                         && method(isoObject, "getFluidAmount").getReturnType() == float.class
                         && method(isoObject, "isTaintedWater").getReturnType() == boolean.class,
@@ -819,7 +826,7 @@ public final class SCNativeApiSignatureTest {
 
         System.out.println("NATIVE_API_SIGNATURE_PASS IsoSurvivor-final=true IsoCompanion=true"
                 + " IsoPlayer-NPC-constructor=true AttackType=true room-facing=true"
-                + " player-accessors=true descriptor=true direct-native=true removal=true vitals=true"
+                + " player-accessors=true descriptor=true direct-native=true removal=true vitals=true interior-stats=true"
                 + " needs=true water-source=true emote=true fatal-injury=true deferred-spawn=true"
                 + " faction-life=true world-map-rumours=true world-map-streets=true"
                 + " readable-speech=true"

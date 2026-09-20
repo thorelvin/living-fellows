@@ -1139,15 +1139,37 @@ local function handleTargetDesignation(actor, entry, state, payload, mode)
         return false, "target_too_far"
     end
     local issuedAt = U().nowMs()
+    local previous = state.targetDesignation
+    local pushWindow = math.max(500,
+        tonumber(U().config("combatPushWindowMs")) or 4000)
+    local pushed = mode == "focus" and type(previous) == "table"
+        and previous.mode == "focus" and previous.actor == target
+        and issuedAt - (tonumber(previous.issuedAt) or -math.huge) <= pushWindow
+    local alreadyPushed = pushed and previous.pushed == true
+    if pushed and not alreadyPushed and SC.Relationship
+        and type(SC.Relationship.noteEvent) == "function" then
+        SC.Relationship.noteEvent(state, "combat_push", {
+            morale = -(tonumber(U().config("combatPushMoraleCost")) or 4),
+            stress = tonumber(U().config("combatPushStressCost")) or 8,
+            counter = "combatPushes",
+        })
+    end
     state.targetDesignation = {
         actor = target,
         mode = mode,
         issuedAt = issuedAt,
-        serial = (tonumber(state.commandSerial) or 0) + 1,
+        -- Re-clicking an already active push renews its lifetime but remains the
+        -- same episode: no second cost, refusal, or outcome credit.
+        serial = alreadyPushed and previous.serial
+            or (tonumber(state.commandSerial) or 0) + 1,
+        pushed = pushed == true,
+        pushIssuedAt = pushed and (tonumber(previous.pushIssuedAt) or issuedAt) or nil,
         untilAt = issuedAt
             + math.max(1000, tonumber(U().config("combatDesignationDurationMs")) or 12000),
     }
     markCommand(actor, entry, state)
+    if alreadyPushed then return true, "target_push_active" end
+    if pushed then return true, "target_pushed" end
     return true, mode == "focus" and "target_designated" or "target_avoided"
 end
 
@@ -1157,6 +1179,17 @@ end
 
 local function handleAvoidTarget(actor, entry, state, payload)
     return handleTargetDesignation(actor, entry, state, payload, "avoid")
+end
+
+local function handleAssignObjective(actor, entry, state, payload)
+    local kind = type(payload) == "table" and payload.kind or payload
+    if not SC.Objectives or type(SC.Objectives.assign) ~= "function" then
+        return false, "objectives_unavailable"
+    end
+    local assigned, reason = SC.Objectives.assign(actor, state, kind)
+    if not assigned then return false, reason end
+    markCommand(actor, entry, state)
+    return true, reason or "objective_assigned"
 end
 
 local function handleHoldFirePolicy(actor, entry, state, payload)
@@ -1479,6 +1512,7 @@ local handlers = {
     fire_at_will = handleFireAtWill,
     designate_target = handleDesignateTarget,
     avoid_target = handleAvoidTarget,
+    assign_objective = handleAssignObjective,
     move_to = handleMoveTo,
     open_door = function(actor, entry, state, payload, player)
         return handleDoor(actor, entry, state, payload, player, "open_door")
@@ -2582,30 +2616,21 @@ function Commands.observeRelationship(actor, player, snapshot)
     if not actor or not player or not SC.Relationship
         or type(SC.Relationship.observe) ~= "function" then return false end
     local state = stateFor(actor)
-    local memoryBefore = type(state.memories) == "table" and #state.memories or 0
-    local ok, relationshipChanged, reason = pcall(
+    local ok, relationshipChanged, reason, observedEvents = pcall(
         SC.Relationship.observe, actor, player, snapshot, state)
     local changed = ok and relationshipChanged == true
     if ok and relationshipChanged == true and SC.Objectives
         and type(SC.Objectives.noteEvent) == "function" then
-        local memoryAfter = type(state.memories) == "table" and #state.memories or memoryBefore
-        for index = memoryBefore + 1, memoryAfter do
-            local memory = state.memories[index]
+        for _, memory in ipairs(type(observedEvents) == "table" and observedEvents or {}) do
             if type(memory) == "table" then
                 changed = SC.Objectives.noteEvent(state, memory.kind, memory) or changed
             end
         end
     end
     if ok and relationshipChanged == true and SC.Diary
-        and type(SC.Diary.noteSharedEscape) == "function"
-        and type(state.memories) == "table" then
-        -- The memory list is capped, so a full list keeps its length when a
-        -- memory is added. Inspect the newest rows by their timestamp instead.
-        local current = U().nowMs()
-        for index = #state.memories, math.max(1, #state.memories - 2), -1 do
-            local memory = state.memories[index]
-            if type(memory) == "table" and memory.kind == "shared_escape"
-                and current - (tonumber(memory.at) or -math.huge) <= 5000 then
+        and type(SC.Diary.noteSharedEscape) == "function" then
+        for _, memory in ipairs(type(observedEvents) == "table" and observedEvents or {}) do
+            if type(memory) == "table" and memory.kind == "shared_escape" then
                 pcall(SC.Diary.noteSharedEscape, actor, player)
                 break
             end

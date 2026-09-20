@@ -11,6 +11,7 @@ local localThreatDeathCredits = setmetatable({}, { __mode = "k" })
 local zombieHookInstalled = false
 local targetSearchJobs = {}
 local targetRetryAt = {}
+local threatScanStates = {}
 
 local contractKinds = {
     supply = true, medical = true, local_threat = true,
@@ -586,13 +587,17 @@ local function makeContract(group, forcedKind, forcedComplication)
     return contract, nil
 end
 
-local function ensureOffer(group, forcedKind, forcedComplication)
+local function ensureOffer(group, forcedKind, forcedComplication, bypassCooldown)
     local social = group.social
     if type(social) ~= "table" or type(social.contract) ~= "table" then
         social = Contracts.initialize(group)
     end
     if social.contract.active then return social.contract.active end
     local offer = social.contract.offer
+    if offer == nil and bypassCooldown ~= true
+        and worldHour() < (tonumber(social.contract.cooldownUntilHour) or 0) then
+        return nil, "contract_cooldown"
+    end
     local crisis = group.life and group.life.crisis and group.life.crisis.active or nil
     local crisisKind = crisis and (crisis.kind == "illness" and "medical"
         or crisis.kind == "supply_collapse" and "supply" or nil) or nil
@@ -759,7 +764,7 @@ local function membersResponse(group)
 end
 
 local function dangerResponse(group, offer)
-    if offer.kind == "local_threat" or offer.kind == "clear_horde" then
+    if offer and (offer.kind == "local_threat" or offer.kind == "clear_horde") then
         return visibleOfferText(group, offer)
     end
     local crisis = group.life and group.life.crisis and group.life.crisis.active or nil
@@ -780,11 +785,12 @@ function Contracts.talk(groupOrId, player, topic, forced)
     local ready, reason = canTalk(group, player, forced)
     if not ready then return false, reason end
     local social = Contracts.initialize(group)
+    topic = tostring(topic or "status")
     local offer, offerReason = ensureOffer(group)
-    if not offer then
+    if not offer and (offerReason ~= "contract_cooldown" or topic == "needs") then
+        if offerReason == "contract_cooldown" then return false, offerReason end
         return false, "contract_offer_copy_failed:" .. tostring(offerReason)
     end
-    topic = tostring(topic or "status")
     local speaker = representative(group)
     local speakerKey = speaker and speaker.key or nil
     local response
@@ -856,6 +862,7 @@ function Contracts.accept(groupOrId, player, forced)
     if social.contract.active then return false, "one_contract_already_active" end
     local offer, offerReason = ensureOffer(group)
     if not offer then
+        if offerReason == "contract_cooldown" then return false, offerReason end
         return false, "contract_offer_copy_failed:" .. tostring(offerReason)
     end
     if not offer.revealed and forced ~= true then return false, "ask_about_need_first" end
@@ -909,28 +916,95 @@ function Contracts.accept(groupOrId, player, forced)
     return true, offer.kind .. "_contract_accepted"
 end
 
-local function threatsNear(position, radius)
-    local count, visited = 0, {}
-    radius = math.max(1, math.floor(tonumber(radius) or 12))
-    local squareBudget = math.min(625, (radius * 2 + 1) * (radius * 2 + 1))
-    local scanned = 0
+local function beginThreatScan(contract)
+    local radius = math.max(1, math.floor(tonumber(contract.radius) or 12))
+    local state = {
+        x = tonumber(contract.target and contract.target.x),
+        y = tonumber(contract.target and contract.target.y),
+        z = tonumber(contract.target and contract.target.z) or 0,
+        radius = radius, cursor = 0, total = 0, loaded = 0,
+        unavailable = 0, crowded = 0, threats = 0, visited = {},
+    }
     for dx = -radius, radius do
         for dy = -radius, radius do
-            if scanned >= squareBudget then return count, scanned end
-            if dx * dx + dy * dy <= radius * radius then
-                local square = U().gridSquare(position.x + dx, position.y + dy, position.z or 0)
-                if square then
-                    scanned = scanned + 1
-                    U().squareMovingObjects(square, function(value)
-                        if U().isZombie(value) and not U().isDead(value) and not visited[value] then
-                            visited[value], count = true, count + 1
+            if dx * dx + dy * dy <= radius * radius then state.total = state.total + 1 end
+        end
+    end
+    threatScanStates[contract.id] = state
+    return state
+end
+
+local function threatScanMatches(state, contract)
+    local target = contract and contract.target or nil
+    return type(state) == "table" and type(target) == "table"
+        and state.x == tonumber(target.x) and state.y == tonumber(target.y)
+        and state.z == (tonumber(target.z) or 0)
+        and state.radius == math.max(1, math.floor(tonumber(contract.radius) or 12))
+end
+
+local function publishThreatScan(contract, state)
+    local finished = state.cursor >= state.total
+    local complete = finished and state.unavailable == 0 and state.crowded == 0
+    if finished and not state.completedAt then state.completedAt = U().nowMs() end
+    contract.progress.lastScanCount = state.threats
+    contract.progress.loadedSquares = state.loaded
+    contract.progress.scanTotalSquares = state.total
+    contract.progress.scanUnavailableSquares = state.unavailable
+    contract.progress.scanCrowdedSquares = state.crowded
+    contract.progress.scanComplete = complete
+    contract.progress.scanFinished = finished
+    contract.progress.lastScanHour = finished and worldHour()
+        or contract.progress.lastScanHour
+    return state.threats, state.loaded, complete, finished,
+        state.unavailable, state.crowded
+end
+
+local function threatsNear(contract)
+    if type(contract) ~= "table" or type(contract.target) ~= "table" then
+        return 0, 0, false, false, 1, 0
+    end
+    local state = threatScanStates[contract.id]
+    local now = U().nowMs()
+    if not threatScanMatches(state, contract)
+        or (state.completedAt and now - state.completedAt > 5000) then
+        state = beginThreatScan(contract)
+    elseif state.completedAt then
+        return publishThreatScan(contract, state)
+    end
+
+    local processed, footprintIndex, budget = 0, 0, 625
+    for dx = -state.radius, state.radius do
+        for dy = -state.radius, state.radius do
+            if dx * dx + dy * dy <= state.radius * state.radius then
+                footprintIndex = footprintIndex + 1
+                if footprintIndex > state.cursor and processed < budget then
+                    processed, state.cursor = processed + 1, footprintIndex
+                    local square = U().gridSquare(state.x + dx, state.y + dy, state.z)
+                    if square == nil then
+                        state.unavailable = state.unavailable + 1
+                    else
+                        state.loaded = state.loaded + 1
+                        local objects, objectsOk = U().call(square, "getMovingObjects")
+                        if not objectsOk or objects == nil then
+                            state.unavailable = state.unavailable + 1
+                        else
+                            local count = U().listSize(objects)
+                            if count > 24 then state.crowded = state.crowded + 1 end
+                            for index = 0, math.min(count, 24) - 1 do
+                                local value = U().listGet(objects, index)
+                                if value ~= nil and U().isZombie(value)
+                                    and not U().isDead(value) and not state.visited[value] then
+                                    state.visited[value] = true
+                                    state.threats = state.threats + 1
+                                end
+                            end
                         end
-                    end, 24)
+                    end
                 end
             end
         end
     end
-    return count, scanned
+    return publishThreatScan(contract, state)
 end
 
 local function deadlineProgress(contract)
@@ -990,14 +1064,20 @@ function Contracts.progress(groupOrId, player, scanThreat)
             "factionContractThreatMinLoadedSquares")) or 64
         if scanThreat == true and player and U().distance(player, contract.target)
             <= math.min(12, tonumber(contract.radius) or 18) then
-            result.remainingThreats, result.loadedSquares = threatsNear(
-                contract.target, contract.radius)
-            contract.progress.lastScanCount = result.remainingThreats
-            contract.progress.loadedSquares = result.loadedSquares
-            contract.progress.lastScanHour = worldHour()
+            result.remainingThreats, result.loadedSquares, result.scanComplete,
+                result.scanFinished, result.unavailableSquares, result.crowdedSquares =
+                threatsNear(contract)
         end
-        result.areaLoaded = result.loadedSquares >= result.minimumLoadedSquares
-        result.ready = contract.status == "active" and result.areaLoaded
+        result.scanComplete = result.scanComplete == true
+            or contract.progress.scanComplete == true
+        result.scanFinished = result.scanFinished == true
+            or contract.progress.scanFinished == true
+        result.unavailableSquares = result.unavailableSquares
+            or tonumber(contract.progress.scanUnavailableSquares) or 0
+        result.crowdedSquares = result.crowdedSquares
+            or tonumber(contract.progress.scanCrowdedSquares) or 0
+        result.areaLoaded = result.scanComplete
+        result.ready = contract.status == "active" and result.scanComplete
             and result.kills >= result.requiredKills and result.remainingThreats == 0
         return result
     end
@@ -1109,6 +1189,7 @@ local function completeContract(group, contract, forced)
     end
     appendBounded(social.contract.history, historyRow,
         configuredLimit("factionContractHistoryLimit", 32))
+    threatScanStates[contract.id] = nil
     social.contract.active = nil
     social.contract.cooldownUntilHour = worldHour()
         + (tonumber(SC.Config.get("factionContractCooldownHours")) or 24)
@@ -1196,12 +1277,13 @@ function Contracts.fulfill(groupOrId, player, forced)
             return false, "travel_to_reported_area"
         end
         contract.progress.visited = true
-        local remaining, scanned = threatsNear(contract.target, contract.radius)
-        contract.progress.lastScanCount, contract.progress.loadedSquares,
-            contract.progress.lastScanHour = remaining, scanned, worldHour()
-        local minimumLoaded = tonumber(SC.Config.get(
-            "factionContractThreatMinLoadedSquares")) or 64
-        if scanned < minimumLoaded then return false, "reported_area_not_fully_loaded" end
+        local remaining, scanned, complete, finished, unavailable, crowded =
+            threatsNear(contract)
+        if not finished then return false, "reported_area_scan_pending" end
+        if not complete then
+            return false, "reported_area_not_fully_loaded:"
+                .. tostring(unavailable) .. ":" .. tostring(crowded)
+        end
         if remaining > 0 or (tonumber(contract.progress.kills) or 0) < contract.requiredKills then
             return false, "danger_remains:" .. tostring(remaining)
         end
@@ -1269,6 +1351,7 @@ function Contracts.withdraw(groupOrId, player, forced)
     end
     appendBounded(social.contract.history, historyRow,
         configuredLimit("factionContractHistoryLimit", 32))
+    threatScanStates[contract.id] = nil
     social.contract.active = nil
     social.contract.cooldownUntilHour = worldHour()
         + (tonumber(SC.Config.get("factionContractCooldownHours")) or 24)
@@ -1414,6 +1497,7 @@ local function closeContractWithoutBlame(group, contract, outcome, message)
             break
         end
     end
+    threatScanStates[contract.id] = nil
     group.social.contract.active = nil
     group.social.contract.cooldownUntilHour = worldHour() + 12
     addMemory(group, outcome, message)
@@ -1486,6 +1570,7 @@ local function failExpiredContract(group, contract)
     local social = group.social
     appendBounded(social.contract.history, historyRow,
         configuredLimit("factionContractHistoryLimit", 32))
+    threatScanStates[contract.id] = nil
     social.contract.active = nil
     social.contract.cooldownUntilHour = worldHour()
         + (tonumber(SC.Config.get("factionContractCooldownHours")) or 24)
@@ -1676,7 +1761,6 @@ function Contracts.onZombieDead(zombie)
                 .. tostring(active.horde.dead) .. "/" .. tostring(active.horde.spawned)
                 .. " confirmed.", active.id .. ":kill:" .. tostring(active.horde.dead))
         end
-        return
     end
     local attacker, attackerOk = U().call(zombie, "getAttackedBy")
     local player = localPlayer()
@@ -1878,6 +1962,7 @@ function Contracts.debugOffer(id, kind)
     if not candidate then
         return false, "contract_offer_copy_failed:" .. tostring(candidateReason)
     end
+    if social.contract.active then threatScanStates[social.contract.active.id] = nil end
     social.contract.active = nil
     social.contract.offer = candidate
     social.contract.offer.revealed = true
@@ -2005,6 +2090,7 @@ function Contracts.reset(actor)
         localThreatDeathCredits = setmetatable({}, { __mode = "k" })
         targetSearchJobs = {}
         targetRetryAt = {}
+        threatScanStates = {}
     end
 end
 

@@ -798,6 +798,9 @@ local function vitalsTask(current)
     if not guarded then return end
     if summary ~= nil then
         record.runtime.vitals = summary
+        if SC.VitalsTrace and type(SC.VitalsTrace.report) == "function" then
+            pcall(SC.VitalsTrace.report, record, current)
+        end
     else
         SC.Diagnostics.report("vitals", record.id, "native vitals update failed", reason)
     end
@@ -1491,6 +1494,7 @@ function runtime.reset(detach)
     resetModule("infection crisis", SC.InfectionCrisis, "reset")
     resetModule("autonomy", SC.Autonomy, "reset")
     resetModule("dialogue", SC.Dialogue, "reset")
+    resetModule("vitals trace", SC.VitalsTrace, "reset")
     resetModule("community", SC.Community, "reset")
     resetModule("diary", SC.Diary, "reset")
     resetModule("life events", SC.LifeEvents, "reset")

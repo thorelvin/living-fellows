@@ -1596,16 +1596,43 @@ end
 local function containerFingerprint(container)
     local itemsOk, items = invoke(container, "getItems")
     if not itemsOk or items == nil then return nil end
-    local result = { total = 0, types = {} }
+    local result = { total = 0, types = {}, items = {} }
     for index = 0, math.min(listSize(items), 512) - 1 do
         local item = listGet(items, index)
         local typeOk, itemType = invoke(item, "getFullType")
         if typeOk and type(itemType) == "string" then
             result.total = result.total + 1
             result.types[itemType] = (result.types[itemType] or 0) + 1
+            result.items[item] = itemType
         end
     end
     return result
+end
+
+local function belongsToInventory(container, root, depth)
+    if container == root then return true end
+    if container == nil or root == nil or (depth or 0) > 5 then return false end
+    local itemOk, containingItem = invoke(container, "getContainingItem")
+    if not itemOk or containingItem == nil then return false end
+    local parentOk, parent = invoke(containingItem, "getContainer")
+    if not parentOk or parent == container then return false end
+    return belongsToInventory(parent, root, (depth or 0) + 1)
+end
+
+local function playerReceivedObservedItems(observation, prior, currentPrint)
+    if observation.player == nil then return 0 end
+    local inventoryOk, inventory = invoke(observation.player, "getInventory")
+    if not inventoryOk or inventory == nil then return 0 end
+    local received = 0
+    for item in pairs(prior.items or {}) do
+        if currentPrint.items[item] == nil then
+            local ownerOk, owner = invoke(item, "getContainer")
+            if ownerOk and belongsToInventory(owner, inventory, 0) then
+                received = received + 1
+            end
+        end
+    end
+    return received
 end
 
 function Factions.observeContainerOpened(container, player)
@@ -1633,11 +1660,10 @@ local function observeContainerTransfers(current)
             local currentPrint = containerFingerprint(container)
             local prior = observation.fingerprint
             if currentPrint and prior then
-                local removed = 0
-                for itemType, count in pairs(prior.types or {}) do
-                    removed = removed + math.max(0,
-                        (tonumber(count) or 0) - (tonumber(currentPrint.types[itemType]) or 0))
-                end
+                -- A count decrease only proves that the container changed. It
+                -- becomes theft evidence when the exact removed item now lives
+                -- in the inventory of the player who opened this container.
+                local removed = playerReceivedObservedItems(observation, prior, currentPrint)
                 if removed > 0 and not (SC.Trade
                     and type(SC.Trade.isAuthorizedTransfer) == "function"
                     and SC.Trade.isAuthorizedTransfer(observation.factionId)) then
@@ -1893,6 +1919,10 @@ function Factions.detachMemberForRecruitment(id, memberKey)
     local actorId = member.actorId
     local record = actorId and SC.Registry and SC.Registry.byId(actorId) or nil
     if not record or not record.actor then return false, "faction_member_not_loaded" end
+    if SC.Trade and type(SC.Trade.reconcileQuestRewardHolder) == "function" then
+        local reconciled, reconcileReason = SC.Trade.reconcileQuestRewardHolder(group, actorId)
+        if not reconciled then return false, reconcileReason end
+    end
     local snapshot = {
         actorId = actorId, role = member.role, away = member.away,
         departed = member.departed, hibernated = member.hibernated,
@@ -2199,6 +2229,12 @@ function Factions.memberDied(record)
         end
     end
     local deadMemberKey
+    if SC.Trade and type(SC.Trade.reconcileQuestRewardHolder) == "function" then
+        -- Reassign exact tagged rewards while the dying actor and inventory are
+        -- still resolvable. Death itself continues if recovery is impossible;
+        -- the contract then carries an explicit no-blame resolution.
+        pcall(SC.Trade.reconcileQuestRewardHolder, group, record.id)
+    end
     for _, member in ipairs(group.members or {}) do
         if member.actorId == record.id or member.departedActorId == record.id then
             deadMemberKey = member.key

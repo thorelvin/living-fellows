@@ -1,7 +1,8 @@
 -- SPDX-License-Identifier: MIT
 
-require "SCNamespace"
-require "SCNativeList"
+if not SurvivorCompanion and type(require) == "function" then pcall(require, "SCNamespace") end
+if (not SurvivorCompanion or not SurvivorCompanion.NativeList)
+    and type(require) == "function" then pcall(require, "SCNativeList") end
 
 local SC = SurvivorCompanion
 SC.Vitals = SC.Vitals or {}
@@ -42,6 +43,58 @@ local function captureStat(actor, name)
     local stat = characterStat(name)
     if not stats or stat == nil then return nil end
     return finite(invoke(stats, "get", nil, stat), nil)
+end
+
+local STAT_VECTOR = {
+    "ANGER", "BOREDOM", "DISCOMFORT", "ENDURANCE", "FATIGUE", "FITNESS",
+    "FOOD_SICKNESS", "HUNGER", "IDLENESS", "INTOXICATION", "MORALE",
+    "NICOTINE_WITHDRAWAL", "PAIN", "PANIC", "POISON", "SANITY", "SICKNESS",
+    "STRESS", "TEMPERATURE", "THIRST", "UNHAPPINESS", "WETNESS",
+    "ZOMBIE_FEVER", "ZOMBIE_INFECTION",
+}
+
+--- Read one native CharacterStat without mutating it. Unknown engine symbols
+--- deliberately return the supplied fallback so minor native changes fail soft.
+function vitals.characterStat(actor, name, fallback)
+    local value = captureStat(actor, tostring(name or ""))
+    if value == nil then return fallback end
+    return value
+end
+
+function vitals.environmentalStress(actor)
+    return vitals.characterStat(actor, "STRESS", 0)
+end
+
+function vitals.nicotineWithdrawal(actor)
+    return vitals.characterStat(actor, "NICOTINE_WITHDRAWAL", 0)
+end
+
+function vitals.effectiveNicotineStress(actor)
+    local stats = invoke(actor, "getStats", nil)
+    return finite(invoke(stats, "getNicotineStress", nil), nil)
+end
+
+function vitals.characterStatsEnabled()
+    if SystemDisabler == nil then return nil end
+    local ok, value = pcall(function() return SystemDisabler.doCharacterStats end)
+    if not ok then return nil end
+    return value == true
+end
+
+--- Stable-order native vector used only by the opt-in live probe.
+function vitals.statVector(actor)
+    local values = {}
+    for _, name in ipairs(STAT_VECTOR) do
+        values[name] = captureStat(actor, name)
+    end
+    values.NICOTINE_EFFECTIVE = vitals.effectiveNicotineStress(actor)
+    return values
+end
+
+function vitals.statNames()
+    local copy = {}
+    for index, name in ipairs(STAT_VECTOR) do copy[index] = name end
+    return copy
 end
 
 local function setRequired(object, name, ...)

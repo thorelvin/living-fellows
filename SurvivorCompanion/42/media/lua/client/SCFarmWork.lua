@@ -26,6 +26,17 @@ local metrics = {
     replanted = 0, composted = 0, cured = 0, recovered = 0, blockers = 0,
     lastBlocker = nil,
 }
+local FARM_SPEECH = {
+    ["farm.plot.start"] = { chance = 45, actorMs = 60000 },
+    ["farm.sow.start"] = { chance = 45, actorMs = 60000 },
+    ["farm.water.start"] = { chance = 30, actorMs = 60000 },
+    ["farm.harvest.start"] = { chance = 55, actorMs = 45000 },
+    ["farm.harvest.done"] = { chance = 40, actorMs = 45000 },
+    ["farm.crop.ruined"] = { chance = 80, actorMs = 90000 },
+    ["farm.crop.diseased"] = { chance = 70, actorMs = 90000 },
+    ["farm.tool.trouble"] = { chance = 100, actorMs = 90000 },
+}
+local lastFarmSpeechAt = -math.huge
 
 local CURES = {
     { field = "mildewLvl", cure = "Mildew", item = "GardeningSprayMilk" },
@@ -851,6 +862,31 @@ local function threatNearby(actor, runtime)
     return false
 end
 
+-- Farm remarks are flavor only: a rejected or skipped line never gates the
+-- native action. The existing danger snapshot, actor quiet time, deterministic
+-- chance and one party cooldown keep field work from becoming a speech loop.
+local function speak(actor, topic, arguments, salt, runtime)
+    local spec = FARM_SPEECH[topic]
+    if not spec or not SC.Dialogue or type(SC.Dialogue.say) ~= "function" then
+        return false, "farm_speech_unavailable"
+    end
+    if threatNearby(actor, runtime) then return false, "farm_speech_unsafe" end
+    local current = now()
+    if current - lastFarmSpeechAt < config("farmSpeechGroupCooldownMs", 12000) then
+        return false, "farm_speech_group_cooldown"
+    end
+    if spec.actorMs > 0 and type(SC.Dialogue.lastSpokenAt) == "function"
+        and current - (tonumber(SC.Dialogue.lastSpokenAt(actor)) or -math.huge)
+            < spec.actorMs then return false, "farm_speech_actor_cooldown" end
+    local key = tostring(actorId(actor)) .. ":" .. topic .. ":" .. tostring(salt or current)
+    if U().stableHash(key) % 100 >= spec.chance then return false, "farm_speech_chance" end
+    local spoken, line = SC.Dialogue.say(actor, topic, nil, arguments, {
+        recentLimit = 4, salt = key,
+    })
+    if spoken == true then lastFarmSpeechAt = current end
+    return spoken == true, line
+end
+
 local function farmingRole(actor)
     local resident = SC.BaseLife.resident(actorId(actor))
     return resident and resident.role == "farmer"
@@ -925,6 +961,10 @@ local function borrowSupply(actor, baseState, job, state, predicate, categories,
             actor, predicate, categories, scanKey)
         if not storage then
             if scanStatus == "scanning" then return true, "farm_supply_scanning", false end
+            if scanKey == "dig_tool" and state.toolSpeechAttempted ~= true then
+                state.toolSpeechAttempted = true
+                speak(actor, "farm.tool.trouble", nil, tostring(job.id) .. ":tool")
+            end
             return false, "farm_supply_missing", true
         end
         pending = { storage = storage, container = container, item = item }
@@ -1353,6 +1393,15 @@ local function startAction(actor, job, state, square, plant, operation)
     state.harvestBaseline, state.harvestBaselineEncoded = nil, nil
     state.harvestBaselineCursor = nil
     state.phase = "working"
+    local speechTopic = operation == "plow" and "farm.plot.start"
+        or operation == "sow" and "farm.sow.start"
+        or operation == "water" and "farm.water.start"
+        or operation == "harvest" and "farm.harvest.start"
+        or operation == "cure" and "farm.crop.diseased" or nil
+    if speechTopic then
+        speak(actor, speechTopic, nil,
+            tostring(job.id) .. ":" .. tostring(operation) .. ":start")
+    end
     return true, "farm_" .. operation .. "_started"
 end
 
@@ -1380,6 +1429,7 @@ local function finishAction(actor, baseState, job, state, square)
         end
         if collected ~= true then return false, collectReason, true end
         metrics.harvested = metrics.harvested + 1
+        speak(actor, "farm.harvest.done", nil, tostring(job.id) .. ":harvest:done")
     elseif work.operation == "plow" and job.target.operation == "replant" then
         state.stage, state.afterReturn = "returning", "sow"
         return true, "farm_plowed"
@@ -1449,7 +1499,8 @@ function FarmWork.update(actor, baseState, job, runtime)
             state.blocker = "farm_outside_night"
         end
     end
-    if threatNearby(actor, runtime) then
+    local farmThreat = threatNearby(actor, runtime)
+    if farmThreat then
         if state.work and SC.NativeActions.workKind(actor)
             and string.sub(SC.NativeActions.workKind(actor), 1, 5) == "farm_" then
             SC.NativeActions.cancelWork(actor, "farm_threat")
@@ -1457,6 +1508,15 @@ function FarmWork.update(actor, baseState, job, runtime)
         end
         state.stage, state.afterReturn = "returning", "blocked"
         state.blocker = "unsafe_area"
+    end
+    if not farmThreat and state.openingSpeechAttempted ~= true then
+        local openingTopic = target.operation == "replant" and "farm.crop.ruined"
+            or target.operation == "cure" and "farm.crop.diseased" or nil
+        state.openingSpeechAttempted = true
+        if openingTopic then
+            speak(actor, openingTopic, nil,
+                tostring(job.id) .. ":" .. tostring(target.operation), runtime)
+        end
     end
     if state.work then return finishAction(actor, baseState, job, state, square) end
     if state.outputs then
@@ -1720,6 +1780,7 @@ end
 
 FarmWork._nonGrowbackPlotsForTests = nonGrowbackPlots
 FarmWork._seedCountForTests = seedCount
+FarmWork._speakForTests = speak
 
 function FarmWork.reset(actor)
     if actor then
@@ -1729,6 +1790,7 @@ function FarmWork.reset(actor)
         states = setmetatable({}, { __mode = "k" })
         scanState, knownPlots = {}, {}
         supplyScans, seedScans, knownBase = {}, {}, nil
+        lastFarmSpeechAt = -math.huge
     end
 end
 

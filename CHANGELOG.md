@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.25.3 - A camp with voices
+
+- Added relationship-earned combat control. Trust and bond now contribute a bounded term only to player-requested Focus attacks. Repeating Focus on the same live zombie within four seconds creates one costly push episode; it spends morale and relationship stress once, cannot override a missing escape or healthy support, rewards a verified pushed kill, and records lost health as an injury outcome instead.
+- Added player-assigned personal objectives to the companion context menu. An assignment overlays rather than deletes the survivor's self-chosen goal, uses the established objective progress and completion paths, and restores the personal goal when the requested objective finishes.
+- Added an off-by-default, actor-capped native vitals probe and companion interior narration. Native environmental stress rising while the player stays calm can produce sound dread; panic speaks only on onset/recovery transitions; smokers can mention native nicotine withdrawal. Deaf actors suppress sound dread, combat refusal wins the speech window, and none of these flavor signals enters relationship stress or AI decisions.
+- Added earshot-level anti-repeat memory for shared combat, danger, and hand-signal lines. Nearby companions filter common lines against one bounded party history as well as their own history, while voice/mood lines stay personal and small pools always retain a fallback candidate.
+- Expanded the high-frequency `combat.kill` common pool from eight to twenty lines and raised combat's per-topic recent window to seven without increasing bark frequency.
+- Added transition-only spontaneous hunger, thirst, and fatigue dialogue at noticeable, serious, and urgent native-stat thresholds. Announcements wait through danger and long actor cooldowns, do not repeat every tick, and remain separate from direct status answers.
+- Added bounded farming remarks for plot preparation, sowing, watering, harvest, crop loss, crop disease, and missing tools. Deterministic chance and actor/party cooldowns keep the field quiet, and speech never gates a native farm action.
+- Added brave, cautious, caring, practical, and stressed variants to every existing `stress.minor.*` and `joy.*` topic so emotional behavior sounds like the survivor expressing it.
+
 ## 0.25.2 - Through their eyes
 
 - Added **Peek**, the first player-control work package. Select a companion in the roster and hold Left bracket (rebindable) to ease the camera toward them; release it to return to the player. It works with the panel collapsed, stays on the same floor within the 16-tile loaded-area bound, and preserves normal right-click aim lean. It never moves control, player slots, the player singleton, or the camera character, so the player's body remains active and vulnerable.

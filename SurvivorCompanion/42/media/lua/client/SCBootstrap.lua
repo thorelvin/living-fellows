@@ -25,6 +25,7 @@ require "SCVehicle"
 require "SCSpawn"
 
 require "SCGameplayUtil"
+require "SCVitalsTrace"
 require "SCBaseObjectRef"
 require "SCTopology"
 require "SCPathSearch"
@@ -110,7 +111,7 @@ end
 
 local requiredModules = {
     "Call", "StableValue", "Transaction", "NativeList", "Config", "Diagnostics",
-    "Registry", "Vitals", "Scheduler", "NativeTraversalActions", "NativeVisualActions",
+    "Registry", "Vitals", "VitalsTrace", "Scheduler", "NativeTraversalActions", "NativeVisualActions",
     "NativeCombatActions", "NativeWorkActions", "NativeMovementActions",
     "NativeActions", "Performance",
     "ActionSupervisor", "Actor", "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Topology",

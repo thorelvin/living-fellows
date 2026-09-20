@@ -110,6 +110,7 @@ SC.Registry = {
     reset = function() return true end,
 }
 SC.Vitals = { summary = function() return {} end }
+SC.VitalsTrace = { reset = function() return true end }
 SC.Scheduler = {
     tasks = {},
     reset = function()

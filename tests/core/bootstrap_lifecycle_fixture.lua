@@ -57,7 +57,7 @@ SC.Runtime = {
 }
 
 local required = {
-    "Call", "StableValue", "Transaction", "NativeList", "Registry", "Vitals",
+    "Call", "StableValue", "Transaction", "NativeList", "Registry", "Vitals", "VitalsTrace",
     "Scheduler", "NativeTraversalActions", "NativeVisualActions", "NativeCombatActions",
     "NativeWorkActions", "NativeMovementActions", "NativeActions", "Performance",
     "ActionSupervisor", "Actor",

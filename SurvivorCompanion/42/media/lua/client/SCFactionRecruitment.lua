@@ -272,7 +272,15 @@ function Recruitment.startTrial(groupOrId, player, forced)
     if state.status ~= "candidate" then return false, "name_candidate_first" end
     local talking, talkReason = canTalk(group, player, forced)
     if not talking then return false, talkReason end
-    local candidate = memberFor(group, state.candidateKey)
+    local eligible, candidateOrReason = eligibility(group, forced)
+    if not eligible then
+        state.reason = candidateOrReason
+        return false, candidateOrReason
+    end
+    local candidate = candidateOrReason
+    if not candidate or candidate.key ~= state.candidateKey then
+        return false, "named_candidate_no_longer_eligible"
+    end
     local record = activeRecord(candidate)
     if not candidate or not record then return false, "candidate_not_loaded" end
     if forced ~= true then
