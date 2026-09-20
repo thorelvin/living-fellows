@@ -262,6 +262,7 @@ local function emptyFarm()
     return {
         version = BaseLife.FARM_VERSION,
         nextReceiptSerial = 1,
+        recoveryCursor = 1,
         receipts = {},
     }
 end
@@ -676,6 +677,7 @@ local function normalizeFarm(source)
     end
     local result = emptyFarm()
     result.nextReceiptSerial = integer(source.nextReceiptSerial, 1, 1, 999999)
+    result.recoveryCursor = integer(source.recoveryCursor, 1, 1, 999999)
     local limit = U() and U().config("farmReceiptLimit") or 128
     local seen = {}
     for _, row in ipairs(type(source.receipts) == "table" and source.receipts or {}) do
@@ -1906,6 +1908,13 @@ function BaseLife.farmReceipts(jobId, includeTerminal)
         end
     end
     return result
+end
+
+function BaseLife.farmRecoveryCursor(value)
+    local farm = farmFor(activeBase())
+    if not farm then return 1 end
+    if value ~= nil then farm.recoveryCursor = integer(value, 1, 1, 999999) end
+    return farm.recoveryCursor
 end
 
 function BaseLife.updateFarmReceipt(id, fields)
@@ -3436,6 +3445,10 @@ local function validFarmSource(base, path)
     if not finiteNumber(source.nextReceiptSerial) or source.nextReceiptSerial < 1
         or source.nextReceiptSerial ~= math.floor(source.nextReceiptSerial) then
         return restoreFailure(path .. ".nextReceiptSerial", "expected positive integer")
+    end
+    if source.recoveryCursor ~= nil and (not finiteNumber(source.recoveryCursor)
+        or source.recoveryCursor < 1 or source.recoveryCursor ~= math.floor(source.recoveryCursor)) then
+        return restoreFailure(path .. ".recoveryCursor", "expected positive integer")
     end
     local okay, countOrReason = denseArray(source.receipts, path .. ".receipts",
         configuredLimit("farmReceiptLimit", 128))

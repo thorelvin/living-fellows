@@ -14,6 +14,7 @@ local session = Steering._session
 local nextUpdateAt = Steering._nextUpdateAt or -math.huge
 local keyWasHeld = Steering._keyWasHeld or false
 local busyNotified = Steering._busyNotified or false
+local cursorNotified = Steering._cursorNotified or false
 local reason = Steering._reason or "idle"
 
 local function nowMs()
@@ -141,12 +142,14 @@ local function onCancelled(actor)
     return true, "steering_stopped"
 end
 
-local function release(code)
+local function release(code, preserveDeadline)
     local current = session
     session = nil
     Steering._session = nil
-    nextUpdateAt = -math.huge
-    Steering._nextUpdateAt = nextUpdateAt
+    if preserveDeadline ~= true then
+        nextUpdateAt = -math.huge
+        Steering._nextUpdateAt = nextUpdateAt
+    end
     reason = code or "idle"
     Steering._reason = reason
     if current == nil then return true end
@@ -222,8 +225,10 @@ function Steering.update()
     if not held then
         keyWasHeld = false
         busyNotified = false
+        cursorNotified = false
         Steering._keyWasHeld = false
         Steering._busyNotified = false
+        Steering._cursorNotified = false
         if session ~= nil then return release("steer_key_released") end
         reason = "idle"
         Steering._reason = reason
@@ -249,6 +254,25 @@ function Steering.update()
         local changed = session.actor ~= actor
         release(changed and "steer_selection_changed" or "steer_ownership_lost")
     end
+    local current = nowMs()
+    if current < nextUpdateAt then return session ~= nil, session and "steering_held" or reason end
+    local interval = tonumber(SC.Config and SC.Config.get
+        and SC.Config.get("steeringUpdateIntervalMs")) or 80
+    nextUpdateAt = current + math.max(25, math.min(250, interval))
+    Steering._nextUpdateAt = nextUpdateAt
+    local target, targetReason = cursorTarget(actor)
+    if target == nil then
+        if not cursorNotified then showFailure("cursor_unavailable") end
+        cursorNotified = true
+        Steering._cursorNotified = true
+        if session ~= nil then release("cursor_unavailable", true) end
+        reason = "cursor_unavailable"
+        Steering._reason = reason
+        return false, targetReason
+    end
+    cursorNotified = false
+    Steering._cursorNotified = false
+
     if session == nil then
         local acquired, acquireReason = acquire(actor)
         if acquired == nil then
@@ -265,18 +289,6 @@ function Steering.update()
         Steering._busyNotified = false
     end
 
-    local now = nowMs()
-    if now < nextUpdateAt then return true, "steering_held" end
-    local interval = tonumber(SC.Config and SC.Config.get
-        and SC.Config.get("steeringUpdateIntervalMs")) or 80
-    nextUpdateAt = now + math.max(25, math.min(250, interval))
-    Steering._nextUpdateAt = nextUpdateAt
-    local target, targetReason = cursorTarget(session.actor)
-    if target == nil then
-        showFailure("cursor_unavailable")
-        release("cursor_unavailable")
-        return false, targetReason
-    end
     local accepted, movementReason = drive(session, target)
     reason = accepted and "active" or tostring(movementReason or "movement_rejected")
     Steering._reason = reason
@@ -298,11 +310,13 @@ function Steering.reset()
     session = nil
     keyWasHeld = false
     busyNotified = false
+    cursorNotified = false
     nextUpdateAt = -math.huge
     reason = "idle"
     Steering._session = nil
     Steering._keyWasHeld = false
     Steering._busyNotified = false
+    Steering._cursorNotified = false
     Steering._nextUpdateAt = nextUpdateAt
     Steering._reason = reason
     return true

@@ -25,6 +25,12 @@ local cursorX, cursorY = 15.25, 13.75
 local squareLoaded = true
 local moves = {}
 local stops = 0
+local haloWrites = 0
+
+function player:setHaloNote(text)
+    self.halo = text
+    haloWrites = haloWrites + 1
+end
 
 function getSpecificPlayer(index) return index == 0 and player or nil end
 function getMouseX() return 100 end
@@ -62,6 +68,12 @@ SC.Actor = {
 }
 
 local Steering = SC.Steering
+local rawBegin = SC.ActionSupervisor.begin
+local acquisitions = 0
+SC.ActionSupervisor.begin = function(...)
+    acquisitions = acquisitions + 1
+    return rawBegin(...)
+end
 Steering.reset()
 held = true
 local started = Steering.update()
@@ -120,11 +132,34 @@ check(SC.ActionSupervisor.current(actor) == nil
 squareLoaded = false
 SC_TEST_CLOCK = SC_TEST_CLOCK + 100
 local cursorAccepted, cursorReason = Steering.update()
+local acquisitionsAfterInvalid = acquisitions
+local stopsAfterInvalid = stops
+local haloWritesAfterInvalid = haloWrites
 check(cursorAccepted == false and cursorReason == "cursor_unavailable"
         and SC.ActionSupervisor.current(other) == nil,
     "unloaded cursor ground releases ownership instead of driving blind")
 check(player.halo == "UI_SC_Steer_NoCursor",
     "an unavailable cursor target is explained to the player")
+for _ = 1, 100 do Steering.update() end
+check(acquisitions == acquisitionsAfterInvalid and stops == stopsAfterInvalid
+        and haloWrites == haloWritesAfterInvalid,
+    "an unchanged invalid cursor is throttled without reacquiring, stopping, or spamming")
+
+held = false
+Steering.update()
+held = true
+SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+local initialInvalidAcquisitions = acquisitions
+Steering.update()
+check(acquisitions == initialInvalidAcquisitions
+        and SC.ActionSupervisor.current(other) == nil,
+    "an initially invalid cursor is validated before player-control ownership is acquired")
+squareLoaded = true
+SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+Steering.update()
+check(SC.ActionSupervisor.current(other).owner == "player_control"
+        and acquisitions == initialInvalidAcquisitions + 1,
+    "valid steering resumes within one bounded cadence while the key remains held")
 
 held = false
 Steering.update()
