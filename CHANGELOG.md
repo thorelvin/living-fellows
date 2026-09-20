@@ -2,7 +2,7 @@
 
 # Changelog
 
-## 0.25.0 - Through their eyes
+## 0.25.1 - Through their eyes
 
 - Added **Peek**, the first player-control work package. Select a companion in the roster and hold Left bracket (rebindable) to ease the camera toward them; release it to return to the player. It works with the panel collapsed, stays on the same floor within the 16-tile loaded-area bound, and preserves normal right-click aim lean. It never moves control, player slots, the player singleton, or the camera character, so the player's body remains active and vulnerable.
 - Added a version-pinned bridge-9 camera-offset contract with a real Build 42 signature/exposure test. The Java boundary rejects non-finite coordinates, clamps the offset radially to 16 tiles, and clears only the deferred view offset on release or teardown.
@@ -11,6 +11,7 @@
 - Farming and logging now use multiple marked work areas without manual area micromanagement. The bounded farm audit rotates across every Farm area and chooses the highest-priority operation it sees. A new Fell trees order automatically selects the Lumber area with the most visible, uncommitted standing trees, balances existing logging commitments, and breaks ties by stable area id; explicit saved area assignments remain compatible.
 - Companions now explain an autonomous combat refusal with the actual dominant reason from their overrun calculation: immediate attackers, pressure from several sides, exhaustion, wounds, poor footing, a blocked escape, tight indoor space, no usable weapon, a failing weapon, or an empty firearm. Categorical danger still outranks the score, support can only lower risk, and the decision remains deterministic. Only the speech is occasional, with long per-companion and party cooldowns; a specific refusal replaces the generic retreat bark and keeps the same real sound consequence.
 - Hardened the new farming lifecycle after an external transition-level review. Audits no longer reclaim supplies from active workers; walking and looting are no longer mistaken for completed returns; selected water sources survive the approach; harvest cancellation stops its native action; saved harvest output remains tied to the original worker and is recovered even when the plant object has vanished; receipt recovery rotates fairly; overlapping Farm areas share one physical-plot reservation; seed reserves are rechecked at the moment of harvest; and invalid cursor steering no longer acquires, cancels, stops, or writes a halo every frame.
+- Closed ten more review findings around ownership and long-running camp work. Player steering now excludes ordinary decisions and farm startup; failed rollback cleanup stays quarantined and retries instead of releasing resources or admitting a successor; steering only releases its actor after the stop is verified; disabled Peek and Steering bindings stay disabled; Watch follows a same-id replacement and ends when its subject is gone; productive farms share maintenance time fairly; removed Farm areas stop reserving stale plots; large storage and seed scans resume past the first 80 items; metal barricades correctly require a fueled blowtorch; and Guard here respects the selected floor.
 
 ## 0.24.2 - Camp has a pulse
 

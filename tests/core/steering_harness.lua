@@ -25,6 +25,7 @@ local cursorX, cursorY = 15.25, 13.75
 local squareLoaded = true
 local moves = {}
 local stops = 0
+local stopMode = "success"
 local haloWrites = 0
 
 function player:setHaloNote(text)
@@ -63,6 +64,8 @@ SC.Actor = {
     end,
     stop = function()
         stops = stops + 1
+        if stopMode == "throw" then error("fixture stop failure") end
+        if stopMode == "reject" then return false end
         return true
     end,
 }
@@ -160,6 +163,53 @@ Steering.update()
 check(SC.ActionSupervisor.current(other).owner == "player_control"
         and acquisitions == initialInvalidAcquisitions + 1,
     "valid steering resumes within one bounded cadence while the key remains held")
+
+held = false
+Steering.update()
+
+local acquisitionsBeforeDisabled = acquisitions
+local movesBeforeDisabled = #moves
+SC.UI.steerHotkey = function() return 0 end
+selected = actor
+held = true
+SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+Steering.update()
+check(acquisitions == acquisitionsBeforeDisabled and #moves == movesBeforeDisabled
+        and SC.ActionSupervisor.current(actor) == nil,
+    "an explicitly unbound Steer key never falls back to the default binding")
+SC.UI.steerHotkey = nil
+SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+Steering.update()
+check(SC.ActionSupervisor.current(actor) ~= nil,
+    "an absent key API still uses the registered default binding")
+
+stopMode = "reject"
+held = false
+local releaseAccepted, releaseReason = Steering.update()
+check(releaseAccepted == false and releaseReason == "steering_stop_rejected"
+        and SC.ActionSupervisor.current(actor) ~= nil
+        and Steering.status().actor == actor,
+    "a rejected movement stop retains both supervisor ownership and the steering session")
+selected = other
+held = true
+SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+Steering.update()
+check(SC.ActionSupervisor.current(actor) ~= nil
+        and SC.ActionSupervisor.current(other) == nil,
+    "a new selection cannot acquire while the old steering stop remains unverified")
+stopMode = "throw"
+SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+Steering.update()
+check(SC.ActionSupervisor.current(actor) ~= nil
+        and SC.ActionSupervisor.current(other) == nil,
+    "a throwing stop adapter also retains the old exclusion obligation")
+stopMode = "success"
+SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+Steering.update()
+check(SC.ActionSupervisor.current(actor) == nil
+        and SC.ActionSupervisor.current(other) ~= nil
+        and Steering.status().actor == other,
+    "a later verified stop releases exactly once and permits the selected actor to acquire")
 
 held = false
 Steering.update()

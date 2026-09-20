@@ -873,7 +873,8 @@ local function guardPost(actor)
     end
     local core = type(base.core) == "table" and base.core or {}
     if math.floor(anchor.x) == math.floor(tonumber(core.x) or -1)
-        and math.floor(anchor.y) == math.floor(tonumber(core.y) or -1) then
+        and math.floor(anchor.y) == math.floor(tonumber(core.y) or -1)
+        and math.floor(anchor.z or 0) == math.floor(tonumber(core.z) or 0) then
         return nil
     end
     if SC.BaseLife.isInside(anchor) ~= true then return nil end
@@ -1101,20 +1102,25 @@ function BaseWork.auditMaintenance(player)
             U().config("workRecoveryPerPulse") or 2)
     end
     if type(SC.BaseLife.auditOperations) == "function" then SC.BaseLife.auditOperations(false) end
-    if SC.FarmWork and type(SC.FarmWork.audit) == "function" then
-        local queued, result = SC.FarmWork.audit(base, now())
-        if queued == true then return true, result end
+    -- Farming participates in the same bounded round-robin as every other
+    -- maintenance family. A productive field must not starve bandages,
+    -- sorting, routines, or barricade inspection indefinitely.
+    auditPhase = (auditPhase % 5) + 1
+    if auditPhase == 1 then
+        if SC.FarmWork and type(SC.FarmWork.audit) == "function" then
+            return SC.FarmWork.audit(base, now())
+        end
+        return false, "farm_audit_unavailable"
     end
-    auditPhase = (auditPhase % 4) + 1
-    if auditPhase == 1 then return auditMedical(base) end
+    if auditPhase == 2 then return auditMedical(base) end
     local settings = base.settings or {}
-    if auditPhase == 2 then
+    if auditPhase == 3 then
         if settings.autoMaintenance == false or settings.workload == "essential" then
             return false, "automatic_sorting_disabled"
         end
         return auditSorting(base)
     end
-    if auditPhase == 3 then
+    if auditPhase == 4 then
         if settings.routines == false or settings.workload ~= "continuous" then
             return false, "continuous_routines_disabled"
         end

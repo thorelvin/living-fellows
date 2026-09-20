@@ -1343,6 +1343,31 @@ do
         end,
     }
     local post = SC.BaseWork._guardPostForTests(guard)
+    local originalInside = SC.BaseLife.isInside
+    SC.BaseLife.isInside = function(value)
+        if type(value) == "table" and value.x ~= nil then return true end
+        return originalInside(value)
+    end
+    SC.Commands.peek = function(actor)
+        if actor ~= guard then return nil end
+        return { order = "base_duty", anchor = { x = 0, y = 0, z = 1 } }
+    end
+    local aboveCore = SC.BaseWork._guardPostForTests(guard)
+    SC.Commands.peek = function(actor)
+        if actor ~= guard then return nil end
+        return { order = "base_duty", anchor = { x = 0, y = 0, z = -1 } }
+    end
+    local belowCore = SC.BaseWork._guardPostForTests(guard)
+    SC.Commands.peek = function(actor)
+        if actor ~= guard then return nil end
+        return { order = "base_duty", anchor = { x = 0, y = 0, z = 0 } }
+    end
+    local exactCore = SC.BaseWork._guardPostForTests(guard)
+    SC.BaseLife.isInside = originalInside
+    SC.Commands.peek = function(actor)
+        if actor ~= guard then return nil end
+        return { order = "base_duty", anchor = { x = 3, y = -2, z = 0 } }
+    end
     local queued, chore = SC.BaseLife.enqueueJob({ type = "sort", priority = 2 })
     local priorRequest = SC.Navigation.request
     local patrolTarget
@@ -1357,10 +1382,36 @@ do
     SC.Commands = priorCommands
     local px, py = patrolTarget and patrolTarget.x, patrolTarget and patrolTarget.y
     check(post ~= nil and post.x == 3 and post.y == -2
+            and aboveCore ~= nil and aboveCore.z == 1
+            and belowCore ~= nil and belowCore.z == -1 and exactCore == nil
             and queued == true and chore ~= nil and chore.state == "pending" and claimed == nil
             and px ~= nil and math.abs(px - 3) <= 2 and math.abs(py + 2) <= 2,
         "a guard on shift patrols its own post and leaves generic chores to others: "
             .. tostring(reason))
+end
+
+-- Productive fields share the bounded maintenance rotation instead of
+-- suppressing every other audit family on every pulse.
+do
+    setup("logs", 1)
+    local priorFarm = SC.FarmWork
+    local farmCalls = 0
+    SC.FarmWork = {
+        audit = function()
+            farmCalls = farmCalls + 1
+            return true, "farm_always_productive"
+        end,
+        reset = function() return true end,
+    }
+    SC.BaseWork.reset()
+    local nonFarmResults = 0
+    for _ = 1, 10 do
+        local _, auditReason = SC.BaseWork.auditMaintenance(nil)
+        if auditReason ~= "farm_always_productive" then nonFarmResults = nonFarmResults + 1 end
+    end
+    SC.FarmWork = priorFarm
+    check(farmCalls == 2 and nonFarmResults == 8,
+        "always-productive farming receives one fair slot while four maintenance families still run")
 end
 
 local gatherMetrics = SC.GatherWork.diagnostics()

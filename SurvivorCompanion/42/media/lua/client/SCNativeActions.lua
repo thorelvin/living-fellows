@@ -1701,21 +1701,15 @@ function actions.startFarm(actor, intent)
     return queueTrackedWork(actor, timedAction, record, "farm_" .. operation)
 end
 
-local function startRemoveBarricade(actor, intent, provider)
-    if intent.object == nil then return false, "remove barricade intent has no object" end
-    local handled, reason = useProvider(provider, "removeBarricade", actor, intent.object, intent)
-    if handled ~= nil then return handled, reason end
-    if not provider.directNative then return false, reason end
-    if type(ISUnbarricadeAction) ~= "table"
-        or type(ISUnbarricadeAction.new) ~= "function" then
-        return false, "native remove barricade action is unavailable"
-    end
-    local barricade, barricadeOk = invoke(intent.object, "getBarricadeForCharacter", actor)
+local function removeBarricadeTool(actor, object)
+    local barricadeOk, barricade = invoke(object, "getBarricadeForCharacter", actor)
     if not barricadeOk or barricade == nil then
-        return false, "companion cannot reach the selected barricade side"
+        return nil, nil, "companion cannot reach the selected barricade side"
     end
     local inventoryOk, inventory = invoke(actor, "getInventory")
-    if not inventoryOk or inventory == nil then return false, "actor inventory is unavailable" end
+    if not inventoryOk or inventory == nil then
+        return nil, nil, "actor inventory is unavailable"
+    end
     local metalOk, metal = invoke(barricade, "isMetal")
     local barsOk, metalBars = invoke(barricade, "isMetalBar")
     local tool
@@ -1725,19 +1719,38 @@ local function startRemoveBarricade(actor, intent, provider)
             local usesOk, uses = invoke(item, "getCurrentUses")
             return usesOk and tonumber(uses) and tonumber(uses) >= 1
         end)
-        if not foundOk or tool == nil then return false, "companion needs a fueled blowtorch" end
+        if not foundOk or tool == nil then
+            return barricade, nil, "companion needs a fueled blowtorch"
+        end
     else
         local removeTag = workTag("REMOVE_BARRICADE")
-        if removeTag == nil then return false, "native remove barricade item tag is unavailable" end
+        if removeTag == nil then
+            return barricade, nil, "native remove barricade item tag is unavailable"
+        end
         local foundOk
         foundOk, tool = invoke(inventory, "getFirstTagEvalRecurse", removeTag, function(item)
             local brokenOk, broken = invoke(item, "isBroken")
             return not brokenOk or broken ~= true
         end)
         if not foundOk or tool == nil then
-            return false, "companion needs an unbroken pry or remove-barricade tool"
+            return barricade, nil, "companion needs an unbroken pry or remove-barricade tool"
         end
     end
+    return barricade, tool
+end
+actions._removeBarricadeToolForTests = removeBarricadeTool
+
+local function startRemoveBarricade(actor, intent, provider)
+    if intent.object == nil then return false, "remove barricade intent has no object" end
+    local handled, reason = useProvider(provider, "removeBarricade", actor, intent.object, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    if type(ISUnbarricadeAction) ~= "table"
+        or type(ISUnbarricadeAction.new) ~= "function" then
+        return false, "native remove barricade action is unavailable"
+    end
+    local _, tool, toolReason = removeBarricadeTool(actor, intent.object)
+    if tool == nil then return false, toolReason end
     local record, prepareReason = prepareWorkInventory(actor, { tool }, tool, nil)
     if not record then return false, prepareReason end
     local created, timedAction = pcall(

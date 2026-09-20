@@ -379,6 +379,73 @@ do
         "the re-entrant urgent owner reaches a terminal phase and releases reservations")
 end
 
+do
+    local rollbackActor = testActor("supervisor-rollback-quarantine")
+    local resource, attempts, cleaned, urgentRuns = {}, 0, false, 0
+    local rollbackToken = assert(Supervisor.begin(rollbackActor, {
+        owner = "work", action = "partial_cleanup", ignoreRetry = true,
+        onCancel = function()
+            attempts = attempts + 1
+            if attempts == 1 then error("cleanup interrupted after partial rollback") end
+            cleaned = true
+            return true, "cleanup_verified"
+        end,
+        cancelVerified = function() return cleaned == true end,
+    }))
+    assert(Supervisor.reserve(rollbackToken, resource, "exclusive fixture"))
+    local cancelledRollback, rollbackReason = Supervisor.cancel(
+        rollbackActor, "fixture_cancel", nil, false)
+    assert(Supervisor.queueUrgent(rollbackActor, {
+        owner = "survival", action = "retreat_after_cleanup",
+        dispatch = function() urgentRuns = urgentRuns + 1 return true, "retreat_started" end,
+    }))
+    local blockedOwner, blockedReason = Supervisor.begin(rollbackActor, {
+        owner = "player", action = "replacement", priority = Supervisor.Priority.PLAYER,
+        ignoreRetry = true,
+    })
+    check(cancelledRollback ~= true and rollbackReason == "rollback_failed"
+            and Supervisor.current(rollbackActor) == rollbackToken
+            and Supervisor.reservationCount(rollbackActor) == 1
+            and urgentRuns == 0 and Supervisor.urgentStatus(rollbackActor).state == "queued"
+            and blockedOwner == nil
+            and (blockedReason == "rollback_recovery_pending"
+                or string.find(tostring(blockedReason), "actor_owned_by", 1, true) ~= nil),
+        "a throwing partial rollback quarantines actor and resources and blocks every successor: "
+            .. tostring(cancelledRollback) .. "/" .. tostring(rollbackReason)
+            .. " current=" .. tostring(Supervisor.current(rollbackActor) == rollbackToken)
+            .. " reservations=" .. tostring(Supervisor.reservationCount(rollbackActor))
+            .. " urgent=" .. tostring(urgentRuns) .. "/"
+            .. tostring(Supervisor.urgentStatus(rollbackActor)
+                and Supervisor.urgentStatus(rollbackActor).state)
+            .. " blocked=" .. tostring(blockedOwner) .. "/" .. tostring(blockedReason))
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 300
+    local recovered, recoveryReason = Supervisor.update(rollbackActor)
+    check(recovered == true and recoveryReason == "cancelled" and attempts == 2
+            and cleaned == true and Supervisor.current(rollbackActor) == nil
+            and Supervisor.reservationCount(rollbackActor) == 0 and urgentRuns == 1
+            and Supervisor.urgentStatus(rollbackActor).state == "dispatched",
+        "bounded rollback recovery releases ownership and dispatches queued urgent work once")
+
+    local reconciledActor = testActor("supervisor-rollback-reconcile")
+    local effectGone, cleanupCalls = false, 0
+    local reconciledToken = assert(Supervisor.begin(reconciledActor, {
+        owner = "work", action = "cleanup_then_throw", ignoreRetry = true,
+        onCancel = function()
+            cleanupCalls = cleanupCalls + 1
+            effectGone = true
+            error("callback threw after cleanup committed")
+        end,
+        cancelVerified = function() return effectGone == true, "effect_absent" end,
+    }))
+    assert(Supervisor.reserve(reconciledToken, {}, "reconciled fixture"))
+    local reconciled, reconciledReason = Supervisor.cancel(
+        reconciledActor, "fixture_reconcile", nil, false)
+    check(reconciled == true and reconciledReason == "cancelled" and cleanupCalls == 1
+            and Supervisor.current(reconciledActor) == nil
+            and Supervisor.reservationCount(reconciledActor) == 0,
+        "a cleanup that committed before throwing is reconciled by postcondition without replay")
+end
+
 local provider = {
     testOnly = true,
     isActor = function(_, candidate) return candidate ~= nil end,

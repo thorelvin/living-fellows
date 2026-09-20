@@ -1276,6 +1276,10 @@ class UIStaticContractTests(unittest.TestCase):
             self.ui,
         )
         self.assertIn("UI.DEFAULT_PEEK_HOTKEY = Keyboard.KEY_LBRACKET", self.ui)
+        peek = lua_function(self.ui, "function UI.peekHotkey()")
+        self.assertIn("configured ~= nil", peek)
+        self.assertIn("return tonumber(configured)", peek)
+        self.assertIn("return UI.DEFAULT_PEEK_HOTKEY", peek)
         selected = lua_function(self.ui, "function UI.selectedActor()")
         self.assertIn("UI.instance.selectedRow", selected)
         self.assertIn("row.actor", selected)
@@ -1288,6 +1292,9 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("UI.DEFAULT_STEER_HOTKEY = Keyboard.KEY_RBRACKET", self.ui)
         steer = lua_function(self.ui, "function UI.steerHotkey()")
         self.assertIn("UI.STEER_HOTKEY_ACTION", steer)
+        self.assertIn("configured ~= nil", steer)
+        self.assertIn("return tonumber(configured)", steer)
+        self.assertIn("return UI.DEFAULT_STEER_HOTKEY", steer)
 
     def test_menu_toggle_uses_paired_vanilla_ui_sounds(self) -> None:
         self.assertIn('UI.MENU_OPEN_SOUND = "UIVehicleMenuOpen"', self.ui)

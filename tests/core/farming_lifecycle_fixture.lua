@@ -19,6 +19,8 @@ F.native = setmetatable({}, { __mode = "k" })
 F.nativeStarts = {}
 F.nativeCancels = 0
 F.completedJobs = 0
+F.itemBudget = 256
+F.nativeStops = 0
 
 local function removeIdentity(container, item)
     for index = #(container.items or {}), 1, -1 do
@@ -160,7 +162,8 @@ function F.reset()
     F.nextReceipt, F.returnMode, F.restoreCalls = 1, "complete", 0
     F.navigationRequests, F.nativeStarts = {}, {}
     F.native = setmetatable({}, { __mode = "k" })
-    F.nativeCancels, F.completedJobs = 0, 0
+    F.nativeCancels, F.completedJobs, F.nativeStops = 0, 0, 0
+    F.itemBudget = 256
     F.base = {
         zones = {
             { id = "zone:area", kind = "area", x1 = 0, y1 = 0, x2 = 30, y2 = 30, z = 0 },
@@ -174,7 +177,7 @@ U.nowMs = function() return F.clock end
 U.config = function(key)
     local values = {
         farmScanSquaresPerSlice = 8, farmRecoveryPerPulse = 4,
-        farmSeedSpareReserve = 2, campStorageItemBudget = 256,
+        farmSeedSpareReserve = 2, campStorageItemBudget = F.itemBudget,
         farmDayStartHour = 6, farmDayEndHour = 21, farmActionMaxMs = 120000,
     }
     return values[key]
@@ -365,7 +368,10 @@ SC.NativeActions = {
         F.native[actor] = nil
         return true, reason
     end,
-    stopDirect = function() return true end,
+    stopDirect = function()
+        F.nativeStops = F.nativeStops + 1
+        return true
+    end,
 }
 
 F.reset()

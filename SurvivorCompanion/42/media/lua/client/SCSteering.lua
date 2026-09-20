@@ -16,6 +16,7 @@ local keyWasHeld = Steering._keyWasHeld or false
 local busyNotified = Steering._busyNotified or false
 local cursorNotified = Steering._cursorNotified or false
 local reason = Steering._reason or "idle"
+local releaseRetryAt = Steering._releaseRetryAt or -math.huge
 
 local function nowMs()
     if SC.GameplayUtil and type(SC.GameplayUtil.nowMs) == "function" then
@@ -51,7 +52,10 @@ end
 local function configuredKey()
     if SC.UI and type(SC.UI.steerHotkey) == "function" then
         local ok, key = pcall(SC.UI.steerHotkey)
-        if ok and tonumber(key) and tonumber(key) > 0 then return tonumber(key) end
+        if ok then
+            key = tonumber(key)
+            return key and key > 0 and key or nil
+        end
     end
     return SC.UI and tonumber(SC.UI.DEFAULT_STEER_HOTKEY) or nil
 end
@@ -132,35 +136,50 @@ end
 local function stopActor(actor)
     if SC.Actor and type(SC.Actor.stop) == "function" then
         local ok, stopped = pcall(SC.Actor.stop, actor)
-        return ok and stopped == true
+        if not ok then return false, tostring(stopped) end
+        return stopped == true, stopped == true and "steering_stopped"
+            or "steering_stop_rejected"
     end
-    return false
+    return false, "actor_stop_unavailable"
 end
 
 local function onCancelled(actor)
-    stopActor(actor)
-    return true, "steering_stopped"
+    return stopActor(actor)
 end
 
 local function release(code, preserveDeadline)
     local current = session
-    session = nil
-    Steering._session = nil
-    if preserveDeadline ~= true then
-        nextUpdateAt = -math.huge
-        Steering._nextUpdateAt = nextUpdateAt
-    end
+    local releaseReason = "ownership_already_released"
     reason = code or "idle"
     Steering._reason = reason
     if current == nil then return true end
     local supervisor = SC.ActionSupervisor
     if supervisor and type(supervisor.isCurrent) == "function"
         and supervisor.isCurrent(current.token) then
+        if nowMs() < releaseRetryAt then return false, "steering_release_pending" end
         local cancelled, cancelReason = supervisor.cancel(
             current.actor, code or "steer_released", nil, false)
-        return cancelled == true, cancelReason
+        if cancelled ~= true then
+            releaseRetryAt = nowMs() + math.max(25, tonumber(SC.Config and SC.Config.get
+                and SC.Config.get("steeringCancelRetryMs")) or 100)
+            Steering._releaseRetryAt = releaseRetryAt
+            reason = cancelReason or "steering_release_pending"
+            Steering._reason = reason
+            return false, reason
+        end
+        releaseReason = cancelReason or "steering_released"
     end
-    return true, "ownership_already_released"
+    if session == current then
+        session = nil
+        Steering._session = nil
+    end
+    releaseRetryAt = -math.huge
+    Steering._releaseRetryAt = releaseRetryAt
+    if preserveDeadline ~= true then
+        nextUpdateAt = -math.huge
+        Steering._nextUpdateAt = nextUpdateAt
+    end
+    return true, releaseReason
 end
 
 local function acquire(actor)
@@ -252,7 +271,9 @@ function Steering.update()
         or type(supervisor) ~= "table" or type(supervisor.isCurrent) ~= "function"
         or supervisor.isCurrent(session.token) ~= true) then
         local changed = session.actor ~= actor
-        release(changed and "steer_selection_changed" or "steer_ownership_lost")
+        local released, releaseReason = release(
+            changed and "steer_selection_changed" or "steer_ownership_lost")
+        if released ~= true then return false, releaseReason end
     end
     local current = nowMs()
     if current < nextUpdateAt then return session ~= nil, session and "steering_held" or reason end
@@ -306,7 +327,8 @@ function Steering.status()
 end
 
 function Steering.reset()
-    release("steering_reset")
+    local released, releaseReason = release("steering_reset")
+    if released ~= true then return false, releaseReason end
     session = nil
     keyWasHeld = false
     busyNotified = false
@@ -319,6 +341,8 @@ function Steering.reset()
     Steering._cursorNotified = false
     Steering._nextUpdateAt = nextUpdateAt
     Steering._reason = reason
+    releaseRetryAt = -math.huge
+    Steering._releaseRetryAt = releaseRetryAt
     return true
 end
 

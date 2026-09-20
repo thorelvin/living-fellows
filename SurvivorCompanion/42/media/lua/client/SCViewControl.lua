@@ -71,21 +71,37 @@ local function selectedActor()
 end
 
 local function watchedActor()
-    if state.watchActor ~= nil then return state.watchActor end
     if state.watchId ~= nil and SC.Registry and type(SC.Registry.byId) == "function" then
         local ok, record = pcall(SC.Registry.byId, state.watchId)
-        if ok and type(record) == "table" then
-            state.watchActor = record.actor
-            return state.watchActor
+        if not ok or type(record) ~= "table" or record.actor == nil
+            or (type(record.runtime) == "table" and record.runtime.inactive == true) then
+            return nil
         end
+        if type(SC.Registry.isActive) == "function" then
+            local activeOk, active = pcall(SC.Registry.isActive, record.actor, state.watchId)
+            if not activeOk or active ~= true then return nil end
+        end
+        if SC.Actor and type(SC.Actor.isCompanion) == "function" then
+            local companionOk, companion = pcall(SC.Actor.isCompanion, record.actor)
+            if not companionOk or companion ~= true then return nil end
+        end
+        state.watchActor = record.actor
+        return record.actor
     end
-    return nil
+    if state.watchActor ~= nil and SC.Actor and type(SC.Actor.isCompanion) == "function" then
+        local ok, active = pcall(SC.Actor.isCompanion, state.watchActor)
+        if not ok or active ~= true then return nil end
+    end
+    return state.watchActor
 end
 
 local function configuredKey()
     if SC.UI and type(SC.UI.peekHotkey) == "function" then
         local ok, key = pcall(SC.UI.peekHotkey)
-        if ok and tonumber(key) and tonumber(key) > 0 then return tonumber(key) end
+        if ok then
+            key = tonumber(key)
+            return key and key > 0 and key or nil
+        end
     end
     return SC.UI and tonumber(SC.UI.DEFAULT_PEEK_HOTKEY) or nil
 end

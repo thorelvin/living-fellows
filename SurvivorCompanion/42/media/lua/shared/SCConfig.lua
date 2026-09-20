@@ -70,6 +70,8 @@ local valueData = {
     actionRetryThirdMs = 15000,
     actionRetryMaximumMs = 60000,
     actionRetryMaxAttempts = 4,
+    actionRollbackRetryMs = 250,
+    actionRollbackMaxAttempts = 4,
     actionSelectedTimeoutMs = 2500,
     actionReservedTimeoutMs = 5000,
     actionApproachTimeoutMs = 15000,
@@ -80,6 +82,7 @@ local valueData = {
     actionWaitingTimeoutMs = 15000,
     actionRecoveryTimeoutMs = 15000,
     actionPoseMaximumDisplacement = 0.25,
+    steeringCancelRetryMs = 100,
     -- A completed native work action normally gets claimed by BaseWork on its
     -- next decision beat. Under extreme scheduler pressure, release stale pose
     -- ownership after this grace so it can never freeze locomotion indefinitely.

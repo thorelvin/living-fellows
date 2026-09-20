@@ -1132,6 +1132,10 @@ function BaseLife.removeZone(id)
         end
     end
     table.remove(base.zones, index)
+    if zone.kind == "farm" and SC.FarmWork
+        and type(SC.FarmWork.zoneRemoved) == "function" then
+        SC.FarmWork.zoneRemoved(id)
+    end
     return true
 end
 

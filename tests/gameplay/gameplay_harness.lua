@@ -5979,6 +5979,49 @@ check(SurvivorCompanion.Decision._ownerNeedsImmediatePreemptionForTests(
             true) == true,
     "an active medical owner ignores its own wound urgency but still yields to external danger")
 do
+    local steeredActor = actor("sc-decision-steering-owner", 9, 8, {})
+    registry[steeredActor.id] = steeredActor
+    local steeringStops, basePolls = 0, 0
+    local oldBaseWork = SurvivorCompanion.BaseWork
+    SurvivorCompanion.BaseWork = SurvivorCompanion.BaseWork or {}
+    local oldBaseWorkUpdate = SurvivorCompanion.BaseWork.update
+    SurvivorCompanion.BaseWork.update = function(candidate, ...)
+        if candidate == steeredActor then basePolls = basePolls + 1 end
+        if oldBaseWorkUpdate then return oldBaseWorkUpdate(candidate, ...) end
+        return false, "base_work_unavailable"
+    end
+    local steeringToken = assert(SurvivorCompanion.ActionSupervisor.begin(steeredActor, {
+        owner = "player_control", action = "steer",
+        priority = SurvivorCompanion.ActionSupervisor.Priority.PLAYER,
+        phase = "approaching", deadlines = { approaching = 0 },
+        onCancel = function() steeringStops = steeringStops + 1 return true end,
+        ignoreRetry = true,
+    }))
+    local held, heldReason = SurvivorCompanion.Decision._holdOwnedActivityOrPacingForTests(
+        steeredActor, player,
+        { threats = {}, immediateCount = 0, pressure = 0, player = { danger = 0 } },
+        { alive = true, health = 100, wounds = {}, bleedingCount = 0 }, {},
+        { order = "base_duty", recruited = true }, {}, clock, {})
+    check(held == true and heldReason == "player_control:steer"
+            and basePolls == 0
+            and SurvivorCompanion.ActionSupervisor.isCurrent(steeringToken),
+        "an approaching player-control owner excludes ordinary base work and decisions")
+    SurvivorCompanion.Decision._holdOwnedActivityOrPacingForTests(
+        steeredActor, player,
+        { threats = {}, immediateCount = 1, pressure = 1, player = { danger = 0 } },
+        { alive = true, health = 100, wounds = {}, bleedingCount = 0 }, {},
+        { order = "base_duty", recruited = true }, {}, clock, {})
+    if oldBaseWork == nil then
+        SurvivorCompanion.BaseWork = nil
+    else
+        SurvivorCompanion.BaseWork.update = oldBaseWorkUpdate
+    end
+    check(steeringStops == 1
+            and not SurvivorCompanion.ActionSupervisor.isCurrent(steeringToken),
+        "survival danger still preempts an approaching player-control owner")
+    registry[steeredActor.id] = nil
+end
+do
     local portalActor = actor("sc-combat-preempts-portal-preparation", 9, 8, {})
     registry[portalActor.id] = portalActor
     local oldActivityStatus = SurvivorCompanion.NativeActions.activityStatus

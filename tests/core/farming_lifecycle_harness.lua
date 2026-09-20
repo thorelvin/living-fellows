@@ -12,6 +12,7 @@ end
 
 local function fresh()
     FarmWork.reset()
+    if SC.ActionSupervisor then SC.ActionSupervisor.reset(nil, "farm_fixture") end
     F.reset()
     farming_vegetableconf.props.Tomato.growBack = 2
 end
@@ -255,5 +256,134 @@ handled, reason = FarmWork.update(actor, {}, guardedHarvest, {})
 check(handled == false and reason == "farm_seed_reserve_changed"
         and #F.nativeStarts == 0 and plant.harvestable == true,
     "harvest cannot start after its protective seed reserve disappears")
+
+-- LF-11: farm startup must acquire WORK ownership before stopping movement,
+-- equipping supply, or queueing a native action.
+fresh()
+actor = F.actor("worker-a", 0, 1)
+plant = F.plant({ state = "plow", harvestable = false })
+F.square(1, 1, plant)
+tomatoSeed = seed(80)
+F.addStorage("storage:farm", "farming", { tomatoSeed })
+local sowJob = F.job("sow", 1, 1, {
+    id = "job:steering-race", actorId = actor.id, cropType = "Tomato",
+})
+FarmWork.update(actor, {}, sowJob, {})
+local playerToken = assert(SC.ActionSupervisor.begin(actor, {
+    owner = "player_control", action = "steer",
+    priority = SC.ActionSupervisor.Priority.PLAYER,
+    phase = "approaching", deadlines = { approaching = 0 }, ignoreRetry = true,
+}))
+handled, reason = FarmWork.update(actor, {}, sowJob, {})
+check(handled == false and string.find(tostring(reason), "actor_owned_by", 1, true) ~= nil
+        and #F.nativeStarts == 0 and F.nativeStops == 0
+        and SC.ActionSupervisor.isCurrent(playerToken),
+    "a current steering owner blocks farm stop/equip/queue side effects")
+SC.ActionSupervisor.cancel(actor, "fixture_release", nil, true)
+handled, reason = FarmWork.update(actor, {}, sowJob, {})
+check(handled == true and reason == "farm_sow_started"
+        and #F.nativeStarts == 1 and F.nativeStops == 1
+        and SC.ActionSupervisor.current(actor) == nil,
+    "farm startup acquires, commits, verifies, and releases one WORK transaction")
+
+-- LF-18: seed reserve counts only plots still covered by the current Farm-zone
+-- union, while overlapping coverage and failed removal remain intact.
+fresh()
+farming_vegetableconf.props.Tomato.growBack = nil
+F.base.zones = {
+    { id = "zone:area", kind = "area", x1 = 0, y1 = 0, x2 = 30, y2 = 30, z = 0 },
+    { id = "zone:farm-a", kind = "farm", x1 = 1, y1 = 1, x2 = 1, y2 = 1, z = 0 },
+    { id = "zone:farm-b", kind = "farm", x1 = 2, y1 = 1, x2 = 2, y2 = 1, z = 0 },
+}
+F.square(1, 1, F.plant({ hasSeeds = false }))
+F.square(2, 1, F.plant({ hasSeeds = false }))
+FarmWork.audit(F.base)
+check(FarmWork._nonGrowbackPlotsForTests("Tomato") == 2,
+    "seed reserve census records both currently zoned non-growback plots")
+table.remove(F.base.zones, 2)
+FarmWork.zoneRemoved("zone:farm-a")
+check(FarmWork._nonGrowbackPlotsForTests("Tomato") == 1,
+    "successful zone removal prunes an uncovered plot from the seed reserve")
+
+fresh()
+farming_vegetableconf.props.Tomato.growBack = nil
+F.base.zones = {
+    { id = "zone:area", kind = "area", x1 = 0, y1 = 0, x2 = 30, y2 = 30, z = 0 },
+    { id = "zone:farm-a", kind = "farm", x1 = 1, y1 = 1, x2 = 1, y2 = 1, z = 0 },
+    { id = "zone:farm-b", kind = "farm", x1 = 1, y1 = 1, x2 = 1, y2 = 1, z = 0 },
+}
+F.square(1, 1, F.plant({ hasSeeds = false }))
+FarmWork.audit(F.base)
+table.remove(F.base.zones, 2)
+FarmWork.zoneRemoved("zone:farm-a")
+check(FarmWork._nonGrowbackPlotsForTests("Tomato") == 1,
+    "removing one overlapping Farm zone preserves the plot covered by another")
+local blockedZoneJob = F.job("harvest", 1, 1, {
+    id = "job:blocked-zone-remove", zoneId = "zone:farm-b", actorId = "gone",
+    cropType = "Tomato",
+})
+F.receipts[#F.receipts + 1] = {
+    id = "farm-receipt:blocked", jobId = blockedZoneJob.id,
+    kind = "output", phase = "recovery",
+}
+local removed, removeReason = FarmWork.cancelZone("zone:farm-b")
+check(removed == false and removeReason == "farm_recovery_pending"
+        and FarmWork._nonGrowbackPlotsForTests("Tomato") == 1,
+    "a rejected zone removal does not prune seed-reserve observations early")
+F.base = { zones = {
+    { id = "zone:new-area", kind = "area", x1 = 10, y1 = 10, x2 = 20, y2 = 20, z = 0 },
+    { id = "zone:new-farm", kind = "farm", x1 = 11, y1 = 11, x2 = 11, y2 = 11, z = 0 },
+}, jobs = {}, storages = {}, farm = { recoveryCursor = 1 } }
+check(FarmWork._nonGrowbackPlotsForTests("Tomato") == 0,
+    "switching bases invalidates the former base's known-plot cache")
+
+-- LF-19: storage searches and seed census continue beyond the first bounded
+-- slice, restart on mutation, and never turn an incomplete scan into absence.
+fresh()
+F.itemBudget = 80
+actor = F.actor("worker-a", 0, 1)
+plant = F.plant({ state = "plow", harvestable = false })
+F.square(1, 1, plant)
+local deepItems = {}
+for index = 1, 80 do deepItems[index] = F.item("Base.Junk" .. tostring(index), 100 + index) end
+tomatoSeed = seed(181)
+deepItems[81] = tomatoSeed
+F.addStorage("storage:deep", "farming", deepItems)
+sowJob = F.job("sow", 1, 1, {
+    id = "job:deep-seed", actorId = actor.id, cropType = "Tomato",
+})
+handled, reason = FarmWork.update(actor, {}, sowJob, {})
+check(handled == true and reason == "farm_supply_scanning"
+        and tomatoSeed.container ~= actor.inventory,
+    "the first bounded storage slice reports incomplete rather than missing")
+handled, reason = FarmWork.update(actor, {}, sowJob, {})
+check(handled == true and reason == "farm_supply_taken"
+        and tomatoSeed.container == actor.inventory,
+    "the next slice finds and borrows an exact supply at position 81")
+
+fresh()
+F.itemBudget = 80
+local censusItems = {}
+for index = 1, 80 do censusItems[index] = F.item("Base.CensusJunk" .. tostring(index), 300 + index) end
+censusItems[81], censusItems[82], censusItems[83] = seed(381), seed(382), seed(383)
+local _, censusContainer = F.addStorage("storage:census", "farming", censusItems)
+local count, complete = FarmWork._seedCountForTests("Tomato")
+check(count == nil and complete == false,
+    "seed reserve census exposes its incomplete first slice")
+count, complete = FarmWork._seedCountForTests("Tomato")
+check(count == 3 and complete == true,
+    "completed seed census includes every seed beyond the old 80-item prefix: count="
+        .. tostring(count) .. " complete=" .. tostring(complete))
+local addedSeed = seed(384)
+count, complete = FarmWork._seedCountForTests("Tomato")
+check(count == nil and complete == false,
+    "a new bounded census begins without reusing a stale completed count")
+censusContainer:AddItem(addedSeed)
+count, complete = FarmWork._seedCountForTests("Tomato")
+check(count == nil and complete == false,
+    "container mutation invalidates and restarts the bounded seed census")
+count, complete = FarmWork._seedCountForTests("Tomato")
+check(count == 4 and complete == true,
+    "the restarted census converges on the mutated exact count")
 
 print("FARMING_LIFECYCLE_PASS checks=" .. tostring(checks))

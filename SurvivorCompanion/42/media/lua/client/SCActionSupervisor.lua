@@ -220,6 +220,7 @@ local function copyRecord(record)
         committed = record.committed == true,
         commitAt = record.commitAt,
         commitReceipt = safeDetail(record.commitReceipt, 0),
+        rollback = safeDetail(record.rollbackObligation, 0),
     }
 end
 
@@ -368,10 +369,71 @@ local function finish(token, phase, reason, detail, recordRetry)
     return true, phase, retry
 end
 
-local function runCancel(token, reason, force, terminalFailure)
+local function rollbackVerified(token, obligation)
+    if type(token.cancelVerified) ~= "function" then return false end
+    local callOk, verified, verifyReason = pcall(token.cancelVerified,
+        token.actor, obligation.reason, token)
+    if not callOk then
+        if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+            SC.Diagnostics.report("action-supervisor", token.actorId,
+                "action rollback verification failed", verified)
+        end
+        return false, clean(verified, 160)
+    end
+    return verified == true, clean(verifyReason, 128)
+end
+
+local function retainRollback(token, reason, terminalFailure, errorValue)
+    local current = nowMs()
+    local obligation = token.rollbackObligation or {
+        reason = clean(reason, 128) or "cancelled",
+        terminalFailure = terminalFailure == true,
+        attempts = 0,
+        maximumAttempts = math.max(1, math.floor(tonumber(
+            config("actionRollbackMaxAttempts", 4)) or 4)),
+    }
+    obligation.attempts = math.min(obligation.maximumAttempts,
+        (tonumber(obligation.attempts) or 0) + 1)
+    obligation.error = clean(errorValue, 160)
+    obligation.failedAt = current
+    obligation.exhausted = obligation.attempts >= obligation.maximumAttempts
+    obligation.retryAt = obligation.exhausted and nil
+        or current + math.max(1, tonumber(config("actionRollbackRetryMs", 250)) or 250)
+    token.rollbackObligation = obligation
+    token.phase = "recovering"
+    token.phaseAt, token.lastProgressAt = current, current
+    token.reason = obligation.exhausted and "rollback_quarantined" or "rollback_failed"
+    token.recovery = safeDetail(obligation, 0)
+    append(token.actor, obligation.exhausted and "rollback_quarantined"
+        or "rollback_failed", token, token.reason, obligation)
+    return obligation
+end
+
+local function runCancel(token, reason, force, terminalFailure, recoveryAttempt)
     if token.cancelling == true then return false, "cancel_in_progress" end
-    if token.interruptible ~= true and force ~= true then return false, "owner_not_interruptible" end
-    if token.phase == "committing" or token.phase == "verifying" then
+    local obligation = token.rollbackObligation
+    if obligation then
+        local verified, verifyReason = rollbackVerified(token, obligation)
+        if verified then
+            token.rollbackObligation = nil
+            local terminal = obligation.terminalFailure == true and "failed" or "cancelled"
+            return finish(token, terminal, obligation.reason or terminal, {
+                callbackReason = verifyReason or "rollback_postcondition_verified",
+                reconciled = true,
+            }, obligation.terminalFailure == true)
+        end
+        if obligation.exhausted == true then return false, "rollback_quarantined" end
+        if recoveryAttempt ~= true
+            and nowMs() < (tonumber(obligation.retryAt) or math.huge) then
+            return false, "rollback_recovery_pending"
+        end
+        reason = obligation.reason or reason
+        terminalFailure = obligation.terminalFailure == true
+    end
+    if recoveryAttempt ~= true and token.interruptible ~= true and force ~= true then
+        return false, "owner_not_interruptible"
+    end
+    if recoveryAttempt ~= true and (token.phase == "committing" or token.phase == "verifying") then
         if force ~= true then return false, "owner_commit_in_progress" end
     end
     token.cancelling = true
@@ -385,16 +447,32 @@ local function runCancel(token, reason, force, terminalFailure)
                     "action cancellation callback failed", accepted)
             end
             token.cancelling = false
-            return finish(token, "failed", "rollback_failed", {
-                requestedReason = reason, error = clean(accepted, 160),
-            }, true)
+            obligation = retainRollback(token, reason, terminalFailure, accepted)
+            local verified, verifyReason = rollbackVerified(token, obligation)
+            if verified then
+                token.rollbackObligation = nil
+                local terminal = obligation.terminalFailure == true and "failed" or "cancelled"
+                return finish(token, terminal, obligation.reason or terminal, {
+                    callbackReason = verifyReason or "rollback_postcondition_verified",
+                    reconciled = true,
+                }, obligation.terminalFailure == true)
+            end
+            return false, obligation.exhausted and "rollback_quarantined"
+                or "rollback_failed", safeDetail(obligation, 0)
         end
-        if accepted == false and force ~= true then
+        if accepted == false then
             token.cancelling = false
-            return false, callbackReason or "cancel_rejected"
+            if obligation then
+                obligation = retainRollback(token, reason, terminalFailure,
+                    callbackReason or "cancel_rejected")
+                return false, obligation.exhausted and "rollback_quarantined"
+                    or "rollback_recovery_pending", safeDetail(obligation, 0)
+            end
+            if force ~= true then return false, callbackReason or "cancel_rejected" end
         end
     end
     token.cancelling = false
+    token.rollbackObligation = nil
     local terminal = terminalFailure == true and "failed" or "cancelled"
     return finish(token, terminal, reason or callbackReason or terminal, {
         callbackReason = callbackReason,
@@ -724,6 +802,7 @@ function Supervisor.begin(actor, spec)
         visualVerified = spec.visualVerified == true,
         protectedPose = spec.protectedPose == true,
         onCancel = spec.onCancel,
+        cancelVerified = spec.cancelVerified,
         deadlines = type(spec.deadlines) == "table" and spec.deadlines or nil,
         allowedActions = type(spec.allowedActions) == "table" and spec.allowedActions or {},
         allowedMovementPhases = type(spec.allowedMovementPhases) == "table"
@@ -920,6 +999,15 @@ function Supervisor.update(actor)
             return dispatched, reason
         end
         return false, "idle"
+    end
+    local rollback = token.rollbackObligation
+    if rollback then
+        if rollback.exhausted == true then return false, "rollback_quarantined" end
+        if nowMs() < (tonumber(rollback.retryAt) or math.huge) then
+            return false, "rollback_recovery_pending"
+        end
+        return runCancel(token, rollback.reason, true,
+            rollback.terminalFailure == true, true)
     end
     local queued = urgentByActor[actor]
     if queued and nowMs() >= (tonumber(queued.expiresAt) or nowMs()) then

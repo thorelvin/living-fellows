@@ -399,19 +399,17 @@ function UI.hotkeyName()
 end
 
 function UI.peekHotkey()
-    local key = UI.DEFAULT_PEEK_HOTKEY
     local core = getCore and getCore() or nil
     local configured = core and safeMethod(core, "getKey", UI.PEEK_HOTKEY_ACTION) or nil
-    if tonumber(configured) and tonumber(configured) > 0 then key = tonumber(configured) end
-    return key
+    if configured ~= nil and tonumber(configured) ~= nil then return tonumber(configured) end
+    return UI.DEFAULT_PEEK_HOTKEY
 end
 
 function UI.steerHotkey()
-    local key = UI.DEFAULT_STEER_HOTKEY
     local core = getCore and getCore() or nil
     local configured = core and safeMethod(core, "getKey", UI.STEER_HOTKEY_ACTION) or nil
-    if tonumber(configured) and tonumber(configured) > 0 then key = tonumber(configured) end
-    return key
+    if configured ~= nil and tonumber(configured) ~= nil then return tonumber(configured) end
+    return UI.DEFAULT_STEER_HOTKEY
 end
 
 -- The roster row is refreshed from the live registry and deliberately remains

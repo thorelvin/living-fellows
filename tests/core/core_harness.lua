@@ -1219,6 +1219,51 @@ check(SC.Actor._setProviderForTests(directProvider),
     "pure-Lua experimental adapter selects explicit direct-native execution")
 
 do
+    local blowtorch = { uses = 2 }
+    function blowtorch:getCurrentUses() return self.uses end
+    local pry = { broken = false }
+    function pry:isBroken() return self.broken end
+    local inventory = {}
+    function inventory:getFirstTypeEvalRecurse(itemType, predicate)
+        if itemType == "BlowTorch" and predicate(blowtorch) then return blowtorch end
+        return nil
+    end
+    function inventory:getFirstTagEvalRecurse(tag, predicate)
+        if tag ~= nil and predicate(pry) then return pry end
+        return nil
+    end
+    local worker = { inventory = inventory }
+    function worker:getInventory() return self.inventory end
+    local barricade = { metal = false, bars = false }
+    function barricade:isMetal() return self.metal end
+    function barricade:isMetalBar() return self.bars end
+    local object = { barricade = barricade }
+    function object:getBarricadeForCharacter() return self.barricade end
+    local priorItemTag = ItemTag
+    ItemTag = { REMOVE_BARRICADE = "REMOVE_BARRICADE" }
+    local foundBarricade, woodTool = SC.NativeActions._removeBarricadeToolForTests(worker, object)
+    barricade.metal = true
+    local _, sheetTool = SC.NativeActions._removeBarricadeToolForTests(worker, object)
+    barricade.metal, barricade.bars = false, true
+    local _, barsTool = SC.NativeActions._removeBarricadeToolForTests(worker, object)
+    object.barricade = nil
+    local missingBarricade, missingTool, missingReason =
+        SC.NativeActions._removeBarricadeToolForTests(worker, object)
+    function object:getBarricadeForCharacter() error("lookup exploded") end
+    local failedBarricade, failedTool, failedReason =
+        SC.NativeActions._removeBarricadeToolForTests(worker, object)
+    ItemTag = priorItemTag
+    check(foundBarricade == barricade and woodTool == pry
+            and sheetTool == blowtorch and barsTool == blowtorch
+            and missingBarricade == nil and missingTool == nil
+            and missingReason == "companion cannot reach the selected barricade side",
+        "unbarricade resolves success/value order and selects pry versus blowtorch by live material")
+    check(failedBarricade == nil and failedTool == nil
+            and failedReason == "companion cannot reach the selected barricade side",
+        "unbarricade treats a throwing barricade lookup as unavailable")
+end
+
+do
 local oldForwardX, oldForwardY = actor.forwardX, actor.forwardY
 local oldMoving = actor.moving
 local oldRunning, oldSprinting = actor.running, actor.sprinting

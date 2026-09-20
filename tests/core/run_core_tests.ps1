@@ -272,8 +272,10 @@ try {
             (Join-Path $Shared 'SCCall.lua'),
             (Join-Path $Shared 'SCNativeList.lua'),
             (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Shared 'SCDiagnostics.lua'),
             (Join-Path $Client 'SCGameplayUtil.lua'),
             (Join-Path $TestRoot 'farming_lifecycle_fixture.lua'),
+            (Join-Path $Client 'SCActionSupervisor.lua'),
             (Join-Path $Client 'SCFarmWork.lua'),
             (Join-Path $TestRoot 'farming_lifecycle_harness.lua')
         )

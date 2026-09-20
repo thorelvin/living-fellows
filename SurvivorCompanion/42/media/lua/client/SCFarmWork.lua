@@ -18,6 +18,9 @@ FarmWork.ITEM_MARKER = "LF_FarmReceiptId"
 local states = setmetatable({}, { __mode = "k" })
 local scanState = {}
 local knownPlots = {}
+local knownBase = nil
+local supplyScans = {}
+local seedScans = {}
 local metrics = {
     scans = 0, jobsQueued = 0, harvested = 0, watered = 0, sown = 0,
     replanted = 0, composted = 0, cured = 0, recovered = 0, blockers = 0,
@@ -40,6 +43,8 @@ local function config(key, fallback)
     return value
 end
 local function actorId(actor) return U().idOf(actor) end
+local listSize = SC.NativeList.size
+local listGet = SC.NativeList.get
 local function pointKey(x, y, z) return tostring(x) .. ":" .. tostring(y) .. ":" .. tostring(z or 0) end
 local function zoneContains(zone, x, y, z)
     return type(zone) == "table" and tonumber(zone.z) == tonumber(z)
@@ -256,45 +261,132 @@ local function protected(item, actor)
     return false
 end
 
-local function findSupply(actor, predicate, categories)
-    local budget = config("campStorageItemBudget", 80)
+local function ensureBaseState()
+    local base = SC.BaseLife and SC.BaseLife.active() or nil
+    if base ~= knownBase then
+        knownBase = base
+        scanState, knownPlots, supplyScans, seedScans = {}, {}, {}, {}
+    end
+    return base
+end
+
+local function storageItemRows(categories)
+    ensureBaseState()
+    local rows = {}
     for _, category in ipairs(categories or {}) do
         for _, storage in ipairs(SC.BaseLife.storageRows(category, true)) do
             local container = SC.BaseLife.resolveContainer(storage)
-            if container then
-                for _, item in ipairs(U().inventoryItems(container, budget)) do
-                    if predicate(item) and not protected(item, actor)
-                        and SC.BaseLife.availableCount(storage, U().itemType(item)) > 0 then
-                        return storage, container, item
-                    end
-                end
+            if container then rows[#rows + 1] = {
+                key = tostring(category) .. ":" .. tostring(storage.id),
+                storage = storage, container = container,
+            } end
+        end
+    end
+    return rows
+end
+
+local function containerItems(container)
+    local items, okay = invoke(container, "getItems")
+    if not okay then items = type(container) == "table" and (container.items or container) or nil end
+    return items
+end
+
+local function rowItems(row)
+    local items = containerItems(row.container)
+    local count = listSize(items)
+    return items, count
+end
+
+local function resetStorageScan(state)
+    state.rowIndex, state.itemIndex = 1, 0
+    state.container, state.containerSize = nil, nil
+    state.count = 0
+end
+
+-- Walk registered containers in bounded, resumable slices. Changes to the
+-- current container or registered endpoint set restart the census so a
+-- partial pass cannot become a false proof of absence.
+local function scanStorage(state, categories, visitor)
+    local rows = storageItemRows(categories)
+    local signatureParts = {}
+    for _, row in ipairs(rows) do signatureParts[#signatureParts + 1] = row.key end
+    local signature = table.concat(signatureParts, "|")
+    if state.rowsSignature ~= signature then
+        resetStorageScan(state)
+        state.rowsSignature = signature
+    end
+    local budget = math.max(1, math.floor(config("campStorageItemBudget", 80)))
+    local visited = 0
+    while state.rowIndex <= #rows and visited < budget do
+        local row = rows[state.rowIndex]
+        local items, count = rowItems(row)
+        if state.container == row.container and state.containerSize ~= count then
+            resetStorageScan(state)
+            row = rows[state.rowIndex]
+            items, count = rowItems(row)
+        end
+        state.container, state.containerSize = row.container, count
+        if state.itemIndex >= count then
+            state.rowIndex, state.itemIndex = state.rowIndex + 1, 0
+            state.container, state.containerSize = nil, nil
+        else
+            local item, available = listGet(items, state.itemIndex)
+            state.itemIndex = state.itemIndex + 1
+            visited = visited + 1
+            if available and visitor(item, row.storage, row.container, state) == true then
+                return "found", row.storage, row.container, item
             end
         end
     end
-    return nil
+    if state.rowIndex > #rows then return "complete" end
+    return "pending"
 end
 
-local function hasSupply(predicate, categories)
-    return findSupply(nil, predicate, categories) ~= nil
+local function findSupply(actor, predicate, categories, scanKey)
+    ensureBaseState()
+    local key = tostring(scanKey or predicate) .. ":" .. tostring(actorId(actor) or "audit")
+    local state = supplyScans[key] or {}
+    supplyScans[key] = state
+    local status, storage, container, item = scanStorage(state, categories,
+        function(candidate, row)
+            return predicate(candidate) and not protected(candidate, actor)
+                and SC.BaseLife.availableCount(row, U().itemType(candidate)) > 0
+        end)
+    if status == "found" then
+        supplyScans[key] = nil
+        return storage, container, item, "found"
+    end
+    if status == "complete" then supplyScans[key] = nil return nil, nil, nil, "absent" end
+    return nil, nil, nil, "scanning"
+end
+
+local function hasSupply(predicate, categories, scanKey)
+    local storage, _, _, status = findSupply(nil, predicate, categories, scanKey)
+    if storage then return true, "found" end
+    if status == "scanning" then return nil, status end
+    return false, status
 end
 
 local function seedCount(cropType)
-    local accepted, count = {}, 0
+    ensureBaseState()
+    local accepted = {}
     for _, itemType in ipairs(seedTypes(cropType)) do accepted[itemType] = true end
-    for _, storage in ipairs(SC.BaseLife.storageRows("farming", true)) do
-        local container = SC.BaseLife.resolveContainer(storage)
-        if container then
-            for _, item in ipairs(U().inventoryItems(container,
-                config("campStorageItemBudget", 80))) do
-                if accepted[U().itemType(item)] and goodSeed(item) then count = count + 1 end
-            end
+    local state = seedScans[cropType] or { count = 0 }
+    seedScans[cropType] = state
+    local status = scanStorage(state, { "farming" }, function(item, _, _, cursor)
+        if accepted[U().itemType(item)] and goodSeed(item) then
+            cursor.count = (tonumber(cursor.count) or 0) + 1
         end
-    end
-    return count
+        return false
+    end)
+    if status ~= "complete" then return nil, false end
+    local count = tonumber(state.count) or 0
+    seedScans[cropType] = nil
+    return count, true
 end
 
 local function zones()
-    local base, result = SC.BaseLife and SC.BaseLife.active() or nil, {}
+    local base, result = ensureBaseState(), {}
     for _, zone in ipairs(base and base.zones or {}) do
         if zone.kind == "farm" then result[#result + 1] = zone end
     end
@@ -318,8 +410,15 @@ end
 
 local function nonGrowbackPlots(cropType)
     local count = 0
+    local activeZones = zones()
     for _, plot in pairs(knownPlots) do
-        if plot.cropType == cropType and plot.growBack ~= true then count = count + 1 end
+        local covered = false
+        for _, zone in ipairs(activeZones) do
+            if zoneContains(zone, plot.x, plot.y, plot.z) then covered = true break end
+        end
+        if covered and plot.cropType == cropType and plot.growBack ~= true then
+            count = count + 1
+        end
     end
     return count
 end
@@ -332,14 +431,15 @@ local function harvestAllowed(plant)
     if plant.hasSeeds == true then return true end
     if not allZonesScanned() then return false end
     local reserve = nonGrowbackPlots(cropType) + config("farmSeedSpareReserve", 2)
-    return seedCount(cropType) >= reserve
+    local seeds, complete = seedCount(cropType)
+    return complete == true and seeds >= reserve
 end
 
 local function selectCrop(preferred)
     local function available(cropType)
         local props = propsFor(cropType)
         return props and edibleCrop(props) and inSeason(props)
-            and hasSupply(seedPredicate(cropType), { "farming" })
+            and hasSupply(seedPredicate(cropType), { "farming" }, "seed:" .. tostring(cropType))
     end
     if type(preferred) == "string" and available(preferred) then return preferred end
     local current, candidates = month(), {}
@@ -394,6 +494,7 @@ local function inspectPlot(base, zone, square, x, y, z)
     local props = propsFor(plant.typeOfSeed)
     knownPlots[key] = plant.typeOfSeed and {
         cropType = plant.typeOfSeed, growBack = props and props.growBack ~= nil or false,
+        x = x, y = y, z = z,
     } or nil
     if openJobAt(base, zone.id, x, y, z) then return nil end
     local inside = SC.BaseLife.isInside(square) == true
@@ -407,19 +508,22 @@ local function inspectPlot(base, zone, square, x, y, z)
     local water = tonumber(plant.waterLvl) or 0
     local needed = tonumber(plant.waterNeeded) or 0
     local emergency = needed > 0 and water < math.floor(needed / 1.30)
-    if emergency and hasSupply(waterContainerPredicate, { "farming", "water" }) then
+    if emergency and hasSupply(waterContainerPredicate,
+        { "farming", "water" }, "water") then
         return { operation = "water", priority = 5, emergency = true,
             uses = math.max(1, math.ceil((math.min(100, needed
                 + config("farmWaterBuffer", 20)) - water) / 10)) }
     end
     if isDay and plant.state == "seeded" then
         local cure = cureAt(plant)
-        if cure and hasSupply(curePredicate(cure.item), { "farming" }) then
+        if cure and hasSupply(curePredicate(cure.item),
+            { "farming" }, "cure:" .. tostring(cure.item)) then
             return { operation = "cure", priority = 4, cure = cure.cure,
                 cureItem = cure.item, diseaseField = cure.field, uses = 1, minFarming = 3 }
         end
         if needed > 0 and water < needed
-            and hasSupply(waterContainerPredicate, { "farming", "water" }) then
+            and hasSupply(waterContainerPredicate,
+                { "farming", "water" }, "water") then
             return { operation = "water", priority = 3, emergency = false,
                 uses = math.max(1, math.ceil((math.min(100, needed
                     + config("farmWaterBuffer", 20)) - water) / 10)) }
@@ -432,7 +536,7 @@ local function inspectPlot(base, zone, square, x, y, z)
         if cropType and hasSupply(function(item)
             local broken, ok = invoke(item, "isBroken")
             return U().itemHasTag(item, "DIG_PLOW") and (not ok or broken ~= true)
-        end, { "farming", "tools" }) then
+        end, { "farming", "tools" }, "dig_tool") then
             return { operation = "replant", priority = 3, cropType = cropType }
         end
     elseif plant.state == "plow" then
@@ -443,7 +547,7 @@ local function inspectPlot(base, zone, square, x, y, z)
         and hasSupply(function(item)
             return U().itemHasTag(item, "COMPOST") or string.find(
                 string.lower(U().itemType(item)), "compostbag", 1, true) ~= nil
-        end, { "farming" }) then
+        end, { "farming" }, "compost") then
         return { operation = "compost", priority = 2 }
     end
     return nil
@@ -656,11 +760,14 @@ local function compost(item)
 end
 
 local function operationSupply(target, operation)
-    if operation == "plow" then return digTool, { "farming", "tools" } end
-    if operation == "sow" then return seedPredicate(target.cropType), { "farming" } end
-    if operation == "water" then return waterContainerPredicate, { "farming", "water" } end
-    if operation == "compost" then return compost, { "farming" } end
-    if operation == "cure" then return curePredicate(target.cureItem), { "farming" } end
+    if operation == "plow" then return digTool, { "farming", "tools" }, "dig_tool" end
+    if operation == "sow" then return seedPredicate(target.cropType), { "farming" },
+        "seed:" .. tostring(target.cropType) end
+    if operation == "water" then return waterContainerPredicate,
+        { "farming", "water" }, "water" end
+    if operation == "compost" then return compost, { "farming" }, "compost" end
+    if operation == "cure" then return curePredicate(target.cureItem), { "farming" },
+        "cure:" .. tostring(target.cureItem) end
     return nil, nil
 end
 
@@ -681,13 +788,17 @@ local function allocateReceipt(actor, job, kind, item, storage, category)
     return receipt
 end
 
-local function borrowSupply(actor, baseState, job, state, predicate, categories)
+local function borrowSupply(actor, baseState, job, state, predicate, categories, scanKey)
     local pending = state.fetch
     if pending and (not U().inventoryContains(pending.container, pending.item)
         or not predicate(pending.item)) then state.fetch, pending = nil, nil end
     if not pending then
-        local storage, container, item = findSupply(actor, predicate, categories)
-        if not storage then return false, "farm_supply_missing", true end
+        local storage, container, item, scanStatus = findSupply(
+            actor, predicate, categories, scanKey)
+        if not storage then
+            if scanStatus == "scanning" then return true, "farm_supply_scanning", false end
+            return false, "farm_supply_missing", true
+        end
         pending = { storage = storage, container = container, item = item }
         state.fetch = pending
     end
@@ -779,8 +890,9 @@ local function outputCategory(item)
     local cropType = seedOutput(item)
     if cropType then
         local reserve = nonGrowbackPlots(cropType) + config("farmSeedSpareReserve", 2)
+        local count, complete = seedCount(cropType)
         if string.find(string.lower(U().itemType(item)), "seed", 1, true)
-            or seedCount(cropType) < reserve then return "farming" end
+            or complete ~= true or count < reserve then return "farming" end
     end
     local category = select(1, invoke(item, "getCategory"))
     return string.lower(tostring(category or "")) == "food" and "food" or "output"
@@ -932,6 +1044,30 @@ local function findWaterSource(state, activeZone, emergency)
 end
 
 local function startAction(actor, job, state, square, plant, operation)
+    local supervisor = SC.ActionSupervisor
+    if type(supervisor) ~= "table" or type(supervisor.begin) ~= "function" then
+        return false, "farm_supervisor_unavailable"
+    end
+    local token, ownerReason = supervisor.begin(actor, {
+        owner = "work", action = "farm_" .. tostring(operation),
+        priority = supervisor.Priority and supervisor.Priority.WORK or 150,
+        targetKey = tostring(job.id) .. ":" .. tostring(operation),
+        targetLabel = "farm plot", ignoreRetry = true,
+        interruptible = true,
+    })
+    if token == nil then return false, ownerReason or "farm_actor_owned" end
+    local harvestPrepared = false
+    local function fail(reason, detail)
+        if harvestPrepared then
+            job.target.harvestStarted, job.target.harvestBeforeIds = nil, nil
+            job.target.harvestActorId = nil
+            harvestPrepared = false
+        end
+        if type(supervisor.isCurrent) == "function" and supervisor.isCurrent(token) then
+            supervisor.fail(token, reason or "farm_start_failed", detail)
+        end
+        return false, reason
+    end
     local target, item = job.target, state.borrowed and state.borrowed.item or nil
     local before
     if operation == "water" then before = tonumber(plant.waterLvl) or 0
@@ -952,27 +1088,43 @@ local function startAction(actor, job, state, square, plant, operation)
         job.target.harvestStarted = true
         job.target.harvestBeforeIds = table.concat(ids) .. (#ids > 0 and "|" or "")
         job.target.harvestActorId = actorId(actor)
+        harvestPrepared = true
     end
     if SC.Navigation and type(SC.Navigation.cancel) == "function" then
         pcall(SC.Navigation.cancel, actor, "farm_interaction")
     end
+    local stopped, stopReason
     if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
-        pcall(SC.NativeActions.stopDirect, actor)
-    else U().stop(actor) end
-    local started, reason = SC.NativeActions.startFarm(actor, {
-        operation = operation, item = item, square = square, plant = plant,
-        object = state.waterSource, cropType = target.cropType,
-        uses = operation == "water" and math.min(target.uses or 1, waterUses(item))
-            or target.uses or 1,
-        cure = target.cure, farmerRole = farmingRole(actor),
-    })
+        local callOk
+        callOk, stopped, stopReason = pcall(SC.NativeActions.stopDirect, actor)
+        if not callOk then return fail("farm_stop_failed", stopped) end
+    else stopped, stopReason = U().stop(actor), "farm_stopped" end
+    if stopped ~= true then return fail(stopReason or "farm_stop_failed") end
+    local transitioned, transitionReason = supervisor.transition(token, "committing")
+    if transitioned ~= true then return fail(transitionReason or "farm_commit_rejected") end
+    local started, reason = supervisor.commit(token, function()
+        return SC.NativeActions.startFarm(actor, {
+            operation = operation, item = item, square = square, plant = plant,
+            object = state.waterSource, cropType = target.cropType,
+            uses = operation == "water" and math.min(target.uses or 1, waterUses(item))
+                or target.uses or 1,
+            cure = target.cure, farmerRole = farmingRole(actor),
+        })
+    end)
     if started ~= true then
         if operation == "harvest" then
             job.target.harvestStarted, job.target.harvestBeforeIds = nil, nil
             job.target.harvestActorId = nil
+            harvestPrepared = false
         end
-        return false, reason
+        return fail(reason or "farm_start_failed")
     end
+    local verifying, verifyReason = supervisor.transition(token, "verifying")
+    if verifying ~= true then return fail(verifyReason or "farm_verify_rejected") end
+    local completed, completeReason = supervisor.complete(token, "farm_native_started", {
+        operation = operation, jobId = job.id,
+    })
+    if completed ~= true then return false, completeReason or "farm_owner_release_failed" end
     state.work = {
         operation = operation, before = before, item = item,
         startedAt = now(), inventorySnapshot = inventorySnapshot,
@@ -1153,9 +1305,9 @@ function FarmWork.update(actor, baseState, job, runtime)
         if approachState ~= "arrived" then return true, approachReason end
         return startAction(actor, job, state, sourceSquare, plant, "fill_water")
     end
-    local predicate, categories = operationSupply(target, operation)
+    local predicate, categories, supplyKey = operationSupply(target, operation)
     if predicate and not state.borrowed then
-        return borrowSupply(actor, baseState, job, state, predicate, categories)
+        return borrowSupply(actor, baseState, job, state, predicate, categories, supplyKey)
     end
     if operation == "harvest" and #SC.BaseLife.storageRows("food", false) == 0 then
         return false, "farm_food_storage_missing", true
@@ -1259,6 +1411,26 @@ function FarmWork.cancelZone(zoneId)
     return true
 end
 
+-- Called only after BaseLife has committed the zone mutation. Keeping pruning
+-- on this side of the commit preserves overlapping coverage and leaves caches
+-- untouched when removal is rejected by an active recovery obligation.
+function FarmWork.zoneRemoved(zoneId)
+    scanState[zoneId] = nil
+    local activeZones = zones()
+    for key, plot in pairs(knownPlots) do
+        local covered = false
+        for _, zone in ipairs(activeZones) do
+            if zoneContains(zone, plot.x, plot.y, plot.z) then covered = true break end
+        end
+        if not covered then knownPlots[key] = nil end
+    end
+    supplyScans, seedScans = {}, {}
+    return true
+end
+
+FarmWork._nonGrowbackPlotsForTests = nonGrowbackPlots
+FarmWork._seedCountForTests = seedCount
+
 function FarmWork.reset(actor)
     if actor then
         FarmWork.cancelActor(actor, "farm_reset")
@@ -1266,6 +1438,7 @@ function FarmWork.reset(actor)
         for value in pairs(states) do FarmWork.cancelActor(value, "farm_reset") end
         states = setmetatable({}, { __mode = "k" })
         scanState, knownPlots = {}, {}
+        supplyScans, seedScans, knownBase = {}, {}, nil
     end
 end
 
