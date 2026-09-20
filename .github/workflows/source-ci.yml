@@ -2,10 +2,9 @@ name: Source CI
 
 on:
   push:
-    # Release branches are where work actually lands, and the newest one is the
-    # repository default. A wildcard keeps this working when the next release
-    # branch is cut, rather than needing an edit every time.
-    branches: ['release/**', main]
+    # `lf` is the release-ready default branch. `ci` is the integration branch
+    # used to prove candidate changes before they are promoted to `lf`.
+    branches: [lf, ci]
   pull_request:
   workflow_dispatch:
 

@@ -4,7 +4,7 @@
 
 For normal installation, use exactly one of these supported paths:
 
-- **Steam Workshop:** subscribe to ZombieBuddy 2.3.3 or newer and Living Fellows, then enable both for the save.
+- **Steam Workshop:** subscribe to ZombieBuddy 2.3.3 or newer, complete ZombieBuddy's one-time loader installation, subscribe to Living Fellows, then enable both for the save. Subscribing to ZombieBuddy alone does not install its Java loader.
 - **Standalone Windows release:** extract the release ZIP, close Project Zomboid, and run `Install.bat`. Run `Uninstall.bat` to remove it and restore the original launcher configuration.
 - **Standalone with the in-game Debug menu (playtesters):** run `Install-Debug.bat` instead of `Install.bat`. It installs the same build with the in-game Debug tab and manual companion spawn enabled. It is a playtest configuration, not for public or streamed play. The same `Uninstall.bat` removes it and restores the original launcher.
 
@@ -12,7 +12,7 @@ Do not enable Workshop and standalone copies together. See the main [README](REA
 
 ## Maintainer native playtest
 
-Version 0.21.2 includes an original `SCNativeCompanion extends IsoPlayer` implementation. The companion is an NPC, uses reserved internal index 3 for APIs that require an index, and is never inserted into the four static local-player slots. Construction is deferred until the Lua-to-Java request has unwound, and `OnCreateLivingCharacter` callbacks are muted only around the owned NPC constructor before being restored exactly. Updates run through Build 42's generic character loop, bypassing the local-player controller and its input, event, singleton and camera side effects. The bridge rejects multiplayer, split-screen, occupied extra player slots, unsafe squares, missing native components, and any local-player state mutation.
+The current release includes an original `SCNativeCompanion extends IsoPlayer` implementation. The companion is an NPC, uses reserved internal index 3 for APIs that require an index, and is never inserted into the four static local-player slots. Construction is deferred until the Lua-to-Java request has unwound, and `OnCreateLivingCharacter` callbacks are muted only around the owned NPC constructor before being restored exactly. Updates run through Build 42's generic character loop, bypassing the local-player controller and its input, event, singleton and camera side effects. The bridge rejects multiplayer, split-screen, occupied extra player slots, unsafe squares, missing native components, and any local-player state mutation.
 
 The installer does not install Java, alter JVM arguments, instrument classes, or modify `projectzomboid.jar`. It does update `ProjectZomboid64.json`: it appends an external owned JAR to the classpath and changes the configured main class to `SCLauncher`. A uniquely named copy of the original JSON is retained under `build\game-config-backups` for audit and rollback. The launcher initializes the bridge and delegates to the original game main class.
 
@@ -25,6 +25,17 @@ After all automated gates pass, install with:
 ```
 
 The installed private copy enables the debug-only tab, including explicit household spawn controls. It does not create companions automatically every minute. Source and Workshop staging retain normal encounter and faction production rules. Animation, combat, inventory, vehicles, death/Knox/corpse/reanimation, save/load, base patrol, native construction, Base Life logistics, quarantine, and infection-crisis outcomes still require live playtesting.
+
+## Release candidate and Workshop publication
+
+The release-ready branch is `lf`; candidate work is proved on `ci` before promotion. For every public candidate:
+
+1. Update `VERSION.txt`, both `mod.info` files, `SC.Identity.release`, the README badge, the shipped `SurvivorCompanion/README.txt`, and the top changelog entry together.
+2. Run `scripts\Test-Project.ps1` against the pinned Project Zomboid runtime, then install the private native-bridge build and complete [PLAYTEST-CHECKLIST.md](PLAYTEST-CHECKLIST.md) on a disposable copy of a save.
+3. Apply any playtest fix, repeat the full gate and the affected live checks, and commit the exact tested tree.
+4. Build the public artifacts with `scripts\Build-Workshop.ps1 -Channel release` and `scripts\Build-Standalone.ps1`. Verify the Workshop archive contains neither private markers nor enabled debug settings, and that both packages report the same version and bridge protocol.
+5. For a new Workshop item, leave `Workshop/workshop.txt` at `id=0` and `visibility=unlisted` for the first upload. Record the assigned item ID, test the subscribed copy with ZombieBuddy 2.3.3 or newer and its loader installed, then change visibility to `public` only when the page, dependency, preview, description, and subscribed build are correct. Existing items must retain their assigned ID.
+6. Tag the tested `lf` commit as `v<version>`, let the trusted real-JAR workflow pass, publish the matching GitHub release and checksum, then publish the same source commit to Workshop. Never rebuild from a different working tree between channels.
 
 For 0.16.0, use Debug > Spawn household near a loaded residential area. Confirm one to three visible residents appear, remain absent from the companion roster and right-click team commands, and begin real timed barricade work on secondary doors or windows while keeping one primary entry. Approach from outside and cross the two warning bands; verify speech comes from a resident, ordinary proximity does not cause an immediate attack, and persistent trespass or aiming escalates. Deliver the displayed request, verify its reward was unavailable in ordinary stock, then barter at 125% value while Tolerated and 100% while Trusted. On a disposable sandbox, test theft, injury, the cooling-off timer, full-value restitution, permanent murder hostility, save/reload without duplicates, and hibernation/wake outside 120/inside 100 tiles. The Factions and Debug panels must remain translucent and scroll correctly at the smallest supported window size.
 

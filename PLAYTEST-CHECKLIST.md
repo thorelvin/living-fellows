@@ -5,8 +5,8 @@
 ## Mandatory gate before launch
 
 - [ ] `scripts\Test-Project.ps1` passes against Project Zomboid 42.20.4.
-- [ ] `VERSION.txt`, both `mod.info` files and the Support tab all report 0.22.22.
-- [ ] Workshop-path testing has ZombieBuddy 2.3.3 or newer enabled before Living Fellows.
+- [ ] `VERSION.txt`, both `mod.info` files, the shipped `README.txt` and the Support tab all report the same current release.
+- [ ] Workshop-path testing has ZombieBuddy 2.3.3 or newer subscribed and enabled before Living Fellows, and its one-time Java loader installation is complete.
 - [ ] The loose legacy `zombie\characters\IsoSurvivor.class` is absent and the game is closed.
 - [ ] The local install displays `PRIVATE-NATIVE-BRIDGE.txt`.
 - [ ] `ProjectZomboid64.json` uses `survivorcompanion/bridge/SCLauncher` and retains the original JSON backup.
@@ -155,6 +155,21 @@
 - [ ] After native recovery or controlled relocation, the companion remains a fully rendered human rather than a moving shadow, does not resume an old path, and completes the left/right room-entry sweep through a normal doorway.
 - [ ] Packing, base-storage deposit, ground drop, camp-supply retrieval and build-supply retrieval mutate inventory only after their complete Loot animation.
 - [ ] One, four and eight actors stay within the target frame-time regression and show no sustained stutter.
+
+## 0.25 release candidate
+
+- [ ] Load a pre-0.25 save twice. Every companion keeps identity, body, skin, hair, clothing, equipment and real Knox state; nobody acquires infection or a different appearance from another record.
+- [ ] Draw zones using only the mouse: the first clicked tile is the start, the second right-click locks the preview while the menu is navigated, and Finish uses the locked rectangle. With the layout overlay visible, right-click inside a zone and remove it after confirmation.
+- [ ] Create multiple lumber and Farm areas, including valid areas outside the camp. Logging selects a usable area deterministically by remaining work; farming audits every area within a bounded cycle and chooses the most urgent crop with stable tie-breaking.
+- [ ] A Farmer prepares no new untouched plots, but tends existing vanilla plots through sowing, watering, disease treatment and harvest. Exact borrowed seed, tools, compost, treatments and water containers return to farming storage, and harvested crops route to marked storage without duplication across save/load.
+- [ ] Create Saw planks, Dig graves, Bury the dead, Collect the dead and Burn the dead orders. Burial and pyre are explicit choices; shovels, lighters and petrol are borrowed only when the selected phase needs them and are returned afterward.
+- [ ] Pull a corpse through a route with nearby doors to a grave and to a pyre. The worker begins moving promptly, never demands pyre supplies for burial, drops the body on danger, and resumes or blocks with an honest reason.
+- [ ] Block a worker or scavenger in a doorway with another companion. The worker asks the crowd to move, the lower-priority companion paths aside, and approach does not time out or jitter between adjacent door targets.
+- [ ] During safe base downtime, residents use a chair, sofa or bed, drink from a usable sink, read from marked Books & magazines storage, return the exact book, and talk to one another without forming an overlapping chorus. A companion greeting a calm new survivor gives that survivor time to answer.
+- [ ] Peek, Watch and Steer work from both key bindings and the companion right-click menu where offered. Releasing the key, choosing Stop watching, changing selection, danger, or loss of control returns camera/movement cleanly; earned-control refusal and a repeated relationship-based push produce the documented cost and response.
+- [ ] Assign a player objective, make real progress, save/reload, complete it once, and confirm the companion's preserved personal objective resumes. Cancel or replace an assignment without duplicating rewards.
+- [ ] Trigger native hunger, thirst, fatigue, panic onset/recovery, a frightening sound and smoker nicotine withdrawal. Dialogue is actor-specific and rate-limited; deaf actors do not narrate unheard sounds, and none of these flavor lines changes relationship stress or blocks a combat refusal.
+- [ ] Compare steady routine lines, low-weather remarks, hopeful lore/place remarks and brave post-kill gallows humor. No dark joke is offered while another live threat, player danger or an overrun retreat remains, but useful tactical kill speech still works.
 
 ## Private diaries
 

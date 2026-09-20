@@ -32,6 +32,9 @@ bridge = (ROOT / "bridge/src/main/java/survivorcompanion/bridge/SCBridge.java").
 manifest = (ROOT / "bridge/native/MANIFEST.MF").read_text(encoding="utf-8")
 architecture = (ROOT / "ARCHITECTURE.md").read_text(encoding="utf-8")
 version = (ROOT / "VERSION.txt").read_text(encoding="utf-8").strip()
+readme = (ROOT / "README.md").read_text(encoding="utf-8")
+payload_readme = (ROOT / "SurvivorCompanion/README.txt").read_text(encoding="utf-8")
+changelog = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
 source_workflow = (ROOT / ".github/workflows/source-ci.yml").read_text(encoding="utf-8")
 real_jar_workflow = (ROOT / ".github/workflows/real-jar-compatibility.yml").read_text(
     encoding="utf-8"
@@ -68,6 +71,12 @@ installer_compiled_game = capture(
 )
 
 require(version == lua_release, "VERSION.txt and SC.Identity.release disagree")
+require(f"release-{version}-blue.svg" in readme,
+        "README release badge disagrees with VERSION.txt")
+require(payload_readme.startswith(f"Living Fellows {version} - public playtest"),
+        "shipped README version disagrees with VERSION.txt")
+require(re.search(rf"^## {re.escape(version)}(?:\s|$)", changelog, re.MULTILINE) is not None,
+        "CHANGELOG has no current release heading")
 for info_path in (ROOT / "SurvivorCompanion/mod.info", ROOT / "SurvivorCompanion/42/mod.info"):
     info = info_path.read_text(encoding="utf-8")
     require(capture(r'^modversion=(\S+)', info, str(info_path)) == version,
@@ -91,8 +100,9 @@ require(save_key == "SC_WorldV1" and save_schema == "3"
         and "Global ModData key `SC_WorldV1` with document schema 3" in architecture,
         "stable save key/schema documentation drifted")
 require("pull_request:" in source_workflow
+        and "branches: [lf, ci]" in source_workflow
         and "./scripts/Test-Source.ps1" in source_workflow,
-        "pull requests must execute the source-only reliability gate")
+        "lf, ci, and pull requests must execute the source-only reliability gate")
 require("self-hosted" in real_jar_workflow
         and "./scripts/Test-Project.ps1" in real_jar_workflow
         and "tags:" in real_jar_workflow and "'v*'" in real_jar_workflow

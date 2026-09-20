@@ -1,12 +1,13 @@
-Living Fellows 0.22.33 - public playtest
+Living Fellows 0.25.4 - public playtest
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.20.4. Single-player only: multiplayer and split-screen are
 refused so they cannot corrupt a save.
 
 INSTALL
-Workshop: requires ZombieBuddy 2.3.3 or newer. Enable both mods, and enable
-them for an existing save under More... > Choose Mods.
+Workshop: requires ZombieBuddy 2.3.3 or newer. Subscribe to it, complete its
+one-time loader installation, then enable both mods. For an existing save use
+More... > Choose Mods. Subscribing to ZombieBuddy alone is not enough.
 Standalone (Windows): run Install.bat from the release ZIP. No ZombieBuddy.
 Use only one copy; both editions share the mod ID SurvivorCompanion.
 Back up your save before a long session.
@@ -15,6 +16,9 @@ GETTING STARTED
 - Press Home to open the companion panel, or click the small LF launcher.
 - Meet a survivor, select them in the panel and choose Recruit.
 - Orders sets follow/stay/guard, movement, combat doctrine and work policy.
+- Hold Left bracket to peek through the selected companion and Right bracket
+  to steer them toward the mouse; both keys are rebindable. Right-click a
+  nearby companion to Watch, and right-click again to Stop watching.
 - Right-click the world for the Living Fellows menu: move here, doors,
   barricades, room checks, squad signals and base work.
 - More > Support shows runtime health and a copyable diagnostic report.
@@ -26,17 +30,21 @@ with the game's own attacks, retreat when overrun, scavenge, manage bags and
 gear, eat, drink, wash and treat wounds. Bites can infect and turn them.
 
 BASE LIFE
-Right-click the ground: Living Fellows > Base life > Set camp core here. Draw
-zones, mark opened containers as storage, and assign residents in More > Base.
-Residents sort, repair, craft, keep watch, patrol, maintain barricades, build
-queued construction, and gather loose logs or planks into storage.
+Right-click the ground: Living Fellows > Base life > Set camp core here. Start
+a zone on its first tile, move the mouse, then right-click its final tile to
+lock the rectangle while choosing Finish zone here. With the layout visible,
+right-click a zone to remove it. Mark opened containers as storage and assign
+residents in More > Base. Residents sort, repair, craft, keep watch, patrol,
+maintain barricades, build, farm, read and gather loose logs or planks.
 
 PRODUCTION
 The Base view's Production section gives one or two residents a finite order.
 Tools and materials come from camp storage.
 - Fell trees in a Lumber area, inside the camp or up to 30 tiles outside it.
   Outside the camp no new tree is started at night. Felled logs can be
-  hauled to storage automatically.
+  hauled to storage automatically. Multiple Lumber areas are supported.
+- Tend existing vanilla plots in one or more Farm areas. Farmers borrow and
+  return exact supplies, prioritize urgent crops and route harvests to storage.
 - Saw logs from one storage into planks (three per log) for another storage.
 - Dig graves on natural ground in a Burial ground.
 - Bury bodies lying next to an open grave, fill the grave and optionally add

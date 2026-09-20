@@ -53,7 +53,7 @@ Living Fellows targets **Project Zomboid Build 42.20.4** and is **single-player 
 
 | Method | What you need | Best for |
 | --- | --- | --- |
-| Steam Workshop | Project Zomboid 42.20.4 and ZombieBuddy 2.3.3 or newer | One click if you already use ZombieBuddy; automatic updates |
+| Steam Workshop | Project Zomboid 42.20.4 and ZombieBuddy 2.3.3 or newer, including its one-time loader setup | Automatic Living Fellows updates after ZombieBuddy is installed |
 | `Install.bat` | Windows and Project Zomboid 42.20.4 | Everyone else; no ZombieBuddy, no Workshop account needed |
 
 Use only one copy. The Workshop and standalone editions share the mod ID `SurvivorCompanion`.
@@ -61,10 +61,13 @@ Use only one copy. The Workshop and standalone editions share the mod ID `Surviv
 ## Install from Steam Workshop
 
 1. Close Project Zomboid.
-2. Subscribe to **ZombieBuddy 2.3.3 or newer** and to **Living Fellows**.
-3. Start the game, open **Mods**, and enable both.
-4. For an existing save, use **More... > Choose Mods** and enable both mods for that save.
-5. Back up the save before your first long session.
+2. Subscribe to **ZombieBuddy 2.3.3 or newer** and complete ZombieBuddy's one-time loader installation. Subscribing alone does not install its Java loader.
+3. Subscribe to **Living Fellows**.
+4. Start the game, open **Mods**, and enable both.
+5. For an existing save, use **More... > Choose Mods** and enable both mods for that save.
+6. Back up the save before your first long session.
+
+ZombieBuddy loads approved Java mods outside Project Zomboid's Lua sandbox. Review its installation preview and approve Living Fellows only if you trust this repository and the Workshop item.
 
 ## Install with `Install.bat`
 
@@ -188,7 +191,7 @@ A page is never rewritten, and nothing is written after the author dies. The boo
 
 ## Base life and production
 
-**Setting up a camp.** Right-click the ground and choose **Living Fellows → Base life → Set camp core here**. Draw zones with **Start zone here** and **Finish zone here**, and use **Mark storage as...** on containers. Categories include **Books & magazines** for a camp library and **Farming supplies** for seed, tools, compost, water cans, and crop treatments. Companions help themselves from marked storage and leave unmarked containers in the camp to you. Assign residents, roles, and policies in **More → Base**. **Show base layout** draws zones and storage on the ground.
+**Setting up a camp.** Right-click the desired ground tile and choose **Living Fellows → Base life → Set camp core here**. To draw a zone, right-click its first tile and choose **Start zone here**, move the mouse to preview the rectangle, then right-click the final tile. That second right-click locks the rectangle while you move through the menu to **Finish zone here**; the player's position is never used. With **Show base layout** enabled, right-click a zone to remove it. Use **Mark storage as...** on containers. Categories include **Books & magazines** for a camp library and **Farming supplies** for seed, tools, compost, water cans, and crop treatments. Companions help themselves from marked storage and leave unmarked containers in the camp to you. Assign residents, roles, and policies in **More → Base**.
 
 Zones include the camp boundary, work area, lumber area, farm area, burial ground, pyre, rest, social, guard, rally, and quarantine areas. Every zone lies inside the camp except lumber areas, farm areas, burial grounds, and pyres, which may also lie up to 30 tiles beyond the camp boundary. A pyre is at most nine tiles and must pass a fire-safety check when you draw it.
 
@@ -331,7 +334,7 @@ parallel run reports something that does not make sense on its own.
 Build the Workshop upload package or the standalone Windows package:
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Workshop.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Workshop.ps1 -Channel release
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\Build-Standalone.ps1
 ```
 

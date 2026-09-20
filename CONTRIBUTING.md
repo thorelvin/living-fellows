@@ -4,6 +4,10 @@
 
 Thank you for helping make survivors more believable, useful, and safe to play alongside.
 
+## Branches
+
+`lf` is the release-ready default branch. `ci` is the integration branch: candidate changes land there, pass Source CI and the local full gate, and are promoted to `lf` only after the relevant playtest. Both branches must remain buildable; public tags and packages are cut from `lf`.
+
 ## Before opening a pull request
 
 - Discuss large behavior, persistence, actor-bridge, or UI changes in an issue first.
