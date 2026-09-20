@@ -19,7 +19,7 @@ jobs:
     runs-on: [self-hosted, Windows, living-fellows-pz]
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Validate release tag
         if: github.ref_type == 'tag'
         shell: pwsh
