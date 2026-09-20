@@ -43,6 +43,11 @@ local function config(key, fallback)
     return value
 end
 local function actorId(actor) return U().idOf(actor) end
+local function noteOwnershipMutation()
+    if SC.BaseLife and type(SC.BaseLife.noteWorkOwnershipMutation) == "function" then
+        SC.BaseLife.noteWorkOwnershipMutation()
+    end
+end
 local listSize = SC.NativeList.size
 local listGet = SC.NativeList.get
 local function pointKey(x, y, z) return tostring(x) .. ":" .. tostring(y) .. ":" .. tostring(z or 0) end
@@ -1060,32 +1065,41 @@ local function collectHarvest(actor, job, state, snapshot)
             or "farm_harvest_actor_unknown"
     end
     if type(snapshot) ~= "table" then return false, "farm_harvest_baseline_unresolved" end
-    local status, scanReason = scanActorInventory(actor, state, "harvestCollectCursor",
-        function(item)
-            local stableId = type(U().itemStableId) == "function"
-                and U().itemStableId(item, true) or nil
-            if stableId == nil then return false, "farm_item_identity_unavailable" end
-            local receiptId = marker(item)
-            local existing = receiptId and SC.BaseLife.farmReceipt
-                and SC.BaseLife.farmReceipt(receiptId) or nil
-            if existing and existing.kind == "output" and existing.jobId == job.id
-                and existing.actorId == actorId(actor) then
-                state.harvestCandidates[#state.harvestCandidates + 1] = {
-                    item = item, receipt = existing,
-                }
-            elseif not snapshot[stableId] and receiptId == nil
-                and plausibleHarvestOutput(item, job.target) then
-                state.harvestCandidates[#state.harvestCandidates + 1] = { item = item }
-            end
-            return true
-        end,
-        function() state.harvestCandidates = {} end)
-    if status == "pending" then return nil, scanReason or "farm_harvest_collecting" end
-    if status ~= "complete" then return false, scanReason end
+    if state.harvestCandidatesReady ~= true then
+        local status, scanReason = scanActorInventory(actor, state, "harvestCollectCursor",
+            function(item)
+                local stableId = type(U().itemStableId) == "function"
+                    and U().itemStableId(item, true) or nil
+                if stableId == nil then return false, "farm_item_identity_unavailable" end
+                local receiptId = marker(item)
+                local existing = receiptId and SC.BaseLife.farmReceipt
+                    and SC.BaseLife.farmReceipt(receiptId) or nil
+                if existing and existing.kind == "output" and existing.jobId == job.id
+                    and existing.actorId == actorId(actor) then
+                    state.harvestCandidates[#state.harvestCandidates + 1] = {
+                        item = item, receipt = existing,
+                    }
+                elseif not snapshot[stableId] and receiptId == nil
+                    and plausibleHarvestOutput(item, job.target) then
+                    state.harvestCandidates[#state.harvestCandidates + 1] = { item = item }
+                end
+                return true
+            end,
+            function()
+                state.harvestCandidates = {}
+                state.harvestCandidateIndex = 1
+            end)
+        if status == "pending" then return nil, scanReason or "farm_harvest_collecting" end
+        if status ~= "complete" then return false, scanReason end
+        state.harvestCandidatesReady = true
+    end
     state.outputs = state.outputs or {}
     local outputIds = {}
     for _, output in ipairs(state.outputs) do outputIds[output.receiptId] = true end
-    for _, candidate in ipairs(state.harvestCandidates or {}) do
+    local candidates = state.harvestCandidates or {}
+    local index = math.max(1, math.floor(tonumber(state.harvestCandidateIndex) or 1))
+    while index <= #candidates do
+        local candidate = candidates[index]
         local existing = candidate.receipt
         if existing then
             if not outputIds[existing.id] then
@@ -1099,19 +1113,30 @@ local function collectHarvest(actor, job, state, snapshot)
             local category = outputCategory(candidate.item)
             local receipt, reason = allocateReceipt(
                 actor, job, "output", candidate.item, nil, category)
-            if not receipt then return false, reason end
+            if not receipt then
+                state.harvestCandidateIndex = index
+                state.collectingHarvest = true
+                if reason == "farm_receipt_limit" then
+                    return nil, "farm_harvest_receipt_wait"
+                end
+                return false, reason
+            end
             state.outputs[#state.outputs + 1] = {
                 item = candidate.item, receiptId = receipt.id, category = category,
             }
             outputIds[receipt.id] = true
         end
+        index = index + 1
+        state.harvestCandidateIndex = index
     end
-    state.harvestCandidates = nil
+    state.harvestCandidates, state.harvestCandidateIndex = nil, nil
+    state.harvestCandidatesReady, state.collectingHarvest = nil, nil
     job.target.harvestStarted = nil
     job.target.harvestBeforeIds = nil
     job.target.harvestBeforeStableIds = nil
     job.target.harvestBaselineVersion = nil
     job.target.harvestActorId = nil
+    noteOwnershipMutation()
     return true
 end
 
@@ -1256,6 +1281,7 @@ local function startAction(actor, job, state, square, plant, operation)
             job.target.harvestActorId = nil
             state.harvestBaseline, state.harvestBaselineEncoded = nil, nil
             state.harvestBaselineCursor = nil
+            noteOwnershipMutation()
             harvestPrepared = false
         end
         if type(supervisor.isCurrent) == "function" and supervisor.isCurrent(token) then
@@ -1276,6 +1302,9 @@ local function startAction(actor, job, state, square, plant, operation)
         job.target.harvestBeforeStableIds = state.harvestBaselineEncoded
         job.target.harvestBaselineVersion = 1
         job.target.harvestActorId = actorId(actor)
+        -- Bind the complete checkpoint to the actor inventory generation
+        -- before the native harvest is allowed to mutate that inventory.
+        noteOwnershipMutation()
         harvestPrepared = true
     end
     if SC.Navigation and type(SC.Navigation.cancel) == "function" then
@@ -1306,6 +1335,7 @@ local function startAction(actor, job, state, square, plant, operation)
             job.target.harvestActorId = nil
             state.harvestBaseline, state.harvestBaselineEncoded = nil, nil
             state.harvestBaselineCursor = nil
+            noteOwnershipMutation()
             harvestPrepared = false
         end
         return fail(reason or "farm_start_failed")
@@ -1344,7 +1374,10 @@ local function finishAction(actor, baseState, job, state, square)
 
     if work.operation == "harvest" then
         local collected, collectReason = collectHarvest(actor, job, state, work.inventorySnapshot)
-        if collected == nil then return true, collectReason or "farm_harvest_collecting" end
+        if collected == nil then
+            state.stage = "collecting_harvest"
+            return true, collectReason or "farm_harvest_collecting"
+        end
         if collected ~= true then return false, collectReason, true end
         metrics.harvested = metrics.harvested + 1
     elseif work.operation == "plow" and job.target.operation == "replant" then
@@ -1428,8 +1461,21 @@ function FarmWork.update(actor, baseState, job, runtime)
     if state.work then return finishAction(actor, baseState, job, state, square) end
     if state.outputs then
         local handled, reason, terminal = depositOutputs(actor, baseState, state)
-        if not state.outputs then state.stage = "returning" end
+        if not state.outputs then
+            state.stage = state.collectingHarvest and "collecting_harvest" or "returning"
+        end
         return handled, reason, terminal
+    end
+    if state.collectingHarvest then
+        local snapshot, snapshotReason = restoredHarvestSnapshot(actor, target)
+        if not snapshot then return false, snapshotReason, true end
+        local collected, collectReason = collectHarvest(actor, job, state, snapshot)
+        if collected == nil then return true, collectReason or "farm_harvest_collecting" end
+        if collected ~= true then return false, collectReason, true end
+        metrics.harvested = metrics.harvested + 1
+        if state.outputs and #state.outputs > 0 then return true, "farm_harvest_collected" end
+        state.stage, state.afterReturn = "returning", "complete"
+        return true, "farm_harvest_reconciled"
     end
     if state.stage == "returning" then
         local settled, reason, pending = consumeOrReturn(actor, baseState, state)
@@ -1438,7 +1484,11 @@ function FarmWork.update(actor, baseState, job, runtime)
             state.stage, state.afterReturn = "sow", nil
             return true, "farm_replant_ready_to_sow"
         end
-        if state.afterReturn == "blocked" then return false, state.blocker or "farm_cancelled", true end
+        if state.afterReturn == "blocked" then
+            local blocker = state.blocker or "farm_cancelled"
+            states[actor] = nil
+            return false, blocker, true
+        end
         SC.BaseLife.completeJob(job.id, actorId(actor), "farm_" .. tostring(target.operation))
         states[actor] = nil
         return true, "farm_job_complete"
@@ -1576,9 +1626,26 @@ function FarmWork.cancelActor(actor, reason)
         if not job or not square then return false, "farm_cancel_reconcile_unavailable" end
         local reconciled, reconcileReason = finishAction(actor, nil, job, state, square)
         if reconciled ~= true then return false, reconcileReason end
-        if job.target.harvestStarted == true then
-            return false, "farm_recovery_pending"
+    end
+    if state.outputs then
+        for index = #state.outputs, 1, -1 do
+            local receipt = SC.BaseLife and SC.BaseLife.farmReceipt
+                and SC.BaseLife.farmReceipt(state.outputs[index].receiptId) or nil
+            if receipt and (receipt.phase == "delivered" or receipt.phase == "returned"
+                or receipt.phase == "consumed") then
+                table.remove(state.outputs, index)
+            end
         end
+        if #state.outputs == 0 then state.outputs = nil end
+    end
+    -- Ledger pressure may require several recovery passes: allocate as many
+    -- exact output receipts as capacity permits, recover that batch, then
+    -- resume the same candidate cursor without ever completing the job early.
+    if state.collectingHarvest and not state.outputs and job then
+        local snapshot, snapshotReason = restoredHarvestSnapshot(actor, job.target)
+        if not snapshot then return false, snapshotReason end
+        local collected, collectReason = collectHarvest(actor, job, state, snapshot)
+        if collected == false then return false, collectReason end
     end
     local restored, restoreReason = restoreBorrowed(actor, state, reason or "farm_cancelled")
     if restored ~= true then return false, restoreReason end
@@ -1587,6 +1654,7 @@ function FarmWork.cancelActor(actor, reason)
         job.target.harvestBeforeStableIds, job.target.harvestBaselineVersion = nil, nil
         job.target.harvestActorId = nil
         state.work = nil
+        noteOwnershipMutation()
     end
     if state.outputs then
         for _, output in ipairs(state.outputs) do
@@ -1595,8 +1663,10 @@ function FarmWork.cancelActor(actor, reason)
             })
         end
     end
+    if (state.outputs and #state.outputs > 0) or state.collectingHarvest then
+        return false, "farm_recovery_pending"
+    end
     states[actor] = nil
-    if state.outputs and #state.outputs > 0 then return false, "farm_recovery_pending" end
     return true, reason or "farm_cancelled"
 end
 

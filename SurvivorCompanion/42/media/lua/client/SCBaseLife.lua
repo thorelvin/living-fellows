@@ -2463,6 +2463,10 @@ function BaseLife.completeProductionOrder(id, result)
     local order = productionOrderIn(base, id)
     if not order or orderIsTerminal(order) then return false, "unknown_production_order" end
     if order.completed < order.requested then return false, "production_quota_open" end
+    if SC.Production and type(SC.Production.canCompleteOrder) == "function"
+        and SC.Production.canCompleteOrder(id) ~= true then
+        return false, "production_order_settling"
+    end
     order.state, order.completedAt, order.updatedAt, order.blocker = "completed", now(), now(), nil
     removeProductionJobs(base, id, result or order.operation)
     forgetProductionRuntime(order)
@@ -2648,6 +2652,31 @@ function BaseLife.job(id)
     return base and findById(base.jobs, id) or nil
 end
 
+local function releaseExpiredJob(job)
+    if job.state == "reserved" then
+        job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
+        job.updatedAt = now()
+        bumpWorkConsistencyRevision()
+        return true
+    end
+    if job.state ~= "active" then return false, "job_not_active" end
+    local ownerId = job.reservedBy
+    local settled, reason = false, "base_work_recovery_unavailable"
+    if SC.BaseWork and type(SC.BaseWork.reconcileExpiredJob) == "function" then
+        local called
+        called, settled, reason = pcall(SC.BaseWork.reconcileExpiredJob, job, ownerId)
+        if not called then settled, reason = false, settled end
+    end
+    if settled ~= true then
+        job.blocker = cleanText(reason, "expired_job_recovery_pending", 160)
+        return false, job.blocker
+    end
+    job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
+    job.updatedAt, job.blocker = now(), nil
+    bumpWorkConsistencyRevision()
+    return true
+end
+
 function BaseLife.jobFor(actorId)
     local base = activeBase()
     if not base then return nil end
@@ -2655,7 +2684,8 @@ function BaseLife.jobFor(actorId)
     for _, job in ipairs(base.jobs) do
         if (job.state == "reserved" or job.state == "active") and job.reservedBy == actorId then
             if job.leaseUntil > current then return job end
-            job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
+            local released = releaseExpiredJob(job)
+            if released ~= true and job.state == "active" then return job end
         end
     end
     return nil
@@ -2744,8 +2774,9 @@ function BaseLife.claimJob(actorId)
     if existing then return existing, "existing_job" end
     local best, bestScore
     for _, job in ipairs(base.jobs) do
-        if job.state == "reserved" and job.leaseUntil <= current then
-            job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
+        if (job.state == "reserved" or job.state == "active")
+            and job.leaseUntil <= current then
+            releaseExpiredJob(job)
         end
         if (job.state == "pending" or (job.state == "blocked" and job.retryAt <= current)) then
             local score = jobScore(actorId, job)
@@ -2817,6 +2848,14 @@ function BaseLife.cancelJob(id)
     if job.type == "farm" and SC.FarmWork and type(SC.FarmWork.cancelJob) == "function" then
         local okay, reason = SC.FarmWork.cancelJob(job.id, "farm_job_cancelled")
         if okay ~= true then return false, reason or "farm_recovery_pending" end
+    end
+    if job.type == "build" and job.reservedBy ~= nil then
+        if not SC.BaseWork or type(SC.BaseWork.cancelJob) ~= "function" then
+            return false, "base_work_cancel_unavailable"
+        end
+        local okay, reason = SC.BaseWork.cancelJob(job.id, job.reservedBy,
+            "build_job_cancelled")
+        if okay ~= true then return false, reason or "build_action_cancel_failed" end
     end
     if job.type == "gather_materials" and type(job.target) == "table"
         and job.target.orderId then

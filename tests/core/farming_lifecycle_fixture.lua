@@ -21,6 +21,9 @@ F.nativeCancels = 0
 F.completedJobs = 0
 F.itemBudget = 256
 F.nativeStops = 0
+F.receiptLimit = math.huge
+F.revision = 0
+F.hour = 12
 
 local function removeIdentity(container, item)
     for index = #(container.items or {}), 1, -1 do
@@ -166,6 +169,7 @@ function F.reset()
     F.native = setmetatable({}, { __mode = "k" })
     F.nativeCancels, F.completedJobs, F.nativeStops = 0, 0, 0
     F.itemBudget = 256
+    F.receiptLimit, F.revision, F.hour = math.huge, 0, 12
     F.base = {
         zones = {
             { id = "zone:area", kind = "area", x1 = 0, y1 = 0, x2 = 30, y2 = 30, z = 0 },
@@ -221,7 +225,7 @@ U.perkLevel = function() return 0 end
 U.stop = function() return true end
 
 function getGameTime()
-    return { getTimeOfDay = function() return 12 end, getMonth = function() return 4 end }
+    return { getTimeOfDay = function() return F.hour end, getMonth = function() return 4 end }
 end
 function getSandboxOptions() return nil end
 
@@ -301,6 +305,12 @@ SC.BaseLife = {
     end,
     resident = function() return nil end,
     allocateFarmReceipt = function(spec)
+        local active = 0
+        for _, existing in ipairs(F.receipts) do
+            if existing.phase ~= "returned" and existing.phase ~= "delivered"
+                and existing.phase ~= "consumed" then active = active + 1 end
+        end
+        if active >= F.receiptLimit then return false, "farm_receipt_limit" end
         local receipt = {}
         for key, value in pairs(spec) do receipt[key] = value end
         receipt.id = "farm-receipt:" .. tostring(F.nextReceipt)
@@ -308,6 +318,11 @@ SC.BaseLife = {
         F.receipts[#F.receipts + 1] = receipt
         return true, receipt
     end,
+    noteWorkOwnershipMutation = function()
+        F.revision = F.revision + 1
+        return F.revision
+    end,
+    workConsistencyRevision = function() return F.revision end,
     farmReceipt = function(id)
         for _, receipt in ipairs(F.receipts) do if receipt.id == id then return receipt end end
         return nil

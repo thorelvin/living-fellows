@@ -1390,6 +1390,76 @@ do
             .. tostring(reason))
 end
 
+-- LF-31: an expired active job is reclaimed only after the former worker is
+-- proven idle. The old active state must not strand an otherwise valid chore.
+do
+    local ctx = setup("logs", 1, 2)
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    local queued, job = SC.BaseLife.enqueueJob({ type = "maintain", priority = 2 })
+    local firstId = ctx.actors[1].modData.SC_Id
+    local secondId = ctx.actors[2].modData.SC_Id
+    job.state, job.reservedBy, job.leaseUntil = "active", firstId, SC_TEST_CLOCK - 1
+    local claimed = SC.BaseLife.claimJob(secondId)
+    check(queued == true and claimed == job and job.reservedBy == secondId
+            and job.state == "reserved",
+        "a safely idle expired active owner releases the job to another worker")
+
+    job.state, job.reservedBy, job.leaseUntil = "active", firstId, SC_TEST_CLOCK - 1
+    local originalActive = SC.NativeActions.isWorkActive
+    SC.NativeActions.isWorkActive = function(actor)
+        return actor == ctx.actors[1] or (originalActive and originalActive(actor) == true)
+    end
+    claimed = SC.BaseLife.claimJob(secondId)
+    SC.NativeActions.isWorkActive = originalActive
+    check(claimed == nil and job.state == "active" and job.reservedBy == firstId
+            and job.blocker == "expired_job_native_active",
+        "an expired job with live native work remains owned for recovery")
+
+    local originalPeek = SC.Navigation.peek
+    SC.Navigation.peek = function(actor)
+        return actor == ctx.actors[1] and { goalSquare = ctx.source } or nil
+    end
+    job.blocker = nil
+    claimed = SC.BaseLife.claimJob(secondId)
+    SC.Navigation.peek = originalPeek
+    check(claimed == nil and job.state == "active" and job.reservedBy == firstId
+            and job.blocker == "expired_job_navigation_active",
+        "an expired job still approaching its target is not assigned twice")
+end
+
+-- LF-32: a real false guard-status result means off shift. Lua's `or`
+-- fallback must not turn the resident's guard role back into an active shift.
+do
+    local ctx = setup("logs", 1)
+    SC.BaseLife.cancelGatherOrder(ctx.order.id)
+    local guard, guardId = ctx.actor, ctx.actor.modData.SC_Id
+    SC.BaseLife.assign(guardId, "guard", true)
+    local queued, job = SC.BaseLife.enqueueJob({ type = "maintain", priority = 2 })
+    local originalGuardStatus = SC.BaseLife.guardStatus
+    local originalDowntime = SC.Downtime
+    SC.BaseLife.guardStatus = function() return false, "off_shift" end
+    SC.Downtime = { update = function() return true, "fixture_cleaning" end }
+    SC_TEST_CLOCK = SC_TEST_CLOCK + 50
+    local handled, reason = SC.BaseWork.update(guard, nil, {})
+    SC.BaseLife.guardStatus, SC.Downtime = originalGuardStatus, originalDowntime
+    check(queued == true and handled == true and reason == "fixture_cleaning"
+            and job.state == "active" and job.reservedBy == guardId,
+        "an off-shift guard claims ordinary camp work")
+end
+
+-- LF-37: cargo produced for an unfinished production order cannot be consumed
+-- as an unrelated construction requirement.
+do
+    local ctx = setup("logs", 1)
+    local plank = makeItem("Base.Plank", {
+        modData = { LF_ProductionOrderId = "production:foreign" },
+    })
+    ctx.actor.inventory:AddItem(plank)
+    check(SC.PersonalItems.isProtected(plank, ctx.actor, "base_build") == true
+            and SC.BaseWork._carriedSuppliesForTests(ctx.actor, "Base.Plank") == 0,
+        "production-marked output is invisible to unrelated construction")
+end
+
 -- Productive fields share the bounded maintenance rotation instead of
 -- suppressing every other audit family on every pulse.
 do

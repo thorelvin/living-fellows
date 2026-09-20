@@ -993,6 +993,119 @@ do
     check(SC.NativeActions.workKind(ctx.actor) == "chop_tree", "felling resumes in daylight")
 end
 
+-- LF-33: deleting an active build job first cancels its exact accepted timed
+-- action. Even a stale external reference cannot perform construction later.
+do
+    local ctx = setup()
+    local previousBuilder = ISBuildIsoEntity
+    local constructed, craftStops = 0, 0
+    local inputs = ArrayList.new()
+    local recipe = {
+        getInputs = function() return inputs end,
+        getTime = function() return 10 end,
+    }
+    local info = {
+        getScript = function()
+            return { getName = function() return "FixtureWall" end }
+        end,
+        getRecipe = function()
+            return { getCraftRecipe = function() return recipe end }
+        end,
+    }
+    ISBuildIsoEntity = {
+        GetAllBuildableEntities = function() return { info } end,
+        new = function(_, actor)
+            local entity = {
+                character = actor, north = false,
+                buildPanelLogic = {
+                    startCraftAction = function(self, action) self.action = action end,
+                    stopCraftAction = function(self) self.action = nil craftStops = craftStops + 1 end,
+                },
+            }
+            function entity:getSprite() return "walls_fixture_01" end
+            function entity:isValid() return true end
+            function entity:onActionComplete() return true end
+            function entity:create() constructed = constructed + 1 end
+            return entity
+        end,
+    }
+    local queued, job = SC.BaseLife.enqueueJob({
+        type = "build", priority = 5, recipeId = "FixtureWall",
+        target = { x = 0, y = 1, z = 0 },
+    })
+    local action, startReason
+    for _ = 1, 4 do
+        local _, reason = tick(ctx)
+        startReason = reason
+        action = current(ctx.actor)
+        if action and action.Type == "SCCompanionBuildAction" then break end
+    end
+    check(queued == true and action ~= nil and startReason == "build_started",
+        "the fixture build action is accepted before cancellation: " .. tostring(startReason))
+    local cancelled, cancelReason = SC.BaseLife.cancelJob(job.id)
+    check(cancelled == true and SC.BaseLife.job(job.id) == nil and current(ctx.actor) == nil
+            and craftStops > 0,
+        "job cancellation removes the exact accepted build action: " .. tostring(cancelReason))
+    action:perform()
+    ISBuildIsoEntity = previousBuilder
+    check(constructed == 0 and action.scStopped == true,
+        "a cancelled build action cannot execute through a stale reference")
+end
+
+-- LF-36: the remaining order quota is reserved before a native chop starts.
+-- Two workers may select trees concurrently, but only one may own the final
+-- unit and order completion must not erase a peer's accepted action.
+do
+    local ctx = setup({ workers = 2 })
+    for _, actor in ipairs(ctx.actors) do
+        actor.inventory:AddItem(makeItem("Base.Axe", {
+            tags = { choptree = true }, treeDamage = 20,
+        }))
+    end
+    local firstTree = makeTree(sq(3, 2), 20)
+    makeTree(sq(4, 2), 20)
+    local order = start(ctx, {
+        operation = "fell_trees", zoneId = ctx.lumber.id, requested = 1,
+        workers = { ctx.actors[1].modData.SC_Id, ctx.actors[2].modData.SC_Id },
+        settings = { haulLogs = false },
+    })
+    local startsBefore = #SC_PRODUCTION_CALLS.chop
+    local _, firstReason = tick(ctx, nil, ctx.actors[1])
+    local _, secondReason = tick(ctx, nil, ctx.actors[2])
+    check(firstReason == "production_chop_started"
+            and secondReason == "production_quota_reserved"
+            and current(ctx.actors[2]) == nil
+            and #SC_PRODUCTION_CALLS.chop == startsBefore + 1,
+        "only one worker starts the final reserved chop: " .. tostring(secondReason))
+    local action = current(ctx.actors[1])
+    action:animEvent("ChopTree")
+    action:perform()
+    local _, doneReason = tick(ctx, nil, ctx.actors[1])
+    check(firstTree.removed == true and doneReason == "production_order_completed"
+            and SC.BaseLife.productionOrder(order.id).completed == 1
+            and current(ctx.actors[2]) == nil,
+        "settling the reserved chop completes exactly one unit without a peer action")
+end
+
+-- LF-40: production tool discovery enters carried bags and stages the exact
+-- selected tool into the root inventory required by vanilla timed actions.
+do
+    local ctx = setup()
+    local bag = makeItem("Base.Bag_Normal")
+    bag.nested = makeInventory("bag")
+    function bag:getInventory() return self.nested end
+    local axe = makeItem("Base.Axe", { tags = { choptree = true }, treeDamage = 20 })
+    ctx.actor.inventory:AddItem(bag)
+    bag.nested:AddItem(axe)
+    makeTree(sq(3, 2), 20)
+    start(ctx, { operation = "fell_trees", zoneId = ctx.lumber.id, requested = 1,
+        settings = { haulLogs = false } })
+    local _, reason = tick(ctx)
+    check(reason == "production_chop_started" and ctx.actor.inventory:contains(axe)
+            and not bag.nested:contains(axe) and ctx.actor.primary == axe,
+        "an axe carried in a bag is found, staged, and used: " .. tostring(reason))
+end
+
 -- ---------------------------------------------------------------------------
 -- Saw planks: pinned inputs, proven outputs, verified deposits
 -- ---------------------------------------------------------------------------
@@ -1724,6 +1837,37 @@ do
     check(done and SC.BaseLife.productionOrder(order.id).state == "completed"
         and grave.modData.filled == true,
         "the collection order completes after the grave closes and its shovel is returned")
+end
+
+-- LF-38: cancellation may settle an already-finished corpse drop, but that
+-- reconciliation pass must not launch the next irreversible burial action.
+do
+    local ctx = setup()
+    ctx.toolsObject.container:AddItem(makeItem("Base.Shovel", {
+        tags = { diggrave = true },
+    }))
+    createGrave(-2, -3, 0, false)
+    makeBody(sq(4, -4))
+    start(ctx, {
+        operation = "collect_bodies", zoneId = ctx.burial.id, requested = 1,
+        settings = { fromLumber = false },
+    })
+    local grabbing = tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
+    check(grabbing == true, "the cancellation reproducer reaches the native grab")
+    current(ctx.actor):perform()
+    tick(ctx)
+    tick(ctx)
+    local drop = current(ctx.actor)
+    check(drop ~= nil and drop.Type == "ISDropCorpseAction",
+        "the cancellation reproducer reaches the native drop")
+    local burialsBefore = #SC_PRODUCTION_CALLS.bury
+    drop:perform()
+    local cancelled, cancelReason = SC.Production.cancelActor(ctx.actor, "player_paused")
+    local landed = ctx.actor.square.staticMoving[1]
+    check(cancelled == true and cancelReason == nil and current(ctx.actor) == nil
+            and #SC_PRODUCTION_CALLS.bury == burialsBefore and landed ~= nil
+            and landed.modData.LF_CorpseHaul == nil,
+        "settle-only drop cancellation leaves the body safely landed without starting burial")
 end
 
 do

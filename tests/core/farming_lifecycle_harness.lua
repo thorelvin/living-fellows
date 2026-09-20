@@ -524,4 +524,89 @@ count, complete = FarmWork._seedCountForTests("Tomato")
 check(count == 0 and complete == true,
     "protected committed seeds are excluded before the reserve is applied")
 
+-- LF-34: a terminal night/threat return state belongs to one attempt only.
+-- Dawn or Retry must create a fresh runtime phase instead of replaying the old
+-- blocker forever.
+fresh()
+F.hour = 23
+actor = F.actor("worker-a", 30, 1)
+plant = F.plant()
+F.square(31, 1, plant)
+F.addStorage("storage:food", "food", {})
+F.base.zones[#F.base.zones + 1] = {
+    id = "zone:remote-farm", kind = "farm",
+    x1 = 31, y1 = 1, x2 = 31, y2 = 1, z = 0,
+}
+harvest = F.job("harvest", 31, 1, {
+    id = "job:night-retry", actorId = actor.id, cropType = "Tomato",
+    zoneId = "zone:remote-farm",
+})
+handled, reason = FarmWork.update(actor, {}, harvest, {})
+check(handled == false and reason == "farm_outside_night" and #F.nativeStarts == 0,
+    "remote farm work blocks once at night")
+F.hour = 9
+handled, reason = FarmWork.update(actor, {}, harvest, {})
+check(handled == true and reason == "farm_harvest_started" and #F.nativeStarts == 1,
+    "the same farm job starts from a fresh phase after dawn")
+
+fresh()
+actor = F.actor("worker-a", 0, 1)
+plant = F.plant()
+F.square(1, 1, plant)
+F.addStorage("storage:food", "food", {})
+harvest = F.job("harvest", 1, 1, {
+    id = "job:threat-retry", actorId = actor.id, cropType = "Tomato",
+})
+handled, reason = FarmWork.update(actor, {}, harvest, {
+    snapshot = { threats = { { distanceSq = 4 } } },
+})
+check(handled == false and reason == "unsafe_area" and #F.nativeStarts == 0,
+    "a nearby threat blocks the current farm attempt")
+handled, reason = FarmWork.update(actor, {}, harvest, { snapshot = { threats = {} } })
+check(handled == true and reason == "farm_harvest_started" and #F.nativeStarts == 1,
+    "Retry after the threat clears starts from a fresh phase")
+
+-- LF-35/LF-39: receipt pressure may split one harvest across recovery passes.
+-- Every output remains attributed, the job stays open until all are deposited,
+-- and both checkpoint installation and removal invalidate a scheduled save.
+fresh()
+F.receiptLimit = 1
+actor = F.actor("worker-a", 0, 1)
+plant = F.plant()
+F.square(1, 1, plant)
+local cappedFoodStorage, cappedFoodContainer = F.addStorage("storage:food", "food", {})
+harvest = F.job("harvest", 1, 1, {
+    id = "job:capped-harvest", actorId = actor.id, cropType = "Tomato",
+})
+local revisionBefore = F.revision
+handled, reason = FarmWork.update(actor, {}, harvest, {})
+local revisionWithCheckpoint = F.revision
+check(handled == true and reason == "farm_harvest_started"
+        and revisionWithCheckpoint > revisionBefore
+        and harvest.target.harvestStarted == true,
+    "installing a harvest ownership checkpoint bumps save consistency")
+local firstTomato = F.item("Base.Tomato", 13001, { category = "Food" })
+local secondTomato = F.item("Base.Tomato", 13002, { category = "Food" })
+actor.inventory:AddItem(firstTomato)
+actor.inventory:AddItem(secondTomato)
+plant.harvestable = false
+F.native[actor].active = false
+handled, reason = FarmWork.update(actor, {}, harvest, {})
+check(handled == true and reason == "farm_harvest_receipt_wait"
+        and F.completedJobs == 0 and #F.receipts == 1
+        and firstTomato.modData.LF_FarmReceiptId ~= nil
+        and secondTomato.modData.LF_FarmReceiptId == nil,
+    "a full receipt ledger pauses after the accounted prefix without completing")
+for _ = 1, 10 do
+    FarmWork.update(actor, {}, harvest, {})
+    if F.completedJobs > 0 then break end
+end
+check(F.completedJobs == 1 and #F.receipts == 2
+        and #cappedFoodContainer.items == 2
+        and firstTomato.modData.LF_FarmReceiptId == nil
+        and secondTomato.modData.LF_FarmReceiptId == nil
+        and harvest.target.harvestStarted == nil
+        and F.revision > revisionWithCheckpoint,
+    "partial receipt allocation resumes, deposits every output, then clears the checkpoint")
+
 print("FARMING_LIFECYCLE_PASS checks=" .. tostring(checks))

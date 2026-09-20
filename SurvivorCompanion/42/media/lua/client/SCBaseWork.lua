@@ -479,6 +479,37 @@ local function actionActive(actor, action)
     return false
 end
 
+-- Remove exactly the build action owned by this job.  Clearing the whole
+-- timed-action queue can destroy unrelated work from another mod, while merely
+-- deleting the BaseLife row leaves Build 42 free to perform the accepted
+-- construction later.
+local function cancelBuildAction(actor, state, reason)
+    local action = state and state.action or nil
+    if action == nil then return true, "build_action_absent" end
+    action.scCancelled, action.scCancelReason = true, reason or "build_cancelled"
+    local queue = type(ISTimedActionQueue) == "table"
+        and type(ISTimedActionQueue.getTimedActionQueue) == "function"
+        and ISTimedActionQueue.getTimedActionQueue(actor) or nil
+    if action.action ~= nil then
+        invoke(actor, "cancelCompanionPendingAction", action.action)
+    end
+    if type(action.forceStop) == "function" then pcall(action.forceStop, action) end
+    if type(queue) == "table" and type(queue.removeFromQueue) == "function" then
+        pcall(queue.removeFromQueue, queue, action)
+        if queue.current == action then
+            queue.current = type(queue.queue) == "table" and queue.queue[1] or nil
+        end
+    end
+    if state.entity and state.entity.buildPanelLogic
+        and type(state.entity.buildPanelLogic.stopCraftAction) == "function" then
+        pcall(state.entity.buildPanelLogic.stopCraftAction, state.entity.buildPanelLogic)
+    end
+    if actionActive(actor, action) then return false, "build_action_cancel_failed" end
+    state.action, state.entity, state.buildSpriteName = nil, nil, nil
+    state.phase = "idle"
+    return true, "build_action_cancelled"
+end
+
 local function squareObjectCount(square)
     local count = 0
     U().squareObjects(square, function() count = count + 1 end, 128)
@@ -493,6 +524,22 @@ function SCCompanionBuildAction:stop()
 end
 
 function SCCompanionBuildAction:perform()
+    local job = self.scJobId and SC.BaseLife and SC.BaseLife.job
+        and SC.BaseLife.job(self.scJobId) or nil
+    if self.scCancelled == true or not job or job.reservedBy ~= self.scActorId
+        or (job.state ~= "reserved" and job.state ~= "active") then
+        self.scStopped = true
+        local queue = type(ISTimedActionQueue) == "table"
+            and type(ISTimedActionQueue.getTimedActionQueue) == "function"
+            and ISTimedActionQueue.getTimedActionQueue(self.character) or nil
+        if type(queue) == "table" and type(queue.removeFromQueue) == "function" then
+            pcall(queue.removeFromQueue, queue, self)
+            if queue.current == self then
+                queue.current = type(queue.queue) == "table" and queue.queue[1] or nil
+            end
+        end
+        return
+    end
     -- Build 42's entity builder calls getSpecificPlayer(self.player) while
     -- assigning construction health.  Companions deliberately do not occupy a
     -- local-player slot, so bridge that lookup only for this synchronous create.
@@ -557,6 +604,7 @@ local function startBuildAction(actor, state, job, info, square)
         select(1, U().position(square)), select(2, U().position(square)),
         select(3, U().position(square)), entity.north, sprite, duration)
     if not action then return false, "build_action_creation_failed" end
+    action.scJobId, action.scActorId, action.scEntity = job.id, actorId(actor), entity
     if entity.buildPanelLogic and type(action.setOnComplete) == "function" then
         action:setOnComplete(entity.onActionComplete, entity)
         action:setOnCancel(entity.onActionComplete, entity)
@@ -954,8 +1002,12 @@ function BaseWork.update(actor, player, runtime)
             })
         end
     end
-    local activeGuard = SC.BaseLife.guardStatus
-        and select(1, SC.BaseLife.guardStatus(id, now())) or resident.role == "guard"
+    local activeGuard
+    if type(SC.BaseLife.guardStatus) == "function" then
+        activeGuard = select(1, SC.BaseLife.guardStatus(id, now())) == true
+    else
+        activeGuard = resident.role == "guard"
+    end
     -- A guard on shift keeps watch instead of wandering off to generic chores;
     -- only a job left for it by name pulls it away.
     if not job and (not (activeGuard and resident.role == "guard") or namedJobWaiting(id)) then
@@ -1187,11 +1239,12 @@ function BaseWork.cancel(actor, reason)
     end
     if not state then return true end
     local id = actorId(actor)
-    if state.jobId then SC.BaseLife.releaseJob(state.jobId, id, reason or "base_work_cancelled") end
-    if state.action and type(ISTimedActionQueue) == "table" then
-        local queue = ISTimedActionQueue.getTimedActionQueue(actor)
-        if queue and type(queue.clear) == "function" then pcall(queue.clear, queue) end
+    if state.action then
+        local cancelled, cancelReason = cancelBuildAction(actor, state,
+            reason or "base_work_cancelled")
+        if cancelled ~= true then return false, cancelReason end
     end
+    if state.jobId then SC.BaseLife.releaseJob(state.jobId, id, reason or "base_work_cancelled") end
     if state.visualAt ~= nil and SC.NativeActions
         and type(SC.NativeActions.cancelVisual) == "function" then
         pcall(SC.NativeActions.cancelVisual, actor, reason or "base_work_cancelled")
@@ -1200,6 +1253,58 @@ function BaseWork.cancel(actor, reason)
     if type(state.cargo) == "table" then pcall(returnCargo, actor, state.cargo) end
     states[actor] = nil
     return true
+end
+
+-- BaseLife calls this before deleting a build row, so cancellation cannot
+-- report success while the exact accepted native action is still executable.
+function BaseWork.cancelJob(jobId, ownerId, reason)
+    local actor = U().resolveActor(ownerId)
+    local state = actor and states[actor] or nil
+    if not state or state.jobId ~= jobId then
+        return ownerId == nil, ownerId == nil and "build_not_started" or "build_owner_state_missing"
+    end
+    local cancelled, cancelReason = cancelBuildAction(actor, state,
+        reason or "build_job_cancelled")
+    if cancelled ~= true then return false, cancelReason end
+    state.jobId, state.requirementsReady, state.visualAt = nil, nil, nil
+    return true, "build_job_cancelled"
+end
+
+-- An expired active lease is only reclaimable after the former worker has no
+-- native action, transfer, cargo, or subsystem-owned recovery obligation.
+-- The caller leaves unsafe rows with their old owner for explicit recovery.
+function BaseWork.reconcileExpiredJob(job, ownerId)
+    if type(job) ~= "table" or type(ownerId) ~= "string" then
+        return false, "expired_job_owner_missing"
+    end
+    if job.type == "farm" or job.type == "gather_materials" or job.type == "production" then
+        return false, "expired_job_subsystem_owned"
+    end
+    local actor = U().resolveActor(ownerId)
+    if actor == nil then return false, "expired_job_actor_missing" end
+    if SC.NativeActions and type(SC.NativeActions.isWorkActive) == "function"
+        and SC.NativeActions.isWorkActive(actor) == true then
+        return false, "expired_job_native_active"
+    end
+    if SC.Navigation and type(SC.Navigation.peek) == "function" then
+        local navigation = SC.Navigation.peek(actor)
+        if type(navigation) == "table" and navigation.goalSquare ~= nil then
+            return false, "expired_job_navigation_active"
+        end
+    end
+    local state = states[actor]
+    if state and state.jobId == job.id then
+        if state.action and actionActive(actor, state.action) then
+            return false, "expired_job_action_active"
+        end
+        if state.transfer ~= nil or state.cargo ~= nil or state.visualAt ~= nil
+            or state.phase == "building" then
+            return false, "expired_job_recovery_pending"
+        end
+        state.jobId, state.requirementsReady = nil, nil
+        state.phase = "idle"
+    end
+    return true, "expired_job_settled"
 end
 
 function BaseWork.reset(actor)

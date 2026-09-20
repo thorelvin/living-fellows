@@ -62,6 +62,7 @@ local descriptorOrder = {}
 local actorStates = setmetatable({}, { __mode = "k" })
 local scans = {}
 local claims = {}
+local quotaReservations = {}
 local burialOutcomes = {}
 local burialOutcomeOrder = {}
 local phases = {}
@@ -585,7 +586,51 @@ local function blockOrder(order, reason)
     return false, reason, true
 end
 
+local function quotaCount(orderId)
+    local count = 0
+    for _ in pairs(quotaReservations[orderId] or {}) do count = count + 1 end
+    return count
+end
+
+local function reserveQuota(order, id)
+    if type(order) ~= "table" or type(id) ~= "string" then
+        return false, "production_quota_invalid"
+    end
+    quotaReservations[order.id] = quotaReservations[order.id] or {}
+    local rows = quotaReservations[order.id]
+    if rows[id] then return true, "production_quota_reserved" end
+    if (tonumber(order.completed) or 0) + quotaCount(order.id)
+        >= (tonumber(order.requested) or 0) then
+        return false, "production_quota_reserved"
+    end
+    rows[id] = true
+    return true, "production_quota_reserved"
+end
+
+local function releaseQuota(orderId, id)
+    local rows = orderId and quotaReservations[orderId] or nil
+    if not rows then return false end
+    rows[id] = nil
+    if quotaCount(orderId) == 0 then quotaReservations[orderId] = nil end
+    return true
+end
+
+local function orderHasUnsettledWork(orderId)
+    if quotaCount(orderId) > 0 then return true end
+    for _, state in pairs(actorStates) do
+        if state.orderId == orderId and state.work ~= nil then return true end
+    end
+    return false
+end
+
+function Production.canCompleteOrder(orderId)
+    return not orderHasUnsettledWork(orderId)
+end
+
 local function completeOrder(order, result)
+    if orderHasUnsettledWork(order.id) then
+        return true, "production_order_settling", false
+    end
     if order.operation == "fell_trees" and type(order.settings) == "table"
         and order.settings.haulLogs == true and (tonumber(order.pendingHaul) or 0) > 0 then
         local flushed, flushReason = SC.BaseLife.flushProductionHaul(order.id)
@@ -753,16 +798,61 @@ local function betterTool(candidate, selected, key)
     return toolScore(candidate, key) > toolScore(selected, key)
 end
 
-local function findInventoryTool(actor, key)
-    local inventory = U().inventory(actor)
-    if inventory == nil then return nil end
-    local best
-    for _, item in ipairs(U().inventoryItems(inventory, 256)) do
-        if hasToolTag(item, key) and notBroken(item) and betterTool(item, best, key) then
-            best = item
-        end
+local function stageInventoryTool(actor, item)
+    local root = U().inventory(actor)
+    if root == nil or item == nil then return false, "tool_inventory_unavailable" end
+    local source = select(1, invoke(item, "getContainer"))
+    if source == root then return true, "tool_ready" end
+    if source == nil then return false, "tool_source_unavailable" end
+    if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
+        local moved, reason = SC.WorkTransport.transferVerified(source, root, item, actor)
+        return moved == true, reason or (moved and "tool_staged" or "tool_stage_failed")
     end
-    return best
+    return U().transferItemVerified(source, root, item)
+end
+
+-- Scan the actor's complete inventory tree in bounded slices, keeping the
+-- strongest axe seen across slices. Native actions read tools from the root
+-- inventory, so an exact nested selection is staged there before use.
+local function findInventoryTool(actor, key, state)
+    local root = U().inventory(actor)
+    if root == nil then return nil, "failed", "tool_inventory_unavailable" end
+    if not SC.PersonalItems or type(SC.PersonalItems.walkActorInventory) ~= "function" then
+        local best
+        for _, item in ipairs(U().inventoryItems(root, 256)) do
+            if hasToolTag(item, key) and notBroken(item) and not protectedItem(item, actor)
+                and betterTool(item, best, key) then best = item end
+        end
+        return best, best and "found" or "absent"
+    end
+    if state == nil then
+        local best
+        SC.PersonalItems.walkActorInventory(actor, function(item)
+            if hasToolTag(item, key) and notBroken(item) and not protectedItem(item, actor)
+                and betterTool(item, best, key) then best = item end
+        end, { budget = math.huge })
+        return best, best and "found" or "absent"
+    end
+    local scan = state.toolScan
+    if type(scan) ~= "table" or scan.key ~= key or scan.root ~= root then
+        scan = { key = key, root = root, cursor = 0, best = nil }
+        state.toolScan = scan
+    end
+    local budget = math.max(1, math.floor(config("campStorageItemBudget", 80)))
+    local _, complete = SC.PersonalItems.walkActorInventory(actor, function(item)
+        if hasToolTag(item, key) and notBroken(item) and not protectedItem(item, actor)
+            and betterTool(item, scan.best, key) then scan.best = item end
+    end, { budget = budget, skip = scan.cursor })
+    if complete ~= true then
+        scan.cursor = scan.cursor + budget
+        return nil, "pending", "production_tool_scanning"
+    end
+    local best = scan.best
+    state.toolScan = nil
+    if best == nil then return nil, "absent", "production_tool_absent" end
+    local staged, stageReason = stageInventoryTool(actor, best)
+    if staged ~= true then return nil, "failed", stageReason end
+    return best, "found", stageReason
 end
 
 local function toolSource(actor, key)
@@ -1269,6 +1359,7 @@ local function pollChop(actor, order, state, context)
             local cancelled, cancelReason = cancelWork(actor, "production_chop_timeout")
             if cancelled ~= true then return false, cancelReason or "chop_cancel_failed" end
             state.work, state.target = nil, nil
+            releaseQuota(order.id, context.actorId)
             releaseClaim(work.key, context.actorId)
             noteCandidateFailure(order, "tree", work.key, "chop_timeout")
             return false, "chop_timeout"
@@ -1305,6 +1396,7 @@ local function pollChop(actor, order, state, context)
             "broken:" .. tostring(work.startedAt), context.runtime)
     end
     if not felled then
+        releaseQuota(order.id, context.actorId)
         state.target = nil
         if not enduranceSufficient(actor) then
             local handled, reason, terminal = rest(actor, order, state, "work.fell.tired",
@@ -1318,6 +1410,7 @@ local function pollChop(actor, order, state, context)
     local logs = square and math.max(0, countItems(square, "Base.Log", 64) - (work.logsBefore or 0)) or 0
     metrics.treesFelled = metrics.treesFelled + 1
     SC.BaseLife.recordProductionProgress(order.id, 1)
+    releaseQuota(order.id, context.actorId)
     SC.BaseLife.noteProductionCounter("treesFelled", 1)
     if SC.Diary and type(SC.Diary.noteWork) == "function" then
         pcall(SC.Diary.noteWork, actor, "trees", 1)
@@ -1344,7 +1437,9 @@ local function updateFell(actor, order, state, context)
         local handled, reason, terminal = rest(actor, order, state, "work.fell.tired", context.runtime)
         if handled ~= nil then return handled, reason, terminal end
     end
-    local axe = findInventoryTool(actor, "choptree")
+    local axe, toolStatus, toolReason = findInventoryTool(actor, "choptree", state)
+    if toolStatus == "pending" then return true, toolReason end
+    if toolStatus == "failed" then return false, toolReason, true end
     if not axe or state.toolFetch then
         return fetchTool(actor, order, state, "choptree")
     end
@@ -1404,11 +1499,22 @@ local function updateFell(actor, order, state, context)
     if approach ~= "arrived" then return true, approachReason end
     if threatNearby(actor, context.runtime) then return false, "unsafe_area" end
     local health = treeHealth(target.tree)
+    local reserved, reserveReason = reserveQuota(order, context.actorId)
+    if reserved ~= true then
+        releaseClaim(target.key, context.actorId)
+        state.target = nil
+        if order.completed >= order.requested then return completeOrder(order, "trees_felled") end
+        return true, reserveReason
+    end
     local accepted, reason = U().move(actor, "walk", {
         action = "chop_tree", tree = target.tree, tool = axe, targetSquare = square,
     })
-    if accepted ~= true and transientRejection(reason) then return true, reason end
+    if accepted ~= true and transientRejection(reason) then
+        releaseQuota(order.id, context.actorId)
+        return true, reason
+    end
     if accepted ~= true or not workActive(actor, "chop_tree") then
+        releaseQuota(order.id, context.actorId)
         noteCandidateFailure(order, "tree", target.key, reason)
         releaseClaim(target.key, context.actorId)
         state.target = nil
@@ -1420,6 +1526,7 @@ local function updateFell(actor, order, state, context)
         x = target.x, y = target.y, z = target.z, startedAt = current,
         lastHealth = health, lastProgressAt = current,
         logsBefore = countItems(square, "Base.Log", 64),
+        quotaReserved = true,
     }
     state.phase = "working"
     if state.spokeStart ~= true then
@@ -1611,7 +1718,9 @@ local function updateSaw(actor, order, state, context)
         return true, "production_saw_retry_wait"
     end
     state.sawRetryAt = nil
-    local saw = findInventoryTool(actor, "saw")
+    local saw, toolStatus, toolReason = findInventoryTool(actor, "saw", state)
+    if toolStatus == "pending" then return true, toolReason end
+    if toolStatus == "failed" then return false, toolReason, true end
     if not saw then return fetchTool(actor, order, state, "saw") end
     local _, capacity, ratio = U().inventoryLoad(actor)
     if (tonumber(capacity) or 0) > 0 and (tonumber(ratio) or 0) > 0.85 then
@@ -1779,7 +1888,9 @@ local function pollDig(actor, order, state, context)
 end
 
 local function digNext(actor, order, state, context, forBurial)
-    local shovel = findInventoryTool(actor, "diggrave")
+    local shovel, toolStatus, toolReason = findInventoryTool(actor, "diggrave", state)
+    if toolStatus == "pending" then return true, toolReason end
+    if toolStatus == "failed" then return false, toolReason, true end
     if not shovel then return fetchTool(actor, order, state, "diggrave") end
     local zone = zoneFor(order)
     if not zone then return blockOrder(order, "invalid_production_zone") end
@@ -2127,7 +2238,9 @@ end
 local function fillGrave(actor, order, state, grave, context)
     if claimActive(grave.key, context.actorId) then return true, "production_grave_claimed" end
     claim(grave.key, order.id, context.actorId)
-    local shovel = findInventoryTool(actor, "diggrave")
+    local shovel, toolStatus, toolReason = findInventoryTool(actor, "diggrave", state)
+    if toolStatus == "pending" then return true, toolReason end
+    if toolStatus == "failed" then return false, toolReason, true end
     if not shovel then
         local handled, reason, terminal = fetchTool(actor, order, state, "diggrave")
         if terminal == true or handled ~= true then releaseClaim(grave.key, context.actorId) end
@@ -3652,7 +3765,8 @@ function Disposal.continueDrag(actor, order, state, context, zone)
 end
 
 -- The drop is proven only by the tagged body lying near the worker again.
-function Disposal.pollDrop(actor, order, state, context)
+function Disposal.pollDrop(actor, order, state, context, options)
+    options = type(options) == "table" and options or {}
     local work, haul = state.work, state.haul
     local native = natives()
     if workActive(actor, "drop_body") then
@@ -3686,6 +3800,12 @@ function Disposal.pollDrop(actor, order, state, context)
     haul.stage = "placed"
     claim(haul.key, order.id, context.actorId)
     speak(actor, "burial.haul.drop", nil, haul.tag, context.runtime)
+    if options.settleOnly == true then
+        -- Cancellation may prove the already-finished drop and retain its
+        -- landed identity, but it must never cross into burial, ignition, or a
+        -- replacement grab. The ordinary update path performs that continuation.
+        return true, "production_drop_settled"
+    end
     return Disposal.disposePlaced(actor, order, state, context, zoneFor(order))
 end
 
@@ -3940,6 +4060,7 @@ end
 function Production.forgetOrder(orderId, workers)
     Production.retryOrder(orderId)
     phases[orderId] = nil
+    quotaReservations[orderId] = nil
     for key, entry in pairs(claims) do
         if entry.orderId == orderId then claims[key] = nil end
     end
@@ -3996,7 +4117,9 @@ function Production.cancelActor(actor, reason)
         elseif work.kind == "grab_body" then
             reconciled, reconcileReason = Disposal.pollGrab(actor, order, state, context)
         elseif work.kind == "drop_body" then
-            reconciled, reconcileReason = Disposal.pollDrop(actor, order, state, context)
+            reconciled, reconcileReason = Disposal.pollDrop(actor, order, state, context, {
+                settleOnly = true,
+            })
         end
         if state.work ~= nil then
             return false, reconcileReason or "production_reconciliation_pending"
@@ -4045,7 +4168,12 @@ function Production.cancelActor(actor, reason)
                 borrowed.container, borrowed.item)
         end
     end
+    if state and state.haul and state.haul.body
+        and Disposal.bodyAt(state.haul.body, state.haul.square) then
+        Disposal.clearTag(state.haul.body)
+    end
     local id = actorId(actor)
+    releaseQuota(orderId, id)
     for key, entry in pairs(claims) do
         if entry.actorId == id then claims[key] = nil end
     end
@@ -4074,7 +4202,7 @@ function Production.reset(actor)
         if cancelled ~= true then return false, reason or "production_reset_failed" end
     end
     actorStates = setmetatable({}, { __mode = "k" })
-    scans, claims, phases, ceremonies, ceremonyOrder = {}, {}, {}, {}, {}
+    scans, claims, quotaReservations, phases, ceremonies, ceremonyOrder = {}, {}, {}, {}, {}, {}
     burialOutcomes, burialOutcomeOrder = {}, {}
     pendingAmen = nil
     Disposal.urgentAt = {}
