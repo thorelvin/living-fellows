@@ -409,6 +409,13 @@ local function retainRollback(token, reason, terminalFailure, errorValue)
     return obligation
 end
 
+local function rollbackBlocked(token)
+    local obligation = type(token) == "table" and token.rollbackObligation or nil
+    if obligation == nil then return false end
+    return true, obligation.exhausted == true and "rollback_quarantined"
+        or "rollback_recovery_pending", safeDetail(obligation, 0)
+end
+
 local function runCancel(token, reason, force, terminalFailure, recoveryAttempt)
     if token.cancelling == true then return false, "cancel_in_progress" end
     local obligation = token.rollbackObligation
@@ -832,6 +839,8 @@ end
 
 function Supervisor.commit(token, operation, detail)
     if not Supervisor.isCurrent(token) then return false, "stale_token" end
+    local blocked, blockedReason, blockedDetail = rollbackBlocked(token)
+    if blocked then return false, blockedReason, blockedDetail end
     if token.phase ~= "committing" then return false, "commit_phase_required" end
     if token.commitAttempted == true then return false, "commit_already_attempted",
         safeDetail(token.commitReceipt, 0) end
@@ -865,6 +874,8 @@ end
 
 function Supervisor.transition(token, phase, detail)
     if not Supervisor.isCurrent(token) then return false, "stale_token" end
+    local blocked, blockedReason, blockedDetail = rollbackBlocked(token)
+    if blocked then return false, blockedReason, blockedDetail end
     if not validPhases[phase] or terminalPhases[phase] then return false, "invalid_active_phase" end
     if token.phase == phase then
         token.progress = safeDetail(detail, 0) or token.progress
@@ -911,6 +922,8 @@ end
 
 function Supervisor.progress(token, signature, detail)
     if not Supervisor.isCurrent(token) then return false, "stale_token" end
+    local blocked, blockedReason, blockedDetail = rollbackBlocked(token)
+    if blocked then return false, blockedReason, blockedDetail end
     local value = clean(signature, 120)
     if value ~= token.progressSignature then
         token.progressSignature = value
@@ -924,6 +937,8 @@ end
 
 function Supervisor.markVisualVerified(token, detail)
     if not Supervisor.isCurrent(token) then return false, "stale_token" end
+    local blocked, blockedReason, blockedDetail = rollbackBlocked(token)
+    if blocked then return false, blockedReason, blockedDetail end
     token.visualVerified = true
     token.protectedPose = false
     token.lastProgressAt = nowMs()
@@ -933,6 +948,8 @@ end
 
 function Supervisor.expectVisual(token, detail)
     if not Supervisor.isCurrent(token) then return false, "stale_token" end
+    local blocked, blockedReason, blockedDetail = rollbackBlocked(token)
+    if blocked then return false, blockedReason, blockedDetail end
     if token.commitEntered == true or token.committed == true then
         return false, "visual_after_commit"
     end
@@ -948,6 +965,8 @@ end
 
 function Supervisor.reserve(token, resource, label)
     if not Supervisor.isCurrent(token) or resource == nil then return false, "invalid_reservation" end
+    local blocked, blockedReason, blockedDetail = rollbackBlocked(token)
+    if blocked then return false, blockedReason, blockedDetail end
     local owner = reservationOwners[resource]
     if owner and owner ~= token and Supervisor.isCurrent(owner) then
         return false, "resource_reserved"
@@ -961,6 +980,8 @@ end
 
 function Supervisor.release(token, resource, reason)
     if type(token) ~= "table" or resource == nil then return false, "invalid_reservation" end
+    local blocked, blockedReason, blockedDetail = rollbackBlocked(token)
+    if blocked then return false, blockedReason, blockedDetail end
     if reservationOwners[resource] ~= token then return false, "reservation_not_owned" end
     reservationOwners[resource] = nil
     for index = #token.reservations, 1, -1 do
@@ -972,6 +993,8 @@ end
 
 function Supervisor.complete(token, reason, receipt)
     if not Supervisor.isCurrent(token) then return false, "stale_token" end
+    local blocked, blockedReason, blockedDetail = rollbackBlocked(token)
+    if blocked then return false, blockedReason, blockedDetail end
     if token.commitEntered == true and token.committed ~= true then
         return false, "commit_receipt_missing"
     end
@@ -980,6 +1003,9 @@ function Supervisor.complete(token, reason, receipt)
 end
 
 function Supervisor.fail(token, reason, detail)
+    if not Supervisor.isCurrent(token) then return false, "stale_token" end
+    local blocked, blockedReason, blockedDetail = rollbackBlocked(token)
+    if blocked then return false, blockedReason, blockedDetail end
     return finish(token, "failed", reason or "unknown_failure", detail, true)
 end
 
@@ -1049,6 +1075,8 @@ function Supervisor.movementPermission(actor, action, intent)
     Supervisor.update(actor)
     local token = actor and activeByActor[actor] or nil
     if not token then return true, "unowned" end
+    local blocked, blockedReason, blockedDetail = rollbackBlocked(token)
+    if blocked then return false, blockedReason, blockedDetail end
     action = tostring(action or "move")
     if token.allowedActions[action] == true then return true, "owner_action" end
     if token.allowedMovementPhases[token.phase] == true

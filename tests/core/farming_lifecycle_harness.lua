@@ -386,4 +386,26 @@ count, complete = FarmWork._seedCountForTests("Tomato")
 check(count == 4 and complete == true,
     "the restarted census converges on the mutated exact count")
 
+fresh()
+F.itemBudget = 80
+local replacedItems = {}
+for index = 1, 80 do
+    replacedItems[index] = F.item("Base.EndpointJunk" .. tostring(index), 500 + index)
+end
+F.addStorage("storage:endpoint", "farming", replacedItems)
+count, complete = FarmWork._seedCountForTests("Tomato")
+check(count == nil and complete == false,
+    "an endpoint census can pause exactly at the old container boundary")
+local replacementItems = { seed(700) }
+for index = 2, 80 do
+    replacementItems[index] = F.item("Base.ReplacementJunk" .. tostring(index), 700 + index)
+end
+F.storageContainers["storage:endpoint"] = F.container(replacementItems)
+count, complete = FarmWork._seedCountForTests("Tomato")
+check(count == nil and complete == false,
+    "replacing a marked container with the same-sized endpoint restarts the census")
+count, complete = FarmWork._seedCountForTests("Tomato")
+check(count == 1 and complete == true,
+    "the restarted endpoint census includes items before the old cursor")
+
 print("FARMING_LIFECYCLE_PASS checks=" .. tostring(checks))

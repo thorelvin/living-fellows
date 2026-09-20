@@ -6022,6 +6022,29 @@ do
     registry[steeredActor.id] = nil
 end
 do
+    local rollbackActor = actor("sc-decision-rollback-owner", 9, 8, {})
+    registry[rollbackActor.id] = rollbackActor
+    local rollbackToken = assert(SurvivorCompanion.ActionSupervisor.begin(rollbackActor, {
+        owner = "work", action = "rollback_fixture",
+        priority = SurvivorCompanion.ActionSupervisor.Priority.WORK,
+        onCancel = function() error("cleanup still pending") end,
+        ignoreRetry = true,
+    }))
+    local cancelled, cancelReason = SurvivorCompanion.ActionSupervisor.cancel(
+        rollbackActor, "fixture_rollback", nil, false)
+    local held, heldReason = SurvivorCompanion.Decision._holdOwnedActivityOrPacingForTests(
+        rollbackActor, player,
+        { threats = {}, immediateCount = 0, pressure = 0, player = { danger = 0 } },
+        { alive = true, health = 100, wounds = {}, bleedingCount = 0 }, {},
+        { order = "base_duty", recruited = true }, {}, clock, {})
+    check(cancelled ~= true and cancelReason == "rollback_failed"
+            and held == true and heldReason == "work:rollback_fixture"
+            and SurvivorCompanion.ActionSupervisor.isCurrent(rollbackToken),
+        "a rollback-quarantined owner suppresses ordinary AI until cleanup is verified")
+    SurvivorCompanion.ActionSupervisor.releaseActor(rollbackActor, "fixture_cleanup")
+    registry[rollbackActor.id] = nil
+end
+do
     local portalActor = actor("sc-combat-preempts-portal-preparation", 9, 8, {})
     registry[portalActor.id] = portalActor
     local oldActivityStatus = SurvivorCompanion.NativeActions.activityStatus

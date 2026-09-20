@@ -98,10 +98,9 @@ end
 local function configuredKey()
     if SC.UI and type(SC.UI.peekHotkey) == "function" then
         local ok, key = pcall(SC.UI.peekHotkey)
-        if ok then
-            key = tonumber(key)
-            return key and key > 0 and key or nil
-        end
+        if not ok then return nil end
+        key = tonumber(key)
+        return key and key > 0 and key or nil
     end
     return SC.UI and tonumber(SC.UI.DEFAULT_PEEK_HOTKEY) or nil
 end
@@ -268,16 +267,22 @@ function View.status()
 end
 
 function View.reset()
-    clearOffset()
+    local cleared, clearReason = clearOffset()
     state.currentX, state.currentY = 0, 0
     state.lastAt = nil
-    state.wroteOffset = false
     state.keyWasHeld = false
-    state.reason = "idle"
-    state.failure = nil
     state.watchId = nil
     state.watchActor = nil
-    return true
+    if cleared then
+        state.wroteOffset = false
+        state.reason = "idle"
+        state.failure = nil
+        return true
+    end
+    -- Keep wroteOffset/failure intact so runtime teardown reports the refused
+    -- cleanup and a later reset or update can retry the native clear.
+    state.reason = "bridge_failure"
+    return false, clearReason or state.failure or "view offset clear failed"
 end
 
 return View

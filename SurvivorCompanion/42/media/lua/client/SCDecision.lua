@@ -2031,7 +2031,7 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                     state.lastHandledAt = current
                     return true, state.intent
                 end
-            elseif token.owner == "player_control"
+            elseif token.rollbackObligation ~= nil or token.owner == "player_control"
                 or token.phase == "committing" or token.phase == "verifying" then
                 state.current = "activity"
                 state.intent = tostring(token.owner) .. ":" .. tostring(token.action)

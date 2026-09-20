@@ -21,6 +21,7 @@ local selected = actorAt(18, 16, 0)
 local keyDown = false
 local writes = {}
 local clears = 0
+local clearAccepted = true
 
 function player:setHaloNote(text) self.halo = text end
 function getSpecificPlayer(index) return index == 0 and player or nil end
@@ -40,7 +41,7 @@ SCBridge = {
     end,
     clearViewOffset = function()
         clears = clears + 1
-        return true
+        return clearAccepted
     end,
 }
 
@@ -119,6 +120,11 @@ SC_TEST_CLOCK = SC_TEST_CLOCK + 100
 View.update()
 check(#writes == writesBeforeDisabled and View.status().active == false,
     "an explicitly unbound Peek key never falls back to the default binding")
+SC.UI.peekHotkey = function() error("key lookup unavailable") end
+SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+View.update()
+check(#writes == writesBeforeDisabled and View.status().active == false,
+    "a failed Peek key lookup never activates the registered default")
 SC.UI.peekHotkey = nil
 SC_TEST_CLOCK = SC_TEST_CLOCK + 100
 View.update()
@@ -195,8 +201,16 @@ keyDown = true
 SC_TEST_CLOCK = SC_TEST_CLOCK + 100
 View.update()
 local clearsBeforeReset = clears
-View.reset()
-check(clears == clearsBeforeReset + 1 and View.status().reason == "idle",
-    "world reset clears any owned camera offset")
+clearAccepted = false
+local resetAccepted = View.reset()
+check(resetAccepted == false and clears == clearsBeforeReset + 1
+        and View.status().reason == "bridge_failure",
+    "world reset preserves a refused native camera-clear obligation")
+clearAccepted = true
+keyDown = false
+SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+View.update()
+check(clears == clearsBeforeReset + 2 and View.status().reason == "idle",
+    "a later update retries and verifies the retained camera clear")
 
 print("VIEW_CONTROL_KAHLUA_PASS checks=" .. tostring(checks))

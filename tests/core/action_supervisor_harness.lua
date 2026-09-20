@@ -384,6 +384,7 @@ do
     local resource, attempts, cleaned, urgentRuns = {}, 0, false, 0
     local rollbackToken = assert(Supervisor.begin(rollbackActor, {
         owner = "work", action = "partial_cleanup", ignoreRetry = true,
+        allowedActions = { cleanup_move = true },
         onCancel = function()
             attempts = attempts + 1
             if attempts == 1 then error("cleanup interrupted after partial rollback") end
@@ -395,6 +396,20 @@ do
     assert(Supervisor.reserve(rollbackToken, resource, "exclusive fixture"))
     local cancelledRollback, rollbackReason = Supervisor.cancel(
         rollbackActor, "fixture_cancel", nil, false)
+    local quarantineTransition, quarantineTransitionReason = Supervisor.transition(
+        rollbackToken, "selected")
+    local quarantineProgress, quarantineProgressReason = Supervisor.progress(
+        rollbackToken, "must-not-progress")
+    local quarantineReserve, quarantineReserveReason = Supervisor.reserve(
+        rollbackToken, {}, "must-not-reserve")
+    local quarantineRelease, quarantineReleaseReason = Supervisor.release(
+        rollbackToken, resource, "must-not-release")
+    local quarantineComplete, quarantineCompleteReason = Supervisor.complete(
+        rollbackToken, "must-not-complete")
+    local quarantineFail, quarantineFailReason = Supervisor.fail(
+        rollbackToken, "must-not-fail")
+    local quarantineMove, quarantineMoveReason = Supervisor.movementPermission(
+        rollbackActor, "cleanup_move", { supervisorToken = rollbackToken })
     assert(Supervisor.queueUrgent(rollbackActor, {
         owner = "survival", action = "retreat_after_cleanup",
         dispatch = function() urgentRuns = urgentRuns + 1 return true, "retreat_started" end,
@@ -418,6 +433,23 @@ do
             .. tostring(Supervisor.urgentStatus(rollbackActor)
                 and Supervisor.urgentStatus(rollbackActor).state)
             .. " blocked=" .. tostring(blockedOwner) .. "/" .. tostring(blockedReason))
+    check(quarantineTransition ~= true
+            and quarantineTransitionReason == "rollback_recovery_pending"
+            and quarantineProgress ~= true
+            and quarantineProgressReason == "rollback_recovery_pending"
+            and quarantineReserve ~= true
+            and quarantineReserveReason == "rollback_recovery_pending"
+            and quarantineRelease ~= true
+            and quarantineReleaseReason == "rollback_recovery_pending"
+            and quarantineComplete ~= true
+            and quarantineCompleteReason == "rollback_recovery_pending"
+            and quarantineFail ~= true
+            and quarantineFailReason == "rollback_recovery_pending"
+            and quarantineMove ~= true
+            and quarantineMoveReason == "rollback_recovery_pending"
+            and Supervisor.current(rollbackActor) == rollbackToken
+            and Supervisor.reservationCount(rollbackActor) == 1,
+        "rollback quarantine blocks the former owner's mutation and movement APIs")
     SC_TEST_CLOCK = SC_TEST_CLOCK + 300
     local recovered, recoveryReason = Supervisor.update(rollbackActor)
     check(recovered == true and recoveryReason == "cancelled" and attempts == 2

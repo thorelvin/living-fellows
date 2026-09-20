@@ -52,10 +52,9 @@ end
 local function configuredKey()
     if SC.UI and type(SC.UI.steerHotkey) == "function" then
         local ok, key = pcall(SC.UI.steerHotkey)
-        if ok then
-            key = tonumber(key)
-            return key and key > 0 and key or nil
-        end
+        if not ok then return nil end
+        key = tonumber(key)
+        return key and key > 0 and key or nil
     end
     return SC.UI and tonumber(SC.UI.DEFAULT_STEER_HOTKEY) or nil
 end

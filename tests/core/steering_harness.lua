@@ -177,6 +177,12 @@ Steering.update()
 check(acquisitions == acquisitionsBeforeDisabled and #moves == movesBeforeDisabled
         and SC.ActionSupervisor.current(actor) == nil,
     "an explicitly unbound Steer key never falls back to the default binding")
+SC.UI.steerHotkey = function() error("key lookup unavailable") end
+SC_TEST_CLOCK = SC_TEST_CLOCK + 100
+Steering.update()
+check(acquisitions == acquisitionsBeforeDisabled and #moves == movesBeforeDisabled
+        and SC.ActionSupervisor.current(actor) == nil,
+    "a failed Steer key lookup never activates the registered default")
 SC.UI.steerHotkey = nil
 SC_TEST_CLOCK = SC_TEST_CLOCK + 100
 Steering.update()

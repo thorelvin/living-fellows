@@ -300,31 +300,36 @@ end
 local function resetStorageScan(state)
     state.rowIndex, state.itemIndex = 1, 0
     state.container, state.containerSize = nil, nil
+    state.rowContainers, state.rowSizes = nil, nil
     state.count = 0
 end
 
--- Walk registered containers in bounded, resumable slices. Changes to the
--- current container or registered endpoint set restart the census so a
--- partial pass cannot become a false proof of absence.
+-- Walk registered containers in bounded, resumable slices. Changes to any
+-- registered endpoint identity or size restart the census so a partial pass
+-- cannot become a false proof of absence or retain a partial count from a
+-- container that was replaced beneath the same marker.
 local function scanStorage(state, categories, visitor)
     local rows = storageItemRows(categories)
-    local signatureParts = {}
-    for _, row in ipairs(rows) do signatureParts[#signatureParts + 1] = row.key end
+    local signatureParts, rowContainers, rowSizes = {}, {}, {}
+    local endpointsChanged = state.rowContainers == nil or state.rowSizes == nil
+    for index, row in ipairs(rows) do
+        signatureParts[#signatureParts + 1] = row.key
+        row.items, row.count = rowItems(row)
+        rowContainers[index], rowSizes[index] = row.container, row.count
+        if not endpointsChanged and (state.rowContainers[index] ~= row.container
+            or state.rowSizes[index] ~= row.count) then endpointsChanged = true end
+    end
     local signature = table.concat(signatureParts, "|")
-    if state.rowsSignature ~= signature then
+    if state.rowsSignature ~= signature or endpointsChanged then
         resetStorageScan(state)
         state.rowsSignature = signature
     end
+    state.rowContainers, state.rowSizes = rowContainers, rowSizes
     local budget = math.max(1, math.floor(config("campStorageItemBudget", 80)))
     local visited = 0
     while state.rowIndex <= #rows and visited < budget do
         local row = rows[state.rowIndex]
-        local items, count = rowItems(row)
-        if state.container == row.container and state.containerSize ~= count then
-            resetStorageScan(state)
-            row = rows[state.rowIndex]
-            items, count = rowItems(row)
-        end
+        local items, count = row.items, row.count
         state.container, state.containerSize = row.container, count
         if state.itemIndex >= count then
             state.rowIndex, state.itemIndex = state.rowIndex + 1, 0
