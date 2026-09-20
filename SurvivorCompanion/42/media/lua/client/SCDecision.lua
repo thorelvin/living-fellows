@@ -1995,7 +1995,7 @@ local function queueUrgentReassessment(actor, state, source)
 end
 
 local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
-        needs, commands, state, current)
+        needs, commands, state, current, rootRuntime)
     local native = SC.NativeActions
     -- A hostile household policy is an immediate combat order even before the
     -- ordinary candidate pass. Without this early check, an existing medical
@@ -2042,6 +2042,24 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
     if type(native) ~= "table" then return false end
     if type(native.activityStatus) == "function" then
         local phase, owner, name = native.activityStatus(actor)
+        -- Production owns an indefinite native action (notably tree chopping).
+        -- Poll its controller while the animation runs so the 45-second base-job
+        -- lease, fallback events and completion proof cannot expire behind this
+        -- otherwise-correct activity hold. This also avoids the heavier generic
+        -- candidate pass while a single known owner is active.
+        if not urgent and owner == "work"
+            and (phase == "active" or phase == "result_pending")
+            and commands.order == "base_duty" and SC.BaseWork
+            and type(SC.BaseWork.update) == "function" then
+            local safe, _, workReason = U().safeSubsystem("base-work", actor, function()
+                return SC.BaseWork.update(actor, player, rootRuntime or {})
+            end)
+            state.current, state.currentKey = "base_work", "base_work"
+            state.intent = safe and (workReason or "owned_work_polled")
+                or "owned_work_poll_failed"
+            state.lastHandledAt = current
+            return true, state.intent
+        end
         if phase == "active" and not urgent then
             state.current = "activity"
             state.intent = tostring(owner) .. ":" .. tostring(name)
@@ -2235,7 +2253,7 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     end
 
     local held, heldReason = holdOwnedActivityOrPacing(
-        actor, player, snapshot, assessment, needs, commands, state, current)
+        actor, player, snapshot, assessment, needs, commands, state, current, rootRuntime)
     if held then return true, heldReason end
 
     local vehicleHandled, vehicleReason = enforceVehicleExitPolicy(actor, player, commands)
@@ -2258,6 +2276,17 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         state.current, state.currentKey, state.intent = "alert", "threat_signal", "threat_signal"
         state.lastHandledAt = current
         return true, state.intent
+    end
+    if SC.Navigation and type(SC.Navigation.serviceCrowdYield) == "function" then
+        local safe, moved, moveReason = utility.safeSubsystem("crowd-yield", actor, function()
+            return SC.Navigation.serviceCrowdYield(actor, snapshot)
+        end)
+        if safe and moved == true then
+            state.current, state.currentKey = "movement", "crowd_yield"
+            state.intent = moveReason or "crowd_yield_pathing"
+            state.lastHandledAt = current
+            return true, state.intent
+        end
     end
     if SC.Dialogue and type(SC.Dialogue.ambientPulse) == "function" then
         utility.safeSubsystem("ambient-dialogue", actor, function()

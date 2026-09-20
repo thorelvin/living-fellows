@@ -28,6 +28,7 @@ local ZONE_COLORS = {
     rally = { r = 1.00, g = 0.82, b = 0.08 },
     quarantine = { r = 0.70, g = 0.22, b = 0.92 },
     lumber = { r = 0.36, g = 0.72, b = 0.20 },
+    farm = { r = 0.48, g = 0.88, b = 0.16 },
     burial = { r = 0.62, g = 0.66, b = 0.78 },
     pyre = { r = 1.00, g = 0.42, b = 0.10 },
 }
@@ -39,11 +40,13 @@ local STORAGE_COLORS = {
     tools = { r = 0.96, g = 0.78, b = 0.15 },
     construction = { r = 1.00, g = 0.48, b = 0.08 },
     crafting = { r = 0.76, g = 0.56, b = 0.28 },
+    literature = { r = 0.42, g = 0.62, b = 1.00 },
     weapons = { r = 0.92, g = 0.08, b = 0.08 },
     ammunition = { r = 0.80, g = 0.32, b = 0.10 },
     general = { r = 0.90, g = 0.90, b = 0.84 },
     output = { r = 0.96, g = 0.30, b = 0.78 },
     memorial = { r = 0.62, g = 0.66, b = 0.78 },
+    farming = { r = 0.44, g = 0.82, b = 0.18 },
 }
 
 local function now()
@@ -270,8 +273,20 @@ local function screenToWorld(x, y, z)
 end
 
 local function draftEndpoint(draft)
-    if type(draft) ~= "table" or type(draft.first) ~= "table"
-        or (type(getMouseXScaled) ~= "function" and type(getMouseX) ~= "function")
+    if type(draft) ~= "table" or type(draft.first) ~= "table" then
+        return nil
+    end
+    if type(draft.lockedEndpoint) == "table"
+        and tonumber(draft.lockedEndpoint.x) ~= nil
+        and tonumber(draft.lockedEndpoint.y) ~= nil
+        and tonumber(draft.lockedEndpoint.z) == tonumber(draft.first.z) then
+        return {
+            x = math.floor(tonumber(draft.lockedEndpoint.x)),
+            y = math.floor(tonumber(draft.lockedEndpoint.y)),
+            z = math.floor(tonumber(draft.lockedEndpoint.z)),
+        }
+    end
+    if (type(getMouseXScaled) ~= "function" and type(getMouseX) ~= "function")
         or (type(getMouseYScaled) ~= "function" and type(getMouseY) ~= "function") then
         return nil
     end
@@ -522,10 +537,10 @@ local function renderCompanionLabels(occupied)
     return drawn
 end
 
-local LEGEND_ZONES = { "area", "work", "lumber", "burial", "pyre", "rest", "social",
+local LEGEND_ZONES = { "area", "work", "lumber", "farm", "burial", "pyre", "rest", "social",
     "guard", "rally", "quarantine" }
 local LEGEND_STORAGE = { "food", "water", "medical", "tools", "construction", "crafting",
-    "weapons", "ammunition", "general", "output", "memorial" }
+    "literature", "weapons", "ammunition", "general", "output", "memorial", "farming" }
 
 local function layoutKeyName()
     local action = SC.UI and SC.UI.LAYOUT_HOTKEY_ACTION or nil

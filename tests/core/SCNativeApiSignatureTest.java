@@ -98,6 +98,8 @@ public final class SCNativeApiSignatureTest {
         Class<?> thumpable = Class.forName("zombie.iso.objects.IsoThumpable");
         Class<?> clothing = Class.forName("zombie.inventory.types.Clothing");
         Class<?> isoWorld = Class.forName("zombie.iso.IsoWorld");
+        Class<?> humanVisual = Class.forName("zombie.core.skinnedmodel.visual.HumanVisual");
+        Class<?> immutableColor = Class.forName("zombie.core.ImmutableColor");
 
         require(bridge.getDeclaredMethod("captureItemFacts", inventoryItem, kahluaTable)
                         .getReturnType() == int.class
@@ -126,6 +128,23 @@ public final class SCNativeApiSignatureTest {
                 "protocol-8 item fact dependencies changed");
         require(method(drainableItem, "getCurrentUsesFloat").getReturnType() == float.class,
                 "protocol-8 drainable fact dependencies changed");
+        require(method(player, "getHumanVisual").getReturnType() == humanVisual
+                        && method(humanVisual, "getHairModel").getReturnType() == String.class
+                        && method(humanVisual, "setHairModel", String.class).getReturnType() == void.class
+                        && method(humanVisual, "getBeardModel").getReturnType() == String.class
+                        && method(humanVisual, "setBeardModel", String.class).getReturnType() == void.class
+                        && method(humanVisual, "getSkinTexture").getReturnType() == String.class
+                        && method(humanVisual, "setSkinTextureName", String.class).getReturnType() == void.class
+                        && method(humanVisual, "getSkinTextureIndex").getReturnType() == int.class
+                        && method(humanVisual, "setSkinTextureIndex", int.class).getReturnType() == void.class
+                        && method(humanVisual, "getHairColor").getReturnType() == immutableColor
+                        && method(humanVisual, "setHairColor", immutableColor).getReturnType() == void.class
+                        && method(humanVisual, "getSkinColor").getReturnType() == immutableColor
+                        && method(humanVisual, "setSkinColor", immutableColor).getReturnType() == void.class
+                        && method(immutableColor, "getRedFloat").getReturnType() == float.class
+                        && immutableColor.getConstructor(float.class, float.class,
+                                float.class, float.class) != null,
+                "exact companion appearance persistence signatures changed");
         require(method(square, "getWindowThumpableTo", square).getReturnType() == thumpable
                         && method(square, "getSpecialObjects").getReturnType()
                                 == java.util.ArrayList.class
@@ -662,7 +681,12 @@ public final class SCNativeApiSignatureTest {
         // so these resolve on a companion; the mod reads the real pair instead
         // of trusting its own record, and yields root motion while it is held.
         require(method(companion, "isBeingGrappled").getReturnType() == boolean.class
-                        && method(companion, "isGrappling").getReturnType() == boolean.class,
+                        && method(companion, "isGrappling").getReturnType() == boolean.class
+                        && method(companion, "isDraggingCorpse").getReturnType() == boolean.class
+                        && companion.getDeclaredMethod("isCompanionCorpseDragActive")
+                                .getReturnType() == boolean.class
+                        && companion.getDeclaredMethod("isCompanionExclusiveGrappleActive")
+                                .getReturnType() == boolean.class,
                 "IGrappleable pair-state signature changed");
         require(method(companion, "getGrappledByType").getReturnType() == String.class,
                 "IGrappleable.getGrappledByType() signature changed");

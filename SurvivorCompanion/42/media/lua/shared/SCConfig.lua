@@ -72,6 +72,10 @@ local valueData = {
     actionWaitingTimeoutMs = 15000,
     actionRecoveryTimeoutMs = 15000,
     actionPoseMaximumDisplacement = 0.25,
+    -- A completed native work action normally gets claimed by BaseWork on its
+    -- next decision beat. Under extreme scheduler pressure, release stale pose
+    -- ownership after this grace so it can never freeze locomotion indefinitely.
+    workResultClaimMs = 5000,
     runtimeHealthGraceMs = 1500,
     -- Recoverable-retirement lifecycle limits (R2-02): how many create -> native
     -- health-failure -> retire cycles a single companion may go through before its
@@ -678,12 +682,22 @@ local valueData = {
     -- A bleeding companion without a bandage asks for one at most this often.
     medicalHelpRequestCooldownMs = 45000,
 
-    -- Party banter (speech only): distraction shouts, idle jokes and
-    -- first-visit place remarks. All flavor lines share one party gap.
+    -- Party banter: distraction shouts, greetings, camp conversations, idle
+    -- jokes and first-visit place remarks. All flavor lines share one party
+    -- gap; a two-person exchange owns only its short reply window.
     banterEnabled = true,
     banterPulseIntervalMs = 1000,
     banterSpeakerQuietMs = 15000,
     flavorPartySpeechGapMs = 20000,
+    companionConversationReplyMs = 2800,
+    companionConversationTimeoutMs = 9000,
+    meetingGreetingDistance = 6,
+    meetingGreetingPlayerDistance = 14,
+    meetingGreetingMemoryLimit = 128,
+    campConversationDistance = 8,
+    campConversationPartyCooldownMs = 60000,
+    campConversationActorCooldownMs = 180000,
+    campConversationPairCooldownMs = 600000,
     distractionMinHealth = 40,
     distractionChancePercent = 35,
     distractionAllyChancePercent = 25,
@@ -851,6 +865,12 @@ local valueData = {
     downtimeReservationMs = 30000,
     downtimeActivityMs = 6000,
     ambientRepeatCooldownMs = 60000,
+    -- Idle residents may borrow one real, non-reserved literature item from a
+    -- nearby marked camp storage. The exact item is returned on every terminal
+    -- path; all scans are bounded.
+    campReadingStorageRadius = 8,
+    campReadingStorageBudget = 8,
+    campReadingItemBudget = 120,
     -- Studying a zombie corpse: rare, only after a long quiet spell, once per
     -- body, bounded per companion and for the whole party.
     downtimeStudyRadius = 6,
@@ -989,7 +1009,7 @@ local valueData = {
     campStorageReservationMs = 20000,
 
     -- Bounded Base Life state keeps per-pulse work and long-world saves predictable.
-    baseDefaultAreaRadius = 6,
+    baseDefaultAreaRadius = 7,
     baseMaxZones = 24,
     baseMaxStorages = 32,
     baseMaxMaintenanceTargets = 64,
@@ -1002,6 +1022,20 @@ local valueData = {
     baseGuardShiftMs = 180000,
     baseOperationsAuditIntervalMs = 5000,
     baseOperationsStorageItemBudget = 160,
+
+    -- Continuous farming uses the same bounded outside-work band as lumber.
+    -- Audits inspect only a small slice; native timed actions own all effects.
+    farmMaximumTiles = 256,
+    farmScanSquaresPerSlice = 16,
+    farmReceiptLimit = 128,
+    farmRecoveryPerPulse = 4,
+    farmActionMaxMs = 120000,
+    farmBlockedRetryMs = 30000,
+    farmDayStartHour = 6,
+    farmDayEndHour = 21,
+    farmFarmerDurationMultiplier = 0.60,
+    farmSeedSpareReserve = 2,
+    farmWaterBuffer = 20,
 
     -- WP01 gathering stays finite, camp-local, and shares the existing scheduler.
     workMaximumOrders = 8,

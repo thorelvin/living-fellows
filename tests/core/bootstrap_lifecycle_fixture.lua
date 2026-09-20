@@ -67,7 +67,7 @@ local required = {
     "Navigation", "Positioning", "Combat", "Medical", "Logistics", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal", "BaseObjectRef", "BaseLife",
     "BaseVisuals", "WorkTransport", "GatherWork",
-    "BaseWork", "Production", "InfectionCrisis", "LifeEvents", "Community",
+    "FarmWork", "BaseWork", "Production", "InfectionCrisis", "LifeEvents", "Community",
     "DiaryText", "DiaryCatalog", "DiaryItem", "Diary", "Quirks", "Autonomy", "Commands",
     "FactionRecruitment", "Decision", "Support", "UIContext",
 }

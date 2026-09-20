@@ -8,6 +8,7 @@ SC.Logistics = SC.Logistics or {}
 local Logistics = SC.Logistics
 local states = setmetatable({}, { __mode = "k" })
 local containerHasRoom
+local storageFor
 
 local function U()
     return SC.GameplayUtil
@@ -38,42 +39,50 @@ local profiles = {
     generalist = {
         target = { food = 2, water = 2, medicine = 3, weapon = 2,
             ammunition = 4, clothing = 1, tools = 1, construction = 1,
-            crafting = 1, container = 1 },
+            crafting = 1, farming = 1, container = 1 },
         keep = { food = 1, water = 1, medicine = 2, weapon = 1,
             ammunition = 0, clothing = 0, tools = 0, construction = 0,
-            crafting = 0, container = 1 },
+            crafting = 0, farming = 0, container = 1 },
     },
     guard = {
         target = { food = 2, water = 2, medicine = 3, weapon = 3,
             ammunition = 10, clothing = 1, tools = 1, construction = 0,
-            crafting = 0, container = 1 },
+            crafting = 0, farming = 1, container = 1 },
         keep = { food = 1, water = 1, medicine = 2, weapon = 1,
             ammunition = 3, clothing = 0, tools = 0, construction = 0,
-            crafting = 0, container = 1 },
+            crafting = 0, farming = 0, container = 1 },
     },
     builder = {
         target = { food = 2, water = 2, medicine = 2, weapon = 1,
             ammunition = 2, clothing = 1, tools = 5, construction = 12,
-            crafting = 6, container = 1 },
+            crafting = 6, farming = 1, container = 1 },
         keep = { food = 1, water = 1, medicine = 1, weapon = 1,
             ammunition = 0, clothing = 0, tools = 2, construction = 2,
-            crafting = 1, container = 1 },
+            crafting = 1, farming = 0, container = 1 },
     },
     quartermaster = {
         target = { food = 6, water = 4, medicine = 6, weapon = 3,
             ammunition = 12, clothing = 4, tools = 4, construction = 16,
-            crafting = 12, container = 2 },
+            crafting = 12, farming = 1, container = 2 },
         keep = { food = 2, water = 2, medicine = 2, weapon = 1,
             ammunition = 2, clothing = 1, tools = 1, construction = 1,
-            crafting = 1, container = 1 },
+            crafting = 1, farming = 0, container = 1 },
     },
     medic = {
         target = { food = 2, water = 2, medicine = 10, weapon = 1,
             ammunition = 3, clothing = 1, tools = 1, construction = 0,
-            crafting = 2, container = 1 },
+            crafting = 2, farming = 1, container = 1 },
         keep = { food = 1, water = 1, medicine = 5, weapon = 1,
             ammunition = 0, clothing = 0, tools = 0, construction = 0,
-            crafting = 0, container = 1 },
+            crafting = 0, farming = 0, container = 1 },
+    },
+    farmer = {
+        target = { food = 3, water = 3, medicine = 2, weapon = 1,
+            ammunition = 2, clothing = 1, tools = 2, construction = 0,
+            crafting = 1, farming = 2, container = 1 },
+        keep = { food = 1, water = 1, medicine = 1, weapon = 1,
+            ammunition = 0, clothing = 0, tools = 1, construction = 0,
+            crafting = 0, farming = 0, container = 1 },
     },
 }
 
@@ -81,12 +90,15 @@ local storageCategory = {
     food = "food", water = "water", medicine = "medical",
     weapon = "weapons", ammunition = "ammunition", tools = "tools",
     construction = "construction", crafting = "crafting",
-    clothing = "general", container = "general", general = "general",
+    farming = "farming",
+    literature = "literature", clothing = "general", container = "general",
+    general = "general",
 }
 
 local roleWeights = {
     generalist = { food = 5, water = 6, medicine = 6, weapon = 5,
-        ammunition = 2, clothing = 2, tools = 3, construction = 2, crafting = 2 },
+        ammunition = 2, clothing = 2, tools = 3, construction = 2, crafting = 2,
+        farming = 3 },
     guard = { food = 4, water = 6, medicine = 6, weapon = 10,
         ammunition = 10, clothing = 2, tools = 2, construction = 0, crafting = 0 },
     builder = { food = 4, water = 6, medicine = 4, weapon = 3,
@@ -95,6 +107,9 @@ local roleWeights = {
         ammunition = 6, clothing = 5, tools = 7, construction = 9, crafting = 9 },
     medic = { food = 4, water = 6, medicine = 12, weapon = 3,
         ammunition = 1, clothing = 3, tools = 3, construction = 0, crafting = 4 },
+    farmer = { food = 8, water = 8, medicine = 3, weapon = 3,
+        ammunition = 1, clothing = 2, tools = 7, construction = 1, crafting = 2,
+        farming = 12 },
 }
 
 local function lower(value)
@@ -126,6 +141,11 @@ function Logistics.itemCategory(item)
     category = categoryOk and lower(category) or ""
     local display, displayOk = utility.call(item, "getDisplayCategory")
     display = displayOk and lower(display) or ""
+    if SC.FarmWork and type(SC.FarmWork.isFarmingSupply) == "function"
+        and SC.FarmWork.isFarmingSupply(item) == true then return "farming" end
+    -- Check the engine category before filename heuristics. Ordinary magazines
+    -- otherwise match the ammunition fragment below and get shelved with ammo.
+    if category == "literature" or display == "literature" then return "literature" end
     if typeContains(itemType, { "bandage", "rippedsheet", "disinfect", "painkiller",
         "antibiotic", "suture", "firstaid", "alcoholwipes", "pills" })
         or category == "medical" or display == "medical" then return "medicine" end
@@ -831,6 +851,36 @@ function Logistics.selectSurplus(actor, audit)
     return best
 end
 
+-- Literature has no loadout purpose once it is no longer being read. Offer a
+-- real book or magazine for shelving even below the ordinary unload threshold;
+-- private diaries, favourites, equipped objects and work cargo remain protected
+-- by the same ownership boundary as every other logistics move.
+local function selectLiteratureSurplus(actor, audit)
+    for _, record in ipairs(audit.items or {}) do
+        if (record.category or Logistics.itemCategory(record.item)) == "literature"
+            and not isProtected(actor, record.item) then
+            return {
+                item = record.item, category = "literature", source = record.source,
+                proactive = true,
+            }
+        end
+    end
+    return nil
+end
+
+local function selectFarmingSurplus(actor, audit)
+    for _, record in ipairs(audit.items or {}) do
+        if (record.category or Logistics.itemCategory(record.item)) == "farming"
+            and not isProtected(actor, record.item) then
+            return {
+                item = record.item, category = "farming", source = record.source,
+                proactive = true,
+            }
+        end
+    end
+    return nil
+end
+
 -- Moves that failed or were cancelled (a Loot pose knocked loose, a bag that
 -- will not take the item, an upgrade that will not equip) cool down with an
 -- exponential backoff. Without this memory the next audit proposed the same
@@ -899,6 +949,16 @@ function Logistics.status(actor)
     if audit.capacity > 0 and audit.ratio > audit.softRatio then
         surplus = Logistics.selectSurplus(actor, audit)
     end
+    if not surplus then
+        local literature = selectLiteratureSurplus(actor, audit)
+        if literature and storageFor(actor, literature.item, "literature", true) then
+            surplus = literature
+        end
+    end
+    if not surplus then
+        local farming = selectFarmingSurplus(actor, audit)
+        if farming and storageFor(actor, farming.item, "farming", true) then surplus = farming end
+    end
     if surplus and (moveMemory.cooling(actor, "deposit", surplus.item, current)
         or moveMemory.cooling(actor, "drop", surplus.item, current)) then
         surplus = nil
@@ -957,11 +1017,12 @@ function Logistics.preferredLootDestination(actor, item, category, audit)
     return root, "inventory"
 end
 
-local function storageFor(actor, item, category)
+storageFor = function(actor, item, category, dedicatedOnly)
     if not SC.BaseLife or type(SC.BaseLife.storageRows) ~= "function"
         or type(SC.BaseLife.resolveContainer) ~= "function" then return nil end
     local wanted = storageCategory[category] or "general"
-    local categories = wanted == "general" and { "general", "output" }
+    local categories = dedicatedOnly and { wanted }
+        or wanted == "general" and { "general", "output" }
         or { wanted, "general", "output" }
     local best, bestDistance
     for _, storageType in ipairs(categories) do
@@ -1385,8 +1446,10 @@ function Logistics.update(actor, player, runtime)
     states[actor] = state
     if not state.item or not state.source or not U().inventoryContains(state.source, state.item) then
         state.item, state.category = audit.surplus.item, audit.surplus.category
+        state.proactive = audit.surplus.proactive == true
         state.source = audit.surplus.source or audit.inventory
-        state.destination = storageFor(actor, state.item, state.category)
+        state.destination = storageFor(actor, state.item, state.category,
+            state.proactive and (state.category == "literature" or state.category == "farming"))
     end
     if state.destination then
         local destination = state.destination
@@ -1400,6 +1463,15 @@ function Logistics.update(actor, player, runtime)
         if not started then states[actor] = nil return false, reason end
         if phase == "approach" then return approachTransaction(actor, state, snapshot) end
         return executeTransaction(actor, state)
+    end
+
+    -- Proactive shelving is allowed only when the player marked a real
+    -- literature destination. Without one, keep the item instead of falling
+    -- through to the overload path that drops surplus on the ground.
+    if state.proactive and (state.category == "literature" or state.category == "farming") then
+        moveMemory.note(actor, "deposit", state.item, U().nowMs())
+        states[actor] = nil
+        return false, state.category .. "_storage_unavailable"
     end
 
     local square = U().squareOf(actor)

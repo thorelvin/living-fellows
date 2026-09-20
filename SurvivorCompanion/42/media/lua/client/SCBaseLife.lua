@@ -13,26 +13,30 @@ BaseLife.VERSION = 1
 BaseLife.WORK_VERSION = 1
 BaseLife.ROLES = {
     generalist = true, guard = true, builder = true, quartermaster = true, medic = true,
+    farmer = true,
 }
 BaseLife.ZONE_TYPES = {
     area = true, work = true, rest = true, social = true, guard = true,
-    rally = true, quarantine = true, lumber = true, burial = true, pyre = true,
+    rally = true, quarantine = true, lumber = true, farm = true,
+    burial = true, pyre = true,
 }
 BaseLife.STORAGE_CATEGORIES = {
     food = true, water = true, medical = true, tools = true, construction = true,
-    crafting = true, weapons = true, ammunition = true, general = true,
-    output = true, memorial = true,
+    crafting = true, literature = true, weapons = true, ammunition = true, general = true,
+    output = true, memorial = true, farming = true,
 }
 BaseLife.JOB_TYPES = {
     haul = true, sort = true, fetch = true, repair = true, replace_bandage = true,
     craft_supply = true, barricade = true, maintain = true, build = true,
-    gather_materials = true, production = true,
+    gather_materials = true, production = true, farm = true,
 }
 BaseLife.GATHER_MATERIALS = {
     logs = "Base.Log",
     planks = "Base.Plank",
 }
 BaseLife.GATHER_ZONE_KINDS = { work = true, lumber = true }
+local LEGACY_DEFAULT_AREA_RADIUS = 6
+local DEFAULT_AREA_RADIUS = 7
 
 -- Persisted production operations. This table is the save schema only:
 -- SCProduction registers the runtime behaviour for each id. Keeping the
@@ -40,6 +44,7 @@ BaseLife.GATHER_ZONE_KINDS = { work = true, lumber = true }
 -- behaviour module is unavailable. New operations add a row through
 -- BaseLife.registerProductionOperation before any save is restored.
 BaseLife.PRODUCTION_VERSION = 1
+BaseLife.FARM_VERSION = 1
 BaseLife.PRODUCTION_COUNTERS = {
     "treesFelled", "logsDropped", "planksMade", "gravesDug", "bodiesBuried", "gravesClosed",
     "bodiesCollected", "bodiesBurned", "pyresLit", "fallenBuried",
@@ -106,6 +111,7 @@ local roleAffinity = {
     quartermaster = { haul = 10, sort = 10, fetch = 9, gather_materials = 8,
         craft_supply = 4, production = 4 },
     medic = { replace_bandage = 10, fetch = 5, haul = 1, production = 2 },
+    farmer = { farm = 30, haul = 3, sort = 2, fetch = 3, production = 2 },
 }
 
 local WORK_ORDER_STATES = {
@@ -249,6 +255,14 @@ local function emptyProduction()
         orders = {},
         counters = emptyProductionCounters(),
         quarantine = nil,
+    }
+end
+
+local function emptyFarm()
+    return {
+        version = BaseLife.FARM_VERSION,
+        nextReceiptSerial = 1,
+        receipts = {},
     }
 end
 
@@ -624,6 +638,56 @@ local function normalizeProduction(source)
     return result
 end
 
+local FARM_RECEIPT_PHASES = {
+    borrowed = true, carried = true, depositing = true, recovery = true,
+    returned = true, delivered = true, consumed = true, quarantined = true,
+}
+
+local function normalizeFarmReceipt(source)
+    if type(source) ~= "table" or not validId(source.id, "farm-receipt:")
+        or not validId(source.jobId, "job:") or type(source.actorId) ~= "string"
+        or source.actorId == "" or type(source.itemType) ~= "string"
+        or source.itemType == "" or not FARM_RECEIPT_PHASES[source.phase] then
+        return nil
+    end
+    local kind = source.kind == "output" and "output" or "borrowed"
+    return {
+        id = source.id,
+        jobId = source.jobId,
+        actorId = source.actorId,
+        kind = kind,
+        itemType = cleanText(source.itemType, "", 128),
+        nativeId = source.nativeId ~= nil and cleanText(source.nativeId, "", 96) or nil,
+        sourceStorageId = validId(source.sourceStorageId, "storage:")
+            and source.sourceStorageId or nil,
+        destinationCategory = BaseLife.STORAGE_CATEGORIES[source.destinationCategory]
+            and source.destinationCategory or nil,
+        phase = source.phase,
+        blocker = source.blocker ~= nil and cleanText(source.blocker, "blocked", 160) or nil,
+        createdAt = math.max(0, finite(source.createdAt, 0)),
+        updatedAt = math.max(0, finite(source.updatedAt, 0)),
+    }
+end
+
+local function normalizeFarm(source)
+    if source == nil then return emptyFarm() end
+    if type(source) ~= "table" or tonumber(source.version) ~= BaseLife.FARM_VERSION then
+        return emptyFarm()
+    end
+    local result = emptyFarm()
+    result.nextReceiptSerial = integer(source.nextReceiptSerial, 1, 1, 999999)
+    local limit = U() and U().config("farmReceiptLimit") or 128
+    local seen = {}
+    for _, row in ipairs(type(source.receipts) == "table" and source.receipts or {}) do
+        local receipt = normalizeFarmReceipt(row)
+        if receipt and not seen[receipt.id] and #result.receipts < limit then
+            result.receipts[#result.receipts + 1] = receipt
+            seen[receipt.id] = true
+        end
+    end
+    return result
+end
+
 local function normalizeBase(source)
     if type(source) ~= "table" or not validId(source.id, "base:") then return nil end
     local core = normalizePoint(source.core)
@@ -637,7 +701,7 @@ local function normalizeBase(source)
     local result = {
         id = source.id, name = cleanText(source.name, "Main Camp", 48), core = core,
         zones = {}, storages = {}, maintenanceTargets = {}, jobs = {}, completed = {},
-        work = emptyWork(), production = emptyProduction(),
+        work = emptyWork(), production = emptyProduction(), farm = emptyFarm(),
         settings = {
             defense = DEFENSE_POLICIES[settings.defense] and settings.defense or "rotation",
             workload = WORKLOAD_POLICIES[settings.workload] and settings.workload or "balanced",
@@ -651,6 +715,23 @@ local function normalizeBase(source)
     for _, row in ipairs(type(source.zones) == "table" and source.zones or {}) do
         local zone = normalizeZone(row)
         if zone and #result.zones < maximumZones then result.zones[#result.zones + 1] = zone end
+    end
+    -- Preserve hand-drawn areas, but grow the untouched legacy default by the
+    -- newly requested one-tile border when an existing camp is first restored.
+    local desiredRadius = integer(U() and U().config("baseDefaultAreaRadius")
+        or DEFAULT_AREA_RADIUS, DEFAULT_AREA_RADIUS, 2, 32)
+    if desiredRadius > LEGACY_DEFAULT_AREA_RADIUS then
+        for _, zone in ipairs(result.zones) do
+            if zone.kind == "area" and zone.name == "Camp area" and zone.z == core.z
+                and zone.x1 == core.x - LEGACY_DEFAULT_AREA_RADIUS
+                and zone.y1 == core.y - LEGACY_DEFAULT_AREA_RADIUS
+                and zone.x2 == core.x + LEGACY_DEFAULT_AREA_RADIUS
+                and zone.y2 == core.y + LEGACY_DEFAULT_AREA_RADIUS then
+                zone.x1, zone.y1 = core.x - desiredRadius, core.y - desiredRadius
+                zone.x2, zone.y2 = core.x + desiredRadius, core.y + desiredRadius
+                break
+            end
+        end
     end
     local maximumStorages = U() and U().config("baseMaxStorages") or 32
     for _, row in ipairs(type(source.storages) == "table" and source.storages or {}) do
@@ -680,6 +761,7 @@ local function normalizeBase(source)
     end
     result.work = normalizeWork(source.work)
     result.production = normalizeProduction(source.production)
+    result.farm = normalizeFarm(source.farm)
     return result
 end
 
@@ -834,18 +916,17 @@ function BaseLife.zoneInsideAreaUnion(zone, areaZones)
     return true
 end
 
--- Lumber areas may extend a bounded distance beyond the camp boundary. The
+-- Reach zones may extend a bounded distance beyond the camp boundary. The
 -- reach band is every camp-area rectangle grown by productionLumberReach
--- tiles on the same floor. Lumber zones must lie inside that band, and only
--- lumber work may path across it.
-local function lumberReach()
+-- tiles on the same floor. Only a job tied to such a zone may path across it.
+local function workReach()
     local value = U() and tonumber(U().config("productionLumberReach")) or nil
     if value == nil or value ~= value then value = 30 end
     return math.max(0, math.min(64, math.floor(value)))
 end
 
 local function reachAreas(areaZones)
-    local reach, result = lumberReach(), {}
+    local reach, result = workReach(), {}
     for _, area in ipairs(areaZones or {}) do
         if type(area) == "table" and area.kind == "area" and tonumber(area.x1)
             and tonumber(area.x2) and tonumber(area.y1) and tonumber(area.y2)
@@ -868,11 +949,15 @@ function BaseLife.lumberZoneReachable(zone, areaZones)
     return BaseLife.zoneInsideAreaUnion(zone, reachAreas(areaZones))
 end
 
+function BaseLife.workZoneReachable(zone, areaZones)
+    return BaseLife.lumberZoneReachable(zone, areaZones)
+end
+
 -- Allocation-free: navigation asks this for every admitted search node.
 function BaseLife.withinWorkReach(value)
     local point, base = position(value), activeBase()
     if not point or not base then return false end
-    local reach = lumberReach()
+    local reach = workReach()
     for _, area in ipairs(base.zones) do
         if area.kind == "area" and area.z == point.z
             and point.x >= area.x1 - reach and point.x <= area.x2 + reach
@@ -884,7 +969,7 @@ function BaseLife.withinWorkReach(value)
 end
 
 -- Navigation admission for camp work: ordinary work stays inside the camp
--- area, while lumber work (intent.workReach) may also use the reach band.
+-- area, while jobs tied to a reach zone may also use the bounded band.
 function BaseLife.admitsWork(value, intent)
     if BaseLife.isInside(value) then return true end
     return type(intent) == "table" and intent.workReach == true
@@ -910,7 +995,8 @@ function BaseLife.create(square, name)
     end
     local id = nextId("nextBaseSerial", "base:")
     base = normalizeBase({ id = id, name = name or "Main Camp", core = point, createdAt = now() })
-    local radius = integer(U() and U().config("baseDefaultAreaRadius") or 6, 6, 2, 32)
+    local radius = integer(U() and U().config("baseDefaultAreaRadius")
+        or DEFAULT_AREA_RADIUS, DEFAULT_AREA_RADIUS, 2, 32)
     base.zones[1] = normalizeZone({
         id = nextId("nextZoneSerial", "zone:"), kind = "area", name = "Camp area",
         x1 = point.x - radius, y1 = point.y - radius,
@@ -931,6 +1017,16 @@ function BaseLife.beginZone(kind, square)
     if not point then return false, "invalid_zone_corner" end
     draftZone = { kind = kind, first = point }
     return true, "zone_started"
+end
+
+function BaseLife.lockZoneEndpoint(square)
+    if not draftZone then return false, "zone_not_started" end
+    local point = position(square)
+    if not point or point.z ~= draftZone.first.z then
+        return false, "invalid_zone_corner"
+    end
+    draftZone.lockedEndpoint = point
+    return true, point
 end
 
 function BaseLife.cancelZone()
@@ -956,6 +1052,7 @@ function BaseLife.finishZone(square, name)
         local tiles = (zone.x2 - zone.x1 + 1) * (zone.y2 - zone.y1 + 1)
         local limitKey = zone.kind == "burial" and "productionBurialMaximumTiles"
             or zone.kind == "pyre" and "productionPyreMaximumTiles"
+            or zone.kind == "farm" and "farmMaximumTiles"
             or "productionLumberMaximumTiles"
         if tiles > (U().config(limitKey) or 256) then
             return false, zone.kind .. "_zone_too_large"
@@ -982,6 +1079,15 @@ function BaseLife.removeZone(id)
     local zone, index
     if base then zone, index = findById(base.zones, id) end
     if not index then return false, "unknown_zone" end
+    if zone.kind == "farm" and SC.FarmWork and type(SC.FarmWork.cancelZone) == "function" then
+        local okay, reason = SC.FarmWork.cancelZone(id)
+        if okay ~= true then return false, reason or "farm_recovery_pending" end
+        for jobIndex = #base.jobs, 1, -1 do
+            local job = base.jobs[jobIndex]
+            if job.type == "farm" and type(job.target) == "table"
+                and job.target.zoneId == id then table.remove(base.jobs, jobIndex) end
+        end
+    end
     for _, order in ipairs(base.work and base.work.orders or {}) do
         if order.zoneId == id and order.state ~= "completed" and order.state ~= "cancelled" then
             return false, "work_order_uses_zone"
@@ -1003,8 +1109,8 @@ function BaseLife.removeZone(id)
         if areaCount < 1 then return false, "last_base_area" end
         for _, candidate in ipairs(remaining) do
             local contained
-            if candidate.kind == "lumber" then
-                contained = BaseLife.lumberZoneReachable(candidate, remaining)
+            if BaseLife.REACH_ZONE_KINDS[candidate.kind] then
+                contained = BaseLife.workZoneReachable(candidate, remaining)
             else
                 contained = candidate.kind == "area"
                     or BaseLife.zoneInsideAreaUnion(candidate, remaining)
@@ -1126,6 +1232,13 @@ function BaseLife.removeStorage(id)
                 or (receipt.phase ~= "delivered" and receipt.phase ~= "released"
                     and receipt.phase ~= "cancelled")) then
             return false, "work_receipt_uses_storage"
+        end
+    end
+    for _, receipt in ipairs(base.farm and base.farm.receipts or {}) do
+        local terminal = receipt.phase == "returned" or receipt.phase == "delivered"
+            or receipt.phase == "consumed"
+        if receipt.sourceStorageId == id and not terminal then
+            return false, "farm_receipt_uses_storage"
         end
     end
     for _, order in ipairs(base.production and base.production.orders or {}) do
@@ -1743,6 +1856,89 @@ function BaseLife.accountGatherDelivery(orderId, receiptId)
     return true, order, "delivery_accounted"
 end
 
+-- Persistent ownership for farm supplies and native harvest output. Farm work
+-- is continuous rather than an order, so it has its own small receipt ledger.
+local function farmFor(base)
+    if not base then return nil end
+    if type(base.farm) ~= "table" then base.farm = emptyFarm() end
+    return base.farm
+end
+
+local function farmReceiptTerminal(receipt)
+    return receipt and (receipt.phase == "returned" or receipt.phase == "delivered"
+        or receipt.phase == "consumed")
+end
+
+function BaseLife.allocateFarmReceipt(spec)
+    local base, current = activeBase(), now()
+    spec = type(spec) == "table" and spec or {}
+    if not base then return false, "base_missing" end
+    local farm = farmFor(base)
+    local limit = U().config("farmReceiptLimit") or 128
+    for index = #farm.receipts, 1, -1 do
+        if farmReceiptTerminal(farm.receipts[index]) then table.remove(farm.receipts, index) end
+    end
+    if #farm.receipts >= limit then return false, "farm_receipt_limit" end
+    local serial = integer(farm.nextReceiptSerial, 1, 1, 999999)
+    farm.nextReceiptSerial = serial + 1
+    local copied = stableCopy(spec, 5, { count = 96 }) or {}
+    copied.id = "farm-receipt:" .. tostring(serial)
+    copied.phase = copied.phase or (copied.kind == "output" and "carried" or "borrowed")
+    copied.createdAt, copied.updatedAt = current, current
+    local receipt = normalizeFarmReceipt(copied)
+    if not receipt then return false, "invalid_farm_receipt" end
+    farm.receipts[#farm.receipts + 1] = receipt
+    bumpWorkConsistencyRevision()
+    return true, receipt
+end
+
+function BaseLife.farmReceipt(id)
+    local farm = farmFor(activeBase())
+    return farm and findById(farm.receipts, id) or nil
+end
+
+function BaseLife.farmReceipts(jobId, includeTerminal)
+    local result, farm = {}, farmFor(activeBase())
+    for _, receipt in ipairs(farm and farm.receipts or {}) do
+        if (jobId == nil or receipt.jobId == jobId)
+            and (includeTerminal == true or not farmReceiptTerminal(receipt)) then
+            result[#result + 1] = receipt
+        end
+    end
+    return result
+end
+
+function BaseLife.updateFarmReceipt(id, fields)
+    local receipt = BaseLife.farmReceipt(id)
+    if not receipt or type(fields) ~= "table" then return false, "unknown_farm_receipt" end
+    if fields.phase ~= nil then
+        if not FARM_RECEIPT_PHASES[fields.phase] then return false, "invalid_farm_phase" end
+        receipt.phase = fields.phase
+    end
+    if fields.blocker ~= nil then
+        receipt.blocker = fields.blocker ~= false and cleanText(fields.blocker, "blocked", 160) or nil
+    end
+    if fields.destinationCategory ~= nil then
+        if not BaseLife.STORAGE_CATEGORIES[fields.destinationCategory] then
+            return false, "invalid_storage_category"
+        end
+        receipt.destinationCategory = fields.destinationCategory
+    end
+    receipt.updatedAt = now()
+    bumpWorkConsistencyRevision()
+    return true, receipt
+end
+
+function BaseLife.removeFarmReceipt(id)
+    local farm = farmFor(activeBase())
+    local receipt, index = farm and findById(farm.receipts, id) or nil
+    if not receipt then return false, "unknown_farm_receipt" end
+    if not farmReceiptTerminal(receipt) then return false, "farm_receipt_not_terminal" end
+    table.remove(farm.receipts, index)
+    bumpWorkConsistencyRevision()
+    return true
+end
+
 -- ---------------------------------------------------------------------------
 -- Production orders (fell trees, saw planks, dig graves, bury the dead).
 -- They share base jobs, worker rules and caps with gathering, but live in a
@@ -1762,7 +1958,7 @@ local function productionOrderIn(base, id)
 end
 
 -- Zone kinds that may lie in the bounded reach band around the camp.
-BaseLife.REACH_ZONE_KINDS = { lumber = true, burial = true, pyre = true }
+BaseLife.REACH_ZONE_KINDS = { lumber = true, farm = true, burial = true, pyre = true }
 
 local function productionZone(base, schema, id)
     local zone = findById(base and base.zones or {}, id)
@@ -1772,6 +1968,7 @@ local function productionZone(base, schema, id)
     local tiles = (zone.x2 - zone.x1 + 1) * (zone.y2 - zone.y1 + 1)
     local limitKey = zone.kind == "burial" and "productionBurialMaximumTiles"
         or zone.kind == "pyre" and "productionPyreMaximumTiles"
+        or zone.kind == "farm" and "farmMaximumTiles"
         or "productionLumberMaximumTiles"
     if tiles > (U().config(limitKey) or 256) then return nil, "production_zone_too_large" end
     if BaseLife.REACH_ZONE_KINDS[zone.kind] then
@@ -1792,7 +1989,12 @@ function BaseLife.jobAllowsWorkReach(job)
     if type(job) ~= "table" or type(job.target) ~= "table" then return false end
     local base = activeBase()
     local order
-    if job.type == "production" then order = productionOrderIn(base, job.target.orderId)
+    if job.type == "farm" then
+        local zone = findById(base and base.zones or {}, job.target.zoneId)
+        return zone ~= nil and zone.kind == "farm"
+            and not BaseLife.zoneInsideAreaUnion(zone, base.zones)
+            and BaseLife.workZoneReachable(zone, base.zones)
+    elseif job.type == "production" then order = productionOrderIn(base, job.target.orderId)
     elseif job.type == "gather_materials" then order = workOrderIn(base, job.target.orderId) end
     if not order then return false end
     if job.type == "production" and order.operation == "collect_bodies"
@@ -2387,6 +2589,12 @@ local function jobScore(actorId, job)
     if background and SC.Background and type(SC.Background.baseJobModifier) == "function" then
         score = score + SC.Background.baseJobModifier(background, job.type)
     end
+    if job.type == "farm" and SC.FarmWork
+        and type(SC.FarmWork.jobModifier) == "function" then
+        local modifier, eligible = SC.FarmWork.jobModifier(actorId, job, resident, record)
+        if eligible == false then return -math.huge end
+        score = score + (tonumber(modifier) or 0)
+    end
     if record and record.actor and type(job.target) == "table" then
         score = score - math.min(20, U().distance(record.actor, job.target) * 0.2)
     end
@@ -2495,6 +2703,10 @@ function BaseLife.cancelJob(id)
     local job, index
     if base then job, index = findById(base.jobs, id) end
     if not job then return false, "unknown_job" end
+    if job.type == "farm" and SC.FarmWork and type(SC.FarmWork.cancelJob) == "function" then
+        local okay, reason = SC.FarmWork.cancelJob(job.id, "farm_job_cancelled")
+        if okay ~= true then return false, reason or "farm_recovery_pending" end
+    end
     if job.type == "gather_materials" and type(job.target) == "table"
         and job.target.orderId then
         return BaseLife.cancelGatherOrder(job.target.orderId)
@@ -2692,6 +2904,8 @@ function BaseLife.auditOperations(force)
         { role = "medic", required = residents >= 3 and 1 or 0, assigned = roles.medic or 0 },
         { role = "quartermaster", required = residents >= 4 and 1 or 0,
             assigned = roles.quartermaster or 0 },
+        { role = "farmer", required = hasZone(base, "farm") and 1 or 0,
+            assigned = roles.farmer or 0 },
     }
     for _, row in ipairs(coverage) do
         if row.required > 0 then
@@ -2703,9 +2917,18 @@ function BaseLife.auditOperations(force)
         end
     end
     local zones = { rest = hasZone(base, "rest"), social = hasZone(base, "social"),
-        guard = hasZone(base, "guard"), rally = hasZone(base, "rally") }
+        guard = hasZone(base, "guard"), rally = hasZone(base, "rally"),
+        farm = hasZone(base, "farm") }
     if residents > 0 and not zones.rest then alerts[#alerts + 1] = "No rest zone is marked." end
     if residents >= 2 and not zones.guard then alerts[#alerts + 1] = "No guard zone is marked." end
+    if zones.farm then
+        if #BaseLife.storageRows("farming", false) == 0 then
+            alerts[#alerts + 1] = "No farming supplies storage is marked."
+        end
+        if #BaseLife.storageRows("food", false) == 0 then
+            alerts[#alerts + 1] = "No food storage is marked for farm harvests."
+        end
+    end
     local _, selectedGuard, guardCandidates = BaseLife.guardStatus(nil, current)
     operationsCache = {
         baseId = base.id, auditedAt = current,
@@ -2749,6 +2972,9 @@ function BaseLife.summary()
         residentRows = {}, history = {}, operations = operations,
         workOrders = {}, workReceipts = 0,
         productionOrders = {}, productionCounters = BaseLife.productionCounters(),
+        farm = SC.FarmWork and type(SC.FarmWork.summary) == "function"
+            and SC.FarmWork.summary() or nil,
+        farmReceipts = 0,
     }
     for id, resident in pairs(ensure().residents) do
         if base and resident.baseId == base.id then
@@ -2783,6 +3009,9 @@ function BaseLife.summary()
                     reservedBy = job.reservedBy, blocker = job.blocker,
                 }
             end
+        end
+        for _, receipt in ipairs(farmFor(base).receipts) do
+            if not farmReceiptTerminal(receipt) then result.farmReceipts = result.farmReceipts + 1 end
         end
         for _, storage in ipairs(base.storages) do
             result.storageRows[#result.storageRows + 1] = {
@@ -3149,6 +3378,41 @@ local function validProductionSource(base, path)
     return true
 end
 
+local function validFarmSource(base, path)
+    local source = base.farm
+    if source == nil then return true end
+    if type(source) ~= "table" or tonumber(source.version) ~= BaseLife.FARM_VERSION then
+        return restoreFailure(path, "unsupported farm document")
+    end
+    if not finiteNumber(source.nextReceiptSerial) or source.nextReceiptSerial < 1
+        or source.nextReceiptSerial ~= math.floor(source.nextReceiptSerial) then
+        return restoreFailure(path .. ".nextReceiptSerial", "expected positive integer")
+    end
+    local okay, countOrReason = denseArray(source.receipts, path .. ".receipts",
+        configuredLimit("farmReceiptLimit", 128))
+    if not okay then return false, countOrReason end
+    local ids = {}
+    for index = 1, countOrReason do
+        local row = source.receipts[index]
+        local normalized = normalizeFarmReceipt(row)
+        local rowPath = path .. ".receipts[" .. tostring(index) .. "]"
+        if not normalized then return restoreFailure(rowPath, "invalid farm receipt") end
+        if ids[normalized.id] then return restoreFailure(rowPath .. ".id", "duplicate farm receipt") end
+        ids[normalized.id] = true
+        if normalized.sourceStorageId ~= nil then
+            local found = false
+            for _, storage in ipairs(base.storages or {}) do
+                if storage.id == normalized.sourceStorageId then found = true break end
+            end
+            if not found and normalized.phase ~= "consumed" and normalized.phase ~= "returned"
+                and normalized.phase ~= "delivered" then
+                return restoreFailure(rowPath .. ".sourceStorageId", "unknown source storage")
+            end
+        end
+    end
+    return true
+end
+
 local function validBaseSource(source, id, path)
     if type(source) ~= "table" or source.id ~= id or not validId(id, "base:") then
         return restoreFailure(path, "invalid base id")
@@ -3262,6 +3526,8 @@ local function validBaseSource(source, id, path)
     if not workOkay then return false, workReason end
     local productionOkay, productionReason = validProductionSource(source, path .. ".production")
     if not productionOkay then return false, productionReason end
+    local farmOkay, farmReason = validFarmSource(source, path .. ".farm")
+    if not farmOkay then return false, farmReason end
     return true
 end
 

@@ -447,6 +447,9 @@ class UIStaticContractTests(unittest.TestCase):
             self.assertIn(f"SC.BaseLife.{method}", dispatch)
         self.assertIn("UI_SC_Base_ProductionCancelConfirm", production)
         self.assertIn("base.productionOrders", production)
+        self.assertIn('operation == "collect_bodies"', production)
+        self.assertIn('"UI_SC_Base_ProductionDisposalSelector", "disposal"', production)
+        self.assertIn('and productionDraft.disposal or PRODUCTION_ZONE_KIND[operation]', production)
 
     def test_base_context_is_hidden_outside_camp_and_dismiss_is_confirmed(self) -> None:
         relevant = lua_function(self.context, "local function baseMenuRelevant(square)")
@@ -1229,6 +1232,20 @@ class UIStaticContractTests(unittest.TestCase):
         )
         self.assertIn("toggleBaseLayout", base)
         self.assertIn("UI_SC_Base_Visual_Show", base)
+        self.assertIn("zonesAtSquare(square)", base)
+        self.assertIn("UI_SC_Base_RemoveZone", base)
+        remove = lua_function(
+            self.context, "local function removeZoneFromContext(_, zone, player)"
+        )
+        self.assertIn("SC.UI.confirmBaseAction", remove)
+        fill = lua_function(
+            self.context,
+            "function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, test)",
+        )
+        self.assertIn(
+            "clickedWorldSquare(playerIndex, context, player, square)", fill
+        )
+        self.assertIn("SC.BaseLife.lockZoneEndpoint(clickSquare)", fill)
         translations = json.loads(read(TRANSLATE / "EN" / "UI.json"))
         for key in ("UI_SC_Base_Visual_Legend", "UI_SC_Base_Visual_Empty",
                     "UI_SC_Base_Visual_Shown", "UI_SC_Base_Visual_Hidden"):

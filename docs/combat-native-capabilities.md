@@ -139,6 +139,16 @@ an exclusive native owner holds the actor, `advanceBridgePath()` and
 *only* displacement applied. That is what makes applying it correct instead of
 a second translation.
 
+One Build 42 relationship deliberately looks like a grapple without owning the
+carrier's translation: `PlayerDraggingCorpse`. The carrier reports
+`isGrappling()` and `isDraggingCorpse()` while ordinary input continues to move
+it and the paired corpse follows. The owner arbiter therefore treats a hostile
+`isBeingGrappled()` relationship, or a live-target grapple without corpse drag,
+as exclusive; corpse drag reports the non-exclusive `corpse_drag` owner so
+bridge path advancement and direct movement remain available. The installed
+runtime signature for `IsoPlayer.isDraggingCorpse()` and that ownership split
+are both pinned by the native bridge harness.
+
 The reaction set is ten exact state names, matched whole:
 `PlayerHitReactionState`, `PlayerHitReactionPVPState`, `StaggerBackState`,
 `PlayerFallDownState`, `PlayerFallingState`, `PlayerGetUpState`,

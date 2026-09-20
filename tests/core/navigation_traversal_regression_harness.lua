@@ -654,6 +654,17 @@ local aimX, aimY, aimSquare = N._continuousFollowVectorForTests(mover, {
 check(aimX and aimY and aimSquare == fastGrid["5:3"]
         and math.abs(aimX) > 1 and math.abs(aimY) > 1,
     "continuous follow aims down a proven-open route instead of steering at each tile centre")
+local scavengeAimX, scavengeAimY, scavengeAimSquare = N._continuousFollowVectorForTests(mover, {
+    path = fastPath, pathIndex = 2, blockedEdges = {}, blockedSquares = {}, routeMemory = {},
+}, fastGrid["0:0"], { action = "move_to_scavenge", continuousApproach = true })
+check(scavengeAimX and scavengeAimY and scavengeAimSquare == fastGrid["5:3"]
+        and math.abs(scavengeAimX) > 1 and math.abs(scavengeAimY) > 1,
+    "a continuous scavenging approach aims down the proven-open route instead of steering at each tile centre")
+local tacticalAim = N._continuousFollowVectorForTests(mover, {
+    path = fastPath, pathIndex = 2, blockedEdges = {}, blockedSquares = {}, routeMemory = {},
+}, fastGrid["0:0"], { action = "move_to_scavenge" })
+check(tacticalAim == nil,
+    "a scavenging route must explicitly opt into continuous look-ahead steering")
 U.move = oldMove
 -- No world scan is needed: only the existing bounded close-threat snapshot.
 U.gridSquare = function() return nil end

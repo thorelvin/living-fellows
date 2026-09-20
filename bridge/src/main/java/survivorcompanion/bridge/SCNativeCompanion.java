@@ -490,6 +490,41 @@ public final class SCNativeCompanion extends IsoPlayer {
         }
     }
 
+    /**
+     * Is this companion the carrier in Build 42's corpse-drag grapple?
+     *
+     * <p>{@code PlayerDraggingCorpse} deliberately reuses the grapple pair,
+     * but unlike a combat grapple it does not own the carrier's translation:
+     * player input keeps moving the carrier while the paired corpse follows.
+     * Treating every {@code isGrappling()} result as an exclusive body owner
+     * therefore freezes a companion as soon as the pickup animation succeeds.
+     */
+    public boolean isCompanionCorpseDragActive() {
+        try {
+            return isDraggingCorpse();
+        } catch (RuntimeException | LinkageError failure) {
+            return false;
+        }
+    }
+
+    /** A victim grapple is always exclusive; a carrier grapple is exclusive
+     * only when it is not the stock corpse-drag relationship. */
+    public boolean isCompanionExclusiveGrappleActive() {
+        try {
+            return exclusiveGrappleOwnsBody(
+                    isBeingGrappled(), isGrappling(), isDraggingCorpse());
+        } catch (RuntimeException | LinkageError failure) {
+            // Do not release a possibly hostile pair when observation fails.
+            return true;
+        }
+    }
+
+    /** Pure form of the corpse-drag exception, kept testable without a live pair. */
+    static boolean exclusiveGrappleOwnsBody(boolean beingGrappled,
+            boolean grappling, boolean draggingCorpse) {
+        return beingGrappled || (grappling && !draggingCorpse);
+    }
+
     private static boolean isTraversalState(State state) {
         if (state == null) return false;
         String name = state.getClass().getSimpleName();
@@ -557,6 +592,7 @@ public final class SCNativeCompanion extends IsoPlayer {
     public static final String OWNER_REACTION = "reaction";
     public static final String OWNER_TRAVERSAL = "traversal";
     public static final String OWNER_ATTACK = "attack";
+    public static final String OWNER_CORPSE_DRAG = "corpse_drag";
     public static final String OWNER_TACTICAL = "tactical";
     public static final String OWNER_MANUAL = "manual";
     public static final String OWNER_PATH = "path";
@@ -572,7 +608,7 @@ public final class SCNativeCompanion extends IsoPlayer {
      * the grapple offset that positions them against the grappler.
      */
     public String getCompanionMovementOwner() {
-        if (isCompanionNativeGrappleActive()) return OWNER_GRAPPLE;
+        if (isCompanionExclusiveGrappleActive()) return OWNER_GRAPPLE;
         if (isCompanionNativeReactionActive()) return OWNER_REACTION;
         if (isCompanionTraversalActive()) return OWNER_TRAVERSAL;
         try {
@@ -580,6 +616,7 @@ public final class SCNativeCompanion extends IsoPlayer {
         } catch (RuntimeException | LinkageError ignored) {
             // Fall through: an unreadable attack flag is not an owner claim.
         }
+        if (isCompanionCorpseDragActive()) return OWNER_CORPSE_DRAG;
         if (bridgeTacticalMovement) return OWNER_TACTICAL;
         if (bridgeMoveRequested && bridgeMoving) return OWNER_MANUAL;
         if (bridgePathActive) return OWNER_PATH;

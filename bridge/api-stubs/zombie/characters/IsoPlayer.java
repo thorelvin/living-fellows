@@ -32,6 +32,7 @@ public class IsoPlayer extends IsoLivingCharacter {
     public void setAttackStarted(boolean started) { attackStarted = started; }
     public void clearHandToHandAttack() { attackStarted = false; initiateAttack = false; }
     public boolean isZombiesDontAttack() { return false; }
+    public boolean isDraggingCorpse() { return false; }
     public boolean climbOverWall(IsoDirections direction) { return false; }
     public void StopAllActionQueue() {}
     public void setNpc(boolean npc) {}

@@ -549,13 +549,47 @@ function Traversal.handleFence(actor, object, fromSquare, toSquare, intent, cont
     return true, action == "climb_wall" and "climbing_wall" or "climbing_fence"
 end
 
-function Traversal.nearbyOpenedDoor(state, actor, context)
+local function sameDoorEdge(entry, fromSquare, toSquare, context)
+    if type(entry) ~= "table" or fromSquare == nil or toSquare == nil then return false end
+    return (invoke(context, "sameSquare", entry.fromSquare, fromSquare)
+            and invoke(context, "sameSquare", entry.toSquare, toSquare))
+        or (invoke(context, "sameSquare", entry.fromSquare, toSquare)
+            and invoke(context, "sameSquare", entry.toSquare, fromSquare))
+end
+
+function Traversal.nearbyOpenedDoor(state, actor, context, routeFrom, routeTo)
+    local routeKnown = routeFrom ~= nil and routeTo ~= nil
+    local nearest, nearestDistance
+    local occupied, occupiedDistance
     for _, entry in ipairs(state.openedDoors or {}) do
         local progress, cross = Traversal.doorGeometry(entry, actor)
         if invoke(context, "objectOpen", entry.object) and progress ~= nil
-            and math.abs(progress) <= 1.15 and cross <= 1.15 then return entry end
+            and math.abs(progress) <= 1.15 and cross <= 1.15 then
+            if routeKnown then
+                -- Two close thresholds are common in shops and double-door
+                -- entrances. Recovery must use the door on the failed route edge;
+                -- the first recently opened door can face another direction and
+                -- turn a through-door retry into an endless sideways shuffle.
+                if sameDoorEdge(entry, routeFrom, routeTo, context) then return entry end
+                if Traversal.occupiesDoorway(actor, entry) then
+                    local distance = math.abs(progress) + cross
+                    if occupiedDistance == nil or distance < occupiedDistance then
+                        occupied, occupiedDistance = entry, distance
+                    end
+                end
+            else
+                local distance = math.abs(progress) + cross
+                if nearestDistance == nil or distance < nearestDistance then
+                    nearest, nearestDistance = entry, distance
+                end
+            end
+        end
     end
-    return nil
+    -- Once a route edge is known, proximity alone is not enough: a neighboring
+    -- doorway may be less than one tile away. The only non-route exception is a
+    -- threshold the actor is physically occupying and needs to clear.
+    if routeKnown then return occupied end
+    return nearest
 end
 
 local function actorClearOfDoorway(actor, entry)

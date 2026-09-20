@@ -333,6 +333,27 @@ local function squarePayload(square)
     return { x = x, y = y, z = z }
 end
 
+-- World-object lists can begin with the player or another moving object. Base
+-- placement instead uses the immutable screen coordinates captured at click.
+local function clickedWorldSquare(playerIndex, context, player, fallback)
+    if type(screenToIsoX) ~= "function" or type(screenToIsoY) ~= "function"
+        or type(getCell) ~= "function" or type(context) ~= "table"
+        or tonumber(context.x) == nil or tonumber(context.y) == nil then
+        return fallback
+    end
+    local z = tonumber(safeMethod(player, "getZ"))
+    if z == nil then return fallback end
+    local okX, worldX = pcall(screenToIsoX, playerIndex, context.x, context.y, z)
+    local okY, worldY = pcall(screenToIsoY, playerIndex, context.x, context.y, z)
+    if not okX or not okY or tonumber(worldX) == nil or tonumber(worldY) == nil then
+        return fallback
+    end
+    local okCell, cell = pcall(getCell)
+    if not okCell or not cell then return fallback end
+    return safeMethod(cell, "getGridSquare", math.floor(tonumber(worldX)),
+        math.floor(tonumber(worldY)), math.floor(z)) or fallback
+end
+
 local function findTarget(worldObjects, player)
     local targetSquare = nil
     local door = nil
@@ -422,6 +443,7 @@ local function baseAction(target, action, payload, player)
     elseif action == "zone_begin" then ok, result = SC.BaseLife.beginZone(payload.kind, payload.square)
     elseif action == "zone_finish" then ok, result = SC.BaseLife.finishZone(payload.square, payload.name)
     elseif action == "zone_cancel" then ok, result = SC.BaseLife.cancelZone()
+    elseif action == "zone_remove" then ok, result = SC.BaseLife.removeZone(payload.id)
     elseif action == "storage" then
         ok, result = SC.BaseLife.registerStorage(payload.object, payload.category)
     elseif action == "maintenance" then
@@ -447,6 +469,47 @@ end
 local function toggleBaseLayout(_, player)
     if SC.UI and type(SC.UI.toggleBaseLayout) == "function" then
         SC.UI.toggleBaseLayout(player)
+    end
+end
+
+local function zonesAtSquare(square)
+    local point = squarePayload(square)
+    if not point or not SC.BaseLife or type(SC.BaseLife.visualRows) ~= "function" then
+        return {}
+    end
+    local ok, rows = pcall(SC.BaseLife.visualRows)
+    rows = ok and type(rows) == "table" and rows.zoneRows or nil
+    local result = {}
+    for _, zone in ipairs(type(rows) == "table" and rows or {}) do
+        local x1, x2 = tonumber(zone.x1), tonumber(zone.x2)
+        local y1, y2 = tonumber(zone.y1), tonumber(zone.y2)
+        local z = tonumber(zone.z)
+        if x1 and x2 and y1 and y2 and z == tonumber(point.z)
+            and point.x >= math.min(x1, x2) and point.x <= math.max(x1, x2)
+            and point.y >= math.min(y1, y2) and point.y <= math.max(y1, y2) then
+            result[#result + 1] = zone
+        end
+    end
+    -- In overlaps, put the smallest/specific zone before the broad camp area.
+    table.sort(result, function(left, right)
+        local leftArea = (math.abs((tonumber(left.x2) or 0) - (tonumber(left.x1) or 0)) + 1)
+            * (math.abs((tonumber(left.y2) or 0) - (tonumber(left.y1) or 0)) + 1)
+        local rightArea = (math.abs((tonumber(right.x2) or 0) - (tonumber(right.x1) or 0)) + 1)
+            * (math.abs((tonumber(right.y2) or 0) - (tonumber(right.y1) or 0)) + 1)
+        if leftArea == rightArea then return tostring(left.id) < tostring(right.id) end
+        return leftArea < rightArea
+    end)
+    return result
+end
+
+local function removeZoneFromContext(_, zone, player)
+    if type(zone) ~= "table" or not zone.id then return end
+    local execute = function()
+        baseAction(nil, "zone_remove", { id = zone.id }, player)
+    end
+    if SC.UI and type(SC.UI.confirmBaseAction) == "function" then
+        SC.UI.confirmBaseAction(text("UI_SC_Base_RemoveZoneConfirm",
+            zone.name or zone.kind or zone.id), execute)
     end
 end
 
@@ -480,6 +543,12 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
         and SC.BaseVisuals.status().enabled == true
     menu:addOption(text(layoutShown and "UI_SC_Base_Visual_Hide" or "UI_SC_Base_Visual_Show"),
         nil, toggleBaseLayout, player)
+    if layoutShown then
+        for _, zone in ipairs(zonesAtSquare(square)) do
+            menu:addOption(text("UI_SC_Base_RemoveZone", zone.name or zone.kind or zone.id),
+                nil, removeZoneFromContext, zone, player)
+        end
+    end
     local draft = SC.BaseLife.zoneDraft()
     local inside = type(SC.BaseLife.isInside) == "function"
         and SC.BaseLife.isInside(square) == true
@@ -491,10 +560,11 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
         local zoneOption = menu:addOption(text("UI_SC_Base_StartZone"), nil, nil)
         local zoneMenu = ISContextMenu:getNew(menu)
         menu:addSubMenu(zoneOption, zoneMenu)
-        -- Outside the camp only lumber, burial and pyre areas may start, inside
+        -- Outside the camp only bounded reach zones may start, inside
         -- the bounded reach band around the camp.
-        local kinds = inside and { "area", "work", "lumber", "burial", "pyre", "rest", "social",
-            "guard", "rally", "quarantine" } or { "lumber", "burial", "pyre" }
+        local kinds = inside and { "area", "work", "lumber", "farm", "burial", "pyre", "rest",
+            "social", "guard", "rally", "quarantine" }
+            or { "lumber", "farm", "burial", "pyre" }
         for _, kind in ipairs(kinds) do
             zoneMenu:addOption(text("UI_SC_Base_Zone_" .. kind), nil, baseAction, "zone_begin",
                 { square = square, kind = kind }, player)
@@ -505,7 +575,8 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
         local storageMenu = ISContextMenu:getNew(menu)
         menu:addSubMenu(storageOption, storageMenu)
         for _, category in ipairs({ "food", "water", "medical", "tools", "construction",
-            "crafting", "weapons", "ammunition", "general", "output", "memorial" }) do
+            "crafting", "literature", "weapons", "ammunition", "general", "output",
+            "memorial", "farming" }) do
             storageMenu:addOption(text("UI_SC_Base_Storage_" .. category), nil, baseAction,
                 "storage", { object = containerTarget, category = category }, player)
         end
@@ -742,12 +813,19 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     local square, door, targetPayload, doorPayload, barricadeTarget, barricadePayload,
         containerTarget, removeBarricadeTarget, removeBarricadePayload,
         dismantleTarget, dismantlePayload = findTarget(worldObjects, player)
+    local clickSquare = clickedWorldSquare(playerIndex, context, player, square)
     local rows = nearbyRows(player)
     local factions = talkableFactions(player)
-    local baseRelevant = baseMenuRelevant(square)
+    local baseRelevant = baseMenuRelevant(clickSquare)
     if #rows == 0 and #factions == 0 and not baseRelevant then return end
     if test and ISWorldObjectContextMenu and ISWorldObjectContextMenu.setTest then
         return ISWorldObjectContextMenu.setTest()
+    end
+    if test ~= true and clickSquare and SC.BaseLife
+        and type(SC.BaseLife.zoneDraft) == "function"
+        and SC.BaseLife.zoneDraft()
+        and type(SC.BaseLife.lockZoneEndpoint) == "function" then
+        SC.BaseLife.lockZoneEndpoint(clickSquare)
     end
     local selected = selectedNearbyRow(rows)
     if selected and targetPayload then
@@ -800,7 +878,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         addSquadMenu(addCategory(rootMenu, "UI_SC_Context_Squad"), player)
     end
     if baseRelevant then
-        addBaseMenu(rootMenu, square, containerTarget, barricadeTarget, player)
+        addBaseMenu(rootMenu, clickSquare, containerTarget, barricadeTarget, player)
     end
     if #factions > 0 then
         addFactionConversations(addCategory(rootMenu, "UI_SC_Context_Households"),

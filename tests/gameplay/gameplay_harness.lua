@@ -5022,6 +5022,26 @@ do
     fallbackState.nativeLease.startedAt = clock - 2000
     fallbackState.nativeLease.positionProgressAt = clock - 2000
     fallbackState.nativeLease.expires = clock + 5000
+    fallbackState.lastProgressAt = clock - 5000
+    local adjacentFrom = cell:getGridSquare(6, 3, 0)
+    local adjacentTo = cell:getGridSquare(7, 3, 0)
+    local adjacentDoor = { open = true }
+    function adjacentDoor:IsOpen() return self.open end
+    fallbackState.openedDoors = {
+        { object = adjacentDoor, fromSquare = adjacentFrom, toSquare = adjacentTo,
+            openedAt = clock, expires = clock + 8000 },
+        { object = fallbackDoor, fromSquare = fallbackFrom, toSquare = fallbackTo,
+            openedAt = clock, expires = clock + 8000 },
+    }
+    local doorSelectionContext = {
+        objectOpen = function(object) return object.open == true end,
+        sameSquare = function(left, right) return left == right end,
+    }
+    local unrelatedDoor = SurvivorCompanion.NavTraversal.nearbyOpenedDoor(
+        { openedDoors = { fallbackState.openedDoors[1] } }, fallbackActor,
+        doorSelectionContext, fallbackFrom, fallbackTo)
+    local selectedDoor = SurvivorCompanion.NavTraversal.nearbyOpenedDoor(
+        fallbackState, fallbackActor, doorSelectionContext, fallbackFrom, fallbackTo)
     local previousNativeActions = SurvivorCompanion.NativeActions
     SurvivorCompanion.NativeActions = {
         pathTelemetry = function()
@@ -5035,13 +5055,14 @@ do
     SurvivorCompanion.NativeActions = previousNativeActions
     local fallbackMoved = SurvivorCompanion.Navigation.request(
         fallbackActor, fallbackTo, "walk", {})
-    check(fallbackResult == "cancelled"
+    check(unrelatedDoor == nil and selectedDoor and selectedDoor.object == fallbackDoor
+            and fallbackResult == "cancelled"
             and fallbackReason == "open_door_direct_retry"
             and fallbackMoved and fallbackActor.lastIntent
             and fallbackActor.lastIntent.openDoorFallback == true
             and fallbackActor.lastIntent.direct == true
             and fallbackActor.lastIntent.enginePath ~= true,
-        "a stalled native path through an already-open door retries as a validated direct crossing")
+        "a stalled native path uses its route door rather than an adjacent door and preserves its validated direct crossing")
     SurvivorCompanion.Navigation.reset(fallbackActor)
     registry[fallbackActor.id] = nil
 
@@ -5995,6 +6016,43 @@ do
     check(held == false and interrupts == 1 and routeCancels == 1,
         "an immediate combat event interrupts safe portal preparation and clears the stale follow route")
     registry[portalActor.id] = nil
+end
+do
+    local workingActor = actor("sc-owned-work-poll", 9, 8, {})
+    registry[workingActor.id] = workingActor
+    local oldActivityStatus = SurvivorCompanion.NativeActions.activityStatus
+    local oldBaseWork = SurvivorCompanion.BaseWork
+    SurvivorCompanion.BaseWork = SurvivorCompanion.BaseWork or {}
+    local oldBaseWorkUpdate = SurvivorCompanion.BaseWork.update
+    local polls = 0
+    local workRuntime = { ownedWorkPoll = true }
+    SurvivorCompanion.NativeActions.activityStatus = function(candidate)
+        if candidate == workingActor then
+            return "active", "work", "chop_tree", clock
+        end
+        return oldActivityStatus(candidate)
+    end
+    SurvivorCompanion.BaseWork.update = function(candidate, leader, runtime)
+        if candidate == workingActor then
+            polls = polls + 1
+            return runtime == workRuntime, "production_chopping"
+        end
+        return oldBaseWorkUpdate(candidate, leader, runtime)
+    end
+    local held, reason = SurvivorCompanion.Decision._holdOwnedActivityOrPacingForTests(
+        workingActor, player,
+        { threats = {}, immediateCount = 0, pressure = 0, player = { danger = 0 } },
+        { alive = true, health = 100, wounds = {}, bleedingCount = 0 }, {},
+        { order = "base_duty", recruited = true }, {}, clock, workRuntime)
+    SurvivorCompanion.NativeActions.activityStatus = oldActivityStatus
+    if oldBaseWork == nil then
+        SurvivorCompanion.BaseWork = nil
+    else
+        SurvivorCompanion.BaseWork.update = oldBaseWorkUpdate
+    end
+    check(held == true and reason == "production_chopping" and polls == 1,
+        "owned base work is polled during its native animation so its lease and watchdog stay live")
+    registry[workingActor.id] = nil
 end
 local stagedActive, stagedActiveReason = SurvivorCompanion.Medical.treat(
     stagedMedic, stagedMedic, {})
@@ -9268,6 +9326,71 @@ local dangerRuntime = { snapshot = { threats = { { actor = zed } }, threatCount 
 SurvivorCompanion.Downtime.update(idleActor, player, dangerRuntime)
 check(SurvivorCompanion.Downtime.peek(idleActor).active == nil, "downtime cancels immediately on danger")
 
+do
+    local baseLife = SurvivorCompanion.BaseLife
+    local savedInside, savedRows, savedResolve = baseLife.isInside,
+        baseLife.storageRows, baseLife.resolveContainer
+    local sharedBook = item("Base.BookCarpentry1", "Literature", { pages = 220 })
+    local shelf = inventory({ sharedBook })
+    local shelfObject = { square = cell:getGridSquare(-3, 0, 0) }
+    function shelfObject:getSquare() return self.square end
+    function shelfObject:getX() return self.square.x + 0.5 end
+    function shelfObject:getY() return self.square.y + 0.5 end
+    function shelfObject:getZ() return self.square.z end
+    shelf.owner = shelfObject
+    local storage = { id = "storage:camp-books", reserve = 0, reserves = {}, withdrawals = true }
+    baseLife.isInside = function(value) return value ~= nil end
+    baseLife.storageRows = function(_, withdrawals)
+        return withdrawals == true and { storage } or { storage }
+    end
+    baseLife.resolveContainer = function(row)
+        if row == storage then return shelf, shelfObject end
+        return nil
+    end
+    local reader = actor("sc-camp-library-reader", -2, 0, { inventory = inventory() })
+    reader.modData.SC_Order = "stay"
+    reader.modData.SC_WorkMode = "idle"
+    registry[reader.id] = reader
+    clock = clock + 10
+    local started = SurvivorCompanion.Downtime.update(reader, player, safeRuntime)
+    local borrowed = reader.inventory:contains(sharedBook) and not shelf:contains(sharedBook)
+    clock = clock + 1
+    local finished = SurvivorCompanion.Downtime.update(reader, player, safeRuntime)
+    check(started == true and borrowed and finished == true
+            and shelf:contains(sharedBook) and not reader.inventory:contains(sharedBook)
+            and SurvivorCompanion.Downtime.peek(reader).lastFact.borrowedFromCamp == true,
+        "an idle camp resident borrows an exact real book from marked storage, reads it, and returns it")
+    SurvivorCompanion.Downtime.reset(reader)
+    SurvivorCompanion.Commands.reset(reader)
+    registry[reader.id] = nil
+
+    shelf:Remove(sharedBook)
+    local interruptedBook = item("Base.BookFirstAid1", "Literature", { pages = 220 })
+    shelf:AddItem(interruptedBook)
+    local interruptedReader = actor("sc-camp-library-interrupted", -2, 0,
+        { inventory = inventory() })
+    interruptedReader.modData.SC_Order = "stay"
+    interruptedReader.modData.SC_WorkMode = "idle"
+    registry[interruptedReader.id] = interruptedReader
+    clock = clock + 10
+    local interruptStarted = SurvivorCompanion.Downtime.update(
+        interruptedReader, player, safeRuntime)
+    local interruptBorrowed = interruptedReader.inventory:contains(interruptedBook)
+        and not shelf:contains(interruptedBook)
+    clock = clock + 1
+    SurvivorCompanion.Downtime.update(interruptedReader, player, dangerRuntime)
+    check(interruptStarted == true and interruptBorrowed
+            and shelf:contains(interruptedBook)
+            and not interruptedReader.inventory:contains(interruptedBook)
+            and SurvivorCompanion.Downtime.peek(interruptedReader).active == nil,
+        "an interrupted camp reading action returns the exact borrowed book to its shelf")
+    SurvivorCompanion.Downtime.reset(interruptedReader)
+    SurvivorCompanion.Commands.reset(interruptedReader)
+    registry[interruptedReader.id] = nil
+    baseLife.isInside, baseLife.storageRows, baseLife.resolveContainer =
+        savedInside, savedRows, savedResolve
+end
+
 local outdoorBook = item("Base.BookOutdoors", "Literature", { pages = 120 })
 local outdoorFollower = actor("sc-outdoor-follow-idle", -1, 1,
     { inventory = inventory({ outdoorBook }) })
@@ -9509,6 +9632,35 @@ local rejectedSeatApproach = SurvivorCompanion.Downtime.update(seatActor, player
 SurvivorCompanion.Navigation.request = originalSeatRequest
 check(not rejectedSeatApproach and SurvivorCompanion.Downtime.peek(seatActor).active == nil,
     "ongoing seat approach propagates navigation rejection and releases the activity")
+
+;(function()
+local bedSquare = squares[squareKey(-2, 6, 0)]
+local testBed = { square = bedSquare }
+function testBed:getSquare() return self.square end
+function testBed:getX() return self.square.x end
+function testBed:getY() return self.square.y end
+function testBed:getZ() return self.square.z end
+function testBed:getName() return "Double Bed" end
+bedSquare.objects[#bedSquare.objects + 1] = testBed
+local furnitureKind, _, approachFurniture = SurvivorCompanion.Downtime._furnitureForTests()
+local bedActor = actor("sc-bed-approach", -5, 6, {})
+local requestedFurniture
+local originalFurnitureRequestAny = SurvivorCompanion.Navigation.requestAny
+SurvivorCompanion.Navigation.requestAny = function(_, candidates, _, intent)
+    requestedFurniture = { candidates = candidates, intent = intent }
+    return true, "moving"
+end
+local bedApproach = approachFurniture(bedActor, { object = testBed, square = bedSquare })
+SurvivorCompanion.Navigation.requestAny = originalFurnitureRequestAny
+local avoidsOccupiedBed = true
+for _, candidate in ipairs(requestedFurniture and requestedFurniture.candidates or {}) do
+    if candidate == bedSquare then avoidsOccupiedBed = false end
+end
+check(furnitureKind(testBed) == "rest_bed" and bedApproach == true
+        and requestedFurniture and requestedFurniture.intent.action == "move_to_seat"
+        and avoidsOccupiedBed,
+    "chairs, sofas and beds route to an adjacent interaction square instead of the occupied furniture tile")
+end)()
 
 function SurvivorCompanion.__testCurtainHabits()
 local curtainSquare = squares[squareKey(-4, 7, 0)]
@@ -10670,11 +10822,20 @@ function cleanSink:hasFluid() return self.amount > 0 end
 function cleanSink:getFluidAmount() return self.amount end
 function cleanSink:isTaintedWater() return false end
 sourceDrinker.square.objects[#sourceDrinker.square.objects + 1] = cleanSink
+local originalCampWater = SurvivorCompanion.Encounter.takePlayerSupply
+local campWaterRequested = false
+SurvivorCompanion.Encounter.takePlayerSupply = function()
+    campWaterRequested = true
+    return "taken", "fixture_camp_water"
+end
 check(SurvivorCompanion.Needs.update(sourceDrinker, player, {
         snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 },
     }) and sourceDrinker.lastIntent and sourceDrinker.lastIntent.action == "drink_source"
     and sourceDrinker.lastIntent.object == cleanSink,
     "thirsty companion discovers a bounded clean sink/well source")
+SurvivorCompanion.Encounter.takePlayerSupply = originalCampWater
+check(not campWaterRequested,
+    "a clean nearby sink is used before withdrawing bottled water from camp storage")
 
 local campActor = actor("sc-camp-supply", 36, 20, {})
 registry[campActor.id] = campActor
@@ -11355,6 +11516,22 @@ BaseLife.reset()
 local campSquare = cell:getGridSquare(2, 2, 0)
 check(BaseLife.create(campSquare, "Test Camp") and BaseLife.active().name == "Test Camp",
     "base core creates one bounded default camp area")
+local defaultCampArea = BaseLife.active().zones[1]
+check(defaultCampArea and defaultCampArea.x1 == -5 and defaultCampArea.y1 == -5
+        and defaultCampArea.x2 == 9 and defaultCampArea.y2 == 9
+        and BaseLife.isInside(cell:getGridSquare(9, 2, 0)) == true
+        and BaseLife.isInside(cell:getGridSquare(10, 2, 0)) == false,
+    "the automatic camp boundary extends seven tiles from its core")
+local endpointStarted = BaseLife.beginZone("work", campSquare)
+local endpointLocked = endpointStarted
+    and BaseLife.lockZoneEndpoint(cell:getGridSquare(4, 5, 0))
+local endpointDraft = BaseLife.zoneDraft()
+check(endpointStarted and endpointLocked and endpointDraft
+        and endpointDraft.first.x == 2 and endpointDraft.first.y == 2
+        and endpointDraft.lockedEndpoint.x == 4
+        and endpointDraft.lockedEndpoint.y == 5,
+    "zone drafting preserves a separately locked mouse endpoint")
+BaseLife.cancelZone()
 do
     local duck = item("Base.Rubberducky", "Junk")
     local falseDuck = item("Base.KeyRing_RubberDuck", "Junk")
@@ -11821,6 +11998,57 @@ campSquare.objects[#campSquare.objects + 1] = store
 check(BaseLife.registerStorage(store, "construction"),
     "world container can be designated as classified camp storage")
 local storageRow = BaseLife.storageRows()[1]
+
+local unshelvedBook = item("Base.BookMechanics1", "Literature", { pages = 220 })
+local unshelvedReader = actor("sc-library-no-shelf", 2, 2, {
+    inventory = inventory({ unshelvedBook }),
+})
+registry[unshelvedReader.id] = unshelvedReader
+local keptWithoutShelf, noShelfReason = SurvivorCompanion.Logistics.update(
+    unshelvedReader, player, {
+        snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 },
+    })
+check(not keptWithoutShelf and noShelfReason == "load_balanced"
+        and unshelvedReader.inventory:contains(unshelvedBook)
+        and #unshelvedReader.square.worldItems == 0,
+    "a low-load resident keeps literature instead of dropping it when no book storage is marked")
+SurvivorCompanion.Logistics.reset(unshelvedReader)
+registry[unshelvedReader.id] = nil
+
+local library = { square = campSquare, objectIndex = #campSquare.objects, modData = {},
+    container = inventory() }
+function library:getSquare() return self.square end
+function library:getX() return self.square.x end
+function library:getY() return self.square.y end
+function library:getZ() return self.square.z end
+function library:getObjectIndex() return self.objectIndex end
+function library:getContainer() return self.container end
+function library:getModData() return self.modData end
+campSquare.objects[#campSquare.objects + 1] = library
+local libraryRegistered, libraryRow = BaseLife.registerStorage(library, "literature")
+local spareMagazine = item("Base.Magazine", "Literature", { pages = 32 })
+local privateBook = item("Base.BookPrivate", "Literature", { pages = 120, favorite = true })
+local libraryResident = actor("sc-library-deposit", 2, 2, {
+    inventory = inventory({ spareMagazine, privateBook }),
+})
+registry[libraryResident.id] = libraryResident
+local shelfStatus = SurvivorCompanion.Logistics.status(libraryResident)
+local shelved, shelvedReason = SurvivorCompanion.Logistics.update(
+    libraryResident, player, {
+        snapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0 },
+    })
+check(libraryRegistered and libraryRow.category == "literature"
+        and SurvivorCompanion.Logistics.itemCategory(spareMagazine) == "literature"
+        and shelfStatus.shouldUnload == true and shelfStatus.surplus.item == spareMagazine
+        and shelved and shelvedReason == "surplus_stored"
+        and library.container:contains(spareMagazine)
+        and not libraryResident.inventory:contains(spareMagazine)
+        and libraryResident.inventory:contains(privateBook),
+    "a low-load resident shelves an ordinary magazine in marked book storage while retaining protected literature: "
+        .. tostring(shelvedReason))
+SurvivorCompanion.Logistics.reset(libraryResident)
+registry[libraryResident.id] = nil
+
 local BaseObjectRef = SurvivorCompanion.BaseObjectRef
 local copiedStorageRef = BaseObjectRef.copy(storageRow)
 copiedStorageRef.objectId = "object:detached-copy"
@@ -11888,8 +12116,9 @@ check(BaseLife.setReserve(storageRow.id, "*", 2)
     "base storage management changes category and general withdrawal reserve")
 local visualRows = BaseLife.visualRows()
 check(visualRows.configured == true and #visualRows.zoneRows == 2
-        and #visualRows.storageRows == 1
+        and #visualRows.storageRows == 2
         and visualRows.storageRows[1].category == "construction"
+        and visualRows.storageRows[2].category == "literature"
         and visualRows.storageRows[1].objectIndex == store.objectIndex,
     "base visualization gets a lightweight object-reference read model")
 local visualStorage = visualRows.storageRows[1]
@@ -11987,8 +12216,17 @@ check(BaseLife.setRestriction(fellow.id, "quarantine")
     and BaseLife.restriction(fellow.id) == "quarantine",
     "infection restrictions are represented in base state")
 local baseSave = BaseLife.export()
+local savedBase = baseSave.bases[baseSave.activeBaseId]
+for _, zone in ipairs(savedBase and savedBase.zones or {}) do
+    if zone.kind == "area" and zone.name == "Camp area" then
+        zone.x1, zone.y1, zone.x2, zone.y2 = -4, -4, 8, 8
+        break
+    end
+end
 BaseLife.reset()
 check(BaseLife.restore(baseSave) and BaseLife.active().name == "Test Camp"
+    and BaseLife.active().zones[1].x1 == -5 and BaseLife.active().zones[1].y1 == -5
+    and BaseLife.active().zones[1].x2 == 9 and BaseLife.active().zones[1].y2 == 9
     and BaseLife.restriction(fellow.id) == "quarantine"
     and #BaseLife.storageRows("tools", true) == 1
     and BaseLife.summary().storageRows[1].reserve == 2
@@ -11997,7 +12235,7 @@ check(BaseLife.restore(baseSave) and BaseLife.active().name == "Test Camp"
     and BaseLife.policies().defense == "role_based"
     and BaseLife.policies().workload == "continuous"
     and BaseLife.policies().routines == false,
-    "base zones, storage, policies and quarantine rules round-trip transactionally")
+    "base zones, legacy default expansion, storage, policies and quarantine rules round-trip transactionally")
 local postRestoreStore = {
     square = campSquare, objectIndex = #campSquare.objects, modData = {},
     container = inventory({}),
@@ -14635,6 +14873,27 @@ end)()
         walker, nextSquare, flowSnapshot, clock)
     check(flowing == nil and oncoming == ahead and stopped == ahead,
         "a follower keeps walking behind a companion moving the same way but yields to a stopped or oncoming one")
+
+    local recipient = actor("sc-flow-recipient", 22, 20, {})
+    local requestedBy = actor("sc-flow-requester", 21, 20, {})
+    local recipientState = navigation._stateForTests(recipient)
+    recipientState.crowdMove = {
+        square = cell:getGridSquare(24, 20, 0), requestedBy = requestedBy,
+        requestedAt = clock, expiresAt = clock + 6000,
+    }
+    local routedActor, routedIntent
+    local originalRequest = navigation.request
+    navigation.request = function(value, _, _, intent)
+        routedActor, routedIntent = value, intent
+        return true, "crowd_yield_pathing"
+    end
+    local cleared, clearReason = navigation.serviceCrowdYield(recipient, {
+        allies = { { actor = requestedBy } }, immediateCount = 0, pressure = 0,
+    })
+    navigation.request = originalRequest
+    check(cleared and clearReason == "crowd_yield_pathing" and routedActor == recipient
+            and routedIntent.action == "crowd_yield_order",
+        "the companion receiving a crowd order paths away instead of making the blocked companion sidestep")
 end)()
 
 -- A corpse, and the stand-in zombie Build 42 makes while a body is dragged,
@@ -15253,6 +15512,72 @@ end)()
             and barRemark == true and barTopic == "banter.place.bar",
         "a former cop remarks once on the police station in their own words; a new kind of place gets a new line")
 
+    banter.reset()
+    local greeter = recruit("sc-banter-greeter", 2, 2)
+    local newcomer = actor("sc-banter-new-survivor", 3, 2, { recruited = false })
+    newcomer.modData.SC_Recruited = false
+    registry[newcomer.id] = newcomer
+    created[#created + 1] = newcomer
+    local savedCompanionCheck = SurvivorCompanion.Actor.isCompanion
+    SurvivorCompanion.Actor.isCompanion = function(value)
+        return value == newcomer or savedCompanionCheck(value)
+    end
+    local meetingRecords = {
+        { actor = greeter, runtime = { snapshot = calmSnapshot } },
+        { actor = newcomer, runtime = { snapshot = calmSnapshot } },
+    }
+    local meetingAt = p0 + 300000
+    clock = meetingAt
+    local greeted, greetingTopic = banter.update(player, meetingRecords, meetingAt)
+    local stagedGreeting = SurvivorCompanion.Positioning.activeConversation(greeter) ~= nil
+        and SurvivorCompanion.Positioning.activeConversation(newcomer) ~= nil
+    clock = meetingAt + 3000
+    local answered, answerTopic = banter.update(player, meetingRecords, clock)
+    local callsAfterMeeting = (greeter.speechCalls or 0) + (newcomer.speechCalls or 0)
+    clock = meetingAt + 30000
+    banter.update(player, meetingRecords, clock)
+    check(greeted == true and greetingTopic == "banter.meeting.hello"
+            and stagedGreeting and answered == true and answerTopic == "banter.meeting.reply"
+            and dialogue.lastSpokenTopic(greeter) == "banter.meeting.hello"
+            and dialogue.lastSpokenTopic(newcomer) == "banter.meeting.reply"
+            and (greeter.speechCalls or 0) + (newcomer.speechCalls or 0) == callsAfterMeeting,
+        "a companion greets a newly met non-hostile survivor, both stage a face-to-face exchange, and that pair does not introduce itself twice: "
+            .. table.concat({ tostring(greeted), tostring(greetingTopic), tostring(stagedGreeting),
+                tostring(answered), tostring(answerTopic),
+                tostring(dialogue.lastSpokenTopic(greeter)),
+                tostring(dialogue.lastSpokenTopic(newcomer)),
+                tostring((greeter.speechCalls or 0) + (newcomer.speechCalls or 0)),
+                tostring(callsAfterMeeting) }, "/"))
+    SurvivorCompanion.Actor.isCompanion = savedCompanionCheck
+    SurvivorCompanion.Positioning.reset(greeter)
+    SurvivorCompanion.Positioning.reset(newcomer)
+
+    banter.reset()
+    local baseLife = SurvivorCompanion.BaseLife
+    local savedInside = baseLife.isInside
+    local camperA = recruit("sc-banter-camper-a", 2, 3)
+    local camperB = recruit("sc-banter-camper-b", 3, 3)
+    baseLife.isInside = function(value) return value == camperA or value == camperB end
+    local campRecords = {
+        { actor = camperA, runtime = { snapshot = calmSnapshot } },
+        { actor = camperB, runtime = { snapshot = calmSnapshot } },
+    }
+    local campAt = meetingAt + 100000
+    clock = campAt
+    local chatted, campTopic = banter.update(player, campRecords, campAt)
+    local stagedCampTalk = SurvivorCompanion.Positioning.activeConversation(camperA) ~= nil
+        and SurvivorCompanion.Positioning.activeConversation(camperB) ~= nil
+    clock = campAt + 3000
+    local replied, replyTopic = banter.update(player, campRecords, clock)
+    check(chatted == true and campTopic == "banter.camp.open" and stagedCampTalk
+            and replied == true and replyTopic == "banter.camp.reply"
+            and dialogue.lastSpokenTopic(camperA) == "banter.camp.open"
+            and dialogue.lastSpokenTopic(camperB) == "banter.camp.reply",
+        "two settled camp residents start a bounded face-to-face conversation without waiting for the player to idle")
+    baseLife.isInside = savedInside
+    SurvivorCompanion.Positioning.reset(camperA)
+    SurvivorCompanion.Positioning.reset(camperB)
+
     local pools, placeLines, roomGroups = banter._poolsForTests()
     local problems = {}
     local function printable(line)
@@ -15311,12 +15636,17 @@ end)()
     local destination = cell:getGridSquare(7, -7, 0)
     for _ = 1, 3 do
         if walker.lastIntent and walker.lastIntent.action == "move_to_scavenge" then break end
-        navigation.request(walker, destination, "walk", { action = "move_to_scavenge" })
+        navigation.request(walker, destination, "walk", {
+            action = "move_to_scavenge", continuousApproach = true,
+        })
         clock = clock + 100
     end
     check(walker.lastIntent and walker.lastIntent.action == "move_to_scavenge"
-            and walker.lastIntent.continuousFollow == true,
-        "an ordinary step toward a container turns on the move instead of stopping at every bend")
+            and walker.lastIntent.continuousFollow == true
+            and walker.lastIntent.continuousAimSquare == destination
+            and walker.lastIntent.nextSquare ~= destination
+            and math.abs(tonumber(walker.lastIntent.dx) or 0) > 1,
+        "a scavenging approach aims beyond the next tile instead of stopping or steering through every tile centre")
 
     local nearbyWashSource, approachWashSource, coolWashSource, washSourceCooling =
         SurvivorCompanion.Downtime._washForTests()

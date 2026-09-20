@@ -325,12 +325,15 @@ function Needs.update(actor, player, runtime)
         local safeWater = consumable(isSafeWaterItem)
         local water = firstInventoryItem(actor, safeWater)
         if water then return drinkItem(actor, water, assessment.thirst) end
-        local fetched, fetchReason = fetchFromCamp(actor, "needs_water", safeWater, snapshot)
-        if fetched then return true, fetchReason end
+        -- At camp, a clean nearby tap is the natural first choice. Previously
+        -- storage withdrawal always ran first, so residents almost never made
+        -- the visible trip to a sink even while standing beside one.
         local source = state.waterSource
         if source and not validWaterSource(source) then source, state.waterSource = nil, nil end
         if not source then source = findWaterSource(actor, state) state.waterSource = source end
         if source then return drinkWorldSource(actor, source, snapshot, state) end
+        local fetched, fetchReason = fetchFromCamp(actor, "needs_water", safeWater, snapshot)
+        if fetched then return true, fetchReason end
         return false, "clean_water_unavailable"
     end
 

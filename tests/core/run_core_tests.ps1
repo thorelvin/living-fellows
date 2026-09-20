@@ -232,6 +232,18 @@ try {
         )
         Add-ScJvmStep 'production' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $productionFiles 'Base production (fell/saw/dig/bury) integration harness failed.'
 
+        $farmingFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Client 'SCGameplayUtil.lua'),
+            (Join-Path $Client 'SCFarmWork.lua'),
+            (Join-Path $TestRoot 'farming_harness.lua')
+        )
+        Add-ScJvmStep 'farming' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $farmingFiles 'Autonomous farming policy harness failed.'
+
         $persistenceTransactionFiles = @($coreFiles | Select-Object -SkipLast 2)
         $persistenceTransactionFiles += Join-Path $TestRoot 'persistence_transaction_harness.lua'
         Add-ScJvmStep 'persistence-transaction' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $persistenceTransactionFiles 'Persistence transaction/boundary harness failed.'

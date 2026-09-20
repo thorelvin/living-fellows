@@ -63,6 +63,7 @@ require "SCBaseLife"
 require "SCBaseVisuals"
 require "SCWorkTransport"
 require "SCGatherWork"
+require "SCFarmWork"
 require "SCBaseWork"
 require "SCProduction"
 require "SCInfectionCrisis"
@@ -117,7 +118,7 @@ local requiredModules = {
     "Locomotion", "Senses", "Navigation", "Positioning", "Combat", "Medical", "Encounter",
     "Logistics", "Needs", "Downtime", "Personality", "PersonalItems", "Relationship",
     "Objectives", "Journal", "BaseLife", "BaseVisuals", "WorkTransport", "GatherWork",
-    "BaseWork", "Production", "InfectionCrisis",
+    "FarmWork", "BaseWork", "Production", "InfectionCrisis",
     "LifeEvents", "Community", "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",
     "Quirks", "Autonomy",
     "Commands", "FactionRecruitment", "Decision", "Support", "UI", "UIContext",

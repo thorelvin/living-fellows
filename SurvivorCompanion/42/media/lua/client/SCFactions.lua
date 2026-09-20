@@ -765,7 +765,7 @@ local function overlapsPlayerBase(bounds)
     if not ok or type(base) ~= "table" then return false end
     local core = type(base.core) == "table" and base.core or nil
     if not core then return false end
-    local radius = tonumber(base.radius) or tonumber(SC.Config.get("baseDefaultAreaRadius")) or 6
+    local radius = tonumber(base.radius) or tonumber(SC.Config.get("baseDefaultAreaRadius")) or 7
     return core.x + radius >= bounds.x1 and core.x - radius <= bounds.x2
         and core.y + radius >= bounds.y1 and core.y - radius <= bounds.y2
 end

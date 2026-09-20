@@ -1462,14 +1462,16 @@ local function actualOpenSegment(actor, targetX, targetY, targetZ, options)
 end
 Navigation._actualOpenSegmentForTests = actualOpenSegment
 
--- Aim manual follow movement several proven-open tiles ahead. The route and
+-- Aim sustained manual travel several proven-open tiles ahead. The route and
 -- first-square reservation remain authoritative; only the movement vector is
--- blended. This removes the tile-centre staircase and its abrupt 45/90-degree
--- turns without cutting a wall, closed portal, vehicle or hazardous edge.
+-- blended. Follow/regroup and explicit continuous approaches use this to remove
+-- the tile-centre staircase and its abrupt 45/90-degree turns without cutting a
+-- wall, closed portal, vehicle or hazardous edge.
 local function continuousFollowVector(actor, state, sourceSquare, intent)
     if not actor or type(state) ~= "table" or type(state.path) ~= "table"
         or type(intent) ~= "table" then return nil end
-    if intent.action ~= "follow_formation" and intent.action ~= "regroup" then return nil end
+    if intent.action ~= "follow_formation" and intent.action ~= "regroup"
+        and intent.continuousApproach ~= true then return nil end
     local first = math.max(2, math.floor(tonumber(state.pathIndex) or 2))
     if state.path[first] == nil then return nil end
     local lookahead = math.max(1, math.floor(tonumber(
@@ -2298,8 +2300,8 @@ end
 Navigation._ensureGroupPassageForRequest = ensureGroupPassage
 Navigation._markActorPassageForRequest = markActorPassage
 
-local function nearbyOpenedDoor(state, actor)
-    return V().nearbyOpenedDoor(state, actor, traversalContext)
+local function nearbyOpenedDoor(state, actor, routeFrom, routeTo)
+    return V().nearbyOpenedDoor(state, actor, traversalContext, routeFrom, routeTo)
 end
 
 local function closeOwnedDoors(actor, state, now, snapshot)
@@ -2389,6 +2391,45 @@ local function personalSpaceBlocker(actor, nextSquare, snapshot, now)
         then return player.actor end
     return nil
 end
+
+-- Pick a nearby square that increases clearance from both the requester and
+-- the contested step. The recipient follows an ordinary Navigation route to
+-- it on its own decision tick, so doors, hazards and collision stay governed
+-- by the same pathing rules as every other move.
+local function crowdClearanceSquare(blocker, requester, contested, snapshot)
+    local utility = U()
+    local source = utility.squareOf(blocker)
+    local sx, sy, sz = utility.position(source)
+    local rx, ry = utility.position(requester)
+    local tx, ty = utility.position(contested)
+    if sx == nil or rx == nil then return nil end
+    local best, bestScore
+    for _, offset in ipairs({
+        { -1, 0 }, { 1, 0 }, { 0, -1 }, { 0, 1 },
+        { -1, -1 }, { 1, -1 }, { -1, 1 }, { 1, 1 },
+        { -2, 0 }, { 2, 0 }, { 0, -2 }, { 0, 2 },
+    }) do
+        local square = utility.gridSquare(sx + offset[1], sy + offset[2], sz)
+        local hazards = square and SC.Topology
+            and type(SC.Topology.squareHazards) == "function"
+            and SC.Topology.squareHazards(square) or {}
+        local water = square and SC.Topology
+            and type(SC.Topology.squareIsWater) == "function"
+            and SC.Topology.squareIsWater(square)
+        if square and utility.isSquareFree(square) and not water
+            and not hazards.fire and not hazards.explosiveTrap
+            and not personalSpaceBlocker(blocker, square, snapshot) then
+            local x, y = utility.position(square)
+            local requesterClearance = (x - rx) * (x - rx) + (y - ry) * (y - ry)
+            local contestedClearance = tx and ((x - tx) * (x - tx) + (y - ty) * (y - ty)) or 0
+            local score = requesterClearance * 4 + contestedClearance * 2
+                - (offset[1] * offset[1] + offset[2] * offset[2]) * 0.25
+            if bestScore == nil or score > bestScore then best, bestScore = square, score end
+        end
+    end
+    return best
+end
+Navigation._crowdClearanceSquareForRequest = crowdClearanceSquare
 
 local function lateralYield(actor, state, sourceSquare, nextSquare, intent, now)
     local utility = U()
@@ -4308,7 +4349,17 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         -- one again, so a companion far behind could stand still for minutes.
         return false, nil, nil
     end
-    local nearbyDoor = nearbyOpenedDoor(state, actor)
+    -- A stalled native threshold path deliberately falls back to a validated
+    -- direct crossing for a short window. Do not let the generic stuck timer
+    -- erase that fallback in the same request (or before it can move a capsule
+    -- through the threshold).
+    if state.openDoorDirectKey ~= nil
+        and now <= (tonumber(state.openDoorDirectUntil) or 0) then
+        return false, nil, nil
+    end
+    local attemptedFrom = state.lastAttemptFrom or actorSquare
+    local attemptedTo = state.lastAttemptTo or goalSquare
+    local nearbyDoor = nearbyOpenedDoor(state, actor, attemptedFrom, attemptedTo)
     local treeAwayX, treeAwayY = treeEscapeDirection(actorSquare, actor, goalSquare)
     local preview = classifyMovementBlocker(actor, state.lastAttemptFrom or actorSquare,
         state.lastAttemptTo or goalSquare, state.lastMovementReason)
@@ -4347,8 +4398,8 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
         return true, false, beginTerminalEpisode(actor, state, actorSquare,
             terminalGoal, intent, preview, now)
     end
-    local failedFrom = state.lastAttemptFrom or actorSquare
-    local failedTo = state.lastAttemptTo or goalSquare
+    local failedFrom = attemptedFrom
+    local failedTo = attemptedTo
     local blocker = addBlockerEvidence(
         classifyMovementBlocker(actor, failedFrom, failedTo, state.lastMovementReason))
     local service, token = supervisedToken(intent)
@@ -5398,6 +5449,18 @@ function Navigation.request(actor, target, movementMode, intent)
             local otherState = stateFor(blocker)
             if otherState.forcedYieldFor ~= actor then
                 otherState.forcedYieldFor = actor
+                local clearance = SC.Navigation._crowdClearanceSquareForRequest(blocker, actor, nextSquare,
+                    requestIntent.snapshot)
+                if clearance then
+                    otherState.crowdMove = {
+                        square = clearance, requestedBy = actor,
+                        requestedAt = now,
+                        expiresAt = now + (utility.config("navigationCrowdMoveMs") or 6000),
+                    }
+                    if SC.Banter and type(SC.Banter.crowdYield) == "function" then
+                        pcall(SC.Banter.crowdYield, actor, blocker, now)
+                    end
+                end
                 recordMovement(actor, "yield_requested", {
                     status = "asked:" .. tostring(utility.idOf(blocker)),
                     nextSquare = nextSquare,
@@ -5776,6 +5839,44 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
         end
     end
     return false, lastReason
+end
+
+-- Decision calls this before ordinary idle/work selection. A companion that
+-- was explicitly asked to clear a route walks to the reserved clearance tile
+-- instead of merely freezing and hoping the requester sidesteps around them.
+function Navigation.serviceCrowdYield(actor, snapshot)
+    local utility = U()
+    local state = actor and states[actor] or nil
+    local move = state and state.crowdMove or nil
+    if type(move) ~= "table" then return false, "no_crowd_move" end
+    local current = utility.nowMs()
+    if current > (tonumber(move.expiresAt) or 0)
+        or not move.square or not move.requestedBy or utility.isDead(move.requestedBy)
+        or not utility.sameFloor(actor, move.requestedBy)
+        or utility.distanceSq(actor, move.requestedBy) > 16 then
+        state.crowdMove, state.forcedYieldFor = nil, nil
+        return false, "crowd_move_expired"
+    end
+    snapshot = type(snapshot) == "table" and snapshot or {}
+    if (tonumber(snapshot.immediateCount) or 0) > 0
+        or (tonumber(snapshot.pressure) or 0) >= 1.5
+        or snapshot.humanThreat ~= nil then
+        return false, "crowd_move_deferred_for_danger"
+    end
+    if utility.arrived(actor, move.square, { targetKind = "square", distance = 0.7 }) then
+        state.crowdMove, state.forcedYieldFor = nil, nil
+        utility.stop(actor)
+        recordMovement(actor, "yield_completed", {
+            status = "cleared_for:" .. tostring(utility.idOf(move.requestedBy)),
+            targetSquare = move.square,
+        })
+        return true, "crowd_path_cleared"
+    end
+    local accepted, reason = Navigation.request(actor, move.square, "walk", {
+        action = "crowd_yield_order", targetSquare = move.square,
+        snapshot = snapshot, continuousApproach = true,
+    })
+    return accepted == true, reason or "crowd_yield_pathing"
 end
 
 function Navigation.interact(actor, object, action, options)

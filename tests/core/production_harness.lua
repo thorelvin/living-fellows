@@ -71,6 +71,7 @@ makeItem = function(fullType, options)
     function item:isBroken() return self.broken end
     function item:isFavorite() return self.favorite end
     function item:isTwoHandWeapon() return self.twoHanded end
+    function item:getTreeDamage() return self.treeDamage end
     function item:hasTag(tag)
         local wanted = type(tag) == "table" and tag.tag or string.lower(tostring(tag))
         return self.tags[wanted] == true
@@ -333,8 +334,8 @@ local function setup(options)
     ISTimedActionQueue.queues = setmetatable({}, { __mode = "k" })
     SC_TEST_SAW_FAILS = false
     squares = {}
-    for x = -6, 6 do
-        for y = -6, 6 do makeSquare(x, y, 0) end
+    for x = -7, 7 do
+        for y = -7, 7 do makeSquare(x, y, 0) end
     end
     local core = sq(0, 0)
     local ok, base = SC.BaseLife.create(core, "Harness Camp")
@@ -585,6 +586,24 @@ end
 
 do
     local ctx = setup()
+    local weak = makeItem("Base.LargeBranch", {
+        tags = { choptree = true }, treeDamage = 1,
+    })
+    local strong = makeItem("Base.Axe", {
+        tags = { choptree = true }, treeDamage = 35,
+    })
+    ctx.actor.inventory:AddItem(weak)
+    ctx.actor.inventory:AddItem(strong)
+    makeTree(sq(3, 2), 70)
+    start(ctx, { operation = "fell_trees", zoneId = ctx.lumber.id, requested = 1,
+        settings = { haulLogs = false } })
+    local _, reason = tick(ctx)
+    check(reason == "production_chop_started" and ctx.actor.primary == strong,
+        "felling selects the strongest carried chopping tool instead of the first tagged item")
+end
+
+do
+    local ctx = setup()
     local axe = makeItem("Base.Axe", { tags = { choptree = true }, twoHanded = true, treeDamage = 5 })
     ctx.actor.inventory:AddItem(axe)
     local tree = makeTree(sq(3, 2), 10, { logs = 2 })
@@ -622,6 +641,64 @@ do
         "felled logs link one gathering order over the lumber zone")
     local valid = SC.GatherWork.validateZone(gather)
     check(valid == true, "gathering accepts a lumber zone")
+end
+
+do
+    local ctx = setup()
+    local axe = makeItem("Base.Axe", {
+        tags = { choptree = true }, treeDamage = 20,
+    })
+    ctx.actor.inventory:AddItem(axe)
+    local tree = makeTree(sq(3, 2), 20)
+    local order = start(ctx, { operation = "fell_trees", zoneId = ctx.lumber.id,
+        requested = 1, settings = { haulLogs = false } })
+    tick(ctx)
+    local action = current(ctx.actor)
+    action:animEvent("ChopTree")
+    action:perform()
+    -- This harness normally stubs visuals as immediately completed so
+    -- production dialogue cannot delay assertions.  Suppress that artificial
+    -- owner while exercising the real work-result timeout.
+    local savedVisualStatus = SC.NativeActions.visualStatus
+    SC.NativeActions.visualStatus = function() return "none" end
+    local phase, owner = SC.NativeActions.activityStatus(ctx.actor)
+    SC_TEST_CLOCK = SC_TEST_CLOCK + SC.Config.get("workResultClaimMs") + 1
+    local released = SC.NativeActions.activityStatus(ctx.actor)
+    SC.NativeActions.visualStatus = savedVisualStatus
+    local _, completed = tick(ctx, nil, nil, 1)
+    check(tree.removed == true and phase == "result_pending" and owner == "work"
+            and released == "none" and SC.NativeActions.workKind(ctx.actor) == nil
+            and completed == "production_order_completed"
+            and SC.BaseLife.productionOrder(order.id).completed == 1,
+        "an unclaimed completed work action releases locomotion and remains provable later: "
+            .. table.concat({ tostring(tree.removed), tostring(phase), tostring(owner),
+                tostring(released), tostring(SC.NativeActions.workKind(ctx.actor)),
+                tostring(completed),
+                tostring(SC.BaseLife.productionOrder(order.id).completed) }, "/"))
+end
+
+do
+    local ctx = setup()
+    local weak = makeItem("Base.LargeBranch", {
+        tags = { choptree = true }, treeDamage = 1,
+    })
+    local strong = makeItem("Base.WoodAxe", {
+        tags = { choptree = true }, treeDamage = 55,
+    })
+    ctx.actor.inventory:AddItem(weak)
+    ctx.toolsObject.container:AddItem(strong)
+    makeTree(sq(3, 2), 70)
+    start(ctx, { operation = "fell_trees", zoneId = ctx.lumber.id, requested = 1,
+        settings = { haulLogs = false } })
+    local reason
+    for _ = 1, 6 do
+        _, reason = tick(ctx, nil, nil, 21000)
+        if reason == "production_chop_started" then break end
+    end
+    check(strong.container == ctx.actor.inventory and reason == "production_chop_started"
+            and ctx.actor.primary == strong,
+        "felling replaces a weak carried tool with a stronger camp axe before chopping: "
+            .. tostring(reason))
 end
 
 do
@@ -1033,6 +1110,46 @@ end
 -- ---------------------------------------------------------------------------
 -- Graves: dig, bury, fill, ceremony
 -- ---------------------------------------------------------------------------
+
+do
+    local ctx = setup()
+    local shovel = makeItem("Base.Shovel", { tags = { diggrave = true } })
+    ctx.toolsObject.container:AddItem(shovel)
+    local order = start(ctx, { operation = "dig_graves", zoneId = ctx.burial.id, requested = 1 })
+    local reason
+    for _ = 1, 8 do
+        _, reason = tick(ctx)
+        if SC.NativeActions.workKind(ctx.actor) == "dig_grave" then break end
+    end
+    check(SC.NativeActions.workKind(ctx.actor) == "dig_grave"
+        and shovel.container == ctx.actor.inventory,
+        "grave work borrows the stored shovel only when digging begins: " .. tostring(reason))
+    current(ctx.actor):perform()
+    _, reason = tick(ctx)
+    check(reason == "production_tool_return_pending",
+        "completed digging schedules the borrowed shovel return before completion: " .. tostring(reason))
+    for _ = 1, 6 do
+        _, reason = tick(ctx)
+        if shovel.container == ctx.toolsObject.container then break end
+    end
+    check(shovel.container == ctx.toolsObject.container
+        and SC.BaseLife.productionOrder(order.id).state == "completed",
+        "the exact shovel returns to its marked source container: " .. tostring(reason))
+end
+
+do
+    local ctx = setup()
+    local shovel = makeItem("Base.Shovel", { tags = { diggrave = true } })
+    ctx.toolsObject.container:AddItem(shovel)
+    local originalWithdraw = SC.BaseWork.withdrawFromStorage
+    SC.BaseWork.withdrawFromStorage = function() return false, "base_storage_changed" end
+    local order = start(ctx, { operation = "dig_graves", zoneId = ctx.burial.id, requested = 1 })
+    local _, reason = tick(ctx)
+    SC.BaseWork.withdrawFromStorage = originalWithdraw
+    check(reason == "base_storage_changed"
+        and SC.BaseLife.productionOrder(order.id).blocker == "base_storage_changed",
+        "an authoritative marked-storage failure is surfaced on the production order")
+end
 
 do
     local ctx = setup()
@@ -1481,7 +1598,8 @@ end
 
 do
     local ctx = setup()
-    ctx.actor.inventory:AddItem(makeItem("Base.Shovel", { tags = { diggrave = true } }))
+    local shovel = makeItem("Base.Shovel", { tags = { diggrave = true } })
+    ctx.toolsObject.container:AddItem(shovel)
     local machete = ctx.actor.inventory:AddItem(makeItem("Base.Machete"))
     ctx.actor.primary = machete
     local grave, partner = createGrave(-2, -3, 0, false)
@@ -1498,6 +1616,8 @@ do
     end
     local grabbing, reason = tickUntil(ctx, function(value) return value == "production_grabbing" end, 8)
     check(grabbing, "the collector takes hold of a camp body: " .. tostring(reason))
+    check(shovel.container == ctx.toolsObject.container,
+        "body collection leaves the shovel stored until a grave actually needs digging")
     local grab = current(ctx.actor)
     check(grab ~= nil and grab.Type == "ISGrabCorpseAction" and grab.corpseBody == victim,
         "vanilla ISGrabCorpseAction receives the body")
@@ -1532,14 +1652,20 @@ do
     local counters = SC.BaseLife.productionCounters()
     check(counters.bodiesCollected == 1 and counters.bodiesBuried == 1,
         "collection counters are exact")
-    local _, fillReason = tick(ctx)
-    check(fillReason == "production_filling",
-        "a finished collection closes its grave: " .. tostring(fillReason))
+    local filling, fillReason = tickUntil(ctx, function(value)
+        return value == "production_filling"
+    end, 8)
+    check(filling and shovel.container == ctx.actor.inventory,
+        "a finished collection borrows the shovel only when closing its grave: " .. tostring(fillReason))
     current(ctx.actor):perform()
-    local done = tickUntil(ctx, function(value) return value == "production_order_completed" end, 5)
+    local done = tickUntil(ctx, function(value)
+        return value == "production_order_completed"
+            and shovel.container == ctx.toolsObject.container
+    end, 10)
     SC.Navigation.requestAny = originalRequestAny
     check(done and SC.BaseLife.productionOrder(order.id).state == "completed"
-        and grave.modData.filled == true, "the collection order completes after the grave closes")
+        and grave.modData.filled == true,
+        "the collection order completes after the grave closes and its shovel is returned")
 end
 
 do

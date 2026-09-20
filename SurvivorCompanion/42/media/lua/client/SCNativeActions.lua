@@ -23,6 +23,14 @@ require "TimedActions/ISEatFoodAction"
 require "TimedActions/ISDrinkFromBottle"
 require "TimedActions/ISTakeWaterAction"
 require "TimedActions/ISWearClothing"
+require "TimedActions/ISGetOnBedAction"
+require "Farming/ISUI/ISFarmingMenu"
+require "Farming/TimedActions/ISPlowAction"
+require "Farming/TimedActions/ISSeedActionNew"
+require "Farming/TimedActions/ISWaterPlantAction"
+require "Farming/TimedActions/ISHarvestPlantAction"
+require "Farming/TimedActions/ISFertilizeAction"
+require "Farming/TimedActions/ISCurePlantAction"
 
 local SC = SurvivorCompanion
 SC.NativeActions = SC.NativeActions or {}
@@ -75,6 +83,7 @@ local movementActions = {
     move_to_water_source = true,
     move_to_seat = true,
     move_to_corpse = true,
+    crowd_yield_order = true,
     move_to_treat = true,
     offscreen_safe_recovery = true,
     ordered_retreat = true,
@@ -1621,6 +1630,77 @@ local function queueTrackedWork(actor, timedAction, record, kind)
     return true, tostring(kind) .. "_timed_action_started"
 end
 
+-- Queue one stock Build 42 farming action while retaining the same exclusive
+-- timed-action ownership and hand/inventory restoration used by production.
+-- The caller selects policy and supplies; this adapter only validates and
+-- starts the native action. Real Farming skill remains the source of yield.
+function actions.startFarm(actor, intent)
+    if actor == nil or type(intent) ~= "table" then
+        return false, "farm intent is required"
+    end
+    local operation = tostring(intent.operation or "")
+    local item = intent.item
+    local items = item and { item } or {}
+    local primary = item
+    local record, prepareReason = prepareWorkInventory(actor, items, primary, nil)
+    if not record then return false, prepareReason end
+
+    local created, timedAction
+    if operation == "plow" and type(ISPlowAction) == "table"
+        and type(ISPlowAction.new) == "function" and intent.square ~= nil then
+        created, timedAction = pcall(ISPlowAction.new, ISPlowAction,
+            actor, intent.square, item)
+    elseif operation == "sow" and type(ISSeedActionNew) == "table"
+        and type(ISSeedActionNew.new) == "function" and item ~= nil
+        and intent.cropType ~= nil and intent.plant ~= nil then
+        created, timedAction = pcall(ISSeedActionNew.new, ISSeedActionNew,
+            actor, item, intent.cropType, intent.plant)
+    elseif operation == "water" and type(ISWaterPlantAction) == "table"
+        and type(ISWaterPlantAction.new) == "function" and item ~= nil
+        and intent.square ~= nil then
+        local uses = math.max(1, math.floor(tonumber(intent.uses) or 1))
+        created, timedAction = pcall(ISWaterPlantAction.new, ISWaterPlantAction,
+            actor, item, uses, intent.square, 20 + 6 * uses)
+    elseif operation == "harvest" and type(ISHarvestPlantAction) == "table"
+        and type(ISHarvestPlantAction.new) == "function" and intent.plant ~= nil then
+        created, timedAction = pcall(ISHarvestPlantAction.new, ISHarvestPlantAction,
+            actor, intent.plant, 100)
+    elseif operation == "compost" and type(ISFertilizeAction) == "table"
+        and type(ISFertilizeAction.new) == "function" and item ~= nil
+        and intent.plant ~= nil then
+        created, timedAction = pcall(ISFertilizeAction.new, ISFertilizeAction,
+            actor, item, intent.plant, 100)
+    elseif operation == "cure" and type(ISCurePlantAction) == "table"
+        and type(ISCurePlantAction.new) == "function" and item ~= nil
+        and intent.plant ~= nil and intent.cure ~= nil then
+        local uses = math.max(1, math.floor(tonumber(intent.uses) or 1))
+        created, timedAction = pcall(ISCurePlantAction.new, ISCurePlantAction,
+            actor, item, uses, intent.plant, 10 * uses * 10, intent.cure)
+    elseif operation == "fill_water" and type(ISTakeWaterAction) == "table"
+        and type(ISTakeWaterAction.new) == "function" and item ~= nil
+        and intent.object ~= nil then
+        local taintedOk, tainted = invoke(intent.object, "isTaintedWater")
+        created, timedAction = pcall(ISTakeWaterAction.new, ISTakeWaterAction,
+            actor, item, intent.object, taintedOk and tainted == true)
+    else
+        restoreWorkInventory(actor, record)
+        return false, "native farm action is unavailable or incomplete: " .. operation
+    end
+    if not created or timedAction == nil then
+        restoreWorkInventory(actor, record)
+        return false, created and "farm action was not created" or tostring(timedAction)
+    end
+    if intent.farmerRole == true and tonumber(timedAction.maxTime) ~= nil
+        and tonumber(timedAction.maxTime) > 1 then
+        local multiplier = tonumber(SC.Config.get("farmFarmerDurationMultiplier")) or 0.60
+        timedAction.maxTime = math.max(1, math.floor(timedAction.maxTime * multiplier))
+        if tonumber(timedAction.maxTimeInit) ~= nil then
+            timedAction.maxTimeInit = timedAction.maxTime
+        end
+    end
+    return queueTrackedWork(actor, timedAction, record, "farm_" .. operation)
+end
+
 local function startRemoveBarricade(actor, intent, provider)
     if intent.object == nil then return false, "remove barricade intent has no object" end
     local handled, reason = useProvider(provider, "removeBarricade", actor, intent.object, intent)
@@ -3055,7 +3135,19 @@ function actions.activityStatus(actor)
     local work = activeWork[actor]
     if work then
         if workActionIsActive(actor, work) then
+            work.resultPendingAt = nil
             return "active", "work", work.kind, work.startedAt
+        end
+        local current = nowMs()
+        work.resultPendingAt = tonumber(work.resultPendingAt) or current
+        local claimMs = tonumber(SC.Config.get("workResultClaimMs")) or 5000
+        if current - work.resultPendingAt >= claimMs then
+            local restored = restoreWorkInventory(actor, work)
+            if restored == true then
+                activeWork[actor] = nil
+                actions.noteResult(actor, work.kind or "work", "completed", { kind = "long" })
+                return "none"
+            end
         end
         return "result_pending", "work", work.kind, work.startedAt
     end
@@ -3500,6 +3592,25 @@ function actions.dispatch(actor, mode, intent, provider)
         invoke(actor, "setSittingOnFurniture", true)
         local verifyOk, sitting = invoke(actor, "isSittingOnFurniture")
         return verifyOk and sitting == true, verifyOk and "sitting" or "native sitting state was not verified"
+    elseif action == "rest_bed" and intent.object ~= nil then
+        local handled, reason = useProvider(provider, "restBed", actor, intent.object, intent)
+        if handled ~= nil then return handled, reason end
+        if not provider.directNative then return false, reason end
+        local onBed, onBedOk = invoke(actor, "isOnBed")
+        if onBedOk and onBed == true then return true, "resting_on_bed" end
+        if type(ISGetOnBedAction) ~= "table" or type(ISGetOnBedAction.new) ~= "function"
+            or type(ISTimedActionQueue) ~= "table"
+            or type(ISTimedActionQueue.add) ~= "function" then
+            return false, "native bed-rest action is unavailable"
+        end
+        local created, bedAction = pcall(ISGetOnBedAction.new,
+            ISGetOnBedAction, actor, intent.object)
+        if not created or bedAction == nil then
+            return false, created and "bed-rest action was not created" or tostring(bedAction)
+        end
+        local queued, failure = pcall(ISTimedActionQueue.add, bedAction)
+        if not queued then return false, tostring(failure) end
+        return true, "getting_on_bed"
     elseif SC.NativeWorkActions.handles(action) then
         return SC.NativeWorkActions.dispatch(actor, action, intent, provider)
     elseif action == "hand_signal" then

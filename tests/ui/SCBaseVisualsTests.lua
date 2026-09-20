@@ -114,6 +114,16 @@ assert(#fixture.lines == 4 and #fixture.circles == 2,
 assert(fixture.lines[1].red < 1,
     "a valid draft inside the camp must retain its zone color")
 
+fixture.draft.lockedEndpoint = { x = 15, y = 14, z = 0 }
+fixture.mouseX, fixture.mouseY = 500, 500
+fixture.lines, fixture.circles = {}, {}
+Events.OnRenderTick.callback()
+assert(#fixture.lines == 4 and #fixture.circles == 2
+        and fixture.circles[2].x == 15.5 and fixture.circles[2].y == 14.5
+        and fixture.lines[1].red < 1,
+    "a right-clicked endpoint must remain fixed while the mouse navigates the menu")
+
+fixture.draft.lockedEndpoint = nil
 fixture.mouseX, fixture.mouseY = 500, 500
 fixture.lines, fixture.circles = {}, {}
 Events.OnRenderTick.callback()

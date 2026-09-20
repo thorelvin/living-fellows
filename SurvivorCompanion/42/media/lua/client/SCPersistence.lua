@@ -285,6 +285,73 @@ local function capturePosition(record, actor)
 end
 persistence._capturePositionForTests = capturePosition
 
+local function captureColor(color)
+    if color == nil then return nil end
+    local redOk, red = invoke(color, "getRedFloat")
+    local greenOk, green = invoke(color, "getGreenFloat")
+    local blueOk, blue = invoke(color, "getBlueFloat")
+    local alphaOk, alpha = invoke(color, "getAlphaFloat")
+    if not redOk or not greenOk or not blueOk then return nil end
+    return {
+        r = finite(red, 0), g = finite(green, 0), b = finite(blue, 0),
+        a = alphaOk and finite(alpha, 1) or 1,
+    }
+end
+
+local function humanVisual(actor)
+    local visualOk, visual = invoke(actor, "getHumanVisual")
+    if visualOk and visual ~= nil then return visual end
+    visualOk, visual = invoke(actor, "getVisual")
+    if visualOk and visual ~= nil then return visual end
+    local descriptorOk, descriptor = invoke(actor, "getDescriptor")
+    if descriptorOk and descriptor ~= nil then
+        visualOk, visual = invoke(descriptor, "getHumanVisual")
+        if visualOk and visual ~= nil then return visual end
+    end
+    return nil
+end
+
+local function captureAppearance(actor)
+    local visual = humanVisual(actor)
+    if visual == nil then return nil end
+    local result = {}
+    local populated = false
+    local function scalar(field, getter, kind)
+        local ok, value = invoke(visual, getter)
+        if not ok or value == nil then return end
+        if kind == "integer" then
+            result[field] = math.floor(finite(value, 0))
+        else
+            result[field] = text(value, "", 96)
+        end
+        populated = true
+    end
+    scalar("hairModel", "getHairModel")
+    scalar("beardModel", "getBeardModel")
+    scalar("nonAttachedHair", "getNonAttachedHair")
+    scalar("skinTexture", "getSkinTexture")
+    scalar("skinTextureIndex", "getSkinTextureIndex", "integer")
+    scalar("bodyHairIndex", "getBodyHairIndex", "integer")
+    for _, entry in ipairs({
+        { "hairColor", "getHairColor" },
+        { "naturalHairColor", "getNaturalHairColor" },
+        { "beardColor", "getBeardColor" },
+        { "naturalBeardColor", "getNaturalBeardColor" },
+        { "skinColor", "getSkinColor" },
+    }) do
+        local ok, color = invoke(visual, entry[2])
+        if ok then
+            local captured = captureColor(color)
+            if captured ~= nil then
+                result[entry[1]] = captured
+                populated = true
+            end
+        end
+    end
+    return populated and result or nil
+end
+persistence._captureAppearanceForTests = captureAppearance
+
 local function captureIdentity(record, actor)
     local source = type(record.identity) == "table" and record.identity or {}
     local female = source.gender == "female" or source.gender == "woman"
@@ -294,6 +361,7 @@ local function captureIdentity(record, actor)
         gender = female and "female" or "male",
         visualSeed = math.floor(finite(source.visualSeed, 0)),
         outfit = text(source.outfit, "", 96),
+        appearance = captureAppearance(actor),
     }
     local descriptorOk, descriptor = invoke(actor, "getDescriptor")
     if descriptorOk and descriptor ~= nil then
@@ -2318,6 +2386,101 @@ local function validateRecord(id, source)
     return clean
 end
 
+-- Builds prior to exact appearance persistence could also carry the old
+-- scratch-restore infection roll.  Its unmistakable save signature is an
+-- entire legacy cohort becoming newly Knox-positive together despite every
+-- body being free of zombie wounds.  Repair only that cohort-wide signature;
+-- a mixed group, a mature infection, any wound evidence, or any record written
+-- by the new appearance codec is left untouched.
+local function repairLegacyKnoxCohort(document)
+    if type(document) ~= "table" then return 0 end
+    local records, suspicious = {}, {}
+    for _, bucketName in ipairs({ "companions", "factionActors" }) do
+        local bucket = document[bucketName]
+        if type(bucket) == "table" then
+            for id, record in pairs(bucket) do
+                if type(id) == "string" and type(record) == "table"
+                    and type(record.identity) == "table"
+                    and type(record.vitals) == "table" then
+                    records[#records + 1] = record
+                    local vitals = record.vitals
+                    local legacy = record.identity.appearance == nil
+                    local recent = finite(vitals.infectionTime, -1) >= 0
+                        and finite(vitals.infectionTime, -1) <= 0.05
+                        and finite(vitals.apparentInfection, 100) >= 0
+                        and finite(vitals.apparentInfection, 100) <= 15
+                    local woundEvidence = false
+                    for _, part in ipairs(type(vitals.parts) == "table"
+                        and vitals.parts or {}) do
+                        if type(part) == "table" and (part.bitten == true
+                            or part.scratched == true or part.cut == true
+                            or part.deepWound == true
+                            or finite(part.biteTime, 0) > 0
+                            or finite(part.scratchTime, 0) > 0
+                            or finite(part.cutTime, 0) > 0) then
+                            woundEvidence = true
+                            break
+                        end
+                    end
+                    if legacy and vitals.infected == true and recent
+                        and not woundEvidence then
+                        suspicious[#suspicious + 1] = { id = id, record = record }
+                    end
+                end
+            end
+        end
+    end
+    if #records < 2 or #suspicious ~= #records then return 0 end
+
+    local repairedIds = {}
+    for _, entry in ipairs(suspicious) do
+        local vitals = entry.record.vitals
+        vitals.infected = false
+        vitals.infectionTime = -1
+        vitals.infectionMortalityDuration = -1
+        vitals.apparentInfection = 0
+        entry.record.knox = false
+        repairedIds[entry.id] = true
+    end
+
+    local crisis = document.infectionCrisis
+    if type(crisis) == "table" then
+        if type(crisis.observations) == "table" then
+            for id in pairs(repairedIds) do
+                local observation = crisis.observations[id]
+                if type(observation) == "table" then
+                    observation.bites = 0
+                    observation.infected = false
+                    observation.infectionLevel = 0
+                end
+            end
+        end
+        local removedCrises, removedAny = {}, false
+        if type(crisis.crises) == "table" then
+            for crisisId, value in pairs(crisis.crises) do
+                if type(value) == "table" and repairedIds[value.subjectId] then
+                    removedCrises[crisisId] = true
+                    removedAny = true
+                    crisis.crises[crisisId] = nil
+                end
+            end
+        end
+        if type(crisis.history) == "table" and removedAny then
+            local kept = {}
+            for _, value in ipairs(crisis.history) do
+                if type(value) ~= "table"
+                    or (not repairedIds[value.subjectId]
+                        and not removedCrises[value.crisisId]) then
+                    kept[#kept + 1] = value
+                end
+            end
+            crisis.history = kept
+        end
+    end
+    return #suspicious
+end
+persistence._repairLegacyKnoxCohortForTests = repairLegacyKnoxCohort
+
 local function applyFluid(item, saved)
     if type(saved) ~= "table" then return true end
     local fluidOk, fluid = invoke(item, "getFluidContainer")
@@ -2906,6 +3069,99 @@ end
 
 persistence._applySkillsForTests = applySkills
 
+local function appearanceColor(saved)
+    if type(saved) ~= "table" then return nil, "saved appearance color is invalid" end
+    local immutable = type(_G) == "table" and rawget(_G, "ImmutableColor") or nil
+    local created, color = staticInvoke(immutable, "new",
+        finite(saved.r, 0), finite(saved.g, 0), finite(saved.b, 0), finite(saved.a, 1))
+    if not created or color == nil then
+        return nil, "native immutable color API is unavailable"
+    end
+    return color
+end
+
+local function sameAppearanceColor(expected, actual)
+    if type(expected) ~= "table" then return true end
+    if type(actual) ~= "table" then return false end
+    for _, key in ipairs({ "r", "g", "b", "a" }) do
+        if math.abs(finite(expected[key], key == "a" and 1 or 0)
+            - finite(actual[key], -10)) > 0.001 then return false end
+    end
+    return true
+end
+
+local function appearanceMatches(expected, actual)
+    if type(expected) ~= "table" or type(actual) ~= "table" then return false end
+    for _, key in ipairs({ "hairModel", "beardModel", "nonAttachedHair",
+        "skinTexture", "skinTextureIndex", "bodyHairIndex" }) do
+        if expected[key] ~= nil and tostring(actual[key]) ~= tostring(expected[key]) then
+            return false
+        end
+    end
+    for _, key in ipairs({ "hairColor", "naturalHairColor", "beardColor",
+        "naturalBeardColor", "skinColor" }) do
+        if not sameAppearanceColor(expected[key], actual[key]) then return false end
+    end
+    return true
+end
+
+local function applyAppearance(actor, saved)
+    if type(saved) ~= "table" then return true end -- legacy records
+    local visual = humanVisual(actor)
+    if visual == nil then return false, "native human visual is unavailable" end
+    local function applyScalar(field, setter)
+        if saved[field] == nil then return true end
+        local value = saved[field]
+        if field == "skinTextureIndex" or field == "bodyHairIndex" then
+            value = math.floor(finite(value, 0))
+        else
+            value = tostring(value)
+        end
+        local applied, reason = invoke(visual, setter, value)
+        return applied, reason
+    end
+    for _, entry in ipairs({
+        { "skinTextureIndex", "setSkinTextureIndex" },
+        { "skinTexture", "setSkinTextureName" },
+        { "hairModel", "setHairModel" },
+        { "beardModel", "setBeardModel" },
+        { "nonAttachedHair", "setNonAttachedHair" },
+        { "bodyHairIndex", "setBodyHairIndex" },
+    }) do
+        local applied, reason = applyScalar(entry[1], entry[2])
+        if not applied then
+            return false, "saved appearance could not restore " .. entry[1]
+                .. ": " .. tostring(reason)
+        end
+    end
+    for _, entry in ipairs({
+        { "hairColor", "setHairColor" },
+        { "naturalHairColor", "setNaturalHairColor" },
+        { "beardColor", "setBeardColor" },
+        { "naturalBeardColor", "setNaturalBeardColor" },
+        { "skinColor", "setSkinColor" },
+    }) do
+        if saved[entry[1]] ~= nil then
+            local color, colorReason = appearanceColor(saved[entry[1]])
+            if color == nil then return false, colorReason end
+            local applied, reason = invoke(visual, entry[2], color)
+            if not applied then
+                return false, "saved appearance could not restore " .. entry[1]
+                    .. ": " .. tostring(reason)
+            end
+        end
+    end
+    local reset = invoke(actor, "resetModelNextFrame")
+    if not reset then reset = invoke(actor, "resetModel") end
+    if not reset then return false, "restored appearance could not refresh its model" end
+    local verified = captureAppearance(actor)
+    if not appearanceMatches(saved, verified) then
+        return false, "native appearance did not retain its restored state"
+    end
+    return true
+end
+persistence._applyAppearanceForTests = applyAppearance
+
 local function initializeRestoredActor(actor, input, saved)
     local inventoryOk, contextOrReason = applyInventory(actor, saved.inventory, saved.id)
     local context = inventoryOk and contextOrReason or nil
@@ -2917,6 +3173,9 @@ local function initializeRestoredActor(actor, input, saved)
     if not skillsOk then return false, skillsReason end
     local vitalsOk, vitalsReason = SC.Vitals.apply(actor, saved.vitals)
     if not vitalsOk then return false, vitalsReason end
+    local appearanceOk, appearanceReason = applyAppearance(actor,
+        type(saved.identity) == "table" and saved.identity.appearance or nil)
+    if not appearanceOk then return false, appearanceReason end
     if type(saved.productionAction) == "table" and saved.productionAction.kind == "saw_logs" then
         local dataOk, data = invoke(actor, "getModData")
         if not dataOk or type(data) ~= "table" then
@@ -3172,6 +3431,13 @@ function persistence.restore(player)
     if candidateDocument.factionActors ~= nil
         and type(candidateDocument.factionActors) ~= "table" then
         return blockSave(document, "SC_WorldV1 factionActors bucket is malformed")
+    end
+
+    local repairedKnox = repairLegacyKnoxCohort(candidateDocument)
+    if repairedKnox > 0 then
+        SC.Diagnostics.report("persistence", nil,
+            "repaired impossible legacy companion infection cohort",
+            tostring(repairedKnox) .. " wound-free companions")
     end
 
     local current = type(getTimestampMs) == "function" and tonumber(getTimestampMs()) or 0

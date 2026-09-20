@@ -4,6 +4,7 @@ if type(require) == "function" then
     pcall(require, "SCBaseLife")
     pcall(require, "SCWorkTransport")
     pcall(require, "SCGatherWork")
+    pcall(require, "SCFarmWork")
     pcall(require, "SCNativeList")
     pcall(require, "BuildingObjects/TimedActions/ISBuildAction")
     pcall(require, "TimedActions/ISTimedActionQueue")
@@ -346,6 +347,92 @@ local function transferFromStorage(actor, state, storage, container, item)
         or reason or "base_supply_transfer_failed"
 end
 
+-- Return an exact borrowed supply to the exact marked container it came from.
+-- This mirrors withdrawal: the worker approaches the storage, visibly uses it,
+-- revalidates the registration at commit time, and verifies the identity move.
+local function transferToStorage(actor, state, storage, container, item)
+    if U().inventoryContains(container, item) then return true, "base_supply_returned" end
+    if type(storage) ~= "table" then return false, "base_storage_invalid" end
+    local object = SC.BaseLife.resolveObject(storage)
+    local currentContainer = SC.BaseLife.resolveContainer(storage)
+    if not object or not currentContainer then return false, "base_storage_unloaded" end
+    if currentContainer ~= container then return false, "base_storage_changed" end
+    local inventory = U().inventory(actor)
+    if not inventory or not U().inventoryContains(inventory, item) then
+        return false, "borrowed_supply_missing"
+    end
+    if U().distance(actor, object) > 1.5 then
+        if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
+            return false, "navigation_unavailable"
+        end
+        local targets = SC.Navigation.interactionTargets(actor, object)
+        local approached, approachReason = SC.Navigation.requestAny(actor, targets, "walk", {
+            action = "move_to_base_storage", targetSquare = U().squareOf(object),
+            object = object, arrivalDistance = 1.0,
+        })
+        return approached == true, approachReason
+    end
+    if state.visualAt ~= nil then
+        local status
+        if SC.NativeActions and type(SC.NativeActions.visualStatus) == "function" then
+            local ok, value = pcall(SC.NativeActions.visualStatus, actor, "loot_container")
+            if ok then status = value end
+        end
+        if status == "active" then return true, "base_storage_looting" end
+        if status == "completed" and SC.NativeActions
+            and type(SC.NativeActions.clearVisual) == "function" then
+            pcall(SC.NativeActions.clearVisual, actor)
+        elseif status ~= nil then
+            state.visualAt = nil
+            return false, "base_storage_animation_" .. tostring(status)
+        end
+        state.visualAt = nil
+    else
+        if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+            pcall(SC.Navigation.cancel, actor, "base_storage_interaction")
+        end
+        if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
+            pcall(SC.NativeActions.stopDirect, actor)
+        else
+            U().stop(actor)
+        end
+        local accepted = U().move(actor, "walk", {
+            action = "loot_container", container = container, item = item, baseStorage = true,
+        })
+        if accepted ~= true then return false, "base_storage_action_rejected" end
+        local status
+        if SC.NativeActions and type(SC.NativeActions.visualStatus) == "function" then
+            local ok, value = pcall(SC.NativeActions.visualStatus, actor, "loot_container")
+            if ok then status = value end
+        end
+        if status == "active" then
+            state.visualAt = now()
+            return true, "base_storage_looting"
+        elseif status == "completed" and SC.NativeActions
+            and type(SC.NativeActions.clearVisual) == "function" then
+            pcall(SC.NativeActions.clearVisual, actor)
+        elseif status ~= nil then
+            return false, "base_storage_animation_" .. tostring(status)
+        end
+    end
+    local room, roomReason = true, nil
+    if SC.WorkTransport and type(SC.WorkTransport.hasRoom) == "function" then
+        room, roomReason = SC.WorkTransport.hasRoom(container, actor, item)
+    else
+        local allowed, called = U().call(container, "hasRoomFor", actor, item)
+        if called then room = allowed == true end
+    end
+    if room ~= true then return false, roomReason or "destination_full" end
+    local moved, reason
+    if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
+        moved, reason = SC.WorkTransport.transferVerified(inventory, container, item, actor)
+    else
+        moved, reason = U().transferItemVerified(inventory, container, item)
+    end
+    return moved == true, moved and "base_supply_returned"
+        or reason or "base_supply_return_failed"
+end
+
 local function prepareBuild(actor, state, job, info)
     local requirements, recipeOrReason = recipeRequirements(info)
     if not requirements then return false, recipeOrReason end
@@ -530,7 +617,10 @@ local function classifyItem(item)
     local itemType = string.lower(U().itemType(item))
     local category = select(1, invoke(item, "getCategory"))
     category = string.lower(tostring(category or ""))
+    if SC.FarmWork and type(SC.FarmWork.isFarmingSupply) == "function"
+        and SC.FarmWork.isFarmingSupply(item) == true then return "farming" end
     if category == "food" then return "food" end
+    if category == "literature" then return "literature" end
     if string.find(itemType, "water", 1, true) or string.find(itemType, "bottle", 1, true) then return "water" end
     if string.find(itemType, "bandage", 1, true) or string.find(itemType, "rippedsheet", 1, true)
         or string.find(itemType, "disinfect", 1, true) then return "medical" end
@@ -891,6 +981,12 @@ function BaseWork.update(actor, player, runtime)
         else
             handled, reason, terminal = SC.Production.update(actor, state, job, runtime)
         end
+    elseif job.type == "farm" then
+        if not SC.FarmWork or type(SC.FarmWork.update) ~= "function" then
+            handled, reason, terminal = false, "farm_work_unavailable", true
+        else
+            handled, reason, terminal = SC.FarmWork.update(actor, state, job, runtime)
+        end
     elseif job.type == "haul" or job.type == "sort" or job.type == "fetch" then
         handled, reason, terminal = updateTransfer(actor, state, job)
     else
@@ -1005,6 +1101,10 @@ function BaseWork.auditMaintenance(player)
             U().config("workRecoveryPerPulse") or 2)
     end
     if type(SC.BaseLife.auditOperations) == "function" then SC.BaseLife.auditOperations(false) end
+    if SC.FarmWork and type(SC.FarmWork.audit) == "function" then
+        local queued, result = SC.FarmWork.audit(base, now())
+        if queued == true then return true, result end
+    end
     auditPhase = (auditPhase % 4) + 1
     if auditPhase == 1 then return auditMedical(base) end
     local settings = base.settings or {}
@@ -1059,6 +1159,13 @@ function BaseWork.cancel(actor, reason)
             return false, cancelReason or cancelled or "production_cancel_failed"
         end
     end
+    if SC.FarmWork and type(SC.FarmWork.cancelActor) == "function" then
+        local called, cancelled, cancelReason = pcall(SC.FarmWork.cancelActor, actor,
+            reason or "base_work_cancelled")
+        if not called or cancelled ~= true then
+            return false, cancelReason or cancelled or "farm_cancel_failed"
+        end
+    end
     if not state then return true end
     local id = actorId(actor)
     if state.jobId then SC.BaseLife.releaseJob(state.jobId, id, reason or "base_work_cancelled") end
@@ -1089,6 +1196,9 @@ function BaseWork.reset(actor)
     if SC.Production and type(SC.Production.reset) == "function" then
         SC.Production.reset(actor)
     end
+    if SC.FarmWork and type(SC.FarmWork.reset) == "function" then
+        SC.FarmWork.reset(actor)
+    end
     if SC.WorkTransport and type(SC.WorkTransport.reset) == "function" then
         SC.WorkTransport.reset(actor)
     end
@@ -1099,6 +1209,28 @@ end
 -- (approach, loot pose, reserve re-check at commit, verified transfer).
 function BaseWork.withdrawFromStorage(actor, state, storage, container, item)
     return transferFromStorage(actor, state, storage, container, item)
+end
+
+function BaseWork.returnToStorage(actor, state, storage, container, item)
+    return transferToStorage(actor, state, storage, container, item)
+end
+
+-- Cancellation cannot start a new path, but it still returns a borrowed exact
+-- item whenever the registered container remains loaded and can accept it.
+function BaseWork.restoreToStorage(actor, storage, container, item)
+    if not actor or not item then return false, "borrowed_supply_missing" end
+    if U().inventoryContains(container, item) then return true, "base_supply_returned" end
+    local current = storage and SC.BaseLife.resolveContainer(storage) or container
+    if not current or current ~= container then return false, "base_storage_unloaded" end
+    local inventory = U().inventory(actor)
+    if not inventory or not U().inventoryContains(inventory, item) then
+        return false, "borrowed_supply_missing"
+    end
+    if SC.WorkTransport and type(SC.WorkTransport.transferVerified) == "function" then
+        local moved, reason = SC.WorkTransport.transferVerified(inventory, container, item, actor)
+        return moved == true, moved and "base_supply_returned" or reason
+    end
+    return U().transferItemVerified(inventory, container, item)
 end
 
 return BaseWork

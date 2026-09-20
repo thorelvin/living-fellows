@@ -253,6 +253,9 @@ end
 function Transport.isCargoProtected(item, actorOrId, operation)
     local data = itemData(item)
     if not data then return false end
+    if data.LF_FarmReceiptId ~= nil then
+        return not (operation == "farm_return" or operation == "farm_deposit")
+    end
     local receiptId = data[Transport.MARKERS.id] or data[Transport.MARKERS.build]
     if receiptId == nil then return false end
     if allowedProtectedOperations[operation] then return false end
@@ -274,6 +277,7 @@ function Transport.foreignProtected(item, actor)
     if data.LF_QuestItem == true or data.LF_QuestReward == true then
         return true, "quest_item_owned"
     end
+    if data.LF_FarmReceiptId ~= nil then return true, "farm_item_owned" end
     local workReceiptId = markerOf(item)
     if workReceiptId ~= nil then
         local receipt = SC.BaseLife and SC.BaseLife.workReceipt

@@ -143,11 +143,13 @@ local BASE_STORAGE_CATEGORIES = {
     { id = "tools", key = "UI_SC_Base_Storage_tools" },
     { id = "construction", key = "UI_SC_Base_Storage_construction" },
     { id = "crafting", key = "UI_SC_Base_Storage_crafting" },
+    { id = "literature", key = "UI_SC_Base_Storage_literature" },
     { id = "weapons", key = "UI_SC_Base_Storage_weapons" },
     { id = "ammunition", key = "UI_SC_Base_Storage_ammunition" },
     { id = "general", key = "UI_SC_Base_Storage_general" },
     { id = "output", key = "UI_SC_Base_Storage_output" },
     { id = "memorial", key = "UI_SC_Base_Storage_memorial" },
+    { id = "farming", key = "UI_SC_Base_Storage_farming" },
 }
 local BASE_RESERVE_LEVELS = {
     { id = 0, key = "UI_SC_Base_Reserve_0" },
@@ -196,9 +198,10 @@ local PRODUCTION_HINT_KEYS = {
     collect_bodies = "UI_SC_Base_ProductionHint_collect_bodies",
     burn_bodies = "UI_SC_Base_ProductionHint_burn_bodies",
 }
--- Collection may end in either disposal ground; the chosen area decides
--- between burial and burning.
-local PRODUCTION_ZONE_CHOICES = { collect_bodies = { burial = true, pyre = true } }
+local PRODUCTION_DISPOSAL_DESTINATIONS = {
+    { id = "burial", key = "UI_SC_Base_Zone_burial" },
+    { id = "pyre", key = "UI_SC_Base_Zone_pyre" },
+}
 local PRODUCTION_SOURCES = {
     { id = "all", key = "UI_SC_Base_ProductionSources_all" },
     { id = "camp", key = "UI_SC_Base_ProductionSources_camp" },
@@ -247,6 +250,7 @@ local PRODUCTION_PHASE_KEYS = {
     filling = "UI_SC_Base_ProductionPhase_filling",
     resting = "UI_SC_Base_ProductionPhase_resting",
     fetching_tool = "UI_SC_Base_ProductionPhase_fetching_tool",
+    returning_tool = "UI_SC_Base_ProductionPhase_returning_tool",
     withdrawing = "UI_SC_Base_ProductionPhase_withdrawing",
     depositing = "UI_SC_Base_ProductionPhase_depositing",
     running = "UI_SC_Base_ProductionPhase_running",
@@ -265,7 +269,7 @@ local function newProductionDraft()
         operation = "fell_trees", requested = 5, zoneId = nil,
         sourceStorageId = nil, destinationStorageId = nil,
         haul = "yes", belongings = "skip", marker = "none",
-        sources = "all", dryOnly = "yes",
+        sources = "all", dryOnly = "yes", disposal = "burial",
     }
 end
 local productionDraft = newProductionDraft()
@@ -1522,6 +1526,9 @@ local function onProductionDraftSelector(target, combo)
         productionDraft.requested = schema and schema.defaultRequested
             or (PRODUCTION_QUANTITIES[option.value] or { 1 })[1]
         productionDraft.zoneId = nil
+        if option.value == "collect_bodies" then productionDraft.disposal = "burial" end
+    elseif field == "disposal" and productionDraft.disposal ~= option.value then
+        productionDraft.zoneId = nil
     end
     productionDraft[field] = option.value
     UI.refresh()
@@ -2583,14 +2590,12 @@ function SCUIDetail:buildProductionSection(panel, y, base, row)
     local operation = productionDraft.operation
     local schemas = SC.BaseLife and SC.BaseLife.PRODUCTION_OPERATIONS or {}
     local schema = schemas[operation] or {}
-    local zoneKind = PRODUCTION_ZONE_KIND[operation]
-    local zoneChoices = PRODUCTION_ZONE_CHOICES[operation]
+    local zoneKind = operation == "collect_bodies"
+        and productionDraft.disposal or PRODUCTION_ZONE_KIND[operation]
     local zones, sources, destinations, zoneKinds = {}, {}, {}, {}
     for _, zone in ipairs(base.zoneRows or {}) do
-        if zone.kind == zoneKind or (zoneChoices and zoneChoices[zone.kind]) then
-            zones[#zones + 1] = { id = zone.id, label = zoneChoices
-                and (tostring(zone.name) .. " - " .. UI.text("UI_SC_Base_Zone_" .. zone.kind))
-                or zone.name }
+        if zone.kind == zoneKind then
+            zones[#zones + 1] = { id = zone.id, label = zone.name }
             zoneKinds[zone.id] = zone.kind
         end
     end
@@ -2630,6 +2635,11 @@ function SCUIDetail:buildProductionSection(panel, y, base, row)
         "operation", operation, PRODUCTION_OPERATIONS)
     y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
         UI.text(PRODUCTION_HINT_KEYS[operation] or "UI_SC_Base_Section_Production"))
+    if operation == "collect_bodies" then
+        y = self:addProductionDraftSelector(panel, y,
+            "UI_SC_Base_ProductionDisposalSelector", "disposal",
+            productionDraft.disposal, PRODUCTION_DISPOSAL_DESTINATIONS)
+    end
     local missing
     if zoneKind and #zones == 0 then
         missing = UI.text("UI_SC_Base_ProductionNeedsZone", UI.text("UI_SC_Base_Zone_" .. zoneKind))
@@ -3456,7 +3466,8 @@ function SCUIDetail:buildBase(panel, row)
             UI.text("UI_SC_Base_Resident", row.name, resident and resident.role or "generalist",
                 resident and UI.booleanText(resident.duty == true) or UI.booleanText(false)))
         y = self:addCommand(panel, y, "UI_SC_Base_Duty", "base_duty", nil)
-        for _, role in ipairs({ "generalist", "guard", "builder", "quartermaster", "medic" }) do
+        for _, role in ipairs({ "generalist", "guard", "builder", "quartermaster", "medic",
+            "farmer" }) do
             y = self:addCommand(panel, y, "UI_SC_Base_Role_" .. role,
                 "set_base_role", { role = role })
         end

@@ -645,12 +645,10 @@ check(not vitalsApplied and string.find(tostring(vitalsReason), "SetHealth", 1, 
     "native-vitals restore rejects a missing setter instead of reporting success")
 
 do
-    -- CB-08 (extended). BodyPart.setScratched and setCut take
+    -- CB-08 (extended). BodyPart.setScratched takes
     -- (flag, forceNoInfection); verified in the 42.20.4 bytecode, a FALSE
-    -- second argument calls generateZombieInfection(). Restore passed false,
-    -- so reapplying a companion's saved scratch or cut rolled a fresh Knox
-    -- infection every single time vitals were restored. Restore must reproduce
-    -- saved state, never create new infection.
+    -- second argument calls generateZombieInfection(). BodyPart.setCut exposes
+    -- only its one-argument no-roll form.
     local recorded = {}
     local woundPart = { woundInfection = 0 }
     function woundPart:getType() return "ForeArm_R" end
@@ -681,11 +679,127 @@ do
     })
     check(recorded.setScratched ~= nil and recorded.setScratched[2] == true,
         "restoring a saved scratch suppresses the engine's fresh infection roll")
-    check(recorded.setCut ~= nil and recorded.setCut[2] == true,
-        "restoring a saved cut suppresses the engine's fresh infection roll")
+    check(recorded.setCut ~= nil and recorded.setCut[1] == true
+            and recorded.setCut[2] == nil,
+        "restoring a saved cut uses the native one-argument no-roll contract")
     check(recorded.setWoundInfectionLevel ~= nil
         and recorded.setWoundInfectionLevel[1] == 0.4,
         "the saved wound infection level is what gets restored, not a new roll")
+end
+
+do
+    local function color(r, g, b, a)
+        local value = { r = r, g = g, b = b, a = a }
+        function value:getRedFloat() return self.r end
+        function value:getGreenFloat() return self.g end
+        function value:getBlueFloat() return self.b end
+        function value:getAlphaFloat() return self.a end
+        return value
+    end
+    local oldImmutableColor = ImmutableColor
+    ImmutableColor = { new = function(r, g, b, a) return color(r, g, b, a) end }
+    local visual = {
+        hairModel = "LongCurly", beardModel = "Goatee", nonAttachedHair = "LongCurly",
+        skinTexture = "FemaleBody04", skinTextureIndex = 4, bodyHairIndex = 2,
+        hairColor = color(0.12, 0.23, 0.34, 1),
+        naturalHairColor = color(0.11, 0.22, 0.33, 1),
+        beardColor = color(0.14, 0.25, 0.36, 1),
+        naturalBeardColor = color(0.13, 0.24, 0.35, 1),
+        skinColor = color(0.41, 0.31, 0.21, 1),
+    }
+    local function getterFor(field)
+        return function(self) return self[field] end
+    end
+    local function setterFor(field)
+        return function(self, value) self[field] = value end
+    end
+    for field, getter in pairs({
+        hairModel = "getHairModel", beardModel = "getBeardModel",
+        nonAttachedHair = "getNonAttachedHair", skinTexture = "getSkinTexture",
+        skinTextureIndex = "getSkinTextureIndex", bodyHairIndex = "getBodyHairIndex",
+        hairColor = "getHairColor", naturalHairColor = "getNaturalHairColor",
+        beardColor = "getBeardColor", naturalBeardColor = "getNaturalBeardColor",
+        skinColor = "getSkinColor",
+    }) do
+        visual[getter] = getterFor(field)
+    end
+    for field, setter in pairs({
+        hairModel = "setHairModel", beardModel = "setBeardModel",
+        nonAttachedHair = "setNonAttachedHair", skinTexture = "setSkinTextureName",
+        skinTextureIndex = "setSkinTextureIndex", bodyHairIndex = "setBodyHairIndex",
+        hairColor = "setHairColor", naturalHairColor = "setNaturalHairColor",
+        beardColor = "setBeardColor", naturalBeardColor = "setNaturalBeardColor",
+        skinColor = "setSkinColor",
+    }) do
+        visual[setter] = setterFor(field)
+    end
+    local appearanceActor = { visual = visual, resets = 0 }
+    function appearanceActor:getHumanVisual() return self.visual end
+    function appearanceActor:resetModelNextFrame() self.resets = self.resets + 1 end
+    local savedAppearance = SC.Persistence._captureAppearanceForTests(appearanceActor)
+    visual.hairModel, visual.beardModel, visual.skinTexture = "Bald", "", "FemaleBody01"
+    visual.skinTextureIndex, visual.bodyHairIndex = 1, 0
+    visual.hairColor, visual.skinColor = color(1, 1, 1, 1), color(1, 1, 1, 1)
+    local appearanceApplied, appearanceReason =
+        SC.Persistence._applyAppearanceForTests(appearanceActor, savedAppearance)
+    check(appearanceApplied and appearanceReason == nil
+            and visual.hairModel == "LongCurly" and visual.beardModel == "Goatee"
+            and visual.skinTexture == "FemaleBody04" and visual.skinTextureIndex == 4
+            and visual.bodyHairIndex == 2 and visual.hairColor.r == 0.12
+            and visual.skinColor.r == 0.41 and appearanceActor.resets == 1,
+        "save/load restores exact hair, beard, skin and body appearance: "
+            .. tostring(appearanceReason))
+    ImmutableColor = oldImmutableColor
+end
+
+do
+    local function impossibleLegacy(name)
+        return {
+            identity = { forename = name, appearance = nil }, knox = true,
+            vitals = {
+                infected = true, infectionTime = 0.004,
+                infectionMortalityDuration = 10, apparentInfection = 5,
+                parts = { { type = "Hand_L", bitten = false, scratched = false,
+                    cut = false, deepWound = false, biteTime = 0,
+                    scratchTime = 0, cutTime = 0 } },
+            },
+        }
+    end
+    local legacy = {
+        companions = { a = impossibleLegacy("A"), b = impossibleLegacy("B") },
+        factionActors = {},
+        infectionCrisis = {
+            observations = {
+                a = { bites = 0, infected = true, infectionLevel = 5 },
+                b = { bites = 0, infected = true, infectionLevel = 6 },
+            },
+            crises = { c = { subjectId = "a" } },
+            history = { { crisisId = "c", subjectId = "a" }, { kind = "unrelated" } },
+        },
+    }
+    local repaired = SC.Persistence._repairLegacyKnoxCohortForTests(legacy)
+    check(repaired == 2 and legacy.companions.a.vitals.infected == false
+            and legacy.companions.b.vitals.infectionTime == -1
+            and legacy.companions.a.knox == false
+            and legacy.infectionCrisis.observations.a.infected == false
+            and legacy.infectionCrisis.crises.c == nil
+            and #legacy.infectionCrisis.history == 1,
+        "the impossible all-infected wound-free legacy cohort is repaired once")
+
+    local legitimate = { companions = {
+        a = impossibleLegacy("A"), b = impossibleLegacy("B"),
+    }, factionActors = {} }
+    legitimate.companions.a.vitals.parts[1].bitten = true
+    check(SC.Persistence._repairLegacyKnoxCohortForTests(legitimate) == 0
+            and legitimate.companions.b.vitals.infected == true,
+        "a mixed cohort with real wound evidence is never auto-cleared")
+    local current = { companions = {
+        a = impossibleLegacy("A"), b = impossibleLegacy("B"),
+    }, factionActors = {} }
+    current.companions.a.identity.appearance = { hairModel = "Bob" }
+    current.companions.b.identity.appearance = { hairModel = "CrewCut" }
+    check(SC.Persistence._repairLegacyKnoxCohortForTests(current) == 0,
+        "current appearance-aware saves never enter the legacy Knox repair")
 end
 
 local needsParts = {}

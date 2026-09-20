@@ -21,6 +21,7 @@ require "SCZombieAttack"
 require "SCBaseLife"
 require "SCWorkTransport"
 require "SCGatherWork"
+require "SCFarmWork"
 require "SCBaseWork"
 require "SCInfectionCrisis"
 require "SCLifeEvents"
@@ -907,7 +908,7 @@ local function diaryTask(current)
     end
 end
 
--- Party banter: first-visit place remarks and idle jokes. Speech only.
+-- Party banter: place remarks, idle jokes, first meetings and camp chats.
 local function banterTask(current)
     if SC.Banter ~= nil and type(SC.Banter.update) == "function" then
         SC.Banter.update(player(), SC.Registry.records(), current)

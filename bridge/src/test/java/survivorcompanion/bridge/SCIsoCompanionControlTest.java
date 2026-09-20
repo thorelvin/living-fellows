@@ -365,10 +365,17 @@ public final class SCIsoCompanionControlTest {
                             && !SCNativeCompanion.ownerIsExclusiveNative(
                                     SCNativeCompanion.OWNER_ATTACK)
                             && !SCNativeCompanion.ownerIsExclusiveNative(
+                                    SCNativeCompanion.OWNER_CORPSE_DRAG)
+                            && !SCNativeCompanion.ownerIsExclusiveNative(
                                     SCNativeCompanion.OWNER_PATH)
                             && !SCNativeCompanion.ownerIsExclusiveNative(
                                     SCNativeCompanion.OWNER_NONE),
-                    "exclusive-native owner set changed shape");
+                    "corpse dragging must leave bridge translation available while combat grapples remain exclusive");
+            require(SCNativeCompanion.exclusiveGrappleOwnsBody(true, false, true)
+                            && SCNativeCompanion.exclusiveGrappleOwnsBody(false, true, false)
+                            && !SCNativeCompanion.exclusiveGrappleOwnsBody(false, true, true)
+                            && !SCNativeCompanion.exclusiveGrappleOwnsBody(false, false, false),
+                    "corpse carrier grapple was not separated from hostile grapple ownership");
             require(SCNativeCompanion.isReactionStateName("StaggerBackState")
                             && !SCNativeCompanion.isReactionStateName("IdleState")
                             && !SCNativeCompanion.isReactionStateName("PlayerHitReaction")

@@ -741,22 +741,32 @@ local function protectedItem(item, actor)
     return type(data) == "table" and data[Production.CARGO_MARKER] ~= nil
 end
 
+local function toolScore(item, key)
+    if key ~= "choptree" then return 0 end
+    local damage, ok = invoke(item, "getTreeDamage")
+    return ok and math.max(0, tonumber(damage) or 0) or 0
+end
+
+local function betterTool(candidate, selected, key)
+    if candidate == nil then return false end
+    if selected == nil then return true end
+    return toolScore(candidate, key) > toolScore(selected, key)
+end
+
 local function findInventoryTool(actor, key)
     local inventory = U().inventory(actor)
     if inventory == nil then return nil end
-    local itemTags = type(_G) == "table" and rawget(_G, "ItemTag") or nil
-    local tag = itemTags and TOOL_TAGS[key] and itemTags[TOOL_TAGS[key]] or nil
-    if tag ~= nil then
-        local found, ok = invoke(inventory, "getFirstTagEvalRecurse", tag, notBroken)
-        if ok then return found end
-    end
+    local best
     for _, item in ipairs(U().inventoryItems(inventory, 256)) do
-        if hasToolTag(item, key) and notBroken(item) then return item end
+        if hasToolTag(item, key) and notBroken(item) and betterTool(item, best, key) then
+            best = item
+        end
     end
-    return nil
+    return best
 end
 
 local function toolSource(actor, key)
+    local bestStorage, bestContainer, bestItem
     for _, category in ipairs(TOOL_CATEGORIES) do
         for _, storage in ipairs(SC.BaseLife.storageRows(category, true)) do
             local container = SC.BaseLife.resolveContainer(storage)
@@ -764,14 +774,15 @@ local function toolSource(actor, key)
                 for _, item in ipairs(U().inventoryItems(container,
                     config("campStorageItemBudget", 80))) do
                     if hasToolTag(item, key) and notBroken(item) and not protectedItem(item, actor)
-                        and SC.BaseLife.availableCount(storage, U().itemType(item)) > 0 then
-                        return storage, container, item
+                        and SC.BaseLife.availableCount(storage, U().itemType(item)) > 0
+                        and betterTool(item, bestItem, key) then
+                        bestStorage, bestContainer, bestItem = storage, container, item
                     end
                 end
             end
         end
     end
-    return nil
+    return bestStorage, bestContainer, bestItem
 end
 
 local function fetchTool(actor, order, state, key)
@@ -792,13 +803,78 @@ local function fetchTool(actor, order, state, key)
     local ok, reason = SC.BaseWork.withdrawFromStorage(actor, state, pending.storage,
         pending.container, pending.item)
     if ok == true and reason == "base_supply_taken" then
+        if key == "diggrave" then
+            state.borrowedTools = state.borrowedTools or {}
+            state.borrowedTools[key] = {
+                key = key, storage = pending.storage,
+                container = pending.container, item = pending.item,
+            }
+        end
         state.toolFetch = nil
         return true, "production_tool_taken"
     end
     if ok ~= true then
-        state.toolFetch = nil
-        return false, reason or "production_tool_fetch_failed"
+        pending.failures = (pending.failures or 0) + 1
+        pending.lastFailure = reason or "production_tool_fetch_failed"
+        local authoritative = pending.lastFailure == "base_storage_unloaded"
+            or pending.lastFailure == "base_storage_changed"
+            or pending.lastFailure == "base_storage_withdrawals_disabled"
+            or pending.lastFailure == "base_supply_moved"
+            or pending.lastFailure == "base_supply_reserved"
+            or pending.lastFailure == "destination_full"
+        if authoritative or pending.failures >= config("productionCandidateMaxAttempts", 3) then
+            state.toolFetch = nil
+            return blockOrder(order, pending.lastFailure)
+        end
+        return false, pending.lastFailure
     end
+    pending.failures, pending.lastFailure = 0, nil
+    return true, reason
+end
+
+local function scheduleToolReturn(state, key, completion)
+    local borrowed = type(state.borrowedTools) == "table" and state.borrowedTools[key] or nil
+    if not borrowed then return false end
+    state.toolReturn = { key = key, completion = completion }
+    return true
+end
+
+local function returnBorrowedTool(actor, order, state)
+    local pending = state.toolReturn
+    if type(pending) ~= "table" then return nil end
+    local borrowed = type(state.borrowedTools) == "table"
+        and state.borrowedTools[pending.key] or nil
+    if not borrowed then
+        state.toolReturn = nil
+        if pending.completion then return completeOrder(order, pending.completion) end
+        return true, "production_tool_already_returned"
+    end
+    if not SC.BaseWork or type(SC.BaseWork.returnToStorage) ~= "function" then
+        return blockOrder(order, "base_work_unavailable")
+    end
+    state.phase = "returning_tool"
+    local ok, reason = SC.BaseWork.returnToStorage(actor, state, borrowed.storage,
+        borrowed.container, borrowed.item)
+    if ok == true and reason == "base_supply_returned" then
+        state.borrowedTools[pending.key] = nil
+        state.toolReturn = nil
+        if pending.blocker then return blockOrder(order, pending.blocker) end
+        if pending.completion then return completeOrder(order, pending.completion) end
+        return true, "production_tool_returned"
+    end
+    if ok ~= true then
+        pending.failures = (pending.failures or 0) + 1
+        pending.lastFailure = reason or "base_supply_return_failed"
+        local authoritative = pending.lastFailure == "base_storage_unloaded"
+            or pending.lastFailure == "base_storage_changed"
+            or pending.lastFailure == "borrowed_supply_missing"
+            or pending.lastFailure == "destination_full"
+        if authoritative or pending.failures >= config("productionCandidateMaxAttempts", 3) then
+            return blockOrder(order, pending.lastFailure)
+        end
+        return false, pending.lastFailure
+    end
+    pending.failures, pending.lastFailure = 0, nil
     return true, reason
 end
 
@@ -1218,7 +1294,23 @@ local function updateFell(actor, order, state, context)
         if handled ~= nil then return handled, reason, terminal end
     end
     local axe = findInventoryTool(actor, "choptree")
-    if not axe then return fetchTool(actor, order, state, "choptree") end
+    if not axe or state.toolFetch then
+        return fetchTool(actor, order, state, "choptree")
+    end
+    -- Tagged improvised tools can have only one point of tree damage.  Compare
+    -- a newly selected carried tool with camp storage once, then fetch the
+    -- stronger option before committing to what may otherwise be dozens of
+    -- native chop cycles.
+    if state.evaluatedChopTool ~= axe then
+        state.evaluatedChopTool = axe
+        local storage, container, stored = toolSource(actor, "choptree")
+        if betterTool(stored, axe, "choptree") then
+            state.toolFetch = {
+                key = "choptree", storage = storage, container = container, item = stored,
+            }
+            return fetchTool(actor, order, state, "choptree")
+        end
+    end
     local zone = zoneFor(order)
     if not zone then return blockOrder(order, "invalid_production_zone") end
     local target = state.target
@@ -1589,6 +1681,7 @@ local function pollDig(actor, order, state, context)
             releaseClaim(work.bodyKey, context.actorId)
             state.burialDigBody = nil
             noteCandidateFailure(order, "grave-site", work.key, "dig_timeout")
+            scheduleToolReturn(state, "diggrave")
             return false, "dig_timeout"
         end
         return true, "production_digging"
@@ -1599,6 +1692,7 @@ local function pollDig(actor, order, state, context)
     releaseClaim(work.key, context.actorId)
     releaseClaim(work.bodyKey, context.actorId)
     state.burialDigBody = nil
+    scheduleToolReturn(state, "diggrave")
     local square = U().gridSquare(work.x, work.y, work.z)
     local partner = U().gridSquare(work.x - 1, work.y, work.z)
     if not square or not partner or #graveObjects(square) == 0 or #graveObjects(partner) == 0 then
@@ -1614,7 +1708,13 @@ local function pollDig(actor, order, state, context)
     resetScan(order, "burial-body")
     if work.forBurial ~= true then
         SC.BaseLife.recordProductionProgress(order.id, 1)
-        if order.completed >= order.requested then return completeOrder(order, "graves_dug") end
+        if order.completed >= order.requested then
+            if state.toolReturn then
+                state.toolReturn.completion = "graves_dug"
+                return true, "production_tool_return_pending"
+            end
+            return completeOrder(order, "graves_dug")
+        end
     end
     return true, "production_grave_dug"
 end
@@ -1682,6 +1782,7 @@ local function digNext(actor, order, state, context, forBurial)
         noteCandidateFailure(order, "grave-site", target.key, approachReason)
         releaseClaim(target.key, context.actorId)
         state.digTarget = nil
+        scheduleToolReturn(state, "diggrave")
         return false, approachReason
     end
     if approach ~= "arrived" then return true, approachReason end
@@ -1693,6 +1794,7 @@ local function digNext(actor, order, state, context, forBurial)
         noteCandidateFailure(order, "grave-site", target.key, reason)
         releaseClaim(target.key, context.actorId)
         state.digTarget = nil
+        scheduleToolReturn(state, "diggrave")
         return false, reason or "production_dig_rejected"
     end
     state.work = {
@@ -1935,6 +2037,7 @@ local function pollFill(actor, order, state, context)
             if cancelled ~= true then return false, cancelReason or "fill_cancel_failed" end
             state.work = nil
             releaseClaim(work.graveKey, context.actorId)
+            scheduleToolReturn(state, "diggrave")
             return blockOrder(order, "fill_timeout")
         end
         return true, "production_filling"
@@ -1943,6 +2046,7 @@ local function pollFill(actor, order, state, context)
     if finished ~= true then return false, finishReason or "fill_finish_failed" end
     state.work = nil
     releaseClaim(work.graveKey, context.actorId)
+    scheduleToolReturn(state, "diggrave")
     local info = primaryGraveAt(work.grave)
     if not info or not info.filled then
         state.fillFailures = (state.fillFailures or 0) + 1
@@ -1980,6 +2084,7 @@ local function fillGrave(actor, order, state, grave, context)
         nil, Disposal.reach(order, zoneFor(order)))
     if approach == "failed" then
         releaseClaim(grave.key, context.actorId)
+        scheduleToolReturn(state, "diggrave")
         return blockOrder(order, approachReason)
     end
     if approach ~= "arrived" then return true, approachReason end
@@ -1989,6 +2094,7 @@ local function fillGrave(actor, order, state, grave, context)
     if accepted ~= true and transientRejection(reason) then return true, reason end
     if accepted ~= true or not workActive(actor, "fill_grave") then
         releaseClaim(grave.key, context.actorId)
+        scheduleToolReturn(state, "diggrave")
         state.fillFailures = (state.fillFailures or 0) + 1
         if state.fillFailures >= config("productionCandidateMaxAttempts", 3) then
             state.fillFailures = 0
@@ -3292,8 +3398,6 @@ function Disposal.beginHaul(actor, order, state, context, zone)
             end
             local missing = Disposal.missingSupply(actor)
             if missing then return Disposal.fetchSupply(actor, order, state, missing) end
-        elseif not findInventoryTool(actor, "diggrave") then
-            return fetchTool(actor, order, state, "diggrave")
         end
         state.phase = "seeking"
         local candidate, reason, terminal = Disposal.nextSource(actor, order, state, context, zone)
@@ -3734,6 +3838,8 @@ function Production.update(actor, baseState, job, runtime)
     local descriptor = descriptors[order.operation]
     if not descriptor then return blockOrder(order, "production_operation_unavailable") end
     local state = stateFor(actor, order.id)
+    local returnHandled, returnReason, returnTerminal = returnBorrowedTool(actor, order, state)
+    if returnHandled ~= nil then return returnHandled, returnReason, returnTerminal end
     -- A finished native action starts the facade's human pacing pause. Never
     -- dispatch into it; active work is still polled so its result is claimed.
     if state.work == nil and actorPacing(actor) then return true, "production_pacing" end
@@ -3752,6 +3858,19 @@ function Production.update(actor, baseState, job, runtime)
         metrics.lastError = tostring(handled)
         Production.cancelActor(actor, "production_error")
         return blockOrder(order, "production_error")
+    end
+    -- A blocked/cancelled attempt must not strand a borrowed shovel in the
+    -- worker's bag. Reopen only long enough to make the verified return trip,
+    -- then restore the original blocker for the management UI.
+    if terminal == true and order.state == "blocked"
+        and type(state.borrowedTools) == "table"
+        and next(state.borrowedTools) ~= nil then
+        local key = next(state.borrowedTools)
+        SC.BaseLife.reopenProductionOrder(order.id)
+        scheduleToolReturn(state, key)
+        state.toolReturn.blocker = reason or order.blocker or "production_blocked"
+        notePhase(order.id, id, "returning_tool")
+        return true, "production_tool_return_pending", false
     end
     notePhase(order.id, id, state.phase)
     return handled == true, reason, terminal == true
@@ -3831,6 +3950,13 @@ function Production.cancelActor(actor, reason)
     if native and type(native.settleDrag) == "function" then pcall(native.settleDrag, actor) end
     if state and state.visualAt ~= nil and native and type(native.cancelVisual) == "function" then
         pcall(native.cancelVisual, actor, reason or "production_cancelled")
+    end
+    if state and type(state.borrowedTools) == "table" and SC.BaseWork
+        and type(SC.BaseWork.restoreToStorage) == "function" then
+        for _, borrowed in pairs(state.borrowedTools) do
+            pcall(SC.BaseWork.restoreToStorage, actor, borrowed.storage,
+                borrowed.container, borrowed.item)
+        end
     end
     local id = actorId(actor)
     for key, entry in pairs(claims) do

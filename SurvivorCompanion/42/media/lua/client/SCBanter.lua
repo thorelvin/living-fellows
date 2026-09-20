@@ -1,13 +1,16 @@
 -- SPDX-License-Identifier: MIT
 
--- Party banter: speech-only flavor lines that never change what a companion
--- does. Three kinds share cooldowns so they never pile up:
+-- Party banter and small social encounters. Most lines are speech-only; camp
+-- conversations and first meetings briefly use SC.Positioning so both people
+-- face one another without taking over ordinary movement for long. Cooldowns
+-- keep the moments from piling up:
 --   * a deadpan distraction shout when a companion is surrounded or held by a
 --     grab (or a taunt when an ally is grabbed nearby),
 --   * a joke when the player has stood still for a few minutes,
---   * a remark the first time the party walks into a notable room type.
--- Every line goes through SC.Dialogue in the companion's own voice. Nothing
--- here moves an actor, plays an emote or takes an action owner.
+--   * a remark the first time the party walks into a notable room type,
+--   * a one-time hello when a companion meets a calm new survivor,
+--   * a short two-person conversation while residents are idle at camp.
+-- Every line goes through SC.Dialogue in the speaker's own voice.
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -30,6 +33,84 @@ end
 -- ---------------------------------------------------------------------------
 
 local POOLS = {
+    ["banter.crowd.yield"] = {
+        common = {
+            "Get out of my way, %1.",
+            "Coming through, %1.",
+            "%1, give me a little room.",
+            "Move over, %1. I need through.",
+            "Excuse me, %1. Let me past.",
+        },
+        brave = { "Make a hole, %1. Coming through." },
+        cautious = { "%1, could you step aside? Just for a second." },
+        caring = { "Sorry, %1. Can I squeeze past?" },
+        practical = { "%1, clear the path, please." },
+        stressed = { "%1! Move!" },
+    },
+    ["banter.camp.open"] = {
+        common = {
+            "%1, you holding up all right?",
+            "Quiet minute. How are you doing, %1?",
+            "%1, tell me something that is not about zombies.",
+            "You know, %1, this almost feels like a normal evening.",
+            "%1, what is the first thing you would do if this ended tomorrow?",
+            "I keep forgetting what ordinary conversation sounds like. Help me out, %1.",
+            "%1, sit with me a minute. The work can wait that long.",
+            "Long day, %1. At least we made it back together.",
+        },
+        brave = { "%1, when this is over, I am buying the first round." },
+        cautious = { "Doors are shut, windows are clear. We can breathe for a minute, %1." },
+        caring = { "%1, you have been quiet. I wanted to make sure you are okay." },
+        practical = { "Supplies are counted and the place is standing. How are you, %1?" },
+    },
+    ["banter.camp.reply"] = {
+        common = {
+            "Still here. That counts for a lot, %1.",
+            "Ask me again after coffee, %1. Real coffee.",
+            "Honestly? Better now that somebody asked.",
+            "I was thinking about home. The old one, not this place.",
+            "Tired, but not ready to give up. Not even close.",
+            "Something not about zombies? I miss terrible television.",
+            "If this ends tomorrow, I sleep until next week.",
+            "We made it back. I will take that victory, %1.",
+        },
+        brave = { "Doing fine, %1. The dead should be worried about us." },
+        cautious = { "I will feel better after one more check of the windows." },
+        caring = { "I am all right. You can lean on me too, you know." },
+        practical = { "Fed, dry, and breathing. That is a good day now." },
+    },
+    ["banter.meeting.hello"] = {
+        common = {
+            "Hey there. I am %1. We are not looking for trouble.",
+            "Hello. Easy now. My name is %1.",
+            "Hi. Another living face is good to see. I am %1.",
+            "Hey. We can keep our distance. Just wanted to say hello.",
+            "Hello there. You alone out here?",
+            "Easy. Friendly voice, friendly hands. I am %1.",
+            "Hi. Been a while since I met somebody who could answer back.",
+            "Hey, survivor. Good to meet you while we are both still breathing.",
+        },
+        brave = { "Hey! Nice to meet somebody with a pulse. I am %1." },
+        cautious = { "Hello. Stay where I can see you, please. I am %1." },
+        caring = { "Hi. Are you hurt? I am %1." },
+        practical = { "Hello. We can talk before anybody makes a bad decision. I am %1." },
+    },
+    ["banter.meeting.reply"] = {
+        common = {
+            "Hi, %1. I was starting to think everyone was gone.",
+            "Good to meet you, %1. I do not want trouble either.",
+            "Hello. Been a rough few days, but I am still here.",
+            "Hey. Thanks for saying something before pointing a weapon.",
+            "Hi there. I have not heard a friendly voice in a while.",
+            "Good to meet you. Let us both keep this calm.",
+            "Hello, %1. Nice to remember people can still be polite.",
+            "Hey. Alive, tired, and glad to see company.",
+        },
+        brave = { "Good to meet you, %1. I can handle myself." },
+        cautious = { "Hello, %1. I will keep my hands where you can see them." },
+        caring = { "Hi, %1. I am okay. Thank you for asking." },
+        practical = { "Hello, %1. Talking first works for me." },
+    },
     ["banter.distraction.self"] = {
         common = {
             "HEY! Is that a Spiffo's coupon on the ground?!",
@@ -461,6 +542,12 @@ local function freshParty()
         idle = nil,
         placeKeys = {},
         placeKeyCount = 0,
+        exchange = nil,
+        metPairs = {},
+        metPairCount = 0,
+        campPairs = {},
+        campPairCount = 0,
+        lastCampConversationAt = -math.huge,
     }
 end
 
@@ -504,10 +591,12 @@ local function roll(percent, actor, current)
     return math.abs(tonumber(hash) or 0) % 100 < percent
 end
 
-local function speak(actor, topic, commands)
+local function speak(actor, topic, commands, arguments, options)
     if not SC.Dialogue or type(SC.Dialogue.say) ~= "function" then return false end
     registerPools()
-    local ok, spoken = pcall(SC.Dialogue.say, actor, topic, nil, nil, { state = commands })
+    local settings = type(options) == "table" and options or {}
+    settings.state = commands
+    local ok, spoken = pcall(SC.Dialogue.say, actor, topic, nil, arguments, settings)
     return ok and spoken == true
 end
 
@@ -561,7 +650,197 @@ local function available(record, player, current, radius)
     return commands
 end
 
-local function budgetAllows(current)
+local budgetAllows
+
+local function firstName(actor)
+    local name = tostring(U().nameOf(actor) or "")
+    return string.match(name, "^(%S+)") or "friend"
+end
+
+local function pairKey(first, second)
+    local firstId, secondId = tostring(U().idOf(first)), tostring(U().idOf(second))
+    if secondId < firstId then firstId, secondId = secondId, firstId end
+    return firstId .. "|" .. secondId
+end
+
+local function rememberPair(mapName, countName, key, current, limit)
+    local map = party[mapName]
+    if map[key] ~= nil then map[key] = current return end
+    if party[countName] >= limit then
+        party[mapName], party[countName] = {}, 0
+        map = party[mapName]
+    end
+    map[key] = current
+    party[countName] = party[countName] + 1
+end
+
+local function recordForActor(records, actor)
+    for _, record in ipairs(records or {}) do
+        if type(record) == "table" and record.actor == actor then return record end
+    end
+    return nil
+end
+
+local function freeSurvivor(record, current)
+    local actor = type(record) == "table" and record.actor or nil
+    local utility = U()
+    if not actor or not utility.isValidActor(actor) or utility.isDead(actor)
+        or not calm(recordSnapshot(record)) then return nil end
+    if SC.ActionSupervisor and type(SC.ActionSupervisor.current) == "function"
+        and SC.ActionSupervisor.current(actor) ~= nil then return nil end
+    if SC.Positioning and type(SC.Positioning.activeConversation) == "function"
+        and SC.Positioning.activeConversation(actor) ~= nil then return nil end
+    local spokenAt = lastSpokenAt(actor)
+    if spokenAt and current - spokenAt < config("banterSpeakerQuietMs", 15000) then return nil end
+    return commandState(actor)
+end
+
+local function faceConversation(first, second, action, firstEmote, secondEmote)
+    if SC.Positioning and type(SC.Positioning.beginConversation) == "function" then
+        pcall(SC.Positioning.beginConversation, first, second,
+            { action = action, emote = firstEmote })
+        pcall(SC.Positioning.beginConversation, second, first,
+            { action = action, emote = secondEmote })
+        return
+    end
+    U().move(first, "walk", { action = "face_conversation", target = second,
+        socialMovement = true, stableFacing = true })
+    U().move(second, "walk", { action = "face_conversation", target = first,
+        socialMovement = true, stableFacing = true })
+end
+
+local function beginExchange(first, second, openTopic, replyTopic,
+        firstCommands, secondCommands, current, kind)
+    if not speak(first, openTopic, firstCommands, { firstName(second) }, {
+        salt = kind .. ":open:" .. pairKey(first, second) .. ":" .. tostring(current),
+    }) then return false, "conversation_speech_rejected" end
+    faceConversation(first, second, kind, kind == "meeting" and "wave" or "yes", "yes")
+    party.exchange = {
+        first = first, second = second, replyTopic = replyTopic,
+        secondCommands = secondCommands, nextAt = current
+            + config("companionConversationReplyMs", 2800),
+        expiresAt = current + config("companionConversationTimeoutMs", 9000),
+        kind = kind,
+    }
+    party.lastFlavorAt = current
+    return true, openTopic
+end
+
+local function exchangePulse(records, current)
+    local exchange = party.exchange
+    if type(exchange) ~= "table" then return false, "no_exchange", false end
+    if current >= (exchange.expiresAt or 0) then
+        party.exchange = nil
+        return false, "conversation_expired", false
+    end
+    local firstRecord = recordForActor(records, exchange.first)
+    local secondRecord = recordForActor(records, exchange.second)
+    if not firstRecord or not secondRecord or not calm(recordSnapshot(firstRecord))
+        or not calm(recordSnapshot(secondRecord)) or U().isDead(exchange.first)
+        or U().isDead(exchange.second) then
+        party.exchange = nil
+        return false, "conversation_interrupted", false
+    end
+    if current < (exchange.nextAt or 0) then return false, "conversation_waiting", true end
+    local spoken = speak(exchange.second, exchange.replyTopic, exchange.secondCommands,
+        { firstName(exchange.first) }, {
+            salt = exchange.kind .. ":reply:" .. pairKey(exchange.first, exchange.second)
+                .. ":" .. tostring(current),
+        })
+    local topic = exchange.replyTopic
+    party.exchange = nil
+    if not spoken then return false, "conversation_reply_rejected", false end
+    party.lastFlavorAt = current
+    return true, topic, false
+end
+
+local function greetingPulse(player, records, current)
+    if not budgetAllows(current) then return false, "flavor_budget" end
+    local radius = config("meetingGreetingDistance", 6)
+    local playerRadius = config("meetingGreetingPlayerDistance", 14)
+    for _, firstRecord in ipairs(records or {}) do
+        local first = firstRecord.actor
+        local firstCommands = available(firstRecord, player, current, playerRadius)
+        if firstCommands then
+            for _, secondRecord in ipairs(records or {}) do
+                local second = secondRecord.actor
+                local secondCommands = second ~= first and freeSurvivor(secondRecord, current) or nil
+                if secondCommands and secondCommands.recruited ~= true
+                    and U().sameFloor(first, second) and U().distance(first, second) <= radius
+                    and U().canSee(first, second)
+                    and not (SC.Factions and type(SC.Factions.isHostileBetween) == "function"
+                        and SC.Factions.isHostileBetween(first, second, player)) then
+                    local key = pairKey(first, second)
+                    if party.metPairs[key] == nil then
+                        local spoken, topic = beginExchange(first, second,
+                            "banter.meeting.hello", "banter.meeting.reply",
+                            firstCommands, secondCommands, current, "meeting")
+                        if spoken then
+                            rememberPair("metPairs", "metPairCount", key, current,
+                                math.max(16, math.floor(config("meetingGreetingMemoryLimit", 128))))
+                            return true, topic
+                        end
+                        return false, topic
+                    end
+                end
+            end
+        end
+    end
+    return false, "no_new_survivor_nearby"
+end
+
+local function atCamp(actor)
+    return SC.BaseLife and type(SC.BaseLife.isInside) == "function"
+        and SC.BaseLife.isInside(actor) == true
+end
+
+local function campConversationPulse(player, records, current)
+    if current - party.lastCampConversationAt
+        < config("campConversationPartyCooldownMs", 60000) then
+        return false, "camp_conversation_cooldown"
+    end
+    if not budgetAllows(current) then return false, "flavor_budget" end
+    local radius = config("campConversationDistance", 8)
+    local actorCooldown = config("campConversationActorCooldownMs", 180000)
+    local candidates = {}
+    for _, record in ipairs(records or {}) do
+        local commands = available(record, player, current,
+            config("meetingGreetingPlayerDistance", 14))
+        local moving, movingOk = record.actor and U().call(record.actor, "isMoving")
+        if commands and atCamp(record.actor) and not (movingOk and moving == true)
+            and current - (actorState(record.actor).lastCampTalkAt or -math.huge)
+                >= actorCooldown then
+            candidates[#candidates + 1] = { record = record, commands = commands }
+        end
+    end
+    for firstIndex = 1, #candidates do
+        for secondIndex = firstIndex + 1, #candidates do
+            local first, second = candidates[firstIndex], candidates[secondIndex]
+            local firstActor, secondActor = first.record.actor, second.record.actor
+            local key = pairKey(firstActor, secondActor)
+            local prior = tonumber(party.campPairs[key]) or -math.huge
+            if U().sameFloor(firstActor, secondActor)
+                and U().distance(firstActor, secondActor) <= radius
+                and U().canSee(firstActor, secondActor)
+                and current - prior >= config("campConversationPairCooldownMs", 600000) then
+                local spoken, topic = beginExchange(firstActor, secondActor,
+                    "banter.camp.open", "banter.camp.reply",
+                    first.commands, second.commands, current, "camp")
+                if spoken then
+                    actorState(firstActor).lastCampTalkAt = current
+                    actorState(secondActor).lastCampTalkAt = current
+                    rememberPair("campPairs", "campPairCount", key, current, 128)
+                    party.lastCampConversationAt = current
+                    return true, topic
+                end
+                return false, topic
+            end
+        end
+    end
+    return false, "camp_conversation_no_pair"
+end
+
+budgetAllows = function(current)
     return current - party.lastFlavorAt >= config("flavorPartySpeechGapMs", 20000)
 end
 
@@ -572,6 +851,23 @@ end
 
 function Banter.spendBudget(current)
     party.lastFlavorAt = tonumber(current) or U().nowMs()
+end
+
+-- Functional speech for companion traffic. It has its own short cooldown and
+-- does not consume the ambient-story budget: the line explains a real order.
+function Banter.crowdYield(actor, blocker, current)
+    current = tonumber(current) or U().nowMs()
+    local own = actorState(actor)
+    if current - (tonumber(own.lastCrowdYieldAt) or -math.huge)
+        < config("crowdYieldSpeechCooldownMs", 8000) then
+        return false, "crowd_yield_speech_cooldown"
+    end
+    local spoken = speak(actor, "banter.crowd.yield", commandState(actor),
+        { firstName(blocker) }, {
+            salt = pairKey(actor, blocker) .. ":" .. tostring(current),
+        })
+    if spoken then own.lastCrowdYieldAt = current end
+    return spoken, spoken and "crowd_yield_spoken" or "crowd_yield_speech_rejected"
 end
 
 function Banter.availableSpeaker(record, player, current, radius)
@@ -895,6 +1191,10 @@ function Banter.update(player, records, current)
         records = SC.Registry and type(SC.Registry.records) == "function"
             and SC.Registry.records() or {}
     end
+    local exchanged, exchangeReason, exchangeBusy = exchangePulse(records, current)
+    if exchanged or exchangeBusy then return exchanged, exchangeReason end
+    local greeted, greetingReason = greetingPulse(player, records, current)
+    if greeted then return true, greetingReason end
     local idle, inVehicle = trackIdle(player, current)
     if SC.Tales and type(SC.Tales.update) == "function" then
         local ok, telling, taleReason = pcall(SC.Tales.update, player, records, current)
@@ -902,6 +1202,8 @@ function Banter.update(player, records, current)
     end
     local placed, placeReason = placePulse(player, records, current)
     if placed then return true, placeReason end
+    local chatted, chatReason = campConversationPulse(player, records, current)
+    if chatted then return true, chatReason end
     return jokePulse(player, records, current, idle, inVehicle)
 end
 
@@ -918,6 +1220,11 @@ end
 -- Test seams.
 function Banter._poolsForTests()
     return POOLS, PLACE_LINES, ROOM_GROUPS
+end
+
+
+function Banter._socialForTests()
+    return greetingPulse, campConversationPulse, exchangePulse
 end
 
 function Banter._partyForTests()

@@ -64,14 +64,47 @@ local function release(value, actor)
     if existing and existing.actor == actor then reservations[value] = nil end
 end
 
+-- A camp book is borrowed only for the supervised read action. Return the
+-- exact object to the exact marked container on every terminal path. If the
+-- container becomes unavailable or rejects the transfer, keeping the book on
+-- the companion is the lossless fallback; a later logistics pass may deposit
+-- it, but the item is never copied or discarded.
+local function returnBorrowedReadingItem(actor, activity)
+    if not activity or activity.borrowedReading ~= true or not activity.item then return true end
+    local utility = U()
+    local source = activity.borrowedFrom
+    local inventory = utility.inventory(actor)
+    if source and utility.inventoryContains(source, activity.item) then
+        activity.borrowedReading = false
+        return true
+    end
+    if not source or not inventory or not utility.inventoryContains(inventory, activity.item) then
+        debugTrace(actor, "borrow_return_blocked", activity, "borrowed_book_unavailable")
+        return false
+    end
+    local returned, reason = utility.transferItemVerified(inventory, source, activity.item)
+    if returned == true then
+        activity.borrowedReading = false
+        return true
+    end
+    debugTrace(actor, "borrow_return_blocked", activity, reason or "borrowed_book_return_failed")
+    return false
+end
+
 local function releaseActivity(actor, activity)
     if not activity then return end
     -- Getting up from a seat may earn a stretch (SCGestures), once per sit.
-    if activity.kind == "sit" and activity.actionAccepted == true and not activity.stoodUpNoted
+    if (activity.kind == "sit" or activity.kind == "rest_bed")
+        and activity.actionAccepted == true and not activity.stoodUpNoted
         and SC.Gestures and type(SC.Gestures.noteStoodUp) == "function" then
         activity.stoodUpNoted = true
         pcall(SC.Gestures.noteStoodUp, actor, U().nowMs())
     end
+    if (activity.kind == "sit" or activity.kind == "rest_bed")
+        and SC.NativeActions and type(SC.NativeActions.leaveSeating) == "function" then
+        pcall(SC.NativeActions.leaveSeating, actor)
+    end
+    returnBorrowedReadingItem(actor, activity)
     release(activity.object, actor)
     release(activity.item, actor)
     release(activity.material, actor)
@@ -326,26 +359,105 @@ local function isLiterature(item)
         or string.find(itemType, "magazine", 1, true) ~= nil
 end
 
+local function literatureUseful(actor, item)
+    if not isLiterature(item) then return false end
+    local utility = U()
+    local pages, pagesOk = utility.call(item, "getNumberOfPages")
+    local fullType = utility.itemType(item)
+    local alreadyRead, readOk = utility.call(actor, "getAlreadyReadPages", fullType)
+    return not pagesOk or (type(pages) == "number" and pages > 0
+        and (not readOk or type(alreadyRead) ~= "number" or alreadyRead < pages))
+end
+
 local function readActivity(actor, items)
     local utility = U()
     for _, item in ipairs(items) do
-        if isLiterature(item) then
-            local pages, pagesOk = utility.call(item, "getNumberOfPages")
-            local fullType = utility.itemType(item)
-            local alreadyRead, readOk = utility.call(actor, "getAlreadyReadPages", fullType)
-            local useful = not pagesOk or (type(pages) == "number" and pages > 0
-                and (not readOk or type(alreadyRead) ~= "number" or alreadyRead < pages))
-            if useful then
-                return {
-                    kind = "read",
-                    score = 34,
-                    item = item,
-                    fact = { activity = "read", itemType = utility.itemType(item) },
-                }
+        if literatureUseful(actor, item) then
+            return {
+                kind = "read",
+                score = 34,
+                item = item,
+                fact = { activity = "read", itemType = utility.itemType(item) },
+            }
+        end
+    end
+    return nil
+end
+
+-- A resident should use the books the camp actually owns, not stand beside a
+-- marked bookshelf because its personal inventory happens to be empty. The
+-- scan is base-only, close-range and globally bounded per decision. Reserves
+-- and personal/work-cargo ownership are honoured before offering the exact
+-- book as a downtime resource.
+local function campReadingActivity(actor)
+    local utility = U()
+    local base = SC.BaseLife
+    if not base or type(base.isInside) ~= "function"
+        or type(base.storageRows) ~= "function"
+        or type(base.resolveContainer) ~= "function"
+        or base.isInside(actor) ~= true then return nil end
+    local radius = tonumber(utility.config("campReadingStorageRadius")) or 8
+    local storageLimit = math.max(1,
+        math.floor(tonumber(utility.config("campReadingStorageBudget")) or 8))
+    local remaining = math.max(1,
+        math.floor(tonumber(utility.config("campReadingItemBudget")) or 120))
+    -- Dedicated library storage is searched first, so a camp with many marked
+    -- containers cannot exhaust this bounded scan before reaching its shelf.
+    local storages, seen = {}, {}
+    local function append(rows)
+        for _, storage in ipairs(rows or {}) do
+            local key = storage.id or storage
+            if not seen[key] then
+                seen[key] = true
+                storages[#storages + 1] = storage
+            end
+        end
+    end
+    append(base.storageRows("literature", true))
+    append(base.storageRows(nil, true))
+    local inspected = 0
+    for _, storage in ipairs(storages) do
+        inspected = inspected + 1
+        if inspected > storageLimit or remaining <= 0 then break end
+        local container, object = base.resolveContainer(storage)
+        if container and object and utility.sameFloor(actor, object)
+            and utility.distance(actor, object) <= radius then
+            local items = utility.inventoryItems(container, remaining)
+            remaining = remaining - #items
+            local counts = {}
+            for _, item in ipairs(items) do
+                local itemType = utility.itemType(item)
+                counts[itemType] = (counts[itemType] or 0) + 1
+            end
+            for _, item in ipairs(items) do
+                local itemType = utility.itemType(item)
+                local perType = type(storage.reserves) == "table"
+                    and tonumber(storage.reserves[itemType]) or nil
+                local reserveCount = math.max(0, math.floor(perType
+                    or tonumber(storage.reserve) or 0))
+                local protected = SC.PersonalItems
+                    and type(SC.PersonalItems.isProtected) == "function"
+                    and SC.PersonalItems.isProtected(item, actor, "camp_reading_borrow")
+                if counts[itemType] > reserveCount and not protected
+                    and literatureUseful(actor, item) then
+                    return {
+                        kind = "read",
+                        score = 32,
+                        item = item,
+                        borrowedFrom = container,
+                        borrowedStorageId = storage.id,
+                        fact = { activity = "read", itemType = itemType,
+                            borrowedFromCamp = true },
+                    }
+                end
             end
         end
     end
     return nil
+end
+
+local function availableReadActivity(actor, carriedItems)
+    return readActivity(actor, carriedItems) or campReadingActivity(actor)
 end
 
 local function repairActivity(actor, items)
@@ -540,52 +652,91 @@ local function washActivity(actor, items, state, current)
     }
 end
 
-local function isSeat(object)
+local function furnitureKind(object)
     local utility = U()
     local name, nameOk = utility.call(object, "getName")
     local textValue = nameOk and string.lower(tostring(name)) or ""
-    if string.find(textValue, "chair", 1, true) or string.find(textValue, "sofa", 1, true) then return true end
+    if string.find(textValue, "bed", 1, true) then return "rest_bed" end
+    if string.find(textValue, "chair", 1, true) or string.find(textValue, "sofa", 1, true)
+        or string.find(textValue, "couch", 1, true) then return "sit" end
     local sprite, spriteOk = utility.call(object, "getSprite")
     if spriteOk and sprite then
         local spriteName, spriteNameOk = utility.call(sprite, "getName")
         local lowered = spriteNameOk and string.lower(tostring(spriteName)) or ""
-        if string.find(lowered, "chair", 1, true) or string.find(lowered, "sofa", 1, true) then return true end
+        if string.find(lowered, "bedding", 1, true)
+            or string.find(lowered, "_bed", 1, true) then return "rest_bed" end
+        if string.find(lowered, "chair", 1, true) or string.find(lowered, "sofa", 1, true)
+            or string.find(lowered, "couch", 1, true) then return "sit" end
         local properties, propertiesOk = utility.call(sprite, "getProperties")
         if propertiesOk and properties then
+            local bed, bedOk = utility.call(properties, "Is", "BedType")
+            if bedOk and bed then return "rest_bed" end
+            if type(IsoFlagType) == "table" and IsoFlagType.bed ~= nil then
+                local flagged, flaggedOk = utility.call(properties, "has", IsoFlagType.bed)
+                if flaggedOk and flagged then return "rest_bed" end
+            end
             local chair, chairOk = utility.call(properties, "Is", "IsChair")
-            if chairOk and chair then return true end
+            if chairOk and chair then return "sit" end
         end
     end
-    return false
+    if type(SeatingManager) == "table" and type(SeatingManager.getInstance) == "function" then
+        local ok, manager = pcall(SeatingManager.getInstance)
+        if ok and manager then
+            local count, countOk = utility.call(manager, "getTilePositionCount", object)
+            if countOk and (tonumber(count) or 0) > 0 then return "sit" end
+        end
+    end
+    return nil
 end
 
 local function seatActivity(actor)
     local utility = U()
     local x, y, z = utility.position(actor)
     if not x then return nil end
-    for distance = 0, 4 do
+    local radius = math.max(1, math.min(12,
+        math.floor(tonumber(utility.config("downtimeFurnitureRadius")) or 8)))
+    local budget = math.max(16,
+        math.floor(tonumber(utility.config("downtimeFurnitureSquareBudget")) or 200))
+    local scanned = 0
+    for distance = 0, radius do
         for dx = -distance, distance do
             for dy = -distance, distance do
                 if math.max(math.abs(dx), math.abs(dy)) == distance then
                     local square = utility.gridSquare(x + dx, y + dy, z)
-                    local found
+                    scanned = scanned + 1
+                    local found, kind
                     utility.squareObjects(square, function(object)
-                        if isSeat(object) then found = object return false end
+                        local value = furnitureKind(object)
+                        if value then found, kind = object, value return false end
                     end, 32)
                     if found then
                         return {
-                            kind = "sit",
-                            score = 12,
+                            kind = kind,
+                            score = kind == "rest_bed" and 13 or 12,
                             object = found,
                             square = square,
-                            fact = { activity = "sit" },
+                            fact = { activity = kind },
                         }
                     end
+                    if scanned >= budget then return nil end
                 end
             end
         end
     end
     return nil
+end
+
+local function approachFurniture(actor, activity)
+    if U().distance(actor, activity.object) <= 1.45 then return true, "arrived" end
+    if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
+        return false, "navigation_unavailable"
+    end
+    local targets = SC.Navigation.interactionTargets(actor, activity.object)
+    return SC.Navigation.requestAny(actor, targets, "walk", {
+        action = "move_to_seat", targetSquare = activity.square,
+        object = activity.object, arrivalDistance = 1.0,
+        supervisorToken = activity.supervisorToken,
+    })
 end
 
 -- ---------------------------------------------------------------------------
@@ -1467,14 +1618,14 @@ local function candidates(actor, commands, state, current, desiredKind)
         activity = craftActivity(actor, items)
         if activity then filtered[#filtered + 1] = activity end
     elseif workMode == "idle" then
-        activity = readActivity(actor, items)
+        activity = availableReadActivity(actor, items)
         if activity then filtered[#filtered + 1] = activity end
         activity = seatActivity(actor)
         if activity then filtered[#filtered + 1] = activity end
     else
         activity = repairActivity(actor, items)
         if activity then filtered[#filtered + 1] = activity end
-        activity = readActivity(actor, items)
+        activity = availableReadActivity(actor, items)
         if activity then filtered[#filtered + 1] = activity end
         activity = craftActivity(actor, items)
         if activity then filtered[#filtered + 1] = activity end
@@ -1683,18 +1834,33 @@ local function beginActivity(actor, state, activity, commands, now)
         return false, ownerReason or "downtime_owner_rejected"
     end
     local utility = U()
+    if activity.kind == "read" and activity.borrowedFrom then
+        local inventory = utility.inventory(actor)
+        local transferred, transferReason = utility.transferItemVerified(
+            activity.borrowedFrom, inventory, activity.item)
+        if transferred ~= true then
+            state.active = activity
+            return failActivity(actor, state,
+                transferReason or "borrowed_book_transfer_failed")
+        end
+        activity.borrowedReading = true
+    end
     local wash = activity.kind == "wash_self" or activity.kind == "wash_equipment"
     local study = activity.kind == "study_corpse" or activity.kind == "pay_respects"
+    local furniture = activity.kind == "sit" or activity.kind == "rest_bed"
     if activity.kind == "study_corpse" then Study.prepare(actor, activity, commands, state, now) end
     if activity.kind == "pay_respects" then Respect.prepare(actor, activity, commands, state, now) end
-    if (activity.kind == "sit" or wash or study) and activity.square
+    if (furniture or wash or study) and activity.square
         and utility.distance(actor, activity.square)
-            > (wash and 1.45 or study and Study.REACH or 1.1) then
-        if SC.Navigation and type(SC.Navigation.request) == "function" then
+            > (wash and 1.45 or study and Study.REACH or 1.45) then
+        if SC.Navigation and (type(SC.Navigation.request) == "function"
+            or furniture and type(SC.Navigation.requestAny) == "function") then
             local accepted, status
             if wash then
                 accepted, status = approachWashSource(actor, activity)
                 if not accepted then coolWashSource(state, activity.object, now) end
+            elseif furniture then
+                accepted, status = approachFurniture(actor, activity)
             else
                 accepted, status = SC.Navigation.request(actor, activity.square, "walk", {
                     action = study and "move_to_corpse" or "move_to_seat",
@@ -1885,6 +2051,8 @@ local function finishActivity(actor, state, now)
         success = activity.actionAccepted == true
     elseif activity.kind == "sit" then
         success = activity.actionAccepted == true
+    elseif activity.kind == "rest_bed" then
+        success = activity.actionAccepted == true
     elseif activity.kind == "wash_self" then
         success = completeWashSelf(actor, activity)
     elseif activity.kind == "wash_equipment" then
@@ -1904,6 +2072,7 @@ local function finishActivity(actor, state, now)
         craft_supply = "craft_commit_failed",
         read = "read_verification_failed",
         sit = "sit_verification_failed",
+        rest_bed = "bed_rest_verification_failed",
         wash_self = "wash_self_commit_failed",
         wash_equipment = "wash_equipment_commit_failed",
         study_corpse = "study_verification_failed",
@@ -2031,22 +2200,13 @@ function Downtime.update(actor, player, runtime, desiredKind)
             Downtime.cancel(actor, "new_order")
             return false, "cancelled_for_order"
         end
-        if state.active.kind == "sit" and state.active.square
-            and utility.distance(actor, state.active.square) > 1.1 then
-            if SC.Navigation and type(SC.Navigation.request) == "function" then
-                local accepted, status = SC.Navigation.request(actor, state.active.square, "walk", {
-                    action = "move_to_seat",
-                    targetSquare = state.active.square,
-                    supervisorToken = state.active.supervisorToken,
-                })
-                if not accepted then
-                    return failActivity(actor, state, status or "route_failed")
-                end
-                transitionActivity(state.active, "approaching", { status = status })
-            else
-                return failActivity(actor, state, "navigation_unavailable")
-            end
-            return true, "approaching_seat"
+        local furniture = state.active.kind == "sit" or state.active.kind == "rest_bed"
+        if furniture and state.active.square and state.active.approaching
+            and utility.distance(actor, state.active.object) > 1.45 then
+            local accepted, status = approachFurniture(actor, state.active)
+            if not accepted then return failActivity(actor, state, status or "route_failed") end
+            transitionActivity(state.active, "approaching", { status = status })
+            if status ~= "arrived" then return true, "approaching_seat" end
         end
         local washing = state.active.kind == "wash_self"
             or state.active.kind == "wash_equipment"
@@ -2131,9 +2291,9 @@ function Downtime.update(actor, player, runtime, desiredKind)
             return true, kind
         end
         if studying then Study.speakNext(actor, state.active, current) end
-        if state.active.kind == "sit" and state.active.approaching then
+        if furniture and state.active.approaching then
             if not utility.move(actor, "walk", {
-                action = "sit",
+                action = state.active.kind,
                 object = state.active.object,
                 downtime = true,
                 supervisorToken = state.active.supervisorToken,
@@ -2143,8 +2303,8 @@ function Downtime.update(actor, player, runtime, desiredKind)
             state.active.approaching = nil
             state.active.actionAccepted = true
             state.active.startedAt = current
-            transitionActivity(state.active, "settling", { action = "sit" })
-            return true, "sit"
+            transitionActivity(state.active, "settling", { action = state.active.kind })
+            return true, state.active.kind
         end
         local duration = state.active.durationMs or Study.duration(state.active.kind)
         -- Work speed shapes chores; an activity with its own length keeps it.
@@ -2204,6 +2364,14 @@ end
 
 function Downtime.peek(actor)
     return actor and states[actor] or nil
+end
+
+function Downtime._readingForTests()
+    return readActivity, campReadingActivity, returnBorrowedReadingItem
+end
+
+function Downtime._furnitureForTests()
+    return furnitureKind, seatActivity, approachFurniture
 end
 
 function Downtime.reset(actor)

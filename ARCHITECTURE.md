@@ -20,6 +20,17 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
 - `SCNativeVisualActions` implements effect-free human signals, room sweeps,
   facing, conversation poses, and player-posture mirroring. Timed visual effect
   ownership and cancellation remain in the guarded `SCNativeActions` facade.
+- `SCBanter` owns bounded party flavor and small social encounters. It remembers
+  new-survivor pairs for the session, selects only calm visible non-hostile
+  meetings, and stages both first greetings and occasional camp exchanges
+  through `SCPositioning`; delayed replies, speaker quiet time, and party/actor/
+  pair cooldowns prevent overlapping conversations.
+- `SCDowntime` may select unread literature carried by the actor or borrow one
+  exact item from nearby marked camp storage, prioritizing the dedicated
+  `literature` category before its bounded fallback scan. The storage scan is bounded,
+  withdrawal policy, reserves, personal items, and work cargo are respected,
+  and every terminal path attempts to return that exact object to its source;
+  retaining it on the actor is the lossless fallback if the source rejects it.
 - `SCNativeCombatActions` and `SCNativeWorkActions` own action-family selection
   after admission. Combat impact/RNG and timed work/needs state machines remain
   colocated with their polling, cancellation, and rollback APIs in
@@ -45,6 +56,12 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   `Base.Log` and `Base.Plank` wrappers. It retains only cursor/cooldown runtime
   state, yields by square and object budgets, distinguishes incomplete evidence
   from proven absence, and delegates every mutation to `SCWorkTransport`.
+- `SCFarmWork` owns bounded scans of marked Farm areas and dispatches the real
+  Build 42 plow, sow, water, compost, cure, harvest, and water-fill actions. It
+  maintains persisted receipts for exact borrowed supplies and harvested output,
+  resumes or reconciles work after save/load from native plot and inventory
+  postconditions, preserves a dynamic replanting seed reserve, restricts remote
+  work to daylight, and never plows ground that was not already a farm plot.
 - `SCProduction` owns finite base production orders through a small operation
   registry: `fell_trees`, `saw_planks`, `dig_graves` and `bury_bodies`. Each
   operation is a descriptor plus an adapter; `SCBaseLife` owns the persisted
@@ -148,7 +165,7 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   snapshots.
 - `SCSpawn` performs bounded, loaded-square, unseen, collision, occupancy, and nearby-zombie validation.
 - `SCNeeds` samples positive native hunger/thirst deltas and rebates half while preserving every negative vanilla food/drink effect. It selects only conservative safe food and clean water, and dispatches the real Build 42 eat, bottle-drink, or water-source timed action.
-- `SCLogistics` inventories the companion recursively and requests one missing construction item at a time from `SCEncounter`'s reserved camp-storage boundary: marked base storage inside the base (never memorial storage, never below its reserve) and player-opened containers away from it. Unknown world containers and unmarked containers inside the base are never considered camp storage.
+- `SCLogistics` inventories the companion recursively and requests one missing construction item at a time from `SCEncounter`'s reserved camp-storage boundary: marked base storage inside the base (never memorial storage, never below its reserve) and player-opened containers away from it. Unknown world containers and unmarked containers inside the base are never considered camp storage. Literature and farming supplies are distinct loadout/storage classes: unprotected books and magazines are proactively deposited only into an in-range marked `literature` container, while seed, farm tools, compost, water cans, and crop treatments are proactively deposited only into marked `farming` storage. Without a matching destination they remain carried; the ordinary overload path may still use its established safe fallbacks.
 - `SCPathSearch` owns the resumable A* heap, search jobs, deterministic ties,
   bounded expansion, path reconstruction, and failure classification behind a
   world adapter. `SCNavTraffic` owns group-passage queues, stable waiter order,
