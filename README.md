@@ -53,8 +53,8 @@ Living Fellows targets **Project Zomboid Build 42.20.4** and is **single-player 
 
 | Method | What you need | Best for |
 | --- | --- | --- |
-| Steam Workshop | Project Zomboid 42.20.4 and ZombieBuddy 2.3.3 or newer | Automatic Workshop updates |
-| `Install.bat` | Windows and Project Zomboid 42.20.4 | Manual or offline installation without ZombieBuddy |
+| Steam Workshop | Project Zomboid 42.20.4 and ZombieBuddy 2.3.3 or newer | One click if you already use ZombieBuddy; automatic updates |
+| `Install.bat` | Windows and Project Zomboid 42.20.4 | Everyone else; no ZombieBuddy, no Workshop account needed |
 
 Use only one copy. The Workshop and standalone editions share the mod ID `SurvivorCompanion`.
 
