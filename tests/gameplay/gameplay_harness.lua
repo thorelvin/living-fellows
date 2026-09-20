@@ -6048,16 +6048,20 @@ do
     }))
     local cancelled, cancelReason = SurvivorCompanion.ActionSupervisor.cancel(
         rollbackActor, "fixture_rollback", nil, false)
-    local held, heldReason = SurvivorCompanion.Decision._holdOwnedActivityOrPacingForTests(
-        rollbackActor, player,
-        { threats = {}, immediateCount = 0, pressure = 0, player = { danger = 0 } },
-        { alive = true, health = 100, wounds = {}, bleedingCount = 0 }, {},
-        { order = "base_duty", recruited = true }, {}, clock, {})
-    check(cancelled ~= true and cancelReason == "rollback_failed"
-            and held == true and heldReason == "work:rollback_fixture"
-            and SurvivorCompanion.ActionSupervisor.isCurrent(rollbackToken),
-        "a rollback-quarantined owner suppresses ordinary AI until cleanup is verified")
-    SurvivorCompanion.ActionSupervisor.releaseActor(rollbackActor, "fixture_cleanup")
+    local replacement, replacementReason = SurvivorCompanion.ActionSupervisor.begin(
+        rollbackActor, {
+            owner = "player", action = "replacement_after_rollback_failure",
+            priority = SurvivorCompanion.ActionSupervisor.Priority.PLAYER,
+            ignoreRetry = true,
+        })
+    check(cancelled == true and cancelReason == "failed"
+            and rollbackToken.phase == "failed" and rollbackToken.reason == "rollback_failed"
+            and replacement ~= nil,
+        "a throwing rollback without a verifier releases ownership for ordinary AI: "
+            .. tostring(cancelled) .. "/" .. tostring(cancelReason)
+            .. " replacement=" .. tostring(replacement) .. "/" .. tostring(replacementReason))
+    SurvivorCompanion.ActionSupervisor.cancel(
+        rollbackActor, "fixture_cleanup", nil, true)
     registry[rollbackActor.id] = nil
 end
 do
@@ -7092,12 +7096,29 @@ check(barkFought and type(engageLine) == "string"
     "the first accepted offensive action emits one audible engage bark from the companion")
 clock = clock + 50
 barkZed.dead = true
-local killObserved, killObserveReason = SurvivorCompanion.Combat.observe(barkActor)
+local remainingBarkZed = zombie(7, -7, { attacking = true, target = barkActor })
+barkSnapshot.threats[2] = { actor = remainingBarkZed, square = remainingBarkZed.square,
+    distanceSq = 4, visible = true, obstructed = false, attacking = true, score = 80 }
+barkSnapshot.threatCount, barkSnapshot.immediateCount, barkSnapshot.pressure = 2, 1, 1
+local originalDialogueSay = SurvivorCompanion.Dialogue.say
+local killIncludedRegisters
+SurvivorCompanion.Dialogue.say = function(candidate, topic, specification, arguments, options)
+    if topic == "combat.kill" then
+        killIncludedRegisters = type(options) == "table" and options.includeRegisters
+    end
+    return originalDialogueSay(candidate, topic, specification, arguments, options)
+end
+local killObserved, killObserveReason = SurvivorCompanion.Combat.observe(
+    barkActor, { snapshot = barkSnapshot })
+SurvivorCompanion.Dialogue.say = originalDialogueSay
 check(killObserved and killObserveReason == "recent_kill_confirmed"
         and barkActor.lastSpeech ~= engageLine
         and SurvivorCompanion.Combat.peek(barkActor).combatBarkAt["combat.kill"] == clock
-        and worldSoundCount == soundsBeforeBarks + 2,
-    "the ordinary AI observer emits one credited kill bark after Senses drops the dead target")
+        and worldSoundCount == soundsBeforeBarks + 2 and killIncludedRegisters == false,
+    "a credited kill keeps its tactical bark but suppresses aftermath registers while another threat is live")
+barkSnapshot.threats[2] = nil
+barkSnapshot.threatCount, barkSnapshot.immediateCount, barkSnapshot.pressure = 1, 1, 1
+remainingBarkZed.dead = true
 
 local struggleZed = zombie(6, -7, { attacking = true, target = barkActor })
 barkSnapshot.threats[1].actor = struggleZed
@@ -12679,6 +12700,90 @@ check(Dialogue.poolSize("traversal.wall.success", fellow, {}) >= 10
 check(Dialogue.poolSize("combat.kill", fellow, {}) >= 22,
     "the high-exposure kill bark has at least twenty shared lines plus voice depth")
 do
+    local registerActor = actor("sc-chat-expansion-registers", 8, 4, {})
+    local function variantDelta(topic, voice, mood)
+        local base = Dialogue.poolSize(topic, registerActor, {}, {
+            voice = voice, mood = "common",
+        })
+        local expanded = Dialogue.poolSize(topic, registerActor, {}, {
+            voice = voice, mood = mood,
+        })
+        return expanded - base
+    end
+    local understatementTopics = {
+        "doing.active", "doing.target", "doing.waiting", "doing.recovering",
+        "doing.failed", "doing.idle", "work.cannot", "work.hammer", "work.plank",
+        "work.nails", "work.saw", "work.screwdriver", "work.blowtorch", "work.pry",
+        "work.busy", "scavenge.loot.excited", "scavenge.loot.disappointed",
+        "scavenge.loot.gross", "traversal.wall.success", "traversal.wall.struggle",
+        "traversal.wall.fail", "farm.plot.start", "farm.sow.start", "farm.water.start",
+        "farm.harvest.start", "farm.harvest.done", "farm.crop.ruined",
+        "farm.crop.diseased", "farm.tool.trouble",
+        "banter.idle.first", "banter.idle.second", "banter.idle.vehicle",
+    }
+    local understatementComplete, understatementMissing = true, nil
+    for _, topic in ipairs(understatementTopics) do
+        if variantDelta(topic, "practical", "steady") < 2 then
+            understatementComplete, understatementMissing = false, topic
+            break
+        end
+    end
+    check(understatementComplete,
+        "every high-exposure work and idle topic has two wired steady understatement lines: "
+            .. tostring(understatementMissing))
+
+    local noirComplete = true
+    for _, topic in ipairs({
+        "ambient.morning", "ambient.dusk", "ambient.rain", "ambient.fog",
+    }) do
+        if variantDelta(topic, "practical", "low") < 2 then noirComplete = false break end
+    end
+    check(noirComplete,
+        "morning, dusk, rain, and fog each expose two low-mood noir observations")
+
+    local civilTopics = { "study.psa", "study.lore", "study.kentucky" }
+    for _, place in ipairs({
+        "police", "prison", "church", "bar", "liquor", "whiskey", "brewery",
+        "school", "library", "gunstore", "pharmacy", "hospital", "morgue",
+        "dentist", "spiffos", "jays", "grocery", "gas", "garage", "firehouse",
+        "army", "theatre", "bowling", "stripclub", "lab", "motel", "laundry",
+        "gym", "music", "books", "zippee",
+    }) do
+        civilTopics[#civilTopics + 1] = "banter.place." .. place
+    end
+    civilTopics[#civilTopics + 1] = "banter.place.police.policeofficer"
+    local civilComplete, civilMissing = true, nil
+    for _, topic in ipairs(civilTopics) do
+        if variantDelta(topic, "practical", "hopeful") < 2 then
+            civilComplete, civilMissing = false, topic
+            break
+        end
+    end
+    check(civilComplete,
+        "study, place, and profession-place pools each expose civil-defense cheer when hopeful: "
+            .. tostring(civilMissing))
+
+    local braveSteady = Dialogue.poolSize("combat.kill", registerActor, {}, {
+        voice = "brave", mood = "steady",
+    })
+    local braveCommon = Dialogue.poolSize("combat.kill", registerActor, {}, {
+        voice = "brave", mood = "common",
+    })
+    local caringSteady = Dialogue.poolSize("combat.kill", registerActor, {}, {
+        voice = "caring", mood = "steady",
+    })
+    local caringCommon = Dialogue.poolSize("combat.kill", registerActor, {}, {
+        voice = "caring", mood = "common",
+    })
+    local suppressed = Dialogue.poolSize("combat.kill", registerActor, {}, {
+        voice = "brave", mood = "steady", includeRegisters = false,
+    })
+    check(braveSteady == braveCommon + 8 and caringSteady == caringCommon
+            and suppressed == braveCommon,
+        "dark jokes require the brave-steady register and disappear from an active-threat selection")
+    Dialogue.reset(registerActor)
+end
+do
     Dialogue.reset()
     local first = actor("sc-party-recent-a", 4, 4, {})
     local second = actor("sc-party-recent-b", 5, 4, {})
@@ -14235,6 +14340,25 @@ do
     end
     check(not offeredSterile,
         "the medicine reserve recognizes supported sterile-bandage alternatives")
+end
+do
+    local originalInventory = residentOne.inventory
+    local priorLimit = rawget(SurvivorCompanion.Config.values,
+        "factionTradeInventoryScanLimit")
+    residentOne.inventory = inventory({
+        item("Base.CatalogScanA", "Item"),
+        item("Base.CatalogScanB", "Item"),
+    })
+    SurvivorCompanion.Config.values.factionTradeInventoryScanLimit = 1
+    local catalog, catalogReason = Trade.catalog("faction-test")
+    if priorLimit == nil then
+        SurvivorCompanion.Config.values.factionTradeInventoryScanLimit = nil
+    else
+        SurvivorCompanion.Config.values.factionTradeInventoryScanLimit = priorLimit
+    end
+    residentOne.inventory = originalInventory
+    check(catalog == nil and catalogReason == "household_reserve_scan_incomplete",
+        "the displayed faction catalog rejects the same incomplete reserve scan as barter")
 end
 do
     local originalInventory = residentOne.inventory

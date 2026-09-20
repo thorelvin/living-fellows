@@ -856,6 +856,8 @@ local STUDY_POOLS = {
         },
         cautious = { "Everything the radio said was wrong. So I assume everything is worse than it looks." },
         practical = { "Nobody outside the zone knows what we know. So we'd better remember it." },
+        hopeful = { "Says here to stay tuned for further updates. I'm all ears.",
+            "'Temporary inconvenience.' Somebody typed that. Somebody approved it." },
     },
     ["study.psa"] = {
         common = {
@@ -877,6 +879,8 @@ local STUDY_POOLS = {
         brave = { "Civil Defense says lock your doors. I say lock and load." },
         cautious = { "Public service announcement: nobody touches anything. That's the whole announcement." },
         stressed = { "This is fine. This is a normal Tuesday. Please remain calm. I am remaining calm." },
+        hopeful = { "Someone laminated this. Laminated it. That's faith, that is.",
+            "'Report to your nearest shelter.' I'd love to. Which one's nearest?" },
     },
     ["study.kentucky"] = {
         common = {
@@ -891,7 +895,9 @@ local STUDY_POOLS = {
             "Y'all wanted the quiet country life. Well. It's real quiet now.",
             "Horse country. The horses are fine, you know. It's just us.",
         },
-        hopeful = { "Kentucky came through floods, fires and tornadoes. It'll still be Kentucky after this." },
+        hopeful = { "Kentucky came through floods, fires and tornadoes. It'll still be Kentucky after this.",
+            "Leaflet says our county is prepared for any emergency. This may be an addendum.",
+            "'Your County Cares.' I think somebody meant it when they printed that." },
     },
     ["study.close"] = {
         common = {

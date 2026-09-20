@@ -204,7 +204,8 @@ local function commitCombatBark(actor, state, cooldownTopic, now)
     emitCombatVoiceSound(actor)
 end
 
-local function emitCombatBark(actor, state, commands, topic, now, survivalCritical)
+local function emitCombatBark(actor, state, commands, topic, now, survivalCritical,
+    speechOptions)
     if commands.combatDoctrine == "stealth" and survivalCritical ~= true then
         return false, "combat_bark_stealth_suppressed"
     end
@@ -234,10 +235,12 @@ local function emitCombatBark(actor, state, commands, topic, now, survivalCritic
     if not SC.Dialogue or type(SC.Dialogue.say) ~= "function" then
         return false, "combat_bark_dialogue_unavailable"
     end
+    speechOptions = type(speechOptions) == "table" and speechOptions or {}
     local spoken = SC.Dialogue.say(actor, topic, nil, nil, {
         state = commands,
         recentLimit = U().config("combatBarkRecentLimit") or 7,
         salt = tostring(now),
+        includeRegisters = speechOptions.includeRegisters,
     })
     if spoken ~= true then return false, "combat_bark_rejected" end
     commitCombatBark(actor, state, cooldownTopic, now)
@@ -411,7 +414,26 @@ local function enterRetreat(actor, state, commands, now, survivalCritical, snaps
         countedCombatTopic("combat.retreat", snapshot), now, survivalCritical)
 end
 
-local function confirmRecentKill(actor, state, commands, now)
+local function safeForAftermathRegister(state, snapshot, killedTarget, now)
+    if type(state.overrun) == "table" and state.overrun.overrun == true then return false end
+    if (tonumber(state.retreatUntil) or -math.huge) > now then return false end
+    if type(snapshot) ~= "table" or type(snapshot.threats) ~= "table" then return false end
+    for index = 1, math.min(#snapshot.threats, 32) do
+        local threat = snapshot.threats[index]
+        local candidate = type(threat) == "table" and threat.actor or nil
+        if candidate ~= nil and candidate ~= killedTarget and not U().isGoneTarget(candidate) then
+            return false
+        end
+    end
+    local playerDanger = type(snapshot.player) == "table"
+        and tonumber(snapshot.player.danger) or 0
+    if playerDanger > 0 then return false end
+    if #snapshot.threats == 0 and ((tonumber(snapshot.immediateCount) or 0) > 0
+        or (tonumber(snapshot.pressure) or 0) > 0) then return false end
+    return true
+end
+
+local function confirmRecentKill(actor, state, commands, now, snapshot)
     local target = state.lastOffensiveTarget
     if target == nil then return false, "no_recent_offense" end
     local attackedAt = tonumber(state.lastOffensiveAt) or -math.huge
@@ -432,7 +454,9 @@ local function confirmRecentKill(actor, state, commands, now)
         if type(state.pushEpisode) == "table" and state.pushEpisode.target == target then
             finishPushEpisode(actor, state, commands, "success", now)
         end
-        emitCombatBark(actor, state, commands, "combat.kill", now, false)
+        emitCombatBark(actor, state, commands, "combat.kill", now, false, {
+            includeRegisters = safeForAftermathRegister(state, snapshot, target, now),
+        })
         if SC.Tales and type(SC.Tales.noteKill) == "function" then
             pcall(SC.Tales.noteKill, actor, target, now)
         end
@@ -483,11 +507,15 @@ end
 -- Native collision evidence is independent of which decision wins next. Consume
 -- it even when a swing lease or a vanished threat prevents Combat.update, then
 -- confirm a kill after the single collision-owned effect has been committed.
-function Combat.observe(actor)
+function Combat.observe(actor, runtime)
     if not U() or not U().isValidActor(actor) then return false, "invalid_actor" end
     local state = consumeCombatEvents(actor, states[actor])
     if type(state) ~= "table" then return false, "no_combat_history" end
-    return confirmRecentKill(actor, state, commandState(actor), U().nowMs())
+    local rootRuntime = type(runtime) == "table" and runtime
+        or (type(U().peekActorState) == "function" and U().peekActorState(actor)) or nil
+    local snapshot = type(rootRuntime) == "table" and type(rootRuntime.senses) == "table"
+        and rootRuntime.senses.current or type(rootRuntime) == "table" and rootRuntime.snapshot or nil
+    return confirmRecentKill(actor, state, commandState(actor), U().nowMs(), snapshot)
 end
 
 local function cohortClaim(target, cohort, now)
@@ -3118,7 +3146,7 @@ function Combat.update(actor, player, runtime)
     local now = utility.nowMs()
     state.cohortKey = combatCohortKey(actor, player)
     resolvePushInjuryOrExpiry(actor, state, commands, now, false)
-    confirmRecentKill(actor, state, commands, now)
+    confirmRecentKill(actor, state, commands, now, snapshot)
     resolvePushInjuryOrExpiry(actor, state, commands, now, true)
     -- Acquire the swing lease before target selection/no-threat cleanup. Killing
     -- the target at impact does not end its recovery animation, and selecting a

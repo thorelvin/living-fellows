@@ -162,6 +162,8 @@ local POOLS = {
             "Stay back a bit. I don't want to catch anyone on the backswing." },
         practical = { "Planks don't grow on trees. Well. They do. Slowly.",
             "Working from the camp side out. Shorter hauls." },
+        steady = { "Tree first. Back pain later.",
+            "Starting on the timber. Weather's holding. Small mercies." },
     },
     ["work.fell.timber"] = {
         common = {
@@ -177,6 +179,8 @@ local POOLS = {
             "One tree. Adding it to the ledger." },
         stressed = { "Timber! God, that was loud." },
         low = { "Stood a hundred years. Gone in an afternoon. Sounds familiar." },
+        steady = { "Down it goes. More or less where intended.",
+            "Tree's down. Nothing else fell with it. Good enough." },
     },
     ["work.fell.tired"] = {
         common = {
@@ -186,6 +190,8 @@ local POOLS = {
         },
         caring = { "Taking a breather. Don't worry about me." },
         practical = { "Resting before I hurt myself. Efficient, not lazy." },
+        steady = { "Brief pause. My arms have submitted a formal request.",
+            "Still upright. Resting before that changes." },
     },
     ["work.tool.broken"] = {
         common = {
@@ -194,6 +200,8 @@ local POOLS = {
             "Broke the %1. Put it on my tab.",
         },
         practical = { "%1 failed. I need a replacement from storage." },
+        steady = { "%1's finished. It chose an inconvenient time.",
+            "The %1 broke. Nothing dramatic, apart from stopping the work." },
     },
     ["work.saw.done"] = {
         common = {
@@ -206,6 +214,8 @@ local POOLS = {
         cautious = { "Stacked and stored. Nothing lying around to trip on." },
         caring = { "These'll keep someone warm or safe. Maybe both." },
         practical = { "Logs converted. Construction stock updated." },
+        steady = { "Planks are done. Almost worth the sawdust.",
+            "More boards for the pile. The system limps onward." },
     },
     ["burial.dig.start"] = {
         common = {

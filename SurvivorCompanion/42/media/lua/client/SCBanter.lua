@@ -399,6 +399,8 @@ local POOLS = {
         cautious = { "Quiet is good. Quiet is fine. I'll keep an eye out." },
         caring = { "You all right? You've gone real quiet on me." },
         practical = { "If we're staying, I could be checking the doors." },
+        steady = { "Another day nobody's going to write down.",
+            "Nothing's on fire. Let's not tempt it." },
     },
     ["banter.idle.second"] = {
         common = {
@@ -407,6 +409,8 @@ local POOLS = {
             "If we're waiting, I'm getting my reps in. In my head.",
             "Knox County's longest staring contest. You're winning.",
         },
+        steady = { "Still waiting. Fine. Not good. Fine.",
+            "Could be worse. I can't think how, but it could." },
     },
     ["banter.idle.vehicle"] = {
         common = {
@@ -415,6 +419,8 @@ local POOLS = {
             "Nice car. Nicer when it moves.",
             "I could walk faster than this. Sitting down.",
         },
+        steady = { "Vehicle remains stationary. Strong performance so far.",
+            "We're still parked. At least the scenery is dependable." },
     },
 }
 
@@ -755,6 +761,74 @@ local PLACE_LINES = {
     },
 }
 
+-- Hopeful companions sometimes read the dead county's institutional optimism
+-- back to the room. These are place-specific so the register stays occasional
+-- without becoming the same two poster jokes in every building.
+local PLACE_HOPEFUL = {
+    police = { "Sign says remain calm and await instructions. I'm doing my part.",
+        "'Your County Cares.' Past tense, I think." },
+    prison = { "Emergency shelter: secure doors, controlled entry. They certainly managed that.",
+        "The notice promises orderly release. We may be a little outside office hours." },
+    church = { "Poster calls this a community refuge. The community seems delayed.",
+        "'Shelter, comfort, fellowship.' Two out of three would be excellent." },
+    bar = { "County morale station. Refreshments subject to availability.",
+        "The sign says drink responsibly. At last, an instruction still in force." },
+    liquor = { "Emergency morale supplies. Somebody planned ahead after all.",
+        "'Please ration purchases.' The county's honor system has seen better days." },
+    whiskey = { "Strategic Kentucky reserve. National morale is apparently in barrels.",
+        "Tour notice says every barrel is part of our future. Optimistic, that." },
+    brewery = { "Poster says quality brings people together. It neglected to specify alive people.",
+        "'Serving the community since 1948.' Service is currently self-directed." },
+    school = { "Civil Defense assembly point. Form one orderly line, children.",
+        "Poster says preparedness starts in the classroom. Class dismissed." },
+    library = { "Public information center. Further updates are in the fiction aisle.",
+        "Says here knowledge is protection. Good. We can carry several books." },
+    gunstore = { "Personal defense guidance: stay calm, check your target, conserve ammunition.",
+        "The safety poster says every weapon has an owner. Applications are open." },
+    pharmacy = { "County health notice: keep three days of medicine. Optimistic, that.",
+        "'Ask your pharmacist.' I'd love to. Office hours appear irregular." },
+    hospital = { "Sign says report symptoms promptly. We are a few weeks behind schedule.",
+        "Poster says the situation is under control. It's dated July." },
+    morgue = { "Public Health says every case will be recorded. They ran out of tags first.",
+        "The form says final disposition pending. We can help with that part." },
+    dentist = { "Emergency notice says routine appointments may be delayed. Fair assessment.",
+        "Poster says a healthy smile builds confidence. The model has all his teeth." },
+    spiffos = { "Approved family feeding station. Mascot remains calm and operational.",
+        "Poster promises a meal and a smile. We may have to supply both." },
+    jays = { "Community hot-meal site. Hot is aspirational, but meal sounds good.",
+        "The sign says every bucket brings folks together. Bring a can opener." },
+    grocery = { "Leaflet here: three days of water per person. Optimistic, that.",
+        "'No need to panic-buy.' Somebody printed that with a straight face." },
+    gas = { "Evacuation route fuel point. Please have exact change and a working nation.",
+        "Sign says check fuel before travel. Clear, practical, several weeks late." },
+    garage = { "Emergency motor pool instructions. Step one: locate an authorized mechanic.",
+        "Poster says preventive maintenance keeps Kentucky moving. We'll do our part." },
+    firehouse = { "County Emergency Services: always ready. They were. That was the trouble.",
+        "The board says help is one call away. Telephone service not included." },
+    army = { "Notice says the situation is contained. Someone laminated this.",
+        "'Cooperate with military authorities.' Awaiting authorities." },
+    theatre = { "Civil Defense information film at seven. Feature presentation postponed.",
+        "The screen promises important public guidance. Concessions sold separately." },
+    bowling = { "County notice says recreation maintains public morale. Roll carefully.",
+        "'League play builds community resilience.' Finally, a plan with lanes." },
+    stripclub = { "Approved recreation venue. Official guidance remains tactfully vague.",
+        "Poster says support local workers. The county really did think of everything." },
+    lab = { "Biohazard notice says trained personnel only. Good news: nobody is checking.",
+        "The placard says the situation is under control. Strong wording for this room." },
+    motel = { "Temporary evacuation lodging. Checkout time has been generously extended.",
+        "Sign says clean rooms and friendly service. One of those may still be true." },
+    laundry = { "Sanitation protects the community. At last, advice we can actually use.",
+        "Poster says cleanliness is everyone's duty. Quarters are everyone's problem." },
+    gym = { "Prepared citizens stay fit. The county would be proud of all this running.",
+        "Civil Defense fitness standard: remain mobile. We are exceeding expectations." },
+    music = { "Morale broadcast equipment. Stay tuned for further updates. I'm all ears.",
+        "Poster says music keeps communities strong. Power supply not pictured." },
+    books = { "Official preparedness guides, revised annually. July interrupted revisions.",
+        "Says here informed citizens make calm citizens. Let's take two." },
+    zippee = { "Designated emergency supply point, open twenty-four hours. Technically true.",
+        "The sign promises fast service in any crisis. Self-service counts." },
+}
+
 local VOICE_KEYS = { "common", "brave", "cautious", "caring", "practical", "stressed" }
 
 local poolsRegistered = false
@@ -765,9 +839,12 @@ local function registerPools()
     for group, entry in pairs(PLACE_LINES) do
         local specification = {}
         for _, key in ipairs(VOICE_KEYS) do specification[key] = entry[key] end
+        specification.hopeful = PLACE_HOPEFUL[group]
         SC.Dialogue.register("banter.place." .. group, specification)
         for profession, lines in pairs(entry.professions or {}) do
-            SC.Dialogue.register("banter.place." .. group .. "." .. profession, { common = lines })
+            SC.Dialogue.register("banter.place." .. group .. "." .. profession, {
+                common = lines, hopeful = PLACE_HOPEFUL[group],
+            })
         end
     end
     poolsRegistered = true

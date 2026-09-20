@@ -476,6 +476,28 @@ do
             and Supervisor.current(reconciledActor) == nil
             and Supervisor.reservationCount(reconciledActor) == 0,
         "a cleanup that committed before throwing is reconciled by postcondition without replay")
+
+    local unverifiedActor = testActor("supervisor-rollback-without-verifier")
+    local unverifiedResource = {}
+    local unverifiedToken = assert(Supervisor.begin(unverifiedActor, {
+        owner = "work", action = "deterministic_cleanup_error", ignoreRetry = true,
+        onCancel = function() error("deterministic cleanup failure") end,
+    }))
+    assert(Supervisor.reserve(unverifiedToken, unverifiedResource, "unverified fixture"))
+    local unverifiedCancelled, unverifiedReason = Supervisor.cancel(
+        unverifiedActor, "fixture_unverified", nil, false)
+    local replacement, replacementReason = Supervisor.begin(unverifiedActor, {
+        owner = "player", action = "replacement_after_failure", ignoreRetry = true,
+    })
+    check(unverifiedCancelled == true and unverifiedReason == "failed"
+            and unverifiedToken.phase == "failed"
+            and unverifiedToken.reason == "rollback_failed"
+            and Supervisor.reservationCount(unverifiedActor) == 0
+            and replacement ~= nil,
+        "a throwing rollback without a verifier fails terminally and frees the actor: "
+            .. tostring(unverifiedCancelled) .. "/" .. tostring(unverifiedReason)
+            .. " replacement=" .. tostring(replacement) .. "/" .. tostring(replacementReason))
+    assert(Supervisor.cancel(unverifiedActor, "fixture_done", nil, true))
 end
 
 local provider = {

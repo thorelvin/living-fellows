@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.25.4 - The weather is holding
+
+- Filled the previously empty `steady` dialogue mood with dry understatement across work reports, scavenging, wall climbing, farming, production, and idle banter. Added low-mood noir observations for weather and time, hopeful civil-defense cheer for corpse study and notable places, and a brave-plus-steady gallows register after confirmed kills. The gallows register is removed while another threat, player danger, or an overrun retreat remains active; tactical kill confirmation still speaks normally.
+- Fixed an action cancellation callback error permanently trapping a companion and its reservations when the owner supplied no rollback verifier. Verified rollback owners retain their bounded recovery path; legacy owners now fail cleanly and release the actor. The faction trade catalog also uses the same complete household-reserve scan as barter, while farming shares one harvest-reconciliation path and one water-source predicate.
+
 ## 0.25.3 - A camp with voices
 
 - Added relationship-earned combat control. Trust and bond now contribute a bounded term only to player-requested Focus attacks. Repeating Focus on the same live zombie within four seconds creates one costly push episode; it spends morale and relationship stress once, cannot override a missing escape or healthy support, rewards a verified pushed kill, and records lost health as an injury outcome instead.

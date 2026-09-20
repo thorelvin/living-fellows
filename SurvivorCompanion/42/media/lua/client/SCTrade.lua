@@ -1724,14 +1724,9 @@ function Trade.catalog(groupId)
     if group.barterUnlocked ~= true then return nil, "barter_locked" end
     local trader = actorForGroup(group)
     if not trader then return nil, "trader_unavailable" end
-    local inventory = actorInventory(trader)
-    local rows = {}
-    local policy = SC.FactionContracts
-        and type(SC.FactionContracts.tradePolicy) == "function"
-        and SC.FactionContracts.tradePolicy(group) or nil
-    collect(inventory, rows, 0, { count = 512 })
+    local reserved, reserveReason, rows = currentFactionReserve(group, trader)
+    if not reserved then return nil, reserveReason end
     local result = {}
-    local reserved = factionReserveItems(group, trader, rows, policy)
     for _, row in ipairs(rows) do
         local category = itemCategory(row.item)
         if reserved[row.item] == nil and not protected(trader, row.item)

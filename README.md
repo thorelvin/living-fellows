@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.20.4-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.25.3-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.25.4-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -169,6 +169,8 @@ Every survivor has a profession, trait, personality, history, keepsake, preferre
 Companions also talk in their own voice. Two idle residents at camp may turn toward one another for a short exchange, and a companion who meets a calm, non-hostile survivor says hello and gives them room to answer. A surrounded companion may yell a deadpan fake distraction at the zombies, one of them cracks a joke when you stand still for a few minutes, and the first walk into a notable place, such as a police station, church, bar, hospital, or gun store, earns a remark. Former police officers, doctors, nurses, and other professions have lines of their own for places like their old workplaces. Conversation is spaced out so it never becomes a chorus, and danger interrupts it.
 
 Combat, danger, and hand-signal lines also remember what nearby companions just said, so a squad does not echo the same shared bark. The high-frequency kill pool is deeper, while stress and joy lines now vary by brave, cautious, caring, practical, and stressed voices. Farmers comment occasionally when preparing ground, sowing, watering, harvesting, treating or losing a crop, or discovering that the tools are unusable; those remarks never gate the work.
+
+Ordinary moods have their own voice now too. Steady companions answer routine work and waiting with dry understatement; low spirits color rain, fog, dawn, and dusk with sparse observations; hopeful survivors read abandoned notices and familiar buildings with obsolete civil-defense confidence. Brave companions may use sharper gallows humor after a confirmed kill, but only once the encounter is genuinely clear—active threats and an overrun retreat strip those jokes from the available lines without suppressing useful tactical speech.
 
 Native stress and panic can also show in what they say. A companion may react to a frightening sound that did not affect you, narrate the onset or recovery of panic, or ask for cigarettes when a smoker's withdrawal rises. Deaf survivors do not react to unheard sounds, combat refusals get first claim on the speech window, and these observations are flavor only: environmental stress never changes the separate relationship stress value or any AI decision.
 

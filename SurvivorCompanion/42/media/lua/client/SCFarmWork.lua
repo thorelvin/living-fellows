@@ -1196,6 +1196,17 @@ local function restoredHarvestSnapshot(actor, target)
     return before
 end
 
+local function reconcileHarvest(actor, job, state, pendingFallback)
+    local snapshot, snapshotReason = restoredHarvestSnapshot(actor, job.target)
+    if not snapshot then return false, snapshotReason, true, false end
+    local collected, collectReason = collectHarvest(actor, job, state, snapshot)
+    if collected == nil then
+        return true, collectReason or pendingFallback, nil, false
+    end
+    if collected ~= true then return false, collectReason, true, false end
+    return true, collectReason, nil, true
+end
+
 local function depositOutputs(actor, baseState, state)
     local output = state.outputs and state.outputs[1] or nil
     if not output then state.outputs = nil return true, "farm_outputs_deposited" end
@@ -1227,23 +1238,22 @@ local function depositOutputs(actor, baseState, state)
     return false, reason
 end
 
+local function hasUsableFluid(object)
+    local amount, amountOk = invoke(object, "getFluidAmount")
+    local has, hasOk = invoke(object, "hasFluid")
+    return (amountOk and (tonumber(amount) or 0) > 0) or (hasOk and has == true)
+end
+
 local function waterSourceObjects(square)
     local result = {}
     U().squareObjects(square, function(object)
-        local amount, amountOk = invoke(object, "getFluidAmount")
-        local has, hasOk = invoke(object, "hasFluid")
-        if (amountOk and (tonumber(amount) or 0) > 0) or (hasOk and has == true) then
-            result[#result + 1] = object
-        end
+        if hasUsableFluid(object) then result[#result + 1] = object end
     end, 64)
     return result
 end
 
 local function waterSourceUsable(object)
-    if not object or not U().squareOf(object) then return false end
-    local amount, amountOk = invoke(object, "getFluidAmount")
-    local has, hasOk = invoke(object, "hasFluid")
-    return amountOk and (tonumber(amount) or 0) > 0 or hasOk and has == true
+    return object ~= nil and U().squareOf(object) ~= nil and hasUsableFluid(object)
 end
 
 local function waterSearchZones(activeZone)
@@ -1476,11 +1486,8 @@ function FarmWork.update(actor, baseState, job, runtime)
         local nightPlant = plantOn(square)
         if target.operation == "harvest" and target.harvestStarted == true
             and (not nightPlant or select(1, invoke(nightPlant, "canHarvest")) ~= true) then
-            local snapshot, snapshotReason = restoredHarvestSnapshot(actor, target)
-            if not snapshot then return false, snapshotReason, true end
-            local collected, collectReason = collectHarvest(actor, job, state, snapshot)
-            if collected == nil then return true, collectReason end
-            if collected ~= true then return false, collectReason, true end
+            local handled, reason, terminal, complete = reconcileHarvest(actor, job, state)
+            if complete ~= true then return handled, reason, terminal end
             state.stage, state.afterReturn = "returning", "complete"
         end
         if state.work then
@@ -1527,11 +1534,9 @@ function FarmWork.update(actor, baseState, job, runtime)
         return handled, reason, terminal
     end
     if state.collectingHarvest then
-        local snapshot, snapshotReason = restoredHarvestSnapshot(actor, target)
-        if not snapshot then return false, snapshotReason, true end
-        local collected, collectReason = collectHarvest(actor, job, state, snapshot)
-        if collected == nil then return true, collectReason or "farm_harvest_collecting" end
-        if collected ~= true then return false, collectReason, true end
+        local handled, reason, terminal, complete = reconcileHarvest(
+            actor, job, state, "farm_harvest_collecting")
+        if complete ~= true then return handled, reason, terminal end
         metrics.harvested = metrics.harvested + 1
         if state.outputs and #state.outputs > 0 then return true, "farm_harvest_collected" end
         state.stage, state.afterReturn = "returning", "complete"
@@ -1558,11 +1563,8 @@ function FarmWork.update(actor, baseState, job, runtime)
     local plant = plantOn(square)
     if target.operation == "harvest" and target.harvestStarted == true
         and (not plant or select(1, invoke(plant, "canHarvest")) ~= true) then
-        local snapshot, snapshotReason = restoredHarvestSnapshot(actor, target)
-        if not snapshot then return false, snapshotReason, true end
-        local collected, collectReason = collectHarvest(actor, job, state, snapshot)
-        if collected == nil then return true, collectReason end
-        if collected ~= true then return false, collectReason, true end
+        local handled, reason, terminal, complete = reconcileHarvest(actor, job, state)
+        if complete ~= true then return handled, reason, terminal end
         if state.outputs and #state.outputs > 0 then return true, "farm_harvest_recovered" end
         state.stage, state.afterReturn = "returning", "complete"
         return true, "farm_harvest_reconciled"
@@ -1582,11 +1584,8 @@ function FarmWork.update(actor, baseState, job, runtime)
             and (tonumber(plant[target.diseaseField]) or 0) <= 0
     if target.operation == "harvest" and select(1, invoke(plant, "canHarvest")) ~= true then
         if target.harvestStarted == true then
-            local snapshot, snapshotReason = restoredHarvestSnapshot(actor, target)
-            if not snapshot then return false, snapshotReason, true end
-            local collected, collectReason = collectHarvest(actor, job, state, snapshot)
-            if collected == nil then return true, collectReason end
-            if collected ~= true then return false, collectReason, true end
+            local handled, reason, terminal, complete = reconcileHarvest(actor, job, state)
+            if complete ~= true then return handled, reason, terminal end
             if state.outputs and #state.outputs > 0 then
                 return true, "farm_harvest_recovered"
             end

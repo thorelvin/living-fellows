@@ -34,6 +34,9 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   lines additionally use a bounded party history only within the configured
   eight-tile hearing radius. Voice and mood variants remain actor-specific, and
   a fallback to actor-local memory guarantees that a small pool cannot starve.
+  Optional register lines intersect the existing voice and mood axes without
+  creating a new personality dimension; combat excludes aftermath registers
+  while another live threat, player danger, or an overrun retreat remains.
 - `SCDowntime` may select unread literature carried by the actor or borrow one
   exact item from nearby marked camp storage, prioritizing the dedicated
   `literature` category before its bounded fallback scan. The storage scan is bounded,

@@ -454,6 +454,16 @@ local function runCancel(token, reason, force, terminalFailure, recoveryAttempt)
                     "action cancellation callback failed", accepted)
             end
             token.cancelling = false
+            -- Retrying rollback is only safe when the owner supplied an
+            -- observable postcondition. Without one, the same deterministic
+            -- callback error can never be verified and would quarantine this
+            -- actor forever. Preserve the original fail-and-release behavior
+            -- for those legacy owners.
+            if type(token.cancelVerified) ~= "function" then
+                return finish(token, "failed", "rollback_failed", {
+                    requestedReason = reason, error = clean(accepted, 160),
+                }, true)
+            end
             obligation = retainRollback(token, reason, terminalFailure, accepted)
             local verified, verifyReason = rollbackVerified(token, obligation)
             if verified then

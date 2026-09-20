@@ -2153,6 +2153,17 @@ do
         check(SC.Dialogue.has(topic) and SC.Dialogue.poolSize(topic, ctx.actor) > 0,
             "dialogue pool registered: " .. topic)
     end
+    for _, topic in ipairs({ "work.fell.start", "work.fell.timber", "work.fell.tired",
+        "work.tool.broken", "work.saw.done" }) do
+        local base = SC.Dialogue.poolSize(topic, ctx.actor, {}, {
+            voice = "practical", mood = "common",
+        })
+        local steady = SC.Dialogue.poolSize(topic, ctx.actor, {}, {
+            voice = "practical", mood = "steady",
+        })
+        check(steady >= base + 2,
+            "production work has two wired steady understatement lines: " .. topic)
+    end
 end
 
 do

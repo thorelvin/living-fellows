@@ -51,6 +51,8 @@ local pools = {
         cautious = { "Morning. Let's check the exits before we settle in.", "Daylight helps. We should use it." },
         caring = { "Good morning. I'm glad you're still here.", "Morning. How are you holding up?" },
         practical = { "Morning. Daylight means we can cover more ground.", "New day. We should review our supplies." },
+        low = { "Morning found us. The empty houses did not notice.",
+            "Daylight on an empty street. It only shows you what is gone." },
     },
     ["ambient.dusk"] = {
         common = {
@@ -64,6 +66,8 @@ local pools = {
         cautious = { "We're losing daylight. I want walls around us soon.", "Dusk. Let's mark the safest route home." },
         caring = { "It is getting dark. I'd rather have everyone inside.", "Dusk is coming. Stay close, all right?" },
         practical = { "Daylight is nearly gone. Shelter should be the next objective.", "Dusk. We should finish up and secure a room." },
+        low = { "The light leaves early now. Nothing asks it to stay.",
+            "Dusk settles over houses that will not turn their lamps on." },
     },
     ["ambient.rain"] = {
         common = {
@@ -77,6 +81,8 @@ local pools = {
         cautious = { "Rain cuts visibility. Slow down around blind corners.", "I don't like what this does to our hearing." },
         caring = { "You're getting soaked. Let's find cover when we can.", "Rain's coming down. Tell me if you get cold." },
         practical = { "Rain will mask sound in both directions.", "Wet roads and poor visibility. We adjust our pace." },
+        low = { "The rain doesn't care who's left to stand in it.",
+            "Grey sky, grey road, grey everything. At least it matches." },
     },
     ["ambient.fog"] = {
         common = {
@@ -90,6 +96,8 @@ local pools = {
         cautious = { "This fog is bad. Short steps, frequent checks.", "Visibility's poor. I want a clear retreat line." },
         caring = { "Stay close in this fog. I don't want to lose sight of you.", "Let me know before you change direction in this." },
         practical = { "Fog has cut our useful sight range. Tight formation.", "Low visibility. We should avoid open-ended searches." },
+        low = { "The fog decides how far the world goes today.",
+            "You can hear how empty it is. Nobody warns you about the quiet." },
     },
     ["danger.zombie"] = {
         common = {
@@ -261,6 +269,8 @@ local pools = {
         hopeful = { "%1! See? The world hasn't taken everything yet.", "Found %1. Maybe our luck finally changed." },
         stressed = { "%1. Good. Good, we needed one win.", "Found %1. Finally, something that isn't trying to kill us." },
         low = { "Found %1. At least this trip gave us something.", "%1. Small victory, but I'll take it." },
+        steady = { "Found %1. Useful. No need to make a ceremony of it.",
+            "%1. That's sorted, then. More or less." },
     },
     ["scavenge.loot.disappointed"] = {
         common = {
@@ -275,6 +285,8 @@ local pools = {
         practical = { "%1. Poor condition, low value.", "Found %1. Technically useful. Technically." },
         stressed = { "%1? Are you kidding me?", "Found %1. Of course that's all there was." },
         low = { "%1. Figures.", "Found %1. I expected nothing and somehow got less." },
+        steady = { "Found %1. Fine. Not good. Fine.",
+            "%1. I've had worse finds. Not many, but some." },
     },
     ["scavenge.loot.gross"] = {
         common = {
@@ -290,6 +302,8 @@ local pools = {
         practical = { "%1. Contaminated-looking, but salvageable.", "Found %1. Hygiene cost: unacceptable." },
         stressed = { "%1—oh God, it squished.", "Found %1. Nope. I hate this. I hate all of this." },
         low = { "%1. Somehow this is exactly the day I deserved.", "Found %1. I miss clean shelves." },
+        steady = { "Found %1. It has been a difficult day for soap.",
+            "%1. Still useful. Best not to discuss the texture." },
     },
     ["traversal.wall.success"] = {
         common = {
@@ -305,6 +319,7 @@ local pools = {
         hopeful = { "Made it! Maybe the road likes us today.", "One more wall behind us." },
         stressed = { "Made it. I am not doing that twice.", "Over. Keep moving before my knees complain." },
         low = { "I'm over. Something worked today.", "Made it. Small miracles." },
+        steady = { "Over. Nothing tore that matters.", "Wall crossed. Could have been less graceful." },
     },
     ["traversal.wall.struggle"] = {
         common = {
@@ -320,6 +335,8 @@ local pools = {
         hopeful = { "Ugly climb, good ending.", "Still made it. That is what matters." },
         stressed = { "*gasps* Stupid fence.", "I am over. My arms have filed a complaint." },
         low = { "Over, somehow.", "The fence almost had me. Almost." },
+        steady = { "That was adequate. The wall may disagree.",
+            "Still upright. That's the whole report." },
     },
     ["traversal.wall.fail"] = {
         common = {
@@ -335,6 +352,7 @@ local pools = {
         hopeful = { "Not this time. There will be another way.", "Fence got this one. We are still moving." },
         stressed = { "Oh, come on! It is a fence!", "*hits the ground* I hate this fence." },
         low = { "Of course the fence won.", "Could not even clear a wall. Great." },
+        steady = { "Well. That happened.", "The wall remains where it was. So do I." },
     },
     ["combat.engage"] = {
         common = {
@@ -793,43 +811,62 @@ local pools = {
         caring = { "It's down. Is everyone all right?", "Clear here. Check yourselves!" },
         practical = { "Confirmed down.", "Target neutralized." },
         stressed = { "Finally! It's down!", "Damn it. Dead at last." },
+        registers = { brave = { steady = {
+            "He's not hungry any more. Silver linings.",
+            "Somebody's neighbor. Probably the loud one.",
+            "I'd apologize, but he opened the conversation.",
+            "That's three. I'm not counting. I'm absolutely counting.",
+            "He went quietly. Eventually.",
+            "Not my best work. Effective, though.",
+            "Down. Whatever he was before, he's simpler now.",
+            "That one had a wedding ring. Hope she got out. Hope she got far.",
+        } } },
     },
     ["work.cannot"] = { common = {
         "I can't do that safely.", "That won't work from here.",
         "I can't complete that as things stand.", "I need a better setup before I try that.",
-    } },
+    }, steady = { "Not safe. Mildly inconvenient, but still not safe.",
+        "That will not work. Nice of it to be clear about it." } },
     ["work.hammer"] = { common = {
         "I need an unbroken hammer.", "Find me a working hammer and I can do it.",
         "I can't start without a usable hammer.", "The hammer is the missing piece here.",
-    } },
+    }, steady = { "No hammer. The wall can wait patiently.",
+        "I need a hammer that is still on speaking terms with its handle." } },
     ["work.plank"] = { common = {
         "I need a plank.", "We're short one plank for this.",
         "Bring me a plank and I can continue.", "No good. I don't have the lumber I need.",
-    } },
+    }, steady = { "One plank short. Could be worse. Usually is.",
+        "No lumber. That's put a firm limit on the carpentry." } },
     ["work.nails"] = { common = {
         "I need two nails.", "We're out of the nails this needs.",
         "Give me a couple of nails and I'll finish it.", "I can't secure this without nails.",
-    } },
+    }, steady = { "Two nails short. The apocalypse remains poorly supplied.",
+        "No nails. Everything else was going almost suspiciously well." } },
     ["work.saw"] = { common = {
         "I need an unbroken saw.", "This needs a working saw.",
         "Find me a usable saw first.", "I can't make the cut with what I have.",
-    } },
+    }, steady = { "No working saw. The log seems pleased.",
+        "I need a saw with teeth. A surprisingly strict requirement." } },
     ["work.screwdriver"] = { common = {
         "I need an unbroken screwdriver.", "This job needs a working screwdriver.",
         "I can't dismantle it without a screwdriver.", "Find me a usable screwdriver first.",
-    } },
+    }, steady = { "No screwdriver. It gets to remain assembled for now.",
+        "I need a working screwdriver. Nothing dramatic. Just essential." } },
     ["work.blowtorch"] = { common = {
         "I need a fueled blowtorch.", "The torch is empty. I can't do this yet.",
         "This needs a working, fueled blowtorch.", "Bring me a torch with fuel and I'll handle it.",
-    } },
+    }, steady = { "Empty torch. Nothing's on fire, at least.",
+        "I need fuel for the torch. Small detail. Quite important." } },
     ["work.pry"] = { common = {
         "I need a tool that can remove barricades.", "I can't pry this loose with my hands.",
         "Find me a proper prying tool.", "I need leverage before that barricade will move.",
-    } },
+    }, steady = { "No leverage. The barricade has won a temporary victory.",
+        "I need a prying tool. My fingers have declined the assignment." } },
     ["work.busy"] = { common = {
         "I need to finish what I'm doing first.", "One thing at a time. I'm still busy.",
         "Give me a moment to finish this.", "I heard you. Let me complete this action first.",
-    } },
+    }, steady = { "One thing at a time. We still have time for that luxury.",
+        "Still busy. That's the whole report." } },
     ["farm.plot.start"] = {
         common = {
             "I'll start on this plot.", "This ground is next.",
@@ -840,6 +877,7 @@ local pools = {
         cautious = { "I'll check the soil before I commit the seed.", "Slow and clean. Bad ground wastes good seed." },
         caring = { "A little work here could feed all of us.", "I'll make room for something living." },
         practical = { "Plot selected. I'll prepare it properly.", "I'll work this patch from the edges in." },
+        steady = { "Ground first. Ambition later.", "I'll turn the soil. It has had worse done to it." },
     },
     ["farm.sow.start"] = {
         common = {
@@ -851,6 +889,8 @@ local pools = {
         cautious = { "Spacing these out. We cannot afford to waste them.", "Careful with the seed. Every one matters." },
         caring = { "Come on, little things. Give us something green.", "I'll give these the best start I can." },
         practical = { "Sowing at a useful spacing.", "Seed count checked. Planting now." },
+        steady = { "Seeds are in. Now we wait and pretend to be patient.",
+            "Planting. Nothing heroic, which is a relief." },
     },
     ["farm.water.start"] = {
         common = {
@@ -862,6 +902,8 @@ local pools = {
         cautious = { "Not too much. Drowned roots are no better than dry ones.", "I'll give them only what the soil needs." },
         caring = { "There you go. Drink up.", "Easy now. I'll get water to every one." },
         practical = { "Water level is low. Correcting it.", "This patch is below its water target." },
+        steady = { "Watering. The plants are the quietest mouths here.",
+            "A drink for the crops. They complain less than we do." },
     },
     ["farm.harvest.start"] = {
         common = {
@@ -873,6 +915,8 @@ local pools = {
         cautious = { "I'll take the ripe ones and leave the rest.", "Careful picking. We need seed as much as food." },
         caring = { "This will put something fresh on everyone's plate.", "Good. Nobody has to go hungry tonight." },
         practical = { "Crop is mature. Collecting usable yield.", "Harvesting now and preserving the seed reserve." },
+        steady = { "It grew. Best not to look surprised.",
+            "Harvest time. Something went according to plan." },
     },
     ["farm.harvest.done"] = {
         common = {
@@ -884,6 +928,8 @@ local pools = {
         cautious = { "Count it before we celebrate.", "Yield is in. Keep the seed separate." },
         caring = { "Fresh food. Everyone gets some.", "This will do people good." },
         practical = { "Harvest complete. Moving output to storage.", "Yield collected and ready to sort." },
+        steady = { "Harvest is in. We can postpone starvation again.",
+            "That's sorted, then. More or less. Mostly more." },
     },
     ["farm.crop.ruined"] = {
         common = {
@@ -899,6 +945,8 @@ local pools = {
         caring = { "I know they are only plants. It still hurts to lose food.", "All that tending, gone. I'll try again." },
         practical = { "Crop loss confirmed. Clearing and replanting.", "Failed plot. Salvage nothing; reset the bed." },
         stressed = { "Damn it. We needed this crop.", "All that work, and now we start over." },
+        steady = { "Crop's gone. The ground remains available for another disappointment.",
+            "Well. That failed. We plant again." },
     },
     ["farm.crop.diseased"] = {
         common = {
@@ -910,6 +958,8 @@ local pools = {
         cautious = { "Keep the treatment to this row until we know it worked.", "I'll check the neighboring plants too." },
         caring = { "Easy. We caught it. Let me help.", "I'll tend every plant that still has a chance." },
         practical = { "Disease identified. Applying the matching treatment.", "Treat first, then check the adjacent plots." },
+        steady = { "The crop is sick. Apparently we needed one more problem.",
+            "Treating the plants. Nobody panic, especially the cabbage." },
     },
     ["farm.tool.trouble"] = {
         common = {
@@ -921,35 +971,43 @@ local pools = {
         cautious = { "A broken tool out here is how hands get hurt.", "I need a sound digging tool, not the first rusty thing we find." },
         caring = { "Someone may have put the tools away. I'll wait.", "Please find a proper tool. I don't want anyone ruining their hands." },
         practical = { "Work blocked: no serviceable digging tool.", "Tool requirement unresolved. The plot has to wait." },
+        steady = { "No working tool. The dirt has earned a short reprieve.",
+            "Farm work paused. Our equipment has other plans." },
     },
     ["doing.active"] = { common = {
         "I'm %1 right now.", "I'm working on %1.",
         "Right now, I'm %1.", "Give me a moment. I'm %1.",
-    } },
+    }, steady = { "I'm %1. Nothing unusual to report.",
+        "Still %1. Could be worse." } },
     ["doing.target"] = { common = {
         "I'm %1 at %2.", "I'm working on %1 near %2.",
         "The current job is %1 at %2.", "I'm handling %1 by %2.",
-    } },
+    }, steady = { "I'm %1 at %2. That's the plan, anyway.",
+        "%1 near %2. Everything's fine enough." } },
     ["doing.waiting"] = { common = {
         "I'm waiting before I can finish %1.", "I'm held up trying to finish %1.",
         "I haven't abandoned it. I'm waiting on %1.", "I need a clear moment to continue %1.",
-    } },
+    }, steady = { "Waiting on %1. It seems committed to taking its time.",
+        "%1 is delayed. Not cancelled. Merely testing character." } },
     ["doing.recovering"] = { common = {
         "That route failed. I'm finding another way to %1.",
         "I'm working around an obstacle so I can finish %1.",
         "The approach is blocked. I'm replanning %1.",
         "I'm still on it. I need a safer route for %1.",
-    } },
+    }, steady = { "Finding another way to %1. The first way had opinions.",
+        "Replanning %1. Nothing's simple, which is at least consistent." } },
     ["doing.failed"] = { common = {
         "I couldn't finish %1. I'll try again in about %2 seconds.",
         "%1 failed. Give me roughly %2 seconds before I try again.",
         "I hit a problem with %1. The next attempt is in about %2 seconds.",
         "That %1 attempt didn't work. I'm waiting %2 seconds before another try.",
-    } },
+    }, steady = { "%1 failed. Give it %2 seconds to reconsider.",
+        "No luck with %1. Trying again in %2 seconds, with modest expectations." } },
     ["doing.idle"] = { common = {
         "Nothing urgent. I'm %1.", "For now, I'm %1.",
         "I'm clear at the moment, so I'm %1.", "No active job. I'm %1.",
-    } },
+    }, steady = { "Nothing urgent. I'm %1. Let's not tempt it.",
+        "For now, I'm %1. An uneventful report is a good report." } },
     ["stress.vent"] = {
         common = {
             "Damn it. I need a minute before I say something worse.",
@@ -1788,7 +1846,7 @@ local function appendUnique(target, source, seen)
     end
 end
 
-local function candidatesFor(specification, voice, mood)
+local function candidatesFor(specification, voice, mood, includeRegisters)
     if type(specification) == "string" then return { specification } end
     if type(specification) ~= "table" then return {} end
     if #specification > 0 then
@@ -1800,6 +1858,16 @@ local function candidatesFor(specification, voice, mood)
     appendUnique(result, specification.common or specification.all, seen)
     appendUnique(result, specification[voice], seen)
     appendUnique(result, specification[mood], seen)
+    -- A register is an intersection of the existing voice and mood axes, not
+    -- a new personality or mood key. This lets a brave, steady survivor use
+    -- gallows humour without making the same corpse jokes available to a
+    -- caring voice in the same mood.
+    if includeRegisters ~= false and type(specification.registers) == "table" then
+        local voiceRegisters = specification.registers[voice]
+        if type(voiceRegisters) == "table" then
+            appendUnique(result, voiceRegisters[mood], seen)
+        end
+    end
     return result
 end
 
@@ -1909,7 +1977,7 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
     local state = commandState(actor, options.state)
     local voice, mood = styleFor(state, options)
     local source = specification or pools[topic]
-    local candidates = candidatesFor(source, voice, mood)
+    local candidates = candidatesFor(source, voice, mood, options.includeRegisters)
     local sharedCommon, commonCount = commonLookup(source)
     if #candidates == 0 then
         if type(options.fallback) ~= "string" or options.fallback == "" then
@@ -2232,9 +2300,10 @@ function Dialogue.reset(actor)
     return true
 end
 
-function Dialogue.poolSize(topic, actor, state)
-    local voice, mood = styleFor(commandState(actor, state), {})
-    return #candidatesFor(pools[topic], voice, mood)
+function Dialogue.poolSize(topic, actor, state, options)
+    options = type(options) == "table" and options or {}
+    local voice, mood = styleFor(commandState(actor, state), options)
+    return #candidatesFor(pools[topic], voice, mood, options.includeRegisters)
 end
 
 function Dialogue.topics()
