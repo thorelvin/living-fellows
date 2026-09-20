@@ -968,6 +968,10 @@ end
 -- square; outside it, guard keeps its post as before.
 local function handleGuard(actor, entry, state, payload)
     local anchor = type(payload) == "table" and (payload.square or payload.target) or nil
+    if anchor ~= nil then
+        anchor = U().loadedSquare(anchor)
+        if anchor == nil then return false, "invalid_guard_post" end
+    end
     if insideActiveBase(anchor or actor) then
         local onDuty, dutyReason = enterBaseDuty(actor, entry, state, "guard", anchor or actor)
         if onDuty then return onDuty, dutyReason end
@@ -1080,6 +1084,40 @@ local function handleFireAtWill(actor, entry, state)
     state.holdFire = false
     markCommand(actor, entry, state)
     return true, "fire_at_will"
+end
+
+local function handleTargetDesignation(actor, entry, state, payload, mode)
+    local target = type(payload) == "table" and (payload.target or payload.actor) or payload
+    if not U().isZombie(target) or U().isGoneTarget(target) then
+        return false, "invalid_target"
+    end
+    if not U().sameFloor(actor, target) then return false, "target_other_floor" end
+    if mode == "focus" and state.holdFire == true then
+        return false, "hold_fire_active"
+    end
+    local maximum = math.max(1, tonumber(U().config("viewPeekMaximumDistance")) or 16)
+    if U().distanceSq(actor, target) > maximum * maximum then
+        return false, "target_too_far"
+    end
+    local issuedAt = U().nowMs()
+    state.targetDesignation = {
+        actor = target,
+        mode = mode,
+        issuedAt = issuedAt,
+        serial = (tonumber(state.commandSerial) or 0) + 1,
+        untilAt = issuedAt
+            + math.max(1000, tonumber(U().config("combatDesignationDurationMs")) or 12000),
+    }
+    markCommand(actor, entry, state)
+    return true, mode == "focus" and "target_designated" or "target_avoided"
+end
+
+local function handleDesignateTarget(actor, entry, state, payload)
+    return handleTargetDesignation(actor, entry, state, payload, "focus")
+end
+
+local function handleAvoidTarget(actor, entry, state, payload)
+    return handleTargetDesignation(actor, entry, state, payload, "avoid")
 end
 
 local function handleHoldFirePolicy(actor, entry, state, payload)
@@ -1400,6 +1438,8 @@ local handlers = {
     set_hold_fire = handleHoldFirePolicy,
     hold_fire = handleHoldFire,
     fire_at_will = handleFireAtWill,
+    designate_target = handleDesignateTarget,
+    avoid_target = handleAvoidTarget,
     move_to = handleMoveTo,
     open_door = function(actor, entry, state, payload, player)
         return handleDoor(actor, entry, state, payload, player, "open_door")

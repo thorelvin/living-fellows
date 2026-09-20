@@ -7,6 +7,8 @@ import zombie.characters.IsoGameCharacter;
 public final class IsoCamera {
     private IsoCamera() {}
 
+    public static final PlayerCamera[] cameras = new PlayerCamera[4];
+
     public static IsoGameCharacter getCameraCharacter() { return null; }
     public static boolean setCameraCharacter(IsoGameCharacter character) { return true; }
 }

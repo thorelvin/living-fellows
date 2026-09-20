@@ -162,7 +162,8 @@ local secondRipe = {
     hasSeeds = false, waterLvl = 80, waterNeeded = 70,
     canHarvest = function() return true end,
 }
-squares["20:20:0"] = square(20, 20, nil)
+local lowerNeed = { state = "plow" }
+squares["20:20:0"] = square(20, 20, lowerNeed)
 squares["21:21:0"] = square(21, 21, secondRipe)
 base.zones = {
     { id = "zone:area", kind = "area", x1 = 0, y1 = 0, x2 = 30, y2 = 30, z = 0 },
@@ -170,8 +171,9 @@ base.zones = {
     { id = "zone:farm-b", kind = "farm", x1 = 21, y1 = 21, x2 = 21, y2 = 21, z = 0 },
 }
 queued, job = FarmWork.audit(base)
-check(queued == true and job.target.zoneId == "zone:farm-b",
-    "bounded scans rotate fairly across multiple farm zones")
+check(queued == true and job.target.zoneId == "zone:farm-b"
+    and job.target.operation == "harvest",
+    "multiple farm zones are scanned fairly and the highest-need operation wins")
 
 Perks.Farming = { name = "Farming" }
 local skilled = { getPerkLevel = function() return 4 end }

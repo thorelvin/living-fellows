@@ -1201,6 +1201,50 @@ local function inspectTree(square, x, y, z)
     return { key = "tree:" .. pointKey(x, y, z), x = x, y = y, z = z, tree = tree }
 end
 
+local function standingTreeCount(zone)
+    local count = 0
+    for y = zone.y1, zone.y2 do
+        for x = zone.x1, zone.x2 do
+            local square = U().gridSquare(x, y, zone.z)
+            if square and inspectTree(square, x, y, zone.z) then count = count + 1 end
+        end
+    end
+    return count
+end
+
+-- A new logging order chooses from all Lumber areas without making the player
+-- micromanage an area selector.  Visible standing trees are supply; unfinished
+-- tree counts on existing orders are commitments.  The stable id tie-break is
+-- deliberate so the same world state produces the same choice after reload.
+function Production.selectProductionZone(operation, zones, orders)
+    if operation ~= "fell_trees" then return nil end
+    local commitments = {}
+    for _, order in ipairs(type(orders) == "table" and orders or {}) do
+        if order.operation == "fell_trees"
+            and order.state ~= "completed" and order.state ~= "cancelled" then
+            commitments[order.zoneId] = (commitments[order.zoneId] or 0)
+                + math.max(0, (tonumber(order.requested) or 0)
+                    - (tonumber(order.completed) or 0))
+        end
+    end
+    local best, bestAvailable, bestCommitment, bestTrees
+    for _, zone in ipairs(type(zones) == "table" and zones or {}) do
+        local trees = standingTreeCount(zone)
+        local commitment = commitments[zone.id] or 0
+        local available = trees - commitment
+        if best == nil or available > bestAvailable
+            or (available == bestAvailable and commitment < bestCommitment)
+            or (available == bestAvailable and commitment == bestCommitment
+                and trees > bestTrees)
+            or (available == bestAvailable and commitment == bestCommitment
+                and trees == bestTrees and tostring(zone.id) < tostring(best.id)) then
+            best, bestAvailable, bestCommitment, bestTrees =
+                zone, available, commitment, trees
+        end
+    end
+    return best
+end
+
 local function pollChop(actor, order, state, context)
     local work = state.work
     local current = now()

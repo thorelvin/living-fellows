@@ -146,6 +146,28 @@ try {
     try {
         Add-ScJvmStep 'core' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $coreFiles 'Core Kahlua integration harness failed.'
 
+        $viewControlFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Client 'SCViewControl.lua'),
+            (Join-Path $TestRoot 'view_control_harness.lua')
+        )
+        Add-ScJvmStep 'view-control' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $viewControlFiles 'Companion Peek camera-control harness failed.'
+
+        $steeringFiles = @(
+            (Join-Path $TestRoot 'core_fixture.lua'),
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $Shared 'SCDiagnostics.lua'),
+            (Join-Path $Client 'SCActionSupervisor.lua'),
+            (Join-Path $Client 'SCSteering.lua'),
+            (Join-Path $TestRoot 'steering_harness.lua')
+        )
+        Add-ScJvmStep 'steering' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $steeringFiles 'Supervised companion cursor-steering harness failed.'
+
         $combatRecoveryFiles = @($coreFiles | Select-Object -SkipLast 2)
         $combatRecoveryFiles += Join-Path $TestRoot 'combat_recovery_harness.lua'
         Add-ScJvmStep 'combat-recovery' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $combatRecoveryFiles 'Native combat recovery/spacing regression harness failed.'

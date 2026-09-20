@@ -30,6 +30,12 @@ UI.DEFAULT_HOTKEY = Keyboard.KEY_HOME
 -- Shows or hides the base layout overlay: zone tints and registered storage.
 UI.LAYOUT_HOTKEY_ACTION = "Toggle Living Fellows base layout"
 UI.DEFAULT_LAYOUT_HOTKEY = Keyboard.KEY_END
+-- Hold rather than toggle: the local player remains active and vulnerable
+-- while the camera borrows the selected companion's position.
+UI.PEEK_HOTKEY_ACTION = "Hold to peek through selected companion"
+UI.DEFAULT_PEEK_HOTKEY = Keyboard.KEY_LBRACKET
+UI.STEER_HOTKEY_ACTION = "Hold to steer selected companion"
+UI.DEFAULT_STEER_HOTKEY = Keyboard.KEY_RBRACKET
 UI.MENU_OPEN_SOUND = "UIVehicleMenuOpen"
 UI.MENU_CLOSE_SOUND = "UIVehicleMenuClose"
 UI.instance = UI.instance or nil
@@ -39,11 +45,14 @@ UI._gameStarted = UI._gameStarted or false
 
 local function registerHotkey()
     if type(keyBinding) ~= "table" then return false end
-    local categoryFound, panelFound, layoutFound = false, false, false
+    local categoryFound, panelFound, layoutFound, peekFound, steerFound =
+        false, false, false, false, false
     for _, binding in ipairs(keyBinding) do
         if binding.value == "[Living Fellows]" then categoryFound = true end
         if binding.value == UI.HOTKEY_ACTION then panelFound = true end
         if binding.value == UI.LAYOUT_HOTKEY_ACTION then layoutFound = true end
+        if binding.value == UI.PEEK_HOTKEY_ACTION then peekFound = true end
+        if binding.value == UI.STEER_HOTKEY_ACTION then steerFound = true end
     end
     if not categoryFound then
         table.insert(keyBinding, { value = "[Living Fellows]" })
@@ -58,6 +67,18 @@ local function registerHotkey()
         table.insert(keyBinding, {
             value = UI.LAYOUT_HOTKEY_ACTION,
             key = UI.DEFAULT_LAYOUT_HOTKEY,
+        })
+    end
+    if not peekFound then
+        table.insert(keyBinding, {
+            value = UI.PEEK_HOTKEY_ACTION,
+            key = UI.DEFAULT_PEEK_HOTKEY,
+        })
+    end
+    if not steerFound then
+        table.insert(keyBinding, {
+            value = UI.STEER_HOTKEY_ACTION,
+            key = UI.DEFAULT_STEER_HOTKEY,
         })
     end
     return true
@@ -375,6 +396,41 @@ function UI.hotkeyName()
         if ok and name and name ~= "" then return tostring(name) end
     end
     return "Home"
+end
+
+function UI.peekHotkey()
+    local key = UI.DEFAULT_PEEK_HOTKEY
+    local core = getCore and getCore() or nil
+    local configured = core and safeMethod(core, "getKey", UI.PEEK_HOTKEY_ACTION) or nil
+    if tonumber(configured) and tonumber(configured) > 0 then key = tonumber(configured) end
+    return key
+end
+
+function UI.steerHotkey()
+    local key = UI.DEFAULT_STEER_HOTKEY
+    local core = getCore and getCore() or nil
+    local configured = core and safeMethod(core, "getKey", UI.STEER_HOTKEY_ACTION) or nil
+    if tonumber(configured) and tonumber(configured) > 0 then key = tonumber(configured) end
+    return key
+end
+
+-- The roster row is refreshed from the live registry and deliberately remains
+-- available while the panel is collapsed, so Peek does not require an open UI.
+function UI.selectedActor()
+    local row = UI.instance and UI.instance.selectedRow or nil
+    return row and row.actor or nil
+end
+
+-- Mouse control can change the selected companion without opening the panel.
+-- Refreshing the live roster also validates that the requested id still exists.
+function UI.selectCompanion(companionId)
+    if type(companionId) ~= "string" or companionId == "" then
+        return false, "invalid_companion"
+    end
+    local root = UI.ensureControl()
+    root:refreshRoster(companionId, nil, true)
+    if root.selectedId ~= companionId then return false, "companion_unavailable" end
+    return true, root.selectedRow
 end
 
 local function screenSize()
@@ -2590,6 +2646,7 @@ function SCUIDetail:buildProductionSection(panel, y, base, row)
     local operation = productionDraft.operation
     local schemas = SC.BaseLife and SC.BaseLife.PRODUCTION_OPERATIONS or {}
     local schema = schemas[operation] or {}
+    local automaticZone = operation == "fell_trees"
     local zoneKind = operation == "collect_bodies"
         and productionDraft.disposal or PRODUCTION_ZONE_KIND[operation]
     local zones, sources, destinations, zoneKinds = {}, {}, {}, {}
@@ -2608,7 +2665,8 @@ function SCUIDetail:buildProductionSection(panel, y, base, row)
         if storage.withdrawals ~= false then sources[#sources + 1] = option end
         if storage.deposits ~= false then destinations[#destinations + 1] = option end
     end
-    if zoneKind and not productionOptionExists(zones, productionDraft.zoneId) then
+    if zoneKind and not automaticZone
+        and not productionOptionExists(zones, productionDraft.zoneId) then
         productionDraft.zoneId = zones[1] and zones[1].id or nil
     end
     if not productionOptionExists(sources, productionDraft.sourceStorageId) then
@@ -2652,7 +2710,7 @@ function SCUIDetail:buildProductionSection(panel, y, base, row)
     if missing then
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message", missing)
     else
-        if zoneKind then
+        if zoneKind and not automaticZone then
             y = self:addProductionDraftSelector(panel, y, "UI_SC_Base_ProductionZoneSelector",
                 "zoneId", productionDraft.zoneId, zones)
         end
@@ -2706,7 +2764,7 @@ function SCUIDetail:buildProductionSection(panel, y, base, row)
             UI.text("UI_SC_Base_ProductionStart", label, productionDraft.requested),
             "start_production", {
                 operation = operation, requested = productionDraft.requested,
-                zoneId = zoneKind and productionDraft.zoneId or nil,
+                zoneId = zoneKind and not automaticZone and productionDraft.zoneId or nil,
                 sourceStorageId = schema.source == true and productionDraft.sourceStorageId or nil,
                 destinationStorageId = needsDestination
                     and productionDraft.destinationStorageId or nil,

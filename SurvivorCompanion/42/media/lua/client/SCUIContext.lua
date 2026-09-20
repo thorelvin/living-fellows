@@ -54,6 +54,12 @@ local function executeFromContext(companionId, command, payload, player)
             elseif type(SC.UI.open) == "function" then
                 SC.UI.open("status", companionId)
             end
+        elseif (command == "designate_target" or command == "avoid_target") and player then
+            safeMethod(player, "setHaloNote", ok and first == true
+                and text(command == "designate_target"
+                    and "UI_SC_Target_Designated" or "UI_SC_Target_Avoided")
+                or text("UI_SC_Target_Rejected", tostring(second or first or "unavailable")))
+            if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
         elseif SC.UI and type(SC.UI.refresh) == "function" then
             SC.UI.refresh()
         end
@@ -100,6 +106,31 @@ local function issueSignalFromContext(target, signal, player)
             or text("UI_SC_CommandRejectedDetail", tostring(reason or signal)))
     end
     if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+end
+
+local function watchFromContext(target, row, player)
+    if type(row) ~= "table" or row.actor == nil or not SC.ViewControl then return end
+    local selected, selectReason = true, nil
+    if SC.UI and type(SC.UI.selectCompanion) == "function" then
+        selected, selectReason = SC.UI.selectCompanion(row.id)
+    end
+    local watched, reason = false, selectReason
+    if selected ~= false and type(SC.ViewControl.watch) == "function" then
+        watched, reason = SC.ViewControl.watch(row.id, row.actor)
+    end
+    if player then
+        safeMethod(player, "setHaloNote", watched == true
+            and text("UI_SC_Watch_Started", row.name)
+            or text("UI_SC_Watch_Failed", tostring(reason or "unavailable")))
+    end
+end
+
+local function stopWatchingFromContext(target, player)
+    if not SC.ViewControl or type(SC.ViewControl.stopWatching) ~= "function" then return end
+    local stopped = SC.ViewControl.stopWatching()
+    if stopped and player then
+        safeMethod(player, "setHaloNote", text("UI_SC_Watch_Stopped"))
+    end
 end
 
 local function addCommand(menu, labelKey, id, command, payload, player)
@@ -361,6 +392,7 @@ local function findTarget(worldObjects, player)
     local removeBarricadeTarget = nil
     local dismantleTarget = nil
     local containerTarget = nil
+    local combatTarget = nil
     for _, object in ipairs(worldObjects or {}) do
         if not targetSquare then
             targetSquare = safeMethod(object, "getSquare")
@@ -392,6 +424,14 @@ local function findTarget(worldObjects, player)
         if not containerTarget and safeMethod(object, "getContainer") ~= nil
             and safeMethod(object, "getObjectIndex") ~= nil then
             containerTarget = object
+        end
+        if not combatTarget then
+            local zombie = SC.GameplayUtil and type(SC.GameplayUtil.isZombie) == "function"
+                and SC.GameplayUtil.isZombie(object)
+                or (instanceof and instanceof(object, "IsoZombie"))
+            local gone = SC.GameplayUtil and type(SC.GameplayUtil.isGoneTarget) == "function"
+                and SC.GameplayUtil.isGoneTarget(object) or false
+            if zombie == true and gone ~= true then combatTarget = object end
         end
     end
     local targetPayload = squarePayload(targetSquare)
@@ -433,7 +473,7 @@ local function findTarget(worldObjects, player)
     end
     return targetSquare, door, targetPayload, doorPayload, barricadeTarget,
         barricadePayload, containerTarget, removeBarricadeTarget,
-        removeBarricadePayload, dismantleTarget, dismantlePayload
+        removeBarricadePayload, dismantleTarget, dismantlePayload, combatTarget
 end
 
 local function baseAction(target, action, payload, player)
@@ -675,9 +715,11 @@ end
 
 local function addWorldOrders(menu, row, targetSquare, targetPayload, door, doorPayload,
         barricadeTarget, barricadePayload, removeBarricadeTarget,
-        removeBarricadePayload, dismantleTarget, dismantlePayload, player)
+        removeBarricadePayload, dismantleTarget, dismantlePayload, combatTarget, player)
     if targetPayload then
         addCommand(menu, "UI_SC_Action_MoveHere", row.id, "move_to", targetPayload, player)
+        addCommand(menu, "UI_SC_Action_GuardHere", row.id, "guard",
+            { target = targetPayload }, player)
     end
     if targetPayload and targetSquare and safeMethod(targetSquare, "getRoom") ~= nil then
         addCommand(menu, "UI_SC_Action_CheckRoom", row.id, "check_room", targetPayload, player)
@@ -697,6 +739,39 @@ local function addWorldOrders(menu, row, targetSquare, targetPayload, door, door
         addCommand(menu, "UI_SC_Action_RemoveBarricade", row.id, "remove_barricade", removeBarricadePayload, player)
     elseif dismantleTarget and dismantlePayload then
         addCommand(menu, "UI_SC_Action_Dismantle", row.id, "dismantle", dismantlePayload, player)
+    end
+    if combatTarget then
+        addCommand(menu, "UI_SC_Action_DesignateTarget", row.id, "designate_target",
+            { target = combatTarget }, player)
+        addCommand(menu, "UI_SC_Action_AvoidTarget", row.id, "avoid_target",
+            { target = combatTarget }, player)
+    end
+end
+
+local function clickedCompanionRow(rows, worldObjects, clickSquare)
+    for _, row in ipairs(rows or {}) do
+        for _, object in ipairs(worldObjects or {}) do
+            if row.actor == object then return row end
+        end
+    end
+    if clickSquare then
+        for _, row in ipairs(rows or {}) do
+            if safeMethod(row.actor, "getSquare") == clickSquare then return row end
+        end
+    end
+    return nil
+end
+
+local function addWatchControl(menu, row, player)
+    local status = SC.ViewControl and type(SC.ViewControl.status) == "function"
+        and SC.ViewControl.status() or {}
+    if status.watching == true
+        and (status.watchId == row.id or status.watchActor == row.actor) then
+        menu:addOption(text("UI_SC_Action_StopWatching"), nil,
+            stopWatchingFromContext, player)
+    else
+        menu:addOption(text("UI_SC_Action_Watch", row.name), nil,
+            watchFromContext, row, player)
     end
 end
 
@@ -812,12 +887,30 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     end
     local square, door, targetPayload, doorPayload, barricadeTarget, barricadePayload,
         containerTarget, removeBarricadeTarget, removeBarricadePayload,
-        dismantleTarget, dismantlePayload = findTarget(worldObjects, player)
+        dismantleTarget, dismantlePayload, combatTarget = findTarget(worldObjects, player)
     local clickSquare = clickedWorldSquare(playerIndex, context, player, square)
+    if clickSquare then
+        square = clickSquare
+        targetPayload = squarePayload(clickSquare) or targetPayload
+        if combatTarget == nil and SC.GameplayUtil
+            and type(SC.GameplayUtil.squareMovingObjects) == "function" then
+            SC.GameplayUtil.squareMovingObjects(clickSquare, function(value)
+                if SC.GameplayUtil.isZombie(value)
+                    and not SC.GameplayUtil.isGoneTarget(value) then
+                    combatTarget = value
+                    return false
+                end
+            end, 16)
+        end
+    end
     local rows = nearbyRows(player)
+    local clickedCompanion = clickedCompanionRow(rows, worldObjects, clickSquare)
     local factions = talkableFactions(player)
     local baseRelevant = baseMenuRelevant(clickSquare)
-    if #rows == 0 and #factions == 0 and not baseRelevant then return end
+    local watchStatus = SC.ViewControl and type(SC.ViewControl.status) == "function"
+        and SC.ViewControl.status() or {}
+    if #rows == 0 and #factions == 0 and not baseRelevant
+        and watchStatus.watching ~= true then return end
     if test and ISWorldObjectContextMenu and ISWorldObjectContextMenu.setTest then
         return ISWorldObjectContextMenu.setTest()
     end
@@ -828,6 +921,14 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         SC.BaseLife.lockZoneEndpoint(clickSquare)
     end
     local selected = selectedNearbyRow(rows)
+    if watchStatus.watching == true then
+        context:addOption(text("UI_SC_Action_StopWatchingNamed",
+            companionName(watchStatus.watchId or "")), nil,
+            stopWatchingFromContext, player)
+    elseif clickedCompanion then
+        context:addOption(text("UI_SC_Action_Watch", clickedCompanion.name), nil,
+            watchFromContext, clickedCompanion, player)
+    end
     if selected and targetPayload then
         addNamedShortcut(context, selected, "UI_SC_Action_MoveHere",
             "move_to", targetPayload, player)
@@ -843,12 +944,13 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     if selected and selected.recruited == true then
         local selectedMenu = addNamedCategory(rootMenu,
             "UI_SC_Context_SelectedCompanion", selected.name)
+        addWatchControl(selectedMenu, selected, player)
         addDirectOrders(selectedMenu, selected, player)
         addConversation(addCategory(selectedMenu, "UI_SC_Context_Talk"), selected, player)
         local targetMenu = addCategory(selectedMenu, "UI_SC_Context_TargetActions")
         addWorldOrders(targetMenu, selected, square, targetPayload, door, doorPayload,
             barricadeTarget, barricadePayload, removeBarricadeTarget,
-            removeBarricadePayload, dismantleTarget, dismantlePayload, player)
+            removeBarricadePayload, dismantleTarget, dismantlePayload, combatTarget, player)
         addCompanionCare(addCategory(selectedMenu, "UI_SC_Context_Care"), selected, player)
         addCommand(selectedMenu, "UI_SC_Action_Dismiss", selected.id,
             "dismiss", nil, player)
@@ -866,6 +968,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             local companionOption = otherMenu:addOption(row.name, nil, nil)
             local companionMenu = ISContextMenu:getNew(otherMenu)
             otherMenu:addSubMenu(companionOption, companionMenu)
+            addWatchControl(companionMenu, row, player)
             addDirectOrders(companionMenu, row, player)
             addConversation(addCategory(companionMenu, "UI_SC_Context_Talk"), row, player)
             addCompanionCare(addCategory(companionMenu, "UI_SC_Context_Care"), row, player)

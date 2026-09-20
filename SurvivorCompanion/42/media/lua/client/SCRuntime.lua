@@ -1048,6 +1048,15 @@ local function productionTick(current)
     if SC.ZombieAttack and type(SC.ZombieAttack.sustainPulse) == "function" then
         pcall(SC.ZombieAttack.sustainPulse, now)
     end
+    -- Peek is direct player input and must remain frame-smooth even when the AI
+    -- scheduler yields under load. It only polls one key and writes one bounded
+    -- camera offset while active or returning to the player.
+    if SC.ViewControl and type(SC.ViewControl.update) == "function" then
+        pcall(SC.ViewControl.update)
+    end
+    if SC.Steering and type(SC.Steering.update) == "function" then
+        pcall(SC.Steering.update)
+    end
     SC.Scheduler.tick()
 end
 runtime._productionTickForTests = productionTick
@@ -1475,6 +1484,8 @@ function runtime.reset(detach)
     resetModule("faction contracts", SC.FactionContracts, "reset")
     resetModule("decision", SC.Decision, "resetAll")
     resetModule("ui", SC.UI, "reset")
+    resetModule("view control", SC.ViewControl, "reset")
+    resetModule("steering", SC.Steering, "reset")
     resetModule("base work", SC.BaseWork, "reset")
     resetModule("base life", SC.BaseLife, "reset")
     resetModule("infection crisis", SC.InfectionCrisis, "reset")

@@ -3,6 +3,6 @@ Created-By: Living Fellows reproducible Java 17 build
 Main-Class: survivorcompanion.bridge.SCLauncher
 Implementation-Title: SurvivorCompanion Native Bridge
 Implementation-Version: 0.22.22
-SC-Bridge-Protocol: 42.20-isocompanion-8
+SC-Bridge-Protocol: 42.20-isocompanion-9
 SC-Supported-Game-Version: 42.20
 SC-Compiled-Game-Version: 42.20.4

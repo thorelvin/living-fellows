@@ -481,6 +481,33 @@ do
 end
 
 do
+    local ctx = setup({ workers = 2 })
+    check(SC.BaseLife.beginZone("lumber", sq(5, 2)) == true,
+        "a second lumber zone can begin")
+    local finished, second = SC.BaseLife.finishZone(sq(7, 3), "lumber")
+    check(finished == true and second.id ~= ctx.lumber.id,
+        "a base keeps multiple lumber zones")
+    makeTree(sq(2, 2), 20)
+    makeTree(sq(5, 2), 20)
+    makeTree(sq(6, 2), 20)
+    makeTree(sq(7, 2), 20)
+
+    local first = start(ctx, {
+        operation = "fell_trees", requested = 2, settings = { haulLogs = false },
+    })
+    check(first.zoneId == second.id,
+        "automatic logging picks the zone with the most uncommitted standing trees")
+
+    local secondWorkerId = ctx.actors[2].modData.SC_Id
+    local created, nextOrder = SC.BaseLife.createProductionOrder({
+        operation = "fell_trees", requested = 1, workers = { secondWorkerId },
+        settings = { haulLogs = false },
+    })
+    check(created == true and nextOrder.zoneId == ctx.lumber.id,
+        "automatic logging balances equal remaining supply by existing commitments")
+end
+
+do
     local ctx = setup()
     local order = start(ctx, {
         operation = "dig_graves", zoneId = ctx.burial.id, requested = 2,

@@ -39,10 +39,12 @@ import zombie.inventory.types.Food;
 import zombie.inventory.types.HandWeapon;
 import zombie.inventory.types.Key;
 import zombie.iso.IsoCell;
+import zombie.iso.IsoCamera;
 import zombie.iso.IsoDirections;
 import zombie.iso.IsoGridSquare;
 import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
+import zombie.iso.PlayerCamera;
 import zombie.iso.objects.IsoDoor;
 import zombie.iso.objects.IsoThumpable;
 import zombie.iso.objects.IsoWindow;
@@ -52,7 +54,7 @@ import zombie.network.GameServer;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.20-isocompanion-8";
+    public static final String PROTOCOL = "42.20-isocompanion-9";
     public static final int ITEM_FACT_FOOD = 1;
     public static final int ITEM_FACT_DRAINABLE = 1 << 1;
     public static final int ITEM_FACT_HAND_WEAPON = 1 << 2;
@@ -71,6 +73,7 @@ public final class SCBridge {
     private static final int MAX_NAME_LENGTH = 48;
     private static final int MAX_OUTFIT_LENGTH = 96;
     private static final int MAX_SPAWN_REQUESTS = 8;
+    private static final float MAX_VIEW_OFFSET = 16.0f;
     private static final long INVALID_SPAWN_REQUEST = -1L;
     private static final Set<SCNativeCompanion> OWNED = Collections.newSetFromMap(
             new IdentityHashMap<>());
@@ -247,6 +250,53 @@ public final class SCBridge {
 
     public static long getBootstrapGeneration() {
         return SCBootstrap.getGeneration();
+    }
+
+    /**
+     * Moves only the local view centre in world-tile coordinates. This does not
+     * replace the camera character, publish a companion in a local-player slot,
+     * or touch PlayerCamera's independent right-click aim offset.
+     */
+    public static boolean setViewOffset(float dx, float dy) {
+        lastFailure = "";
+        if (!onGameThread()) {
+            return failBoolean("setViewOffset requires the game thread");
+        }
+        if (!Float.isFinite(dx) || !Float.isFinite(dy)) {
+            return failBoolean("view offset must be finite");
+        }
+        try {
+            PlayerCamera camera = IsoCamera.cameras[0];
+            if (camera == null) return failBoolean("player camera is unavailable");
+            double length = Math.hypot(dx, dy);
+            if (length > MAX_VIEW_OFFSET) {
+                float scale = (float) (MAX_VIEW_OFFSET / length);
+                dx *= scale;
+                dy *= scale;
+            }
+            camera.deferedX = dx;
+            camera.deferedY = dy;
+            return true;
+        } catch (RuntimeException | LinkageError failure) {
+            return failBoolean("view offset failed" + messageSuffix(failure.getMessage()));
+        }
+    }
+
+    /** Restores the ordinary player-centred view without touching aim lean. */
+    public static boolean clearViewOffset() {
+        lastFailure = "";
+        if (!onGameThread()) {
+            return failBoolean("clearViewOffset requires the game thread");
+        }
+        try {
+            PlayerCamera camera = IsoCamera.cameras[0];
+            if (camera == null) return failBoolean("player camera is unavailable");
+            camera.deferedX = 0.0f;
+            camera.deferedY = 0.0f;
+            return true;
+        } catch (RuntimeException | LinkageError failure) {
+            return failBoolean("view offset clear failed" + messageSuffix(failure.getMessage()));
+        }
     }
 
     private static boolean onGameThread() {

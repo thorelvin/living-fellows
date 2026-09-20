@@ -61,6 +61,7 @@ public final class SCNativeApiSignatureTest {
         Class<?> bridge = Class.forName("survivorcompanion.bridge.SCBridge");
         Class<?> square = Class.forName("zombie.iso.IsoGridSquare");
         Class<?> camera = Class.forName("zombie.iso.IsoCamera");
+        Class<?> playerCamera = Class.forName("zombie.iso.PlayerCamera");
         Class<?> gameCharacter = Class.forName("zombie.characters.IsoGameCharacter");
         Class<?> mainThread = Class.forName("zombie.MainThread");
         Class<?> luaEventManager = Class.forName("zombie.Lua.LuaEventManager");
@@ -108,8 +109,21 @@ public final class SCNativeApiSignatureTest {
                         && bridge.getDeclaredMethod("fillZombieSnapshot", kahluaTable,
                                 int.class).getReturnType() == int.class
                         && bridge.getDeclaredMethod("getBootstrapGeneration")
-                                .getReturnType() == long.class,
-                "protocol-8 native bulk-read signatures changed");
+                                .getReturnType() == long.class
+                        && bridge.getDeclaredMethod("setViewOffset", float.class, float.class)
+                                .getReturnType() == boolean.class
+                        && bridge.getDeclaredMethod("clearViewOffset")
+                                .getReturnType() == boolean.class,
+                "protocol-9 native bulk-read/view signatures changed");
+        require(camera.getField("cameras").getType().isArray()
+                        && camera.getField("cameras").getType().getComponentType() == playerCamera
+                        && playerCamera.getField("deferedX").getType() == float.class
+                        && playerCamera.getField("deferedY").getType() == float.class
+                        && playerCamera.getField("rightClickX").getType() == float.class
+                        && playerCamera.getField("rightClickY").getType() == float.class
+                        && method(playerCamera, "getOffX").getReturnType() == float.class
+                        && method(playerCamera, "getOffY").getReturnType() == float.class,
+                "protocol-9 camera offset composition surface changed");
         require(method(kahluaTable, "rawset", Object.class, Object.class)
                                 .getReturnType() == void.class
                         && method(kahluaTable, "rawset", int.class, Object.class)
@@ -811,6 +825,7 @@ public final class SCNativeApiSignatureTest {
                 + " readable-speech=true"
                 + " reflection-contract=true cleanup-retry=true"
                 + " reaction-states=" + reactionStates.length + " movement-owner=true"
-                + " attack-continuation=true outgoing-receipts=true door-guard=true swing-sound=true aim-steadying=true");
+                 + " attack-continuation=true outgoing-receipts=true door-guard=true swing-sound=true aim-steadying=true"
+                 + " camera-offset=true");
     }
 }

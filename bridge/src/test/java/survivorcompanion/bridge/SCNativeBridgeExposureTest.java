@@ -3,6 +3,7 @@ package survivorcompanion.bridge;
 
 import java.lang.reflect.Method;
 import java.lang.reflect.Field;
+import java.lang.reflect.Array;
 
 /** Verifies the production bootstrap against the real Project Zomboid Kahlua runtime. */
 public final class SCNativeBridgeExposureTest {
@@ -79,6 +80,7 @@ public final class SCNativeBridgeExposureTest {
                 + "assert(AttackType.MELEE_SWING ~= nil, 'AttackType.MELEE_SWING is unavailable')\n"
                 + "SC_TEST_PROTOCOL = SCBridge.getProtocol()\n"
                 + "SC_TEST_READY = SCBridge.checkReady()\n"
+                + "SC_TEST_VIEW_API = SCBridge.setViewOffset ~= nil and SCBridge.clearViewOffset ~= nil\n"
                 + "SC_TEST_ATTACK_TYPES = true\n";
         Object closure = Class.forName("se.krka.kahlua.luaj.compiler.LuaCompiler")
                 .getMethod("loadstring", String.class, String.class, tableClass)
@@ -86,8 +88,10 @@ public final class SCNativeBridgeExposureTest {
         thread.getClass().getMethod("call", Object.class, Object[].class)
                 .invoke(thread, closure, (Object) new Object[0]);
         Method rawget = tableClass.getMethod("rawget", Object.class);
-        require("42.20-isocompanion-8".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
+        require("42.20-isocompanion-9".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
                 "Lua received the wrong native bridge protocol");
+        require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEW_API")),
+                "production bridge did not expose the camera offset contract");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_ATTACK_TYPES")),
                 "production bridge did not expose the native attack enum contract");
         String readiness = String.valueOf(rawget.invoke(environment, "SC_TEST_READY"));
@@ -100,6 +104,31 @@ public final class SCNativeBridgeExposureTest {
                 "live 42.20 label was incorrectly rejected by the version gate: " + readiness);
         require(!readiness.isEmpty(),
                 "headless readiness unexpectedly bypassed the local-player isolation gate");
-        System.out.println("NATIVE_BRIDGE_EXPOSURE_PASS protocol=true kahlua=true attack-types=true version-family-gate=true local-player-gate=true reflection-negative=true");
+
+        Class<?> isoCamera = Class.forName("zombie.iso.IsoCamera");
+        Class<?> playerCamera = Class.forName("zombie.iso.PlayerCamera");
+        Object cameras = isoCamera.getField("cameras").get(null);
+        Object camera = playerCamera.getConstructor(int.class).newInstance(0);
+        Array.set(cameras, 0, camera);
+        playerCamera.getField("rightClickX").setFloat(camera, 7.0f);
+        playerCamera.getField("rightClickY").setFloat(camera, -5.0f);
+        require(!SCBridge.setViewOffset(Float.NaN, 1.0f)
+                        && SCBridge.getLastFailure().contains("finite"),
+                "camera offset accepted a non-finite coordinate");
+        require(SCBridge.setViewOffset(30.0f, 40.0f),
+                "camera offset rejected a finite main-thread coordinate");
+        require(Math.abs(playerCamera.getField("deferedX").getFloat(camera) - 9.6f) < 0.001f
+                        && Math.abs(playerCamera.getField("deferedY").getFloat(camera) - 12.8f) < 0.001f,
+                "camera offset did not clamp to the sixteen-tile radial bound");
+        require(playerCamera.getField("rightClickX").getFloat(camera) == 7.0f
+                        && playerCamera.getField("rightClickY").getFloat(camera) == -5.0f,
+                "camera offset overwrote the independent right-click aim lean");
+        require(SCBridge.clearViewOffset()
+                        && playerCamera.getField("deferedX").getFloat(camera) == 0.0f
+                        && playerCamera.getField("deferedY").getFloat(camera) == 0.0f
+                        && playerCamera.getField("rightClickX").getFloat(camera) == 7.0f
+                        && playerCamera.getField("rightClickY").getFloat(camera) == -5.0f,
+                "camera offset clear did not restore only the deferred view");
+        System.out.println("NATIVE_BRIDGE_EXPOSURE_PASS protocol=true kahlua=true attack-types=true camera-offset=true version-family-gate=true local-player-gate=true reflection-negative=true");
     }
 }

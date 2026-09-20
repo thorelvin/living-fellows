@@ -7138,6 +7138,96 @@ local distantAttackers = SurvivorCompanion.Combat.assessOverrun(overrunActor, {
 }, nil, { combatMode = "defensive" })
 check(not distantAttackers.overrun,
     "targeting zombies outside the close-threat radius do not masquerade as a surrounding grab group")
+
+-- WP-A: the refusal cause is a deterministic explanation of the existing
+-- arithmetic. Lower only the test threshold so each isolated positive term can
+-- cross it without smuggling a second, larger reason into the fixture.
+local causeActor = actor("sc-overrun-causes", 0, -7, {})
+local causeItem = item("Base.CauseBat", "Weapon", {
+    damage = 1, range = 1.5, weight = 1, weaponCategories = { "Blunt" },
+})
+local soundWeapon = {
+    item = causeItem, type = causeItem:getFullType(), ranged = false,
+    conditionRatio = 1, sharpness = 1, weight = 1, staminaCost = 1,
+}
+local dryWeapon = {
+    item = causeItem, type = causeItem:getFullType(), ranged = true,
+    conditionRatio = 1, weight = 1, staminaCost = 1, ammo = 0, maxAmmo = 10,
+}
+local brokenWeapon = {
+    item = causeItem, type = causeItem:getFullType(), ranged = false,
+    conditionRatio = 0.1, sharpness = 1, weight = 1, staminaCost = 1,
+}
+local safeEscape = { square = cell:getGridSquare(0, -6, 0), danger = 0,
+    nearestThreatSq = 9 }
+local function causeSnapshot(fields)
+    local result = {
+        threats = {}, immediateAttackers = {}, allies = {},
+        immediateCount = 0, closeImmediateCount = 0, closeThreatCount = 0,
+        occupiedThreatSectors = 0, directionalPressure = 0,
+        escapeSquares = { safeEscape }, player = { available = false },
+    }
+    for key, value in pairs(fields or {}) do result[key] = value end
+    return result
+end
+local function refusalCause(fields, weapon, commands)
+    return SurvivorCompanion.Combat.assessOverrun(causeActor,
+        causeSnapshot(fields), weapon, commands or { combatMode = "defensive" }).cause
+end
+local oldOverrunRisk = SurvivorCompanion.Config.values.combatOverrunRisk
+SurvivorCompanion.Config.values.combatOverrunRisk = 1
+check(refusalCause({ directionalPressure = 1 }, soundWeapon) == "directional_pressure",
+    "directional pressure is reported as the dominant refusal cause")
+check(refusalCause({ immediateCount = 1, closeImmediateCount = 1,
+        closeThreatCount = 1 }, soundWeapon) == "immediate_count",
+    "immediate reach pressure is reported as the dominant refusal cause")
+check(refusalCause({ closeThreatCount = 4 }, soundWeapon) == "close_pressure",
+    "threats beyond fighting capacity are reported as the dominant refusal cause")
+check(refusalCause({ occupiedThreatSectors = 3 }, soundWeapon) == "occupied_sectors",
+    "multi-sector pressure keeps its categorical refusal cause")
+check(refusalCause({}, soundWeapon, { combatMode = "defensive", stress = 100 }) == "internal_risk",
+    "combined internal condition is reported as the dominant refusal cause")
+check(refusalCause({ escapeSquares = { { square = safeEscape.square, danger = 4 } } },
+        soundWeapon) == "escape_danger",
+    "a dangerous withdrawal route is reported as the dominant refusal cause")
+causeActor.square.hasTree = true
+check(refusalCause({}, soundWeapon) == "footing",
+    "bad footing is reported as the dominant refusal cause")
+causeActor.square.hasTree = false
+check(refusalCause({ encircled = true }, soundWeapon) == "encircled",
+    "encirclement is reported as the dominant refusal cause")
+check(refusalCause({ escapeSquares = {} }, soundWeapon) == "no_escape",
+    "a missing withdrawal route is reported as no escape, not generic danger")
+causeActor.square.room = { name = "cause-test-room" }
+check(refusalCause({}, soundWeapon) == "indoors",
+    "tight indoor geometry is reported as the dominant refusal cause")
+causeActor.square.room = nil
+causeActor.body.health = 30
+check(refusalCause({}, soundWeapon) == "health",
+    "low health outranks its smaller derived wound-pressure term")
+causeActor.body.health = 100
+check(refusalCause({}, nil) == "unarmed",
+    "having no weapon is reported as the dominant refusal cause")
+check(refusalCause({}, brokenWeapon) == "weapon_condition",
+    "a nearly broken weapon is reported as the dominant refusal cause")
+check(refusalCause({}, dryWeapon) == "ammo_dry",
+    "an empty firearm is reported as the dominant refusal cause")
+causeActor.endurance = 0
+check(refusalCause({ immediateCount = 1, closeImmediateCount = 1,
+        closeThreatCount = 1 }, soundWeapon) == "stamina",
+    "critical stamina keeps categorical precedence over score contributors")
+check(refusalCause({ immediateCount = 3, closeImmediateCount = 3,
+        closeThreatCount = 3, occupiedThreatSectors = 3, directionalPressure = 20 },
+        soundWeapon) == "immediate_count",
+    "categorical refusal clauses outrank a larger additive score in fixed order")
+causeActor.endurance = 1
+local supportActor = actor("sc-overrun-support", 1, -7, {})
+check(refusalCause({ directionalPressure = 1, allies = {
+        { actor = supportActor, distanceSq = 1, health = 100 },
+    } }, soundWeapon) == "directional_pressure",
+    "support lowers risk but never masquerades as a refusal cause")
+SurvivorCompanion.Config.values.combatOverrunRisk = oldOverrunRisk
+
 SurvivorCompanion.Combat.reset()
 local soundsBeforeRetreatBark = worldSoundCount
 local overrunHandled, overrunAction = SurvivorCompanion.Combat.update(overrunActor, player, {
@@ -7150,11 +7240,13 @@ check(overrunHandled and overrunAction == "overrun_retreat"
     and overrunActor.lastIntent.weaponReady == false,
     "an outnumbered companion breaks contact instead of continuing a doomed attack")
 local retreatLine = overrunActor.lastSpeech
+local retreatTopic = SurvivorCompanion.Dialogue.lastSpokenTopic(overrunActor)
 check(type(retreatLine) == "string"
         and SurvivorCompanion.Combat.peek(overrunActor).combatBarkAt["combat.retreat"] == clock
-        and SurvivorCompanion.Dialogue.lastSpokenTopic(overrunActor) == "combat.retreat.group"
+        and (retreatTopic == "combat.retreat.group"
+            or retreatTopic == "banter.refusal.immediate_count")
         and worldSoundCount == soundsBeforeRetreatBark + 1,
-    "entering a survival-critical retreat emits one audible fall-back bark")
+    "entering a survival-critical retreat emits one audible cause-specific or fallback bark")
 clock = clock + 100
 SurvivorCompanion.Combat.update(overrunActor, player, { snapshot = overrunSnapshot })
 check(overrunActor.lastSpeech == retreatLine and worldSoundCount == soundsBeforeRetreatBark + 1,
@@ -15252,6 +15344,76 @@ end)()
         "an unseen zombie at arm's length gets a live sight check, and a pinned ally's attacker outranks others")
 end)()
 
+-- WP-D target instructions change only bounded target preference. Doctrine,
+-- live sight, action viability and overrun evaluation remain downstream gates.
+;(function()
+    local combat = SurvivorCompanion.Combat
+    local commands = SurvivorCompanion.Commands
+    local caller = actor("sc-designation-caller", 30, 50, {})
+    local avoidedTarget = zombie(34, 50, {})
+    local immediate = zombie(31, 50, { attacking = true, target = caller })
+    local distant = zombie(42, 50, {})
+    registry[caller.id] = caller
+    local picture = {
+        allies = {},
+        threats = {
+            { actor = avoidedTarget, visible = true, obstructed = false, distanceSq = 16 },
+            { actor = distant, visible = true, obstructed = false, distanceSq = 144 },
+        },
+    }
+    local focused = commands.issue(caller.id, "designate_target",
+        { target = distant }, player)
+    local focusScores = combat.scoreTargets(caller, player, picture, nil)
+    local focusedRecord
+    for _, record in ipairs(focusScores) do
+        if record.actor == distant then focusedRecord = record break end
+    end
+    local doctrineStillRefuses = focusedRecord
+        and not combat._doctrineMayFightForTests(caller, focusedRecord, player,
+            { allies = {} }, { combatDoctrine = "close_defense" })
+    local avoided = commands.issue(caller.id, "avoid_target",
+        { target = avoidedTarget }, player)
+    local avoidScores = combat.scoreTargets(caller, player, picture, nil)
+    local avoidedRecord
+    for _, record in ipairs(avoidScores) do
+        if record.actor == avoidedTarget then avoidedRecord = record break end
+    end
+    picture.threats[#picture.threats + 1] = {
+        actor = immediate, visible = true, obstructed = false,
+        attacking = true, distanceSq = 1,
+    }
+    local avoidEmergency = commands.issue(caller.id, "avoid_target",
+        { target = immediate }, player)
+    local emergencyScores = combat.scoreTargets(caller, player, picture, nil)
+    local emergencyRecord
+    for _, record in ipairs(emergencyScores) do
+        if record.actor == immediate then emergencyRecord = record break end
+    end
+    commands.issue(caller.id, "hold_fire", nil, player)
+    local refused, refusalReason = commands.issue(caller.id, "designate_target",
+        { target = distant }, player)
+    clock = clock + 12001
+    combat.scoreTargets(caller, player, picture, nil)
+    local expired = commands.peek(caller).targetDesignation == nil
+    immediate.dead, avoidedTarget.dead, distant.dead = true, true, true
+    combat.reset(caller)
+    commands.reset(caller)
+    registry[caller.id] = nil
+    check(focused and focusScores[1] and focusScores[1].actor == distant
+            and focusedRecord.playerDesignation == "focus"
+            and focusedRecord.designationScore == 80 and doctrineStillRefuses
+            and avoided and avoidScores[1] and avoidScores[1].actor == distant
+            and avoidedRecord.playerDesignation == "avoid"
+            and avoidedRecord.designationScore == -80
+            and avoidEmergency and emergencyScores[1]
+            and emergencyScores[1].actor == immediate
+            and emergencyRecord.playerDesignation == "avoid"
+            and emergencyRecord.designationOverridden == true
+            and emergencyRecord.designationScore == 0
+            and not refused and refusalReason == "hold_fire_active" and expired,
+        "target designation changes preference, expires, respects Hold Fire and doctrine, while immediate danger overrides avoidance")
+end)()
+
 -- Combat with nothing credible to fight sends a companion on stay, guard or
 -- base duty back to its own work instead of an aiming hold; a follower still
 -- follows, and an immediate attacker keeps the hold.
@@ -15343,13 +15505,19 @@ end)()
     local outside = commands.issue(resident.id, "stay", nil, player)
     local outsideOrder = commands.peek(resident).order
     local outsideDuty = (baseLife.resident(resident.id) or {}).duty
+    local guardedHere = commands.issue(resident.id, "guard",
+        { target = { x = 48, y = 45, z = 0 } }, player)
+    local outsideGuard = commands.peek(resident)
     SurvivorCompanion.Navigation.reset(resident)
     baseLife.reset()
     registry[resident.id] = nil
     check(stayed and stayOrder == "base_duty" and stayDuty
             and guarded and guardOrder == "base_duty" and guardRole == "guard"
             and math.floor(tonumber(post.x) or 0) == 24 and math.floor(tonumber(post.y) or 0) == 18
-            and outside and outsideOrder == "stay" and outsideDuty == false,
+            and outside and outsideOrder == "stay" and outsideDuty == false
+            and guardedHere and outsideGuard.order == "guard"
+            and math.floor(tonumber(outsideGuard.anchor.x) or 0) == 48
+            and math.floor(tonumber(outsideGuard.anchor.y) or 0) == 45,
         "stay or guard inside the base starts base duty, a guard keeps its post, and outside the base they are plain orders: "
             .. tostring(stayOrder) .. "/" .. tostring(guardOrder) .. "/" .. tostring(outsideOrder))
 end)()
@@ -15417,7 +15585,7 @@ end)()
     local values = SurvivorCompanion.Config.values
     local savedValues = {}
     for _, key in ipairs({ "distractionChancePercent", "distractionAllyChancePercent",
-        "distractionVerdictChancePercent" }) do
+        "distractionVerdictChancePercent", "combatRefusalChancePercent" }) do
         savedValues[key] = values[key]
         values[key] = 100
     end
@@ -15460,6 +15628,38 @@ end)()
     check(not hurtShout and hurtReason == "distraction_too_hurt"
             and taunted == true and tauntTopic == "banter.distraction.ally",
         "a badly hurt companion does not joke, and a free one taunts the zombies holding an ally")
+
+    local refuser = recruit("sc-banter-refuser", -2, -6)
+    local secondRefuser = recruit("sc-banter-refuser-second", -1, -6)
+    local refusalMoves = refuser.movementCalls
+    local refused, refusalTopic = banter.overrunRefusal(refuser, nil, {
+        overrun = true, cause = "no_escape",
+    }, t0 + 50000)
+    local repeatedRefusal, repeatReason = banter.overrunRefusal(refuser, nil, {
+        overrun = true, cause = "health",
+    }, t0 + 51000)
+    local partyRefusal, partyReason = banter.overrunRefusal(secondRefuser, nil, {
+        overrun = true, cause = "health",
+    }, t0 + 51000)
+    local laterRefusal, laterTopic = banter.overrunRefusal(secondRefuser, nil, {
+        overrun = true, cause = "health",
+    }, t0 + 81000)
+    check(refused == true and refusalTopic == "banter.refusal.no_escape"
+            and dialogue.lastSpokenTopic(refuser) == "banter.refusal.no_escape"
+            and not repeatedRefusal and repeatReason == "refusal_actor_cooldown"
+            and not partyRefusal and partyReason == "refusal_party_cooldown"
+            and laterRefusal == true and laterTopic == "banter.refusal.health"
+            and refuser.movementCalls == refusalMoves,
+        "an overrun refusal names its deterministic cause, changes no movement, and obeys long actor and party cadence")
+
+    banter.reset()
+    values.combatRefusalChancePercent = 0
+    local requestedRefuser = recruit("sc-banter-requested-refuser", 0, -6)
+    local requested, requestedTopic = banter.overrunRefusal(requestedRefuser, nil, {
+        overrun = true, cause = "stamina",
+    }, t0 + 82000, { reliable = true })
+    check(requested == true and requestedTopic == "banter.refusal.stamina",
+        "a player-requested unsafe target gets a reliable spoken refusal even when autonomous speech chance is zero")
 
     banter.reset()
     local calmSnapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0,

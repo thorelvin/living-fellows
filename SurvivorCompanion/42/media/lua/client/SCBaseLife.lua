@@ -1982,6 +1982,51 @@ local function productionZone(base, schema, id)
     return zone
 end
 
+-- Tree-felling is the one production family whose marked areas are a pool,
+-- rather than a semantic destination such as one particular graveyard or
+-- pyre.  Keep explicit ids valid for old saves and callers, but let a newly
+-- created order choose from every valid Lumber area when no id is supplied.
+local function automaticProductionZone(base, schema, operation)
+    local candidates = {}
+    for _, row in ipairs(base and base.zones or {}) do
+        local zone = productionZone(base, schema, row.id)
+        if zone then candidates[#candidates + 1] = zone end
+    end
+    table.sort(candidates, function(a, b) return tostring(a.id) < tostring(b.id) end)
+    if #candidates == 0 then return nil, "invalid_production_zone" end
+
+    local production = productionFor(base)
+    if SC.Production and type(SC.Production.selectProductionZone) == "function" then
+        local ok, selected = pcall(SC.Production.selectProductionZone, operation,
+            candidates, production and production.orders or {})
+        if ok and type(selected) == "table" then
+            for _, candidate in ipairs(candidates) do
+                if candidate.id == selected.id then return candidate end
+            end
+        end
+    end
+
+    -- The world-aware selector is optional during early module startup.  Its
+    -- fallback still distributes orders deterministically by outstanding work
+    -- instead of pinning every order to the first saved zone.
+    local commitments = {}
+    for _, order in ipairs(production and production.orders or {}) do
+        if order.operation == operation and not orderIsTerminal(order) then
+            commitments[order.zoneId] = (commitments[order.zoneId] or 0)
+                + math.max(0, (tonumber(order.requested) or 0)
+                    - (tonumber(order.completed) or 0))
+        end
+    end
+    local selected, selectedLoad
+    for _, candidate in ipairs(candidates) do
+        local load = commitments[candidate.id] or 0
+        if selected == nil or load < selectedLoad then
+            selected, selectedLoad = candidate, load
+        end
+    end
+    return selected
+end
+
 -- Work may continue in the reach band outside the camp when it is bound to a
 -- lumber area, to a burial ground or pyre that actually lies outside the
 -- camp, or when body collection includes the lumber areas.
@@ -2140,7 +2185,11 @@ function BaseLife.createProductionOrder(spec)
     local zone
     if schema.zoneKinds ~= nil then
         local zoneReason
-        zone, zoneReason = productionZone(base, schema, spec.zoneId)
+        if spec.operation == "fell_trees" and spec.zoneId == nil then
+            zone, zoneReason = automaticProductionZone(base, schema, spec.operation)
+        else
+            zone, zoneReason = productionZone(base, schema, spec.zoneId)
+        end
         if not zone then return false, zoneReason end
     end
     local settings = normalizeProductionSettings(schema, spec.settings)

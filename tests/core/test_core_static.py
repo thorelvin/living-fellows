@@ -63,6 +63,12 @@ require("SC.Community.noteCompanionDeath" in runtime
         and runtime.index("SC.Community.noteCompanionDeath")
         < runtime.index("SC.Actor.retireDead(record.actor)"),
         "grief must be recorded once while the dead actor and nearby witnesses still exist")
+require("SC.ViewControl.update" in runtime
+        and 'resetModule("view control", SC.ViewControl, "reset")' in runtime,
+        "central runtime does not own Peek updates and lifecycle cleanup")
+require("SC.Steering.update" in runtime
+        and 'resetModule("steering", SC.Steering, "reset")' in runtime,
+        "central runtime does not own steering updates and lifecycle cleanup")
 
 bootstrap = (CLIENT / "SCBootstrap.lua").read_text(encoding="utf-8")
 for module in ("SCSenses", "SCNavigation", "SCCombat", "SCMedical", "SCEncounter",
@@ -70,8 +76,26 @@ for module in ("SCSenses", "SCNavigation", "SCCombat", "SCMedical", "SCEncounter
                "SCDialogue", "SCRelationship", "SCObjectives", "SCJournal", "SCLifeEvents", "SCCommunity",
                "SCWorkTransport", "SCGatherWork", "SCProduction",
                "SCAutonomy", "SCCommands", "SCDecision",
-               "SCSupport", "SCUI", "SCUIContext", "SCCompanionMap"):
+               "SCSupport", "SCUI", "SCViewControl", "SCSteering", "SCUIContext", "SCCompanionMap"):
     require(f'require "{module}"' in bootstrap, f"bootstrap requirement missing: {module}")
+
+view_control = (CLIENT / "SCViewControl.lua").read_text(encoding="utf-8")
+for forbidden in ("setCameraCharacter", "IsoPlayer.players", "setPlayer", "setIndex"):
+    require(forbidden not in view_control,
+            f"Peek must remain offset-only; forbidden camera/player mutation: {forbidden}")
+for required in ("setViewOffset", "clearViewOffset", "viewPeekMaximumDistance",
+                 "viewPeekEaseMs", "selectedActor", "function View.watch",
+                 "function View.stopWatching"):
+    require(required in view_control, f"Peek control contract missing: {required}")
+
+steering = (CLIENT / "SCSteering.lua").read_text(encoding="utf-8")
+for required in ('owner = "player_control"', 'action = "steer"',
+                 "Priority.PLAYER", "supervisorToken", "movementTarget = true",
+                 "screenToIsoX", "screenToIsoY"):
+    require(required in steering, f"supervised cursor-steering contract missing: {required}")
+for forbidden in ("setCompanionMovementTarget", "MoveForward", "setX", "setY"):
+    require(forbidden not in steering,
+            f"steering must use the owned movement facade, not native/body mutation: {forbidden}")
 
 native = (CLIENT / "SCNativeActions.lua").read_text(encoding="utf-8")
 native_traversal = (CLIENT / "SCNativeTraversalActions.lua").read_text(encoding="utf-8")

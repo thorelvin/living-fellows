@@ -404,6 +404,24 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn('safeMethod(targetSquare, "getRoom") ~= nil', priority)
         target_actions = lua_function(self.context, "local function addWorldOrders(")
         self.assertIn('safeMethod(targetSquare, "getRoom") ~= nil', target_actions)
+        self.assertIn('"UI_SC_Action_GuardHere"', target_actions)
+        self.assertIn('"guard",', target_actions)
+        self.assertIn('{ target = targetPayload }', target_actions)
+        self.assertIn('"designate_target"', target_actions)
+        self.assertIn('"avoid_target"', target_actions)
+
+    def test_mouse_watch_selects_a_companion_and_has_a_right_click_exit(self) -> None:
+        fill = lua_function(
+            self.context,
+            "function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, test)",
+        )
+        watch = lua_function(self.context, "local function watchFromContext(")
+        self.assertIn("clickedCompanionRow(rows, worldObjects, clickSquare)", fill)
+        self.assertIn('text("UI_SC_Action_Watch", clickedCompanion.name)', fill)
+        self.assertIn('text("UI_SC_Action_StopWatchingNamed"', fill)
+        self.assertIn("SC.UI.selectCompanion(row.id)", watch)
+        self.assertIn("SC.ViewControl.watch(row.id, row.actor)", watch)
+        self.assertIn("function UI.selectCompanion(companionId)", self.ui)
 
     def test_base_tab_manages_existing_zones_storage_maintenance_and_jobs(self) -> None:
         base = lua_function(self.ui, "function SCUIDetail:buildBase(panel, row)")
@@ -1233,6 +1251,7 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("toggleBaseLayout", base)
         self.assertIn("UI_SC_Base_Visual_Show", base)
         self.assertIn("zonesAtSquare(square)", base)
+
         self.assertIn("UI_SC_Base_RemoveZone", base)
         remove = lua_function(
             self.context, "local function removeZoneFromContext(_, zone, player)"
@@ -1250,6 +1269,25 @@ class UIStaticContractTests(unittest.TestCase):
         for key in ("UI_SC_Base_Visual_Legend", "UI_SC_Base_Visual_Empty",
                     "UI_SC_Base_Visual_Shown", "UI_SC_Base_Visual_Hidden"):
             self.assertIn(key, translations)
+
+    def test_peek_is_a_hold_binding_for_the_selected_roster_actor(self) -> None:
+        self.assertIn(
+            'UI.PEEK_HOTKEY_ACTION = "Hold to peek through selected companion"',
+            self.ui,
+        )
+        self.assertIn("UI.DEFAULT_PEEK_HOTKEY = Keyboard.KEY_LBRACKET", self.ui)
+        selected = lua_function(self.ui, "function UI.selectedActor()")
+        self.assertIn("UI.instance.selectedRow", selected)
+        self.assertIn("row.actor", selected)
+
+    def test_steering_is_a_separate_hold_binding(self) -> None:
+        self.assertIn(
+            'UI.STEER_HOTKEY_ACTION = "Hold to steer selected companion"',
+            self.ui,
+        )
+        self.assertIn("UI.DEFAULT_STEER_HOTKEY = Keyboard.KEY_RBRACKET", self.ui)
+        steer = lua_function(self.ui, "function UI.steerHotkey()")
+        self.assertIn("UI.STEER_HOTKEY_ACTION", steer)
 
     def test_menu_toggle_uses_paired_vanilla_ui_sounds(self) -> None:
         self.assertIn('UI.MENU_OPEN_SOUND = "UIVehicleMenuOpen"', self.ui)

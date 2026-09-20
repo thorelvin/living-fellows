@@ -182,6 +182,28 @@ local function countedCombatTopic(prefix, snapshot)
     return prefix
 end
 
+local function emitCombatVoiceSound(actor)
+    -- A combat line is not cosmetic silence: nearby actors can hear it and the
+    -- game receives the same modest world-sound event whether the line is the
+    -- generic retreat bark or WP-A's more specific refusal explanation.
+    local x, y, z = U().position(actor)
+    if x and SC.Senses and type(SC.Senses.hear) == "function" then
+        pcall(SC.Senses.hear, actor, x, y, z,
+            U().config("combatBarkSoundRadius") or 8, 10, "companion_combat_bark")
+    end
+    if x and type(addSound) == "function" then
+        pcall(addSound, actor, x, y, z, U().config("combatBarkSoundRadius") or 8, 10)
+    end
+end
+
+local function commitCombatBark(actor, state, cooldownTopic, now)
+    state.combatBarkAt = state.combatBarkAt or {}
+    state.lastCombatBarkAt = now
+    state.combatBarkAt[cooldownTopic] = now
+    lastGroupCombatBarkAt = now
+    emitCombatVoiceSound(actor)
+end
+
 local function emitCombatBark(actor, state, commands, topic, now, survivalCritical)
     if commands.combatDoctrine == "stealth" and survivalCritical ~= true then
         return false, "combat_bark_stealth_suppressed"
@@ -218,21 +240,7 @@ local function emitCombatBark(actor, state, commands, topic, now, survivalCritic
         salt = tostring(now),
     })
     if spoken ~= true then return false, "combat_bark_rejected" end
-    state.lastCombatBarkAt = now
-    state.combatBarkAt[cooldownTopic] = now
-    lastGroupCombatBarkAt = now
-
-    -- A yell is not cosmetic silence: nearby actors can hear it and the game
-    -- receives a modest world-sound event. The radius stays below the existing
-    -- general zombie warning so combat chatter does not dominate stealth.
-    local x, y, z = U().position(actor)
-    if x and SC.Senses and type(SC.Senses.hear) == "function" then
-        pcall(SC.Senses.hear, actor, x, y, z,
-            U().config("combatBarkSoundRadius") or 8, 10, "companion_combat_bark")
-    end
-    if x and type(addSound) == "function" then
-        pcall(addSound, actor, x, y, z, U().config("combatBarkSoundRadius") or 8, 10)
-    end
+    commitCombatBark(actor, state, cooldownTopic, now)
     return true, "combat_bark_spoken"
 end
 
@@ -1110,6 +1118,14 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
     local cohort = state.cohortKey or combatCohortKey(actor, player)
     if type(snapshot) ~= "table" or type(snapshot.threats) ~= "table" then return scored end
     local pinnedAllies = Combat._pinnedAllies(actor, snapshot)
+    local commands = commandState(actor)
+    local designation = type(commands.targetDesignation) == "table"
+        and commands.targetDesignation or nil
+    if designation and (now >= (tonumber(designation.untilAt) or 0)
+        or utility.isGoneTarget(designation.actor)) then
+        commands.targetDesignation = nil
+        designation = nil
+    end
     local liveSightRadius = utility.config("combatLiveSightRadius") or 2.5
     for index = 1, math.min(#snapshot.threats, utility.config("perceptionThreatLimit") or 32) do
         local threat = snapshot.threats[index]
@@ -1140,6 +1156,23 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
             record.obstructed = false
             record.rescue = Combat._rescuing(actor, threat.actor, pinnedAllies)
             local score, bearing, facingDot = threatScore(record, actor, player, snapshot)
+            if designation and designation.actor == threat.actor then
+                if designation.mode == "focus" then
+                    record.playerDesignation = "focus"
+                    record.designationScore = math.max(0,
+                        tonumber(utility.config("combatDesignationScoreBonus")) or 80)
+                    score = score + record.designationScore
+                elseif designation.mode == "avoid" then
+                    record.playerDesignation = "avoid"
+                    local emergency = record.rescue == true or record.attacking == true
+                        or record.distanceSq <= (tonumber(utility.config(
+                            "combatStealthEmergencyRadius")) or 1.5) ^ 2
+                    record.designationOverridden = emergency
+                    record.designationScore = emergency and 0 or -math.max(0,
+                        tonumber(utility.config("combatDesignationAvoidPenalty")) or 80)
+                    score = score + record.designationScore
+                end
+            end
             local closing, tti = sampleTargetMotion(
                 state, actor, threat.actor, record.distance, now)
             local window = utility.config("combatTimeToImpactWindowMs") or 6000
@@ -1502,22 +1535,45 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands)
     local occupied = tonumber(snapshot.occupiedThreatSectors) or 0
     local support = readiness.support
     local capacity = readiness.capacity
-    local risk = (tonumber(snapshot.directionalPressure) or tonumber(snapshot.pressure) or 0) * 10
-        + immediate * 12
-        + math.max(0, close - capacity) * 8
-        + math.max(0, occupied - 1) * 12
-        + readiness.internalRisk
-        + readiness.escapeDanger * 3
-        + (readiness.footing and ((readiness.footing.tree and 6 or 0)
-            + math.max(0, readiness.footing.crowd - 1) * 3) or 0)
+    local noEscape = #(snapshot.escapeSquares or {}) == 0
+    local indoors = actorIsIndoor(actor)
+    local contributors = {}
+    local function contribution(cause, value)
+        value = tonumber(value) or 0
+        -- Ranking ignores negative terms, while the risk sum preserves the
+        -- original arithmetic exactly even for a malformed negative snapshot.
+        contributors[#contributors + 1] = { cause = cause, value = math.max(0, value) }
+        return value
+    end
+    -- This fixed order is also the deterministic tie-break order. Keep it in
+    -- the same order as the arithmetic below so a spoken refusal reports the
+    -- actual largest positive term rather than a flavour-selected excuse.
+    local risk = contribution("directional_pressure",
+            (tonumber(snapshot.directionalPressure) or tonumber(snapshot.pressure) or 0) * 10)
+        + contribution("immediate_count", immediate * 12)
+        + contribution("close_pressure", math.max(0, close - capacity) * 8)
+        + contribution("occupied_sectors", math.max(0, occupied - 1) * 12)
+        + contribution("internal_risk", readiness.internalRisk)
+        -- With no escape square, readiness.escapeDanger is the model's default
+        -- penalty for that same fact. Attribute both terms to no_escape so the
+        -- otherwise-unreachable +8 clause can be explained honestly.
+        + contribution(noEscape and "no_escape" or "escape_danger",
+            readiness.escapeDanger * 3)
+        + contribution("footing", readiness.footing and
+            ((readiness.footing.tree and 6 or 0)
+                + math.max(0, readiness.footing.crowd - 1) * 3) or 0)
+        + contribution("encircled", snapshot.encircled and 22 or 0)
+        + contribution("no_escape", noEscape and 8 or 0)
+        + contribution("indoors", indoors and 8 or 0)
+        + contribution("health", assessment.health < 45
+            and (45 - assessment.health) * 0.8 or 0)
+        + contribution("unarmed", not weapon and 8 or 0)
+        + contribution("weapon_condition", weapon
+            and (tonumber(weapon.conditionRatio) or 1) < 0.2 and 8 or 0)
+        + contribution("ammo_dry", weapon and weapon.ranged
+            and (tonumber(weapon.conditionRatio) or 1) >= 0.2
+            and (tonumber(weapon.ammo) or 0) <= 0 and 10 or 0)
         - support * 5
-    if snapshot.encircled then risk = risk + 22 end
-    if #(snapshot.escapeSquares or {}) == 0 then risk = risk + 8 end
-    if actorIsIndoor(actor) then risk = risk + 8 end
-    if assessment.health < 45 then risk = risk + (45 - assessment.health) * 0.8 end
-    if not weapon then risk = risk + 8
-    elseif (tonumber(weapon.conditionRatio) or 1) < 0.2 then risk = risk + 8
-    elseif weapon.ranged and (tonumber(weapon.ammo) or 0) <= 0 then risk = risk + 10 end
     local threshold = U().config("combatOverrunRisk") or 62
     if commands.combatMode == "aggressive" then threshold = threshold + 8
     elseif commands.combatMode == "passive" then threshold = threshold - 6 end
@@ -1531,6 +1587,20 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands)
     local overrun = immediate >= 3 or occupied >= 3
         or readiness.staminaCritical and (immediate >= 1 or close >= 2)
         or risk >= threshold
+    local cause
+    if overrun then
+        if immediate >= 3 then cause = "immediate_count"
+        elseif occupied >= 3 then cause = "occupied_sectors"
+        elseif readiness.staminaCritical and (immediate >= 1 or close >= 2) then
+            cause = "stamina"
+        else
+            local magnitude = 0
+            for _, row in ipairs(contributors) do
+                if row.value > magnitude then cause, magnitude = row.cause, row.value end
+            end
+            cause = cause or "risk_score"
+        end
+    end
     return {
         risk = risk,
         threshold = threshold,
@@ -1543,6 +1613,7 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands)
         readiness = readiness,
         staminaCritical = readiness.staminaCritical,
         confidence = readiness.confidence,
+        cause = cause,
     }
 end
 
@@ -2173,10 +2244,15 @@ local function selectDoctrineTarget(actor, scored, player, snapshot, commands, s
         return previous
     end
     if previous == nil or previous.actor ~= best.actor then
-        local ranged = commands.combatDoctrine == "ranged_support"
-        state.targetCommitUntil = now + (ranged
-            and (U().config("combatRangedCommitMs") or 1000)
-            or (U().config("combatMeleeCommitMs") or 650))
+        local commitMs
+        if best.playerDesignation == "focus" then
+            commitMs = U().config("combatDesignationCommitMs") or 2500
+        else
+            local ranged = commands.combatDoctrine == "ranged_support"
+            commitMs = ranged and (U().config("combatRangedCommitMs") or 1000)
+                or (U().config("combatMeleeCommitMs") or 650)
+        end
+        state.targetCommitUntil = now + commitMs
     end
     return best
 end
@@ -2306,9 +2382,12 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
         end
     end
     if state.target ~= best.target.actor then
-        state.targetCommitUntil = now + (commands.combatDoctrine == "ranged_support"
-            and (U().config("combatRangedCommitMs") or 1000)
-            or (U().config("combatMeleeCommitMs") or 650))
+        local commitMs = best.target.playerDesignation == "focus"
+            and (U().config("combatDesignationCommitMs") or 2500)
+            or (commands.combatDoctrine == "ranged_support"
+                and (U().config("combatRangedCommitMs") or 1000)
+                or (U().config("combatMeleeCommitMs") or 650))
+        state.targetCommitUntil = now + commitMs
     end
     return best
 end
@@ -2972,6 +3051,7 @@ function Combat.update(actor, player, runtime)
         rootRuntime.combatRole = nil
         rootRuntime.combatCohort = nil
         rootRuntime.combatOverrun = nil
+        rootRuntime.combatOverrunCause = nil
         rootRuntime.combatReadiness = nil
         state.readiness = nil
         state.tacticalCache = nil
@@ -3049,11 +3129,29 @@ function Combat.update(actor, player, runtime)
         end
         return ok, reason
     end
+    local wasOverrun = type(state.overrun) == "table" and state.overrun.overrun == true
     local overrun = tacticalAssessment(actor, state, snapshot, target, weapon, commands, now)
     rootRuntime.combatOverrun = overrun
+    rootRuntime.combatOverrunCause = overrun.cause
     rootRuntime.combatReadiness = overrun.readiness
     state.readiness = overrun.readiness
     state.overrun = overrun
+    local instruction = type(commands.targetDesignation) == "table"
+        and commands.targetDesignation or nil
+    local playerRequested = instruction and instruction.mode == "focus"
+        and instruction.actor == target.actor
+        and now < (tonumber(instruction.untilAt) or 0)
+    local newPlayerRequest = playerRequested
+        and state.refusedDesignationSerial ~= instruction.serial
+    if overrun.overrun and (not wasOverrun or newPlayerRequest) and SC.Banter
+        and type(SC.Banter.overrunRefusal) == "function" then
+        if newPlayerRequest then state.refusedDesignationSerial = instruction.serial end
+        local called, spoken = pcall(SC.Banter.overrunRefusal,
+            actor, commands, overrun, now, { reliable = playerRequested == true })
+        if called and spoken == true then
+            commitCombatBark(actor, state, "combat.retreat", now)
+        end
+    end
     if overrun.overrun then state.retreatUntil = now + (utility.config("combatOverrunHoldMs") or 2600) end
     local keepRetreating = now < (state.retreatUntil or 0)
         and overrun.risk >= (utility.config("combatOverrunRecoveryRisk") or 38)

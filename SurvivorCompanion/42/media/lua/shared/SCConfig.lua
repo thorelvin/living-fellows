@@ -53,6 +53,14 @@ local valueData = {
     disabledNoticeCooldownMs = 30000,
     maxIntentLength = 48,
 
+    -- Peek moves the camera only inside the player-streamed area. The Java
+    -- boundary independently enforces the same sixteen-tile hard ceiling.
+    viewPeekMaximumDistance = 16,
+    viewPeekEaseMs = 180,
+    steeringUpdateIntervalMs = 80,
+    steeringArrivalDistance = 0.25,
+    steeringTargetTtlMs = 250,
+
     -- Public reliability telemetry is deliberately bounded. The action
     -- supervisor keeps control state in memory only; saves reconstruct work
     -- from authoritative game state instead of serializing a partial commit.
@@ -492,6 +500,14 @@ local valueData = {
     combatTargetClaimPenalty = 42,
     combatTargetPrimaryChallengeDistance = 0.75,
     combatTargetScoreMargin = 18,
+    -- Player target instructions influence ordinary target ranking; they never
+    -- bypass doctrine, line of sight, action viability, or overrun refusal.
+    -- The instruction is deliberately short-lived and holds no save reference
+    -- to a live zombie object.
+    combatDesignationScoreBonus = 80,
+    combatDesignationAvoidPenalty = 80,
+    combatDesignationDurationMs = 12000,
+    combatDesignationCommitMs = 2500,
     combatMeleeCommitMs = 650,
     combatRangedCommitMs = 1000,
     combatMotionHistoryMs = 1500,
@@ -689,6 +705,19 @@ local valueData = {
     banterPulseIntervalMs = 1000,
     banterSpeakerQuietMs = 15000,
     flavorPartySpeechGapMs = 20000,
+    -- Autonomous combat refusals only speak when overrun begins, then face a
+    -- much longer actor cooldown than ordinary banter. The decision is always
+    -- deterministic; chance governs speech only.
+    combatRefusalChancePercent = 35,
+    combatRefusalQuietMs = 5000,
+    combatRefusalActorCooldownMs = 120000,
+    combatRefusalPartyCooldownMs = 30000,
+    -- An explicit Focus command deserves an answer. Keep only short anti-spam
+    -- gates for that reliable response; autonomous refusals retain the long
+    -- cadence above.
+    combatRequestedRefusalQuietMs = 1000,
+    combatRequestedRefusalActorCooldownMs = 5000,
+    combatRequestedRefusalPartyCooldownMs = 1200,
     companionConversationReplyMs = 2800,
     companionConversationTimeoutMs = 9000,
     meetingGreetingDistance = 6,

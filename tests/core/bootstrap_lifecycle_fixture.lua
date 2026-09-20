@@ -69,7 +69,7 @@ local required = {
     "BaseVisuals", "WorkTransport", "GatherWork",
     "FarmWork", "BaseWork", "Production", "InfectionCrisis", "LifeEvents", "Community",
     "DiaryText", "DiaryCatalog", "DiaryItem", "Diary", "Quirks", "Autonomy", "Commands",
-    "FactionRecruitment", "Decision", "Support", "UIContext",
+    "FactionRecruitment", "Decision", "Support", "ViewControl", "Steering", "UIContext",
 }
 for _, name in ipairs(required) do SC[name] = SC[name] or {} end
 SC.Persistence.bindWorldStore = function() return true end

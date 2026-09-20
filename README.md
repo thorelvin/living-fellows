@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.20.4-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.24.2-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.25.0-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -91,11 +91,17 @@ It installs the mod under `%USERPROFILE%\Zomboid\mods\SurvivorCompanion`, keeps 
 3. Explore until you meet a survivor. Survivors never join automatically.
 4. Select the survivor in the panel and press **Recruit** when it is offered.
 5. Open **Orders** and pick a main order. New recruits start on **Follow**, **Copy player** movement, and **Ride with player**.
-6. If something looks wrong, open **More → Support** for runtime health and a copyable report.
+6. Hold **Left bracket** to peek through the selected companion's position; release it to return to your character. Or right-click a nearby companion and choose **Watch** for a persistent view.
+7. Hold **Right bracket** to steer that companion toward the cursor; release it to return them to normal AI control.
+8. If something looks wrong, open **More → Support** for runtime health and a copyable report.
 
 ## Companion panel
 
 The panel is translucent so you can still see the world. It can be docked left or right, collapsed to the **LF** launcher, or toggled with Home (rebindable under Living Fellows in the key bindings).
+
+**Peek and Watch.** Select a companion in the roster, then hold **Left bracket** (rebindable under Living Fellows) to ease the camera toward them. Release the key to ease home. For mouse-only use, right-click a nearby companion and choose **Watch**; while watching, right-click anywhere and choose **Stop watching** to return. The panel may be collapsed. Both views work on the same floor within 16 tiles, compose with normal right-click aim lean, and never transfer player identity: your player keeps moving normally and remains vulnerable.
+
+**Steer.** Hold **Right bracket** (separately rebindable) and point at loaded ground to walk the selected companion toward the cursor. You can hold Peek and Steer together for a scout-and-direct view. Steering owns the companion through the same action supervisor as work and survival: it can interrupt lower-priority activity, cannot steal them from a protected native action, and immediately yields to combat rescue or survival movement. Release the key to restore normal AI control.
 
 | Tab | Purpose |
 | --- | --- |
@@ -108,6 +114,7 @@ The panel is translucent so you can still see the world. It can be docked left o
 ## Orders
 
 - **Main order:** Follow, Stay, or Guard. Guard patrols around its anchor. Inside your camp area, Stay and Guard put the companion on base duty instead; Guard makes it a guard that watches the square you picked. **Regroup** and **Retreat** are immediate emergency actions.
+- **World orders:** Right-click the destination, then use **Target actions → Guard here** to anchor the selected companion to that square. On a zombie, **Focus on this zombie** strongly prefers it and **Leave this zombie alone** lowers its priority for twelve seconds. Doctrine, Hold Fire, visibility, safe attack choice, and overrun judgement still apply; a companion may refuse a bad instruction rather than obeying blindly.
 - **Follow distance:** how far behind you the team keeps. When you stop, followers hold formation for a few seconds before they start downtime or scavenging nearby.
 - **Movement:** Copy player, walk, sneak, or run. Escapes and combat can override it.
 - **Work mode:** useful chores, downtime, or supply crafting when it is safe.
@@ -130,7 +137,7 @@ In clear conditions companions spot zombies up to 24 tiles away. Each companion 
 
 ### Combat
 
-Companions fight with the game's own attack animations and weapon timings. They weigh wounds, stamina, panic, pain, morale, skill, weapon condition, support, and escape routes. They split targets, avoid friendly fire, shove when it is safe, finish grounded zombies, and cover a retreat.
+Companions fight with the game's own attack animations and weapon timings. They weigh wounds, stamina, panic, pain, morale, skill, weapon condition, support, and escape routes. They split targets, avoid friendly fire, shove when it is safe, finish grounded zombies, and cover a retreat. When one decides a fight is too dangerous, it may say the actual dominant reason--such as exhaustion, encirclement, wounds, bad footing, no escape, or an empty weapon--instead of silently refusing or giving only a generic retreat call.
 
 Zombies hunt companions like players. Bites can infect and turn them, and a swarm can pin a companion to the ground unless you thin it in time. Combat calls make real noise; under Stealth doctrine companions use silent hand signals when they can.
 
@@ -178,7 +185,7 @@ Zones include the camp boundary, work area, lumber area, farm area, burial groun
 
 Residents on base duty sort storage, repair gear, craft supplies, keep watch, patrol, maintain barricades, and build queued construction. They put spare carried literature into nearby Books & magazines storage even when they are not overloaded, but keep it if no library is marked. During a quiet spell they can borrow an unread book or magazine from that storage, read it, and put that exact item back; storage reserves, private diaries, favourites and other protected belongings are left alone. Immediate danger interrupts reading and returns a borrowed book. Giving Stay or Guard inside the camp area also puts a companion on base duty. A guard on shift keeps watch around its post instead of taking general chores.
 
-**Farming.** Draw a Farm area over existing vanilla plots; companions never turn untouched ground into fields. Any on-duty resident can tend them, while the Farmer role is preferred and completes farm actions 40% faster. Real Farming skill still determines crop yield and is required at level 3 for disease treatment. Residents borrow and return exact supplies, keep enough seed for every non-regrowing plot plus two spares, wait for seed stage when reserves are short, use compost rather than chemical fertilizer, and route crops and seeds to marked storage. Routine work is daylight-only. A remote Farm area gets no travel or work at night; an inside-camp plot may still be harvested or emergency-watered. Water may come from the camp or the active Farm area, preferring rain or tainted water and using clean water only in an emergency.
+**Farming.** Draw one or more Farm areas over existing vanilla plots; companions never turn untouched ground into fields. The bounded farm audit rotates across every marked area and queues the most urgent work it sees, using stable area and tile order for ties. Any on-duty resident can tend them, while the Farmer role is preferred and completes farm actions 40% faster. Real Farming skill still determines crop yield and is required at level 3 for disease treatment. Residents borrow and return exact supplies, keep enough seed for every non-regrowing plot plus two spares, wait for seed stage when reserves are short, use compost rather than chemical fertilizer, and route crops and seeds to marked storage. Routine work is daylight-only. A remote Farm area gets no travel or work at night; an inside-camp plot may still be harvested or emergency-watered. Water may come from the camp or the active Farm area, preferring rain or tainted water and using clean water only in an emergency.
 
 To see the base layout, press End (rebindable under Options, Key bindings, Living Fellows), use right-click, Living Fellows, Base life, or use the button in the Base tab. Each zone gets a see-through floor tint and outline in its colour, registered storage gets a tile and outline in its category colour, and a legend lists what is on screen.
 
@@ -188,7 +195,7 @@ To see the base layout, press End (rebindable under Options, Key bindings, Livin
 
 | Job | You need | What happens |
 | --- | --- | --- |
-| Fell trees | A lumber area and an axe in storage | Residents chop standing trees with the game's own action. A tree counts only once it is down, and its logs can be hauled to storage automatically across as many bounded hauling batches as needed. |
+| Fell trees | One or more lumber areas and an axe in storage | Residents automatically choose the area with the most visible standing trees after subtracting unfinished logging commitments; stable area IDs break ties. They chop with the game's own action. A tree counts only once it is down, and its logs can be hauled to storage automatically across as many bounded hauling batches as needed. |
 | Saw planks | Logs in one storage, a saw, and a second storage for planks | Residents take one log at a time, saw it into three planks with the vanilla recipe, and store the planks. Completed output is recovered after a pause or reload before another log can be taken. |
 | Dig graves | A burial ground and a shovel | Residents dig vanilla graves on natural ground. |
 | Bury the dead | A burial ground and a shovel | Residents match each body to a usable open grave, reserve both while working, and dig near an eligible body if needed. They fill the grave when it is full or the order is done, and can add a wooden cross (hammer, two planks, two nails). |
@@ -248,6 +255,8 @@ Do not remove the mod from an important save without a backup.
 - The standalone edition is Windows-only and uses its bundled bridge.
 - Mods that replace player actor construction, animation ownership, pathfinding, vehicle passenger state, UI key bindings, or the same launcher `mainClass` may conflict.
 - The default panel key is **Home**. Rebind it or report a conflict if another mod uses it.
+- The default Peek hold key is **Left bracket**. It is separately rebindable under Living Fellows.
+- The default Steer hold key is **Right bracket**. It is separately rebindable under Living Fellows.
 - No Project Zomboid game file is redistributed or patched in place.
 
 ## Troubleshooting

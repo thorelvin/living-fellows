@@ -175,7 +175,7 @@ for _, name in ipairs({
     "BaseObjectRef", "BaseLife", "WorkTransport", "GatherWork", "FarmWork", "BaseWork", "Production",
     "InfectionCrisis", "LifeEvents", "Community",
     "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",
-    "Quirks", "Autonomy", "Commands", "FactionRecruitment", "Decision", "Support",
+    "Quirks", "Autonomy", "Commands", "FactionRecruitment", "Decision", "Support", "ViewControl", "Steering",
     "UIContext",
 }) do
     SC[name] = SC[name] or resettable()

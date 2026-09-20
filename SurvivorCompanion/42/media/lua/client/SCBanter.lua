@@ -4,6 +4,7 @@
 -- conversations and first meetings briefly use SC.Positioning so both people
 -- face one another without taking over ordinary movement for long. Cooldowns
 -- keep the moments from piling up:
+--   * a rare cause-specific explanation when combat decides to withdraw,
 --   * a deadpan distraction shout when a companion is surrounded or held by a
 --     grab (or a taunt when an ally is grabbed nearby),
 --   * a joke when the player has stood still for a few minutes,
@@ -141,6 +142,198 @@ local POOLS = {
             "Didn't think so.",
             "Worth a try. Wasn't worth much.",
         },
+    },
+    ["banter.refusal.immediate_count"] = {
+        common = {
+            "That's three of them. I'm not going in there.",
+            "Too many right on top of me. I'm backing out.",
+            "They're already in reach. No. I'm coming back.",
+            "I can't take that many at arm's length.",
+        },
+        brave = { "That's not a fight. That's a pile-on. I'm out." },
+        cautious = { "They're too close already. We need another way." },
+        caring = { "I won't make you drag me out of that crowd." },
+        practical = { "Three in striking distance. Bad trade. Backing off." },
+    },
+    ["banter.refusal.directional_pressure"] = {
+        common = {
+            "Too much coming from that side. I'm pulling back.",
+            "That whole line is pushing this way. Not safe.",
+            "Pressure's building too fast. I'm giving ground.",
+            "I can't hold that approach. Coming back.",
+        },
+        brave = { "They've got the weight on that side. I'll reset." },
+        cautious = { "That side is folding in. We need room now." },
+        caring = { "They're pushing through. Stay back with me." },
+        practical = { "Too much pressure on one side. Repositioning." },
+    },
+    ["banter.refusal.close_pressure"] = {
+        common = {
+            "More close than I can handle. I'm backing off.",
+            "I don't have room for all of them.",
+            "They're crowding my reach. I need distance.",
+            "Too many in my face. Give me room.",
+        },
+        brave = { "I can take a few, not the whole doorway. Moving." },
+        cautious = { "They're inside my safe distance. I'm leaving it." },
+        caring = { "I can't cover anyone from inside that crush." },
+        practical = { "Their numbers exceed my reach. Creating distance." },
+    },
+    ["banter.refusal.occupied_sectors"] = {
+        common = {
+            "They're coming from three sides. I'm falling back.",
+            "Too many angles. I can't hold this spot.",
+            "They've got every side of me. Moving out.",
+            "No clean front anymore. I'm coming back.",
+        },
+        brave = { "I don't mind a fight. I mind three fronts. Backing off." },
+        cautious = { "They're on every side. I knew this spot was bad." },
+        caring = { "I can't watch all those angles and watch you too." },
+        practical = { "Three occupied sectors. Position's gone." },
+    },
+    ["banter.refusal.internal_risk"] = {
+        common = {
+            "I'm not steady enough for this. Not right now.",
+            "Something's off. I need a second before I fight.",
+            "I'm too worn down to make that safe.",
+            "I don't have a clean fight in me. Backing off.",
+        },
+        brave = { "I can force it, but I won't win it like this." },
+        cautious = { "I'm not right. I need to settle before we go in." },
+        caring = { "I need a breath. I don't want to become your problem." },
+        practical = { "Readiness is too low. Resetting before contact." },
+    },
+    ["banter.refusal.escape_danger"] = {
+        common = {
+            "That way out is worse than staying put. I'm not committing.",
+            "The exit's covered. I need another route.",
+            "I can get in, but not back out safely.",
+            "That retreat path is hot. Not going yet.",
+        },
+        brave = { "I'll fight forward when I know I can come back." },
+        cautious = { "The way back is crawling. We need another exit." },
+        caring = { "If I go there, you can't reach me. No." },
+        practical = { "Withdrawal route is compromised. Holding here." },
+    },
+    ["banter.refusal.footing"] = {
+        common = {
+            "I can't get my feet under me. I'm backing off.",
+            "Bad footing. I'm not fighting from here.",
+            "I keep getting tangled up. Give me clear ground.",
+            "No room to plant my feet. Moving.",
+        },
+        brave = { "Put me on clear ground and I'll take them." },
+        cautious = { "I'm boxed in by the ground itself. Backing away." },
+        caring = { "I can't keep anyone safe while I'm tripping over this." },
+        practical = { "Footing's compromised. Relocating." },
+    },
+    ["banter.refusal.encircled"] = {
+        common = {
+            "They're all round me. I'm coming back.",
+            "I'm surrounded. Breaking out now.",
+            "They've closed the circle. I'm not staying in it.",
+            "No front, no flank, just teeth. I'm leaving.",
+        },
+        brave = { "They got around me. Fine. I break out first." },
+        cautious = { "They're everywhere. I'm coming back, right now." },
+        caring = { "I'm surrounded. Don't come in after me." },
+        practical = { "Encircled. Position lost. Withdrawing." },
+    },
+    ["banter.refusal.no_escape"] = {
+        common = {
+            "No way out of that room. Not doing it.",
+            "That's a dead end. I'm not walking into it.",
+            "I don't see an exit. We need another plan.",
+            "One door in and no way back. No.",
+        },
+        brave = { "Give me an exit and I'll go. Not before." },
+        cautious = { "No escape route. Absolutely not." },
+        caring = { "If I go in there, you can't get me out." },
+        practical = { "Zero exits. The approach is rejected." },
+    },
+    ["banter.refusal.indoors"] = {
+        common = {
+            "Not in here. Too tight.",
+            "I need more room than this. Backing out.",
+            "Walls this close turn one mistake into a grave.",
+            "Too cramped to fight clean. I'm moving.",
+        },
+        brave = { "Outside, I'll take them. In this box, no." },
+        cautious = { "It's too tight in here. I don't like this at all." },
+        caring = { "There's no room to pull each other clear in here." },
+        practical = { "Interior spacing is bad. Taking it outside." },
+    },
+    ["banter.refusal.health"] = {
+        common = {
+            "I'm in no state for this.",
+            "I'm hurt. Another fight can wait.",
+            "I won't last through that in this condition.",
+            "Not with these wounds. I'm pulling back.",
+        },
+        brave = { "I'm still standing, but I won't waste what's left." },
+        cautious = { "I'm already hurt. I'm not making it worse." },
+        caring = { "I need help before I can help anyone in there." },
+        practical = { "Health's too low for another exchange." },
+    },
+    ["banter.refusal.unarmed"] = {
+        common = {
+            "I've got nothing to fight with. I'm not going in.",
+            "Bare hands against that? No chance.",
+            "I need a weapon before I take this on.",
+            "Not armed, not ready. I'm backing off.",
+        },
+        brave = { "Give me something with an edge, then ask again." },
+        cautious = { "I don't even have a weapon. No." },
+        caring = { "Going in empty-handed only gives you someone else to save." },
+        practical = { "No weapon. Engagement isn't viable." },
+    },
+    ["banter.refusal.weapon_condition"] = {
+        common = {
+            "My axe is about done. You want this?",
+            "This weapon won't survive that fight.",
+            "One more hard hit and this thing's finished.",
+            "My weapon's failing. I need another one.",
+        },
+        brave = { "I'll finish it when I've got steel that will last." },
+        cautious = { "This thing's nearly broken. I'm not trusting my life to it." },
+        caring = { "If my weapon breaks in there, you have to come get me." },
+        practical = { "Weapon condition is critical. Replacing it first." },
+    },
+    ["banter.refusal.ammo_dry"] = {
+        common = {
+            "I'm dry. Give me a second.",
+            "Empty. I need to reload before I move in.",
+            "No rounds left. I'm backing off.",
+            "Gun's dry. This isn't the time to bluff.",
+        },
+        brave = { "I'm empty, not stupid. Cover me while I reload." },
+        cautious = { "No ammunition. I'm not going any closer." },
+        caring = { "I'm dry. Stay behind me while I sort it out." },
+        practical = { "Magazine empty. Disengaging to reload." },
+    },
+    ["banter.refusal.stamina"] = {
+        common = {
+            "I've got nothing left. Not yet.",
+            "I can't swing again and still get away.",
+            "I'm spent. I need air before I go back in.",
+            "No breath, no fight. I'm falling back.",
+        },
+        brave = { "Give me one breath and I'll be dangerous again." },
+        cautious = { "I'm exhausted. I have to stop before they catch me." },
+        caring = { "I'm out of breath. Don't risk yourself waiting on me." },
+        practical = { "Endurance reserve is gone. Recovering first." },
+    },
+    ["banter.refusal.risk_score"] = {
+        common = {
+            "This is turning bad. I'm pulling back.",
+            "I don't like the odds anymore. Coming back.",
+            "Too much is wrong at once. I'm not committing.",
+            "That fight doesn't add up. I'm moving out.",
+        },
+        brave = { "Bad odds are one thing. These are worse. Resetting." },
+        cautious = { "Everything about this feels wrong. I'm backing away." },
+        caring = { "This isn't worth losing someone over. I'm coming back." },
+        practical = { "Overall risk is too high. Withdrawing." },
     },
     ["banter.idle.first"] = {
         common = {
@@ -537,6 +730,7 @@ local function freshParty()
     return {
         lastFlavorAt = -math.huge,
         lastDistractionAt = -math.huge,
+        lastRefusalAt = -math.huge,
         lastPlaceAt = -math.huge,
         lastJokeAt = -math.huge,
         idle = nil,
@@ -982,6 +1176,54 @@ local function tryDistraction(actor, commands, assessment, current, mode)
     if mode == "self" then
         own.verdictAt = current + config("distractionVerdictDelayMs", 3500)
     end
+    return true, topic
+end
+
+-- Speech-only explanation for the deterministic overrun decision. Combat calls
+-- this once when an autonomous overrun episode begins; the long actor and party
+-- cooldowns are deliberately separate from ordinary flavour banter.
+function Banter.overrunRefusal(actor, commands, assessment, current, options)
+    if not enabled() or actor == nil then return false, "banter_disabled" end
+    commands = commandState(actor, commands)
+    if commands.recruited ~= true then return false, "banter_not_recruited" end
+    if type(assessment) ~= "table" or assessment.overrun ~= true
+        or type(assessment.cause) ~= "string" then
+        return false, "refusal_cause_missing"
+    end
+    local topic = "banter.refusal." .. assessment.cause
+    if POOLS[topic] == nil then topic = "banter.refusal.risk_score" end
+    current = tonumber(current) or U().nowMs()
+    options = type(options) == "table" and options or {}
+    local reliable = options.reliable == true
+    local own = actorState(actor)
+    local actorCooldown = reliable
+        and config("combatRequestedRefusalActorCooldownMs", 5000)
+        or config("combatRefusalActorCooldownMs", 120000)
+    if current - (own.refusalAt or -math.huge)
+        < actorCooldown then
+        return false, "refusal_actor_cooldown"
+    end
+    local partyCooldown = reliable
+        and config("combatRequestedRefusalPartyCooldownMs", 1200)
+        or config("combatRefusalPartyCooldownMs", 30000)
+    if current - party.lastRefusalAt
+        < partyCooldown then
+        return false, "refusal_party_cooldown"
+    end
+    local spokenAt = lastSpokenAt(actor)
+    local quiet = reliable and config("combatRequestedRefusalQuietMs", 1000)
+        or config("combatRefusalQuietMs", 5000)
+    if spokenAt and current - spokenAt < quiet then
+        return false, "refusal_recently_spoke"
+    end
+    local chance = reliable and 100
+        or config("combatRefusalChancePercent", 35)
+    if not roll(chance, actor, current) then return false, "refusal_not_rolled" end
+    if not speak(actor, topic, commands, nil, { salt = assessment.cause }) then
+        return false, "refusal_speech_rejected"
+    end
+    own.refusalAt, own.refusalCause = current, assessment.cause
+    party.lastRefusalAt = current
     return true, topic
 end
 

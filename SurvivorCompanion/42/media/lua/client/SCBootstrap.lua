@@ -83,6 +83,8 @@ require "SCGestures"
 require "SCDecision"
 require "SCSupport"
 require "SCUI"
+require "SCViewControl"
+require "SCSteering"
 require "SCUIContext"
 require "SCDiaryUI"
 require "SCCompanionMap"
@@ -121,7 +123,7 @@ local requiredModules = {
     "FarmWork", "BaseWork", "Production", "InfectionCrisis",
     "LifeEvents", "Community", "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",
     "Quirks", "Autonomy",
-    "Commands", "FactionRecruitment", "Decision", "Support", "UI", "UIContext",
+    "Commands", "FactionRecruitment", "Decision", "Support", "UI", "ViewControl", "Steering", "UIContext",
     "CompanionMap",
 }
 
