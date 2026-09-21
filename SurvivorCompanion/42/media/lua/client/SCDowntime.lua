@@ -13,6 +13,7 @@ local visualActivities = {
     wash_self = true, wash_equipment = true, study_corpse = true, pay_respects = true,
     workout = true, write_diary = true,
 }
+local restPostures = { sit = true, rest_bed = true, rest_floor = true }
 
 local function U()
     return SC.GameplayUtil
@@ -104,13 +105,14 @@ end
 local function releaseActivity(actor, activity)
     if not activity then return end
     -- Getting up from a seat may earn a stretch (SCGestures), once per sit.
-    if (activity.kind == "sit" or activity.kind == "rest_bed")
+    if restPostures[activity.kind]
+        and activity.preserveSeating ~= true
         and activity.actionAccepted == true and not activity.stoodUpNoted
         and SC.Gestures and type(SC.Gestures.noteStoodUp) == "function" then
         activity.stoodUpNoted = true
         pcall(SC.Gestures.noteStoodUp, actor, U().nowMs())
     end
-    if (activity.kind == "sit" or activity.kind == "rest_bed")
+    if restPostures[activity.kind] and activity.preserveSeating ~= true
         and SC.NativeActions and type(SC.NativeActions.leaveSeating) == "function" then
         pcall(SC.NativeActions.leaveSeating, actor)
     end
@@ -776,8 +778,23 @@ local function coolFurniture(state, object, current)
         + (tonumber(U().config("downtimeFurnitureFailureCooldownMs")) or 60000)
 end
 
-local function seatActivity(actor, state, current)
+local function seatingStatus(actor)
+    if SC.NativeActions and type(SC.NativeActions.seatingStatus) == "function" then
+        local ok, value = pcall(SC.NativeActions.seatingStatus, actor)
+        if ok and value ~= nil then return tostring(value) end
+    end
+    local sitting, sittingOk = U().call(actor, "isSittingOnFurniture")
+    if sittingOk and sitting == true then return "furniture" end
+    local onBed, bedOk = U().call(actor, "isOnBed")
+    if bedOk and onBed == true then return "bed" end
+    local ground, groundOk = U().call(actor, "isSitOnGround")
+    if groundOk and ground == true then return "ground" end
+    return "standing"
+end
+
+local function seatActivity(actor, state, current, seatOnly)
     local utility = U()
+    if seatingStatus(actor) ~= "standing" then return nil end
     local x, y, z = utility.position(actor)
     if not x then return nil end
     local actorSquare = utility.squareOf(actor)
@@ -796,16 +813,29 @@ local function seatActivity(actor, state, current)
                     if sameFurnitureContext(actorSquare, square) then
                         utility.squareObjects(square, function(object)
                             local value = furnitureKind(object)
-                            if value and not furnitureCooling(state, object, current) then
+                            local occupied, occupiedOk = utility.call(
+                                object, "isFurnitureOccupied", actor)
+                            if value and (seatOnly ~= true or value == "sit")
+                                and not (occupiedOk and occupied == true)
+                                and not furnitureCooling(state, object, current) then
                                 found, kind = object, value
                                 return false
                             end
                         end, 32)
                     end
                     if found then
+                        local fatigue = utility.clamp(tonumber(
+                            utility.characterStatValue(actor, "FATIGUE", 0)) or 0, 0, 1)
+                        local tired = fatigue >= (tonumber(
+                            utility.config("needsFatigueThreshold")) or 0.50)
+                        local score = kind == "rest_bed" and 13 or 12
+                        if tired then
+                            score = (kind == "rest_bed" and 48 or 40)
+                                + math.floor(fatigue * 10)
+                        end
                         return {
                             kind = kind,
-                            score = kind == "rest_bed" and 13 or 12,
+                            score = score,
                             object = found,
                             square = square,
                             fact = { activity = kind },
@@ -817,6 +847,21 @@ local function seatActivity(actor, state, current)
         end
     end
     return nil
+end
+
+local function floorRestActivity(actor, furnitureAvailable)
+    local utility = U()
+    if furnitureAvailable or seatingStatus(actor) ~= "standing" then return nil end
+    local fatigue = utility.clamp(tonumber(
+        utility.characterStatValue(actor, "FATIGUE", 0)) or 0, 0, 1)
+    local threshold = tonumber(utility.config("needsFatigueThreshold")) or 0.50
+    if fatigue < threshold then return nil end
+    return {
+        kind = "rest_floor",
+        score = 36 + math.floor(fatigue * 12),
+        durationMs = tonumber(utility.config("downtimeFloorRestMs")) or 12000,
+        fact = { activity = "rest_floor", fatigue = fatigue },
+    }
 end
 
 local function approachFurniture(actor, activity)
@@ -1722,16 +1767,12 @@ local function candidates(actor, commands, state, current, desiredKind)
     elseif workMode == "idle" then
         activity = availableReadActivity(actor, items)
         if activity then filtered[#filtered + 1] = activity end
-        activity = seatActivity(actor, state, current)
-        if activity then filtered[#filtered + 1] = activity end
     else
         activity = repairActivity(actor, items)
         if activity then filtered[#filtered + 1] = activity end
         activity = availableReadActivity(actor, items)
         if activity then filtered[#filtered + 1] = activity end
         activity = craftActivity(actor, items)
-        if activity then filtered[#filtered + 1] = activity end
-        activity = seatActivity(actor, state, current)
         if activity then filtered[#filtered + 1] = activity end
     end
     if workMode ~= "craft" and (desiredKind == nil or desiredKind == "study_corpse") then
@@ -1753,6 +1794,36 @@ local function candidates(actor, commands, state, current, desiredKind)
         and SC.Diary and type(SC.Diary.writeActivity) == "function" then
         local ok, writing = pcall(SC.Diary.writeActivity, actor, current)
         if ok and type(writing) == "table" then filtered[#filtered + 1] = writing end
+    end
+    if workMode ~= "craft" then
+        local furniture = seatActivity(actor, state, current)
+        local seatedTask, seatedTaskScore
+        for _, candidate in ipairs(filtered) do
+            if candidate.kind == "read" or candidate.kind == "write_diary" then
+                local score = tonumber(candidate.score) or 0
+                if seatedTask == nil or score > seatedTaskScore then
+                    seatedTask, seatedTaskScore = candidate, score
+                end
+            end
+        end
+        local rest = furniture
+        if seatedTask ~= nil and seatingStatus(actor) == "standing" then
+            -- Sit first, then the normal next downtime pass starts Read/Write
+            -- without getting up. Beds remain available for actual tired rest;
+            -- a chair/sofa/stool is selected specifically for desk-like activity.
+            local readingSeat = furniture and furniture.kind == "sit" and furniture
+                or seatActivity(actor, state, current, true)
+            if readingSeat then
+                readingSeat.score = math.max(tonumber(readingSeat.score) or 0,
+                    (seatedTaskScore or 0) + 1)
+                readingSeat.fact.seatingFor = seatedTask.kind
+                rest = readingSeat
+            end
+        end
+        if rest then filtered[#filtered + 1] = rest end
+        local floorRest = floorRestActivity(actor,
+            furniture ~= nil and desiredKind ~= "rest_floor")
+        if floorRest then filtered[#filtered + 1] = floorRest end
     end
     if desiredKind ~= nil then
         for index = #filtered, 1, -1 do
@@ -1884,6 +1955,7 @@ local function beginSupervisedActivity(actor, state, activity)
             [activity.kind] = true,
             move_to_seat = true, move_to_water_source = true, move_to_corpse = true,
             move_to_base_storage = true,
+            sit_ground = true, stand_ground = true,
             -- A seated companion may yawn or stretch without getting up.
             ext_gesture = true,
         },
@@ -1995,7 +2067,7 @@ local function beginActivity(actor, state, activity, commands, now)
         return SC.Medical.replaceDirtyBandage(actor)
     end
     if not reserveActivity(actor, activity, now) then return false, "reserved" end
-    if activity.kind == "rest_bed" or activity.kind == "sit" then
+    if restPostures[activity.kind] then
         activity.deadlines = activity.deadlines or {}
         activity.deadlines.animating = tonumber(
             U().config("bedEntryTimeoutMs")) or 12000
@@ -2012,10 +2084,26 @@ local function beginActivity(actor, state, activity, commands, now)
     local wash = activity.kind == "wash_self" or activity.kind == "wash_equipment"
     local study = activity.kind == "study_corpse" or activity.kind == "pay_respects"
     local furniture = activity.kind == "sit" or activity.kind == "rest_bed"
+    local floorRest = activity.kind == "rest_floor"
     local borrowedRead = activity.kind == "read" and activity.borrowedFrom ~= nil
     if activity.kind == "study_corpse" then Study.prepare(actor, activity, commands, state, now) end
     if activity.kind == "pay_respects" then Respect.prepare(actor, activity, commands, state, now) end
-    if borrowedRead then
+    if floorRest then
+        if not utility.move(actor, "walk", {
+            action = "sit_ground",
+            downtime = true,
+            supervisorToken = activity.supervisorToken,
+        }) then
+            state.active = activity
+            return failActivity(actor, state, "ground_rest_rejected")
+        end
+        activity.actionAccepted = true
+        activity.entryStartedAt = now
+        activity.startedAt = nil
+        transitionActivity(activity, "approaching", {
+            action = activity.kind, finalAlignment = true,
+        })
+    elseif borrowedRead then
         state.active = activity
         local accepted, status = approachBorrowedReadingSource(actor, activity)
         if not accepted then return failActivity(actor, state, status or "route_failed") end
@@ -2109,7 +2197,7 @@ local function beginActivity(actor, state, activity, commands, now)
             state.active = activity
             return failActivity(actor, state, "animation_rejected")
         end
-        if activity.kind == "rest_bed" or activity.kind == "sit" then
+        if restPostures[activity.kind] then
             activity.entryStartedAt = now
             activity.startedAt = nil
         else
@@ -2267,6 +2355,8 @@ local function finishActivity(actor, state, now)
         success = activity.actionAccepted == true
     elseif activity.kind == "rest_bed" then
         success = activity.actionAccepted == true
+    elseif activity.kind == "rest_floor" then
+        success = activity.actionAccepted == true
     elseif activity.kind == "wash_self" then
         success = completeWashSelf(actor, activity)
     elseif activity.kind == "wash_equipment" then
@@ -2287,6 +2377,7 @@ local function finishActivity(actor, state, now)
         read = "read_verification_failed",
         sit = "sit_verification_failed",
         rest_bed = "bed_rest_verification_failed",
+        rest_floor = "floor_rest_verification_failed",
         wash_self = "wash_self_commit_failed",
         wash_equipment = "wash_equipment_commit_failed",
         study_corpse = "study_verification_failed",
@@ -2303,6 +2394,13 @@ local function finishActivity(actor, state, now)
     })
     if verifying ~= true then return failActivity(actor, state,
         verifyReason or "verification_failed") end
+    -- A completed chair/sofa sit becomes a passive posture. The native rest
+    -- action has left the queue, so Read/Write may begin without getting up.
+    -- Skip the ordinary post-action look-around pause here: that observation
+    -- is a standing action and could undo the seat before the follow-up starts.
+    if activity.kind == "sit" and activity.furnitureEntered == true then
+        activity.preserveSeating = true
+    end
     if success then
         if activity.kind == "study_corpse" then Study.finish(actor, activity, now) end
         if activity.kind == "pay_respects" then Respect.finish(actor, activity, now) end
@@ -2323,7 +2421,7 @@ local function finishActivity(actor, state, now)
         end
         if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
             SC.NativeActions.noteResult(actor, "downtime_" .. tostring(activity.kind),
-                "completed", { kind = "long" })
+                "completed", { kind = "long", skip = activity.preserveSeating == true })
         end
     end
     releaseActivity(actor, activity)
@@ -2359,6 +2457,11 @@ function Downtime.cancel(actor, reason)
         end
         debugTrace(actor, "cancel", activity, reason)
         changed = true
+    end
+    if seatingStatus(actor) ~= "standing" and SC.NativeActions
+        and type(SC.NativeActions.leaveSeating) == "function" then
+        local ok, stood = pcall(SC.NativeActions.leaveSeating, actor)
+        changed = changed or ok and stood == true
     end
     if not changed then return false end
     state.safeSince = nil
@@ -2415,6 +2518,7 @@ function Downtime.update(actor, player, runtime, desiredKind)
             return false, "cancelled_for_order"
         end
         local furniture = state.active.kind == "sit" or state.active.kind == "rest_bed"
+        local floorRest = state.active.kind == "rest_floor"
         local borrowedCheckout = state.active.kind == "read"
             and state.active.borrowedFrom ~= nil and state.active.borrowedReading ~= true
         if borrowedCheckout then
@@ -2538,7 +2642,7 @@ function Downtime.update(actor, player, runtime, desiredKind)
             end
             return true, state.active.kind
         end
-        if furniture and state.active.actionAccepted == true
+        if (furniture or floorRest) and state.active.actionAccepted == true
             and state.active.furnitureEntered ~= true then
             local entryState = "none"
             if state.active.kind == "rest_bed" and SC.NativeActions
@@ -2547,6 +2651,12 @@ function Downtime.update(actor, player, runtime, desiredKind)
             elseif state.active.kind == "sit" and SC.NativeActions
                 and type(SC.NativeActions.furnitureStatus) == "function" then
                 entryState = SC.NativeActions.furnitureStatus(actor)
+            elseif floorRest and SC.NativeActions
+                and type(SC.NativeActions.groundStatus) == "function" then
+                entryState = SC.NativeActions.groundStatus(actor)
+            elseif floorRest then
+                local seated, seatedOk = utility.call(actor, "isSitOnGround")
+                entryState = seatedOk and seated == true and "entered" or "entering"
             end
             if entryState == "entered" then
                 state.active.furnitureEntered = true
@@ -2563,18 +2673,21 @@ function Downtime.update(actor, player, runtime, desiredKind)
                     return failActivity(actor, state,
                         transitionReason or "furniture_entry_transition_failed")
                 end
-                return true, state.active.kind == "rest_bed"
-                    and "resting_on_bed" or "sitting_on_furniture"
+                if state.active.kind == "rest_bed" then return true, "resting_on_bed" end
+                if floorRest then return true, "resting_on_floor" end
+                return true, "sitting_on_furniture"
             end
             local elapsed = current - (tonumber(state.active.entryStartedAt) or current)
             if entryState ~= "entering"
                 or elapsed >= (utility.config("bedEntryTimeoutMs") or 12000) then
-                local prefix = state.active.kind == "rest_bed" and "bed" or "furniture"
+                local prefix = state.active.kind == "rest_bed" and "bed"
+                    or floorRest and "floor" or "furniture"
                 return failActivity(actor, state, entryState == "entering"
                     and prefix .. "_entry_timeout" or prefix .. "_entry_failed")
             end
-            return true, state.active.kind == "rest_bed"
-                and "getting_on_bed" or "taking_seat"
+            if state.active.kind == "rest_bed" then return true, "getting_on_bed" end
+            if floorRest then return true, "sitting_on_floor" end
+            return true, "taking_seat"
         end
         local duration = state.active.durationMs or Study.duration(state.active.kind)
         -- Work speed shapes chores; an activity with its own length keeps it.
@@ -2642,7 +2755,7 @@ end
 
 function Downtime._furnitureForTests()
     return furnitureKind, seatActivity, approachFurniture, beginActivity,
-        coolFurniture, furnitureCooling
+        coolFurniture, furnitureCooling, floorRestActivity, seatingStatus
 end
 
 function Downtime.reset(actor)

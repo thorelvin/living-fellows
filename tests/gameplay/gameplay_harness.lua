@@ -6016,6 +6016,7 @@ do
 local originalNativeActions = SurvivorCompanion.NativeActions
 local originalActorMovement = SurvivorCompanion.Actor.setMovement
 local visualStates = setmetatable({}, { __mode = "k" })
+local seatingStates = setmetatable({}, { __mode = "k" })
 local pacingRecords = setmetatable({}, { __mode = "k" })
 local resultNotes = {}
 SurvivorCompanion.NativeActions = {
@@ -6027,6 +6028,21 @@ SurvivorCompanion.NativeActions = {
     end,
     clearVisual = function(value) visualStates[value] = nil return true end,
     cancelVisual = function(value) visualStates[value] = nil return true end,
+    seatingStatus = function(value) return seatingStates[value] or "standing" end,
+    furnitureStatus = function(value)
+        return seatingStates[value] == "furniture" and "entered" or "none"
+    end,
+    bedStatus = function(value)
+        return seatingStates[value] == "bed" and "entered" or "none"
+    end,
+    groundStatus = function(value)
+        return seatingStates[value] == "ground" and "entered" or "none"
+    end,
+    leaveSeating = function(value)
+        seatingStates[value] = nil
+        value.leftTestSeating = (value.leftTestSeating or 0) + 1
+        return true
+    end,
     noteResult = function(value, source, result, options)
         resultNotes[#resultNotes + 1] = { actor = value, source = source, result = result }
         return true, "pacing_started"
@@ -6054,8 +6070,17 @@ SurvivorCompanion.Actor.setMovement = function(value, mode, intent)
         or intent.action == "read" or intent.action == "repair"
         or intent.action == "craft_supply" or intent.action == "wash_self"
         or intent.action == "wash_equipment" or intent.action == "wear_clothing"
-        or intent.action == "loot_container") then
+        or intent.action == "loot_container" or intent.action == "write_diary") then
         visualStates[value] = { action = intent.action, status = "active" }
+    end
+    if accepted and intent and intent.action == "sit" then
+        seatingStates[value] = "furniture"
+    elseif accepted and intent and intent.action == "rest_bed" then
+        seatingStates[value] = "bed"
+    elseif accepted and intent and intent.action == "sit_ground" then
+        seatingStates[value] = "ground"
+    elseif accepted and intent and intent.action == "stand_ground" then
+        seatingStates[value] = nil
     end
     return accepted, reason
 end
@@ -6550,6 +6575,108 @@ local stagedReadFinished = SurvivorCompanion.Downtime.update(stagedReader, playe
 check(stagedReadFinished
         and SurvivorCompanion.Downtime.peek(stagedReader).lastFact.activity == "read",
     "downtime records its result only after verified animation completion")
+
+do
+    local chairSquare = cell:getGridSquare(8, 5, 0)
+    chairSquare.room = { name = "reading_room" }
+    local chair = { square = chairSquare }
+    function chair:getSquare() return self.square end
+    function chair:getX() return self.square.x end
+    function chair:getY() return self.square.y end
+    function chair:getZ() return self.square.z end
+    function chair:getName() return "Chair" end
+    chairSquare.objects[#chairSquare.objects + 1] = chair
+    local seatedBook = item("Base.BookSeated", "Literature", { pages = 180 })
+    local seatedReader = actor("sc-seated-reader", 8, 5, {
+        inventory = inventory({ seatedBook }),
+    })
+    seatedReader.modData.SC_Order = "stay"
+    seatedReader.modData.SC_WorkMode = "idle"
+    registry[seatedReader.id] = seatedReader
+    local calm = { snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+        player = { danger = 0 }, indoors = true } }
+    local satFirst, satReason = SurvivorCompanion.Downtime.update(
+        seatedReader, player, calm)
+    SurvivorCompanion.Downtime.update(seatedReader, player, calm)
+    clock = clock + 1
+    SurvivorCompanion.Downtime.update(seatedReader, player, calm)
+    local seatedFact = SurvivorCompanion.Downtime.peek(seatedReader).lastFact
+    local readStarted, readReason = SurvivorCompanion.Downtime.update(
+        seatedReader, player, calm)
+    check(satFirst and satReason == "sit" and seatedFact.activity == "sit"
+            and readStarted and readReason == "read"
+            and seatingStates[seatedReader] == "furniture"
+            and seatedReader.lastIntent.action == "read",
+        "a companion sits before reading and starts Read without leaving the chair: "
+            .. tostring(satReason) .. "/" .. tostring(readReason))
+    visualStates[seatedReader].status = "completed"
+    SurvivorCompanion.Downtime.update(seatedReader, player, calm)
+
+    local oldWriteActivity = SurvivorCompanion.Diary.writeActivity
+    local oldCommitWrite = SurvivorCompanion.Diary.commitWrite
+    local oldAbandonWrite = SurvivorCompanion.Diary.abandonWrite
+    local diaryCommits = 0
+    SurvivorCompanion.Diary.writeActivity = function(candidate)
+        if candidate ~= seatedReader then return nil end
+        return { kind = "write_diary", score = 45, durationMs = 0,
+            diary = { fixture = true }, fact = { activity = "write_diary" } }
+    end
+    SurvivorCompanion.Diary.commitWrite = function(candidate, plan)
+        if candidate == seatedReader and plan and plan.fixture == true then
+            diaryCommits = diaryCommits + 1
+            return true
+        end
+        return false
+    end
+    SurvivorCompanion.Diary.abandonWrite = function() return true end
+    clock = clock + 1
+    local wroteStart, wroteReason = SurvivorCompanion.Downtime.update(
+        seatedReader, player, calm)
+    check(wroteStart and wroteReason == "write_diary"
+            and seatingStates[seatedReader] == "furniture"
+            and seatedReader.lastIntent.action == "write_diary",
+        "a seated companion starts the diary pose without standing: "
+            .. tostring(wroteReason))
+    visualStates[seatedReader].status = "completed"
+    SurvivorCompanion.Downtime.update(seatedReader, player, calm)
+    check(diaryCommits == 1 and seatingStates[seatedReader] == "furniture",
+        "seated diary writing commits once and keeps the chair posture")
+    SurvivorCompanion.Diary.writeActivity = oldWriteActivity
+    SurvivorCompanion.Diary.commitWrite = oldCommitWrite
+    SurvivorCompanion.Diary.abandonWrite = oldAbandonWrite
+    SurvivorCompanion.Downtime.reset(seatedReader)
+    check(seatingStates[seatedReader] == nil,
+        "cancelling downtime gets a passively seated companion back up")
+    registry[seatedReader.id] = nil
+    for index = #chairSquare.objects, 1, -1 do
+        if chairSquare.objects[index] == chair then table.remove(chairSquare.objects, index) end
+    end
+end
+
+do
+    local tiredActor = actor("sc-floor-rest", 30, -7, {})
+    tiredActor.modData.SC_Order = "stay"
+    tiredActor.modData.SC_WorkMode = "idle"
+    tiredActor.fatigue = 0.80
+    registry[tiredActor.id] = tiredActor
+    local calm = { snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+        player = { danger = 0 }, indoors = true } }
+    local started, reason = SurvivorCompanion.Downtime.update(tiredActor, player, calm)
+    local active = SurvivorCompanion.Downtime.peek(tiredActor).active
+    check(started and reason == "rest_floor" and active and active.kind == "rest_floor"
+            and tiredActor.lastIntent.action == "sit_ground"
+            and seatingStates[tiredActor] == "ground",
+        "a tired companion with no furniture sits on the floor to rest: " .. tostring(reason))
+    SurvivorCompanion.Downtime.update(tiredActor, player, calm)
+    clock = clock + SurvivorCompanion.Config.get("downtimeFloorRestMs") + 1
+    SurvivorCompanion.Downtime.update(tiredActor, player, calm)
+    local floorState = SurvivorCompanion.Downtime.peek(tiredActor)
+    check(floorState.active == nil and floorState.lastFact.activity == "rest_floor"
+            and seatingStates[tiredActor] == nil and tiredActor.leftTestSeating == 1,
+        "floor rest is bounded, recorded, and ends by standing up")
+    SurvivorCompanion.Downtime.reset(tiredActor)
+    registry[tiredActor.id] = nil
+end
 
 local stagedVestInventory = inventory()
 stagedVestInventory.capacity = 16

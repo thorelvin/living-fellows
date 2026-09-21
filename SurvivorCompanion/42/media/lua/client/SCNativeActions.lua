@@ -44,6 +44,7 @@ local activeFinal = setmetatable({}, { __mode = "k" })
 local activeVisual = setmetatable({}, { __mode = "k" })
 local activeFurnitureActions = setmetatable({}, { __mode = "k" })
 local activeBedActions = setmetatable({}, { __mode = "k" })
+local activeGroundActions = setmetatable({}, { __mode = "k" })
 local pacingStates = setmetatable({}, { __mode = "k" })
 local resultHistory = setmetatable({}, { __mode = "k" })
 local pendingCombat = setmetatable({}, { __mode = "k" })
@@ -424,13 +425,26 @@ end
 
 local function requestGroundSeat(actor, seated)
     if seated then
-        if groundSeatState(actor) then return true, "already_sitting_on_ground" end
+        if groundSeatState(actor) then
+            activeGroundActions[actor] = activeGroundActions[actor]
+                or { startedAt = nowMs() }
+            return true, "already_sitting_on_ground"
+        end
         actions.stopDirect(actor)
         local requested, reason = invoke(actor, "reportEvent", "EventSitOnGround")
+        if requested then
+            activeGroundActions[actor] = { startedAt = nowMs(), leaving = false }
+        end
         return requested, requested and "ground_sit_requested" or reason
     end
-    if not groundSeatState(actor) then return true, "already_standing" end
+    if not groundSeatState(actor) then
+        activeGroundActions[actor] = nil
+        return true, "already_standing"
+    end
     local requested, reason = invoke(actor, "setVariable", "forceGetUp", true)
+    if requested and activeGroundActions[actor] then
+        activeGroundActions[actor].leaving = true
+    end
     return requested, requested and "ground_stand_requested" or reason
 end
 
@@ -1449,6 +1463,8 @@ local function bedPathFailed(actor, record)
     cancelSeatingRecord(actor, record)
 end
 
+local boundSeatingTurn
+
 local function furniturePathComplete(actor, pathAction, record)
     if type(record) ~= "table" or record.cancelled == true then return end
     local object = pathAction and pathAction.goalFurnitureObject or record.object
@@ -1463,6 +1479,7 @@ local function furniturePathComplete(actor, pathAction, record)
         record.failure = created and "furniture-rest action was not created" or tostring(restAction)
         return
     end
+    boundSeatingTurn(restAction)
     record.object = object
     record.timedAction = restAction
     record.actions[#record.actions + 1] = restAction
@@ -1478,6 +1495,36 @@ local function furniturePathComplete(actor, pathAction, record)
             record.failure = tostring(failure)
         end
     end
+end
+
+-- Companion actors can remain in shouldBeTurning() after reaching the exact
+-- SeatingManager entry point.  Vanilla waits without a bound in both
+-- ISRestAction and ISGetOnBedAction, which left the timed action alive until
+-- SCDowntime's outer twelve-second watchdog fired.  Keep vanilla's alignment
+-- attempt, but let the action start after a short bounded turn settle.  The
+-- action's own start() applies the final seated/bed facing before requesting
+-- the animation state.
+boundSeatingTurn = function(action)
+    if type(action) ~= "table" or type(action.waitToStart) ~= "function" then
+        return action
+    end
+    local original = action.waitToStart
+    action.waitToStart = function(self)
+        local ok, waiting = pcall(original, self)
+        if not ok then
+            self.scSeatingWaitFailure = tostring(waiting)
+            return false
+        end
+        if waiting ~= true then return false end
+        self.scSeatingWaitStartedAt = tonumber(self.scSeatingWaitStartedAt) or nowMs()
+        local maximum = tonumber(SC.Config.get("furnitureTurnTimeoutMs")) or 1500
+        if nowMs() - self.scSeatingWaitStartedAt >= math.max(250, maximum) then
+            self.scSeatingTurnBounded = true
+            return false
+        end
+        return true
+    end
+    return action
 end
 
 local function startFurnitureRest(actor, object, registry, actionName)
@@ -1637,6 +1684,7 @@ local function startBedRest(actor, object)
     if not bedCreated or bedAction == nil then
         return false, bedCreated and "bed-rest action was not created" or tostring(bedAction)
     end
+    boundSeatingTurn(bedAction)
     local record = {
         timedAction = bedAction,
         actions = { pathAction, bedAction },
@@ -3458,29 +3506,28 @@ function actions.activityStatus(actor)
     local furniture = activeFurnitureActions[actor]
     if furniture then
         local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
-        if sittingOk and sitting == true then
-            return "active", "downtime", "sit", furniture.startedAt, furniture
-        end
         if furniture.failed ~= true and trackedActionIsActive(actor, furniture) then
             return "active", "downtime", "sit", furniture.startedAt, furniture
         end
-        activeFurnitureActions[actor] = nil
+        -- Once the stock rest action has left the queue, sitting is a passive
+        -- posture.  It must not masquerade as an owned "sit" action or it
+        -- rejects the Read/Write visual timed action that vanilla explicitly
+        -- permits while seated.  Keep the record only to clear occupancy when
+        -- a later movement gets the actor up.
+        if not sittingOk or sitting ~= true then activeFurnitureActions[actor] = nil end
     end
 
     local bed = activeBedActions[actor]
     if bed then
         local onBedOk, onBed = invoke(actor, "isOnBed")
-        if onBedOk and onBed == true then
-            return "active", "downtime", "rest_bed", bed.startedAt, bed
-        end
         local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
-        if bed.pose == "furniture" and sittingOk and sitting == true then
-            return "active", "downtime", "rest_bed", bed.startedAt, bed
-        end
         if bed.failed ~= true and trackedActionIsActive(actor, bed) then
             return "active", "downtime", "rest_bed", bed.startedAt, bed
         end
-        activeBedActions[actor] = nil
+        if not (onBedOk and onBed == true)
+            and not (bed.pose == "furniture" and sittingOk and sitting == true) then
+            activeBedActions[actor] = nil
+        end
     end
 
     local needs = activeNeeds[actor]
@@ -3768,6 +3815,7 @@ function actions.releaseActor(actor)
     activeVisual[actor] = nil
     activeFurnitureActions[actor] = nil
     activeBedActions[actor] = nil
+    activeGroundActions[actor] = nil
     pacingStates[actor] = nil
     resultHistory[actor] = nil
     pendingCombat[actor] = nil
@@ -3958,7 +4006,7 @@ function actions.dispatch(actor, mode, intent, provider)
         local handled, reason = useProvider(provider, "restBed", actor, intent.object, intent)
         if handled ~= nil then return handled, reason end
         if not provider.directNative then return false, reason end
-        local onBed, onBedOk = invoke(actor, "isOnBed")
+        local onBedOk, onBed = invoke(actor, "isOnBed")
         if onBedOk and onBed == true then return true, "resting_on_bed" end
         local prior = activeBedActions[actor]
         if prior and trackedActionIsActive(actor, prior) then
@@ -4064,6 +4112,37 @@ function actions.furnitureStatus(actor)
         return "failed", record.startedAt
     end
     return "none"
+end
+
+function actions.groundStatus(actor)
+    if actor == nil then return "none" end
+    if groundSeatState(actor) then return "entered" end
+    local record = activeGroundActions[actor]
+    if record and record.leaving ~= true then
+        local maximum = tonumber(SC.Config.get("bedEntryTimeoutMs")) or 12000
+        if nowMs() - (tonumber(record.startedAt) or nowMs()) < maximum then
+            return "entering", record.startedAt
+        end
+        activeGroundActions[actor] = nil
+        return "failed", record.startedAt
+    end
+    if record and record.leaving == true then return "leaving", record.startedAt end
+    return "none"
+end
+
+function actions.seatingStatus(actor)
+    if actor == nil then return "standing" end
+    local onBedOk, onBed = invoke(actor, "isOnBed")
+    if onBedOk and onBed == true then return "bed" end
+    local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
+    if sittingOk and sitting == true then return "furniture" end
+    if groundSeatState(actor) then return "ground" end
+    return "standing"
+end
+
+-- Focused test seam for the bounded vanilla wait-to-start adapter.
+function actions._boundSeatingTurnForTests(action)
+    return boundSeatingTurn(action)
 end
 
 return actions

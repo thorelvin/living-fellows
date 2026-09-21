@@ -931,6 +931,11 @@ local valueData = {
     downtimeSafeMs = 5000,
     downtimeReservationMs = 30000,
     downtimeActivityMs = 6000,
+    downtimeFloorRestMs = 12000,
+    -- Vanilla seat/bed actions wait for turning without a deadline. Companion
+    -- facing can legitimately remain in a deferred turn state, so begin the
+    -- final furniture animation after this bounded alignment attempt.
+    furnitureTurnTimeoutMs = 1500,
     ambientRepeatCooldownMs = 60000,
     -- Idle residents may borrow one real, non-reserved literature item from a
     -- nearby marked camp storage. The exact item is returned on every terminal

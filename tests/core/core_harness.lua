@@ -1995,6 +1995,14 @@ IsoFlagType.bed = IsoFlagType.bed or "bed"
 
 local seat = { occupied = false }
 function seat:setSatChair(value) self.occupied = value == true end
+local boundedTurn = { waitToStart = function() return true end }
+SC.NativeActions._boundSeatingTurnForTests(boundedTurn)
+local turnStartedAt = SC_TEST_CLOCK
+check(boundedTurn:waitToStart() == true,
+    "furniture entry initially gives the native facing turn time to settle")
+SC_TEST_CLOCK = turnStartedAt + SC.Config.get("furnitureTurnTimeoutMs") + 1
+check(boundedTurn:waitToStart() == false and boundedTurn.scSeatingTurnBounded == true,
+    "a companion turn state cannot hold furniture entry forever")
 local sitOk, sitReason = SC.Actor.setMovement(actor, "walk", { action = "sit", object = seat })
 check(sitOk and sitReason == "taking_seat" and lastFurniturePath ~= nil
         and lastFurniturePath.anySpriteGridObject == true and actor.sitting ~= true,
@@ -2004,6 +2012,11 @@ check(actor.sitting == true and actor.seatObject == seat and seat.occupied == tr
         and actor.lastEvent == "EventSitOnFurniture"
         and SC.NativeActions.furnitureStatus(actor) == "entered",
     "stock furniture-rest action enters and verifies the seat pose")
+local passiveSeatAction = ISTimedActionQueue.getTimedActionQueue(actor).current
+if passiveSeatAction then ISBaseTimedAction.perform(passiveSeatAction) end
+check(SC.NativeActions.activityStatus(actor) == "none"
+        and SC.NativeActions.seatingStatus(actor) == "furniture",
+    "a completed sit becomes a passive posture that does not block reading or diary actions")
 local leftSeat = SC.NativeActions.leaveSeating(actor)
 check(leftSeat and actor.sitting == false and actor.seatObject == nil
         and seat.occupied == false,
