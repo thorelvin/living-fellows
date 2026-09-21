@@ -421,6 +421,51 @@ local function rollbackBlocked(token)
         or "rollback_recovery_pending", safeDetail(obligation, 0)
 end
 
+-- An owner whose verifier never succeeds used to hold the actor forever: every
+-- entry point observed `rollback_quarantined` and refused, and only actor
+-- retirement cleared the map.  Release the ownership once -- but only after a
+-- grace window and only while the native layer is idle, because releasing over a
+-- live vanilla timed action would let a second owner stack onto it.
+local function forceReleaseExhaustedRollback(token, obligation)
+    if obligation.forceReleaseAt == nil then
+        obligation.forceReleaseAt = (tonumber(obligation.failedAt) or nowMs())
+            + math.max(0, tonumber(config("actionRollbackQuarantineMs", 5000)) or 5000)
+    end
+    if nowMs() < obligation.forceReleaseAt then
+        return false, "rollback_quarantined"
+    end
+    local native = nativeActivity(token.actor)
+    if native ~= nil then
+        -- Fail closed while vanilla still owns the body.  The next update after
+        -- the native action settles performs the release.
+        return false, "rollback_quarantined_native_busy", safeDetail(native, 0)
+    end
+    local detail = safeDetail(obligation, 0)
+    append(token.actor, "rollback_force_released", token,
+        obligation.reason or "rollback_quarantined", detail)
+    if SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+        pcall(SC.Diagnostics.report, "action-supervisor", token.actorId,
+            "action rollback quarantine force-released",
+            tostring(obligation.reason or "rollback_quarantined"))
+    end
+    token.rollbackObligation = nil
+    token.forceReleased = true
+    -- finish() releases reservations, clears the actor map, records a retry so
+    -- the same owner backs off instead of re-quarantining immediately, and
+    -- dispatches any urgent work queued behind the stuck owner.
+    local finished, phase, retry = finish(token, "failed", "rollback_force_released",
+        detail, true)
+    if not finished then
+        -- finish() only refuses a token that is already terminal or no longer
+        -- current. Put the obligation back rather than leaving an owner that
+        -- looks unblocked but was never released.
+        token.rollbackObligation = obligation
+        token.forceReleased = nil
+        return false, "rollback_quarantined"
+    end
+    return true, phase, retry
+end
+
 local function runCancel(token, reason, force, terminalFailure, recoveryAttempt)
     if token.cancelling == true then return false, "cancel_in_progress" end
     local obligation = token.rollbackObligation
@@ -721,6 +766,41 @@ end
 
 function Supervisor.clearRetry(actor, action, targetKey, reason)
     return Supervisor.resetRetry(actor, reason or "explicit_retry_reset", action, targetKey)
+end
+
+-- `begin` refuses for two very different reasons.  Either the actor is genuinely
+-- unavailable (another owner, a retry cooldown, a native action), or the
+-- supervisor *just* dispatched queued urgent work for this actor and is telling
+-- the caller to stand down for a cycle.  The second is a success of the urgent,
+-- not a failure of the caller: treating it as a refusal makes work adapters tear
+-- down their target state and burn retry budget for something that was never
+-- their fault.  Callers classify through this one predicate so the vocabulary
+-- cannot drift between adapters.
+local deferredStatuses = {
+    urgent_dispatched = true,
+    actor_owned_after_urgent_dispatch = true,
+    actor_owned_after_preemption = true,
+}
+
+function Supervisor.isDeferredStatus(status)
+    if type(status) ~= "string" then return false end
+    -- The colon-delimited detail suffix is part of the public contract, so match
+    -- the prefix explicitly rather than on a word boundary.
+    for name in pairs(deferredStatuses) do
+        if string.sub(status, 1, #name) == name then return true end
+    end
+    return false
+end
+
+-- Work adapters wrap a refusal in their own vocabulary before it reaches the
+-- decision layer ("vehicle_transaction_rejected:<status>"), so the deferral has
+-- to be recognisable anywhere in a composed reason, not only at position 1.
+function Supervisor.containsDeferredStatus(reason)
+    if type(reason) ~= "string" then return false end
+    for name in pairs(deferredStatuses) do
+        if string.find(reason, name, 1, true) ~= nil then return true end
+    end
+    return false
 end
 
 function Supervisor.begin(actor, spec)
@@ -1043,7 +1123,9 @@ function Supervisor.update(actor)
     end
     local rollback = token.rollbackObligation
     if rollback then
-        if rollback.exhausted == true then return false, "rollback_quarantined" end
+        if rollback.exhausted == true then
+            return forceReleaseExhaustedRollback(token, rollback)
+        end
         if nowMs() < (tonumber(rollback.retryAt) or math.huge) then
             return false, "rollback_recovery_pending"
         end
@@ -1197,11 +1279,22 @@ function Supervisor.health()
         coolingDown = 0,
         exhaustedRetries = 0,
         invariantViolations = 0,
+        rollbackPending = 0,
+        rollbackQuarantined = 0,
+        forceReleases = 0,
     }
     for _, token in pairs(activeByActor) do
         if Supervisor.isCurrent(token) then
             result.active = result.active + 1
             result.reservations = result.reservations + #(token.reservations or {})
+            local obligation = token.rollbackObligation
+            if type(obligation) == "table" then
+                if obligation.exhausted == true then
+                    result.rollbackQuarantined = result.rollbackQuarantined + 1
+                else
+                    result.rollbackPending = result.rollbackPending + 1
+                end
+            end
         end
     end
     for _, token in pairs(reservationOwners) do
@@ -1224,11 +1317,88 @@ function Supervisor.health()
             for _, entry in ipairs(history) do
                 if entry.event == "invariant_violation" then
                     result.invariantViolations = result.invariantViolations + 1
+                elseif entry.event == "rollback_force_released" then
+                    result.forceReleases = result.forceReleases + 1
                 end
             end
         end
     end
     result.healthy = result.leakedReservations == 0 and result.invariantViolations == 0
+    return result
+end
+
+-- `leakedReservations` only yields a count.  Support needs to name the stuck
+-- resources so a report identifies which owner failed to release, rather than
+-- telling the player a number they cannot act on.
+function Supervisor.leakedReservationDetails(limit)
+    local result = {}
+    limit = math.max(1, math.floor(tonumber(limit) or 20))
+    for resource, token in pairs(reservationOwners) do
+        if resource ~= nil and not Supervisor.isCurrent(token) then
+            result[#result + 1] = {
+                resource = clean(resource, 80),
+                actorId = type(token) == "table" and token.actorId or "unknown",
+                owner = type(token) == "table" and token.owner or "unknown",
+                action = type(token) == "table" and token.action or "unknown",
+                phase = type(token) == "table" and token.phase or "unknown",
+                reason = type(token) == "table" and token.reason or nil,
+                targetLabel = type(token) == "table" and token.targetLabel or nil,
+                terminalAt = type(token) == "table" and token.terminalAt or nil,
+            }
+            if #result >= limit then break end
+        end
+    end
+    table.sort(result, function(left, right)
+        if left.actorId ~= right.actorId then return left.actorId < right.actorId end
+        return tostring(left.resource) < tostring(right.resource)
+    end)
+    return result
+end
+
+-- Supervisor quarantine is a separate concern from persistence quarantine:
+-- an owner stuck in exhausted rollback recovery, or one recently force-released
+-- out of it.  Support surfaces both so a stuck companion is explainable.
+function Supervisor.quarantineSnapshot(limit)
+    local result = { owners = {}, events = {} }
+    limit = math.max(1, math.floor(tonumber(limit) or 20))
+    for actor, token in pairs(activeByActor) do
+        if actor ~= nil and Supervisor.isCurrent(token)
+            and type(token.rollbackObligation) == "table"
+            and token.rollbackObligation.exhausted == true
+            and #result.owners < limit then
+            result.owners[#result.owners + 1] = {
+                actorId = token.actorId, owner = token.owner, action = token.action,
+                phase = token.phase, targetLabel = token.targetLabel,
+                reason = token.rollbackObligation.reason,
+                attempts = token.rollbackObligation.attempts,
+                maximumAttempts = token.rollbackObligation.maximumAttempts,
+                error = token.rollbackObligation.error,
+            }
+        end
+    end
+    for actor, history in pairs(historyByActor) do
+        if actor ~= nil then
+            for _, entry in ipairs(history) do
+                if (entry.event == "rollback_force_released"
+                    or entry.event == "rollback_quarantined"
+                    or entry.event == "invariant_violation")
+                    and #result.events < limit then
+                    result.events[#result.events + 1] = {
+                        actorId = entry.actorId, event = entry.event,
+                        owner = entry.owner, action = entry.action,
+                        reason = entry.reason, at = entry.at,
+                    }
+                end
+            end
+        end
+    end
+    table.sort(result.owners, function(left, right)
+        return tostring(left.actorId) < tostring(right.actorId)
+    end)
+    table.sort(result.events, function(left, right)
+        if left.at ~= right.at then return (tonumber(left.at) or 0) < (tonumber(right.at) or 0) end
+        return tostring(left.actorId) < tostring(right.actorId)
+    end)
     return result
 end
 
@@ -1243,6 +1413,31 @@ function Supervisor.leakedReservations()
         if resource ~= nil and not Supervisor.isCurrent(token) then count = count + 1 end
     end
     return count
+end
+
+-- Kahlua ignores weak tables, so the supervisor maps are the authoritative list
+-- of actors it still holds state for. Teardown boundaries need to enumerate them
+-- to find entries whose actor the registry has already retired.
+function Supervisor.trackedActors()
+    local seen, result = {}, {}
+    local maps = { activeByActor, historyByActor, retryByActor,
+        retryResetByActor, urgentByActor, lastUrgentByActor }
+    for _, map in ipairs(maps) do
+        for actor in pairs(map) do
+            if actor ~= nil and seen[actor] == nil then
+                seen[actor] = true
+                result[#result + 1] = actor
+            end
+        end
+    end
+    for _, token in pairs(reservationOwners) do
+        local actor = type(token) == "table" and token.actor or nil
+        if actor ~= nil and seen[actor] == nil then
+            seen[actor] = true
+            result[#result + 1] = actor
+        end
+    end
+    return result
 end
 
 function Supervisor.actorStateCount(actor)

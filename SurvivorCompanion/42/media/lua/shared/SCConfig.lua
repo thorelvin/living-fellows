@@ -72,6 +72,12 @@ local valueData = {
     actionRetryMaxAttempts = 4,
     actionRollbackRetryMs = 250,
     actionRollbackMaxAttempts = 4,
+    -- Grace window after the last rollback attempt is exhausted before the
+    -- supervisor force-releases a quarantined owner.  Kept well above the
+    -- retry cadence so a slow-but-recovering verifier still wins the race,
+    -- and short enough that a permanently failing verifier cannot strand the
+    -- companion for a whole session.
+    actionRollbackQuarantineMs = 5000,
     actionSelectedTimeoutMs = 2500,
     actionReservedTimeoutMs = 5000,
     actionApproachTimeoutMs = 15000,

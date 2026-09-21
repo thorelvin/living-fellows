@@ -12,14 +12,20 @@ check(SC.Bootstrap.isInstalled() and Events.OnInitGlobalModData.count() == 1
         and Events.OnSave.count() == 1 and Events.OnMainMenuEnter.count() == 1,
     "bootstrap atomically owns one copy of each lifecycle hook")
 check(SC.Factions.installs == 1 and SC.FactionContracts.installs == 1
-        and SC.CompanionMap.installs == 1 and SC.BaseVisuals.installs == 1,
-    "bootstrap owns the long-lived faction, minimap, and base-visual hooks")
+        and SC.CompanionMap.installs == 1 and SC.BaseVisuals.installs == 1
+        and SC.DiaryUI.installs == 1,
+    "bootstrap owns the long-lived faction, minimap, base-visual, and diary hooks")
+-- The diary context menu used to install itself at module load, outside the
+-- install transaction: a failed bootstrap could not roll it back and a teardown
+-- left the global event handler behind.
+check(SC.DiaryUI.isInstalled(),
+    "the diary context menu is owned by the bootstrap transaction, not self-installed")
 
 Events.OnGameStart.fire()
 Events.OnGameStart.fire()
 check(SC.Runtime.starts == 2 and SC.Factions.installs == 1
         and SC.FactionContracts.installs == 1 and SC.CompanionMap.installs == 1
-        and SC.BaseVisuals.installs == 1,
+        and SC.BaseVisuals.installs == 1 and SC.DiaryUI.installs == 1,
     "world starts do not duplicate long-lived hooks")
 
 local removed, removeReason = SC.Bootstrap.remove()
@@ -27,7 +33,8 @@ check(removed and removeReason == "" and Events.OnInitGlobalModData.count() == 0
         and Events.OnGameStart.count() == 0
         and Events.OnSave.count() == 0 and Events.OnMainMenuEnter.count() == 0
         and not SC.Factions.installed and not SC.FactionContracts.installed
-        and not SC.CompanionMap.installed and not SC.BaseVisuals.installed,
+        and not SC.CompanionMap.installed and not SC.BaseVisuals.installed
+        and not SC.DiaryUI.installed,
     "bootstrap removal releases every lifecycle and contract hook")
 
 Events.OnSave.failAdd = true
@@ -36,7 +43,7 @@ check(not installed and string.find(tostring(reason), "OnSave hook failed", 1, t
         and not SC.Bootstrap.isInstalled() and Events.OnGameStart.count() == 0
         and Events.OnSave.count() == 0 and not SC.Factions.installed
         and not SC.FactionContracts.installed and not SC.CompanionMap.installed
-        and not SC.BaseVisuals.installed,
+        and not SC.BaseVisuals.installed and not SC.DiaryUI.installed,
     "partial lifecycle installation rolls back every acquired hook")
 
 Events.OnSave.failAdd = false
@@ -71,6 +78,7 @@ local function allOwned()
         and Events.OnMainMenuEnter.count() == 1
         and SC.Factions.installed and SC.FactionContracts.installed
         and SC.CompanionMap.installed and SC.BaseVisuals.installed
+        and SC.DiaryUI.installed
 end
 
 check(SC.Bootstrap.install(), "bootstrap installs for removal failure matrix")
@@ -110,6 +118,7 @@ for _, entry in ipairs({
     { name = "faction contracts", owner = SC.FactionContracts },
     { name = "companion minimap", owner = SC.CompanionMap },
     { name = "base visuals", owner = SC.BaseVisuals },
+    { name = "diary context menu", owner = SC.DiaryUI },
 }) do
     check(SC.Bootstrap.install(), entry.name .. " removal fixture installs")
     SC.Runtime.worldSentinel = { value = entry.name }

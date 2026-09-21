@@ -1595,6 +1595,22 @@ Decision._delegateForTests = delegate
 -- fallback in the same decision pass. If another action already owns the
 -- actor, waiting is deliberately side-effect free; otherwise stop translation
 -- and keep a visible threat faced while fresh senses choose the next action.
+-- The supervisor refuses `begin` for two unrelated reasons: the actor is really
+-- unavailable, or queued urgent survival work was just dispatched and the caller
+-- must stand down for a cycle.  The second is not a failure -- the companion is
+-- already acting on something more important -- so it must not descend the
+-- fallback ladder (which would stack a second owner on top of the urgent) or
+-- record a safety hold (which would report a stall that never happened).
+local function deferredToUrgentWork(reason)
+    local supervisor = SC.ActionSupervisor
+    if type(supervisor) ~= "table"
+        or type(supervisor.containsDeferredStatus) ~= "function" then return false end
+    local ok, deferred = pcall(supervisor.containsDeferredStatus, reason)
+    return ok and deferred == true
+end
+
+Decision._deferredToUrgentWorkForTests = deferredToUrgentWork
+
 local function guardedSafetyHold(actor, snapshot, selected)
     local supervisor = SC.ActionSupervisor
     if type(supervisor) == "table" and type(supervisor.current) == "function" then
@@ -2399,6 +2415,15 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     local handled, reason = profiledDecisionPhase("delegate", actor, delegate,
         selected, actor, player, rootRuntime, commands, snapshot, state)
     if handled then state.safetyHoldSince, state.safetyHoldLastAt = nil, nil end
+    if not handled and deferredToUrgentWork(reason) then
+        -- Urgent work owns the actor for this pulse. Yield it intact: leave the
+        -- selection bookkeeping alone so the next pulse re-selects against fresh
+        -- senses, and leave any running safety-hold window untouched because the
+        -- urgent action is what is now keeping the companion safe.
+        state.intent = tostring(reason)
+        state.lastHandledAt = current
+        return true, state.intent
+    end
     if not handled then
         local selectedFailure = reason
         local selectedRank = selected.safetyRank or safetyRank[selected.safetyTier] or 1

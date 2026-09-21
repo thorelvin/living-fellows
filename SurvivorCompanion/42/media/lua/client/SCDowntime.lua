@@ -1963,7 +1963,16 @@ local function beginSupervisedActivity(actor, state, activity)
         end,
         metadata = { commandSerial = activity.commandSerial or 0 },
     })
-    if not token then return false, reason or "downtime_owner_rejected" end
+    if not token then
+        if service.containsDeferredStatus and service.containsDeferredStatus(reason) then
+            -- Urgent survival work was dispatched for this actor during begin(); the
+    -- companion is committed to it this cycle.  That is the urgent succeeding,
+    -- not this action failing, so report a deferral the decision layer can
+    -- recognise instead of a refusal that would cool the target down.
+            return false, "deferred:" .. tostring(reason)
+        end
+        return false, reason or "downtime_owner_rejected"
+    end
     activity.supervisorToken = token
     local resources = {}
     if activity.object then resources[#resources + 1] = activity.object end

@@ -1557,12 +1557,82 @@ function runtime.reset(detach)
     return true
 end
 
+-- Kahlua ignores Lua's weak-table mode, so every supervisor map entry survives
+-- until something calls the explicit release path. A teardown that rejected part
+-- way (runtime.reset returns false and retains ownership on purpose) can
+-- therefore leave supervisor state behind for actors the registry has already
+-- given up on. Report that, and force-clear only the actors the registry no
+-- longer recognises -- a live owner is never swept.
+function runtime.sweepOrphanSupervisorState(reason)
+    local supervisor = SC.ActionSupervisor
+    if type(supervisor) ~= "table" or type(supervisor.health) ~= "function" then
+        return false, "action_supervisor_unavailable"
+    end
+    local healthOk, health = pcall(supervisor.health)
+    if not healthOk or type(health) ~= "table" then
+        return false, "action_supervisor_health_unavailable"
+    end
+    local result = {
+        leakedReservations = tonumber(health.leakedReservations) or 0,
+        invariantViolations = tonumber(health.invariantViolations) or 0,
+        rollbackQuarantined = tonumber(health.rollbackQuarantined) or 0,
+        swept = 0,
+    }
+    if type(supervisor.releaseActor) == "function"
+        and SC.Registry ~= nil and type(SC.Registry.records) == "function" then
+        local known = {}
+        local recordsOk, records = pcall(SC.Registry.records)
+        if recordsOk and type(records) == "table" then
+            for _, record in ipairs(records) do
+                if record.actor ~= nil
+                    and not (type(record.runtime) == "table"
+                        and record.runtime.inactive == true) then
+                    known[record.actor] = true
+                end
+            end
+            -- Only actors the registry reported as retired are eligible, and the
+            -- registry has to have answered at all: an unavailable adapter must
+            -- never be read as "nothing is alive".
+            local orphans = nil
+            if type(supervisor.trackedActors) == "function" then
+                local trackedOk, tracked = pcall(supervisor.trackedActors)
+                if trackedOk then orphans = tracked end
+            end
+            if type(orphans) == "table" then
+                for _, actor in ipairs(orphans) do
+                    if known[actor] ~= true then
+                        local sweptOk = pcall(supervisor.releaseActor, actor,
+                            reason or "orphan_supervisor_sweep")
+                        if sweptOk then result.swept = result.swept + 1 end
+                    end
+                end
+            end
+        end
+    end
+    if result.leakedReservations > 0 or result.invariantViolations > 0
+        or result.rollbackQuarantined > 0 or result.swept > 0 then
+        local detail = "leaked=" .. tostring(result.leakedReservations)
+            .. " invariants=" .. tostring(result.invariantViolations)
+            .. " quarantined=" .. tostring(result.rollbackQuarantined)
+            .. " swept=" .. tostring(result.swept)
+        pcall(SC.Diagnostics.report, "supervisor-leak",
+            tostring(reason or "sweep"),
+            "orphaned action-supervisor state observed at a teardown boundary",
+            detail)
+        result.reported = true
+    end
+    return true, result
+end
+
 function runtime.onMainMenuEnter()
     local ok, reason = runtime.reset(true)
     if not ok then
         pcall(SC.Diagnostics.report, "runtime", nil,
             "main-menu teardown failed", reason)
     end
+    -- Runs on both paths: a clean reset should observe nothing, and a rejected
+    -- one is exactly when orphaned supervisor state is left behind.
+    runtime.sweepOrphanSupervisorState(ok and "main_menu" or "main_menu_retained")
     return ok, reason
 end
 

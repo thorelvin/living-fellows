@@ -1322,7 +1322,17 @@ local function startAction(actor, job, state, square, plant, operation)
         targetLabel = "farm plot", ignoreRetry = true,
         interruptible = true,
     })
-    if token == nil then return false, ownerReason or "farm_actor_owned" end
+    if token == nil then
+        if supervisor.containsDeferredStatus
+            and supervisor.containsDeferredStatus(ownerReason) then
+            -- Urgent survival work was dispatched for this actor during begin(); the
+    -- companion is committed to it this cycle.  That is the urgent succeeding,
+    -- not this action failing, so report a deferral the decision layer can
+    -- recognise instead of a refusal that would cool the target down.
+            return false, "deferred:" .. tostring(ownerReason)
+        end
+        return false, ownerReason or "farm_actor_owned"
+    end
     local harvestPrepared = false
     local function fail(reason, detail)
         if harvestPrepared then

@@ -192,7 +192,16 @@ local function beginTransaction(actor, vehicle, seat, action, intent)
         metadata = { seat = seat, vehicleKey = keyFor(identity) },
         onCancel = cancelTransactionState,
     })
-    if token == nil then return nil, beginReason, retry end
+    if token == nil then
+        if service.containsDeferredStatus and service.containsDeferredStatus(beginReason) then
+            -- Urgent survival work was dispatched for this actor during begin(); the
+    -- companion is committed to it this cycle.  That is the urgent succeeding,
+    -- not this action failing, so report a deferral the decision layer can
+    -- recognise instead of a refusal that would cool the target down.
+            return nil, "deferred:" .. tostring(beginReason)
+        end
+        return nil, beginReason, retry
+    end
     local resource = seatResource(reservation)
     local reserved, reserveReason = service.reserve(token, resource,
         "passenger seat " .. tostring(seat))

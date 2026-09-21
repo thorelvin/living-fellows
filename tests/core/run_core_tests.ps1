@@ -215,6 +215,10 @@ try {
         $supervisorSoakFiles += Join-Path $TestRoot 'supervisor_fault_soak_harness.lua'
         Add-ScJvmStep 'supervisor-soak' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $supervisorSoakFiles 'Action-supervisor fault/soak harness failed.'
 
+        $supervisorRecoveryFiles = @($coreFiles | Select-Object -SkipLast 2)
+        $supervisorRecoveryFiles += Join-Path $TestRoot 'supervisor_recovery_harness.lua'
+        Add-ScJvmStep 'supervisor-recovery' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $supervisorRecoveryFiles 'Action-supervisor leak/quarantine recovery harness failed.'
+
         $performanceFiles = @($coreFiles | Select-Object -SkipLast 1)
         $performanceFiles += Join-Path $TestRoot 'performance_scalability_harness.lua'
         Add-ScJvmStep 'performance' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $performanceFiles 'AI performance scalability harness failed.'

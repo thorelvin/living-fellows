@@ -12,6 +12,20 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
 
 - `SCActor` selects a version-pinned provider, validates native components, owns transactional spawn/removal, and is the only gameplay movement/action entry point.
 - `SCActionSupervisor` is the actor-wide owner graph for Living Fellows work. It admits one exclusive action owner, records phase/deadline/receipt history, queues urgent survival work at checked cancellation boundaries, and permits an externally owned vanilla/third-party action only as a read-only busy state. Medical, locomotion, decision, and native-action adapters publish exactly-once terminal outcomes through this graph.
+  Kahlua does not honour Lua's weak-table mode, so the per-actor maps shrink only
+  through the explicit `releaseActor` path: every retirement route (death, removal,
+  world unload, failed-spawn rollback, removal quarantine, main-menu teardown) calls
+  it, `trackedActors` enumerates what is still held, and `SCRuntime.sweepOrphanSupervisorState`
+  reports -- and force-clears only registry-retired actors -- at a teardown boundary.
+  `begin` distinguishes a refusal from a deferral: `urgent_dispatched`,
+  `actor_owned_after_urgent_dispatch` and `actor_owned_after_preemption` mean queued
+  urgent work took the actor for this cycle, so callers classify them through
+  `isDeferredStatus`/`containsDeferredStatus` and retry on the next pulse instead of
+  cooling the target down; `SCDecision` yields the pulse rather than descending its
+  fallback ladder. An owner whose rollback verifier never succeeds is quarantined,
+  then force-released exactly once after `actionRollbackQuarantineMs` -- and only while
+  `SCNativeActions` reports no activity, so the release never races a live vanilla
+  timed action. The force-release records a retry, so the failing owner backs off.
 - `SCNativeActions` interprets every movement or action intent and reports success only after the native state/action was verified.
 - `SCNativeTraversalActions` implements verified window, fence, wall, sheet-rope,
   and downed-state transitions. Every request still enters through

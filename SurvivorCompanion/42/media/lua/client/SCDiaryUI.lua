@@ -272,6 +272,13 @@ function DiaryUI.remove()
     return true
 end
 
-DiaryUI.install()
+function DiaryUI.isInstalled()
+    return DiaryUI._installed == true
+end
+
+-- The context-menu hook is a long-lived global event handler, so SCBootstrap
+-- owns it as a runtime contract rather than the module self-installing at load.
+-- Installing here would acquire a hook outside the install transaction, which a
+-- failed bootstrap could not roll back and a teardown would leave behind.
 
 return DiaryUI

@@ -787,7 +787,16 @@ local function beginEmergencyApplyToken(helper, state, parentSerial)
             parentCommitSerial = parentSerial,
         },
     })
-    if not token then return false, reason or "medical_apply_owner_rejected", retry end
+    if not token then
+        if service.containsDeferredStatus and service.containsDeferredStatus(reason) then
+            -- Urgent survival work was dispatched for this actor during begin(); the
+    -- companion is committed to it this cycle.  That is the urgent succeeding,
+    -- not this action failing, so report a deferral the decision layer can
+    -- recognise instead of a refusal that would cool the target down.
+            return false, "deferred:" .. tostring(reason)
+        end
+        return false, reason or "medical_apply_owner_rejected", retry
+    end
     state.supervisorToken = token
     local reserved, reserveReason = service.reserve(token, state.bandage,
         "emergency_bandage")
@@ -1150,7 +1159,16 @@ local function beginTreatmentState(helper, patient, capability)
             end,
             metadata = { woundIndex = wound.index, dirtyOnly = capability.dirtyOnly == true },
         })
-        if not token then return nil, reason or "medical_owner_rejected", retry end
+        if not token then
+            if service.containsDeferredStatus and service.containsDeferredStatus(reason) then
+                -- Urgent survival work was dispatched for this actor during begin(); the
+        -- companion is committed to it this cycle.  That is the urgent succeeding,
+        -- not this action failing, so report a deferral the decision layer can
+        -- recognise instead of a refusal that would cool the target down.
+                return nil, "deferred:" .. tostring(reason)
+            end
+            return nil, reason or "medical_owner_rejected", retry
+        end
         state.supervisorToken = token
         if capability.available ~= true then
             service.fail(token, capability.dirtyOnly and "no_clean_bandage" or "no_supplies", {

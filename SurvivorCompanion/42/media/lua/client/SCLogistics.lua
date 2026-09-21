@@ -1164,6 +1164,11 @@ local function beginTransaction(actor, state, transaction)
     })
     if not token then
         state.transaction = nil
+        if service.containsDeferredStatus and service.containsDeferredStatus(reason) then
+            -- Urgent work took the actor this cycle. The transaction was never
+            -- started, so clearing it is right; reporting it as a refusal is not.
+            return false, "deferred:" .. tostring(reason)
+        end
         return false, reason or "action_owner_unavailable"
     end
     transaction.supervisorToken = token

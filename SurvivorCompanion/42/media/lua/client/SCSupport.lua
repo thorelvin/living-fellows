@@ -157,6 +157,17 @@ function support.snapshot(force)
     local actionHealth = safeCall(function()
         return SC.ActionSupervisor.health()
     end, {})
+    -- A leak count on its own is not actionable. Name the stuck resources and
+    -- the owners sitting in supervisor (not persistence) quarantine so a copied
+    -- report identifies which action failed to release.
+    local actionLeaks = safeCall(function()
+        return SC.ActionSupervisor.leakedReservationDetails
+            and SC.ActionSupervisor.leakedReservationDetails(20) or nil
+    end, {})
+    local actionQuarantine = safeCall(function()
+        return SC.ActionSupervisor.quarantineSnapshot
+            and SC.ActionSupervisor.quarantineSnapshot(20) or nil
+    end, { owners = {}, events = {} })
     return {
         release = tostring(SC.Identity.release or "unknown"),
         gameVersion = gameVersion(),
@@ -175,6 +186,8 @@ function support.snapshot(force)
         end, {}),
         diagnostics = diagnosticSummary(),
         actionSupervisor = actionHealth,
+        actionLeaks = actionLeaks,
+        actionQuarantine = actionQuarantine,
         companionActions = companionActionEvidence(),
         persistence = persistenceEvidence(),
         sandbox = safeCall(function()
@@ -225,6 +238,10 @@ function support.summary(force)
             .. tostring(data.actionSupervisor.leakedReservations or 0) .. " leaked, "
             .. tostring(data.actionSupervisor.coolingDown or 0) .. " cooling down, "
             .. tostring(data.actionSupervisor.invariantViolations or 0) .. " invariant violations",
+        "Action rollback: " .. tostring(data.actionSupervisor.rollbackPending or 0)
+            .. " recovering, " .. tostring(data.actionSupervisor.rollbackQuarantined or 0)
+            .. " quarantined, " .. tostring(data.actionSupervisor.forceReleases or 0)
+            .. " force-released",
         "Persistence: " .. tostring(persistence.pendingCount or 0) .. " pending, "
             .. tostring(persistence.quarantineCount or 0) .. " quarantined",
     }
@@ -257,6 +274,30 @@ function support.summary(force)
                 .. tostring(id) .. ": " .. tostring(entry.path or "unknown path")
                 .. ", " .. tostring(entry.reason or "unknown reason")
         end
+    end
+    for _, entry in ipairs(data.actionLeaks or {}) do
+        lines[#lines + 1] = "Leaked reservation " .. tostring(entry.actorId)
+            .. ": " .. tostring(entry.resource or "unknown resource")
+            .. " held by " .. tostring(entry.owner or "unknown") .. "/"
+            .. tostring(entry.action or "unknown") .. "/"
+            .. tostring(entry.phase or "unknown")
+            .. ", reason " .. tostring(entry.reason or "none")
+    end
+    for _, entry in ipairs((data.actionQuarantine or {}).owners or {}) do
+        lines[#lines + 1] = "Action quarantine " .. tostring(entry.actorId)
+            .. ": " .. tostring(entry.owner or "unknown") .. "/"
+            .. tostring(entry.action or "unknown")
+            .. ", rollback " .. tostring(entry.attempts or 0) .. "/"
+            .. tostring(entry.maximumAttempts or 0)
+            .. ", reason " .. tostring(entry.reason or "none")
+            .. ", detail " .. tostring(entry.error or "none")
+    end
+    for _, entry in ipairs((data.actionQuarantine or {}).events or {}) do
+        lines[#lines + 1] = "Action recovery " .. tostring(entry.actorId)
+            .. ": " .. tostring(entry.event or "unknown") .. " "
+            .. tostring(entry.owner or "unknown") .. "/"
+            .. tostring(entry.action or "unknown")
+            .. ", reason " .. tostring(entry.reason or "none")
     end
     for _, actor in ipairs(data.companionActions or {}) do
         local current = actor.summary or {}

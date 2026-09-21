@@ -178,6 +178,7 @@ for _, name in ipairs({
     "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",
     "Quirks", "Autonomy", "Commands", "FactionRecruitment", "Decision", "Support", "ViewControl", "Steering",
     "UIContext",
+    "Net", "Banter", "CombatTrace", "Gestures", "Tales", "WorkRoutes", "ZombieAttack",
 }) do
     SC[name] = SC[name] or resettable()
 end
@@ -221,6 +222,21 @@ function SC.BaseVisuals.remove()
     return true
 end
 function SC.BaseVisuals.isInstalled() return SC.BaseVisuals.installed end
+
+SC.DiaryUI = { installed = false, installs = 0, removes = 0, failInstall = false }
+function SC.DiaryUI.install()
+    if SC.DiaryUI.installed then return true end
+    if SC.DiaryUI.failInstall then return false, "injected diary menu install failure" end
+    SC.DiaryUI.installed = true
+    SC.DiaryUI.installs = SC.DiaryUI.installs + 1
+    return true
+end
+function SC.DiaryUI.remove()
+    if SC.DiaryUI.installed then SC.DiaryUI.removes = SC.DiaryUI.removes + 1 end
+    SC.DiaryUI.installed = false
+    return true
+end
+function SC.DiaryUI.isInstalled() return SC.DiaryUI.installed end
 
 ISInventoryPage = {
     selectContainer = function() return true end,

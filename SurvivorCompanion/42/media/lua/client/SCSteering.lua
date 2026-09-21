@@ -201,7 +201,17 @@ local function acquire(actor)
         onCancel = onCancelled,
         metadata = { source = "hold_key" },
     })
-    if token == nil then return nil, acquireReason or "actor_busy" end
+    if token == nil then
+        if supervisor.containsDeferredStatus
+            and supervisor.containsDeferredStatus(acquireReason) then
+            -- Urgent survival work was dispatched for this actor during begin(); the
+    -- companion is committed to it this cycle.  That is the urgent succeeding,
+    -- not this action failing, so report a deferral the decision layer can
+    -- recognise instead of a refusal that would cool the target down.
+            return nil, "deferred:" .. tostring(acquireReason)
+        end
+        return nil, acquireReason or "actor_busy"
+    end
     session = { actor = actor, token = token }
     Steering._session = session
     return session, acquireReason

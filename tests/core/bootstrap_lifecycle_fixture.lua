@@ -70,6 +70,7 @@ local required = {
     "FarmWork", "BaseWork", "Production", "InfectionCrisis", "LifeEvents", "Community",
     "DiaryText", "DiaryCatalog", "DiaryItem", "Diary", "Quirks", "Autonomy", "Commands",
     "FactionRecruitment", "Decision", "Support", "ViewControl", "Steering", "UIContext",
+    "Net", "Banter", "CombatTrace", "Gestures", "Tales", "WorkRoutes", "ZombieAttack",
 }
 for _, name in ipairs(required) do SC[name] = SC[name] or {} end
 SC.Persistence.bindWorldStore = function() return true end
@@ -130,3 +131,20 @@ function SC.BaseVisuals.remove()
     return true
 end
 function SC.BaseVisuals.isInstalled() return SC.BaseVisuals.installed end
+
+SC.DiaryUI = { installed = false, installs = 0, removes = 0, failRemove = false }
+function SC.DiaryUI.install()
+    if SC.DiaryUI.installed then return true end
+    SC.DiaryUI.installed = true
+    SC.DiaryUI.installs = SC.DiaryUI.installs + 1
+    return true
+end
+function SC.DiaryUI.remove()
+    if SC.DiaryUI.failRemove then
+        return false, "injected diary menu remove failure"
+    end
+    if SC.DiaryUI.installed then SC.DiaryUI.removes = SC.DiaryUI.removes + 1 end
+    SC.DiaryUI.installed = false
+    return true
+end
+function SC.DiaryUI.isInstalled() return SC.DiaryUI.installed end

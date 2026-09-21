@@ -954,7 +954,29 @@ end
 
 local function quarantineRecord(record, reason)
     if type(record) ~= "table" then return end
+    -- Quarantine is reached when cleanup could not be verified, which includes
+    -- the case where releaseRuntimeState() itself failed and supervisor ownership
+    -- is still held. Kahlua does not honour weak tables, so marking the record
+    -- inactive without releasing would strand the actor's supervisor maps for the
+    -- rest of the session ("leaked reservations" in the support report). Release
+    -- is best-effort and never masks the original cleanup failure.
     record.runtime = type(record.runtime) == "table" and record.runtime or {}
+    local actor = record.actor
+    if actor ~= nil then
+        -- Honour the same vehicle-board exemption the retained cleanup used: a
+        -- board transaction that has entered its commit phase owns the native
+        -- body, and tearing it down here would apply the seat change without a
+        -- verified commit.
+        local pending = actorCleanupPending[actor]
+        local preserveBoardCommit = type(pending) == "table"
+            and pending.preserveVehicleBoardCommit == true
+        local released, releaseReason = releaseActionOwnership(actor,
+            "actor_removal_quarantine", preserveBoardCommit)
+        record.runtime.ownershipReleased = released == true
+        if released ~= true then
+            record.runtime.ownershipReleaseFailure = tostring(releaseReason)
+        end
+    end
     record.runtime.inactive = true
     record.runtime.unrecoverable = true
     record.runtime.removalPending = true

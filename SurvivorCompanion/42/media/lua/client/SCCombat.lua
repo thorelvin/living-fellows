@@ -47,7 +47,16 @@ local function equipWeapon(actor, item, options)
         allowedActions = { equip_weapon = true },
         metadata = { preference = options.preference, nextAction = options.nextAction },
     })
-    if token == nil then return false, beginReason or "equip_owner_rejected", retry end
+    if token == nil then
+        if service.containsDeferredStatus and service.containsDeferredStatus(beginReason) then
+            -- Urgent survival work was dispatched for this actor during begin(); the
+    -- companion is committed to it this cycle.  That is the urgent succeeding,
+    -- not this action failing, so report a deferral the decision layer can
+    -- recognise instead of a refusal that would cool the target down.
+            return false, "deferred:" .. tostring(beginReason)
+        end
+        return false, beginReason or "equip_owner_rejected", retry
+    end
     local reserved, reserveReason = service.reserve(token, item, "weapon")
     if reserved ~= true then
         service.fail(token, "equip_weapon_reservation_failed", { reason = reserveReason })

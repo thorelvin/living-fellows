@@ -1326,8 +1326,16 @@ local function beginTask(actor, state, container, item, category, owner, utility
             end,
         })
         if not token then
+            -- The claim and task fields are module-local bookkeeping with no
+            -- cooldown attached, so releasing them is correct either way: the
+            -- next pulse re-selects the same container. Only the reported reason
+            -- differs, because a deferral must not read as a refusal upstream.
             releaseContainer(container, actor)
             clearTaskFields(state)
+            if service.containsDeferredStatus
+                and service.containsDeferredStatus(startReason) then
+                return nil, "deferred:" .. tostring(startReason)
+            end
             return nil, startReason or "action_owner_unavailable"
         end
         task.supervisorToken = token

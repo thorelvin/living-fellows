@@ -126,6 +126,12 @@ local requiredModules = {
     "Quirks", "Autonomy",
     "Commands", "FactionRecruitment", "Decision", "Support", "UI", "ViewControl", "Steering", "UIContext",
     "CompanionMap",
+    -- Required'd modules that publish a runtime table and are called by name
+    -- elsewhere (SCActor's runtimeReleaseHooks reaches ZombieAttack, decision
+    -- and work reach the rest). Without an entry here a partial load fails late,
+    -- at the first call, instead of failing bootstrap closed.
+    "Net", "Banter", "CombatTrace", "Gestures", "Tales", "WorkRoutes",
+    "ZombieAttack", "DiaryUI",
 }
 
 -- Module presence alone is not a usable startup contract. These are the
@@ -147,6 +153,9 @@ local requiredFunctions = {
     { "CompanionMap", "install" },
     { "CompanionMap", "remove" },
     { "CompanionMap", "isInstalled" },
+    { "DiaryUI", "install" },
+    { "DiaryUI", "remove" },
+    { "DiaryUI", "isInstalled" },
     { "BaseVisuals", "install" },
     { "BaseVisuals", "remove" },
     { "BaseVisuals", "isInstalled" },
@@ -178,6 +187,8 @@ local contractDefinitions = {
     { name = "companion minimap", owner = function() return SC.CompanionMap end,
         install = "install", remove = "remove", state = "isInstalled" },
     { name = "base visuals", owner = function() return SC.BaseVisuals end,
+        install = "install", remove = "remove", state = "isInstalled" },
+    { name = "diary context menu", owner = function() return SC.DiaryUI end,
         install = "install", remove = "remove", state = "isInstalled" },
 }
 
