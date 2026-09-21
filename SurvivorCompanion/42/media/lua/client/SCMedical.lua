@@ -35,6 +35,34 @@ local function numberMethod(value, names, fallback)
     return fallback or 0
 end
 
+-- Build 42's getApparentInfectionLevel() is max(ZOMBIE_FEVER, ZOMBIE_INFECTION,
+-- FOOD_SICKNESS), so a companion with food poisoning reads as a rising Knox
+-- infection and can trip the crisis escalation and turning thresholds while
+-- perfectly free of the virus. Derive the real progress the way
+-- BodyDamage.update() does -- (now - infectionTime) / infectionMortalityDuration
+-- -- and keep the apparent value separately for anything that means "looks ill".
+-- The engine measures an IsoPlayer (which companions are) against
+-- getHoursSurvived() and everything else against world age; mirror that, and
+-- fall back to the apparent value only when the native numbers are unusable.
+local function knoxInfectionLevel(character, body, infected, apparent)
+    if not infected or body == nil then return 0 end
+    local duration = numberMethod(body, { "getInfectionMortalityDuration" }, -1)
+    local started = numberMethod(body, { "getInfectionTime" }, -1)
+    if duration <= 0 or started < 0 then return apparent end
+    local current = numberMethod(character, { "getHoursSurvived" }, -1)
+    if current < 0 and type(getGameTime) == "function" then
+        local ok, time = pcall(getGameTime)
+        if ok and time ~= nil then
+            current = numberMethod(time, { "getWorldAgeHours" }, -1)
+        end
+    end
+    if current < 0 then return apparent end
+    local progress = (current - started) / duration
+    -- NaN guard: a corrupted duration must not publish a nonsense percentage.
+    if progress ~= progress then return apparent end
+    return math.max(0, math.min(100, progress * 100))
+end
+
 local function bodyDamage(character)
     local body, ok = U().call(character, "getBodyDamage")
     if ok then return body end
@@ -125,7 +153,9 @@ function Medical.assess(character, runtime)
     table.sort(wounds, function(a, b) return a.severity > b.severity end)
 
     local infected = body and booleanMethod(body, { "IsInfected", "isInfected" }) or false
-    local infectionLevel = body and numberMethod(body, { "getApparentInfectionLevel" }, 0) or 0
+    local apparentInfectionLevel = body
+        and numberMethod(body, { "getApparentInfectionLevel" }, 0) or 0
+    local infectionLevel = knoxInfectionLevel(character, body, infected, apparentInfectionLevel)
     local terminalKnox = infected and infectionLevel >= 99.5
     local state = downed[character]
     return {
@@ -140,6 +170,7 @@ function Medical.assess(character, runtime)
         bites = bites,
         knoxInfected = infected,
         infectionLevel = infectionLevel,
+        apparentInfectionLevel = apparentInfectionLevel,
         terminalKnox = terminalKnox,
         -- Only an explicit legacy state requires recovery. Low body health is
         -- not a downed state and cannot be healed by an empty bandage action.

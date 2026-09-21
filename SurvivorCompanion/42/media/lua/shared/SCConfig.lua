@@ -1233,6 +1233,11 @@ local valueData = {
     infectionCrisisIntervalMs = 500,
     infectionCrisisSafeDelayMs = 10000,
     infectionCrisisDeliberationMs = 12000,
+    -- How long a resolved quarantine/exile may spend walking to its
+    -- destination before the outcome counts as carried out anyway. An
+    -- unreachable quarantine tile must never hold a companion in crisis
+    -- behaviour for the rest of the session.
+    crisisOutcomeTimeoutMs = 120000,
     infectionCrisisHistoryLimit = 96,
     infectionCrisisEvidenceLimit = 32,
     infectionCrisisMaxRecords = 32,

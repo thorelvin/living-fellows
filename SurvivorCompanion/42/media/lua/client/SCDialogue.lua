@@ -2157,14 +2157,17 @@ function Dialogue.monitorMortality(actor, player, source)
     local current = U().nowMs()
     local mortality = mortalityState(actor)
     if source == "zombie" then mortality.lastZombieWoundAt = current end
-    local body = select(1, U().call(actor, "getBodyDamage"))
-    local infected = body and (select(1, U().call(body, "IsInfected")) == true) or false
-    if body and infected ~= true then
-        infected = select(1, U().call(body, "isInfected")) == true
+    -- Ask the medical assessment rather than reading the body directly:
+    -- getApparentInfectionLevel() is max(fever, zombie infection, food sickness),
+    -- so a badly food-poisoned companion used to speak its turning last words.
+    local infected, infectionLevel = false, 0
+    if SC.Medical and type(SC.Medical.assess) == "function" then
+        local ok, assessment = pcall(SC.Medical.assess, actor)
+        if ok and type(assessment) == "table" then
+            infected = assessment.knoxInfected == true
+            infectionLevel = tonumber(assessment.infectionLevel) or 0
+        end
     end
-    local infectionLevelValue = body and select(1,
-        U().call(body, "getApparentInfectionLevel")) or 0
-    local infectionLevel = tonumber(infectionLevelValue) or 0
     if infected and infectionLevel >= (U().config("lastWordsTurningThreshold") or 97) then
         return Dialogue.sayLastWords(actor, "turning", player)
     end

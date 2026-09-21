@@ -130,6 +130,7 @@
     "UI_SC_Base_Outcome_exile": "Order exile",
     "UI_SC_Base_Outcome_mercy": "Propose mercy killing",
     "UI_SC_Base_AuthorizeFinal": "Confirm irreversible final action",
+    "UI_SC_Base_ReleaseCrisis": "End crisis and return to normal duty",
     "UI_SC_Base_Zone_": "Zone",
     "UI_SC_Base_Storage_": "Storage",
     "UI_SC_Base_Build_": "Construction",

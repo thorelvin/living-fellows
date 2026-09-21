@@ -1367,6 +1367,37 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIn("element:drawRect", self.pixels)
         self.assertNotRegex(self.pixels, r"\.png|\.jpg|\.dds|\.tga")
 
+    def test_resolved_infection_crisis_keeps_its_player_controls(self) -> None:
+        """A resolved crisis must still offer a way out.
+
+        The companions vote for themselves when deliberation expires. Gating the
+        outcome buttons on phase ~= "resolved" made that vote silently final: a
+        camp left with quarantined and self-exiled companions had no button to
+        overrule the verdict or end it.
+        """
+        panel = lua_function(self.ui, "function SCUIDetail:buildBase(panel, row)")
+        self.assertIn("UI_SC_Base_Section_Crisis", panel)
+        lines = panel.splitlines()
+        guard = None
+        for index, line in enumerate(lines):
+            if "for _, outcome in ipairs" in line and index > 0:
+                guard = lines[index - 1]
+                break
+        self.assertIsNotNone(guard, "outcome buttons must come from one guard")
+        self.assertNotIn(
+            'crisis.phase ~= "resolved"',
+            guard,
+            "a resolved crisis must keep its outcome buttons",
+        )
+        self.assertIn('crisis.phase ~= "terminal"', guard)
+        self.assertIn("finalAuthorized", guard)
+        # Only an explicit release clears the restriction: BaseLife refuses base
+        # jobs under the watch restriction as well as under quarantine.
+        self.assertIn("UI_SC_Base_ReleaseCrisis", panel)
+        self.assertIn('"release"', panel)
+        handler = lua_function(self.ui, "local function onCrisisButton(target, button)")
+        self.assertIn("SC.InfectionCrisis.release", handler)
+
     def test_only_allowed_ui_event_hooks_are_used(self) -> None:
         hooks = set(re.findall(r"Events\.(On\w+)", self.all_source))
         self.assertEqual(

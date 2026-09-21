@@ -29,6 +29,11 @@ local function finite(value, fallback)
     return value
 end
 
+local function finiteNumber(value)
+    return type(value) == "number" and value == value
+        and value ~= math.huge and value ~= -math.huge
+end
+
 local function cleanText(value, fallback, limit)
     if type(value) ~= "string" or value == "" then value = fallback or "" end
     value = tostring(value)
@@ -105,6 +110,22 @@ local function commandState(actor)
         if ok and type(state) == "table" then return state end
     end
     return {}
+end
+
+-- This module had no logging at all, so a crisis -- the single most disruptive
+-- thing that can happen to a camp -- left no trace in the debug log and could
+-- only be inspected through the Base panel. Same gate and shape as the other
+-- subsystem traces.
+local function debugTrace(event, crisis, detail)
+    local utility = U()
+    if not utility or utility.config("debugSpawnEnabled") ~= true then return end
+    print("[SurvivorCompanion][crisis] crisis=" .. tostring(crisis and crisis.id or "none")
+        .. " subject=" .. tostring(crisis and crisis.subjectId or "none")
+        .. " event=" .. tostring(event)
+        .. " phase=" .. tostring(crisis and crisis.phase or "none")
+        .. " outcome=" .. tostring(crisis and crisis.outcome or "none")
+        .. " infection=" .. tostring(math.floor(finite(crisis and crisis.infectionLevel, 0)))
+        .. " detail=" .. tostring(detail or "none"))
 end
 
 local function history(kind, fields)
@@ -486,6 +507,9 @@ end
 
 local function applyOutcome(crisis, subject, outcome, player)
     crisis.outcome, crisis.phase, crisis.resolvedAt = outcome, "resolved", now()
+    -- A re-chosen outcome has to be carried out again, so the previous
+    -- completion never carries over.
+    crisis.outcomeCompletedAt = nil
     local restriction = nil
     if outcome == "watch" then restriction = "watch"
     elseif outcome == "quarantine" then restriction = "quarantine" end
@@ -502,6 +526,7 @@ local function applyOutcome(crisis, subject, outcome, player)
     if SC.Diary and type(SC.Diary.noteCrisisOutcome) == "function" then
         pcall(SC.Diary.noteCrisisOutcome, crisis, player)
     end
+    debugTrace("resolved", crisis, "restriction=" .. tostring(restriction or "none"))
 end
 
 -- The slow parts of a crisis conversation: a walk to confide that takes too
@@ -739,6 +764,30 @@ local function confideStep(subject, crisis, player)
     return true, "crisis_confided"
 end
 
+-- Carrying the outcome out is what ends the subject's crisis behaviour.  Without
+-- this marker `resolved` plus an acting outcome never became anything else, so a
+-- quarantined or exiled companion held decision priority 84 for the rest of the
+-- session and never went back to ordinary life.
+local function completeOutcome(crisis, reason)
+    if crisis.outcomeCompletedAt ~= nil then return true, reason end
+    crisis.outcomeCompletedAt = now()
+    history("outcome_completed", {
+        crisisId = crisis.id, subjectId = crisis.subjectId,
+        outcome = crisis.outcome, reason = reason,
+    })
+    debugTrace("outcome_completed", crisis, reason)
+    return true, reason
+end
+
+-- Walking to a quarantine tile or off the base is ordinary navigation and can
+-- fail forever (an unreachable zone, a deleted room).  Bound it: the outcome is
+-- recorded as carried out either way, because a pathing failure must never cost
+-- the player a companion.
+local function outcomeRouteExhausted(crisis)
+    local limit = U().config("crisisOutcomeTimeoutMs") or 120000
+    return now() - finite(crisis.resolvedAt, now()) > limit
+end
+
 local function updateResolvedActor(actor, id, crisis, subject)
     if id ~= crisis.subjectId then return false, "crisis_observer" end
     local outcome = crisis.outcome
@@ -746,11 +795,14 @@ local function updateResolvedActor(actor, id, crisis, subject)
         local target = SC.BaseLife and SC.BaseLife.zoneCenter("quarantine")
         local square = target and U().loadedSquare(target) or nil
         if square and U().distance(actor, square) > 1.5 and SC.Navigation then
+            if outcomeRouteExhausted(crisis) then
+                return completeOutcome(crisis, "quarantine_unreachable")
+            end
             return SC.Navigation.request(actor, square, "walk", {
                 action = "move_to_quarantine", targetSquare = square,
             })
         end
-        return true, "quarantined"
+        return completeOutcome(crisis, "quarantined")
     end
     if outcome == "exile" or outcome == "self_exile" then
         local base = SC.BaseLife and SC.BaseLife.active()
@@ -758,12 +810,15 @@ local function updateResolvedActor(actor, id, crisis, subject)
             local dx = (U().stableHash(id) % 2 == 0) and 18 or -18
             local target = U().gridSquare(base.core.x + dx, base.core.y + 12, base.core.z)
             if target and SC.Navigation then
+                if outcomeRouteExhausted(crisis) then
+                    return completeOutcome(crisis, "exile_route_unavailable")
+                end
                 return SC.Navigation.request(actor, target, "walk", {
                     action = "leave_base", targetSquare = target,
                 })
             end
         end
-        return true, "exiled"
+        return completeOutcome(crisis, "exiled")
     end
     if outcome == "mercy" or outcome == "self_sacrifice" then
         if now() < crisis.irreversibleAfter or crisis.finalAuthorized ~= true then
@@ -789,16 +844,25 @@ function Crisis.pulse(player, current)
             seen[id] = true
             local prior = ensure().observations[id] or { bites = 0, infected = false }
             local crisis = activeForSubject(id)
+            -- A crisis the player explicitly released must not reopen for the
+            -- same infection on the very next pulse. The flag clears by itself
+            -- once the subject is no longer infected, so a later infection is
+            -- free to raise a new crisis.
+            local released = prior.released == true and medical.knoxInfected == true
             if (medical.bites or 0) > (prior.bites or 0) and not crisis then
                 crisis = newCrisis(actor, id, medical, player)
-            elseif not crisis and medical.knoxInfected and (medical.infectionLevel or 0) >= 20 then
+                debugTrace("opened", crisis, "new bite")
+            elseif not crisis and not released and medical.knoxInfected
+                and (medical.infectionLevel or 0) >= 20 then
                 crisis = newCrisis(actor, id, medical, player)
                 addEvidence(crisis, "symptoms", id, 70, "infection already underway")
+                debugTrace("opened", crisis, "infection underway")
             end
             if crisis then advance(crisis, actor, player, medical, current) end
             ensure().observations[id] = {
                 bites = medical.bites or 0, infected = medical.knoxInfected == true,
                 infectionLevel = medical.infectionLevel or 0, seenAt = current,
+                released = released or nil,
             }
         end
     end
@@ -842,7 +906,10 @@ local function intentPriority(crisis, id, actor, player, snapshot)
             end
             return 70
         end
-        return crisis.phase == "resolved" and actingOutcomes[crisis.outcome] and 84 or 0
+        -- Once the outcome has actually been carried out the subject lives
+        -- ordinary life again, under whatever restriction the outcome left.
+        return crisis.phase == "resolved" and actingOutcomes[crisis.outcome]
+            and crisis.outcomeCompletedAt == nil and 84 or 0
     end
     local member = crisis.participants[id]
     if not member then return 0 end
@@ -923,8 +990,16 @@ end
 function Crisis.choose(crisisId, outcome)
     local crisis = ensure().crises[crisisId]
     if not crisis then return false, "unknown_crisis" end
-    if crisis.phase == "resolved" or crisis.phase == "terminal" or crisis.phase == "closed" then
-        return false, "crisis_already_resolved"
+    -- A resolved crisis may be re-decided.  The companions vote among themselves
+    -- when the deliberation timer expires, and before this the player could only
+    -- watch the result: the outcome buttons disappeared the moment the group had
+    -- chosen.  Only an authorized irreversible act, or a crisis that has already
+    -- ended, is final.
+    if crisis.phase == "terminal" or crisis.phase == "closed" then
+        return false, "crisis_already_closed"
+    end
+    if crisis.finalAuthorized == true then
+        return false, "final_action_already_authorized"
     end
     if not Crisis.OUTCOMES[outcome] then return false, "invalid_outcome" end
     if outcome == "mercy" and crisis.subjectId == "player:local" then
@@ -954,6 +1029,35 @@ function Crisis.choose(crisisId, outcome)
         if not crisis.executorId then return false, "mercy_executor_unavailable" end
     end
     applyOutcome(crisis, subject, outcome, player)
+    return true, crisis
+end
+
+-- The player's way out of a crisis that has served its purpose: lift the
+-- restriction, close the record, and give the companion its ordinary duties
+-- back.  "watch" is not a release -- BaseLife refuses base jobs under both the
+-- watch and quarantine restrictions -- so this clears the restriction outright.
+-- An irreversible act that already happened cannot be undone.
+function Crisis.release(crisisId, reason)
+    local crisis = ensure().crises[crisisId]
+    if not crisis then return false, "unknown_crisis" end
+    if crisis.phase == "terminal" then return false, "crisis_already_terminal" end
+    if crisis.phase == "closed" then return true, crisis end
+    crisis.phase, crisis.outcome = "closed", nil
+    crisis.finalAuthorized, crisis.executorId = false, nil
+    crisis.outcomeCompletedAt, crisis.closedAt = now(), now()
+    if SC.BaseLife and type(SC.BaseLife.setRestriction) == "function" then
+        SC.BaseLife.setRestriction(crisis.subjectId, nil)
+    end
+    -- Re-baseline the subject so the very same infection does not re-open a new
+    -- crisis on the next pulse. A fresh bite still does, and so does a later
+    -- infection once this one has cleared.
+    local observation = ensure().observations[crisis.subjectId]
+    if type(observation) == "table" then observation.released = true end
+    history("released", {
+        crisisId = crisis.id, subjectId = crisis.subjectId,
+        reason = cleanText(reason, "player_released", 48),
+    })
+    debugTrace("released", crisis, reason or "player_released")
     return true, crisis
 end
 
@@ -995,6 +1099,11 @@ local function normalize(source)
     copy.nextSerial = math.max(1, math.floor(finite(copy.nextSerial, 1)))
     copy.crises = type(copy.crises) == "table" and copy.crises or {}
     copy.observations = type(copy.observations) == "table" and copy.observations or {}
+    for _, observation in pairs(copy.observations) do
+        if type(observation) == "table" then
+            observation.released = observation.released == true or nil
+        end
+    end
     copy.history = type(copy.history) == "table" and copy.history or {}
     for id, crisis in pairs(copy.crises) do
         if type(id) ~= "string" or type(crisis) ~= "table" or crisis.id ~= id
@@ -1012,6 +1121,13 @@ local function normalize(source)
             crisis.finalAuthorized = crisis.finalAuthorized == true
                 and crisis.phase == "resolved"
                 and (crisis.outcome == "mercy" or crisis.outcome == "self_sacrifice")
+            -- Additive, normalized: a completion stamp only means anything on a
+            -- resolved crisis, and a non-finite one is dropped rather than
+            -- restored as a value the phase checks cannot compare.
+            if crisis.phase ~= "resolved" or not finiteNumber(crisis.outcomeCompletedAt) then
+                crisis.outcomeCompletedAt = nil
+            end
+            if not finiteNumber(crisis.closedAt) then crisis.closedAt = nil end
         end
     end
     return copy
@@ -1019,11 +1135,6 @@ end
 
 local function restoreFailure(path, detail)
     return false, "invalid infection crisis state at " .. tostring(path) .. ": " .. tostring(detail)
-end
-
-local function finiteNumber(value)
-    return type(value) == "number" and value == value
-        and value ~= math.huge and value ~= -math.huge
 end
 
 local function denseArray(value, path, maximum)
@@ -1074,6 +1185,12 @@ local function validateCrisis(crisis, id, path)
     if crisis.finalAuthorized and (crisis.phase ~= "resolved"
         or (crisis.outcome ~= "mercy" and crisis.outcome ~= "self_sacrifice")) then
         return restoreFailure(path .. ".finalAuthorized", "authorization is inconsistent with outcome")
+    end
+    if crisis.outcomeCompletedAt ~= nil and not finiteNumber(crisis.outcomeCompletedAt) then
+        return restoreFailure(path .. ".outcomeCompletedAt", "expected finite timestamp")
+    end
+    if crisis.closedAt ~= nil and not finiteNumber(crisis.closedAt) then
+        return restoreFailure(path .. ".closedAt", "expected finite timestamp")
     end
     if type(crisis.participants) ~= "table" then
         return restoreFailure(path .. ".participants", "expected participant map")
@@ -1146,7 +1263,8 @@ local function validateRestoreSource(source)
             or observation.bites ~= math.floor(observation.bites)
             or type(observation.infected) ~= "boolean"
             or not finiteNumber(observation.infectionLevel) or observation.infectionLevel < 0
-            or not finiteNumber(observation.seenAt) then
+            or not finiteNumber(observation.seenAt)
+            or (observation.released ~= nil and type(observation.released) ~= "boolean") then
             return restoreFailure(path, "invalid observation")
         end
     end

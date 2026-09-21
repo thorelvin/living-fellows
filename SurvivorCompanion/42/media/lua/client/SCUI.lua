@@ -1404,6 +1404,9 @@ local function onCrisisButton(target, button)
     if button.scCrisisAction == "authorize" then
         ok, accepted, reason = pcall(SC.InfectionCrisis.authorize, button.scCrisisId,
             button.scOutcome)
+    elseif button.scCrisisAction == "release" then
+        ok, accepted, reason = pcall(SC.InfectionCrisis.release, button.scCrisisId,
+            "player_released")
     else
         ok, accepted, reason = pcall(SC.InfectionCrisis.choose, button.scCrisisId,
             button.scOutcome)
@@ -3584,15 +3587,22 @@ function SCUIDetail:buildBase(panel, row)
                     UI.humanize(crisis.phase),
                     tostring(math.floor(tonumber(crisis.infectionLevel) or 0)),
                     UI.humanize(crisis.outcome or crisis.strategy)))
-            if crisis.phase ~= "resolved" and crisis.phase ~= "terminal" then
+            -- A resolved crisis keeps its outcome buttons. The companions vote
+            -- for themselves once deliberation expires, and hiding the buttons
+            -- at that moment left the player with no way to overrule them --
+            -- and no way to end a quarantine or exile that was already running.
+            if crisis.phase ~= "terminal" and not crisis.finalAuthorized then
                 for _, outcome in ipairs({ "watch", "quarantine", "exile", "mercy" }) do
                     if outcome ~= "mercy" or not crisis.subjectIsPlayer then
                         y = self:addCrisisAction(panel, y, "UI_SC_Base_Outcome_" .. outcome,
                             crisis.id, outcome, "choose")
                     end
                 end
-            elseif (crisis.outcome == "mercy" or crisis.outcome == "self_sacrifice")
-                and not crisis.finalAuthorized then
+                y = self:addCrisisAction(panel, y, "UI_SC_Base_ReleaseCrisis",
+                    crisis.id, nil, "release")
+            end
+            if (crisis.outcome == "mercy" or crisis.outcome == "self_sacrifice")
+                and crisis.phase == "resolved" and not crisis.finalAuthorized then
                 y = self:addCrisisAction(panel, y, "UI_SC_Base_AuthorizeFinal",
                     crisis.id, crisis.outcome, "authorize")
             end

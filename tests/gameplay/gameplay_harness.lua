@@ -358,7 +358,11 @@ local function bodyDamage(health, parts)
     function value:getHealth() return self.health end
     function value:getBodyParts() return self.parts end
     function value:IsInfected() return self.infected == true end
+    -- max(ZOMBIE_FEVER, ZOMBIE_INFECTION, FOOD_SICKNESS) in Build 42, so this is
+    -- deliberately allowed to read high with no zombie infection at all.
     function value:getApparentInfectionLevel() return self.infectionLevel or 0 end
+    function value:getInfectionTime() return self.infectionTime or -1 end
+    function value:getInfectionMortalityDuration() return self.infectionMortality or -1 end
     function value:SetBandaged(index, enabled, life, alcoholic, itemType)
         if self.rejectBandage then return false end
         local part = self.parts[index + 1]
@@ -496,6 +500,7 @@ local function actor(id, x, y, options)
     function value:getInventory() return self.inventory end
     function value:getMaxWeight() return self.inventory.capacity end
     function value:getBodyDamage() return self.body end
+    function value:getHoursSurvived() return self.hoursSurvived or -1 end
     function value:getModData() return self.modDataProxy or self.modData end
     function value:isDead() return self.dead end
     function value:getHealth() return self.body.health end
@@ -18135,6 +18140,135 @@ end)()
     local again = Crisis.updateActor(people["sc-cn-new"], player)
     check(reacted == true and not again and priority("sc-cn-new") == 0,
         "a bystander reacts to a new crisis once and then goes back to their own life")
+    Crisis.restore(savedCrises)
+    for id in pairs(people) do registry[id] = nil end
+end)()
+
+-- Build 42's getApparentInfectionLevel() is max(ZOMBIE_FEVER, ZOMBIE_INFECTION,
+-- FOOD_SICKNESS). Reading it as the Knox level made a food-poisoned companion
+-- report "Knox symptoms 30%", escalated crisis deliberation at 85, and could
+-- make it speak its turning last words at 97 while free of the virus.
+;(function()
+    local medical = SurvivorCompanion.Medical
+    local sick = actor("sc-foodsick", 36, 50, {})
+    sick.body.infected = false
+    sick.body.infectionLevel = 42
+    local sickAssessment = medical.assess(sick)
+    check(sickAssessment.knoxInfected == false
+            and sickAssessment.infectionLevel == 0
+            and sickAssessment.apparentInfectionLevel == 42,
+        "food sickness never reads as a zombie infection level: "
+            .. tostring(sickAssessment.infectionLevel) .. "/"
+            .. tostring(sickAssessment.apparentInfectionLevel))
+
+    local bitten = actor("sc-knox", 37, 50, {})
+    bitten.body.infected = true
+    bitten.body.infectionLevel = 90
+    bitten.body.infectionTime = 10
+    bitten.body.infectionMortality = 40
+    bitten.hoursSurvived = 20
+    local knox = medical.assess(bitten)
+    check(knox.knoxInfected == true and math.abs(knox.infectionLevel - 25) < 0.001
+            and knox.terminalKnox == false,
+        "a real infection uses native progress, not the apparent maximum: "
+            .. tostring(knox.infectionLevel))
+    bitten.hoursSurvived = 50
+    check(math.abs(medical.assess(bitten).infectionLevel - 100) < 0.001
+            and medical.assess(bitten).terminalKnox == true,
+        "the derived level saturates at 100 and reports terminal Knox")
+
+    -- Without usable native numbers the apparent value is still the best guess.
+    local unknown = actor("sc-knox-unknown", 38, 50, {})
+    unknown.body.infected = true
+    unknown.body.infectionLevel = 63
+    check(medical.assess(unknown).infectionLevel == 63,
+        "an unusable mortality duration falls back to the apparent level")
+end)()
+
+-- 0.25.5 playtest: an entire camp ended up permanently on "Activity: Infection
+-- crisis". A resolved quarantine or exile never recorded that it had been
+-- carried out, so the subject kept decision priority 84 for the rest of the
+-- session, and the Base panel dropped its outcome buttons the moment the
+-- companions voted -- leaving the player no way to overrule or end it.
+;(function()
+    local Crisis = SurvivorCompanion.InfectionCrisis
+    local savedCrises = Crisis.export()
+    local people = {}
+    for index, id in ipairs({ "sc-fx-quarantine", "sc-fx-exile", "sc-fx-override",
+        "sc-fx-final" }) do
+        local value = actor(id, 36 + index, 52, {})
+        registry[value.id] = value
+        people[id] = value
+    end
+    local function crisis(id, subjectId, outcome, extra)
+        local value = {
+            id = id, subjectId = subjectId, subjectName = subjectId, phase = "resolved",
+            strategy = "confess", outcome = outcome, createdAt = 100, updatedAt = 100,
+            resolvedAt = 100, irreversibleAfter = 200, deliberateAfter = 300,
+            biteCount = 1, infectionLevel = 40, evidence = {}, artifacts = {},
+            finalAuthorized = false,
+            participants = {
+                [subjectId] = { knowledge = "confirmed", certainty = 100, spoken = false },
+            },
+        }
+        for key, entry in pairs(extra or {}) do value[key] = entry end
+        return value
+    end
+    local restored, restoreReason = Crisis.restore({
+        version = 1, nextSerial = 9, observations = {}, history = {},
+        crises = {
+            ["fx:1"] = crisis("fx:1", "sc-fx-quarantine", "quarantine"),
+            ["fx:2"] = crisis("fx:2", "sc-fx-exile", "self_exile"),
+            ["fx:3"] = crisis("fx:3", "sc-fx-override", "quarantine"),
+            ["fx:4"] = crisis("fx:4", "sc-fx-final", "mercy",
+                { finalAuthorized = true, executorId = "sc-fx-final" }),
+        },
+    })
+    local function priority(id)
+        local intent = Crisis.intentFor(people[id], player)
+        return intent and intent.priority or 0
+    end
+    check(restored and priority("sc-fx-quarantine") == 84 and priority("sc-fx-exile") == 84,
+        "an outcome that has not been carried out still holds its subject: "
+            .. tostring(restoreReason))
+
+    -- Carrying the outcome out releases the companion back to ordinary life.
+    check(Crisis.updateActor(people["sc-fx-quarantine"], player) == true
+            and priority("sc-fx-quarantine") == 0,
+        "a completed quarantine stops holding the companion in crisis behaviour")
+    check(Crisis.updateActor(people["sc-fx-exile"], player) == true
+            and priority("sc-fx-exile") == 0,
+        "a completed exile stops holding the companion in crisis behaviour")
+
+    -- The player can overrule the companions' own verdict after the fact.
+    local changed, changedReason = Crisis.choose("fx:3", "watch")
+    check(changed == true and priority("sc-fx-override") == 0,
+        "a resolved outcome can still be re-decided by the player: "
+            .. tostring(changedReason))
+
+    -- An authorized irreversible act is the one thing that cannot be undone.
+    local blocked, blockedReason = Crisis.choose("fx:4", "watch")
+    check(blocked == false and blockedReason == "final_action_already_authorized",
+        "an authorized final act refuses to be overruled: " .. tostring(blockedReason))
+
+    -- Release ends the crisis outright and clears the restriction, which
+    -- "watch" does not: BaseLife refuses base jobs under watch and quarantine.
+    SurvivorCompanion.BaseLife.setRestriction("sc-fx-quarantine", "quarantine")
+    local released, releasedReason = Crisis.release("fx:1", "fixture")
+    check(released == true
+            and SurvivorCompanion.BaseLife.restriction("sc-fx-quarantine") == nil
+            and priority("sc-fx-quarantine") == 0,
+        "release clears the restriction and frees the companion: "
+            .. tostring(releasedReason))
+    local summary = Crisis.summary()
+    local stillListed = false
+    for _, row in ipairs(summary.rows or {}) do
+        if row.id == "fx:1" then stillListed = true end
+    end
+    check(not stillListed, "a released crisis leaves the Base panel")
+    check(Crisis.release("fx:1") == true and Crisis.choose("fx:1", "watch") == false,
+        "releasing twice is harmless and a closed crisis cannot be re-decided")
+
     Crisis.restore(savedCrises)
     for id in pairs(people) do registry[id] = nil end
 end)()
