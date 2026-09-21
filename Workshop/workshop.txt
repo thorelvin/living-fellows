@@ -1,6 +1,13 @@
+# Published Steam Workshop item 3805760339. This id is what makes an upload
+# update the existing item instead of creating a second one, so it must be
+# kept and must travel with the repository -- the game only writes it into
+# the staged copy under ~/Zomboid/Workshop/.
+# A brand-new item needs an EMPTY id=, never id=0: SteamUtils.isValidSteamID
+# accepts "0" as a real published-file id, so the uploader takes its
+# "update existing item" path and Steam rejects it with result=9.
 version=1
-id=0
+id=3805760339
 title=Living Fellows: Companion
-description=Public beta for Project Zomboid 42.20.4: persistent native companions, survivor households, social contracts, and living bases. Single-player only. Workshop users need ZombieBuddy 2.3.3 or newer and must complete its one-time loader setup; subscribing alone is not enough. The standalone Windows installer from GitHub Releases does not need ZombieBuddy. Use only one copy.
-tags=Build 42;Singleplayer;NPC
-visibility=unlisted
+description=You wont die... Alone! Public beta for Project Zomboid 42.20.4: persistent native companions, survivor households, social contracts, and living bases. Single-player only. Workshop users need ZombieBuddy 2.3.3 or newer and must complete its one-time loader setup; subscribing alone is not enough. The standalone Windows installer from GitHub Releases does not need ZombieBuddy. Use only one copy.
+tags=Build 42
+visibility=friendsOnly
