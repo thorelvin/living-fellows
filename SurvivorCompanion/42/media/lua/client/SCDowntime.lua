@@ -733,25 +733,15 @@ local function furnitureKind(object)
                 or string.find(loweredSprite, "furniture_bedding", 1, true) then
                 return "rest_bed"
             end
+            -- Build 42's pathToSitOnFurniture and ISRestAction both use
+            -- SeatingManager as the authoritative contract. Names, IsChair and
+            -- BedType describe many decorative/non-enterable tiles and caused
+            -- companions to spend twelve seconds trying to sit in open air.
             if seatingPositionCount(object) > 0 then return "sit" end
-            local chair, chairOk = utility.call(properties, "Is", "IsChair")
-            if chairOk and chair then return "sit" end
-            if isNamedSeat(objectName) or isNamedSeat(customNameOk and customName or nil)
-                or isNamedSeat(groupNameOk and groupName or nil) then
-                return "sit"
-            end
-            local bedType, bedTypeOk = utility.call(properties, "Val", "BedType")
-            if (not bedTypeOk or bedType == nil) then
-                bedType, bedTypeOk = utility.call(properties, "get", "BedType")
-            end
-            local loweredBedType = bedTypeOk and bedType ~= nil
-                and string.lower(tostring(bedType)) or ""
-            if string.find(loweredBedType, "chair", 1, true)
-                or string.find(loweredBedType, "stool", 1, true) then return "sit" end
         end
     end
     if isNamedBed(objectName) then return "rest_bed" end
-    if seatingPositionCount(object) > 0 or isNamedSeat(objectName) then return "sit" end
+    if seatingPositionCount(object) > 0 then return "sit" end
     return nil
 end
 
@@ -795,6 +785,8 @@ end
 local function seatActivity(actor, state, current, seatOnly)
     local utility = U()
     if seatingStatus(actor) ~= "standing" then return nil end
+    if type(state) == "table" and (tonumber(current) or utility.nowMs())
+        < (tonumber(state.furnitureBackoffUntil) or 0) then return nil end
     local x, y, z = utility.position(actor)
     if not x then return nil end
     local actorSquare = utility.squareOf(actor)
@@ -1929,6 +1921,12 @@ local function failActivity(actor, state, reason, detail)
         -- Remember the exact object long enough for another activity or piece
         -- of furniture to win while the world topology remains unchanged.
         coolFurniture(state, activity.object, U().nowMs())
+        -- A failure normally reflects unavailable/blocked SeatingManager data,
+        -- not one uniquely bad sprite. Stop cycling through every chair in the
+        -- room; during this bounded backoff a tired actor can choose floor rest
+        -- and read/diary activities may continue in the posture they have.
+        state.furnitureBackoffUntil = U().nowMs()
+            + (tonumber(U().config("downtimeFurnitureFailureCooldownMs")) or 60000)
     end
     releaseDowntimeResources(actor, state, activity, reason)
     state.nextEvaluationAt = U().nowMs() + (U().config("downtimeIntervalMs") or 1500)
@@ -2111,6 +2109,14 @@ local function beginActivity(actor, state, activity, commands, now)
         transitionActivity(activity, "approaching", { status = status })
         if status == "arrived" then
             local started, startReason = startBorrowedReading(actor, activity, now)
+            if not started and startReason == "borrowed_book_source_not_in_reach" then
+                -- The selected multi-goal can become invalid between native
+                -- arrival and this fresh topology check (a companion moved
+                -- through the use square in the live camp). Keep the checkout
+                -- uncommitted and re-approach instead of failing/reselecting the
+                -- same book every decision pulse.
+                return true, "approaching_reading_storage"
+            end
             if not started then return failActivity(actor, state, startReason) end
         end
     elseif furniture and activity.square then
@@ -2527,6 +2533,10 @@ function Downtime.update(actor, player, runtime, desiredKind)
             transitionActivity(state.active, "approaching", { status = status })
             if status ~= "arrived" then return true, "approaching_reading_storage" end
             local started, startReason = startBorrowedReading(actor, state.active, current)
+            if not started and startReason == "borrowed_book_source_not_in_reach" then
+                transitionActivity(state.active, "approaching", { status = startReason })
+                return true, "approaching_reading_storage"
+            end
             if not started then return failActivity(actor, state, startReason) end
             return true, state.active.kind
         end

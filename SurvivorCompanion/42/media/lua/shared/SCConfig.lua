@@ -444,6 +444,9 @@ local valueData = {
     curtainTaskTimeoutMs = 30000,
     curtainSearchRadius = 5,
     bedEntryTimeoutMs = 12000,
+    -- Native furniture path actions are unbounded. Degrade to the same floor
+    -- sit fallback as the vanilla Rest context menu before the outer watchdog.
+    furniturePathTimeoutMs = 8000,
     curtainSearchSquareBudget = 121,
     curtainSearchObjectBudget = 128,
     windowOpenMs = 1300,

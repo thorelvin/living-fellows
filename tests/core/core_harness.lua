@@ -1948,6 +1948,12 @@ local function testPathAction(character, object)
         local queue = ISTimedActionQueue.getTimedActionQueue(self.character)
         if queue.current and queue.current.action == nil then queue.current:begin() end
     end
+    function value:failPath()
+        if self.failCallback then
+            self.failCallback(self.failArgs[1], self.failArgs[2], self.failArgs[3])
+        end
+        ISBaseTimedAction.stop(self)
+    end
     return value
 end
 ISPathFindAction = {}
@@ -2021,6 +2027,18 @@ local leftSeat = SC.NativeActions.leaveSeating(actor)
 check(leftSeat and actor.sitting == false and actor.seatObject == nil
         and seat.occupied == false,
     "leaving furniture cancels only its owned action and clears occupancy")
+
+local fallbackOk = SC.Actor.setMovement(actor, "walk", { action = "sit", object = seat })
+check(fallbackOk and lastFurniturePath ~= nil,
+    "a second furniture attempt starts before testing the blocked-seat fallback")
+lastFurniturePath:failPath()
+check(actor.groundSitting == true and actor.lastEvent == "EventSitOnGround"
+        and SC.NativeActions.furnitureStatus(actor) == "entered",
+    "a blocked furniture path uses the vanilla floor-sit fallback instead of timing out")
+local fallbackLeft, fallbackLeaveReason = SC.NativeActions.leaveSeating(actor)
+check(fallbackLeft == false and fallbackLeaveReason == "standing_from_ground"
+        and actor.groundSitting == false,
+    "leaving a furniture floor fallback requests and verifies the asynchronous ground stand")
 
 local bedGrid = {}
 function bedGrid:getSpriteGridPosY() return 1 end

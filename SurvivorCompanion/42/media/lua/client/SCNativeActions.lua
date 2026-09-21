@@ -1452,8 +1452,30 @@ local function emptyTimedActionQueue(actor)
     return queue
 end
 
+local function fallbackSeatingToGround(actor, record, reason, cancelActions)
+    if type(record) ~= "table" or record.fallbackAttempted == true then return false end
+    record.fallbackAttempted = true
+    if cancelActions == true then cancelSeatingRecord(actor, record) end
+    if record.object then invoke(record.object, "setSatChair", false) end
+    invoke(actor, "setSitOnFurnitureObject", nil)
+    local requested, requestReason = requestGroundSeat(actor, true)
+    if requested == true then
+        record.failed = false
+        record.fallbackGround = true
+        record.failure = reason
+        record.startedAt = nowMs()
+        return true
+    end
+    record.failed = true
+    record.failure = requestReason or reason
+    return false
+end
+
 local function furniturePathFailed(actor, record)
-    if type(record) == "table" then record.failed = true end
+    -- This is the stock context-menu behavior: when a furniture seat has no
+    -- usable path (missing data or every entry blocked), sit on the ground
+    -- instead of silently abandoning the rest request.
+    fallbackSeatingToGround(actor, record, "furniture_path_failed", false)
 end
 
 local function bedPathFailed(actor, record)
@@ -4092,7 +4114,23 @@ function actions.bedStatus(actor)
     if record and record.pose == "furniture" and sittingOk and sitting == true then
         return "entered", record.startedAt
     end
+    if record and record.fallbackGround == true then
+        if groundSeatState(actor) then return "entered", record.startedAt end
+        local ground = activeGroundActions[actor]
+        if ground and ground.leaving ~= true then return "entering", record.startedAt end
+        activeBedActions[actor] = nil
+        return "failed", record.startedAt
+    end
     if record and record.failed ~= true and trackedActionIsActive(actor, record) then
+        local maximum = tonumber(SC.Config.get("furniturePathTimeoutMs")) or 8000
+        if nowMs() - (tonumber(record.startedAt) or nowMs()) >= maximum then
+            if fallbackSeatingToGround(actor, record,
+                "furniture_path_timeout", true) then
+                return groundSeatState(actor) and "entered" or "entering", record.startedAt
+            end
+            activeBedActions[actor] = nil
+            return "failed", record.startedAt
+        end
         return "entering", record.startedAt
     end
     if record then activeBedActions[actor] = nil return "failed", record.startedAt end
@@ -4104,7 +4142,23 @@ function actions.furnitureStatus(actor)
     local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
     if sittingOk and sitting == true then return "entered" end
     local record = activeFurnitureActions[actor]
+    if record and record.fallbackGround == true then
+        if groundSeatState(actor) then return "entered", record.startedAt end
+        local ground = activeGroundActions[actor]
+        if ground and ground.leaving ~= true then return "entering", record.startedAt end
+        activeFurnitureActions[actor] = nil
+        return "failed", record.startedAt
+    end
     if record and record.failed ~= true and trackedActionIsActive(actor, record) then
+        local maximum = tonumber(SC.Config.get("furniturePathTimeoutMs")) or 8000
+        if nowMs() - (tonumber(record.startedAt) or nowMs()) >= maximum then
+            if fallbackSeatingToGround(actor, record,
+                "furniture_path_timeout", true) then
+                return groundSeatState(actor) and "entered" or "entering", record.startedAt
+            end
+            activeFurnitureActions[actor] = nil
+            return "failed", record.startedAt
+        end
         return "entering", record.startedAt
     end
     if record then

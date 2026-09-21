@@ -700,7 +700,8 @@ local function containerReach(actor, task)
     -- is normally the IsoObject holding the ItemContainer, but a container that
     -- reports no parent falls back to itself, and a task that has already
     -- recorded where it was heading is better evidence than nothing.
-    local square = owner and utility.squareOf(owner) or nil
+    local ownerSquare = owner and utility.squareOf(owner) or nil
+    local square = ownerSquare
     if square == nil and task then square = utility.squareOf(task.container) end
     local cx, cy, cz
     if square ~= nil then
@@ -726,12 +727,22 @@ local function containerReach(actor, task)
     if math.floor(az or 0) ~= math.floor(cz or 0) then
         return false, "container_out_of_reach"
     end
-    -- One tile in every direction, diagonals included: exactly the squares
-    -- interactionTargets offers as approach goals, plus a little tolerance for
-    -- standing off-centre within one.
+    -- The normal object-backed case has a stronger answer than distance:
+    -- Navigation already computed the topology-safe use squares.  Trust that
+    -- answer so an actor at an off-centre diagonal use position is not rejected
+    -- by a second, circular distance test (the live failure was 1.74 vs 1.60).
+    -- It also keeps an equally-near square on the other side of a wall invalid.
+    if ownerSquare ~= nil and type(utility.directInteractionAccess) == "function" then
+        local direct = utility.directInteractionAccess(actor, owner)
+        if direct == true then return true, "at_interaction_target", cx, cy end
+        return false, "container_out_of_reach"
+    end
+    -- Ownerless test/mod containers still need a positional fallback. One tile
+    -- in every direction is a square (Chebyshev) neighbourhood, not a circle;
+    -- diagonally adjacent and off-centre positions are therefore legitimate.
     local reach = tonumber(utility.config("scavengeReachTiles")) or 1.6
     local dx, dy = cx - ax, cy - ay
-    local distance = math.sqrt(dx * dx + dy * dy)
+    local distance = math.max(math.abs(dx), math.abs(dy))
     if distance > reach then
         utility.diagnostic("scavenge-reach", actor, string.format(
             "outcome=refused distance=%.2f reach=%.2f actor=%.2f,%.2f container=%.2f,%.2f",
@@ -1795,9 +1806,18 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     elseif task.phase == "settle" then
         local reachable, reachStatus, containerX, containerY = containerReach(actor, task)
         if not reachable then
-            -- Not a failure of the item or the container: the survivor simply
-            -- is not there. Re-approach rather than reaching across the room.
-            task.approachStartedAt = nil
+            -- Re-approach without resetting the original deadline. Resetting it
+            -- here made every settle/reacquire cycle a fresh 45-second attempt,
+            -- so a marginal use position could keep a companion forever.
+            task.approachStartedAt = task.approachStartedAt or time
+            if Encounter._approachExpired(task, time) then
+                resetScavengeTarget(actor, state, {
+                    cancelVisual = true, stopMovement = true,
+                    reason = "approach_timeout", phase = "failed", cooldown = true,
+                    memoryResult = "navigation_failed", time = time,
+                })
+                return false, "approach_timeout"
+            end
             setTaskPhase(actor, state, task, "approach", "reacquiring_container")
             return true, "reacquiring_container"
         end

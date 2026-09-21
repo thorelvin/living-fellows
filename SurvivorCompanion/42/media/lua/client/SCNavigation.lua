@@ -4725,6 +4725,28 @@ function Navigation._maintainTraversalForRequest(actor, state, sourceSquare, now
     return false
 end
 
+-- Navigation is called directly by work, scavenging and downtime systems, so
+-- it cannot rely on SCNativeActions.dispatch() to perform its usual posture
+-- gate.  A live seated reader was handed directly to requestAny(), leaving the
+-- engine in PlayerSitOnFurnitureState until every route timed out.  Make the
+-- handoff once at the common path boundary and report it as accepted work so
+-- callers retry on the next update instead of failing their whole activity.
+function Navigation._readyForNavigation(actor)
+    local native = SC.NativeActions
+    if type(native) ~= "table" or type(native.seatingStatus) ~= "function"
+        or type(native.leaveSeating) ~= "function" then return true end
+    local statusOk, posture = pcall(native.seatingStatus, actor)
+    if not statusOk or posture == nil or tostring(posture) == "standing" then return true end
+    local leaveOk, left, reason = pcall(native.leaveSeating, actor)
+    if not leaveOk then return false, false, "seating_release_error:" .. tostring(left) end
+    reason = tostring(reason or "standing_from_" .. tostring(posture))
+    if left == true or string.find(reason, "standing_from_", 1, true) == 1
+        or reason == "ground_stand_requested" then
+        return false, true, reason
+    end
+    return false, false, reason
+end
+
 function Navigation.request(actor, target, movementMode, intent)
     local utility = U()
     if not utility or not utility.isValidActor(actor) then return false, "invalid_actor" end
@@ -4824,6 +4846,10 @@ function Navigation.request(actor, target, movementMode, intent)
         end
         return true, "arrived"
     end
+
+    local postureReady, postureAccepted, postureReason =
+        SC.Navigation._readyForNavigation(actor)
+    if postureReady ~= true then return postureAccepted == true, postureReason end
 
     local goalChanged = changedGoal(state, goalSquare)
     local ownershipChanged = previousTokenSerial ~= currentTokenSerial
@@ -5794,6 +5820,10 @@ function Navigation.requestAny(actor, candidates, movementMode, intent)
             return true, "arrived", square
         end
     end
+
+    local postureReady, postureAccepted, postureReason =
+        SC.Navigation._readyForNavigation(actor)
+    if postureReady ~= true then return postureAccepted == true, postureReason end
 
     table.sort(valid, function(first, second)
         local firstScore, secondScore = approachScore(actor, first, intent),

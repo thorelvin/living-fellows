@@ -3121,6 +3121,8 @@ local targets = SurvivorCompanion.Navigation.interactionTargets(
     nearestActor, interactionObject, { maximum = 4 })
 local previousNativeActions = SurvivorCompanion.NativeActions
 local starts = 0
+local nearestPosture = "furniture"
+local seatingReleases = 0
 SurvivorCompanion.NativeActions = {
     pathToNearest = function(owner, requested, mode)
         starts = starts + 1
@@ -3132,7 +3134,18 @@ SurvivorCompanion.NativeActions = {
             hasStartedMoving = false, pending = true }
     end,
     stopDirect = function() return true end,
+    seatingStatus = function() return nearestPosture end,
+    leaveSeating = function()
+        seatingReleases = seatingReleases + 1
+        nearestPosture = "standing"
+        return true, "stood_from_furniture"
+    end,
 }
+local postureHandled, postureReason = SurvivorCompanion.Navigation.requestAny(
+    nearestActor, targets, "walk", { action = "test_nearest", arrivalDistance = 0.8 })
+check(postureHandled and postureReason == "stood_from_furniture"
+        and seatingReleases == 1 and starts == 0,
+    "direct navigation releases a passive furniture posture before starting its route")
 local nearestStarted = SurvivorCompanion.Navigation.requestAny(
     nearestActor, targets, "walk", { action = "test_nearest", arrivalDistance = 0.8 })
 clock = clock + 1000
@@ -6577,6 +6590,7 @@ check(stagedReadFinished
     "downtime records its result only after verified animation completion")
 
 do
+    local previousReadingSeatingManager = SeatingManager
     local chairSquare = cell:getGridSquare(8, 5, 0)
     chairSquare.room = { name = "reading_room" }
     local chair = { square = chairSquare }
@@ -6585,6 +6599,15 @@ do
     function chair:getY() return self.square.y end
     function chair:getZ() return self.square.z end
     function chair:getName() return "Chair" end
+    SeatingManager = {
+        getInstance = function()
+            return {
+                getTilePositionCount = function(_, object)
+                    return object == chair and 1 or 0
+                end,
+            }
+        end,
+    }
     chairSquare.objects[#chairSquare.objects + 1] = chair
     local seatedBook = item("Base.BookSeated", "Literature", { pages = 180 })
     local seatedReader = actor("sc-seated-reader", 8, 5, {
@@ -6651,6 +6674,7 @@ do
     for index = #chairSquare.objects, 1, -1 do
         if chairSquare.objects[index] == chair then table.remove(chairSquare.objects, index) end
     end
+    SeatingManager = previousReadingSeatingManager
 end
 
 do
@@ -9467,6 +9491,10 @@ do
     diagonalReacher.x, diagonalReacher.y = 40.5, 39.5
     check(reachOf(diagonalReacher, { owner = shelf }) == true,
         "a companion on a diagonally adjacent tile was refused the shelf centre")
+    local offCentreReacher = actor("sc-reach-off-centre", 40, 39)
+    offCentreReacher.x, offCentreReacher.y = 40.5, 39.08
+    check(reachOf(offCentreReacher, { owner = shelf }) == true,
+        "a valid off-centre diagonal interaction tile was rejected by a circular reach test")
 
     -- The first version of this gate failed open whenever the container's
     -- square could not be resolved -- which is exactly the case it exists to
@@ -9862,6 +9890,38 @@ do
     registry[reader.id] = nil
 
     shelf:Remove(sharedBook)
+    local transientBook = item("Base.BookElectrician1", "Literature", { pages = 220 })
+    shelf:AddItem(transientBook)
+    local transientReader = actor("sc-camp-library-transient", -2, 0,
+        { inventory = inventory() })
+    transientReader.modData.SC_Order = "stay"
+    transientReader.modData.SC_WorkMode = "idle"
+    registry[transientReader.id] = transientReader
+    local originalDirectInteractionAccess = SurvivorCompanion.GameplayUtil.directInteractionAccess
+    local transientAccessChecks = 0
+    SurvivorCompanion.GameplayUtil.directInteractionAccess = function(value, object, options)
+        if value == transientReader and object == shelfObject then
+            transientAccessChecks = transientAccessChecks + 1
+            if transientAccessChecks == 2 then
+                return false, { transientReader.square }, "approach_required"
+            end
+        end
+        return originalDirectInteractionAccess(value, object, options)
+    end
+    clock = clock + 10
+    local transientStarted, transientReason = SurvivorCompanion.Downtime.update(
+        transientReader, player, safeRuntime)
+    SurvivorCompanion.GameplayUtil.directInteractionAccess = originalDirectInteractionAccess
+    local transientState = SurvivorCompanion.Downtime.peek(transientReader)
+    check(transientStarted == true and transientReason == "approaching_reading_storage"
+            and transientState.active ~= nil and shelf:contains(transientBook)
+            and not transientReader.inventory:contains(transientBook),
+        "a transient shelf-contact change stays in approach instead of failing and reselecting the book")
+    SurvivorCompanion.Downtime.reset(transientReader)
+    SurvivorCompanion.Commands.reset(transientReader)
+    registry[transientReader.id] = nil
+
+    shelf:Remove(transientBook)
     local interruptedBook = item("Base.BookFirstAid1", "Literature", { pages = 220 })
     shelf:AddItem(interruptedBook)
     local interruptedReader = actor("sc-camp-library-interrupted", -2, 0,
@@ -10146,6 +10206,16 @@ function testSeat:getX() return self.square.x end
 function testSeat:getY() return self.square.y end
 function testSeat:getZ() return self.square.z end
 function testSeat:getName() return "Chair" end
+local previousSeatRejectionManager = SeatingManager
+SeatingManager = {
+    getInstance = function()
+        return {
+            getTilePositionCount = function(_, object)
+                return object == testSeat and 1 or 0
+            end,
+        }
+    end,
+}
 seatSquare.objects[#seatSquare.objects + 1] = testSeat
 local seatActor = actor("sc-seat-reject", -5, 5, {})
 seatActor.modData.SC_Order = "stay"
@@ -10156,6 +10226,7 @@ check(SurvivorCompanion.Downtime.update(seatActor, player, safeRuntime), "seat a
 SurvivorCompanion.Navigation.request = function() return false, "mock_approach_rejected" end
 local rejectedSeatApproach = SurvivorCompanion.Downtime.update(seatActor, player, safeRuntime)
 SurvivorCompanion.Navigation.request = originalSeatRequest
+SeatingManager = previousSeatRejectionManager
 check(not rejectedSeatApproach and SurvivorCompanion.Downtime.peek(seatActor).active == nil,
     "ongoing seat approach propagates navigation rejection and releases the activity")
 
@@ -10254,6 +10325,12 @@ local sleepSurface, sleepSurfaceSquare = furnitureFixture({
 })
 check(furnitureKind(sleepSurface) == nil,
     "a BedType-only sleep surface is not mistaken for furniture with a valid rest pose")
+local decorativeChair, decorativeChairSquare = furnitureFixture({
+    x = 14, y = 8, name = "Decorative Chair", sprite = "fixtures_store_01_7",
+    properties = { IsChair = true, BedType = "averageChair" }, seatingPositions = 0,
+})
+check(furnitureKind(decorativeChair) == nil,
+    "a chair name/property without SeatingManager positions is not offered as a usable seat")
 
 local wallCouch, wallCouchSquare = furnitureFixture({
     x = -6, y = -7, name = "Wall Couch",
@@ -10343,6 +10420,12 @@ end
 for index = #sleepSurfaceSquare.objects, 1, -1 do
     if sleepSurfaceSquare.objects[index] == sleepSurface then
         table.remove(sleepSurfaceSquare.objects, index)
+        break
+    end
+end
+for index = #decorativeChairSquare.objects, 1, -1 do
+    if decorativeChairSquare.objects[index] == decorativeChair then
+        table.remove(decorativeChairSquare.objects, index)
         break
     end
 end
