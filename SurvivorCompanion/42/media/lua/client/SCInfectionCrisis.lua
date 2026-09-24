@@ -48,8 +48,59 @@ local function stableCopy(value, depth, remaining)
     })
 end
 
+local function configuredLimit(key, fallback)
+    local raw = U() and U().config and tonumber(U().config(key)) or nil
+    if raw == nil or raw ~= raw or raw < 0 or raw == math.huge or raw == -math.huge then
+        return fallback
+    end
+    return math.floor(raw)
+end
+
+-- The widest row each part of the schema can produce, counted the way the
+-- stable copier counts: the row table itself plus one per stored field.
+local DOCUMENT_FIELD_VALUES = 12
+local CRISIS_FIELD_VALUES = 48
+local ARTIFACT_VALUES = 12
+local PARTICIPANT_VALUES = 6
+local EVIDENCE_VALUES = 6
+local OBSERVATION_VALUES = 7
+local HISTORY_FIELD_VALUES = 16
+local HISTORY_ROW_VALUES = HISTORY_FIELD_VALUES + 2
+
+-- An observation is kept for every crisis subject and for every actor the
+-- current scan window touched, so the floor is what those two hold at once. A
+-- configured limit below that would prune a row the very next pulse needs.
+local function observationLimit()
+    return math.max(configuredLimit("infectionCrisisObservationLimit", 64),
+        configuredLimit("infectionCrisisMaxRecords", 32)
+            + math.max(1, configuredLimit("maxCompanions", 16)) + 1)
+end
+
+-- Copy budgets are derived from the limits this module itself enforces rather
+-- than fixed at a number the schema can outgrow. An export that cannot copy
+-- its own document does not merely lose a crisis: the scheduled save aborts
+-- and every other subsystem's changes go unsaved with it.
+function Crisis.documentBudget()
+    local perCrisis = 1 + CRISIS_FIELD_VALUES
+        + 1 + ARTIFACT_VALUES
+        + 1 + configuredLimit("infectionCrisisParticipantLimit", 24)
+            * (1 + PARTICIPANT_VALUES)
+        + 1 + configuredLimit("infectionCrisisEvidenceLimit", 32) * (1 + EVIDENCE_VALUES)
+    return DOCUMENT_FIELD_VALUES
+        + 1 + configuredLimit("infectionCrisisMaxRecords", 32) * perCrisis
+        + 1 + observationLimit() * (1 + OBSERVATION_VALUES)
+        + 1 + configuredLimit("infectionCrisisHistoryLimit", 96) * HISTORY_ROW_VALUES
+end
+
+local function documentCopy(value, depth)
+    return stableCopy(value, depth, { count = Crisis.documentBudget() })
+end
+
 local function emptyDocument()
-    return { version = Crisis.VERSION, nextSerial = 1, crises = {}, observations = {}, history = {} }
+    return {
+        version = Crisis.VERSION, nextSerial = 1, crises = {}, observations = {},
+        history = {}, playerGeneration = 0,
+    }
 end
 
 local function ensure()
@@ -57,14 +108,23 @@ local function ensure()
     return document
 end
 
+local PLAYER_LOCAL = "player:local"
+
+-- The live character and every character retired before it. A retired record
+-- keeps its own "player:local#<generation>" identity, and nothing the live
+-- character does may be attributed to it.
+local function isPlayerSubject(id)
+    return type(id) == "string" and string.sub(id, 1, #PLAYER_LOCAL) == PLAYER_LOCAL
+end
+
 local function actorId(actor, player)
     if actor == nil then return nil end
-    if actor == player then return "player:local" end
+    if actor == player then return PLAYER_LOCAL end
     return U().idOf(actor)
 end
 
 local function resolveActor(id, player)
-    if id == "player:local" then return player end
+    if id == PLAYER_LOCAL then return player end
     if SC.Registry and type(SC.Registry.byId) == "function" then
         local record = SC.Registry.byId(id)
         return type(record) == "table" and (record.actor or record) or nil
@@ -72,12 +132,42 @@ local function resolveActor(id, player)
     return nil
 end
 
+-- Where the rotating scan window starts. Runtime only: coverage is a property
+-- of this session's scanning, not of the saved document.
+local scanCursor = 0
+
+-- Every registered survivor takes its turn. The fixed prefix of maxCompanions
+-- entries used to be the whole scan, so a bitten companion sitting behind
+-- households and camps in registry order was never assessed at all and could
+-- never open a crisis. The window keeps its size; it now walks.
 local function livingActors(player)
+    local utility = U()
     local result = {}
-    if player and not U().isDead(player) then result[#result + 1] = player end
-    for _, actor in ipairs(U().registryLiving(U().config("maxCompanions") or 16)) do
-        result[#result + 1] = actor
+    if player and not utility.isDead(player) then result[#result + 1] = player end
+    local rows = {}
+    for _, actor in ipairs(utility.registryLiving(false)) do
+        local id = utility.idOf(actor)
+        if id ~= nil then rows[#rows + 1] = { id = tostring(id), actor = actor } end
     end
+    local total = #rows
+    if total == 0 then
+        scanCursor = 0
+        return result
+    end
+    -- A stable order for the cursor to walk: registry iteration order may
+    -- differ between pulses, and a cursor over a shifting order starves.
+    table.sort(rows, function(a, b) return a.id < b.id end)
+    local window = math.max(1, math.floor(tonumber(utility.config("maxCompanions")) or 16))
+    if window >= total then
+        scanCursor = 0
+        for index = 1, total do result[#result + 1] = rows[index].actor end
+        return result
+    end
+    if scanCursor >= total or scanCursor < 0 then scanCursor = 0 end
+    for step = 0, window - 1 do
+        result[#result + 1] = rows[(scanCursor + step) % total + 1].actor
+    end
+    scanCursor = (scanCursor + window) % total
     return result
 end
 
@@ -129,7 +219,7 @@ local function debugTrace(event, crisis, detail)
 end
 
 local function history(kind, fields)
-    local row = stableCopy(fields, 3, { count = 64 }) or {}
+    local row = stableCopy(fields, 3, { count = HISTORY_FIELD_VALUES }) or {}
     row.kind, row.at = cleanText(kind, "event", 48), now()
     local rows = ensure().history
     rows[#rows + 1] = row
@@ -151,6 +241,81 @@ local function addEvidence(crisis, kind, observerId, certainty, details)
     local limit = U().config("infectionCrisisEvidenceLimit") or 32
     while #crisis.evidence > limit do table.remove(crisis.evidence, 1) end
     return row
+end
+
+-- A finished crisis asks nothing of anyone, so its bulky detail is compacted
+-- down to a count once it ends. Only the record of what happened is retained;
+-- the crisis log in history keeps the events themselves.
+local function archiveCrisis(crisis)
+    if crisis.archivedAt ~= nil then return crisis end
+    local participants, confirmed = 0, 0
+    for _, member in pairs(crisis.participants or {}) do
+        participants = participants + 1
+        if type(member) == "table" and member.knowledge == "confirmed" then
+            confirmed = confirmed + 1
+        end
+    end
+    crisis.archive = {
+        participants = participants, confirmed = confirmed,
+        evidence = #(crisis.evidence or {}),
+    }
+    crisis.archivedAt = now()
+    crisis.participants, crisis.evidence = {}, {}
+    return crisis
+end
+
+-- Authorization is operational permission for one irreversible act. Once that
+-- act is over it must not survive on the record: restore refuses an authorized
+-- crisis that is no longer resolved, so keeping the flag turned an ordinary
+-- death into a document the mod could export but never load back.
+local function clearAuthorization(crisis)
+    if crisis.finalAuthorized == true and not finiteNumber(crisis.finalAuthorizedAt) then
+        crisis.finalAuthorizedAt = now()
+    end
+    crisis.finalAuthorized = false
+end
+
+-- The single way a crisis ends. Every path that used to assign phase/terminalAt
+-- by hand left its own combination of leftover state behind.
+local function enterTerminal(crisis, reason, at)
+    if crisis.phase == "terminal" then return crisis end
+    crisis.phase, crisis.terminalAt = "terminal", finite(at, now())
+    clearAuthorization(crisis)
+    archiveCrisis(crisis)
+    debugTrace("terminal", crisis, reason)
+    return crisis
+end
+
+-- Make room for one more record without ever exceeding the limit restore
+-- validates against. A finished crisis is retired first; when every record is
+-- still live the oldest goes, and it is written to history rather than
+-- vanishing quietly.
+local function reserveRecordSlot()
+    local crises = ensure().crises
+    local limit = math.max(1, configuredLimit("infectionCrisisMaxRecords", 32))
+    while true do
+        local count, retiredId, retiredAt, oldestId, oldestAt = 0, nil, math.huge, nil, math.huge
+        for candidateId, candidate in pairs(crises) do
+            count = count + 1
+            local createdAt = finite(type(candidate) == "table" and candidate.createdAt, 0)
+            if type(candidate) == "table"
+                and (candidate.phase == "terminal" or candidate.phase == "closed")
+                and createdAt < retiredAt then
+                retiredId, retiredAt = candidateId, createdAt
+            end
+            if createdAt < oldestAt then oldestId, oldestAt = candidateId, createdAt end
+        end
+        if count < limit then return true end
+        local victimId = retiredId or oldestId
+        if victimId == nil then return false end
+        local victim = crises[victimId]
+        crises[victimId] = nil
+        history("record_evicted", {
+            crisisId = victimId,
+            subjectId = type(victim) == "table" and victim.subjectId or nil,
+            phase = type(victim) == "table" and victim.phase or nil,
+        })
+    end
 end
 
 local function profileChoice(actor, id, choices, salt)
@@ -178,11 +343,21 @@ local function stanceFor(actor, subjectId)
     }, "crisis-stance")
 end
 
+-- Bystanders are admitted up to a bound, because the export budget is derived
+-- from this same limit. A camp larger than the cap stops recording new
+-- onlookers instead of growing a document the module could no longer copy,
+-- save or restore.
 local function participant(crisis, id)
-    crisis.participants[id] = crisis.participants[id] or {
+    local existing = crisis.participants[id]
+    if existing ~= nil then return existing end
+    local row = {
         knowledge = "unaware", certainty = 0, stance = nil, choice = nil, spoken = false,
     }
-    return crisis.participants[id]
+    local count = 0
+    for _ in pairs(crisis.participants) do count = count + 1 end
+    if count >= configuredLimit("infectionCrisisParticipantLimit", 24) then return row end
+    crisis.participants[id] = row
+    return row
 end
 
 local function discover(crisis, observer, observerId, certainty, kind)
@@ -278,18 +453,14 @@ local function confidantFor(subject, player)
 end
 Crisis._confidantForTests = confidantFor
 
-local function newCrisis(subject, subjectId, medical, player)
-    local count, oldestId, oldestAt = 0, nil, math.huge
-    for candidateId, candidate in pairs(ensure().crises) do
-        count = count + 1
-        if (candidate.phase == "terminal" or candidate.phase == "closed")
-            and (candidate.createdAt or 0) < oldestAt then
-            oldestId, oldestAt = candidateId, candidate.createdAt or 0
-        end
-    end
-    if count >= (U().config("infectionCrisisMaxRecords") or 32) and oldestId then
-        ensure().crises[oldestId] = nil
-    end
+-- `cause` is how this crisis came to be known: "bite" for an attack that was
+-- just observed, "symptoms" for an infection already underway that nobody saw
+-- begin. It decides what the record may claim, because a symptom-only crisis
+-- that manufactured a bite and its eyewitnesses handed later decisions
+-- confirmed knowledge that no one in the world actually has.
+local function newCrisis(subject, subjectId, medical, player, cause)
+    local witnessedBite = cause ~= "symptoms"
+    reserveRecordSlot()
     local id = "crisis:" .. tostring(ensure().nextSerial)
     ensure().nextSerial = ensure().nextSerial + 1
     local current = now()
@@ -299,18 +470,23 @@ local function newCrisis(subject, subjectId, medical, player)
         createdAt = current, updatedAt = current,
         irreversibleAfter = current + (U().config("infectionCrisisSafeDelayMs") or 10000),
         deliberateAfter = current + (U().config("infectionCrisisDeliberationMs") or 12000),
-        biteCount = medical.bites or 1, infectionLevel = medical.infectionLevel or 0,
+        biteCount = medical.bites or (witnessedBite and 1 or 0),
+        infectionLevel = medical.infectionLevel or 0,
         baseId = SC.BaseLife and SC.BaseLife.active() and SC.BaseLife.active().id or nil,
         participants = {}, evidence = {}, artifacts = {}, finalAuthorized = false,
     }
     participant(crisis, subjectId).knowledge = "confirmed"
     participant(crisis, subjectId).certainty = 100
-    addEvidence(crisis, "bite", subjectId, 100, "new bite")
+    if witnessedBite then
+        addEvidence(crisis, "bite", subjectId, 100, "new bite")
+    else
+        addEvidence(crisis, "symptoms", subjectId, 70, "infection already underway")
+    end
     -- A companion who trusts the player walks over and tells them first; one
     -- who would hide it may still confide in the one it trusts most.
-    if subjectId ~= "player:local" then
+    if not isPlayerSubject(subjectId) then
         if crisis.strategy == "confess" and player ~= nil and not U().isDead(player) then
-            crisis.confidantId, crisis.confideState = "player:local", "pending"
+            crisis.confidantId, crisis.confideState = PLAYER_LOCAL, "pending"
         elseif crisis.strategy == "conceal" then
             local confidant = confidantFor(subject, player)
             if confidant ~= nil then
@@ -323,18 +499,29 @@ local function newCrisis(subject, subjectId, medical, player)
 
     -- Anyone close enough to see the attack knows immediately; otherwise the
     -- bitten survivor controls disclosure until symptoms or an examination.
-    for _, witness in ipairs(nearbyActors(subject, player, 6)) do
-        local witnessId = actorId(witness, player)
-        if witness ~= subject and U().canSee(witness, subject) then
-            discover(crisis, witness, witnessId, 100, "witnessed_bite")
+    -- There is nothing to witness when no attack was seen: that record starts
+    -- with symptoms and waits for ordinary discovery.
+    if witnessedBite then
+        for _, witness in ipairs(nearbyActors(subject, player, 6)) do
+            local witnessId = actorId(witness, player)
+            if witness ~= subject and U().canSee(witness, subject) then
+                discover(crisis, witness, witnessId, 100, "witnessed_bite")
+            end
         end
     end
     return crisis
 end
 
+-- A terminal record is finished business, not an active crisis. Treating it as
+-- one meant a retained record kept its subject identity occupied: the next
+-- infection for that identity -- a replacement character reusing
+-- "player:local" above all -- could never open a crisis of its own.
 local function activeForSubject(subjectId)
     for _, crisis in pairs(ensure().crises) do
-        if crisis.subjectId == subjectId and crisis.phase ~= "closed" then return crisis end
+        if crisis.subjectId == subjectId and crisis.phase ~= "closed"
+            and crisis.phase ~= "terminal" then
+            return crisis
+        end
     end
     return nil
 end
@@ -512,7 +699,12 @@ local function applyOutcome(crisis, subject, outcome, player)
     crisis.outcomeCompletedAt = nil
     local restriction = nil
     if outcome == "watch" then restriction = "watch"
-    elseif outcome == "quarantine" then restriction = "quarantine" end
+    elseif outcome == "quarantine" then restriction = "quarantine"
+    -- Exile is a standing verdict, not a walk. Without a durable mark the
+    -- companion simply resumed the follow order it still held and walked back
+    -- to the player the moment the departure route finished. The order itself
+    -- is deliberately left untouched, so releasing the crisis restores it.
+    elseif outcome == "exile" or outcome == "self_exile" then restriction = "exiled" end
     if SC.BaseLife and type(SC.BaseLife.setRestriction) == "function" then
         SC.BaseLife.setRestriction(crisis.subjectId, restriction)
     end
@@ -599,7 +791,7 @@ end
 -- others to finish speaking, and gives way to last words at the very end.
 local function fearBeat(crisis, subject, player, current)
     local utility = U()
-    if crisis.subjectId == "player:local" or subject == nil or subject == player then return false end
+    if isPlayerSubject(crisis.subjectId) or subject == nil or subject == player then return false end
     local level = finite(crisis.infectionLevel, 0)
     if level >= (utility.config("lastWordsTurningThreshold") or 97) then return false end
     local known = crisis.confessedAt ~= nil
@@ -744,7 +936,7 @@ local function confideStep(subject, crisis, player)
         })
     end
     utility.stop(subject)
-    local toPlayer = crisis.confidantId == "player:local"
+    local toPlayer = crisis.confidantId == PLAYER_LOCAL
     faceWithGesture(subject, confidant, toPlayer and "comehere" or "undecided")
     crisis.confideState, crisis.confideAt = "done", now()
     if toPlayer and crisis.strategy == "confess" then
@@ -826,7 +1018,7 @@ local function updateResolvedActor(actor, id, crisis, subject)
         end
         if SC.NativeActions and type(SC.NativeActions.performEndOfLife) == "function" then
             local ok, reason = SC.NativeActions.performEndOfLife(actor, outcome, subject)
-            if ok then crisis.phase, crisis.terminalAt = "terminal", now() end
+            if ok then enterTerminal(crisis, "final_action") end
             return ok == true, reason
         end
         return false, "native_final_action_unavailable"
@@ -834,8 +1026,112 @@ local function updateResolvedActor(actor, id, crisis, subject)
     return true, "watched"
 end
 
+-- Observations were the one collection nobody ever removed from: a row was
+-- written for every actor ever assessed and kept forever. A long game grew a
+-- document larger than the module's own export budget, and a failed export
+-- does not lose a crisis -- it aborts the whole mod save transaction. Keep
+-- what a live decision still needs (this pulse's actors and every crisis
+-- subject, which carries the post-release baseline) and bound the rest by age
+-- and by count.
+local function pruneObservations(seen, current)
+    local observations, keep = ensure().observations, {}
+    if type(seen) == "table" then
+        for id in pairs(seen) do keep[id] = true end
+    end
+    for _, crisis in pairs(ensure().crises) do
+        if type(crisis) == "table" and type(crisis.subjectId) == "string" then
+            keep[crisis.subjectId] = true
+        end
+    end
+    local ttl = configuredLimit("infectionCrisisObservationTtlMs", 1800000)
+    local expendable, total = {}, 0
+    for id, observation in pairs(observations) do
+        total = total + 1
+        if not keep[id] then
+            local seenAt = finite(type(observation) == "table" and observation.seenAt, 0)
+            if ttl > 0 and current - seenAt > ttl then
+                observations[id] = nil
+                total = total - 1
+            else
+                expendable[#expendable + 1] = { id = id, seenAt = seenAt }
+            end
+        end
+    end
+    local limit = observationLimit()
+    if total <= limit then return total end
+    table.sort(expendable, function(a, b)
+        if a.seenAt == b.seenAt then return a.id < b.id end
+        return a.seenAt < b.seenAt
+    end)
+    for _, row in ipairs(expendable) do
+        if total <= limit then break end
+        observations[row.id] = nil
+        total = total - 1
+    end
+    return total
+end
+
+local characterSerial = 0
+local characterTokens = setmetatable({}, { __mode = "k" })
+
+-- A local character's own identity, kept in that character's mod data so it
+-- survives saves and can never be inherited by the replacement character
+-- created after a death.
+local function characterToken(player)
+    if player == nil then return nil end
+    local cached = characterTokens[player]
+    if cached ~= nil then return cached end
+    local data = U().modData(player)
+    if type(data) ~= "table" then return nil end
+    local token = data.SC_CrisisCharacter
+    if type(token) ~= "string" or token == "" then
+        characterSerial = characterSerial + 1
+        token = "c" .. tostring(math.floor(finite(now(), 0))) .. "-"
+            .. tostring(characterSerial) .. "-"
+            .. tostring(U().stableHash(tostring(U().nameOf(player) or "survivor")))
+        data.SC_CrisisCharacter = token
+    end
+    characterTokens[player] = token
+    return token
+end
+
+-- Every local character answers to "player:local", so a dead character's
+-- retained crisis was handed to its replacement as that replacement's own
+-- active crisis, and the new infection could never open one. When the
+-- character behind that identity changes, the predecessor's records are
+-- retired under a generational identity of their own and the observation
+-- baseline is dropped, so the newcomer starts from nothing.
+local function rotatePlayerIdentity(player)
+    local token = characterToken(player)
+    if token == nil then return false end
+    local document = ensure()
+    if type(document.playerToken) ~= "string" or document.playerToken == "" then
+        document.playerToken = token
+        return false
+    end
+    if document.playerToken == token then return false end
+    local generation = math.max(0, math.floor(finite(document.playerGeneration, 0))) + 1
+    local retiredId = PLAYER_LOCAL .. "#" .. tostring(generation)
+    document.playerGeneration, document.playerToken = generation, token
+    for _, crisis in pairs(document.crises) do
+        if type(crisis) == "table" and crisis.subjectId == PLAYER_LOCAL then
+            crisis.subjectId = retiredId
+            if type(crisis.participants) == "table"
+                and crisis.participants[PLAYER_LOCAL] ~= nil then
+                crisis.participants[retiredId] = crisis.participants[PLAYER_LOCAL]
+                crisis.participants[PLAYER_LOCAL] = nil
+            end
+            enterTerminal(crisis, "character_replaced")
+        end
+    end
+    document.observations[PLAYER_LOCAL] = nil
+    history("character_replaced", { subjectId = retiredId, generation = generation })
+    return true
+end
+
 function Crisis.pulse(player, current)
     current = finite(current, now())
+    rotatePlayerIdentity(player)
     local seen = {}
     for _, actor in ipairs(livingActors(player)) do
         local id = actorId(actor, player)
@@ -854,8 +1150,7 @@ function Crisis.pulse(player, current)
                 debugTrace("opened", crisis, "new bite")
             elseif not crisis and not released and medical.knoxInfected
                 and (medical.infectionLevel or 0) >= 20 then
-                crisis = newCrisis(actor, id, medical, player)
-                addEvidence(crisis, "symptoms", id, 70, "infection already underway")
+                crisis = newCrisis(actor, id, medical, player, "symptoms")
                 debugTrace("opened", crisis, "infection underway")
             end
             if crisis then advance(crisis, actor, player, medical, current) end
@@ -870,17 +1165,19 @@ function Crisis.pulse(player, current)
         if crisis.phase ~= "terminal" and crisis.phase ~= "closed" then
             local subject = resolveActor(crisis.subjectId, player)
             if subject and U().isDead(subject) then
-                crisis.phase, crisis.terminalAt = "terminal", current
+                local outcome = crisis.outcome
+                enterTerminal(crisis, "subject_died", current)
                 if SC.BaseLife and type(SC.BaseLife.setRestriction) == "function" then
                     SC.BaseLife.setRestriction(crisis.subjectId, nil)
                 end
                 history("subject_died", {
                     crisisId = crisis.id, subjectId = crisis.subjectId,
-                    outcome = crisis.outcome,
+                    outcome = outcome,
                 })
             end
         end
     end
+    pruneObservations(seen, current)
     return true, seen
 end
 
@@ -959,7 +1256,7 @@ function Crisis.updateActor(actor, player)
             local ok, reason = SC.NativeActions and SC.NativeActions.performEndOfLife
                 and SC.NativeActions.performEndOfLife(actor, "mercy", subject)
             if ok and U().isDead(subject) then
-                crisis.phase, crisis.terminalAt = "terminal", now()
+                enterTerminal(crisis, "mercy_executed")
                 if SC.Diary and type(SC.Diary.noteMercyKilling) == "function" then
                     pcall(SC.Diary.noteMercyKilling, actor, crisis)
                 end
@@ -982,7 +1279,7 @@ function Crisis.authorize(crisisId, outcome)
         return false, "outcome_not_irreversible"
     end
     if now() < crisis.irreversibleAfter then return false, "safety_delay_active" end
-    crisis.finalAuthorized = true
+    crisis.finalAuthorized, crisis.finalAuthorizedAt = true, now()
     history("final_authorized", { crisisId = crisis.id, outcome = crisis.outcome })
     return true, crisis
 end
@@ -1002,7 +1299,7 @@ function Crisis.choose(crisisId, outcome)
         return false, "final_action_already_authorized"
     end
     if not Crisis.OUTCOMES[outcome] then return false, "invalid_outcome" end
-    if outcome == "mercy" and crisis.subjectId == "player:local" then
+    if outcome == "mercy" and isPlayerSubject(crisis.subjectId) then
         return false, "player_final_outcome_is_never_automated"
     end
     local player = type(getPlayer) == "function" and getPlayer() or nil
@@ -1043,8 +1340,10 @@ function Crisis.release(crisisId, reason)
     if crisis.phase == "terminal" then return false, "crisis_already_terminal" end
     if crisis.phase == "closed" then return true, crisis end
     crisis.phase, crisis.outcome = "closed", nil
-    crisis.finalAuthorized, crisis.executorId = false, nil
+    clearAuthorization(crisis)
+    crisis.executorId = nil
     crisis.outcomeCompletedAt, crisis.closedAt = now(), now()
+    archiveCrisis(crisis)
     if SC.BaseLife and type(SC.BaseLife.setRestriction) == "function" then
         SC.BaseLife.setRestriction(crisis.subjectId, nil)
     end
@@ -1067,7 +1366,8 @@ function Crisis.summary(viewer)
         if ok then viewer = value end
     end
     local viewerId = actorId(viewer, viewer)
-    local result = { active = 0, rows = {}, history = stableCopy(ensure().history, 4, { count = 1024 }) or {} }
+    local result = { active = 0, rows = {},
+        history = documentCopy(ensure().history, 4) or {} }
     for _, crisis in pairs(ensure().crises) do
         local knowledge = viewerId and crisis.participants[viewerId] or nil
         local visible = viewer == nil or crisis.subjectId == viewerId
@@ -1080,7 +1380,7 @@ function Crisis.summary(viewer)
             result.active = result.active + 1
             result.rows[#result.rows + 1] = {
                 id = crisis.id, subjectId = crisis.subjectId, subjectName = crisis.subjectName,
-                subjectIsPlayer = crisis.subjectId == "player:local",
+                subjectIsPlayer = crisis.subjectId == PLAYER_LOCAL,
                 phase = crisis.phase,
                 strategy = crisis.strategy, outcome = crisis.outcome,
                 infectionLevel = crisis.infectionLevel, finalAuthorized = crisis.finalAuthorized == true,
@@ -1093,10 +1393,13 @@ end
 
 local function normalize(source)
     if type(source) ~= "table" then return emptyDocument() end
-    local copy = stableCopy(source, 8, { count = 8192 })
+    local copy = documentCopy(source, 8)
     if type(copy) ~= "table" then return emptyDocument() end
     copy.version = Crisis.VERSION
     copy.nextSerial = math.max(1, math.floor(finite(copy.nextSerial, 1)))
+    copy.playerToken = type(copy.playerToken) == "string" and copy.playerToken ~= ""
+        and string.sub(copy.playerToken, 1, 96) or nil
+    copy.playerGeneration = math.max(0, math.floor(finite(copy.playerGeneration, 0)))
     copy.crises = type(copy.crises) == "table" and copy.crises or {}
     copy.observations = type(copy.observations) == "table" and copy.observations or {}
     for _, observation in pairs(copy.observations) do
@@ -1150,14 +1453,6 @@ local function denseArray(value, path, maximum)
     if highest ~= count then return restoreFailure(path, "sparse array") end
     if maximum ~= nil and count > maximum then return restoreFailure(path, "too many entries") end
     return true, count
-end
-
-local function configuredLimit(key, fallback)
-    local raw = U() and U().config and tonumber(U().config(key)) or nil
-    if raw == nil or raw ~= raw or raw < 0 or raw == math.huge or raw == -math.huge then
-        return fallback
-    end
-    return math.floor(raw)
 end
 
 local phases = { discovered = true, deliberating = true, resolved = true,
@@ -1246,6 +1541,16 @@ local function validateRestoreSource(source)
         or source.nextSerial ~= math.floor(source.nextSerial) then
         return restoreFailure("$.infectionCrisis.nextSerial", "expected positive integer")
     end
+    if source.playerToken ~= nil and (type(source.playerToken) ~= "string"
+        or source.playerToken == "") then
+        return restoreFailure("$.infectionCrisis.playerToken", "expected identity token")
+    end
+    if source.playerGeneration ~= nil and (not finiteNumber(source.playerGeneration)
+        or source.playerGeneration < 0
+        or source.playerGeneration ~= math.floor(source.playerGeneration)) then
+        return restoreFailure("$.infectionCrisis.playerGeneration",
+            "expected non-negative integer")
+    end
     local crisisCount = 0
     for id, crisis in pairs(source.crises) do
         crisisCount = crisisCount + 1
@@ -1280,16 +1585,42 @@ local function validateRestoreSource(source)
     return true
 end
 
-function Crisis.export() return stableCopy(ensure(), 8, { count = 8192 }) end
+-- Releases up to 0.25.5 left the operational authorization flag set on a
+-- crisis that had already ended: the authorized act completed, or the subject
+-- simply died. Restore refuses an authorized record that is no longer
+-- resolved, so those otherwise ordinary documents could be written but never
+-- loaded again. Fold the finished flag into its history stamp before strict
+-- validation instead of failing the player's whole save; a still-resolved
+-- record with an inconsistent authorization is left to the validator.
+local function migrateFinishedAuthorization(source)
+    if type(source) ~= "table" or type(source.crises) ~= "table" then return source end
+    for _, crisis in pairs(source.crises) do
+        if type(crisis) == "table" and crisis.finalAuthorized == true
+            and (crisis.phase == "terminal" or crisis.phase == "closed") then
+            crisis.finalAuthorized = false
+            if not finiteNumber(crisis.finalAuthorizedAt) then
+                if finiteNumber(crisis.terminalAt) then
+                    crisis.finalAuthorizedAt = crisis.terminalAt
+                elseif finiteNumber(crisis.resolvedAt) then
+                    crisis.finalAuthorizedAt = crisis.resolvedAt
+                end
+            end
+        end
+    end
+    return source
+end
+
+function Crisis.export() return documentCopy(ensure(), 8) end
 function Crisis.restore(source)
     if source == nil then
         document = emptyDocument()
         return true, document
     end
-    local stable, reason = stableCopy(source, 12, { count = 8192 })
+    local stable, reason = documentCopy(source, 12)
     if stable == nil then
         return restoreFailure("$.infectionCrisis", reason or "copy failed")
     end
+    migrateFinishedAuthorization(stable)
     local valid, validationReason = validateRestoreSource(stable)
     if not valid then return false, validationReason end
     local normalized, candidate = pcall(normalize, stable)
@@ -1302,6 +1633,7 @@ end
 function Crisis.reset()
     document = emptyDocument()
     walks, turns, fearNext = {}, {}, {}
+    scanCursor, characterTokens = 0, setmetatable({}, { __mode = "k" })
 end
 
 Crisis.reset()

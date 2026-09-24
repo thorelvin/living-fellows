@@ -9860,6 +9860,9 @@ do
     local baseLife = SurvivorCompanion.BaseLife
     local savedInside, savedRows, savedResolve = baseLife.isInside,
         baseLife.storageRows, baseLife.resolveContainer
+    -- Checkout re-reads the registered storage row by its id, so the fixture
+    -- has to answer that lookup as the real registry would.
+    local savedStorage = baseLife.storage
     local sharedBook = item("Base.BookCarpentry1", "Literature", { pages = 220 })
     local shelf = inventory({ sharedBook })
     local shelfObject = { square = cell:getGridSquare(-3, 0, 0) }
@@ -9877,6 +9880,7 @@ do
         if row == storage then return shelf, shelfObject end
         return nil
     end
+    baseLife.storage = function(id) return id == storage.id and storage or nil end
     local reader = actor("sc-camp-library-reader", -2, 0, { inventory = inventory() })
     reader.modData.SC_Order = "stay"
     reader.modData.SC_WorkMode = "idle"
@@ -9978,8 +9982,55 @@ do
     registry[wallReader.id] = nil
     readerSquare.blocked[shelfObject.square] = nil
     shelfObject.square.blocked[readerSquare] = nil
+
+    -- 0.25.5 review CR-09: the reserve that authorised the choice was read
+    -- only while selecting, across the room. A copy that became the reserved
+    -- last copy during the walk was still taken off the shelf at checkout.
+    shelf:Remove(wallBook)
+    local firstCopy = item("Base.BookMechanics1", "Literature", { pages = 220 })
+    local secondCopy = item("Base.BookMechanics1", "Literature", { pages = 220 })
+    shelf:AddItem(firstCopy)
+    shelf:AddItem(secondCopy)
+    storage.reserves = { ["Base.BookMechanics1"] = 1 }
+    local borrower = actor("sc-camp-library-reserve", -2, 0, { inventory = inventory() })
+    borrower.modData.SC_Order = "stay"
+    borrower.modData.SC_WorkMode = "idle"
+    registry[borrower.id] = borrower
+    local borrowerSquare = borrower.square
+    borrowerSquare.blocked[shelfObject.square] = true
+    shelfObject.square.blocked[borrowerSquare] = true
+    clock = clock + 10
+    local selected = SurvivorCompanion.Downtime.update(borrower, player, safeRuntime)
+    local pending = SurvivorCompanion.Downtime.peek(borrower).active
+    -- The player takes the other copy away while the reader is still walking.
+    shelf:Remove(pending and pending.item == firstCopy and secondCopy or firstCopy)
+    borrowerSquare.blocked[shelfObject.square] = nil
+    shelfObject.square.blocked[borrowerSquare] = nil
+    clock = clock + 10
+    SurvivorCompanion.Downtime.update(borrower, player, safeRuntime)
+    check(selected == true and pending ~= nil and pending.approaching == true
+            and shelf:contains(pending.item)
+            and not borrower.inventory:contains(pending.item)
+            and SurvivorCompanion.Downtime.peek(borrower).active == nil,
+        "a camp book that became the reserved last copy during the walk stays on the shelf")
+    local authorized = SurvivorCompanion.Downtime._borrowedCheckoutForTests()
+    local unregisteredOk, unregisteredReason = authorized(borrower, {
+        borrowedStorageId = "storage:gone", borrowedFrom = shelf,
+        borrowedOwner = shelfObject, item = firstCopy,
+    })
+    check(unregisteredOk == false and unregisteredReason == "borrowed_book_storage_changed",
+        "checkout refuses a shelf the player un-registered during the walk: "
+            .. tostring(unregisteredReason))
+    storage.reserves = {}
+    SurvivorCompanion.Downtime.reset(borrower)
+    SurvivorCompanion.Commands.reset(borrower)
+    registry[borrower.id] = nil
+    shelf:Remove(firstCopy)
+    shelf:Remove(secondCopy)
+
     baseLife.isInside, baseLife.storageRows, baseLife.resolveContainer =
         savedInside, savedRows, savedResolve
+    baseLife.storage = savedStorage
 end
 
 local outdoorBook = item("Base.BookOutdoors", "Literature", { pages = 120 })
@@ -18602,6 +18653,476 @@ end)()
     utility.config = realConfig
     SC_TEST_DIARIES_ENABLED = false
     getGameTime = savedGameTime
+end)()
+
+-- 0.25.5 review CR-04: the crisis scan took a fixed prefix of the registry, so
+-- a bitten survivor sitting past the companion cap in registry order was never
+-- assessed and could never open a crisis at all.
+;(function()
+    local Crisis = SurvivorCompanion.InfectionCrisis
+    local savedCrises = Crisis.export()
+    local savedCap = SurvivorCompanion.Config.values.maxCompanions
+    local savedLiving = SurvivorCompanion.Registry.living
+    SurvivorCompanion.Config.values.maxCompanions = 2
+    Crisis.reset()
+    local roster = {}
+    for index, id in ipairs({ "sc-scan-a", "sc-scan-b", "sc-scan-c" }) do
+        local value = actor(id, 40 + index, -48, {})
+        registry[id] = value
+        roster[#roster + 1] = value
+    end
+    -- A deliberately fixed order: the tail survivor is the only infected one
+    -- and the scan window only holds two.
+    SurvivorCompanion.Registry.living = function() return roster end
+    roster[3].body.infected, roster[3].body.infectionLevel = true, 45
+    local pulses, firstPulseSaw, tailSeen = 0, nil, nil
+    for _ = 1, 6 do
+        Crisis.pulse(player, clock + pulses)
+        pulses = pulses + 1
+        tailSeen = Crisis.peekForSubject("sc-scan-c")
+        if pulses == 1 then firstPulseSaw = tailSeen end
+        if tailSeen ~= nil then break end
+    end
+    check(firstPulseSaw == nil and tailSeen ~= nil and pulses <= 6,
+        "a rotating scan window reaches a survivor beyond the companion cap within a bounded number of pulses: pulses="
+            .. tostring(pulses))
+    -- The head of the roster is not starved by the rotation either.
+    roster[1].body.infected, roster[1].body.infectionLevel = true, 45
+    local headSeen = false
+    for _ = 1, 6 do
+        Crisis.pulse(player, clock + pulses)
+        pulses = pulses + 1
+        if Crisis.peekForSubject("sc-scan-a") ~= nil then
+            headSeen = true
+            break
+        end
+    end
+    check(headSeen, "the rotating window keeps covering the head of the roster")
+    SurvivorCompanion.Registry.living = savedLiving
+    SurvivorCompanion.Config.values.maxCompanions = savedCap
+    for _, value in ipairs(roster) do registry[value.id] = nil end
+    Crisis.restore(savedCrises)
+end)()
+
+-- 0.25.5 review CR-06: the crisis constructor always wrote a bite and marked
+-- every visible neighbour as an eyewitness to it. A crisis opened from
+-- symptoms alone therefore reported zero bites and eyewitnesses to a bite at
+-- the same time, handing later decisions confirmed knowledge nobody had.
+;(function()
+    local Crisis = SurvivorCompanion.InfectionCrisis
+    local savedCrises = Crisis.export()
+    local savedLiving = SurvivorCompanion.Registry.living
+    Crisis.reset()
+    local sick = actor("sc-symptom-subject", 45, -48, {})
+    local neighbour = actor("sc-symptom-neighbour", 46, -48, {})
+    registry[sick.id], registry[neighbour.id] = sick, neighbour
+    SurvivorCompanion.Registry.living = function() return { sick, neighbour } end
+    sick.body.infected, sick.body.infectionLevel = true, 22
+    Crisis.pulse(player, clock)
+    local record
+    for _, value in pairs(Crisis.export().crises) do
+        if value.subjectId == sick.id then record = value end
+    end
+    local hasBite, hasWitness = false, false
+    for _, row in ipairs(record and record.evidence or {}) do
+        if row.kind == "bite" then hasBite = true end
+        if row.kind == "witnessed_bite" then hasWitness = true end
+    end
+    check(record ~= nil and record.biteCount == 0 and not hasBite and not hasWitness
+            and record.evidence[1] ~= nil and record.evidence[1].kind == "symptoms",
+        "a symptom-only crisis records symptoms, no bite and no eyewitness to one: bites="
+            .. tostring(record and record.biteCount) .. " bite=" .. tostring(hasBite)
+            .. " witness=" .. tostring(hasWitness))
+
+    -- A crisis that really did start with an observed bite still confirms the
+    -- neighbours who could see it happen.
+    Crisis.reset()
+    local mauled = actor("sc-symptom-bitten", 48, -48, {
+        body = bodyDamage(80, { bodyPart({ name = "ForeArm_L", isBitten = true }) }),
+    })
+    local onlooker = actor("sc-symptom-onlooker", 49, -48, {})
+    registry[mauled.id], registry[onlooker.id] = mauled, onlooker
+    SurvivorCompanion.Registry.living = function() return { mauled, onlooker } end
+    mauled.body.infected, mauled.body.infectionLevel = true, 10
+    Crisis.pulse(player, clock)
+    local bittenRecord
+    for _, value in pairs(Crisis.export().crises) do
+        if value.subjectId == mauled.id then bittenRecord = value end
+    end
+    local sawBite, sawWitness = false, false
+    for _, row in ipairs(bittenRecord and bittenRecord.evidence or {}) do
+        if row.kind == "bite" then sawBite = true end
+        if row.kind == "witnessed_bite" then sawWitness = true end
+    end
+    check(bittenRecord ~= nil and bittenRecord.biteCount >= 1 and sawBite and sawWitness,
+        "an observed bite still records the bite and its eyewitnesses: bites="
+            .. tostring(bittenRecord and bittenRecord.biteCount) .. " bite="
+            .. tostring(sawBite) .. " witness=" .. tostring(sawWitness))
+    SurvivorCompanion.Registry.living = savedLiving
+    registry[sick.id], registry[neighbour.id] = nil, nil
+    registry[mauled.id], registry[onlooker.id] = nil, nil
+    Crisis.restore(savedCrises)
+end)()
+
+-- 0.25.5 review CR-05: every local character answered to "player:local", and a
+-- retained terminal crisis was still returned as that identity's active one, so
+-- a replacement character's fresh infection could never open a crisis.
+;(function()
+    local Crisis = SurvivorCompanion.InfectionCrisis
+    local savedCrises = Crisis.export()
+    local savedInfected, savedLevel = player.body.infected, player.body.infectionLevel
+    local function playerCrisis(id)
+        return {
+            id = id, subjectId = "player:local", subjectName = "Predecessor",
+            phase = "terminal", strategy = "confess", outcome = "mercy",
+            createdAt = 10, updatedAt = 10, resolvedAt = 10, terminalAt = 20,
+            irreversibleAfter = 20, deliberateAfter = 20,
+            biteCount = 1, infectionLevel = 100, evidence = {}, artifacts = {},
+            finalAuthorized = false,
+            participants = {
+                ["player:local"] = { knowledge = "confirmed", certainty = 100, spoken = true },
+            },
+        }
+    end
+
+    -- Same character, retained terminal record: the next infection must still
+    -- get a crisis of its own.
+    Crisis.reset()
+    Crisis.pulse(player, clock)
+    local document = Crisis.export()
+    document.crises["old:1"] = playerCrisis("old:1")
+    check(Crisis.restore(document) == true, "a retained terminal player crisis restores")
+    player.body.infected, player.body.infectionLevel = true, 40
+    Crisis.pulse(player, clock + 1)
+    local current = Crisis.peekForSubject("player:local")
+    check(current ~= nil and current.id ~= "old:1",
+        "a finished crisis no longer occupies the player identity: "
+            .. tostring(current and current.id))
+
+    -- A different character: the predecessor's record is retired under its own
+    -- generational identity and its observation baseline is dropped.
+    Crisis.reset()
+    check(Crisis.restore({
+        version = 1, nextSerial = 4, history = {},
+        playerToken = "character:dead", playerGeneration = 0,
+        observations = {
+            ["player:local"] = { bites = 3, infected = true, infectionLevel = 90, seenAt = 0 },
+        },
+        crises = { ["dead:1"] = playerCrisis("dead:1") },
+    }) == true, "a save written by a previous character restores")
+    Crisis.pulse(player, clock + 2)
+    local rotated = Crisis.export()
+    local replacement = Crisis.peekForSubject("player:local")
+    check(rotated.playerGeneration == 1 and rotated.crises["dead:1"] ~= nil
+            and rotated.crises["dead:1"].subjectId == "player:local#1"
+            and rotated.crises["dead:1"].phase == "terminal"
+            and replacement ~= nil and replacement.id ~= "dead:1",
+        "a replacement character retires the predecessor's record under its own identity and starts a new episode: generation="
+            .. tostring(rotated.playerGeneration) .. " subject="
+            .. tostring(rotated.crises["dead:1"] and rotated.crises["dead:1"].subjectId))
+    player.body.infected, player.body.infectionLevel = savedInfected, savedLevel
+    Crisis.restore(savedCrises)
+end)()
+
+-- 0.25.5 review CR-02: an authorized mercy or self-sacrifice kept its
+-- operational authorization once the act was over, and restore refuses an
+-- authorized record that is no longer resolved. Ordinary play therefore wrote
+-- a crisis document the mod could export but never load back.
+;(function()
+    local Crisis = SurvivorCompanion.InfectionCrisis
+    local savedCrises = Crisis.export()
+    Crisis.reset()
+    local subject = actor("sc-auth-subject", 51, -48, {})
+    registry[subject.id] = subject
+    check(Crisis.restore({
+        version = 1, nextSerial = 3, observations = {}, history = {},
+        crises = {
+            ["auth:1"] = {
+                id = "auth:1", subjectId = subject.id, subjectName = "Authorized",
+                phase = "resolved", strategy = "confess", outcome = "mercy",
+                createdAt = 10, updatedAt = 10, resolvedAt = 10,
+                irreversibleAfter = 20, deliberateAfter = 20,
+                biteCount = 1, infectionLevel = 95, evidence = {}, artifacts = {},
+                finalAuthorized = true, executorId = "sc-auth-executor",
+                participants = {
+                    [subject.id] = { knowledge = "confirmed", certainty = 100, spoken = false },
+                },
+            },
+        },
+    }) == true, "an authorized resolved mercy restores")
+    subject.dead = true
+    Crisis.pulse(player, clock)
+    local exported = Crisis.export()
+    local finished = exported and exported.crises["auth:1"] or nil
+    local reloaded, reloadReason = Crisis.restore(exported)
+    check(finished ~= nil and finished.phase == "terminal"
+            and finished.finalAuthorized == false and finished.finalAuthorizedAt ~= nil
+            and reloaded == true,
+        "an authorized act that has happened leaves a record that loads back: "
+            .. tostring(reloadReason))
+
+    -- The documents 0.25.5 already wrote load too, instead of failing the save.
+    Crisis.reset()
+    local migrated, migratedReason = Crisis.restore({
+        version = 1, nextSerial = 3, observations = {}, history = {},
+        crises = {
+            ["legacy:1"] = {
+                id = "legacy:1", subjectId = "sc-legacy-subject", subjectName = "Legacy",
+                phase = "terminal", strategy = "confess", outcome = "self_sacrifice",
+                createdAt = 10, updatedAt = 10, resolvedAt = 10, terminalAt = 40,
+                irreversibleAfter = 20, deliberateAfter = 20,
+                biteCount = 1, infectionLevel = 100, evidence = {}, artifacts = {},
+                finalAuthorized = true,
+                participants = {
+                    ["sc-legacy-subject"] = { knowledge = "confirmed", certainty = 100,
+                        spoken = false },
+                },
+            },
+        },
+    })
+    local migratedRow = Crisis.export().crises["legacy:1"]
+    check(migrated == true and migratedRow ~= nil and migratedRow.finalAuthorized == false
+            and migratedRow.finalAuthorizedAt == 40,
+        "a stale authorization on an already finished crisis is migrated, not rejected: "
+            .. tostring(migratedReason))
+
+    -- A resolved record whose authorization is genuinely inconsistent is still
+    -- refused: the migration is narrow on purpose.
+    local refused, refusedReason = Crisis.restore({
+        version = 1, nextSerial = 3, observations = {}, history = {},
+        crises = {
+            ["bad:1"] = {
+                id = "bad:1", subjectId = "sc-bad-subject", subjectName = "Bad",
+                phase = "resolved", strategy = "confess", outcome = "watch",
+                createdAt = 10, updatedAt = 10, resolvedAt = 10,
+                irreversibleAfter = 20, deliberateAfter = 20,
+                biteCount = 1, infectionLevel = 30, evidence = {}, artifacts = {},
+                finalAuthorized = true,
+                participants = {
+                    ["sc-bad-subject"] = { knowledge = "confirmed", certainty = 100,
+                        spoken = false },
+                },
+            },
+        },
+    })
+    check(refused == false
+            and string.find(tostring(refusedReason), "finalAuthorized", 1, true) ~= nil,
+        "an authorization inconsistent with a live outcome is still refused: "
+            .. tostring(refusedReason))
+    registry[subject.id] = nil
+    Crisis.restore(savedCrises)
+end)()
+
+-- 0.25.5 review CR-01: an observation row was written for every actor ever
+-- assessed and nothing ever removed one, so a long game grew a crisis document
+-- past the module's own export budget -- and a failed export aborts the entire
+-- mod save transaction, not just this subsystem.
+;(function()
+    local Crisis = SurvivorCompanion.InfectionCrisis
+    local savedCrises = Crisis.export()
+    local savedCap = SurvivorCompanion.Config.values.maxCompanions
+    SurvivorCompanion.Config.values.maxCompanions = 16
+    Crisis.reset()
+    local flood = { version = 1, nextSerial = 1, crises = {}, observations = {}, history = {} }
+    for index = 1, 400 do
+        flood.observations["sc-retired-" .. tostring(index)] = {
+            bites = 0, infected = false, infectionLevel = 0, seenAt = index,
+        }
+    end
+    check(Crisis.restore(flood) == true, "a grown observation document restores")
+    Crisis.pulse(player, clock)
+    local after = Crisis.export()
+    local kept = 0
+    for _ in pairs(after and after.observations or {}) do kept = kept + 1 end
+    check(after ~= nil and kept <= 64,
+        "retired observation rows are pruned to a bounded set: kept=" .. tostring(kept))
+    check(after.observations["player:local"] ~= nil,
+        "the actors this pulse actually assessed keep their observation")
+    SurvivorCompanion.Config.values.maxCompanions = savedCap
+    Crisis.restore(savedCrises)
+end)()
+
+-- 0.25.5 review CR-03: exile walked the companion out of camp and then stopped
+-- contributing anything, so the untouched Follow order took over again and the
+-- supposedly exiled survivor walked straight back to the player.
+;(function()
+    local Crisis = SurvivorCompanion.InfectionCrisis
+    local commands = SurvivorCompanion.Commands
+    local baseLife = SurvivorCompanion.BaseLife
+    local savedCrises = Crisis.export()
+    Crisis.reset()
+    local outcast = actor("sc-exile-subject", 53, -48, {})
+    registry[outcast.id] = outcast
+    local state = commands.peek(outcast)
+    state.recruited, state.order = true, "follow"
+    check(Crisis.restore({
+        version = 1, nextSerial = 2, observations = {}, history = {},
+        crises = {
+            ["ex:1"] = {
+                id = "ex:1", subjectId = outcast.id, subjectName = "Outcast",
+                phase = "resolved", strategy = "confess", outcome = "watch",
+                createdAt = 10, updatedAt = 10, resolvedAt = 10,
+                irreversibleAfter = 20, deliberateAfter = 20,
+                biteCount = 1, infectionLevel = 60, evidence = {}, artifacts = {},
+                finalAuthorized = false,
+                participants = {
+                    [outcast.id] = { knowledge = "confirmed", certainty = 100, spoken = false },
+                    ["player:local"] = { knowledge = "confirmed", certainty = 100, spoken = true },
+                },
+            },
+        },
+    }) == true, "an exile fixture restores")
+    local chosen, chosenReason = Crisis.choose("ex:1", "exile")
+    local effective = commands.effective(outcast)
+    check(chosen == true and baseLife.restriction(outcast.id) == "exiled"
+            and effective.order == "stay" and effective.exiled == true
+            and effective.scavenge ~= true and commands.peek(outcast).order == "follow",
+        "an exiled companion stops acting on its old order while the order itself is kept: "
+            .. tostring(chosenReason) .. "/" .. tostring(effective.order))
+    check(baseLife.claimJob(outcast.id) == nil, "an exiled companion is refused camp duty")
+    local released, releaseReason = Crisis.release("ex:1", "harness")
+    check(released == true and baseLife.restriction(outcast.id) == nil
+            and commands.effective(outcast).order == "follow",
+        "releasing the crisis gives the companion its original order back: "
+            .. tostring(releaseReason))
+    baseLife.setRestriction(outcast.id, nil)
+    commands.reset(outcast)
+    registry[outcast.id] = nil
+    Crisis.restore(savedCrises)
+end)()
+
+-- 0.25.5 review CR-10: the wash gate compared plain distance, and the square
+-- across a wall is closer to a sink than the square in front of it. A
+-- companion could start and finish washing through the wall, spending the
+-- camp's water and cleaning itself without ever reaching the water.
+;(function()
+    local downtime = SurvivorCompanion.Downtime
+    local _, _, _, _, washSourceInReach, _, completeWashEquipment = downtime._washForTests()
+    local washer = actor("sc-wash-wall", -9, 8, {})
+    local sinkSquare = cell:getGridSquare(-9, 9, 0)
+    local sink = { square = sinkSquare, fluid = 20, used = 0 }
+    function sink:getSquare() return self.square end
+    function sink:getFluidAmount() return self.fluid end
+    function sink:isTaintedWater() return false end
+    function sink:useFluid(amount)
+        self.fluid = self.fluid - amount
+        self.used = self.used + amount
+        return true
+    end
+    function sink:transmitModData() end
+    sinkSquare.objects[#sinkSquare.objects + 1] = sink
+    local shirt = { bloodLevel = 80, dirtiness = 60 }
+    function shirt:getBloodLevel() return self.bloodLevel end
+    function shirt:getDirtiness() return self.dirtiness end
+    function shirt:setBloodLevel(value) self.bloodLevel = value end
+    function shirt:setDirtiness(value) self.dirtiness = value end
+    function shirt:setWetness(value) self.wetness = value end
+    local activity = { kind = "wash_equipment", object = sink, square = sinkSquare, item = shirt }
+    washer.square.blocked[sinkSquare] = true
+    sinkSquare.blocked[washer.square] = true
+    local blockedReach = washSourceInReach(washer, activity)
+    local blockedCommit = completeWashEquipment(washer, activity)
+    check(blockedReach ~= true and blockedCommit == false and sink.used == 0
+            and sink.fluid == 20 and shirt.bloodLevel == 80,
+        "a sink one tile away behind a wall is out of reach, commits nothing and loses no water")
+    washer.square.blocked[sinkSquare] = nil
+    sinkSquare.blocked[washer.square] = nil
+    local openReach = washSourceInReach(washer, activity)
+    local openCommit = completeWashEquipment(washer, activity)
+    check(openReach == true and openCommit == true and sink.used > 0
+            and shirt.bloodLevel == 0 and shirt.dirtiness == 0,
+        "the same sink with a clear side washes the item and spends its water")
+    sinkSquare.objects[#sinkSquare.objects] = nil
+end)()
+
+-- 0.25.5 review CR-07: an objective the companion had already fulfilled could
+-- be assigned anyway, completed by the next audit, and paid for again every
+-- time the player re-assigned it.
+;(function()
+    local Objectives = SurvivorCompanion.Objectives
+    local commands = SurvivorCompanion.Commands
+    local stocked = actor("sc-objective-stocked", 44, -46, {
+        inventory = inventory({
+            item("Base.Bandage", "Item", {}), item("Base.Bandage", "Item", {}),
+        }),
+    })
+    registry[stocked.id] = stocked
+    local state = commands.peek(stocked)
+    local before = tonumber(state.care and state.care.goalsCompleted) or 0
+    local assigned, assignReason = Objectives.assign(stocked, state, "keep_medical_ready")
+    Objectives.update(stocked, state, clock + 100000)
+    local offered = false
+    for _, kind in ipairs(Objectives.assignableKinds(stocked, state)) do
+        if kind == "keep_medical_ready" then offered = true end
+    end
+    check(assigned == false and assignReason == "objective_already_satisfied"
+            and not offered
+            and (tonumber(state.care and state.care.goalsCompleted) or 0) == before,
+        "an already fulfilled objective is neither offered nor assignable and pays nothing: "
+            .. tostring(assignReason))
+    stocked.inventory:Remove(stocked.inventory.items[1])
+    stocked.inventory:Remove(stocked.inventory.items[1])
+    local accepted, acceptedReason = Objectives.assign(stocked, state, "keep_medical_ready")
+    check(accepted == true and state.objectives.active ~= nil
+            and state.objectives.active.kind == "keep_medical_ready",
+        "an objective that still needs doing is assignable as before: "
+            .. tostring(acceptedReason))
+    commands.reset(stocked)
+    registry[stocked.id] = nil
+end)()
+
+-- 0.25.5 review CR-08: promoting a companion's own goal marked it as the
+-- player's without keeping a copy, so the next assignment preserved nothing
+-- and the personal goal was lost for good.
+;(function()
+    local Objectives = SurvivorCompanion.Objectives
+    local commands = SurvivorCompanion.Commands
+    local owner = actor("sc-objective-personal", 46, -46, {})
+    registry[owner.id] = owner
+    local state = commands.peek(owner)
+    state.objectives = {
+        version = 1, serial = 4, nextEligibleAt = 0, history = {},
+        active = {
+            version = 1, id = owner.id .. ":objective:4", kind = "find_something_to_read",
+            status = "active", revealed = false, assignedByPlayer = false,
+            progress = 0, createdAt = 0,
+        },
+    }
+    local promoted = Objectives.assign(owner, state, "find_something_to_read")
+    local kept = state.objectives.personal
+    local replaced = Objectives.assign(owner, state, "improve_shelter")
+    Objectives.noteEvent(state, "worked", { activity = "barricade" })
+    check(promoted == true and replaced == true
+            and kept ~= nil and kept.id == owner.id .. ":objective:4"
+            and state.objectives.active ~= nil
+            and state.objectives.active.id == owner.id .. ":objective:4"
+            and state.objectives.personal == nil,
+        "a personal goal the player promoted survives the next assignment and returns exactly once: "
+            .. tostring(state.objectives.active and state.objectives.active.id))
+
+    local promotedOnly = actor("sc-objective-promoted", 48, -46, {})
+    registry[promotedOnly.id] = promotedOnly
+    local promotedState = commands.peek(promotedOnly)
+    promotedState.objectives = {
+        version = 1, serial = 2, nextEligibleAt = 0, history = {},
+        active = {
+            version = 1, id = promotedOnly.id .. ":objective:2", kind = "share_a_proper_meal",
+            status = "active", revealed = false, assignedByPlayer = false,
+            progress = 0, createdAt = 0,
+        },
+    }
+    Objectives.assign(promotedOnly, promotedState, "share_a_proper_meal")
+    local paidBefore = tonumber(promotedState.care and promotedState.care.goalsCompleted) or 0
+    Objectives.noteEvent(promotedState, "meal", {})
+    local paidAfter = tonumber(promotedState.care and promotedState.care.goalsCompleted) or 0
+    local again = Objectives.noteEvent(promotedState, "meal", {})
+    check(promotedState.objectives.active == nil and promotedState.objectives.personal == nil
+            and paidAfter == paidBefore + 1 and again == false,
+        "completing a promoted personal goal pays once and leaves no duplicate behind: "
+            .. tostring(paidBefore) .. "->" .. tostring(paidAfter))
+    commands.reset(owner)
+    commands.reset(promotedOnly)
+    registry[owner.id], registry[promotedOnly.id] = nil, nil
 end)()
 
 check(SurvivorCompanion.Decision.resetAll(), "central gameplay runtime reset")

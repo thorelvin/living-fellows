@@ -223,6 +223,20 @@ require("lastStableSnapshot" in persistence and "quarantined companion" in persi
         "quarantined record does not preserve its last stable snapshot")
 require("record.vehicle.stored == false" in persistence and "importNativeSeat" in persistence,
         "native and virtual vehicle save states are not distinguished")
+# 0.25.5 review CR-01: the envelope allowance for infection crises follows the
+# budget that subsystem derives from its own limits. A smaller allowance would
+# reject a document the subsystem considers valid and abort the save with it.
+require("entries = infectionCrisisEntries()" in persistence
+        and "owner.documentBudget()" in persistence,
+        "infection-crisis envelope allowance is not derived from the subsystem budget")
+crisis_source = (CLIENT / "SCInfectionCrisis.lua").read_text(encoding="utf-8")
+require("function Crisis.documentBudget" in crisis_source
+        and "local function documentCopy" in crisis_source
+        and "count = 8192" not in crisis_source,
+        "infection-crisis copies still use a fixed budget instead of the derived one")
+require("local function pruneObservations" in crisis_source
+        and "infectionCrisisObservationTtlMs" in crisis_source,
+        "infection-crisis observations are not pruned")
 require('{ field = "community", owner = SC.Community' in persistence
         and "SC.Call.protected(" in persistence
         and "definition.owner.restore, restoreInput" in persistence,

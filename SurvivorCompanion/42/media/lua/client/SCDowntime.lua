@@ -557,6 +557,19 @@ end
 -- A water source a companion could not reach (a sink with no free square in
 -- front of it, a blocked kitchen) is skipped for a while instead of being
 -- picked again every downtime pulse.
+-- Distance alone says nothing about reach: the square on the far side of a
+-- wall is closer to a sink than the square in front of it. Every wash start
+-- and every wash commit goes through the topology-aware interaction rule, so
+-- proximity can never stand in for being able to touch the water.
+local function washSourceInReach(actor, activity)
+    local utility = U()
+    local target = activity.object or activity.square
+    if target == nil then return false, "wash_source_missing" end
+    local reachable, _, reason = utility.directInteractionAccess(actor, target)
+    if reachable == true then return true end
+    return false, reason or "wash_source_not_in_reach"
+end
+
 local function washSourceCooling(state, object, current)
     local failed = type(state) == "table" and state.failedWashSources or nil
     local untilAt = failed and object ~= nil and failed[object] or nil
@@ -2034,10 +2047,46 @@ local function approachBorrowedReadingSource(actor, activity)
     return accepted == true, status
 end
 
+-- Selection happens across the room and checkout happens a walk later, so the
+-- policy that authorised the choice is re-read at the moment the item actually
+-- changes hands. The player can un-register the shelf, raise the reserve,
+-- protect the book or remove the other copies during that walk; the selected
+-- copy then becomes the reserved last copy and must stay on the shelf.
+local function borrowedCheckoutAuthorized(actor, activity)
+    if activity.borrowedStorageId == nil then return true end
+    local utility = U()
+    local base = SC.BaseLife
+    if not base or type(base.storage) ~= "function"
+        or type(base.resolveContainer) ~= "function"
+        or type(base.availableCountExact) ~= "function" then
+        return false, "base_storage_unavailable"
+    end
+    local storage = base.storage(activity.borrowedStorageId)
+    if type(storage) ~= "table" then return false, "borrowed_book_storage_changed" end
+    if storage.withdrawals == false then return false, "borrowed_book_withdrawals_disabled" end
+    local container = base.resolveContainer(storage)
+    if container == nil or container ~= activity.borrowedFrom then
+        return false, "borrowed_book_storage_changed"
+    end
+    if not utility.inventoryContains(container, activity.item) then
+        return false, "borrowed_book_unavailable"
+    end
+    if base.availableCountExact(storage, utility.itemType(activity.item)) < 1 then
+        return false, "borrowed_book_reserved"
+    end
+    if SC.PersonalItems and type(SC.PersonalItems.isProtected) == "function"
+        and SC.PersonalItems.isProtected(activity.item, actor, "camp_reading_borrow") then
+        return false, "borrowed_book_protected"
+    end
+    return true
+end
+
 local function startBorrowedReading(actor, activity, now)
     local utility = U()
     local atSource = utility.directInteractionAccess(actor, activity.borrowedOwner)
     if atSource ~= true then return false, "borrowed_book_source_not_in_reach" end
+    local authorized, authorizedReason = borrowedCheckoutAuthorized(actor, activity)
+    if authorized ~= true then return false, authorizedReason or "borrowed_book_unavailable" end
     local inventory = utility.inventory(actor)
     local transferred, transferReason = utility.transferItemVerified(
         activity.borrowedFrom, inventory, activity.item)
@@ -2160,8 +2209,8 @@ local function beginActivity(actor, state, activity, commands, now)
             transitionActivity(activity, "approaching", { status = status })
         end
     elseif (wash or study) and activity.square
-        and utility.distance(actor, activity.square)
-            > (wash and 1.45 or Study.REACH) then
+        and (wash and not washSourceInReach(actor, activity)
+            or not wash and utility.distance(actor, activity.square) > Study.REACH) then
         if SC.Navigation and (type(SC.Navigation.request) == "function"
             or wash and type(SC.Navigation.requestAny) == "function") then
             local accepted, status
@@ -2251,6 +2300,8 @@ local function useWashWater(source, amount)
 end
 
 local function completeWashSelf(actor, activity)
+    if not washSourceValid(activity.object) then return false end
+    if not washSourceInReach(actor, activity) then return false end
     local visual, visualOk = U().call(actor, "getHumanVisual")
     if not visualOk or not visual then return false end
     local dirty = {}
@@ -2279,6 +2330,8 @@ end
 local function completeWashEquipment(actor, activity)
     local item = activity.item
     if not item or itemDirt(item) <= 0.01 then return false end
+    if not washSourceValid(activity.object) then return false end
+    if not washSourceInReach(actor, activity) then return false end
     local required = math.max(U().config("downtimeWashMinimumWater") or 4,
         math.min(20, math.ceil(4 + itemDirt(item) / 25)))
     if not useWashWater(activity.object, required) then return false end
@@ -2558,7 +2611,7 @@ function Downtime.update(actor, player, runtime, desiredKind)
         local washing = state.active.kind == "wash_self"
             or state.active.kind == "wash_equipment"
         if washing and state.active.approaching and state.active.atSource ~= true
-            and utility.distance(actor, state.active.square) > 1.45 then
+            and not washSourceInReach(actor, state.active) then
             local accepted, status = approachWashSource(actor, state.active)
             if not accepted then
                 coolWashSource(state, state.active.object, current)
@@ -2793,9 +2846,16 @@ function Downtime.reset(actor)
 end
 
 -- Test seam: the harness checks eligibility, curiosity and outfit groups.
--- Test seam: wash source choice, approach and failure memory.
+-- Test seam: wash source choice, approach, failure memory, the reach rule
+-- every start and commit shares, and the two commits themselves.
 function Downtime._washForTests()
-    return nearbyWashSource, approachWashSource, coolWashSource, washSourceCooling
+    return nearbyWashSource, approachWashSource, coolWashSource, washSourceCooling,
+        washSourceInReach, completeWashSelf, completeWashEquipment
+end
+
+-- Test seam: the camp-book checkout policy re-read at transfer time.
+function Downtime._borrowedCheckoutForTests()
+    return borrowedCheckoutAuthorized
 end
 
 function Downtime._studyForTests()

@@ -186,10 +186,28 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   so an unreachable destination can never hold a companion for the session. The
   player may re-decide a resolved crisis, and `Crisis.release` closes it and
   lifts the restriction; `watch` does not, because `SCBaseLife` refuses base jobs
-  under both the watch and quarantine restrictions. An authorized irreversible
-  act is the only final state. Infection level is the native infection clock, not
+  under every restriction it owns (`watch`, `quarantine`, `exiled`). Exile is a
+  durable restriction rather than a walk: `SCCommands.effective` holds an exiled
+  survivor where they went while the stored order stays untouched, so release
+  restores it. An authorized irreversible act is the only final state, and
+  `enterTerminal` is the single transition into it -- it clears the operational
+  authorization (keeping `finalAuthorizedAt` as history) and compacts the
+  finished record, because restore refuses an authorization that no longer
+  matches a live outcome. Infection level is the native infection clock, not
   `getApparentInfectionLevel()` -- that is `max(zombie fever, zombie infection,
   food sickness)`, so food poisoning used to read as Knox progress.
+- The crisis document is bounded by construction. Records, participants,
+  evidence, observations and history each have a configured limit, and
+  `Crisis.documentBudget()` derives the export/restore copy budget from exactly
+  those limits, with `SCPersistence` deriving its envelope allowance from the
+  same number. Observations are pruned by age and count every pulse, keeping the
+  actors the current rotating scan window touched and every crisis subject. A
+  budget the schema can outgrow is not a lost crisis: the subsystem export
+  fails, and a failed subsystem export aborts the whole save transaction. Each
+  local character carries its own identity (`player:<token>` in that character's
+  mod data); when it changes, records under the shared `player:local` identity
+  are retired to `player:local#<generation>` and the observation baseline drops,
+  so a replacement character never inherits the predecessor's episode.
 - `SCTrade` owns item transfer authorization and a durable per-item recovery journal. Native reconstruction progresses through `original`, `building`, and `verified`: the factory-created object is journaled before inventory insertion, every generated identity receives a build marker before optional native-ID reads, and `SCPersistence` recaptures the completed root and weapon parts before publication. Recovery closes only after the exact item is compensated to its intended source and both list membership and `InventoryItem.getContainer()` agree. A destination-held half trade, an unlocated partial reconstruction, or absence without persisted detached proof remains unresolved rather than becoming a successful rollback or a copied item. Death rewrites referenced live actors to terminal `retired` descriptors before registry release. Active retries use bounded backoff and a persisted rotating cursor; a restored runtime gets a fresh availability window for asynchronously spawned owners. Quarantined records consume no automatic scheduler work, block neither unrelated factions nor unmarked items, and expire under a separate age/count cap so terminal evidence cannot exhaust the live recovery journal forever.
 - `SCVehicle` owns a capacity-aware passenger manifest, assigns only installed non-driver seats, revalidates a changed seat map before entry, and leaves overflow followers active in a bounded wait state. It exposes a non-mutating seat preflight and prefers verified native seating. A virtual-seat fallback is permitted only after native rejection or a verified native rollback; it stores a stable record for later restoration beside the vehicle. Native entry is never described as atomically reversible. Passenger firearm authorization additionally requires a ranged doctrine, an open or broken side window, a doctrine-specific speed ceiling, and a shared vehicle firing cadence.
 - `SCAllegiance` is the pure, direction-sensitive relationship policy for party,

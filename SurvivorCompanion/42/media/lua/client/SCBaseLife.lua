@@ -15,6 +15,10 @@ BaseLife.ROLES = {
     generalist = true, guard = true, builder = true, quartermaster = true, medic = true,
     farmer = true,
 }
+-- Standing marks an infection crisis can leave on a survivor. All of them bar
+-- camp duty: watch and quarantine keep someone inside under supervision,
+-- exile keeps them out until the player lifts it.
+BaseLife.RESTRICTIONS = { watch = true, quarantine = true, exiled = true }
 BaseLife.ZONE_TYPES = {
     area = true, work = true, rest = true, social = true, guard = true,
     rally = true, quarantine = true, lumber = true, farm = true,
@@ -806,7 +810,7 @@ local function normalize(source)
         end
     end
     for id, value in pairs(type(source.restrictions) == "table" and source.restrictions or {}) do
-        if type(id) == "string" and (value == "watch" or value == "quarantine") then
+        if type(id) == "string" and BaseLife.RESTRICTIONS[value] then
             result.restrictions[id] = value
         end
     end
@@ -1536,8 +1540,7 @@ local function eligibleWorkers(base, source, prefix)
         if not resident or resident.baseId ~= base.id then
             return nil, prefix .. "_worker_not_resident"
         end
-        local restriction = ensure().restrictions[id]
-        if restriction == "watch" or restriction == "quarantine" then
+        if BaseLife.RESTRICTIONS[ensure().restrictions[id]] then
             return nil, prefix .. "_worker_restricted"
         end
         local record = SC.Registry and SC.Registry.byId and SC.Registry.byId(id) or nil
@@ -2746,8 +2749,7 @@ function BaseLife.claimJob(actorId)
     local base, current = activeBase(), now()
     local resident = ensure().residents[actorId]
     if not base or not resident or resident.duty ~= true then return nil, "not_on_base_duty" end
-    local restriction = ensure().restrictions[actorId]
-    if restriction == "quarantine" or restriction == "watch" then
+    if BaseLife.RESTRICTIONS[ensure().restrictions[actorId]] then
         return nil, "infection_restriction"
     end
     -- Restored or legacy rows may contain a gather job whose assigned worker
@@ -2991,7 +2993,7 @@ function BaseLife.resident(actorId)
 end
 
 function BaseLife.setRestriction(actorId, value)
-    if value ~= nil and value ~= "watch" and value ~= "quarantine" then
+    if value ~= nil and not BaseLife.RESTRICTIONS[value] then
         return false, "invalid_restriction"
     end
     ensure().restrictions[actorId] = value
@@ -3793,8 +3795,7 @@ local function validateRestoreSource(source)
     end
     for id, restriction in pairs(source.restrictions) do
         local path = "$.baseLife.restrictions[" .. tostring(id) .. "]"
-        if type(id) ~= "string" or id == ""
-            or (restriction ~= "watch" and restriction ~= "quarantine") then
+        if type(id) ~= "string" or id == "" or not BaseLife.RESTRICTIONS[restriction] then
             return restoreFailure(path, "invalid restriction")
         end
     end

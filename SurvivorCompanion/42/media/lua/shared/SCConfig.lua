@@ -1241,6 +1241,13 @@ local valueData = {
     infectionCrisisHistoryLimit = 96,
     infectionCrisisEvidenceLimit = 32,
     infectionCrisisMaxRecords = 32,
+    -- Every crisis limit feeds the export budget the module derives from them,
+    -- so a document the mod can write is always one it can save and load back.
+    -- Observations are additionally bounded by age, because a row is written
+    -- for every actor assessed and nothing else would ever remove them.
+    infectionCrisisParticipantLimit = 24,
+    infectionCrisisObservationLimit = 64,
+    infectionCrisisObservationTtlMs = 1800000,
     -- Crisis conversations: bystanders walk over and take turns; a bitten
     -- companion may first confide in the one it trusts most.
     crisisGatherRadius = 20,

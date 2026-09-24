@@ -776,6 +776,18 @@ def main() -> int:
             and 'orderAllowsIdle(commands, actor, player, snapshot)' in downtime_source
             and 'SC.NativeActions.cancelVisual' in downtime_source,
             "follow downtime lacks indoor gating or atomic animation preemption")
+    # 0.25.5 review CR-10: proximity must never stand in for reach at a water
+    # source, at the start of a wash or at its commit.
+    require("local function washSourceInReach" in downtime_source
+            and downtime_source.count("washSourceInReach(actor") >= 4
+            and "1.45" not in downtime_source,
+            "wash start or commit still gates on plain distance instead of reach")
+    # 0.25.5 review CR-09: the storage policy is re-read at the transfer, not
+    # only while the book was chosen from across the room.
+    require("local function borrowedCheckoutAuthorized" in downtime_source
+            and "borrowedCheckoutAuthorized(actor, activity)" in downtime_source
+            and "availableCountExact" in downtime_source,
+            "camp book checkout does not re-read the storage policy at transfer time")
     for module in ("SCPersonality.lua", "SCPersonalItems.lua", "SCObjectives.lua", "SCJournal.lua"):
         require("Events." not in sources[module], f"character-depth module owns a global event hook: {module}")
     require('config("objectiveAuditIntervalMs") or 5000' in sources["SCPersonalItems.lua"]

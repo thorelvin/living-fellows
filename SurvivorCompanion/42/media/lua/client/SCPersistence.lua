@@ -1308,13 +1308,28 @@ local function worldData()
     return store
 end
 
+-- The infection-crisis subsystem derives its own copy budget from the limits
+-- it enforces. The envelope allowance has to follow it: an allowance below the
+-- subsystem's own budget would reject a document the subsystem considers
+-- valid, and abort the whole save transaction with it.
+local function infectionCrisisEntries()
+    local owner = SC.InfectionCrisis
+    local derived = type(owner) == "table" and type(owner.documentBudget) == "function"
+        and tonumber(owner.documentBudget()) or nil
+    if derived == nil or derived ~= derived or derived <= 0
+        or derived == math.huge then
+        return 16384
+    end
+    return math.max(16384, math.floor(derived) + 1024)
+end
+
 local function scheduledSubsystemDefinitions()
     return {
         { field = "factions", owner = SC.Factions, depth = 12, entries = 131072 },
         { field = "factionWorld", owner = SC.FactionWorld, depth = 8, entries = 16384 },
         { field = "baseLife", owner = SC.BaseLife, depth = 24, entries = 65536 },
         { field = "infectionCrisis", owner = SC.InfectionCrisis,
-            depth = 10, entries = 16384 },
+            depth = 10, entries = infectionCrisisEntries() },
         { field = "community", owner = SC.Community, depth = 10, entries = 32768 },
         { field = "diaries", owner = SC.Diary, depth = 10, entries = 16384 },
         { field = "tradeRecovery", owner = SC.Trade, depth = 14, entries = 16384 },

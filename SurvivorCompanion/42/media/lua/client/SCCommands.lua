@@ -2368,20 +2368,35 @@ function Commands.peek(actor)
     return states[actor] or stateFor(actor)
 end
 
+-- An exiled survivor still holds whatever order it was given -- releasing the
+-- crisis hands that order straight back -- but must not act on it. Reading the
+-- untouched Follow order was enough to walk a supposedly exiled companion back
+-- into camp as soon as its departure route finished.
+local function exiledFromCamp(actor)
+    if not SC.BaseLife or type(SC.BaseLife.restriction) ~= "function" then return false end
+    local id = U().idOf(actor)
+    if id == nil then return false end
+    local ok, restriction = pcall(SC.BaseLife.restriction, id)
+    return ok and restriction == "exiled"
+end
+
 -- Return the command view used by the decision loop. The stable state itself is
--- never mutated: only the effective order becomes Stay while inventory is open.
+-- never mutated: only the effective order becomes Stay while inventory is open
+-- or while the camp has exiled this survivor.
 function Commands.effective(actor)
     local state = Commands.peek(actor)
     if type(state) ~= "table" then return state end
     local temporary = temporaryStays[actor]
-    if not temporary then return state end
+    local exiled = exiledFromCamp(actor)
+    if not temporary and not exiled then return state end
     local copy = U().copyShallow(state)
     copy.order = "stay"
-    copy.anchor = temporary.anchor
+    copy.anchor = temporary and temporary.anchor or nil
     copy.scavenge = false
     copy.tacticalTarget = nil
     copy.pendingInteraction = nil
-    copy.temporaryStay = true
+    if temporary then copy.temporaryStay = true end
+    if exiled then copy.exiled = true end
     return copy
 end
 

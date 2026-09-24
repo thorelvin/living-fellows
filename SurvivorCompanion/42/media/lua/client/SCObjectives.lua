@@ -271,6 +271,15 @@ local function complete(state, objectives, current)
     objectives.history[#objectives.history + 1] = copyRow(active)
     local maximum = U().config("maxObjectiveHistory") or 8
     while #objectives.history > maximum do table.remove(objectives.history, 1) end
+    -- A preserved personal goal the completion already satisfied is dropped
+    -- rather than reinstated: the same record promoted by the player, or the
+    -- same kind of goal. Restoring either would pay its reward a second time
+    -- on the next audit for one acquisition.
+    if type(objectives.personal) == "table"
+        and (objectives.personal.id == active.id
+            or objectives.personal.kind == active.kind) then
+        objectives.personal = nil
+    end
     if active.assignedByPlayer == true and type(objectives.personal) == "table" then
         objectives.active = objectives.personal
         objectives.personal = nil
@@ -289,9 +298,23 @@ local function complete(state, objectives, current)
     return true
 end
 
+-- An objective the companion has already fulfilled is not an assignment: it
+-- would complete on the very next audit and pay its reward for nothing that
+-- was done. Those kinds are not offered, and assign() refuses them anyway.
+local function alreadyFulfilled(actor, kind, state)
+    if not actor or type(state) ~= "table" or not kinds[kind] then return false end
+    if kind == "recover_keepsake" then
+        local possessions = type(state.possessions) == "table" and state.possessions or {}
+        return possessions.keepsake ~= nil and possessions.keepsake.status == "carried"
+    end
+    return inventoryProgress(actor, kind, state) >= 1
+end
+
 function Objectives.assignableKinds(actor, state)
     local result = {}
-    for _, kind in ipairs(assignmentOrder) do result[#result + 1] = kind end
+    for _, kind in ipairs(assignmentOrder) do
+        if not alreadyFulfilled(actor, kind, state) then result[#result + 1] = kind end
+    end
     local possessions = type(state) == "table" and type(state.possessions) == "table"
         and state.possessions or nil
     if possessions and possessions.keepsake
@@ -312,16 +335,23 @@ function Objectives.assign(actor, state, kind, current)
             return false, "keepsake_not_missing"
         end
     end
+    if alreadyFulfilled(actor, kind, state) then
+        return false, "objective_already_satisfied"
+    end
     local objectives = Objectives.normalize(state.objectives)
     local active = objectives.active
+    -- Promoting the companion's own goal must record that it was theirs. It
+    -- used to be promoted in place with no copy kept, so the next assignment
+    -- found a player-assigned goal, preserved nothing, and the personal goal
+    -- was gone for good.
+    if active and active.assignedByPlayer ~= true and objectives.personal == nil then
+        objectives.personal = copyRow(active)
+    end
     if active and active.kind == kind then
         active.assignedByPlayer = true
         active.revealed = true
         state.objectives = objectives
         return true, "objective_assigned"
-    end
-    if active and active.assignedByPlayer ~= true and objectives.personal == nil then
-        objectives.personal = copyRow(active)
     end
     objectives.serial = objectives.serial + 1
     local id = U().idOf(actor) or "survivor"

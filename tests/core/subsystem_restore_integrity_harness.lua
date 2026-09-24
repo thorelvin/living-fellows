@@ -144,6 +144,68 @@ do
         "$.infectionCrisis.crises[crisis:1].evidence", "sparse crisis evidence")
 end
 
+-- 0.25.5 review CR-01: the crisis export budget was a fixed number the schema
+-- could outgrow. A document the module itself considered legal then failed its
+-- own copy, and a failed subsystem export aborts the whole mod save
+-- transaction rather than losing one crisis.
+do
+    local maximum = { version = 1, nextSerial = 2, crises = {}, observations = {}, history = {} }
+    for record = 1, 32 do
+        local id = "crisis:" .. tostring(record)
+        local crisis = {
+            id = id, subjectId = "sc-subject-" .. tostring(record),
+            subjectName = "Subject " .. tostring(record),
+            phase = "resolved", strategy = "confess", outcome = "quarantine",
+            createdAt = 100, updatedAt = 100, resolvedAt = 100, outcomeCompletedAt = 150,
+            irreversibleAfter = 200, deliberateAfter = 300,
+            biteCount = 1, infectionLevel = 40,
+            participants = {}, evidence = {}, artifacts = {}, finalAuthorized = false,
+        }
+        for index = 1, 24 do
+            crisis.participants["sc-member-" .. tostring(record) .. "-" .. tostring(index)] = {
+                knowledge = "confirmed", certainty = 100, stance = "pragmatic",
+                choice = "quarantine", spoken = true,
+            }
+        end
+        for index = 1, 32 do
+            crisis.evidence[index] = {
+                kind = "visible_symptoms",
+                observerId = "sc-member-" .. tostring(record) .. "-1",
+                certainty = 90, at = 100 + index, details = "observed symptoms",
+            }
+        end
+        maximum.crises[id] = crisis
+    end
+    for index = 1, 64 do
+        maximum.observations["sc-observed-" .. tostring(index)] = {
+            bites = 0, infected = false, infectionLevel = 0, seenAt = index,
+        }
+    end
+    for index = 1, 96 do
+        maximum.history[index] = {
+            kind = "resolved", at = index, crisisId = "crisis:1",
+            subjectId = "sc-subject-1", outcome = "quarantine",
+        }
+    end
+    local accepted, acceptedReason = SC.InfectionCrisis.restore(copy(maximum))
+    check(accepted == true,
+        "a crisis document filled to every configured limit restores: "
+            .. tostring(acceptedReason))
+    local exported = SC.InfectionCrisis.export()
+    check(exported ~= nil, "the largest supported crisis document still exports")
+    local reloaded, reloadReason = SC.InfectionCrisis.restore(exported)
+    check(reloaded == true,
+        "the largest supported crisis document survives a save round trip: "
+            .. tostring(reloadReason))
+    local budget = SC.InfectionCrisis.documentBudget()
+    local _, _, counted = SC.StableValue.copyStrict(exported, {
+        maxDepth = 16, maxEntries = 1048576, path = "$.budgetProbe",
+    })
+    check(type(budget) == "number" and type(counted) == "number" and counted <= budget,
+        "the derived export budget covers the largest document the schema permits: "
+            .. tostring(counted) .. "/" .. tostring(budget))
+end
+
 local communityDocument = {
     version = 2,
     minds = {
