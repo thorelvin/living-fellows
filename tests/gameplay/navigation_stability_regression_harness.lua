@@ -573,4 +573,44 @@ do
         "a caller that pinned its own budget is never overridden by the retry")
 end
 
+-- Playtest: a companion smashed a window and climbed straight through it,
+-- glass and all, beside a player who was clearing theirs by hand. IsoWindow
+-- keeps its smashed state in the same `destroyed` flag the generic "is this
+-- opening passable" test reads as open, so the glass branch was unreachable.
+do
+    local pane = {}
+    local function windowContext(smashed, glassRemoved, open, locked)
+        return {
+            windowSmashed = function() return smashed end,
+            windowGlassRemoved = function() return glassRemoved end,
+            objectOpen = function() return open end,
+            objectLocked = function() return locked == true end,
+        }
+    end
+    check(SC.NavTraversal.chooseWindowAction(pane, math.huge,
+            windowContext(true, false, true)) == "remove_glass",
+        "a smashed window reporting itself open still has its glass cleared first")
+    check(SC.NavTraversal.chooseWindowAction(pane, math.huge,
+            windowContext(true, false, false)) == "remove_glass",
+        "a smashed window with glass clears it when there is time")
+    check(SC.NavTraversal.chooseWindowAction(pane, 200,
+            windowContext(true, false, true)) == "climb_window_emergency",
+        "a threat arriving first still buys the injury deliberately")
+    check(SC.NavTraversal.chooseWindowAction(pane, math.huge,
+            windowContext(true, true, true)) == "climb_window",
+        "a smashed window whose glass is gone is simply climbed")
+    check(SC.NavTraversal.chooseWindowAction(pane, math.huge,
+            windowContext(false, false, true)) == "climb_window",
+        "an ordinary open window is simply climbed")
+    check(SC.NavTraversal.chooseWindowAction(pane, math.huge,
+            windowContext(false, false, false)) == "open_window",
+        "a closed unlocked window is opened when there is time")
+    check(SC.NavTraversal.chooseWindowAction(pane, math.huge,
+            windowContext(false, false, false, true)) == "smash_window",
+        "a locked window is smashed")
+    check(SC.NavTraversal.chooseWindowAction(pane, 200,
+            windowContext(false, false, false)) == "smash_window",
+        "a closed window with a threat inbound is smashed rather than opened")
+end
+
 SC_TEST_REPORT = "NAVIGATION_STABILITY_REGRESSION_PASS checks=" .. tostring(checks)

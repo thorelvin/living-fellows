@@ -163,6 +163,34 @@ local function completeWindowAction(actor, state, window, action, now, context)
     return true, "done"
 end
 
+-- Which of the four things to do with a window, given what it is and how long
+-- there is. Glass is decided before anything else: IsoWindow stores its
+-- smashed state in the same `destroyed` flag that the generic "is this opening
+-- passable" test reads as open, so asking that first made the whole glass
+-- branch unreachable -- a companion climbed through the window it had just
+-- smashed, still full of shards, while the player beside it cleared theirs by
+-- hand. Only a real threat close enough to arrive first buys the injury.
+function Traversal.chooseWindowAction(window, arrival, context)
+    local utility = U()
+    local smashed = invoke(context, "windowSmashed", window) == true
+    local glassRemoved = invoke(context, "windowGlassRemoved", window) == true
+    local open = invoke(context, "objectOpen", window) == true
+    local climbMs = utility.config("windowClimbMs") or 1300
+    arrival = tonumber(arrival) or math.huge
+    if smashed and not glassRemoved then
+        if arrival > (utility.config("windowGlassRemovalMs") or 1400) + climbMs then
+            return "remove_glass", smashed, glassRemoved, open
+        end
+        return "climb_window_emergency", smashed, glassRemoved, open
+    end
+    if open or smashed then return "climb_window", smashed, glassRemoved, open end
+    if not invoke(context, "objectLocked", window)
+        and arrival > (utility.config("windowOpenMs") or 1300) + climbMs then
+        return "open_window", smashed, glassRemoved, open
+    end
+    return "smash_window", smashed, glassRemoved, open
+end
+
 function Traversal.handleWindow(actor, state, window, fromSquare, toSquare, now, intent, context)
     local utility = U()
     local pending = state.pendingInteraction
@@ -174,26 +202,13 @@ function Traversal.handleWindow(actor, state, window, fromSquare, toSquare, now,
     if invoke(context, "windowInvincible", window)
         and not invoke(context, "objectOpen", window) then return false, "invincible_window" end
     local arrival = invoke(context, "threatArrivalMs", intent, fromSquare) or math.huge
-    local action
-    if invoke(context, "objectOpen", window) then
-        action = "climb_window"
-    elseif invoke(context, "windowSmashed", window) then
-        if invoke(context, "windowGlassRemoved", window) then
-            action = "climb_window"
-        elseif arrival > (utility.config("windowGlassRemovalMs") or 1400)
-            + (utility.config("windowClimbMs") or 1300) then
-            action = "remove_glass"
-        else
-            action = "climb_window_emergency"
-        end
-    elseif not invoke(context, "objectLocked", window)
-        and arrival > (utility.config("windowOpenMs") or 1300)
-            + (utility.config("windowClimbMs") or 1300) then
-        action = "open_window"
-    else
-        action = "smash_window"
-    end
+    local action, smashed, glassRemoved, open =
+        Traversal.chooseWindowAction(window, arrival, context)
 
+    utility.diagnostic("window", actor, "action=" .. tostring(action)
+        .. " smashed=" .. tostring(smashed) .. " glass=" .. tostring(glassRemoved)
+        .. " open=" .. tostring(open)
+        .. " arrival=" .. (arrival == math.huge and "none" or tostring(math.floor(arrival))))
     if action == "climb_window" or action == "climb_window_emergency" then
         if not invoke(context, "canClimbThrough", window, actor)
             and action ~= "climb_window_emergency" then
