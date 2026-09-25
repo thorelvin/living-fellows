@@ -2,7 +2,7 @@
 
 # Changelog
 
-## 0.25.6 - Through the woods
+## 0.25.7 - On the record
 
 - Companions now record what they decided in a fight. Combat only ever wrote to the log when it refused to do something, so a companion that swung and a companion that never tried left the same trace -- nothing -- which is exactly the question a death raises. Refusing a target now records how many it was weighing, how close the nearest one really was, which weapon it held and the reach that weapon gives it; attacking records that it attacked.
 - Added an opt-in setting that lets a companion start heading your way while its route is still being worked out, instead of standing still until the route is finished. It only walks ground it has already proved open, only a few tiles, and waits exactly as before when the way is not clear. Off by default while it is being tested.
@@ -10,6 +10,9 @@
 - Companions set off sooner in dense woodland. Deciding a route was allowed a fixed number of steps of thinking, which is about right in the open, where a route costs roughly one step of thought per tile. In forest most of the neighbouring ground is trees, so the search has to wind, and a companion nine tiles away could use the whole allowance without reaching you -- then stand there while the attempt was handed to the game's own pathfinder and failed. The allowance now grows with the ground a route may have to cover, and a search that merely runs out is given one more attempt with room to finish and with undergrowth treated as cheaper to push through than to walk around. A search told to use a specific allowance still gets exactly that.
 - The mod now says which build it is when it starts, in the log: release, bridge protocol, game version, save schema, and whether companion actors came up. The same mod id can be installed twice at once -- a local build and a Workshop staging copy -- and the game picks one of them, so a log that does not name its own build cannot be read against the right source.
 - Companions' weapons make a noise when they connect. Build 42 plays a weapon's impact sound only for the local player, so a companion's shovel landed with the wet noise of the zombie and nothing of the shovel -- the flesh belongs to the victim, and that part was never gated. The same gap silenced their swings and gunshots and was closed for those; this is the last of it. Firearms are left alone, since a bullet's noise is its impact.
+
+## 0.25.6 - Through the woods
+
 - Companions no longer report a routing failure as an obstacle they cannot identify. Three quarters of the navigation records in the last playtest said only "unknown", because a failure to find a route at all was filed the same way as walking into a fence -- and it then blacklisted the perfectly good tile it had been trying to step onto. A route that could not be built is now recorded as exactly that, and leaves no mark on the tile.
 - Undergrowth counts as vegetation. Only trunks were ever considered, so a companion pushing through bushes and hedges reported an unidentified obstacle; seven records out of a hundred and seventy-one named vegetation across a session spent entirely in woodland.
 - Trees added by other mods are recognised as trees. Detection stopped at the map's own tree flag, and a tile mod that supplies its own trees does not always raise it, so a modded forest could read as open ground to everything that avoids trees.
