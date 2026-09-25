@@ -1718,9 +1718,20 @@ end
 function Decision._noteSafetyHold(actor, player, snapshot, kind, failure, state, current, outcome,
         order)
     local utility = U()
-    local threat = type(snapshot) == "table" and (snapshot.threats or {})[1] or nil
-    local nearest = type(threat) == "table" and (tonumber(threat.distance)
-        or (tonumber(threat.distanceSq) and math.sqrt(tonumber(threat.distanceSq)))) or nil
+    -- The threat list is in scan order, not distance order, so the first entry
+    -- is whichever square the sweep reached first. Reporting it as "nearest"
+    -- made a hold look correct that was not: a companion being bitten by two
+    -- zombies was recorded with the closest threat 24 tiles away, because that
+    -- was simply the first one found. Measure the minimum.
+    local nearest
+    for _, threat in ipairs(type(snapshot) == "table" and snapshot.threats or {}) do
+        local distance = tonumber(type(threat) == "table" and threat.distance) or nil
+        if distance == nil then
+            local squared = tonumber(type(threat) == "table" and threat.distanceSq) or nil
+            distance = squared ~= nil and squared >= 0 and math.sqrt(squared) or nil
+        end
+        if distance ~= nil and (nearest == nil or distance < nearest) then nearest = distance end
+    end
     local leader = player and tonumber(utility.distance(actor, player)) or nil
     utility.diagnostic("safety-hold", actor,
         "kind=" .. tostring(kind or "unknown")

@@ -19205,6 +19205,33 @@ end)()
     registry[hammerHolder.id] = nil
 end)()
 
+-- Playtest: a companion being bitten by two zombies was recorded with the
+-- closest threat 24 tiles away. The threat list is in scan order, so the first
+-- entry is whichever square the sweep reached first, and reporting it as
+-- "nearest" made a hold look correct that was not.
+;(function()
+    local captured
+    local utility = SurvivorCompanion.GameplayUtil
+    local realDiagnostic = utility.diagnostic
+    utility.diagnostic = function(subsystem, who, message)
+        if subsystem == "safety-hold" then captured = message end
+    end
+    local holder = actor("sc-nearest-report", 40, -44, {})
+    registry[holder.id] = holder
+    SurvivorCompanion.Decision._noteSafetyHold(holder, player, {
+        threatCount = 3, immediateCount = 2,
+        threats = {
+            { distance = 23.9 }, { distanceSq = 0.64 }, { distance = 11.2 },
+        },
+    }, "combat", "no_credible_target", {}, 1000, "held", "follow")
+    utility.diagnostic = realDiagnostic
+    check(captured ~= nil and string.find(captured, "nearest=0.8", 1, true) ~= nil,
+        "the closest threat is reported, not the first one the sweep found: "
+            .. tostring(captured))
+    SurvivorCompanion.Commands.reset(holder)
+    registry[holder.id] = nil
+end)()
+
 check(SurvivorCompanion.Decision.resetAll(), "central gameplay runtime reset")
 check(SurvivorCompanion.Decision.peek(fellow) == nil and SurvivorCompanion.Combat.peek(fellow) == nil,
     "runtime reset clears transient Java-object state")

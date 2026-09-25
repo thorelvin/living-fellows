@@ -660,4 +660,41 @@ do
     actor.x, actor.y = savedX, savedY
 end
 
+-- Playtest: companions moved a tile at a time in forest. Each short follow
+-- step fell through to a full search, because the straight-line shortcut
+-- compared the whole edge cost against bare floor and a woodland edge is never
+-- free. Undergrowth is subtracted now; a fence still sends it to the planner.
+do
+    local bushy = square(52, 4)
+    function bushy:hasBush() return true end
+    local from = square(51, 4)
+    local passable, cost, _, _, _, hasBush, foliage =
+        N._passableEdgeForTests(from, bushy, 1, { now = 1000 })
+    check(passable == true and hasBush == true and (tonumber(foliage) or 0) > 0,
+        "a bushy edge is passable and reports what the undergrowth costs: "
+            .. tostring(cost) .. "/" .. tostring(foliage))
+    check((tonumber(cost) or 0) - (tonumber(foliage) or 0) <= 1.001,
+        "with the undergrowth taken off, a bushy edge costs bare floor: "
+            .. tostring((tonumber(cost) or 0) - (tonumber(foliage) or 0)))
+
+    local plain = square(54, 4)
+    local plainFrom = square(53, 4)
+    local _, plainCost, _, _, _, _, plainFoliage =
+        N._passableEdgeForTests(plainFrom, plain, 1, { now = 1000 })
+    check((tonumber(plainFoliage) or 0) == 0 and (tonumber(plainCost) or 0) <= 1.001,
+        "open ground carries no undergrowth share: " .. tostring(plainFoliage))
+
+    -- The shortcut itself: a line through undergrowth resolves without the
+    -- planner, which is what stops the tile-at-a-time stepping in woods.
+    local leafyMiddle = square(57, 4)
+    function leafyMiddle:hasBush() return true end
+    local throughBushes = N._fastOpenRouteForTests(square(56, 4), square(58, 4),
+        { now = 1000 })
+    check(type(throughBushes) == "table" and #throughBushes == 3,
+        "a straight line through undergrowth is taken without planning: "
+            .. tostring(throughBushes and #throughBushes
+                or select(2, N._fastOpenRouteForTests(square(56, 4), square(58, 4),
+                    { now = 1000 }))))
+end
+
 SC_TEST_REPORT = "NAVIGATION_STABILITY_REGRESSION_PASS checks=" .. tostring(checks)

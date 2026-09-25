@@ -854,6 +854,7 @@ local function squareHasBush(square)
 end
 
 Navigation._treeClearanceCostForTests = treeClearanceCost
+Navigation._passableEdgeForTests = function(...) return passableEdge(...) end
 Navigation._squareHasBushForTests = squareHasBush
 Navigation._squareIsHedgeForTests = squareIsHedge
 
@@ -1065,10 +1066,13 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
     local memoryPenalty, familiarity = routeMemoryAdjustment(
         options.routeMemory, fromSquare, toSquare, options.now)
     local vegetationCost, hasBush = squareVegetationCost(toSquare)
-    return true, math.max(0.25, baseCost
-        + vegetationCost * math.max(0, scale)
-        + treeClearanceCost(toSquare) + vehicleClearanceCost(toSquare) + crowdCost
-        + memoryPenalty), nil, nil, familiarity, hasBush
+    -- The undergrowth share is reported separately so a caller can ask what an
+    -- edge would cost on bare ground. Pushing through a bush is not a reason
+    -- to plan a detour; a fence or a crowd is.
+    local foliage = vegetationCost * math.max(0, scale) + treeClearanceCost(toSquare)
+    return true, math.max(0.25, baseCost + foliage
+        + vehicleClearanceCost(toSquare) + crowdCost
+        + memoryPenalty), nil, nil, familiarity, hasBush, foliage
 end
 
 local function heuristic(square, goal)
@@ -1356,10 +1360,18 @@ local function fastOpenRouteWithinBatch(startSquare, goalSquare, options)
             if not observed or admitted ~= true then return nil, "outside_admitted_area" end
         end
         options.allowOccupiedGoal = step == steps and options.allowOccupiedFinal ~= false
-        local passable, cost = passableEdge(
+        local passable, cost, _, _, _, _, foliage = passableEdge(
             current, nextSquare, options.vegetationScale, options)
         local openCost = deltaX == 1 and deltaY == 1 and math.sqrt(2) or 1
-        if passable ~= true or tonumber(cost) == nil or cost > openCost + 0.001 then
+        -- Comparing the whole cost against bare floor meant this shortcut could
+        -- never fire outdoors in trees: every edge there carries a bush penalty
+        -- or a tree-clearance surcharge. Each follow step of a tile or two then
+        -- fell through to a full search that exhausted its budget, and the
+        -- companion moved one tile at a time. Undergrowth is subtracted rather
+        -- than allowed for, so a fence, a crowd or a remembered failure still
+        -- sends the request to the planner exactly as before.
+        local bare = tonumber(cost) and tonumber(cost) - (tonumber(foliage) or 0) or nil
+        if passable ~= true or bare == nil or bare > openCost + 0.001 then
             return nil, "fast_route_requires_planner"
         end
         path[#path + 1] = nextSquare
