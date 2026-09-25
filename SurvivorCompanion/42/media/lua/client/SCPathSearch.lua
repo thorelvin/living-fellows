@@ -146,6 +146,12 @@ function PathSearch.new(startSquare, goalSquare, options, adapter)
         penalties = penalties,
         adapter = adapter,
         nodes = nodes,
+        -- The closest node to the goal reached so far, so a search that runs
+        -- out of room still has somewhere to offer instead of nothing at all.
+        startH = startH,
+        bestKey = startKey,
+        bestH = startH,
+        bestG = 0,
         open = { { key = startKey, f = startH, h = startH,
             familiarity = 0, seq = 0 } },
         seqCounter = 0,
@@ -270,6 +276,12 @@ function PathSearch.resume(job, expansionQuota, slice)
                                 parent = bestKey,
                                 seq = seq,
                             }
+                            -- Ties break on cost so the same ground always
+                            -- yields the same partial route.
+                            if h < job.bestH
+                                or (h == job.bestH and tentative < job.bestG) then
+                                job.bestKey, job.bestH, job.bestG = otherKey, h, tentative
+                            end
                             heapPush(job.open, { key = otherKey, f = fScore, h = h,
                                 familiarity = tentativeFamiliarity, seq = seq })
                         end
@@ -291,6 +303,23 @@ function PathSearch.resume(job, expansionQuota, slice)
     end
     job.lastYieldReason = "quota"
     return "pending", nil, "searching", job.expanded, used
+end
+
+-- The route to the closest point the search actually reached. A search that
+-- exhausts its node budget, or proves the goal enclosed, otherwise returns
+-- nothing and the companion stands still while the identical search is run
+-- again seconds later. Walking to the nearest reachable point is real progress
+-- and leaves the next attempt a shorter problem. Only offered when it closes
+-- `minimumGain` tiles of the gap, so a route going nowhere is still a failure.
+function PathSearch.partialPath(job, minimumGain)
+    if type(job) ~= "table" or job.bestKey == nil or job.bestKey == job.startKey then
+        return nil
+    end
+    local gain = (tonumber(job.startH) or 0) - (tonumber(job.bestH) or 0)
+    if gain < math.max(0, tonumber(minimumGain) or 0) then return nil end
+    local path = reconstruct(job.nodes, job.bestKey)
+    if type(path) ~= "table" or #path < 2 then return nil end
+    return path, gain
 end
 
 function PathSearch.run(startSquare, goalSquare, options, adapter)

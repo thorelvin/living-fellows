@@ -2128,6 +2128,21 @@ local function finalizeRouteSearch(job, reason)
     return job
 end
 
+-- A search that found no route still knows the closest ground it reached.
+-- Handing that back turns a dead stop into progress: the companion walks as far
+-- toward the goal as it can prove, and the next attempt starts from there. A
+-- goal that is genuinely walled off ends with the companion standing at the
+-- nearest point to it, which is both sensible to watch and self-terminating --
+-- the replan from there gains nothing and fails for real.
+function Navigation._partialRouteFor(job)
+    if U().config("navigationPartialRoutes") ~= true then return nil end
+    if type(job) ~= "table" or type(job.search) ~= "table" then return nil end
+    if type(P().partialPath) ~= "function" then return nil end
+    local path = P().partialPath(job.search,
+        tonumber(U().config("navigationPartialRouteMinimumGain")) or 2)
+    return path
+end
+
 local function newRouteSearchJob(startSquare, goalSquare, snapshot, pathOptions, alternatives)
     pathOptions = type(pathOptions) == "table" and pathOptions or {}
     return {
@@ -2250,12 +2265,18 @@ local function resumeRouteSearchSlice(job, expansionQuota)
                 if reason == "budget" and Navigation._startBudgetRetrySearch(job) then
                     -- The retry owns job.search now; let the loop resume it.
                 else
-                    job.failure = {
-                        failureClass = job.search.failureClass or "blocked_static",
-                        nativeFallbackAllowed = job.search.nativeFallbackAllowed == true,
-                        rejections = job.search.rejections or {},
-                    }
-                    finalizeRouteSearch(job, reason or "unreachable")
+                    local partial = Navigation._partialRouteFor(job)
+                    if partial ~= nil then
+                        job.path = partial
+                        finalizeRouteSearch(job, "partial")
+                    else
+                        job.failure = {
+                            failureClass = job.search.failureClass or "blocked_static",
+                            nativeFallbackAllowed = job.search.nativeFallbackAllowed == true,
+                            rejections = job.search.rejections or {},
+                        }
+                        finalizeRouteSearch(job, reason or "unreachable")
+                    end
                 end
             elseif not job.alternatives then
                 job.candidates[1] = evaluation
@@ -5534,6 +5555,9 @@ function Navigation.request(actor, target, movementMode, intent)
             nativeFallbackAllowed = reason == "budget",
             rejections = {},
         })
+        -- The goal stays the real one: arriving at the end of a partial route
+        -- is not arriving, so the next request plans the rest of the way.
+        state.pathIsPartial = (path ~= nil and reason == "partial") or nil
         state.pathGoalSquare = path and planningGoal or nil
         state.pathStealthAvoidance = requestIntent.stealthAvoidance
         state.stealthRouteExposure = path and routeReport

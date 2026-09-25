@@ -573,6 +573,61 @@ do
         "a caller that pinned its own budget is never overridden by the retry")
 end
 
+-- Playtest 25 September: a companion three tiles from its goal exhausted its
+-- whole node budget and reported no route, then did it again, standing still
+-- between attempts. A search that cannot reach the goal still knows the closest
+-- ground it did reach; walking there is progress and leaves the next attempt a
+-- shorter problem. Squeeze both the first budget and the retry so the search
+-- genuinely runs out twice, which is the only way to reach this branch.
+do
+    local savedBudget = SC.Config._values.navigationNodeBudget
+    local savedCeiling = SC.Config._values.navigationNodeBudgetMaximum
+    local savedRetry = SC.Config._values.navigationBudgetRetryNodeBudget
+    local savedGain = SC.Config._values.navigationPartialRouteMinimumGain
+    SC.Config._values.navigationNodeBudget = 6
+    SC.Config._values.navigationNodeBudgetMaximum = 6
+    SC.Config._values.navigationBudgetRetryNodeBudget = 6
+
+    local function runToEnd(goalX)
+        local job = N.beginPathSearch(square(0, 0), square(goalX, 0), nil, {})
+        local status, path, reason, slices = "pending", nil, nil, 0
+        while status == "pending" and slices < 300 do
+            status, path, reason = N.resumePathSearch(job, 1000)
+            slices = slices + 1
+        end
+        return job, status, path, reason
+    end
+
+    local job, status, path, reason = runToEnd(60)
+    local endpoint = type(path) == "table" and path[#path] or nil
+    check(job.budgetRetried == true and status == "complete" and reason == "partial"
+            and type(path) == "table" and #path >= 3,
+        "a search that runs out twice hands back the closest ground it reached: "
+            .. tostring(status) .. "/" .. tostring(reason)
+            .. "/" .. tostring(type(path) == "table" and #path or path))
+    check(endpoint ~= nil and endpoint:getX() > 0 and endpoint:getX() < 60,
+        "a partial route ends nearer the goal than the start and short of the goal: "
+            .. tostring(endpoint ~= nil and endpoint:getX()))
+
+    -- The gain floor is what stops a route going nowhere being walked.
+    SC.Config._values.navigationPartialRouteMinimumGain = 500
+    local _, starvedStatus, starvedPath, starvedReason = runToEnd(60)
+    SC.Config._values.navigationPartialRouteMinimumGain = savedGain
+    check(starvedStatus == "failed" and starvedPath == nil and starvedReason == "budget",
+        "a partial route that closes too little of the gap is still a failure: "
+            .. tostring(starvedStatus) .. "/" .. tostring(starvedReason))
+
+    SC.Config._values.navigationNodeBudget = savedBudget
+    SC.Config._values.navigationNodeBudgetMaximum = savedCeiling
+    SC.Config._values.navigationBudgetRetryNodeBudget = savedRetry
+
+    -- A search that never left its start square has nothing to offer.
+    check(P.partialPath({ bestKey = "0:0:0", startKey = "0:0:0" }, 0) == nil,
+        "a search still on its start square offers no partial route")
+    check(P.partialPath(nil, 0) == nil and P.partialPath({}, 0) == nil,
+        "the partial route helper tolerates an absent search")
+end
+
 -- Playtest: a companion smashed a window and climbed straight through it,
 -- glass and all, beside a player who was clearing theirs by hand. IsoWindow
 -- keeps its smashed state in the same `destroyed` flag the generic "is this

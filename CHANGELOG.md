@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.25.9 - As far as it can get
+
+- Companions no longer stand still when they cannot work out a whole route. Deciding a path is given a bounded amount of thinking, and a search that used it all reported no route at all -- so the companion waited, the identical search ran again seconds later, and nothing moved. The 25 September playtest caught one doing that with its destination barely three tiles away, because the ground around that destination is enclosed and the search spent everything proving it. A search that cannot reach the goal now hands back the closest ground it actually reached, so the companion walks as far as it can prove and the next attempt starts from there. A destination that is genuinely walled off ends with them standing at the nearest point to it rather than frozen where they started. A route that would gain nothing is still reported as a failure, and `navigationPartialRoutes` turns the whole thing off.
+
 ## 0.25.8 - The door stays shut
 
 - Companions no longer freeze in front of a locked door, working out the same impossible route over and over. A door a companion cannot open is remembered as shut, but only for a few seconds, while the room behind it is remembered for ten minutes -- and replanning comes round slower than a few seconds, so every attempt rediscovered the same locked door and spent its entire allowance of thinking proving there was no way through. In the last playtest one companion did that against one door for minutes on end, going nowhere. A door that will not open is now remembered for as long as the room it closes, so the next route is planned around it from the start.

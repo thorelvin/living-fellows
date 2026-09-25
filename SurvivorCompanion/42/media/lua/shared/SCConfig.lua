@@ -292,6 +292,11 @@ local valueData = {
     navigationNodeBudgetPerTileSquared = 6,
     navigationNodeBudgetMaximum = 1200,
     navigationBudgetRetryNodeBudget = 2400,
+    -- A search that finds no route hands back the closest ground it reached,
+    -- provided that closes at least this many tiles of the gap. Below it the
+    -- route is not worth walking and the failure is reported as before.
+    navigationPartialRoutes = true,
+    navigationPartialRouteMinimumGain = 2,
     -- Heading toward the goal while the route is still being planned, rather
     -- than standing still until it is finished. The advance never leaves
     -- ground it has proved open and stops after this many attempts, so a
