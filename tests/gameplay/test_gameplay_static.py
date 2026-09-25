@@ -803,6 +803,13 @@ def main() -> int:
     require('Combat.reportEngagement(actor, "attacking"' in sources["SCCombat.lua"],
             "combat attacks without leaving any record that it did")
     relationship_source = sources["SCRelationship.lua"]
+    # Vanilla gives a dressing the First Aid of whoever applied it, so the
+    # applying actor has to reach the calculation. The harness can call the
+    # calculation but not the commit that feeds it, so that is pinned here.
+    require("bandageLifeFor(helper or patient, bandage)" in sources["SCMedical.lua"]
+            and "state.emergencyTransaction, helper)" in sources["SCMedical.lua"]
+            and "context.inventory, nil, player)" in sources["SCMedical.lua"],
+            "a bandage is dated without the First Aid of whoever applied it")
     combat_source = sources["SCCombat.lua"]
     banter_source = sources["SCBanter.lua"]
     objectives_source = sources["SCObjectives.lua"]

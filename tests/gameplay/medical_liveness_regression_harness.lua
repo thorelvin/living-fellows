@@ -306,4 +306,38 @@ do
     U.stop, U.move = oldStop, oldMove
     for name, value in pairs(saved) do SC[name] = value end
 end
+-- Playtest: a companion spent its days re-dressing the same wounds. Vanilla
+-- ISApplyBandage gives a dressing the item's own power PLUS a term for the
+-- First Aid of whoever applied it; only the item's power was used here, so a
+-- companion's bandage went dirty far sooner than the player's doing the same
+-- thing with the same item, and a trained medic got nothing for the training.
+do
+    local savedPerks = Perks
+    Perks = { Doctor = "Doctor" }
+    local plain = { itemType = "Base.Bandage" }
+    function plain:getBandagePower() return 2.0 end
+    local unskilled = {}
+    function unskilled:getPerkLevel(perk) return perk == Perks.Doctor and 0 or 0 end
+    local trained = {}
+    function trained:getPerkLevel(perk) return perk == Perks.Doctor and 6 or 0 end
+
+    local novice = M._bandageLifeForTests(unskilled, plain)
+    local medic = M._bandageLifeForTests(trained, plain)
+    check(novice > 2.0,
+        "a dressing lasts longer than its own power alone: " .. tostring(novice))
+    check(medic > novice,
+        "First Aid makes a dressing last longer: " .. tostring(medic)
+            .. " vs " .. tostring(novice))
+    check(math.abs(medic - ((6 + 1) * 0.75 + 2.0)) < 0.001,
+        "the skill term matches the midpoint of vanilla's range: " .. tostring(medic))
+
+    local powerless = { itemType = "Base.RippedSheets" }
+    function powerless:getBandagePower() return 0 end
+    check(M._bandageLifeForTests(unskilled, powerless) >= 1,
+        "a dressing with no power of its own still lasts a little")
+    check(M._bandageLifeForTests(nil, plain) >= 2.0,
+        "an unknown applier still gets the dressing's own power")
+    Perks = savedPerks
+end
+
 SC_TEST_REPORT = "MEDICAL_LIVENESS_REGRESSION_PASS checks=" .. checks

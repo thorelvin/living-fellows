@@ -575,16 +575,39 @@ local function restoreBandage(body, wound, previous)
     return restored
 end
 
+-- How long a dressing lasts before it reads as dirty. Vanilla ISApplyBandage
+-- is the dressing's own power PLUS a term for the First Aid of whoever applied
+-- it: ZombRandFloat((doctor + 1) * 0.5, (doctor + 1) * 1.0). Only the item's
+-- power was used here, so a companion's bandages went dirty two to four times
+-- faster than the player's doing exactly the same thing with the same item,
+-- and a trained medic got nothing at all for the training -- which is why they
+-- spent their days re-dressing the same wounds. The midpoint of vanilla's
+-- range is used rather than its roll: a deterministic result is worth more
+-- here than reproducing the jitter.
+local function bandageLifeFor(helper, bandage)
+    local power = numberMethod(bandage, { "getBandagePower" }, 0)
+    local doctor = 0
+    local perks = type(_G) == "table" and rawget(_G, "Perks") or nil
+    if perks ~= nil and helper ~= nil then
+        local ok, value = pcall(function() return perks.Doctor end)
+        if ok and value ~= nil then
+            local level, called = U().call(helper, "getPerkLevel", value)
+            if called then doctor = math.max(0, tonumber(level) or 0) end
+        end
+    end
+    return math.max(1, (doctor + 1) * 0.75 + power)
+end
+Medical._bandageLifeForTests = bandageLifeFor
+
 local function commitBandage(patient, assessment, wound, bandage, inventory,
-        emergencyTransaction)
+        emergencyTransaction, helper)
     local utility = U()
     if not assessment.bodyDamage or not wound or not bandage then return false, "invalid_treatment" end
     if not inventoryContains(inventory, bandage) then
         local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction)
         return false, rolledBack and "bandage_missing" or "treatment_rollback_failed"
     end
-    local bandageLife = numberMethod(bandage, { "getBandagePower", "getCondition" }, 10)
-    bandageLife = math.max(1, bandageLife)
+    local bandageLife = bandageLifeFor(helper or patient, bandage)
     -- As in vanilla, a dirty dressing goes on already soiled.
     if dirtyDressing(bandage) then bandageLife = 0 end
     local alcoholic = booleanMethod(bandage, { "isAlcoholic" })
@@ -925,7 +948,7 @@ local function finishTreatment(helper, state)
         commitReason or "commit_rejected") end
     local applied, reason = supervisedCommit(state, function()
         local accepted, result = commitBandage(state.patient, assessment, wound,
-            state.bandage, state.inventory, state.emergencyTransaction)
+            state.bandage, state.inventory, state.emergencyTransaction, helper)
         return accepted, result, {
             stage = "apply_bandage", woundIndex = wound.index,
             itemType = U().itemType(state.bandage),
@@ -1349,7 +1372,7 @@ function Medical.applyPlayerBandage(companion, player)
     local ok, reason, context = Medical.playerBandagePreflight(companion, player)
     if not ok then return false, reason end
     local applied, applyReason = commitBandage(companion, context.assessment, context.wound,
-        context.bandage, context.inventory, nil)
+        context.bandage, context.inventory, nil, player)
     if not applied then return false, applyReason or "bandage_failed" end
     if SC.Diary and type(SC.Diary.noteBandage) == "function" then
         pcall(SC.Diary.noteBandage, player, companion, player, context.wound.name, {
