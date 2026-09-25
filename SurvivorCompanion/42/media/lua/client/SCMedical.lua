@@ -599,6 +599,25 @@ local function bandageLifeFor(helper, bandage)
 end
 Medical._bandageLifeForTests = bandageLifeFor
 
+-- Vanilla's ISApplyBandage works on the BodyPart, and that setter stops the
+-- bleed. This path goes through BodyDamage:SetBandaged, which only flips the
+-- dressing flags, so the wound went on bleeding under a fresh bandage. Nothing
+-- then ever finished: the part could not close while it bled, so it soiled its
+-- dressing and was re-dressed, over and over, and Logistics read the same
+-- untreated injury and scavenged medicine at urgent priority without end -- a
+-- companion in the 25 September playtest re-bandaged all session and kept
+-- refilling to five dressings. Produce vanilla's outcome explicitly.
+local function stopBleeding(wound)
+    local utility = U()
+    local part = type(wound) == "table" and wound.part or nil
+    if part == nil then return false end
+    utility.call(part, "setBleeding", false)
+    utility.call(part, "setBleedingTime", 0)
+    return booleanMethod(part, { "bleeding", "isBleeding" }) ~= true
+        and numberMethod(part, { "getBleedingTime" }, 0) <= 0
+end
+Medical._stopBleedingForTests = stopBleeding
+
 local function commitBandage(patient, assessment, wound, bandage, inventory,
         emergencyTransaction, helper)
     local utility = U()
@@ -636,6 +655,16 @@ local function commitBandage(patient, assessment, wound, bandage, inventory,
         local nativeRestored = restoreBandage(assessment.bodyDamage, wound, previous)
         local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction) and nativeRestored
         return false, rolledBack and "native_bandage_unverified" or "treatment_rollback_failed"
+    end
+    -- A dressing that is on the wound has stopped the bleeding, dirty or not.
+    -- The dressing itself is real either way, so a build whose body part will
+    -- not take the setter still gets treated -- and says so in the log rather
+    -- than silently returning to the loop this was written to end.
+    local wasBleeding = wound.bleeding == true
+    if not stopBleeding(wound) and wasBleeding then
+        utility.diagnostic("medical", helper or patient,
+            "action=bandage part=" .. tostring(wound.name)
+            .. " bleeding=unstopped type=" .. tostring(fullType))
     end
     if not utility.consumeItem(inventory, bandage) then
         local nativeRestored = restoreBandage(assessment.bodyDamage, wound, previous)

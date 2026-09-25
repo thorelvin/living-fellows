@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.25.10 - The bleeding stops
+
+- Bandaging a companion now stops the bleeding, which fixes a companion who bandages all day and never runs out of dressings. Applying a dressing went through a setter that only marks the wound as covered; the bleeding underneath carried on. A wound that is still bleeding cannot close, so it soiled its dressing, was dressed again, soiled that one, and so on for the rest of the session -- and because the injury never resolved, the companion also read itself as wounded and untreated for ever, and scavenged for medicine at the highest priority it has. That is why their pack refilled to five bandages as fast as it emptied, with no clothes torn: they were looting dressings, endlessly, for a wound that could never heal. A dressing now does what yours does.
+
 ## 0.25.9 - As far as it can get
 
 - Companions no longer stand still when they cannot work out a whole route. Deciding a path is given a bounded amount of thinking, and a search that used it all reported no route at all -- so the companion waited, the identical search ran again seconds later, and nothing moved. The 25 September playtest caught one doing that with its destination barely three tiles away, because the ground around that destination is enclosed and the search spent everything proving it. A search that cannot reach the goal now hands back the closest ground it actually reached, so the companion walks as far as it can prove and the next attempt starts from there. A destination that is genuinely walled off ends with them standing at the nearest point to it rather than frozen where they started. A route that would gain nothing is still reported as a failure, and `navigationPartialRoutes` turns the whole thing off.

@@ -5751,6 +5751,11 @@ check(ready and readyReason == "ready" and context.wound.part == patientWound
 local applied, applyReason = SurvivorCompanion.Medical.applyPlayerBandage(woundedCompanion, caretaker)
 check(applied and applyReason == "bandaged" and patientWound.isBandaged and playerBandage.used,
     "the player's bandage is applied to the companion's wound and consumed from the player's inventory")
+-- BodyDamage:SetBandaged only flips the dressing flags. Without stopping the
+-- bleed the wound could never close, so it soiled its dressing and was dressed
+-- again all session, and Logistics kept reading an untreated injury.
+check(patientWound.isBleeding == false,
+    "a dressing stops the bleeding, as it does when the player bandages themselves")
 local healedOk, healedReason = SurvivorCompanion.Medical.playerBandagePreflight(woundedCompanion, caretaker)
 check(not healedOk and healedReason == "no_treatable_wound",
     "a companion with no treatable wound cannot be hand-bandaged")
@@ -5897,6 +5902,20 @@ local goodPlayer = actor("sc-verify-good-player", 12, 13, { inventory = inventor
 local goodOk, goodReason = SurvivorCompanion.Medical.applyPlayerBandage(goodCompanion, goodPlayer)
 check(goodOk and goodReason == "bandaged" and goodWound.isBandaged and goodBandage.used,
     "an effectful native setter applies the bandage and consumes the dressing once")
+check(goodWound.isBleeding == false,
+    "a bandaged wound is no longer bleeding")
+-- The symptom the player actually saw: an injury that never resolves keeps
+-- medicine at urgent priority for ever, so the companion scavenges dressings
+-- without end and its pack refills as fast as it empties.
+local settled = SurvivorCompanion.Medical.assess(goodCompanion)
+check((tonumber(settled.bleedingCount) or 0) == 0 and settled.needsBandage ~= true,
+    "a treated companion no longer assesses as needing a bandage: "
+        .. tostring(settled.bleedingCount) .. "/" .. tostring(settled.needsBandage))
+local urgent = SurvivorCompanion.Logistics.TIER.urgent
+check(type(urgent) == "number", "the logistics harness can name the urgent tier")
+check(SurvivorCompanion.Logistics.needTier(goodCompanion, "medicine", nil, false) ~= urgent,
+    "a treated companion stops scavenging for dressings at urgent priority: "
+        .. tostring(SurvivorCompanion.Logistics.needTier(goodCompanion, "medicine", nil, false)))
 end
 
 do

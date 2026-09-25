@@ -540,6 +540,8 @@ local TIER = {
     marginal = 120,    -- an upgrade worth taking if it is on the way
     ignore = 0,        -- nothing this survivor needs
 }
+-- Published so a harness can name a tier rather than pin its number.
+Logistics.TIER = TIER
 
 local function statValue(actor, name)
     local value = U().characterStatValue(actor, name, 0)
