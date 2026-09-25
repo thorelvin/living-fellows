@@ -929,6 +929,30 @@ public final class SCIsoCompanionControlTest {
                     "a PlaySwingSound event never reached the companion's own sound path");
         }
 
+        // One step later: the flesh noise belongs to the victim's damage code
+        // and plays for anyone, so a companion's shovel landed with a squish
+        // and no shovel. A swing that hits nothing must stay silent.
+        {
+            SCNativeCompanion hitter = (SCNativeCompanion) actor;
+            long before = hitter.getCompanionHitSoundEvents();
+            hitter.driveCompanionHitSoundForTests(new Object(), 0);
+            require(hitter.getCompanionHitSoundEvents() == before,
+                    "a swing that connected with nothing still reached the hit-sound path");
+            hitter.driveCompanionHitSoundForTests(null, 3);
+            require(hitter.getCompanionHitSoundEvents() == before,
+                    "a landed swing with no weapon still reached the hit-sound path");
+            hitter.driveCompanionHitSoundForTests(new Object(), 2);
+            require(hitter.getCompanionHitSoundEvents() == before + 1,
+                    "a landed melee swing never reached the companion's own hit-sound path");
+            // The value above is not a HandWeapon, so resolving its sound
+            // throws. Reaching the require below at all proves the throw did
+            // not escape into the swing, and nothing was played for it.
+            require(hitter.getCompanionHitSounds() == 0,
+                    "a value with no impact sound still played one");
+            require(!hitter.getCompanionHitSoundFailure().isEmpty(),
+                    "a reflective failure on the hit-sound path was not contained");
+        }
+
         // Foliage parity. A direct step carries a fixed distance from Lua, so
         // without this factor a companion crossed a hedge at full walking speed
         // while the player has to push through it.

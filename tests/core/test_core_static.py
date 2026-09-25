@@ -109,6 +109,19 @@ native_combat = (CLIENT / "SCNativeCombatActions.lua").read_text(encoding="utf-8
 native_work = (CLIENT / "SCNativeWorkActions.lua").read_text(encoding="utf-8")
 native_movement = (CLIENT / "SCNativeMovementActions.lua").read_text(encoding="utf-8")
 navigation = (CLIENT / "SCNavigation.lua").read_text(encoding="utf-8")
+# The hit sound has to be driven from the landed swing itself. A harness can
+# reach the sound path directly, but not the swing animation that should call
+# it, so the wiring is pinned here the same way the swing-sound call site is.
+native_companion = (PROJECT / "bridge" / "src" / "main" / "java" / "survivorcompanion"
+                    / "bridge" / "SCNativeCompanion.java").read_text(encoding="utf-8")
+_landed_swing = native_companion.index("int hitCount = getLastHitCount();")
+require("driveCompanionHitSound(weapon, hitCount);"
+        in native_companion[_landed_swing:_landed_swing + 120],
+        "a landed companion swing does not drive its own weapon impact sound")
+require('WEAPON_SOUND_BY_ID.invoke(weapon, "HitSound")' in native_companion
+        and "WEAPON_IS_RANGED" in native_companion,
+        "the companion impact sound is not resolved from the weapon's own HitSound")
+
 native_exposure = (PROJECT / "bridge" / "src" / "main" / "java"
                    / "survivorcompanion" / "bridge" / "SCExposure.java").read_text(
                        encoding="utf-8")

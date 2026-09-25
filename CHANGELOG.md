@@ -4,6 +4,7 @@
 
 ## 0.25.6 - Through the woods
 
+- Companions' weapons make a noise when they connect. Build 42 plays a weapon's impact sound only for the local player, so a companion's shovel landed with the wet noise of the zombie and nothing of the shovel -- the flesh belongs to the victim, and that part was never gated. The same gap silenced their swings and gunshots and was closed for those; this is the last of it. Firearms are left alone, since a bullet's noise is its impact.
 - Companions no longer report a routing failure as an obstacle they cannot identify. Three quarters of the navigation records in the last playtest said only "unknown", because a failure to find a route at all was filed the same way as walking into a fence -- and it then blacklisted the perfectly good tile it had been trying to step onto. A route that could not be built is now recorded as exactly that, and leaves no mark on the tile.
 - Undergrowth counts as vegetation. Only trunks were ever considered, so a companion pushing through bushes and hedges reported an unidentified obstacle; seven records out of a hundred and seventy-one named vegetation across a session spent entirely in woodland.
 - Trees added by other mods are recognised as trees. Detection stopped at the map's own tree flag, and a tile mod that supplies its own trees does not always raise it, so a modded forest could read as open ground to everything that avoids trees.

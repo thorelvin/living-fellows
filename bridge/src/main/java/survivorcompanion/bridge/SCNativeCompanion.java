@@ -53,6 +53,8 @@ public final class SCNativeCompanion extends IsoPlayer {
             resolveNoArg(IsoGameCharacter.class, "updateAimingDelay");
     private static final Method WEAPON_SOUND_BY_ID = resolveWeaponSoundById();
     private static final Method WEAPON_SWING_SOUND = resolveWeaponSwingSound();
+    private static final Method WEAPON_IMPACT_SOUND = resolveWeaponImpactSound();
+    private static final Method WEAPON_IS_RANGED = resolveWeaponIsRanged();
     private static final Method CHARACTER_PLAY_SOUND = resolveCharacterPlaySound();
     private static final Method CHAT_ELEMENT_UPDATE = resolveNoArg(ChatElement.class, "update");
     private static volatile String RUNTIME_CONTRACT_FAILURE_FOR_TESTS = "";
@@ -140,6 +142,9 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile String bridgeAimingDelayFailure = "";
     private volatile long bridgeSwingSoundEvents;
     private volatile String bridgeSwingSoundFailure = "";
+    private volatile long bridgeHitSounds;
+    private volatile long bridgeHitSoundEvents;
+    private volatile String bridgeHitSoundFailure = "";
     private volatile int bridgeAttackAttemptSerial;
     private volatile int bridgeAttackReceiptSerial;
     private volatile String bridgeAttackReceiptOutcome = "none";
@@ -853,6 +858,51 @@ public final class SCNativeCompanion extends IsoPlayer {
     }
 
     /**
+     * Play the weapon's own impact sound when a companion's swing connects.
+     *
+     * <p>Same shape of gap as the swing sound above, one step later. The flesh
+     * noise belongs to the victim's damage code and plays for anyone, so a
+     * companion hitting a zombie with a shovel produced the squish and not the
+     * shovel -- {@code HitSound = ShovelHit} in the item script -- exactly as
+     * the gunshot went missing while its bullet impact did not.
+     *
+     * <p>Scripts name this sound {@code HitSound}, which the engine exposes as
+     * {@code getSoundByID("HitSound")} and as {@code getImpactSound()}. A
+     * weapon that declares neither stays silent, because that is what it
+     * declares. Firearms are left alone: their report is the swing sound above
+     * and their impact already belongs to the bullet.
+     */
+    private void driveCompanionHitSound(Object weapon, int hitCount) {
+        // Counted on every landed swing, before any early return, so "no hit
+        // reached this path" and "a hit reached it with nothing to play" stay
+        // distinguishable in diagnostics.
+        if (hitCount <= 0 || weapon == null) return;
+        bridgeHitSoundEvents++;
+        if (bridgeDisabled || isDead() || CHARACTER_PLAY_SOUND == null) return;
+        try {
+            if (WEAPON_IS_RANGED != null
+                    && Boolean.TRUE.equals(WEAPON_IS_RANGED.invoke(weapon))) {
+                return;
+            }
+            String sound = null;
+            if (WEAPON_SOUND_BY_ID != null) {
+                Object named = WEAPON_SOUND_BY_ID.invoke(weapon, "HitSound");
+                if (named instanceof String value && !value.isBlank()) sound = value;
+            }
+            if (sound == null && WEAPON_IMPACT_SOUND != null) {
+                Object impact = WEAPON_IMPACT_SOUND.invoke(weapon);
+                if (impact instanceof String value && !value.isBlank()) sound = value;
+            }
+            if (sound == null) return;
+            CHARACTER_PLAY_SOUND.invoke(this, sound);
+            bridgeHitSounds++;
+        } catch (ReflectiveOperationException | RuntimeException | LinkageError failure) {
+            // A missing sound is cosmetic; never let it break the swing.
+            bridgeHitSoundFailure = failure.getClass().getSimpleName();
+        }
+    }
+
+    /**
      * Play the weapon's own swing or gunshot sound.
      *
      * <p>{@code SwipeStatePlayer.OnAnimEvent_PlaySwingSound} returns immediately
@@ -918,6 +968,26 @@ public final class SCNativeCompanion extends IsoPlayer {
     /** Last reason a swing sound could not be played, or an empty string. */
     public String getCompanionSwingSoundFailure() {
         return bridgeSwingSoundFailure;
+    }
+
+    /** Test seam: the hit-sound path without a swing animation to drive it. */
+    void driveCompanionHitSoundForTests(Object weapon, int hitCount) {
+        driveCompanionHitSound(weapon, hitCount);
+    }
+
+    /** Landed melee swings that reached this companion's hit-sound path. */
+    public long getCompanionHitSoundEvents() {
+        return bridgeHitSoundEvents;
+    }
+
+    /** Weapon impact sounds played for this companion, for diagnostics. */
+    public long getCompanionHitSounds() {
+        return bridgeHitSounds;
+    }
+
+    /** Last reason a hit sound could not be played, or an empty string. */
+    public String getCompanionHitSoundFailure() {
+        return bridgeHitSoundFailure;
     }
 
     private boolean driveCompanionAttackCollision(String attackTypeName) {
@@ -990,6 +1060,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             ATTACK_COLLISION_CHECK.invoke(combatManager, this, weapon, swipeState, attackType);
             inFlight = false;
             int hitCount = getLastHitCount();
+            driveCompanionHitSound(weapon, hitCount);
             boolean targetHit = hitCount > 0 && collisionTarget != null
                     && collisionTargetAffected(targetHealthBefore, collisionTarget.getHealth(),
                             targetDeadBefore, collisionTarget.isDead());
@@ -2479,6 +2550,28 @@ public final class SCNativeCompanion extends IsoPlayer {
         try {
             Method method = Class.forName("zombie.inventory.types.HandWeapon")
                     .getMethod("getSwingSound");
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveWeaponImpactSound() {
+        try {
+            Method method = Class.forName("zombie.inventory.types.HandWeapon")
+                    .getMethod("getImpactSound");
+            method.setAccessible(true);
+            return method;
+        } catch (ReflectiveOperationException | RuntimeException failure) {
+            return null;
+        }
+    }
+
+    private static Method resolveWeaponIsRanged() {
+        try {
+            Method method = Class.forName("zombie.inventory.types.HandWeapon")
+                    .getMethod("isRanged");
             method.setAccessible(true);
             return method;
         } catch (ReflectiveOperationException | RuntimeException failure) {

@@ -793,6 +793,14 @@ public final class SCNativeApiSignatureTest {
                 && method(character, "playSound", String.class).getReturnType() == long.class,
                 "weapon swing-sound accessors changed shape");
 
+        // The same gap one step later: the flesh noise belongs to the victim's
+        // damage code, so a companion's shovel landed with a squish and no
+        // shovel. Scripts name that sound HitSound; pin both ways the engine
+        // exposes it, and the ranged test that keeps firearms out of it.
+        require(handWeapon.getMethod("getImpactSound").getReturnType() == String.class
+                && handWeapon.getMethod("isRanged").getReturnType() == boolean.class,
+                "weapon impact-sound accessors changed shape");
+
         // CB-09: the outgoing receipt channel must stay separate from the
         // completed-hit serial, or a consumer can read a failure as a hit.
         // The closed-door path guard rests on two engine facts: the boolean
