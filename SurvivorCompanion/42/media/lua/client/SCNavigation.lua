@@ -5765,7 +5765,8 @@ end
 function Navigation.interactionTargets(actor, objectOrSquare, options)
     local utility = U()
     options = type(options) == "table" and options or {}
-    local centre = utility.squareOf(objectOrSquare) or objectOrSquare
+    local centre = utility.interactionCentre(objectOrSquare)
+    if centre == nil then return {} end
     local x, y, z = utility.position(centre)
     if x == nil then return {} end
     local candidates, seen = {}, {}

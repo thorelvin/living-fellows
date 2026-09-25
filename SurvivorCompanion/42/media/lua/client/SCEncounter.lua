@@ -162,6 +162,20 @@ local function containerOwner(container)
     return container
 end
 
+-- How far a container is, without ever asking a container that is no longer
+-- anywhere. A looted, destroyed or unloaded world object keeps its Lua
+-- reference but loses its square, and Build 42's IsoObject.getX() dereferences
+-- that square without checking it, so the read throws inside its pcall and
+-- still costs a full Java and Lua stack trace in the log. An owner with no
+-- square is out of range, which is the truth: it is gone. An owner that still
+-- has one is measured exactly as before.
+local function ownerDistance(actor, owner)
+    if owner == nil then return math.huge end
+    local utility = U()
+    if utility.squareOf(owner) == nil then return math.huge end
+    return utility.distance(actor, owner)
+end
+
 local function containerFlags(container)
     local utility = U()
     local owner = containerOwner(container)
@@ -224,7 +238,10 @@ local function registeredStorage(container, index)
     local baseLife = SC.BaseLife
     if index.count == 0 or type(baseLife) ~= "table"
         or type(baseLife.resolveContainer) ~= "function" then return nil end
-    local x, y, z = U().position(containerOwner(container))
+    -- Through the square, never the object: a container that has been removed
+    -- from the world still answers getParent() but no longer has a square for
+    -- IsoObject.getX() to read.
+    local x, y, z = U().position(U().squareOf(containerOwner(container)))
     if x == nil then return nil end
     local rows = index[math.floor(x) .. ":" .. math.floor(y) .. ":" .. math.floor(z or 0)]
     for _, storage in ipairs(rows or {}) do
@@ -342,7 +359,7 @@ local function findPlayerSupply(actor, predicate, options, state)
                                         end
                                         if accepted then
                                             local owner = containerOwner(container)
-                                            local candidateDistance = utility.distance(actor, owner)
+                                            local candidateDistance = ownerDistance(actor, owner)
                                             if not bestDistance or candidateDistance < bestDistance then
                                                 best = {
                                                     container = container,
@@ -404,7 +421,7 @@ function Encounter.takePlayerSupply(actor, supplyKey, predicate, options)
         state.supply = supply
     end
 
-    if utility.distance(actor, supply.owner) > 1.45 then
+    if ownerDistance(actor, supply.owner) > 1.45 then
         local square = utility.squareOf(supply.owner)
         if not square or not SC.Navigation or type(SC.Navigation.request) ~= "function" then
             releasePlayerSupply(actor, state)
@@ -896,7 +913,7 @@ local function scoreContainer(actor, container, needs, objectives, commands, aud
             bestItem, bestCategory, bestScore = item, category, score
         end
     end)
-    bestScore = bestScore - utility.distance(actor, owner) * 1.5
+    bestScore = bestScore - ownerDistance(actor, owner) * 1.5
     return bestScore, bestItem, bestCategory, owner
 end
 
@@ -1292,15 +1309,21 @@ local function beginTask(actor, state, container, item, category, owner, utility
     -- Where the container was when the task was created. A shelf does not move,
     -- and this is the fallback the reach gate uses when neither the owner nor
     -- the container resolves to a square at transfer time.
+    -- A container that was looted away, destroyed or unloaded between selection
+    -- and here keeps its Lua reference but loses its square, and Build 42's
+    -- IsoObject.getX() dereferences that square without checking it. Asking a
+    -- removed container where it is throws: harmless to the task, which simply
+    -- has no position either way, but the engine still dumps a full Java and
+    -- Lua stack trace for every attempt. No square, no position.
     local taskSquare = U().squareOf(task.owner) or U().squareOf(task.container)
-    task.containerX, task.containerY, task.containerZ = U().position(taskSquare or task.owner)
+    task.containerX, task.containerY, task.containerZ = U().position(taskSquare)
     if taskSquare ~= nil and task.containerX ~= nil then
         task.containerX = math.floor(task.containerX) + 0.5
         task.containerY = math.floor(task.containerY) + 0.5
     end
     local service = supervisor()
     if service and type(service.begin) == "function" then
-        local x, y, z = U().position(task.owner)
+        local x, y, z = U().position(taskSquare)
         local targetKey = tostring(container) .. "|" .. tostring(task.itemType)
             .. "@" .. tostring(math.floor(tonumber(x) or 0)) .. ":"
             .. tostring(math.floor(tonumber(y) or 0)) .. ":"
@@ -1727,7 +1750,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         local service = supervisor()
         if service and task.supervisorToken and type(service.progress) == "function" then
             service.progress(task.supervisorToken,
-                Encounter._approachProgressSignature(task, utility.distance(actor, task.owner)), {
+                Encounter._approachProgressSignature(task, ownerDistance(actor, task.owner)), {
                     navigation = status,
                 })
         end
@@ -1896,7 +1919,7 @@ function Encounter.formationRejoinRequired(actor, player, suppliedCommands)
     local leash = math.max(3, tonumber(U().config("scavengeFormationLeash")) or 7,
         (tonumber(commands.followDistance) or 3) + 2.5)
     if U().distance(actor, player) > leash then return true, "formation_leash_exceeded" end
-    if state.task and state.task.owner and U().distance(state.task.owner, player) > leash then
+    if state.task and state.task.owner and ownerDistance(player, state.task.owner) > leash then
         return true, "scavenge_target_outside_formation"
     end
     return false
@@ -2255,6 +2278,7 @@ function Encounter.peek(actor)
 end
 
 -- Test seam: per-companion container memory and its backoff.
+Encounter._ownerDistanceForTests = ownerDistance
 Encounter._containerReachForTests = containerReach
 Encounter._facingContainerForTests = facingContainer
 

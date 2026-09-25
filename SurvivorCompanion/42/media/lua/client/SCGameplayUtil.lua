@@ -325,6 +325,25 @@ function U.position(value)
     return nil
 end
 
+-- The square an interaction is measured against. A world object removed from
+-- the map -- a container looted away, a door destroyed, a chunk unloaded --
+-- keeps its Lua reference but loses its square, and Build 42's
+-- IsoObject.getX() dereferences that square without checking it. Standing the
+-- object in for its own square therefore threw inside the pcall that wraps the
+-- read and still cost a full Java and Lua stack trace in the log for every
+-- attempt. Only a value that is itself a square may stand in for one; an
+-- object that has a square accessor and no square is nowhere.
+function U.interactionCentre(objectOrSquare)
+    if objectOrSquare == nil then return nil end
+    local square = U.squareOf(objectOrSquare)
+    if square ~= nil then return square end
+    if U.hasMethod(objectOrSquare, "getSquare")
+        or U.hasMethod(objectOrSquare, "getCurrentSquare") then
+        return nil
+    end
+    return objectOrSquare
+end
+
 function U.squareOf(value)
     if value == nil then return nil end
     if type(value) == "table" and value.square ~= nil then return value.square end
@@ -911,7 +930,7 @@ function U.directInteractionAccess(actor, objectOrSquare, options)
     options.requireDirectAccess = true
     local targets = navigation.interactionTargets(actor, objectOrSquare, options)
     if type(targets) ~= "table" then targets = {} end
-    local centre = U.squareOf(objectOrSquare) or objectOrSquare
+    local centre = U.interactionCentre(objectOrSquare)
     if centre and U.sameSquare(actor, centre) then
         return true, targets, "at_interaction_target"
     end

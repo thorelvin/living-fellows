@@ -8917,6 +8917,45 @@ check(not removedContinued and removedReason == "source_changed"
         and SurvivorCompanion.Encounter.peek(removedActor).task == nil,
     "an item removed during Loot cancels cleanly and is never recreated")
 
+-- 21 September playtest: a container removed from the world between selection
+-- and task start keeps its Lua reference but loses its square, and Build 42's
+-- IsoObject.getX() dereferences that square without checking it. Asking the
+-- removed container where it is threw inside the pcall that wraps it, which
+-- cost a full Java and Lua stack trace in the log on every attempt.
+do
+    local strandedFood = item("Base.CannedCarrots2", "Food")
+    local strandedActor = recruitedScavenger("sc-loot-detached-source", -35, -45)
+    local _, strandedOwner = containerObject(strandedActor.square, { strandedFood })
+    local positionReads = 0
+    strandedOwner.square = nil
+    function strandedOwner:getSquare() return nil end
+    function strandedOwner:getX() positionReads = positionReads + 1 error("square is null") end
+    function strandedOwner:getY() positionReads = positionReads + 1 error("square is null") end
+    function strandedOwner:getZ() positionReads = positionReads + 1 error("square is null") end
+    local utility = SurvivorCompanion.GameplayUtil
+    check(utility.interactionCentre(strandedOwner) == nil and positionReads == 0,
+        "a removed world object has no interaction centre and is never asked for one: reads="
+            .. tostring(positionReads))
+    check(utility.interactionCentre(strandedActor.square) == strandedActor.square,
+        "a square still stands in for itself")
+    check(#SurvivorCompanion.Navigation.interactionTargets(strandedActor, strandedOwner,
+            { requireDirectAccess = true }) == 0 and positionReads == 0,
+        "a removed world object offers no interaction targets")
+    local access, _, accessReason = utility.directInteractionAccess(strandedActor, strandedOwner)
+    check(access == false and accessReason == "no_interaction_targets" and positionReads == 0,
+        "reach against a removed world object fails closed without reading it: "
+            .. tostring(accessReason))
+    check(SurvivorCompanion.Encounter._ownerDistanceForTests(strandedActor, strandedOwner)
+            == math.huge and positionReads == 0,
+        "a container that is no longer anywhere is out of range rather than a position read")
+    local raised = select(1, pcall(SurvivorCompanion.Encounter.tryScavenge, strandedActor, nil,
+        { snapshot = safeScavengeSnapshot }))
+    check(raised == true,
+        "a scavenge pass over a removed container finishes instead of raising")
+    SurvivorCompanion.Encounter.reset(strandedActor)
+    registry[strandedActor.id] = nil
+end
+
 local rollbackFood = item("Base.CannedCornedBeef", "Food")
 local rollbackInventory = inventory()
 rollbackInventory.rejectAddType = rollbackFood.itemType

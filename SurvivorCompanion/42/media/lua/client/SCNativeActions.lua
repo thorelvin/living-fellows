@@ -239,6 +239,14 @@ local function position(value)
     if type(value) == "table" and finite(value.x) and finite(value.y) then
         return tonumber(value.x), tonumber(value.y), tonumber(value.z) or 0
     end
+    -- A world object removed from the map keeps its Lua reference but loses
+    -- its square, and Build 42's IsoObject.getX() dereferences that square
+    -- without checking it. The read throws inside the pcall that wraps it and
+    -- still costs a full Java and Lua stack trace in the log for every target
+    -- coordinate we ask for. Something that can report a square and has none
+    -- is nowhere; everything else is read exactly as before.
+    local squareOk, square = invoke(value, "getSquare")
+    if squareOk and square == nil then return nil end
     local xOk, x = invoke(value, "getX")
     local yOk, y = invoke(value, "getY")
     local zOk, z = invoke(value, "getZ")
