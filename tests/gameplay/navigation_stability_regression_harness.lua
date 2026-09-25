@@ -510,4 +510,67 @@ do
             .. tostring(routed.type) .. "/" .. tostring(routed.passageOnly))
 end
 
+-- 25 September playtest: five of eight navigation records said route=budget on
+-- nine- and ten-tile follow goals in dense forest. A flat ceiling assumes a
+-- route costs about one expansion per tile, which holds in the open and not in
+-- woodland, where most neighbours are trees and the frontier has to snake.
+do
+    local base = SC.Config.get("runtime", "navigationNodeBudget") or 220
+    check(N._derivedNodeBudget(nil) == base and N._derivedNodeBudget(0) == base
+            and N._derivedNodeBudget(-3) == base,
+        "an unmeasurable reach keeps the flat budget")
+    check(N._derivedNodeBudget(2) == base,
+        "a hop shorter than the flat budget does not shrink it")
+    local ten = N._derivedNodeBudget(10)
+    check(ten == 600 and ten > base,
+        "a ten-tile goal is allowed the area it may have to sweep: " .. tostring(ten))
+    local ceiling = SC.Config.get("runtime", "navigationNodeBudgetMaximum") or 1200
+    check(N._derivedNodeBudget(400) == ceiling,
+        "an impossible goal still gives up at the ceiling: "
+            .. tostring(N._derivedNodeBudget(400)))
+
+    -- Running out of expansions is not proof the goal is unreachable.
+    local retryJob = {
+        startSquare = square(0, 0), goalSquare = square(20, 0), pathOptions = {},
+    }
+    check(N._startBudgetRetrySearch(retryJob) == true
+            and retryJob.budgetRetried == true and retryJob.phase == "primary"
+            and retryJob.search ~= nil,
+        "a budget-exhausted route is retried instead of reported unreachable")
+    check(retryJob.search.nodeBudget
+            >= (SC.Config.get("runtime", "navigationBudgetRetryNodeBudget") or 2400),
+        "the retry is given room to finish: " .. tostring(retryJob.search.nodeBudget))
+    check(N._startBudgetRetrySearch(retryJob) == false,
+        "a second exhaustion is a real answer and is not retried again")
+
+    -- Through a real job, not the helpers: the reach has to reach the search.
+    local wired = N.beginPathSearch(square(0, 0), square(20, 0), nil, {})
+    check(wired.search ~= nil and wired.search.nodeBudget == N._derivedNodeBudget(20),
+        "a new route job takes the budget its reach earns: "
+            .. tostring(wired.search and wired.search.nodeBudget)
+            .. " vs " .. tostring(N._derivedNodeBudget(20)))
+
+    -- Squeeze the derived budget rather than pinning one: a pinned budget is a
+    -- caller's explicit answer and must not be overridden.
+    local savedBudget = SC.Config._values.navigationNodeBudget
+    local savedCeiling = SC.Config._values.navigationNodeBudgetMaximum
+    SC.Config._values.navigationNodeBudget = 1
+    SC.Config._values.navigationNodeBudgetMaximum = 1
+    local exhausted = N.beginPathSearch(square(0, 0), square(60, 0), nil, {})
+    local exhaustedStatus, exhaustedSlices = "pending", 0
+    while exhaustedStatus == "pending" and exhaustedSlices < 300 do
+        exhaustedStatus = select(1, N.resumePathSearch(exhausted, 1000))
+        exhaustedSlices = exhaustedSlices + 1
+    end
+    SC.Config._values.navigationNodeBudget = savedBudget
+    SC.Config._values.navigationNodeBudgetMaximum = savedCeiling
+    check(exhausted.budgetRetried == true and exhaustedStatus == "complete",
+        "a search that ran out of nodes retries and completes instead of reporting no route: "
+            .. tostring(exhaustedStatus) .. "/" .. tostring(exhausted.budgetRetried))
+    local pinned = { startSquare = square(0, 0), goalSquare = square(9, 0),
+        pathOptions = { nodeBudget = 12 } }
+    check(N._startBudgetRetrySearch(pinned) == false,
+        "a caller that pinned its own budget is never overridden by the retry")
+end
+
 SC_TEST_REPORT = "NAVIGATION_STABILITY_REGRESSION_PASS checks=" .. tostring(checks)

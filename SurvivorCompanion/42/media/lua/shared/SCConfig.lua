@@ -285,6 +285,13 @@ local valueData = {
     -- before the attempt ladder counts the problem as solved. Collision jitter
     -- inside a thicket is movement; it is not progress.
     navigationRecoveryProgressDistance = 1.5,
+    -- A route's expansion ceiling scales with the area the search may have to
+    -- sweep, because dense woodland makes a short hop cost far more than its
+    -- tile count. A budget that merely ran out is retried once with room to
+    -- finish and with vegetation weighted down.
+    navigationNodeBudgetPerTileSquared = 6,
+    navigationNodeBudgetMaximum = 1200,
+    navigationBudgetRetryNodeBudget = 2400,
     navigationTreeClearancePenalty = 4,
     navigationVehicleClearancePenalty = 2,
     navigationBrokenGlassPenalty = 8,

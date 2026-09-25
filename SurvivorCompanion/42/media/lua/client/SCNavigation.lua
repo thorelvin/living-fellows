@@ -1241,6 +1241,25 @@ local function heapPop(heap)
     return P().heapPop(heap)
 end
 
+-- A flat ceiling assumes a route costs about one expansion per tile, which is
+-- true in the open and false in woodland: most neighbours there are trees, so
+-- the frontier snakes and a goal ten tiles away can cost hundreds of nodes.
+-- The 25 September playtest exhausted the budget on nine- and ten-tile follow
+-- goals and left companions standing while the request fell through to the
+-- engine. Scale with the area the search may have to sweep, and keep a
+-- ceiling so an impossible goal still gives up promptly.
+function Navigation._derivedNodeBudget(distance)
+    local base = math.max(1, math.floor(tonumber(U().config("navigationNodeBudget")) or 220))
+    local reach = tonumber(distance)
+    if reach == nil or reach ~= reach or reach <= 0 or reach == math.huge then
+        return base
+    end
+    local perArea = math.max(0,
+        tonumber(U().config("navigationNodeBudgetPerTileSquared")) or 6)
+    local ceiling = math.max(base,
+        math.floor(tonumber(U().config("navigationNodeBudgetMaximum")) or 1200))
+    return math.max(base, math.min(ceiling, math.floor(reach * reach * perArea)))
+end
 local pathSearchAdapter = {
     sameSquare = sameSquare,
     key = squareKey,
@@ -1259,12 +1278,26 @@ local pathSearchAdapter = {
         options.allowOccupiedGoal = allowOccupiedGoal == true
         return passableEdge(fromSquare, toSquare, options.vegetationScale, options)
     end,
-    nodeBudget = function()
-        return U().config("navigationNodeBudget") or 220
+    nodeBudget = function(options)
+        return Navigation._derivedNodeBudget(
+            type(options) == "table" and options.routeDistance or nil)
     end,
 }
 
+-- Planar reach between the two ends, measured here rather than through
+-- U.distance so building a job costs no distance call and no floor weighting:
+-- a budget scales with ground to cover, not with height.
 local function newBoundedPathJob(startSquare, goalSquare, options)
+    if type(options) == "table" then
+        local startX, startY = U().position(startSquare)
+        local goalX, goalY = U().position(goalSquare)
+        if startX ~= nil and goalX ~= nil then
+            local dx, dy = goalX - startX, goalY - startY
+            options.routeDistance = math.sqrt(dx * dx + dy * dy)
+        else
+            options.routeDistance = nil
+        end
+    end
     return P().new(startSquare, goalSquare, options, pathSearchAdapter)
 end
 
@@ -2079,6 +2112,32 @@ local function startAlternativeSearch(job)
     return true
 end
 
+-- Running out of expansions does not prove the goal unreachable; it proves
+-- this budget too small for this ground. Try once more with room to finish and
+-- with vegetation weighted down, so pushing through undergrowth costs less
+-- than sweeping the whole thicket for a way around it. Once only: a second
+-- failure is a real answer and the request should get it quickly.
+function Navigation._startBudgetRetrySearch(job)
+    if job.budgetRetried == true then return false end
+    -- A caller that pinned its own ceiling -- the alternative-route pass, the
+    -- egress scan -- asked for exactly that much work. Running out is its
+    -- answer, not a budget that needs raising. Only a route taking the derived
+    -- budget is retried.
+    if tonumber(type(job.pathOptions) == "table" and job.pathOptions.nodeBudget) ~= nil then
+        return false
+    end
+    job.budgetRetried = true
+    local utility = U()
+    local options = utility.copyShallow(job.pathOptions)
+    options.nodeBudget = math.max(
+        math.floor(tonumber(options.nodeBudget) or 0),
+        math.floor(tonumber(utility.config("navigationBudgetRetryNodeBudget")) or 2400))
+    options.vegetationScale = math.max(0,
+        tonumber(utility.config("navigationEmergencyVegetationScale")) or 0.2)
+    job.search = newBoundedPathJob(job.startSquare, job.goalSquare, options)
+    job.phase = "primary"
+    return true
+end
 local function resumeRouteSearchSlice(job, expansionQuota)
     if type(job) ~= "table" then return "failed", nil, "invalid_job", 0, nil, 0 end
     if job.complete then
@@ -2130,12 +2189,16 @@ local function resumeRouteSearchSlice(job, expansionQuota)
         job.totalExpanded = job.totalExpanded + (tonumber(expanded) or 0)
         if job.phase == "primary" then
             if status ~= "complete" or not path then
-                job.failure = {
-                    failureClass = job.search.failureClass or "blocked_static",
-                    nativeFallbackAllowed = job.search.nativeFallbackAllowed == true,
-                    rejections = job.search.rejections or {},
-                }
-                finalizeRouteSearch(job, reason or "unreachable")
+                if reason == "budget" and Navigation._startBudgetRetrySearch(job) then
+                    -- The retry owns job.search now; let the loop resume it.
+                else
+                    job.failure = {
+                        failureClass = job.search.failureClass or "blocked_static",
+                        nativeFallbackAllowed = job.search.nativeFallbackAllowed == true,
+                        rejections = job.search.rejections or {},
+                    }
+                    finalizeRouteSearch(job, reason or "unreachable")
+                end
             elseif not job.alternatives then
                 job.candidates[1] = evaluation
                 job.signatures[evaluation.signature] = true
