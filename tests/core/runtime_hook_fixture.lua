@@ -184,7 +184,11 @@ SC.Diagnostics.reset = function()
     SC.Diagnostics.resetCalls = SC.Diagnostics.resetCalls + 1
     return true
 end
-SC.Diagnostics.report = function()
+SC.Diagnostics.reports = {}
+SC.Diagnostics.report = function(subsystem, companionId, message, detail)
     SC.Diagnostics.reportCalls = SC.Diagnostics.reportCalls + 1
+    SC.Diagnostics.reports[#SC.Diagnostics.reports + 1] = {
+        subsystem = subsystem, message = message, detail = detail,
+    }
     return true
 end

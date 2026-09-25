@@ -11,6 +11,24 @@ local originalSelect = ISInventoryPage.selectContainer
 local originalSetNew = ISInventoryPage.setNewContainer
 
 SC.Runtime.start()
+-- The same mod id can be installed twice at once -- a local build and a
+-- Workshop staging copy -- and a playtest log that does not name the build it
+-- came from cannot be read against the right source.
+do
+    local banner
+    for _, entry in ipairs(SC.Diagnostics.reports) do
+        if entry.subsystem == "runtime" and entry.message == "started" then banner = entry end
+    end
+    check(banner ~= nil and type(banner.detail) == "string"
+            and string.find(banner.detail,
+                "release=" .. tostring(SC.Identity.release), 1, true) ~= nil
+            and string.find(banner.detail,
+                "protocol=" .. tostring(SC.Identity.bridgeProtocol), 1, true) ~= nil
+            and string.find(banner.detail, "schema-" .. tostring(SC.Identity.saveSchema),
+                1, true) ~= nil,
+        "a started runtime does not say which build it is: "
+            .. tostring(banner and banner.detail))
+end
 local disposalsAfterFirstStart = SC.Actor.disposeCalls
 local generationAfterFirstStart = SC.State.generation
 SC.Runtime.start()

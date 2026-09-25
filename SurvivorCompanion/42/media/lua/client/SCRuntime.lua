@@ -1353,6 +1353,18 @@ function runtime.start()
     startupFailureReason = nil
     SC.State.active = ready == true
     SC.State.disabledReason = ready and nil or reason
+    -- Which build is actually running. The same mod id can be installed twice
+    -- at once -- a local build under mods/ and a Workshop staging copy -- and
+    -- the game picks one. Without this line a playtest log cannot say which
+    -- one produced it, and twice now a session has been read against the
+    -- wrong source before anyone noticed.
+    SC.Diagnostics.report("runtime", nil, "started",
+        "release=" .. tostring(SC.Identity.release)
+        .. " protocol=" .. tostring(SC.Identity.bridgeProtocol)
+        .. " game=" .. tostring(SC.Identity.gameVersion)
+        .. " save=" .. tostring(SC.Identity.worldSaveKey)
+        .. "/schema-" .. tostring(SC.Identity.saveSchema)
+        .. " actors=" .. (ready == true and "enabled" or "disabled"))
     return ready, reason, true
 end
 
