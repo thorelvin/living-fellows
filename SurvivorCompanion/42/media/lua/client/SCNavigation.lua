@@ -4083,9 +4083,26 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
         return { type = "vegetation", square = toSquare or fromSquare,
             nearTree = true }
     end
+    -- A forest is bushes and hedges as well as trunks, and only trunks were
+    -- ever considered here: the 21 September playtest classified 7 of 171
+    -- blockers as vegetation across a session spent in woodland, and pushing
+    -- through undergrowth came back as an unknown obstacle instead.
+    if squareHasBush(toSquare) or squareHasBush(fromSquare) then
+        return { type = "vegetation", square = toSquare or fromSquare,
+            bush = true }
+    end
     local reason = string.lower(tostring(movementReason or ""))
     if string.find(reason, "continuous_collision", 1, true) then
         return { type = "continuous_geometry", square = toSquare }
+    end
+    -- The engine failing to produce a route says nothing about this edge: there
+    -- is no obstacle on it to find. Reporting that as an unknown obstacle sent
+    -- generic obstacle recovery at a routing problem and, worse, blacklisted a
+    -- perfectly good edge for it. `passageOnly` keeps the edge's record clean;
+    -- the route, lease and goal fields on the blocker say what actually failed.
+    if string.find(reason, "native_path", 1, true) then
+        return { type = "native_route", square = toSquare or fromSquare,
+            evidenceClass = "route", confidence = "high", passageOnly = true }
     end
     collided, ok = utility.call(actor, "isCollidedThisFrame")
     if ok and collided == true then return { type = "world_collision", square = toSquare } end

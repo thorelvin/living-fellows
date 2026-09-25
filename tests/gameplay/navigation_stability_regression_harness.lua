@@ -473,4 +473,41 @@ do
         "an ordinary same-floor blocker says so plainly: " .. tostring(ordinaryMessage))
 end
 
+-- 0.25.5 playtest: 126 of 171 blockers came back as an unknown obstacle with
+-- low confidence, and only 7 as vegetation across a session spent in woodland.
+do
+    -- A tree supplied by a tile mod: the square's own flag stays down, and the
+    -- tile carries the property that makes the game treat it as a tree.
+    local modded = square(24, 3)
+    function modded:HasTree() return false end
+    local trunk = {}
+    function trunk:getSprite()
+        return { getProperties = function()
+            return { Is = function(_, name) return name == "tree" end }
+        end }
+    end
+    modded.objects[#modded.objects + 1] = trunk
+    check(SC.Topology.squareHasTree(modded) == true,
+        "a tree supplied by a mod is still a tree")
+    local bare = square(26, 3)
+    function bare:HasTree() return false end
+    check(SC.Topology.squareHasTree(bare) == false, "open ground is not a tree")
+
+    -- A forest is undergrowth as well as trunks.
+    local leafySquare = square(31, 3)
+    function leafySquare:hasBush() return true end
+    local leafy = N._classifyMovementBlockerForTests(actor, square(30, 3),
+        leafySquare, "movement_rejected")
+    check(leafy.type == "vegetation" and leafy.bush == true,
+        "undergrowth is vegetation, not an unknown obstacle: " .. tostring(leafy.type))
+
+    -- The engine failing to produce a route is not an obstacle on this edge.
+    local routed = N._classifyMovementBlockerForTests(actor, square(28, 3),
+        square(29, 3), "native_path_failed")
+    check(routed.type == "native_route" and routed.confidence == "high"
+            and routed.passageOnly == true,
+        "a native routing failure is reported as routing, and never blacklists the edge: "
+            .. tostring(routed.type) .. "/" .. tostring(routed.passageOnly))
+end
+
 SC_TEST_REPORT = "NAVIGATION_STABILITY_REGRESSION_PASS checks=" .. tostring(checks)

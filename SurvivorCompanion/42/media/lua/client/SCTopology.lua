@@ -156,14 +156,35 @@ function Topology.squareHasSlope(square)
     return callBoolean(square, "hasSlopedSurface")
 end
 
+-- A tile is a tree if it carries the `tree` sprite property, whoever supplied
+-- the tile. Tree-replacement mods ship their own sprites and need not produce
+-- an IsoTree or an object named "tree"; the property is what makes the game
+-- treat a tile as a tree at all, so it is the one signal that survives them.
+local function spriteIsTree(object)
+    local sprite, spriteOk = U().call(object, "getSprite")
+    if not spriteOk or sprite == nil then return false end
+    local properties, propertiesOk = U().call(sprite, "getProperties")
+    if not propertiesOk or properties == nil then return false end
+    local value, valueOk = U().call(properties, "Is", "tree")
+    if valueOk and value == true then return true end
+    value, valueOk = U().call(properties, "Val", "tree")
+    return valueOk and value ~= nil and tostring(value) ~= ""
+end
+
 local function probeSquareTree(square)
+    -- HasTree() is authoritative only when it says yes. A modded tree that does
+    -- not raise the square's own flag used to end the probe here, so every
+    -- later check was unreachable and a modded forest read as open ground.
     local tree, observed = U().call(square, "HasTree")
-    if observed then return tree == true end
+    if observed and tree == true then return true end
     tree, observed = U().call(square, "getTree")
     if observed and tree ~= nil then return true end
     local found = false
     U().squareObjects(square, function(object)
-        if U().instanceOf(object, "IsoTree") then found = true return false end
+        if U().instanceOf(object, "IsoTree") or spriteIsTree(object) then
+            found = true
+            return false
+        end
         local name, nameOk = U().call(object, "getObjectName")
         if nameOk and string.lower(tostring(name or "")) == "tree" then
             found = true
