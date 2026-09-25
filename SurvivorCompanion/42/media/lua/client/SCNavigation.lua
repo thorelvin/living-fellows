@@ -1593,6 +1593,52 @@ end
 Navigation._continuousFollowVectorForTests = continuousFollowVector
 Navigation._continuousFollowVectorForRequest = continuousFollowVector
 
+-- Where to head while the route is still being planned. Planning deliberately
+-- holds the companion still, which is invisible on open ground and several
+-- seconds of standing in woodland, where the search has to wind. Aim at the
+-- goal instead -- but only as far along that bearing as the ground is provably
+-- open, and only a few tiles, so a trunk or a wall in the way means waiting
+-- exactly as before rather than walking into it. The bearing is almost always
+-- right for a follow; the bound is what keeps it honest when it is not.
+function Navigation._provisionalAdvance(actor, state, goalSquare, intent, now)
+    if U().config("navigationProvisionalStepping") ~= true then return nil end
+    if actor == nil or type(state) ~= "table" or goalSquare == nil then return nil end
+    local limit = math.max(1, math.floor(
+        tonumber(U().config("navigationProvisionalAdvanceLimit")) or 3))
+    if (tonumber(state.provisionalAdvances) or 0) >= limit then return nil end
+    local actorX, actorY, actorZ = U().position(actor)
+    local goalX, goalY, goalZ = U().position(goalSquare)
+    if actorX == nil or goalX == nil
+        or math.floor(actorZ or 0) ~= math.floor(goalZ or 0) then return nil end
+    local dx, dy = (goalX + 0.5) - actorX, (goalY + 0.5) - actorY
+    local span = math.sqrt(dx * dx + dy * dy)
+    if span < 1 then return nil end
+    local options = {
+        actor = actor,
+        blockedEdges = state.blockedEdges,
+        blockedSquares = state.blockedSquares,
+        routeMemory = state.routeMemory,
+        allowHazards = type(intent) == "table" and intent.urgent == true,
+        allowOccupiedFinal = false,
+        now = now or U().nowMs(),
+    }
+    -- Furthest provable point first: a shorter hop aims worse but is still
+    -- progress, and one blocked sample must not veto the whole bearing.
+    local reach = math.min(span, math.max(1,
+        tonumber(U().config("navigationProvisionalReach")) or 3))
+    while reach >= 1 do
+        local targetX = actorX + dx / span * reach
+        local targetY = actorY + dy / span * reach
+        if actualOpenSegment(actor, targetX, targetY, actorZ, options) then
+            return targetX - actorX, targetY - actorY,
+                U().gridSquare(math.floor(targetX), math.floor(targetY),
+                    math.floor(actorZ or 0))
+        end
+        reach = reach - 1
+    end
+    return nil
+end
+
 local function egressNeighbors(square)
     local utility = U()
     local x, y, z = utility.position(square)
@@ -5290,13 +5336,26 @@ function Navigation.request(actor, target, movementMode, intent)
             and state.pathSearch.alternatives == (evaluateAlternatives == true) then
             planningGoal = state.pathSearch.route.goalSquare
         end
-        local searchKey = tostring(squareKey(sourceSquare)) .. ">" .. tostring(squareKey(planningGoal))
+        -- A search is keyed on the square it was planned from, so a companion
+        -- that advances while it runs would discard and restart it on every
+        -- tile -- a treadmill, worse than standing still. Once a provisional
+        -- advance has moved the actor, the search keeps its original anchor
+        -- and keeps running; the completed route is rejoined further along by
+        -- the ordinary suffix reuse below.
+        local anchorKey = tostring(squareKey(sourceSquare))
+        if state.pathSearch ~= nil and state.pathSearch.anchorKey ~= nil
+            and (tonumber(state.provisionalAdvances) or 0) > 0 then
+            anchorKey = state.pathSearch.anchorKey
+        end
+        local searchKey = anchorKey .. ">" .. tostring(squareKey(planningGoal))
             .. ":" .. tostring(requestIntent.stealthAvoidance == true)
             .. ":" .. tostring(followRouting == true)
             .. ":" .. tostring(evaluateAlternatives == true)
         if not state.pathSearch or state.pathSearch.key ~= searchKey then
+            state.provisionalAdvances = 0
             state.pathSearch = {
                 key = searchKey,
+                anchorKey = tostring(squareKey(sourceSquare)),
                 route = newRouteSearchJob(sourceSquare, planningGoal, requestIntent.snapshot,
                     pathOptions, evaluateAlternatives),
                 startedAt = now,
@@ -5318,7 +5377,31 @@ function Navigation.request(actor, target, movementMode, intent)
         -- pathfinder below may try the route (it sees a vehicle as a polygon,
         -- not as whole blocked tiles) instead of restarting the same search.
         local overdue = SC.Navigation._pathSearchOverdue(state.pathSearch, now)
-        if not overdue then holdForPathSearch(actor, state) end
+        if not overdue then
+            local advanceX, advanceY, advanceSquare = SC.Navigation._provisionalAdvance(
+                actor, state, planningGoal, requestIntent, now)
+            local advanced = false
+            if advanceX ~= nil then
+                advanced = utility.move(actor, requestIntent.mode or "walk", {
+                    action = requestIntent.action,
+                    dx = advanceX, dy = advanceY,
+                    continuousFollow = true,
+                    continuousApproach = true,
+                    continuousAimSquare = advanceSquare,
+                    direct = true,
+                    targetSquare = planningGoal,
+                    snapshot = requestIntent.snapshot,
+                    supervisorToken = requestIntent.supervisorToken,
+                }) == true
+            end
+            if advanced then
+                state.provisionalAdvances = (tonumber(state.provisionalAdvances) or 0) + 1
+                state.pathSearchHolding = nil
+                state.lastProgressAt = now
+            else
+                holdForPathSearch(actor, state)
+            end
+        end
         local requestedNodes = tonumber(pathOptions.nodeBudget)
             or utility.config("navigationNodeBudget") or 220
         local grantedNodes = requestedNodes
@@ -5378,6 +5461,7 @@ function Navigation.request(actor, target, movementMode, intent)
         local completedSearchStartedAt = state.pathSearch and state.pathSearch.startedAt or now
         state.pathSearch = nil
         state.pathSearchHolding = nil
+        state.provisionalAdvances = 0
         state.lastProgressAt = now
         state.path = path
         state.lastPlanDurationMs = math.max(0, now - completedSearchStartedAt)

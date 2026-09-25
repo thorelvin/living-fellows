@@ -292,6 +292,13 @@ local valueData = {
     navigationNodeBudgetPerTileSquared = 6,
     navigationNodeBudgetMaximum = 1200,
     navigationBudgetRetryNodeBudget = 2400,
+    -- Off by default: heading toward the goal while the route is still being
+    -- planned touches route handoff, so it is opt-in until a playtest has
+    -- exercised it. The advance never leaves ground it has proved open, and
+    -- stops after this many attempts so a wrong bearing costs a few tiles.
+    navigationProvisionalStepping = false,
+    navigationProvisionalAdvanceLimit = 3,
+    navigationProvisionalReach = 3,
     navigationTreeClearancePenalty = 4,
     navigationVehicleClearancePenalty = 2,
     navigationBrokenGlassPenalty = 8,

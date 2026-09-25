@@ -613,4 +613,51 @@ do
         "a closed window with a threat inbound is smashed rather than opened")
 end
 
+-- Planning holds the companion still, which is invisible on open ground and
+-- seconds of standing in woodland. Heading at the goal while the route is
+-- worked out is only safe on ground already proved open, and only briefly.
+do
+    local savedFlag = SC.Config._values.navigationProvisionalStepping
+    local savedX, savedY = actor.x, actor.y
+    actor.x, actor.y = 0.5, 0.5
+    local advanceState = { blockedEdges = {}, blockedSquares = {}, routeMemory = {} }
+
+    SC.Config._values.navigationProvisionalStepping = false
+    check(N._provisionalAdvance(actor, advanceState, square(8, 0), {}, 1000) == nil,
+        "the advance stays off until it is asked for")
+
+    SC.Config._values.navigationProvisionalStepping = true
+    local dx, dy, aim = N._provisionalAdvance(actor, advanceState, square(8, 0), {}, 1000)
+    check(dx ~= nil and dx > 0 and math.abs(dy) < 0.001 and aim ~= nil,
+        "an open bearing produces a vector toward the goal: "
+            .. tostring(dx) .. "," .. tostring(dy))
+    local reach = SC.Config.get("runtime", "navigationProvisionalReach") or 3
+    check(math.sqrt(dx * dx + dy * dy) <= reach + 0.001,
+        "the advance never reaches past its bound: " .. tostring(math.sqrt(dx * dx + dy * dy)))
+
+    check(N._provisionalAdvance(actor, advanceState, square(0, 0), {}, 1000) == nil,
+        "a goal already underfoot is not worth advancing toward")
+
+    advanceState.provisionalAdvances = SC.Config.get("runtime",
+        "navigationProvisionalAdvanceLimit") or 3
+    check(N._provisionalAdvance(actor, advanceState, square(8, 0), {}, 1000) == nil,
+        "the advance stops after its bounded number of attempts")
+    advanceState.provisionalAdvances = 0
+
+    -- A bearing the ground does not support falls back to waiting, as before.
+    local savedSegment = SC.Topology.classifyEdge
+    SC.Topology.classifyEdge = function(_, from, to)
+        if to ~= nil and to.x ~= nil and to.x > 0 then
+            return { traversable = false, reason = "blocked" }
+        end
+        return { traversable = true, cost = 1 }
+    end
+    check(N._provisionalAdvance(actor, advanceState, square(8, 0), {}, 1000) == nil,
+        "a blocked bearing waits for the route instead of walking into it")
+    SC.Topology.classifyEdge = savedSegment
+
+    SC.Config._values.navigationProvisionalStepping = savedFlag
+    actor.x, actor.y = savedX, savedY
+end
+
 SC_TEST_REPORT = "NAVIGATION_STABILITY_REGRESSION_PASS checks=" .. tostring(checks)
