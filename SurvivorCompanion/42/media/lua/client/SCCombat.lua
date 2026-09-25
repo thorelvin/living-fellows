@@ -321,8 +321,47 @@ local function prepareEngagement(state, actor, target, now)
     state.struggleAnnounced = false
 end
 
+-- Combat has only ever written to the log when something went wrong, so a
+-- companion that swung and a companion that never tried looked identical
+-- afterwards -- which is exactly the question a death raises. These two say
+-- what combat decided and what it had to decide with.
+function Combat.reportEngagement(actor, outcome, candidates, nearest, weaponItem, detail)
+    local utility = U()
+    local band = ""
+    if weaponItem ~= nil then
+        local acceptMin, acceptMax = Combat.meleeRange(actor, weaponItem)
+        if acceptMin ~= nil and acceptMax ~= nil then
+            band = string.format(" band=%.2f-%.2f", acceptMin, acceptMax)
+        end
+    end
+    utility.diagnostic("combat-engage", actor,
+        "outcome=" .. tostring(outcome)
+        .. " candidates=" .. tostring(tonumber(candidates) or 0)
+        .. " nearest=" .. (tonumber(nearest) and string.format("%.2f", nearest) or "none")
+        .. " weapon=" .. (weaponItem ~= nil and tostring(utility.itemType(weaponItem)) or "none")
+        .. band
+        .. (detail ~= nil and (" " .. tostring(detail)) or ""))
+end
+
+-- Nearest candidate by real distance, not by score: the point of the record is
+-- to say how close the thing combat declined to hit actually was.
+function Combat.nearestCandidateDistance(scored)
+    local nearest
+    for _, candidate in ipairs(type(scored) == "table" and scored or {}) do
+        local squared = tonumber(type(candidate) == "table" and candidate.distanceSq) or nil
+        if squared ~= nil and squared >= 0 and (nearest == nil or squared < nearest) then
+            nearest = squared
+        end
+    end
+    return nearest ~= nil and math.sqrt(nearest) or nil
+end
+
 local function recordOffensiveAction(actor, state, commands, target, now, announceEngage, snapshot)
     if target == nil then return end
+    Combat.reportEngagement(actor, "attacking", 1, nil,
+        type(state) == "table" and type(state.weaponCache) == "table"
+            and state.weaponCache.item or nil,
+        "actions=" .. tostring((tonumber(state.engagementActionCount) or 0) + 1))
     prepareEngagement(state, actor, target, now)
     state.engagementActionCount = (tonumber(state.engagementActionCount) or 0) + 1
     state.lastOffensiveTarget = target
@@ -3224,6 +3263,13 @@ function Combat.update(actor, player, runtime)
         clearEngagement(state, actor)
         state.combatRole, state.combatRoleTarget = nil, nil
         rootRuntime.combatRole, rootRuntime.combatCohort = nil, nil
+        Combat.reportEngagement(actor, "no_credible_target", #scored,
+            Combat.nearestCandidateDistance(scored),
+            type(state.weaponCache) == "table" and state.weaponCache.item or nil,
+            "doctrine=" .. tostring(type(commands) == "table"
+                and commands.combatDoctrine or "none")
+            .. " holdFire=" .. tostring(type(commands) == "table"
+                and commands.holdFire == true))
         return false, "no_credible_target"
     end
     state.noCredibleAt = nil

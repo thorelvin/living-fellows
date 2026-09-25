@@ -19164,6 +19164,47 @@ end)()
     registry[owner.id], registry[promotedOnly.id] = nil, nil
 end)()
 
+-- A companion died with two zombies on him and the log could not say whether
+-- he ever swung: combat wrote a line when it refused and nothing at all when
+-- it fought, so "he could not attack" and "he attacked and lost" looked the
+-- same afterwards.
+;(function()
+    local combat = SurvivorCompanion.Combat
+    local utility = SurvivorCompanion.GameplayUtil
+    local captured = {}
+    local realDiagnostic = utility.diagnostic
+    utility.diagnostic = function(subsystem, who, message)
+        if subsystem == "combat-engage" then captured[#captured + 1] = message end
+        return realDiagnostic(subsystem, who, message)
+    end
+    local hammerHolder = actor("sc-engage-report", 30, -44, {})
+    registry[hammerHolder.id] = hammerHolder
+    local hammer = item("Base.Hammer", "Weapon", { range = 1.1, minRange = 0.61 })
+
+    check(combat.nearestCandidateDistance({}) == nil,
+        "no candidates means no nearest distance to report")
+    local nearest = combat.nearestCandidateDistance({
+        { distanceSq = 400 }, { distanceSq = 0.64 }, { distanceSq = 25 },
+    })
+    check(nearest ~= nil and math.abs(nearest - 0.8) < 0.01,
+        "the nearest candidate is measured by real distance, not by score: "
+            .. tostring(nearest))
+
+    combat.reportEngagement(hammerHolder, "no_credible_target", 3, 0.8, hammer,
+        "doctrine=balanced holdFire=false")
+    local line = captured[#captured]
+    check(line ~= nil and string.find(line, "outcome=no_credible_target", 1, true)
+            and string.find(line, "candidates=3", 1, true)
+            and string.find(line, "nearest=0.80", 1, true)
+            and string.find(line, "weapon=Base.Hammer", 1, true)
+            and string.find(line, "band=", 1, true),
+        "a refusal records what combat had to decide with: " .. tostring(line))
+
+    utility.diagnostic = realDiagnostic
+    SurvivorCompanion.Commands.reset(hammerHolder)
+    registry[hammerHolder.id] = nil
+end)()
+
 check(SurvivorCompanion.Decision.resetAll(), "central gameplay runtime reset")
 check(SurvivorCompanion.Decision.peek(fellow) == nil and SurvivorCompanion.Combat.peek(fellow) == nil,
     "runtime reset clears transient Java-object state")

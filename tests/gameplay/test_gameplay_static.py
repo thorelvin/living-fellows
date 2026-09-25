@@ -793,6 +793,15 @@ def main() -> int:
     require('config("objectiveAuditIntervalMs") or 5000' in sources["SCPersonalItems.lua"]
             and "observations[actor] = current + interval" in sources["SCPersonalItems.lua"],
             "keepsake observation is not bounded to the objective audit cadence")
+    # A companion died with two zombies on him and the log could not say
+    # whether he swung. The harness can reach the reporter but not the refusal
+    # that should call it, so the call site is pinned here.
+    _refusal = sources["SCCombat.lua"].index('return false, "no_credible_target"')
+    require('Combat.reportEngagement(actor, "no_credible_target", #scored,'
+            in sources["SCCombat.lua"][max(0, _refusal - 500):_refusal],
+            "combat refuses a target without recording what it had to decide with")
+    require('Combat.reportEngagement(actor, "attacking"' in sources["SCCombat.lua"],
+            "combat attacks without leaving any record that it did")
     relationship_source = sources["SCRelationship.lua"]
     combat_source = sources["SCCombat.lua"]
     banter_source = sources["SCBanter.lua"]
