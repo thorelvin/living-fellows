@@ -419,4 +419,58 @@ do
             .. tostring(clearanceProbes) .. " cost=" .. tostring(first))
 end
 
+-- A cross-floor goal is handed to the engine whole, so when it comes back with
+-- nothing the blocker record could not say whether the handoff had even been
+-- attempted -- the 21 September playtest shows companions idle upstairs with
+-- no native path and nothing on their own floor to classify. The record now
+-- carries which route the request took, what the engine did with its lease,
+-- and where the companion was ultimately trying to get to.
+do
+    local captured
+    local realDiagnostic = U.diagnostic
+    U.diagnostic = function(subsystem, _, message)
+        if subsystem == "navigation-blocker" then captured = message end
+    end
+    local goal = square(6, 0)
+    local handedOff = {
+        pathReason = "native_multi_level", goalSquare = goal,
+        lastMovementReason = "native_path_failed",
+        blockedEdges = {}, blockedSquares = {}, routeMemory = {},
+        lastAttemptFrom = square(0, 0), lastAttemptTo = square(1, 0),
+        nativeLease = {
+            reason = "native_multi_level", affordance = "multi_level",
+            startedAt = 500, expires = 900,
+            fromSquare = square(0, 0), toSquare = goal,
+        },
+    }
+    N._recordBlockerForTests(actor, handedOff, "unknown", nil, square(1, 0),
+        nil, "stop_and_replan", 1500)
+    local handedOffMessage = captured
+    captured = nil
+    local ordinary = {
+        blockedEdges = {}, blockedSquares = {}, routeMemory = {},
+        lastAttemptFrom = square(0, 0), lastAttemptTo = square(1, 0),
+    }
+    N._recordBlockerForTests(actor, ordinary, "unknown", nil, square(1, 0),
+        nil, "stop_and_replan", 1500)
+    local ordinaryMessage = captured
+    U.diagnostic = realDiagnostic
+
+    check(handedOffMessage ~= nil
+            and string.find(handedOffMessage, "route=native_multi_level", 1, true) ~= nil,
+        "a blocker record names the route the request took: " .. tostring(handedOffMessage))
+    check(string.find(handedOffMessage,
+            "lease=native_multi_level:multi_level:1000ms:expired", 1, true) ~= nil,
+        "a blocker record names what the engine did with its lease: "
+            .. tostring(handedOffMessage))
+    check(string.find(handedOffMessage, "goal=" .. tostring(U.squareKey(goal)), 1, true) ~= nil,
+        "a blocker record names the goal the companion could not reach: "
+            .. tostring(handedOffMessage))
+    check(ordinaryMessage ~= nil
+            and string.find(ordinaryMessage, "route=none", 1, true) ~= nil
+            and string.find(ordinaryMessage, "lease=none", 1, true) ~= nil
+            and string.find(ordinaryMessage, "goal=none", 1, true) ~= nil,
+        "an ordinary same-floor blocker says so plainly: " .. tostring(ordinaryMessage))
+end
+
 SC_TEST_REPORT = "NAVIGATION_STABILITY_REGRESSION_PASS checks=" .. tostring(checks)

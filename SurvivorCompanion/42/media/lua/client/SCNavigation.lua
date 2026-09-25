@@ -247,6 +247,24 @@ local function recordBlocker(actor, state, blockerType, object, square, actorSta
         local ok, value = pcall(SC.NativeActions.pathTelemetry, actor)
         if ok and type(value) == "table" then telemetry = value end
     end
+    -- A cross-floor request is handed whole to the engine, so when it fails
+    -- the blocker record on its own cannot say whether the handoff was even
+    -- attempted: the 21 September playtest shows companions idle on an upper
+    -- floor with no native path and nothing to classify on their own floor.
+    -- These three say which route the request took, what the engine did with
+    -- the lease it was given, and where it was ultimately trying to get to.
+    local lease = state.nativeLease
+    local leaseSummary = "none"
+    if type(lease) == "table" then
+        local startedAt = tonumber(lease.startedAt) or entry.time
+        leaseSummary = tostring(lease.reason or "native")
+            .. ":" .. tostring(lease.affordance or "none")
+            .. ":" .. tostring(math.max(0, math.floor(entry.time - startedAt))) .. "ms"
+            .. ":" .. ((tonumber(lease.expires) or 0) < entry.time and "expired" or "live")
+    end
+    entry.routeReason = tostring(state.pathReason or "none")
+    entry.leaseSummary = leaseSummary
+    entry.goalKey = squareKey(state.goalSquare) or "none"
     local geometry = state.nativeLease or {
         fromSquare = state.lastAttemptFrom, toSquare = state.lastAttemptTo,
     }
@@ -267,6 +285,9 @@ local function recordBlocker(actor, state, blockerType, object, square, actorSta
         .. "/polygon:" .. tostring(select(1, U().call(actor, "isCollidedWithVehicle")))
         .. " objectOpen=" .. tostring(select(1, U().call(object, "IsOpen")))
         .. " portal=" .. string.format("%.3f/%.3f", progress or -99, lateral or -99)
+        .. " route=" .. entry.routeReason
+        .. " lease=" .. entry.leaseSummary
+        .. " goal=" .. entry.goalKey
         .. " reason=" .. string.sub(tostring(entry.failureReason or "unknown"), 1, 120)
     local beforeStop = state.lastNativeFailureTelemetry
     if beforeStop and entry.time - beforeStop.at <= 1000 then
@@ -293,6 +314,8 @@ local function recordBlocker(actor, state, blockerType, object, square, actorSta
         .. " recovery=" .. tostring(entry.recoveryResult) .. entry.diagnostic)
     return entry
 end
+
+Navigation._recordBlockerForTests = recordBlocker
 
 local function targetSquare(target)
     local utility = U()
