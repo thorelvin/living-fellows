@@ -5378,8 +5378,17 @@ function Navigation.request(actor, target, movementMode, intent)
         -- not as whole blocked tiles) instead of restarting the same search.
         local overdue = SC.Navigation._pathSearchOverdue(state.pathSearch, now)
         if not overdue then
-            local advanceX, advanceY, advanceSquare = SC.Navigation._provisionalAdvance(
-                actor, state, planningGoal, requestIntent, now)
+            -- The discarded route's forward pulse is cancelled first and
+            -- exactly once, which is what the hold is for; only a search that
+            -- has already been quietened may start advancing. Without that
+            -- order the stale vector and the new bearing would both be live
+            -- on the frame the search begins.
+            local quietened = state.pathSearchHolding == true
+            local advanceX, advanceY, advanceSquare
+            if quietened then
+                advanceX, advanceY, advanceSquare = SC.Navigation._provisionalAdvance(
+                    actor, state, planningGoal, requestIntent, now)
+            end
             local advanced = false
             if advanceX ~= nil then
                 advanced = utility.move(actor, requestIntent.mode or "walk", {
@@ -5395,8 +5404,10 @@ function Navigation.request(actor, target, movementMode, intent)
                 }) == true
             end
             if advanced then
+                -- pathSearchHolding stays set: it records that this search's
+                -- stale input was already cancelled, not that the actor is
+                -- standing still. Clearing it would stop and start every pass.
                 state.provisionalAdvances = (tonumber(state.provisionalAdvances) or 0) + 1
-                state.pathSearchHolding = nil
                 state.lastProgressAt = now
             else
                 holdForPathSearch(actor, state)
