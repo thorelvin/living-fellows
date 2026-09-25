@@ -337,4 +337,86 @@ check(manyPortalMeta.complete == true and #reachable == 39
         and manyPortalMeta.portalValidationTruncated == true,
     "the seventeenth portal caps validation metadata without truncating escape reachability")
 SC.Topology.classifyEdge = portalClassify
+
+-- 0.25.5 playtest, dense forest: one companion replanned the same square
+-- twenty-four times and never moved on. Any motion over a fifth of a tile
+-- zeroed the recovery attempt ladder, and collision jitter inside a thicket is
+-- motion, so recovery restarted at its first step forever and never reached
+-- the lateral-clearance or terminal steps that exist for exactly this.
+do
+    local anchored = { stuckAttempts = 2,
+        recoveryAnchorX = 10, recoveryAnchorY = 10, recoveryAnchorZ = 0 }
+    check(N._recoveryAnchorClearedForTests(anchored, 10.3, 10.2, 0) == false,
+        "collision jitter inside the anchor radius is not progress")
+    check(N._recoveryAnchorClearedForTests(anchored, 12.5, 10, 0) == true,
+        "leaving the anchor radius is progress")
+    check(N._recoveryAnchorClearedForTests(anchored, 10, 10, 1) == true,
+        "a different floor is always progress")
+    check(N._recoveryAnchorClearedForTests({}, 10, 10, 0) == true,
+        "an unanchored state is never held back")
+
+    local savedX, savedY = actor.x, actor.y
+    local jitter = { stuckAttempts = 2,
+        recoveryAnchorX = 10, recoveryAnchorY = 10, recoveryAnchorZ = 0 }
+    actor.x, actor.y = 10.3, 10.2
+    check(N._resetRecoveryLadder(actor, jitter, true) == false
+            and jitter.stuckAttempts == 2 and jitter.recoveryAnchorX == 10,
+        "a goal change raised while the companion is still stuck keeps its ladder")
+    actor.x, actor.y = 12.5, 10
+    check(N._resetRecoveryLadder(actor, jitter, true) == true
+            and jitter.stuckAttempts == 0 and jitter.recoveryAnchorX == nil,
+        "the ladder clears once the companion has actually got away")
+    local arrival = { stuckAttempts = 3,
+        recoveryAnchorX = 10, recoveryAnchorY = 10, recoveryAnchorZ = 0 }
+    actor.x, actor.y = 10.1, 10.1
+    check(N._resetRecoveryLadder(actor, arrival) == true and arrival.stuckAttempts == 0
+            and arrival.recoveryAnchorX == nil,
+        "an ungated reset -- arrival, or a genuinely new episode -- clears the ladder")
+
+    -- The reset the playtest actually hit: ordinary motion bookkeeping.
+    local shuffling = { stuckAttempts = 2, lastX = 10, lastY = 10, lastZ = 0,
+        recoveryAnchorX = 10, recoveryAnchorY = 10, recoveryAnchorZ = 0 }
+    actor.x, actor.y = 10.3, 10.2
+    check(N._updateProgressForTests(actor, shuffling, 1000) == true
+            and shuffling.stuckAttempts == 2,
+        "shuffling on the spot registers as motion without crediting the recovery ladder")
+    actor.x, actor.y = 13, 10
+    check(N._updateProgressForTests(actor, shuffling, 1100) == true
+            and shuffling.stuckAttempts == 0 and shuffling.recoveryAnchorX == nil,
+        "walking clear of the anchor credits the ladder as it always did")
+    actor.x, actor.y = savedX, savedY
+end
+
+-- The same playtest stood still before taking its first step in woodland. The
+-- route search asks whether a square holds a tree for every neighbour of every
+-- expanded node, and each of those asks again for its own eight-square
+-- clearance, so one slice re-read the same squares dozens of times and spent
+-- its whole 2 ms budget doing it.
+do
+    local probes = 0
+    local wooded = square(20, 3)
+    function wooded:HasTree() probes = probes + 1 return true end
+    SC.Topology.withReadBatch(function()
+        check(SC.Topology.squareHasTree(wooded) == true, "a wooded square reads as a tree")
+        SC.Topology.squareHasTree(wooded)
+        SC.Topology.squareHasTree(wooded)
+    end)
+    check(probes == 1,
+        "one tree read per square per search slice, not one per edge: probes=" .. tostring(probes))
+    local batched = probes
+    SC.Topology.squareHasTree(wooded)
+    SC.Topology.squareHasTree(wooded)
+    check(probes == batched + 2,
+        "outside a batch every tree read still reaches the world: probes=" .. tostring(probes))
+
+    local clearanceProbes = 0
+    local centre, neighbour = square(40, 3), square(41, 3)
+    function neighbour:HasTree() clearanceProbes = clearanceProbes + 1 return true end
+    local first = N._treeClearanceCostForTests(centre)
+    local second = N._treeClearanceCostForTests(centre)
+    check(first > 0 and second == first and clearanceProbes == 1,
+        "neighbouring-tree clearance is computed once and cached like the vehicle clearance beside it: probes="
+            .. tostring(clearanceProbes) .. " cost=" .. tostring(first))
+end
+
 SC_TEST_REPORT = "NAVIGATION_STABILITY_REGRESSION_PASS checks=" .. tostring(checks)

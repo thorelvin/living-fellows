@@ -17,7 +17,7 @@ local edgeFactsScratch = {}
 -- inside the callback; traversal execution always runs outside these batches.
 function Topology.withReadBatch(callback, ...)
     if readBatch then return callback(...) end
-    local batch = { edges = {}, hazards = {}, count = 0, hits = 0 }
+    local batch = { edges = {}, hazards = {}, trees = {}, count = 0, hits = 0 }
     readBatch = batch
     local results = SC.Call.pack(pcall(callback, ...))
     readBatch = nil
@@ -156,8 +156,7 @@ function Topology.squareHasSlope(square)
     return callBoolean(square, "hasSlopedSurface")
 end
 
-function Topology.squareHasTree(square)
-    if square == nil then return false end
+local function probeSquareTree(square)
     local tree, observed = U().call(square, "HasTree")
     if observed then return tree == true end
     tree, observed = U().call(square, "getTree")
@@ -171,6 +170,27 @@ function Topology.squareHasTree(square)
             return false
         end
     end, 32)
+    return found
+end
+
+-- The route search asks this for every neighbour of every expanded node, and
+-- each of those neighbours asks again for its own eight-square tree clearance,
+-- so one slice re-probed the same squares dozens of times. In woodland that
+-- was the whole 2 ms slice budget, and a search that spends many frames
+-- yielding is a companion standing still before it takes its first step.
+-- Memoised for the batch only: a batch is one synchronous read of the world,
+-- so this cannot carry a felled tree into a later movement decision.
+function Topology.squareHasTree(square)
+    if square == nil then return false end
+    if readBatch then
+        local cached = readBatch.trees[square]
+        if cached ~= nil then
+            readBatch.hits = readBatch.hits + 1
+            return cached
+        end
+    end
+    local found = probeSquareTree(square)
+    if readBatch then readBatch.trees[square] = found end
     return found
 end
 

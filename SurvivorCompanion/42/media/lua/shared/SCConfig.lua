@@ -281,6 +281,10 @@ local valueData = {
     navigationStealthOverlayRefreshMs = 250,
     navigationBushPenalty = 5.5,
     navigationTreePenalty = 12,
+    -- How far a companion has to actually get from where recovery started
+    -- before the attempt ladder counts the problem as solved. Collision jitter
+    -- inside a thicket is movement; it is not progress.
+    navigationRecoveryProgressDistance = 1.5,
     navigationTreeClearancePenalty = 4,
     navigationVehicleClearancePenalty = 2,
     navigationBrokenGlassPenalty = 8,

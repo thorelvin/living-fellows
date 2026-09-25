@@ -630,18 +630,34 @@ local treeNeighborOffsets = {
     { -1, 1 },  { 0, 1 },   { 1, 1 },
 }
 
+-- Eight grid lookups and eight tree probes per edge. Every neighbour of every
+-- expanded node pays it, and neighbours overlap, so the same squares were
+-- recomputed for most of a woodland search. Cached exactly like the vehicle
+-- clearance beside it, and with the same short TTL -- trees move a great deal
+-- less than the vehicles that cache has always covered.
 local function treeClearanceCost(square)
     if not square then return 0 end
     local utility = U()
     local x, y, z = utility.position(square)
     if x == nil then return 0 end
+    local cacheKey = squareKey(square)
+    local cached = cacheKey and SC.Performance
+        and type(SC.Performance.cacheGet) == "function"
+        and SC.Performance.cacheGet("navigation-tree-clearance", cacheKey,
+            utility.nowMs()) or nil
+    if cached ~= nil then return cached end
     local count = 0
     for _, offset in ipairs(treeNeighborOffsets) do
         if squareHasTree(utility.gridSquare(x + offset[1], y + offset[2], z)) then
             count = count + 1
         end
     end
-    return count * (utility.config("navigationTreeClearancePenalty") or 4)
+    local cost = count * (utility.config("navigationTreeClearancePenalty") or 4)
+    if cacheKey and SC.Performance and type(SC.Performance.cachePut) == "function" then
+        SC.Performance.cachePut("navigation-tree-clearance", cacheKey, cost,
+            utility.config("navigationClearanceCacheMs") or 500, utility.nowMs())
+    end
+    return cost
 end
 
 local function squareNearTree(square)
@@ -814,6 +830,7 @@ local function squareHasBush(square)
     return foundBush
 end
 
+Navigation._treeClearanceCostForTests = treeClearanceCost
 Navigation._squareHasBushForTests = squareHasBush
 Navigation._squareIsHedgeForTests = squareIsHedge
 
@@ -2884,6 +2901,50 @@ local function holdForPathSearch(actor, state)
     return stopped
 end
 
+-- A recovery episode is anchored where it started. Ordinary walking clears the
+-- ladder, but a companion shuffling inside a thicket also moves: a fifth of a
+-- tile of collision jitter was enough to zero the attempt count, so recovery
+-- never escalated past its own first step. It stopped, replanned, shuffled,
+-- zeroed the count, and stopped again -- the playtest shows one companion
+-- replanning the same square twenty-four times without ever reaching the
+-- lateral-clearance or terminal steps that exist for exactly this. Only
+-- leaving the anchor counts as having got out of the problem.
+local function recoveryAnchorCleared(state, x, y, z)
+    local anchorX, anchorY = state.recoveryAnchorX, state.recoveryAnchorY
+    if anchorX == nil or anchorY == nil then return true end
+    if math.floor((z or 0) + 0.5) ~= math.floor((state.recoveryAnchorZ or 0) + 0.5) then
+        return true
+    end
+    local dx, dy = x - anchorX, y - anchorY
+    local radius = math.max(0.5,
+        tonumber(U().config("navigationRecoveryProgressDistance")) or 1.5)
+    return dx * dx + dy * dy >= radius * radius
+end
+
+local function clearRecoveryAnchor(state)
+    state.recoveryAnchorX, state.recoveryAnchorY, state.recoveryAnchorZ = nil, nil, nil
+end
+
+local function anchorRecovery(actor, state)
+    if state.recoveryAnchorX ~= nil then return end
+    local x, y, z = U().position(actor)
+    if x == nil then return end
+    state.recoveryAnchorX, state.recoveryAnchorY, state.recoveryAnchorZ = x, y, z or 0
+end
+-- `gated` keeps the ladder when the companion has not yet left the square its
+-- recovery started on. A genuinely new destination resets it outright.
+function Navigation._resetRecoveryLadder(actor, state, gated)
+    if type(state) ~= "table" then return false end
+    if gated == true then
+        local x, y, z = U().position(actor)
+        if x ~= nil and not recoveryAnchorCleared(state, x, y, z) then return false end
+    end
+    state.stuckAttempts = 0
+    clearRecoveryAnchor(state)
+    return true
+end
+Navigation._recoveryAnchorClearedForTests = recoveryAnchorCleared
+
 local function updateProgress(actor, state, now)
     local utility = U()
     local x, y, z = utility.position(actor)
@@ -2920,11 +2981,16 @@ local function updateProgress(actor, state, now)
         end
         state.lastX, state.lastY, state.lastZ = x, y, z
         state.lastProgressAt = now
-        state.stuckAttempts = 0
+        if recoveryAnchorCleared(state, x, y, z) then
+            state.stuckAttempts = 0
+            clearRecoveryAnchor(state)
+        end
         return true
     end
     return false
 end
+
+Navigation._updateProgressForTests = updateProgress
 
 local function pathTelemetry(actor)
     if SC.NativeActions and type(SC.NativeActions.pathTelemetry) == "function" then
@@ -4173,6 +4239,7 @@ local function clearTerminalEpisode(actor, state, reason, now)
     state.terminalBlockerType = nil
     state.terminalAttempt = nil
     state.stuckAttempts = 0
+    clearRecoveryAnchor(state)
     state.actorStateRecoveryAttempts = 0
     state.lastProgressAt = now or U().nowMs()
 end
@@ -4408,6 +4475,7 @@ local function recoverFromStuck(actor, state, goalSquare, movementMode, intent, 
     if now - (state.lastProgressAt or now) < stuckDelay then
         return false, nil, nil
     end
+    anchorRecovery(actor, state)
     state.stuckAttempts = (state.stuckAttempts or 0) + 1
     state.lastProgressAt = now
     clearMovementTransients(actor, state)
@@ -4821,7 +4889,7 @@ function Navigation.request(actor, target, movementMode, intent)
         state.finalizedWorkRoutePath = nil
         state.finalizedWorkRouteKey = nil
         state.arrivedAt = now
-        state.stuckAttempts = 0
+        SC.Navigation._resetRecoveryLadder(actor, state)
         state.actionTokenSerial = currentTokenSerial
         state.routeTargetSignature = currentTargetSignature
         state.workRouteKey = requestedWorkRouteKey
@@ -4882,7 +4950,7 @@ function Navigation.request(actor, target, movementMode, intent)
             state.pathGoalSquare = nil
             state.pathIndex = 1
             state.nextRepathAt = 0
-            state.stuckAttempts = 0
+            SC.Navigation._resetRecoveryLadder(actor, state, true)
             state.lastProgressAt = now
             state.firstMotionRequestedAt = now
             state.lastPlanDurationMs = nil

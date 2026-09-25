@@ -208,6 +208,16 @@ Lifecycle reset first preflights pending action, spawn, persistence, registry, a
   mod data); when it changes, records under the shared `player:local` identity
   are retired to `player:local#<generation>` and the observation baseline drops,
   so a replacement character never inherits the predecessor's episode.
+- Navigation recovery is anchored. `stuckAttempts` climbs a ladder
+  (stop-and-replan, lateral clearance, terminal hold) and is cleared only once
+  the actor has left `navigationRecoveryProgressDistance` from where the
+  episode began -- motion alone is not progress, because collision jitter in a
+  thicket is motion and used to reset the ladder every frame. The tree reads
+  the route search depends on are memoised per `Topology.withReadBatch` slice
+  and the eight-square tree clearance is cached with
+  `navigationClearanceCacheMs`, the same way vehicle clearance always was;
+  without them a woodland search re-read the same squares dozens of times per
+  slice and spanned many frames before the first step.
 - `SCTrade` owns item transfer authorization and a durable per-item recovery journal. Native reconstruction progresses through `original`, `building`, and `verified`: the factory-created object is journaled before inventory insertion, every generated identity receives a build marker before optional native-ID reads, and `SCPersistence` recaptures the completed root and weapon parts before publication. Recovery closes only after the exact item is compensated to its intended source and both list membership and `InventoryItem.getContainer()` agree. A destination-held half trade, an unlocated partial reconstruction, or absence without persisted detached proof remains unresolved rather than becoming a successful rollback or a copied item. Death rewrites referenced live actors to terminal `retired` descriptors before registry release. Active retries use bounded backoff and a persisted rotating cursor; a restored runtime gets a fresh availability window for asynchronously spawned owners. Quarantined records consume no automatic scheduler work, block neither unrelated factions nor unmarked items, and expire under a separate age/count cap so terminal evidence cannot exhaust the live recovery journal forever.
 - `SCVehicle` owns a capacity-aware passenger manifest, assigns only installed non-driver seats, revalidates a changed seat map before entry, and leaves overflow followers active in a bounded wait state. It exposes a non-mutating seat preflight and prefers verified native seating. A virtual-seat fallback is permitted only after native rejection or a verified native rollback; it stores a stable record for later restoration beside the vehicle. Native entry is never described as atomically reversible. Passenger firearm authorization additionally requires a ranged doctrine, an open or broken side window, a doctrine-specific speed ceiling, and a shared vehicle firing cadence.
 - `SCAllegiance` is the pure, direction-sensitive relationship policy for party,
