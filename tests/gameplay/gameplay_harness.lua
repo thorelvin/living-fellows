@@ -4848,6 +4848,67 @@ function doorTo:getDoor(north) if north == false then return testDoor end end
         "escape topology blocks locked doors and diagonal corner cutting")
     testDoor.locked = false
 end)()
+
+do
+    -- A door the companion cannot unlock does not reopen on its own, yet its
+    -- edge was blacklisted for the ordinary few seconds while the room behind
+    -- it is remembered for ten minutes. Replans came round slower than that, so
+    -- every one re-explored the same locked door and spent its whole node
+    -- budget proving there is no way through -- a companion in a playtest did
+    -- that against one door for minutes. The edge must outlive the replan.
+    local maintainLease = SurvivorCompanion.Navigation._maintainNativeLeaseForTests
+    local lockedActor = actor("sc-native-locked-door-memory", 30, 14, {})
+    local lockedFrom = cell:getGridSquare(31, 14, 0)
+    local lockedTo = cell:getGridSquare(32, 14, 0)
+    local lockedGoal = cell:getGridSquare(34, 14, 0)
+    local shutDoor = {}
+    function shutDoor:IsOpen() return false end
+    function shutDoor:isLocked() return true end
+    function lockedFrom:isDoorTo(other) return other == lockedTo end
+    function lockedTo:isDoorTo(other) return other == lockedFrom end
+    function lockedTo:getDoor(north) if north == false then return shutDoor end end
+    local lockedState = {
+        blockedEdges = {}, blockedSquares = {}, routeMemory = {},
+        nativeLease = {
+            ultimateGoal = lockedGoal,
+            ultimateGoalKey = SurvivorCompanion.GameplayUtil.squareKey(lockedGoal),
+            fromSquare = lockedActor.square,
+            toSquare = lockedGoal,
+            targets = { lockedGoal },
+            startedAt = 0,
+            expires = 600000,
+            positionProgressAt = 20000,
+            progressSquareKey = SurvivorCompanion.GameplayUtil.squareKey(lockedActor.square),
+            lastWorldX = lockedActor:getX(),
+            lastWorldY = lockedActor:getY(),
+            lastWorldZ = lockedActor:getZ(),
+            lastGoalDistance = SurvivorCompanion.GameplayUtil.distance(lockedActor, lockedGoal),
+            leaseMs = 600000,
+        },
+    }
+    local previousNativeActions = SurvivorCompanion.NativeActions
+    SurvivorCompanion.NativeActions = {
+        pathTelemetry = function()
+            return { available = true, active = true, shouldBeMoving = true }
+        end,
+        stopDirect = function() return true end,
+    }
+    local lockedResult, lockedReason = maintainLease(
+        lockedActor, lockedState, lockedGoal, 20000)
+    SurvivorCompanion.NativeActions = previousNativeActions
+    local lockedEntry = lockedState.blockedEdges[
+        SurvivorCompanion.GameplayUtil.squareKey(lockedFrom) .. ">"
+        .. SurvivorCompanion.GameplayUtil.squareKey(lockedTo)]
+    check(lockedResult == "failed" and lockedReason == "path_blocked:door_locked"
+            and type(lockedEntry) == "table",
+        "a locked door the companion cannot open fails the native lease and blacklists its edge")
+    check(type(lockedEntry) == "table"
+            and tonumber(lockedEntry.expires) == 20000 + (tonumber(
+                SurvivorCompanion.Config.values.navigationLockedRoomMemoryMs) or 600000)
+            and tonumber(lockedEntry.expires) > 20000 + (tonumber(
+                SurvivorCompanion.Config.values.navigationBlockedEdgeMs) or 4500),
+        "a locked door is remembered as long as the room it closes, not for a few seconds")
+end
 ;(function()
     local seen = {}
     for _, obstacle in ipairs(SurvivorCompanion.Topology.OBSTACLE_CATALOG) do

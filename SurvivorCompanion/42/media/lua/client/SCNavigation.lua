@@ -4018,7 +4018,16 @@ local function maintainNativeLease(actor, state, goalSquare, now)
                 pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
             end
             state.nativeLease = nil
-            blacklistEdge(state, doorFrom, doorTo, "door", aheadDoor, now, "static_edge", "high")
+            -- A door this companion cannot unlock stays shut. The edge was
+            -- being forgotten after the ordinary static blacklist of a few
+            -- seconds, while the room behind it is remembered for ten minutes,
+            -- so every replan re-explored the same locked door: the search
+            -- spent its whole budget proving there is no way through, failed,
+            -- and started again a few seconds later. Playtest: one companion
+            -- did that against the same door for minutes. Hold the edge for as
+            -- long as the room is held, so the search knows from the start.
+            blacklistEdge(state, doorFrom, doorTo, "door", aheadDoor, now, "static_edge", "high",
+                tonumber(U().config("navigationLockedRoomMemoryMs")) or 600000)
             recordBlocker(actor, state, "door", aheadDoor, doorTo, nil,
                 "native_locked_door", now, "static_edge", "high")
             rememberLockedRoom(doorTo, aheadDoor, now)

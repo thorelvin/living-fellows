@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.25.8 - The door stays shut
+
+- Companions no longer freeze in front of a locked door, working out the same impossible route over and over. A door a companion cannot open is remembered as shut, but only for a few seconds, while the room behind it is remembered for ten minutes -- and replanning comes round slower than a few seconds, so every attempt rediscovered the same locked door and spent its entire allowance of thinking proving there was no way through. In the last playtest one companion did that against one door for minutes on end, going nowhere. A door that will not open is now remembered for as long as the room it closes, so the next route is planned around it from the start.
+
 ## 0.25.7 - On the record
 
 - Companions in a fight no longer walk into fences and windows and keep walking. Combat steers by feeling a short distance ahead -- less than half a tile -- which never leaves the square they are standing on, so the tile edge where a fence actually sits was never examined and the game's own clearance check does not mention one. They now look at the edge they are about to cross, and when the thing between them and their target is something a person climbs, the approach is handed to the router that knows how to climb it instead of being reported as a dead end.
