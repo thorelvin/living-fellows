@@ -810,6 +810,13 @@ def main() -> int:
             and "state.emergencyTransaction, helper)" in sources["SCMedical.lua"]
             and "context.inventory, nil, player)" in sources["SCMedical.lua"],
             "a bandage is dated without the First Aid of whoever applied it")
+    # Steering cannot climb, so an approach barred by a fence or a window has
+    # to be handed to the router that owns traversal. The harness can reach the
+    # vector but not the approach that consumes it, so this is pinned here.
+    require('string.sub(vectorReason, 1, 8) == "barrier:"' in sources["SCCombat.lua"]
+            and 'action = "combat_approach", target = targetActor,' in sources["SCCombat.lua"],
+            "a combat approach barred by a climbable barrier never routes across it")
+
     combat_source = sources["SCCombat.lua"]
     banter_source = sources["SCBanter.lua"]
     objectives_source = sources["SCObjectives.lua"]

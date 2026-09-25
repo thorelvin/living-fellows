@@ -3586,7 +3586,7 @@ function Navigation.combatVector(actor, target, kind, snapshot)
         tonumber(utility.config("combatSteeringProbeDistance")) or 0.45)
     local sourceSquare = utility.squareOf(actor)
     local nativeProbeAvailable = utility.hasMethod(actor, "isCompanionMovementClear")
-    local best, bestCost
+    local best, bestCost, barrier
     local threats = type(snapshot) == "table" and snapshot.threats or nil
     for index, angle in ipairs(angles) do
         local dx, dy = rotatedVector(baseX, baseY, angle)
@@ -3598,6 +3598,31 @@ function Navigation.combatVector(actor, target, kind, snapshot)
             clear = called and nativeClear == true
         end
         local destination = utility.gridSquare(math.floor(toX), math.floor(toY), az or 0)
+        -- A fence or a window sits on the tile boundary, and this probe reaches
+        -- less than half a tile, so the step nearly always lands back inside
+        -- the actor's own square and the edge was never examined at all. The
+        -- native clearance test does not report a climbable barrier either, so
+        -- combat kept steering into a fence and grinding against it. Look at
+        -- the edge toward the neighbouring tile in this direction, which is
+        -- where the barrier actually lives.
+        local neighbour = utility.gridSquare(
+            math.floor(ax) + (dx > 0.35 and 1 or dx < -0.35 and -1 or 0),
+            math.floor(ay) + (dy > 0.35 and 1 or dy < -0.35 and -1 or 0),
+            az or 0)
+        if clear and sourceSquare and neighbour
+            and not sameSquare(sourceSquare, neighbour) then
+            local affordance = Navigation.edgeAffordance(sourceSquare, neighbour)
+            local affordanceKind = type(affordance) == "table" and affordance.kind or nil
+            if affordanceKind ~= nil then
+                clear = false
+                -- A barrier a person can cross is a different answer from a
+                -- wall: the caller routes for it instead of giving up.
+                if affordanceKind == "fence" or affordanceKind == "window"
+                    or affordanceKind == "window_frame" or affordanceKind == "door" then
+                    barrier = barrier or affordanceKind
+                end
+            end
+        end
         if clear and sourceSquare and destination and not sameSquare(sourceSquare, destination) then
             clear = select(1, passableEdge(sourceSquare, destination, 1, {
                 actor = actor, now = utility.nowMs(), allowOccupiedGoal = false,
@@ -3642,6 +3667,10 @@ function Navigation.combatVector(actor, target, kind, snapshot)
         end
         return best.x, best.y, best.index > 1, best.index > 1 and "steered" or "direct"
     end
+    -- Every way forward was barred, and at least one of them by something a
+    -- person climbs. Say so, so combat routes across it instead of reporting a
+    -- dead end and steering into it again next tick.
+    if barrier ~= nil then return nil, nil, false, "barrier:" .. tostring(barrier) end
     return nil, nil, false, "no_clear_alternative"
 end
 

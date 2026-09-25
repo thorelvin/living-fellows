@@ -3026,6 +3026,25 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
             local vectorReason
             moveX, moveY, steered, vectorReason = SC.Navigation.combatVector(
                 actor, targetActor, "approach", snapshot)
+            -- A fence or a window between the two of them is not a dead end,
+            -- it is a thing to climb. Steering cannot climb, so hand the
+            -- approach to the router, which owns the traversal that does --
+            -- otherwise the companion walks into the fence for as long as the
+            -- target stands behind it.
+            if moveX == nil and type(vectorReason) == "string"
+                and string.sub(vectorReason, 1, 8) == "barrier:" then
+                local crossing = utility.squareOf(targetActor)
+                if crossing ~= nil and SC.Navigation
+                    and type(SC.Navigation.request) == "function" then
+                    local routed, routeReason = SC.Navigation.request(actor, crossing, "walk", {
+                        action = "combat_approach", target = targetActor,
+                        facingTarget = targetActor, snapshot = snapshot,
+                        urgent = true,
+                    })
+                    if routed then return true, "approach_routed:" .. tostring(vectorReason) end
+                    return false, "approach_blocked:" .. tostring(routeReason or vectorReason)
+                end
+            end
             if moveX == nil then return false, "approach_blocked:" .. tostring(vectorReason) end
         elseif moveX == nil then
             moveX, moveY = tx - ax, ty - ay

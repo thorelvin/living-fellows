@@ -697,4 +697,41 @@ do
                     { now = 1000 }))))
 end
 
+-- Playtest: companions in combat walked into fences and windows and kept
+-- walking. Combat steers by a probe under half a tile, which lands back inside
+-- the actor's own square, so the edge where a fence actually sits was never
+-- examined and the native clearance test does not report one.
+do
+    local savedEdge = SC.Topology.classifyEdge
+    local savedX, savedY = actor.x, actor.y
+    actor.x, actor.y = 60.5, 4.5
+    local quarry = { x = 64.5, y = 4.5 }
+    function quarry:getX() return self.x end
+    function quarry:getY() return self.y end
+    function quarry:getZ() return 0 end
+    function quarry:isDead() return false end
+    function quarry:getSquare() return square(64, 4) end
+
+    -- Open ground first: a vector toward the target, as before.
+    local openX = N.combatVector(actor, quarry, "approach", nil)
+    check(openX ~= nil and openX > 0,
+        "an unobstructed approach still steers straight at the target: " .. tostring(openX))
+
+    -- Now put a fence on every edge leaving the actor's tile.
+    local savedBarrier = SC.Topology.barrierBetween
+    SC.Topology.barrierBetween = function(from, to)
+        if from ~= nil and to ~= nil and from.x == 60 and from.y == 4 then
+            return {}, "fence"
+        end
+        return nil, "open"
+    end
+    local fencedX, _, _, fencedReason = N.combatVector(actor, quarry, "approach", nil)
+    SC.Topology.barrierBetween = savedBarrier
+    check(fencedX == nil and type(fencedReason) == "string"
+            and string.sub(fencedReason, 1, 8) == "barrier:",
+        "a fence across the approach is reported as something to climb, not a dead end: "
+            .. tostring(fencedReason))
+    actor.x, actor.y = savedX, savedY
+end
+
 SC_TEST_REPORT = "NAVIGATION_STABILITY_REGRESSION_PASS checks=" .. tostring(checks)
