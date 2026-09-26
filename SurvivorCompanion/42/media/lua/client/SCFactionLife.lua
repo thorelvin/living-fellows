@@ -722,24 +722,170 @@ local function conversationPose(actor, state, target, emote, cooldown)
     })
 end
 
-local function updateRepresentativeActor(actor, player, group, state)
+local RESOURCE_LABELS = {
+    food = "food",
+    water = "clean water",
+    medicine = "medical supplies",
+    construction = "building supplies",
+    ammunition = "ammunition",
+    tools = "tools",
+}
+
+local function resourceLabel(resource)
+    if type(resource) ~= "string" then return "supplies" end
+    return RESOURCE_LABELS[resource] or "supplies"
+end
+Life._resourceLabelForTests = resourceLabel
+
+-- A visit to a household entry, not a timer. Greeting used a 22-second speech
+-- throttle, which is a minimum spacing guard and was never permission to say
+-- hello again: a visitor standing at the entry was greeted afresh every 22
+-- seconds, so "hello" never counted as a completed social act. These records
+-- are runtime-only -- nothing here is persisted, and nothing depends on weak
+-- tables for correctness.
+local entryVisits = {}
+local ENTRY_VISIT_LIMIT = 64
+local ENTRY_VISIT_IDLE_MS = 900000
+local ENTRY_VISIT_DEPART_TILES = 12
+local ENTRY_VISIT_DEPART_MS = 10000
+
+-- What an announcement is *about*. The same crisis polled again is not a new
+-- event because its Lua table was rebuilt, so the signature is its kind and the
+-- resource it names, and nothing else. A crisis that resolves and later returns
+-- produces a different signature only if its subject changed; reappearance is
+-- handled by clearing the mark when the crisis goes away.
+local function crisisSignature(group)
+    local active = type(group) == "table" and type(group.life) == "table"
+        and type(group.life.crisis) == "table" and group.life.crisis.active or nil
+    if type(active) ~= "table" or active.kind == nil then return nil end
+    if active.kind == "supply_collapse" then
+        return "supply_collapse:" .. tostring(active.resource or "supplies")
+    end
+    return tostring(active.kind)
+end
+
+local function pruneEntryVisits(activeKey, now)
+    local count, oldestKey, oldestAt = 0, nil, math.huge
+    for key, visit in pairs(entryVisits) do
+        count = count + 1
+        if key ~= activeKey and now - (tonumber(visit.seenAt) or 0) > ENTRY_VISIT_IDLE_MS then
+            entryVisits[key] = nil
+            count = count - 1
+        elseif key ~= activeKey and (tonumber(visit.seenAt) or 0) < oldestAt then
+            oldestKey, oldestAt = key, tonumber(visit.seenAt) or 0
+        end
+    end
+    -- The visit in progress is never evicted to make room for another one.
+    if count > ENTRY_VISIT_LIMIT and oldestKey ~= nil then entryVisits[oldestKey] = nil end
+end
+
+-- The visit in progress, or a new one. A replacement character gets a new
+-- identity from idOf and therefore a new visit; a representative swapped out
+-- mid-visit shares the household's existing one, so the house does not say
+-- hello twice.
+local function entryVisitFor(group, player, now)
+    local groupId = type(group) == "table" and tostring(group.id or "group") or "group"
+    local playerId = tostring(U().idOf(player) or "player")
+    local key = groupId .. "|" .. playerId
+    local visit = entryVisits[key]
+    if visit == nil then
+        visit = { key = key, greeted = false, announced = nil,
+            standing = nil, seenAt = now, awaySince = nil }
+        entryVisits[key] = visit
+    end
+    visit.seenAt = now
+    pruneEntryVisits(key, now)
+    return visit
+end
+Life._entryVisitForTests = entryVisitFor
+Life._crisisSignatureForTests = crisisSignature
+
+-- Standing at the doorway keeps the visit open. Walking off and staying off
+-- closes it, so coming back is a new visit that may greet once. A step around
+-- the entry must not re-arm the greeting, which is why departure needs both a
+-- distance and a duration.
+function Life.observeEntryDistance(group, player, distance, now)
+    if type(group) ~= "table" or player == nil then return nil end
+    now = tonumber(now) or U().nowMs()
+    local groupId = tostring(group.id or "group")
+    local key = groupId .. "|" .. tostring(U().idOf(player) or "player")
+    local visit = entryVisits[key]
+    if visit == nil then return nil end
+    if (tonumber(distance) or 0) > ENTRY_VISIT_DEPART_TILES then
+        visit.awaySince = visit.awaySince or now
+        if now - visit.awaySince >= ENTRY_VISIT_DEPART_MS then
+            entryVisits[key] = nil
+            return "visit_closed"
+        end
+        return "departing"
+    end
+    visit.awaySince = nil
+    visit.seenAt = now
+    return "present"
+end
+
+function Life.resetEntryVisits() entryVisits = {} end
+function Life._entryVisitCountForTests()
+    local count = 0
+    for _ in pairs(entryVisits) do count = count + 1 end
+    return count
+end
+
+-- What this household should say to this visitor right now, if anything, and
+-- the bookkeeping that follows a line that was actually delivered. The caller
+-- supplies `speak`, so the emission owner is unchanged.
+local function announceAtEntry(group, player, now, snapshot, speak)
+    local visit = entryVisitFor(group, player, now)
+    local signature = crisisSignature(group)
+    -- A crisis that has gone away releases its mark, so a genuinely new
+    -- activation later can be announced once more.
+    if signature == nil then visit.announced = nil end
+
+    local topic, line, arguments
+    if signature ~= nil and visit.announced ~= signature then
+        local active = group.life.crisis.active
+        if active.kind == "supply_collapse" then
+            topic, line, arguments = "faction.life.supply_crisis",
+                "We are running out of %1.", { resourceLabel(active.resource) }
+        elseif active.kind == "illness" then
+            topic, line = "faction.life.illness",
+                "Someone inside is sick. Keep your distance."
+        end
+    elseif signature == nil
+        and (visit.greeted ~= true or visit.standing ~= group.standing) then
+        topic = "faction.life.greeting." .. tostring(group.standing or "Wary")
+        line = group.standing == "Trusted" and "Good to see a familiar face."
+            or group.standing == "Tolerated" and "We can talk here. Do not enter the house."
+            or "State your business from there."
+    end
+    if topic == nil then return false, "entry_conversation_complete" end
+    -- Optional speech only. A fresh threat owning the actor is a reason to stay
+    -- quiet, never a reason to change what the household does; the warning and
+    -- dispute paths keep their own scheduling.
+    if type(snapshot) == "table" and (tonumber(snapshot.immediateCount) or 0) > 0 then
+        return false, "entry_speech_unsafe"
+    end
+    if speak(topic, line, arguments) ~= true then return false, "entry_speech_declined" end
+    -- Marked only once the speech path actually spoke. The state above is
+    -- re-read on every pass, so an announcement held back by the throttle can
+    -- never describe a crisis that has since resolved.
+    visit.greeted, visit.standing = true, group.standing
+    if signature ~= nil then visit.announced = signature end
+    return true, topic
+end
+Life._announceAtEntryForTests = announceAtEntry
+
+local function updateRepresentativeActor(actor, player, group, state, intent)
     local reached, reason = approach(actor, entryPosition(group),
         "faction_representative_approach", "walk", group)
     if not reached or reason ~= "life_target_reached" then return reached, reason end
     group.life.representative.state = "at_entry"
     U().stop(actor)
-    local topic = "faction.life.greeting." .. tostring(group.standing or "Wary")
-    local line, arguments = group.standing == "Trusted" and "Good to see a familiar face."
-        or group.standing == "Tolerated" and "We can talk here. Do not enter the house."
-        or "State your business from there.", nil
-    local active = group.life.crisis.active
-    if active and active.kind == "supply_collapse" then
-        topic, line, arguments = "faction.life.supply_crisis", "We are running out of %1.",
-            { active.resource or "supplies" }
-    elseif active and active.kind == "illness" then
-        topic, line = "faction.life.illness", "Someone inside is sick. Keep your distance."
-    end
-    sayOnce(actor, state, topic, line, arguments, 22000)
+    announceAtEntry(group, player, U().nowMs(),
+        type(intent) == "table" and intent.snapshot or nil,
+        function(topic, line, arguments)
+            return sayOnce(actor, state, topic, line, arguments, 22000)
+        end)
     return conversationPose(actor, state, player,
         group.standing == "Wary" and "undecided" or "yes", 12000)
 end
@@ -799,7 +945,8 @@ function Life.intentFor(actor, group, player, snapshot)
     if not member then return nil end
     local representative = group.life.representative
     if representative.requested == true and representative.memberKey == member.key then
-        return { priority = 62, mode = "life_representative", memberKey = member.key }
+        return { priority = 62, mode = "life_representative", memberKey = member.key,
+            snapshot = snapshot }
     end
     local crisis = group.life.crisis.active
     if crisis then
@@ -823,7 +970,7 @@ function Life.updateActor(actor, player, runtime, intent, group, affiliation)
     local mode = type(intent) == "table" and intent.mode or "life_routine"
     state.lastMode = mode
     if mode == "life_representative" then
-        return updateRepresentativeActor(actor, player, group, state)
+        return updateRepresentativeActor(actor, player, group, state, intent)
     elseif mode == "life_dispute" then
         return updateDispute(actor, group, member, group.life.crisis.active, state)
     elseif mode == "life_illness" then
@@ -1217,6 +1364,7 @@ function Life.validate(group)
 end
 
 function Life.reset(actor)
+    if actor == nil then entryVisits = {} end
     if actor then actorStates[actor] = nil
     else actorStates = setmetatable({}, { __mode = "k" }) end
 end

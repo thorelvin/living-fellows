@@ -19854,4 +19854,205 @@ end)()
     end
 end)()
 
+;(function()
+    -- WP2: a household entry is a visit, not a timer. The 22-second speech
+    -- throttle is a minimum spacing guard; it was never permission to say hello
+    -- again, so a visitor standing at the entry was greeted afresh every 22
+    -- seconds and "hello" never counted as a completed social act.
+    local Life = SurvivorCompanion.FactionLife
+    check(type(Life._resourceLabelForTests) == "function"
+            and type(Life._entryVisitForTests) == "function"
+            and type(Life._crisisSignatureForTests) == "function",
+        "the household entry seams are reachable")
+
+    -- B4: spoken labels, with the resource IDs themselves left alone.
+    local label = Life._resourceLabelForTests
+    check(label("food") == "food" and label("water") == "clean water"
+            and label("medicine") == "medical supplies"
+            and label("construction") == "building supplies"
+            and label("ammunition") == "ammunition" and label("tools") == "tools",
+        "every known resource category has a spoken label")
+    check(label("unobtainium") == "supplies" and label(nil) == "supplies"
+            and label(42) == "supplies",
+        "an unknown, absent or invalid resource falls back to supplies")
+
+    -- A polled crisis is not a new event because its table was rebuilt.
+    local signature = Life._crisisSignatureForTests
+    local function groupWith(kind, resource)
+        return { id = "hh-visit", standing = "Tolerated",
+            life = { crisis = { active = kind and
+                { kind = kind, resource = resource } or nil } } }
+    end
+    check(signature(groupWith(nil)) == nil, "a quiet household has no crisis signature")
+    check(signature(groupWith("supply_collapse", "water"))
+            == signature(groupWith("supply_collapse", "water")),
+        "the same crisis rebuilt produces the same signature")
+    check(signature(groupWith("supply_collapse", "water"))
+            ~= signature(groupWith("supply_collapse", "food")),
+        "a shortage of something else is a different announcement")
+    check(signature(groupWith("illness")) ~= signature(groupWith("supply_collapse", "food")),
+        "illness and shortage are different announcements")
+
+    -- The visit record itself: same household and player means the same visit.
+    Life.resetEntryVisits()
+    local visitor = actor("sc-entry-visitor", 50, 30, {})
+    local house = groupWith(nil)
+    local first = Life._entryVisitForTests(house, visitor, 1000)
+    first.greeted = true
+    local again = Life._entryVisitForTests(house, visitor, 5000)
+    check(again == first and again.greeted == true,
+        "standing at the entry keeps the same visit, already greeted")
+
+    -- Stepping around the doorway is not leaving.
+    check(Life.observeEntryDistance(house, visitor, 3, 6000) == "present",
+        "a step around the entry keeps the visit open")
+    check(Life._entryVisitForTests(house, visitor, 6500).greeted == true,
+        "a step around the entry does not re-arm the greeting")
+
+    -- Leaving needs both distance and duration.
+    check(Life.observeEntryDistance(house, visitor, 40, 7000) == "departing",
+        "walking off starts the departure clock without closing the visit")
+    check(Life.observeEntryDistance(house, visitor, 40, 12000) == "departing",
+        "a short absence is still the same visit")
+    check(Life.observeEntryDistance(house, visitor, 40, 17500) == "visit_closed",
+        "staying away past the departure band closes the visit")
+    check(Life._entryVisitForTests(house, visitor, 18000).greeted == false,
+        "returning later is a new visit that may greet once")
+
+    -- Coming back inside the band before the clock runs out keeps the visit.
+    Life.resetEntryVisits()
+    local held = Life._entryVisitForTests(house, visitor, 1000)
+    held.greeted = true
+    check(Life.observeEntryDistance(house, visitor, 40, 2000) == "departing"
+            and Life.observeEntryDistance(house, visitor, 2, 6000) == "present"
+            and Life.observeEntryDistance(house, visitor, 40, 14000) == "departing",
+        "coming back within the band restarts the departure clock")
+    check(Life._entryVisitForTests(house, visitor, 14500).greeted == true,
+        "a visitor who came back is still on the same visit")
+
+    -- A different household, and a different character, are different visits.
+    local other = { id = "hh-other", standing = "Wary", life = { crisis = {} } }
+    check(Life._entryVisitForTests(other, visitor, 15000).greeted == false,
+        "another household greets this visitor on its own terms")
+    local replacement = actor("sc-entry-replacement", 50, 30, {})
+    check(Life._entryVisitForTests(house, replacement, 15000).greeted == false,
+        "a replacement character starts its own visit")
+
+    -- Bookkeeping stays bounded. An old record for a household the player has
+    -- long since walked away from is fair to drop; the visit being fetched is
+    -- not, which is the only one anybody is standing in.
+    Life.resetEntryVisits()
+    for index = 1, 200 do
+        local pushed = Life._entryVisitForTests(
+            { id = "hh-" .. tostring(index), life = { crisis = {} } }, visitor, 1000 + index)
+        pushed.greeted = true
+        check(Life._entryVisitForTests(
+                { id = "hh-" .. tostring(index), life = { crisis = {} } },
+                visitor, 1000 + index).greeted == true,
+            "the visit just fetched is never evicted by its own housekeeping")
+    end
+    check(Life._entryVisitCountForTests() <= 70,
+        "household visit bookkeeping stays bounded: "
+            .. tostring(Life._entryVisitCountForTests()))
+
+    -- An idle record is dropped once it is well past the idle horizon.
+    Life.resetEntryVisits()
+    Life._entryVisitForTests(house, visitor, 1000)
+    Life._entryVisitForTests(other, visitor, 1000 + 900000 + 1)
+    check(Life._entryVisitCountForTests() == 1,
+        "an idle household visit is cleaned up: "
+            .. tostring(Life._entryVisitCountForTests()))
+
+    Life.resetEntryVisits()
+    check(Life._entryVisitForTests(house, visitor, 1000).greeted == false,
+        "a world reset clears household visit bookkeeping")
+
+    -- The behaviour itself, driven through the real decision: what gets said,
+    -- how often, and what the throttle is and is not permission to do.
+    local announce = Life._announceAtEntryForTests
+    local spoken, clock = {}, 0
+    local function speak(topic) spoken[#spoken + 1] = topic return true end
+    local function tick(group, snapshot)
+        clock = clock + 1000
+        return announce(group, visitor, clock, snapshot, speak)
+    end
+    local function said() return #spoken end
+
+    -- Stand at the entry across many updates: one hello for the visit.
+    Life.resetEntryVisits()
+    spoken, clock = {}, 0
+    local quiet = { id = "hh-live", standing = "Tolerated", life = { crisis = {} } }
+    for _ = 1, 40 do tick(quiet) end
+    check(said() == 1 and spoken[1] == "faction.life.greeting.Tolerated",
+        "standing at the entry is greeted once, not once per throttle window: "
+            .. tostring(said()))
+
+    -- A real standing change is worth one more line.
+    quiet.standing = "Trusted"
+    tick(quiet)
+    tick(quiet)
+    check(said() == 2 and spoken[2] == "faction.life.greeting.Trusted",
+        "a genuine standing change greets once more: " .. tostring(said()))
+
+    -- Arriving during a crisis: the truthful line replaces the greeting.
+    Life.resetEntryVisits()
+    spoken, clock = {}, 0
+    local sick = { id = "hh-sick", standing = "Tolerated",
+        life = { crisis = { active = { kind = "illness" } } } }
+    for _ = 1, 10 do tick(sick) end
+    check(said() == 1 and spoken[1] == "faction.life.illness",
+        "a crisis line replaces the greeting and is not doubled: " .. tostring(said()))
+
+    -- Ordinary greetings do not resume underneath an active crisis.
+    for _ = 1, 10 do tick(sick) end
+    check(said() == 1, "greetings do not resume underneath a live crisis")
+
+    -- A crisis that begins after the greeting gets exactly one announcement,
+    -- and polling the same crisis again does not repeat it.
+    Life.resetEntryVisits()
+    spoken, clock = {}, 0
+    local house2 = { id = "hh-later", standing = "Trusted", life = { crisis = {} } }
+    tick(house2)
+    check(said() == 1, "the visit is greeted first")
+    house2.life.crisis.active = { kind = "supply_collapse", resource = "water" }
+    for _ = 1, 10 do
+        -- Rebuild the crisis table each pass: the same crisis, freshly polled.
+        house2.life.crisis.active = { kind = "supply_collapse", resource = "water" }
+        tick(house2)
+    end
+    check(said() == 2 and spoken[2] == "faction.life.supply_crisis",
+        "a crisis beginning later announces exactly once: " .. tostring(said()))
+
+    -- Resolve it, then let it come back: a genuinely new activation speaks again.
+    house2.life.crisis.active = nil
+    for _ = 1, 5 do tick(house2) end
+    check(said() == 2, "a resolved crisis does not produce a farewell")
+    house2.life.crisis.active = { kind = "supply_collapse", resource = "water" }
+    for _ = 1, 5 do tick(house2) end
+    check(said() == 3, "a crisis that returns is announced once more: " .. tostring(said()))
+
+    -- A shortage of something else is a different thing to say.
+    house2.life.crisis.active = { kind = "supply_collapse", resource = "medicine" }
+    for _ = 1, 5 do tick(house2) end
+    check(said() == 4, "a shortage of something else is announced: " .. tostring(said()))
+
+    -- Optional speech waits while something closer needs attention.
+    Life.resetEntryVisits()
+    spoken, clock = {}, 0
+    local threatened = { id = "hh-threat", standing = "Wary", life = { crisis = {} } }
+    for _ = 1, 5 do tick(threatened, { immediateCount = 2 }) end
+    check(said() == 0, "a household stays quiet while a threat is close")
+    tick(threatened, { immediateCount = 0 })
+    check(said() == 1, "the greeting is still owed once it is safe to say it")
+
+    -- A line the speech path declined is not recorded as delivered.
+    Life.resetEntryVisits()
+    spoken, clock = {}, 0
+    local declined = { id = "hh-declined", standing = "Wary", life = { crisis = {} } }
+    local refused = announce(declined, visitor, 1000, nil, function() return false end)
+    check(refused == false, "a declined line reports failure")
+    tick(declined)
+    check(said() == 1, "a line that was never spoken is still owed")
+end)()
+
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")

@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.25.14 - Hello is something you say once
+
+- Households greet a visitor once per visit instead of once every twenty-two seconds. Standing at someone's entry produced a fresh hello on a timer, so "hello" was never a thing that had been said -- it was a thing that kept happening. A visit now begins when you arrive, survives stepping around the doorway or reopening the menu, and ends when you actually leave and stay gone; coming back is a new visit and gets a new greeting.
+- A household in trouble tells you so instead of greeting you. An active shortage or illness replaces the greeting rather than being said alongside it, ordinary hellos do not resume underneath it, and the same crisis polled again is not treated as new just because it was rebuilt. A crisis that begins after you arrive is announced once, and one that resolves and later returns is announced once more.
+- Households name what they are short of in plain English. A shortage said the internal category name, so a house short of water asked for "water" and a house short of building material asked for "construction". They now say clean water, medical supplies and building supplies.
+- A household stays quiet while something closer needs attention, and says the line it owed you once it is safe. Warnings and arguments keep their own timing and are not affected.
+- 96 new lines of dialogue across twelve existing conversations: the five relationship replies, encouragement and praise, the Wary, Tolerated and Trusted greetings, and the shortage and illness lines. Every one of them now has four new common lines and one written for each of the four personalities, so a brave survivor and a cautious one answer the same question differently.
+
 ## 0.25.13 - Started is not finished
 
 - A companion carrying out a mercy or a self-sacrifice no longer has their crisis closed before the act happens. The native operation takes several steps and its first answer only says the attempt began, but that answer was read as "done" -- so the crisis was archived and its authorisation withdrawn while the act was still pending, and a closed crisis asks for no further attention, leaving nothing to finish it. It now ends on an observed death, as the other half of the same code already did.
