@@ -437,6 +437,27 @@ function Topology.barrierBetween(fromSquare, toSquare)
         if frameOk and frame ~= nil then return frame, "window_frame" end
         return nil, "window"
     end
+    -- A player-built door, and several of Build 42's glass and sliding doors,
+    -- are IsoThumpable with isDoor() rather than IsoDoor, and are published on
+    -- the edge's owning square instead of through getDoorTo(). The wall probe
+    -- deliberately skips anything that reports isDoor(), so a closed one was
+    -- reported as neither a door nor a wall and the edge read as open floor --
+    -- which is how a companion walked into a glass door at a run. Treat it as
+    -- the door it is, so the ordinary open/locked policy applies.
+    local thumpableDoor
+    U().squareSpecialObjects(owner, function(object)
+        if not U().instanceOf(object, "IsoThumpable") then return end
+        local isDoor, doorKnown = U().call(object, "isDoor")
+        if not doorKnown or isDoor ~= true then return end
+        -- Only the object standing on this edge, not the one on the far side
+        -- of the same square.
+        local facing, facingKnown = U().call(object, "getNorth")
+        if facingKnown and facing ~= nil and facing ~= north then return end
+        thumpableDoor = object
+        return false
+    end, 32)
+    if thumpableDoor ~= nil then return thumpableDoor, "door" end
+
     -- Player context handling checks concrete hoppable objects as well as the
     -- low-fence predicate. Tall sports/football fences may be exposed only by
     -- getWallHoppableTo(): requiring isHoppableTo() first makes the planner

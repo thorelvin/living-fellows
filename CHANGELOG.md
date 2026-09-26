@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.25.24 - The long way round
+
+- Companions stop walking into glass doors. A player-built door, and several of Build 42's glass and sliding doors, are not the same kind of object as an ordinary door, and the check that finds walls deliberately ignores anything calling itself a door -- so a closed one was recorded as neither, and the way through read as open floor. They are doors now, and get opened like doors.
+- Companions separated from you by a building will eventually go round it. Working out a route is given a bounded amount of thinking, and going round a house means searching away from where you are standing before coming back -- which is the last thing a route search tries and the first thing a small allowance runs out of. So they walked as close as the wall allowed and stopped. A destination that has defeated them twice now gets one properly funded attempt, which is enough to find the back door or the long way around. Reaching anywhere at all resets it, so one awkward corner does not make every later journey expensive.
+
 ## 0.25.23 - Twelve hours in, not back to zero
 
 - A companion's Knox infection no longer resets every time you load the game. Infection progress is measured from the moment it started, counted against that character's own survival clock -- and a companion's body is rebuilt from scratch when a save loads, so that clock restarted at zero and the saved starting point was meaningless. Every companion came back freshly bitten, however long they had been carrying it. How far it had got is now saved, and put back where the new body's clock says it belongs. Saves made before this keep what they recorded, which is the best that can be had from them.

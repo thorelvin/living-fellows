@@ -2325,6 +2325,61 @@ end
 -- with vegetation weighted down, so pushing through undergrowth costs less
 -- than sweeping the whole thicket for a way around it. Once only: a second
 -- failure is a real answer and the request should get it quickly.
+-- How many times this exact goal has run out of thinking from ground the
+-- companion has not left. Going round a building means exploring away from the
+-- goal first, which a distance-led search does last and a modest budget never
+-- reaches -- so a companion stood at the wall with the player audible on the
+-- other side. After a couple of honest failures, spend properly once.
+function Navigation._noteBudgetFailure(state, goalSquare, now)
+    if type(state) ~= "table" then return 0 end
+    local key = tostring(squareKey(goalSquare))
+    if state.budgetFailureGoal ~= key then
+        state.budgetFailureGoal, state.budgetFailureCount = key, 0
+    end
+    state.budgetFailureCount = (tonumber(state.budgetFailureCount) or 0) + 1
+    state.budgetFailureAt = now
+    return state.budgetFailureCount
+end
+
+function Navigation._clearBudgetFailures(state)
+    if type(state) ~= "table" then return end
+    state.budgetFailureGoal, state.budgetFailureCount = nil, nil
+end
+
+-- The budget a fresh search for this goal deserves, given how often it has
+-- already failed. Bounded and one tier only: this buys a detour, not a licence
+-- to search the county.
+function Navigation._detourNodeBudget(state, derived)
+    derived = math.max(1, math.floor(tonumber(derived) or 1))
+    if type(state) ~= "table" then return derived end
+    local threshold = math.max(1, math.floor(
+        tonumber(U().config("navigationDetourFailureThreshold")) or 2))
+    if (tonumber(state.budgetFailureCount) or 0) < threshold then return derived end
+    return math.max(derived, math.floor(
+        tonumber(U().config("navigationDetourNodeBudget")) or 6000))
+end
+
+-- Options for a fresh search, with the budget raised once this goal has proved
+-- it needs a detour. A caller that pinned its own ceiling is left alone: that
+-- was its deliberate answer.
+function Navigation._detourPathOptions(state, options, fromSquare, toSquare)
+    if type(options) ~= "table" then return options end
+    if tonumber(options.nodeBudget) ~= nil then return options end
+    local threshold = math.max(1, math.floor(
+        tonumber(U().config("navigationDetourFailureThreshold")) or 2))
+    if (tonumber(type(state) == "table" and state.budgetFailureCount) or 0) < threshold then
+        return options
+    end
+    local raised = U().copyShallow(options)
+    local fx, fy = U().position(fromSquare)
+    local tx, ty = U().position(toSquare)
+    local span = (fx ~= nil and tx ~= nil)
+        and math.sqrt((tx - fx) ^ 2 + (ty - fy) ^ 2) or nil
+    raised.nodeBudget = Navigation._detourNodeBudget(state,
+        Navigation._derivedNodeBudget(span))
+    return raised
+end
+
 function Navigation._startBudgetRetrySearch(job)
     if job.budgetRetried == true then return false end
     -- A caller that pinned its own ceiling -- the alternative-route pass, the
@@ -5669,7 +5724,9 @@ function Navigation.request(actor, target, movementMode, intent)
                 key = searchKey,
                 anchorKey = tostring(squareKey(sourceSquare)),
                 route = newRouteSearchJob(sourceSquare, planningGoal, requestIntent.snapshot,
-                    pathOptions, evaluateAlternatives),
+                    SC.Navigation._detourPathOptions(state, pathOptions,
+                        sourceSquare, planningGoal),
+                    evaluateAlternatives),
                 startedAt = now,
                 progressAt = now,
                 lastExpanded = 0,
@@ -5805,6 +5862,11 @@ function Navigation.request(actor, target, movementMode, intent)
         end
         -- The goal stays the real one: arriving at the end of a partial route
         -- is not arriving, so the next request plans the rest of the way.
+        if reason == "budget" or reason == "partial" or reason == "unreachable" then
+            SC.Navigation._noteBudgetFailure(state, planningGoal, now)
+        elseif path ~= nil then
+            SC.Navigation._clearBudgetFailures(state)
+        end
         state.pathIsPartial = (path ~= nil and reason == "partial") or nil
         state.pathGoalSquare = path and planningGoal or nil
         state.pathStealthAvoidance = requestIntent.stealthAvoidance

@@ -708,6 +708,50 @@ do
         SC.Config._values.navigationNativeFailureStuckAttempts = saved
     end
 
+    -- Playtest: a companion on the far side of a house stood against the wall
+    -- while the player was audible on the other side. Going round means
+    -- exploring away from the goal first, which a distance-led search does last
+    -- and a modest budget never reaches. After a couple of honest failures for
+    -- the same goal, spend properly once.
+    do
+        local detourState = {}
+        local goal = square(40, 0)
+        check(N._noteBudgetFailure(detourState, goal, 1000) == 1,
+            "the first failure for a goal is counted")
+        check(N._noteBudgetFailure(detourState, goal, 2000) == 2,
+            "and the second")
+        -- A different goal starts its own count: this is about one destination
+        -- being awkward, not about a companion having a bad day.
+        check(N._noteBudgetFailure(detourState, square(41, 0), 3000) == 1,
+            "a different goal counts separately")
+        -- Back to the awkward goal: the count starts again from one, so it
+        -- takes two more failures to earn the bigger budget.
+        check(N._noteBudgetFailure(detourState, goal, 4000) == 1,
+            "returning to the awkward goal starts its count afresh")
+        check(N._noteBudgetFailure(detourState, goal, 5000) == 2,
+            "and reaches the threshold on the second")
+
+        local derived = N._derivedNodeBudget(20)
+        local fresh = {}
+        check(N._detourNodeBudget(fresh, derived) == derived,
+            "a goal that has not failed keeps the ordinary budget")
+        check(N._detourNodeBudget(detourState, derived) > derived,
+            "a goal that keeps failing is given room to go round: "
+                .. tostring(N._detourNodeBudget(detourState, derived)))
+
+        -- Real progress clears it, so one awkward corner does not make every
+        -- later route expensive.
+        N._clearBudgetFailures(detourState)
+        check(N._detourNodeBudget(detourState, derived) == derived,
+            "arriving somewhere resets the escalation")
+
+        -- A caller that pinned its own ceiling asked for exactly that.
+        local pinned = N._detourPathOptions({ budgetFailureCount = 9 },
+            { nodeBudget = 12 }, square(0, 0), square(20, 0))
+        check(pinned.nodeBudget == 12,
+            "a pinned budget is never raised behind the caller's back")
+    end
+
     -- A search that never left its start square has nothing to offer.
     check(P.partialPath({ bestKey = "0:0:0", startKey = "0:0:0" }, 0) == nil,
         "a search still on its start square offers no partial route")

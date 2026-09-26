@@ -292,6 +292,12 @@ local valueData = {
     navigationNodeBudgetPerTileSquared = 6,
     navigationNodeBudgetMaximum = 1200,
     navigationBudgetRetryNodeBudget = 2400,
+    -- After this many searches for the same goal have run out of thinking, the
+    -- next one is given room to find a way round a building rather than settling
+    -- against the nearest wall. One tier, bounded, and reset by any real
+    -- progress.
+    navigationDetourFailureThreshold = 2,
+    navigationDetourNodeBudget = 6000,
     -- A search that finds no route hands back the closest ground it reached,
     -- provided that closes at least this many tiles of the gap. Below it the
     -- route is not worth walking and the failure is reported as before.

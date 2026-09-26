@@ -20433,4 +20433,40 @@ end)()
     check(L.isTrash(treasured) == false, "a favourite is never binned")
 end)()
 
+;(function()
+    -- Playtest: a companion ran into a glass door at speed, because the edge
+    -- read as open floor. A player-built door, and several of Build 42's glass
+    -- and sliding doors, are IsoThumpable with isDoor() rather than IsoDoor --
+    -- and the wall probe deliberately skips anything reporting isDoor(), so a
+    -- closed one was neither a door nor a wall.
+    local T = SurvivorCompanion.Topology
+    local glassFrom = cell:getGridSquare(30, 50, 0)
+    local glassTo = cell:getGridSquare(31, 50, 0)
+    check(select(2, T.barrierBetween(glassFrom, glassTo)) == "open",
+        "an empty edge is open before the door is placed")
+
+    local glassDoor = { __class = "IsoThumpable" }
+    function glassDoor:isDoor() return true end
+    function glassDoor:IsOpen() return false end
+    function glassDoor:isLocked() return false end
+    glassFrom.specialObjects = { glassDoor }
+    glassTo.specialObjects = { glassDoor }
+    local object, kind = T.barrierBetween(glassFrom, glassTo)
+    check(kind == "door" and object == glassDoor,
+        "a thumpable glass door is recognised as a door: " .. tostring(kind))
+
+    -- A thumpable that is not a door must not become one.
+    local plainWall = { __class = "IsoThumpable" }
+    function plainWall:isDoor() return false end
+    local wallFrom = cell:getGridSquare(33, 50, 0)
+    local wallTo = cell:getGridSquare(34, 50, 0)
+    wallFrom.specialObjects = { plainWall }
+    wallTo.specialObjects = { plainWall }
+    check(select(2, T.barrierBetween(wallFrom, wallTo)) ~= "door",
+        "a plain thumpable wall is not mistaken for a door")
+
+    glassFrom.specialObjects, glassTo.specialObjects = {}, {}
+    wallFrom.specialObjects, wallTo.specialObjects = {}, {}
+end)()
+
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")
