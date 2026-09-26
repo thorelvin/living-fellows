@@ -1885,11 +1885,44 @@ public final class SCNativeCompanion extends IsoPlayer {
         LuaEventManager.triggerEvent("OnCharacterDeath", this);
     }
 
+    /**
+     * When this companion was hidden for construction, or 0 once it is
+     * visible. Written by SCBridge on the main thread at spawn and cleared on
+     * the main thread here or by {@link SCBridge#reveal}.
+     */
+    long hiddenUntilReadyAt;
+
+    /** How long a construction hide may last before it un-hides itself. */
+    private static final long MAX_CONSTRUCTION_HIDE_MS = 4000L;
+
+    /** Shows the companion and forgets it was ever hidden. Idempotent. */
+    void revealNow() {
+        hiddenUntilReadyAt = 0L;
+        if (isInvisible()) setInvisible(false);
+    }
+
+    /**
+     * Whether a construction hide has outlived its welcome. A hidden companion
+     * that nothing ever revealed is worse than one seen changing its clothes,
+     * so the hide is a deadline rather than a promise. Static and clock-free
+     * so the decision can be tested without an actor.
+     */
+    static boolean constructionHideExpired(long hiddenAt, long now) {
+        if (hiddenAt == 0L) return false;
+        return now - hiddenAt >= MAX_CONSTRUCTION_HIDE_MS;
+    }
+
+    private void expireConstructionHide() {
+        if (!constructionHideExpired(hiddenUntilReadyAt, System.currentTimeMillis())) return;
+        revealNow();
+    }
+
     @Override
     public void update() {
         if (bridgeDisabled) {
             return;
         }
+        expireConstructionHide();
         LocalPlayerState localState = LocalPlayerState.capture();
         if (localState == null) {
             disableBridge("unexpected local-player slot layout");

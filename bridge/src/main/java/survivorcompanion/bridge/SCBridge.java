@@ -54,7 +54,7 @@ import zombie.network.GameServer;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.20-isocompanion-9";
+    public static final String PROTOCOL = "42.20-isocompanion-10";
     public static final int ITEM_FACT_FOOD = 1;
     public static final int ITEM_FACT_DRAINABLE = 1 << 1;
     public static final int ITEM_FACT_HAND_WEAPON = 1 << 2;
@@ -1046,6 +1046,18 @@ public final class SCBridge {
             // constructor/current-square setter alone does not populate the
             // render square or its moving-object list, while
             // isExistInTheWorld() explicitly requires both.
+            // Nobody watches a companion get dressed.
+            //
+            // SurvivorFactory hands us a randomly outfitted descriptor and
+            // IsoPlayer's constructor puts those clothes on. For a companion
+            // being restored from a save, its real clothes are applied by Lua
+            // a frame or more later -- so on every load the group appeared in
+            // stranger's clothing and then changed into their own in front of
+            // the player. Hidden from construction until the mod says it has
+            // finished building the actor, which also covers the hair, beard
+            // and skin the appearance restore has yet to apply.
+            actor.setInvisible(true);
+            actor.hiddenUntilReadyAt = System.currentTimeMillis();
             actor.setCurrentSquare(square);
             actor.setSquare(square);
             actor.setMovingSquare(square);
@@ -1083,6 +1095,24 @@ public final class SCBridge {
         try (MutedLivingCharacterEvent ignored = MutedLivingCharacterEvent.open()) {
             return new SCNativeCompanion(descriptor, cell, x, y, z);
         }
+    }
+
+    /**
+     * Shows a companion that was hidden for construction. Called once the mod
+     * has finished restoring its clothes, inventory and appearance.
+     *
+     * <p>Idempotent, and never the only thing standing between a companion and
+     * being seen: {@link SCNativeCompanion#update()} reveals itself anyway
+     * once the hide has outlived its welcome, so a failed or skipped reveal
+     * costs a moment of invisibility rather than a permanent ghost.
+     */
+    public static boolean reveal(SCNativeCompanion actor) {
+        lastFailure = "";
+        if (actor == null) return failBoolean("native companion is null");
+        if (!isOwned(actor)) return failBoolean("native companion is not owned by SCBridge");
+        actor.revealNow();
+        if (actor.isInvisible()) return failBoolean("native companion stayed invisible");
+        return true;
     }
 
     /**

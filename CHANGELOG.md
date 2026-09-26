@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.25.28 - Nobody watches them get dressed
+
+- Companions no longer appear in a stranger's clothes on load and then change into their own. The game builds a survivor from a randomly outfitted template, so for the moment between a companion being created and the mod putting its saved clothes, hair and skin back on, it stood there wearing whatever the template gave it. A companion is now invisible from the instant it is created until everything about it has been restored, and only then does it appear -- already dressed, already itself.
+- That hide is a deadline, not a promise. If anything goes wrong while a companion is being rebuilt it shows itself after a few seconds regardless, because a companion you cannot see is a far worse problem than one you saw change its shirt.
+
 ## 0.25.27 - Eight from the review
 
 - Companions genuinely cannot see inside a closed container any more. 0.25.26 said they chose by distance and room, but the old content-reading scorer still ran first and the new score was only added to it -- so the better hidden item still won. Choosing a container now reads nothing at all: the companion walks to it, opens it, and only then decides what to take. Looting a container takes one more moment than it did, because that is what opening it costs.

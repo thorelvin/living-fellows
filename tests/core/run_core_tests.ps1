@@ -96,7 +96,8 @@ try {
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeCleanupTransactionTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCNativeBridgeExposureTest.java') `
         (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCStreetLookupTest.java') `
-        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCSpeechNameplateLiftTest.java')
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCSpeechNameplateLiftTest.java') `
+        (Join-Path $ProjectRoot 'bridge\src\test\java\survivorcompanion\bridge\SCConstructionHideTest.java')
     if ($LASTEXITCODE -ne 0) { throw 'Core Java test harness compilation failed.' }
 
     $allLua = @(Get-ChildItem -LiteralPath $Payload -Recurse -Filter '*.lua' -File | Sort-Object FullName | ForEach-Object FullName)
@@ -461,6 +462,7 @@ try {
     Add-ScJvmStep 'sc-bootstrap-lifecycle-test' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCBootstrapLifecycleTest') @() 'Bootstrap generation lifecycle gate failed.'
     Add-ScJvmStep 'sc-street-lookup-test' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCStreetLookupTest') @() 'Native nearest-street lookup gate failed.'
     Add-ScJvmStep 'sc-speech-nameplate-lift' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCSpeechNameplateLiftTest') @() 'Companion speech nameplate lift gate failed.'
+    Add-ScJvmStep 'sc-construction-hide' @('-cp', "$BuildRoot;$NativeClasses", 'survivorcompanion.bridge.SCConstructionHideTest') @() 'Companion construction-hide deadline gate failed.'
 
     $clothingCatalog = Join-Path $GameRoot 'media\clothing\clothing.xml'
     [xml]$clothing = Get-Content -LiteralPath $clothingCatalog -Raw -Encoding utf8

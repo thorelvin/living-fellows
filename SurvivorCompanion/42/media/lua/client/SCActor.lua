@@ -410,6 +410,15 @@ local function nativeBridgeProvider()
         return true
     end
 
+    function provider:reveal(actor)
+        if not self:isActor(actor) then return false, "actor is not owned by SCBridge" end
+        local ok, revealed = staticInvoke(bridge, "reveal", actor)
+        if not ok or revealed ~= true then
+            return false, lastBridgeFailure(revealed)
+        end
+        return true
+    end
+
     function provider:recover(actor, square)
         if not self:isActor(actor) then return false, "actor is not owned by SCBridge" end
         local ok, recovered = staticInvoke(bridge, "recover", actor, square)
@@ -1066,6 +1075,19 @@ local function finalizeSpawn(actor, profile, provider)
                 failure = failure .. "; cleanup pending: " .. tostring(cleanupReason)
             end
             return nil, failure, not cleaned and actor or nil
+        end
+    end
+    -- Built. A companion is hidden from the moment it is constructed until
+    -- here, because between those two points it is wearing whatever the
+    -- survivor factory dressed it in and has whatever face it was born with.
+    -- Best-effort on purpose: the actor is real and registered either way,
+    -- and the bridge un-hides it on its own after a few seconds, so a failure
+    -- here is a companion that appears late rather than one that never does.
+    if type(provider) == "table" and type(provider.reveal) == "function" then
+        local shown, revealReason = provider:reveal(actor)
+        if not shown and SC.Diagnostics and type(SC.Diagnostics.report) == "function" then
+            SC.Diagnostics.report("actor", profile.id,
+                "spawned companion could not be revealed", revealReason)
         end
     end
     return actor, record

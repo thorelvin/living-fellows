@@ -2931,6 +2931,14 @@ function deferredProvider:pollSpawn(request)
     return deferredActor
 end
 function deferredProvider:cancelSpawn() return true end
+function deferredProvider:reveal(candidate)
+    self.reveals = (self.reveals or 0) + 1
+    -- Order matters: a companion is shown only once everything that decides
+    -- what it looks like has run, which is after registration and the
+    -- character-depth restore.
+    self.revealedAfterRegister = SC.Registry.byId("sc-deferred-spawn") ~= nil
+    return candidate == deferredActor
+end
 function deferredProvider:remove(candidate)
     candidate.__owned = false
     return true
@@ -2952,7 +2960,48 @@ local deferredReady, deferredRecord = SC.Actor.pollSpawn(ticket)
 check(deferredReady == deferredActor and deferredRecord.id == "sc-deferred-spawn"
     and SC.Registry.byId("sc-deferred-spawn").actor == deferredActor,
     "completed deferred creation passes the normal transactional finalizer exactly once")
+check(deferredProvider.reveals == 1 and deferredProvider.revealedAfterRegister == true,
+    "a companion hidden for construction is shown exactly once, after it is fully built")
 check(SC.Actor.remove(deferredActor), "deferred-spawn fixture removes transactionally")
+
+-- A companion that cannot be revealed is still a companion. The bridge
+-- un-hides it on its own a few seconds later, so a failure here must not
+-- destroy an actor that is otherwise built and registered.
+local stubbornProvider = {
+    testOnly = true, kind = "iso-companion", polls = 0, reveals = 0,
+}
+local stubbornActor = setmetatable({
+    __class = "IsoPlayer", data = {}, square = square, characterActions = actionList(),
+}, { __index = actor })
+function stubbornProvider:isActor(candidate)
+    return candidate == stubbornActor and candidate.__owned == true
+end
+function stubbornProvider:requestSpawn() return 78 end
+function stubbornProvider:pollSpawn()
+    stubbornActor.__owned = true
+    return stubbornActor
+end
+function stubbornProvider:cancelSpawn() return true end
+function stubbornProvider:reveal()
+    self.reveals = self.reveals + 1
+    return false, "injected reveal failure"
+end
+function stubbornProvider:remove(candidate)
+    candidate.__owned = false
+    return true
+end
+check(SC.Actor._setProviderForTests(stubbornProvider), "reveal-failure provider installed")
+local stubbornTicket = SC.Actor.beginSpawn(square, {
+    id = "sc-reveal-failure",
+    recruited = false,
+    identity = { forename = "Shy", surname = "Fellow", gender = "male" },
+})
+local stubbornReady, stubbornRecord = SC.Actor.pollSpawn(stubbornTicket)
+check(stubbornReady == stubbornActor and stubbornRecord and stubbornRecord.id == "sc-reveal-failure"
+        and SC.Registry.byId("sc-reveal-failure") ~= nil and stubbornProvider.reveals == 1,
+    "a companion that could not be revealed is still spawned and registered")
+check(SC.Actor.remove(stubbornActor), "reveal-failure fixture removes transactionally")
+SC.Actor._setProviderForTests(deferredProvider)
 
 function runLocomotionRecorderChecks()
     local originalConfigGet = SC.Config.get
