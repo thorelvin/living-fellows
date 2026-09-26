@@ -19316,4 +19316,126 @@ check(SurvivorCompanion.Decision.resetAll(), "central gameplay runtime reset")
 check(SurvivorCompanion.Decision.peek(fellow) == nil and SurvivorCompanion.Combat.peek(fellow) == nil,
     "runtime reset clears transient Java-object state")
 
+;(function()    -- Review R2 and R3: passableEdge answers "can a route cross this", which
+    -- deliberately accepts a door to open and a window to climb. A provisional
+    -- advance dispatches a bare movement vector and nothing downstream performs
+    -- the interaction, so it has to ask the narrower question -- and it has to
+    -- respect the work-area policy the real planner enforces per square.
+    local advance = SurvivorCompanion.Navigation._provisionalAdvance
+    local previousStepping = SurvivorCompanion.Config.values.navigationProvisionalStepping
+    SurvivorCompanion.Config.values.navigationProvisionalStepping = true
+    local function bearing()
+        return { blockedEdges = {}, blockedSquares = {}, routeMemory = {} }
+    end
+
+    local openActor = actor("sc-prov-open", 20, 30, {})
+    check(advance(openActor, bearing(), cell:getGridSquare(25, 30, 0), {}, 1000) ~= nil,
+        "a provisional advance crosses open ground")
+
+    local doorActor = actor("sc-prov-door", 30, 30, {})
+    local pdFrom, pdTo = doorActor.square, cell:getGridSquare(31, 30, 0)
+    local pdDoor = {}
+    function pdDoor:IsOpen() return false end
+    function pdDoor:isLocked() return false end
+    function pdFrom:isDoorTo(other) return other == pdTo end
+    function pdTo:isDoorTo(other) return other == pdFrom end
+    function pdTo:getDoor(north) if north == false then return pdDoor end end
+    check(advance(doorActor, bearing(), cell:getGridSquare(35, 30, 0), {}, 1000) == nil,
+        "a provisional advance will not walk at a closed door it cannot open on the way")
+
+    local winActor = actor("sc-prov-window", 38, 30, {})
+    local pwFrom, pwTo = winActor.square, cell:getGridSquare(39, 30, 0)
+    local pwWindow = { canClimbThrough = function() return true end }
+    function pwFrom:getWindowTo(other) return other == pwTo and pwWindow or nil end
+    check(advance(winActor, bearing(), cell:getGridSquare(43, 30, 0), {}, 1000) == nil,
+        "a provisional advance will not walk at a climbable window on the way")
+
+    -- The segment checker must run the policy on every crossed cell, not only
+    -- on the destination: a camp is a union of rectangles, so a straight line
+    -- between two admitted squares can leave the camp in the middle.
+    local segment = SurvivorCompanion.Navigation._actualOpenSegmentForTests
+    local segActor = actor("sc-prov-policy", 46, 30, {})
+    local seen = 0
+    check(segment(segActor, 50.5, 30.5, 0, bearing()) == true,
+        "the segment checker crosses open ground with no policy")
+    check(segment(segActor, 50.5, 30.5, 0, {
+            blockedEdges = {}, blockedSquares = {}, routeMemory = {},
+            squareAdmission = function() seen = seen + 1 return false end,
+        }) == false and seen > 0,
+        "the segment checker refuses a crossed cell the work policy denies")
+
+    local previousAdmit = SurvivorCompanion.Navigation._workSquareAdmitted
+    local admissionCalls = 0
+    SurvivorCompanion.Navigation._workSquareAdmitted = function()
+        admissionCalls = admissionCalls + 1
+        return false
+    end
+    local campActor = actor("sc-prov-camp", 20, 34, {})
+    check(advance(campActor, bearing(), cell:getGridSquare(25, 34, 0),
+            { workCampOnly = true }, 1000) == nil and admissionCalls > 0,
+        "camp-restricted work carries its admission policy into provisional movement")
+    SurvivorCompanion.Navigation._workSquareAdmitted = previousAdmit
+    SurvivorCompanion.Config.values.navigationProvisionalStepping = previousStepping
+end)()
+
+
+-- Review R6: the bleeding mutation ran before the dressing was consumed. The
+-- snapshot restores the dressing, not the injury, so a consumption failure
+-- rolled back the bandage and the clothing while leaving the wound cured --
+-- a failed transaction that still paid out the treatment, and kept the item.
+;(function()    local failWound = bodyPart({ name = "Hand_R", isBleeding = true, bleedingTime = 40 })
+    local failCompanion = actor("sc-consume-fail-patient", 48, 48,
+        { body = bodyDamage(70, { failWound }) })
+    local failBandage = item("Base.Bandage", "Medical", { rejectUse = true })
+    local failInventory = inventory({ failBandage })
+    local failPlayer = actor("sc-consume-fail-player", 48, 49, { inventory = failInventory })
+    local failOk, failReason = SurvivorCompanion.Medical.applyPlayerBandage(
+        failCompanion, failPlayer)
+    check(failOk == false and failReason == "bandage_consume_failed",
+        "a dressing that cannot be consumed reports the consumption failure: "
+            .. tostring(failReason))
+    check(failWound.isBleeding == true and tonumber(failWound.bleedingTime) == 40,
+        "a failed dressing leaves the wound bleeding exactly as it was: "
+            .. tostring(failWound.isBleeding) .. "/" .. tostring(failWound.bleedingTime))
+    check(failWound.isBandaged ~= true and failBandage.used ~= true
+            and SurvivorCompanion.GameplayUtil.inventoryContains(failInventory, failBandage),
+        "a failed dressing restores the bandage state and keeps the item")
+end)()
+
+-- Review R1: a partial route is a promise of more planning. Walking to its end
+-- left the exhausted table in place, and the planning gate requires
+-- `not state.path`, so no new search could start and the request fell through
+-- to terminal handling -- calling a reachable goal blocked after the companion
+-- had done exactly what the partial route asked of it.
+;(function()
+    local lifeActor = actor("sc-partial-lifecycle", 44, 40, {})
+    local lifeGoal = cell:getGridSquare(48, 40, 0)
+    local accepted, acceptedReason = SurvivorCompanion.Navigation.request(
+        lifeActor, lifeGoal, "walk", {})
+    local lifeState = SurvivorCompanion.Navigation._stateForTests(lifeActor)
+    check(accepted == true and type(lifeState) == "table",
+        "a plain route request is accepted: " .. tostring(acceptedReason))
+    -- `path and nil or fallback` always evaluated the fallback, so a route that
+    -- succeeded was recording a failure alongside it.
+    check(type(lifeState.path) ~= "table" or lifeState.pathFailure == nil,
+        "a successful route records no failure: " .. tostring(lifeState.pathFailure))
+
+    -- Stand the companion at the end of a partial route and ask for the same
+    -- real destination again.
+    lifeState.path = { lifeActor.square, cell:getGridSquare(45, 40, 0) }
+    lifeState.pathIndex = #lifeState.path + 1
+    lifeState.pathIsPartial = true
+    lifeState.pathGoalSquare = lifeGoal
+    lifeState.pathReason = "partial"
+    lifeState.nextRepathAt = 0
+    local continued, continuedReason = SurvivorCompanion.Navigation.request(
+        lifeActor, lifeGoal, "walk", {})
+    check(continued == true and continuedReason ~= nil
+            and string.find(tostring(continuedReason), "path_blocked", 1, true) == nil,
+        "reaching the end of a partial route is not a blocked destination: "
+            .. tostring(continued) .. "/" .. tostring(continuedReason))
+    check(lifeState.pathIsPartial == nil,
+        "the partial marker is cleared once its route has been walked")
+end)()
+
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")

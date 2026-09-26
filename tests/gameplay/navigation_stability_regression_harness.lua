@@ -621,6 +621,51 @@ do
     SC.Config._values.navigationNodeBudgetMaximum = savedCeiling
     SC.Config._values.navigationBudgetRetryNodeBudget = savedRetry
 
+    -- Review R4: the hold flag recorded two different things at once. It means
+    -- "this search's stale pulse was cancelled", which is why an ordinary
+    -- waiting pass does not stop again -- but provisional movement issued
+    -- afterwards is live input under that same flag, so returning to a wait
+    -- silently declined to stop it.
+    do
+        local hold = N._holdForPathSearchForTests
+        local previousNative = SC.NativeActions
+        local stops = 0
+        SC.NativeActions = { stopDirect = function() stops = stops + 1 return true end }
+
+        local waiting = { pathSearchHolding = true }
+        check(hold(actor, waiting) == true and stops == 0,
+            "an ordinary waiting pass does not stop an actor that is already held")
+
+        local moving = { pathSearchHolding = true, provisionalMoving = true }
+        local held = hold(actor, moving)
+        check(held == true and stops == 1 and moving.provisionalMoving == nil,
+            "returning to a search hold stops outstanding provisional movement exactly once")
+        check(hold(actor, moving) == true and stops == 1,
+            "further stationary waiting does not stop again")
+
+        SC.NativeActions = { stopDirect = function() stops = stops + 1 return false end }
+        local refused = { pathSearchHolding = nil, provisionalMoving = true }
+        check(hold(actor, refused) == false and refused.pathSearchHolding == false,
+            "a refused stop is not reported as an acquired hold")
+        SC.NativeActions = previousNative
+    end
+
+    -- Review R5: a provisional advance moves the actor on purpose while the
+    -- search runs. Measuring the search against where the actor now stands
+    -- discarded the very progress the advance was meant to overlap with.
+    do
+        local identity = N._searchSourceIdentity
+        local here = SC.GameplayUtil.squareKey(square(0, 0))
+        check(identity({}, square(0, 0)) == tostring(here),
+            "a search with no anchor is identified by the actor's own square")
+        check(identity({ pathSearch = { anchorKey = "9:9:0" }, provisionalAdvances = 0 },
+                square(0, 0)) == tostring(here),
+            "an anchor is not used until a provisional advance has actually moved the actor")
+        check(identity({ pathSearch = { anchorKey = "9:9:0" }, provisionalAdvances = 1 },
+                square(0, 0)) == "9:9:0",
+            "a search that the actor has advanced under keeps its original anchor as its identity")
+    end
+
     -- A search that never left its start square has nothing to offer.
     check(P.partialPath({ bestKey = "0:0:0", startKey = "0:0:0" }, 0) == nil,
         "a search still on its start square offers no partial route")

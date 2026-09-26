@@ -656,20 +656,27 @@ local function commitBandage(patient, assessment, wound, bandage, inventory,
         local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction) and nativeRestored
         return false, rolledBack and "native_bandage_unverified" or "treatment_rollback_failed"
     end
+    if not utility.consumeItem(inventory, bandage) then
+        local nativeRestored = restoreBandage(assessment.bodyDamage, wound, previous)
+        local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction) and nativeRestored
+        return false, rolledBack and "bandage_consume_failed" or "treatment_rollback_failed"
+    end
+    -- Last, after everything that can still fail. Stopping the bleed earlier
+    -- meant a dressing whose consumption failed rolled back the bandage and the
+    -- clothing but left the wound cured: the treatment reported failure while
+    -- the patient kept the benefit and the item. The snapshot restores the
+    -- dressing, not the injury, so the injury must not be touched until the
+    -- transaction can no longer be undone.
+    --
     -- A dressing that is on the wound has stopped the bleeding, dirty or not.
-    -- The dressing itself is real either way, so a build whose body part will
-    -- not take the setter still gets treated -- and says so in the log rather
-    -- than silently returning to the loop this was written to end.
+    -- If the body part will not take the setter the dressing is still real, so
+    -- the treatment stands and says so in the log rather than silently
+    -- returning to the loop this was written to end.
     local wasBleeding = wound.bleeding == true
     if not stopBleeding(wound) and wasBleeding then
         utility.diagnostic("medical", helper or patient,
             "action=bandage part=" .. tostring(wound.name)
             .. " bleeding=unstopped type=" .. tostring(fullType))
-    end
-    if not utility.consumeItem(inventory, bandage) then
-        local nativeRestored = restoreBandage(assessment.bodyDamage, wound, previous)
-        local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction) and nativeRestored
-        return false, rolledBack and "bandage_consume_failed" or "treatment_rollback_failed"
     end
     return true, "bandaged"
 end

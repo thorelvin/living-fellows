@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.25.11 - Six from the review
+
+- Companions no longer report a reachable destination as blocked after walking a partial route to its end. A partial route is a promise of more planning, but reaching its last square left the spent route in place, and planning refuses to start while a route exists -- so the request fell through to the failure path and called the destination blocked, having just done exactly what it was told. The spent route is now cleared and the rest is planned from wherever they actually got to.
+- Companions no longer walk at a closed door, a window or a fence while their route is still being worked out. The test used to decide whether the way ahead was clear was the one that asks whether a route may cross an obstacle, and a route may cross all three by opening, climbing or vaulting them. Nothing performs that interaction for a companion who is merely heading in the right direction, so they walked into it. Pushing through undergrowth is still allowed, which is what that shortcut was for.
+- Workers no longer step outside their work area while their route is being planned. A camp is a union of rectangles, so the straight line between two squares inside it can pass outside in the middle. The real route obeys the boundary square by square; the head start did not check it at all.
+- A companion told to wait again after setting off early is now actually stopped. One flag recorded both "the old movement was cancelled" and "the companion is standing still", so once it had been sent off, the request to hold it declined to do anything, and the movement ran until the bridge's own input timeout ended it.
+- Following companions stop discarding their own route planning. A search is identified by where it started, and a companion that sets off early is deliberately no longer there -- so moving one tile while the leader moved one tile threw away a search that was nearly finished, and started again. The search now keeps the square it was planned from as its identity.
+- A dressing whose consumption fails no longer cures the wound anyway. Bleeding was stopped before the bandage was taken from the inventory, and the rollback restores the dressing but not the injury, so a failed treatment could leave the patient healed and still holding the bandage. The bleeding is now the last thing to change, after everything that can still fail has succeeded.
+- Fixed a route that succeeded recording a failure alongside itself. `path and nil or fallback` always evaluates the fallback in Lua, because the middle value is false.
+
 ## 0.25.10 - The bleeding stops
 
 - Bandaging a companion now stops the bleeding, which fixes a companion who bandages all day and never runs out of dressings. Applying a dressing went through a setter that only marks the wound as covered; the bleeding underneath carried on. A wound that is still bleeding cannot close, so it soiled its dressing, was dressed again, soiled that one, and so on for the rest of the session -- and because the injury never resolved, the companion also read itself as wounded and untreated for ever, and scavenged for medicine at the highest priority it has. That is why their pack refilled to five bandages as fast as it emptied, with no clothes torn: they were looting dressings, endlessly, for a wound that could never heal. A dressing now does what yours does.

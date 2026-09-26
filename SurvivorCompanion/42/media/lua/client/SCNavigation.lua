@@ -1529,9 +1529,27 @@ local function actualOpenSegmentWithinBatch(actor, targetX, targetY, targetZ, op
             math.floor(targetZ or 0))
         if square == nil then return false end
         if not sameSquare(previous, square) then
+            -- passableEdge answers "can a route cross this", which deliberately
+            -- accepts a door to open, a window to climb and a fence to vault.
+            -- A caller that is about to send a bare movement vector needs the
+            -- narrower question, or it walks a companion into the barrier and
+            -- never hands the crossing to the traversal owner. Undergrowth is
+            -- still fine: a bush is a cost, not an action.
+            if options.directWalkOnly == true
+                and Navigation.edgeAffordance(previous, square) ~= nil then
+                return false
+            end
             local passable = passableEdge(previous, square,
                 options.vegetationScale, options)
             if passable ~= true then return false end
+            -- Camp areas are a union of rectangles, so a straight line between
+            -- two admitted squares can leave the camp in the middle. The
+            -- planner enforces this per square; a segment must too, or work
+            -- routing escapes its own boundary while the real route is pending.
+            if type(options.squareAdmission) == "function" then
+                local observed, admitted = pcall(options.squareAdmission, square, previous)
+                if not observed or admitted ~= true then return false end
+            end
             previous = square
         end
     end
@@ -1632,8 +1650,16 @@ function Navigation._provisionalAdvance(actor, state, goalSquare, intent, now)
         routeMemory = state.routeMemory,
         allowHazards = type(intent) == "table" and intent.urgent == true,
         allowOccupiedFinal = false,
+        -- This dispatches a movement vector, not a route: nothing downstream
+        -- will open a door or climb a window for it.
+        directWalkOnly = true,
         now = now or U().nowMs(),
     }
+    if type(intent) == "table" and intent.workCampOnly == true then
+        options.squareAdmission = function(square)
+            return SC.Navigation._workSquareAdmitted(square, intent)
+        end
+    end
     -- Furthest provable point first: a shorter hop aims worse but is still
     -- progress, and one blocked sample must not veto the whole bearing.
     local reach = math.min(span, math.max(1,
@@ -3054,7 +3080,14 @@ local function clearMovementTransients(actor, state)
 end
 
 local function holdForPathSearch(actor, state)
-    if state.pathSearchHolding == true then return true end
+    -- The flag records that this search's stale forward pulse was cancelled,
+    -- which is why an ordinary waiting pass does not stop again. Provisional
+    -- movement issued afterwards is live input under that same flag, so a
+    -- return to waiting has to stop once more -- otherwise the advance runs on
+    -- until the bridge's own manual-input lifetime expires.
+    if state.pathSearchHolding == true and state.provisionalMoving ~= true then
+        return true
+    end
     local stopped = false
     if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
         local ok, result = pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
@@ -3063,8 +3096,10 @@ local function holdForPathSearch(actor, state)
         stopped = U().stop(actor) == true
     end
     state.pathSearchHolding = stopped
+    if stopped then state.provisionalMoving = nil end
     return stopped
 end
+Navigation._holdForPathSearchForTests = holdForPathSearch
 
 -- A recovery episode is anchored where it started. Ordinary walking clears the
 -- ladder, but a companion shuffling inside a thicket also moves: a fifth of a
@@ -3265,6 +3300,23 @@ end
 -- The actor is deliberately stationary while incremental A* yields. Let a
 -- forward-moving formation goal drift a few tiles without discarding that whole
 -- frontier; the completed route is repaired to the latest goal immediately.
+-- The square a live search is identified by. A provisional advance moves the
+-- actor on purpose while the search runs, so measuring the search against where
+-- the actor is now discards exactly the progress the advance was meant to
+-- overlap with: the companion crossed one tile, the leader drifted one tile,
+-- and a frontier that was minutes from finishing was thrown away. Once an
+-- advance has happened the search keeps its original anchor as its identity.
+-- Everything else about it -- ownership, age, floor, heading, goal drift -- is
+-- still checked by the caller.
+function Navigation._searchSourceIdentity(state, sourceSquare)
+    local pending = type(state) == "table" and state.pathSearch or nil
+    if pending ~= nil and pending.anchorKey ~= nil
+        and (tonumber(state.provisionalAdvances) or 0) > 0 then
+        return tostring(pending.anchorKey)
+    end
+    return tostring(squareKey(sourceSquare))
+end
+
 local function usefulPendingMovingSearch(actor, state, goalSquare, context, now)
     local pending = state and state.pathSearch
     local route = pending and pending.route
@@ -3279,7 +3331,10 @@ local function usefulPendingMovingSearch(actor, state, goalSquare, context, now)
         return false
     end
     local sourceSquare = U().squareOf(actor)
-    if sourceSquare == nil or route.startKey ~= squareKey(sourceSquare) then return false end
+    if sourceSquare == nil
+        or tostring(route.startKey) ~= Navigation._searchSourceIdentity(state, sourceSquare) then
+        return false
+    end
     local ox, oy, oz = U().position(oldGoal)
     local nx, ny, nz = U().position(goalSquare)
     if ox == nil or nx == nil or math.floor(oz or 0) ~= math.floor(nz or 0) then
@@ -5397,7 +5452,8 @@ function Navigation.request(actor, target, movementMode, intent)
         if not state.path and not longRangeEngine then
             local planningGoal = goalSquare
         if state.pathSearch and state.pathSearch.route
-            and state.pathSearch.route.startKey == squareKey(sourceSquare)
+            and tostring(state.pathSearch.route.startKey)
+                == SC.Navigation._searchSourceIdentity(state, sourceSquare)
             and (utility.distance(state.pathSearch.route.goalSquare, goalSquare)
                     < goalResetDistance(requestIntent)
                 or SC.Navigation._usefulPendingMovingSearchForRequest(
@@ -5413,12 +5469,7 @@ function Navigation.request(actor, target, movementMode, intent)
         -- advance has moved the actor, the search keeps its original anchor
         -- and keeps running; the completed route is rejoined further along by
         -- the ordinary suffix reuse below.
-        local anchorKey = tostring(squareKey(sourceSquare))
-        if state.pathSearch ~= nil and state.pathSearch.anchorKey ~= nil
-            and (tonumber(state.provisionalAdvances) or 0) > 0 then
-            anchorKey = state.pathSearch.anchorKey
-        end
-        local searchKey = anchorKey .. ">" .. tostring(squareKey(planningGoal))
+        local searchKey = SC.Navigation._searchSourceIdentity(state, sourceSquare) .. ">" .. tostring(squareKey(planningGoal))
             .. ":" .. tostring(requestIntent.stealthAvoidance == true)
             .. ":" .. tostring(followRouting == true)
             .. ":" .. tostring(evaluateAlternatives == true)
@@ -5479,6 +5530,7 @@ function Navigation.request(actor, target, movementMode, intent)
                 -- stale input was already cancelled, not that the actor is
                 -- standing still. Clearing it would stop and start every pass.
                 state.provisionalAdvances = (tonumber(state.provisionalAdvances) or 0) + 1
+                state.provisionalMoving = true
                 state.lastProgressAt = now
             else
                 holdForPathSearch(actor, state)
@@ -5550,11 +5602,17 @@ function Navigation.request(actor, target, movementMode, intent)
         SC.WorkRoutes.count(path and "navigation.astar.completed"
             or "navigation.astar.failed")
         SC.Navigation._resetRouteProjection(state)
-        state.pathFailure = path and nil or (completedSearch and completedSearch.failure or {
-            failureClass = reason == "budget" and "budget_exhausted" or "blocked_static",
-            nativeFallbackAllowed = reason == "budget",
-            rejections = {},
-        })
+        -- `path and nil or fallback` always evaluates the fallback, because the
+        -- middle operand is falsy: a successful route was recording a failure.
+        if path ~= nil then
+            state.pathFailure = nil
+        else
+            state.pathFailure = completedSearch and completedSearch.failure or {
+                failureClass = reason == "budget" and "budget_exhausted" or "blocked_static",
+                nativeFallbackAllowed = reason == "budget",
+                rejections = {},
+            }
+        end
         -- The goal stays the real one: arriving at the end of a partial route
         -- is not arriving, so the next request plans the rest of the way.
         state.pathIsPartial = (path ~= nil and reason == "partial") or nil
@@ -5650,6 +5708,26 @@ function Navigation.request(actor, target, movementMode, intent)
     end
 
     if not nextSquare then
+        -- A partial route is a promise of more planning, not a destination.
+        -- Walking to its end left the exhausted table in place, and the planning
+        -- gate requires `not state.path`, so no new search could start and the
+        -- request fell through to terminal handling -- reporting a perfectly
+        -- reachable goal as blocked after the companion had done exactly what
+        -- the partial route asked of it. Clear it and plan the rest from where
+        -- it actually got to. A search that then gains nothing fails for real,
+        -- which is what ends the sequence.
+        if state.pathIsPartial == true then
+            state.path, state.pathIndex = nil, 1
+            state.pathIsPartial, state.pathGoalSquare = nil, nil
+            state.pathFailure, state.nextRepathAt = nil, 0
+            SC.Navigation._resetRouteProjection(state)
+            recordMovement(actor, "partial_route_continues", {
+                status = "partial",
+                targetSquare = goalSquare,
+                detail = state.pathReason,
+            })
+            return true, "partial_route_continues"
+        end
         if requestIntent.pathSearchReason == "path_deviation" then
             return true, "path_deviation_replan"
         end
