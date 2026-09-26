@@ -1784,15 +1784,33 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands, options)
     }
 end
 
+-- The fight in front of this actor plus what is credibly about to join it.
+-- Held here rather than called directly so a missing model degrades to the old
+-- broad value instead of throwing in the middle of a swing.
+function Combat._engagementPressure(snapshot)
+    local model = SC.CombatThreatModel
+    if type(model) == "table" and type(model.engagementPressure) == "function" then
+        return model.engagementPressure(snapshot)
+    end
+    return math.max(0, tonumber(type(snapshot) == "table" and snapshot.pressure) or 0)
+end
+
 local function retreatUtility(actor, snapshot, weapon, readiness)
     readiness = readiness or Combat.readiness(actor, snapshot, weapon, commandState(actor))
     local assessment = { health = readiness.health }
-    local pressure = tonumber(snapshot.pressure) or 0
+    -- The fight in front of this actor, plus what is credibly about to join it.
+    -- Zombies that are merely visible are awareness, and awareness does not get
+    -- multiplied by sixteen.
+    local pressure = Combat._engagementPressure(snapshot)
     local value = pressure * 16 + readiness.woundPressure * 12
         + (1 - readiness.endurance) * 28 + readiness.panic * 4
         + readiness.stress * 0.08 + readiness.pain * 3
         + readiness.heavyLoad * 3 + readiness.escapeDanger * 4
     if snapshot.encircled then value = value + 35 end
+    -- No route out and something already on us: less than proven encirclement,
+    -- more than nothing. Previously this produced a full encircled verdict from
+    -- an escape search that had merely not finished.
+    if snapshot.escapeStatus == "blocked" and pressure > 0 then value = value + 20 end
     if assessment.health < 30 then value = value + 35 end
     if not weapon then value = value + 18
     elseif weapon.conditionRatio < 0.2 then value = value + 14
@@ -2089,7 +2107,7 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
         readiness)
     local utility = U()
     local distance = math.sqrt(target.distanceSq or utility.distanceSq(actor, target.actor))
-    local pressure = tonumber(snapshot.pressure) or 0
+    local pressure = Combat._engagementPressure(snapshot)
     readiness = readiness or Combat.readiness(actor, snapshot, weapon, commands)
     local isolatedFront = readiness.close <= 1 and readiness.occupiedSectors <= 1
         and snapshot.encircled ~= true and target.bearing ~= "rear"
@@ -2492,7 +2510,7 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
             local selection = weaponByBand[band]
             if selection == nil then
                 local selected, items = responsiveWeapon(actor, state, preference, distance,
-                    snapshot.pressure or 0, snapshot, now)
+                    Combat._engagementPressure(snapshot), snapshot, now)
                 selection = { weapon = selected, inventory = items }
                 weaponByBand[band] = selection
             end
@@ -3314,7 +3332,7 @@ function Combat.update(actor, player, runtime)
         preference = "firearm"
     end
     local weapon, inventory = responsiveWeapon(actor, state, preference, distance,
-        snapshot.pressure or 0, snapshot, now)
+        Combat._engagementPressure(snapshot), snapshot, now)
     if seated then
         clearAimPreparation(state)
         local ok, reason = vehicleCombat(
@@ -3392,7 +3410,7 @@ function Combat.update(actor, player, runtime)
     end
 
     if commands.combatDoctrine == "stealth" and not passiveMayFight(target, player, snapshot) then
-        if (snapshot.pressure or 0) > 0 then
+        if Combat._engagementPressure(snapshot) > 0 then
             releaseActorClaims(actor)
             state.combatRole = nil
             rootRuntime.combatRole = nil

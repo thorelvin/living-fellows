@@ -6,7 +6,7 @@ $LuaRoot = Join-Path $ProjectRoot 'SurvivorCompanion\42\media\lua'
 $BuildRoot = Join-Path ([IO.Path]::GetTempPath()) ('sc-perception-tests-' + [guid]::NewGuid().ToString('N'))
 $Files = @((Join-Path $ProjectRoot 'tests\core\core_fixture.lua'))
 $Files += @('SCNamespace.lua','SCCall.lua','SCStableValue.lua','SCTransaction.lua','SCNativeList.lua','SCConfig.lua') | ForEach-Object { Join-Path $LuaRoot ('shared\' + $_) }
-$Files += @('SCGameplayUtil.lua','SCPerformance.lua','SCTopology.lua','SCThreatSet.lua','SCPerceptionScan.lua','SCSenses.lua') | ForEach-Object { Join-Path $LuaRoot ('client\' + $_) }
+$Files += @('SCGameplayUtil.lua','SCPerformance.lua','SCTopology.lua','SCThreatSet.lua','SCCombatThreatModel.lua','SCPerceptionScan.lua','SCSenses.lua') | ForEach-Object { Join-Path $LuaRoot ('client\' + $_) }
 $Files += Join-Path $PSScriptRoot 'perception_topology_regression_harness.lua'
 New-Item -ItemType Directory -Path $BuildRoot | Out-Null
 try {

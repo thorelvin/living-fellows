@@ -295,6 +295,10 @@ local valueData = {
     -- A search that finds no route hands back the closest ground it reached,
     -- provided that closes at least this many tiles of the gap. Below it the
     -- route is not worth walking and the failure is reported as before.
+    -- How far ahead a closing zombie still counts as something to plan around.
+    -- Past it, a contact is awareness rather than a reason to break off a swing
+    -- already underway. A starting value, to be tuned against native movement.
+    combatIncomingHorizonMs = 5000,
     navigationPartialRoutes = true,
     navigationPartialRouteMinimumGain = 2,
     -- Heading toward the goal while the route is still being planned, rather

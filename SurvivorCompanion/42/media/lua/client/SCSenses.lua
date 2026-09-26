@@ -6,6 +6,9 @@ if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGa
 if not SC.Topology and type(require) == "function" then pcall(require, "SCTopology") end
 if not SC.Performance and type(require) == "function" then pcall(require, "SCPerformance") end
 if not SC.ThreatSet and type(require) == "function" then pcall(require, "SCThreatSet") end
+if not SC.CombatThreatModel and type(require) == "function" then
+    pcall(require, "SCCombatThreatModel")
+end
 if not SC.PerceptionScan and type(require) == "function" then pcall(require, "SCPerceptionScan") end
 
 SC.Senses = SC.Senses or {}
@@ -1099,8 +1102,19 @@ function Senses.snapshot(actor, player, runtime)
         indoors = actorRoomOk and actorRoom ~= nil,
     }
     snapshot.player = playerCondition(player, threats)
-    snapshot.encircled = closeImmediateCount >= 3 or occupiedThreatSectors >= 3
-        or (#escapeSquares == 0 and #threats >= 2)
+    -- One derivation for both writers: a full scan and a reflex refresh must
+    -- not disagree about the same facts. This also sets encircled, which no
+    -- longer follows from an empty escape list plus two zombies anywhere in
+    -- sight -- a search that has not run is not proof of being surrounded.
+    SC.CombatThreatModel.apply(snapshot, {
+        immediateCount = #immediate,
+        closeThreatCount = closeThreatCount,
+        closeImmediateCount = closeImmediateCount,
+        occupiedThreatSectors = occupiedThreatSectors,
+        visibleCount = #threats,
+        threats = threats,
+        escapeSquares = escapeSquares,
+    })
     state.current = snapshot
     -- A full snapshot already performs the same bounded native discovery, LOS
     -- validation and escape refresh as the immediate pass. Satisfy this reflex
@@ -1335,8 +1349,15 @@ function Senses.refreshImmediate(actor, player, snapshot, runtime)
     snapshot.heardThreatCount = #heardThreats
     snapshot.lastHeardDanger = heardThreats[1]
     snapshot.player = playerCondition(player, threats)
-    snapshot.encircled = closeImmediate >= 3 or occupied >= 3
-        or (#(snapshot.escapeSquares or {}) == 0 and #threats >= 2)
+    SC.CombatThreatModel.apply(snapshot, {
+        immediateCount = immediateVisibleCount,
+        closeThreatCount = closeCount,
+        closeImmediateCount = closeImmediate,
+        occupiedThreatSectors = occupied,
+        visibleCount = visibleCount,
+        threats = threats,
+        escapeSquares = snapshot.escapeSquares,
+    })
     state.current = snapshot
     state.reflexCount = (state.reflexCount or 0) + 1
     state.reflexAddedThreats = (state.reflexAddedThreats or 0) + added

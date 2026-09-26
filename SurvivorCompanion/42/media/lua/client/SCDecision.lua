@@ -346,7 +346,8 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     end
     local humanThreat = type(snapshot) == "table" and snapshot.humanThreat or nil
     if threatCount > 0 or humanThreat then
-        local combatScore = 72 + immediate * 17 + (snapshot.pressure or 0) * 5
+        local combatScore = 72 + immediate * 17
+            + Decision._engagementPressure(snapshot) * 5
         local doctrine = commands.combatDoctrine
             or (commands.combatMode == "aggressive" and "weapons_free")
             or (commands.combatMode == "passive" and "stealth")
@@ -1949,7 +1950,7 @@ local function survivalNeedsImmediateControl(snapshot, assessment, needs, comman
     local playerDanger = type(snapshot.player) == "table"
         and tonumber(snapshot.player.danger) or 0
     return immediate > 0 or snapshot.humanThreat ~= nil
-        or (tonumber(snapshot.pressure) or 0) >= 1.5
+        or Decision._engagementPressure(snapshot) >= 1.5
         or playerDanger > 0 or commands.order == "retreat"
         or assessment.downed == true
         or assessment.critical == true and ((tonumber(snapshot.threatCount) or #(snapshot.threats or {})) > 0
@@ -1965,7 +1966,7 @@ local function nonMedicalSurvivalNeedsImmediateControl(snapshot, needs, commands
     local playerDanger = type(snapshot.player) == "table"
         and tonumber(snapshot.player.danger) or 0
     return immediate > 0 or snapshot.humanThreat ~= nil
-        or (tonumber(snapshot.pressure) or 0) >= 1.5
+        or Decision._engagementPressure(snapshot) >= 1.5
         or playerDanger > 0 or commands.order == "retreat"
         or type(needs) == "table" and needs.emergency == true
 end
@@ -2561,6 +2562,17 @@ function Decision.reset(actor)
         workReservations = {}
         lastGroupThreatWarningAt = -math.huge
     end
+end
+
+-- Combat is not loaded in every context that reads a snapshot, and the existing
+-- code guards SC.Combat for exactly that reason. A missing combat module
+-- degrades to the old broad value rather than throwing.
+function Decision._engagementPressure(snapshot)
+    local combat = SC.Combat
+    if type(combat) == "table" and type(combat._engagementPressure) == "function" then
+        return combat._engagementPressure(snapshot)
+    end
+    return math.max(0, tonumber(type(snapshot) == "table" and snapshot.pressure) or 0)
 end
 
 function Decision.resetAll()

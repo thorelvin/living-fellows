@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.25.15 - A horde in sight is not a horde in the fight
+
+- Companions no longer back away from two zombies because twenty more are standing about in the distance. Danger was one number that mixed the zombies which can actually reach a companion with every other one it happened to be able to see, and the retreat calculation multiplied that number by sixteen. Twenty idle zombies across a field pushed retreat up by a hundred and twelve points and pushed attacking down, without one fact about the fight in front of the companion having changed -- so they kited away from a pair they could comfortably have handled.
+- What can reach them, what is coming, and what is merely in view are now three separate things. Only the first two decide whether the next swing is safe. What is merely in view still shapes caution, noise and route choice, which is what it was always good for.
+- A pack that is genuinely closing still counts. Zombies observed moving toward the group, and expected to arrive within a few seconds, raise the pressure the same way a fight does -- so companions withdraw before being overrun rather than only after. Zombies that are simply visible, or that would take a minute to arrive, do not.
+- Being surrounded now means being surrounded. It used to be enough for the escape search to return nothing while any two zombies were visible anywhere, so a search that had not finished yet could convince a companion it was encircled. Proven pressure from several sides is still an emergency, and having no way out with something already on you still counts against standing your ground -- just not as much as being genuinely surrounded.
+
 ## 0.25.14 - Hello is something you say once
 
 - Households greet a visitor once per visit instead of once every twenty-two seconds. Standing at someone's entry produced a fresh hello on a timer, so "hello" was never a thing that had been said -- it was a thing that kept happening. A visit now begins when you arrive, survives stepping around the doorway or reopening the menu, and ends when you actually leave and stay gone; coming back is a new visit and gets a new greeting.
