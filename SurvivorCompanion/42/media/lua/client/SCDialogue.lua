@@ -1388,27 +1388,82 @@ local pools = {
         caring = { "We stay together and avoid fights that put either of us at needless risk.", "Nobody gets left behind for a bag of supplies." },
         practical = { "We conserve ammunition, keep our tools ready, and choose useful fights.", "The plan is sound if the cost stays lower than the reward." },
     },
-    ["relationship.family"] = { common = {
-        "You are family to me now. I am not walking away.", "Whatever happens next, you are not facing it alone.",
-        "I stopped thinking of this as an arrangement a long time ago. You are family.",
-        "I trust you like family. That is the truth of it.",
-    } },
-    ["relationship.close"] = { common = {
-        "I trust you with my life. That is not something I say lightly.", "You have proven yourself to me more than once.",
-        "If things go bad, I know you will still be there.", "We have become close. Closer than I expected anyone to get.",
-    } },
-    ["relationship.trusted"] = { common = {
-        "We have been through enough that I know you will be there.", "You have earned my trust.",
-        "I don't agree with every call, but I trust you to make one.", "I know where I stand with you, and that matters.",
-    } },
-    ["relationship.ally"] = { common = {
-        "We work well together. Trust takes time, but we are getting there.", "You have been fair with me so far.",
-        "I think this partnership has a chance.", "We are still learning each other, but I trust you more than I did.",
-    } },
-    ["relationship.cautious"] = { common = {
-        "I am still getting to know you. Give me time.", "I don't know you well enough to answer that yet.",
-        "Trust comes slowly for me now.", "We are not enemies. The rest still has to be earned.",
-    } },
+    ["relationship.family"] = {
+        common = {
+            "You are family to me now. I am not walking away.", "Whatever happens next, you are not facing it alone.",
+            "I stopped thinking of this as an arrangement a long time ago. You are family.",
+            "I trust you like family. That is the truth of it.",
+            -- Added 0.25.13: attachment and boundaries, said plainly.
+            "A dry room is shelter. You're why I'd come back to it.",
+            "Blood didn't do this. Staying did.",
+            "Whatever place we find, I want you there.",
+            "You're family. That's one thing this mess doesn't get to decide.",
+        },
+        brave = { "I'll argue with you. I'll still come for you." },
+        cautious = { "You're family. That means I get to tell you when you're being stupid." },
+        caring = { "You don't have to make yourself useful to matter to me." },
+        practical = { "Family, then. An unreasonable arrangement. I'm keeping it." },
+    },
+    ["relationship.close"] = {
+        common = {
+            "I trust you with my life. That is not something I say lightly.", "You have proven yourself to me more than once.",
+            "If things go bad, I know you will still be there.", "We have become close. Closer than I expected anyone to get.",
+            -- Added 0.25.13: attachment and boundaries, said plainly.
+            "I think about tomorrow now. You're usually in it.",
+            "I don't like how much I'd notice you gone.",
+            "Somewhere along the way, this stopped being a deal.",
+            "I can be quiet around you without feeling alone.",
+        },
+        brave = { "I'd go back for you. I'd probably complain the whole way." },
+        cautious = { "You're close enough to hurt me. Don't." },
+        caring = { "You don't have to say anything. Just stay a minute." },
+        practical = { "I'm making plans that include you. Adjust accordingly." },
+    },
+    ["relationship.trusted"] = {
+        common = {
+            "We have been through enough that I know you will be there.", "You have earned my trust.",
+            "I don't agree with every call, but I trust you to make one.", "I know where I stand with you, and that matters.",
+            -- Added 0.25.13: attachment and boundaries, said plainly.
+            "I don't need a speech from you. I need you to keep being you.",
+            "Your word has some weight with me now.",
+            "I still watch the door. I don't watch you the same way.",
+            "Bad days are easier when I don't have to face them alone.",
+        },
+        brave = { "I'll stand beside you. Don't mistake that for agreeing with every plan." },
+        cautious = { "I trust you. I'm still checking the way out." },
+        caring = { "You don't have to earn your place with me every morning." },
+        practical = { "I believe you'll pull your weight. Makes planning simpler." },
+    },
+    ["relationship.ally"] = {
+        common = {
+            "We work well together. Trust takes time, but we are getting there.", "You have been fair with me so far.",
+            "I think this partnership has a chance.", "We are still learning each other, but I trust you more than I did.",
+            -- Added 0.25.13: attachment and boundaries, said plainly.
+            "I'm getting used to having you there. Don't make me regret saying it.",
+            "I don't trust easy. You're making it inconvenient.",
+            "We're not family. But you're not just another mouth to feed.",
+            "I reckon this could work. That's more than I'd have said before.",
+        },
+        brave = { "We've got a chance together. I'd rather take it than hide." },
+        cautious = { "I'll give you the benefit of the doubt. Not all of it." },
+        caring = { "It's easier hearing another person breathe. Especially you." },
+        practical = { "You do your share. That's a decent place to start." },
+    },
+    ["relationship.cautious"] = {
+        common = {
+            "I am still getting to know you. Give me time.", "I don't know you well enough to answer that yet.",
+            "Trust comes slowly for me now.", "We are not enemies. The rest still has to be earned.",
+            -- Added 0.25.13: attachment and boundaries, said plainly.
+            "We can share a road. The rest takes longer.",
+            "I'm still deciding what your word is worth.",
+            "You haven't given me a reason to leave. Don't rush the rest.",
+            "Let's get through today before we start calling it trust.",
+        },
+        brave = { "You want my trust? Be there when it gets ugly." },
+        cautious = { "I still need to know I can say no to you." },
+        caring = { "I want to trust you. Wanting isn't the hard part." },
+        practical = { "We have an arrangement. I'll let you know when it's more than that." },
+    },
     ["encourage.recent"] = { common = {
         "I heard you. Give me a minute to breathe.", "I appreciate it. Let the words settle for a moment.",
         "You already helped. I just need a little time now.", "I am listening. I can't turn it around all at once.",
@@ -1417,20 +1472,42 @@ local pools = {
         "I am good. Save that speech for when one of us really needs it.", "I am all right, but thank you for checking.",
         "Keep that encouragement ready. Today I am doing fine.", "No need to worry about me right now.",
     } },
-    ["encourage.accept"] = { common = {
-        "Thank you. I needed to hear that.", "That helped more than I expected.",
-        "All right. I will keep trying.", "Thanks. I was getting lost in my own head.",
-        "I am not fixed, but I feel steadier. Thank you.",
-    } },
+    ["encourage.accept"] = {
+        common = {
+            "Thank you. I needed to hear that.", "That helped more than I expected.",
+            "All right. I will keep trying.", "Thanks. I was getting lost in my own head.",
+            "I am not fixed, but I feel steadier. Thank you.",
+            -- Added 0.25.13: attachment and boundaries, said plainly.
+            "I'm not better. I'm a little less alone with it.",
+            "All right. One thing at a time. I can try that.",
+            "Thanks. I needed a person, not a solution.",
+            "I can't promise a good day. I'll try for the next hour.",
+        },
+        brave = { "I've got a little fight left. Thanks for reminding me." },
+        cautious = { "Let's keep the next step small. I can manage small." },
+        caring = { "Stay with me a moment. That helps." },
+        practical = { "That helped. Not a miracle. Enough." },
+    },
     ["praise.none"] = { common = {
         "Thanks, but let us save the celebration until the work is done.", "I appreciate it, but I have not earned a victory speech yet.",
         "Hold that thought until we have something real to celebrate.", "Thanks. For now, let's stay focused.",
     } },
-    ["praise.accept"] = { common = {
-        "That means more than you know.", "Thank you. I am proud that I could help.",
-        "I was just doing my part, but I appreciate you saying it.", "Thanks. It is good to know the effort mattered.",
-        "I will remember that. Thank you.",
-    } },
+    ["praise.accept"] = {
+        common = {
+            "That means more than you know.", "Thank you. I am proud that I could help.",
+            "I was just doing my part, but I appreciate you saying it.", "Thanks. It is good to know the effort mattered.",
+            "I will remember that. Thank you.",
+            -- Added 0.25.13: attachment and boundaries, said plainly.
+            "I wasn't sure anyone noticed.",
+            "We still know how to do something besides lose things.",
+            "Thanks. Let me have that one for a minute.",
+            "It's good to be useful without being used.",
+        },
+        brave = { "I'll take the compliment. Don't turn it into a speech." },
+        cautious = { "Thanks. Let's not make success an excuse to get careless." },
+        caring = { "You noticing matters. More than I'd like to admit." },
+        practical = { "A favorable review. I'll file it somewhere dry." },
+    },
     ["memory.companion_died"] = { common = {
         "%1 died. I keep thinking about the time we had together.",
         "I still catch myself remembering %1 at the strangest moments.",
@@ -1701,26 +1778,81 @@ local pools = {
         "I need more time before I make that choice.", "I am not ready to decide yet. Give me another run.",
         "Ask me again later. I need to see more.", "I am still weighing it. Do not push me yet.",
     } },
-    ["faction.life.greeting.Wary"] = { common = {
-        "State your business from there.", "Keep your hands where I can see them.",
-        "We can hear you from where you are. Speak.", "Stop at the boundary and tell us what you want.",
-    } },
-    ["faction.life.greeting.Tolerated"] = { common = {
-        "We can talk here. Do not enter the house.", "All right. What do you need?",
-        "You can approach the gate, no farther.", "We remember you. Say what you came to say.",
-    } },
-    ["faction.life.greeting.Trusted"] = { common = {
-        "Good to see a familiar face.", "Come closer. We may have news for you.",
-        "You are welcome at the gate.", "Good, you made it back. What can we do for you?",
-    } },
-    ["faction.life.supply_crisis"] = { common = {
-        "We are running out of %1.", "Our %1 stock is almost gone.",
-        "We have a serious shortage of %1.", "If we cannot find %1 soon, this house is in trouble.",
-    } },
-    ["faction.life.illness"] = { common = {
-        "Someone inside is sick. Keep your distance.", "We have illness in the house. Do not come closer.",
-        "One of ours is unwell. We are limiting contact.", "Stay at the gate. We cannot risk spreading this.",
-    } },
+    ["faction.life.greeting.Wary"] = {
+        common = {
+            "State your business from there.", "Keep your hands where I can see them.",
+            "We can hear you from where you are. Speak.", "Stop at the boundary and tell us what you want.",
+            -- Added 0.25.13: a boundary stated before a conversation starts.
+            "Stop there. We can hear you without opening anything.",
+            "Tell us what you need. Leave out the promises.",
+            "Keep your hands where we can see them. Then we talk.",
+            "A living face isn't a reference. Stay there.",
+        },
+        brave = { "Hold there. We can settle this with words." },
+        cautious = { "Don't come closer. Talk from where you are." },
+        caring = { "Stay back, please. We're trying to keep people alive here." },
+        practical = { "State your business. We can manage that without opening the house." },
+    },
+    ["faction.life.greeting.Tolerated"] = {
+        common = {
+            "We can talk here. Do not enter the house.", "All right. What do you need?",
+            "You can approach the gate, no farther.", "We remember you. Say what you came to say.",
+            -- Added 0.25.13: talking is not permission to come in.
+            "We know your face. The house is still private.",
+            "You can talk to us here. The door isn't part of the invitation.",
+            "All right. What brings you back?",
+            "Stay at the entry. You're welcome to a conversation.",
+        },
+        brave = { "Go on. Say what you came to say." },
+        cautious = { "We can talk. Keep to the same side of the boundary." },
+        caring = { "It's good to see you alive. We still need some distance." },
+        practical = { "Conversation is permitted. Entry is a separate discussion." },
+    },
+    ["faction.life.greeting.Trusted"] = {
+        common = {
+            "Good to see a familiar face.", "Come closer. We may have news for you.",
+            "You are welcome at the gate.", "Good, you made it back. What can we do for you?",
+            -- Added 0.25.13: recognition, without inventing a right of access.
+            "Good. A face I don't have to work out again.",
+            "You're welcome at the entry. Let's hear what you need.",
+            "I'm glad it's you. That's the whole speech.",
+            "Always easier when the visitor has a name we know.",
+        },
+        brave = { "Good to see you. What are we dealing with today?" },
+        cautious = { "We trust you. We still keep the house secure." },
+        caring = { "You're here. I was hoping you'd keep being here." },
+        practical = { "A known quantity. Those are getting scarce." },
+    },
+    ["faction.life.supply_crisis"] = {
+        common = {
+            "We are running out of %1.", "Our %1 stock is almost gone.",
+            "We have a serious shortage of %1.", "If we cannot find %1 soon, this house is in trouble.",
+            -- Added 0.25.13: need, with the ceremony stripped off.
+            "We're short on %1. That's the part we can't talk around.",
+            "We need %1. More than we need another promise.",
+            "There's not enough %1. That's our problem right now.",
+            "Our %1 won't stretch much further.",
+        },
+        brave = { "We need %1. Tell us whether you can help." },
+        cautious = { "We're short on %1. I'd rather say it before it gets worse." },
+        caring = { "We need %1. Pride isn't worth anybody suffering for." },
+        practical = { "Short on %1. No amount of counting improves it." },
+    },
+    ["faction.life.illness"] = {
+        common = {
+            "Someone inside is sick. Keep your distance.", "We have illness in the house. Do not come closer.",
+            "One of ours is unwell. We are limiting contact.", "Stay at the gate. We cannot risk spreading this.",
+            -- Added 0.25.13: a sick house, not a diagnosis.
+            "Someone here is sick. Keep your distance.",
+            "We've got illness in the house. Talk from there.",
+            "Please stay back. Someone inside isn't well.",
+            "Someone's sick. We'd rather ask for distance than need another bed.",
+        },
+        brave = { "We've got someone sick. Give us space to handle it." },
+        cautious = { "Someone inside is ill. Don't come any closer." },
+        caring = { "Someone's unwell. Please keep a little room between us." },
+        practical = { "Illness in the house. Visiting is a poor idea." },
+    },
     ["faction.life.dispute"] = { common = {
         "You said the last run was safe!", "Stop blaming me for every bad call.",
         "We cannot keep wasting supplies like this.", "Lower your voice. We have enough trouble outside.",
@@ -1940,6 +2072,14 @@ end
 local function recentlyUsed(value, recent)
     for _, prior in ipairs(recent or {}) do if prior == value then return true end end
     return false
+end
+
+-- The authored specification for a topic, and the lines one voice/mood would
+-- actually be offered from it. Authored pool size is not one speaker's eligible
+-- pool: the selector combines common lines with that speaker's archetype only.
+function Dialogue._poolForTests(topic) return pools[topic] end
+function Dialogue._candidatesForTests(specification, voice, mood, includeRegisters)
+    return candidatesFor(specification, voice, mood, includeRegisters)
 end
 
 function Dialogue.register(topic, specification)

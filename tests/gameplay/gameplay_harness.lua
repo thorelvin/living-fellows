@@ -19745,4 +19745,113 @@ end)()
     SurvivorCompanion.NativeActions = previousNative
 end)()
 
+;(function()
+    -- The 0.25.13 dialogue expansion: 96 lines across 12 existing topics, four
+    -- common and one per archetype each. These assert what was authored and what
+    -- one speaker is actually offered, which are different numbers -- the
+    -- selector combines common lines with the speaker's own archetype, never
+    -- with all four.
+    local Dialogue = SurvivorCompanion.Dialogue
+    local pool = Dialogue._poolForTests
+    local candidates = Dialogue._candidatesForTests
+    local ARCHETYPES = { "brave", "cautious", "caring", "practical" }
+    local EXPECTED = {
+        ["relationship.cautious"] = 8, ["relationship.ally"] = 8,
+        ["relationship.trusted"] = 8, ["relationship.close"] = 8,
+        ["relationship.family"] = 8,
+        ["encourage.accept"] = 9, ["praise.accept"] = 9,
+        ["faction.life.greeting.Wary"] = 8,
+        ["faction.life.greeting.Tolerated"] = 8,
+        ["faction.life.greeting.Trusted"] = 8,
+        ["faction.life.supply_crisis"] = 8, ["faction.life.illness"] = 8,
+    }
+    local topics, authored = 0, 0
+    for topic, commonCount in pairs(EXPECTED) do
+        topics = topics + 1
+        local spec = pool(topic)
+        check(type(spec) == "table" and type(spec.common) == "table",
+            "expanded topic keeps its common pool: " .. topic)
+        check(#spec.common == commonCount,
+            topic .. " has " .. tostring(#spec.common) .. " common lines, expected "
+                .. tostring(commonCount))
+        authored = authored + #spec.common
+        for _, archetype in ipairs(ARCHETYPES) do
+            check(type(spec[archetype]) == "table" and #spec[archetype] == 1,
+                topic .. " has exactly one " .. archetype .. " line")
+            authored = authored + 1
+        end
+        -- Only the supported pool shapes. A household personality name such as
+        -- Paranoid would sit in the table and never be selected.
+        for key, value in pairs(spec) do
+            check(key == "common" or key == "all" or key == "registers"
+                    or key == "brave" or key == "cautious" or key == "caring"
+                    or key == "practical" or type(value) ~= "table",
+                topic .. " uses only supported pool slots, not " .. tostring(key))
+        end
+        -- One speaker sees the common lines plus their own archetype's line.
+        for _, archetype in ipairs(ARCHETYPES) do
+            local eligible = candidates(spec, archetype, nil, false)
+            check(#eligible == commonCount + 1,
+                topic .. "/" .. archetype .. " offers " .. tostring(#eligible)
+                    .. " lines, expected " .. tostring(commonCount + 1))
+            local ownLine = spec[archetype][1]
+            local sawOwn = false
+            for _, line in ipairs(eligible) do
+                if line == ownLine then sawOwn = true end
+            end
+            check(sawOwn, topic .. "/" .. archetype .. " can select its own line")
+            for _, other in ipairs(ARCHETYPES) do
+                if other ~= archetype then
+                    for _, line in ipairs(eligible) do
+                        check(line ~= spec[other][1],
+                            topic .. "/" .. archetype .. " is not offered the "
+                                .. other .. " line")
+                    end
+                end
+            end
+        end
+        -- Editorial ceiling, before any interpolation, over every authored
+        -- line -- not just the ones one archetype happens to be offered.
+        for _, line in ipairs(spec.common) do
+            check(#line <= 120,
+                topic .. " keeps every common line inside 120 characters: " .. line)
+        end
+        for _, archetype in ipairs(ARCHETYPES) do
+            check(#spec[archetype][1] <= 120,
+                topic .. "/" .. archetype .. " stays inside 120 characters: "
+                    .. spec[archetype][1])
+        end
+    end
+    check(topics == 12 and authored == 146,
+        "the expansion covers 12 topics and 146 authored lines: "
+            .. tostring(topics) .. "/" .. tostring(authored))
+
+    -- Every shortage line takes the resource label exactly once, and reads for
+    -- all six labels plus the unknown fallback without leaking a raw token.
+    local shortage = pool("faction.life.supply_crisis")
+    local LABELS = { "food", "clean water", "medical supplies",
+        "building supplies", "ammunition", "tools", "supplies" }
+    for _, line in ipairs(candidates(shortage, "practical", nil, false)) do
+        local _, tokens = string.gsub(line, "%%1", "")
+        check(tokens == 1,
+            "a shortage line uses the resource label exactly once: " .. line)
+        for _, label in ipairs(LABELS) do
+            local spoken = string.gsub(line, "%%1", label)
+            check(string.find(spoken, "%%1") == nil,
+                "no raw token survives interpolation: " .. spoken)
+            check(string.find(spoken, label, 1, true) ~= nil,
+                "the spoken label appears in the line: " .. spoken)
+        end
+    end
+    -- No other expanded topic takes an argument it will never be given.
+    for topic, _ in pairs(EXPECTED) do
+        if topic ~= "faction.life.supply_crisis" then
+            for _, line in ipairs(candidates(pool(topic), "caring", nil, false)) do
+                check(string.find(line, "%%1") == nil,
+                    topic .. " needs no interpolation argument: " .. line)
+            end
+        end
+    end
+end)()
+
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")
