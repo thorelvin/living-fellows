@@ -3067,4 +3067,41 @@ check(atSquare == true and atWorld == false,
     "shared arrival centres square targets without shifting exact world coordinates")
 end)()
 
+;(function()
+    -- Review F02: cancelling a tracked needs action cleared the actor's whole
+    -- timed-action queue, which also removes whatever a vanilla or third-party
+    -- action had queued behind ours -- and restoring our own borrowed item does
+    -- not give them their place back. Cancel exactly what this record owns, as
+    -- cancelWork already does.
+    local NA = SC.NativeActions
+    check(type(NA) == "table" and type(NA.cancelNeeds) == "function",
+        "native actions exposes needs cancellation")
+    local needsActor = { __class = "IsoPlayer" }
+    function needsActor:getModData() self.data = self.data or {} return self.data end
+    local ourAction = { character = needsActor, action = "drink" }
+    local theirAction = { character = needsActor, action = "someone_elses" }
+    local queue = { current = ourAction, list = { ourAction, theirAction } }
+    function queue:removeFromQueue(timedAction)
+        for index, value in ipairs(self.list) do
+            if value == timedAction then table.remove(self.list, index) return end
+        end
+    end
+    local previousQueueApi = ISTimedActionQueue
+    local cleared = 0
+    ISTimedActionQueue = {
+        getTimedActionQueue = function() return queue end,
+        clear = function() cleared = cleared + 1 queue.list = {} queue.current = nil end,
+    }
+    NA.resetNeeds(needsActor)
+    check(NA._trackNeedsForTests(needsActor, { timedAction = ourAction, kind = "drink" }),
+        "a needs record can be installed for cancellation")
+    local ok = NA.cancelNeeds(needsActor, "danger")
+    ISTimedActionQueue = previousQueueApi
+    check(ok == true, "cancelling a tracked needs action succeeds")
+    check(cleared == 0, "cancelling a needs action never clears the whole queue")
+    check(#queue.list == 1 and queue.list[1] == theirAction,
+        "an unrelated queued action survives a needs cancellation: " .. tostring(#queue.list))
+end)()
+
+
 print("CORE_KAHLUA_PASS checks=" .. tostring(checks))

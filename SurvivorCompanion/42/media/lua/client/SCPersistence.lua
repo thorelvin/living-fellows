@@ -3201,7 +3201,8 @@ local function applySkills(actor, skills)
     local factory = type(_G) == "table" and rawget(_G, "PerkFactory") or nil
     local xpOk, xp = invoke(actor, "getXp")
     if factory == nil or not xpOk or xp == nil then
-        return #skills == 0, #skills == 0 and nil or "native skill API is unavailable"
+        return #skills == 0,
+            #skills > 0 and "native skill API is unavailable" or nil
     end
     for _, entry in ipairs(skills) do
         if type(entry) == "table" and type(entry.id) == "string" then
@@ -3326,7 +3327,7 @@ persistence._applyAppearanceForTests = applyAppearance
 local function initializeRestoredActor(actor, input, saved)
     local inventoryOk, contextOrReason = applyInventory(actor, saved.inventory, saved.id)
     local context = inventoryOk and contextOrReason or nil
-    local inventoryReason = inventoryOk and nil or contextOrReason
+    local inventoryReason = (not inventoryOk) and contextOrReason or nil
     if not inventoryOk then return false, inventoryReason end
     local nestedOk, nestedReason = applyNestedKeepsake(actor, saved.possessions, context)
     if not nestedOk then return false, nestedReason end
@@ -3928,7 +3929,7 @@ function persistence.retainForRecovery(record)
     pendingOrderEnsure(id)
     pending[id] = {
         record = clean, raw = document, bucket = bucket,
-        nextAt = quarantined and nil or 0, attempts = 0,
+        nextAt = (not quarantined) and 0 or nil, attempts = 0,
         status = quarantined and "quarantined" or "pending",
         quarantinedAt = quarantined and now or nil,
         vehicle = clean.vehicle ~= nil, recovered = true, retirements = retirements,

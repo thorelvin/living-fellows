@@ -1433,7 +1433,7 @@ local function pollChop(actor, order, state, context)
         SC.BaseLife.noteProductionCounter("logsDropped", logs)
         if type(order.settings) == "table" and order.settings.haulLogs == true then
             local linked, linkReason = SC.BaseLife.linkProductionHaul(order.id, logs)
-            state.haulBlocker = linked == true and nil or linkReason
+            state.haulBlocker = linked ~= true and linkReason or nil
         end
     end
     speak(actor, "work.fell.timber", nil, work.key, context.runtime)

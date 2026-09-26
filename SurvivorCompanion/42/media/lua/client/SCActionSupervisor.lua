@@ -332,7 +332,7 @@ local function noteFailure(actor, token, reason, category)
         reason = clean(reason, 128), attempts = attempts,
         maximumAttempts = maximum, exhausted = exhausted,
         failedAt = current,
-        retryAt = exhausted and nil or current + retryDelay(attempts),
+        retryAt = (not exhausted) and (current + retryDelay(attempts)) or nil,
         resetGeneration = reset.generation, resetReason = reset.reason,
     }
     return ledger[key]

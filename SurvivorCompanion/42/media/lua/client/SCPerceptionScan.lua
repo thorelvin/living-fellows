@@ -563,7 +563,7 @@ function Scan.nativeCandidates(actor, state, radius, maximum, deadline, clock)
     while cursor <= sourceCount and inspected < queryLimit
         and #queue + #additions < queueCap do
         if deadline and inspected >= 4 and clock() >= deadline then break end
-        local entry = sourceFlat and nil or source[cursor]
+        local entry = (not sourceFlat) and source[cursor] or nil
         local flatBase = sourceFlat and ((cursor - 1) * 4 + 1) or nil
         local value = sourceFlat and source[flatBase]
             or type(entry) == "table" and entry.actor or entry

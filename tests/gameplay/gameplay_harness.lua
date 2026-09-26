@@ -19573,4 +19573,176 @@ end)()
     SurvivorCompanion.BaseLife.isInside = previousInside
 end)()
 
+;(function()
+    local N = SurvivorCompanion.Navigation
+    -- Review F05: asking the remembered door how it is doing is not the same as
+    -- asking what is in the doorway now. A removed or replaced door can keep
+    -- its old closed/locked flags, so the row stayed authoritative for a
+    -- boundary its object no longer owned.
+    local fFrom = cell:getGridSquare(10, 52, 0)
+    local fTo = cell:getGridSquare(11, 52, 0)
+    local oldDoor = { locked = true, open = false }
+    function oldDoor:isLocked() return self.locked end
+    function oldDoor:IsOpen() return self.open end
+    local present = oldDoor
+    function fFrom:isDoorTo(other) return other == fTo and present ~= nil end
+    function fTo:isDoorTo(other) return other == fFrom and present ~= nil end
+    function fTo:getDoor(north) if north == false then return present end end
+
+    local fState = { blockedEdges = {}, blockedSquares = {}, routeMemory = {} }
+    N._blacklistEdgeForTests(fState, fFrom, fTo, "door", oldDoor, 1000,
+        "static_edge", "high", 600000)
+    local lookup = N._edgeBlacklistEntryForTests
+    check(lookup(fState.blockedEdges, fFrom, fTo, 5000, fellow) ~= nil,
+        "an unchanged locked door still blocks its edge")
+
+    -- Replaced by a different door, with the old object's flags untouched.
+    local newDoor = { locked = false, open = true }
+    function newDoor:isLocked() return self.locked end
+    function newDoor:IsOpen() return self.open end
+    present = newDoor
+    check(lookup(fState.blockedEdges, fFrom, fTo, 5000, fellow) == nil,
+        "a replaced door does not inherit the old one's blocked edge")
+
+    -- Removed entirely, old object still reading closed and locked.
+    local gFrom = cell:getGridSquare(14, 52, 0)
+    local gTo = cell:getGridSquare(15, 52, 0)
+    local goneDoor = { }
+    function goneDoor:isLocked() return true end
+    function goneDoor:IsOpen() return false end
+    local standing = goneDoor
+    function gFrom:isDoorTo(other) return other == gTo and standing ~= nil end
+    function gTo:isDoorTo(other) return other == gFrom and standing ~= nil end
+    function gTo:getDoor(north) if north == false then return standing end end
+    local gState = { blockedEdges = {}, blockedSquares = {}, routeMemory = {} }
+    N._blacklistEdgeForTests(gState, gFrom, gTo, "door", goneDoor, 1000,
+        "static_edge", "high", 600000)
+    check(lookup(gState.blockedEdges, gFrom, gTo, 5000, fellow) ~= nil,
+        "the removal case starts from a genuinely blocked edge")
+    standing = nil
+    check(lookup(gState.blockedEdges, gFrom, gTo, 5000, fellow) == nil,
+        "a door that is no longer in the doorway stops blocking it")
+end)()
+
+;(function()
+    -- Review F04: isSquareFree answers a static-topology question by contract,
+    -- so the crowd guard never saw a living occupant at all.
+    local advance = SurvivorCompanion.Navigation._provisionalAdvance
+    local previousStepping = SurvivorCompanion.Config.values.navigationProvisionalStepping
+    SurvivorCompanion.Config.values.navigationProvisionalStepping = true
+    local crowdActor = actor("sc-prov-crowd", 20, 52, {})
+    local crowdGoal = cell:getGridSquare(25, 52, 0)
+    local function freshState()
+        return { blockedEdges = {}, blockedSquares = {}, routeMemory = {} }
+    end
+    check(advance(crowdActor, freshState(), crowdGoal, {}, 1000) ~= nil,
+        "an empty bearing still advances")
+    local blockedTile = cell:getGridSquare(21, 52, 0)
+    local stander = actor("sc-prov-stander", 21, 52, {})
+    blockedTile.moving = { stander }
+    check(advance(crowdActor, freshState(), crowdGoal, {}, 1000) == nil,
+        "a bearing is not aimed through someone standing in it")
+    blockedTile.moving = {}
+    SurvivorCompanion.Config.values.navigationProvisionalStepping = previousStepping
+end)()
+
+;(function()
+    -- Review F03: a stealth route bends around a threat on purpose, and
+    -- smoothing would straighten it back out with no knowledge of why it bent.
+    local smooth = SurvivorCompanion.Navigation._continuousFollowVectorForTests
+    local smoothActor = actor("sc-smooth-stealth", 30, 52, {})
+    local route = { smoothActor.square }
+    for index = 1, 4 do route[#route + 1] = cell:getGridSquare(30 + index, 52, 0) end
+    local function routeState(stealth)
+        return { path = route, pathIndex = 2, pathStealthAvoidance = stealth,
+            blockedEdges = {}, blockedSquares = {}, routeMemory = {} }
+    end
+    check(smooth(smoothActor, routeState(nil), smoothActor.square,
+            { action = "follow_formation" }) ~= nil,
+        "an ordinary follow route is still smoothed")
+    check(smooth(smoothActor, routeState(true), smoothActor.square,
+            { action = "follow_formation" }) == nil,
+        "a route scored for stealth keeps the shape its scoring gave it")
+    check(smooth(smoothActor, routeState(nil), smoothActor.square,
+            { action = "follow_formation", stealthAvoidance = true }) == nil,
+        "a stealth request is not smoothed even before the route records it")
+end)()
+
+;(function()
+    -- Review F07: outside the camp is necessary but not sufficient. The first
+    -- outside sample can be a tree, a wall or water, and exile does not go
+    -- through the follow-goal repair that would nudge it aside -- so the same
+    -- unusable square was chosen on every update until the outcome timed out,
+    -- while a clear one six tiles further on was never looked at.
+    local pick = SurvivorCompanion.InfectionCrisis._exileDestinationForTests
+    local base = { core = { x = 0, y = 0, z = 0 } }
+    local previousInside = SurvivorCompanion.BaseLife.isInside
+    local previousFree = SurvivorCompanion.GameplayUtil.isSquareFree
+    SurvivorCompanion.BaseLife.isInside = function(value)
+        local x = SurvivorCompanion.GameplayUtil.position(value)
+        return x ~= nil and math.abs(x) <= 25
+    end
+    local blockedX = {}
+    SurvivorCompanion.GameplayUtil.isSquareFree = function(square)
+        local x = SurvivorCompanion.GameplayUtil.position(square)
+        if x ~= nil and blockedX[math.floor(x)] then return false end
+        return previousFree(square)
+    end
+    local clear = pick(base, "sc-exile-usable")
+    local clearX = SurvivorCompanion.GameplayUtil.position(clear)
+    check(clear ~= nil, "an exile with clear ground outside the camp gets a destination")
+    -- Block the first outside candidate on that bearing.
+    blockedX[math.floor(clearX)] = true
+    local second = pick(base, "sc-exile-usable")
+    local secondX = SurvivorCompanion.GameplayUtil.position(second)
+    check(second ~= nil and secondX ~= clearX,
+        "a blocked exile destination is skipped for the next candidate: "
+            .. tostring(clearX) .. " then " .. tostring(secondX))
+    check(not SurvivorCompanion.BaseLife.isInside(second),
+        "the replacement exile destination is still outside the camp")
+    SurvivorCompanion.GameplayUtil.isSquareFree = previousFree
+    SurvivorCompanion.BaseLife.isInside = previousInside
+end)()
+
+
+;(function()
+    -- Review F01: performEndOfLife takes several calls. An accepted first
+    -- dispatch only reports that the attack started; a later poll runs the
+    -- end-of-life step. Treating the start as the finish archived the crisis
+    -- and cleared its authorization while the native record was still pending,
+    -- and a terminal crisis asks for no further attention -- so nothing was
+    -- left to drive it to completion.
+    local Crisis = SurvivorCompanion.InfectionCrisis
+    local drive = Crisis._updateResolvedActorForTests
+    if type(drive) ~= "function" then return end
+    local dying = actor("sc-final-subject", 44, 52, {})
+    dying.dead = false
+    function dying:isDead() return self.dead == true end
+    local previousNative = SurvivorCompanion.NativeActions
+    local attempts = 0
+    SurvivorCompanion.NativeActions = {
+        performEndOfLife = function()
+            attempts = attempts + 1
+            return true, attempts == 1 and "native_final_attack_started"
+                or "native_final_attack_completed"
+        end,
+    }
+    local crisis = {
+        subjectId = "sc-final-subject", outcome = "self_sacrifice",
+        phase = "resolved", irreversibleAfter = 0, finalAuthorized = true,
+    }
+    local started = drive(dying, "sc-final-subject", crisis, dying)
+    check(started == true and attempts == 1,
+        "an authorized final action is dispatched")
+    check(crisis.phase ~= "terminal" and crisis.finalAuthorized == true,
+        "an accepted start leaves the crisis active and authorized: "
+            .. tostring(crisis.phase) .. "/" .. tostring(crisis.finalAuthorized))
+    -- The subject dies; the next pass observes it and finishes exactly once.
+    dying.dead = true
+    drive(dying, "sc-final-subject", crisis, dying)
+    check(crisis.phase == "terminal",
+        "an observed death terminalizes the crisis: " .. tostring(crisis.phase))
+    SurvivorCompanion.NativeActions = previousNative
+end)()
+
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")

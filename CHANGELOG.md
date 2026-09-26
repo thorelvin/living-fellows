@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.25.13 - Started is not finished
+
+- A companion carrying out a mercy or a self-sacrifice no longer has their crisis closed before the act happens. The native operation takes several steps and its first answer only says the attempt began, but that answer was read as "done" -- so the crisis was archived and its authorisation withdrawn while the act was still pending, and a closed crisis asks for no further attention, leaving nothing to finish it. It now ends on an observed death, as the other half of the same code already did.
+- Interrupting a companion's drink or meal no longer cancels whatever else was queued behind it. Cancelling cleared the companion's entire action queue, including actions belonging to the base game or another mod, and putting our own borrowed cup back does not give them their place back.
+- Companions sneaking no longer straighten out their own detour. A quiet route bends around a threat deliberately, but the smoothing that removes the tile-by-tile staircase only asks whether a straight line is physically clear -- so it could cut the corner the route existed to make, and walk them past the thing they were avoiding.
+- Setting off early no longer aims a companion through someone standing in the way. The guard added last time asked a question about walls and furniture, not about people, so a companion or a zombie on otherwise open ground did not register at all.
+- A door that is removed or replaced no longer keeps blocking the doorway it used to be in. The record of a blocked door asked the door it remembered how it was doing, which a removed door can still answer, rather than asking what is standing in that doorway now.
+- Fixed a failed group-passage hold being reported as success, and fixed thirteen more places with the same mistake. In Lua, `x and nil or y` always produces `y`, so an expression written to mean "nothing when x, otherwise y" never produced nothing: a retry was scheduled for an owner that had run out of attempts, a quarantined record was queued for immediate retry, a successful production link still recorded a blocker, and a healthy startup still carried a failure reason. The pattern is now refused by the test gate so it cannot come back.
+- Exiled survivors no longer walk at a tree. The destination was checked for being outside the camp but not for being somewhere a person can stand, and exile does not get the nudge-aside repair that ordinary movement does, so the same blocked square was chosen again on every attempt until the outcome timed out.
+
 ## 0.25.12 - What the door knows
 
 - A locked door a companion cannot open is remembered for as long as the room behind it again. The specialised handling sets that memory deliberately, but the general failure handling runs immediately afterwards for the same doorway, knows nothing about it, and was replacing ten minutes with the ordinary few seconds -- so the fix from 0.25.8 only held when the two happened to disagree about which doorway it was.

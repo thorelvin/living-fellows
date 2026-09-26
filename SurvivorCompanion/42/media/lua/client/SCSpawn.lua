@@ -349,7 +349,7 @@ function spawn.chooseSquare(player, runtime)
         if ok and square ~= nil and safeSquare(square, player) then return square end
     end
     local square = fallbackSquare(player, nil, nil, true)
-    return square, square and nil or "no valid loaded unseen spawn square"
+    return square, (not square) and "no valid loaded unseen spawn square" or nil
 end
 
 function spawn.chooseDebugSquare(player)

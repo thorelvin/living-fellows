@@ -1352,7 +1352,7 @@ function runtime.start()
     lastStartReason = reason
     startupFailureReason = nil
     SC.State.active = ready == true
-    SC.State.disabledReason = ready and nil or reason
+    SC.State.disabledReason = (not ready) and reason or nil
     -- Which build is actually running. The same mod id can be installed twice
     -- at once -- a local build under mods/ and a Workshop staging copy -- and
     -- the game picks one. Without this line a playtest log cannot say which

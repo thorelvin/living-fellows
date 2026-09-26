@@ -817,6 +817,22 @@ def main() -> int:
             and 'action = "combat_approach", target = targetActor,' in sources["SCCombat.lua"],
             "a combat approach barred by a climbable barrier never routes across it")
 
+    # `x and nil or y` and `x and false or y` always evaluate y, because the
+    # middle operand is itself falsy -- so the expression cannot express the
+    # branch it looks like it expresses. This has now shipped three times: the
+    # route that recorded a failure beside a success, the group-passage stop
+    # that reported a rejection as accepted, and thirteen more found by
+    # grepping for it. A comment may name the pattern; code may not use it.
+    falsy_middle = []
+    for name, text in sorted(sources.items()):
+        for number, line in enumerate(text.splitlines(), start=1):
+            code = line.split("--", 1)[0]
+            if "and nil or" in code or "and false or" in code:
+                falsy_middle.append(f"{name}:{number} {line.strip()}")
+    require(not falsy_middle,
+            "`and nil/false or` always evaluates its fallback: "
+            + "; ".join(falsy_middle[:5]))
+
     combat_source = sources["SCCombat.lua"]
     banter_source = sources["SCBanter.lua"]
     objectives_source = sources["SCObjectives.lua"]

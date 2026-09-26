@@ -1040,7 +1040,8 @@ function Contracts.progress(groupOrId, player, scanThreat)
         result.questItemCount = tonumber(count) or 0
         result.questItemLabel = contract.questItem and contract.questItem.label or "quest item"
         result.ready = contract.status == "active" and result.questItemCount >= 1
-        result.reason = result.ready and nil or reason or "quest_item_not_recovered"
+        result.reason = (not result.ready)
+            and (reason or "quest_item_not_recovered") or nil
         result.location = contract.location
         result.objective = contract.objective
         return result

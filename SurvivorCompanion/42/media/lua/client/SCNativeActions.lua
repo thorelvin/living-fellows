@@ -3746,11 +3746,20 @@ function actions.cancelNeeds(actor, reason)
     local record = actor and activeNeeds[actor] or nil
     if not record then return true, reason or "no_tracked_needs_action" end
     if trackedActionIsActive(actor, record) then
-        if type(ISTimedActionQueue) ~= "table" or type(ISTimedActionQueue.clear) ~= "function" then
+        -- Clearing the actor's whole queue also removes whatever a vanilla or
+        -- third-party action had queued behind this one, and putting our own
+        -- borrowed item back does not give them their place back. Cancel
+        -- exactly the actions this record owns, as cancelWork already does.
+        if type(ISTimedActionQueue) ~= "table"
+            or type(ISTimedActionQueue.getTimedActionQueue) ~= "function" then
             return false, "native needs-action cancellation is unavailable"
         end
-        local cleared, failure = pcall(ISTimedActionQueue.clear, actor)
-        if not cleared then return false, tostring(failure) end
+        local queue = ISTimedActionQueue.getTimedActionQueue(actor)
+        local owned = type(record.actions) == "table" and record.actions
+            or { record.timedAction }
+        for _, timedAction in ipairs(owned) do
+            if timedAction ~= nil then cancelOwnedTimedAction(queue, timedAction) end
+        end
         if trackedActionIsActive(actor, record) then
             return false, "native needs action remained queued after cancellation"
         end
@@ -3759,6 +3768,14 @@ function actions.cancelNeeds(actor, reason)
     if not restored then return false, restoreReason end
     activeNeeds[actor] = nil
     return true, reason or "needs_action_cancelled"
+end
+
+-- Install a tracked needs record directly, so a harness can exercise
+-- cancellation without driving a whole native drink or eat.
+function actions._trackNeedsForTests(actor, record)
+    if actor == nil or type(record) ~= "table" then return false end
+    activeNeeds[actor] = record
+    return true
 end
 
 function actions.resetNeeds(actor)

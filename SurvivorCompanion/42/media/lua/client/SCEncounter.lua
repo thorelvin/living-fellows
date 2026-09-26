@@ -2035,7 +2035,7 @@ function Encounter.chooseSpawnSquare(player, runtime)
         local score = spawnSquareScore(square, player)
         if score and (not bestScore or score > bestScore) then best, bestScore = square, score end
     end
-    return best, best and nil or "no_valid_loaded_square"
+    return best, (not best) and "no_valid_loaded_square" or nil
 end
 
 local function viableRescue(snapshot)

@@ -41,7 +41,8 @@ local function mayChallengeCurrentTarget(zombie, actor, actorDistance)
     local currentDistance = U().distance(zombie, current)
     local advantage = U().config("zombieTargetSwitchAdvantage") or 0.75
     return actorDistance + advantage < currentDistance, current,
-        actorDistance + advantage < currentDistance and nil or "closer_target_retained"
+        (actorDistance + advantage >= currentDistance)
+            and "closer_target_retained" or nil
 end
 
 function Targeting.consider(zombie, actor)

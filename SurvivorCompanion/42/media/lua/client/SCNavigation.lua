@@ -250,7 +250,15 @@ local function edgeBlacklistEntry(blockedEdges, fromSquare, toSquare, now, actor
     -- state it was written for, so a door that has genuinely not changed still
     -- keeps its full memory.
     if entry.doorSignature ~= nil and entry.object ~= nil then
-        if Navigation._doorSignature(entry.object) ~= entry.doorSignature
+        -- Asking the remembered door how it is doing is not the same as asking
+        -- what is in the doorway now. A door that is removed or replaced can
+        -- keep its old closed/locked flags, so the row stayed authoritative for
+        -- a boundary its object no longer owns -- and because this cache is
+        -- consulted before live topology, nothing downstream could correct it.
+        -- Dropping the row is safe: passableEdge then classifies the real
+        -- geometry, which rejects a genuinely blocked edge on its own evidence.
+        if not Navigation._doorOwnsEdge(entry.object, fromSquare, toSquare)
+            or Navigation._doorSignature(entry.object) ~= entry.doorSignature
             or Navigation._doorNowOpenable(actor, entry.object) then
             blockedEdges[key] = nil
             return nil
@@ -460,6 +468,13 @@ end
 function Navigation._doorSignature(door)
     if door == nil then return nil end
     return tostring(objectOpen(door)) .. ":" .. tostring(objectLocked(door))
+end
+
+-- Whether the remembered door is still the thing standing in this doorway.
+function Navigation._doorOwnsEdge(door, fromSquare, toSquare)
+    if door == nil or fromSquare == nil or toSquare == nil then return false end
+    local object, kind = barrierBetween(fromSquare, toSquare)
+    return kind == "door" and object == door
 end
 
 -- The actor's own ability to pass can change without the door changing at all,
@@ -1593,9 +1608,14 @@ local function actualOpenSegmentWithinBatch(actor, targetX, targetY, targetZ, op
             -- bearing has nothing to weigh it against and the segment check
             -- discards the cost, so the vector aimed straight at whoever was
             -- standing there.
+            -- isSquareFree answers a static-topology question by contract, so
+            -- the crowd guard added for the last review never saw a living
+            -- occupant at all: a companion or zombie standing on open ground
+            -- leaves it true. Ask the dynamic question instead, excluding the
+            -- mover itself and the particles the utility already filters out.
             if options.directWalkOnly == true
                 and (Navigation.edgeAffordance(previous, square) ~= nil
-                    or U().isSquareFree(square) ~= true) then
+                    or U().movingBlocker(square, options.actor) ~= nil) then
                 return false
             end
             local passable = passableEdge(previous, square,
@@ -1632,6 +1652,16 @@ Navigation._actualOpenSegmentForTests = actualOpenSegment
 local function continuousFollowVector(actor, state, sourceSquare, intent)
     if not actor or type(state) ~= "table" or type(state.path) ~= "table"
         or type(intent) ~= "table" then return nil end
+    -- A stealth route bends around a threat on purpose. Smoothing asks only
+    -- whether a straight chord to a later waypoint is physically clear, with
+    -- neither the stealth flag nor the square penalty that produced the bend,
+    -- so it could quietly straighten the detour back out during execution and
+    -- walk the companion past the thing it was avoiding. fastOpenRoute refuses
+    -- a scored route when it is told about one; here it was never told. Leave
+    -- a scored route with the shape its scoring gave it.
+    if intent.stealthAvoidance == true or state.pathStealthAvoidance == true then
+        return nil
+    end
     if intent.action ~= "follow_formation" and intent.action ~= "regroup"
         and intent.continuousApproach ~= true then return nil end
     local first = math.max(2, math.floor(tonumber(state.pathIndex) or 2))
@@ -5914,7 +5944,12 @@ function Navigation.request(actor, target, movementMode, intent)
     local passageAccepted, passageStatus = SC.Navigation._ensureGroupPassageForRequest(
         actor, state, sourceSquare, nextSquare, kind, requestIntent, now)
     if passageAccepted ~= true then
-        return passageAccepted == false and false or true,
+        -- `x == false and false or true` always yields true, because the middle
+        -- operand is itself false. The helper is deliberately tri-state -- true
+        -- admits, nil is a successful hold, false means the stop could not be
+        -- established -- and a genuine failure was being reported as accepted
+        -- work. Same Lua pitfall as the pathFailure expression, different site.
+        return passageAccepted ~= false,
             passageStatus or "holding_group_passage"
     end
     if kind == "door" then

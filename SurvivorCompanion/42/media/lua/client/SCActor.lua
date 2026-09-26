@@ -1119,7 +1119,7 @@ function actorService.beginSpawn(square, profile)
         local ticket = {
             state = actor and "ready" or "failed",
             actor = actor,
-            reason = actor and nil or result,
+            reason = (not actor) and result or nil,
             provider = cachedProvider,
             profile = profile,
         }

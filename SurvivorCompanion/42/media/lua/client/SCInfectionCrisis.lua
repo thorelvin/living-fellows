@@ -988,25 +988,53 @@ end
 -- the area union, which is the condition exile actually means. The bearing
 -- still comes from the survivor's own identity, so two exiles do not queue
 -- along the same line.
+-- Outside the camp is necessary but not sufficient: the first outside sample
+-- can be a tree, a wall, water or a fire. Exile does not go through the
+-- follow-goal repair that would nudge an unusable destination aside, so the
+-- same bad square was chosen again on every update until the outcome timed out,
+-- while a clear square six tiles further on was never looked at.
+local function exileSquareUsable(square)
+    if square == nil then return false end
+    if not U().isSquareFree(square) then return false end
+    if SC.Topology ~= nil then
+        if type(SC.Topology.squareIsWater) == "function"
+            and SC.Topology.squareIsWater(square) then return false end
+        if type(SC.Topology.squareHazards) == "function" then
+            local hazards = SC.Topology.squareHazards(square)
+            if type(hazards) == "table" and (hazards.fire or hazards.explosiveTrap) then
+                return false
+            end
+        end
+    end
+    return true
+end
+
 local function exileDestination(base, id)
     if type(base) ~= "table" or type(base.core) ~= "table" then return nil end
-    local sign = (U().stableHash(id) % 2 == 0) and 1 or -1
+    local preferred = (U().stableHash(id) % 2 == 0) and 1 or -1
     local fallback
-    for distance = 18, 72, 6 do
-        local square = U().gridSquare(base.core.x + sign * distance,
-            base.core.y + 12, base.core.z)
-        if square ~= nil then
-            fallback = fallback or square
-            if SC.BaseLife == nil or type(SC.BaseLife.isInside) ~= "function"
-                or not SC.BaseLife.isInside(square) then
-                return square
+    -- The survivor's own identity still picks which way they go first, so two
+    -- exiles do not file along the same line; the other bearing is only tried
+    -- when the first offers nowhere to stand.
+    for _, sign in ipairs({ preferred, -preferred }) do
+        for distance = 18, 72, 6 do
+            local square = U().gridSquare(base.core.x + sign * distance,
+                base.core.y + 12, base.core.z)
+            if square ~= nil then
+                local outside = SC.BaseLife == nil
+                    or type(SC.BaseLife.isInside) ~= "function"
+                    or not SC.BaseLife.isInside(square)
+                if outside then
+                    if exileSquareUsable(square) then return square end
+                    fallback = fallback or square
+                end
             end
         end
     end
     return fallback
 end
 Crisis._exileDestinationForTests = exileDestination
-
+Crisis._exileSquareUsableForTests = exileSquareUsable
 local function updateResolvedActor(actor, id, crisis, subject)
     if id ~= crisis.subjectId then return false, "crisis_observer" end
     local outcome = crisis.outcome
@@ -1048,13 +1076,24 @@ local function updateResolvedActor(actor, id, crisis, subject)
         end
         if SC.NativeActions and type(SC.NativeActions.performEndOfLife) == "function" then
             local ok, reason = SC.NativeActions.performEndOfLife(actor, outcome, subject)
-            if ok then enterTerminal(crisis, "final_action") end
+            -- performEndOfLife takes several calls: an accepted first dispatch
+            -- only reports that the attack started, and a later poll runs the
+            -- end-of-life step. Treating the start as the finish archived the
+            -- crisis and cleared its authorization while the native record was
+            -- still pending -- and a terminal crisis asks for no further
+            -- attention, so nothing was left to drive it to completion.
+            -- Terminalize on an observed death, as the executor-side branch
+            -- beside this one already does.
+            if ok and U().isDead(subject or actor) then
+                enterTerminal(crisis, "final_action")
+            end
             return ok == true, reason
         end
         return false, "native_final_action_unavailable"
     end
     return true, "watched"
 end
+Crisis._updateResolvedActorForTests = updateResolvedActor
 
 -- Observations were the one collection nobody ever removed from: a row was
 -- written for every actor ever assessed and kept forever. A long game grew a

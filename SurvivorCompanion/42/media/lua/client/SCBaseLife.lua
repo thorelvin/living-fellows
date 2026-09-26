@@ -1363,7 +1363,8 @@ function BaseLife.resolveContainer(storage)
     local object, reason = BaseLife.resolveObject(storage)
     if not object then return nil, nil, reason end
     local container, ok = U().call(object, "getContainer")
-    return ok and container or nil, object, ok and nil or "object_has_no_container"
+    return ok and container or nil, object,
+        (not ok) and "object_has_no_container" or nil
 end
 
 function BaseLife.availableCount(storage, itemType)
