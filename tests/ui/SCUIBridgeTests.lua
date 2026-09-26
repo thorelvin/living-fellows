@@ -19,6 +19,12 @@ function actor:getInventory()
     return inventory
 end
 
+function actor:getDescriptor()
+    return {
+        getForename = function() return "Sam" end,
+        getSurname = function() return "Vance" end,
+    }
+end
 function actor:getModData()
     return { SC_Id = "sc-bridge-test" }
 end
@@ -105,6 +111,21 @@ assert(lootPage.collapseCounter == -40)
 assert(lootPage.raised == true)
 assert(stayBegins == 1 and stayEnds == 0,
     "opening inventory places the companion on one temporary Stay hold")
+
+-- The pane rebuilds its own container list whenever the player turns or steps
+-- onto a new square, from the containers it can find in the world. A companion
+-- is not one of those, so it has to be handed back to that rebuild by name --
+-- otherwise the pane loses it and falls back to the floor.
+local borrowed, borrowedActor = Bridge.borrowedInventory(lootPage)
+assert(borrowed == inventory and borrowedActor == actor,
+    "the pane reports the companion container it is showing on our behalf")
+assert(Bridge.borrowedInventory({}) == nil,
+    "another window is told nothing about our container")
+assert(Bridge.borrowedInventoryLabel(actor) == "Sam Vance",
+    "the container is named after the companion: "
+        .. tostring(Bridge.borrowedInventoryLabel(actor)))
+assert(Bridge.borrowedInventoryLabel(nil) == "Companion",
+    "an unnamed companion still gets a usable label")
 
 -- Loot-pane restore transaction (review 1.4): borrowing the player's loot pane
 -- for a companion inventory must be reversible.

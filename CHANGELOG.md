@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.25.29 - The inventory window stays open
+
+- A companion's inventory no longer closes itself. The loot window rebuilds its own list of containers every time you turn or step onto a new square, from whatever it can find around you -- and a companion is a person, not a crate, so it was never in that list. The window quietly dropped it and fell back to the first container it did have, which is the floor. Companions are now handed back into that list as a proper container, with the companion's name on the button.
+- Dragging an item into a companion's inventory no longer drops it on the ground. Same cause: turning to drag is exactly what makes the window rebuild, so the container under your cursor changed to the floor mid-drag.
+
 ## 0.25.28 - Nobody watches them get dressed
 
 - Companions no longer appear in a stranger's clothes on load and then change into their own. The game builds a survivor from a randomly outfitted template, so for the moment between a companion being created and the mod putting its saved clothes, hair and skin back on, it stood there wearing whatever the template gave it. A companion is now invisible from the instant it is created until everything about it has been restored, and only then does it appear -- already dressed, already itself.

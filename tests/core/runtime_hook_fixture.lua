@@ -15,6 +15,7 @@ SC_RUNTIME_FIXTURE = {
     prepareResult = true,
     prepareReason = nil,
 }
+local refreshHandlers = {}
 Events = {
     OnTick = {
         Add = function(callback)
@@ -26,7 +27,21 @@ Events = {
             tickHandlers[callback] = nil
         end,
     },
+    -- Build 42 raises this from inside ISInventoryPage:refreshBackpacks so a
+    -- mod can put its own containers into the rebuilt list.
+    OnRefreshInventoryWindowContainers = {
+        Add = function(callback) refreshHandlers[callback] = true end,
+        Remove = function(callback) refreshHandlers[callback] = nil end,
+    },
 }
+function SC_RUNTIME_FIXTURE.refreshCount()
+    local count = 0
+    for _ in pairs(refreshHandlers) do count = count + 1 end
+    return count
+end
+function SC_RUNTIME_FIXTURE.fireRefresh(page, phase)
+    for callback in pairs(refreshHandlers) do callback(page, phase) end
+end
 function SC_RUNTIME_FIXTURE.tickCount()
     local count = 0
     for _ in pairs(tickHandlers) do count = count + 1 end

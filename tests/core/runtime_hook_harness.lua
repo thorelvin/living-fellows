@@ -131,4 +131,89 @@ check(r1 == "r1" and r2 == "r2" and r3 == nil and r4 == 4,
     "wrapper preserves every return value, including a nil among trailing values")
 SC.Runtime.reset(true)
 
+-- A companion's inventory has to survive the loot pane rebuilding its own
+-- container list. That rebuild happens every time the player turns or steps
+-- onto a new square, and it only lists containers it can find in the world --
+-- so the companion was absent every time, `found` came out false, and the
+-- pane fell back to backpacks[1], the floor. Opening a companion's inventory
+-- and moving the mouse closed it; dragging an item over it, which turns the
+-- player, dropped the item on the ground.
+;(function()
+    SC.Runtime.start()
+    check(SC_RUNTIME_FIXTURE.refreshCount() == 1,
+        "a started runtime owns exactly one inventory-refresh handler")
+
+    local companionInventory = { items = {} }
+    local otherInventory = { items = {} }
+    local companion = {}
+    function companion:getDescriptor()
+        return { getForename = function() return "Sam" end,
+                 getSurname = function() return "Vance" end }
+    end
+    local borrowedFor = nil
+    local savedBridge = SC.UIBridge
+    SC.UIBridge = {
+        borrowedInventory = function(page)
+            if borrowedFor ~= nil and page ~= borrowedFor then return nil end
+            return companionInventory, companion
+        end,
+        -- SCUIBridge is not loaded in this harness; what matters here is that
+        -- whatever it names the container is what the button is called.
+        borrowedInventoryLabel = function(actor)
+            return actor == companion and "Sam Vance" or "wrong actor"
+        end,
+    }
+
+    local function lootPage()
+        local page = { onCharacter = false, backpacks = { { inventory = otherInventory } } }
+        function page:addContainerButton(inventory, texture, name, tooltip)
+            local button = { inventory = inventory, name = name, tooltip = tooltip }
+            self.backpacks[#self.backpacks + 1] = button
+            return button
+        end
+        return page
+    end
+
+    local page = lootPage()
+    SC_RUNTIME_FIXTURE.fireRefresh(page, "buttonsAdded")
+    check(#page.backpacks == 2 and page.backpacks[2].inventory == companionInventory
+            and page.backpacks[2].name == "Sam Vance",
+        "the companion whose inventory is open is put back into the rebuilt container list")
+
+    -- Only in the phase that runs before the selection is resolved, and never
+    -- twice for one rebuild.
+    SC_RUNTIME_FIXTURE.fireRefresh(page, "buttonsAdded")
+    check(#page.backpacks == 2, "a container already in the list is not added again")
+    local earlyPage = lootPage()
+    SC_RUNTIME_FIXTURE.fireRefresh(earlyPage, "begin")
+    SC_RUNTIME_FIXTURE.fireRefresh(earlyPage, "end")
+    check(#earlyPage.backpacks == 1,
+        "the companion is added in the phase the selection is resolved from, and no other")
+
+    -- The player's own inventory page is not a loot pane and is left alone.
+    local characterPage = lootPage()
+    characterPage.onCharacter = true
+    SC_RUNTIME_FIXTURE.fireRefresh(characterPage, "buttonsAdded")
+    check(#characterPage.backpacks == 1, "the player's own inventory page is untouched")
+
+    -- Nothing borrowed, nothing added.
+    SC.UIBridge = { borrowedInventory = function() return nil end }
+    local idlePage = lootPage()
+    SC_RUNTIME_FIXTURE.fireRefresh(idlePage, "buttonsAdded")
+    check(#idlePage.backpacks == 1,
+        "a loot pane nobody borrowed keeps exactly the containers vanilla found")
+
+    -- A handler that throws would break the player's whole inventory window.
+    SC.UIBridge = { borrowedInventory = function() error("injected bridge failure") end }
+    local brokenPage = lootPage()
+    SC_RUNTIME_FIXTURE.fireRefresh(brokenPage, "buttonsAdded")
+    check(#brokenPage.backpacks == 1,
+        "a failing companion-container hook does not escape into the inventory window")
+
+    SC.UIBridge = savedBridge
+    SC.Runtime.reset(true)
+    check(SC_RUNTIME_FIXTURE.refreshCount() == 0,
+        "resetting the runtime gives the inventory-refresh event back")
+end)()
+
 print("RUNTIME_HOOK_KAHLUA_PASS checks=" .. tostring(checks))

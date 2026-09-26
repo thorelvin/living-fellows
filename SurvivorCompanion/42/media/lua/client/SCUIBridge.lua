@@ -170,6 +170,45 @@ function Bridge.openInventory(actor, player)
     return true
 end
 
+-- The companion container this pane is showing on our behalf, and the companion
+-- it belongs to.
+--
+-- Vanilla rebuilds the loot pane's container list every time the player turns
+-- or steps to a new square, from the containers it can find in the world. A
+-- companion is a moving character, not one of those, so the rebuild dropped
+-- our container, `found` came out false, and the pane fell back to
+-- `backpacks[1]` -- the floor. The window appeared to close itself, and an
+-- item dragged over it landed on the ground, because turning to drag is
+-- exactly what triggers the rebuild.
+--
+-- Read by the refresh hook so the companion can be put back into that list
+-- like any other container.
+function Bridge.borrowedInventory(page)
+    local snap = ownedLootPane
+    if snap == nil then return nil end
+    if page ~= nil and snap.page ~= page then return nil end
+    return snap.ourContainer, snap.heldActor
+end
+
+-- What to call the companion's container in the pane's button list.
+function Bridge.borrowedInventoryLabel(actor)
+    local descriptor = safeMethod(actor, "getDescriptor")
+    local forename = descriptor and safeMethod(descriptor, "getForename") or nil
+    local surname = descriptor and safeMethod(descriptor, "getSurname") or nil
+    local name
+    if forename ~= nil and tostring(forename) ~= "" then
+        name = tostring(forename)
+        if surname ~= nil and tostring(surname) ~= "" then
+            name = name .. " " .. tostring(surname)
+        end
+    end
+    if name == nil then
+        local full = safeMethod(actor, "getFullName")
+        if full ~= nil and tostring(full) ~= "" then name = tostring(full) end
+    end
+    return name or "Companion"
+end
+
 -- Put the local player's loot pane back the way it was before we borrowed it for
 -- a companion's inventory. Safe to call any time; a no-op if we never borrowed it
 -- or if the player has since selected a different container in that pane.

@@ -51,6 +51,9 @@ local decisionServiceEstimateMs = 0.5
 local vitalsCursor = 1
 local lastPlayerVehicle = nil
 local vehicleRestoreDeadline = nil
+-- Whether the loot-pane container refresh hook is currently ours. Owned by
+-- installContainerHook/removeContainerHook alongside the two wrappers.
+local refreshHookInstalled = false
 local originalSelectContainer = nil
 local originalSetNewContainer = nil
 local selectContainerWrapper = nil
@@ -1101,6 +1104,58 @@ local function markOpened(container)
     end
 end
 
+-- Keep a companion's inventory in the loot pane's own container list.
+--
+-- ISInventoryPage:refreshBackpacks rebuilds that list from the containers it
+-- can find around the player, and does so every time the player turns or
+-- steps onto a new square. A companion is a moving character and not one of
+-- those containers, so the container we put in the pane was absent from every
+-- rebuild: `found` came out false and the pane fell back to backpacks[1],
+-- which on a loot page is the floor. Opening a companion's inventory and then
+-- moving the mouse closed it, and dragging an item over it -- which turns the
+-- player -- dropped the item on the ground.
+--
+-- Build 42 raises this event from inside that rebuild for exactly this
+-- purpose. Adding the button in the "buttonsAdded" phase puts the companion
+-- in the list before the selection is resolved, so the pane keeps it, the
+-- button is clickable, and drag-and-drop behaves like any other container.
+local function refreshInventoryContainers(page, phase)
+    if phase ~= "buttonsAdded" then return end
+    if type(page) ~= "table" or page.onCharacter == true then return end
+    if type(page.addContainerButton) ~= "function" then return end
+    local bridge = SC.UIBridge
+    if type(bridge) ~= "table" or type(bridge.borrowedInventory) ~= "function" then return end
+    local container, actor = bridge.borrowedInventory(page)
+    if container == nil then return end
+    if type(page.backpacks) == "table" then
+        for _, button in ipairs(page.backpacks) do
+            if type(button) == "table" and button.inventory == container then return end
+        end
+    end
+    local label = "Companion"
+    if type(bridge.borrowedInventoryLabel) == "function" then
+        label = bridge.borrowedInventoryLabel(actor) or label
+    end
+    page:addContainerButton(container, nil, label, label)
+end
+
+-- The event boundary. A throwing handler here would break the player's whole
+-- inventory window, so nothing from this hook is allowed to escape.
+local function safeRefreshInventoryContainers(page, phase)
+    local ok, reason = pcall(refreshInventoryContainers, page, phase)
+    if not ok then
+        SC.Diagnostics.report("container-hook", nil,
+            "companion container refresh failed", reason)
+    end
+end
+runtime._refreshInventoryContainersForTests = refreshInventoryContainers
+
+local function refreshEventAvailable()
+    return Events ~= nil and type(Events.OnRefreshInventoryWindowContainers) == "table"
+        and type(Events.OnRefreshInventoryWindowContainers.Add) == "function"
+        and type(Events.OnRefreshInventoryWindowContainers.Remove) == "function"
+end
+
 local function installContainerHook()
     if originalSelectContainer ~= nil and originalSetNewContainer ~= nil then return true end
     if type(ISInventoryPage) ~= "table" then
@@ -1139,6 +1194,11 @@ local function installContainerHook()
         ISInventoryPage.selectContainer = selectContainerWrapper
         ISInventoryPage.setNewContainer = setNewContainerWrapper
     end)
+    if ok and refreshEventAvailable() and not refreshHookInstalled then
+        ok, reason = pcall(Events.OnRefreshInventoryWindowContainers.Add,
+            safeRefreshInventoryContainers)
+        refreshHookInstalled = ok == true
+    end
     if not ok then
         pcall(function()
             ISInventoryPage.selectContainer = originalSelectContainer
@@ -1167,7 +1227,25 @@ local function preflightContainerHookRemoval()
     return true
 end
 
+local function removeRefreshHook()
+    if not refreshHookInstalled then return true end
+    if not refreshEventAvailable() then
+        return false, "inventory refresh event is unavailable"
+    end
+    local ok, reason = pcall(Events.OnRefreshInventoryWindowContainers.Remove,
+        safeRefreshInventoryContainers)
+    if not ok then return false, tostring(reason) end
+    refreshHookInstalled = false
+    return true
+end
+
 local function removeContainerHook()
+    local refreshOk, refreshReason = removeRefreshHook()
+    if not refreshOk then
+        SC.Diagnostics.report("container-hook", nil,
+            "companion container refresh hook removal deferred", refreshReason)
+        return false, refreshReason
+    end
     local ready, preflightReason = preflightContainerHookRemoval()
     if not ready then
         SC.Diagnostics.report("container-hook", nil,
