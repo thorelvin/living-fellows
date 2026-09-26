@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.20.4-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.25.25-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.25.26-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -147,7 +147,7 @@ Zombies hunt companions like players. Bites can infect and turn them, and a swar
 
 ### Scavenging and equipment
 
-A scavenger picks one container, walks to it, finishes the rummage animation, and moves one verified item. Empty containers are skipped for a while. Scavengers also search containers you have already opened, so a house you searched first is still worth their time. Inside your base it works the other way round: companions use the storage you have marked, of any category, for scavenging and for meals, down to any reserve you set, and leave every unmarked container to you. Memorial storage keeps its keepsakes. Companions use backpacks, keep supplies suited to their role, drop dead weight outside combat, loot dead zombies when it is safe, upgrade clothing and armor, and wash themselves and their gear near clean water.
+A scavenger chooses a container from the outside, the way you would: how far away it is, and what room it stands in. It does not know what is inside until it opens it, and once it has, it keeps taking what it needs from that container rather than walking to the next one for one more item. Every transfer finishes the rummage animation and is verified. Empty containers are skipped for a while. Nails, planks, thread, tape, scrap and batteries are always worth carrying home, whoever is short of what. Scavengers also search containers you have already opened, so a house you searched first is still worth their time. Inside your base it works the other way round: companions use the storage you have marked, of any category, for scavenging and for meals, down to any reserve you set, and leave every unmarked container to you. Memorial storage keeps its keepsakes. Companions use backpacks, keep supplies suited to their role, drop dead weight outside combat, loot dead zombies when it is safe, upgrade clothing and armor, and wash themselves and their gear near clean water. After dark, and in an unlit room at any hour, a companion carrying a flashlight holds it in its off hand and switches it on, puts it out when there is light again or the room is already lit, and swaps in a spare battery when the torch runs flat. A two-handed weapon leaves no hand for a torch.
 
 <p align="center">
   <img src="assets/screenshot-scavenging.png" width="100%" alt="A companion standing in a blood-smeared house says: I found Bra - Strapless. Eww, I got some of it on my hands.">

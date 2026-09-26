@@ -171,7 +171,7 @@ for _, name in ipairs({
     "NativeCombatActions", "NativeWorkActions", "NativeMovementActions",
     "Trade", "FactionLife", "FactionWorld",
     "FactionBehavior", "ZombieTargeting", "ThreatSet", "PerceptionScan", "Locomotion", "Senses", "Topology", "PathSearch", "NavTraffic", "NavTraversal", "Allegiance", "Navigation",
-    "Positioning", "Combat", "Medical", "Logistics", "Needs", "Downtime",
+    "Positioning", "Combat", "Medical", "Logistics", "Lighting", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal",
     "BaseObjectRef", "BaseLife", "WorkTransport", "GatherWork", "FarmWork", "BaseWork", "Production",
     "InfectionCrisis", "LifeEvents", "Community",

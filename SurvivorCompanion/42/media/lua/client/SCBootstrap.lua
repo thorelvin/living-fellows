@@ -54,6 +54,7 @@ require "SCCombat"
 require "SCMedical"
 require "SCEncounter"
 require "SCLogistics"
+require "SCLighting"
 require "SCNeeds"
 require "SCDowntime"
 require "SCPersonality"
@@ -120,7 +121,7 @@ local requiredModules = {
     "Background", "Dialogue", "Allegiance", "Factions", "Trade", "FactionLife", "FactionContracts", "FactionWorld",
     "FactionBehavior", "ZombieTargeting", "ThreatSet", "PerceptionScan",
     "Locomotion", "Senses", "Navigation", "Positioning", "Combat", "Medical", "Encounter",
-    "Logistics", "Needs", "Downtime", "Personality", "PersonalItems", "Relationship",
+    "Logistics", "Lighting", "Needs", "Downtime", "Personality", "PersonalItems", "Relationship",
     "Objectives", "Journal", "BaseLife", "BaseVisuals", "WorkTransport", "GatherWork",
     "FarmWork", "BaseWork", "Production", "InfectionCrisis",
     "LifeEvents", "Community", "DiaryText", "DiaryCatalog", "DiaryItem", "Diary",

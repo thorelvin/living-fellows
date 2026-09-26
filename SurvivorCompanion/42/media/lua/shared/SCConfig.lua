@@ -300,6 +300,16 @@ local valueData = {
     -- looking around again. Long enough to empty an ordinary cupboard, short
     -- enough that a container which stops being worth it is let go.
     scavengeOpenContainerMs = 60000,
+    -- Flashlights. Darkness runs 0 (noon) to 1 (night); the two thresholds are
+    -- apart so a companion does not flick its torch through the whole of dusk.
+    lightingIntervalMs = 3000,
+    lightingLightDarkness = 0.62,
+    lightingDouseDarkness = 0.45,
+    lightingIndoorDarkness = 0.35,
+    lightingAmbientLitLevel = 0.55,
+    lightingDuskHour = 19,
+    lightingDawnHour = 6,
+    lightingInventoryBudget = 120,
     scavengeBlindBaseScore = 20,
     navigationDetourFailureThreshold = 2,
     navigationDetourNodeBudget = 6000,

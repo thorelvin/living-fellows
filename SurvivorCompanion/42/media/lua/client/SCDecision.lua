@@ -2309,6 +2309,14 @@ function Decision.update(actor, player, runtime, roundTimestamp)
             return SC.Combat.observe(actor)
         end)
     end
+    -- Carrying a light is not an activity, so it is upkeep rather than a
+    -- behaviour candidate: a companion lights its torch and keeps walking.
+    if SC.Lighting and type(SC.Lighting.observe) == "function" then
+        utility.safeSubsystem("lighting", actor, function()
+            return SC.Lighting.observe(actor, player, rootRuntime, snapshot,
+                commands, current)
+        end)
+    end
     if SC.Autonomy and type(SC.Autonomy.observe) == "function" then
         utility.safeSubsystem("autonomy-observe", actor, function()
             return SC.Autonomy.observe(actor, player, rootRuntime, snapshot, commands)

@@ -226,6 +226,14 @@ function Logistics.itemCategory(item)
         or typeContains(itemType, { "hammer", "hatchet", "woodaxe", "handsaw",
             "screwdriver", "wrench", "crowbar", "torch", "weldermask" })
         or category == "tool" or display == "tool" then return "tools" end
+    -- A battery is crafting stock, which means it is always worth carrying
+    -- home -- and it is also what keeps a flashlight working, so a companion
+    -- that never picks one up can never swap a flat torch. A car battery is
+    -- thirty kilos of vehicle part and is emphatically not this.
+    if string.find(itemType, "battery", 1, true) ~= nil
+        and string.find(itemType, "carbattery", 1, true) == nil then
+        return "crafting"
+    end
     if typeContains(itemType, { "scrap", "electronic", "screws", "glue", "ducttape",
         "adhesivetape", "twine", "thread", "leather", "rope", "tarp", "fabric" })
         or display == "crafting" then return "crafting" end

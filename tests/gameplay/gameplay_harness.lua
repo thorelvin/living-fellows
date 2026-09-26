@@ -23,6 +23,8 @@ local clock = 100000
 function getTimestampMs() return clock end
 local worldHour = 12
 local rainIntensity, fogIntensity = 0, 0
+-- 1 is noon, 0 is night. Flashlight behaviour reads this before the clock.
+local daylightStrength = 1
 function getGameTime()
     return {
         getHour = function() return worldHour end,
@@ -34,6 +36,7 @@ function getClimateManager()
     return {
         getPrecipitationIntensity = function() return rainIntensity end,
         getFogIntensity = function() return fogIntensity end,
+        getDayLightStrength = function() return daylightStrength end,
     }
 end
 local worldSoundCount = 0
@@ -133,6 +136,25 @@ local function item(itemType, category, options)
     function value:getEnduranceMod() return self.enduranceMod or 1 end
     function value:getSharpness() return self.sharpness == nil and 1 or self.sharpness end
     function value:isTwoHandWeapon() return self.twoHanded == true end
+    -- Light sources and drainable charge. An ordinary item reports zero
+    -- strength and no switch, so it is never mistaken for a torch.
+    function value:getLightStrength() return self.lightStrength or 0 end
+    function value:canBeActivated() return self.activatable == true end
+    function value:canEmitLight()
+        return (self.lightStrength or 0) > 0 and (self.usesFloat or 0) > 0
+    end
+    function value:isActivated() return self.activated == true end
+    function value:setActivated(enabled) self.activated = enabled == true end
+    function value:playActivateDeactivateSound()
+        self.switchSounds = (self.switchSounds or 0) + 1
+    end
+    function value:isEmptyUses() return (self.usesFloat or 0) <= 0 end
+    function value:getCurrentUsesFloat() return self.usesFloat or 0 end
+    function value:setCurrentUsesFloat(amount) self.usesFloat = tonumber(amount) or 0 end
+    function value:setCurrentUsesFrom(other)
+        if self.rejectChargeTransfer then return end
+        self.usesFloat = (type(other) == "table" and other.usesFloat) or 0
+    end
     function value:getCategories() return self.weaponCategories or {} end
     function value:isRanged() return self.ranged == true end
     function value:isJammed() return self.jammed == true end
@@ -440,6 +462,8 @@ local function makeSquare(x, y, z)
     function value:getDoor(north) return nil end
     function value:getWindow(north) return nil end
     function value:getRoom() return self.room end
+    function value:isOutside() return self.outside ~= false end
+    function value:getLightLevel(_) return self.lightLevel or 0 end
     function value:HasTree() return self.hasTree == true end
     function value:hasBush() return self.engineBush == true end
     function value:getProperties() return self.properties end
@@ -506,6 +530,11 @@ local function actor(id, x, y, options)
     function value:getHealth() return self.body.health end
     function value:getPrimaryHandItem() return self.primary end
     function value:getSecondaryHandItem() return self.secondary end
+    function value:setPrimaryHandItem(held) self.primary = held end
+    function value:setSecondaryHandItem(held)
+        if self.rejectOffHand then return end
+        self.secondary = held
+    end
     function value:getVehicle() return self.vehicle end
     function value:isCollidedWithVehicle() return self.collidedVehicle == true end
     function value:isCollidedWithDoor() return self.collidedDoor == true end
@@ -8926,6 +8955,191 @@ end
     for index = #farSquare.objects, 1, -1 do
         if farSquare.objects[index] == farOwner then table.remove(farSquare.objects, index) end
     end
+end)()
+
+;(function()
+    -- Flashlights. Companions carried torches and batteries and used neither:
+    -- nothing in the mod looked at how dark it was, so a companion cleared a
+    -- house at three in the morning by feel with two working lights in its bag.
+    local Lighting = SurvivorCompanion.Lighting
+    local lightClock = clock
+    local walker = actor("sc-torch-walker", 14, 14, {})
+    registry[walker.id] = walker
+
+    local function torch(id, uses)
+        return item(id, "Item", { lightStrength = 2, activatable = true, usesFloat = uses })
+    end
+    local function battery(id, uses)
+        return item(id, "Item", { usesFloat = uses })
+    end
+    -- The upkeep pass is throttled and seeds its own timer on first sight of
+    -- an actor, so a test that calls it once never runs it. Make it due.
+    local function lightingTick(at)
+        local runtime = SurvivorCompanion.GameplayUtil.actorState(walker)
+        runtime.timers = runtime.timers or {}
+        runtime.timerIntervals = runtime.timerIntervals or {}
+        runtime.timers.lighting = at - 1
+        runtime.timerIntervals.lighting = 3000
+        return Lighting.observe(walker, player, {}, nil, {}, at)
+    end
+
+    local flat = torch("Base.Torch", 0)
+    local plain = item("Base.Plank", "Item")
+    check(Lighting.isLight(torch("Base.Torch2", 1)) and not Lighting.isLight(plain)
+            and Lighting.hasCharge(torch("Base.Torch3", 1))
+            and not Lighting.hasCharge(flat),
+        "a torch is a switchable light source and a plank is not")
+
+    -- Daylight decides, not the clock alone: a storm at noon is darker than a
+    -- clear evening and the game already knows that.
+    daylightStrength = 1
+    check(Lighting.darkness(walker) == 0
+            and not Lighting.wantsLight(walker, false),
+        "nobody burns a battery at noon")
+    daylightStrength = 0
+    check(Lighting.darkness(walker) == 1 and Lighting.wantsLight(walker, false),
+        "a companion standing outside at night wants a light")
+
+    -- Two thresholds, so dusk is not a strobe.
+    daylightStrength = 0.5
+    check(not Lighting.wantsLight(walker, false) and Lighting.wantsLight(walker, true),
+        "a lit torch stays lit through the dusk that would not have lit it")
+
+    -- An unlit interior is the darker place at the same hour.
+    daylightStrength = 0.6
+    check(not Lighting.wantsLight(walker, false), "late afternoon outdoors needs no torch")
+    walker.square.outside = false
+    check(Lighting.darkness(walker) > 0.7 and Lighting.wantsLight(walker, false),
+        "the same hour inside an unlit house does need one")
+    -- Somewhere already lit needs no second torch.
+    walker.square.lightLevel = 0.9
+    check(Lighting.darkness(walker) == 0 and not Lighting.wantsLight(walker, true),
+        "a powered, lit room puts the torch away")
+    walker.square.lightLevel = 0
+    walker.square.outside = true
+
+    -- The whole point: dark, carrying a torch, so it ends up lit in the off
+    -- hand with the weapon hand untouched.
+    daylightStrength = 0
+    local machete = item("Base.Machete", "Weapon")
+    walker.primary = machete
+    local working = torch("Base.Torch", 1)
+    walker.inventory:AddItem(working)
+    local acted, reason = lightingTick(lightClock + 600000)
+    check(acted and reason == "lit" and walker.secondary == working
+            and working.activated == true and walker.primary == machete,
+        "a companion in the dark lights a torch in its off hand and keeps its weapon")
+
+    -- And puts it out again when it does not need it.
+    daylightStrength = 1
+    local doused, dousedReason = lightingTick(lightClock + 1200000)
+    check(doused and dousedReason == "doused" and working.activated == false
+            and walker.secondary == nil and walker.primary == machete,
+        "morning puts the torch out and stows it")
+
+    -- A torch already in hand and merely switched off is switched on, not
+    -- unequipped and equipped again.
+    daylightStrength = 0
+    walker.secondary = working
+    working.activated = false
+    local relit, relitReason = lightingTick(lightClock + 1500000)
+    check(relit and relitReason == "lit" and working.activated == true
+            and walker.secondary == working,
+        "a torch already in the off hand is simply switched on")
+
+    -- While an exclusive action owns the actor the switch is still free, but
+    -- its hands are not: the torch goes out and stays where it is.
+    daylightStrength = 1
+    local savedCurrent = SurvivorCompanion.ActionSupervisor.current
+    SurvivorCompanion.ActionSupervisor.current = function() return { action = "barricade" } end
+    local busyDoused, busyReason = lightingTick(lightClock + 1600000)
+    SurvivorCompanion.ActionSupervisor.current = savedCurrent
+    check(busyDoused and busyReason == "doused" and working.activated == false
+            and walker.secondary == working,
+        "a busy companion douses its torch but keeps hold of it")
+    Lighting.stowLight(walker, working)
+
+    -- A flat torch with a spare battery is swapped, not abandoned.
+    daylightStrength = 0
+    walker.inventory:Remove(working)
+    local dead = torch("Base.Torch", 0)
+    local spare = battery("Base.Battery", 0.8)
+    local fuller = battery("Base.Battery", 1)
+    walker.inventory:AddItem(dead)
+    walker.inventory:AddItem(spare)
+    walker.inventory:AddItem(fuller)
+    local swapped, swapReason = lightingTick(lightClock + 1800000)
+    check(swapped and swapReason == "lit" and dead.usesFloat == 0.8
+            and not walker.inventory:contains(spare)
+            and walker.inventory:contains(fuller)
+            and walker.secondary == dead and dead.activated == true,
+        "a flat torch takes the emptiest spare battery and nothing else is spent")
+
+    -- No spare, no light, and above all no silently eaten battery.
+    Lighting.stowLight(walker, dead)
+    dead.usesFloat = 0
+    walker.inventory:Remove(fuller)
+    local failed, failReason = lightingTick(lightClock + 2400000)
+    check(not failed and failReason == "no_working_light" and walker.secondary == nil,
+        "a companion with a dead torch and no spare simply has no light")
+
+    -- The swap is a transaction: if the engine will not take the charge, the
+    -- cell is still in the bag afterwards.
+    local stubborn = torch("Base.Torch", 0)
+    stubborn.rejectChargeTransfer = true
+    local keptCell = battery("Base.Battery", 1)
+    walker.inventory:AddItem(stubborn)
+    walker.inventory:AddItem(keptCell)
+    local refused, refusedReason = Lighting.swapBattery(walker, stubborn)
+    check(not refused and refusedReason == "native_charge_transfer_unverified"
+            and walker.inventory:contains(keptCell) and stubborn.usesFloat == 0,
+        "a battery is never spent on a torch the engine refused to charge")
+
+    -- Two hands on a weapon is two hands on a weapon.
+    walker.inventory:Remove(stubborn)
+    local bothHands = item("Base.Axe", "Weapon", { twoHanded = true })
+    walker.primary = bothHands
+    local spareTorch = torch("Base.Torch", 1)
+    walker.inventory:AddItem(spareTorch)
+    local blocked, blockedReason = Lighting.equipLight(walker, spareTorch)
+    check(not blocked and blockedReason == "hands_full" and walker.secondary == nil,
+        "a two-handed weapon leaves no hand for a torch")
+
+    -- A car battery is thirty kilos of vehicle part.
+    check(Lighting.isBattery(battery("Base.Battery", 1))
+            and not Lighting.isBattery(battery("Base.CarBattery", 1)),
+        "a car battery is not a spare for a flashlight")
+    check(SurvivorCompanion.Logistics.itemCategory(battery("Base.Battery", 1)) == "crafting"
+            and SurvivorCompanion.Logistics.itemCategory(battery("Base.CarBattery", 1)) ~= "crafting",
+        "batteries are gathered as crafting stock so a spare exists to swap in")
+
+    -- And the wiring: carrying a light is upkeep, not a behaviour candidate,
+    -- so it has to happen during an ordinary decision round whatever else the
+    -- companion decided to do that round.
+    daylightStrength = 0
+    local rounder = actor("sc-torch-rounds", 16, 16, {})
+    registry[rounder.id] = rounder
+    local roundTorch = torch("Base.Torch", 1)
+    rounder.inventory:AddItem(roundTorch)
+    local roundState = SurvivorCompanion.GameplayUtil.actorState(rounder)
+    roundState.timers = roundState.timers or {}
+    roundState.timerIntervals = roundState.timerIntervals or {}
+    roundState.timers.lighting = lightClock + 2999999
+    roundState.timerIntervals.lighting = 3000
+    SurvivorCompanion.Decision.update(rounder, player, {
+        snapshot = { threats = {}, immediateAttackers = {}, escapeSquares = {},
+            allies = {}, threatCount = 0, immediateCount = 0, pressure = 0,
+            player = { danger = 0 } },
+    }, lightClock + 3000000)
+    check(rounder.secondary == roundTorch and roundTorch.activated == true,
+        "a decision round lights the torch alongside whatever else was chosen")
+    SurvivorCompanion.Decision.reset(rounder)
+    registry[rounder.id] = nil
+
+    daylightStrength = 1
+    walker.primary, walker.secondary = nil, nil
+    registry[walker.id] = nil
+    clock = lightClock
 end)()
 
 do

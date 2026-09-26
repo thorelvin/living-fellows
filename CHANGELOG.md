@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.25.26 - Somebody turn a light on
+
+- Companions use the flashlights they are carrying. After dark, and in an unlit room at any hour, a companion holds a torch in its off hand and switches it on -- and puts it out when there is daylight again or the room it walked into is already lit. Weather counts, so a storm at two in the afternoon is dark enough and a clear evening is not, and the two thresholds are far enough apart that nobody strobes their way through dusk. The weapon hand is never touched, and a two-handed weapon leaves no hand for a torch.
+- A flat torch gets a fresh battery. A companion with a spare puts it in, using the most-drained cell first and leaving the full ones for later, and it is a proper swap: if the game refuses the charge the battery is still in the bag afterwards, rather than quietly gone with the torch still dead.
+- Batteries are worth picking up. They now count as crafting stock, which means companions gather them whether or not anyone is short of anything -- so there is a spare when a torch dies. Car batteries are not flashlight batteries and are left where they are.
+
 ## 0.25.25 - Empty the cupboard you opened
 
 - Companions no longer take one thing from a cupboard and wander off to the next one. Which container to walk to was decided by reading what was inside every container in range and ranking them by the single best item -- so a companion knew the contents of a shut drawer, and after taking that one item everything was ranked again and a different container two rooms away usually won. A closed container is now judged from the outside only: how far away it is, and what room it stands in. Kitchens and pantries are a likely place to look for food, garages and sheds for tools, clinics and bathrooms for dressings.

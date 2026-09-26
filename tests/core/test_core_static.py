@@ -75,7 +75,7 @@ require("SC.VitalsTrace.report" in runtime
 
 bootstrap = (CLIENT / "SCBootstrap.lua").read_text(encoding="utf-8")
 for module in ("SCSenses", "SCNavigation", "SCCombat", "SCMedical", "SCEncounter",
-               "SCLogistics", "SCNeeds", "SCDowntime", "SCPersonality", "SCPersonalItems",
+               "SCLogistics", "SCLighting", "SCNeeds", "SCDowntime", "SCPersonality", "SCPersonalItems",
                "SCDialogue", "SCRelationship", "SCObjectives", "SCJournal", "SCLifeEvents", "SCCommunity",
                "SCWorkTransport", "SCGatherWork", "SCProduction",
                "SCAutonomy", "SCCommands", "SCDecision",

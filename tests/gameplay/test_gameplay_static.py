@@ -35,6 +35,7 @@ OWNED = [
     "SCMedical.lua",
     "SCEncounter.lua",
     "SCLogistics.lua",
+    "SCLighting.lua",
     "SCNeeds.lua",
     "SCDowntime.lua",
     "SCPersonality.lua",

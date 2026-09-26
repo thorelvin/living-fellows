@@ -64,7 +64,7 @@ local required = {
     "Persistence", "Vehicle", "Spawn", "GameplayUtil", "Topology", "PathSearch", "NavTraffic", "NavTraversal",
     "Background", "Dialogue", "Allegiance", "Trade", "FactionLife",
     "FactionWorld", "FactionBehavior", "ZombieTargeting", "ThreatSet", "PerceptionScan", "Locomotion", "Senses",
-    "Navigation", "Positioning", "Combat", "Medical", "Logistics", "Needs", "Downtime",
+    "Navigation", "Positioning", "Combat", "Medical", "Logistics", "Lighting", "Needs", "Downtime",
     "Personality", "PersonalItems", "Relationship", "Objectives", "Journal", "BaseObjectRef", "BaseLife",
     "BaseVisuals", "WorkTransport", "GatherWork",
     "FarmWork", "BaseWork", "Production", "InfectionCrisis", "LifeEvents", "Community",
