@@ -3290,6 +3290,7 @@ local function updateProgress(actor, state, now)
         end
         state.lastX, state.lastY, state.lastZ = x, y, z
         state.lastProgressAt = now
+        SC.Navigation._clearNativeFailureStreak(state)
         if recoveryAnchorCleared(state, x, y, z) then
             state.stuckAttempts = 0
             clearRecoveryAnchor(state)
@@ -3859,6 +3860,28 @@ function Navigation.combatVector(actor, target, kind, snapshot)
     return nil, nil, false, "no_clear_alternative"
 end
 
+-- Consecutive engine failures from one spot. Position is compared rather than
+-- square, because being wedged in furniture is a sub-tile condition: the square
+-- never changes while the companion shuffles against a chair leg.
+function Navigation._noteNativeFailureStuck(actor, state, now)
+    local x, y, z = U().position(actor)
+    if x == nil then return false end
+    local key = string.format("%.1f:%.1f:%d", x, y, math.floor(z or 0))
+    if state.nativeFailureKey ~= key then
+        state.nativeFailureKey, state.nativeFailureStreak = key, 1
+        return false
+    end
+    state.nativeFailureStreak = (tonumber(state.nativeFailureStreak) or 0) + 1
+    local limit = math.max(1, math.floor(
+        tonumber(U().config("navigationNativeFailureStuckAttempts")) or 3))
+    return state.nativeFailureStreak >= limit
+end
+
+function Navigation._clearNativeFailureStreak(state)
+    if type(state) ~= "table" then return end
+    state.nativeFailureKey, state.nativeFailureStreak = nil, nil
+end
+
 local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGoal,
         now, reason, multiGoal, movingTarget, affordance, actor, intent)
     local list = nativeTargets(targets)
@@ -4415,6 +4438,13 @@ local function classifyMovementBlocker(actor, fromSquare, toSquare, movementReas
             evidenceClass = "unknown", confidence = "low", passageOnly = true }
     end
     if polygonCollision then
+        local wedged, wedgedLabel = U().squareOccupyingObject(fromSquare)
+        if wedged == nil then wedged, wedgedLabel = U().squareOccupyingObject(toSquare) end
+        if wedged ~= nil then
+            return { type = "furniture", square = toSquare or fromSquare,
+                object = wedged, objectLabel = wedgedLabel,
+                evidenceClass = "dynamic", confidence = "medium" }
+        end
         return { type = "continuous_geometry", square = toSquare or fromSquare,
             evidenceClass = "unknown", confidence = "low" }
     end
@@ -5387,6 +5417,17 @@ function Navigation.request(actor, target, movementMode, intent)
         return true, "native_verification_cooldown"
     end
 
+    -- The locked-door memory only ever informed the Lua planner. The engine
+    -- pathfinder never consulted it, and the locked-door detection lives in the
+    -- native look-ahead -- so a door already recorded as shut was handed back to
+    -- the engine, which routed through it again. One companion did that at one
+    -- door ten times in fifteen minutes, against a ten-minute memory.
+    if SC.Navigation.behindLockedDoor(actor, goalSquare, now)
+        and state.nativeLease == nil then
+        rememberFailure(actor, state, sourceSquare, goalSquare,
+            "path_blocked:door_locked", now, "locked_room_known")
+        return false, "path_blocked:door_locked"
+    end
     local leaseState, leaseStatus = maintainNativeLease(actor, state, goalSquare, now)
     if leaseState == "active" then return true, leaseStatus or "native_path_owned" end
     if leaseState == "failed" then
@@ -5394,7 +5435,18 @@ function Navigation.request(actor, target, movementMode, intent)
         local toSquare = state.lastAttemptTo or goalSquare
         rememberFailure(actor, state, fromSquare, toSquare,
             leaseStatus or "native_path_failed", now, "native_edge_replan")
-        return false, leaseStatus or "native_path_failed"
+        -- Asking the engine again from a position the companion physically
+        -- cannot leave will fail again. Once that has happened often enough
+        -- with the companion not having moved at all, stop returning here and
+        -- let the recovery ladder below do what it is for -- step aside, then
+        -- escalate. Returning early is why a companion wedged in a chair
+        -- replanned for twelve minutes without once trying to move sideways.
+        if not SC.Navigation._noteNativeFailureStuck(actor, state, now) then
+            return false, leaseStatus or "native_path_failed"
+        end
+        state.lastMovementReason = leaseStatus or "native_path_failed"
+    else
+        SC.Navigation._clearNativeFailureStreak(state)
     end
 
     local recovering, recoveryAccepted, recoveryStatus = recoverFromStuck(

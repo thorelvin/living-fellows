@@ -666,6 +666,48 @@ do
             "a search that the actor has advanced under keeps its original anchor as its identity")
     end
 
+    -- Playtest 26 September: one companion spent twelve minutes wedged in a
+    -- chair and another eighteen minutes against a flowerpot, neither moving a
+    -- tile. The engine path failed, we replanned, it failed again -- 54 and 35
+    -- records from one position. The recovery ladder was never reached, because
+    -- the native-failure branch returned before it.
+    do
+        local streakState = {}
+        local stuckActor = { __class = "IsoPlayer", x = 4.3, y = 7.8, data = {} }
+        function stuckActor:getX() return self.x end
+        function stuckActor:getY() return self.y end
+        function stuckActor:getZ() return 0 end
+        function stuckActor:getModData() return self.data end
+        function stuckActor:isDead() return false end
+
+        check(N._noteNativeFailureStuck(stuckActor, streakState, 1000) == false,
+            "one engine failure is not being stuck")
+        check(N._noteNativeFailureStuck(stuckActor, streakState, 2000) == false,
+            "two failures from the same spot is not yet being stuck")
+        check(N._noteNativeFailureStuck(stuckActor, streakState, 3000) == true,
+            "a third failure from ground the companion has not left is stuck")
+
+        -- Sub-tile movement counts: being wedged never changes the square.
+        stuckActor.x = 4.9
+        check(N._noteNativeFailureStuck(stuckActor, streakState, 4000) == false,
+            "moving within the tile restarts the count")
+        check(N._noteNativeFailureStuck(stuckActor, streakState, 5000) == false
+                and N._noteNativeFailureStuck(stuckActor, streakState, 6000) == true,
+            "the count builds again from the new position")
+
+        N._clearNativeFailureStreak(streakState)
+        check(N._noteNativeFailureStuck(stuckActor, streakState, 7000) == false,
+            "real progress clears the streak")
+
+        local saved = SC.Config._values.navigationNativeFailureStuckAttempts
+        SC.Config._values.navigationNativeFailureStuckAttempts = 1
+        local eager = {}
+        check(N._noteNativeFailureStuck(stuckActor, eager, 8000) == false
+                and N._noteNativeFailureStuck(stuckActor, eager, 9000) == true,
+            "the threshold is configurable")
+        SC.Config._values.navigationNativeFailureStuckAttempts = saved
+    end
+
     -- A search that never left its start square has nothing to offer.
     check(P.partialPath({ bestKey = "0:0:0", startKey = "0:0:0" }, 0) == nil,
         "a search still on its start square offers no partial route")

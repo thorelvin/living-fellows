@@ -646,6 +646,34 @@ function U.squareStaticBlocker(square)
     return nil, nil
 end
 
+-- The thing a companion is most likely wedged against on an otherwise free
+-- tile. Chairs, flowerpots, bins and tables occupy part of a square, so none of
+-- them is solid, moved-thumpable or block-all -- the tile reads free, a route is
+-- planned into it, and the native capsule stops the companion halfway in. The
+-- blocker was then recorded as "unknown" with no object at all, so nothing
+-- downstream could learn or report anything. This names the culprit.
+--
+-- Diagnostics and recovery only. Passability is unchanged.
+function U.squareOccupyingObject(square)
+    if not square then return nil, nil end
+    local found, label
+    U.squareObjects(square, function(object)
+        if U.instanceOf(object, "IsoWorldInventoryObject") then return end
+        -- Something a person can put a mug on is something a person walks into.
+        local offset, offsetOk = U.call(object, "getSurfaceOffset")
+        local moveable, moveableOk = U.call(object, "isMoveAble")
+        local container, containerOk = U.call(object, "getContainer")
+        if (offsetOk and (tonumber(offset) or 0) > 0)
+            or (moveableOk and moveable == true)
+            or (containerOk and container ~= nil) then
+            found = object
+            label = U.objectLabel(object)
+            return false
+        end
+    end, 32)
+    return found, label
+end
+
 -- Character bodies occupy a capsule, not their entire map tile. This is used
 -- by execution traffic checks; planner crowd costs can remain conservative.
 function U.bodyBlocksSegment(other, actor, toX, toY, clearance)

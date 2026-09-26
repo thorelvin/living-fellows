@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.25.16 - Wedged in a chair
+
+- Companions stuck on furniture get themselves out again. A chair, a flowerpot, a bin or a table takes up part of a tile without making the tile impassable, so a route is planned into it and the game's own collision stops the companion halfway in. Once there they could not move at all -- and because asking the game for a new route was the only thing being tried, they asked for a new route, failed, and asked again. In the last playtest one companion did that inside a chair for twelve minutes and another against a flowerpot for eighteen, neither moving a single tile. Repeated failures from ground a companion has not left are now treated as being stuck rather than as a routing problem, and the recovery they already had -- step aside, then escalate -- finally gets a chance to run.
+- The log now says what a companion is wedged against. It used to record an unidentified obstacle and no object at all, which is exactly the case where naming the thing matters most. Being able to stand on the tile is unchanged; this only names the culprit.
+- A door known to be locked is no longer handed straight back to the game's pathfinder. The memory of a locked door has only ever been consulted by the mod's own route planning, and the check that spots the door happens after the game has already been asked to route through it -- so a companion could rediscover the same locked door every seventy-five seconds against a memory meant to last ten minutes. One did exactly that, ten times at one door.
+
 ## 0.25.15 - A horde in sight is not a horde in the fight
 
 - Companions no longer back away from two zombies because twenty more are standing about in the distance. Danger was one number that mixed the zombies which can actually reach a companion with every other one it happened to be able to see, and the retreat calculation multiplied that number by sixteen. Twenty idle zombies across a field pushed retreat up by a hundred and twelve points and pushed attacking down, without one fact about the fight in front of the companion having changed -- so they kited away from a pair they could comfortably have handled.

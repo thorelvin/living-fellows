@@ -833,6 +833,13 @@ def main() -> int:
             "`and nil/false or` always evaluates its fallback: "
             + "; ".join(falsy_middle[:5]))
 
+    # A door already recorded as locked must not be handed back to the engine
+    # pathfinder, which does not consult the blacklist the Lua planner uses.
+    require('if SC.Navigation.behindLockedDoor(actor, goalSquare, now)'
+            in sources["SCNavigation.lua"]
+            and 'return false, "path_blocked:door_locked"' in sources["SCNavigation.lua"],
+            "the native fallback no longer routes into a known locked room")
+
     combat_source = sources["SCCombat.lua"]
     banter_source = sources["SCBanter.lua"]
     objectives_source = sources["SCObjectives.lua"]

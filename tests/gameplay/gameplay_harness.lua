@@ -20055,4 +20055,88 @@ end)()
     check(said() == 1, "a line that was never spoken is still owed")
 end)()
 
+;(function()
+    -- Fix 1: a chair or a flowerpot occupies part of a square, so it is not
+    -- solid, not moved-thumpable and not block-all. The tile reads free, a
+    -- route is planned into it, and the native capsule stops the companion
+    -- halfway in -- recorded as "unknown" with object=none, so nothing could
+    -- say what was holding them. Identification only; passability is unchanged.
+    local occupying = SurvivorCompanion.GameplayUtil.squareOccupyingObject
+    check(type(occupying) == "function", "the occupying-object helper is reachable")
+
+    local bare = cell:getGridSquare(52, 30, 0)
+    check(occupying(bare) == nil, "an empty square names nothing")
+    check(occupying(nil) == nil, "a missing square is tolerated")
+
+    local seated = cell:getGridSquare(53, 30, 0)
+    local chair = { }
+    function chair:getSurfaceOffset() return 0.4 end
+    function chair:getName() return "Chair" end
+    seated.objects = { chair }
+    local found, label = occupying(seated)
+    check(found == chair, "a chair on an otherwise free square is named")
+    check(type(label) == "string" and label ~= "",
+        "the named object carries a label for the log: " .. tostring(label))
+
+    -- Something with a container counts too: bins and crates wedge people in
+    -- exactly the same way.
+    local potted = cell:getGridSquare(54, 30, 0)
+    local pot = { }
+    function pot:getSurfaceOffset() return 0 end
+    function pot:getContainer() return { } end
+    function pot:getName() return "Flowerpot" end
+    potted.objects = { pot }
+    check(occupying(potted) == pot, "a container object is named")
+
+    -- Dropped loot is not furniture, and must not become an invented blocker.
+    local littered = cell:getGridSquare(55, 30, 0)
+    local dropped = { __class = "IsoWorldInventoryObject" }
+    function dropped:getSurfaceOffset() return 0.2 end
+    littered.objects = { dropped }
+    check(occupying(littered) == nil, "dropped loot is not treated as furniture")
+
+    -- The square remains passable: this is a label, not a wall.
+    check(SurvivorCompanion.GameplayUtil.isSquareFree(seated) == true,
+        "naming the chair does not make its square impassable")
+end)()
+
+;(function()
+    -- Fix 3: the locked-door memory only ever informed the Lua planner. The
+    -- engine pathfinder never consulted it and the locked-door detection lives
+    -- in the native look-ahead, so a door already recorded as shut was handed
+    -- straight back to the engine, which routed through it again -- one
+    -- companion did that at one door ten times in fifteen minutes against a
+    -- ten-minute memory.
+    local N = SurvivorCompanion.Navigation
+    local rooms = N._lockedRoomsForTests and N._lockedRoomsForTests() or nil
+    check(type(rooms) == "table", "the locked-room memory is reachable")
+    for key in pairs(rooms) do rooms[key] = nil end
+
+    local outsideActor = actor("sc-locked-room-actor", 44, 34, {})
+    local inside = cell:getGridSquare(46, 34, 0)
+    function inside:getRoomIDString() return "locked-parlour" end
+    local outside = cell:getGridSquare(44, 34, 0)
+    function outside:getRoomIDString() return "hallway" end
+
+    check(N.behindLockedDoor(outsideActor, inside, 1000) == false,
+        "with nothing remembered, no square is behind a locked door")
+
+    local shutDoor = {}
+    function shutDoor:isLocked() return true end
+    function shutDoor:IsOpen() return false end
+    rooms["locked-parlour"] = { door = shutDoor, expires = 1000 + 600000 }
+
+    check(N.behindLockedDoor(outsideActor, inside, 2000) == true,
+        "a square inside a remembered locked room is behind a locked door")
+    check(N.behindLockedDoor(outsideActor, outside, 2000) == false,
+        "a square outside that room is not")
+
+    -- The door opening releases it at once, rather than waiting out the memory.
+    function shutDoor:IsOpen() return true end
+    check(N.behindLockedDoor(outsideActor, inside, 2000) == false,
+        "opening the door releases the room immediately")
+
+    for key in pairs(rooms) do rooms[key] = nil end
+end)()
+
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")

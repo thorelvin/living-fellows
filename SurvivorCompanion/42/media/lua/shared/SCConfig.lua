@@ -299,6 +299,10 @@ local valueData = {
     -- Past it, a contact is awareness rather than a reason to break off a swing
     -- already underway. A starting value, to be tuned against native movement.
     combatIncomingHorizonMs = 5000,
+    -- How many engine path failures from one unchanged position before the
+    -- recovery ladder takes over from replanning. Low, because each failure
+    -- already costs a full engine path request.
+    navigationNativeFailureStuckAttempts = 3,
     navigationPartialRoutes = true,
     navigationPartialRouteMinimumGain = 2,
     -- Heading toward the goal while the route is still being planned, rather

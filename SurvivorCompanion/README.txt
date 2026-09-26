@@ -1,4 +1,4 @@
-Living Fellows 0.25.15 - public playtest
+Living Fellows 0.25.16 - public playtest
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.20.4. Single-player only: multiplayer and split-screen are
