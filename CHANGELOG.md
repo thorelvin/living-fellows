@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.25.20 - Let them read the name
+
+- A speaking companion no longer covers their own name. Build 42 puts the overhead speech bubble exactly where it draws a character's name, so the moment somebody said anything they hid the label telling you who was talking. Their lines now sit one line higher and the name stays readable underneath.
+
 ## 0.25.19 - One pair of hands
 
 - Only one companion stops to treat a casualty. Every companion who noticed a wounded friend started their own separate attempt to bandage them, so the whole group dropped what it was doing and converged on one person. A casualty is now taken by the first companion to reach them and the rest carry on; if that one is killed, interrupted or wanders off, the next one takes over instead of nobody ever doing it.

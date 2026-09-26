@@ -1691,9 +1691,28 @@ public final class SCNativeCompanion extends IsoPlayer {
         return true;
     }
 
+    /**
+     * Blank lines placed above a spoken line so the overhead bubble clears the
+     * companion's own nameplate. Build 42 draws the name where the bubble
+     * starts, so a speaking companion hid the very label that says who is
+     * talking. The bubble grows upward from its anchor and the engine exposes
+     * no handle on that anchor, so the lift is part of the line itself.
+     */
+    private static final int SPEECH_LIFT_LINES = 1;
+
+    private static String liftAboveNameplate(String line) {
+        if (line == null || line.isBlank() || SPEECH_LIFT_LINES <= 0) return line;
+        StringBuilder lifted = new StringBuilder(line.length() + SPEECH_LIFT_LINES);
+        for (int index = 0; index < SPEECH_LIFT_LINES; index++) lifted.append((char) 10);
+        return lifted.append(line).toString();
+    }
+
     @Override
     public void addLineChatElement(String line) {
-        super.addLineChatElement(line);
+        // Only the rendered bubble is lifted. Every retained value below stays
+        // the words themselves, so speech bookkeeping, teardown checks and the
+        // Lua side never see the padding.
+        super.addLineChatElement(liftAboveNameplate(line));
         if (line == null || line.isBlank()) {
             bridgeSpeechLine = null;
             bridgeSpeechRefreshUntilNanos = 0L;
