@@ -980,6 +980,33 @@ local function outcomeRouteExhausted(crisis)
     return now() - finite(crisis.resolvedAt, now()) > limit
 end
 
+-- A fixed offset from the camp core stops being outside the camp the moment the
+-- player enlarges it: eighteen tiles from the core of a camp that reaches
+-- twenty-five is still indoors, so the exile walked across their own base,
+-- arrived, and the outcome completed on its timeout with nobody having left.
+-- Step outward along the chosen bearing until the square is genuinely outside
+-- the area union, which is the condition exile actually means. The bearing
+-- still comes from the survivor's own identity, so two exiles do not queue
+-- along the same line.
+local function exileDestination(base, id)
+    if type(base) ~= "table" or type(base.core) ~= "table" then return nil end
+    local sign = (U().stableHash(id) % 2 == 0) and 1 or -1
+    local fallback
+    for distance = 18, 72, 6 do
+        local square = U().gridSquare(base.core.x + sign * distance,
+            base.core.y + 12, base.core.z)
+        if square ~= nil then
+            fallback = fallback or square
+            if SC.BaseLife == nil or type(SC.BaseLife.isInside) ~= "function"
+                or not SC.BaseLife.isInside(square) then
+                return square
+            end
+        end
+    end
+    return fallback
+end
+Crisis._exileDestinationForTests = exileDestination
+
 local function updateResolvedActor(actor, id, crisis, subject)
     if id ~= crisis.subjectId then return false, "crisis_observer" end
     local outcome = crisis.outcome
@@ -999,8 +1026,7 @@ local function updateResolvedActor(actor, id, crisis, subject)
     if outcome == "exile" or outcome == "self_exile" then
         local base = SC.BaseLife and SC.BaseLife.active()
         if base and SC.BaseLife.isInside(actor) then
-            local dx = (U().stableHash(id) % 2 == 0) and 18 or -18
-            local target = U().gridSquare(base.core.x + dx, base.core.y + 12, base.core.z)
+            local target = exileDestination(base, id)
             if target and SC.Navigation then
                 if outcomeRouteExhausted(crisis) then
                     return completeOutcome(crisis, "exile_route_unavailable")
@@ -1009,6 +1035,10 @@ local function updateResolvedActor(actor, id, crisis, subject)
                     action = "leave_base", targetSquare = target,
                 })
             end
+            -- Still inside, with nowhere to send them. That is a bounded
+            -- failure, not a completed exile: recording someone as exiled while
+            -- they are standing in the camp is the defect, not the timeout.
+            return completeOutcome(crisis, "exile_route_unavailable")
         end
         return completeOutcome(crisis, "exiled")
     end

@@ -19438,4 +19438,139 @@ end)()
         "the partial marker is cleared once its route has been walked")
 end)()
 
+;(function()
+    local N = SurvivorCompanion.Navigation
+    -- Review N1/N2: the specialised locked-door memory lasts as long as the room
+    -- behind it, but the generic failure handler runs straight afterwards for
+    -- the same edge and knew nothing about that, replacing ten minutes with the
+    -- ordinary few seconds. And a door is not a wall -- once the player opens it
+    -- the edge has to be released rather than waiting out its own clock.
+    local nFrom = cell:getGridSquare(10, 44, 0)
+    local nTo = cell:getGridSquare(11, 44, 0)
+    local nDoor = { locked = true, open = false }
+    function nDoor:isLocked() return self.locked end
+    function nDoor:IsOpen() return self.open end
+    function nFrom:isDoorTo(other) return other == nTo end
+    function nTo:isDoorTo(other) return other == nFrom end
+    function nTo:getDoor(north) if north == false then return nDoor end end
+
+    local nState = { blockedEdges = {}, blockedSquares = {}, routeMemory = {} }
+    N._blacklistEdgeForTests(nState, nFrom, nTo, "door", nDoor, 1000,
+        "static_edge", "high", 600000)
+    local nKey = SurvivorCompanion.GameplayUtil.squareKey(nFrom) .. ">"
+        .. SurvivorCompanion.GameplayUtil.squareKey(nTo)
+    check(tonumber(nState.blockedEdges[nKey].expires) == 601000,
+        "a locked door starts with the same memory as the room behind it")
+    -- The generic handler, with no duration of its own.
+    N._blacklistEdgeForTests(nState, nFrom, nTo, "door", nDoor, 1000,
+        "static_edge", "high", nil)
+    check(tonumber(nState.blockedEdges[nKey].expires) == 601000,
+        "generic failure handling does not shorten a deliberate locked-door memory: "
+            .. tostring(nState.blockedEdges[nKey].expires))
+
+    local lookup = N._edgeBlacklistEntryForTests
+    check(lookup(nState.blockedEdges, nFrom, nTo, 5000, fellow) ~= nil,
+        "an unchanged locked door stays blocked well before its expiry")
+    nDoor.open, nDoor.locked = true, false
+    check(lookup(nState.blockedEdges, nFrom, nTo, 5000, fellow) == nil,
+        "a door the player has opened releases its blocked edge at once")
+end)()
+
+;(function()
+    -- Review N3: a stealth route is planned to avoid exactly what the straight
+    -- bearing crosses, and the provisional helper has neither the threat overlay
+    -- nor the square penalty the planner is given.
+    local advance = SurvivorCompanion.Navigation._provisionalAdvance
+    local previousStepping = SurvivorCompanion.Config.values.navigationProvisionalStepping
+    SurvivorCompanion.Config.values.navigationProvisionalStepping = true
+    local stealthActor = actor("sc-prov-stealth", 10, 48, {})
+    local stealthGoal = cell:getGridSquare(15, 48, 0)
+    local function freshState()
+        return { blockedEdges = {}, blockedSquares = {}, routeMemory = {} }
+    end
+    check(advance(stealthActor, freshState(), stealthGoal, {}, 1000) ~= nil,
+        "an ordinary request still sets off while its route is planned")
+    check(advance(stealthActor, freshState(), stealthGoal,
+            { stealthAvoidance = true }, 1000) == nil,
+        "a stealth request waits for its route instead of walking the bearing")
+    SurvivorCompanion.Config.values.navigationProvisionalStepping = previousStepping
+end)()
+
+;(function()
+    -- Review N4: threats are ranked by relevance, not distance, so the first
+    -- twelve are not the twelve closest. This estimate decides whether there is
+    -- time to clear glass or whether to dive through the window.
+    local arrival = SurvivorCompanion.Navigation._threatArrivalMsForTests
+    local windowSquare = cell:getGridSquare(20, 48, 0)
+    local far, near = {}, { square = cell:getGridSquare(22, 48, 0) }
+    for index = 1, 12 do
+        far[index] = { square = cell:getGridSquare(20 + index, 30, 0) }
+    end
+    local truncated = arrival({ snapshot = { threats = far } }, windowSquare)
+    far[13] = near
+    local complete = arrival({ snapshot = { threats = far } }, windowSquare)
+    check(complete < truncated,
+        "a close contact past the score prefix is still measured: "
+            .. tostring(complete) .. " vs " .. tostring(truncated))
+    check(complete < 2000,
+        "a zombie two tiles from the window arrives in about a second: "
+            .. tostring(complete))
+end)()
+
+;(function()
+    -- Review N5: cross-floor dispatch hands the whole move to a rope climb or an
+    -- opaque engine route, neither of which can honour the no-climb rule for a
+    -- dragged body or the admitted-area rule for camp work.
+    local multi = SurvivorCompanion.Navigation._requestMultiLevelPath
+    local upstairsActor = actor("sc-cross-floor", 24, 48, {})
+    local upstairs = cell:getGridSquare(26, 48, 1)
+    local sameFloor = cell:getGridSquare(26, 48, 0)
+    check(select(1, multi(upstairsActor, {}, upstairsActor.square, sameFloor,
+            { draggingBody = true }, 1000)) == nil,
+        "a same-floor request is not the multi-level helper's business")
+    local dragHandled, dragAccepted, dragStatus = multi(upstairsActor, {},
+        upstairsActor.square, upstairs, { draggingBody = true }, 1000)
+    check(dragHandled == true and dragAccepted == false
+            and dragStatus == "path_blocked:cross_floor_dragging",
+        "a companion dragging a body is refused a cross-floor handoff: "
+            .. tostring(dragStatus))
+    local workHandled, workAccepted, workStatus = multi(upstairsActor, {},
+        upstairsActor.square, upstairs, { workCampOnly = true }, 1000)
+    check(workHandled == true and workAccepted == false
+            and workStatus == "path_blocked:cross_floor_work_area",
+        "camp-only work is refused a cross-floor handoff it cannot prove: "
+            .. tostring(workStatus))
+end)()
+
+;(function()
+    -- Review N6: exile stepped a fixed eighteen tiles from the camp core. Once
+    -- the player enlarges the camp past that, the destination is still inside
+    -- it, so the survivor crossed their own base, arrived, and the outcome
+    -- completed on its timeout with nobody having left.
+    local pick = SurvivorCompanion.InfectionCrisis._exileDestinationForTests
+    check(type(pick) == "function", "the exile destination helper is reachable")
+    local base = { core = { x = 0, y = 0, z = 0 } }
+    local previousInside = SurvivorCompanion.BaseLife.isInside
+    local radius = 25
+    SurvivorCompanion.BaseLife.isInside = function(value)
+        local x, y = SurvivorCompanion.GameplayUtil.position(value)
+        if x == nil then return false end
+        return math.abs(x) <= radius and math.abs(y) <= radius
+    end
+    for _, id in ipairs({ "sc-exile-even", "sc-exile-odd", "sc-exile-third" }) do
+        local target = pick(base, id)
+        check(target ~= nil and not SurvivorCompanion.BaseLife.isInside(target),
+            "exile from an enlarged camp leaves it: " .. tostring(id))
+    end
+    -- A small camp must still get the ordinary nearby destination rather than
+    -- being marched to the horizon.
+    radius = 7
+    local close = pick(base, "sc-exile-even")
+    local closeX = SurvivorCompanion.GameplayUtil.position(close)
+    check(close ~= nil and math.abs(closeX) <= 24,
+        "a small camp sends the exile just outside it, not to the horizon: "
+            .. tostring(closeX))
+    SurvivorCompanion.BaseLife.isInside = previousInside
+end)()
+
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")

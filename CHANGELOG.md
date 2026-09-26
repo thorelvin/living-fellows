@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.25.12 - What the door knows
+
+- A locked door a companion cannot open is remembered for as long as the room behind it again. The specialised handling sets that memory deliberately, but the general failure handling runs immediately afterwards for the same doorway, knows nothing about it, and was replacing ten minutes with the ordinary few seconds -- so the fix from 0.25.8 only held when the two happened to disagree about which doorway it was.
+- A door the player opens is usable again at once. The record of a blocked doorway was consulted before anything looked at the door itself, so a companion could refuse a route through a door you had just opened, or one they had since found the key to, until the record ran out on its own. A door that genuinely has not changed still keeps its full memory.
+- Companions sneaking no longer set off toward the danger they are working out how to avoid. Heading for the destination while the route is still being planned uses a straightforward "is the ground clear" test, which knows nothing about where the threats are -- and a quiet route is being planned precisely to go around them. They now wait for it, as they did before.
+- Heading off early no longer aims a companion through someone standing in the way. A crowded tile is priced rather than forbidden, which is right when a route can weigh it against going round, but there is nothing to weigh it against when walking straight at it.
+- Companions no longer decide there is time to clear a window's glass when a zombie is two tiles away. The threat list is ordered by how much each one matters -- attacking, hunting, visible, breaking in -- not by distance, and only the first twelve were measured, so twelve distant attackers could hide a close one. The whole list is measured now.
+- Companions dragging a body, or working inside a camp, are no longer sent between floors by a route that cannot be checked. The floor-to-floor handoff gives the whole move to a sheet rope or to the game's own pathfinder, neither of which can show where it went in between -- so a dragged body could be taken up a climb it is not allowed to make, and camp work could leave its area.
+- Exiled survivors actually leave. Exile walked them a fixed distance from the camp centre, which stopped being outside the camp as soon as the camp was enlarged, so they crossed their own base, arrived, and the exile was recorded as done with nobody having left. The destination is now chosen against the camp's real boundary, and an exile that cannot leave is recorded as a failure rather than as a departure.
+
 ## 0.25.11 - Six from the review
 
 - Companions no longer report a reachable destination as blocked after walking a partial route to its end. A partial route is a promise of more planning, but reaching its last square left the spent route in place, and planning refuses to start while a route exists -- so the request fell through to the failure path and called the destination blocked, having just done exactly what it was told. The spent route is now cleared and the rest is planned from wherever they actually got to.

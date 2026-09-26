@@ -159,13 +159,31 @@ local function blacklistEdge(state, fromSquare, toSquare, blockerType, object, n
     if not key then return nil end
     state.blockedEdges = state.blockedEdges or {}
     local duration = tonumber(durationOverride) or blockerDuration(evidenceClass)
+    local expires = now + duration
+    -- A locked door the companion cannot open is blacklisted for as long as the
+    -- room behind it. The generic failure handler runs immediately afterwards
+    -- for the same edge, knows nothing of that, and was overwriting the ten
+    -- minutes with the ordinary few seconds -- so the specialised memory only
+    -- ever survived when the two callers happened to disagree about the edge.
+    -- Keep the longer promise for the same obstacle. Releasing a door that has
+    -- since changed is edgeBlacklistEntry's job; a shorter clock is not.
+    local existing = state.blockedEdges[key]
+    if existing ~= nil and existing.object == object
+        and existing.type == (blockerType or "unknown")
+        and (tonumber(existing.expires) or 0) > expires then
+        expires = tonumber(existing.expires)
+    end
     state.blockedEdges[key] = {
         type = blockerType or "unknown",
         object = object,
         square = toSquare,
         evidenceClass = evidenceClass or "unknown",
         confidence = confidence or "low",
-        expires = now + duration,
+        expires = expires,
+        -- What made this door impassable, so a door that has since been opened,
+        -- unlocked, removed or replaced can be told apart from one that has not.
+        doorSignature = (blockerType == "door" and object ~= nil)
+            and Navigation._doorSignature(object) or nil,
     }
     local count, oldestKey, oldestExpiry = 0, nil, math.huge
     for candidateKey, candidate in pairs(state.blockedEdges) do
@@ -176,6 +194,8 @@ local function blacklistEdge(state, fromSquare, toSquare, blockerType, object, n
     if count > 64 and oldestKey then state.blockedEdges[oldestKey] = nil end
     return key
 end
+
+Navigation._blacklistEdgeForTests = blacklistEdge
 
 local function sweepBlockedEdges(state, now)
     for key, entry in pairs(state.blockedEdges or {}) do
@@ -215,13 +235,31 @@ local function squareBlacklistEntry(blockedSquares, square, now)
     return nil
 end
 
-local function edgeBlacklistEntry(blockedEdges, fromSquare, toSquare, now)
+local function edgeBlacklistEntry(blockedEdges, fromSquare, toSquare, now, actor)
     local key = edgeKey(fromSquare, toSquare)
     local entry = key and type(blockedEdges) == "table" and blockedEdges[key] or nil
-    if entry and (tonumber(entry.expires) or 0) > (now or U().nowMs()) then return entry end
-    if entry and key then blockedEdges[key] = nil end
-    return nil
+    if entry == nil then return nil end
+    if (tonumber(entry.expires) or 0) <= (now or U().nowMs()) then
+        if key then blockedEdges[key] = nil end
+        return nil
+    end
+    -- A door is not a wall. The player opens it, or the companion finds its key,
+    -- and the doorway is usable again -- but this cache was consulted before the
+    -- live topology, so a newly open door stayed shut to the router until its
+    -- own clock ran out. The row keeps the door it was written for, and the
+    -- state it was written for, so a door that has genuinely not changed still
+    -- keeps its full memory.
+    if entry.doorSignature ~= nil and entry.object ~= nil then
+        if Navigation._doorSignature(entry.object) ~= entry.doorSignature
+            or Navigation._doorNowOpenable(actor, entry.object) then
+            blockedEdges[key] = nil
+            return nil
+        end
+    end
+    return entry
 end
+
+Navigation._edgeBlacklistEntryForTests = edgeBlacklistEntry
 
 local function recordBlocker(actor, state, blockerType, object, square, actorState, recovery, now,
         evidenceClass, confidence)
@@ -414,6 +452,21 @@ local function actorCanUnlock(actor, object)
         return SC.Topology.actorCanUnlock(actor, object)
     end
     return false
+end
+
+-- What currently makes a door impassable, as a comparable value. Stored with a
+-- blocked edge so a later lookup can tell "still the same shut door" from
+-- "somebody opened it".
+function Navigation._doorSignature(door)
+    if door == nil then return nil end
+    return tostring(objectOpen(door)) .. ":" .. tostring(objectLocked(door))
+end
+
+-- The actor's own ability to pass can change without the door changing at all,
+-- which is what finding a key means.
+function Navigation._doorNowOpenable(actor, door)
+    if actor == nil or door == nil then return false end
+    return actorCanUnlock(actor, door) == true
 end
 
 local function edgeThumpableBlocker(fromSquare, toSquare, actor)
@@ -979,7 +1032,7 @@ local function passableEdge(fromSquare, toSquare, vegetationScale, options)
     local utility = U()
     options = type(options) == "table" and options or {}
     local blockedEdge = edgeBlacklistEntry(
-        options.blockedEdges, fromSquare, toSquare, options.now)
+        options.blockedEdges, fromSquare, toSquare, options.now, options.actor)
     if blockedEdge then
         return false, math.huge,
             "blacklisted_" .. tostring(blockedEdge.evidenceClass or "edge")
@@ -1535,8 +1588,14 @@ local function actualOpenSegmentWithinBatch(actor, targetX, targetY, targetZ, op
             -- narrower question, or it walks a companion into the barrier and
             -- never hands the crossing to the traversal owner. Undergrowth is
             -- still fine: a bush is a cost, not an action.
+            -- Crowd cost makes an occupied tile expensive for a route, which
+            -- is right when a planner can weigh it against a detour. A bare
+            -- bearing has nothing to weigh it against and the segment check
+            -- discards the cost, so the vector aimed straight at whoever was
+            -- standing there.
             if options.directWalkOnly == true
-                and Navigation.edgeAffordance(previous, square) ~= nil then
+                and (Navigation.edgeAffordance(previous, square) ~= nil
+                    or U().isSquareFree(square) ~= true) then
                 return false
             end
             local passable = passableEdge(previous, square,
@@ -1632,6 +1691,13 @@ Navigation._continuousFollowVectorForRequest = continuousFollowVector
 -- right for a follow; the bound is what keeps it honest when it is not.
 function Navigation._provisionalAdvance(actor, state, goalSquare, intent, now)
     if U().config("navigationProvisionalStepping") ~= true then return nil end
+    -- A stealth route is being planned precisely to avoid what the straight
+    -- bearing crosses. The planner is given the threat overlay and a per-square
+    -- penalty; this helper has neither, and its segment check asks only whether
+    -- an edge can be crossed, not whether crossing it is safe. Setting off on
+    -- the bearing would walk toward the danger the unfinished route exists to
+    -- go around, which is worse than the pause it was meant to remove.
+    if type(intent) == "table" and intent.stealthAvoidance == true then return nil end
     if actor == nil or type(state) ~= "table" or goalSquare == nil then return nil end
     local limit = math.max(1, math.floor(
         tonumber(U().config("navigationProvisionalAdvanceLimit")) or 3))
@@ -2393,16 +2459,29 @@ end
 local function threatArrivalMs(intent, square)
     local utility = U()
     local snapshot = intent and intent.snapshot
-    if type(snapshot) ~= "table" or type(snapshot.threats) ~= "table" then return math.huge end
+    if type(snapshot) ~= "table" then return math.huge end
+    -- The threat list is ranked by relevance -- attacking, targeting, visible,
+    -- breaching, close to the player -- not by distance, so its first twelve
+    -- entries are not the twelve closest contacts. Taking their minimum as the
+    -- nearest threat let twelve distant attackers push a zombie two tiles away
+    -- down to rank thirteen, and this estimate is what decides whether there is
+    -- time to clear the glass rather than dive through it. The list is already
+    -- bounded by the perception limit, so measure all of it, together with the
+    -- proximity-ranked immediate list beside it.
     local nearest = math.huge
-    for index = 1, math.min(#snapshot.threats, 12) do
-        local threat = snapshot.threats[index]
+    for _, threat in ipairs(type(snapshot.threats) == "table" and snapshot.threats or {}) do
         local distance = utility.distance(square, threat.actor or threat.square)
-        if distance < nearest then nearest = distance end
+        if distance ~= nil and distance < nearest then nearest = distance end
+    end
+    for _, threat in ipairs(type(snapshot.immediate) == "table" and snapshot.immediate or {}) do
+        local distance = utility.distance(square, threat.actor or threat.square)
+        if distance ~= nil and distance < nearest then nearest = distance end
     end
     if nearest == math.huge then return nearest end
     return math.max(0, (nearest - 0.8) / 1.05 * 1000)
 end
+
+Navigation._threatArrivalMsForTests = threatArrivalMs
 
 local function doorGeometry(entry, value)
     return V().doorGeometry(entry, value)
@@ -4923,6 +5002,22 @@ Navigation._scheduleNativeRetryForRequest = scheduleNativeRetry
 local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
         requestIntent, now, service, token)
     if not differentFloor(sourceSquare, goalSquare) then return nil end
+    -- This runs before the planar planner's options exist, and it hands the
+    -- whole vertical move either to a stock rope climb or to an opaque engine
+    -- route. Neither can show where it goes in between, so neither can honour
+    -- the no-climb rule for a companion dragging a body or the admitted-area
+    -- rule for camp work -- a restricted request reached a movement mode the
+    -- planner itself would have refused. Refuse the handoff instead of
+    -- escaping the policy through it. The caller treats this as an ordinary
+    -- bounded failure and may replan on the floor it is already on.
+    if type(requestIntent) == "table" then
+        if requestIntent.draggingBody == true then
+            return true, false, "path_blocked:cross_floor_dragging"
+        end
+        if requestIntent.workCampOnly == true then
+            return true, false, "path_blocked:cross_floor_work_area"
+        end
+    end
     local utility = U()
     -- PathFindBehavior2 can route toward stairs, but the stock sheet-rope
     -- transition is a character action rather than an ordinary path edge. If
