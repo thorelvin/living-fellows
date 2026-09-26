@@ -2,6 +2,17 @@
 
 # Changelog
 
+## 0.25.27 - Eight from the review
+
+- Companions genuinely cannot see inside a closed container any more. 0.25.26 said they chose by distance and room, but the old content-reading scorer still ran first and the new score was only added to it -- so the better hidden item still won. Choosing a container now reads nothing at all: the companion walks to it, opens it, and only then decides what to take. Looting a container takes one more moment than it did, because that is what opening it costs.
+- Taking a shared container back works while a companion is using it. Turning off withdrawals, marking a container memorial, or unmarking it entirely stopped the next item only if the companion had not already started emptying it -- and every item it took renewed its hold. One permission check now answers for choosing, for continuing, and for the transfer itself.
+- A useful thing behind a lot of junk is found. Container contents were read forty items deep from the top, every time, so a bandage at number forty-five did not exist and the container was written off as empty. Long containers are now read through across passes, and nothing is written off until all of it has been seen.
+- A spare battery in a rucksack is taken out of the rucksack. It was being removed from the companion's pockets instead -- a call the game accepts and quietly does nothing with -- so the torch charged and the battery survived, every time.
+- A flashlight or battery in a bag is found at all. The inventory search spent its whole allowance on loose items before opening a single bag, and it keeps no place in the queue, so a companion with a hundred oddments in its pockets and its only working torch in its pack had no torch, permanently.
+- An unlit room is dark at noon. The measured light where a companion is standing could only ever talk it out of using a torch, never into it, so daylight outside decided a windowless interior and companions stood in the black with a working flashlight.
+- Surplus nails and planks no longer outrank missing food and water. Making base material always worth carrying put it above a companion's own empty provisions, so an interrupted trip came home with spare timber and nothing to eat. It is still always worth taking -- just last.
+- A long detour earned at one destination is no longer spent on the next one. The expanded route search that gets a companion round a building leaked into the following journey, which then searched far harder than it needed to.
+
 ## 0.25.26 - Somebody turn a light on
 
 - Companions use the flashlights they are carrying. After dark, and in an unlit room at any hour, a companion holds a torch in its off hand and switches it on -- and puts it out when there is daylight again or the room it walked into is already lit. Weather counts, so a storm at two in the afternoon is dark enough and a clear evening is not, and the two thresholds are far enough apart that nobody strobes their way through dusk. The weapon hand is never touched, and a two-handed weapon leaves no hand for a torch.

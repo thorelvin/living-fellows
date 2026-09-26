@@ -101,19 +101,29 @@ function Lighting.darkness(actor)
     local value, source = ambientDarkness()
     local square = utility.squareOf(actor)
     if square ~= nil then
-        local outside, outsideOk = utility.call(square, "isOutside")
-        if outsideOk and outside == false then
-            value = clamp01(value + config("lightingIndoorDarkness", 0.35))
-            source = source .. "+indoor"
-        end
         -- Somewhere already lit -- a powered base, a lit room, standing inside
-        -- the player's own torch beam -- needs no second torch. Only ever used
-        -- to suppress: a reading of zero proves nothing, because the lighting
-        -- engine may simply not have computed this square for us.
+        -- the player's own torch beam -- needs no second torch.
         local level, levelOk = utility.call(square, "getLightLevel", 0)
         level = levelOk and finite(level, nil) or nil
         if level ~= nil and level >= config("lightingAmbientLitLevel", 0.55) then
             return 0, source .. "+already_lit"
+        end
+        local outside, outsideOk = utility.call(square, "isOutside")
+        if outsideOk and outside == false then
+            value = clamp01(value + config("lightingIndoorDarkness", 0.35))
+            source = source .. "+indoor"
+            -- A measured light level is evidence of darkness in its own right,
+            -- not only of brightness. It was used to veto a torch and never to
+            -- call for one, so the daylight outside decided an interior: at
+            -- noon a windowless room came to 0.35 against a 0.62 threshold and
+            -- a companion stood in the dark with a working flashlight. Trusted
+            -- indoors only, where the reading is what the companion can
+            -- actually see by; outdoors a stale or uncomputed zero would light
+            -- torches in broad daylight.
+            if level ~= nil and level < config("lightingIndoorDarkLevel", 0.35) then
+                value = math.max(value, config("lightingIndoorDarkFloor", 0.7))
+                source = source .. "+measured_dark"
+            end
         end
     end
     return value, source
@@ -212,6 +222,15 @@ function Lighting.spareBattery(actor)
     return best
 end
 
+-- Which container actually holds this item. A spare found by the deep scan
+-- may be loose or in a bag, and only its own container can give it up.
+function Lighting.containerOf(actor, item)
+    local utility = U()
+    local container, ok = utility.call(item, "getContainer")
+    if ok and container ~= nil then return container end
+    return utility.inventory(actor)
+end
+
 -- Put a fresh cell in a flat torch.
 --
 -- Vanilla does this as a crafting recipe whose code copies the battery's
@@ -227,8 +246,17 @@ function Lighting.swapBattery(actor, torch)
     if Lighting.hasCharge(torch) then return false, "torch_not_empty" end
     local battery = Lighting.spareBattery(actor)
     if battery == nil then return false, "no_spare_battery" end
-    local inventory = utility.inventory(actor)
-    if inventory == nil then return false, "no_inventory" end
+    -- The cell that gets spent has to be the cell that gets removed, and a
+    -- spare found by the deep scan may be sitting in a rucksack rather than
+    -- loose. Removing it from the root inventory instead is not an error the
+    -- engine reports: the call succeeds, nothing is taken out of the bag, and
+    -- "is it still in the root inventory" answers no because it never was.
+    -- The torch would charge and the battery would survive, over and over.
+    local owner = Lighting.containerOf(actor, battery)
+    if owner == nil then return false, "battery_owner_unknown" end
+    if utility.containerContainsIdentity(owner, battery) ~= true then
+        return false, "battery_not_held"
+    end
 
     local before = finite(select(1, utility.call(torch, "getCurrentUsesFloat")), 0)
     local _, copied = utility.call(torch, "setCurrentUsesFrom", battery)
@@ -240,9 +268,10 @@ function Lighting.swapBattery(actor, torch)
 
     -- Only now is the cell spent. A battery is a drainable, so Use() would
     -- take one tick's worth off it rather than consuming the cell -- it has to
-    -- be removed outright, exactly as the recipe's destroy mode does.
-    local _, removed = utility.call(inventory, "Remove", battery)
-    if not removed or utility.inventoryContains(inventory, battery) then
+    -- be removed outright, exactly as the recipe's destroy mode does, and out
+    -- of the container that actually holds it.
+    utility.call(owner, "Remove", battery)
+    if utility.containerContainsIdentity(owner, battery) ~= false then
         utility.call(torch, "setCurrentUsesFloat", before)
         return false, "battery_not_consumed"
     end

@@ -750,6 +750,20 @@ do
             { nodeBudget = 12 }, square(0, 0), square(20, 0))
         check(pinned.nodeBudget == 12,
             "a pinned budget is never raised behind the caller's back")
+
+        -- The escalation belongs to the goal that earned it. The count is only
+        -- rewritten when the *next* failure is recorded, so between failing at
+        -- A and first failing at B the count still read A's -- and B's very
+        -- first search was handed the ceiling A had paid for.
+        local leakState = {}
+        local awkward, elsewhere = square(40, 0), square(-30, 12)
+        N._noteBudgetFailure(leakState, awkward, 1000)
+        N._noteBudgetFailure(leakState, awkward, 2000)
+        local ordinary = N._detourPathOptions(leakState, {}, square(0, 0), elsewhere)
+        local earned = N._detourPathOptions(leakState, {}, square(0, 0), awkward)
+        check(ordinary.nodeBudget == nil
+                and earned.nodeBudget ~= nil and earned.nodeBudget > N._derivedNodeBudget(40),
+            "a fresh goal searches on its own budget while the awkward one keeps its detour")
     end
 
     -- A search that never left its start square has nothing to offer.

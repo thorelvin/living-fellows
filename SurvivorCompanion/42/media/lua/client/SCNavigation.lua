@@ -2367,9 +2367,13 @@ function Navigation._detourPathOptions(state, options, fromSquare, toSquare)
     if tonumber(options.nodeBudget) ~= nil then return options end
     local threshold = math.max(1, math.floor(
         tonumber(U().config("navigationDetourFailureThreshold")) or 2))
-    if (tonumber(type(state) == "table" and state.budgetFailureCount) or 0) < threshold then
-        return options
-    end
+    if type(state) ~= "table" then return options end
+    -- The escalation belongs to the goal that earned it. The count is only
+    -- rewritten when the *next failure* is recorded, so between a failure at A
+    -- and the first failure at B the count still reads A's -- and B's very
+    -- first search was handed the six-thousand-node ceiling A had paid for.
+    if state.budgetFailureGoal ~= tostring(squareKey(toSquare)) then return options end
+    if (tonumber(state.budgetFailureCount) or 0) < threshold then return options end
     local raised = U().copyShallow(options)
     local fx, fy = U().position(fromSquare)
     local tx, ty = U().position(toSquare)

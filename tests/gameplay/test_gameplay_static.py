@@ -481,6 +481,14 @@ def main() -> int:
             and "Encounter._noteContainerOpened(state, task.container, time)"
             in encounter_source,
             "container choice is not blind-scored, sticky and marked on opening")
+    # The blind branch must not be able to read contents: no scorer call, and
+    # the item is the sentinel that defers choosing one until the container
+    # has been opened at the end of the approach.
+    require("if Encounter._alreadyOpened(state, container) then" in encounter_source
+            and "item, category = Encounter.UNOPENED, nil" in encounter_source
+            and "if task.pendingItem then" in encounter_source
+            and "local pending = item == Encounter.UNOPENED" in encounter_source,
+            "unopened containers are not chosen by their hidden contents")
     require("wasPlayerOpened" in sources["SCEncounter.lua"]
             and "campStorageSquareBudget" in sources["SCEncounter.lua"]
             and "takePlayerSupply" in sources["SCEncounter.lua"],

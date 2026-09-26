@@ -456,9 +456,14 @@ function U.listGet(list, index)
     return value
 end
 
-function U.each(list, limit, callback)
-    local count = math.min(U.listSize(list), limit or math.huge)
-    for index = 0, count - 1 do
+-- `offset` lets a caller walk a long list in bounded slices across several
+-- passes instead of re-reading the same prefix forever.
+function U.each(list, limit, callback, offset)
+    local size = U.listSize(list)
+    offset = math.max(0, math.floor(tonumber(offset) or 0))
+    if offset >= size then return end
+    local count = math.min(size - offset, limit or math.huge)
+    for index = offset, offset + count - 1 do
         local value = U.listGet(list, index)
         if value ~= nil and callback(value, index) == false then break end
     end
@@ -1039,15 +1044,32 @@ function U.inventoryItemsDeep(inventory, limit, containerLimit)
     containerLimit = math.max(0, math.floor(tonumber(containerLimit) or 12))
     local result = {}
     local containers, seen = {}, {}
-    for _, item in ipairs(U.inventoryItems(inventory, limit)) do
-        result[#result + 1] = item
-        if #containers < containerLimit then
-            local nested, ok = U.call(item, "getItemContainer")
-            if ok and nested ~= nil and not seen[nested] then
-                seen[nested] = true
-                containers[#containers + 1] = nested
+    -- Loose items used to spend the whole budget before a single bag was
+    -- opened, and the nested pass then found it had nothing left to spend. A
+    -- companion carrying a hundred and twenty oddments in its pockets and its
+    -- only working flashlight in its rucksack could not see the flashlight,
+    -- ever -- the scan is stateless, so repeating it repeated the answer.
+    -- Keep a quarter of the budget back for what is in the bags.
+    local rootLimit = limit
+    if containerLimit > 0 then rootLimit = math.max(1, limit - math.floor(limit / 4)) end
+    local function scanRoot(cap)
+        result, containers, seen = {}, {}, {}
+        for _, item in ipairs(U.inventoryItems(inventory, cap)) do
+            result[#result + 1] = item
+            if #containers < containerLimit then
+                local nested, ok = U.call(item, "getItemContainer")
+                if ok and nested ~= nil and not seen[nested] then
+                    seen[nested] = true
+                    containers[#containers + 1] = nested
+                end
             end
         end
+    end
+    scanRoot(rootLimit)
+    -- Nothing to hold any of it back for: spend the reserve on the root after
+    -- all, so an ordinary bagless survivor sees exactly what it always did.
+    if #containers == 0 and rootLimit < limit and #result >= rootLimit then
+        scanRoot(limit)
     end
     for _, nested in ipairs(containers) do
         if #result >= limit then break end

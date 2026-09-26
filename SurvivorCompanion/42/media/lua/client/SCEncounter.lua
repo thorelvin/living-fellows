@@ -274,6 +274,23 @@ function Encounter.baseStorageAccess(container, index, inside)
     return "player"
 end
 
+-- Whether this companion may take anything out of this container at all.
+--
+-- Candidate discovery filtered on the access verdict, but scoring only kept
+-- the storage row that comes with it -- and a refused container has no row, so
+-- `storage == nil` read as "unrestricted" rather than "forbidden". Discovery
+-- hid the problem until the sticky path began calling the scorer directly:
+-- once a companion had taken one item out of shared storage, revoking
+-- withdrawals, marking the container memorial or unmarking it entirely did not
+-- stop the next one, and each transfer renewed the sticky window.
+--
+-- One function, asked by everything that can move an item.
+function Encounter.mayTakeFrom(container, index, inside)
+    local access, storage = Encounter.baseStorageAccess(container, index, inside)
+    if access == "player" then return false, "player_storage", nil end
+    return true, access, storage
+end
+
 -- Marked storage keeps its reserve: never take an item below it.
 local function storageAllows(storage, item)
     local count = SC.BaseLife and SC.BaseLife.availableCount
@@ -972,6 +989,13 @@ function Encounter.stickyContainer(actor, state, needs, commands, audit, time)
         state.openContainer = nil
         return nil
     end
+    -- And a container this companion has already written off stays written
+    -- off. Without this the sticky window re-read a cupboard it had just
+    -- finished with, once per tick, for the whole minute.
+    if time ~= nil and containerOnCooldown(container, time) then
+        state.openContainer = nil
+        return nil
+    end
     -- A full companion has finished with this container whatever is left in it.
     if SC.Logistics and type(SC.Logistics.audit) == "function" then
         local current = audit or SC.Logistics.audit(actor)
@@ -981,7 +1005,7 @@ function Encounter.stickyContainer(actor, state, needs, commands, audit, time)
         end
     end
     local score, item, category, owner = scoreContainer(
-        actor, container, needs, commands and commands.objectives, commands, audit)
+        actor, container, needs, commands and commands.objectives, commands, audit, state)
     if item == nil or score <= 0 then
         state.openContainer = nil
         return nil
@@ -1008,12 +1032,49 @@ function Encounter._noteContainerOpened(state, container, time)
     return true
 end
 
-scoreContainer = function(actor, container, needs, objectives, commands, audit)
+-- Where the next slice of this container's contents starts.
+--
+-- Scoring read the first `scavengeItemBudget` items and no further, from the
+-- beginning, every time. Forty unwanted things in front of a bandage meant the
+-- bandage did not exist: the pass found nothing, the container was written off
+-- as "nothing needed", and the next pass read the same forty. Waiting did not
+-- help because nothing remembered how far it had got.
+--
+-- Returns the start index and whether this slice reaches the end, so a caller
+-- can tell "nothing in this slice" from "nothing in this container".
+-- Stands in for the item of a container nobody has opened yet. Selection is
+-- allowed to choose such a container; it is not allowed to know what is in it.
+Encounter.UNOPENED = setmetatable({}, { __tostring = function() return "unopened" end })
+
+function Encounter._itemScanSlice(state, container, size, budget)
+    if size <= budget then return 0, true end
+    if type(state) ~= "table" then return 0, false end
+    local cursors = state.itemCursors
+    if type(cursors) ~= "table" then
+        cursors = setmetatable({}, { __mode = "k" })
+        state.itemCursors = cursors
+    end
+    local record = cursors[container]
+    -- A changed item count means the container was disturbed; start again
+    -- rather than resume into a list that has shifted under us.
+    if type(record) ~= "table" or record.size ~= size then
+        record = { index = 0, size = size }
+        cursors[container] = record
+    end
+    local start = record.index
+    local complete = start + budget >= size
+    record.index = complete and 0 or start + budget
+    return start, complete
+end
+
+scoreContainer = function(actor, container, needs, objectives, commands, audit, state)
     local utility = U()
     local bestItem, bestCategory, bestScore = nil, nil, 0
     local owner = containerOwner(container)
-    -- Marked base storage gives up nothing below its reserve.
-    local _, storage = Encounter.baseStorageAccess(container, storageIndex())
+    -- Marked base storage gives up nothing below its reserve, and storage the
+    -- player has taken back gives up nothing at all.
+    local allowed, _, storage = Encounter.mayTakeFrom(container, storageIndex())
+    if not allowed then return 0, nil, nil, owner end
     -- A survivor with nothing to fight with should walk toward the places that
     -- hold weapons, whether or not the player has said so out loud. The
     -- explicit order still applies; it is no longer the only thing that does.
@@ -1027,7 +1088,10 @@ scoreContainer = function(actor, container, needs, objectives, commands, audit)
     local weaponLocationBonus = wantsWeapon
         and logicalWeaponLocationBonus(container, owner) or 0
     local budget = utility.config("scavengeItemBudget") or 40
-    utility.each(containerItems(container), budget, function(item)
+    local items = containerItems(container)
+    local start, complete = Encounter._itemScanSlice(
+        state, container, utility.listSize(items), budget)
+    utility.each(items, budget, function(item)
         local protected = SC.PersonalItems
             and SC.PersonalItems.isProtected(item, actor, "return_to_owner")
         local score, category = 0, nil
@@ -1053,9 +1117,9 @@ scoreContainer = function(actor, container, needs, objectives, commands, audit)
         if score > bestScore and (storage == nil or storageAllows(storage, item)) then
             bestItem, bestCategory, bestScore = item, category, score
         end
-    end)
+    end, start)
     bestScore = bestScore - ownerDistance(actor, owner) * 1.5
-    return bestScore, bestItem, bestCategory, owner
+    return bestScore, bestItem, bestCategory, owner, complete
 end
 
 local function isZombieCorpse(object)
@@ -1425,15 +1489,24 @@ end
 
 local function beginTask(actor, state, container, item, category, owner, utilityScore,
     commands, audit, time)
-    local destination, destinationKind, destinationName = chooseDestination(
-        actor, item, category, audit)
-    if not destination then return nil, "destination_unavailable" end
+    -- A container nobody has opened is a place to go, not an item to fetch.
+    -- Where it ends up is decided once it is open and something has been
+    -- chosen out of it, so the destination is deferred with the item.
+    local pending = item == Encounter.UNOPENED
+    if pending then item, category = nil, nil end
+    local destination, destinationKind, destinationName
+    if not pending then
+        destination, destinationKind, destinationName = chooseDestination(
+            actor, item, category, audit)
+        if not destination then return nil, "destination_unavailable" end
+    end
     local task = {
         container = container,
         owner = owner or containerOwner(container),
         item = item,
-        itemType = U().itemType(item),
-        itemName = U().itemName(item),
+        pendingItem = pending,
+        itemType = pending and "unopened" or U().itemType(item),
+        itemName = pending and "unopened" or U().itemName(item),
         category = category,
         sourceKind = corpseContainers[container] and "zombie_corpse" or "world_container",
         destination = destination,
@@ -1504,7 +1577,9 @@ local function beginTask(actor, state, container, item, category, owner, utility
         end
         task.supervisorToken = token
         local reserved, reserveReason = service.reserve(token, container, "source_container")
-        if reserved then reserved, reserveReason = service.reserve(token, item, "source_item") end
+        if reserved and item ~= nil then
+            reserved, reserveReason = service.reserve(token, item, "source_item")
+        end
         if not reserved then
             cleanupScavengeTarget(actor, state, {
                 reason = reserveReason or "resource_reserved", phase = "failed",
@@ -1569,15 +1644,38 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
         selection.index = selection.index + 1
         processed = processed + 1
         if reserveContainer(container, actor, time) then
-            local score, item, category, owner = scoreContainer(
-                actor, container, needs, commands.objectives, commands, audit)
-            -- Judged from the outside as well: distance and the room it stands
-            -- in decide which container is worth walking to, so a nearer one in
-            -- a plausible room is preferred over a distant one holding a
-            -- marginally better single item.
-            if item and score > 0 then
-                score = score + Encounter.blindContainerScore(
-                    actor, container, owner, commands, needs)
+            local score, item, category, owner, complete
+            if Encounter._alreadyOpened(state, container) then
+                -- Known ground. This companion has had this one open, so what
+                -- is in it is fair to rank on.
+                score, item, category, owner, complete = scoreContainer(
+                    actor, container, needs, commands.objectives, commands, audit, state)
+                if item and score > 0 then
+                    score = score + Encounter.blindContainerScore(
+                        actor, container, owner, commands, needs)
+                end
+            else
+                -- Never opened. The only honest facts about a shut drawer are
+                -- how far away it is and what room it stands in -- so nothing
+                -- reads its contents here, and the item is chosen at the
+                -- container, after it has been opened. Ranking closed
+                -- containers by their best hidden item is exactly the
+                -- omniscience this was meant to end: it survived the first
+                -- attempt because the score was only ever *added* to the
+                -- content score rather than replacing it.
+                owner = containerOwner(container)
+                complete = true
+                -- A body is not base storage. Corpse discovery deliberately
+                -- skips the marked-storage rule, and applying it here rejected
+                -- every corpse inside a base.
+                if corpseContainers[container] == true
+                    or Encounter.mayTakeFrom(container, storageIndex()) then
+                    score = Encounter.blindContainerScore(
+                        actor, container, owner, commands, needs)
+                    item, category = Encounter.UNOPENED, nil
+                else
+                    score = 0
+                end
             end
             if item and score > 0 then
                 if selection.bestScore == nil or score > selection.bestScore then
@@ -1590,8 +1688,12 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
                 else
                     releaseContainer(container, actor)
                 end
-            else
+            elseif complete then
                 rememberContainer(state, container, "nothing_needed", time)
+                releaseContainer(container, actor)
+            else
+                -- More of this container still to read; leave it uncooled so
+                -- the next pass resumes where this slice stopped.
                 releaseContainer(container, actor)
             end
         end
@@ -1637,6 +1739,19 @@ local function commitTask(actor, state, task, commands, audit, time)
             time = time,
         })
         return false, "source_changed"
+    end
+    -- Permission, at the moment of the transfer. Selection ran seconds ago and
+    -- the player may have changed their mind since; this is the last place the
+    -- decision can still be undone without the item having moved.
+    local mayTake, _, currentStorage = Encounter.mayTakeFrom(task.container, storageIndex())
+    if not mayTake or (currentStorage ~= nil
+        and not storageAllows(currentStorage, task.item)) then
+        state.openContainer = nil
+        resetScavengeTarget(actor, state, {
+            reason = "storage_withdrawn", phase = "cancelled",
+            memoryResult = "interrupted", time = time,
+        })
+        return false, "storage_withdrawn"
     end
     local ritualAccepts = SC.Quirks and type(SC.Quirks.acceptsLoot) == "function"
         and SC.Quirks.acceptsLoot(actor, task.item, commands) == true
@@ -1814,7 +1929,13 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         })
         return false, "container_cooldown"
     end
-    if task and not utility.inventoryContains(task.container, task.item) then
+    -- "Is the thing I came for still in there?" is not a question a task can
+    -- ask on the way to a container it has never opened -- it has not chosen
+    -- an item yet, and asking anyway failed the approach on its second round.
+    -- An empty cupboard is a discovery to be made at the cupboard, not a
+    -- source that changed.
+    if task and not task.pendingItem
+        and not utility.inventoryContains(task.container, task.item) then
         resetScavengeTarget(actor, state, {
             cancelVisual = true, stopMovement = true, reason = "source_changed",
             phase = "failed", memoryResult = "source_changed", time = time,
@@ -1947,6 +2068,60 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         stopScavengeMovement(actor)
         local moving, movingOk = utility.call(actor, "isMoving")
         if movingOk and moving == true then return true, "settling_at_container" end
+    end
+
+    -- Open first, then look. This is the only place the contents of a
+    -- previously unopened container are read: the companion is standing at it,
+    -- the approach is done, and it has just been opened. Everything before
+    -- here chose it on where it was, not on what was inside.
+    if task.pendingItem then
+        Encounter._noteContainerOpened(state, task.container, time)
+        local score, found, category, _, complete = scoreContainer(
+            actor, task.container, needs, commands.objectives, commands, audit, state)
+        if found == nil or score <= 0 then
+            state.openContainer = nil
+            -- Cancelling goes through the supervisor, which derives the memory
+            -- verdict from the reason string -- so the reason has to carry the
+            -- distinction, or an unread half of a container is written off as
+            -- thoroughly as an empty one.
+            local verdict = complete and "nothing_needed" or "container_slice_pending"
+            resetScavengeTarget(actor, state, {
+                reason = verdict, phase = "cancelled",
+                memoryResult = complete and "nothing_needed" or "interrupted",
+                time = time,
+            })
+            return false, verdict
+        end
+        local destination, destinationKind, destinationName = chooseDestination(
+            actor, found, category, audit)
+        if not destination then
+            resetScavengeTarget(actor, state, {
+                reason = "destination_unavailable", phase = "failed", cooldown = true,
+                memoryResult = "destination_unavailable", time = time,
+            })
+            return false, "destination_unavailable"
+        end
+        -- The exact item is only now a thing to hold, so this is where it is
+        -- claimed. An unopened task reserved the container alone.
+        local service = supervisor()
+        if service and task.supervisorToken and type(service.reserve) == "function" then
+            local reserved, reserveReason = service.reserve(
+                task.supervisorToken, found, "source_item")
+            if not reserved then
+                resetScavengeTarget(actor, state, {
+                    reason = reserveReason or "resource_reserved", phase = "failed",
+                    memoryResult = "interrupted", time = time,
+                })
+                return false, reserveReason or "resource_reserved"
+            end
+        end
+        task.pendingItem = nil
+        task.item, task.category = found, category
+        task.itemType, task.itemName = utility.itemType(found), utility.itemName(found)
+        task.utilityScore = score
+        task.destination, task.destinationKind, task.destinationName =
+            destination, destinationKind, destinationName
+        state.item, state.itemCategory = found, category
     end
 
     local ritualAccepts = SC.Quirks and type(SC.Quirks.acceptsLoot) == "function"
@@ -2101,6 +2276,12 @@ function Encounter._cancelMemoryResult(reason)
     if string.find(reason, "phase_timeout:approach", 1, true) == 1 then
         return "navigation_failed"
     end
+    -- A container that turned out to hold nothing this companion wants is a
+    -- finished answer, not an interruption. Cancelling the task takes the
+    -- supervisor's route, and that route used to relabel the verdict as
+    -- "interrupted" -- so the container was never put on cooldown and the
+    -- next tick walked back to it and read it again.
+    if reason == "nothing_needed" then return "nothing_needed" end
     return "interrupted"
 end
 

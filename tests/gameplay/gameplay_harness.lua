@@ -8498,6 +8498,41 @@ do
     check(marked and scavenged and not openedFood.used and not tookOpenedFood,
         "inside the base, scavenging leaves an unmarked container the player opened alone")
     check(foundSafeFood, "scavenging transfers a needed item from marked base storage")
+
+    -- Take one item out of shared storage, then revoke withdrawals without
+    -- touching the companion's orders. The next item must stay put. Selection
+    -- filtered refused containers out, but the sticky path went straight to
+    -- the scorer -- which kept only the storage row, and read a missing row as
+    -- "no restrictions" -- and every successful transfer renewed the window.
+    SurvivorCompanion.BaseLife.reset()
+    SurvivorCompanion.BaseLife.create(fellow.square, "Scavenge Camp")
+    SurvivorCompanion.BaseLife.registerStorage(safeOwner, "general")
+    local firstFood = safeContainer:AddItem(item("Base.CannedRevokedOne", "Food"))
+    local secondFood = safeContainer:AddItem(item("Base.CannedRevokedTwo", "Food"))
+    fellow.hunger = 0.95
+    SurvivorCompanion.Encounter.reset(fellow)
+    local revokeSnapshot = { threats = {}, immediateCount = 0, threatCount = 0,
+        pressure = 0, escapeSquares = {} }
+    for _ = 1, 8 do
+        SurvivorCompanion.Encounter.tryScavenge(fellow, player, { snapshot = revokeSnapshot })
+        if fellow.inventory:contains(firstFood) or fellow.inventory:contains(secondFood) then break end
+    end
+    local tookFirst = fellow.inventory:contains(firstFood) or fellow.inventory:contains(secondFood)
+    -- The player shuts the cupboard.
+    for _, row in ipairs(SurvivorCompanion.BaseLife.storageRows("general")) do
+        row.withdrawals = false
+    end
+    local revokeReason
+    for _ = 1, 8 do
+        local _, stepReason = SurvivorCompanion.Encounter.tryScavenge(
+            fellow, player, { snapshot = revokeSnapshot })
+        revokeReason = stepReason or revokeReason
+    end
+    local heldBoth = fellow.inventory:contains(firstFood) and fellow.inventory:contains(secondFood)
+    SurvivorCompanion.BaseLife.reset()
+    SurvivorCompanion.Encounter.reset(fellow)
+    check(tookFirst and not heldBoth,
+        "taking a shared container back stops the next item leaving it: " .. tostring(revokeReason))
     -- Later fixtures scavenge around here; the opened food must not tempt them.
     openedContainer:Remove(openedFood)
 end
@@ -8937,9 +8972,24 @@ end
     local nailScore, nailCategory = Logistics.itemNeedScore(
         looter, item("Base.Nails", "Item"), {}, craftAudit)
     check(threadCategory == "crafting" and nailCategory == "construction"
-            and threadScore >= Logistics.TIER.useful + 14
-            and nailScore >= Logistics.TIER.useful + 14,
+            and threadScore > 0 and nailScore > 0,
         "crafting and construction stock is always worth taking, over target or not")
+    -- ...but last. Surplus base stock outranking a survivor's own missing
+    -- provisions meant an interrupted trip came home with spare planks and
+    -- nothing to eat.
+    local hungryAudit = Logistics.audit(looter)
+    hungryAudit.counts.crafting = 99
+    hungryAudit.counts.construction = 99
+    hungryAudit.counts.food, hungryAudit.counts.water = 0, 0
+    local surplusThread = Logistics.itemNeedScore(
+        looter, item("Base.Thread", "Item"), {}, hungryAudit)
+    local plainFood = Logistics.itemNeedScore(
+        looter, item("Base.CannedCorn", "Food"), {}, hungryAudit)
+    local plainWater = Logistics.itemNeedScore(
+        looter, item("Base.WaterBottleFull", "Item",
+            { tags = { WaterContainer = true }, usedDelta = 1 }), {}, hungryAudit)
+    check(surplusThread > 0 and plainFood > surplusThread and plainWater > surplusThread,
+        "surplus base material is worth taking but never ahead of missing food and water")
     craftAudit.weight = craftAudit.capacity * 2
     check(Logistics.itemNeedScore(looter, item("Base.Thread", "Item"), {}, craftAudit) == 0,
         "an over-target companion still stops gathering crafting stock once the pack is heavy")
@@ -8955,6 +9005,61 @@ end
     for index = #farSquare.objects, 1, -1 do
         if farSquare.objects[index] == farOwner then table.remove(farSquare.objects, index) end
     end
+end)()
+
+;(function()
+    -- Scanning a container in slices, and the player taking one back.
+    local Encounter = SurvivorCompanion.Encounter
+
+    -- F04: forty unwanted things in front of a bandage meant the bandage did
+    -- not exist. Every pass read the same prefix from the beginning, found
+    -- nothing, and wrote the container off.
+    local sliceState = {}
+    local deep = { items = {} }
+    local firstStart, firstComplete = Encounter._itemScanSlice(sliceState, deep, 100, 40)
+    local secondStart, secondComplete = Encounter._itemScanSlice(sliceState, deep, 100, 40)
+    local thirdStart, thirdComplete = Encounter._itemScanSlice(sliceState, deep, 100, 40)
+    local wrapped = Encounter._itemScanSlice(sliceState, deep, 100, 40)
+    check(firstStart == 0 and not firstComplete
+            and secondStart == 40 and not secondComplete
+            and thirdStart == 80 and thirdComplete
+            and wrapped == 0,
+        "a container too big for one slice is read through across passes, not from the top each time")
+    local smallStart, smallComplete = Encounter._itemScanSlice(sliceState, deep, 12, 40)
+    check(smallStart == 0 and smallComplete,
+        "a container that fits in one slice is complete in one pass")
+    Encounter._itemScanSlice(sliceState, deep, 100, 40)
+    local disturbedStart = Encounter._itemScanSlice(sliceState, deep, 61, 40)
+    check(disturbedStart == 0,
+        "a container whose contents changed is read again from the beginning")
+
+    -- F01: the player can take a shared container back between one item and
+    -- the next. Selection filtered those out; the sticky path went straight to
+    -- the scorer, which only kept the storage row and read a missing row as
+    -- "no restrictions".
+    local revokedAccess = "shared"
+    local savedAccess = Encounter.baseStorageAccess
+    Encounter.baseStorageAccess = function()
+        if revokedAccess == "player" then return "player" end
+        return "shared", { category = "general", withdrawals = true }
+    end
+    local allowedNow = Encounter.mayTakeFrom({})
+    revokedAccess = "player"
+    local refusedNow, refusedWhy = Encounter.mayTakeFrom({})
+    Encounter.baseStorageAccess = savedAccess
+    check(allowedNow == true and refusedNow == false and refusedWhy == "player_storage",
+        "storage the player has taken back is refused by the one eligibility gate")
+
+    local revokedState = {}
+    local revokedContainer = { items = {} }
+    Encounter._noteContainerOpened(revokedState, revokedContainer, 1000)
+    revokedAccess = "player"
+    Encounter.baseStorageAccess = function() return "player" end
+    local stuck = Encounter.stickyContainer(
+        actor("sc-loot-revoked", 24, 24, {}), revokedState, { food = 1 }, {}, nil, 1500)
+    Encounter.baseStorageAccess = savedAccess
+    check(stuck == nil and revokedState.openContainer == nil,
+        "revoking withdrawals releases the container a companion was emptying")
 end)()
 
 ;(function()
@@ -9011,6 +9116,20 @@ end)()
     walker.square.outside = false
     check(Lighting.darkness(walker) > 0.7 and Lighting.wantsLight(walker, false),
         "the same hour inside an unlit house does need one")
+    -- Noon, indoors, no windows. Global daylight said 0.35 against a 0.62
+    -- threshold, so a companion stood in a black room holding a torch it
+    -- would not switch on -- the measured light level could only ever veto a
+    -- torch, never ask for one.
+    daylightStrength = 1
+    walker.square.lightLevel = 0
+    check(Lighting.darkness(walker) >= 0.62 and Lighting.wantsLight(walker, false),
+        "a windowless room is dark at noon")
+    -- Outdoors the same reading is not trusted: an uncomputed zero must not
+    -- light torches in broad daylight.
+    walker.square.outside = true
+    check(Lighting.darkness(walker) == 0 and not Lighting.wantsLight(walker, false),
+        "a zero light reading outdoors at noon is not evidence of darkness")
+    walker.square.outside = false
     -- Somewhere already lit needs no second torch.
     walker.square.lightLevel = 0.9
     check(Lighting.darkness(walker) == 0 and not Lighting.wantsLight(walker, true),
@@ -9075,6 +9194,27 @@ end)()
             and walker.secondary == dead and dead.activated == true,
         "a flat torch takes the emptiest spare battery and nothing else is spent")
 
+    -- A spare in a rucksack is taken out of the rucksack. Removing it from
+    -- the root inventory instead is a call the engine accepts and quietly
+    -- does nothing with, so the torch charged and the cell survived -- once
+    -- per flat torch, for ever.
+    Lighting.stowLight(walker, dead)
+    dead.usesFloat = 0
+    walker.inventory:Remove(fuller)
+    local rucksack = item("Base.Bag_ALICEpack", "Container")
+    rucksack.nestedInventory = inventory()
+    function rucksack:getItemContainer() return self.nestedInventory end
+    walker.inventory:AddItem(rucksack)
+    local baggedCell = rucksack.nestedInventory:AddItem(battery("Base.Battery", 0.5))
+    local baggedSwap, baggedReason = Lighting.swapBattery(walker, dead)
+    check(baggedSwap and baggedReason == "battery_swapped"
+            and not rucksack.nestedInventory:contains(baggedCell)
+            and dead.usesFloat == 0.5,
+        "a spare battery in a bag is taken out of the bag it was in")
+    Lighting.stowLight(walker, dead)
+    dead.usesFloat = 0
+    walker.inventory:Remove(rucksack)
+
     -- No spare, no light, and above all no silently eaten battery.
     Lighting.stowLight(walker, dead)
     dead.usesFloat = 0
@@ -9082,6 +9222,27 @@ end)()
     local failed, failReason = lightingTick(lightClock + 2400000)
     check(not failed and failReason == "no_working_light" and walker.secondary == nil,
         "a companion with a dead torch and no spare simply has no light")
+
+    -- A bag behind a full pocketful. Loose items used to spend the whole
+    -- search budget before a single bag was opened, and the scan keeps no
+    -- cursor, so the answer never changed however many times it was asked:
+    -- a companion carrying a working torch in its rucksack had none.
+    local buried = actor("sc-torch-buried", 18, 18, {})
+    registry[buried.id] = buried
+    local buriedBag = item("Base.Bag_ALICEpack", "Container")
+    buriedBag.nestedInventory = inventory()
+    function buriedBag:getItemContainer() return self.nestedInventory end
+    buried.inventory:AddItem(buriedBag)
+    local buriedTorch = buriedBag.nestedInventory:AddItem(torch("Base.Torch", 1))
+    for index = 1, 130 do buried.inventory:AddItem(item("Base.Junk" .. index, "Item")) end
+    local buriedFound = false
+    for _ = 1, 5 do
+        for _, record in ipairs(Lighting.lightSources(buried)) do
+            if record.item == buriedTorch then buriedFound = true end
+        end
+    end
+    check(buriedFound, "a torch in a bag is found behind a pocketful of loose junk")
+    registry[buried.id] = nil
 
     -- The swap is a transaction: if the engine will not take the charge, the
     -- cell is still in the bag afterwards.
@@ -9455,32 +9616,101 @@ check(resetSource:contains(resetFood) and not resetActor.inventory:contains(rese
         and SurvivorCompanion.Encounter.peek(resetActor) == nil,
     "save/world reset discards only transient scavenging state without duplication or deletion")
 
-local memoryActor = recruitedScavenger("sc-loot-container-memory", 45, -45)
-local unwanted = item("Base.UnwantedMemoryItem", "Item")
-local memorySource = containerObject(memoryActor.square, { unwanted })
-local categoryReads = 0
-local originalCategory = unwanted.getCategory
-function unwanted:getCategory()
-    categoryReads = categoryReads + 1
-    return originalCategory(self)
-end
-local noNeedFirst, noNeedFirstReason = SurvivorCompanion.Encounter.tryScavenge(
-    memoryActor, nil, { snapshot = safeScavengeSnapshot })
-local readsAfterFirst = categoryReads
-local noNeedSecond, noNeedSecondReason = SurvivorCompanion.Encounter.tryScavenge(
-    memoryActor, nil, { snapshot = safeScavengeSnapshot })
-check(not noNeedFirst and noNeedFirstReason == "nothing_needed"
-        and not noNeedSecond and noNeedSecondReason == "nothing_needed"
-        and categoryReads == readsAfterFirst,
-    "unchanged unhelpful containers are remembered instead of rescored every decision tick")
+;(function()
+    local memoryActor = recruitedScavenger("sc-loot-container-memory", 45, -45)
+    local unwanted = item("Base.UnwantedMemoryItem", "Item")
+    -- Two squares away, so choosing it and opening it are separate moments.
+    -- With the container underfoot a single call does both and the test could
+    -- not tell which one read the contents.
+    local memorySquare = cell:getGridSquare(47, -45, 0)
+    local memorySource = containerObject(memorySquare, { unwanted })
+    local categoryReads = 0
+    local originalCategory = unwanted.getCategory
+    function unwanted:getCategory()
+        categoryReads = categoryReads + 1
+        return originalCategory(self)
+    end
+    -- Choosing a container may not read it. A shut drawer tells a survivor where
+    -- it is and what room it is in; whether the thing inside is any use is found
+    -- out by opening it, which is the whole of the 0.25.25 looting rework.
+    local memoryNavigation = SurvivorCompanion.Navigation
+    local savedMemoryRequest = memoryNavigation.requestAny
+    memoryNavigation.requestAny = function() return true, "walking" end
+    local noNeedFirst, noNeedFirstReason = SurvivorCompanion.Encounter.tryScavenge(
+        memoryActor, nil, { snapshot = safeScavengeSnapshot })
+    for _ = 1, 3 do
+        SurvivorCompanion.Encounter.tryScavenge(memoryActor, nil, { snapshot = safeScavengeSnapshot })
+    end
+    local memoryTask = SurvivorCompanion.Encounter.peek(memoryActor).task
+    check(categoryReads == 0 and noNeedFirst and noNeedFirstReason ~= "nothing_needed"
+            and memoryTask ~= nil and memoryTask.pendingItem == true
+            and memoryTask.container == memorySource,
+        "a container is chosen and walked to without anything reading what is inside it")
+    -- Arrive.
+    memoryNavigation.requestAny = savedMemoryRequest
+    memoryActor.square = memorySquare
+    -- Reaching it, opening it and finding nothing wanted costs exactly one read
+    -- of the contents, and the container is written off from then on.
+    local noNeedReason
+    for _ = 1, 6 do
+        _, noNeedReason = SurvivorCompanion.Encounter.tryScavenge(
+            memoryActor, nil, { snapshot = safeScavengeSnapshot })
+        if noNeedReason == "nothing_needed" then break end
+    end
+    local readsAfterOpening = categoryReads
+    local memoryRecord = SurvivorCompanion.Encounter.peek(memoryActor)
+    memoryRecord = memoryRecord and memoryRecord.visited and memoryRecord.visited[memorySource]
+    local noNeedSecond, noNeedSecondReason = SurvivorCompanion.Encounter.tryScavenge(
+        memoryActor, nil, { snapshot = safeScavengeSnapshot })
+    check(noNeedReason == "nothing_needed" and readsAfterOpening > 0
+            and memoryRecord ~= nil and memoryRecord.result == "nothing_needed"
+            and not noNeedSecond and noNeedSecondReason == "nothing_needed"
+            and categoryReads == readsAfterOpening,
+        "an opened container found unhelpful is remembered instead of rescored every decision tick")
+        -- A useful thing behind more junk than one slice can read. Scoring read
+    -- the first forty items from the top every pass, so a bandage at
+    -- forty-five did not exist, the container was written off as "nothing
+    -- needed", and waiting never helped because nothing remembered how far it
+    -- had got.
+    local deepActor = recruitedScavenger("sc-loot-deep-slice", -52, -52)
+    deepActor.hunger = 0
+    deepActor.body.bleeding = true
+    local deepJunk = {}
+    for index = 1, 45 do deepJunk[index] = item("Base.DeepJunk" .. index, "Item") end
+    local deepBandage = item("Base.Bandage", "Item")
+    deepJunk[#deepJunk + 1] = deepBandage
+    local deepSource = containerObject(deepActor.square, deepJunk)
+    visualStates[deepActor] = "completed"
+    local deepFound, deepClock, deepFirstVerdict = false, clock, nil
+    for _ = 1, 14 do
+        SurvivorCompanion.Encounter.tryScavenge(deepActor, nil, { snapshot = safeScavengeSnapshot })
+        if deepFirstVerdict == nil then
+            local live = SurvivorCompanion.Encounter.peek(deepActor)
+            local seen = live and live.visited and live.visited[deepSource]
+            deepFirstVerdict = seen and seen.result or nil
+        end
+        -- A slice that found nothing backs the container off briefly; the
+        -- point is that it comes back, not that it comes back instantly.
+        clock = clock + 20000
+        if deepActor.inventory:contains(deepBandage) then deepFound = true break end
+    end
+    clock = deepClock
+    check(deepFound and not deepSource:contains(deepBandage)
+            and deepFirstVerdict ~= "nothing_needed",
+        "a useful item behind more junk than one slice can read is still found, and a"
+            .. " slice that found nothing does not write the container off: "
+            .. tostring(deepFirstVerdict))
+    SurvivorCompanion.Encounter.reset(deepActor)
+
 local changedFood = item("Base.CannedBeansMemoryChanged", "Food")
-memorySource:AddItem(changedFood)
-visualStates[memoryActor] = "completed"
-local changedLooted = SurvivorCompanion.Encounter.tryScavenge(
-    memoryActor, nil, { snapshot = safeScavengeSnapshot })
-check(changedLooted and memoryActor.inventory:contains(changedFood)
-        and not memorySource:contains(changedFood),
-    "a changed container signature immediately invalidates no-useful memory")
+    memorySource:AddItem(changedFood)
+    visualStates[memoryActor] = "completed"
+    local changedLooted = SurvivorCompanion.Encounter.tryScavenge(
+        memoryActor, nil, { snapshot = safeScavengeSnapshot })
+    check(changedLooted and memoryActor.inventory:contains(changedFood)
+            and not memorySource:contains(changedFood),
+        "a changed container signature immediately invalidates no-useful memory")
+end)()
 
 for _, value in ipairs(testScavengers) do
     SurvivorCompanion.Encounter.reset(value)
@@ -9789,14 +10019,24 @@ local betterShirt = item("Base.Shirt_Denim", "Clothing", {
     biteDefense = 18, scratchDefense = 30, combatSpeedModifier = 0.98,
     bloodLevel = 10, dirtiness = 8, weight = 1,
 })
-local clothingLooter = actor("sc-corpse-clothing", 10, 1,
+-- Clean ground. Container choice is blind now, so a leftover container from
+-- an earlier case standing near (10, 1) outranked the corpse on distance and
+-- the companion walked off toward it instead -- which is the point of the
+-- rework, but not what this case is about.
+local clothingLooter = actor("sc-corpse-clothing", -52, 52,
     { inventory = inventory({ wornShirt }) })
 clothingLooter:setWornItem("Shirt", wornShirt)
 clothingLooter.modData.SC_Scavenge = true
 local clothingCorpse = zombieCorpseObject(clothingLooter.square, { betterShirt })
-local clothingLooted = SurvivorCompanion.Encounter.tryScavenge(clothingLooter, nil, {
-    snapshot = { threats = {}, immediateCount = 0, threatCount = 0, pressure = 0 },
-})
+-- Choosing a container no longer chooses an item, so the loot takes the tick
+-- that walks to it and the tick that opens it before anything moves.
+local clothingLooted = false
+for _ = 1, 6 do
+    clothingLooted = SurvivorCompanion.Encounter.tryScavenge(clothingLooter, nil, {
+        snapshot = { threats = {}, immediateCount = 0, threatCount = 0, pressure = 0 },
+    }) or clothingLooted
+    if clothingLooter.inventory:contains(betterShirt) then break end
+end
 local clothingEquipped, clothingReason = SurvivorCompanion.Logistics.update(clothingLooter, nil, {
     snapshot = { threats = {}, immediateCount = 0, threatCount = 0, pressure = 0 },
 })

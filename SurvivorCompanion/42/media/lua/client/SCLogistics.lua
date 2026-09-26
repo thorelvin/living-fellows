@@ -687,10 +687,16 @@ function Logistics.itemNeedScore(actor, item, commands, audit)
     -- Crafting material is always worth the space it takes. The base can
     -- always use nails, planks, thread and tape, and a companion that walks
     -- past them because nobody is short of anything today is how a workshop
-    -- ends up empty. Kept low enough that food, water, medicine and a weapon
-    -- still come first.
+    -- ends up empty.
+    --
+    -- Surplus, though -- stock past this survivor's own target -- is the last
+    -- thing worth carrying, not one of the first. The floor was set at
+    -- TIER.useful + 14, which is 314, against 211 for food and 212 for water
+    -- when a companion is carrying no provisions at all: an interrupted trip
+    -- came home with spare planks and nothing to eat. It belongs just above
+    -- "nothing needed" and below every real restocking.
     if category == "crafting" or category == "construction" then
-        score = math.max(score, TIER.useful + 14)
+        score = math.max(score, TIER.marginal + 10)
     end
     if reason == "clothing_upgrade" then
         local _, difference = Logistics.clothingUpgrade(actor, item)

@@ -307,6 +307,11 @@ local valueData = {
     lightingDouseDarkness = 0.45,
     lightingIndoorDarkness = 0.35,
     lightingAmbientLitLevel = 0.55,
+    -- Indoors only: a measured light level below this is taken as real
+    -- darkness and floors the estimate above the turn-on threshold, so a
+    -- windowless room is dark at noon.
+    lightingIndoorDarkLevel = 0.35,
+    lightingIndoorDarkFloor = 0.7,
     lightingDuskHour = 19,
     lightingDawnHour = 6,
     lightingInventoryBudget = 120,
