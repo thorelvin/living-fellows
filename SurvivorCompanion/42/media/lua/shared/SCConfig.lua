@@ -296,6 +296,11 @@ local valueData = {
     -- next one is given room to find a way round a building rather than settling
     -- against the nearest wall. One tier, bounded, and reset by any real
     -- progress.
+    -- How long a companion keeps working the container it has open before
+    -- looking around again. Long enough to empty an ordinary cupboard, short
+    -- enough that a container which stops being worth it is let go.
+    scavengeOpenContainerMs = 60000,
+    scavengeBlindBaseScore = 20,
     navigationDetourFailureThreshold = 2,
     navigationDetourNodeBudget = 6000,
     -- A search that finds no route hands back the closest ground it reached,

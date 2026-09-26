@@ -467,6 +467,19 @@ def main() -> int:
             and '"ToggleWindow"' not in traversal_source,
             "native-authoritative door/window postconditions missing")
     require("scavengeSquareBudget" in sources["SCEncounter.lua"], "scavenge budget not enforced")
+    # Blind container choice. The harness reaches the three helpers directly but
+    # not the three places selection has to call them, so the wiring is pinned
+    # here: sticky first, the outside-only score folded into the ranking, and
+    # the container marked open at the moment the companion reaches into it.
+    encounter_source = sources["SCEncounter.lua"]
+    require("local openContainer, openItem, openCategory, openOwner, openScore ="
+            in encounter_source
+            and "return beginTask(actor, state, openContainer, openItem, openCategory,"
+            in encounter_source
+            and "score = score + Encounter.blindContainerScore(" in encounter_source
+            and "Encounter._noteContainerOpened(state, task.container, time)"
+            in encounter_source,
+            "container choice is not blind-scored, sticky and marked on opening")
     require("wasPlayerOpened" in sources["SCEncounter.lua"]
             and "campStorageSquareBudget" in sources["SCEncounter.lua"]
             and "takePlayerSupply" in sources["SCEncounter.lua"],

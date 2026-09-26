@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.25.25 - Empty the cupboard you opened
+
+- Companions no longer take one thing from a cupboard and wander off to the next one. Which container to walk to was decided by reading what was inside every container in range and ranking them by the single best item -- so a companion knew the contents of a shut drawer, and after taking that one item everything was ranked again and a different container two rooms away usually won. A closed container is now judged from the outside only: how far away it is, and what room it stands in. Kitchens and pantries are a likely place to look for food, garages and sheds for tools, clinics and bathrooms for dressings.
+- An opened container is finished before another is walked to. For a minute after a companion opens something, it keeps taking what it needs from that container rather than re-deciding after every item. A full pack, or nothing left worth having, releases it immediately.
+- Crafting and building material is always worth carrying home. Nails, planks, thread, tape, scrap and wire are things the base can always use, so they are no longer capped by a personal carry target the way a third axe is -- a companion keeps gathering them while there is comfortable room in the pack, and stops well before there is no space left for food, water or dressings.
+
 ## 0.25.24 - The long way round
 
 - Companions stop walking into glass doors. A player-built door, and several of Build 42's glass and sliding doors, are not the same kind of object as an ordinary door, and the check that finds walls deliberately ignores anything calling itself a door -- so a closed one was recorded as neither, and the way through read as open floor. They are doors now, and get opened like doors.

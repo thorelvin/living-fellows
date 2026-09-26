@@ -283,6 +283,9 @@ local function storageAllows(storage, item)
 end
 
 local containerItems
+-- Forward declaration: stickyContainer scores the container it already has
+-- open, and is defined above the ranking helper it calls.
+local scoreContainer
 
 local function supplyStillPresent(supply)
     return type(supply) == "table" and supply.container ~= nil and supply.item ~= nil
@@ -672,6 +675,21 @@ local logicalWeaponContainerTokens = {
     "cupboard", "cabinet", "shelf", "smallbox", "cardboardbox", "metal",
 }
 
+local categoryRoomTokens = {
+    food = { "kitchen", "diner", "restaurant", "cafe", "grocery", "bar", "pantry" },
+    water = { "kitchen", "bathroom", "camping", "outdoor" },
+    medicine = { "medical", "clinic", "hospital", "pharmacy", "bathroom", "firstaid" },
+    tools = { "garage", "shed", "workshop", "mechanic", "maintenance", "tool",
+        "hardware", "construction", "factory", "warehouse" },
+    construction = { "construction", "hardware", "warehouse", "shed", "garage",
+        "factory", "workshop" },
+    crafting = { "workshop", "shed", "garage", "hardware", "craft", "sewing",
+        "storage", "factory" },
+    ammunition = { "gun", "army", "military", "police", "hunting", "pawn" },
+    literature = { "library", "school", "office", "bookstore", "classroom" },
+    clothing = { "clothing", "wardrobe", "closet", "bedroom", "laundry" },
+}
+
 local function containsAny(value, tokens)
     value = string.lower(tostring(value or ""))
     for _, token in ipairs(tokens) do
@@ -694,6 +712,35 @@ local function logicalWeaponLocationBonus(container, owner)
     end
     local roomName = utility.roomName(square)
     if containsAny(roomName, logicalWeaponRoomTokens) then bonus = bonus + 42 end
+    return bonus
+end
+
+-- How plausible this container is for what the companion is short of. Weapons
+-- keep their own long-standing lists; everything else uses the room tokens
+-- above. Bounded and cheap: this runs for every candidate before any of them is
+-- opened, so it may not read contents and may not walk the world.
+function Encounter._roomAffinityBonus(container, owner, wanted)
+    local utility = U()
+    local bonus = 0
+    if wanted ~= nil and wanted.weapon == true then
+        bonus = bonus + logicalWeaponLocationBonus(container, owner)
+    end
+    if type(wanted) ~= "table" then return bonus end
+    local square = utility.squareOf(owner)
+    if not square then
+        local source, sourceOk = utility.call(container, "getSourceGrid")
+        if sourceOk then square = source end
+    end
+    local roomName = utility.roomName(square)
+    if roomName == nil or roomName == "" then return bonus end
+    local containerType, typeOk = utility.call(container, "getType")
+    for category in pairs(wanted) do
+        local tokens = categoryRoomTokens[category]
+        if tokens ~= nil then
+            if containsAny(roomName, tokens) then bonus = bonus + 30 end
+            if typeOk and containsAny(containerType, tokens) then bonus = bonus + 10 end
+        end
+    end
     return bonus
 end
 
@@ -867,7 +914,101 @@ local function rememberContainer(state, container, result, current)
     }
 end
 
-local function scoreContainer(actor, container, needs, objectives, commands, audit)
+-- What a closed container is worth walking to, judged from the outside only.
+--
+-- Container choice used to read the contents of every container in range and
+-- rank them by the single best item inside. Two things followed from that: a
+-- companion knew what was in a shut cupboard before opening it, and a trip
+-- produced exactly one item before everything was re-ranked and a different
+-- cupboard usually won. Watching it, they wandered between containers taking
+-- one thing from each.
+--
+-- Now selection sees distance and the room it stands in, nothing else. What is
+-- inside is discovered by opening it, which is also when it becomes worth
+-- emptying properly.
+function Encounter.blindContainerScore(actor, container, owner, commands, needs)
+    local utility = U()
+    if container == nil then return 0 end
+    local score = tonumber(utility.config("scavengeBlindBaseScore")) or 20
+    -- The room is the one honest clue a shut door gives: kitchens hold food,
+    -- garages hold tools. Reuses the affinity the weapon search already had.
+    local wanted = Encounter._wantedCategories(actor, commands, needs)
+    score = score + Encounter._roomAffinityBonus(container, owner, wanted)
+    score = score - ownerDistance(actor, owner) * 1.5
+    return score
+end
+
+-- The categories this companion is actually short of, so room affinity steers
+-- toward somewhere plausible rather than merely toward the nearest cupboard.
+function Encounter._wantedCategories(actor, commands, needs)
+    local wanted = {}
+    if type(needs) == "table" then
+        for category, value in pairs(needs) do
+            if tonumber(value) ~= nil and tonumber(value) > 0 then wanted[category] = true end
+        end
+    end
+    if type(commands) == "table" and commands.prioritizeMeleeWeapon == true then
+        wanted.weapon = true
+    end
+    if SC.Combat and type(SC.Combat.weaponAvailability) == "function" then
+        local _, usable = SC.Combat.weaponAvailability(actor)
+        if tonumber(usable) ~= nil and tonumber(usable) <= 0 then wanted.weapon = true end
+    end
+    return wanted
+end
+
+-- The container this companion has open in front of it, if it still holds
+-- something wanted. Selection otherwise re-ranked every container in range
+-- after each item, and a marginally better one somewhere else usually won -- so
+-- a companion took one thing, walked away, took one thing there, and so on. Two
+-- steps from an open cupboard beats twenty to the next one.
+function Encounter.stickyContainer(actor, state, needs, commands, audit, time)
+    if type(state) ~= "table" then return nil end
+    local container = state.openContainer
+    if container == nil then return nil end
+    if not Encounter._alreadyOpened(state, container) then return nil end
+    local utility = U()
+    if time ~= nil and time >= (tonumber(state.openContainerUntil) or 0) then
+        state.openContainer = nil
+        return nil
+    end
+    -- A full companion has finished with this container whatever is left in it.
+    if SC.Logistics and type(SC.Logistics.audit) == "function" then
+        local current = audit or SC.Logistics.audit(actor)
+        if type(current) == "table" and current.shouldUnload == true then
+            state.openContainer = nil
+            return nil
+        end
+    end
+    local score, item, category, owner = scoreContainer(
+        actor, container, needs, commands and commands.objectives, commands, audit)
+    if item == nil or score <= 0 then
+        state.openContainer = nil
+        return nil
+    end
+    return container, item, category, owner, score
+end
+
+function Encounter._alreadyOpened(state, container)
+    if type(state) ~= "table" or container == nil then return false end
+    local opened = state.openedContainers
+    if type(opened) ~= "table" then return false end
+    return opened[container] == true
+end
+
+function Encounter._noteContainerOpened(state, container, time)
+    if type(state) ~= "table" or container == nil then return false end
+    if type(state.openedContainers) ~= "table" then
+        state.openedContainers = setmetatable({}, { __mode = "k" })
+    end
+    state.openedContainers[container] = true
+    state.openContainer = container
+    state.openContainerUntil = (tonumber(time) or U().nowMs())
+        + (tonumber(U().config("scavengeOpenContainerMs")) or 60000)
+    return true
+end
+
+scoreContainer = function(actor, container, needs, objectives, commands, audit)
     local utility = U()
     local bestItem, bestCategory, bestScore = nil, nil, 0
     local owner = containerOwner(container)
@@ -1387,6 +1528,17 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
         clearSearchFields(actor, state)
         selection = nil
     end
+    -- Two steps from an open cupboard beats twenty to the next one. Selection
+    -- used to re-rank everything in range after each item, so a marginally
+    -- better container elsewhere usually won and companions took one thing from
+    -- each in turn.
+    local openContainer, openItem, openCategory, openOwner, openScore =
+        Encounter.stickyContainer(actor, state, needs, commands, audit, time)
+    if openContainer ~= nil then
+        return beginTask(actor, state, openContainer, openItem, openCategory,
+            openOwner, openScore, commands, audit, time)
+    end
+
     if not selection then
         local candidates, complete, progress, total = candidateContainers(
             actor, player, state, allowCorpses, time, commands)
@@ -1419,6 +1571,14 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
         if reserveContainer(container, actor, time) then
             local score, item, category, owner = scoreContainer(
                 actor, container, needs, commands.objectives, commands, audit)
+            -- Judged from the outside as well: distance and the room it stands
+            -- in decide which container is worth walking to, so a nearer one in
+            -- a plausible room is preferred over a distant one holding a
+            -- marginally better single item.
+            if item and score > 0 then
+                score = score + Encounter.blindContainerScore(
+                    actor, container, owner, commands, needs)
+            end
             if item and score > 0 then
                 if selection.bestScore == nil or score > selection.bestScore then
                     if selection.bestContainer and selection.bestContainer ~= container then
@@ -1534,6 +1694,9 @@ local function commitTask(actor, state, task, commands, audit, time)
             flags.SC_CompanionVisited = true
         end
         rememberContainer(state, task.container, "looted", time)
+        -- It is open, and they are standing at it. Worth finishing before
+        -- walking anywhere.
+        Encounter._noteContainerOpened(state, task.container, time)
         state.lastLoot = {
             type = task.itemType,
             name = task.itemName,

@@ -541,7 +541,20 @@ function Logistics.canTake(actor, item, category, audit)
     end
     local target = dynamicTarget(audit, category, actor)
     if target <= 0 or (audit.counts[category] or 0) >= target then
-        return false, "loadout_satisfied"
+        -- The base always has a use for more nails, planks, thread and tape,
+        -- so crafting stock is not capped by a per-role target the way a third
+        -- axe is. Weight caps it instead, and at the soft ratio rather than the
+        -- hard one, so there is still room for the food, water and dressings a
+        -- survivor picks up on the way home.
+        if category ~= "crafting" and category ~= "construction" then
+            return false, "loadout_satisfied"
+        end
+        local ceiling = tonumber(audit.softRatio) or audit.hardRatio
+        if audit.capacity > 0 and ceiling ~= nil
+            and audit.weight + U().itemWeight(item) > audit.capacity * ceiling then
+            return false, "loadout_satisfied"
+        end
+        return true, "base_supply"
     end
     if audit.capacity > 0 then
         local projected = audit.weight + U().itemWeight(item)
@@ -663,6 +676,14 @@ function Logistics.itemNeedScore(actor, item, commands, audit)
     local tier = Logistics.needTier(actor, category, audit, held >= target)
     local score = tier + 22 + deficit * 64
         + ((roleWeights[audit.role] or {})[category] or 0)
+    -- Crafting material is always worth the space it takes. The base can
+    -- always use nails, planks, thread and tape, and a companion that walks
+    -- past them because nobody is short of anything today is how a workshop
+    -- ends up empty. Kept low enough that food, water, medicine and a weapon
+    -- still come first.
+    if category == "crafting" or category == "construction" then
+        score = math.max(score, TIER.useful + 14)
+    end
     if reason == "clothing_upgrade" then
         local _, difference = Logistics.clothingUpgrade(actor, item)
         score = TIER.marginal + 72 + math.min(48, math.max(0, difference))

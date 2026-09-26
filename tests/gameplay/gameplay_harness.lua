@@ -8828,6 +8828,106 @@ do
     end
 end
 
+;(function()
+    -- The looting rework. A shut container tells a survivor two things and no
+    -- more: how far away it is, and what room it stands in. Selection used to
+    -- read the contents of every container in range, rank them by the single
+    -- best item inside, and then take that one item -- so a companion knew what
+    -- was in a closed cupboard and still wandered between four of them taking
+    -- one thing from each. Choice is now blind, and an opened container is
+    -- finished before another is walked to.
+    local Encounter = SurvivorCompanion.Encounter
+    local Logistics = SurvivorCompanion.Logistics
+    local lootClock = clock
+    local looter = actor("sc-loot-blind", 20, 20, {})
+    registry[looter.id] = looter
+
+    local nearSquare = cell:getGridSquare(22, 20, 0)
+    local farSquare = cell:getGridSquare(30, 20, 0)
+    nearSquare.room = { name = "pantry" }
+    farSquare.room = { name = "pantry" }
+    local nearContainer, nearOwner = containerObject(nearSquare,
+        { item("Base.CannedCorn", "Food") })
+    local farContainer, farOwner = containerObject(farSquare,
+        { item("Base.CannedPeas", "Food") })
+
+    -- Same room, same contents: the near one wins on the walk alone.
+    local nearScore = Encounter.blindContainerScore(looter, nearContainer, nearOwner, {}, {})
+    local farScore = Encounter.blindContainerScore(looter, farContainer, farOwner, {}, {})
+    check(nearScore > farScore,
+        "a container is chosen from the outside, so the nearer of two equals wins")
+
+    -- The room is the only honest clue a closed door gives.
+    local hallSquare = cell:getGridSquare(22, 23, 0)
+    hallSquare.room = { name = "hallway" }
+    local hallContainer, hallOwner = containerObject(hallSquare, {})
+    check(Encounter._roomAffinityBonus(nearContainer, nearOwner, { food = true }) > 0
+            and Encounter._roomAffinityBonus(hallContainer, hallOwner, { food = true }) == 0
+            and Encounter._roomAffinityBonus(nearContainer, nearOwner, {}) == 0,
+        "a pantry is a plausible place to look for food and a hallway is not")
+
+    local wanted = Encounter._wantedCategories(looter, {}, { food = 0.8, water = 0 })
+    check(wanted.food == true and wanted.water == nil,
+        "room affinity steers by what the companion is actually short of")
+
+    -- Two steps from an open cupboard beats twenty to the next one.
+    local stickyState = {}
+    check(Encounter.stickyContainer(looter, stickyState, { food = 1 }, {}, nil, lootClock) == nil,
+        "nothing is sticky until a container has actually been opened")
+    Encounter._noteContainerOpened(stickyState, nearContainer, lootClock)
+    check(Encounter._alreadyOpened(stickyState, nearContainer)
+            and stickyState.openContainer == nearContainer
+            and stickyState.openContainerUntil == lootClock + 60000,
+        "opening a container records it and starts its minute")
+    check(Encounter.stickyContainer(looter, stickyState, { food = 1 }, {}, nil, lootClock + 1000)
+            == nearContainer,
+        "an opened container is emptied of what is wanted before another is chosen")
+    check(Encounter.stickyContainer(looter, stickyState, { food = 1 }, {}, nil, lootClock + 60000) == nil
+            and stickyState.openContainer == nil,
+        "an open container stops holding the companion after a minute")
+
+    Encounter._noteContainerOpened(stickyState, nearContainer, lootClock)
+    check(Encounter.stickyContainer(looter, stickyState, { food = 1 }, {},
+            { shouldUnload = true, counts = {}, role = "generalist" }, lootClock + 1000) == nil
+            and stickyState.openContainer == nil,
+        "a companion with a full pack is finished with the open container whatever is left in it")
+
+    local emptyState = {}
+    Encounter._noteContainerOpened(emptyState, hallContainer, lootClock)
+    check(Encounter.stickyContainer(looter, emptyState, { food = 1 }, {}, nil, lootClock + 1000) == nil,
+        "an open container holding nothing wanted releases the companion")
+
+    -- Crafting stock is what the base runs on, and nobody is ever short of it
+    -- in the way they are short of food, so the need ladder used to leave it at
+    -- the bottom and a companion walked past nails all day.
+    local craftAudit = Logistics.audit(looter)
+    craftAudit.counts.crafting = 99
+    craftAudit.counts.construction = 99
+    local threadScore, threadCategory = Logistics.itemNeedScore(
+        looter, item("Base.Thread", "Item"), {}, craftAudit)
+    local nailScore, nailCategory = Logistics.itemNeedScore(
+        looter, item("Base.Nails", "Item"), {}, craftAudit)
+    check(threadCategory == "crafting" and nailCategory == "construction"
+            and threadScore >= Logistics.TIER.useful + 14
+            and nailScore >= Logistics.TIER.useful + 14,
+        "crafting and construction stock is always worth taking, over target or not")
+    craftAudit.weight = craftAudit.capacity * 2
+    check(Logistics.itemNeedScore(looter, item("Base.Thread", "Item"), {}, craftAudit) == 0,
+        "an over-target companion still stops gathering crafting stock once the pack is heavy")
+
+    registry[looter.id] = nil
+    Encounter.reset(looter)
+    for index = #hallSquare.objects, 1, -1 do
+        if hallSquare.objects[index] == hallOwner then table.remove(hallSquare.objects, index) end
+    end
+    for index = #nearSquare.objects, 1, -1 do
+        if nearSquare.objects[index] == nearOwner then table.remove(nearSquare.objects, index) end
+    end
+    for index = #farSquare.objects, 1, -1 do
+        if farSquare.objects[index] == farOwner then table.remove(farSquare.objects, index) end
+    end
+end)()
+
 do
 local stagedFood = item("Base.CannedChili", "Food")
 local stagedLootActor = actor("sc-loot-transaction", -20, 4, {})
