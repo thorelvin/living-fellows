@@ -191,6 +191,12 @@ local contractDefinitions = {
         install = "install", remove = "remove", state = "isInstalled" },
     { name = "diary context menu", owner = function() return SC.DiaryUI end,
         install = "install", remove = "remove", state = "isInstalled" },
+    -- World noise is the game telling us something loud happened. Which events
+    -- exist varies by install, so the installer hooks what it finds and reports
+    -- the rest as absent rather than failing startup over a missing name.
+    { name = "world noise", owner = function() return SC.Senses end,
+        install = "installWorldNoiseHooks", remove = "removeWorldNoiseHooks",
+        state = "worldNoiseHooksInstalled" },
 }
 
 local function contractState(contract)

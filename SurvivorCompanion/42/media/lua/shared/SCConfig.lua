@@ -564,6 +564,14 @@ local valueData = {
     -- Renewed while the treatment is actually progressing, so this only expires
     -- when the helper stopped working on them.
     medicalTreatmentClaimMs = 12000,
+    -- A noise is worth a word for this long after it happens, and a companion
+    -- says at most one such thing this often. Deliberately long: a street full
+    -- of alarms should not become a street full of commentary.
+    noiseRemarkMemoryMs = 4000,
+    noiseRemarkCooldownMs = 45000,
+    -- Defaults for a reported world noise when the caller gives no figures.
+    worldNoiseRadius = 30,
+    worldNoiseVolume = 40,
     combatTargetPrimaryChallengeDistance = 0.75,
     combatTargetScoreMargin = 18,
     -- Player target instructions influence ordinary target ranking; they never

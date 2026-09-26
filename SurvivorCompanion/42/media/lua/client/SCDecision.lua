@@ -161,6 +161,50 @@ local function rescueNeed(actor, player, snapshot)
     return score, target
 end
 
+-- A noise nobody here made, loud enough and recent enough to be worth a word.
+-- One remark per companion per cooldown, and the nearest such noise wins, so a
+-- street full of alarms does not become a street full of commentary.
+local function noisyEventFor(actor, snapshot, state, current)
+    if type(snapshot) ~= "table" or type(snapshot.sounds) ~= "table" then return nil end
+    if SC.Senses == nil or type(SC.Senses.noiseTopic) ~= "function" then return nil end
+    local memory = tonumber(U().config("noiseRemarkMemoryMs")) or 4000
+    local best, bestDistanceSq, bestTopic
+    for _, sound in ipairs(snapshot.sounds) do
+        local topic = SC.Senses.noiseTopic(sound.kind)
+        if topic ~= nil and sound.source ~= actor
+            and (tonumber(sound.ageMs) or math.huge) <= memory then
+            local distanceSq = tonumber(sound.distanceSq) or math.huge
+            if best == nil or distanceSq < bestDistanceSq then
+                best, bestDistanceSq, bestTopic = sound, distanceSq, topic
+            end
+        end
+    end
+    if best == nil then return nil end
+    local soundTime = tonumber(best.time) or (current - (tonumber(best.ageMs) or 0))
+    if soundTime <= (tonumber(state.lastNoiseRemarkFor) or -math.huge) then return nil end
+    return best, bestTopic, soundTime
+end
+
+-- Optional speech, so it waits for anything that actually matters.
+function Decision.remarkOnNoise(actor, snapshot, state, current)
+    if type(state) ~= "table" then return false, "no_state" end
+    if (tonumber(snapshot and snapshot.immediateCount) or 0) > 0 then
+        return false, "busy_fighting"
+    end
+    local cooldown = tonumber(U().config("noiseRemarkCooldownMs")) or 45000
+    if current < (tonumber(state.nextNoiseRemarkAt) or 0) then return false, "noise_remark_cooldown" end
+    local sound, topic, soundTime = noisyEventFor(actor, snapshot, state, current)
+    if sound == nil then return false, "no_noise_worth_remarking" end
+    if SC.Dialogue == nil or type(SC.Dialogue.say) ~= "function" then
+        return false, "speech_unavailable"
+    end
+    local spoken = SC.Dialogue.say(actor, topic, nil, nil, { snapshot = snapshot })
+    if spoken ~= true then return false, "noise_remark_declined" end
+    state.lastNoiseRemarkFor = soundTime
+    state.nextNoiseRemarkAt = current + cooldown
+    return true, topic
+end
+
 local function recentSharedAlert(actor, snapshot, state, current)
     if type(snapshot) ~= "table" or type(snapshot.sounds) ~= "table" then return nil end
     local newest
@@ -2331,6 +2375,7 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     end
     local threatSignalled = warnAboutThreat(actor, snapshot, commands, state, current)
     warnAboutHeardThreat(actor, snapshot, state, current)
+    Decision.remarkOnNoise(actor, snapshot, state, current)
     if threatSignalled then
         state.current, state.currentKey, state.intent = "alert", "threat_signal", "threat_signal"
         state.lastHandledAt = current

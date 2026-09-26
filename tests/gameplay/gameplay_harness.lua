@@ -20183,4 +20183,90 @@ end)()
     for key in pairs(claims) do claims[key] = nil end
 end)()
 
+;(function()
+    -- Noise a companion did not make and cannot stop: an alarm that rings until
+    -- its battery dies, a horn somebody leaned on, a door losing an argument,
+    -- a helicopter dragging the county behind it.
+    local Dialogue = SurvivorCompanion.Dialogue
+    local Senses = SurvivorCompanion.Senses
+    local NOISE = { "noise.alarm", "noise.horn", "noise.breaking",
+        "noise.helicopter", "noise.loud" }
+    local total = 0
+    for _, topic in ipairs(NOISE) do
+        local spec = Dialogue._poolForTests(topic)
+        check(type(spec) == "table" and type(spec.common) == "table" and #spec.common > 0,
+            "the noise topic has lines: " .. topic)
+        total = total + #spec.common
+        for _, line in ipairs(spec.common) do
+            check(#line <= 120, topic .. " keeps its lines short: " .. line)
+            check(string.find(line, "%%1") == nil,
+                topic .. " needs no interpolation: " .. line)
+        end
+    end
+    check(total == 26, "the noise bucket holds 26 lines: " .. tostring(total))
+
+    -- Each kind of noise reaches the right thing to say, and the noises a
+    -- companion makes itself get no commentary at all.
+    check(Senses.noiseTopic("car_alarm") == "noise.alarm"
+            and Senses.noiseTopic("house_alarm") == "noise.alarm"
+            and Senses.noiseTopic("horn") == "noise.horn"
+            and Senses.noiseTopic("door_break") == "noise.breaking"
+            and Senses.noiseTopic("helicopter") == "noise.helicopter"
+            and Senses.noiseTopic("gunshot") == "noise.loud",
+        "every reported noise kind maps to something to say")
+    check(Senses.noiseTopic("whistle") == nil
+            and Senses.noiseTopic("companion_alert") == nil
+            and Senses.noiseTopic(nil) == nil,
+        "our own signals draw no commentary")
+
+    -- The remark itself: once, about the nearest noise, and not mid-fight.
+    local listener = actor("sc-noise-listener", 20, 44, {})
+    local said = {}
+    local priorSay = Dialogue.say
+    Dialogue.say = function(_, topic) said[#said + 1] = topic return true end
+    local function snapshotWithNoise(kind, ageMs, distanceSq, immediate)
+        return { immediateCount = immediate or 0, sounds = { {
+            kind = kind, ageMs = ageMs or 0, distanceSq = distanceSq or 9,
+            time = 1000, source = nil,
+        } } }
+    end
+
+    local state = {}
+    local ok, topic = SurvivorCompanion.Decision.remarkOnNoise(
+        listener, snapshotWithNoise("car_alarm"), state, 1000)
+    check(ok == true and topic == "noise.alarm",
+        "a car alarm is worth saying something about: " .. tostring(topic))
+    check(SurvivorCompanion.Decision.remarkOnNoise(
+            listener, snapshotWithNoise("car_alarm"), state, 1200) == false,
+        "the same alarm is not remarked on twice")
+    -- Past the cooldown the same noise is still the same noise: without this,
+    -- one alarm that keeps ringing would be commented on for as long as it did.
+    check(SurvivorCompanion.Decision.remarkOnNoise(
+            listener, snapshotWithNoise("car_alarm"), state, 1000 + 45000 + 1) == false,
+        "one alarm is not remarked on again every time the cooldown lapses")
+    -- A genuinely later noise is.
+    local laterNoise = snapshotWithNoise("car_alarm")
+    laterNoise.sounds[1].time = 1000 + 45000 + 5
+    check(SurvivorCompanion.Decision.remarkOnNoise(
+            listener, laterNoise, state, 1000 + 45000 + 10) == true,
+        "a new alarm after the cooldown is worth a word")
+
+    local busy = {}
+    check(SurvivorCompanion.Decision.remarkOnNoise(
+            listener, snapshotWithNoise("helicopter", 0, 9, 2), busy, 5000) == false,
+        "a companion in a fight has nothing to say about a helicopter")
+
+    local stale = {}
+    check(SurvivorCompanion.Decision.remarkOnNoise(
+            listener, snapshotWithNoise("horn", 600000), stale, 600000) == false,
+        "an old noise is not worth mentioning")
+
+    local ours = {}
+    check(SurvivorCompanion.Decision.remarkOnNoise(
+            listener, snapshotWithNoise("whistle"), ours, 9000) == false,
+        "the player's whistle draws no commentary")
+
+    Dialogue.say = priorSay
+end)()
+
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")

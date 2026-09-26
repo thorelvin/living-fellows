@@ -132,6 +132,29 @@ function SC.BaseVisuals.remove()
 end
 function SC.BaseVisuals.isInstalled() return SC.BaseVisuals.installed end
 
+-- World noise joins the transactional hook set: the installer hooks whichever
+-- of Build 42's loud-event names this install actually publishes, so it has the
+-- same install/remove/state contract as the rest.
+SC.Senses.installed = false
+SC.Senses.installs = 0
+SC.Senses.removes = 0
+SC.Senses.failRemove = false
+function SC.Senses.installWorldNoiseHooks()
+    if SC.Senses.installed then return true end
+    SC.Senses.installed = true
+    SC.Senses.installs = SC.Senses.installs + 1
+    return true
+end
+function SC.Senses.removeWorldNoiseHooks()
+    if SC.Senses.failRemove then
+        return false, "injected world noise remove failure"
+    end
+    if SC.Senses.installed then SC.Senses.removes = SC.Senses.removes + 1 end
+    SC.Senses.installed = false
+    return true
+end
+function SC.Senses.worldNoiseHooksInstalled() return SC.Senses.installed end
+
 SC.DiaryUI = { installed = false, installs = 0, removes = 0, failRemove = false }
 function SC.DiaryUI.install()
     if SC.DiaryUI.installed then return true end

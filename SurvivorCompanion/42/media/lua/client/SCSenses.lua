@@ -14,6 +14,7 @@ if not SC.PerceptionScan and type(require) == "function" then pcall(require, "SC
 SC.Senses = SC.Senses or {}
 local Senses = SC.Senses
 local sounds = {}
+local noiseHooksResolved = false
 
 local function util()
     return SC.GameplayUtil
@@ -216,6 +217,124 @@ local function pruneSounds(now)
         end
     end
     for index = #sounds, write, -1 do sounds[index] = nil end
+end
+
+-- Which spoken reaction a heard noise deserves, or nil for the ones a
+-- companion makes itself. A whistle is an instruction and a companion alert is
+-- one of ours; neither wants commentary.
+local NOISE_TOPICS = {
+    alarm = "noise.alarm",
+    car_alarm = "noise.alarm",
+    house_alarm = "noise.alarm",
+    horn = "noise.horn",
+    breaking = "noise.breaking",
+    door_break = "noise.breaking",
+    window_break = "noise.breaking",
+    helicopter = "noise.helicopter",
+    gunshot = "noise.loud",
+    explosion = "noise.loud",
+    world = "noise.loud",
+}
+
+function Senses.noiseTopic(kind)
+    if type(kind) ~= "string" then return nil end
+    return NOISE_TOPICS[kind]
+end
+
+-- Report a noise the world made rather than one of ours: a car alarm, a house
+-- alarm, a horn, a door coming off its hinges. Anything that can observe those
+-- calls this, and perception, reactions and speech all follow from the one
+-- entry point instead of each growing its own detector.
+function Senses.hearWorldNoise(kind, x, y, z, radius, volume)
+    local U = util()
+    if type(kind) ~= "string" or kind == "" then return false end
+    if type(x) ~= "number" or type(y) ~= "number" then return false end
+    return Senses.hear(nil, x, y, z,
+        radius or U.config("worldNoiseRadius") or 30,
+        volume or U.config("worldNoiseVolume") or 40, kind)
+end
+
+-- World noises the mod can be told about by the game. Build 42 does not
+-- publish one event for "something loud happened", and the set of events a
+-- given install actually has depends on its version and on other mods, so each
+-- name is checked before it is used and the ones that exist are recorded.
+-- Nothing here guesses: an event that is not there is simply not hooked, and
+-- the startup line says which ones were found so the rest can be wired once we
+-- know what a real install offers.
+local NOISE_EVENT_KINDS = {
+    OnVehicleHorn = "horn",
+    OnVehicleAlarm = "car_alarm",
+    OnBuildingAlarm = "house_alarm",
+    OnAlarmSound = "house_alarm",
+    OnHelicopter = "helicopter",
+    OnHelicopterEvent = "helicopter",
+    OnThumpableDestroyed = "breaking",
+    OnDoorDestroyed = "breaking",
+    OnWindowSmash = "breaking",
+}
+
+local noiseHandlers = {}
+
+function Senses.worldNoiseHooksInstalled()
+    for _ in pairs(noiseHandlers) do return true end
+    -- An install with none of these events is correctly hooked to nothing.
+    return noiseHooksResolved == true
+end
+
+-- Locate the noise near whatever the event handed us, falling back to the live
+-- player so a nameless event still produces a bearing somebody can react to.
+local function noiseOrigin(subject)
+    local U = util()
+    local x, y, z = U.position(subject)
+    if x ~= nil then return x, y, z end
+    local player = type(getSpecificPlayer) == "function" and getSpecificPlayer(0) or nil
+    return U.position(player)
+end
+
+function Senses.installWorldNoiseHooks()
+    if type(Events) ~= "table" then
+        noiseHooksResolved = true
+        return true
+    end
+    local found = {}
+    for name, kind in pairs(NOISE_EVENT_KINDS) do
+        local event = Events[name]
+        if type(event) == "table" and type(event.Add) == "function"
+            and type(event.Remove) == "function" and noiseHandlers[name] == nil then
+            local handler = function(subject)
+                local x, y, z = noiseOrigin(subject)
+                if x ~= nil then pcall(Senses.hearWorldNoise, kind, x, y, z) end
+            end
+            local added = pcall(event.Add, handler)
+            if added then
+                noiseHandlers[name] = handler
+                found[#found + 1] = name
+            end
+        end
+    end
+    noiseHooksResolved = true
+    table.sort(found)
+    -- Which loud-event names this install actually publishes. Recorded on the
+    -- module so it can be inspected, and logged best-effort: a diagnostic must
+    -- never be the reason a startup contract fails to install.
+    Senses.worldNoiseEvents = found
+    pcall(function()
+        U().diagnostic("senses", nil, "action=world_noise_hooks events="
+            .. (#found > 0 and table.concat(found, ",") or "none"))
+    end)
+    return true
+end
+
+function Senses.removeWorldNoiseHooks()
+    for name, handler in pairs(noiseHandlers) do
+        local event = type(Events) == "table" and Events[name] or nil
+        if type(event) == "table" and type(event.Remove) == "function" then
+            pcall(event.Remove, handler)
+        end
+        noiseHandlers[name] = nil
+    end
+    noiseHooksResolved = false
+    return true
 end
 
 function Senses.hear(source, x, y, z, radius, volume, kind)

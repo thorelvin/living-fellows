@@ -182,6 +182,20 @@ for _, name in ipairs({
 }) do
     SC[name] = SC[name] or resettable()
 end
+-- World noise is part of the transactional hook set. This harness does not
+-- load the real SCSenses, so its stub needs the same install/remove/state
+-- contract the bootstrap asks every owner for.
+SC.Senses.worldNoiseInstalled = false
+function SC.Senses.installWorldNoiseHooks()
+    SC.Senses.worldNoiseInstalled = true
+    return true
+end
+function SC.Senses.removeWorldNoiseHooks()
+    SC.Senses.worldNoiseInstalled = false
+    return true
+end
+function SC.Senses.worldNoiseHooksInstalled() return SC.Senses.worldNoiseInstalled end
+
 SC.Decision.resetAll = function() return true end
 SC.Encounter = {
     markPlayerOpened = function() return true end,

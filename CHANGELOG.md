@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.25.21 - The dead can still hear
+
+- Companions react to loud noises they did not make. Twenty-six new lines across five kinds: a car or house alarm ringing until its battery dies, a horn somebody leaned on deliberately, a door losing an argument, a helicopter dragging the whole county behind it, and the general business of being too loud in a quiet world. One remark per companion at most, about the nearest noise, and never in the middle of a fight -- a street full of alarms should not become a street full of commentary.
+- Their own signals stay quiet. A whistle is an instruction and a companion's alert is one of ours; neither gets commented on.
+
 ## 0.25.20 - Let them read the name
 
 - A speaking companion no longer covers their own name. Build 42 puts the overhead speech bubble exactly where it draws a character's name, so the moment somebody said anything they hid the label telling you who was talking. Their lines now sit one line higher and the name stays readable underneath.

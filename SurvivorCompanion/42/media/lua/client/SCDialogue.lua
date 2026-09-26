@@ -1778,6 +1778,47 @@ local pools = {
         "I need more time before I make that choice.", "I am not ready to decide yet. Give me another run.",
         "Ask me again later. I need to see more.", "I am still weighing it. Do not push me yet.",
     } },
+    -- Noise carries, and every companion who has lived through a horde knows
+    -- it. These are reactions to a sound they did not make and cannot stop:
+    -- an alarm that will ring until its battery dies, a horn somebody leaned
+    -- on deliberately, a door losing an argument. Kept short, because a
+    -- companion saying them is already listening for what comes next.
+    ["noise.alarm"] = { common = {
+        "That alarm is a dinner bell. Every one of them heard it.",
+        "Somebody's car is telling the whole county where we are.",
+        "It'll ring until the battery dies. We shouldn't be here when it does.",
+        "House alarm. Whoever set that off is already regretting it.",
+        "That noise carries a lot further than we can run.",
+        "Let it scream somewhere behind us.",
+    } },
+    ["noise.horn"] = { common = {
+        "Somebody leaned on a horn. On purpose, by the sound of it.",
+        "That was a person. People do that when they want company.",
+        "A horn means somebody's alive out there. Doesn't mean they're friendly.",
+        "Shh. Quiet. You want to get us all killed?",
+    } },
+    ["noise.breaking"] = { common = {
+        "Something's coming through a door. It isn't knocking.",
+        "That's wood giving way. Give it a minute and it won't be a door.",
+        "Breaking glass. Either somebody's desperate or something's hungry.",
+        "They're through. Whatever was holding, isn't.",
+        "That's a door losing an argument.",
+    } },
+    ["noise.helicopter"] = { common = {
+        "Helicopter. It isn't here for us.",
+        "That thing's been circling for hours. Everything for miles is walking this way.",
+        "Look up if you want. It won't look back.",
+        "Somebody's still flying. I'd rather they weren't doing it over us.",
+        "It'll move on. What it drags behind it won't.",
+        "Every dead thing in the county just got a direction.",
+    } },
+    ["noise.loud"] = { common = {
+        "The dead can still hear.",
+        "Sound travels further than you'd think out here.",
+        "Every noise we make is an invitation.",
+        "Well. That's done now. Let's not be standing near it.",
+        "Quiet is the only thing keeping us alive. Mind it.",
+    } },
     ["faction.life.greeting.Wary"] = {
         common = {
             "State your business from there.", "Keep your hands where I can see them.",
