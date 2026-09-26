@@ -429,13 +429,16 @@ local function nativeBridgeProvider()
         return true
     end
 
-    function provider:requestSpawn(square, identity)
+    function provider:requestSpawn(square, identity, bare)
         identity = type(identity) == "table" and identity or {}
+        -- `bare` means this companion arrives with saved clothes of its own,
+        -- so the survivor factory's outfit is noise the player would watch it
+        -- change out of. A new companion keeps what the factory gave it.
         local ok, requestId = staticInvoke(bridge, "requestSpawn", square,
             tostring(identity.forename or "Fellow"),
             tostring(identity.surname or "Survivor"),
             identity.gender == "female" or identity.gender == "woman",
-            tostring(identity.outfit or ""))
+            tostring(identity.outfit or ""), bare == true)
         if not ok or tonumber(requestId) == nil or tonumber(requestId) < 1 then
             local reasonOk, reason = staticInvoke(bridge, "getLastFailure")
             return nil, reasonOk and reason or requestId
@@ -1150,8 +1153,11 @@ function actorService.beginSpawn(square, profile)
     end
 
     local identity = type(profile.identity) == "table" and profile.identity or profile
+    -- A restored companion brings its own clothes, applied below in
+    -- profile.initialize. Ask for it undressed so the player never sees the
+    -- survivor factory's outfit on it first.
     local ok, requestOrReason, providerReason = pcall(cachedProvider.requestSpawn,
-        cachedProvider, square, identity)
+        cachedProvider, square, identity, profile.restored == true)
     if not ok or requestOrReason == nil then
         return nil, "actor provider spawn request failed: "
             .. tostring(providerReason or requestOrReason)

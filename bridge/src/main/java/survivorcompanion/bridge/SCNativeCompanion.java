@@ -1895,10 +1895,17 @@ public final class SCNativeCompanion extends IsoPlayer {
     /** How long a construction hide may last before it un-hides itself. */
     private static final long MAX_CONSTRUCTION_HIDE_MS = 4000L;
 
-    /** Shows the companion and forgets it was ever hidden. Idempotent. */
+    /**
+     * Shows the companion and forgets it was ever hidden. Idempotent.
+     *
+     * <p>Scene culling, not setInvisible: that flag drives building alarms,
+     * chat elements and the stats panel, and the engine never consults it to
+     * decide whether to draw a character. Culling is what attachRenderModel
+     * clears to make a companion visible in the first place.
+     */
     void revealNow() {
         hiddenUntilReadyAt = 0L;
-        if (isInvisible()) setInvisible(false);
+        setSceneCulled(false);
     }
 
     /**

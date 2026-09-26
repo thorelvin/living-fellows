@@ -2919,8 +2919,9 @@ local deferredProvider = {
 function deferredProvider:isActor(candidate)
     return candidate == deferredActor and candidate.__owned == true
 end
-function deferredProvider:requestSpawn()
+function deferredProvider:requestSpawn(square, identity, bare)
     self.requested = true
+    self.bare = bare
     return 77
 end
 function deferredProvider:pollSpawn(request)
@@ -2962,6 +2963,10 @@ check(deferredReady == deferredActor and deferredRecord.id == "sc-deferred-spawn
     "completed deferred creation passes the normal transactional finalizer exactly once")
 check(deferredProvider.reveals == 1 and deferredProvider.revealedAfterRegister == true,
     "a companion hidden for construction is shown exactly once, after it is fully built")
+-- A new companion keeps the clothes the survivor factory gave it; there is
+-- nothing else to dress it in.
+check(deferredProvider.bare == false,
+    "a newly created companion is spawned wearing the factory outfit")
 check(SC.Actor.remove(deferredActor), "deferred-spawn fixture removes transactionally")
 
 -- A companion that cannot be revealed is still a companion. The bridge
@@ -2976,7 +2981,10 @@ local stubbornActor = setmetatable({
 function stubbornProvider:isActor(candidate)
     return candidate == stubbornActor and candidate.__owned == true
 end
-function stubbornProvider:requestSpawn() return 78 end
+function stubbornProvider:requestSpawn(square, identity, bare)
+    self.bare = bare
+    return 78
+end
 function stubbornProvider:pollSpawn()
     stubbornActor.__owned = true
     return stubbornActor
@@ -3001,6 +3009,42 @@ check(stubbornReady == stubbornActor and stubbornRecord and stubbornRecord.id ==
         and SC.Registry.byId("sc-reveal-failure") ~= nil and stubbornProvider.reveals == 1,
     "a companion that could not be revealed is still spawned and registered")
 check(SC.Actor.remove(stubbornActor), "reveal-failure fixture removes transactionally")
+
+-- A restored companion brings its own clothes, so the factory outfit is a
+-- costume the player would watch it change out of. Ask for it undressed.
+local restoredProvider = { testOnly = true, kind = "iso-companion" }
+local restoredActor = setmetatable({
+    __class = "IsoPlayer", data = {}, square = square, characterActions = actionList(),
+}, { __index = actor })
+function restoredProvider:isActor(candidate)
+    return candidate == restoredActor and candidate.__owned == true
+end
+function restoredProvider:requestSpawn(spawnSquare, identity, bare)
+    self.bare = bare
+    return 79
+end
+function restoredProvider:pollSpawn()
+    restoredActor.__owned = true
+    return restoredActor
+end
+function restoredProvider:cancelSpawn() return true end
+function restoredProvider:reveal() return true end
+function restoredProvider:remove(candidate)
+    candidate.__owned = false
+    return true
+end
+check(SC.Actor._setProviderForTests(restoredProvider), "restored-spawn provider installed")
+local restoredTicket = SC.Actor.beginSpawn(square, {
+    id = "sc-restored-bare",
+    recruited = true,
+    restored = true,
+    identity = { forename = "Dressed", surname = "Already", gender = "female" },
+})
+local restoredReady = SC.Actor.pollSpawn(restoredTicket)
+check(restoredReady == restoredActor and restoredProvider.bare == true,
+    "a restored companion is spawned undressed so its own clothes are the only ones seen")
+check(SC.Actor.remove(restoredActor), "restored-spawn fixture removes transactionally")
+SC.Actor._setProviderForTests(deferredProvider)
 SC.Actor._setProviderForTests(deferredProvider)
 
 function runLocomotionRecorderChecks()

@@ -123,6 +123,9 @@ public class IsoGameCharacter extends IsoMovingObject {
     public void setSceneCulled(boolean sceneCulled) {}
     public boolean isInvisible() { return false; }
     public void setInvisible(boolean invisible) {}
+    public zombie.characters.WornItems.WornItems getWornItems() { return null; }
+    public void removeWornItem(zombie.inventory.InventoryItem item) {}
+    public void resetModelNextFrame() {}
     public void setAddedToModelManager(ModelManager manager, boolean added) {}
     public void setMovingSquare(IsoGridSquare square) {}
     public void setSquare(IsoGridSquare square) {}

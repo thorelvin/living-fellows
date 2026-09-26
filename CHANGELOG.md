@@ -2,6 +2,10 @@
 
 # Changelog
 
+## 0.25.30 - They load in wearing their own clothes
+
+- Restored companions are now built with nothing on, so the only clothes you ever see them in are their own. 0.25.28 tried to hide them instead and did not work: the flag it used controls building alarms and the stats panel, not whether a character is drawn, so the group still loaded in wearing the survivor factory's outfits and changed in front of you. The factory's clothes are now taken off at the instant the companion is created, before it has been drawn once, and the saved ones go on immediately afterwards. A newly recruited companion still keeps the outfit it was created in -- it has no other.
+
 ## 0.25.29 - The inventory window stays open
 
 - A companion's inventory no longer closes itself. The loot window rebuilds its own list of containers every time you turn or step onto a new square, from whatever it can find around you -- and a companion is a person, not a crate, so it was never in that list. The window quietly dropped it and fell back to the first container it did have, which is the floor. Companions are now handed back into that list as a proper container, with the companion's name on the button.

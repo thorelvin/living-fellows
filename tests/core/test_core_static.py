@@ -665,6 +665,21 @@ require('IsoFlagType.canBeCut' in navigation
         and 'navigationWeaponReadyHoldMs' in navigation,
         "vegetation-aware tactical navigation contracts are missing")
 
+# A restored companion is undressed at construction so the player never sees
+# the survivor factory outfit it was built in. The harness swaps the actor
+# provider for a fake, so the real bridge call and the Java side that answers
+# it are pinned here instead.
+bridge_source = (PROJECT / "bridge/src/main/java/survivorcompanion/bridge/SCBridge.java").read_text(
+    encoding="utf-8")
+require('tostring(identity.outfit or ""), bare == true)' in actor_source
+        and "cachedProvider, square, identity, profile.restored == true)" in actor_source,
+        "the bare-spawn flag does not reach the native bridge")
+require("boolean bare) {" in bridge_source
+        and "if (request.bare) {" in bridge_source
+        and "String undress(SCNativeCompanion actor)" in bridge_source
+        and "actor.removeWornItem(item);" in bridge_source,
+        "the native bridge does not undress a bare spawn")
+
 for translation in (SHARED / "Translate").rglob("*.json"):
     json.loads(translation.read_text(encoding="utf-8"))
 for source in lua_files:

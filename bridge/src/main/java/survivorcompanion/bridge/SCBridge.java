@@ -25,6 +25,8 @@ import zombie.characters.IsoGameCharacter;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.characters.SurvivorDesc;
+import zombie.characters.WornItems.WornItem;
+import zombie.characters.WornItems.WornItems;
 import zombie.characters.action.ActionContext;
 import zombie.characters.action.ActionGroup;
 import zombie.characters.action.ActionState;
@@ -54,7 +56,7 @@ import zombie.network.GameServer;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.20-isocompanion-10";
+    public static final String PROTOCOL = "42.20-isocompanion-11";
     public static final int ITEM_FACT_FOOD = 1;
     public static final int ITEM_FACT_DRAINABLE = 1 << 1;
     public static final int ITEM_FACT_HAND_WEAPON = 1 << 2;
@@ -173,19 +175,21 @@ public final class SCBridge {
         private final String surname;
         private final boolean female;
         private final String outfit;
+        private final boolean bare;
         private SpawnState state = SpawnState.PENDING;
         private SCNativeCompanion actor;
         private String failure = "";
         private boolean cancelRequested;
 
         private SpawnRequest(long id, IsoGridSquare square, String forename,
-                String surname, boolean female, String outfit) {
+                String surname, boolean female, String outfit, boolean bare) {
             this.id = id;
             this.square = square;
             this.forename = forename;
             this.surname = surname;
             this.female = female;
             this.outfit = outfit;
+            this.bare = bare;
         }
     }
 
@@ -787,6 +791,27 @@ public final class SCBridge {
             String surname,
             boolean female,
             String outfit) {
+        return requestSpawn(square, forename, surname, female, outfit, false);
+    }
+
+    /**
+     * As above, but `bare` says the caller will dress this companion itself.
+     *
+     * <p>SurvivorFactory only makes fully clothed survivors, and IsoPlayer's
+     * constructor puts those clothes on before anything else can run. A
+     * companion being restored from a save has its own clothes applied by Lua
+     * a frame or more later, so the player watched the group load in wearing
+     * strangers' outfits and then change. A bare spawn is undressed the
+     * instant it is built, before it is ever drawn, so the only change the
+     * player sees is the right clothes going on.
+     */
+    public static long requestSpawn(
+            IsoGridSquare square,
+            String forename,
+            String surname,
+            boolean female,
+            String outfit,
+            boolean bare) {
         lastFailure = "";
         String ready = checkReady();
         if (!ready.isEmpty()) return failRequest(ready);
@@ -803,7 +828,7 @@ public final class SCBridge {
             request = new SpawnRequest(id, square,
                     cleanText(forename, MAX_NAME_LENGTH, "Fellow"),
                     cleanText(surname, MAX_NAME_LENGTH, "Survivor"), female,
-                    cleanText(outfit, MAX_OUTFIT_LENGTH, ""));
+                    cleanText(outfit, MAX_OUTFIT_LENGTH, ""), bare);
             SPAWN_REQUESTS.put(id, request);
         }
 
@@ -1049,15 +1074,19 @@ public final class SCBridge {
             // Nobody watches a companion get dressed.
             //
             // SurvivorFactory hands us a randomly outfitted descriptor and
-            // IsoPlayer's constructor puts those clothes on. For a companion
-            // being restored from a save, its real clothes are applied by Lua
-            // a frame or more later -- so on every load the group appeared in
-            // stranger's clothing and then changed into their own in front of
-            // the player. Hidden from construction until the mod says it has
-            // finished building the actor, which also covers the hair, beard
-            // and skin the appearance restore has yet to apply.
-            actor.setInvisible(true);
-            actor.hiddenUntilReadyAt = System.currentTimeMillis();
+            // IsoPlayer's constructor puts those clothes on. A companion being
+            // restored from a save has its real clothes applied by Lua a frame
+            // or more later, so the group loaded in wearing strangers' outfits
+            // and then changed into their own in front of the player. Take the
+            // factory's clothes off now, before the actor has been drawn once.
+            if (request.bare) {
+                String undressed = undress(actor);
+                if (!undressed.isEmpty()) {
+                    boolean removed = cleanupActor(actor, "failed spawn");
+                    if (removed) request.actor = null;
+                    return failNull(undressed + (removed ? "" : "; cleanup is pending"));
+                }
+            }
             actor.setCurrentSquare(square);
             actor.setSquare(square);
             actor.setMovingSquare(square);
@@ -1066,6 +1095,15 @@ public final class SCBridge {
             String renderFailure = consumeFailureForTests("spawn:render-validation")
                     ? "injected native companion render validation failure"
                     : attachRenderModel(actor);
+            if (renderFailure.isEmpty() && request.bare) {
+                // Second layer, and best-effort: scene culling is what
+                // attachRenderModel clears to make a companion draw, so
+                // setting it is the engine's own "not yet". It costs nothing
+                // if the renderer recomputes it, and the undress above is what
+                // actually guarantees the player never sees the wrong clothes.
+                actor.setSceneCulled(true);
+                actor.hiddenUntilReadyAt = System.currentTimeMillis();
+            }
             String actorFailure = checkActorState(actor);
             if (!renderFailure.isEmpty() || !actorFailure.isEmpty()
                     || !actor.isExistInTheWorld()) {
@@ -1416,6 +1454,29 @@ public final class SCBridge {
      * setSceneCulled(false); without this explicit transition the actor moves
      * and casts a shadow while its human model is never rendered.
      */
+    /**
+     * Takes off everything the survivor factory dressed this companion in.
+     *
+     * <p>Only ever used for a spawn the mod is about to dress itself, and run
+     * before the actor joins the world, so nothing is lost: Lua clears the
+     * inventory and applies the saved items immediately afterwards.
+     */
+    private static String undress(SCNativeCompanion actor) {
+        WornItems worn = actor.getWornItems();
+        if (worn == null) return "native companion exposes no worn-item list";
+        for (int index = worn.size() - 1; index >= 0; index--) {
+            WornItem entry = worn.get(index);
+            InventoryItem item = entry == null ? null : entry.getItem();
+            if (item != null) actor.removeWornItem(item);
+        }
+        if (worn.size() != 0) {
+            worn.clear();
+            if (worn.size() != 0) return "native companion could not be undressed";
+        }
+        actor.resetModelNextFrame();
+        return "";
+    }
+
     private static String attachRenderModel(SCNativeCompanion actor) {
         actor.setSceneCulled(false);
         // removeFromWorld() can detach ModelManager ownership without changing
