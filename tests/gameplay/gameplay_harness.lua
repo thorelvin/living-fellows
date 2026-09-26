@@ -20269,4 +20269,57 @@ end)()
     Dialogue.say = priorSay
 end)()
 
+;(function()
+    local M = SurvivorCompanion.Medical
+    -- Review 06: a casualty somebody else is holding must be filtered out
+    -- before ranking, or the most urgent one is chosen, refused, and chosen
+    -- again while a second wounded companion is never considered.
+    check(type(M.treatmentAvailable) == "function", "the shared eligibility test exists")
+    local claims = M._patientClaimsForTests()
+    for key in pairs(claims) do claims[key] = nil end
+    local hurtA = actor("sc-elig-a", 40, 46, {})
+    local helperOne = actor("sc-elig-h1", 41, 46, {})
+    local helperTwo = actor("sc-elig-h2", 42, 46, {})
+    -- One clock throughout: the claim carries a lease, so asking about it at a
+    -- different time asks a different question.
+    local clock = SurvivorCompanion.GameplayUtil.nowMs()
+    check(M.treatmentAvailable(helperOne, hurtA, clock) == true,
+        "an unheld casualty is available")
+    M.claimPatient(helperOne, hurtA, clock)
+    check(M.treatmentAvailable(helperTwo, hurtA, clock) == false,
+        "a held casualty is not available to another helper")
+    check(M.treatmentAvailable(helperOne, hurtA, clock) == true,
+        "the holder may carry on with their own patient")
+    check(M.treatmentAvailable(helperTwo, helperTwo, clock) == true,
+        "a companion may always see to itself")
+    check(M.treatmentAvailable(helperTwo, hurtA, clock + 12000 + 1) == true,
+        "a lease nobody renewed lapses and frees the casualty")
+    M.releasePatient(helperOne, hurtA)
+    check(M.treatmentAvailable(helperTwo, hurtA, clock) == true,
+        "releasing makes the casualty available again")
+    for key in pairs(claims) do claims[key] = nil end
+
+    -- Review 08: proximity is not contact. A dressing must not be applied
+    -- through a closed boundary, nor to a patient who has moved away.
+    check(type(M.inContact) == "function", "the contact test exists")
+    local near = actor("sc-contact-helper", 44, 46, {})
+    local patient = actor("sc-contact-patient", 44, 47, {})
+    check(M.inContact(near, patient) == true,
+        "an adjacent patient is in contact")
+    check(M.inContact(near, near) == true, "a companion is always in contact with itself")
+    local far = actor("sc-contact-far", 52, 46, {})
+    check(M.inContact(near, far) == false, "a patient across the room is not in contact")
+    -- A wall between two people standing a tile apart. Proximity said yes; the
+    -- boundary says no, and the boundary is the one that decides.
+    local priorEdgeBlocked = SurvivorCompanion.GameplayUtil.edgeBlocked
+    SurvivorCompanion.GameplayUtil.edgeBlocked = function() return true end
+    check(M.inContact(near, patient) == false,
+        "a closed boundary between them is not contact")
+    SurvivorCompanion.GameplayUtil.edgeBlocked = priorEdgeBlocked
+    check(M.inContact(near, patient) == true,
+        "and an open one is")
+    check(M.inContact(near, nil) == false and M.inContact(nil, patient) == false,
+        "a missing party is not in contact")
+end)()
+
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")

@@ -626,6 +626,13 @@ local function commitBandage(patient, assessment, wound, bandage, inventory,
         local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction)
         return false, rolledBack and "bandage_missing" or "treatment_rollback_failed"
     end
+    -- Contact again, at the moment it matters. A patient who moved off, changed
+    -- floor or put a door between them must not have a dressing applied to them
+    -- from wherever the helper is now standing.
+    if helper ~= nil and not Medical.inContact(helper, patient) then
+        local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction)
+        return false, rolledBack and "patient_out_of_contact" or "treatment_rollback_failed"
+    end
     local bandageLife = bandageLifeFor(helper or patient, bandage)
     -- As in vanilla, a dirty dressing goes on already soiled.
     if dirtyDressing(bandage) then bandageLife = 0 end
@@ -1245,6 +1252,38 @@ function Medical.claimPatient(helper, patient, now)
     return true
 end
 
+-- May this helper work on this casualty? True when nobody holds them, or the
+-- holder is this helper carrying on. Shared so every selector agrees.
+-- Can this helper actually put a hand on this patient right now? Proximity
+-- alone let a dressing start through a closed door -- the contact shortcut runs
+-- before routing, so two characters either side of a wall read as close enough
+-- -- and nothing rechecked it afterwards, so a patient who walked away still
+-- had the bandage applied and the item consumed.
+function Medical.inContact(helper, patient)
+    local utility = U()
+    if helper == nil or patient == nil then return false, "invalid_pair" end
+    if helper == patient then return true, "self" end
+    if not utility.isValidActor(helper) or not utility.isValidActor(patient) then
+        return false, "invalid_actor"
+    end
+    if not utility.sameFloor(helper, patient) then return false, "different_floor" end
+    local range = tonumber(utility.config("medicalRange")) or 1.35
+    if utility.distance(helper, patient) > range then return false, "out_of_range" end
+    local from, to = utility.squareOf(helper), utility.squareOf(patient)
+    if from ~= nil and to ~= nil and from ~= to
+        and utility.edgeBlocked(from, to) then
+        return false, "boundary_blocked"
+    end
+    return true, "contact"
+end
+
+function Medical.treatmentAvailable(helper, patient, now)
+    if patient == nil then return false end
+    if helper ~= nil and patient == helper then return true end
+    local holder = Medical.treatmentHolder(patient, now)
+    return holder == nil or holder == helper
+end
+
 function Medical.releasePatient(helper, patient)
     if patient ~= nil then
         local claim = patientClaims[patient]
@@ -1366,7 +1405,7 @@ continueTreatmentApproach = function(helper, state, runtime)
             > (utility.config("medicalApproachTimeoutMs") or 8000) then
         return clearTreatment(helper, state, "approach_timeout")
     end
-    if utility.distance(helper, state.patient) <= (utility.config("medicalRange") or 1.35) then
+    if Medical.inContact(helper, state.patient) then
         utility.stop(helper)
         local settled, settleReason = supervisedTransition(state, "settling", {
             patientId = U().idOf(state.patient),
@@ -1423,7 +1462,15 @@ function Medical.treat(helper, patient, runtime, options)
     if not utility.isValidActor(helper) or not utility.isValidActor(patient) then return false, "invalid_patient" end
     local active = treatmentState[helper]
     if active then
-        Medical.claimPatient(helper, active.patient, utility.nowMs())
+        -- Renewal can fail: the lease lapsed and another helper took the
+        -- casualty. Carrying on regardless meant two helpers advancing one
+        -- treatment, so stop this one and leave the new holder's claim alone.
+        if not Medical.claimPatient(helper, active.patient, utility.nowMs()) then
+            -- Cancel only this helper's own work. releasePatient is deliberately
+            -- not called with the patient: the new holder's claim is theirs.
+            Medical.cancel(helper, "patient_taken_over")
+            return false, "patient_taken_over"
+        end
         return advanceTreatment(helper, active, runtime)
     end
     options = type(options) == "table" and options or {}
@@ -1613,6 +1660,11 @@ local function rescueCandidate(actor, player, snapshot)
                 actor, candidate, player)
             if not ok or allied ~= true then return end
         end
+        -- Somebody else is already seeing to them. Ranking them anyway meant
+        -- the most urgent casualty was chosen, refused as already treated, and
+        -- chosen again next pass -- while a second wounded companion nobody had
+        -- claimed was never considered at all.
+        if not Medical.treatmentAvailable(actor, candidate) then return end
         local assessment = Medical.assess(candidate)
         if not Medical.hasActionableNeed(candidate, assessment, false) then return end
         local score = (assessment.downed and 80 or 0)

@@ -415,4 +415,113 @@ if type(SC.Combat._claimTargetForTests) == "function" then
     SC.Navigation.openSegment = priorOpen
 end
 
+-- Review 01: the incoming forecast read closingSpeed from the snapshot, but
+-- combat wrote it onto utility.copyShallow(threat) -- a copy. The observation
+-- never carried it, so the forecast was dead in the game while the old fixture
+-- passed by inserting the fields by hand. Measure it the way perception does.
+local motionSample = SC.Senses._sampleThreatMotionForTests
+check(type(motionSample) == "function", "perception measures contact motion")
+
+local watcher = character("sc-motion-watcher", 10.5, 10.5)
+local runner = character("z-motion-runner", 20.5, 10.5, "IsoZombie")
+local motionState = {}
+local motionThreats = { { actor = runner } }
+
+-- First look establishes the track; nothing can be known from one sample.
+motionSample(watcher, motionState, motionThreats, 1000)
+check(motionThreats[1].closingSpeed == nil,
+    "one observation is not enough to call something incoming")
+
+-- The zombie closes four tiles in half a second.
+runner.x = 16.5
+motionSample(watcher, motionState, motionThreats, 1500)
+check((tonumber(motionThreats[1].closingSpeed) or 0) > 0,
+    "a contact that moved closer is measured as closing: "
+        .. tostring(motionThreats[1].closingSpeed))
+check((tonumber(motionThreats[1].timeToImpactMs) or -1) > 0,
+    "a closing contact has an estimated arrival")
+
+-- The forecast now reaches the model from the observation alone.
+local derived = SC.CombatThreatModel.derive({
+    immediateCount = 0, closeThreatCount = 0, closeImmediateCount = 0,
+    occupiedThreatSectors = 0, visibleCount = 1, threats = motionThreats,
+    escapeSquares = {}, horizonMs = 60000,
+})
+check(derived.incomingCount == 1 and derived.incomingPressure > 0,
+    "a measured approach reaches the incoming forecast: "
+        .. tostring(derived.incomingCount))
+
+-- The observer walking at a standing crowd is not the crowd chasing anybody.
+local walker = character("sc-motion-walker", 40.5, 10.5)
+local idle = character("z-motion-idle", 50.5, 10.5, "IsoZombie")
+local walkState = {}
+local walkThreats = { { actor = idle } }
+motionSample(walker, walkState, walkThreats, 1000)
+walker.x = 46.5
+motionSample(walker, walkState, walkThreats, 1500)
+check(walkThreats[1].closingSpeed == nil,
+    "walking toward a standing crowd is not the crowd advancing")
+
+-- Review 05: one actor may hold one slot. A support promoted to primary used
+-- to renew with its stale role and end up in both, leaving a phantom holder
+-- that blocked a third companion.
+if type(SC.Combat._claimTargetForTests) == "function" then
+    local slotZombie = character("z-slots", 60.5, 10.5, "IsoZombie")
+    local slotA = character("sc-slot-a", 59.5, 10.5)
+    local slotB = character("sc-slot-b", 61.5, 10.5)
+    -- Stagger them, so A's claim lapses while B's is still live. Claimed at the
+    -- same moment they expire together and no promotion ever happens, which is
+    -- how this fixture quietly proved nothing the first time.
+    local lease = SC.Config.get("runtime", "combatEngagementLeaseMs") or 2000
+    SC.Combat._claimTargetForTests(slotZombie, slotA, 0, "cohort-slots", "primary", "attack", 1.0)
+    SC.Combat._claimTargetForTests(slotZombie, slotB, lease * 0.5, "cohort-slots", "support", "tracking", 1.1)
+    -- Past A's expiry, inside B's: B is promoted to primary.
+    local lapsed = lease + 100
+    -- B renews asking for the role it used to have. Without the fix that
+    -- writes B into support while it is still primary.
+    SC.Combat._claimTargetForTests(
+        slotZombie, slotB, lapsed, "cohort-slots", "support", "committed", 1.1)
+    local partner = SC.Combat.claimPartner(slotZombie, slotB, lapsed)
+    check(partner ~= slotB, "a companion is never its own engagement partner")
+    -- A third companion must find the support slot free, not blocked by a
+    -- phantom holder that is really the primary wearing two hats.
+    local slotC = character("sc-slot-c", 60.5, 11.5)
+    local thirdRole = SC.Combat._claimTargetForTests(
+        slotZombie, slotC, lapsed, "cohort-slots", nil, "tracking", 1.2)
+    check(thirdRole ~= "reserve",
+        "a third companion can take a support slot nobody is really in: "
+            .. tostring(thirdRole))
+end
+
+-- Review 04: the unaligned fallback ignored other companions' reservations, so
+-- two of them were handed the same tile to run to and the second quietly took
+-- over the first's booking while the first kept its assignment.
+--
+-- These assert plan consistency, which is worth holding, but they do NOT
+-- isolate the ownership fix: in this fixture the second companion is already
+-- refused for an unrelated reason, so reverting the fix still passes. The
+-- ownership checks themselves are pinned in the static gate and said so there.
+if type(SC.Combat._sharedRetreatSquareForTests) == "function" then
+    local retreat = SC.Combat._sharedRetreatSquareForTests
+    local runnerA = character("sc-retreat-a", 70.5, 10.5)
+    local runnerB = character("sc-retreat-b", 70.5, 11.5)
+    local onlySquare = square(68, 10, 0)
+    local escapeOnly = { escapeSquares = { { square = onlySquare, danger = 0 } } }
+    -- The plan is internal and shared by cohort, so both companions in one
+    -- cohort are competing for the same booking.
+    local firstSquare = retreat(runnerA, { cohortKey = "cohort-retreat" },
+        escapeOnly, nil, 1000, nil, nil)
+    check(firstSquare == onlySquare, "the first companion takes the only way out")
+
+    local secondSquare, plan, secondReason = retreat(runnerB,
+        { cohortKey = "cohort-retreat" }, escapeOnly, nil, 1000, nil, nil)
+    check(secondSquare == nil,
+        "the second companion is not sent to the same tile: " .. tostring(secondReason))
+    check(type(plan) == "table" and plan.assignments[runnerA] == onlySquare,
+        "the first companion keeps the tile it booked")
+    check(type(plan) == "table"
+            and plan.reserved[SC.GameplayUtil.squareKey(onlySquare)] == runnerA,
+        "the reservation still names the companion that holds it")
+end
+
 print("COMBAT_COORDINATION_REGRESSION_PASS checks=" .. tostring(checks))

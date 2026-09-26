@@ -319,7 +319,7 @@ function Senses.installWorldNoiseHooks()
     -- never be the reason a startup contract fails to install.
     Senses.worldNoiseEvents = found
     pcall(function()
-        U().diagnostic("senses", nil, "action=world_noise_hooks events="
+        util().diagnostic("senses", nil, "action=world_noise_hooks events="
             .. (#found > 0 and table.concat(found, ",") or "none"))
     end)
     return true
@@ -336,6 +336,59 @@ function Senses.removeWorldNoiseHooks()
     noiseHooksResolved = false
     return true
 end
+
+-- Observed closing speed for every contact in this snapshot, written onto the
+-- records the threat model reads. One history, kept per observer against the
+-- observer's own clock, so a full scan and a reflex refresh agree.
+--
+-- Relative closing caused by the observer walking toward a standing crowd is
+-- deliberately not evidence of pursuit: the sample is rejected unless the
+-- contact itself moved.
+local function sampleThreatMotion(actor, state, threats, now)
+    local U = util()
+    if type(threats) ~= "table" then return end
+    local tracks = state.motionTracks
+    if type(tracks) ~= "table" then
+        tracks = setmetatable({}, { __mode = "k" })
+        state.motionTracks = tracks
+    end
+    local minimum = U.config("perceptionMotionSampleMinimumMs") or 120
+    local maximum = U.config("perceptionMotionSampleMaximumMs") or 1500
+    local jump = U.config("perceptionMotionJumpDistance") or 4
+    local ax, ay, az = U.position(actor)
+    for _, threat in ipairs(threats) do
+        local other = type(threat) == "table" and threat.actor or nil
+        if other ~= nil and ax ~= nil then
+            local tx, ty, tz = U.position(other)
+            if tx ~= nil then
+                local distance = math.sqrt((tx - ax) ^ 2 + (ty - ay) ^ 2)
+                local track = tracks[other]
+                if type(track) == "table" then
+                    local elapsed = now - (tonumber(track.at) or now)
+                    local moved = math.sqrt((tx - track.tx) ^ 2 + (ty - track.ty) ^ 2)
+                    if elapsed >= minimum and elapsed <= maximum
+                        and moved <= jump
+                        and math.floor(tz or 0) == math.floor(track.tz or 0) then
+                        -- Only the contact's own movement counts.
+                        local closing = ((tonumber(track.distance) or distance) - distance)
+                            * 1000 / elapsed
+                        if closing > 0.01 and moved > 0.05 then
+                            threat.closingSpeed = closing
+                            threat.timeToImpactMs = distance / closing * 1000
+                        else
+                            threat.closingSpeed, threat.timeToImpactMs = nil, nil
+                        end
+                    end
+                end
+                if track == nil or now - (tonumber(track.at) or 0) >= minimum then
+                    tracks[other] = { tx = tx, ty = ty, tz = tz,
+                        distance = distance, at = now }
+                end
+            end
+        end
+    end
+end
+Senses._sampleThreatMotionForTests = sampleThreatMotion
 
 function Senses.hear(source, x, y, z, radius, volume, kind)
     local U = util()
@@ -1225,6 +1278,7 @@ function Senses.snapshot(actor, player, runtime)
     -- not disagree about the same facts. This also sets encircled, which no
     -- longer follows from an empty escape list plus two zombies anywhere in
     -- sight -- a search that has not run is not proof of being surrounded.
+    sampleThreatMotion(actor, state, threats, now)
     SC.CombatThreatModel.apply(snapshot, {
         immediateCount = #immediate,
         closeThreatCount = closeThreatCount,
@@ -1468,6 +1522,7 @@ function Senses.refreshImmediate(actor, player, snapshot, runtime)
     snapshot.heardThreatCount = #heardThreats
     snapshot.lastHeardDanger = heardThreats[1]
     snapshot.player = playerCondition(player, threats)
+    sampleThreatMotion(actor, state, threats, now)
     SC.CombatThreatModel.apply(snapshot, {
         immediateCount = immediateVisibleCount,
         closeThreatCount = closeCount,

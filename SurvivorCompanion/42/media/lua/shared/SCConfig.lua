@@ -299,6 +299,11 @@ local valueData = {
     -- Past it, a contact is awareness rather than a reason to break off a swing
     -- already underway. A starting value, to be tuned against native movement.
     combatIncomingHorizonMs = 5000,
+    -- Bounds on the perception motion sample that feeds the incoming forecast.
+    -- Too short a gap measures noise; too long a one measures a different walk.
+    perceptionMotionSampleMinimumMs = 120,
+    perceptionMotionSampleMaximumMs = 1500,
+    perceptionMotionJumpDistance = 4,
     -- How many engine path failures from one unchanged position before the
     -- recovery ladder takes over from replanning. Low, because each failure
     -- already costs a full engine path request.
@@ -564,6 +569,10 @@ local valueData = {
     -- Renewed while the treatment is actually progressing, so this only expires
     -- when the helper stopped working on them.
     medicalTreatmentClaimMs = 12000,
+    -- How far a weapon or ammunition search reads before it stops. Bounded, but
+    -- far enough that an ordinary full pack is searched rather than its first
+    -- ninety entries being mistaken for the whole of it.
+    combatInventoryScanLimit = 240,
     -- A noise is worth a word for this long after it happens, and a companion
     -- says at most one such thing this often. Deliberately long: a street full
     -- of alarms should not become a street full of commentary.

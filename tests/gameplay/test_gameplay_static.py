@@ -846,6 +846,42 @@ def main() -> int:
             in sources["SCCombat.lua"],
             "the claim penalty is still charged to a rescue")
 
+    # A casualty another helper holds must be filtered out before ranking, or
+    # the most urgent one is chosen, refused, and chosen again while a second
+    # wounded companion is never considered at all.
+    require("if not Medical.treatmentAvailable(actor, candidate) then return end"
+            in sources["SCMedical.lua"],
+            "the rescue selector still ranks casualties somebody else is treating")
+
+    # Two companions must never be sent to one retreat tile. The unaligned
+    # fallback pass has to respect ownership like the aligned one, and the
+    # assignment has to recheck it -- a reservation is only true at the moment
+    # it is taken. Pinned rather than exercised: the harness fixture refuses the
+    # second companion for an unrelated reason and so cannot isolate this.
+    require("local owner = ownerKey and plan.reserved[ownerKey] or nil"
+            in sources["SCCombat.lua"]
+            and 'return nil, plan, "retreat_square_reserved"' in sources["SCCombat.lua"],
+            "the shared-retreat fallback can still steal a reserved tile")
+
+    # Coordination must run whether or not scoring precomputed a vector. It sat
+    # inside `if moveX == nil`, so the ordinary successful-steering path skipped
+    # it and a second attacker walked into the first's place anyway. Pinned:
+    # isolating this needs scoring and execution driven together, which the
+    # harness does not do.
+    approach_guard = sources["SCCombat.lua"]
+    require("local spacing = weapon and Combat.meleeSpacing(actor, weapon.item, target) or nil
+"
+            "        local desired = spacing and spacing.desired or nil
+"
+            "        local now = utility.nowMs()
+"
+            "        if target.rescue ~= true" in approach_guard,
+            "approach coordination is gated on a missing movement vector again")
+    # A climbable barrier keeps the approach alive so execution can route it.
+    require("action.requiresRoute = true" in approach_guard
+            and "local routable = action.kind == \"approach\"" in approach_guard,
+            "a routable barrier is dropped before execution can route it")
+
     combat_source = sources["SCCombat.lua"]
     banter_source = sources["SCBanter.lua"]
     objectives_source = sources["SCObjectives.lua"]

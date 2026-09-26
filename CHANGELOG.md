@@ -2,6 +2,19 @@
 
 # Changelog
 
+## 0.25.22 - Ten from the review
+
+- Companions notice a pack coming before it arrives. The forecast that was meant to spot zombies converging on the group was reading a measurement nobody ever wrote down, so an openly advancing crowd stayed filed under "visible, not our problem" until it was on top of them. Perception now measures how fast each contact is closing, and a companion walking toward a standing crowd is still not the crowd chasing anybody.
+- Two companions attacking one zombie coordinate properly now. The check that sends the second one round the far side, or holds it back where there is only one place to stand, was skipped whenever the first attempt at a step had already succeeded -- which is most of the time.
+- A fence or window between a companion and its target is a thing to climb again. The approach was being thrown away before it could reach the part that asks the router to cross it.
+- Two companions are never sent to the same tile to retreat to. The fallback that picks a bolt-hole ignored the one another companion had already booked, and quietly took it over.
+- One companion can no longer occupy both attacking positions on a zombie at once, which used to leave a phantom holder blocking a third from helping.
+- A wounded companion nobody is treating is no longer overlooked because a different casualty is already being seen to. Helpers now skip anyone already in hands before choosing, instead of picking the same person, being turned away, and picking them again.
+- A helper whose turn with a casualty lapses stops, rather than carrying on alongside whoever took over.
+- Bandaging needs contact, not just closeness. Treatment could start through a closed door and finish on a patient who had walked away; both ends are now checked.
+- Companions find weapons and ammunition past the first ninety things in their pack, and inside the bags they carry. A perfectly good weapon further down could be reported as no weapon at all.
+- The startup line naming which world-noise events this install has now actually prints. It called the wrong function and failed silently, which is a poor thing for a diagnostic to do.
+
 ## 0.25.21 - The dead can still hear
 
 - Companions react to loud noises they did not make. Twenty-six new lines across five kinds: a car or house alarm ringing until its battery dies, a horn somebody leaned on deliberately, a door losing an argument, a helicopter dragging the whole county behind it, and the general business of being too loud in a quiet world. One remark per companion at most, about the nearest noise, and never in the middle of a fight -- a street full of alarms should not become a street full of commentary.

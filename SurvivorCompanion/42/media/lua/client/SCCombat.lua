@@ -740,6 +740,16 @@ claimTarget = function(target, actor, now, cohort, requestedRole, phase, distanc
         actorClaims[actor] = { target = target, cohort = cohort, role = role }
         return role, claim
     end
+    -- An explicit role is a request, not permission to hold two slots. A
+    -- support promoted to primary keeps a stale "support" in its combat state,
+    -- and renewing with that stale role used to write the same actor into both
+    -- slots -- leaving a phantom holder that blocked a third companion from a
+    -- support slot nobody was actually in.
+    for _, other in ipairs({ "primary", "support" }) do
+        if other ~= role and claim[other] ~= nil and claim[other].actor == actor then
+            claim[other] = nil
+        end
+    end
     local previous = claim[role]
     if previous and previous.actor ~= actor then actorClaims[previous.actor] = nil end
     claim[role] = {
@@ -1026,8 +1036,12 @@ function Combat.holdNativeAttack(actor, runtime)
     end
     if not holdCombatPosition(actor) then return false, "native_combat_stop_failed" end
     if state.target and not U().isGoneTarget(state.target) then
-        claimTarget(state.target, actor, now, state.cohortKey, state.combatRole,
-            "committed", math.sqrt(U().distanceSq(actor, state.target)))
+        -- The live claim is the authority. A support promoted to primary keeps
+        -- a stale role here, and renewing with it is what let one actor end up
+        -- in both slots; take back whatever the claim actually granted.
+        local granted = claimTarget(state.target, actor, now, state.cohortKey,
+            state.combatRole, "committed", math.sqrt(U().distanceSq(actor, state.target)))
+        if granted ~= nil then state.combatRole = granted end
     end
     clearRejection(state, rootRuntime)
     state.active, state.retreating = true, false
@@ -1045,7 +1059,8 @@ local function inventoryWeapons(actor)
         if record then record.equipped = true result[#result + 1] = record end
     end
     local inventory = utility.inventory(actor)
-    for _, item in ipairs(utility.inventoryItems(inventory, 90)) do
+    for _, item in ipairs(utility.inventoryItemsDeep(inventory,
+        utility.config("combatInventoryScanLimit") or 240)) do
         if item ~= primary then
             local record = weaponRecord(item)
             if record then result[#result + 1] = record end
@@ -1080,7 +1095,8 @@ local function hasReloadAmmo(inventory, weapon)
     if (magType == nil or magType == "") and (ammoType == nil or ammoType == "") then
         return false
     end
-    for _, candidate in ipairs(utility.inventoryItems(inventory, 90)) do
+    for _, candidate in ipairs(utility.inventoryItemsDeep(inventory,
+        utility.config("combatInventoryScanLimit") or 240)) do
         local candidateType = utility.itemType(candidate)
         if magType and magType ~= "" and ammoTypeMatches(candidateType, magType) then
             -- A magazine only enables a reload if it actually holds rounds.
@@ -1419,6 +1435,13 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
                 local maximum = utility.config("combatTimeToImpactScore") or 18
                 record.impactScore = maximum * math.max(0, 1 - tti / window)
                 score = score + record.impactScore
+            end
+            -- Perception now measures this for every contact before the threat
+            -- model runs, so prefer its figures; sampleTargetMotion remains for
+            -- synthetic snapshots that carry no observation history.
+            if threat.closingSpeed ~= nil then
+                closing = tonumber(threat.closingSpeed) or closing
+                tti = tonumber(threat.timeToImpactMs) or tti
             end
             record.closingSpeed, record.timeToImpactMs = closing, tti
             if threat.actor == previousTarget then score = score + 8 end
@@ -2376,8 +2399,23 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                 or action.kind == "kite" then
                 local moveX, moveY, steered, vectorReason =
                     SC.Navigation.combatVector(actor, target.actor, action.kind, snapshot)
+                local routable = action.kind == "approach"
+                    and type(vectorReason) == "string"
+                    and string.sub(vectorReason, 1, 8) == "barrier:"
                 if moveX == nil or moveY == nil then
-                    table.remove(actions, index)
+                    if routable then
+                        -- Steering cannot climb. Keep the approach alive with
+                        -- no vector and let execution hand it to the router
+                        -- that owns the traversal, which is where the fence and
+                        -- window fallback already lives. Route requests are a
+                        -- side effect and belong there, not in scoring.
+                        action.moveX, action.moveY = nil, nil
+                        action.requiresRoute = true
+                        action.barrierKind = string.sub(vectorReason, 9)
+                        action.vectorReason = vectorReason
+                    else
+                        table.remove(actions, index)
+                    end
                 else
                     action.moveX, action.moveY = moveX, moveY
                     action.microSteered = steered == true
@@ -2829,7 +2867,14 @@ local function sharedRetreatSquare(actor, state, snapshot, target, now, player, 
     for _, candidate in ipairs(candidates) do
         local square = candidate.square
         local allowed, cohesionDistance = retreatCandidateAllowed(tether, square)
-        if allowed and square and utility.isSquareFree(square) then
+        -- The aligned pass below already excluded squares another companion has
+        -- reserved; this one did not, and it is the fallback. Two companions
+        -- were handed the same tile to run to, and the second quietly took over
+        -- the first one's reservation while the first kept its assignment.
+        local ownerKey = square and utility.squareKey(square) or nil
+        local owner = ownerKey and plan.reserved[ownerKey] or nil
+        if allowed and square and (owner == nil or owner == actor)
+            and utility.isSquareFree(square) then
             local score = tonumber(candidate.score)
                 or -(tonumber(candidate.danger) or 0) * 20
                     - (tonumber(candidate.corridorDanger) or 0)
@@ -2887,6 +2932,13 @@ local function sharedRetreatSquare(actor, state, snapshot, target, now, player, 
     local chosen = aligned or (bestLocal and bestLocal.square or nil)
     if chosen then
         local squareKeyValue = utility.squareKey(chosen)
+        local holder = squareKeyValue and plan.reserved[squareKeyValue] or nil
+        if holder ~= nil and holder ~= actor then
+            -- Somebody else owns it. Say so rather than overwriting them: the
+            -- caller can wait, space out or take an emergency action, all of
+            -- which are better than two companions running at one tile.
+            return nil, plan, "retreat_square_reserved"
+        end
         plan.assignments[actor] = chosen
         if squareKeyValue then plan.reserved[squareKeyValue] = actor end
         plan.expires = now + duration
@@ -3138,23 +3190,27 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         local tx, ty = utility.position(targetActor)
         if ax == nil or tx == nil then return false, "approach_position_unavailable" end
         local moveX, moveY, steered = action.moveX, action.moveY, action.microSteered
-        if moveX == nil then
-            local spacing = weapon and Combat.meleeSpacing(actor, weapon.item, target) or nil
-            local desired = spacing and spacing.desired or nil
-            local now = utility.nowMs()
-            -- Only one place to stand: let the companion already there have it.
-            if target.rescue ~= true
-                and Combat.shouldYieldEngagement(actor, targetActor, desired, now) then
-                utility.diagnostic("combat-flank", actor, "action=yield reason=single_lane")
-                return false, "approach_yielded:single_lane"
-            end
-            local aimX, aimY = Combat.engagementAim(actor, targetActor, desired, now)
-            if aimX ~= nil then
-                moveX, moveY, steered = aimX - ax, aimY - ay, true
-                utility.diagnostic("combat-flank", actor,
-                    "action=approach side=far spacing="
-                        .. string.format("%.2f", desired or 0))
-            end
+        -- Coordination first, and independently of whether scoring precomputed a
+        -- vector. It used to sit inside `if moveX == nil`, so the ordinary
+        -- successful-steering path -- the common one -- skipped it entirely and
+        -- a second attacker walked into the first's place anyway.
+        local spacing = weapon and Combat.meleeSpacing(actor, weapon.item, target) or nil
+        local desired = spacing and spacing.desired or nil
+        local now = utility.nowMs()
+        if target.rescue ~= true
+            and Combat.shouldYieldEngagement(actor, targetActor, desired, now) then
+            utility.diagnostic("combat-flank", actor, "action=yield reason=single_lane")
+            return false, "approach_yielded:single_lane"
+        end
+        local aimX, aimY = Combat.engagementAim(actor, targetActor, desired, now)
+        if aimX ~= nil then
+            -- A flank is a different destination, so the cached centre-target
+            -- vector is wrong for it. openSegment has already proved this line
+            -- walkable inside engagementAim.
+            moveX, moveY, steered = aimX - ax, aimY - ay, true
+            utility.diagnostic("combat-flank", actor,
+                "action=approach side=far spacing="
+                    .. string.format("%.2f", desired or 0))
         end
         if moveX == nil and SC.Navigation and type(SC.Navigation.combatVector) == "function" then
             local vectorReason

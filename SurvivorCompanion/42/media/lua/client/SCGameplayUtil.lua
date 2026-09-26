@@ -1026,6 +1026,38 @@ function U.inventoryItems(inventory, limit)
     return result
 end
 
+-- Build 42 inventories are not flat, and a fixed prefix is not a search: the
+-- same first ninety root entries were re-read on every call, so a perfectly
+-- usable weapon at position ninety-one did not exist as far as combat was
+-- concerned, and ammunition for an equipped dry firearm could be ruled out the
+-- same way. This walks the root list and one level of carried containers, both
+-- bounded, so the answer is complete enough to be trusted without ever becoming
+-- an unlimited tree walk.
+function U.inventoryItemsDeep(inventory, limit, containerLimit)
+    if inventory == nil then return {} end
+    limit = math.max(1, math.floor(tonumber(limit) or 240))
+    containerLimit = math.max(0, math.floor(tonumber(containerLimit) or 12))
+    local result = {}
+    local containers, seen = {}, {}
+    for _, item in ipairs(U.inventoryItems(inventory, limit)) do
+        result[#result + 1] = item
+        if #containers < containerLimit then
+            local nested, ok = U.call(item, "getItemContainer")
+            if ok and nested ~= nil and not seen[nested] then
+                seen[nested] = true
+                containers[#containers + 1] = nested
+            end
+        end
+    end
+    for _, nested in ipairs(containers) do
+        if #result >= limit then break end
+        for _, item in ipairs(U.inventoryItems(nested, limit - #result)) do
+            result[#result + 1] = item
+        end
+    end
+    return result
+end
+
 function U.inventoryContains(inventory, item)
     if not inventory or not item then return false end
     local contains, containsOk = U.call(inventory, "contains", item)
