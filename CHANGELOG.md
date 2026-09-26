@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.25.18 - Get it off him
+
+- Companions come to help the moment a zombie starts biting someone, instead of waiting for it to take hold. Help was only offered once a zombie had a companion properly grabbed -- but a bite begins before that, and during exactly the seconds when getting it off them matters, the victim did not count as someone in trouble. The zombie stayed an ordinary, low-priority target and everyone else carried on with what they were doing.
+- A zombie that is busy mauling someone is no longer treated as already dealt with. Companions avoid piling onto a zombie a friend is already fighting, which is usually sensible, but the victim of an attack counts as having claimed their attacker -- so the one zombie that most needed a second pair of hands was the one everybody stepped around. Urgent help now ignores that.
+- Two companions are less likely to crowd the same zombie while another one walks in free. Taking on a zombie somebody already has now costs more when there is an unclaimed one to deal with instead. Faced with a single zombie they will still both pile in, because there is nothing else to choose.
+
 ## 0.25.17 - Stand on the other side
 
 - Two companions attacking the same zombie no longer shoulder each other out of their own swings. Both walked at the zombie's own tile, so both arrived in the same place, collided, and staggered -- and a staggered companion cannot attack, so the pair of them could stand there trading bumps while the zombie bit whoever it liked. The first one to commit keeps the line it already had and the second goes round to the far side, at its own weapon's reach.

@@ -1291,9 +1291,13 @@ function Combat._pinnedAllies(actor, snapshot)
         or not attack or type(attack.isGrabbed) ~= "function" then
         return pinned
     end
+    local now = U().nowMs()
+    local underAttack = type(attack.underAttack) == "function" and attack.underAttack or nil
     for _, ally in ipairs(snapshot.allies) do
         local other = type(ally) == "table" and ally.actor or ally
-        if other ~= nil and other ~= actor and attack.isGrabbed(other) == true then
+        if other ~= nil and other ~= actor
+            and (attack.isGrabbed(other) == true
+                or (underAttack ~= nil and underAttack(other, now) == true)) then
             pinned[#pinned + 1] = other
         end
     end
@@ -1391,11 +1395,16 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
             local ownPrimary = claim and claim.primary and claim.primary.actor == actor
             local ownSupport = claim and claim.support and claim.support.actor == actor
             local claimed = activeClaim(threat.actor, actor, now, cohort) ~= nil
-            if claim and not ownPrimary and not ownSupport then
+            if claim and not ownPrimary and not ownSupport and record.rescue ~= true then
                 if claim.primary and claim.support then
                     score = score - (utility.config("combatTargetClaimPenalty") or 42)
                 elseif claim.primary then
-                    score = score - 10
+                    -- Two companions on one zombie means the zombie always has
+                    -- somebody to bite and the next zombie has nobody in its
+                    -- way. Prefer one that nobody has yet, when there is one;
+                    -- with a single zombie in front of them the penalty changes
+                    -- nothing, because there is nothing else to choose.
+                    score = score - (utility.config("combatTargetPrimaryClaimPenalty") or 24)
                 end
             end
             record.score = score

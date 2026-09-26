@@ -290,6 +290,12 @@ end
 -- actually being attacked.
 local engagedPairs = {}
 local engagedCount = 0
+-- Reverse view of the same pairs: which companions are under attack right now.
+-- Keyed by victim so a bystander can ask about one ally without walking every
+-- pair. Entries carry their own expiry, so a forgotten pair cannot leave a
+-- victim looking attacked, and a victim held by two zombies keeps the later of
+-- the two expiries.
+local engagedVictims = setmetatable({}, { __mode = "k" })
 
 local function forgetPair(zombie)
     if engagedPairs[zombie] == nil then return end
@@ -307,6 +313,10 @@ local function rememberPair(zombie, actor, current)
     end
     entry.actor = actor
     entry.expiresAt = current + config("zombieAttackSustainExpiryMs", 1500)
+    if actor ~= nil then
+        local held = tonumber(engagedVictims[actor]) or 0
+        if entry.expiresAt > held then engagedVictims[actor] = entry.expiresAt end
+    end
     return true
 end
 
@@ -651,6 +661,24 @@ end
 
 -- True while the companion is held, by either authority. `source` tells them
 -- apart so no caller can mistake the synthetic pin for a native grapple.
+-- True while a zombie is actively attacking this companion, which starts at the
+-- bite rather than at the grapple. A grab is the worst case, not the only one.
+ZombieAttack._rememberPairForTests = function(zombie, actor, current)
+    return rememberPair(zombie, actor, current)
+end
+
+function ZombieAttack.underAttack(actor, current)
+    if actor == nil then return false end
+    local expiresAt = tonumber(engagedVictims[actor])
+    if expiresAt == nil then return false end
+    current = tonumber(current) or (U() and U().nowMs()) or 0
+    if current >= expiresAt then
+        engagedVictims[actor] = nil
+        return false
+    end
+    return true
+end
+
 function ZombieAttack.isGrabbed(actor)
     if ZombieAttack.nativeGrapple(actor) ~= nil then return true, "native" end
     local g = grabState[actor]
@@ -869,6 +897,7 @@ function ZombieAttack.reset(actor)
         grabState = setmetatable({}, { __mode = "k" })
         pileSeen = setmetatable({}, { __mode = "k" })
         engagedPairs, engagedCount = {}, 0
+        engagedVictims = setmetatable({}, { __mode = "k" })
     end
     return true
 end

@@ -840,6 +840,12 @@ def main() -> int:
             and 'return false, "path_blocked:door_locked"' in sources["SCNavigation.lua"],
             "the native fallback no longer routes into a known locked room")
 
+    # A zombie chewing on somebody is not "already handled" because the person
+    # it is chewing on has claimed it. Ownership must never block urgent defence.
+    require('and not ownSupport and record.rescue ~= true then'
+            in sources["SCCombat.lua"],
+            "the claim penalty is still charged to a rescue")
+
     combat_source = sources["SCCombat.lua"]
     banter_source = sources["SCBanter.lua"]
     objectives_source = sources["SCObjectives.lua"]

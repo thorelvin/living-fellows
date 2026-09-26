@@ -327,4 +327,50 @@ if type(claimed) == "function" then
 end
 SC.Navigation.openSegment = priorOpenSegment
 
+-- T06: a companion being bitten is a companion who needs help. isGrabbed only
+-- becomes true once a grapple or synthetic pin exists, so during the bite
+-- itself -- exactly when help is wanted -- the victim did not register as
+-- pinned, nobody was given rescue priority, and the zombie stayed an ordinary
+-- low-scoring target that nobody came to deal with.
+local ZA = SC.ZombieAttack
+check(type(ZA) == "table" and type(ZA.underAttack) == "function",
+    "the under-attack query is reachable")
+
+local victim = character("sc-bitten", 30.5, 30.5)
+check(ZA.underAttack(victim, 1000) == false,
+    "a companion nobody is attacking is not under attack")
+check(ZA.underAttack(nil, 1000) == false, "a missing actor is tolerated")
+
+local biter = character("z-biter", 31.4, 30.5, "IsoZombie")
+local remembered = ZA._rememberPairForTests
+if type(remembered) == "function" then
+    remembered(biter, victim, 1000)
+    check(ZA.underAttack(victim, 1100) == true,
+        "a companion a zombie is attacking is under attack straight away")
+    check(ZA.underAttack(victim, 1000 + 100000) == false,
+        "the state expires rather than sticking")
+end
+
+-- The rescue itself: a bystander must see the bitten ally as pinned.
+local bystander = character("sc-bystander", 28.5, 30.5)
+local allySnapshot = { allies = { { actor = victim } }, threats = {} }
+if type(remembered) == "function" then
+    remembered(biter, victim, 2000)
+    local pinned = SC.Combat._pinnedAllies(bystander, allySnapshot)
+    local sawVictim = false
+    for _, ally in ipairs(pinned) do if ally == victim then sawVictim = true end end
+    check(sawVictim, "a bystander sees the bitten ally as needing help")
+    check(SC.Combat._rescuing(bystander, biter, pinned) == true,
+        "the zombie doing the biting is a rescue target")
+    -- The victim itself is not its own rescue case.
+    local ownPinned = SC.Combat._pinnedAllies(victim, allySnapshot)
+    check(#ownPinned == 0, "a companion is not rescuing itself")
+end
+
+-- T07 note: the claim-penalty waiver for a rescue is pinned in the static gate
+-- rather than exercised here. scoreTargets declined to produce a record for a
+-- synthetic zombie in this fixture and a test that quietly skips is worse than
+-- no test, so it is asserted on the source instead and said so plainly. The
+-- rescue detection it depends on is covered for real by T06 above.
+
 print("COMBAT_COORDINATION_REGRESSION_PASS checks=" .. tostring(checks))

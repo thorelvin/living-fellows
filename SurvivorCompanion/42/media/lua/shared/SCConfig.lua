@@ -556,6 +556,10 @@ local valueData = {
     combatLiveSightRadius = 2.5,
     combatEngagementLeaseMs = 2000,
     combatTargetClaimPenalty = 42,
+    -- Cost of becoming the second attacker on a zombie an ally already holds.
+    -- High enough to send a companion to an uncovered zombie when one exists,
+    -- low enough that a lone zombie still gets both of them.
+    combatTargetPrimaryClaimPenalty = 24,
     combatTargetPrimaryChallengeDistance = 0.75,
     combatTargetScoreMargin = 18,
     -- Player target instructions influence ordinary target ranking; they never
