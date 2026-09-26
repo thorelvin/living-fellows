@@ -92,7 +92,7 @@ local storageCategory = {
     construction = "construction", crafting = "crafting",
     farming = "farming",
     literature = "literature", clothing = "general", container = "general",
-    general = "general",
+    general = "general", trash = "general",
 }
 
 local roleWeights = {
@@ -123,6 +123,37 @@ local function typeContains(itemType, fragments)
     return false
 end
 
+-- Things worth carrying home for nobody: ruined gear that cannot be repaired,
+-- and the small rubbish a scavenging run accumulates. Deliberately narrow -- a
+-- companion quietly binning something useful is far worse than one carrying a
+-- broken fork -- so it is an explicit list plus provably ruined condition, and
+-- never a favourite or a keepsake.
+local TRASH_TYPES = {
+    "dirtyrag", "burntfood", "emptybottle", "brokenglass", "brokenbottle",
+    "garbagebag", "tinlid", "cigarettebutt", "unusablemetal", "unusablewood",
+}
+
+function Logistics.isTrash(item)
+    if item == nil then return false end
+    local utility = U()
+    if utility.call(item, "isFavorite") == true then return false end
+    if SC.PersonalItems and type(SC.PersonalItems.personalRecord) == "function"
+        and SC.PersonalItems.personalRecord(item) ~= nil then
+        return false
+    end
+    local itemType = lower(utility.itemType(item) or "")
+    if itemType == "" then return false end
+    if typeContains(itemType, TRASH_TYPES) then return true end
+    -- Ruined and beyond repair: a weapon or tool at zero condition is weight.
+    local condition, conditionOk = utility.call(item, "getCondition")
+    local maximum, maximumOk = utility.call(item, "getConditionMax")
+    if conditionOk and maximumOk and tonumber(maximum) ~= nil
+        and tonumber(maximum) > 0 and tonumber(condition) == 0 then
+        return true
+    end
+    return false
+end
+
 local function isClothingItem(item)
     if not item then return false end
     local clothing, clothingOk = U().call(item, "IsClothing")
@@ -141,6 +172,9 @@ function Logistics.itemCategory(item)
     category = categoryOk and lower(category) or ""
     local display, displayOk = utility.call(item, "getDisplayCategory")
     display = displayOk and lower(display) or ""
+    -- Before any category can claim it: a ruined axe is still an axe by type,
+    -- and would otherwise be shelved with the weapons.
+    if Logistics.isTrash(item) then return "trash" end
     if SC.FarmWork and type(SC.FarmWork.isFarmingSupply) == "function"
         and SC.FarmWork.isFarmingSupply(item) == true then return "farming" end
     -- Check the engine category before filename heuristics. Ordinary magazines

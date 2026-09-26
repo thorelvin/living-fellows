@@ -110,6 +110,33 @@ local function setRequired(object, name, ...)
     return true
 end
 
+-- The clock Knox progress is measured against: the character's own survival
+-- hours, falling back to world age exactly as BodyDamage.update() does. Shared
+-- so the capture, the restore and the medical reading cannot drift apart.
+function vitals.infectionClock(character)
+    local current = finite(invoke(character, "getHoursSurvived", -1), -1)
+    if current < 0 and type(getGameTime) == "function" then
+        local ok, time = pcall(getGameTime)
+        if ok and time ~= nil then
+            current = finite(invoke(time, "getWorldAgeHours", -1), -1)
+        end
+    end
+    if current < 0 then return nil end
+    return current
+end
+
+-- Where the infection should read as having started, on this actor's clock, so
+-- a restored companion carries on from where it left off. Saves written before
+-- this existed keep their absolute value, which is the best they can offer.
+function vitals.restoredInfectionTime(actor, saved)
+    local elapsed = finite(saved.infectionElapsedHours, nil)
+    if saved.infected == true and elapsed ~= nil and elapsed >= 0 then
+        local now = vitals.infectionClock(actor)
+        if now ~= nil then return math.max(0, now - elapsed) end
+    end
+    return finite(saved.infectionTime, -1)
+end
+
 local function capturePart(part)
     return {
         type = tostring(invoke(part, "getType", "unknown")),
@@ -157,8 +184,22 @@ function vitals.capture(actor)
         return nil, "native body damage is unavailable"
     end
 
+    -- Knox progress is measured from getInfectionTime against the character's
+    -- OWN survival clock. A companion's native actor is built fresh on load, so
+    -- that clock restarts at zero and a restored absolute timestamp put the
+    -- infection back at the very beginning -- every load, for everybody. Save
+    -- how far it had got instead, and re-anchor it to the new actor's clock.
+    local infectionStarted = finite(invoke(body, "getInfectionTime", -1), -1)
+    local infectionNow = vitals.infectionClock(actor)
+    local infectionElapsed
+    if invoke(body, "isInfected", false) == true and infectionStarted >= 0
+        and infectionNow ~= nil and infectionNow >= 0 then
+        infectionElapsed = math.max(0, infectionNow - infectionStarted)
+    end
+
     local result = {
         health = finite(invoke(actor, "getHealth", 100), 100),
+        infectionElapsedHours = infectionElapsed,
         overallHealth = finite(invoke(body, "getOverallBodyHealth", 100), 100),
         infected = invoke(body, "isInfected", false) == true,
         infectionTime = finite(invoke(body, "getInfectionTime", -1), -1),
@@ -264,7 +305,7 @@ function vitals.apply(actor, saved)
     local actorHealth = math.max(0.1, finite(saved.health, overall))
     local operations = {
         { body, "setInfected", saved.infected == true },
-        { body, "setInfectionTime", finite(saved.infectionTime, -1) },
+        { body, "setInfectionTime", vitals.restoredInfectionTime(actor, saved) },
         { body, "setInfectionMortalityDuration", finite(saved.infectionMortalityDuration, -1) },
         { body, "setOverallBodyHealth", overall },
         { actor, "setHealth", actorHealth },

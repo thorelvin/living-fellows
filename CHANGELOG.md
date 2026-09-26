@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.25.23 - Twelve hours in, not back to zero
+
+- A companion's Knox infection no longer resets every time you load the game. Infection progress is measured from the moment it started, counted against that character's own survival clock -- and a companion's body is rebuilt from scratch when a save loads, so that clock restarted at zero and the saved starting point was meaningless. Every companion came back freshly bitten, however long they had been carrying it. How far it had got is now saved, and put back where the new body's clock says it belongs. Saves made before this keep what they recorded, which is the best that can be had from them.
+- Companions bin their rubbish. Scrap metal, dirty rags, burnt food and gear that is ruined past repair are now recognised as things nobody wants carried home: at base they go into general storage with everything else, and out on the road they are left on the ground rather than taking up space. A favourite, a keepsake and anything still usable are never touched.
+
 ## 0.25.22 - Ten from the review
 
 - Companions notice a pack coming before it arrives. The forecast that was meant to spot zombies converging on the group was reading a measurement nobody ever wrote down, so an openly advancing crowd stayed filed under "visible, not our problem" until it was on top of them. Perception now measures how fast each contact is closing, and a companion walking toward a standing crowd is still not the crowd chasing anybody.

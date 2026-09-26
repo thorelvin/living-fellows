@@ -20322,4 +20322,115 @@ end)()
         "a missing party is not in contact")
 end)()
 
+;(function()
+    -- Knox progress is measured from getInfectionTime against the character's
+    -- OWN survival clock, and a companion's native actor is rebuilt on load --
+    -- so restoring the saved absolute timestamp into a fresh actor put every
+    -- infection back at hour zero, every single load.
+    local V = SurvivorCompanion.Vitals
+    check(type(V.infectionClock) == "function"
+            and type(V.restoredInfectionTime) == "function",
+        "the shared infection clock is reachable")
+
+    local survivor = { hours = 300 }
+    function survivor:getHoursSurvived() return self.hours end
+    check(V.infectionClock(survivor) == 300, "the clock reads the character's own hours")
+
+    -- Saved at hour 300 having been infected since hour 288: twelve hours in.
+    local saved = { infected = true, infectionTime = 288,
+        infectionElapsedHours = 12, infectionMortalityDuration = 48 }
+    -- The replacement actor starts its own clock near zero.
+    local restored = { hours = 4 }
+    function restored:getHoursSurvived() return self.hours end
+    local anchored = V.restoredInfectionTime(restored, saved)
+    check(anchored == 4 - 12 or anchored == 0,
+        "the infection is re-anchored to the new actor's clock: " .. tostring(anchored))
+    -- What matters is the elapsed span, not the number itself.
+    check(math.abs((restored:getHoursSurvived() - anchored) - 12) < 0.001
+            or anchored == 0,
+        "twelve hours of infection survive the reload")
+
+    -- Further along the new actor's life, the same save still reads twelve hours.
+    restored.hours = 500
+    local later = V.restoredInfectionTime(restored, saved)
+    check(math.abs((500 - later) - 12) < 0.001,
+        "the elapsed span is preserved wherever the new clock happens to be: "
+            .. tostring(500 - later))
+
+    -- A save written before this existed keeps its absolute value; there is
+    -- nothing better to be had from it.
+    local legacy = { infected = true, infectionTime = 288 }
+    check(V.restoredInfectionTime(restored, legacy) == 288,
+        "an older save keeps the only figure it recorded")
+    -- An uninfected companion is left alone.
+    check(V.restoredInfectionTime(restored, { infected = false, infectionTime = -1 }) == -1,
+        "an uninfected companion has no infection time to restore")
+
+    -- The whole round trip, which is the only thing that actually proves this:
+    -- capture from a sick companion, then restore into its replacement.
+    local sickBody = { }
+    function sickBody:isInfected() return true end
+    function sickBody:getInfectionTime() return 288 end
+    function sickBody:getInfectionMortalityDuration() return 48 end
+    function sickBody:getApparentInfectionLevel() return 25 end
+    function sickBody:getOverallBodyHealth() return 80 end
+    function sickBody:getBodyParts() return {} end
+    local sick = { __class = "IsoPlayer", data = {} }
+    function sick:getBodyDamage() return sickBody end
+    function sick:getHealth() return 80 end
+    function sick:getHoursSurvived() return 300 end
+    function sick:getModData() return self.data end
+
+    local captured = V.capture(sick)
+    check(type(captured) == "table"
+            and math.abs((tonumber(captured.infectionElapsedHours) or -1) - 12) < 0.001,
+        "the capture records how far the infection had got: "
+            .. tostring(captured and captured.infectionElapsedHours))
+
+    local replacement = { hours = 320 }
+    function replacement:getHoursSurvived() return self.hours end
+    local reanchored = V.restoredInfectionTime(replacement, captured)
+    check(math.abs((320 - reanchored) - 12) < 0.001,
+        "and the replacement actor carries on twelve hours in, not from zero: "
+            .. tostring(320 - reanchored))
+
+    -- A clock younger than the infection itself cannot express the full span:
+    -- a negative infection time is Build 42's "not infected" sentinel, so it
+    -- clamps to zero. The infection resumes as far back as the clock allows
+    -- rather than being silently dropped, which is the part that matters.
+    replacement.hours = 6
+    check(V.restoredInfectionTime(replacement, captured) == 0,
+        "a clock younger than the infection clamps instead of going negative")
+end)()
+
+;(function()
+    -- Trash: narrow on purpose. A companion quietly binning something useful is
+    -- far worse than one carrying a broken fork home.
+    local L = SurvivorCompanion.Logistics
+    check(type(L.isTrash) == "function", "the trash test is reachable")
+    check(L.isTrash(item("Base.UnusableMetal", "Item", {})) == true,
+        "scrap is trash")
+    check(L.isTrash(item("Base.DirtyRag", "Item", {})) == true, "a dirty rag is trash")
+    check(L.isTrash(nil) == false, "a missing item is not trash")
+    check(L.isTrash(item("Base.Bandage", "Medical", {})) == false,
+        "a bandage is never trash")
+    check(L.isTrash(item("Base.Axe", "Weapon", {})) == false,
+        "an ordinary axe is not trash")
+
+    -- Ruined beyond repair is weight, whatever it used to be.
+    local ruined = item("Base.Axe", "Weapon", {})
+    function ruined:getCondition() return 0 end
+    function ruined:getConditionMax() return 10 end
+    check(L.isTrash(ruined) == true, "a ruined tool is trash")
+    local worn = item("Base.Axe", "Weapon", {})
+    function worn:getCondition() return 1 end
+    function worn:getConditionMax() return 10 end
+    check(L.isTrash(worn) == false, "a battered but working tool is kept")
+
+    -- Never somebody's favourite, whatever state it is in.
+    local treasured = item("Base.UnusableMetal", "Item", {})
+    function treasured:isFavorite() return true end
+    check(L.isTrash(treasured) == false, "a favourite is never binned")
+end)()
+
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")
