@@ -767,7 +767,8 @@ local function releaseTreatmentResources(helper, state, reason)
     end
     if rolledBack then
         state.emergencyTransaction = nil
-        treatmentState[helper] = nil
+        Medical.releasePatient(helper)
+    treatmentState[helper] = nil
     end
     return rolledBack, rolledBack and (reason or "cancelled")
         or "treatment_rollback_failed"
@@ -778,7 +779,8 @@ local function clearTreatment(helper, state, reason, detail)
     if not rolledBack then
         finalReason = "treatment_rollback_failed"
         if state then state.emergencyTransaction = nil end
-        treatmentState[helper] = nil
+        Medical.releasePatient(helper)
+    treatmentState[helper] = nil
     end
     local service = supervisor()
     local token = state and state.supervisorToken
@@ -996,7 +998,8 @@ local function finishTreatment(helper, state)
         woundIndex = wound.index,
     })
     if verifying ~= true then
-        treatmentState[helper] = nil
+        Medical.releasePatient(helper)
+    treatmentState[helper] = nil
         local service = supervisor()
         if service and state.supervisorToken and service.isCurrent(state.supervisorToken) then
             service.fail(state.supervisorToken, verifyReason or "verification_failed")
@@ -1010,7 +1013,8 @@ local function finishTreatment(helper, state)
     end
     if not verifiedWound or verifiedWound.bandaged ~= true
         or (verifiedWound.dirtyBandage == true and not dirtyDressing(state.bandage)) then
-        treatmentState[helper] = nil
+        Medical.releasePatient(helper)
+    treatmentState[helper] = nil
         local service = supervisor()
         if service and state.supervisorToken and service.isCurrent(state.supervisorToken) then
             service.fail(state.supervisorToken, "verification_failed", {
@@ -1019,6 +1023,7 @@ local function finishTreatment(helper, state)
         end
         return false, "verification_failed"
     end
+    Medical.releasePatient(helper)
     treatmentState[helper] = nil
     if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
         SC.NativeActions.noteResult(helper, "medical_treatment", "bandaged", {
@@ -1203,6 +1208,59 @@ function Medical.canReplaceDirtyBandage(actor)
         reason or (capability and "ready" or "no_treatable_wound"), capability
 end
 
+-- patient -> { helper, untilAt }. Session-only; a lapsed lease is simply
+-- retaken, so a helper that dies, is interrupted or wanders off never leaves a
+-- casualty permanently spoken for.
+local patientClaims = setmetatable({}, { __mode = "k" })
+
+local function patientClaimLease()
+    return math.max(2000, tonumber(U().config("medicalTreatmentClaimMs")) or 12000)
+end
+
+-- Who currently holds this patient, if anybody, and whether the hold is live.
+function Medical.treatmentHolder(patient, now)
+    if patient == nil then return nil end
+    local claim = patientClaims[patient]
+    if type(claim) ~= "table" then return nil end
+    now = tonumber(now) or U().nowMs()
+    if now >= (tonumber(claim.untilAt) or 0) then
+        patientClaims[patient] = nil
+        return nil
+    end
+    if not U().isValidActor(claim.helper) then
+        patientClaims[patient] = nil
+        return nil
+    end
+    return claim.helper
+end
+
+-- True when this helper may work on this patient: either nobody holds them, or
+-- the holder is this helper renewing its own turn.
+function Medical.claimPatient(helper, patient, now)
+    if helper == nil or patient == nil then return false end
+    now = tonumber(now) or U().nowMs()
+    local holder = Medical.treatmentHolder(patient, now)
+    if holder ~= nil and holder ~= helper then return false end
+    patientClaims[patient] = { helper = helper, untilAt = now + patientClaimLease() }
+    return true
+end
+
+function Medical.releasePatient(helper, patient)
+    if patient ~= nil then
+        local claim = patientClaims[patient]
+        if type(claim) == "table" and (helper == nil or claim.helper == helper) then
+            patientClaims[patient] = nil
+        end
+        return
+    end
+    if helper == nil then return end
+    for held, claim in pairs(patientClaims) do
+        if type(claim) == "table" and claim.helper == helper then patientClaims[held] = nil end
+    end
+end
+
+Medical._patientClaimsForTests = function() return patientClaims end
+
 local function beginTreatmentState(helper, patient, capability)
     local wound = capability.wound
     local action = capability.dirtyOnly and "replace_dirty_bandage" or "treat_wound"
@@ -1364,15 +1422,26 @@ function Medical.treat(helper, patient, runtime, options)
     local utility = U()
     if not utility.isValidActor(helper) or not utility.isValidActor(patient) then return false, "invalid_patient" end
     local active = treatmentState[helper]
-    if active then return advanceTreatment(helper, active, runtime) end
+    if active then
+        Medical.claimPatient(helper, active.patient, utility.nowMs())
+        return advanceTreatment(helper, active, runtime)
+    end
     options = type(options) == "table" and options or {}
     local capability, capabilityReason = treatmentCapability(helper, patient, options)
     if not capability then return false, capabilityReason or "no_treatable_wound" end
     local rootRuntime = utility.actorState(helper, runtime)
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
     if not rescueViable(helper, snapshot) then return false, "unsafe_rescue" end
+    -- Somebody is already seeing to them. One pair of hands is enough, and the
+    -- rest of the group has its own work.
+    if not Medical.claimPatient(helper, patient, utility.nowMs()) then
+        return false, "patient_already_treated"
+    end
     local state, stateReason = beginTreatmentState(helper, patient, capability)
-    if not state then return false, stateReason or capabilityReason or "medical_owner_rejected" end
+    if not state then
+        Medical.releasePatient(helper, patient)
+        return false, stateReason or capabilityReason or "medical_owner_rejected"
+    end
     return continueTreatmentApproach(helper, state, rootRuntime)
 end
 
@@ -1718,7 +1787,8 @@ function Medical.releaseActor(actor)
         elseif state then
             releaseTreatmentResources(helper, state, "medical_actor_released")
         end
-        treatmentState[helper] = nil
+        Medical.releasePatient(helper)
+    treatmentState[helper] = nil
     end
     downed[actor] = nil
     return true

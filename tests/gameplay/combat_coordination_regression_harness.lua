@@ -373,4 +373,46 @@ end
 -- no test, so it is asserted on the source instead and said so plainly. The
 -- rescue detection it depends on is covered for real by T06 above.
 
+-- T08: a doorway, corner or corridor offers exactly one place to stand and
+-- swing. Walking in anyway put two companions on the same tile -- the playtest
+-- log has two of them at 6011.5,5217.5 to the decimal -- where they shoulder
+-- each other and neither can act, with the zombie free to bite either.
+if type(SC.Combat._claimTargetForTests) == "function" then
+    local penned = character("z-penned", 40.5, 40.5, "IsoZombie")
+    local holder = character("sc-lane-holder", 39.5, 40.5)
+    local latecomer = character("sc-lane-late", 39.4, 40.6)
+    SC.Combat._claimTargetForTests(penned, holder, 1000, "cohort-lane", "primary", "attack", 1.0)
+    SC.Combat._claimTargetForTests(penned, latecomer, 1000, "cohort-lane", "support", "tracking", 1.1)
+
+    local openFar = true
+    local priorOpen = SC.Navigation.openSegment
+    SC.Navigation.openSegment = function() return openFar end
+
+    -- Room on the far side: both can fight, nobody yields.
+    check(SC.Combat.shouldYieldEngagement(latecomer, penned, 1.2, 1000) == false,
+        "with a free far side the second attacker does not yield")
+
+    -- No way round: the newcomer holds off instead of sharing the tile.
+    openFar = false
+    check(SC.Combat.shouldYieldEngagement(latecomer, penned, 1.2, 1000) == true,
+        "with only one lane the second attacker yields")
+
+    -- The companion already there never yields to the newcomer.
+    check(SC.Combat.shouldYieldEngagement(holder, penned, 1.2, 1000) == false,
+        "the companion already engaged keeps its place")
+
+    -- A partner still walking in from across the room is not holding the lane.
+    holder.x, holder.y = 30.5, 40.5
+    check(SC.Combat.shouldYieldEngagement(latecomer, penned, 1.2, 1000) == false,
+        "a distant partner does not reserve the only lane")
+    holder.x, holder.y = 39.5, 40.5
+
+    -- Already fighting from opposite sides: that is working, leave it be.
+    latecomer.x, latecomer.y = 41.6, 40.5
+    check(SC.Combat.shouldYieldEngagement(latecomer, penned, 1.2, 1000) == false,
+        "companions already apart are not told to stand down")
+
+    SC.Navigation.openSegment = priorOpen
+end
+
 print("COMBAT_COORDINATION_REGRESSION_PASS checks=" .. tostring(checks))

@@ -560,6 +560,10 @@ local valueData = {
     -- High enough to send a companion to an uncovered zombie when one exists,
     -- low enough that a lone zombie still gets both of them.
     combatTargetPrimaryClaimPenalty = 24,
+    -- How long one companion holds a casualty before another may take over.
+    -- Renewed while the treatment is actually progressing, so this only expires
+    -- when the helper stopped working on them.
+    medicalTreatmentClaimMs = 12000,
     combatTargetPrimaryChallengeDistance = 0.75,
     combatTargetScoreMargin = 18,
     -- Player target instructions influence ordinary target ranking; they never

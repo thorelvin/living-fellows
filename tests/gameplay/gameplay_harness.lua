@@ -20139,4 +20139,48 @@ end)()
     for key in pairs(rooms) do rooms[key] = nil end
 end)()
 
+;(function()
+    -- One treater per casualty. treatmentState is keyed by helper, so every
+    -- companion that noticed the same wounded ally started its own treatment and
+    -- the whole group dropped what it was doing and converged on one person.
+    local M = SurvivorCompanion.Medical
+    check(type(M.claimPatient) == "function" and type(M.treatmentHolder) == "function"
+            and type(M.releasePatient) == "function",
+        "the treatment claim is reachable")
+    local claims = M._patientClaimsForTests()
+    for key in pairs(claims) do claims[key] = nil end
+
+    local casualty = actor("sc-queue-patient", 46, 40, {})
+    local firstAider = actor("sc-queue-first", 45, 40, {})
+    local secondAider = actor("sc-queue-second", 47, 40, {})
+
+    check(M.treatmentHolder(casualty, 1000) == nil, "an untreated casualty is unclaimed")
+    check(M.claimPatient(firstAider, casualty, 1000) == true,
+        "the first companion to reach a casualty takes them")
+    check(M.treatmentHolder(casualty, 1000) == firstAider,
+        "the casualty is held by that companion")
+    check(M.claimPatient(secondAider, casualty, 1000) == false,
+        "a second companion does not also stop to treat them")
+    check(M.claimPatient(firstAider, casualty, 2000) == true,
+        "the holder renews its own turn while it works")
+
+    -- A helper that stops working hands the casualty back.
+    M.releasePatient(firstAider, casualty)
+    check(M.treatmentHolder(casualty, 2000) == nil, "releasing hands the casualty back")
+    check(M.claimPatient(secondAider, casualty, 2000) == true,
+        "the next companion may then take over")
+
+    -- A hold that is never renewed lapses, so nobody is spoken for forever.
+    check(M.treatmentHolder(casualty, 2000 + 12000) == nil,
+        "an abandoned hold lapses rather than blocking care for good")
+
+    -- Releasing by helper alone clears whatever that helper held.
+    M.claimPatient(firstAider, casualty, 3000)
+    M.releasePatient(firstAider)
+    check(M.treatmentHolder(casualty, 3000) == nil,
+        "a helper releases every casualty it held")
+
+    for key in pairs(claims) do claims[key] = nil end
+end)()
+
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")

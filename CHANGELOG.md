@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.25.19 - One pair of hands
+
+- Only one companion stops to treat a casualty. Every companion who noticed a wounded friend started their own separate attempt to bandage them, so the whole group dropped what it was doing and converged on one person. A casualty is now taken by the first companion to reach them and the rest carry on; if that one is killed, interrupted or wanders off, the next one takes over instead of nobody ever doing it.
+- Two companions no longer wedge themselves into a doorway after the same zombie. Where there is only one place to stand and swing -- a doorway, a corner, the end of a corridor -- the second one now holds off and keeps its own way out, rather than walking into the same tile as the first. Standing on top of each other meant neither could act while the zombie was free to bite either of them; the playtest had two companions at the same spot to the decimal. With room to go round they still take a side each, and a friend being mauled is always worth crowding for.
+
 ## 0.25.18 - Get it off him
 
 - Companions come to help the moment a zombie starts biting someone, instead of waiting for it to take hold. Help was only offered once a zombie had a companion properly grabbed -- but a bite begins before that, and during exactly the seconds when getting it off them matters, the victim did not count as someone in trouble. The zombie stayed an ordinary, low-priority target and everyone else carried on with what they were doing.

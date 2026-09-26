@@ -628,6 +628,37 @@ function Combat.claimPartner(target, actor, now)
     return nil, mine.role
 end
 
+-- A doorway, a corner or a corridor offers exactly one place to stand and
+-- swing. When the far side is not reachable there is no second position to take
+-- -- and walking in anyway put two companions on the same tile, where they
+-- shoulder each other and neither can act, with the zombie free to bite either.
+-- The second attacker holds off instead and keeps its own line of retreat.
+function Combat.shouldYieldEngagement(actor, targetActor, spacing, now)
+    local utility = U()
+    if actor == nil or targetActor == nil then return false end
+    local partner, role = Combat.claimPartner(targetActor, actor, now)
+    if partner == nil or role == "primary" then return false end
+    if not utility.sameFloor(actor, partner) then return false end
+    -- The holder has to actually be on the zombie. A partner still walking in
+    -- from across the room is not occupying the only lane yet.
+    local reach = math.max(0.6, (tonumber(spacing) or 0) + 0.6)
+    if utility.distanceSq(partner, targetActor) > reach * reach then return false end
+    -- A separate position exists, so there is room for both.
+    if Combat.engagementAim(actor, targetActor, spacing, now) ~= nil then return false end
+    -- Already standing apart and in reach: this is a working two-sided fight.
+    local ax, ay = utility.position(actor)
+    local tx, ty = utility.position(targetActor)
+    local px, py = utility.position(partner)
+    if ax == nil or tx == nil or px == nil then return false end
+    local mine = math.atan2(ay - ty, ax - tx)
+    local theirs = math.atan2(py - ty, px - tx)
+    local separation = math.abs(mine - theirs) % (math.pi * 2)
+    if separation > math.pi then separation = math.pi * 2 - separation end
+    local minimum = math.rad(math.max(15, math.min(180,
+        tonumber(utility.config("combatFlankSeparationDegrees")) or 75)))
+    return separation < minimum
+end
+
 -- Two companions sent at the same zombie both walked at its centre tile, so
 -- they arrived in the same place, shouldered each other and staggered out of
 -- their own swings -- neither landing a hit. Stand them on different sides
@@ -3109,13 +3140,20 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         local moveX, moveY, steered = action.moveX, action.moveY, action.microSteered
         if moveX == nil then
             local spacing = weapon and Combat.meleeSpacing(actor, weapon.item, target) or nil
-            local aimX, aimY = Combat.engagementAim(actor, targetActor,
-                spacing and spacing.desired or nil, utility.nowMs())
+            local desired = spacing and spacing.desired or nil
+            local now = utility.nowMs()
+            -- Only one place to stand: let the companion already there have it.
+            if target.rescue ~= true
+                and Combat.shouldYieldEngagement(actor, targetActor, desired, now) then
+                utility.diagnostic("combat-flank", actor, "action=yield reason=single_lane")
+                return false, "approach_yielded:single_lane"
+            end
+            local aimX, aimY = Combat.engagementAim(actor, targetActor, desired, now)
             if aimX ~= nil then
                 moveX, moveY, steered = aimX - ax, aimY - ay, true
                 utility.diagnostic("combat-flank", actor,
                     "action=approach side=far spacing="
-                        .. string.format("%.2f", spacing and spacing.desired or 0))
+                        .. string.format("%.2f", desired or 0))
             end
         end
         if moveX == nil and SC.Navigation and type(SC.Navigation.combatVector) == "function" then
