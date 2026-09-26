@@ -869,17 +869,15 @@ def main() -> int:
     # isolating this needs scoring and execution driven together, which the
     # harness does not do.
     approach_guard = sources["SCCombat.lua"]
-    require("local spacing = weapon and Combat.meleeSpacing(actor, weapon.item, target) or nil
-"
-            "        local desired = spacing and spacing.desired or nil
-"
-            "        local now = utility.nowMs()
-"
-            "        if target.rescue ~= true" in approach_guard,
+    require("if moveX == nil and target.rescue ~= true" not in approach_guard,
             "approach coordination is gated on a missing movement vector again")
+    require("if target.rescue ~= true" in approach_guard
+            and "Combat.shouldYieldEngagement(actor, targetActor, desired, now)"
+            in approach_guard,
+            "approach coordination no longer runs before the movement vector")
     # A climbable barrier keeps the approach alive so execution can route it.
     require("action.requiresRoute = true" in approach_guard
-            and "local routable = action.kind == \"approach\"" in approach_guard,
+            and "action.barrierKind = string.sub(vectorReason, 9)" in approach_guard,
             "a routable barrier is dropped before execution can route it")
 
     combat_source = sources["SCCombat.lua"]
