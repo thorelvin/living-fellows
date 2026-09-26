@@ -1644,6 +1644,19 @@ local function actualOpenSegment(actor, targetX, targetY, targetZ, options)
 end
 Navigation._actualOpenSegmentForTests = actualOpenSegment
 
+-- Is the straight line from this actor to a world point provably walkable? Used
+-- by combat before committing to a flanking position, so a companion never
+-- crosses unproven ground to get around a zombie.
+function Navigation.openSegment(actor, targetX, targetY, targetZ, options)
+    if actor == nil or targetX == nil or targetY == nil then return false end
+    options = type(options) == "table" and U().copyShallow(options) or {}
+    options.actor = actor
+    options.now = options.now or U().nowMs()
+    options.directWalkOnly = true
+    local _, _, actorZ = U().position(actor)
+    return actualOpenSegment(actor, targetX, targetY, targetZ or actorZ, options) == true
+end
+
 -- Aim sustained manual travel several proven-open tiles ahead. The route and
 -- first-square reservation remain authoritative; only the movement vector is
 -- blended. Follow/regroup and explicit continuous approaches use this to remove

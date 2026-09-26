@@ -303,6 +303,10 @@ local valueData = {
     -- recovery ladder takes over from replanning. Low, because each failure
     -- already costs a full engine path request.
     navigationNativeFailureStuckAttempts = 3,
+    -- How far apart, in degrees around a zombie, two companions attacking it
+    -- should stand before either bothers moving. Below this they are close
+    -- enough to shoulder each other out of their own swings.
+    combatFlankSeparationDegrees = 75,
     navigationPartialRoutes = true,
     navigationPartialRouteMinimumGain = 2,
     -- Heading toward the goal while the route is still being planned, rather

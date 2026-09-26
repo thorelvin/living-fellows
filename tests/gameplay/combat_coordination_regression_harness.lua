@@ -273,4 +273,58 @@ SC.CombatThreatModel.apply(pinned, {
 check(pinned.encircled == false and pinned.escapeStatus == "blocked",
     "no route with something already on us is blocked: " .. tostring(pinned.escapeStatus))
 
+-- T05: two companions sent at one zombie both walked at its centre tile, so
+-- they arrived in the same place, shouldered each other and staggered out of
+-- their own swings. The second attacker should take the far side instead.
+local zombie = character("z-flanked", 20.5, 20.5, "IsoZombie")
+local first = character("sc-flank-first", 19.5, 20.5)   -- west of it
+local second = character("sc-flank-second", 19.4, 20.6) -- almost on top of the first
+
+local openEverywhere = true
+local priorOpenSegment = SC.Navigation.openSegment
+SC.Navigation.openSegment = function() return openEverywhere end
+
+check(type(SC.Combat.engagementAim) == "function", "the flank aim is reachable")
+check(type(SC.Combat.claimPartner) == "function", "the claim partner lookup is reachable")
+
+-- With no claim at all there is nobody to stand apart from.
+check(SC.Combat.engagementAim(second, zombie, 1.2, 1000) == nil,
+    "an unclaimed target produces no flanking detour")
+
+-- Give the first companion the primary claim and the second the support claim.
+SC.Combat.scoreTargets(first, nil, snapshotWith(0), nil)
+local claimed = SC.Combat._claimTargetForTests
+if type(claimed) == "function" then
+    claimed(zombie, first, 1000, "cohort-flank", "primary", "attack", 1.0)
+    claimed(zombie, second, 1000, "cohort-flank", "support", "tracking", 1.1)
+
+    -- The committed attacker keeps the line it already had.
+    check(SC.Combat.engagementAim(first, zombie, 1.2, 1000) == nil,
+        "the first attacker is not moved aside for the newcomer")
+
+    -- The newcomer, almost on the same bearing, is sent to the far side.
+    local aimX, aimY = SC.Combat.engagementAim(second, zombie, 1.2, 1000)
+    check(aimX ~= nil and aimY ~= nil,
+        "a second attacker on the same bearing is given a flank")
+    check(aimX > 20.5,
+        "the flank is on the far side of the zombie from the first attacker: "
+            .. tostring(aimX))
+    local span = math.sqrt((aimX - 20.5) ^ 2 + (aimY - 20.5) ^ 2)
+    check(math.abs(span - 1.2) < 0.001,
+        "the flank stands at weapon spacing, not on top of the zombie: " .. tostring(span))
+
+    -- Already on opposite sides: a working approach is left alone.
+    second.x, second.y = 21.6, 20.5
+    check(SC.Combat.engagementAim(second, zombie, 1.2, 1000) == nil,
+        "companions already apart are not shuffled around further")
+
+    -- Ground that is not provably open is never crossed to flank.
+    second.x, second.y = 19.4, 20.6
+    openEverywhere = false
+    check(SC.Combat.engagementAim(second, zombie, 1.2, 1000) == nil,
+        "a flank across unproven ground is refused")
+    openEverywhere = true
+end
+SC.Navigation.openSegment = priorOpenSegment
+
 print("COMBAT_COORDINATION_REGRESSION_PASS checks=" .. tostring(checks))

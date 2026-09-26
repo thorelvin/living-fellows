@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.25.17 - Stand on the other side
+
+- Two companions attacking the same zombie no longer shoulder each other out of their own swings. Both walked at the zombie's own tile, so both arrived in the same place, collided, and staggered -- and a staggered companion cannot attack, so the pair of them could stand there trading bumps while the zombie bit whoever it liked. The first one to commit keeps the line it already had and the second goes round to the far side, at its own weapon's reach.
+- Nobody crosses ground they cannot see to get there. The far side is only taken when the way to it is provably walkable; otherwise the companion approaches exactly as it did before. Two companions already standing apart are left alone rather than shuffled about for the sake of it.
+
 ## 0.25.16 - Wedged in a chair
 
 - Companions stuck on furniture get themselves out again. A chair, a flowerpot, a bin or a table takes up part of a tile without making the tile impassable, so a route is planned into it and the game's own collision stops the companion halfway in. Once there they could not move at all -- and because asking the game for a new route was the only thing being tried, they asked for a new route, failed, and asked again. In the last playtest one companion did that inside a chair for twelve minutes and another against a flowerpot for eighteen, neither moving a single tile. Repeated failures from ground a companion has not left are now treated as being stuck rather than as a routing problem, and the recovery they already had -- step aside, then escalate -- finally gets a chance to run.

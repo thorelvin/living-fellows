@@ -611,7 +611,65 @@ end
 -- (~2s) and is refreshed on every offensive action against the target, so a
 -- committed attacker holds its target while it is engaging and alive, and the
 -- lease is released the moment the owner switches away, disengages, or dies.
-local function claimTarget(target, actor, now, cohort, requestedRole, phase, distance)
+-- Whoever else holds a live claim on this target for the same cohort. Used to
+-- work out which side of the zombie is already taken.
+function Combat.claimPartner(target, actor, now)
+    if target == nil or actor == nil then return nil, nil end
+    local mine = actorClaims[actor]
+    if type(mine) ~= "table" or mine.target ~= target then return nil, nil end
+    local claim = cohortClaim(target, mine.cohort, now or U().nowMs())
+    if type(claim) ~= "table" then return nil, mine.role end
+    for _, role in ipairs({ "primary", "support" }) do
+        local holder = claim[role]
+        if type(holder) == "table" and holder.actor ~= nil and holder.actor ~= actor then
+            return holder.actor, mine.role
+        end
+    end
+    return nil, mine.role
+end
+
+-- Two companions sent at the same zombie both walked at its centre tile, so
+-- they arrived in the same place, shouldered each other and staggered out of
+-- their own swings -- neither landing a hit. Stand them on different sides
+-- instead. The first to commit keeps the line it already had; a second attacker
+-- takes the far side, and only if the ground to it is provably open, so nobody
+-- crosses unproven space to flank.
+function Combat.engagementAim(actor, targetActor, spacing, now)
+    local utility = U()
+    if actor == nil or targetActor == nil then return nil end
+    local ax, ay = utility.position(actor)
+    local tx, ty, tz = utility.position(targetActor)
+    if ax == nil or tx == nil then return nil end
+    spacing = tonumber(spacing) or 0
+    if spacing <= 0 then return nil end
+
+    local partner, role = Combat.claimPartner(targetActor, actor, now)
+    -- The committed attacker does not move aside for the newcomer.
+    if partner == nil or role == "primary" then return nil end
+    if not utility.sameFloor(actor, partner) then return nil end
+    local px, py = utility.position(partner)
+    if px == nil then return nil end
+
+    local mine = math.atan2(ay - ty, ax - tx)
+    local theirs = math.atan2(py - ty, px - tx)
+    local separation = math.abs(mine - theirs) % (math.pi * 2)
+    if separation > math.pi then separation = math.pi * 2 - separation end
+    local minimum = math.rad(math.max(15, math.min(180,
+        tonumber(utility.config("combatFlankSeparationDegrees")) or 75)))
+    -- Already on different sides: leave a working approach alone.
+    if separation >= minimum then return nil end
+
+    local wanted = theirs + math.pi
+    local aimX, aimY = tx + math.cos(wanted) * spacing, ty + math.sin(wanted) * spacing
+    if SC.Navigation == nil or type(SC.Navigation.openSegment) ~= "function" then return nil end
+    if not SC.Navigation.openSegment(actor, aimX, aimY, tz) then return nil end
+    return aimX, aimY
+end
+
+local claimTarget
+Combat._claimTargetForTests = function(...) return claimTarget(...) end
+
+claimTarget = function(target, actor, now, cohort, requestedRole, phase, distance)
     if target == nil then return nil end
     cohort = cohort or (stateFor(actor).cohortKey) or combatCohortKey(actor)
     local container = targetClaims[target]
@@ -3040,6 +3098,17 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         local tx, ty = utility.position(targetActor)
         if ax == nil or tx == nil then return false, "approach_position_unavailable" end
         local moveX, moveY, steered = action.moveX, action.moveY, action.microSteered
+        if moveX == nil then
+            local spacing = weapon and Combat.meleeSpacing(actor, weapon.item, target) or nil
+            local aimX, aimY = Combat.engagementAim(actor, targetActor,
+                spacing and spacing.desired or nil, utility.nowMs())
+            if aimX ~= nil then
+                moveX, moveY, steered = aimX - ax, aimY - ay, true
+                utility.diagnostic("combat-flank", actor,
+                    "action=approach side=far spacing="
+                        .. string.format("%.2f", spacing and spacing.desired or 0))
+            end
+        end
         if moveX == nil and SC.Navigation and type(SC.Navigation.combatVector) == "function" then
             local vectorReason
             moveX, moveY, steered, vectorReason = SC.Navigation.combatVector(
