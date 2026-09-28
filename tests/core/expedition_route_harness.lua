@@ -106,6 +106,27 @@ check(avoid ~= nil and avoid.x == 35 and avoid.y == 10
     "more than three visible zombies per member identifies a road hazard")
 check(Route.visibleHorde(route, actor, snapshot, 4, 4000) == nil,
     "old sight data cannot change the expedition route")
+local scattered = { { x = 35, y = 10,
+    visible = true, obstructed = false } }
+for index = 2, 13 do
+    scattered[index] = { x = 20, y = 25,
+        visible = true, obstructed = false }
+end
+check(Route.visibleHorde(route, actor,
+        { valid = true, reflexTime = 1000, threats = scattered },
+        4, 1100) == nil,
+    "scattered visible contacts do not count as one road horde")
+local fartherGroup = { { x = 20, y = 10,
+    visible = true, obstructed = false } }
+for index = 2, 14 do
+    fartherGroup[index] = { x = 44, y = 10,
+        visible = true, obstructed = false }
+end
+local fartherHazard = Route.visibleHorde(route, actor,
+    { valid = true, reflexTime = 1000, threats = fartherGroup }, 4, 1100)
+check(fartherHazard ~= nil and fartherHazard.seen == 13
+        and fartherHazard.x == 44,
+    "one closer contact does not hide a larger group along the road")
 local detour = Route.plan(actor, { x = 100, y = 10, z = 0 }, true,
     { x = 35, y = 10, radius = 9 })
 check(detour ~= nil and Route.validDescriptor(

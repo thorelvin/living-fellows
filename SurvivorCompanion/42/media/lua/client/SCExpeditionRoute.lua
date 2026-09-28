@@ -123,7 +123,7 @@ function Route.visibleHorde(route, actor, snapshot, livingCount, now)
         first = { x = x, y = y }
     end
     if first == nil or last == nil then return nil end
-    local seen, nearest, nearestDistance = {}, nil, math.huge
+    local seen = {}
     for _, threat in ipairs(snapshot.threats) do
         if threat.visible == true and threat.obstructed ~= true
             and type(threat.x) == "number" and type(threat.y) == "number"
@@ -131,24 +131,35 @@ function Route.visibleHorde(route, actor, snapshot, livingCount, now)
             and threat.x >= 0 and threat.x <= 30000
             and threat.y >= 0 and threat.y <= 30000 then
             seen[#seen + 1] = threat
-            local gap = segmentDistance(threat.x, threat.y, first, last)
-            if gap < nearestDistance then
-                nearest, nearestDistance = threat, gap
+        end
+    end
+    if #seen <= livingCount * 3 then return nil end
+    local cluster, bestGap
+    -- A lone zombie beside the road must not mask a larger group a little
+    -- farther along it. Test each road-near contact as a possible group center.
+    for _, center in ipairs(seen) do
+        local gap = segmentDistance(center.x, center.y, first, last)
+        if gap <= 18 then
+            local nearby = {}
+            for _, threat in ipairs(seen) do
+                if math.sqrt((threat.x - center.x)^2
+                        + (threat.y - center.y)^2) <= 18 then
+                    nearby[#nearby + 1] = threat
+                end
+            end
+            if #nearby > livingCount * 3
+                and (bestGap == nil or gap < bestGap) then
+                cluster, bestGap = nearby, gap
             end
         end
     end
-    if #seen <= livingCount * 3 or nearest == nil
-        or nearestDistance > 18 then return nil end
-    local cluster = {}
+    -- The threshold belongs to the group on this road, not to unrelated
+    -- contacts elsewhere in the leader's visual range.
+    if cluster == nil then return nil end
     local x, y = 0, 0
-    for _, threat in ipairs(seen) do
-        if math.sqrt((threat.x - nearest.x)^2
-                + (threat.y - nearest.y)^2) <= 18 then
-            cluster[#cluster + 1] = threat
-            x, y = x + threat.x, y + threat.y
-        end
+    for _, threat in ipairs(cluster) do
+        x, y = x + threat.x, y + threat.y
     end
-    if #cluster == 0 then return nil end
     x, y = x / #cluster, y / #cluster
     local radius = 8
     for _, threat in ipairs(cluster) do
@@ -156,7 +167,7 @@ function Route.visibleHorde(route, actor, snapshot, livingCount, now)
             + (threat.y - y)^2) + 5)
     end
     return { x = x, y = y, radius = math.min(24, radius),
-        seen = #seen }
+        seen = #cluster }
 end
 
 -- Advance only when the leader reaches a street vertex. A source/exit access
