@@ -26,6 +26,7 @@ final class SCRoadRouter {
     private static final int MAX_RESULT_POINTS = 512;
     private static final double REGION_MARGIN = 160.0;
     private static final double MAX_CONNECTOR = 45.0;
+    private static final double MAX_AVOIDANCE_CONNECTOR = 24.0;
     private static final double EPSILON = 0.0001;
 
     private SCRoadRouter() {}
@@ -49,6 +50,7 @@ final class SCRoadRouter {
     private record Intersection(double firstT, double secondT, Point point,
                                 boolean inferred) {}
     private record QueueEntry(int node, double cost) {}
+    private record Avoidance(Point center, double radius) {}
 
     private static final class Graph {
         final List<Point> nodes = new ArrayList<>();
@@ -57,8 +59,13 @@ final class SCRoadRouter {
         final Map<String, Integer> nodeIds = new HashMap<>();
         final String fingerprint;
         int inferredJunctions;
+        int avoidedEdges;
+        final Avoidance avoidance;
 
-        Graph(String fingerprint) { this.fingerprint = fingerprint; }
+        Graph(String fingerprint, Avoidance avoidance) {
+            this.fingerprint = fingerprint;
+            this.avoidance = avoidance;
+        }
 
         int node(Point point) {
             String key = Math.round(point.x * 1000) + ":" + Math.round(point.y * 1000);
@@ -74,6 +81,12 @@ final class SCRoadRouter {
         void edge(Point a, Point b, String name, boolean inferred) {
             double length = distance(a, b);
             if (length <= EPSILON) return;
+            if (avoidance != null && distance(avoidance.center,
+                    new Point((a.x + b.x) * 0.5, (a.y + b.y) * 0.5))
+                    < avoidance.radius - EPSILON) {
+                avoidedEdges++;
+                return;
+            }
             int from = node(a), to = node(b);
             if (from == to) return;
             int id = edges.size();
@@ -85,6 +98,35 @@ final class SCRoadRouter {
 
     private static double distance(Point a, Point b) {
         return Math.hypot(a.x - b.x, a.y - b.y);
+    }
+
+    private static double segmentDistance(Point point, Point a, Point b) {
+        double t = project(point, a, b);
+        return distance(point, new Point(a.x + (b.x - a.x) * t,
+                a.y + (b.y - a.y) * t));
+    }
+
+    private static void splitAvoidance(Segment segment, Avoidance avoidance,
+                                       TreeMap<Double, Point> splits) {
+        if (avoidance == null || segmentDistance(avoidance.center,
+                segment.a, segment.b) > avoidance.radius) return;
+        double dx = segment.b.x - segment.a.x;
+        double dy = segment.b.y - segment.a.y;
+        double fx = segment.a.x - avoidance.center.x;
+        double fy = segment.a.y - avoidance.center.y;
+        double a = dx * dx + dy * dy;
+        double b = 2 * (fx * dx + fy * dy);
+        double c = fx * fx + fy * fy
+                - avoidance.radius * avoidance.radius;
+        double discriminant = b * b - 4 * a * c;
+        if (a <= EPSILON || discriminant <= EPSILON) return;
+        double root = Math.sqrt(discriminant);
+        double first = (-b - root) / (2 * a);
+        double last = (-b + root) / (2 * a);
+        if (first > EPSILON && first < 1 - EPSILON)
+            splits.put(first, interpolate(segment, first));
+        if (last > EPSILON && last < 1 - EPSILON)
+            splits.put(last, interpolate(segment, last));
     }
 
     private static boolean finite(Point point) {
@@ -149,17 +191,19 @@ final class SCRoadRouter {
         return result;
     }
 
-    private static Graph graph(List<Segment> segments, String fingerprint) {
+    private static Graph graph(List<Segment> segments, String fingerprint,
+                               Avoidance avoidance) {
         List<TreeMap<Double, Point>> splits = new ArrayList<>();
         for (Segment segment : segments) {
             TreeMap<Double, Point> points = new TreeMap<>();
             points.put(0.0, segment.a);
             points.put(1.0, segment.b);
+            splitAvoidance(segment, avoidance, points);
             splits.add(points);
         }
         Map<Long, List<Integer>> bins = new HashMap<>();
         Set<Long> compared = new HashSet<>();
-        Graph graph = new Graph(fingerprint);
+        Graph graph = new Graph(fingerprint, avoidance);
         for (Segment segment : segments) {
             int minX = (int) Math.floor(Math.min(segment.a.x, segment.b.x) / 32);
             int maxX = (int) Math.floor(Math.max(segment.a.x, segment.b.x) / 32);
@@ -194,7 +238,8 @@ final class SCRoadRouter {
         return graph.nodes.size() > MAX_NODES ? null : graph;
     }
 
-    private static List<Attachment> attachments(Graph graph, Point point) {
+    private static List<Attachment> attachments(Graph graph, Point point,
+                                                 double maxConnector) {
         List<Attachment> all = new ArrayList<>();
         for (Edge edge : graph.edges) {
             Point a = graph.nodes.get(edge.from), b = graph.nodes.get(edge.to);
@@ -202,7 +247,7 @@ final class SCRoadRouter {
             Point projected = new Point(a.x + (b.x - a.x) * t,
                     a.y + (b.y - a.y) * t);
             double connector = distance(point, projected);
-            if (connector <= MAX_CONNECTOR) {
+            if (connector <= maxConnector) {
                 all.add(new Attachment(edge.id, t, projected, connector));
             }
         }
@@ -229,6 +274,22 @@ final class SCRoadRouter {
 
     static Result routeLines(List<StreetLine> lines, double sx, double sy,
                              double tx, double ty) {
+        return routeLines(lines, sx, sy, tx, ty, null);
+    }
+
+    static Result routeLinesAvoiding(List<StreetLine> lines, double sx, double sy,
+                                     double tx, double ty, double avoidX,
+                                     double avoidY, double avoidRadius) {
+        Point center = new Point(avoidX, avoidY);
+        if (!finite(center) || !Double.isFinite(avoidRadius)
+                || avoidRadius < 4 || avoidRadius > 32)
+            return Result.failure("INVALID_REQUEST", "invalid_avoidance");
+        return routeLines(lines, sx, sy, tx, ty,
+                new Avoidance(center, avoidRadius));
+    }
+
+    private static Result routeLines(List<StreetLine> lines, double sx, double sy,
+                             double tx, double ty, Avoidance avoidance) {
         Point source = new Point(sx, sy), target = new Point(tx, ty);
         if (!finite(source) || !finite(target))
             return Result.failure("INVALID_REQUEST", "invalid_coordinates");
@@ -242,12 +303,18 @@ final class SCRoadRouter {
             hash = (hash ^ Double.doubleToLongBits(segment.b.x)) * 1099511628211L;
             hash = (hash ^ Double.doubleToLongBits(segment.b.y)) * 1099511628211L;
         }
-        Graph graph = graph(raw, Long.toUnsignedString(hash, 16));
+        Graph graph = graph(raw, Long.toUnsignedString(hash, 16), avoidance);
         if (graph == null) return Result.failure("BUDGET_EXCEEDED", "graph_limit");
-        List<Attachment> entries = attachments(graph, source);
-        List<Attachment> exits = attachments(graph, target);
-        if (entries.isEmpty()) return Result.failure("NO_ENTRY_CANDIDATE", "road_too_far");
-        if (exits.isEmpty()) return Result.failure("NO_EXIT_CANDIDATE", "road_too_far");
+        if (graph.edges.isEmpty() && avoidance != null)
+            return Result.failure("NO_SAFE_ROAD_DETOUR", "horde_avoidance_blocked");
+        double connectorLimit = avoidance == null
+                ? MAX_CONNECTOR : MAX_AVOIDANCE_CONNECTOR;
+        List<Attachment> entries = attachments(graph, source, connectorLimit);
+        List<Attachment> exits = attachments(graph, target, connectorLimit);
+        if (entries.isEmpty()) return Result.failure(avoidance == null
+                ? "NO_ENTRY_CANDIDATE" : "NO_SAFE_ROAD_DETOUR", "road_too_far");
+        if (exits.isEmpty()) return Result.failure(avoidance == null
+                ? "NO_EXIT_CANDIDATE" : "NO_SAFE_ROAD_DETOUR", "road_too_far");
 
         int count = graph.nodes.size();
         double[] cost = new double[count];
@@ -317,6 +384,8 @@ final class SCRoadRouter {
             }
         }
         if (bestEntry < 0 || bestExit < 0) {
+            if (avoidance != null)
+                return Result.failure("NO_SAFE_ROAD_DETOUR", "horde_avoidance_blocked");
             if (likelyMissingConnector(raw))
                 return Result.failure("INCOMPLETE_MAP_DATA", "unnamed_or_missing_connector");
             return Result.failure("NO_CONNECTED_ROUTE", "disconnected_street_geometry");
@@ -352,6 +421,22 @@ final class SCRoadRouter {
     }
 
     static Result routeNative(Object api, double sx, double sy, double tx, double ty) {
+        return routeNative(api, sx, sy, tx, ty, null);
+    }
+
+    static Result routeNativeAvoiding(Object api, double sx, double sy,
+                                      double tx, double ty, double avoidX,
+                                      double avoidY, double avoidRadius) {
+        Point center = new Point(avoidX, avoidY);
+        if (!finite(center) || !Double.isFinite(avoidRadius)
+                || avoidRadius < 4 || avoidRadius > 32)
+            return Result.failure("INVALID_REQUEST", "invalid_avoidance");
+        return routeNative(api, sx, sy, tx, ty,
+                new Avoidance(center, avoidRadius));
+    }
+
+    private static Result routeNative(Object api, double sx, double sy,
+                                      double tx, double ty, Avoidance avoidance) {
         if (!(api instanceof WorldMapStreetsV1 streets))
             return Result.failure("DATA_NOT_READY", "street_api_unavailable");
         List<StreetLine> lines = new ArrayList<>();
@@ -385,6 +470,6 @@ final class SCRoadRouter {
         } catch (RuntimeException | LinkageError failure) {
             return Result.failure("DATA_NOT_READY", "street_read_failed");
         }
-        return routeLines(lines, sx, sy, tx, ty);
+        return routeLines(lines, sx, sy, tx, ty, avoidance);
     }
 }

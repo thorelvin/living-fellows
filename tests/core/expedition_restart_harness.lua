@@ -943,13 +943,15 @@ check(expedition.finishAtPlayer(player) == true
 -- The long road itinerary keeps native movement ownership and replans its
 -- return from the leader's real position. Save data has no native graph.
 local routeCalls = {}
-SC.ExpeditionRoute.plan = function(actor, goal)
+SC.ExpeditionRoute.plan = function(actor, goal, _, avoidance)
     routeCalls[#routeCalls + 1] = { x = actor.x, y = actor.y,
-        goalX = goal.x, goalY = goal.y }
+        goalX = goal.x, goalY = goal.y,
+        avoidance = avoidance }
     return { points = { { x = actor.x + 10, y = actor.y },
             { x = goal.x - 10, y = goal.y } },
         index = 1, fingerprint = "test-roads", goal = {
-            x = goal.x, y = goal.y, z = goal.z }, roadLength = 150 }
+            x = goal.x, y = goal.y, z = goal.z }, roadLength = 150,
+        avoidance = avoidance }
 end
 SC.ExpeditionRoute.verifyEntry = function() return true end
 SC.Config = { get = function(key)
@@ -969,6 +971,26 @@ local outbound = expedition.export()
 check(outbound.schema == 5 and outbound.scout.road.phase == "outbound"
         and outbound.scout.road.fingerprint == "test-roads",
     "road save retains a bounded route descriptor")
+local ordinaryCached = SC.Senses.cached
+SC.Senses.cached = function()
+    local threats = {}
+    for index = 1, 4 do
+        threats[index] = { x = 28, y = 20,
+            visible = true, obstructed = false }
+    end
+    return { valid = true, reflexTime = scoutClock,
+        threats = threats }
+end
+expedition.pulse()
+check(#routeCalls == 2 and routeCalls[2].avoidance ~= nil
+        and routeCalls[2].avoidance.x == 28
+        and roadMission.scout.hordeDetours == 1
+        and roadMission.scout.road.avoidance.x == 28,
+    "a fresh horde above three times team size cancels the old road intent and replans")
+SC.Senses.cached = ordinaryCached
+local detourSave = expedition.export()
+check(detourSave.scout.road.avoidance.x == 28,
+    "the avoided horde area survives a travel checkpoint")
 reserve.x = 125
 worldHour = 1101.2
 scoutClock = scoutClock + 1000
@@ -976,7 +998,8 @@ expedition.pulse()
 check(roadMission.scout.phase == "inbound"
         and roadMission.scout.road.phase == "inbound"
         and routeCalls[#routeCalls].x == 125
-        and routeCalls[#routeCalls].goalX == player.x,
+        and routeCalls[#routeCalls].goalX == player.x
+        and routeCalls[#routeCalls].avoidance.x == 28,
     "turn-home replans from the actual leader position")
 local inbound = expedition.export()
 check(inbound.schema == 5 and inbound.scout.road.phase == "inbound"
@@ -992,6 +1015,56 @@ check(routeCalls[#routeCalls].x == 125
 reserve.x = 23
 check(expedition.finishAtPlayer(player) == true,
     "the restored road mission can release its native leader")
+local successfulRoadPlan = SC.ExpeditionRoute.plan
+SC.ExpeditionRoute.plan = function(actor, goal, continuing, avoidance)
+    if avoidance ~= nil and goal.x == 190 then
+        return nil, "NO_SAFE_ROAD_DETOUR"
+    end
+    return successfulRoadPlan(actor, goal, continuing, avoidance)
+end
+local blockedStarted, blockedMission = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+        travelMode = "road" })
+check(blockedStarted and blockedMission.scout.phase == "outbound",
+    "blocked-road probe starts with a real outbound intent")
+SC.Senses.cached = function()
+    local threats = {}
+    for index = 1, 4 do
+        threats[index] = { x = 28, y = 20,
+            visible = true, obstructed = false }
+    end
+    return { valid = true, reflexTime = scoutClock,
+        threats = threats }
+end
+expedition.pulse()
+check(blockedMission.scout.phase == "inbound"
+        and blockedMission.scout.endReason == "horde_no_safe_detour"
+        and blockedMission.scout.road.phase == "inbound"
+        and blockedMission.scout.road.avoidance.x == 28
+        and blockedMission.technicalIssue == nil,
+    "no safe outbound road detour turns the team home around the horde")
+SC.Senses.cached = ordinaryCached
+SC.ExpeditionRoute.plan = successfulRoadPlan
+check(expedition.finishAtPlayer(player) == true,
+    "the blocked-road return releases the native leader")
+local meetingStarted, meetingMission = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "scout", destination = { x = 80, y = 20, z = 0 },
+        travelMode = "straight" })
+check(meetingStarted == true, "return rendezvous probe starts")
+meetingMission.scout.phase = "inbound"
+meetingMission.scout.returnIndex = 0
+reserve.x = player.x + 9
+scoutClock = scoutClock + 2000
+expedition.pulse()
+check(meetingMission.scout.phase == "inbound"
+        and meetingMission.testWaypoint ~= nil,
+    "leader continues toward the player at nine tiles instead of waiting too far away")
+reserve.x = player.x + 3
+check(expedition.finishAtPlayer(player) == true,
+    "return rendezvous probe releases the native view")
+reserve.x = player.x + 3
 local originalFindPath = SC.Navigation.findPath
 SC.Navigation.findPath = function() return nil end
 local straightStarted, straightMission = expedition.start(

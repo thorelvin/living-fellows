@@ -33,13 +33,23 @@ local function segmentDistance(x, y, first, last)
         + (y - first.y - t * dy)^2)
 end
 
+local function validAvoidance(value)
+    return type(value) == "table"
+        and type(value.x) == "number" and value.x == value.x
+        and type(value.y) == "number" and value.y == value.y
+        and type(value.radius) == "number" and value.radius == value.radius
+        and value.x >= 0 and value.x <= 30000
+        and value.y >= 0 and value.y <= 30000
+        and value.radius >= 4 and value.radius <= 32
+end
+
 function Route.enabled()
     return SC.Config and SC.Config.get("expeditionRoadRoutingEnabled") == true
 end
 
 -- This is called only for review/dispatch and return replanning, never from a
 -- frame tick. The native router returns a bounded geometry and explicit status.
-function Route.plan(actor, target, continuingMission)
+function Route.plan(actor, target, continuingMission, avoidance)
     if not Route.enabled() and continuingMission ~= true then
         return nil, "road_routing_unavailable"
     end
@@ -57,9 +67,19 @@ function Route.plan(actor, target, continuingMission)
     if bridge == nil or SC.Call == nil then
         return nil, "road_bridge_unavailable"
     end
+    if avoidance ~= nil and not validAvoidance(avoidance) then
+        return nil, "invalid_road_avoidance"
+    end
     local result = {}
-    local called, accepted = SC.Call.static(bridge, "planRoadRoute", api,
-        x, y, target.x, target.y, result)
+    local called, accepted
+    if avoidance ~= nil then
+        called, accepted = SC.Call.static(bridge,
+            "planRoadRouteAvoiding", api, x, y, target.x, target.y,
+            avoidance.x, avoidance.y, avoidance.radius, result)
+    else
+        called, accepted = SC.Call.static(bridge, "planRoadRoute", api,
+            x, y, target.x, target.y, result)
+    end
     if not called or accepted ~= true then
         return nil, "road_bridge_failed"
     end
@@ -78,7 +98,65 @@ function Route.plan(actor, target, continuingMission)
         inferredJunctions = tonumber(result.inferredJunctions) or 0,
         elapsedMs = tonumber(result.elapsedMs) or 0,
         goal = { x = target.x, y = target.y, z = target.z },
+        avoidance = avoidance and { x = avoidance.x, y = avoidance.y,
+            radius = avoidance.radius } or nil,
     }, nil, result
+end
+
+-- Use the leader's fresh visual contacts. A horde elsewhere in sight need not
+-- divert a road journey; one contact must be near the road section ahead.
+function Route.visibleHorde(route, actor, snapshot, livingCount, now)
+    if type(route) ~= "table" or type(route.points) ~= "table"
+        or type(route.index) ~= "number" or route.index > #route.points
+        or type(snapshot) ~= "table" or snapshot.valid ~= true
+        or type(snapshot.threats) ~= "table"
+        or type(livingCount) ~= "number" or livingCount < 1
+        or type(now) ~= "number"
+        or type(snapshot.reflexTime) ~= "number"
+        or now - snapshot.reflexTime < 0
+        or now - snapshot.reflexTime > 2000 then return nil end
+    local first = route.points[math.max(1, route.index - 1)]
+    local last = route.points[route.index]
+    if route.index <= 1 then
+        local x, y = SC.GameplayUtil.position(actor)
+        if x == nil or y == nil then return nil end
+        first = { x = x, y = y }
+    end
+    if first == nil or last == nil then return nil end
+    local seen, nearest, nearestDistance = {}, nil, math.huge
+    for _, threat in ipairs(snapshot.threats) do
+        if threat.visible == true and threat.obstructed ~= true
+            and type(threat.x) == "number" and type(threat.y) == "number"
+            and threat.x == threat.x and threat.y == threat.y
+            and threat.x >= 0 and threat.x <= 30000
+            and threat.y >= 0 and threat.y <= 30000 then
+            seen[#seen + 1] = threat
+            local gap = segmentDistance(threat.x, threat.y, first, last)
+            if gap < nearestDistance then
+                nearest, nearestDistance = threat, gap
+            end
+        end
+    end
+    if #seen <= livingCount * 3 or nearest == nil
+        or nearestDistance > 18 then return nil end
+    local cluster = {}
+    local x, y = 0, 0
+    for _, threat in ipairs(seen) do
+        if math.sqrt((threat.x - nearest.x)^2
+                + (threat.y - nearest.y)^2) <= 18 then
+            cluster[#cluster + 1] = threat
+            x, y = x + threat.x, y + threat.y
+        end
+    end
+    if #cluster == 0 then return nil end
+    x, y = x / #cluster, y / #cluster
+    local radius = 8
+    for _, threat in ipairs(cluster) do
+        radius = math.max(radius, math.sqrt((threat.x - x)^2
+            + (threat.y - y)^2) + 5)
+    end
+    return { x = x, y = y, radius = math.min(24, radius),
+        seen = #seen }
 end
 
 -- Advance only when the leader reaches a street vertex. A source/exit access
@@ -119,12 +197,30 @@ function Route.verifyEntry(route, actor)
     if path == nil or #path < 1 or #path > 100 then
         return false, "NO_ENTRY_CANDIDATE"
     end
+    if route.avoidance ~= nil then
+        for _, square in ipairs(path) do
+            local x, y = SC.GameplayUtil.position(square)
+            if x == nil or y == nil
+                or distance(x, y, route.avoidance)
+                    <= route.avoidance.radius + 2 then
+                return false, "LOCAL_ACCESS_BLOCKED"
+            end
+        end
+    end
     return true
 end
 
 function Route.withinCorridor(route, path)
     if type(route) ~= "table" or type(path) ~= "table" then return false end
     local index, points = route.index, route.points
+    if route.avoidance ~= nil then
+        for _, square in ipairs(path) do
+            local x, y = SC.GameplayUtil.position(square)
+            if x == nil or y == nil
+                or distance(x, y, route.avoidance)
+                    <= route.avoidance.radius + 2 then return false end
+        end
+    end
     if index <= 1 or index > #points then return true end
     local first, last = points[index - 1], points[index]
     for _, square in ipairs(path) do
@@ -137,10 +233,30 @@ function Route.withinCorridor(route, path)
     return true
 end
 
+-- Only the access legs may enter a building. Search expeditions must not use
+-- their broader site-access permission while traversing intermediate roads.
+function Route.allowInteriorAccess(route, kind, phase, leaderInRoom)
+    if route == nil then
+        return phase == "inbound"
+            or kind == "search" and phase == "outbound"
+    end
+    if type(route.points) ~= "table" or type(route.index) ~= "number" then
+        return false
+    end
+    if route.index <= 1 then
+        return leaderInRoom == true
+    end
+    if route.index > #route.points then
+        return true
+    end
+    return phase == "inbound" and leaderInRoom == true
+end
+
 function Route.descriptor(route, phase)
     if type(route) ~= "table" then return nil end
     return { version = 1, phase = phase,
-        fingerprint = route.fingerprint, goal = route.goal }
+        fingerprint = route.fingerprint, goal = route.goal,
+        avoidance = route.avoidance }
 end
 
 function Route.validDescriptor(value)
@@ -156,6 +272,7 @@ function Route.validDescriptor(value)
         and type(value.goal) == "table"
         and tile(value.goal.x) and tile(value.goal.y)
         and value.goal.z == 0
+        and (value.avoidance == nil or validAvoidance(value.avoidance))
 end
 
 return Route

@@ -39,6 +39,11 @@ local function copyPoint(point)
     return { x = point.x, y = point.y, z = point.z }
 end
 
+local function copyRoadAvoidance(value)
+    if value == nil then return nil end
+    return { x = value.x, y = value.y, radius = value.radius }
+end
+
 local function scoutWorldHour()
     if type(getGameTime) ~= "function" then return nil end
     local ok, gameTime = pcall(getGameTime)
@@ -680,7 +685,10 @@ function Expedition.export()
                 version = 1, phase = mission.scout.road.phase,
                 fingerprint = mission.scout.road.fingerprint,
                 goal = copyPoint(mission.scout.road.goal),
+                avoidance = copyRoadAvoidance(
+                    mission.scout.road.avoidance),
             } or nil,
+            hordeDetours = mission.scout.hordeDetours,
         } or nil,
     }
 end
@@ -790,6 +798,10 @@ function Expedition.restore(saved)
             or (scout.endReason ~= nil
                 and (type(scout.endReason) ~= "string"
                     or #scout.endReason > 64))
+            or (scout.hordeDetours ~= nil
+                and (type(scout.hordeDetours) ~= "number"
+                    or scout.hordeDetours < 0 or scout.hordeDetours > 3
+                    or scout.hordeDetours ~= math.floor(scout.hordeDetours)))
             or (scout.returnIndex ~= nil
                 and (type(scout.returnIndex) ~= "number"
                     or scout.returnIndex < 0
@@ -825,7 +837,9 @@ function Expedition.restore(saved)
                 version = 1, phase = scout.road.phase,
                 fingerprint = scout.road.fingerprint,
                 goal = copyPoint(scout.road.goal),
+                avoidance = copyRoadAvoidance(scout.road.avoidance),
             } or nil,
+            hordeDetours = scout.hordeDetours or 0,
         }
     elseif scout ~= nil then
         return false, "saved expedition descriptor is invalid"
@@ -1543,8 +1557,17 @@ startReturnFromSite = function(itinerary, reason)
     itinerary.returnIndex = math.max(0, #itinerary.trail - 1)
     itinerary.observingSince = nil
     if itinerary.road ~= nil then
+        local avoidance = itinerary.roadAvoidance
+            or itinerary.road.avoidance
+        -- The return intent is authoritative even when native route planning
+        -- must wait or fails. A saved technical hold must never restore an
+        -- outbound descriptor into an inbound mission.
+        itinerary.road.phase = "inbound"
+        itinerary.road.goal = copyPoint(itinerary.returnPoint)
+        itinerary.road.avoidance = copyRoadAvoidance(avoidance)
         local route, routeReason = SC.ExpeditionRoute.plan(
-            mission.leader.actor, itinerary.returnPoint, true)
+            mission.leader.actor, itinerary.returnPoint, true,
+            avoidance)
         if route == nil then
             mission.technicalIssue = { reason = routeReason or "road_return_unavailable" }
             itinerary.roadRoute = nil
@@ -1596,7 +1619,8 @@ local function pulseScout()
         local goal = scout.phase == "inbound"
             and scout.returnPoint or scout.destination
         local route, routeReason = SC.ExpeditionRoute.plan(
-            mission.leader.actor, goal, true)
+            mission.leader.actor, goal, true,
+            scout.road.avoidance)
         if route == nil then
             mission.technicalIssue = {
                 reason = routeReason or "road_restart_replan_failed" }
@@ -1649,6 +1673,77 @@ local function pulseScout()
         end
     end
     if mission.cohesionHold ~= nil then return end
+    if scout.roadRoute ~= nil
+        and (scout.phase == "outbound" or scout.phase == "inbound")
+        and now >= (scout.nextHordeCheckAt or 0) then
+        scout.nextHordeCheckAt = now + 1000
+        local leader = mission.leader.actor
+        local registered = SC.Registry.byId(mission.leader.id)
+        local snapshot = SC.Senses and SC.Senses.cached
+            and SC.Senses.cached(leader,
+                registered and registered.runtime) or nil
+        local living = 0
+        for _, record in ipairs(mission.roster) do
+            if alive(record) then living = living + 1 end
+        end
+        local avoidance = SC.ExpeditionRoute.visibleHorde(
+            scout.roadRoute, leader, snapshot, living, now)
+        local previous = scout.road and scout.road.avoidance
+        if avoidance ~= nil and previous ~= nil
+            and math.sqrt((avoidance.x - previous.x)^2
+                + (avoidance.y - previous.y)^2)
+                    <= math.max(avoidance.radius, previous.radius) + 4 then
+            avoidance = nil
+        end
+        if avoidance ~= nil then
+            -- Stop the old travel intent before planning around observed
+            -- zombies. Combat and other urgent owners remain authoritative.
+            if mission.testWaypoint ~= nil then
+                Expedition.clearTestWaypoint(leader)
+                local owner = SC.ActionSupervisor
+                    and type(SC.ActionSupervisor.current) == "function"
+                    and SC.ActionSupervisor.current(leader) or nil
+                if owner == nil and SC.Navigation
+                    and type(SC.Navigation.cancel) == "function" then
+                    SC.Navigation.cancel(leader, "expedition_horde_detour")
+                end
+            end
+            local destination = scout.phase == "inbound"
+                and scout.returnPoint or scout.destination
+            local alternative, routeReason
+            if (scout.hordeDetours or 0) < 3 then
+                alternative, routeReason = SC.ExpeditionRoute.plan(
+                    leader, destination, true, avoidance)
+                if alternative ~= nil then
+                    local entryReady, entryReason =
+                        SC.ExpeditionRoute.verifyEntry(alternative, leader)
+                    if not entryReady then
+                        alternative = nil
+                        routeReason = entryReason
+                    end
+                end
+            else
+                routeReason = "horde_detour_limit"
+            end
+            if alternative ~= nil then
+                scout.roadRoute = alternative
+                scout.road = SC.ExpeditionRoute.descriptor(
+                    alternative, scout.phase)
+                scout.hordeDetours = (scout.hordeDetours or 0) + 1
+                scout.lastStalledTarget = nil
+                scout.firstPlanFailureAt = nil
+                scout.replans = 0
+            elseif scout.phase == "outbound" then
+                scout.roadAvoidance = avoidance
+                scout.lastRoadFailure = routeReason
+                startReturnFromSite(scout, "horde_no_safe_detour")
+            else
+                mission.technicalIssue = {
+                    reason = routeReason or "horde_no_safe_detour" }
+            end
+            return
+        end
+    end
     if mission.testWaypoint ~= nil then
         local leader = mission.leader.actor
         local remaining = distanceToPoint(leader, mission.testWaypoint)
@@ -1831,7 +1926,7 @@ local function pulseScout()
     if scout.phase == "inbound" and (scout.roadRoute ~= nil
             and scout.roadRoute.index > #scout.roadRoute.points
             or scout.roadRoute == nil and (scout.returnIndex == nil
-                or scout.returnIndex == 0)) and close <= 10 then
+                or scout.returnIndex == 0)) and close <= 4 then
         scout.phase = "awaiting_player"
         local player = getSpecificPlayer(0)
         if player ~= nil then Expedition.finishAtPlayer(player) end
@@ -1844,22 +1939,21 @@ local function pulseScout()
     if now - (scout.lastPlanAt or -math.huge) < 1500 then return end
     scout.lastPlanAt = now
     local leaderSquare = mission.leader.actor:getCurrentSquare()
-    local leavingSearchBuilding = scout.kind == "search"
-        and scout.phase == "inbound" and leaderSquare ~= nil
+    local leaderInRoom = leaderSquare ~= nil
         and leaderSquare:getRoom() ~= nil
     local leg, reason = nextScoutLeg(mission.leader.actor, target,
         scout.lastStalledTarget,
-        scout.kind == "search" and scout.phase == "outbound"
-            or leavingSearchBuilding
-            or scout.roadRoute ~= nil and scout.roadRoute.index <= 1,
+        SC.ExpeditionRoute.allowInteriorAccess(scout.roadRoute,
+            scout.kind, scout.phase, leaderInRoom),
         scout.roadRoute)
     if leg == nil then
         scout.lastPlanFailure = reason
         if scout.firstPlanFailureAt == nil then scout.firstPlanFailureAt = now end
         if now - scout.firstPlanFailureAt >= 30000 then
-            if scout.travelMode == "straight"
-                and scout.phase == "outbound" then
-                startReturnFromSite(scout, "straight_path_unreachable")
+            if scout.phase == "outbound" then
+                startReturnFromSite(scout, scout.travelMode == "road"
+                    and "road_path_unreachable"
+                    or "straight_path_unreachable")
             else
                 mission.technicalIssue = { reason = reason }
             end

@@ -52,6 +52,34 @@ public final class SCRoadRouterTest {
         check("NO_ROAD_DATA".equals(absent.status()),
                 "missing street metadata is not a traversable direct route");
 
+        var network = List.of(
+                line("Main", 10, 10, 60, 10, 110, 10),
+                line("West", 10, 10, 10, 40),
+                line("Bypass", 10, 40, 110, 40),
+                line("East", 110, 40, 110, 10));
+        var clear = SCRoadRouter.routeLines(network, 20, 10, 100, 10);
+        var detour = SCRoadRouter.routeLinesAvoiding(network,
+                20, 10, 100, 10, 60, 10, 8);
+        check("READY".equals(clear.status()) && clear.roadLength() < 100,
+                "unthreatened road uses the short main street");
+        check("READY".equals(detour.status()) && detour.roadLength() > 100
+                && detour.points().stream().anyMatch(point -> point.y() == 40),
+                "a seen horde excludes local road edges and selects the connected bypass");
+        check("READY".equals(SCRoadRouter.routeLines(network,
+                20, 10, 100, 10).status()),
+                "temporary avoidance never mutates the base street geometry");
+        var noBypass = SCRoadRouter.routeLinesAvoiding(
+                List.of(line("Only road", 10, 10, 60, 10, 110, 10)),
+                20, 10, 100, 10, 60, 10, 8);
+        check("NO_SAFE_ROAD_DETOUR".equals(noBypass.status()),
+                "no alternate road must be reported rather than crossing the horde");
+        var safeSide = SCRoadRouter.routeLinesAvoiding(
+                List.of(line("Only road", 10, 10, 110, 10)),
+                20, 10, 40, 10, 60, 10, 8);
+        check("READY".equals(safeSide.status())
+                && Math.abs(safeSide.roadLength() - 20) < 0.001,
+                "a horde blocks only its edge interval, not the whole long street");
+
         System.out.println("SC_ROAD_ROUTER_PASS checks=" + checks);
     }
 }

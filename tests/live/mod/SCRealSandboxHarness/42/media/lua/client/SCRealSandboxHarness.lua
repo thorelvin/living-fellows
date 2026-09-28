@@ -4615,6 +4615,31 @@ local function beginLeaderSlotProbe(current)
                     .. " actual Base.WalkieTalkie2 radios with native batteries and "
                     .. TEAM_RADIO_PRESET .. " preset at " .. TEAM_RADIO_CHANNEL)
         end
+        if Harness.config.team_road_horde_probe == "true" then
+            -- Isolate road avoidance from the saved gas station doorway's
+            -- intermittent native-path stall. This transfer happens before
+            -- dispatch and only inside the disposable cloned save.
+            local cell = getWorld():getCell()
+            for index, record in ipairs(roster) do
+                local tx, ty = 6093 + index * 2, 5283
+                local square = cell and cell:getGridSquare(tx, ty, 0)
+                if square == nil or square:getRoom() ~= nil
+                    or not SC.GameplayUtil.isSquareFree(square) then
+                    result("FAIL", "road_horde_fixture_square",
+                        tostring(tx) .. "," .. tostring(ty))
+                    setPhase("finish", current) return
+                end
+                local placed, reason = Harness.placeCombatActor(
+                    record.actor, { x = tx + 0.5, y = ty + 0.5, z = 0 })
+                if not placed then
+                    result("FAIL", "road_horde_fixture_placement",
+                        tostring(index) .. ":" .. tostring(reason))
+                    setPhase("finish", current) return
+                end
+            end
+            result("PASS", "road_horde_fixture_on_loaded_street",
+                "four original companions placed on Riverside road before dispatch")
+        end
         local plan
         if Harness.config.team_autonomous_scout_probe == "true" then
             if Harness.config.team_road_route_probe == "true" then
@@ -7989,6 +8014,99 @@ function Harness.probeAutonomousSearchResume(current)
     end
 end
 
+-- A disposable in-game route fixture: substitute one fresh perception result
+-- after verifying the active Riverside streets have a connected detour. The
+-- leader, road metadata, local navigation, companions and streaming stay real.
+local function probeRoadHordeDetour(current, mission, progress)
+    if Harness.config.team_road_horde_probe ~= "true"
+        or Harness.hordeInjected == true
+        or current < (Harness.nextHordeProbeAt or 0)
+        or progress < 20 or progress > 105
+        or mission.cohesionHold ~= nil then return end
+    local SC = SurvivorCompanion
+    local scout = mission.scout
+    local route = scout and scout.roadRoute
+    if scout == nil or scout.phase ~= "outbound"
+        or route == nil or route.index > #route.points then return end
+    local x, y = position(Harness.leader)
+    local point = route.points[route.index]
+    local dx, dy = point.x - x, point.y - y
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length < 12 then return end
+    Harness.nextHordeProbeAt = current + 8000
+    Harness.hordeProbeAttempts = (Harness.hordeProbeAttempts or 0) + 1
+    local hazard = { x = x + dx / length * 15,
+        y = y + dy / length * 15, radius = 8 }
+    local alternate, why = SC.ExpeditionRoute.plan(Harness.leader,
+        scout.destination, true, hazard)
+    local entryReady = alternate and SC.ExpeditionRoute.verifyEntry(
+        alternate, Harness.leader)
+    local safeReturn, returnReason
+    if alternate == nil or entryReady ~= true then
+        safeReturn, returnReason = SC.ExpeditionRoute.plan(
+            Harness.leader, scout.returnPoint, true, hazard)
+        if safeReturn ~= nil then
+            local returnReady = SC.ExpeditionRoute.verifyEntry(
+                safeReturn, Harness.leader)
+            if returnReady ~= true then safeReturn = nil end
+        end
+    end
+    if (alternate == nil or entryReady ~= true)
+        and safeReturn == nil then
+        print("SC_REAL_SANDBOX|ROAD_HORDE_PREFLIGHT|attempt="
+            .. tostring(Harness.hordeProbeAttempts)
+            .. " route=" .. tostring(why)
+            .. " entry=" .. tostring(entryReady)
+            .. " return=" .. tostring(returnReason)
+            .. " hazard=" .. tostring(hazard.x) .. ","
+            .. tostring(hazard.y))
+        return
+    end
+    local originalCached = SC.Senses.cached
+    local threats = {}
+    for index = 1, 13 do
+        threats[index] = { x = hazard.x, y = hazard.y,
+            visible = true, obstructed = false }
+    end
+    SC.Senses.cached = function(actor, runtime)
+        if actor == Harness.leader then
+            return { valid = true,
+                reflexTime = SC.GameplayUtil.nowMs(),
+                threats = threats }
+        end
+        return originalCached(actor, runtime)
+    end
+    scout.nextHordeCheckAt = 0
+    local okay, failure = pcall(SC.ExpeditionPrototype.pulse)
+    SC.Senses.cached = originalCached
+    if not okay then
+        result("FAIL", "road_horde_live_pulse", tostring(failure))
+        setPhase("finish", current)
+        return
+    end
+    local tookDetour = scout.hordeDetours == 1
+        and scout.roadRoute ~= route and scout.phase == "outbound"
+    local turnedHome = scout.phase == "inbound"
+        and scout.roadRoute ~= nil
+        and scout.endReason == "horde_no_safe_detour"
+    local passed = check("road_horde_live_response",
+        (tookDetour or turnedHome)
+            and scout.road and scout.road.avoidance ~= nil
+            and mission.technicalIssue == nil,
+        "detours=" .. tostring(scout.hordeDetours)
+            .. " phase=" .. tostring(scout.phase)
+            .. " end=" .. tostring(scout.endReason)
+            .. " issue=" .. tostring(mission.technicalIssue
+                and mission.technicalIssue.reason)
+            .. " leader=" .. tostring(x) .. "," .. tostring(y))
+    if not passed then
+        setPhase("finish", current) return
+    end
+    Harness.hordeInjected = true
+    Harness.hordeAvoid = hazard
+    Harness.hordeOutcome = tookDetour and "detour" or "return"
+end
+
 function Harness.probeAutonomousScout(current)
     local SC = SurvivorCompanion
     local mission = SC.ExpeditionPrototype.current()
@@ -8030,22 +8148,35 @@ function Harness.probeAutonomousScout(current)
     Harness.autonomousMaxGap = math.max(Harness.autonomousMaxGap or 0, gap)
     if mission == nil then
         local debrief = SC.ExpeditionPrototype.lastDebrief()
-        check("autonomous_scout_debrief_retained",
-            debrief ~= nil and debrief.kind == "scout"
-                and debrief.observation ~= nil
-                and debrief.observation.status == "complete"
-                and debrief.observation.visibleSquares > 0,
-            "observation=" .. tostring(debrief and debrief.observation
-                and debrief.observation.status)
-                .. " visible_squares=" .. tostring(debrief and debrief.observation
-                    and debrief.observation.visibleSquares))
-        check("autonomous_scout_destination_reached",
-            Harness.autonomousFarthest >= (Harness.selectedPlaceApproach
-                and math.max(20, math.sqrt(
-                    (Harness.selectedPlaceApproach.x - Harness.autonomousStartX)^2
-                    + (Harness.selectedPlaceApproach.y - Harness.autonomousStartY)^2)
-                    - 8) or 75),
-            "farthest=" .. tostring(Harness.autonomousFarthest))
+        if Harness.hordeOutcome == "return" then
+            check("road_horde_early_return_debrief",
+                debrief ~= nil and debrief.kind == "scout"
+                    and debrief.endReason == "horde_no_safe_detour"
+                    and debrief.observation == nil,
+                "end=" .. tostring(debrief and debrief.endReason)
+                    .. " observation=" .. tostring(debrief
+                        and debrief.observation))
+        else
+            check("autonomous_scout_debrief_retained",
+                debrief ~= nil and debrief.kind == "scout"
+                    and debrief.observation ~= nil
+                    and debrief.observation.status == "complete"
+                    and debrief.observation.visibleSquares > 0,
+                "observation=" .. tostring(debrief and debrief.observation
+                    and debrief.observation.status)
+                    .. " visible_squares=" .. tostring(debrief
+                        and debrief.observation
+                        and debrief.observation.visibleSquares))
+            check("autonomous_scout_destination_reached",
+                Harness.autonomousFarthest >= (Harness.selectedPlaceApproach
+                    and math.max(20, math.sqrt(
+                        (Harness.selectedPlaceApproach.x
+                            - Harness.autonomousStartX)^2
+                        + (Harness.selectedPlaceApproach.y
+                            - Harness.autonomousStartY)^2)
+                        - 8) or 75),
+                "farthest=" .. tostring(Harness.autonomousFarthest))
+        end
         check("autonomous_scout_returned_to_original_player",
             SC.ExpeditionPrototype.lastOutcome() == "returned"
                 and math.abs(x - Harness.playerX) <= 12
@@ -8073,6 +8204,18 @@ function Harness.probeAutonomousScout(current)
                     .. tostring(mission.testWaypoint and mission.testWaypoint.y)
                 .. " return_index=" .. tostring(scout and scout.returnIndex)
                 .. " replans=" .. tostring(scout and scout.replans))
+        setPhase("finish", current)
+        return
+    end
+    probeRoadHordeDetour(current, mission, progress)
+    if Harness.phase == "finish" then return end
+    if Harness.config.team_road_horde_probe == "true"
+        and not Harness.hordeInjected
+        and progress > 105 then
+        result("FAIL", "road_horde_safe_response_found",
+            "no connected bypass or safe return after "
+                .. tostring(Harness.hordeProbeAttempts or 0)
+                .. " bounded preflight attempts")
         setPhase("finish", current)
         return
     end
@@ -8155,7 +8298,8 @@ function Harness.probeAutonomousScout(current)
         return
     end
     if scout.phase ~= Harness.autonomousLastPhase then
-        if scout.phase == "inbound" then
+        if scout.phase == "inbound"
+            and Harness.hordeOutcome ~= "return" then
             local observed = scout.observation
             check("autonomous_scout_actual_site_observed",
                 observed ~= nil and observed.status == "complete"

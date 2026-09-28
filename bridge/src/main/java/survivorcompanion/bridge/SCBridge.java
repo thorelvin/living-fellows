@@ -706,6 +706,26 @@ public final class SCBridge {
         long started = System.nanoTime();
         SCRoadRouter.Result result = SCRoadRouter.routeNative(
                 streetsApi, startX, startY, targetX, targetY);
+        putRoadResult(out, result, started);
+        return true;
+    }
+
+    /** Replan around a currently observed horde without altering shared streets. */
+    public static boolean planRoadRouteAvoiding(Object streetsApi,
+            double startX, double startY, double targetX, double targetY,
+            double avoidX, double avoidY, double avoidRadius, KahluaTable out) {
+        if (!onGameThread() || out == null) return false;
+        out.wipe();
+        long started = System.nanoTime();
+        SCRoadRouter.Result result = SCRoadRouter.routeNativeAvoiding(
+                streetsApi, startX, startY, targetX, targetY,
+                avoidX, avoidY, avoidRadius);
+        putRoadResult(out, result, started);
+        return true;
+    }
+
+    private static void putRoadResult(KahluaTable out,
+            SCRoadRouter.Result result, long started) {
         put(out, "status", result.status());
         put(out, "reason", result.reason());
         put(out, "fingerprint", result.fingerprint());
@@ -729,7 +749,6 @@ public final class SCBridge {
             }
             put(out, "geometry", geometry.toString());
         }
-        return true;
     }
 
     public static boolean isCompanion(Object candidate) {
