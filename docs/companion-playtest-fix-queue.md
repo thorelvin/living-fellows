@@ -25,14 +25,16 @@
 
 ## Chair sitting and resting alignment
 
-- **Status:** Queued; player reported, not yet reproduced in an isolated test.
-- **Reported:** 2026-09-27. Companions sit or rest offset from chairs, appear to sit in the air, then fall off.
-- **Area to inspect:** Furniture selection and seating transitions in `SCDowntime.lua`, and native furniture rest/posture handling in `SCNativeActions.lua`. Check whether the target tile, seat direction, animation offset, and native `isSittingOnFurniture()` state agree before treating a sit as complete.
-- **Reproduction:** Observe a saved companion choose a chair during ordinary downtime. Record the chair sprite, facing, companion coordinates, selected seat location, native rest action, and posture state through entry, idle, and exit. Repeat for chairs facing different directions and for a sofa.
+- **Status:** Native movement fix implemented and verified against the installed game JAR; visual playtest remains.
+- **Reported:** 2026-09-27 and shown again in a gas-station screenshot on 2026-09-28. Companions sit offset from chairs, appear to sit in the air, then fall off.
+- **Cause:** The mod starts the same `ISPathFindAction:pathToSitOnFurniture` and `ISRestAction` as the player's context menu. The difference is in `SCNativeCompanion`: it omits `IsoPlayer.updateInternal2` to keep local input and camera ownership with the player. That player update normally applies animation root movement. The bridge applied it for traversal and reactions but discarded it during `PlayerSitOnFurnitureState`. The game's `SeatingManager` computes the chair entry point using the sit clip's displacement, so discarding that displacement leaves the companion in front of the chair.
+- **Change:** Treat the native furniture sit state as an exclusive movement owner. It now uses the existing deferred movement step, while manual movement and path advancement yield to the sit state. Ordinary path and manual movement still discard their duplicate animation accumulator.
+- **Evidence:** `SCIsoCompanionControlTest` uses the installed Build 42.21.0 state machine and a real animation accumulator. It confirms that the sit state claims movement, applies the displacement once, clears the accumulator, and releases ownership on exit. The real-JAR control passes. The user's screenshot establishes the visual failure before the fix; a post-fix visual capture is still needed.
+- **Next playtest:** In a disposable clone or the local playtest install, watch a companion sit on a chair and a sofa in different directions, including the second local view. Confirm the model lands on the cushion and remains seated until it chooses to stand.
 - **Related route finding:** Merle selected a chair from `(6084.5,5310.5)` toward `(6081,5308)` in cloned base-scene runs `SC-Harness-20260928-021228-42cb4567` and `SC-Harness-20260928-021921-7bd07bde`; the first approach failed `path_blocked:blocked_static`. This is a reachable-seat selection problem, distinct from the reported offset sitting pose. A blocked route now cools that exact object and allows another chair on the next ordinary downtime pass; native sit/pose failures still back off all furniture. A two-chair gameplay regression passes. The second live run reproduced the blocked first chair but did not observe an alternate chair or completed native sit in its 30-second sample, so the visible pose issue remains open.
 - **Done when:** The companion sits visually on the furniture and remains stably seated until standing or interruption. An unusable seat is rejected and the companion chooses another valid rest option without floating or falling. Verify in a real cloned-save playtest, including the second local view.
 
-This report is separate from expedition area loading and remains open until the chair behavior is reproduced and fixed.
+This report remains open until the corrected chair pose is seen in game.
 
 ## One companion still appears in underwear
 

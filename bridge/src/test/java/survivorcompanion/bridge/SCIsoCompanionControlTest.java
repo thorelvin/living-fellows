@@ -362,6 +362,8 @@ public final class SCIsoCompanionControlTest {
                                     SCNativeCompanion.OWNER_REACTION)
                             && SCNativeCompanion.ownerIsExclusiveNative(
                                     SCNativeCompanion.OWNER_TRAVERSAL)
+                            && SCNativeCompanion.ownerIsExclusiveNative(
+                                    SCNativeCompanion.OWNER_SEATING)
                             && !SCNativeCompanion.ownerIsExclusiveNative(
                                     SCNativeCompanion.OWNER_ATTACK)
                             && !SCNativeCompanion.ownerIsExclusiveNative(
@@ -370,7 +372,7 @@ public final class SCIsoCompanionControlTest {
                                     SCNativeCompanion.OWNER_PATH)
                             && !SCNativeCompanion.ownerIsExclusiveNative(
                                     SCNativeCompanion.OWNER_NONE),
-                    "corpse dragging must leave bridge translation available while combat grapples remain exclusive");
+                    "native seating must own root motion while corpse dragging leaves bridge translation available");
             require(SCNativeCompanion.exclusiveGrappleOwnsBody(true, false, true)
                             && SCNativeCompanion.exclusiveGrappleOwnsBody(false, true, false)
                             && !SCNativeCompanion.exclusiveGrappleOwnsBody(false, true, true)
@@ -574,6 +576,29 @@ public final class SCIsoCompanionControlTest {
                 require(actor.getNextX() != reactionX || actor.getNextY() != reactionY,
                         reactionState + " played without translating the companion body");
             }
+
+            // SeatingManager computes a start position that includes the sit
+            // clip's displacement. A normal player applies that displacement
+            // in IsoPlayer.updateInternal2; the bridge must apply it here.
+            Object sitState = Class.forName("zombie.ai.states.PlayerSitOnFurnitureState")
+                    .getMethod("instance").invoke(null);
+            currentField.set(machine, sitState);
+            require(actor.isCompanionFurnitureSeatingActive()
+                            && SCNativeCompanion.OWNER_SEATING.equals(
+                                    actor.getCompanionMovementOwner()),
+                    "furniture sit state did not take native movement ownership");
+            actor.setNextX(actor.getX());
+            actor.setNextY(actor.getY());
+            float sitX = actor.getNextX(), sitY = actor.getNextY();
+            accumulator.x = .08f;
+            accumulator.y = 0.0f;
+            consume.invoke(actor);
+            require(accumulator.x == 0 && accumulator.y == 0
+                            && (actor.getNextX() != sitX || actor.getNextY() != sitY),
+                    "furniture sit animation did not translate the companion body");
+            currentField.set(machine, null);
+            require(!actor.isCompanionFurnitureSeatingActive(),
+                    "furniture movement ownership survived state exit");
         } finally {
             currentField.set(machine, originalState);
             ownerAnimation.set(actor, original);

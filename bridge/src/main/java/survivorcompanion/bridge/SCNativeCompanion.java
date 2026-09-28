@@ -646,10 +646,36 @@ public final class SCNativeCompanion extends IsoPlayer {
         }
     }
 
+    /**
+     * The furniture sit animation carries its own displacement. SeatingManager
+     * places the actor at an entry point calculated from that displacement, so
+     * dropping root motion leaves the seated model in front of the chair.
+     */
+    public boolean isCompanionFurnitureSeatingActive() {
+        try {
+            var machine = getStateMachine();
+            if (machine == null) return false;
+            if (isFurnitureSeatingState(machine.getCurrent())) return true;
+            for (int index = 0; index < machine.getSubStateCount(); index++) {
+                if (isFurnitureSeatingState(machine.getSubStateAt(index))) return true;
+            }
+            return false;
+        } catch (RuntimeException | LinkageError failure) {
+            // Hold native ownership if the state cannot be read during entry.
+            return true;
+        }
+    }
+
+    private static boolean isFurnitureSeatingState(State state) {
+        return state != null
+                && "PlayerSitOnFurnitureState".equals(state.getClass().getSimpleName());
+    }
+
     /** Owner names published to Lua. Ordered most exclusive first. */
     public static final String OWNER_GRAPPLE = "grapple";
     public static final String OWNER_REACTION = "reaction";
     public static final String OWNER_TRAVERSAL = "traversal";
+    public static final String OWNER_SEATING = "seating";
     public static final String OWNER_ATTACK = "attack";
     public static final String OWNER_CORPSE_DRAG = "corpse_drag";
     public static final String OWNER_TACTICAL = "tactical";
@@ -670,6 +696,7 @@ public final class SCNativeCompanion extends IsoPlayer {
         if (isCompanionExclusiveGrappleActive()) return OWNER_GRAPPLE;
         if (isCompanionNativeReactionActive()) return OWNER_REACTION;
         if (isCompanionTraversalActive()) return OWNER_TRAVERSAL;
+        if (isCompanionFurnitureSeatingActive()) return OWNER_SEATING;
         try {
             if (isAttackStarted() || isPerformingAttackAnimation()) return OWNER_ATTACK;
         } catch (RuntimeException | LinkageError ignored) {
@@ -690,7 +717,7 @@ public final class SCNativeCompanion extends IsoPlayer {
      */
     static boolean ownerIsExclusiveNative(String owner) {
         return OWNER_GRAPPLE.equals(owner) || OWNER_REACTION.equals(owner)
-                || OWNER_TRAVERSAL.equals(owner);
+                || OWNER_TRAVERSAL.equals(owner) || OWNER_SEATING.equals(owner);
     }
 
     private boolean nativeOwnsBody() {
@@ -2335,9 +2362,11 @@ public final class SCNativeCompanion extends IsoPlayer {
         // IsoPlayer.updateInternal2().  The bridge deliberately omits that
         // local-input update, but ClimbOverWallState (and the other native
         // traversal states) still relies on its root motion to carry the
-        // collision body across the portal.  Discarding the accumulator here
-        // lets the success animation play while the actor lands on the source
-        // side.  Apply it only while a verified native traversal owns movement;
+        // collision body across the portal. PlayerSitOnFurnitureState also
+        // needs this movement: SeatingManager's entry point accounts for the
+        // displacement of the sit animation. Discarding the accumulator lets
+        // the animation play while the actor stays in front of the chair.
+        // Apply it only while a verified native state owns movement;
         // ordinary path/manual locomotion already translates through PFB or
         // MoveForward and must continue to consume without applying a second
         // displacement.
