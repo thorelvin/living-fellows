@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.26.3-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.4-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -136,11 +136,13 @@ Right-click the world for the **Living Fellows** menu. The selected companion ge
 
 ## Expeditions (experimental)
 
-Use a disposable save for this 0.26.3 playtest. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose its leader, Scout or Search, a nearby location, time before turning home, and combat style. Search also lets you request a supply type and quantity. Review the plan and select **Send squad**. The actual leader appears in a second local view while the team moves; the remaining members follow that leader.
+Use a disposable save for this 0.26.4 playtest. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose its leader, Scout or Search, a location within 200 tiles (32 per page), how to travel, time before turning home, and combat style. Search also lets you request a supply type and quantity. Review the plan and select **Send squad**. The actual leader appears in a second local view while the team moves; the remaining members follow that leader.
+
+**Follow roads** is the default: the squad walks the map's streets and plans a fresh road route home. If the leader sees a group of more than three zombies per living squad member on the road ahead, the squad plans around it, or turns home when no connected detour exists on the way out. **Head straight for target** takes the direct course and turns home if no path out is found for 30 seconds.
 
 The team can leave without radios. To order an immediate return while they are away, equip a powered walkie-talkie on your character and the leader, tune them to the same channel, then right-click your equipped radio and choose **Return immediately**. The order requires a received transmission; the panel does not show unseen position or health as live facts.
 
-This is an incomplete expedition playtest. Departure from the Riverside gas station has intermittently stalled on a native path, and a full distant return has not passed live verification. The selected time limits when the team turns home; it does not promise an arrival time. See [the verification ledger](docs/expedition-v5-verification-ledger.md) for observed results and open checks.
+This is an incomplete expedition playtest. Departure from the Riverside gas station has intermittently stalled on a native path. A four-member road mission to a site 180 tiles away and back has passed in a cloned test save, but a live detour along a real alternate road has not. The selected time limits when the team turns home; it does not promise an arrival time. See [the verification ledger](docs/expedition-v5-verification-ledger.md) for observed results and open checks.
 
 ## How companions behave
 

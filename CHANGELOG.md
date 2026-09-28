@@ -2,6 +2,16 @@
 
 # Changelog
 
+## 0.26.4 - Expedition road routing playtest
+
+- Expeditions now follow the map's streets by default. The review shows **Follow roads** or **Head straight for target**, with an approximate route length and the streets used. The street graph only picks targets; ordinary navigation still walks each loaded leg, including doors, collision, follower cohesion and the final building approach. Return plans a fresh road route from the leader's actual position, and a save/reload mid-mission rebuilds the route instead of storing it.
+- The destination list covers every eligible building within 200 tiles of the leader, 32 per page. Dispatch rechecks the chosen building by its ID, so a building on a later page is sent exactly as reviewed.
+- On a road the leader watches for zombies ahead. A group of more than three zombies per living squad member near the road section ahead makes the squad plan around that area, keeping the rest of a long street available. With no connected detour on the way out, or after three detours, the squad turns home on a route that avoids the group; on the way home it holds with a visible technical issue instead. The avoidance area and return intent survive a save/reload.
+- A Search squad travelling by road no longer cuts through unrelated buildings. A straight-line trip that finds no outbound leg for 30 seconds turns home instead of standing still, and at the end of a return the leader walks to within four tiles of you before the team regroups.
+- Companions sit on chairs and sofas instead of in the air in front of them. The seat entry point depends on the sit animation's own movement, which the companion actor had been discarding; it now applies that movement once while the native sit runs.
+- Companions talk while they work or rest. Ambient and place remarks no longer wait for a companion to be idle, and a calm routine remark can come at most every 90 seconds per party during owned activities. Threats still silence them, and speech never moves or turns anyone.
+- Still unverified: a live detour along a real alternate road, whether naturally spawned hordes are noticed in time, the corrected chair pose in game, and how often companions now speak in ordinary play. A four-member road mission to a site 180 tiles away and back passed in a cloned test save, including a save/reload during the return. Use a disposable save for expeditions.
+
 ## 0.26.3 - Expedition destination admission playtest
 
 - Sending a squad to a map-selected building no longer runs a full loaded-tile route search on the UI button. The map footprint supplies an exterior direction; the moving leader checks the loaded approach on arrival and can choose a different side. A site that stays unreachable turns the squad home instead of starting Search inside an unverified building.
