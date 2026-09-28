@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.26.6 - Standing down beside a zombie they will not fight
+
+- A companion no longer freezes with its guard up beside a zombie it will not fight. When combat finds nothing it may engage and the companion has nothing else to do, it is meant to stand at ease. That check compared combat's verdict with a timestamp taken at the start of the decision round; the verdict is stamped a few milliseconds later, so it looked like it came from the future and was rejected. The companion instead stopped, turned to the zombie and raised its guard every decision, shown on its card as `safety_guarded_hold:combat`. This affected every companion, not only expeditions. In 0.26.5 an unarmed expedition leader using the stealth style held like this for over a minute beside zombies 16 to 20 tiles away.
+- An expedition leader keeps walking when a zombie comes within six tiles without attacking. The leader is its own anchor, and zombies near it were counted as danger to a player it protects; that lifted a stealth leader's combat above its next leg although stealth would not engage.
+- A companion searching on its own task, such as an expedition leader at a Search site, keeps searching while combat has judged every zombie in view out of reach. Any visible zombie used to stop the search with nothing to replace it. A zombie within 4.5 tiles, an attack, or heavy pressure still stops it.
+
 ## 0.26.5 - Expedition road connections playtest
 
 - Road routes now follow T-junctions. The map draws a side street up to the edge of the road it joins, half that road's width short of its centre line, and the planner joined only streets whose lines touched, so most side streets were islands. In Riverside, Harbor St stops five tiles short of W Main St, so missions there failed with `NO_CONNECTED_ROUTE` or `INCOMPLETE_MAP_DATA`. A street end now joins the road it stops at when the gap is at most that road's half-width plus 1.5 tiles.

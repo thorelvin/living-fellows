@@ -3829,6 +3829,13 @@ function Combat.update(actor, player, runtime)
     return true, reason
 end
 
+-- A decision round reads one timestamp before it services its companions, and
+-- the verdict below is stamped with the wall clock during that round, so it can
+-- be a few milliseconds newer than the caller's time. Without this allowance
+-- the check failed in the very round the verdict was made, and a companion with
+-- nothing else to do froze in an aiming hold instead of standing idle.
+local VERDICT_ROUND_SKEW_MS = 1000
+
 -- True while every threat in view is one this companion's last combat pass
 -- judged it may not engage (a zombie behind the base fence, out of reach or
 -- out of doctrine) and nothing is close, attacking, human or surrounding it.
@@ -3846,7 +3853,7 @@ function Combat.onlyUnreachableThreats(actor, snapshot, now)
     local ok, record = pcall(Combat.peek, actor)
     local at = ok and type(record) == "table" and tonumber(record.noCredibleAt) or nil
     now = tonumber(now) or utility.nowMs()
-    return at ~= nil and now >= at
+    return at ~= nil and now >= at - VERDICT_ROUND_SKEW_MS
         and now - at < (tonumber(utility.config("combatNoTargetToleranceMs")) or 10000)
 end
 

@@ -19694,6 +19694,109 @@ end)()
     registry[resident.id] = nil
 end)()
 
+-- A 0.26.5 expedition leader froze in "safety_guarded_hold:combat" beside a
+-- zombie it would never fight. The runtime reads one timestamp per decision
+-- round while combat stamps its verdict with the wall clock inside that round,
+-- so the verdict looked newer than "now" and the stand-idle allowance failed.
+-- The leader is also its own anchor, and a search is its own task.
+;(function()
+    local decision = SurvivorCompanion.Decision
+    local combat = SurvivorCompanion.Combat
+    local downtime = SurvivorCompanion.Downtime
+    local senses = SurvivorCompanion.Senses
+    local saved = {
+        peek = combat.peek, update = combat.update,
+        downtimeUpdate = downtime.update, snapshot = senses.snapshot,
+        autonomy = SurvivorCompanion.Autonomy,
+    }
+    local leader = actor("sc-round-skew-leader", 52, 30, {})
+    leader.modData.SC_Order = "stay"
+    leader.modData.SC_WorkMode = "idle"
+    registry[leader.id] = leader
+    local commandView = SurvivorCompanion.Commands.peek(leader)
+    commandView.combatDoctrine = "weapons_free"
+    local verdictAt
+    combat.peek = function(subject)
+        if subject == leader then return { noCredibleAt = verdictAt } end
+        return saved.peek(subject)
+    end
+    local far = {
+        threats = { { actor = { x = leader:getX() + 18, y = leader:getY(), z = 0 },
+            distance = 18 } },
+        immediateAttackers = {}, allies = {}, escapeSquares = {}, threatCount = 1,
+        immediateCount = 0, closeThreatCount = 0, pressure = 0, indoors = false,
+        player = { danger = 0, immediateThreats = 0 },
+    }
+
+    verdictAt = clock + 4
+    check(combat.onlyUnreachableThreats(leader, far, clock),
+        "a verdict stamped later in the same decision round still counts as fresh")
+
+    combat.update = function(subject, ...)
+        if subject ~= leader then return saved.update(subject, ...) end
+        verdictAt = clock + 3
+        return false, "no_credible_target"
+    end
+    downtime.update = function(subject, ...)
+        if subject ~= leader then return saved.downtimeUpdate(subject, ...) end
+        return false, "nothing_to_do"
+    end
+    senses.snapshot = function(subject, ...)
+        if subject == leader then return far end
+        return saved.snapshot(subject, ...)
+    end
+    SurvivorCompanion.Autonomy = nil
+    verdictAt = nil
+    local runtime = { snapshot = far }
+    decision.update(leader, player, runtime, clock)
+    clock = clock + 201
+    leader.lastIntent = nil
+    local _, holdReason = decision.update(leader, player, runtime, clock)
+    local aimed = type(leader.lastIntent) == "table"
+        and leader.lastIntent.action == "ready_weapon"
+    combat.update, downtime.update = saved.update, saved.downtimeUpdate
+    senses.snapshot = saved.snapshot
+    SurvivorCompanion.Autonomy = saved.autonomy
+    check(not aimed and tostring(holdReason):find("safety_guarded_hold", 1, true) == nil,
+        "with nothing else to do, a companion stands idle beside an unreachable zombie instead of raising an aiming hold: "
+            .. tostring(holdReason))
+
+    local condition = senses._playerConditionForTests
+    local near = { { actor = { x = leader:getX() + 3, y = leader:getY(), z = 0 },
+        attacking = false } }
+    local own = condition(leader, near, leader)
+    local protected = condition(leader, near, { x = 0, y = 0, z = 0 })
+    check(own.danger == 0 and own.immediateThreats == 0 and protected.danger == 1,
+        "an expedition leader's own nearby zombies are not danger to a protected player")
+
+    commandView.scavenge = true
+    local healthy = { alive = true, health = 100, wounds = {} }
+    local function hasScavenge(list)
+        for _, candidate in ipairs(list) do
+            if candidate.kind == "scavenge" then return true end
+        end
+        return false
+    end
+    verdictAt = clock
+    local searching = hasScavenge(decision._evaluateForTests(leader, player, far,
+        commandView, healthy, {}, {}, clock + 500))
+    verdictAt = nil
+    local unjudged = hasScavenge(decision._evaluateForTests(leader, player, far,
+        commandView, healthy, {}, {}, clock + 500))
+    check(searching and not unjudged,
+        "a companion searching on its own task keeps searching beside a zombie combat judged out of reach")
+    local resumed = decision._targetlessFollowCandidate({ kind = "combat" },
+        "no_credible_target", far, { { kind = "downtime" }, { kind = "scavenge" } },
+        { order = "stay" })
+    check(resumed ~= nil and resumed.kind == "scavenge",
+        "after combat finds nothing to engage, a searching companion resumes its search")
+
+    combat.peek = saved.peek
+    downtime.reset(leader)
+    SurvivorCompanion.Commands.reset(leader)
+    registry[leader.id] = nil
+end)()
+
 -- A settled infection crisis no longer holds anyone: bystanders react once,
 -- the bitten companion follows only an outcome that asks something of them,
 -- the authorized executor acts, and a dead subject's crisis asks nothing.

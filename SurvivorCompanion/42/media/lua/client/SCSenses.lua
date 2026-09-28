@@ -747,14 +747,19 @@ local function directionalThreats(actor, threats, immediate)
     return sectors, occupied, closeCount, closeImmediateCount
 end
 
-local function playerCondition(player, threats)
+local function playerCondition(player, threats, actor)
     local U = util()
     if not player then return { available = false, danger = 0 } end
     local danger, immediate = 0, 0
-    for _, threat in ipairs(threats) do
-        local distanceSq = U.distanceSq(player, threat.actor)
-        if distanceSq <= 36 then danger = danger + (threat.attacking and 2 or 1) end
-        if distanceSq <= 4 then immediate = immediate + 1 end
+    -- An expedition leader is its own anchor. Zombies near it are already its
+    -- own close and immediate threats, not danger to someone it protects;
+    -- counting them here lifted a stealth leader's combat above its next leg.
+    if player ~= actor then
+        for _, threat in ipairs(threats) do
+            local distanceSq = U.distanceSq(player, threat.actor)
+            if distanceSq <= 36 then danger = danger + (threat.attacking and 2 or 1) end
+            if distanceSq <= 4 then immediate = immediate + 1 end
+        end
     end
     return {
         available = U.isValidActor(player),
@@ -765,6 +770,7 @@ local function playerCondition(player, threats)
         square = U.squareOf(player),
     }
 end
+Senses._playerConditionForTests = playerCondition
 
 local function nextScanOffsets(state, radius, squareBudget)
     return scans().nextOffsets(state, radius, squareBudget)
@@ -1281,7 +1287,7 @@ function Senses.snapshot(actor, player, runtime)
         -- previously populated, so outdoor and indoor idle were indistinct.
         indoors = actorRoomOk and actorRoom ~= nil,
     }
-    snapshot.player = playerCondition(player, threats)
+    snapshot.player = playerCondition(player, threats, actor)
     -- One derivation for both writers: a full scan and a reflex refresh must
     -- not disagree about the same facts. This also sets encircled, which no
     -- longer follows from an empty escape list plus two zombies anywhere in
@@ -1546,7 +1552,7 @@ function Senses.refreshImmediate(actor, player, snapshot, runtime)
     snapshot.heardThreats = heardThreats
     snapshot.heardThreatCount = #heardThreats
     snapshot.lastHeardDanger = heardThreats[1]
-    snapshot.player = playerCondition(player, threats)
+    snapshot.player = playerCondition(player, threats, actor)
     sampleThreatMotion(actor, state, threats, now)
     SC.CombatThreatModel.apply(snapshot, {
         immediateCount = immediateVisibleCount,

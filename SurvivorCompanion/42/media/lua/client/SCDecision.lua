@@ -604,7 +604,13 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         elseif commands.order == "base_duty" then
             if not bleeding then add("base_work", 58, false) end
         end
-        if commands.scavenge and threatCount == 0 and not bleeding
+        -- A companion with its own task (an expedition leader searching its
+        -- site) keeps looting while combat has just judged every zombie in
+        -- view out of reach. Encounter still refuses under attack or pressure.
+        local lootBesideUnreachable = ownTaskOrders[commands.order] == true
+            and onlyUnreachableThreats(actor, snapshot, current)
+        if commands.scavenge and (threatCount == 0 or lootBesideUnreachable)
+            and not bleeding
             and commands.order ~= "regroup"
             and commands.order ~= "retreat" then
             local scavengeScore = 32
@@ -1830,7 +1836,7 @@ end
 -- immediate attackers, encirclement and hostile humans keep the stationary
 -- hold. A badly wounded companion whose only emergency is its own health
 -- still follows: alone in an aiming hold is the worse place to be.
-local dutyFallbackRanks = { base_work = 3, tactical = 2, downtime = 1 }
+local dutyFallbackRanks = { base_work = 4, tactical = 3, scavenge = 2, downtime = 1 }
 function Decision._targetlessFollowCandidate(selected, failure, snapshot, candidates, commands)
     if failure ~= "no_credible_target" or type(selected) ~= "table"
         or selected.kind ~= "combat"
