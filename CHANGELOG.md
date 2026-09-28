@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.26.3 - Expedition destination admission playtest
+
+- Sending a squad to a map-selected building no longer runs a full loaded-tile route search on the UI button. The map footprint supplies an exterior direction; the moving leader checks the loaded approach on arrival and can choose a different side. A site that stays unreachable turns the squad home instead of starting Search inside an unverified building.
+- This removes the `approach_no_loaded_path` rejection for distant or temporarily unstreamed destinations. The existing departure stall and complete distant-return playtest checks remain open.
+
 ## 0.26.2 - Build 42.21 compatibility playtest
 
 - Retargeted the native bridge and mod metadata to Project Zomboid 42.21.0 after the new stable game patch. The bridge keeps its exact runtime and protocol checks so a 42.20.4 loader cannot be mixed with this build.

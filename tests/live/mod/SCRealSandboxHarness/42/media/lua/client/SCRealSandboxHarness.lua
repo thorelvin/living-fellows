@@ -10715,16 +10715,34 @@ local function probeTeamRadioKitCapture(current)
                 setPhase("finish", current)
                 return
             end
-            SC.UIExpeditions.onButton(detail,
-                { scExpeditionAction = "launch" })
+            local places = SC.ExpeditionPlaces
+            local loadedApproach = places.loadedApproach
+            local admissionPathCalls = 0
+            places.loadedApproach = function()
+                admissionPathCalls = admissionPathCalls + 1
+                return nil, "unexpected_send_loaded_path"
+            end
+            local clicked, clickFailure = pcall(SC.UIExpeditions.onButton,
+                detail, { scExpeditionAction = "launch" })
+            places.loadedApproach = loadedApproach
+            if not check("expedition_ui_send_has_no_full_path_search",
+                clicked and admissionPathCalls == 0,
+                "calls=" .. tostring(admissionPathCalls)
+                    .. " reason=" .. tostring(clickFailure)) then
+                setPhase("finish", current)
+                return
+            end
             local mission = SC.ExpeditionPrototype.current()
             if not check("expedition_ui_launch_selected_squad",
                 mission ~= nil and mission.leader.id == Harness.expeditionUiLeader.id
-                    and #mission.roster == 3
+                    and #mission.roster == Harness.expeditionUiExpectedMembers
                     and mission.scout ~= nil
                     and mission.scout.site.id == Harness.expeditionUiPlace.id
                     and mission.doctrine == "stealth",
-                "feedback=" .. tostring(detail.feedback)) then
+                "feedback=" .. tostring(detail.feedback)
+                    .. " members=" .. tostring(mission and #mission.roster)
+                    .. " expected=" .. tostring(
+                        Harness.expeditionUiExpectedMembers)) then
                 setPhase("finish", current)
                 return
             end
@@ -11313,6 +11331,16 @@ local function probeTeamRadioKitWait(current)
             return
         end
         local draft = root.detail.expeditionDraft
+        local expectedMembers = 0
+        for _, item in ipairs(root.roster and root.roster.items or {}) do
+            local row = item.item
+            if row and row.group == draft.group and row.recruited == true
+                and row.alive ~= false and row.available ~= false
+                and row.id and row.actor then
+                expectedMembers = expectedMembers + 1
+            end
+        end
+        Harness.expeditionUiExpectedMembers = expectedMembers
         local chosen
         for _, place in ipairs(draft and draft.places or {}) do
             local approach = SC.ExpeditionPlaces.loadedApproach(

@@ -485,7 +485,8 @@ end
 
 -- Draft reads have no gameplay effects. Requery at commit time so a stale
 -- building ID or a change from All nearby to Known only cannot bypass the
--- selected knowledge policy. The approach proves loaded exterior access only.
+-- selected knowledge policy. The map approach is a direction for local legs;
+-- the leader checks loaded exterior access when it reaches the building.
 function Expedition.placeCandidates()
     local player = type(getSpecificPlayer) == "function"
         and getSpecificPlayer(0) or nil
@@ -517,10 +518,11 @@ function Expedition.startAtPlace(records, placeId, kind, options)
     end
     if selected == nil then return false, "place_no_longer_selectable" end
     local lookup = SC.ExpeditionPlaces
-    if type(lookup.loadedApproach) ~= "function" then
+    if type(lookup.plannedApproach) ~= "function"
+        or type(lookup.loadedSiteApproach) ~= "function" then
         return false, "place_approach_unavailable"
     end
-    local approach, approachReason = lookup.loadedApproach(
+    local approach, approachReason = lookup.plannedApproach(
         selected, records[1].actor)
     if approach == nil then
         return false, approachReason or "place_approach_unavailable"
@@ -1531,6 +1533,42 @@ local function pulseScout()
         Expedition.clearTestWaypoint(leader)
         if SC.Navigation and type(SC.Navigation.cancel) == "function" then
             SC.Navigation.cancel(leader, "scout_stalled")
+        end
+    end
+    if scout.phase == "outbound" and scout.site ~= nil
+        and scout.siteApproachConfirmed ~= true then
+        local siteDistance = distanceToPoint(mission.leader.actor,
+            scout.destination)
+        if siteDistance <= 18 and now >= (scout.nextSiteCheckAt or 0) then
+            scout.nextSiteCheckAt = now + 3000
+            local places = SC.ExpeditionPlaces
+            local approach, approachReason
+            if places and type(places.loadedSiteApproach) == "function" then
+                approach, approachReason = places.loadedSiteApproach(
+                    scout.site.id, mission.leader.actor)
+            else
+                approachReason = "place_approach_unavailable"
+            end
+            if approach ~= nil then
+                scout.destination = { x = approach.x, y = approach.y,
+                    z = approach.z }
+                scout.siteApproachConfirmed = true
+                scout.siteApproachFailureAt = nil
+                scout.lastPlanFailure = nil
+                scout.firstPlanFailureAt = nil
+            else
+                scout.lastPlanFailure = approachReason
+                    or "approach_no_loaded_path"
+                scout.siteApproachFailureAt = scout.siteApproachFailureAt
+                    or now
+            end
+        end
+        if siteDistance <= 4 and scout.siteApproachConfirmed ~= true then
+            if scout.siteApproachFailureAt ~= nil
+                and now - scout.siteApproachFailureAt >= 30000 then
+                startReturnFromSite(scout, "site_unreachable")
+            end
+            return
         end
     end
     if scout.phase == "observing" then

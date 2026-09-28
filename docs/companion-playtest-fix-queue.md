@@ -1,5 +1,12 @@
 # Companion playtest fix queue
 
+## Send squad rejects a map-selected house
+
+- **Reported:** 2026-09-28 on Build 42.21.0. The Expeditions review showed a three-member Search for an unconfirmed house, but **Send squad** paused briefly and reported `approach_no_loaded_path` without starting.
+- **Cause:** Mission admission synchronously searched for a complete route from the leader to an exterior square beside the target. Map-derived targets can lie beyond loaded tiles, and short-leg expedition movement is designed to stream those tiles while walking. The path check could reject a valid mission before movement began.
+- **Change in 0.26.3:** Admission revalidates the selected map footprint and picks a bounded exterior direction without a route search. The leader travels in loaded local legs and rechecks a traversable exterior approach when near the building. It can switch sides; if no approach becomes reachable, it turns home with `site_unreachable` instead of claiming the site was searched.
+- **Evidence:** The core place and expedition restart harnesses pass with an unloaded target and a failed full path; the full core suite passed 47/47, and all nine project gate stages passed. In cloned live run `SC-Harness-20260928-185513-5f0a989a`, **Send squad** made zero full-path calls, launched the selected four-member squad, moved the leader about eight tiles, and the equipped radio's first action returned the team. The reporter's exact house and complete distant round trip remain to verify.
+
 ## Expedition departure path at the Riverside gas station
 
 - **Status:** Intermittent in cloned live runs; still open.

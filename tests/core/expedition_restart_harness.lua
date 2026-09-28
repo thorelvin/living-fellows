@@ -852,22 +852,31 @@ check(expedition.current() == nil
 worldHour = nil
 
 -- The player-facing place list is a read-only draft. Commit rechecks the
--- current sandbox knowledge pool and the leader's loaded exterior approach.
+-- current sandbox knowledge pool and the map-derived exterior direction.
 reserve.x, reserve.y = 23, 20
 local place = { id = "70:10:90:30", label = "Store",
     knowledge = "map_metadata_unconfirmed", street = "Oak St" }
 local placeVisible, approachReady = true, true
+local siteArrivalReady = false
 SC.ExpeditionPlaces = {
     targetableNearby = function(x, y, radius, limit)
         check(x == 20 and y == 20 and radius == 120 and limit == 32,
             "place selection reads the player's bounded nearby area")
         return placeVisible and { place } or {}
     end,
-    loadedApproach = function(candidate, actor)
+    plannedApproach = function(candidate, actor)
         check(candidate == place and actor == reserve,
-            "the selected leader rechecks the exact place approach")
-        if not approachReady then return nil, "approach_no_loaded_path" end
+            "the selected leader rechecks the exact place footprint")
+        if not approachReady then return nil, "approach_exterior_unavailable" end
         return { x = 80, y = 20, z = 0 }
+    end,
+    loadedSiteApproach = function(siteId, actor)
+        check(siteId == place.id and actor == reserve,
+            "the moving leader rechecks the selected building on arrival")
+        if not siteArrivalReady then
+            return nil, "approach_no_loaded_path"
+        end
+        return { x = 80, y = 19, z = 0 }
     end,
 }
 local beforePlaceDraft = promotions
@@ -884,9 +893,9 @@ check(placed == false and placeReason == "place_no_longer_selectable"
 placeVisible, approachReady = true, false
 placed, placeReason = expedition.startAtPlace(
     { { id = "delta", actor = reserve } }, place.id, "scout")
-check(placed == false and placeReason == "approach_no_loaded_path"
+check(placed == false and placeReason == "approach_exterior_unavailable"
         and promotions == beforePlaceDraft,
-    "a stale or blocked exterior route fails before assigning the team")
+    "a footprint without an exterior coordinate fails before assignment")
 approachReady = true
 placed, newMission = expedition.startAtPlace(
     { { id = "delta", actor = reserve } }, place.id, "scout",
@@ -894,7 +903,21 @@ placed, newMission = expedition.startAtPlace(
 check(placed and newMission.scout.destination.x == 80
         and newMission.scout.site.id == place.id
         and newMission.scout.site.knowledge == "map_metadata_unconfirmed",
-    "a verified exterior square starts the selected place Scout")
+    "a map exterior direction starts Scout before the destination is loaded")
+reserve.x, reserve.y = 78, 20
+expedition.pulse()
+check(newMission.scout.phase == "outbound"
+        and newMission.scout.siteApproachConfirmed ~= true,
+    "the team does not claim arrival while the site route is unavailable")
+siteArrivalReady = true
+scoutClock = scoutClock + 3000
+expedition.pulse()
+check(newMission.scout.destination.x == 80
+        and newMission.scout.destination.y == 19
+        and newMission.scout.siteApproachConfirmed == true
+        and newMission.scout.phase == "observing",
+    "the loaded arrival rechecks access and selects the reachable exterior")
+reserve.x, reserve.y = 23, 20
 local placedSave = expedition.export()
 check(placedSave.scout.site.street == "Oak St"
         and expedition.prepareReset() and expedition.reset()

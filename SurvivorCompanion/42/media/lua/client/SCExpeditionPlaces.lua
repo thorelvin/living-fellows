@@ -173,6 +173,68 @@ local function matchingBuildingAt(grid, place, x, y)
         and table.concat({ bx, by, bx2, by2 }, ":") == place.id
 end
 
+local function validBounds(place)
+    local bounds = type(place) == "table" and place.bounds or nil
+    if type(bounds) ~= "table" or not coordinate(bounds.x)
+        or not coordinate(bounds.y) or not coordinate(bounds.x2)
+        or not coordinate(bounds.y2) or bounds.x2 <= bounds.x
+        or bounds.y2 <= bounds.y or bounds.x2 - bounds.x > 80
+        or bounds.y2 - bounds.y > 80
+        or place.id ~= table.concat({ bounds.x, bounds.y,
+            bounds.x2, bounds.y2 }, ":") then
+        return nil
+    end
+    return bounds
+end
+
+-- A map footprint can be selected before its chunks are loaded. Pick the
+-- nearest exterior coordinate from that footprint without searching a route
+-- on the UI thread. The leader will validate the actual loaded approach when
+-- it reaches the site; this coordinate is only a direction for local legs.
+function Places.plannedApproach(place, actor)
+    local bounds = validBounds(place)
+    if bounds == nil then return nil, "invalid_place_reference" end
+    if place.groundFloor ~= true then
+        return nil, "place_without_ground_floor"
+    end
+    local source, sourceOk = call(actor, "getCurrentSquare")
+    local sourceX, xOk = call(source, "getX")
+    local sourceY, yOk = call(source, "getY")
+    if not sourceOk or source == nil or not xOk or not yOk
+        or not coordinate(sourceX) or not coordinate(sourceY) then
+        return nil, "approach_source_unavailable"
+    end
+    local world = type(getWorld) == "function" and getWorld() or nil
+    local grid, gridOk = call(world, "getMetaGrid")
+    if not gridOk or grid == nil then
+        return nil, "approach_world_unavailable"
+    end
+    local best, bestDistance
+    local function consider(x, y, insideX, insideY, side)
+        if x < 0 or y < 0 or x > 30000 or y > 30000
+            or not matchingBuildingAt(grid, place, insideX, insideY) then
+            return
+        end
+        local distance = (sourceX - x)^2 + (sourceY - y)^2
+        if bestDistance == nil or distance < bestDistance then
+            bestDistance = distance
+            best = { x = x, y = y, z = 0,
+                buildingId = place.id, side = side,
+                scope = "map_exterior_pending" }
+        end
+    end
+    for y = bounds.y, bounds.y2 do
+        consider(bounds.x - 1, y, bounds.x, y, "west")
+        consider(bounds.x2 + 1, y, bounds.x2, y, "east")
+    end
+    for x = bounds.x, bounds.x2 do
+        consider(x, bounds.y - 1, x, bounds.y, "north")
+        consider(x, bounds.y2 + 1, x, bounds.y2, "south")
+    end
+    if best == nil then return nil, "approach_exterior_unavailable" end
+    return best
+end
+
 local function addCandidate(candidates, grid, cell, place, x, y, side,
         sourceX, sourceY)
     if x < 0 or y < 0 or x > 30000 or y > 30000 then return end
@@ -196,18 +258,10 @@ end
 
 -- A path to an outdoor square beside the building is a site approach, not
 -- proof that a door opens or that interior containers can be reached.
--- Recheck immediately before departure; streamed squares and barriers change.
+-- Recheck when the leader streams the site; barriers can change en route.
 function Places.loadedApproach(place, actor)
-    local bounds = type(place) == "table" and place.bounds or nil
-    if type(bounds) ~= "table" or not coordinate(bounds.x)
-        or not coordinate(bounds.y) or not coordinate(bounds.x2)
-        or not coordinate(bounds.y2) or bounds.x2 <= bounds.x
-        or bounds.y2 <= bounds.y or bounds.x2 - bounds.x > 80
-        or bounds.y2 - bounds.y > 80
-        or place.id ~= table.concat({ bounds.x, bounds.y,
-            bounds.x2, bounds.y2 }, ":") then
-        return nil, "invalid_place_reference"
-    end
+    local bounds = validBounds(place)
+    if bounds == nil then return nil, "invalid_place_reference" end
     if place.groundFloor ~= true then
         return nil, "place_without_ground_floor"
     end
@@ -281,6 +335,19 @@ function Places.loadedApproach(place, actor)
         end
     end
     return nil, "approach_no_loaded_path"
+end
+
+-- Saved site descriptions retain the footprint ID but not the draft-only
+-- bounds. Rebuild those bounds for the final, loaded arrival check.
+function Places.loadedSiteApproach(siteId, actor)
+    if type(siteId) ~= "string" then
+        return nil, "invalid_place_reference"
+    end
+    local x, y, x2, y2 = siteId:match("^(%d+):(%d+):(%d+):(%d+)$")
+    local place = { id = siteId, groundFloor = true,
+        bounds = { x = tonumber(x), y = tonumber(y),
+            x2 = tonumber(x2), y2 = tonumber(y2) } }
+    return Places.loadedApproach(place, actor)
 end
 
 local function seenInterior(place, grid, cell)

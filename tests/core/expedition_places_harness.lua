@@ -59,14 +59,25 @@ local source = {
     getRoom = function() return nil end,
 }
 local actor = { getCurrentSquare = function() return source end }
+local planned, plannedReason = Places.plannedApproach(nearby[1], actor)
+check(planned ~= nil and plannedReason == nil
+        and planned.x == 19 and planned.y == 25
+        and planned.scope == "map_exterior_pending",
+    "map footprint gives the leader a direction without a route search")
 local approach, approachReason = Places.loadedApproach(nearby[1], actor)
 check(approach ~= nil and approachReason == nil
         and approach.x == 19 and approach.y == 25
         and approach.side == "west" and approach.pathNodes == 2
         and approach.scope == "loaded_exterior_only",
     "approach uses a native path to a loaded square beside the building")
+local restoredApproach = Places.loadedSiteApproach(nearby[1].id, actor)
+check(restoredApproach ~= nil and restoredApproach.x == 19,
+    "arrival can recheck exterior access from a saved site ID")
 local originalFindPath = SurvivorCompanion.Navigation.findPath
 SurvivorCompanion.Navigation.findPath = function() return nil end
+planned, plannedReason = Places.plannedApproach(nearby[1], actor)
+check(planned ~= nil and plannedReason == nil and planned.x == 19,
+    "a distant place stays selectable when no complete loaded path exists")
 approach, approachReason = Places.loadedApproach(nearby[1], actor)
 check(approach == nil and approachReason == "approach_no_loaded_path",
     "an inaccessible exterior square does not become a destination")
@@ -75,6 +86,9 @@ local originalGetCell = fixture.world.getCell
 fixture.world.getCell = function() return {
     getGridSquare = function() return nil end,
 } end
+planned, plannedReason = Places.plannedApproach(nearby[1], actor)
+check(planned ~= nil and plannedReason == nil and planned.x == 19,
+    "an unstreamed target retains its map-derived exterior direction")
 approach, approachReason = Places.loadedApproach(nearby[1], actor)
 check(approach == nil and approachReason == "approach_exterior_unavailable",
     "unloaded site edges do not count as an available approach")
@@ -83,6 +97,10 @@ approach, approachReason = Places.loadedApproach({ bounds = nearby[1].bounds,
     id = "wrong-building" }, actor)
 check(approach == nil and approachReason == "invalid_place_reference",
     "a stale or mismatched building reference is rejected")
+planned, plannedReason = Places.plannedApproach({ bounds = nearby[1].bounds,
+    id = "wrong-building", groundFloor = true }, actor)
+check(planned == nil and plannedReason == "invalid_place_reference",
+    "map planning also rejects a stale building reference")
 local basement = Places.describeBuilding({
     getX = function() return 20 end,
     getY = function() return 20 end,
@@ -96,6 +114,9 @@ approach, approachReason = Places.loadedApproach(basement, actor)
 check(basement.groundFloor == false and approach == nil
         and approachReason == "place_without_ground_floor",
     "a basement-only footprint cannot be offered as a surface approach")
+planned, plannedReason = Places.plannedApproach(basement, actor)
+check(planned == nil and plannedReason == "place_without_ground_floor",
+    "map planning excludes basement-only footprints")
 local known, knownReason = Places.knownNearby(20, 20, 120, 8)
 check(known ~= nil and knownReason == nil and #known == 1
         and known[1].kind == "police"
