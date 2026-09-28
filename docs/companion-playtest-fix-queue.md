@@ -1,5 +1,13 @@
 # Companion playtest fix queue
 
+## Companions speak rarely during ordinary play
+
+- **Reported:** 2026-09-28 after the chair playtest. The latest user `console.txt` is a 0.26.2 session, so it predates this fix and the local 0.26.3 chair install.
+- **Finding:** The session shows 544 scavenging and 88 downtime log lines, including completed sitting and looting. This does not indicate a global activity state stall. Ambient speech ran after `holdOwnedActivityOrPacing`, which returns early for owned work, and `ambientPulse` itself rejected any active action. Banter also excluded supervised companions from place remarks and had no routine speech for them. Existing ambient topics only cover morning, dusk, rain, and fog, so a quiet clear day offers few lines. Ordinary speech is not logged, so its exact frequency cannot be reconstructed from this console file.
+- **Change:** Allow speech-only ambient and place remarks while a companion works or rests; keep conversations that turn or position actors restricted to idle companions. Add a calm, nearby routine remark at most every 90 seconds per party while someone has an owned activity, subject to the existing 20-second flavor gap and 15-second speaker quiet time. Give the background banter task a 5-second overdue priority so it can run under sustained scheduler load without altering the 2 ms frame budget.
+- **Verification:** The gameplay harness covers ambient speech with a downtime owner, bounded routine speech during scavenging, threat suppression, and no movement side effect. A visible playtest is still needed to judge the actual frequency and tone.
+- **Other log findings:** One scheduled persistence capture exceeded its deadline; the prior complete document was retained. Scavenge repeatedly selected a container then returned `nothing_needed`, and several routes failed with static or dynamic blockers; one wash attempt failed at commit. ZombieBuddy also throws a startup settings exception because its global is unavailable. These are separate from the speech gates and remain open for focused follow-up.
+
 ## Send squad rejects a map-selected house
 
 - **Reported:** 2026-09-28 on Build 42.21.0. The Expeditions review showed a three-member Search for an unconfirmed house, but **Send squad** paused briefly and reported `approach_no_loaded_path` without starting.

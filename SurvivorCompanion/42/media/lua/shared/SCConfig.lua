@@ -826,6 +826,7 @@ local valueData = {
     banterPulseIntervalMs = 1000,
     banterSpeakerQuietMs = 15000,
     flavorPartySpeechGapMs = 20000,
+    routineBanterIntervalMs = 90000,
     -- Autonomous combat refusals only speak when overrun begins, then face a
     -- much longer actor cooldown than ordinary banter. The decision is always
     -- deterministic; chance governs speech only.

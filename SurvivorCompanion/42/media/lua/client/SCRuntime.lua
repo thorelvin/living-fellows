@@ -1024,7 +1024,7 @@ local function registerTasks()
         { "community", SC.Config.get("communityPulseIntervalMs"), 17,
             communityTask, "background" },
         { "banter", SC.Config.get("banterPulseIntervalMs"), 16,
-            banterTask, "background" },
+            banterTask, "background", false, false, 5000 },
         { "gestures", SC.Config.get("gesturesPulseIntervalMs"), 15,
             gesturesTask, "background" },
         { "diary", SC.Config.get("diaryPulseIntervalMs"), 14,

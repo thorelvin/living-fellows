@@ -386,6 +386,25 @@ local POOLS = {
         caring = { "This isn't worth losing someone over. I'm coming back." },
         practical = { "Overall risk is too high. Withdrawing." },
     },
+    ["banter.routine"] = {
+        common = {
+            "Keep an ear on the doors. I'll mind this side.",
+            "Quiet places make me listen harder.",
+            "Somebody used to have a normal day here.",
+            "If you see trouble first, say it plain.",
+            "We have time. Let's use it carefully.",
+            "The road outside looks calm. I don't trust it yet.",
+            "I'll keep looking. You keep watch.",
+            "No need to rush into a bad surprise.",
+            "If we split up, keep your voice low and close.",
+            "Funny how a room can feel crowded with nobody in it.",
+        },
+        brave = { "I'm still here. Whatever comes through, we'll handle it." },
+        cautious = { "I keep checking the exits. Habit now." },
+        caring = { "You holding up? You don't have to answer right away." },
+        practical = { "We should count what we carry before moving on." },
+        steady = { "Nothing moving nearby. Let's keep it that way." },
+    },
     ["banter.idle.first"] = {
         common = {
             "If you're waiting for a sign, this is it. It says 'beans'.",
@@ -861,6 +880,7 @@ local function freshParty()
         lastRefusalAt = -math.huge,
         lastPlaceAt = -math.huge,
         lastJokeAt = -math.huge,
+        lastRoutineAt = -math.huge,
         idle = nil,
         placeKeys = {},
         placeKeyCount = 0,
@@ -956,8 +976,9 @@ local function professionOf(commands)
     return (string.gsub(value, "[^%w]", ""))
 end
 
--- A recruited, calm, idle companion near the player that has not just spoken.
-local function available(record, player, current, radius)
+-- Speech-only observations can coexist with an owned action. Exchanges that
+-- face or move actors still require an idle speaker.
+local function available(record, player, current, radius, speechOnly)
     local actor = type(record) == "table" and record.actor or nil
     local utility = U()
     if actor == nil or not utility.isValidActor(actor) or utility.isDead(actor) then return nil end
@@ -967,7 +988,8 @@ local function available(record, player, current, radius)
     if not utility.sameFloor(actor, player) or utility.distance(actor, player) > radius then
         return nil
     end
-    if SC.ActionSupervisor and type(SC.ActionSupervisor.current) == "function"
+    if not speechOnly and SC.ActionSupervisor
+        and type(SC.ActionSupervisor.current) == "function"
         and SC.ActionSupervisor.current(actor) ~= nil then return nil end
     local spokenAt = lastSpokenAt(actor)
     if spokenAt and current - spokenAt < config("banterSpeakerQuietMs", 15000) then return nil end
@@ -1656,7 +1678,7 @@ local function placePulse(player, records, current)
     local lines = PLACE_LINES[group] or {}
     local best, bestCommands, bestTopic, bestScore
     for _, record in ipairs(records or {}) do
-        local commands = available(record, player, current, radius)
+        local commands = available(record, player, current, radius, true)
         if commands and not placeSeen(record.actor, commands, group)
             and (building == nil or buildingOf(utility.squareOf(record.actor)) == building) then
             local profession = professionOf(commands)
@@ -1679,6 +1701,41 @@ local function placePulse(player, records, current)
     party.lastPlaceAt = current
     party.lastFlavorAt = current
     return true, bestTopic
+end
+
+-- Ordinary work and downtime used to silence the whole party because their
+-- supervisor tokens never released long enough for idle banter. This is only
+-- overhead speech: it never touches that activity, facing, path or posture.
+local function routinePulse(player, records, current)
+    if current - party.lastRoutineAt
+        < config("routineBanterIntervalMs", 90000) then
+        return false, "routine_cooldown"
+    end
+    if not budgetAllows(current) then return false, "flavor_budget" end
+    local supervisor = SC.ActionSupervisor
+    if not supervisor or type(supervisor.current) ~= "function" then
+        return false, "routine_owner_unavailable"
+    end
+    local best, bestCommands, oldest
+    for _, record in ipairs(records or {}) do
+        local actor = record.actor
+        local commands = available(record, player, current,
+            config("ambientDialogueDistance", 10), true)
+        if commands and supervisor.current(actor) ~= nil then
+            local prior = actorState(actor).lastRoutineAt or -math.huge
+            if best == nil or prior < oldest then
+                best, bestCommands, oldest = actor, commands, prior
+            end
+        end
+    end
+    if best == nil then return false, "routine_no_speaker" end
+    if not speak(best, "banter.routine", bestCommands) then
+        return false, "routine_speech_rejected"
+    end
+    party.lastRoutineAt = current
+    party.lastFlavorAt = current
+    actorState(best).lastRoutineAt = current
+    return true, "banter.routine"
 end
 
 -- ---------------------------------------------------------------------------
@@ -1710,7 +1767,11 @@ function Banter.update(player, records, current)
     if placed then return true, placeReason end
     local chatted, chatReason = campConversationPulse(player, records, current)
     if chatted then return true, chatReason end
-    return jokePulse(player, records, current, idle, inVehicle)
+    local joked, jokeReason = jokePulse(player, records, current, idle, inVehicle)
+    if joked then return true, jokeReason end
+    local remarked, routineReason = routinePulse(player, records, current)
+    if remarked then return true, routineReason end
+    return false, jokeReason or routineReason
 end
 
 function Banter.reset(actor)

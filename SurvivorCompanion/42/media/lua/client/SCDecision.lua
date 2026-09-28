@@ -2438,6 +2438,14 @@ function Decision.update(actor, player, runtime, roundTimestamp)
             actor, player, snapshot, commands, assessment, current)
     end
 
+    -- World observations only add a line to this actor's ChatElement. Run
+    -- them before an owned scavenge or downtime action returns early; those
+    -- activities occupy most calm play and must not silence nearby speakers.
+    if SC.Dialogue and type(SC.Dialogue.ambientPulse) == "function" then
+        utility.safeSubsystem("ambient-dialogue", actor,
+            SC.Dialogue.ambientPulse, actor, player, snapshot, commands, current)
+    end
+
     -- A completed hit may remove the final perceived threat before the native
     -- swing exits. Keep that animation owner even though evaluate() would no
     -- longer propose combat. Actionable critical medicine and native hit reactions
@@ -2489,10 +2497,6 @@ function Decision.update(actor, player, runtime, roundTimestamp)
             state.lastHandledAt = current
             return true, state.intent
         end
-    end
-    if SC.Dialogue and type(SC.Dialogue.ambientPulse) == "function" then
-        utility.safeSubsystem("ambient-dialogue", actor,
-            SC.Dialogue.ambientPulse, actor, player, snapshot, commands, current)
     end
     local candidates = profiledDecisionPhase("evaluate", actor, evaluate,
         actor, player, snapshot, commands, assessment, needs, state, current)

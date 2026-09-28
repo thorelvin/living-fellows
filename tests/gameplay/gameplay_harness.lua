@@ -15031,6 +15031,12 @@ do
     local quiet = { threats = {}, immediateAttackers = {}, threatCount = 0,
         immediateCount = 0, pressure = 0, player = { danger = 0 } }
     local commands = SurvivorCompanion.Commands.peek(fellow)
+    local supervisor = SurvivorCompanion.ActionSupervisor
+    local savedOwner = supervisor.current
+    supervisor.current = function(value)
+        if value == fellow then return { owner = "downtime", action = "sit" } end
+        return savedOwner(value)
+    end
     local function speakAmbient()
         local spoken, topic, line = Dialogue.ambientPulse(
             fellow, player, quiet, commands, clock)
@@ -15051,6 +15057,7 @@ do
     local fog, fogTopic = speakAmbient()
     clock = clock + 2
     local duplicate, duplicateReason = speakAmbient()
+    supervisor.current = savedOwner
     check(morning and morningTopic == "ambient.morning"
             and dusk and duskTopic == "ambient.dusk"
             and rain and rainTopic == "ambient.rain"
@@ -18589,6 +18596,34 @@ end)()
     banter.reset()
     local calmSnapshot = { threats = {}, threatCount = 0, immediateCount = 0, pressure = 0,
         player = { danger = 0 } }
+    local working = recruit("sc-banter-working", 2, 1)
+    local workRecords = { { actor = working, runtime = { snapshot = calmSnapshot } } }
+    local supervisor = SurvivorCompanion.ActionSupervisor
+    local savedOwner = supervisor.current
+    supervisor.current = function(value)
+        if value == working then return { owner = "scavenge", action = "loot" } end
+        return savedOwner(value)
+    end
+    local workAt = t0 + 100000
+    clock = workAt
+    local movementBefore = working.movementCalls
+    local workSpoken, workTopic = banter.update(player, workRecords, workAt)
+    clock = workAt + 10000
+    local workEarly = banter.update(player, workRecords, clock)
+    clock = workAt + 90000
+    local workAgain, workAgainTopic = banter.update(player, workRecords, clock)
+    workRecords[1].runtime.snapshot = { threats = {}, threatCount = 1,
+        immediateCount = 0, pressure = 0, player = { danger = 0 } }
+    clock = workAt + 180000
+    local workUnsafe = banter.update(player, workRecords, clock)
+    supervisor.current = savedOwner
+    check(workSpoken and workTopic == "banter.routine" and not workEarly
+            and workAgain and workAgainTopic == "banter.routine" and not workUnsafe
+            and working.movementCalls == movementBefore
+            and dialogue.poolSize("banter.routine", working, {}) >= 11,
+        "a calm companion may speak during owned work at a bounded cadence without moving or talking through danger")
+
+    banter.reset()
     local idler = recruit("sc-banter-idler", 2, 1)
     local records = { { actor = idler, runtime = { snapshot = calmSnapshot } } }
     local savedX, savedY = player.worldX, player.worldY

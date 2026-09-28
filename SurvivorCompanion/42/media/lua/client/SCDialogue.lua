@@ -2481,9 +2481,6 @@ function Dialogue.ambientPulse(actor, player, snapshot, suppliedCommands, curren
         < (utility.config("ambientDialogueGroupCooldownMs") or 30000) then
         return false, "ambient_group_cooldown"
     end
-    if SC.ActionSupervisor and type(SC.ActionSupervisor.current) == "function"
-        and SC.ActionSupervisor.current(actor) ~= nil then return false, "ambient_action_owned" end
-
     local hour, day, rain, fog = ambientWorldState()
     local candidate = ambientTopic(runtime, hour, day, rain, fog)
     if not candidate then return false, "ambient_nothing_new" end
