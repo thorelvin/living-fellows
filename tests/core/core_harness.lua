@@ -901,7 +901,13 @@ function vehicle:getMaxPassengers() return 3 end
 function vehicle:isSeatInstalled(seat) return seat == 1 end
 function vehicle:isSeatOccupied() return false end
 function vehicle:getCurrentSpeedKmHour() return self.speed end
+-- The native method takes a Java int seat; nil fails to unbox and throws.
+local nilSeatQueries = 0
 function vehicle:getEnterSeatDistance(seat, x, y)
+    if seat == nil then
+        nilSeatQueries = nilSeatQueries + 1
+        error("getEnterSeatDistance: seat cannot be nil")
+    end
     if seat ~= 1 then return -1 end
     return (x - 1.5) * (x - 1.5) + (y - 0.5) * (y - 0.5)
 end
@@ -1211,6 +1217,39 @@ local restored, remaining = SC.Vehicle.restoreForVehicle(vehicle, manifestPlayer
 SC.Persistence.restoreAt = realRestoreAt
 check(restored == 0 and remaining == 1,
     "a temporary restore failure leaves the passenger stored and reports it as remaining, so the runtime retries the exit instead of consuming it")
+SC.Vehicle.reset()
+end
+
+do
+-- 0.26.1 sent every car exit through the native door check with a nil seat:
+-- one logged engine exception per nearby tile, and no tile ever qualified, so
+-- a stored passenger could not be placed at all.
+nilSeatQueries = 0
+local tileLookups = 0
+local realGridSquare = vehicleCell.getGridSquare
+vehicleCell.getGridSquare = function(...)
+    tileLookups = tileLookups + 1
+    return realGridSquare(...)
+end
+local noneRestored, noneRemaining = SC.Vehicle.restoreForVehicle(vehicle, manifestPlayer)
+vehicleCell.getGridSquare = realGridSquare
+check(noneRestored == 0 and noneRemaining == 0 and nilSeatQueries == 0 and tileLookups == 0,
+    "leaving a car with nobody stored in it searches no tiles and asks the native door check nothing")
+check(SC.Vehicle.importStored({
+        id = "sc-vseat-place",
+        vehicle = { stored = true, vehicle = { id = vehicle.id, script = vehicle.script },
+            seat = 2 },
+    }) == true, "a stored passenger awaits placement beside its car")
+local placedAt
+local realRestoreAt = SC.Persistence.restoreAt
+SC.Persistence.restoreAt = function(_, square)
+    placedAt = square
+    return {}, "restored"
+end
+local restored, remaining = SC.Vehicle.restoreForVehicle(vehicle, manifestPlayer)
+SC.Persistence.restoreAt = realRestoreAt
+check(restored == 1 and remaining == 0 and placedAt ~= nil and nilSeatQueries == 0,
+    "a stored passenger is placed on a loaded tile beside the car without a nil-seat door query")
 SC.Vehicle.reset()
 end
 

@@ -240,7 +240,10 @@ local function coordinates(value)
     return finite(x, nil), finite(y, nil), zOk and finite(z, 0) or 0
 end
 
+-- getEnterSeatDistance takes a Java int seat. A nil seat throws inside the
+-- game, and the engine logs each throw even though the call is protected.
 local function doorDistanceSquared(vehicle, seat, x, y)
+    if type(seat) ~= "number" then return nil end
     local ok, distance = invoke(vehicle, "getEnterSeatDistance", seat, x, y)
     distance = ok and finite(distance, -1) or -1
     return distance >= 0 and distance or nil
@@ -648,11 +651,21 @@ local function nearbyVehicleSquares(vehicle, seat, actor)
                     -- standing character occupies its center.
                     squareX, squareY = math.floor(squareX) + 0.5, math.floor(squareY) + 0.5
                 end
-                local doorDistance = doorDistanceSquared(vehicle, seat, squareX, squareY)
                 -- Only offer tiles from which native entry can actually pass
                 -- preflight. The closest tile may sit inside the car collision
                 -- polygon or behind an obstacle; Navigation can try the rest.
-                if doorDistance ~= nil and doorDistance <= boardRange then
+                -- A stored passenger placed beside the car has no seat to
+                -- enter, so its tiles rank by distance from the car instead.
+                local doorDistance
+                if seat ~= nil then
+                    doorDistance = doorDistanceSquared(vehicle, seat, squareX, squareY)
+                    if doorDistance ~= nil and doorDistance > boardRange then
+                        doorDistance = nil
+                    end
+                else
+                    doorDistance = dx * dx + dy * dy
+                end
+                if doorDistance ~= nil then
                     local actorDistance = actorX
                         and ((squareX - actorX) ^ 2 + (squareY - actorY) ^ 2) or 0
                     candidates[#candidates + 1] = {
@@ -1015,6 +1028,9 @@ function vehicleService.restoreForVehicle(vehicle, player)
     if SC.Persistence == nil or type(SC.Persistence.restoreAt) ~= "function" then
         return 0, storedRemainingForKey(key)
     end
+    -- Every exit from a car runs this; only search for tiles when someone
+    -- stored in this car is actually waiting to be placed.
+    if storedRemainingForKey(key) == 0 then return 0, 0 end
     local square = exitSquare(vehicle, player, nil)
     -- No safe loaded exit square is a temporary condition: leave the passengers
     -- stored and report how many still await placement so the caller retries.
