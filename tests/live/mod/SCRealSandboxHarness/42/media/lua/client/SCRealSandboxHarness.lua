@@ -4425,6 +4425,10 @@ local function beginLeaderSlotProbe(current)
         Harness.probeAutonomousSearchResumeStart(current)
         return
     end
+    if Harness.config.team_road_restart_resume_probe == "true" then
+        Harness.probeRoadRestartResumeStart(current)
+        return
+    end
     local records = SC.Registry.records()
     if #records < 4 and Harness.config.team_loot_verify_only ~= "true" then
         if current - Harness.phaseStartedAt < 25000 then return end
@@ -4613,6 +4617,9 @@ local function beginLeaderSlotProbe(current)
         end
         local plan
         if Harness.config.team_autonomous_scout_probe == "true" then
+            if Harness.config.team_road_route_probe == "true" then
+                SC.Config._overrides.expeditionRoadRoutingEnabled = true
+            end
             if Harness.config.team_known_place_scout_probe == "true"
                 or Harness.config.team_unvisited_place_scout_probe == "true" then
                 local places = SC.ExpeditionPlaces
@@ -4683,9 +4690,11 @@ local function beginLeaderSlotProbe(current)
             else
                 local x, y = position(chosen.actor)
                 plan = { kind = "scout", destination = {
-                    x = math.floor(x) + 85, y = math.floor(y),
+                    x = math.floor(x) + (Harness.config.team_road_route_probe
+                        == "true" and 180 or 85), y = math.floor(y),
                     z = math.floor(chosen.actor:getZ()),
-                } }
+                }, travelMode = Harness.config.team_road_route_probe
+                    == "true" and "road" or "straight" }
             end
         elseif Harness.config.team_autonomous_search_probe == "true" then
             if Harness.config.team_unvisited_interior_search_probe == "true" then
@@ -7998,7 +8007,17 @@ function Harness.probeAutonomousScout(current)
             + (y - Harness.autonomousStartY)^2)
         or x - Harness.autonomousStartX
     Harness.autonomousFarthest = math.max(Harness.autonomousFarthest or 0, progress)
-    if step >= 0.2 then Harness.autonomousLastProgressAt = current end
+    if Harness.autonomousProgressAnchorX == nil then
+        Harness.autonomousProgressAnchorX = x
+        Harness.autonomousProgressAnchorY = y
+    end
+    local anchorX = Harness.autonomousProgressAnchorX
+    local anchorY = Harness.autonomousProgressAnchorY
+    if math.sqrt((x - anchorX)^2 + (y - anchorY)^2) >= 0.5 then
+        Harness.autonomousLastProgressAt = current
+        Harness.autonomousProgressAnchorX = x
+        Harness.autonomousProgressAnchorY = y
+    end
     local gap = 0
     for index = 2, #Harness.team do
         local member = Harness.team[index].actor
@@ -8054,6 +8073,32 @@ function Harness.probeAutonomousScout(current)
                     .. tostring(mission.testWaypoint and mission.testWaypoint.y)
                 .. " return_index=" .. tostring(scout and scout.returnIndex)
                 .. " replans=" .. tostring(scout and scout.replans))
+        setPhase("finish", current)
+        return
+    end
+    if Harness.config.team_road_restart_stage_only == "true"
+        and scout.phase == "inbound"
+        and x <= scout.destination.x - 18 then
+        local saved, document = SC.Runtime.save()
+        local descriptor = saved and document and document.expedition
+        check("road_restart_stage_active_descriptor",
+            saved == true and descriptor ~= nil
+                and descriptor.schema == 5
+                and descriptor.scout.phase == "inbound"
+                and descriptor.scout.road ~= nil
+                and descriptor.scout.road.phase == "inbound"
+                and #descriptor.roster == 4,
+            "saved=" .. tostring(saved)
+                .. " schema=" .. tostring(descriptor and descriptor.schema)
+                .. " phase=" .. tostring(descriptor and descriptor.scout
+                    and descriptor.scout.phase))
+        if not saved or descriptor == nil or descriptor.schema ~= 5 then
+            setPhase("finish", current) return
+        end
+        local cleared, why = SC.Runtime.onMainMenuEnter()
+        check("road_restart_stage_native_flush",
+            cleared == true and getSpecificPlayer(1) == nil,
+            "flushed=" .. tostring(cleared) .. " reason=" .. tostring(why))
         setPhase("finish", current)
         return
     end
@@ -8130,6 +8175,84 @@ function Harness.probeAutonomousScout(current)
                 .. " legs=" .. tostring(scout.legs)
                 .. " follower_gap=" .. tostring(gap))
         Harness.autonomousLastPhase = scout.phase
+    end
+end
+
+function Harness.probeRoadRestartResumeStart(current)
+    local SC = SurvivorCompanion
+    local document = SC.Persistence.lastDocument()
+    local mission = SC.ExpeditionPrototype.current()
+    local ready = document and mission and mission.restoring ~= true
+        and mission.leader and mission.leader.actor
+        and getSpecificPlayer(1) == mission.leader.actor
+    if not ready and current - Harness.phaseStartedAt < 25000 then return end
+    local descriptor = document and document.expedition
+    check("road_restart_resume_descriptor",
+        ready and descriptor.schema == 5
+            and descriptor.scout.phase == "inbound"
+            and descriptor.scout.road ~= nil
+            and mission.scout and mission.scout.phase == "inbound"
+            and #mission.roster == 4,
+        "ready=" .. tostring(ready)
+            .. " schema=" .. tostring(descriptor and descriptor.schema)
+            .. " phase=" .. tostring(mission and mission.scout
+                and mission.scout.phase))
+    if not ready or descriptor.schema ~= 5 then
+        setPhase("finish", current) return
+    end
+    Harness.team = mission.roster
+    Harness.leader = mission.leader.actor
+    Harness.leaderId = mission.leader.id
+    Harness.roadResumeStartedAt = current
+    Harness.roadResumeStartX, Harness.roadResumeStartY =
+        position(Harness.leader)
+    Harness.roadResumeLastX, Harness.roadResumeLastY =
+        Harness.roadResumeStartX, Harness.roadResumeStartY
+    Harness.roadResumeMaxStep = 0
+    setPhase("team_road_restart_resume", current)
+end
+
+function Harness.probeRoadRestartResume(current)
+    local SC = SurvivorCompanion
+    local mission = SC.ExpeditionPrototype.current()
+    local x, y = position(Harness.leader)
+    local step = x and Harness.roadResumeLastX and math.sqrt(
+        (x - Harness.roadResumeLastX)^2
+        + (y - Harness.roadResumeLastY)^2) or 0
+    Harness.roadResumeMaxStep = math.max(Harness.roadResumeMaxStep, step)
+    Harness.roadResumeLastX, Harness.roadResumeLastY = x, y
+    if mission and mission.technicalIssue then
+        result("FAIL", "road_restart_resume_technical_issue",
+            tostring(mission.technicalIssue.reason)
+                .. " leader=" .. tostring(x) .. "," .. tostring(y))
+        setPhase("finish", current) return
+    end
+    if mission == nil then
+        check("road_restart_resume_returned",
+            SC.ExpeditionPrototype.lastOutcome() == "returned"
+                and #Harness.team == 4
+                and getSpecificPlayer(1) == nil
+                and x and y
+                and math.abs(x - Harness.playerX) <= 12
+                and math.abs(y - Harness.playerY) <= 12
+                and Harness.roadResumeMaxStep < 3,
+            "outcome=" .. tostring(SC.ExpeditionPrototype.lastOutcome())
+                .. " leader=" .. tostring(x) .. "," .. tostring(y)
+                .. " max_step=" .. tostring(Harness.roadResumeMaxStep))
+        setPhase("finish", current) return
+    end
+    if current >= (Harness.roadResumeNextTraceAt or 0) then
+        result("PASS", "road_restart_resume_progress",
+            "leader=" .. tostring(x) .. "," .. tostring(y)
+                .. " legs=" .. tostring(mission.scout.legs)
+                .. " route_index=" .. tostring(mission.scout.roadRoute
+                    and mission.scout.roadRoute.index))
+        Harness.roadResumeNextTraceAt = current + 30000
+    end
+    if current - Harness.roadResumeStartedAt > 650000 then
+        result("FAIL", "road_restart_resume_timeout",
+            "leader=" .. tostring(x) .. "," .. tostring(y))
+        setPhase("finish", current)
     end
 end
 
@@ -12275,6 +12398,7 @@ local function tick()
                     or Harness.phase == "team_corpse_stream_death_wait"
                     or Harness.phase == "team_waypoint_wait"))
             or Harness.phase == "team_autonomous_scout"
+            or Harness.phase == "team_road_restart_resume"
             or Harness.phase == "team_autonomous_search") then
         Harness.maintainBuildingQuietFixture(current)
     end
@@ -12609,6 +12733,8 @@ local function tick()
         Harness.probeAutonomousSearch(current)
     elseif Harness.phase == "team_autonomous_search_resume" then
         Harness.probeAutonomousSearchResume(current)
+    elseif Harness.phase == "team_road_restart_resume" then
+        Harness.probeRoadRestartResume(current)
     elseif Harness.phase == "team_extended_route_stage" then
         Harness.probeExtendedRouteStage(current)
     elseif Harness.phase == "team_corpse_stream_death_wait" then

@@ -463,6 +463,10 @@ public final class SCNativeApiSignatureTest {
         require(method(survivorcompanion.bridge.SCBridge.class, "nearestStreet", Object.class,
                         double.class, double.class, double.class).getReturnType() == String.class,
                 "Kahlua-visible nearest-street bridge signature changed");
+        require(method(survivorcompanion.bridge.SCBridge.class, "planRoadRoute", Object.class,
+                        double.class, double.class, double.class, double.class,
+                        se.krka.kahlua.vm.KahluaTable.class).getReturnType() == boolean.class,
+                "Kahlua-visible road route bridge signature changed");
         require(method(worldMapBaseSymbol, "setAnchor", float.class, float.class).getReturnType()
                         == void.class
                         && method(worldMapBaseSymbol, "setRGBA", float.class, float.class,

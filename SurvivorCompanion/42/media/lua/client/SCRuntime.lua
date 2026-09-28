@@ -30,6 +30,7 @@ require "SCCommunity"
 require "SCQuirks"
 require "SCAutonomy"
 require "SCCommands"
+require "SCExpeditionRoute"
 require "SCExpeditionPrototype"
 require "SCFactionRecruitment"
 

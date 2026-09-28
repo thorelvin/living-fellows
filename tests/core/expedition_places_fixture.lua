@@ -95,5 +95,6 @@ SC.Navigation = {
 }
 
 SC.ExpeditionPlacesFixture = {
-    buildings = buildings, list = list, world = world, cell = cell,
+    buildings = buildings, building = building,
+    list = list, world = world, cell = cell,
 }

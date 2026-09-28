@@ -34,10 +34,10 @@ check(nearby[1].address == nil and nearby[4].address == nil,
 local limited = Places.nearby(20, 20, 120, 2)
 check(#limited == 2 and limited[1].distance <= limited[2].distance,
     "nearest candidates are sorted before the result limit")
-local invalid, invalidReason = Places.nearby(20, 20, 151, 2)
+local invalid, invalidReason = Places.nearby(20, 20, 201, 2)
 check(invalid == nil and invalidReason == "invalid_place_query",
     "unbounded radius is rejected")
-invalid, invalidReason = Places.nearby(20, 20, 120, 129)
+invalid, invalidReason = Places.nearby(20, 20, 120, 4097)
 check(invalid == nil and invalidReason == "invalid_place_query",
     "unbounded result count is rejected")
 invalid, invalidReason = Places.describeBuilding({ getX = function() return 20 end })
@@ -170,4 +170,27 @@ check(known == nil and knownReason == "invalid_known_place_limit",
 selectable, selectableReason = Places.targetableNearby(20, 20, 120, 33)
 check(selectable == nil and selectableReason == "invalid_targetable_place_limit",
     "all-nearby presentation has the same bounded result limit")
+for index = 0, 39 do
+    local x = 20 + index * 4
+    fixture.buildings[#fixture.buildings + 1] = fixture.building(
+        x, 100, x + 2, 102, { "bedroom" })
+end
+local firstPage, pageReason, total = Places.targetableNearby(
+    20, 20, 200, 32, 0)
+local secondPage, secondReason, secondTotal = Places.targetableNearby(
+    20, 20, 200, 32, 32)
+check(pageReason == nil and secondReason == nil
+        and #firstPage == 32 and #secondPage == 14
+        and total == 46 and secondTotal == 46,
+    "200-tile picker pages every eligible building beyond the first 32")
+local ids = {}
+for _, candidate in ipairs(firstPage) do ids[candidate.id] = true end
+for _, candidate in ipairs(secondPage) do
+    check(not ids[candidate.id], "pages do not repeat a building")
+    ids[candidate.id] = true
+end
+local later, laterReason = Places.targetableById(20, 20, 200,
+    secondPage[#secondPage].id)
+check(later ~= nil and laterReason == nil,
+    "dispatch can revalidate a building on a later page")
 print("EXPEDITION_PLACES_PASS checks=" .. tostring(checks))

@@ -39,6 +39,9 @@ param(
     [int]$TeamCorpseStreamVerifyX = 0,
     [int]$TeamCorpseStreamVerifyY = 0,
     [switch]$TeamAutonomousScoutProbe,
+    [switch]$TeamRoadRouteProbe,
+    [switch]$TeamRoadRestartStageOnly,
+    [switch]$TeamRoadRestartResumeProbe,
     [switch]$TeamKnownPlaceScoutProbe,
     [switch]$TeamUnvisitedPlaceScoutProbe,
     [switch]$TeamAutonomousSearchProbe,
@@ -167,6 +170,9 @@ try {
         -TeamCorpseStreamVerifyX $TeamCorpseStreamVerifyX `
         -TeamCorpseStreamVerifyY $TeamCorpseStreamVerifyY `
         -TeamAutonomousScoutProbe:$TeamAutonomousScoutProbe `
+        -TeamRoadRouteProbe:$TeamRoadRouteProbe `
+        -TeamRoadRestartStageOnly:$TeamRoadRestartStageOnly `
+        -TeamRoadRestartResumeProbe:$TeamRoadRestartResumeProbe `
         -TeamKnownPlaceScoutProbe:$TeamKnownPlaceScoutProbe `
         -TeamUnvisitedPlaceScoutProbe:$TeamUnvisitedPlaceScoutProbe `
         -TeamAutonomousSearchProbe:$TeamAutonomousSearchProbe `

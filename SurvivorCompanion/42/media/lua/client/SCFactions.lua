@@ -343,6 +343,12 @@ local function streetDataApi()
     return api
 end
 
+-- The road planner shares the same active, lazily initialized map-street source.
+-- It never requires the player to open the world-map panel.
+function Factions.streetDataApi()
+    return streetDataApi()
+end
+
 local function closestPointOnSegment(px, py, x1, y1, x2, y2)
     local dx, dy = x2 - x1, y2 - y1
     local lengthSq = dx * dx + dy * dy

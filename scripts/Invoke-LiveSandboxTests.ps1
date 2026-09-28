@@ -54,6 +54,9 @@ param(
     [int]$TeamCorpseStreamVerifyX = 0,
     [int]$TeamCorpseStreamVerifyY = 0,
     [switch]$TeamAutonomousScoutProbe,
+    [switch]$TeamRoadRouteProbe,
+    [switch]$TeamRoadRestartStageOnly,
+    [switch]$TeamRoadRestartResumeProbe,
     [switch]$TeamKnownPlaceScoutProbe,
     [switch]$TeamUnvisitedPlaceScoutProbe,
     [switch]$TeamAutonomousSearchProbe,
@@ -176,6 +179,16 @@ if ($TeamAutonomousScoutProbe -and (-not $TeamHandoff -or $LeaderRemote -or
     $TeamLootSurvey -or $TeamOverlapProbe)) {
     throw '-TeamAutonomousScoutProbe requires a focused local team handoff run.'
 }
+if ($TeamRoadRouteProbe -and -not $TeamAutonomousScoutProbe) {
+    throw '-TeamRoadRouteProbe requires -TeamAutonomousScoutProbe.'
+}
+if ($TeamRoadRestartStageOnly -and -not $TeamRoadRouteProbe) {
+    throw '-TeamRoadRestartStageOnly requires -TeamRoadRouteProbe.'
+}
+if ($TeamRoadRestartResumeProbe -and (-not $LeaderSlotOnly -or $TeamHandoff -or
+    $TeamAutonomousScoutProbe -or $TeamRoadRouteProbe)) {
+    throw '-TeamRoadRestartResumeProbe requires a focused -LeaderSlotOnly reload.'
+}
 if ($TeamKnownPlaceScoutProbe -and -not $TeamAutonomousScoutProbe) {
     throw '-TeamKnownPlaceScoutProbe requires -TeamAutonomousScoutProbe.'
 }
@@ -211,6 +224,7 @@ if ($TeamExtendedRouteProbe -and -not ($TeamLocalTravelProbe -or ($TeamWaypointP
 }
 if ($TeamExtendedQuietProbe -and (-not ($TeamExtendedRouteProbe -or
     $TeamExtendedReturnResumeProbe -or
+    $TeamRoadRestartResumeProbe -or
     $TeamAutonomousScoutProbe -or $TeamUnvisitedInteriorSearchProbe) -or
     $TeamPursuerProbe)) {
     throw '-TeamExtendedQuietProbe requires an extended route without the pursuer probe.'
@@ -779,6 +793,9 @@ $config = @(
     ('team_corpse_stream_verify_x=' + $TeamCorpseStreamVerifyX),
     ('team_corpse_stream_verify_y=' + $TeamCorpseStreamVerifyY),
     ('team_autonomous_scout_probe=' + $TeamAutonomousScoutProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_road_route_probe=' + $TeamRoadRouteProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_road_restart_stage_only=' + $TeamRoadRestartStageOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('team_road_restart_resume_probe=' + $TeamRoadRestartResumeProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_known_place_scout_probe=' + $TeamKnownPlaceScoutProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_unvisited_place_scout_probe=' + $TeamUnvisitedPlaceScoutProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_autonomous_search_probe=' + $TeamAutonomousSearchProbe.IsPresent.ToString().ToLowerInvariant()),

@@ -698,6 +698,40 @@ public final class SCBridge {
         return SCStreetLookup.nearest(streetsApi, worldX, worldY, maxDistance);
     }
 
+    /** One bounded road-region calculation; the Lua caller owns the output table. */
+    public static boolean planRoadRoute(Object streetsApi, double startX, double startY,
+            double targetX, double targetY, KahluaTable out) {
+        if (!onGameThread() || out == null) return false;
+        out.wipe();
+        long started = System.nanoTime();
+        SCRoadRouter.Result result = SCRoadRouter.routeNative(
+                streetsApi, startX, startY, targetX, targetY);
+        put(out, "status", result.status());
+        put(out, "reason", result.reason());
+        put(out, "fingerprint", result.fingerprint());
+        put(out, "roadLength", result.roadLength());
+        put(out, "entryX", result.entryX());
+        put(out, "entryY", result.entryY());
+        put(out, "exitX", result.exitX());
+        put(out, "exitY", result.exitY());
+        put(out, "inferredJunctions", result.inferredJunctions());
+        put(out, "expandedNodes", result.expandedNodes());
+        put(out, "elapsedMs", (System.nanoTime() - started) / 1_000_000.0);
+        if ("READY".equals(result.status())) {
+            StringBuilder geometry = new StringBuilder();
+            for (SCRoadRouter.Step point : result.points()) {
+                if (!geometry.isEmpty()) geometry.append(';');
+                String label = point.street() == null ? "" : point.street()
+                        .replaceAll("[\\t\\r\\n;,]", " ").trim();
+                if (label.length() > 128) label = label.substring(0, 128);
+                geometry.append(point.x()).append(',').append(point.y())
+                        .append(',').append(label);
+            }
+            put(out, "geometry", geometry.toString());
+        }
+        return true;
+    }
+
     public static boolean isCompanion(Object candidate) {
         return candidate instanceof SCNativeCompanion actor && isOwned(actor);
     }

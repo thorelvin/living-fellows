@@ -382,6 +382,11 @@ function Expedition.start(records, plan)
     end
     local scout
     if plan ~= nil then
+        local travelMode = type(plan) == "table"
+            and (plan.travelMode or "straight") or "straight"
+        if travelMode ~= "road" and travelMode ~= "straight" then
+            return false, "invalid_travel_mode"
+        end
         if type(plan) == "table" and plan.doctrine ~= nil
             and not MISSION_DOCTRINES[plan.doctrine] then
             return false, "invalid_expedition_doctrine"
@@ -425,7 +430,8 @@ function Expedition.start(records, plan)
             or plan.destination.z ~= returnPoint.z
             or distanceToPoint(roster[1].actor, plan.destination)
                 < (searchPlan and 8 or 20)
-            or distanceToPoint(roster[1].actor, plan.destination) > 120
+            or distanceToPoint(roster[1].actor, plan.destination)
+                > (SC.Config and SC.Config.get("expeditionDestinationRadius") or 200)
             or (plan.site ~= nil and not validSite(plan.site))
             or (searchPlan and (not validRequest(plan.request)
                 or (plan.radius ~= nil and (type(plan.radius) ~= "number"
@@ -434,8 +440,24 @@ function Expedition.start(records, plan)
             return false, searchPlan and "invalid_search_plan"
                 or "invalid_scout_plan"
         end
+        local extended = distanceToPoint(roster[1].actor,
+            plan.destination) > 120
+        local roadRoute
+        if travelMode == "road" then
+            if SC.ExpeditionRoute == nil then
+                return false, "road_routing_unavailable"
+            end
+            local routeReason
+            roadRoute, routeReason = SC.ExpeditionRoute.plan(
+                roster[1].actor, plan.destination)
+            if roadRoute == nil then return false, routeReason end
+            local entryReady, entryReason = SC.ExpeditionRoute.verifyEntry(
+                roadRoute, roster[1].actor)
+            if not entryReady then return false, entryReason end
+        end
         scout = {
             kind = plan.kind, phase = "outbound",
+            travelMode = travelMode, extended = extended,
             destination = copyPoint(plan.destination),
             site = copySite(plan.site),
             returnPoint = returnPoint, legs = 0,
@@ -451,6 +473,9 @@ function Expedition.start(records, plan)
                 request = copyRequest(plan.request), acquisitions = {},
                 radius = plan.radius or 5,
             } or nil,
+            roadRoute = roadRoute,
+            road = roadRoute and SC.ExpeditionRoute.descriptor(
+                roadRoute, "outbound") or nil,
         }
     end
     local ok, promoted = pcall(SCSplitScreenProbe.promote,
@@ -487,8 +512,13 @@ end
 -- building ID or a change from All nearby to Known only cannot bypass the
 -- selected knowledge policy. The map approach is a direction for local legs;
 -- the leader checks loaded exterior access when it reaches the building.
-function Expedition.placeCandidates()
-    local player = type(getSpecificPlayer) == "function"
+function Expedition.placeCandidates(leaderId, page)
+    local record = type(leaderId) == "string" and SC.Registry
+        and SC.Registry.byId(leaderId) or nil
+    if leaderId ~= nil and (record == nil or record.actor == nil) then
+        return nil, "leader_unavailable"
+    end
+    local player = record and record.actor or type(getSpecificPlayer) == "function"
         and getSpecificPlayer(0) or nil
     local x, y
     if player then x, y = SC.GameplayUtil.position(player) end
@@ -497,7 +527,13 @@ function Expedition.placeCandidates()
     if places == nil or type(places.targetableNearby) ~= "function" then
         return nil, "place_lookup_unavailable"
     end
-    return places.targetableNearby(math.floor(x), math.floor(y), 120, 32)
+    page = tonumber(page) or 1
+    if page < 1 or page > 128 or page ~= math.floor(page) then
+        return nil, "invalid_place_page"
+    end
+    return places.targetableNearby(math.floor(x), math.floor(y),
+        SC.Config and SC.Config.get("expeditionDestinationRadius") or 200,
+        32, (page - 1) * 32)
 end
 
 function Expedition.startAtPlace(records, placeId, kind, options)
@@ -510,14 +546,15 @@ function Expedition.startAtPlace(records, placeId, kind, options)
         or type(records[1]) ~= "table" or records[1].actor == nil then
         return false, "expedition_member_unavailable"
     end
-    local places, reason = Expedition.placeCandidates()
-    if places == nil then return false, reason end
-    local selected
-    for _, candidate in ipairs(places) do
-        if candidate.id == placeId then selected = candidate break end
-    end
-    if selected == nil then return false, "place_no_longer_selectable" end
     local lookup = SC.ExpeditionPlaces
+    if lookup == nil or type(lookup.targetableById) ~= "function" then
+        return false, "place_lookup_unavailable"
+    end
+    local x, y = SC.GameplayUtil.position(records[1].actor)
+    if x == nil or y == nil then return false, "leader_unavailable" end
+    local selected, reason = lookup.targetableById(math.floor(x), math.floor(y),
+        SC.Config and SC.Config.get("expeditionDestinationRadius") or 200, placeId)
+    if selected == nil then return false, reason or "place_no_longer_selectable" end
     if type(lookup.plannedApproach) ~= "function"
         or type(lookup.loadedSiteApproach) ~= "function" then
         return false, "place_approach_unavailable"
@@ -536,7 +573,38 @@ function Expedition.startAtPlace(records, placeId, kind, options)
         turnHomeAfterHours = options.turnHomeAfterHours,
         arriveByHour = options.arriveByHour,
         doctrine = options.doctrine,
+        travelMode = options.travelMode,
     })
+end
+
+function Expedition.previewAtPlace(leader, place, travelMode)
+    if leader == nil or leader.actor == nil or type(place) ~= "table" then
+        return nil, "leader_unavailable"
+    end
+    local approach, reason = SC.ExpeditionPlaces.plannedApproach(
+        place, leader.actor)
+    if approach == nil then return nil, reason end
+    local distance = distanceToPoint(leader.actor, approach)
+    if travelMode ~= "road" then
+        return { mode = "local", distance = math.floor(distance + 0.5) }
+    end
+    if SC.ExpeditionRoute == nil then
+        return nil, "road_routing_unavailable"
+    end
+    local route, routeReason = SC.ExpeditionRoute.plan(
+        leader.actor, approach)
+    if route == nil then return nil, routeReason end
+    local streets, seen = {}, {}
+    for _, point in ipairs(route.points) do
+        if point.street ~= "" and not seen[point.street] then
+            seen[point.street] = true
+            streets[#streets + 1] = point.street
+        end
+    end
+    return { mode = "road", distance = math.floor(
+        route.roadLength + 0.5), streets = streets,
+        provisional = route.inferredJunctions > 0,
+        elapsedMs = route.elapsedMs }
 end
 
 -- Persist only stable companion IDs and command serials. Native actors,
@@ -583,7 +651,9 @@ function Expedition.export()
         end
     end
     return {
-        schema = mission.scout and (mission.scout.kind == "search" and 4 or 3)
+        schema = mission.scout and ((mission.scout.extended
+                or mission.scout.road ~= nil) and 5
+            or mission.scout.kind == "search" and 4 or 3)
             or 1,
         roster = roster, rosterNames = rosterNames, survivors = survivors,
         leaderId = leaderId, radioSession = mission.radioSession,
@@ -592,6 +662,7 @@ function Expedition.export()
         slotSqlId = slotSqlId,
         scout = mission.scout and {
             kind = mission.scout.kind,
+            travelMode = mission.scout.travelMode,
             phase = mission.scout.phase,
             destination = copyPoint(mission.scout.destination),
             returnPoint = copyPoint(mission.scout.returnPoint),
@@ -605,6 +676,11 @@ function Expedition.export()
             arriveByHour = mission.scout.arriveByHour,
             departureHour = mission.scout.departureHour,
             endReason = mission.scout.endReason,
+            road = mission.scout.road and {
+                version = 1, phase = mission.scout.road.phase,
+                fingerprint = mission.scout.road.fingerprint,
+                goal = copyPoint(mission.scout.road.goal),
+            } or nil,
         } or nil,
     }
 end
@@ -623,7 +699,8 @@ function Expedition.restore(saved)
         return true
     end
     if type(saved) ~= "table" or (saved.schema ~= 1
-            and saved.schema ~= 3 and saved.schema ~= 4)
+            and saved.schema ~= 3 and saved.schema ~= 4
+            and saved.schema ~= 5)
         or type(saved.roster) ~= "table" or #saved.roster < 1
         or #saved.roster > 4 or type(saved.survivors) ~= "table"
         or type(saved.leaderId) ~= "string"
@@ -639,7 +716,7 @@ function Expedition.restore(saved)
         return false, "saved expedition descriptor is invalid"
     end
     local scout = saved.scout
-    if saved.schema == 3 or saved.schema == 4 then
+    if saved.schema == 3 or saved.schema == 4 or saved.schema == 5 then
         if type(scout) ~= "table"
             or (scout.phase ~= "outbound" and scout.phase ~= "observing"
                 and scout.phase ~= "searching" and scout.phase ~= "inbound"
@@ -647,7 +724,8 @@ function Expedition.restore(saved)
             or (saved.schema == 3 and (scout.kind ~= nil
                 and scout.kind ~= "scout" or scout.search ~= nil
                 or scout.phase == "searching"))
-            or (saved.schema == 4 and (scout.kind ~= "search"
+            or ((saved.schema == 4 or saved.schema == 5
+                    and scout.kind == "search") and (scout.kind ~= "search"
                 or scout.phase == "observing"
                 or not validSearch(scout.search)
                 or (scout.phase ~= "outbound"
@@ -660,13 +738,37 @@ function Expedition.restore(saved)
                         or scout.phase == "awaiting_player")
                     and scout.search.endReason == nil)
                 or scout.observation ~= nil))
+            or (saved.schema == 5 and (scout.kind ~= "scout"
+                    and scout.kind ~= "search"
+                or (scout.travelMode ~= "road"
+                    and scout.travelMode ~= "straight")
+                or (scout.travelMode == "road" and (
+                    not SC.ExpeditionRoute
+                    or not SC.ExpeditionRoute.validDescriptor(scout.road)))
+                or (scout.travelMode == "straight" and scout.road ~= nil)
+                or (scout.kind == "scout" and (scout.search ~= nil
+                    or scout.phase == "searching"))
+                or (scout.road ~= nil and (scout.phase == "inbound"
+                    or scout.phase == "awaiting_player")
+                    and scout.road.phase ~= "inbound")
+                or (scout.road ~= nil and (scout.phase == "outbound"
+                    or scout.phase == "observing"
+                    or scout.phase == "searching")
+                    and scout.road.phase ~= "outbound")))
+            or (saved.schema ~= 5 and scout.road ~= nil)
             or not validPoint(scout.destination)
             or not validPoint(scout.returnPoint)
+            or (saved.schema == 5 and scout.road ~= nil and (
+                scout.road.goal.x ~= (scout.road.phase == "inbound"
+                    and scout.returnPoint.x or scout.destination.x)
+                or scout.road.goal.y ~= (scout.road.phase == "inbound"
+                    and scout.returnPoint.y or scout.destination.y)))
             or scout.destination.z ~= scout.returnPoint.z
             or type(scout.legs) ~= "number" or scout.legs < 0
-            or scout.legs > 96 or scout.legs ~= math.floor(scout.legs)
+            or scout.legs > (saved.schema == 5 and 256 or 96)
+                or scout.legs ~= math.floor(scout.legs)
             or type(scout.trail) ~= "table" or #scout.trail < 1
-            or #scout.trail > 64
+            or #scout.trail > (saved.schema == 5 and 128 or 64)
             or (scout.observation ~= nil
                 and not validObservation(scout.observation))
             or (scout.site ~= nil and not validSite(scout.site))
@@ -704,7 +806,11 @@ function Expedition.restore(saved)
             trail[index] = copyPoint(point)
         end
         scout = {
-            kind = saved.schema == 4 and "search" or "scout",
+            kind = (saved.schema == 4 or saved.schema == 5
+                and scout.kind == "search") and "search" or "scout",
+            travelMode = saved.schema == 5 and scout.travelMode
+                or scout.travelMode or "straight",
+            extended = saved.schema == 5,
             phase = scout.phase, destination = copyPoint(scout.destination),
             returnPoint = copyPoint(scout.returnPoint), legs = scout.legs,
             trail = trail, returnIndex = scout.returnIndex,
@@ -715,6 +821,11 @@ function Expedition.restore(saved)
             arriveByHour = scout.arriveByHour,
             departureHour = scout.departureHour,
             endReason = scout.endReason,
+            road = scout.road and {
+                version = 1, phase = scout.road.phase,
+                fingerprint = scout.road.fingerprint,
+                goal = copyPoint(scout.road.goal),
+            } or nil,
         }
     elseif scout ~= nil then
         return false, "saved expedition descriptor is invalid"
@@ -1216,7 +1327,7 @@ function Expedition.noteTestWaypointArrived(actor)
         mission.scout.lastStalledTarget = nil
         mission.scout.replans = 0
         if mission.scout.phase == "outbound"
-            and #mission.scout.trail < 64 then
+            and #mission.scout.trail < (mission.scout.extended and 128 or 64) then
             local point = {
                 x = math.floor(actor:getX()), y = math.floor(actor:getY()),
                 z = math.floor(actor:getZ()),
@@ -1247,7 +1358,8 @@ end
 -- next area while walking; an unloaded destination must never be handed to
 -- the ordinary local pathfinder. Outdoor legs keep followers from entering a
 -- locked building that only the leader could unlock from its inside face.
-local function nextScoutLeg(actor, target, excluded, allowInteriorRoute)
+local function nextScoutLeg(actor, target, excluded, allowInteriorRoute,
+        roadRoute)
     local source = actor:getCurrentSquare()
     local world = type(getWorld) == "function" and getWorld() or nil
     local cell = world and world:getCell() or nil
@@ -1267,7 +1379,15 @@ local function nextScoutLeg(actor, target, excluded, allowInteriorRoute)
             local path = SC.Navigation.findPath(source, destination, {
                 actor = actor, nodeBudget = 2500,
             })
-            if path ~= nil and #path >= 2 and #path <= 80 then
+            if path ~= nil and #path >= 2 and #path <= 80
+                and (roadRoute == nil or SC.ExpeditionRoute.withinCorridor(
+                    roadRoute, path)) then
+                if roadRoute ~= nil and roadRoute.index <= 1
+                    and #path <= 40 then
+                    -- An indoor road-entry connector is already fully loaded.
+                    -- Let native Navigation keep its door approach intact.
+                    return { x = target.x, y = target.y, z = target.z }
+                end
                 -- The synchronous survey establishes a traversable route, but
                 -- an ordinary move to its far end must plan again under the
                 -- shared per-frame navigation budget. Locked portals can put
@@ -1305,7 +1425,10 @@ local function nextScoutLeg(actor, target, excluded, allowInteriorRoute)
                     local direct = math.sqrt((tx - x)^2 + (ty - y)^2)
                     if path ~= nil and #path >= 2
                         and #path <= direct * 1.8 + 8
-                        and exteriorRoute(path, sourceRoom) then
+                        and exteriorRoute(path, sourceRoom)
+                        and (roadRoute == nil
+                            or SC.ExpeditionRoute.withinCorridor(
+                                roadRoute, path)) then
                         -- Use a nearby point on this verified route. The
                         -- native movement owner can then handle the corner
                         -- before the itinerary asks it to cross a building.
@@ -1419,6 +1542,24 @@ startReturnFromSite = function(itinerary, reason)
     itinerary.phase = "inbound"
     itinerary.returnIndex = math.max(0, #itinerary.trail - 1)
     itinerary.observingSince = nil
+    if itinerary.road ~= nil then
+        local route, routeReason = SC.ExpeditionRoute.plan(
+            mission.leader.actor, itinerary.returnPoint, true)
+        if route == nil then
+            mission.technicalIssue = { reason = routeReason or "road_return_unavailable" }
+            itinerary.roadRoute = nil
+        else
+            local entryReady, entryReason = SC.ExpeditionRoute.verifyEntry(
+                route, mission.leader.actor)
+            if not entryReady then
+                mission.technicalIssue = { reason = entryReason }
+                itinerary.roadRoute = nil
+                return
+            end
+            itinerary.roadRoute = route
+            itinerary.road = SC.ExpeditionRoute.descriptor(route, "inbound")
+        end
+    end
 end
 
 -- The trail consists of actually reached local waypoints. Use its measured
@@ -1450,6 +1591,26 @@ local function pulseScout()
     if scout == nil or mission.restoring or mission.technicalIssue
         or not alive(mission.leader) then return end
     local now = SC.GameplayUtil.nowMs()
+    if scout.road ~= nil and scout.roadRoute == nil
+        and (scout.phase == "outbound" or scout.phase == "inbound") then
+        local goal = scout.phase == "inbound"
+            and scout.returnPoint or scout.destination
+        local route, routeReason = SC.ExpeditionRoute.plan(
+            mission.leader.actor, goal, true)
+        if route == nil then
+            mission.technicalIssue = {
+                reason = routeReason or "road_restart_replan_failed" }
+            return
+        end
+        local entryReady, entryReason = SC.ExpeditionRoute.verifyEntry(
+            route, mission.leader.actor)
+        if not entryReady then
+            mission.technicalIssue = { reason = entryReason }
+            return
+        end
+        scout.roadRoute = route
+        scout.road = SC.ExpeditionRoute.descriptor(route, scout.phase)
+    end
     if now >= (scout.nextReturnCheckAt or -math.huge)
         and (scout.turnHomeAtHour ~= nil or scout.arriveByHour ~= nil)
         and (scout.phase == "outbound" or scout.phase == "observing"
@@ -1552,6 +1713,10 @@ local function pulseScout()
             if approach ~= nil then
                 scout.destination = { x = approach.x, y = approach.y,
                     z = approach.z }
+                if scout.roadRoute then
+                    scout.roadRoute.goal = copyPoint(scout.destination)
+                    scout.road.goal = copyPoint(scout.destination)
+                end
                 scout.siteApproachConfirmed = true
                 scout.siteApproachFailureAt = nil
                 scout.lastPlanFailure = nil
@@ -1635,8 +1800,14 @@ local function pulseScout()
     local target = scout.phase == "outbound" and scout.destination
         or scout.returnIndex ~= nil and scout.returnIndex >= 1
             and scout.trail[scout.returnIndex] or scout.returnPoint
+    if scout.roadRoute ~= nil then
+        target = SC.ExpeditionRoute.target(scout.roadRoute,
+            mission.leader.actor) or target
+    end
     local close = distanceToPoint(mission.leader.actor, target)
-    if scout.phase == "outbound" and close <= 4 then
+    if scout.phase == "outbound" and close <= 4
+        and (scout.roadRoute == nil
+            or scout.roadRoute.index > #scout.roadRoute.points) then
         if scout.search then
             local worldHour = scoutWorldHour()
             if worldHour == nil then
@@ -1652,19 +1823,21 @@ local function pulseScout()
         end
         return
     end
-    if scout.phase == "inbound" and scout.returnIndex ~= nil
+    if scout.roadRoute == nil and scout.phase == "inbound" and scout.returnIndex ~= nil
         and scout.returnIndex >= 1 and close <= 4 then
         scout.returnIndex = scout.returnIndex - 1
         return
     end
-    if scout.phase == "inbound" and (scout.returnIndex == nil
-            or scout.returnIndex == 0) and close <= 10 then
+    if scout.phase == "inbound" and (scout.roadRoute ~= nil
+            and scout.roadRoute.index > #scout.roadRoute.points
+            or scout.roadRoute == nil and (scout.returnIndex == nil
+                or scout.returnIndex == 0)) and close <= 10 then
         scout.phase = "awaiting_player"
         local player = getSpecificPlayer(0)
         if player ~= nil then Expedition.finishAtPlayer(player) end
         return
     end
-    if scout.legs >= 64 then
+    if scout.legs >= (scout.extended and 256 or 64) then
         mission.technicalIssue = { reason = "scout_leg_limit" }
         return
     end
@@ -1677,12 +1850,19 @@ local function pulseScout()
     local leg, reason = nextScoutLeg(mission.leader.actor, target,
         scout.lastStalledTarget,
         scout.kind == "search" and scout.phase == "outbound"
-            or leavingSearchBuilding)
+            or leavingSearchBuilding
+            or scout.roadRoute ~= nil and scout.roadRoute.index <= 1,
+        scout.roadRoute)
     if leg == nil then
         scout.lastPlanFailure = reason
         if scout.firstPlanFailureAt == nil then scout.firstPlanFailureAt = now end
         if now - scout.firstPlanFailureAt >= 30000 then
-            mission.technicalIssue = { reason = reason }
+            if scout.travelMode == "straight"
+                and scout.phase == "outbound" then
+                startReturnFromSite(scout, "straight_path_unreachable")
+            else
+                mission.technicalIssue = { reason = reason }
+            end
         end
         return
     end

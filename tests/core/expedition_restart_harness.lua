@@ -860,9 +860,16 @@ local placeVisible, approachReady = true, true
 local siteArrivalReady = false
 SC.ExpeditionPlaces = {
     targetableNearby = function(x, y, radius, limit)
-        check(x == 20 and y == 20 and radius == 120 and limit == 32,
+        check(x == 20 and y == 20 and radius == 200 and limit == 32,
             "place selection reads the player's bounded nearby area")
         return placeVisible and { place } or {}
+    end,
+    targetableById = function(x, y, radius, id)
+        check(x == reserve.x and y == reserve.y and radius == 200
+                and id == place.id,
+            "dispatch rechecks the selected footprint near the leader")
+        return placeVisible and place or nil,
+            placeVisible and nil or "place_no_longer_selectable"
     end,
     plannedApproach = function(candidate, actor)
         check(candidate == place and actor == reserve,
@@ -880,6 +887,9 @@ SC.ExpeditionPlaces = {
     end,
 }
 local beforePlaceDraft = promotions
+local missingChoices, missingReason = expedition.placeCandidates("missing")
+check(missingChoices == nil and missingReason == "leader_unavailable",
+    "a stale selected leader cannot silently use the player's target range")
 local choices = expedition.placeCandidates()
 check(#choices == 1 and choices[1].knowledge == "map_metadata_unconfirmed"
         and promotions == beforePlaceDraft and expedition.current() == nil,
@@ -929,5 +939,77 @@ check(expedition.pulse() == true
 check(expedition.finishAtPlayer(player) == true
         and expedition.lastDebrief().site.id == place.id,
     "the read-only debrief names the same selected site")
+
+-- The long road itinerary keeps native movement ownership and replans its
+-- return from the leader's real position. Save data has no native graph.
+local routeCalls = {}
+SC.ExpeditionRoute.plan = function(actor, goal)
+    routeCalls[#routeCalls + 1] = { x = actor.x, y = actor.y,
+        goalX = goal.x, goalY = goal.y }
+    return { points = { { x = actor.x + 10, y = actor.y },
+            { x = goal.x - 10, y = goal.y } },
+        index = 1, fingerprint = "test-roads", goal = {
+            x = goal.x, y = goal.y, z = goal.z }, roadLength = 150 }
+end
+SC.ExpeditionRoute.verifyEntry = function() return true end
+SC.Config = { get = function(key)
+    if key == "expeditionDestinationRadius" then return 200 end
+    if key == "expeditionRoadRoutingEnabled" then return true end
+end }
+reserve.x, reserve.y = 23, 20
+worldHour = 1100
+local roadStarted, roadMission = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+        turnHomeAfterHours = 1, travelMode = "road" })
+check(roadStarted == true and roadMission.scout.road ~= nil
+        and #routeCalls == 1 and routeCalls[1].x == 23,
+    "a 167-tile mission requires a connected road plan")
+local outbound = expedition.export()
+check(outbound.schema == 5 and outbound.scout.road.phase == "outbound"
+        and outbound.scout.road.fingerprint == "test-roads",
+    "road save retains a bounded route descriptor")
+reserve.x = 125
+worldHour = 1101.2
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(roadMission.scout.phase == "inbound"
+        and roadMission.scout.road.phase == "inbound"
+        and routeCalls[#routeCalls].x == 125
+        and routeCalls[#routeCalls].goalX == player.x,
+    "turn-home replans from the actual leader position")
+local inbound = expedition.export()
+check(inbound.schema == 5 and inbound.scout.road.phase == "inbound"
+        and expedition.prepareReset() and expedition.reset()
+        and expedition.restore(inbound),
+    "an inbound road mission survives a restart")
+check(expedition.pulse() == true,
+    "the road leader reacquires the second view on restart")
+expedition.pulse()
+check(routeCalls[#routeCalls].x == 125
+        and expedition.current().scout.roadRoute ~= nil,
+    "restored road geometry is rebuilt from the current actor")
+reserve.x = 23
+check(expedition.finishAtPlayer(player) == true,
+    "the restored road mission can release its native leader")
+local originalFindPath = SC.Navigation.findPath
+SC.Navigation.findPath = function() return nil end
+local straightStarted, straightMission = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+        travelMode = "straight" })
+check(straightStarted == true and straightMission.scout.road == nil
+        and expedition.export().schema == 5,
+    "straight travel can target 200 tiles without inventing a road")
+expedition.pulse()
+scoutClock = scoutClock + 31000
+expedition.pulse()
+check(straightMission.scout.phase == "inbound"
+        and straightMission.scout.endReason == "straight_path_unreachable"
+        and straightMission.technicalIssue == nil,
+    "a blocked straight outbound path turns the team home")
+SC.Navigation.findPath = originalFindPath
+check(expedition.finishAtPlayer(player) == true,
+    "the straight-path fallback releases the leader after return")
 
 print("EXPEDITION_RESTART_KAHLUA_PASS checks=" .. tostring(checks))

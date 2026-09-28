@@ -15,6 +15,10 @@ local STYLES = {
     { value = "close_defense", key = "UI_SC_Doctrine_CloseDefense" },
     { value = "weapons_free", key = "UI_SC_Expedition_Aggressive" },
 }
+local TRAVEL = {
+    { value = "road", key = "UI_SC_Expedition_RoadTravel" },
+    { value = "straight", key = "UI_SC_Expedition_StraightTravel" },
+}
 local TIMES = {
     { value = 1, key = "UI_SC_Expedition_OneHour" },
     { value = 2, key = "UI_SC_Expedition_TwoHours" },
@@ -78,7 +82,12 @@ local function onSelect(detail, combo)
     if not option then return end
     local draft = detail.expeditionDraft
     draft[combo.scField] = option.value
+    draft.preview, draft.previewError = nil, nil
     if combo.scField == "group" then draft.leaderId = nil end
+    if combo.scField == "group" or combo.scField == "leaderId" then
+        draft.placesLoaded, draft.placeId = false, nil
+        draft.placePage = 1
+    end
     draft.review = false
     detail:rebuild(true)
 end
@@ -149,7 +158,7 @@ local function dispatch(detail)
     local records, reason = currentTeam(detail)
     if not records then return false, reason end
     local options = { turnHomeAfterHours = draft.hours,
-        doctrine = draft.style }
+        doctrine = draft.style, travelMode = draft.travelMode }
     if draft.kind == "search" then
         options.request = { category = draft.category,
             quantity = draft.quantity }
@@ -165,9 +174,22 @@ end
 function Planner.onButton(detail, button)
     local draft = detail.expeditionDraft
     local action = button.scExpeditionAction
-    if action == "refresh" then
-        local places, reason = SC.ExpeditionPrototype.placeCandidates()
+    if action == "refresh" or action == "next_places"
+        or action == "previous_places" then
+        if action == "next_places" then
+            draft.placePage = math.min(128, (draft.placePage or 1) + 1)
+        elseif action == "previous_places" then
+            draft.placePage = math.max(1, (draft.placePage or 1) - 1)
+        end
+        local places, reason, total = SC.ExpeditionPrototype.placeCandidates(
+            draft.leaderId, draft.placePage or 1)
+        if places and #places == 0 and (draft.placePage or 1) > 1 then
+            draft.placePage = draft.placePage - 1
+            places, reason, total = SC.ExpeditionPrototype.placeCandidates(
+                draft.leaderId, draft.placePage)
+        end
         draft.places = places or {}
+        draft.placesTotal = total or 0
         draft.placeError = places and nil or reason
         if not selectedPlace(draft) then draft.placeId = nil end
         draft.review = false
@@ -178,6 +200,8 @@ function Planner.onButton(detail, button)
                 not team and reason or "destination_required"), false)
             return
         end
+        draft.preview, draft.previewError = SC.ExpeditionPrototype.previewAtPlace(
+            team[1], selectedPlace(draft), draft.travelMode)
         draft.review = true
     elseif action == "edit" then
         draft.review = false
@@ -194,7 +218,8 @@ function Planner.build(detail, panel)
     local draft = detail.expeditionDraft
     if not draft then
         draft = { kind = "scout", style = "stealth", hours = 2,
-            category = "food", quantity = 4, places = {} }
+            travelMode = "road",
+            category = "food", quantity = 4, places = {}, placePage = 1 }
         detail.expeditionDraft = draft
         local row = detail.root and detail.root.selectedRow
         draft.group = row and row.group or "alpha"
@@ -222,9 +247,19 @@ function Planner.build(detail, panel)
         return detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_Unavailable"))
     end
+    local initialMembers = squadRows(detail, draft.group)
+    if #initialMembers > 0 then
+        local found = false
+        for _, row in ipairs(initialMembers) do
+            if row.id == draft.leaderId then found = true break end
+        end
+        if not found then draft.leaderId = initialMembers[1].id end
+    end
     if not draft.placesLoaded then
-        local places, reason = expedition.placeCandidates()
+        local places, reason, total = expedition.placeCandidates(
+            draft.leaderId, draft.placePage or 1)
         draft.places, draft.placeError = places or {}, places and nil or reason
+        draft.placesTotal = total or 0
         draft.placesLoaded = true
     end
     if draft.review then
@@ -244,9 +279,30 @@ function Planner.build(detail, panel)
                 leaderName, #team,
                 place and place.label or "?", draft.hours,
                 styleName))
+        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+            tr("UI_SC_Expedition_TravelSummary",
+                draft.travelMode == "straight"
+                    and tr("UI_SC_Expedition_StraightTravel")
+                    or tr("UI_SC_Expedition_RoadTravel")))
         if place and place.knowledge == "map_metadata_unconfirmed" then
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_MapUnconfirmed"))
+        end
+        if draft.preview then
+            local itinerary = draft.preview.mode == "road"
+                and table.concat(draft.preview.streets or {}, " > ")
+                or tr("UI_SC_Expedition_LocalRoute")
+            if #itinerary > 160 then itinerary = itinerary:sub(1, 157) .. "..." end
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_RoutePreview",
+                    draft.preview.distance, itinerary))
+            if draft.preview.provisional then
+                y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    tr("UI_SC_Expedition_RouteProvisional"))
+            end
+        elseif draft.previewError then
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_Failed", draft.previewError))
         end
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_RadioHint"))
@@ -289,6 +345,8 @@ function Planner.build(detail, panel)
         "hours", TIMES)
     y = addSelector(detail, panel, y, "UI_SC_Expedition_Combat",
         "style", STYLES)
+    y = addSelector(detail, panel, y, "UI_SC_Expedition_Travel",
+        "travelMode", TRAVEL)
     local places = { { value = nil, key = "UI_SC_Expedition_SelectPlace" } }
     for _, place in ipairs(draft.places) do
         local suffix = place.street and (" · " .. place.street) or ""
@@ -297,6 +355,18 @@ function Planner.build(detail, panel)
     end
     y = addSelector(detail, panel, y, "UI_SC_Expedition_Destination",
         "placeId", places)
+    local first = (#draft.places > 0) and ((draft.placePage or 1) - 1) * 32 + 1 or 0
+    local last = first > 0 and first + #draft.places - 1 or 0
+    y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+        tr("UI_SC_Expedition_PlacePage", first, last, draft.placesTotal or 0))
+    if (draft.placePage or 1) > 1 then
+        y = addButton(detail, panel, y, "UI_SC_Expedition_PreviousPlaces",
+            "previous_places")
+    end
+    if last < (draft.placesTotal or 0) then
+        y = addButton(detail, panel, y, "UI_SC_Expedition_NextPlaces",
+            "next_places")
+    end
     if draft.placeError then
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_Failed", draft.placeError))

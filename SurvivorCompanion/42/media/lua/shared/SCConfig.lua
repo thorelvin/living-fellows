@@ -1398,6 +1398,8 @@ local valueData = {
     -- The expedition picker includes map-derived nearby buildings by default.
     -- A sandbox option can restrict it to interiors actually seen by the player.
     expeditionDestinationScope = "all_nearby",
+    expeditionDestinationRadius = 200,
+    expeditionRoadRoutingEnabled = true,
     factionSpawnCooldownDays = 7,
     factionDailySpawnChancePercent = 8,
     factionMaxHouseholds = 3,

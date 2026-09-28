@@ -19,6 +19,20 @@ local function coordinate(value)
         and value == math.floor(value)
 end
 
+local function exteriorDistanceSq(bounds, x, y)
+    local function clamp(value, low, high)
+        return math.max(low, math.min(high, value))
+    end
+    local function distanceSq(px, py)
+        return (px - x)^2 + (py - y)^2
+    end
+    return math.min(
+        distanceSq(bounds.x - 1, clamp(y, bounds.y, bounds.y2)),
+        distanceSq(bounds.x2 + 1, clamp(y, bounds.y, bounds.y2)),
+        distanceSq(clamp(x, bounds.x, bounds.x2), bounds.y - 1),
+        distanceSq(clamp(x, bounds.x, bounds.x2), bounds.y2 + 1))
+end
+
 local function classify(names)
     local found = {}
     for _, name in ipairs(names) do found[name] = true end
@@ -106,8 +120,8 @@ end
 function Places.nearby(x, y, radius, limit, deferStreets)
     x, y, radius, limit = tonumber(x), tonumber(y), tonumber(radius), tonumber(limit)
     if not coordinate(x) or not coordinate(y) or radius == nil
-        or radius < 1 or radius > 150 or radius ~= math.floor(radius)
-        or limit == nil or limit < 1 or limit > 128
+        or radius < 1 or radius > 200 or radius ~= math.floor(radius)
+        or limit == nil or limit < 1 or limit > 4096
         or limit ~= math.floor(limit) then
         return nil, "invalid_place_query"
     end
@@ -116,25 +130,39 @@ function Places.nearby(x, y, radius, limit, deferStreets)
     if not gridOk or grid == nil then return nil, "meta_grid_unavailable" end
     local listClass = type(_G) == "table" and rawget(_G, "ArrayList") or nil
     if listClass == nil then return nil, "building_result_list_unavailable" end
-    local created, buildings = pcall(function() return listClass.new() end)
-    if not created or buildings == nil then
-        return nil, "building_result_list_unavailable"
-    end
-    local _, queried = call(grid, "getBuildingsIntersecting",
-        math.max(0, x - radius), math.max(0, y - radius),
-        radius * 2 + 1, radius * 2 + 1, buildings)
-    if not queried then return nil, "building_query_unavailable" end
-    local count = NativeList.size(buildings)
-    if count > 2048 then return nil, "building_query_unbounded" end
-    local result = {}
-    for index = 0, count - 1 do
-        local building, available = NativeList.get(buildings, index)
-        if not available then return nil, "building_result_unavailable" end
-        local place = Places.describeBuilding(building, true)
-        if place then
-            local dx, dy = place.anchor.x - x, place.anchor.y - y
-            place.distance = math.floor(math.sqrt(dx * dx + dy * dy) + 0.5)
-            result[#result + 1] = place
+    local result, seen = {}, {}
+    local left, top = math.max(0, x - radius), math.max(0, y - radius)
+    local width, height = radius * 2 + 1, radius * 2 + 1
+    -- Each native query remains bounded, including in a dense 200-tile area.
+    -- Overlapping sector footprints are deduplicated by stable building bounds.
+    local side = radius > 150 and 2 or 1
+    for row = 0, side - 1 do
+        for column = 0, side - 1 do
+            local sx = left + math.floor(width * column / side)
+            local sy = top + math.floor(height * row / side)
+            local ex = left + math.floor(width * (column + 1) / side)
+            local ey = top + math.floor(height * (row + 1) / side)
+            local created, buildings = pcall(function() return listClass.new() end)
+            if not created or buildings == nil then
+                return nil, "building_result_list_unavailable"
+            end
+            local _, queried = call(grid, "getBuildingsIntersecting",
+                sx, sy, ex - sx, ey - sy, buildings)
+            if not queried then return nil, "building_query_unavailable" end
+            local count = NativeList.size(buildings)
+            if count > 2048 then return nil, "building_query_unbounded" end
+            for index = 0, count - 1 do
+                local building, available = NativeList.get(buildings, index)
+                if not available then return nil, "building_result_unavailable" end
+                local place = Places.describeBuilding(building, true)
+                if place and not seen[place.id] then
+                    seen[place.id] = true
+                    place.distanceSq = exteriorDistanceSq(place.bounds, x, y)
+                    place.distance = math.floor(math.sqrt(place.distanceSq) + 0.5)
+                    result[#result + 1] = place
+                    if #result > 4096 then return nil, "building_query_unbounded" end
+                end
+            end
         end
     end
     table.sort(result, function(a, b)
@@ -396,13 +424,15 @@ end
 -- Strict first knowledge gate for a later destination picker. Only ground
 -- floors with a player-seen interior square can appear. Classify using only
 -- those seen rooms. Return a UI-safe copy without raw room names.
-function Places.knownNearby(x, y, radius, limit)
+function Places.knownNearby(x, y, radius, limit, offset)
     limit = tonumber(limit)
+    offset = tonumber(offset) or 0
     if limit == nil or limit < 1 or limit > 32
-        or limit ~= math.floor(limit) then
+        or limit ~= math.floor(limit) or offset < 0 or offset > 4096
+        or offset ~= math.floor(offset) then
         return nil, "invalid_known_place_limit"
     end
-    local candidates, reason = Places.nearby(x, y, radius, 128, true)
+    local candidates, reason = Places.nearby(x, y, radius, 4096, true)
     if candidates == nil then return nil, reason end
     local world = type(getWorld) == "function" and getWorld() or nil
     local grid, gridOk = call(world, "getMetaGrid")
@@ -410,70 +440,117 @@ function Places.knownNearby(x, y, radius, limit)
     if not gridOk or not cellOk or grid == nil or cell == nil then
         return nil, "knowledge_world_unavailable"
     end
-    local result, anyLoaded = {}, false
+    local result, anyLoaded, total = {}, false, 0
     for _, place in ipairs(candidates) do
-        local known, loaded, seenNames = seenInterior(place, grid, cell)
-        anyLoaded = anyLoaded or loaded
+        local withinRange = place.distanceSq <= radius * radius
+        local known, loaded, seenNames
+        if withinRange then
+            known, loaded, seenNames = seenInterior(place, grid, cell)
+            anyLoaded = anyLoaded or loaded
+        end
         if known then
-            addStreet(place)
-            local observedKind, observedLabel = classify(seenNames)
-            result[#result + 1] = {
-                id = place.id,
-                anchor = { x = place.anchor.x, y = place.anchor.y,
-                    z = place.anchor.z },
-                bounds = { x = place.bounds.x, y = place.bounds.y,
-                    x2 = place.bounds.x2, y2 = place.bounds.y2 },
-                kind = observedKind, label = observedLabel,
-                street = place.street,
-                streetDistance = place.streetDistance,
-                distance = place.distance,
-                groundFloor = true,
-                knowledge = "player_seen_interior",
-            }
-            if #result >= limit then break end
+            total = total + 1
+            if total > offset and #result < limit then
+                addStreet(place)
+                local observedKind, observedLabel = classify(seenNames)
+                result[#result + 1] = {
+                    id = place.id,
+                    anchor = { x = place.anchor.x, y = place.anchor.y,
+                        z = place.anchor.z },
+                    bounds = { x = place.bounds.x, y = place.bounds.y,
+                        x2 = place.bounds.x2, y2 = place.bounds.y2 },
+                    kind = observedKind, label = observedLabel,
+                    street = place.street,
+                    streetDistance = place.streetDistance,
+                    distance = place.distance,
+                    groundFloor = true,
+                    knowledge = "player_seen_interior",
+                }
+            end
         end
     end
-    if #result == 0 and not anyLoaded then
+    if total == 0 and not anyLoaded then
         return nil, "knowledge_area_unavailable"
     end
-    return result
+    return result, nil, total
 end
 
 -- The sandbox option selects the destination pool. The default deliberately
 -- includes unvisited buildings, identified as map-derived candidates. Both
 -- modes return bounded, UI-safe copies and exclude basement-only footprints.
-function Places.targetableNearby(x, y, radius, limit)
+function Places.targetableNearby(x, y, radius, limit, offset)
     if SC.Config and SC.Config.get("expeditionDestinationScope") == "known_only" then
-        return Places.knownNearby(x, y, radius, limit)
+        return Places.knownNearby(x, y, radius, limit, offset)
     end
     limit = tonumber(limit)
+    offset = tonumber(offset) or 0
     if limit == nil or limit < 1 or limit > 32
-        or limit ~= math.floor(limit) then
+        or limit ~= math.floor(limit) or offset < 0 or offset > 4096
+        or offset ~= math.floor(offset) then
         return nil, "invalid_targetable_place_limit"
     end
-    local candidates, reason = Places.nearby(x, y, radius, 128, true)
+    local candidates, reason = Places.nearby(x, y, radius, 4096, true)
     if candidates == nil then return nil, reason end
-    local result = {}
+    local result, total = {}, 0
     for _, place in ipairs(candidates) do
-        if place.groundFloor then
-            addStreet(place)
-            result[#result + 1] = {
-                id = place.id,
-                anchor = { x = place.anchor.x, y = place.anchor.y,
-                    z = place.anchor.z },
-                bounds = { x = place.bounds.x, y = place.bounds.y,
-                    x2 = place.bounds.x2, y2 = place.bounds.y2 },
-                kind = place.kind, label = place.label,
-                street = place.street,
-                streetDistance = place.streetDistance,
-                distance = place.distance,
-                groundFloor = true,
-                knowledge = "map_metadata_unconfirmed",
-            }
-            if #result >= limit then break end
+        if place.groundFloor and place.distanceSq <= radius * radius then
+            total = total + 1
+            if total > offset and #result < limit then
+                addStreet(place)
+                result[#result + 1] = {
+                    id = place.id,
+                    anchor = { x = place.anchor.x, y = place.anchor.y,
+                        z = place.anchor.z },
+                    bounds = { x = place.bounds.x, y = place.bounds.y,
+                        x2 = place.bounds.x2, y2 = place.bounds.y2 },
+                    kind = place.kind, label = place.label,
+                    street = place.street,
+                    streetDistance = place.streetDistance,
+                    distance = place.distance,
+                    groundFloor = true,
+                    knowledge = "map_metadata_unconfirmed",
+                }
+            end
         end
     end
-    return result
+    return result, nil, total
+end
+
+-- Dispatch validates one stable footprint independently of UI pagination.
+-- Street naming happens only for this selected place, not every page skipped.
+function Places.targetableById(x, y, radius, id)
+    if type(id) ~= "string" or #id < 1 or #id > 64 then
+        return nil, "invalid_place_reference"
+    end
+    local candidates, reason = Places.nearby(x, y, radius, 4096, true)
+    if candidates == nil then return nil, reason end
+    for _, place in ipairs(candidates) do
+        if place.id == id and place.groundFloor
+            and place.distanceSq <= radius * radius then
+            local knowledge = "map_metadata_unconfirmed"
+            if SC.Config and SC.Config.get("expeditionDestinationScope") == "known_only" then
+                local world = type(getWorld) == "function" and getWorld() or nil
+                local grid, gridOk = call(world, "getMetaGrid")
+                local cell, cellOk = call(world, "getCell")
+                if not gridOk or not cellOk or grid == nil or cell == nil then
+                    return nil, "knowledge_world_unavailable"
+                end
+                local known, _, names = seenInterior(place, grid, cell)
+                if not known then return nil, "place_no_longer_selectable" end
+                place.kind, place.label = classify(names)
+                knowledge = "player_seen_interior"
+            end
+            addStreet(place)
+            return {
+                id = place.id, anchor = place.anchor, bounds = place.bounds,
+                kind = place.kind, label = place.label,
+                street = place.street, streetDistance = place.streetDistance,
+                distance = place.distance, groundFloor = true,
+                knowledge = knowledge,
+            }
+        end
+    end
+    return nil, "place_no_longer_selectable"
 end
 
 return Places

@@ -4,6 +4,7 @@ package zombie.worldMap.streets;
 /** Compile-only Build 42 named street polyline. */
 public final class WorldMapStreet {
     public String getTranslatedText() { return null; }
+    public String getUntranslatedText() { return null; }
     public float getMinX() { return 0.0f; }
     public float getMinY() { return 0.0f; }
     public float getMaxX() { return 0.0f; }
