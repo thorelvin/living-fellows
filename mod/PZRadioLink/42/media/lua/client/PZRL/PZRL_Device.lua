@@ -4,7 +4,8 @@ PZ Radio Link -- device adapter.
 Every mutation goes through ISRadioAction + ISTimedActionQueue, which is the path
 the vanilla radio window uses. Nothing here calls a DeviceData setter directly.
 
-Verified against 42.20.4 (client/RadioCom/ISRadioAction.lua):
+Verified against 42.20.4 and 42.21.0 (shared/RadioCom/ISRadioAction.lua since
+42.21; it lived in client/ before, and is a global either way):
 
   ISRadioAction:new(mode, character, device, secondaryItem)
       maxTime = 30, stopOnWalk = false, stopOnRun = true
@@ -50,12 +51,39 @@ Device.WORLD = "world"
 -- test means our idea of in-reach is identical to vanilla's.
 Device.REACH = 1.6
 
+--[[
+The world context menu hands us every IsoObject under the cursor -- walls,
+floors, trees, furniture -- and none of those have getScriptItem. Calling it
+raised "Object tried to call nil", and although the pcall caught it and the
+menu behaved, Kahlua still dumped a full stack trace to console.txt on every
+right-click anywhere in the world.
+
+So probe for the method before calling it rather than relying on the pcall as
+flow control. A pcall that fires on ordinary input is not error handling, it is
+noise that hides real faults.
+]]
+local function callable(target, name)
+    return type(target[name]) == "function"
+end
+
+-- Counts classification attempts that actually raised. Ordinary input must
+-- never raise: the pcall below is a backstop for genuinely unexpected engine
+-- behaviour, not flow control for scenery. A test asserting only kindOf's
+-- return value cannot tell the two apart, because the pcall returns nil either
+-- way -- this counter is what makes the difference observable.
+Device.classifyFaults = 0
+
 function Device.kindOf(target)
     if target == nil then return nil end
     local ok, kind = pcall(function()
         if instanceof(target, "IsoRadio") then
+            if not callable(target, "getDeviceData") then return nil end
             if target:getDeviceData() == nil then return nil end
             return Device.WORLD
+        end
+        -- Not an inventory item: ordinary scenery, so there is nothing to link.
+        if not callable(target, "getScriptItem") or not callable(target, "getDeviceData") then
+            return nil
         end
         local script = target:getScriptItem()
         if script == nil or not script:isItemType(ItemType.RADIO) then return nil end
@@ -64,7 +92,10 @@ function Device.kindOf(target)
         if data:getIsPortable() ~= true then return nil end
         return Device.ITEM
     end)
-    if not ok then return nil end
+    if not ok then
+        Device.classifyFaults = Device.classifyFaults + 1
+        return nil
+    end
     return kind
 end
 
@@ -373,17 +404,35 @@ function Device.beginOwnedAction(mode, player, item, secondary, options)
     return owned
 end
 
--- Stops only our own action. Never clears the player's queue.
+--[[
+Stops only our own action.
+
+An action waiting behind the player's own work has not been begun, so it has no
+engine-side `action` yet and ISBaseTimedAction:forceStop() -- which is just
+`self.action:forceStop()` -- raises on it. That used to leave the action in the
+queue, free to run after we had reported it gone. A waiting action is instead
+taken out of the queue and given forceCancel(), exactly as vanilla's
+cancelQueue() treats actions that never started.
+
+A running action can only be stopped through forceStop(), and vanilla's stop()
+then resets the rest of that player's queue -- the same as the player pressing
+cancel. That is the engine's rule, not something this adapter adds.
+]]
 function Device.cancelOwnedAction(owned)
     if owned == nil or owned.action == nil then return false end
-    local ok = pcall(function()
-        if owned.action.forceStop then
-            owned.action:forceStop()
-        elseif owned.action.stop then
-            owned.action:stop()
+    local action = owned.action
+    local ok, done = pcall(function()
+        if action.action == nil then
+            local queue = ISTimedActionQueue.getTimedActionQueue(action.character)
+            if queue:indexOf(action) == -1 then return true end
+            queue:removeFromQueue(action)
+            if action.forceCancel then action:forceCancel() end
+            return queue:indexOf(action) == -1
         end
+        action:forceStop()
+        return true
     end)
-    return ok
+    return ok and done == true
 end
 
 --[[

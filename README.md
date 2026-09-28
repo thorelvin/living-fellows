@@ -8,7 +8,7 @@ Pick up a walkie-talkie in game, right-click it, choose **Link to phone**, and
 you get the faceplate above on your phone over Wi-Fi. Power, tuning, volume and
 presets — while your survivor keeps doing something else.
 
-**Version 0.3.0** — for **Project Zomboid build 42.20.4**, single-player. No audio;
+**Version 0.3.1** — for **Project Zomboid Build 42** (any 42.x; checked against the 42.20.4 and 42.21.0 game files), single-player. No audio;
 see [Limits](#limits).
 
 ---

@@ -143,4 +143,49 @@ check("unreadable range is not a 0..0 band",
 if failures > 0 then
     error(tostring(failures) .. " check(s) failed")
 end
+print("device classification (world context menu)")
+-- Found in a real playtest: the world context menu passes every IsoObject
+-- under the cursor -- walls, floors, trees -- and none of those have
+-- getScriptItem. Calling it raised "Object tried to call nil". The pcall
+-- caught it so the menu still worked, but Kahlua dumped a full stack trace to
+-- console.txt on every right-click anywhere in the world. Probe for the
+-- method instead; a pcall that fires on ordinary input is noise, not handling.
+instanceof = function(obj, cls) return obj ~= nil and obj.__class == cls end
+ItemType = { RADIO = "RADIO" }
+
+local scenery = { __class = "IsoObject" }
+check("bare scenery is not a device", D.kindOf(scenery) == nil)
+
+local tree = { __class = "IsoTree" }
+function tree:getSquare() return nil end
+check("a tree is not a device", D.kindOf(tree) == nil)
+
+local plank = { __class = "InventoryItem" }
+function plank:getScriptItem() return { isItemType = function() return false end } end
+function plank:getDeviceData() return nil end
+check("a non-radio item is not a device", D.kindOf(plank) == nil)
+
+local carried = { __class = "Radio" }
+function carried:getScriptItem()
+    return { isItemType = function(_, t) return t == "RADIO" end }
+end
+function carried:getDeviceData() return { getIsPortable = function() return true end } end
+check("a portable radio is an item device", D.kindOf(carried) == D.ITEM)
+
+local placed = { __class = "IsoRadio" }
+function placed:getDeviceData() return {} end
+check("a placed radio is a world device", D.kindOf(placed) == D.WORLD)
+
+local brokenRadio = { __class = "IsoRadio" }
+check("an IsoRadio with no readable data is refused", D.kindOf(brokenRadio) == nil)
+
+-- The defect was not a wrong return value -- the pcall already returned nil --
+-- but that classifying ordinary scenery RAISED, dumping a Kahlua stack trace
+-- to console.txt on every right-click in the world. Assert nothing raised.
+check("classifying ordinary world objects raises nothing",
+    D.classifyFaults == 0)
+
+if failures > 0 then
+    error(tostring(failures) .. " check(s) failed")
+end
 print("PROTOCOL AND GRID CHECKS PASSED")

@@ -1,6 +1,7 @@
 # Engine notes and evidence
 
-What the mod relies on in Project Zomboid **42.20.4**, how each fact was
+What the mod relies on in Project Zomboid **Build 42** (read on 42.20.4, re-checked
+on **42.21.0**), how each fact was
 established, and what is still unproven. Everything below was read from the
 installed game at
 `C:\Program Files (x86)\Steam\steamapps\common\ProjectZomboid` — shipped
@@ -24,7 +25,8 @@ testItem:getScriptItem():isItemType(ItemType.RADIO)
 
 ### Control path
 
-`client/RadioCom/ISRadioAction.lua`:
+`shared/RadioCom/ISRadioAction.lua` (in `client/` up to 42.20.4; moved to `shared/`
+in 42.21 with the same global name, constructor and guards):
 
 ```lua
 ISRadioAction:new(mode, character, device, secondaryItem)
@@ -226,3 +228,36 @@ The owned-action work is the largest untested surface. Specifically:
 
 The automated gates cover the transport, protocol, broker and browser logic
 against fakes. A passing gate here does not prove an engine hook is correct.
+
+---
+
+## Build 42.21.0 re-check (0.3.1)
+
+The mod no longer pins one sub-version: `mod.info` declares `versionMin=42.0.0`
+and no `versionMax`, so it loads on any Build 42. Every fact above was re-read
+from the installed 42.21.0 (`version=42.21.0 4a0e9546ec`):
+
+- Unchanged: the radio eligibility predicate (still line 199), the
+  `ISRadioAction` constructor, `maxTime`/`stopOnRun`, all three `isValid*`
+  guards including the `and`/`or` defect, `RWMPanel:doWalkTo`, the 0.2 MHz
+  preset step and `frequencyDivider = 1000`, the `luautils.walkAdj` 1.6 reach,
+  every `DeviceData`/`DevicePresets`/`PresetEntry` accessor used, the file
+  sandbox allowlist (`ini cfg txt log json`), all globals and all five events.
+- Moved: `ISRadioAction.lua` is now under `shared/`. Harmless -- it is a global.
+- New in the vanilla file: a `complete()` for the server side, and
+  `startSetChannel` plays the tune-in sound. Neither affects single-player.
+
+### Fix: cancelling a waiting action
+
+Reading 42.21's `ISTimedActionQueue` showed that `ISBaseTimedAction:forceStop()`
+is just `self.action:forceStop()`, and `self.action` only exists once the
+queue has begun the action. Cancelling a radio action still waiting behind the
+player's own work therefore raised inside the pcall, returned `false`, and left
+the action queued -- so a command reported `unknown` after `queue_wait_expired`
+could still apply itself later. `cancelOwnedAction` now removes a waiting action
+from the queue and calls `forceCancel()`, as vanilla's own `cancelQueue()` does;
+a running action still goes through `forceStop()`.
+
+Covered by `tests/queue_harness.lua`, which runs the game's shipped
+`ISBaseObject`, `ISBaseTimedAction`, `ISTimedActionQueue` and `ISRadioAction`
+inside Kahlua. Confirmed it fails against the previous implementation.

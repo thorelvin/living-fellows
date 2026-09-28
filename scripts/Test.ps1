@@ -62,6 +62,25 @@ if (-not $haveGame) {
         } else {
             Write-Host 'codec harness passed (it raises on any failed check)'
         }
+
+        Write-Section 'Kahlua timed-action queue gate'
+        # The game's own queue and radio action, not copies, so a change in a
+        # new build shows up here.
+        $gameLua = Join-Path $GameRoot 'media\lua'
+        $radioAction = Join-Path $gameLua 'shared\RadioCom\ISRadioAction.lua'
+        if (-not (Test-Path $radioAction)) { $radioAction = Join-Path $gameLua 'client\RadioCom\ISRadioAction.lua' }
+        & $java -cp "$tests;$jar" ReflectLuaCompiler --run `
+            (Join-Path $tests 'queue_prelude.lua') `
+            (Join-Path $gameLua 'shared\ISBaseObject.lua') `
+            (Join-Path $gameLua 'shared\TimedActions\ISBaseTimedAction.lua') `
+            (Join-Path $gameLua 'client\TimedActions\ISTimedActionQueue.lua') `
+            $radioAction `
+            (Join-Path $luaDir 'PZRL_Device.lua') `
+            (Join-Path $tests 'queue_harness.lua')
+        if ($LASTEXITCODE -ne 0) {
+            $failed = $true
+            Write-Host 'QUEUE HARNESS FAILED' -ForegroundColor Red
+        }
     } finally {
         Pop-Location
     }

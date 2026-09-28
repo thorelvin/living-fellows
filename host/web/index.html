@@ -389,6 +389,8 @@ keySubmit.addEventListener("click", async () => {
       return;
     }
     TOKEN = candidate;
+    bumpGeneration();
+    consecutiveFailures = 0;
     try { localStorage.setItem("pzrl_token", candidate); } catch (e) { /* private mode */ }
     keyInput.value = "";
     showRepair(false);
@@ -642,8 +644,24 @@ function setStatus(text, cls) {
 // polls, so a slow response could land after a rebind and restore old state.
 let pollGeneration = 0;
 let polling = false;
+// Consecutive failed polls before the page calls it an outage. At 500 ms a
+// poll this rides out roughly a second and a half of interruption.
+const FAILURES_BEFORE_OFFLINE = 3;
+let consecutiveFailures = 0;
 
+// Discards any in-flight response from a previous context, so a slow reply
+// composed under an old pairing key cannot land after re-pairing.
 function bumpGeneration() { pollGeneration += 1; }
+
+// Waking the screen should refresh immediately rather than waiting out the
+// hidden-tab sleep below, which is what made a returning phone sit on stale
+// state for a moment.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    consecutiveFailures = 0;
+    poll();
+  }
+});
 
 async function pollLoop() {
   while (true) {
@@ -683,12 +701,26 @@ async function poll() {
     if (generation !== pollGeneration) return;
     view = next;
     render();
+    consecutiveFailures = 0;
   } catch (err) {
     if (generation !== pollGeneration) return;
+    consecutiveFailures += 1;
+    // A phone's radio waking from sleep routinely makes one request slow, and
+    // Wi-Fi power saving can drop a single poll. Treating the first failure as
+    // an outage tore the whole faceplate down and showed "host not responding"
+    // while the host was answering in milliseconds. Ride out a couple of
+    // misses before declaring anything, and keep the last known state on
+    // screen (read-only) rather than blanking it.
+    if (consecutiveFailures < FAILURES_BEFORE_OFFLINE) {
+      led.className = "led warn";
+      linkText.textContent = "reconnecting";
+      disableAll();
+      return;
+    }
     view = null;
     led.className = "led";
     linkText.textContent = err.name === "AbortError" ? "host not responding" : "host offline";
-    setStatus("Lost the host process.", "err");
+    setStatus("Lost contact with the host.", "err");
     disableAll();
   } finally {
     clearTimeout(timer);
