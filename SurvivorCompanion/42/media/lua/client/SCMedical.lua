@@ -12,6 +12,9 @@ local treatmentState = setmetatable({}, { __mode = "k" })
 -- player's timed action ends or stops refreshing the hold.
 local receivingCare = setmetatable({}, { __mode = "k" })
 local helpRequestedAt = setmetatable({}, { __mode = "k" })
+-- Kahlua does not reliably collect weak-key tables. Release entries explicitly.
+local assessmentCache = {}
+local bodyFactsScratch = {}
 
 local function U()
     return SC.GameplayUtil
@@ -44,10 +47,13 @@ end
 -- The engine measures an IsoPlayer (which companions are) against
 -- getHoursSurvived() and everything else against world age; mirror that, and
 -- fall back to the apparent value only when the native numbers are unusable.
-local function knoxInfectionLevel(character, body, infected, apparent)
+local function knoxInfectionLevel(character, body, infected, apparent,
+        nativeStart, nativeDuration)
     if not infected or body == nil then return 0 end
-    local duration = numberMethod(body, { "getInfectionMortalityDuration" }, -1)
-    local started = numberMethod(body, { "getInfectionTime" }, -1)
+    local duration = tonumber(nativeDuration)
+        or numberMethod(body, { "getInfectionMortalityDuration" }, -1)
+    local started = tonumber(nativeStart)
+        or numberMethod(body, { "getInfectionTime" }, -1)
     if duration <= 0 or started < 0 then return apparent end
     local current = numberMethod(character, { "getHoursSurvived" }, -1)
     if current < 0 and type(getGameTime) == "function" then
@@ -69,6 +75,16 @@ local function bodyDamage(character)
     return nil
 end
 
+local function currentHealth(character)
+    local utility = U()
+    local body = bodyDamage(character)
+    if body ~= nil then
+        local value, ok = utility.call(body, "getHealth")
+        if ok and type(value) == "number" then return value, body end
+    end
+    return utility.nativeHealth(character), body
+end
+
 local function partName(part, index)
     local utility = U()
     local partType, ok = utility.call(part, "getType")
@@ -76,28 +92,95 @@ local function partName(part, index)
     return "part_" .. tostring(index)
 end
 
-local function inspectPart(part, index)
-    local bleeding = booleanMethod(part, { "bleeding", "isBleeding" })
-        or numberMethod(part, { "getBleedingTime" }, 0) > 0
-    local bitten = booleanMethod(part, { "bitten", "isBitten" })
+local function hasBodyFlag(flags, bit)
+    return math.floor(flags / bit) % 2 == 1
+end
+
+local function countBodyFacts(reason)
+    if SC.Performance and type(SC.Performance.count) == "function" then
+        SC.Performance.count("medical.body-facts." .. reason)
+    end
+end
+
+local function captureNativeBodyFacts(character)
+    local bridge = type(_G) == "table" and rawget(_G, "SCBridge") or nil
+    if bridge == nil or SC.Call == nil or type(SC.Call.static) ~= "function" then
+        countBodyFacts("unavailable")
+        return nil
+    end
+    local called, count = SC.Call.static(bridge, "fillBodyFacts",
+        character, bodyFactsScratch)
+    count = called and tonumber(count) or nil
+    if count == nil or count < 0 then
+        countBodyFacts("refused")
+        return nil
+    end
+    if count > 32 or count ~= math.floor(count)
+        or type(bodyFactsScratch.health) ~= "number"
+        or type(bodyFactsScratch.infected) ~= "boolean"
+        or type(bodyFactsScratch.apparentInfection) ~= "number"
+        or type(bodyFactsScratch.infectionTime) ~= "number"
+        or type(bodyFactsScratch.infectionDuration) ~= "number"
+        or bodyFactsScratch.count ~= count then
+        countBodyFacts("invalid-header")
+        return nil
+    end
+    for index = 1, count do
+        local base = (index - 1) * 4 + 1
+        local flags = bodyFactsScratch[base + 2]
+        local partIndex = bodyFactsScratch[base + 1]
+        if bodyFactsScratch[base] == nil
+            or type(partIndex) ~= "number" or partIndex < 0 or partIndex > 31
+            or partIndex ~= math.floor(partIndex)
+            or type(flags) ~= "number" or flags < 1 or flags > 4095
+            or flags ~= math.floor(flags)
+            or type(bodyFactsScratch[base + 3]) ~= "string" then
+            countBodyFacts("invalid-part")
+            return nil
+        end
+    end
+    return bodyFactsScratch, count
+end
+
+local function inspectPart(part, index, factFlags, factName)
+    local bleeding, bitten, infected, bandaged, dirtyBandage, scratched, cut
+    local deep, burned, fracture, bullet, glass
+    if factFlags ~= nil then
+        bleeding = hasBodyFlag(factFlags, 1)
+        bitten = hasBodyFlag(factFlags, 2)
+        infected = hasBodyFlag(factFlags, 4)
+        bandaged = hasBodyFlag(factFlags, 8)
+        dirtyBandage = hasBodyFlag(factFlags, 16)
+        scratched = hasBodyFlag(factFlags, 32)
+        cut = hasBodyFlag(factFlags, 64)
+        deep = hasBodyFlag(factFlags, 128)
+        burned = hasBodyFlag(factFlags, 256)
+        fracture = hasBodyFlag(factFlags, 512)
+        bullet = hasBodyFlag(factFlags, 1024)
+        glass = hasBodyFlag(factFlags, 2048)
+    else
+        bleeding = booleanMethod(part, { "bleeding", "isBleeding" })
+            or numberMethod(part, { "getBleedingTime" }, 0) > 0
+        bitten = booleanMethod(part, { "bitten", "isBitten" })
     -- Local, treatable WOUND infection only -- never the character's Knox (zombie)
     -- infection. BodyPart.IsInfected() returns the Knox flag, which the engine
     -- propagates to EVERY body part, so a Knox-infected companion read every part as
     -- infected (severity 30 each) and tried to change bandages over its whole body
     -- forever, filling its work queue and locking it in place. Knox is assessed
     -- separately at the character level (knoxInfected).
-    local infected = booleanMethod(part, { "isInfectedWound" })
-    local bandaged = booleanMethod(part, { "bandaged", "isBandaged" })
+        infected = booleanMethod(part, { "isInfectedWound" })
+        bandaged = booleanMethod(part, { "bandaged", "isBandaged" })
     -- Native isBandageDirty() only checks bandageLife <= 0, which is also
     -- true for every completely unbandaged healthy body part.
-    local dirtyBandage = bandaged and booleanMethod(part, { "isBandageDirty" })
-    local scratched = booleanMethod(part, { "scratched", "isScratched" })
-    local cut = booleanMethod(part, { "isCut" })
-    local deep = booleanMethod(part, { "deepWounded", "isDeepWounded" })
-    local burned = numberMethod(part, { "getBurnTime" }, 0) > 0
-    local fracture = numberMethod(part, { "getFractureTime" }, 0) > 0
-    local bullet = booleanMethod(part, { "haveBullet" })
-    local glass = booleanMethod(part, { "haveGlass" })
+        dirtyBandage = bandaged and booleanMethod(part, { "isBandageDirty" })
+        scratched = booleanMethod(part, { "scratched", "isScratched" })
+        cut = booleanMethod(part, { "isCut" })
+        deep = booleanMethod(part, { "deepWounded", "isDeepWounded" })
+        burned = numberMethod(part, { "getBurnTime" }, 0) > 0
+        fracture = numberMethod(part, { "getFractureTime" }, 0) > 0
+        bullet = booleanMethod(part, { "haveBullet" })
+        glass = booleanMethod(part, { "haveGlass" })
+    end
     local lodged = bullet or glass
     local severity = 0
     if bleeding then severity = severity + 28 end
@@ -116,7 +199,7 @@ local function inspectPart(part, index)
     return {
         part = part,
         index = index,
-        name = partName(part, index),
+        name = factName or partName(part, index),
         bleeding = bleeding,
         bitten = bitten,
         infected = infected,
@@ -136,29 +219,61 @@ local function inspectPart(part, index)
 end
 
 function Medical.assess(character, runtime)
+    local performance = SC.Performance
+    local started = performance and type(performance.preciseNowMs) == "function"
+        and performance.preciseNowMs() or nil
     local utility = U()
-    local body = bodyDamage(character)
-    local health = body and numberMethod(body, { "getHealth" }, utility.nativeHealth(character))
-        or utility.nativeHealth(character)
+    local health, body = currentHealth(character)
     local wounds, bleedingCount, dirtyBandages, bites, openWounds = {}, 0, 0, 0, 0
-    local bodyParts = body and select(1, utility.call(body, "getBodyParts")) or nil
-    utility.each(bodyParts, 32, function(part, index)
-        local wound = inspectPart(part, index)
+    local nativeFacts, nativeCount
+    if body then
+        nativeFacts, nativeCount = captureNativeBodyFacts(character)
+    else
+        countBodyFacts("no-body")
+    end
+    if nativeFacts then health = nativeFacts.health end
+    local function appendWound(wound)
         if wound.severity > 0 or wound.bandaged then wounds[#wounds + 1] = wound end
         if wound.bleeding and not wound.bandaged then bleedingCount = bleedingCount + 1 end
         if wound.dirtyBandage then dirtyBandages = dirtyBandages + 1 end
         if wound.bitten then bites = bites + 1 end
         if wound.openWound then openWounds = openWounds + 1 end
-    end)
+    end
+    if nativeFacts then
+        if performance and type(performance.count) == "function" then
+            performance.count("medical.body-facts.bridge")
+        end
+        for index = 1, nativeCount do
+            local base = (index - 1) * 4 + 1
+            appendWound(inspectPart(nativeFacts[base], nativeFacts[base + 1],
+                nativeFacts[base + 2], nativeFacts[base + 3]))
+        end
+    else
+        if performance and type(performance.count) == "function" then
+            performance.count("medical.body-facts.lua-fallback")
+        end
+        local bodyParts = body and select(1, utility.call(body, "getBodyParts")) or nil
+        utility.each(bodyParts, 32, function(part, index)
+            appendWound(inspectPart(part, index))
+        end)
+    end
     table.sort(wounds, function(a, b) return a.severity > b.severity end)
 
-    local infected = body and booleanMethod(body, { "IsInfected", "isInfected" }) or false
-    local apparentInfectionLevel = body
-        and numberMethod(body, { "getApparentInfectionLevel" }, 0) or 0
-    local infectionLevel = knoxInfectionLevel(character, body, infected, apparentInfectionLevel)
+    local infected, apparentInfectionLevel
+    if nativeFacts then
+        infected = nativeFacts.infected
+        apparentInfectionLevel = nativeFacts.apparentInfection
+    else
+        infected = body and booleanMethod(body, { "IsInfected", "isInfected" }) or false
+        apparentInfectionLevel = body
+            and numberMethod(body, { "getApparentInfectionLevel" }, 0) or 0
+    end
+    local infectionLevel = knoxInfectionLevel(character, body, infected,
+        apparentInfectionLevel, nativeFacts and nativeFacts.infectionTime,
+        nativeFacts and nativeFacts.infectionDuration)
     local terminalKnox = infected and infectionLevel >= 99.5
     local state = downed[character]
-    return {
+    local assessment = {
         actor = character,
         bodyDamage = body,
         health = health,
@@ -181,6 +296,51 @@ function Medical.assess(character, runtime)
         openWounds = openWounds,
         needsDressing = openWounds > 0,
     }
+    if started and type(performance.record) == "function" then
+        performance.record("medical.assess", nil,
+            math.max(0, performance.preciseNowMs() - started))
+    end
+    return assessment
+end
+
+function Medical.invalidate(character)
+    if character ~= nil then assessmentCache[character] = nil end
+end
+
+-- Decision and presentation reads only. Treatment and its verification use
+-- Medical.assess so both sides of a body mutation are read fresh.
+function Medical.assessCached(character, runtime, maxAgeMs)
+    if character == nil then return Medical.assess(character, runtime) end
+    local utility = U()
+    local health, body = currentHealth(character)
+    local now = utility.nowMs()
+    local maxAge = math.max(0, tonumber(maxAgeMs)
+        or tonumber(utility.config("medicalAssessCacheMs")) or 500)
+    local bucket = math.floor(health)
+    local infected = body and booleanMethod(body, { "IsInfected", "isInfected" }) or false
+    local entry = assessmentCache[character]
+    if entry == nil or entry.body ~= body or entry.bucket ~= bucket
+        or entry.assessment.knoxInfected ~= infected
+        or now < entry.at or now - entry.at > maxAge then
+        entry = { assessment = Medical.assess(character), body = body,
+            bucket = bucket, at = now }
+        assessmentCache[character] = entry
+    end
+    local result = {}
+    for key, value in pairs(entry.assessment) do result[key] = value end
+    local state = downed[character]
+    result.health = health
+    result.alive = health > 0 and not utility.isDead(character)
+    result.downed = state ~= nil or type(runtime) == "table" and runtime.downed == true
+    result.critical = health > 0
+        and health <= (utility.config("medicalCriticalHealth") or 35)
+    if infected and body then
+        local apparent = numberMethod(body, { "getApparentInfectionLevel" }, 0)
+        result.apparentInfectionLevel = apparent
+        result.infectionLevel = knoxInfectionLevel(character, body, infected, apparent)
+        result.terminalKnox = result.infectionLevel >= 99.5
+    end
+    return result
 end
 
 function Medical.isLivingPatient(character, assessment)
@@ -652,6 +812,7 @@ local function commitBandage(patient, assessment, wound, bandage, inventory,
         local rolledBack = rollbackEmergencyBandage(inventory, emergencyTransaction)
         return false, rolledBack and "native_bandage_failed" or "treatment_rollback_failed"
     end
+    Medical.invalidate(patient)
     -- Read back the wound before consuming the dressing (R2-07). The call-success
     -- flag above only proves the native setter returned normally; a no-op setter
     -- would report success without actually bandaging the part, and consuming the
@@ -1665,7 +1826,9 @@ local function rescueCandidate(actor, player, snapshot)
         -- chosen again next pass -- while a second wounded companion nobody had
         -- claimed was never considered at all.
         if not Medical.treatmentAvailable(actor, candidate) then return end
-        local assessment = Medical.assess(candidate)
+        -- Candidate ranking is a decision read. Treatment rechecks the native
+        -- body before choosing and verifying a wound.
+        local assessment = Medical.assessCached(candidate, nil, 100)
         if not Medical.hasActionableNeed(candidate, assessment, false) then return end
         local score = (assessment.downed and 80 or 0)
             + assessment.bleedingCount * 25
@@ -1730,7 +1893,8 @@ function Medical.update(actor, player, runtime)
     end
 
     local explicitTarget = rootRuntime.rescueTarget
-    local candidate = explicitTarget and Medical.hasActionableNeed(explicitTarget, nil, false)
+    local candidate = explicitTarget and Medical.hasActionableNeed(
+        explicitTarget, Medical.assessCached(explicitTarget, nil, 100), false)
         and explicitTarget or rescueCandidate(actor, player, snapshot)
     if candidate and rescueViable(actor, snapshot) then
         local ok, reason = Medical.treat(actor, candidate, rootRuntime)
@@ -1782,9 +1946,9 @@ function Medical.peek(actor)
     }
 end
 
-function Medical.statusText(character)
+function Medical.statusText(character, assessment)
     local utility = U()
-    local assessment = Medical.assess(character)
+    assessment = assessment or Medical.assess(character)
     if not assessment.alive then return utility.text("UI_SC_Status_Dead", "Dead") end
     if assessment.terminalKnox then return utility.text("UI_SC_Status_TerminalKnox", "Terminal Knox infection") end
     if assessment.knoxInfected then
@@ -1802,6 +1966,7 @@ function Medical.reset(actor)
     if actor then
         return Medical.releaseActor(actor)
     else
+        assessmentCache = {}
         for subject in pairs(receivingCare) do receivingCare[subject] = nil end
         for subject in pairs(helpRequestedAt) do helpRequestedAt[subject] = nil end
         local helpers = {}
@@ -1822,6 +1987,7 @@ end
 
 function Medical.releaseActor(actor)
     if actor == nil then return false end
+    Medical.invalidate(actor)
     receivingCare[actor] = nil
     helpRequestedAt[actor] = nil
     local helpers = {}

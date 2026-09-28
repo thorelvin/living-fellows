@@ -28,6 +28,7 @@ OWNED = [
     "SCBackground.lua",
     "SCThreatSet.lua",
     "SCPerceptionScan.lua",
+    "SCZombieFacts.lua",
     "SCSenses.lua",
     "SCNavigation.lua",
     "SCPositioning.lua",
@@ -82,6 +83,7 @@ REQUIRED_EXPORTS = {
     "SCThreatSet.lua": ["threatPreferred", "proximityPreferred", "isImmediate",
                         "new", "add", "finish"],
     "SCPerceptionScan.lua": ["nativeCandidates", "nextOffsets", "newJob", "invalid", "reset"],
+    "SCZombieFacts.lua": ["get", "forget", "reset"],
     "SCDialogue.lua": ["register", "has", "choose", "say", "sayLastWords",
                        "monitorMortality", "reset", "poolSize", "topics"],
     "SCLifeEvents.lua": ["emit", "drain", "reset"],
@@ -857,9 +859,10 @@ def main() -> int:
 
     # A door already recorded as locked must not be handed back to the engine
     # pathfinder, which does not consult the blacklist the Lua planner uses.
-    require('if SC.Navigation.behindLockedDoor(actor, goalSquare, now)'
+    require('local knownLockedRoom = SC.Navigation.behindLockedDoor(actor, goalSquare, now)'
             in sources["SCNavigation.lua"]
-            and 'return false, "path_blocked:door_locked"' in sources["SCNavigation.lua"],
+            and 'return false, "path_blocked:door_locked"' in sources["SCNavigation.lua"]
+            and 'local allowNative = not knownLockedRoom' in sources["SCNavigation.lua"],
             "the native fallback no longer routes into a known locked room")
 
     # A zombie chewing on somebody is not "already handled" because the person
@@ -958,7 +961,8 @@ def main() -> int:
     require(runtime_source.index("SC.Diary.noteAuthorDeath")
             > runtime_source.index("SC.Community.noteCompanionDeath")
             and runtime_source.index("SC.Diary.noteAuthorDeath")
-            < runtime_source.index("SC.Actor.retireDead(record.actor)"),
+            < runtime_source.rindex("finishNativeDeath(record)")
+            and "SC.Actor.retireDead(record.actor)" in runtime_source,
             "author death must freeze the diary after grief and before actor retirement")
     require('field = "diaries", owner = SC.Diary' in persistence_source
             and "job.diaryContentRevision" in persistence_source

@@ -12,6 +12,7 @@ require "SCPersistence"
 require "SCVehicle"
 require "SCSpawn"
 require "SCFactions"
+require "SCExpeditionPlaces"
 require "SCTrade"
 require "SCFactionBehavior"
 require "SCFactionContracts"
@@ -29,6 +30,7 @@ require "SCCommunity"
 require "SCQuirks"
 require "SCAutonomy"
 require "SCCommands"
+require "SCExpeditionPrototype"
 require "SCFactionRecruitment"
 
 local SC = SurvivorCompanion
@@ -49,6 +51,10 @@ local criticalCursor = 1
 local criticalDecisionActive = setmetatable({}, { __mode = "k" })
 local decisionServiceEstimateMs = 0.5
 local vitalsCursor = 1
+local frameSerial, inProductionTick = 0, false
+function runtime.frameSerial()
+    return inProductionTick and frameSerial or nil
+end
 local lastPlayerVehicle = nil
 local vehicleRestoreDeadline = nil
 -- Whether the loot-pane container refresh hook is currently ours. Owned by
@@ -73,7 +79,20 @@ local function nowMs()
     return math.floor(os.clock() * 1000)
 end
 
+local function preciseNowMs()
+    if SC.Performance and type(SC.Performance.preciseNowMs) == "function" then
+        return SC.Performance.preciseNowMs()
+    end
+    return nowMs()
+end
+
 local function player()
+    -- Split screen may make getPlayer() return the companion in slot 1.
+    if SC.ExpeditionPrototype and SC.ExpeditionPrototype.current()
+        and type(getSpecificPlayer) == "function" then
+        local ok, primary = pcall(getSpecificPlayer, 0)
+        if ok and primary ~= nil then return primary end
+    end
     if type(getPlayer) ~= "function" then return nil end
     local ok, value = pcall(getPlayer)
     return ok and value or nil
@@ -130,11 +149,9 @@ local function notifyDisabled(reason)
 end
 
 local function nextRecord(cursor, snapshot)
-    -- A decision callback already owns a stable roster snapshot. Reusing it is
-    -- important: Registry.records() materializes and sorts a new list, so calling
-    -- it once per scanned actor made dispatch overhead grow quadratically with a
-    -- large party. Other callers may omit the snapshot and retain the old API.
-    local records = type(snapshot) == "table" and snapshot or SC.Registry.records()
+    -- Reuse the versioned sorted roster across actor services and background
+    -- pulses. A new table is published only when membership changes.
+    local records = type(snapshot) == "table" and snapshot or SC.Registry.snapshot()
     if #records == 0 then return nil, 1 end
     if cursor > #records then cursor = 1 end
     local record = records[cursor]
@@ -222,29 +239,26 @@ local function recordServiceable(record)
 end
 
 -- Cheap emergency probe used to route an actor into the critical decision lane.
--- A zombie grab is read live (always fresh, and the most time-critical case); the
--- rest come from the actor's last decision/senses pass. Once an actor senses a
+-- Cached emergency flags are checked first; a native grab is probed when they
+-- are clear. Once an actor senses a
 -- threat it stays critical and keeps getting fast service until the danger clears,
 -- while first detection of a brand-new threat still comes from the (now
 -- multi-actor) ordinary round-robin below.
 local function recordIsCritical(record)
-    if SC.ZombieAttack and type(SC.ZombieAttack.isGrabbed) == "function"
-        and SC.ZombieAttack.isGrabbed(record.actor) == true then
-        return true
-    end
     local rt = type(record.runtime) == "table" and record.runtime or nil
-    if rt == nil then return false end
-    if rt.downed == true or rt.needsRescue == true then return true end
-    local snapshot = type(rt.senses) == "table" and rt.senses.current or rt.snapshot
-    if type(snapshot) == "table" then
-        if (tonumber(snapshot.immediateCount) or 0) >= 1 then return true end
-        if (tonumber(snapshot.threatCount) or 0) >= 1 then return true end
-        local playerState = snapshot.player
-        if type(playerState) == "table" and (tonumber(playerState.danger) or 0) > 0 then
-            return true
+    if rt ~= nil then
+        if rt.downed == true or rt.needsRescue == true then return true end
+        local snapshot = type(rt.senses) == "table" and rt.senses.current or rt.snapshot
+        if type(snapshot) == "table" then
+            if (tonumber(snapshot.immediateCount) or 0) >= 1 then return true end
+            if (tonumber(snapshot.threatCount) or 0) >= 1 then return true end
+            local playerState = snapshot.player
+            if type(playerState) == "table"
+                and (tonumber(playerState.danger) or 0) > 0 then return true end
         end
     end
-    return false
+    return SC.ZombieAttack and type(SC.ZombieAttack.isGrabbed) == "function"
+        and SC.ZombieAttack.isGrabbed(record.actor) == true or false
 end
 
 -- Service one companion for a decision beat: run its decision (or sustain a grab),
@@ -276,24 +290,25 @@ local function serviceRecord(record, current, currentPlayer)
         refreshPinnedContacts(record, currentPlayer)
     else
         record.runtime.grabStopped = nil
-        local decisionStarted = nowMs()
+        local decisionStarted = preciseNowMs()
         local guarded, ok, reason = SC.Diagnostics.guard("decision", record.id,
             SC.Decision.update, record.actor, currentPlayer, record.runtime, current)
         if SC.Performance and type(SC.Performance.record) == "function" then
-            SC.Performance.record("decision", record.id, nowMs() - decisionStarted)
+            SC.Performance.record("decision", record.id, preciseNowMs() - decisionStarted)
         end
         record.runtime.lastDecision = reason
         record.runtime.lastDecisionHandled = guarded and ok == true or false
     end
     if SC.ZombieTargeting and type(SC.ZombieTargeting.scan) == "function" then
-        local targetingStarted = nowMs()
+        local targetingStarted = preciseNowMs()
         local candidates, evidence = observedZombieCandidates(record.runtime)
         record.runtime.candidateEvidence = evidence
         local targetingGuarded, scanned, scanReason, scanDetail = SC.Diagnostics.guard(
             "zombie-targeting", record.id, SC.ZombieTargeting.scan,
             record.actor, current, candidates)
         if SC.Performance and type(SC.Performance.record) == "function" then
-            SC.Performance.record("zombie-targeting", record.id, nowMs() - targetingStarted)
+            SC.Performance.record("zombie-targeting", record.id,
+                preciseNowMs() - targetingStarted)
         end
         if not targetingGuarded then
             record.runtime.lastZombieTargeting = scanned
@@ -304,12 +319,13 @@ local function serviceRecord(record, current, currentPlayer)
         -- Apply the wounds those attackers land: the engine resolves the swing
         -- but never writes the bite/scratch to a non-local companion's body.
         if SC.ZombieAttack and type(SC.ZombieAttack.resolve) == "function" then
-            local attackStarted = nowMs()
+            local attackStarted = preciseNowMs()
             local attackGuarded, resolved, attackReason, attackDetail = SC.Diagnostics.guard(
                 "zombie-attack", record.id, SC.ZombieAttack.resolve,
                 record.actor, current, candidates, evidence)
             if SC.Performance and type(SC.Performance.record) == "function" then
-                SC.Performance.record("zombie-attack", record.id, nowMs() - attackStarted)
+                SC.Performance.record("zombie-attack", record.id,
+                    preciseNowMs() - attackStarted)
             end
             if not attackGuarded then
                 record.runtime.lastZombieAttack = resolved
@@ -333,8 +349,9 @@ end
 -- minimum cadence and is bypassed for the critical lane so an emergency is never
 -- gated behind it.
 local function decisionTaskCore(current, budgetRemaining)
-    local startedAt = nowMs()
-    local records = SC.Registry.records()
+    if SC.ExpeditionPrototype then SC.ExpeditionPrototype.pulse() end
+    local startedAt = preciseNowMs()
+    local records = SC.Registry.snapshot()
     local total = #records
     if total == 0 then return end
     local currentPlayer = player()
@@ -343,16 +360,19 @@ local function decisionTaskCore(current, budgetRemaining)
     end
     local softBudget = tonumber(budgetRemaining)
     local function overBudget()
-        return softBudget ~= nil and (nowMs() - startedAt) >= softBudget
+        return softBudget ~= nil and (preciseNowMs() - startedAt) >= softBudget
     end
     local function predictedOver(limit)
         return limit ~= nil
-            and (nowMs() - startedAt) + decisionServiceEstimateMs > limit
+            and (preciseNowMs() - startedAt) + decisionServiceEstimateMs > limit
     end
     local function service(record)
-        local serviceStartedAt = nowMs()
-        serviceRecord(record, current, currentPlayer)
-        local elapsed = math.max(0, nowMs() - serviceStartedAt)
+        local serviceStartedAt = preciseNowMs()
+        local anchor = SC.ExpeditionPrototype
+            and SC.ExpeditionPrototype.contextFor(record.actor, currentPlayer)
+            or currentPlayer
+        serviceRecord(record, current, anchor)
+        local elapsed = math.max(0, preciseNowMs() - serviceStartedAt)
         -- A decision beat is not preemptible. Retain a decaying high-water
         -- estimate so the dispatcher does not begin another actor when that work
         -- is likely to push the callback beyond its remaining frame budget.
@@ -510,12 +530,32 @@ local function isRecoverablePlacementFailure(reason)
 end
 runtime._isRecoverablePlacementFailureForTests = isRecoverablePlacementFailure
 
+local function finishNativeDeath(record)
+    local retired, retireReason = SC.Actor.retireDead(record.actor)
+    if retired and SC.Factions and type(SC.Factions.memberDied) == "function" then
+        pcall(SC.Factions.memberDied, retireReason)
+    end
+    if not retired and retireReason ~= "death_pending" then
+        SC.Diagnostics.report("actor-death", record.id,
+            "permanent companion death finalization failed", retireReason)
+    end
+end
+
 local function vitalsTask(current)
     local record
-    record, vitalsCursor = nextRecord(vitalsCursor)
-    if record == nil or record.actor == nil
-        or (type(record.runtime) == "table" and record.runtime.inactive == true) then return end
+    record, vitalsCursor = nextRecord(vitalsCursor, SC.Registry.snapshot())
+    if record == nil or record.actor == nil then return end
     if not SC.Scheduler.dueFor(record.id, "vitals", 1000, current) then return end
+    if type(record.runtime) == "table" and record.runtime.inactive == true then
+        -- retireDead quarantines a dying actor until vanilla creates its
+        -- corpse. Keep polling that exact pending cleanup instead of skipping
+        -- every inactive record and leaving ownership stranded indefinitely.
+        if record.runtime.dying == true
+            and record.runtime.removalPending == true then
+            finishNativeDeath(record)
+        end
+        return
+    end
     local deadOk, dead = invoke(record.actor, "isDead")
     if deadOk and dead == true then
         record.runtime = type(record.runtime) == "table" and record.runtime or {}
@@ -551,14 +591,7 @@ local function vitalsTask(current)
             pcall(SC.Diary.noteAuthorDeath, record)
             pcall(SC.Diary.noteCompanionDeath, record)
         end
-        local retired, retireReason = SC.Actor.retireDead(record.actor)
-        if retired and SC.Factions and type(SC.Factions.memberDied) == "function" then
-            pcall(SC.Factions.memberDied, retireReason)
-        end
-        if not retired and retireReason ~= "death_pending" then
-            SC.Diagnostics.report("actor-death", record.id,
-                "permanent companion death finalization failed", retireReason)
-        end
+        finishNativeDeath(record)
         return
     end
     if SC.Dialogue and type(SC.Dialogue.monitorMortality) == "function" then
@@ -631,6 +664,14 @@ local function vitalsTask(current)
             end
             SC.Diagnostics.report("faction", record.id,
                 "faction actor missing-square recovery deferred", factionReason)
+            return
+        elseif not healthy and SC.ExpeditionPrototype
+            and SC.ExpeditionPrototype.isMember(record.actor) then
+            record.runtime.nativeSquareMissingAt = current
+            record.runtime.expeditionPlacementDeferred = true
+            SC.ExpeditionPrototype.notePlacementFailure(record.actor, healthReason)
+            SC.Diagnostics.report("expedition", record.id,
+                "remote member placement retained for native recovery", healthReason)
             return
         elseif not healthy and state.recruited == true then
             local currentPlayer = player()
@@ -717,6 +758,10 @@ local function vitalsTask(current)
         end
     elseif healthy then
         record.runtime.nativeSquareMissingAt = nil
+        record.runtime.expeditionPlacementDeferred = nil
+        if SC.ExpeditionPrototype then
+            SC.ExpeditionPrototype.notePlacementRestored(record.actor)
+        end
     end
     if healthy then
         record.runtime.healthFailingSince = nil
@@ -808,6 +853,7 @@ local function vitalsTask(current)
         SC.Diagnostics.report("vitals", record.id, "native vitals update failed", reason)
     end
 end
+runtime._vitalsTaskForTests = vitalsTask
 
 local function restoreTask()
     SC.Persistence.restorePulse(player())
@@ -917,14 +963,14 @@ end
 -- Party banter: place remarks, idle jokes, first meetings and camp chats.
 local function banterTask(current)
     if SC.Banter ~= nil and type(SC.Banter.update) == "function" then
-        SC.Banter.update(player(), SC.Registry.records(), current)
+        SC.Banter.update(player(), SC.Registry.snapshot(), current)
     end
 end
 
 -- Body language: yawns, stretches, sneezes and workout chatter. Animation only.
 local function gesturesTask(current)
     if SC.Gestures ~= nil and type(SC.Gestures.update) == "function" then
-        SC.Gestures.update(player(), SC.Registry.records(), current)
+        SC.Gestures.update(player(), SC.Registry.snapshot(), current)
     end
 end
 
@@ -967,7 +1013,9 @@ local function registerTasks()
         { "encounter-spawn", SC.Config.get("productionSpawnCheckIntervalMs"), 31,
             productionSpawnTask, "background" },
         { "factions", SC.Config.get("factionPulseIntervalMs"), 30, factionTask, "normal" },
-        { "ui-refresh", 50, 20, uiTask, "background", false, true },
+        -- A larger roster needs several small panel slices. Admit each due
+        -- slice promptly so a complete pass stays responsive at 16 members.
+        { "ui-refresh", 50, 20, uiTask, "background", false, true, 1 },
         { "bridge-generation", 1000, 21, bridgeGenerationTask, "background" },
         { "base-maintenance", SC.Config.get("baseAuditIntervalMs"), 19,
             baseMaintenanceTask, "background" },
@@ -991,6 +1039,7 @@ local function registerTasks()
             definition[2], definition[3], definition[4], {
                 lane = definition[5], reportFailure = definition[6] == true,
                 fixedInterval = definition[7] == true,
+                maxDelayMs = definition[8],
             })
         if not called or ok ~= true then
             SC.Scheduler.reset(true)
@@ -1028,13 +1077,12 @@ end
 local scheduleRepairAt = -math.huge
 local scheduleRepairKey = nil
 local function scheduleRepairRosterKey()
-    if type(SC.Registry) ~= "table" or type(SC.Registry.records) ~= "function" then return 0 end
-    local ok, records = pcall(SC.Registry.records)
-    if not ok or type(records) ~= "table" then return 0 end
-    return #records
+    if type(SC.Registry) ~= "table"
+        or type(SC.Registry.version) ~= "function" then return 0 end
+    return SC.Registry.version()
 end
 
-local function productionTick(current)
+local function productionTickCore(current, tickStarted)
     local now = tonumber(current) or nowMs()
     local key = scheduleRepairRosterKey()
     if key ~= scheduleRepairKey
@@ -1063,7 +1111,31 @@ local function productionTick(current)
     if SC.Steering and type(SC.Steering.update) == "function" then
         pcall(SC.Steering.update)
     end
+    local schedulerStarted = preciseNowMs()
+    if SC.Performance and type(SC.Performance.record) == "function" then
+        SC.Performance.record("tick.pre-scheduler", nil,
+            math.max(0, schedulerStarted - tickStarted))
+    end
     SC.Scheduler.tick()
+end
+local function productionTick(current)
+    frameSerial = frameSerial + 1
+    inProductionTick = true
+    local tickStarted = preciseNowMs()
+    local ok, reason
+    if SC.GameplayUtil
+        and type(SC.GameplayUtil.withSpatialReadBatch) == "function" then
+        ok, reason = pcall(SC.GameplayUtil.withSpatialReadBatch,
+            productionTickCore, current, tickStarted)
+    else
+        ok, reason = pcall(productionTickCore, current, tickStarted)
+    end
+    if SC.Performance and type(SC.Performance.record) == "function" then
+        SC.Performance.record("tick.total", nil,
+            math.max(0, preciseNowMs() - tickStarted))
+    end
+    inProductionTick = false
+    if not ok then error(reason, 0) end
 end
 runtime._productionTickForTests = productionTick
 
@@ -1464,6 +1536,9 @@ end
 function runtime.releaseActor(actor)
     if actor == nil then return false end
     criticalDecisionActive[actor] = nil
+    if SC.InventoryIndex and type(SC.InventoryIndex.release) == "function" then
+        SC.InventoryIndex.release(actor)
+    end
     return true
 end
 
@@ -1495,6 +1570,17 @@ function runtime.reset(detach)
             if not ok then failures[#failures + 1] = tostring(reason) end
         end
         return #failures == 0, table.concat(failures, "; ")
+    end
+
+    if SC.ExpeditionPrototype and type(SC.ExpeditionPrototype.prepareReset) == "function" then
+        local called, prepared, prepareReason = pcall(SC.ExpeditionPrototype.prepareReset)
+        if not called or prepared ~= true then
+            local restored, rollbackReason = restoreInfrastructure()
+            return false, "expedition reset preflight failed: "
+                .. tostring(called and prepareReason or prepared)
+                .. (restored and "" or "; infrastructure rollback failed: "
+                    .. tostring(rollbackReason))
+        end
     end
 
     -- Cancel deferred restore tickets while retaining their records. The
@@ -1588,6 +1674,7 @@ function runtime.reset(detach)
     resetModule("community", SC.Community, "reset")
     resetModule("diary", SC.Diary, "reset")
     resetModule("life events", SC.LifeEvents, "reset")
+    resetModule("expedition", SC.ExpeditionPrototype, "reset")
 
     local schedulerReset = false
     if #resetFailures == 0 then
@@ -1597,7 +1684,7 @@ function runtime.reset(detach)
         -- Actor and registry ledgers are the final ownership boundary. Do not
         -- erase either after a scheduler/world adapter has rejected cleanup.
         if #resetFailures == 0 then
-            resetModule("actor", SC.Actor, "reset")
+            resetModule("actor", SC.Actor, "reset", true)
         end
         if #resetFailures == 0 then
             resetModule("registry", SC.Registry, "reset")
@@ -1715,7 +1802,33 @@ function runtime.sweepOrphanSupervisorState(reason)
 end
 
 function runtime.onMainMenuEnter()
+    local expedition = SC.ExpeditionPrototype
+    local hasExpeditionState = expedition ~= nil
+        and (expedition.current() ~= nil or expedition.export() ~= nil)
+    if hasExpeditionState then
+        local saved, saveReason = runtime.save()
+        if not saved then return false, "expedition menu save failed: "
+            .. tostring(saveReason) end
+        if SCSplitScreenProbe == nil then
+            return false, "expedition menu native save owner unavailable"
+        end
+        local flushed, flushResult = pcall(
+            SCSplitScreenProbe.flushGlobalModDataForWorldExit)
+        if not flushed or flushResult ~= true then
+            return false, "expedition menu native save failed: "
+                .. tostring(flushResult)
+        end
+    end
     local ok, reason = runtime.reset(true)
+    if SCSplitScreenProbe ~= nil then
+        local flushed, value = pcall(
+            SCSplitScreenProbe.finalizeCorpseChunksAfterWorldExit)
+        if not flushed or value ~= true then
+            ok = false
+            reason = "native corpse world-exit save failed: "
+                .. tostring(value)
+        end
+    end
     if not ok then
         pcall(SC.Diagnostics.report, "runtime", nil,
             "main-menu teardown failed", reason)

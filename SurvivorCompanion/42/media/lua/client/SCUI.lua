@@ -11,6 +11,7 @@ require "SCUIBounds"
 require "SCUIBridge"
 require "SCUIFormat"
 require "SCUIPixels"
+require "SCUIExpeditions"
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -89,12 +90,13 @@ UI._hotkeyRegistered = registerHotkey()
 -- Keep the main navigation stable and task-oriented. Less frequently used
 -- management and support screens remain valid views reached through More.
 local TAB_IDS = {
-    "status", "orders", "groups", "loadout", "more",
+    "status", "orders", "groups", "expeditions", "loadout", "more",
 }
 local TAB_KEYS = {
     status = "UI_SC_Tab_Status",
     orders = "UI_SC_Tab_Orders",
     groups = "UI_SC_Tab_Squad",
+    expeditions = "UI_SC_Tab_Expeditions",
     loadout = "UI_SC_Tab_Loadout",
     base = "UI_SC_Tab_Base",
     more = "UI_SC_Tab_More",
@@ -139,11 +141,6 @@ local FOLLOW_DISTANCES = {
     { id = 3, key = "UI_SC_Select_Distance3" },
     { id = 5, key = "UI_SC_Select_Distance5" },
     { id = 8, key = "UI_SC_Select_Distance8" },
-}
-local WORK_MODES = {
-    { id = "auto", key = "UI_SC_Select_WorkAuto" },
-    { id = "idle", key = "UI_SC_Select_WorkIdle" },
-    { id = "craft", key = "UI_SC_Select_WorkCraft" },
 }
 local MOVE_MODES = {
     { id = "copy", key = "UI_SC_Select_MoveCopyPlayer" },
@@ -785,8 +782,39 @@ local function copySummary(row, summary)
     row.factionStanding = summary.factionStanding or row.factionStanding
 end
 
+function UI.projectExpeditionRow(row, player)
+    local expedition = SC.ExpeditionPrototype
+    if type(row) ~= "table" or expedition == nil
+        or type(expedition.isMemberId) ~= "function"
+        or not expedition.isMemberId(row.id) then return row end
+    if row.actor ~= nil
+        and type(expedition.playerCanObserve) == "function"
+        and expedition.playerCanObserve(row.actor, player) then return row end
+    local name = type(expedition.memberName) == "function"
+        and expedition.memberName(row.id) or row.name
+    return {
+        id = row.id, name = name or UI.text("UI_SC_Value_UnknownCompanion"),
+        group = row.group, recruited = true, available = false,
+        order = "expedition", activity = "away",
+        expeditionAway = true,
+    }
+end
+
 function UI.describeEntry(entry, player)
+    local performance = SC.Performance
+    local started = performance and type(performance.preciseNowMs) == "function"
+        and performance.preciseNowMs() or nil
     local actor, id = actorAndId(entry)
+    local expedition = SC.ExpeditionPrototype
+    if id and expedition and type(expedition.isMemberId) == "function"
+        and expedition.isMemberId(id)
+        and (actor == nil
+            or type(expedition.playerCanObserve) ~= "function"
+            or not expedition.playerCanObserve(actor, player)) then
+        return UI.projectExpeditionRow({ id = id,
+            group = type(entry) == "table" and entry.group or nil,
+        }, player)
+    end
     local row = {
         actor = actor,
         id = id,
@@ -808,7 +836,11 @@ function UI.describeEntry(entry, player)
     end
     row.name = row.name or UI.text("UI_SC_Value_UnknownCompanion")
     row.id = row.id or ""
-    return row
+    if started and type(performance.record) == "function" then
+        performance.record("ui.describe-entry", nil,
+            math.max(0, performance.preciseNowMs() - started))
+    end
+    return UI.projectExpeditionRow(row, player)
 end
 
 local function numericText(value, decimals)
@@ -983,7 +1015,6 @@ local RECRUITED_COMMANDS = {
     set_scavenge = true,
     set_allow_overload = true,
     set_ride_with_player = true,
-    set_work_mode = true,
     set_move_mode = true,
     set_combat_doctrine = true,
     set_weapon_priority = true,
@@ -2389,7 +2420,6 @@ function SCUIDetail:addCommandSelector(panel, y, labelKey, currentValue, options
         ["set_follow_distance:distance"] = "followDistance",
         ["set_move_mode:mode"] = "moveMode",
         ["set_combat_doctrine:doctrine"] = "combatDoctrine",
-        ["set_work_mode:mode"] = "workMode",
         ["set_weapon_priority:priority"] = "weaponPriority",
         ["set_group:group"] = "group",
     }
@@ -3106,8 +3136,6 @@ function SCUIDetail:buildOrders(panel)
     y = self:addSection(panel, y + 4, "UI_SC_Section_WorkAutonomy")
     y = self:addBooleanCommand(panel, y, "UI_SC_Toggle_Scavenging",
         "set_scavenge", "scavenge", row and row.scavenge == true)
-    y = self:addCommandSelector(panel, y, "UI_SC_Select_WorkMode",
-        row and row.workMode or "auto", WORK_MODES, "set_work_mode", "mode")
     return y
 end
 
@@ -4633,6 +4661,8 @@ function SCUIDetail:rebuild(preserveScroll)
         bottom = self:buildSheet(panel, row)
     elseif self.tab == "groups" then
         bottom = self:buildGroups(panel, row)
+    elseif self.tab == "expeditions" then
+        bottom = SC.UIExpeditions.build(self, panel)
     elseif self.tab == "factions" then
         bottom = self:buildFactions(panel)
     elseif self.tab == "support" then
@@ -4997,14 +5027,18 @@ function SCUIRoot:refreshRoster(preferredId, description, preserveScroll, deferD
     self.preparedRefreshEntries = nil
     local entries = type(preparedEntries) == "table" and preparedEntries or {}
     local descriptionApplied = false
-    if preparedEntries == nil and SC.Registry and type(SC.Registry.living) == "function" then
-        local ok, living = pcall(SC.Registry.living)
+    local livingFn = SC.Registry and (SC.Registry.livingFor or SC.Registry.living)
+    if preparedEntries == nil and type(livingFn) == "function" then
+        local token = SC.Runtime and type(SC.Runtime.frameSerial) == "function"
+            and SC.Runtime.frameSerial() or nil
+        local ok, living = pcall(livingFn, token)
         if ok and type(living) == "table" then
             for _, entry in pairs(living) do
                 local row = UI.describeEntry(entry, player)
                 if row.factionMember ~= true and row.factionId == nil then
                     if type(description) == "table" and row.id == (descriptionId or selectedId) then
                         copySummary(row, description)
+                        row = UI.projectExpeditionRow(row, player)
                         descriptionApplied = true
                     end
                     entries[#entries + 1] = row
@@ -5018,6 +5052,23 @@ function SCUIRoot:refreshRoster(preferredId, description, preserveScroll, deferD
             entries[#entries + 1] = row
             descriptionApplied = true
         end
+    end
+    local expedition = SC.ExpeditionPrototype
+    local view = expedition and type(expedition.describeForPlayer) == "function"
+        and expedition.describeForPlayer(player) or nil
+    if view and type(view.members) == "table" then
+        local included = {}
+        for _, row in ipairs(entries) do included[row.id] = true end
+        for _, member in ipairs(view.members) do
+            if not included[member.id] then
+                entries[#entries + 1] = UI.projectExpeditionRow({
+                    id = member.id, name = member.name, recruited = true,
+                }, player)
+            end
+        end
+    end
+    for index, row in ipairs(entries) do
+        entries[index] = UI.projectExpeditionRow(row, player)
     end
     table.sort(entries, function(left, right)
         local leftName = string.lower(tostring(left.name or ""))
@@ -5448,13 +5499,27 @@ local function uiRefreshClock()
     return math.floor((os.clock and os.clock() or 0) * 1000)
 end
 
+local function uiRefreshDurationClock()
+    if SC.Performance and type(SC.Performance.preciseNowMs) == "function" then
+        return SC.Performance.preciseNowMs()
+    end
+    return uiRefreshClock()
+end
+
 local function beginScheduledUIRefresh(root, current)
     local sources = {}
-    if SC.Registry and type(SC.Registry.living) == "function" then
-        local ok, living = pcall(SC.Registry.living)
+    local livingFn = SC.Registry and (SC.Registry.livingFor or SC.Registry.living)
+    if type(livingFn) == "function" then
+        local token = SC.Runtime and type(SC.Runtime.frameSerial) == "function"
+            and SC.Runtime.frameSerial() or nil
+        local ok, living = pcall(livingFn, token)
         if ok and type(living) == "table" then
             for _, entry in pairs(living) do sources[#sources + 1] = entry end
         end
+    end
+    if SC.Performance and type(SC.Performance.count) == "function" then
+        SC.Performance.count("ui.refresh.started")
+        SC.Performance.count("ui.refresh.sources", #sources)
     end
     local maximumLag = math.max(50,
         tonumber(SC.Config.get("uiRefreshMaximumLagMs")) or 500)
@@ -5470,26 +5535,47 @@ end
 function UI.scheduledRefresh()
     if not UI.isOpen() then
         UI._scheduledRefreshJob = nil
+        if SC.Performance and type(SC.Performance.count) == "function" then
+            SC.Performance.count("ui.refresh.closed")
+        end
         return false
     end
     if UI.instance:isUserInteracting() then
         UI.instance.refreshPending = true
+        if SC.Performance and type(SC.Performance.count) == "function" then
+            SC.Performance.count("ui.refresh.interacting")
+        end
         return false
     end
     local current = uiRefreshClock()
     local job = UI._scheduledRefreshJob
     if job == nil then
+        -- A completed roster pass stays fresh for the configured cadence.
+        -- The 50 ms scheduler beat is for slicing an in-progress pass, not
+        -- permission to rebuild the same roster ten times per second.
+        local cadence = math.max(50,
+            tonumber(SC.Config.get("uiRefreshCadenceMs")) or 500)
+        local last = tonumber(UI.instance.lastScheduledRefreshAt)
+        if last ~= nil and current - last < cadence then
+            if SC.Performance and type(SC.Performance.count) == "function" then
+                SC.Performance.count("ui.refresh.cadence")
+            end
+            return false
+        end
         if Bridge and type(Bridge.maintainInventory) == "function" then
             Bridge.maintainInventory()
         end
         job = beginScheduledUIRefresh(UI.instance, current)
     elseif job.root ~= UI.instance then
+        if SC.Performance and type(SC.Performance.count) == "function" then
+            SC.Performance.count("ui.refresh.root-replaced")
+        end
         job = beginScheduledUIRefresh(UI.instance, current)
     end
     local budget = math.max(0.1,
         tonumber(SC.Config.get("uiRefreshSliceBudgetMs")) or 0.5)
-    local deadline = current + budget
-    local pulseStarted = current
+    local pulseStarted = uiRefreshDurationClock()
+    local deadline = pulseStarted + budget
     local processed = 0
     repeat
         local entry = job.sources[job.index]
@@ -5500,13 +5586,21 @@ function UI.scheduledRefresh()
         if row.factionMember ~= true and row.factionId == nil then
             job.entries[#job.entries + 1] = row
         end
-    until processed >= job.minimumPerPulse and uiRefreshClock() >= deadline
-    job.workMs = job.workMs + math.max(0, uiRefreshClock() - pulseStarted)
-    if job.index <= #job.sources then return false, "yielded" end
+    until processed >= job.minimumPerPulse and uiRefreshDurationClock() >= deadline
+    job.workMs = job.workMs + math.max(0, uiRefreshDurationClock() - pulseStarted)
+    if job.index <= #job.sources then
+        if SC.Performance and type(SC.Performance.count) == "function" then
+            SC.Performance.count("ui.refresh.yielded")
+        end
+        return false, "yielded"
+    end
 
     UI._scheduledRefreshJob = nil
     UI.instance.refreshPending = false
     UI.instance.lastScheduledRefreshAt = uiRefreshClock()
+    if SC.Performance and type(SC.Performance.count) == "function" then
+        SC.Performance.count("ui.refresh.completed")
+    end
     local deferDetailRefresh = UI.instance.selectedTab == "debug"
         or UI.instance.selectedTab == "factions"
     UI.instance.preparedRefreshEntries = job.entries

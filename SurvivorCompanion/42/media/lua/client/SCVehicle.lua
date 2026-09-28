@@ -620,7 +620,7 @@ local function safeSquare(square)
         and floorOk and floor == true and freeOk and free == true
 end
 
-local function nearbyVehicleSquare(vehicle, seat, actor)
+local function nearbyVehicleSquares(vehicle, seat, actor)
     local xOk, x = invoke(vehicle, "getX")
     local yOk, y = invoke(vehicle, "getY")
     local zOk, z = invoke(vehicle, "getZ")
@@ -634,7 +634,8 @@ local function nearbyVehicleSquare(vehicle, seat, actor)
     local actorX, actorY = coordinates(actor)
     local radius = math.max(2, math.floor(finite(SC.Config.get("vehicleApproachRadius"), 4)))
     local baseX, baseY, floorZ = math.floor(x), math.floor(y), math.floor(z)
-    local best, bestDoorDistance, bestActorDistance
+    local candidates = {}
+    local boardRange = finite(SC.Config.get("vehicleBoardRangeSquared"), 2.56)
     for dx = -radius, radius do
         for dy = -radius, radius do
             local ok, square = invoke(cell, "getGridSquare", baseX + dx, baseY + dy, floorZ)
@@ -647,23 +648,38 @@ local function nearbyVehicleSquare(vehicle, seat, actor)
                     -- standing character occupies its center.
                     squareX, squareY = math.floor(squareX) + 0.5, math.floor(squareY) + 0.5
                 end
-                local doorDistance = seat ~= nil
-                    and doorDistanceSquared(vehicle, seat, squareX, squareY) or nil
-                doorDistance = doorDistance or (dx * dx + dy * dy)
-                local actorDistance = actorX and ((squareX - actorX) ^ 2 + (squareY - actorY) ^ 2) or 0
-                if best == nil or doorDistance < bestDoorDistance
-                    or (doorDistance == bestDoorDistance and actorDistance < bestActorDistance) then
-                    best, bestDoorDistance, bestActorDistance = square, doorDistance, actorDistance
+                local doorDistance = doorDistanceSquared(vehicle, seat, squareX, squareY)
+                -- Only offer tiles from which native entry can actually pass
+                -- preflight. The closest tile may sit inside the car collision
+                -- polygon or behind an obstacle; Navigation can try the rest.
+                if doorDistance ~= nil and doorDistance <= boardRange then
+                    local actorDistance = actorX
+                        and ((squareX - actorX) ^ 2 + (squareY - actorY) ^ 2) or 0
+                    candidates[#candidates + 1] = {
+                        square = square, doorDistance = doorDistance,
+                        actorDistance = actorDistance,
+                    }
                 end
             end
         end
     end
-    if best == nil then return nil, "no safe loaded passenger-door square" end
-    return best
+    if #candidates == 0 then return nil, "no safe loaded passenger-door square" end
+    table.sort(candidates, function(first, second)
+        if first.doorDistance ~= second.doorDistance then
+            return first.doorDistance < second.doorDistance
+        end
+        return first.actorDistance < second.actorDistance
+    end)
+    local squares = {}
+    for index = 1, math.min(#candidates, 16) do
+        squares[index] = candidates[index].square
+    end
+    return squares
 end
 
 local function exitSquare(vehicle, player, seat)
-    return nearbyVehicleSquare(vehicle, seat, player)
+    local squares, reason = nearbyVehicleSquares(vehicle, seat, player)
+    return squares and squares[1] or nil, reason
 end
 
 stationary = function(vehicle)
@@ -721,7 +737,7 @@ function vehicleService.isStationary(vehicle)
     return stationary(vehicle)
 end
 
-function vehicleService.boardingSquare(actor, vehicle, requestedSeat)
+function vehicleService.boardingSquares(actor, vehicle, requestedSeat)
     if not SC.Actor.isCompanion(actor) then
         return nil, nil, "actor is not an active companion"
     end
@@ -730,9 +746,15 @@ function vehicleService.boardingSquare(actor, vehicle, requestedSeat)
     if identity == nil then return nil, nil, "vehicle identity is unavailable" end
     local seat, reason = chooseSeat(vehicle, actor, requestedSeat, identity)
     if seat == nil then return nil, nil, reason end
-    local square, squareReason = nearbyVehicleSquare(vehicle, seat, actor)
-    if square == nil then return nil, nil, squareReason end
-    return square, seat
+    local squares, squareReason = nearbyVehicleSquares(vehicle, seat, actor)
+    if squares == nil then return nil, nil, squareReason end
+    return squares, seat
+end
+
+function vehicleService.boardingSquare(actor, vehicle, requestedSeat)
+    local squares, seat, reason = vehicleService.boardingSquares(
+        actor, vehicle, requestedSeat)
+    return squares and squares[1] or nil, seat, reason
 end
 
 function vehicleService.isNativeSeated(actor)

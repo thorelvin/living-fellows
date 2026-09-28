@@ -11,9 +11,10 @@ local NativeList = SC.NativeList
 
 function NativeList.size(value)
     if value == nil then return 0 end
-    local lookupOk, callback = pcall(function() return value.size end)
-    if lookupOk and type(callback) == "function" then
-        local called, count = SC.Call.method(value, "size")
+    local resolved, callback, isNative = SC.Call.resolve(value, "size")
+    if resolved then
+        SC.Call.traceResolved("size", isNative)
+        local called, count = pcall(callback, value)
         if called and tonumber(count) then
             return math.max(0, math.floor(tonumber(count)))
         end
@@ -25,9 +26,10 @@ end
 function NativeList.get(value, index)
     index = math.max(0, math.floor(tonumber(index) or 0))
     if value == nil then return nil, false end
-    local lookupOk, callback = pcall(function() return value.get end)
-    if lookupOk and type(callback) == "function" then
-        local called, child = SC.Call.method(value, "get", index)
+    local resolved, callback, isNative = SC.Call.resolve(value, "get")
+    if resolved then
+        SC.Call.traceResolved("get", isNative)
+        local called, child = pcall(callback, value, index)
         if called then return child, true end
         return nil, false
     end
@@ -40,8 +42,18 @@ function NativeList.each(value, callback, maximum)
     local count = NativeList.size(value)
     maximum = math.max(0, math.floor(tonumber(maximum) or count))
     count = math.min(count, maximum)
+    local resolved, getMethod, isNative
+    if count > 0 then
+        resolved, getMethod, isNative = SC.Call.resolve(value, "get")
+    end
     for index = 0, count - 1 do
-        local child, available = NativeList.get(value, index)
+        local child, available
+        if resolved then
+            SC.Call.traceResolved("get", isNative)
+            available, child = pcall(getMethod, value, index)
+        elseif type(value) == "table" then
+            child, available = value[index + 1], true
+        end
         if not available then return false, "list item is unavailable at " .. tostring(index) end
         local ok, result = pcall(callback, child, index)
         if not ok then return false, tostring(result) end

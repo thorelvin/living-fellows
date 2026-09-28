@@ -63,7 +63,8 @@ require("reset-mods-42_00.txt" in runner and "Copy-Item -LiteralPath $resetMarke
         "new cachedirs must preserve Build 42's mod-reset marker before boot")
 require("('run_id=' + $runId)" in runner and "('world=' + $runId)" in runner,
         "dynamic config values must remain one key=value line in Windows PowerShell")
-require("Start-Process" in runner and "-PassThru" in runner,
+require("Start-Process" in runner
+        and ("-PassThru" in runner or "PassThru = $true" in runner),
         "runner must retain ownership of the launched client process")
 require("LIVE_SANDBOX_PASS" in runner and "LIVE_SANDBOX_FAIL" in runner,
         "runner must expose machine-readable terminal markers")

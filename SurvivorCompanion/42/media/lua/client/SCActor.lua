@@ -1696,14 +1696,18 @@ function actorService._setProviderForTests(provider)
     return true
 end
 
-function actorService.reset()
+function actorService.reset(allowDisposedRecords)
     local snapshot = actorService.ownershipSnapshot()
     local activeRecords = 0
     if SC.Registry ~= nil and type(SC.Registry.records) == "function" then
         local ok, records = pcall(SC.Registry.records)
         if ok and type(records) == "table" then activeRecords = #records end
     end
-    if snapshot.tickets > 0 or snapshot.actorCleanups > 0 or activeRecords > 0 then
+    -- Runtime has already committed disposeAll before it asks the actor
+    -- service to reset. Registry records remain until its final reset step;
+    -- ordinary direct callers must still prove that no records remain.
+    if snapshot.tickets > 0 or snapshot.actorCleanups > 0
+        or (activeRecords > 0 and allowDisposedRecords ~= true) then
         local reason = "actor service reset refused while ownership remains: tickets="
             .. tostring(snapshot.tickets) .. ", cleanups="
             .. tostring(snapshot.actorCleanups) .. ", records=" .. tostring(activeRecords)

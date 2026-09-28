@@ -38,6 +38,8 @@ SC.Actor.stop = function() return true end
 
 local records = {}
 SC.Registry.records = function() return records end
+SC.Registry.snapshot = function() return records end
+SC.Registry.version = function() return #records end
 
 local function makeRecord(index, runtime)
     local actor = { id = "sc-" .. tostring(index) }
@@ -188,7 +190,16 @@ do
     check(type(productionTick) == "function", "productionTick test seam is exposed")
     local ensureCalls = 0
     SC.Registry.living = function() ensureCalls = ensureCalls + 1; return {} end
-    SC.GameplayUtil = { call = function() return true end }
+    local batchActive, batchRuns = false, 0
+    SC.GameplayUtil = {
+        call = function() return true end,
+        withSpatialReadBatch = function(callback, ...)
+            batchRuns, batchActive = batchRuns + 1, true
+            local ok, reason = pcall(callback, ...)
+            batchActive = false
+            if not ok then error(reason) end
+        end,
+    }
     records = {}
     for index = 1, 3 do records[index] = makeRecord(index) end
 
@@ -209,6 +220,29 @@ do
     records[4] = makeRecord(4)
     productionTick(t + interval + 5)
     check(ensureCalls == 3, "a roster-size change forces an immediate schedule repair within the interval")
+
+    local originalTick = SC.Scheduler.tick
+    local observed = {}
+    SC.Scheduler.tick = function()
+        observed[#observed + 1] = {
+            frame = SC.Runtime.frameSerial(), batch = batchActive,
+        }
+    end
+    check(SC.Runtime.frameSerial() == nil,
+        "out-of-tick callers cannot reuse a frame-scoped cache")
+    productionTick(t + interval + 10)
+    productionTick(t + interval + 20)
+    check(type(observed[1].frame) == "number"
+            and observed[2].frame == observed[1].frame + 1
+            and observed[1].batch and observed[2].batch
+            and SC.Runtime.frameSerial() == nil,
+        "production ticks share one spatial batch and distinct frame tokens")
+    SC.Scheduler.tick = function() error("injected tick failure") end
+    local ok = pcall(productionTick, t + interval + 30)
+    SC.Scheduler.tick = originalTick
+    check(not ok and not batchActive and batchRuns >= 9
+            and SC.Runtime.frameSerial() == nil,
+        "production tick clears its spatial batch and frame token after a callback failure")
 end
 
 -- Scenario 6 (hardening): a messy roster -- a record with no id, an inactive
@@ -393,6 +427,56 @@ do
     records = {}
 
     SC.Senses = priorSenses
+end
+
+-- Native death may need another engine tick to create its corpse. The first
+-- retirement attempt quarantines the record; the ordinary vitals lane must
+-- still revisit that pending death and finish ownership cleanup.
+do
+    local vitalsTask = SC.Runtime._vitalsTaskForTests
+    check(type(vitalsTask) == "function", "vitalsTask test seam is exposed")
+    SC.Scheduler.reset(true)
+    local oldRetire, oldFactions = SC.Actor.retireDead, SC.Factions
+    local retireCalls, factionDeaths = 0, 0
+    local corpse = makeRecord(900, {
+        deathReported = true, griefNotified = true, diaryNotified = true,
+    })
+    function corpse.actor:isDead() return true end
+    records = { corpse }
+    SC.Actor.retireDead = function(actor)
+        check(actor == corpse.actor, "death retry changed actor identity")
+        retireCalls = retireCalls + 1
+        if retireCalls == 1 then
+            corpse.runtime.inactive = true
+            corpse.runtime.removalPending = true
+            return false, "death_pending"
+        end
+        records = {}
+        return true, { permadead = true }
+    end
+    SC.Factions = { memberDied = function(record)
+        check(record.permadead == true, "faction received a living death record")
+        factionDeaths = factionDeaths + 1
+    end }
+    SC.Scheduler.dueFor(corpse.id, "vitals", 1000, 1000000)
+    vitalsTask(1001000)
+    check(retireCalls == 1 and corpse.runtime.dying == true
+            and corpse.runtime.inactive == true and #records == 1,
+        "initial pending corpse did not retain its exact inactive record")
+    vitalsTask(1002000)
+    check(retireCalls == 2 and factionDeaths == 1 and #records == 0,
+        "vitals lane failed to retry and finalize the pending native corpse")
+
+    local unrelated = makeRecord(901, {
+        inactive = true, removalPending = true, dying = false,
+    })
+    records = { unrelated }
+    vitalsTask(1003000)
+    vitalsTask(1004000)
+    check(retireCalls == 2,
+        "an unrelated inactive record was retried as a permanent death")
+    records = {}
+    SC.Actor.retireDead, SC.Factions = oldRetire, oldFactions
 end
 
 print("DECISION_SCHEDULER_PASS checks=" .. tostring(checks)

@@ -72,8 +72,9 @@ PRIVATE NATIVE BRIDGE PLAYTEST - NOT FOR PUBLIC RELEASE
 
 This copy enables the in-game Debug tab and its manual spawn controls. Actor
 creation requires the version-pinned SurvivorCompanionBridge bootstrap. The
-original SCNativeCompanion class extends IsoPlayer but never occupies a local
-player slot. Multiplayer and split-screen fail closed.
+private Expedition prototype may promote one actual companion to the second
+local player slot to stream its area. This is a single-player, two-viewport
+playtest and is not the multiplayer release path.
 
 Any native health or isolation failure freezes and removes the candidate. Test
 manual household spawn, faction behavior, animation, combat, inventory,

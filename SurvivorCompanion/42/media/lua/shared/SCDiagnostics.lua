@@ -10,6 +10,26 @@ SC.Diagnostics = SC.Diagnostics or {}
 local diagnostics = SC.Diagnostics
 local entries = {}
 local circuits = {}
+local circuitCount = 0
+local failingCount = 0
+
+local function setCircuit(key, circuit)
+    local hadCircuit = circuits[key] ~= nil
+    local hasCircuit = circuit ~= nil
+    if hadCircuit ~= hasCircuit then
+        circuitCount = circuitCount + (hasCircuit and 1 or -1)
+    end
+    circuits[key] = circuit
+end
+
+local function setFailureCount(entry, count)
+    local hadFailure = (entry.consecutiveFailures or 0) > 0
+    local hasFailure = count > 0
+    if hadFailure ~= hasFailure then
+        failingCount = failingCount + (hasFailure and 1 or -1)
+    end
+    entry.consecutiveFailures = count
+end
 
 local function nowMs()
     if getTimestampMs ~= nil then
@@ -57,12 +77,12 @@ local function openCircuit(subsystem, companionId, entry, current)
     local key = keyFor(subsystem, companionId)
     local resetMs = math.max(1,
         tonumber(SC.Config.get("runtime", "circuitBreakerResetMs")) or 30000)
-    circuits[key] = {
+    setCircuit(key, {
         state = "open",
         openedAt = current,
         retryAt = current + resetMs,
         manual = false,
-    }
+    })
     entry.openedAt = current
     entry.retryAt = current + resetMs
 end
@@ -71,7 +91,7 @@ local function recordFailure(subsystem, companionId, message, detail)
     diagnostics.report(subsystem, companionId, message, detail)
     local key = keyFor(subsystem, companionId)
     local entry = entries[key]
-    entry.consecutiveFailures = (entry.consecutiveFailures or 0) + 1
+    setFailureCount(entry, (entry.consecutiveFailures or 0) + 1)
     local threshold = math.max(1,
         tonumber(SC.Config.get("runtime", "circuitBreakerErrors")) or 3)
     if entry.consecutiveFailures >= threshold then
@@ -85,7 +105,7 @@ function diagnostics.guard(subsystem, companionId, callback, ...)
         diagnostics.report(subsystem, companionId, "invalid diagnostic callback")
         return false, "invalid callback"
     end
-    if diagnostics.isDisabled(subsystem, companionId) then
+    if circuitCount > 0 and diagnostics.isDisabled(subsystem, companionId) then
         return false, "circuit open", "circuit_skip"
     end
 
@@ -93,6 +113,10 @@ function diagnostics.guard(subsystem, companionId, callback, ...)
     if not results[1] then
         recordFailure(subsystem, companionId, "subsystem exception", results[2])
         return false, results[2]
+    end
+
+    if circuitCount == 0 and failingCount == 0 then
+        return true, SC.Call.unpack(results, 2, results.n)
     end
 
     local key = keyFor(subsystem, companionId)
@@ -103,15 +127,16 @@ function diagnostics.guard(subsystem, companionId, callback, ...)
             entry.recoveries = (entry.recoveries or 0) + 1
             entry.lastRecoveredAt = nowMs()
         end
-        entry.consecutiveFailures = 0
+        setFailureCount(entry, 0)
         entry.retryAt = nil
     end
-    circuits[key] = nil
+    setCircuit(key, nil)
 
     return true, SC.Call.unpack(results, 2, results.n)
 end
 
 function diagnostics.isDisabled(subsystem, companionId)
+    if circuitCount == 0 then return false end
     local key = keyFor(subsystem, companionId)
     local circuit = circuits[key]
     if circuit == nil then return false end
@@ -125,23 +150,23 @@ end
 function diagnostics.disable(subsystem, companionId, reason)
     local key = keyFor(subsystem, companionId)
     diagnostics.report(subsystem, companionId, reason or "subsystem disabled")
-    circuits[key] = {
+    setCircuit(key, {
         state = "open",
         openedAt = nowMs(),
         retryAt = math.huge,
         manual = true,
         reason = tostring(reason or "subsystem disabled"),
-    }
+    })
 end
 
 function diagnostics.retry(subsystem, companionId)
     local key = keyFor(subsystem, companionId)
     local entry = entries[key]
     if entry ~= nil then
-        entry.consecutiveFailures = 0
+        setFailureCount(entry, 0)
         entry.retryAt = nil
     end
-    circuits[key] = nil
+    setCircuit(key, nil)
     return true
 end
 
@@ -176,6 +201,8 @@ end
 function diagnostics.reset()
     entries = {}
     circuits = {}
+    circuitCount = 0
+    failingCount = 0
 end
 
 return diagnostics

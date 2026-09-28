@@ -13,7 +13,17 @@ local recordsById = {}
 local idsByActor = {}
 local quarantinesByActor = {}
 local sequence = 0
+local rosterVersion, snapshotVersion, snapshotList, recordCount = 0, -1, {}, 0
+local livingToken, livingVersion, livingList = nil, -1, nil
 local assignmentFaultForTests = nil
+
+local function rosterChanged()
+    rosterVersion = rosterVersion + 1
+    local count = 0
+    for _ in pairs(recordsById) do count = count + 1 end
+    recordCount = count
+    livingToken, livingVersion, livingList = nil, -1, nil
+end
 local workModes = { auto = true, idle = true, craft = true, build = true }
 local moveModes = { copy = true, walk = true, sneak = true, jog = true }
 local targetedWorkKinds = { barricade = true, remove_barricade = true, dismantle = true }
@@ -495,6 +505,10 @@ function registry.register(actor, record)
         if #failures > 0 then return false, table.concat(failures, "; ") end
         return true
     end)
+    -- A failed transaction can briefly publish a record before rollback (and
+    -- can leave a quarantined partial record if rollback fails). Invalidate
+    -- cached rosters after either outcome, using the actual map as authority.
+    rosterChanged()
     if not ok then
         local reason = "registry commit failed: " .. tostring(assignmentError)
         if rollbackError ~= nil then
@@ -514,6 +528,7 @@ function registry.unregister(actor)
     local record = recordsById[id]
     idsByActor[actor] = nil
     recordsById[id] = nil
+    rosterChanged()
     if record ~= nil then
         record.actor = nil
         record.runtime = {}
@@ -568,9 +583,38 @@ function registry.living()
         end
     end
     table.sort(actors, function(a, b)
-        return tostring(idsByActor[a]) < tostring(idsByActor[b])
+        return (idsByActor[a] or "") < (idsByActor[b] or "")
     end)
     return actors
+end
+
+function registry.version() return rosterVersion end
+function registry.count() return recordCount end
+
+-- Shared, sorted roster. Callers must treat the returned table as read-only.
+-- Rebuild into a new table so a previous holder keeps its original snapshot.
+function registry.snapshot()
+    if snapshotVersion ~= rosterVersion then
+        local list = {}
+        for _, record in pairs(recordsById) do list[#list + 1] = record end
+        table.sort(list, function(a, b) return a.id < b.id end)
+        snapshotList, snapshotVersion = list, rosterVersion
+    end
+    return snapshotList
+end
+
+-- A nil token means an out-of-tick caller and deliberately stays uncached.
+-- Roster mutations invalidate even a same-frame read.
+function registry.livingFor(token)
+    if token ~= nil and livingToken == token
+        and livingVersion == rosterVersion and livingList ~= nil then
+        return livingList
+    end
+    local list = registry.living()
+    if token ~= nil then
+        livingList, livingToken, livingVersion = list, token, rosterVersion
+    end
+    return list
 end
 
 function registry.records()
@@ -613,6 +657,7 @@ function registry.reset()
     end
     quarantinesByActor = {}
     assignmentFaultForTests = nil
+    rosterChanged()
 end
 
 return registry

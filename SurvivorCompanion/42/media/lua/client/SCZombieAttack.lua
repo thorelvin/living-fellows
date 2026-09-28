@@ -18,6 +18,7 @@
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
+if not SC.ZombieFacts and type(require) == "function" then pcall(require, "SCZombieFacts") end
 
 SC.ZombieAttack = SC.ZombieAttack or {}
 local ZombieAttack = SC.ZombieAttack
@@ -43,9 +44,7 @@ local function config(key, fallback)
 end
 
 local function eligible(actor)
-    if not U() or U().isValidActor(actor) ~= true then return false end
-    if U().isDead(actor) == true then return false end
-    return true
+    return U() ~= nil and U().isValidActor(actor) == true
 end
 
 -- One numeric return, guarded against the multi-value adapter return.
@@ -102,6 +101,9 @@ local function applyWound(actor, kind)
     local health = number(part, "getHealth") or 100
     local _, healthOk, healthErr = U().call(part, "SetHealth", math.max(0.0, health - damage))
     if healthOk ~= true then return false, "SetHealth:" .. tostring(healthErr) end
+    if SC.Medical and type(SC.Medical.invalidate) == "function" then
+        SC.Medical.invalidate(actor)
+    end
 
     -- Every setter after the health deduction is checked. Previously only
     -- SetHealth was: a failing wound setter left the part damaged with no wound,
@@ -267,6 +269,12 @@ local function requestNativeAttack(zombie, actor)
     local ok, result = SC.Call.static(bridge, "startZombieAttack", zombie, actor)
     if not ok then return false, "bridge_call_failed", false end
     local reason = tostring(result or "attack_state_rejected")
+    if reason == "attack_started" and SC.ZombieFacts then
+        SC.ZombieFacts.forget(zombie)
+    end
+    if reason == "attack_started" and ZombieAttack.invalidateGrapple then
+        ZombieAttack.invalidateGrapple(actor)
+    end
     return reason == "attack_started" or reason == "attack_active",
         reason, reason == "attack_started"
 end
@@ -339,11 +347,20 @@ end
 function ZombieAttack.sustainPulse(current)
     current = tonumber(current) or (U() and U().nowMs()) or 0
     local sustained, dropped = 0, 0
+    local eligibleByActor = {}
+    local function eligibleOnce(actor)
+        local value = eligibleByActor[actor]
+        if value == nil then
+            value = eligible(actor)
+            eligibleByActor[actor] = value
+        end
+        return value
+    end
     for zombie, entry in pairs(engagedPairs) do
         local actor = entry.actor
         if current >= (tonumber(entry.expiresAt) or 0) then
             forgetPair(zombie); dropped = dropped + 1
-        elseif actor == nil or not eligible(actor) then
+        elseif actor == nil or not eligibleOnce(actor) then
             forgetPair(zombie); dropped = dropped + 1
         else
             local held, reason = sustainPair(zombie, actor)
@@ -644,19 +661,37 @@ twice for one hold.
 
 Returns nil when no native pair is held, otherwise a small descriptor.
 ]]
+local grappleFrame, grappleByActor = nil, {}
+
+function ZombieAttack.invalidateGrapple(actor)
+    if actor ~= nil then grappleByActor[actor] = nil end
+end
+
 function ZombieAttack.nativeGrapple(actor)
     if actor == nil then return nil end
-    local ok, held = pcall(function()
-        return select(1, U().call(actor, "isBeingGrappled")) == true
-    end)
-    if not ok or held ~= true then return nil end
+    local frame = SC.Runtime and type(SC.Runtime.frameSerial) == "function"
+        and SC.Runtime.frameSerial() or nil
+    if frame ~= nil then
+        if frame ~= grappleFrame then
+            grappleByActor, grappleFrame = {}, frame
+        end
+        local cached = grappleByActor[actor]
+        if cached ~= nil then return cached or nil end
+    end
+    local held, ok = U().call(actor, "isBeingGrappled")
+    if not ok or held ~= true then
+        if frame ~= nil then grappleByActor[actor] = false end
+        return nil
+    end
     local by = select(1, U().call(actor, "getGrappledBy"))
     local kind = select(1, U().call(actor, "getGrappledByType"))
-    return {
+    local result = {
         by = by,
         kind = type(kind) == "string" and kind or nil,
         grabbing = select(1, U().call(actor, "isPerformingGrappleGrabAnimation")) == true,
     }
+    if frame ~= nil then grappleByActor[actor] = result end
+    return result
 end
 
 -- True while the companion is held, by either authority. `source` tells them
@@ -736,11 +771,27 @@ function ZombieAttack.resolve(actor, current, zombies, evidence)
     local receipts = {}
     local nativeAttackStarts = 0
     local targetReacquisitions = 0
+    local actorX, actorY, actorZ = U().position(actor)
     U().each(zombies, maximum, function(zombie)
         checked = checked + 1
-        if U().isZombie(zombie) ~= true or U().isDead(zombie) == true then return end
-        local targetDistance = U().distance(zombie, actor)
-        local targetsMe = select(1, U().call(zombie, "getTarget")) == actor
+        local facts = SC.ZombieFacts and SC.ZombieFacts.get(zombie) or nil
+        if facts ~= nil then
+            if facts.zombie ~= true or facts.gone == true then return end
+        elseif U().isZombie(zombie) ~= true or U().isDead(zombie) == true then
+            return
+        end
+        local targetDistance
+        if facts ~= nil and facts.x ~= nil and actorX ~= nil then
+            local dx, dy = actorX - facts.x, actorY - facts.y
+            local dz = (actorZ or 0) - (facts.z or 0)
+            targetDistance = math.sqrt(dx * dx + dy * dy + dz * dz * 9)
+        else
+            targetDistance = U().distance(zombie, actor)
+        end
+        -- Damage and pile ownership need the current lock even if another
+        -- observer read this zombie earlier in the same frame.
+        local currentTarget = select(1, U().call(zombie, "getTarget"))
+        local targetsMe = currentTarget == actor
         if not targetsMe and restoreRecentCloseTarget(zombie, actor, current,
                 pileWindow[zombie], targetDistance, grabReach) then
             targetsMe = true
@@ -762,7 +813,7 @@ function ZombieAttack.resolve(actor, current, zombies, evidence)
                 -- toward this companion's pile for the whole grace period --
                 -- exactly what the comment above says never happens. A live
                 -- alternate victim invalidates our claim immediately.
-                local existing = select(1, U().call(zombie, "getTarget"))
+                local existing = currentTarget
                 local committedElsewhere = existing ~= nil and existing ~= actor
                     and U().isDead(existing) ~= true
                 if committedElsewhere then
@@ -882,6 +933,7 @@ end
 
 function ZombieAttack.reset(actor)
     if actor ~= nil then
+        grappleByActor[actor] = nil
         lastHitAt[actor] = nil
         -- Clear the native knockdown/drag-down flags along with the grab record,
         -- so a companion pulled from the pile by removal, recovery or teardown
@@ -893,6 +945,7 @@ function ZombieAttack.reset(actor)
             if entry.actor == actor then forgetPair(zombie) end
         end
     else
+        grappleFrame, grappleByActor = nil, {}
         lastHitAt = setmetatable({}, { __mode = "k" })
         grabState = setmetatable({}, { __mode = "k" })
         pileSeen = setmetatable({}, { __mode = "k" })

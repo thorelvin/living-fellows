@@ -74,7 +74,55 @@ local function commandsFor(actor)
         local reader = type(SC.Commands.effective) == "function"
             and SC.Commands.effective or SC.Commands.peek
         local ok, value = pcall(reader, actor)
-        if ok and type(value) == "table" then return value end
+        if ok and type(value) == "table" then
+            if SC.ExpeditionPrototype and SC.ExpeditionPrototype.isMember(actor) then
+                local missionOrder = {}
+                for key, entry in pairs(value) do missionOrder[key] = entry end
+                if type(SC.ExpeditionPrototype.effectiveDoctrineFor) == "function" then
+                    missionOrder = SC.ExpeditionPrototype.effectiveDoctrineFor(
+                        actor, missionOrder)
+                end
+                local follower = SC.ExpeditionPrototype.isFollower(actor)
+                local expedition = SC.ExpeditionPrototype.current()
+                local regroup = follower and expedition
+                    and expedition.cohesionHold ~= nil
+                missionOrder.order = regroup and "regroup"
+                    or follower and "follow" or "stay"
+                if follower then
+                    missionOrder.followDistance =
+                        SC.ExpeditionPrototype.followDistanceFor(actor)
+                            or missionOrder.followDistance
+                end
+                missionOrder.expeditionCohesionHold = regroup == true
+                missionOrder.anchor = nil
+                missionOrder.scavenge = SC.ExpeditionPrototype.testSearchFor(actor)
+                missionOrder.scavengeTargetContainer =
+                    SC.ExpeditionPrototype.testSearchTargetFor(actor)
+                missionOrder.scavengeRequestedCategory =
+                    SC.ExpeditionPrototype.testSearchCategoryFor(actor)
+                missionOrder.scavengeMissionId =
+                    SC.ExpeditionPrototype.testSearchMissionIdFor(actor)
+                missionOrder.scavengeSite =
+                    SC.ExpeditionPrototype.searchSiteFor(actor)
+                missionOrder.scavengeSiteRadius =
+                    SC.ExpeditionPrototype.searchSiteRadiusFor(actor)
+                missionOrder.tacticalTarget = nil
+                missionOrder.pendingInteraction = nil
+                local waypoint = SC.ExpeditionPrototype.testWaypointFor(actor)
+                missionOrder.expeditionMoving =
+                    SC.ExpeditionPrototype.testWaypointActiveFor(actor)
+                    or (expedition and expedition.scout
+                        and expedition.scout.phase == "searching")
+                if waypoint ~= nil then
+                    missionOrder.order = "move_to"
+                    missionOrder.moveMode = "walk"
+                    missionOrder.tacticalTarget = waypoint
+                    missionOrder.doorBashAsLastResort = true
+                end
+                return missionOrder
+            end
+            return value
+        end
     end
     return {
         recruited = false,
@@ -96,9 +144,11 @@ local function commandMoveMode(commands, player)
     return requested == "copy" and "walk" or requested
 end
 
-local function medicalAssessment(actor, runtime)
-    if SC.Medical and type(SC.Medical.assess) == "function" then
-        local ok, assessment = pcall(SC.Medical.assess, actor, runtime)
+local function medicalAssessment(actor, runtime, maxAgeMs)
+    local medical = SC.Medical
+    local assess = medical and (medical.assessCached or medical.assess)
+    if type(assess) == "function" then
+        local ok, assessment = pcall(assess, actor, runtime, maxAgeMs)
         if ok and type(assessment) == "table" then return assessment end
     end
     return {
@@ -118,6 +168,9 @@ local function actionableMedical(actor, assessment, allowRecovery)
 end
 
 local function rescueNeed(actor, player, snapshot)
+    local performance = SC.Performance
+    local started = performance and type(performance.preciseNowMs) == "function"
+        and performance.preciseNowMs() or nil
     local score, target = 0, nil
     local function livingPatient(patient, assessment)
         if SC.Medical and type(SC.Medical.isLivingPatient) == "function" then
@@ -127,8 +180,9 @@ local function rescueNeed(actor, player, snapshot)
             and (tonumber(assessment.health) or U().nativeHealth(patient)) > 0
             and assessment.terminalKnox ~= true
     end
-    if player and SC.Medical and type(SC.Medical.assess) == "function" then
-        local ok, assessment = pcall(SC.Medical.assess, player)
+    local assess = SC.Medical and (SC.Medical.assessCached or SC.Medical.assess)
+    if player and type(assess) == "function" then
+        local ok, assessment = pcall(assess, player, nil, 500)
         if ok and assessment and livingPatient(player, assessment)
             and actionableMedical(player, assessment, false) then
             local playerScore = (assessment.critical and 35 or 0)
@@ -147,7 +201,7 @@ local function rescueNeed(actor, player, snapshot)
                 stillAllied = ok and value == true
             end
             if stillAllied then
-                local assessment = medicalAssessment(ally.actor)
+                local assessment = medicalAssessment(ally.actor, nil, 500)
                 local allyScore = (assessment.critical and 25 or 0)
                     + (assessment.bleedingCount or 0) * 18
                     + (assessment.downed and 40 or 0)
@@ -157,6 +211,10 @@ local function rescueNeed(actor, player, snapshot)
                 end
             end
         end
+    end
+    if started and type(performance.record) == "function" then
+        performance.record("decision.rescue", nil,
+            math.max(0, performance.preciseNowMs() - started))
     end
     return score, target
 end
@@ -344,17 +402,19 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         and SC.Medical.selfCareBlocker(actor) ~= nil then
         add("follow", 90, false, { mode = "seek_care" })
     end
-    local rescue, rescueTarget = rescueNeed(actor, player, snapshot)
-    if rescue > 0 and (snapshot.immediateCount or 0) == 0 then
-        -- Rescue medicine is a distinct decision identity from self-medicine (and
-        -- from rescuing a different subject): carry the mode/target so hysteresis
-        -- and fallback treat "patch myself", "patch the player" and "patch ally X"
-        -- as separate candidates that can fall back to one another (review 2.4).
-        add("medical", 64 + rescue, rescue >= 40, {
-            rescue = true,
-            mode = "rescue",
-            targetId = rescueTarget and U().idOf(rescueTarget) or nil,
-        })
+    if (snapshot.immediateCount or 0) == 0 then
+        local rescue, rescueTarget = rescueNeed(actor, player, snapshot)
+        if rescue > 0 then
+            -- Rescue medicine is a distinct decision identity from self-medicine (and
+            -- from rescuing a different subject): carry the mode/target so hysteresis
+            -- and fallback treat "patch myself", "patch the player" and "patch ally X"
+            -- as separate candidates that can fall back to one another (review 2.4).
+            add("medical", 64 + rescue, rescue >= 40, {
+                rescue = true,
+                mode = "rescue",
+                targetId = rescueTarget and U().idOf(rescueTarget) or nil,
+            })
+        end
     end
 
     local threatCount = snapshot.threatCount or #(snapshot.threats or {})
@@ -456,6 +516,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
                 or (intent.kind == "ritual" and (tonumber(intent.priority) or 0) < 84))
         if okay and type(intent) == "table" and tonumber(intent.priority)
             and not (voluntary and bleeding)
+            and not (voluntary and commands.expeditionMoving)
             and not (voluntary and commands.order == "follow"
                 and not leaderSettled(actor, player, current)) then
             add(intent.kind, tonumber(intent.priority), false, intent)
@@ -518,7 +579,9 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
                 <= math.max(3, (commands.followDistance or 3) + 1.5)
             -- Indoor downtime only once the leader has settled: a follower
             -- still stepping into its slot keeps formation.
-            if close and snapshot.indoors == true and not bleeding
+            if commands.expeditionMoving then
+                add("follow", 82, false)
+            elseif close and snapshot.indoors == true and not bleeding
                 and leaderSettled(actor, player, current) then
                 add("downtime", 52, false)
                 add("follow", 22, false)
@@ -532,7 +595,9 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             local patrolDue = commands.order == "guard" and (
                 state.guardPatrolTarget ~= nil or current >= (state.guardPatrolDue or 0))
             if outside or patrolDue then add("tactical", 56, false) end
-            if not bleeding then add("downtime", 30, false) end
+            if not bleeding and not commands.expeditionMoving then
+                add("downtime", 30, false)
+            end
         elseif commands.order == "move_to" or commands.order == "check_room"
             or commands.order == "interact" or commands.order == "work" then
             add("tactical", commands.order == "work" and 62 or 56, false)
@@ -567,6 +632,7 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
             add("scavenge", scavengeScore, false)
         end
         if threatCount == 0 and not downtimeAdded and not bleeding
+            and not commands.expeditionMoving
             and (commands.order ~= "follow" or snapshot.indoors == true) then
             add("downtime", 10, false)
         end
@@ -672,7 +738,7 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
         return true, "exiting_wrong_vehicle"
     elseif playerVehicleOk and playerVehicle then
         if not SC.Vehicle or type(SC.Vehicle.preflightBoard) ~= "function"
-            or type(SC.Vehicle.boardingSquare) ~= "function"
+            or type(SC.Vehicle.boardingSquares) ~= "function"
             or type(SC.Vehicle.beginBoarding) ~= "function"
             or type(SC.Vehicle.isStationary) ~= "function"
             or type(SC.Vehicle.assignmentFor) ~= "function" then
@@ -736,20 +802,20 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
             })
             return false, "board_vehicle_rejected:" .. tostring(prepareReason)
         end
-        local target, seat, targetReason = SC.Vehicle.boardingSquare(
+        local targets, seat, targetReason = SC.Vehicle.boardingSquares(
             actor, playerVehicle, assignment.seat)
-        if target == nil then
+        if targets == nil then
             SC.Vehicle.failTransaction(actor, "vehicle_boarding_square_failed", {
                 reason = targetReason,
             })
             return false, "vehicle_approach_rejected:" .. tostring(targetReason)
         end
-        if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
+        if not SC.Navigation or type(SC.Navigation.requestAny) ~= "function" then
             SC.Vehicle.failTransaction(actor, "vehicle_navigation_unavailable")
             return false, "navigation_unavailable"
         end
-        local distance = utility.distance(actor, target)
-        local accepted, reason = SC.Navigation.request(actor, target,
+        local distance = utility.distance(actor, targets[1])
+        local accepted, reason = SC.Navigation.requestAny(actor, targets,
             distance > 8 and "run" or "walk", {
             action = "approach_vehicle",
             vehicle = playerVehicle,
@@ -757,6 +823,7 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
             player = player,
             snapshot = snapshot,
             desiredDistance = 0,
+            arrivalDistance = 0.15,
             urgent = false,
             continuousApproach = true,
             movementPriority = 30,
@@ -795,6 +862,17 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
     local leaderDistance = utility.distance(actor, player)
     local desired = commands.followDistance or 3
     if commands.order ~= "regroup" and SC.Positioning.shouldHold(actor, target) then
+        -- A formation hold ends the previous follow route. Stopping the native
+        -- actor alone leaves its Lua lease active (and its status stuck at
+        -- native_path/moving) until another request services that lease.
+        if SC.Navigation and type(SC.Navigation.peek) == "function"
+            and type(SC.Navigation.cancel) == "function" then
+            local navigation = SC.Navigation.peek(actor)
+            if navigation and (navigation.goalAction == "follow_formation"
+                    or navigation.goalAction == "regroup") then
+                SC.Navigation.cancel(actor, "holding_formation")
+            end
+        end
         -- Stop first: the regular stop adapter deliberately clears tactical
         -- posture. Copy the player's posture only after locomotion has stopped
         -- so a crouched companion stays crouched instead of flickering upright.
@@ -821,6 +899,11 @@ local function doFollow(actor, player, rootRuntime, commands, snapshot)
         player = player,
         snapshot = snapshot,
         followRecovery = true,
+        preferVerifiedPath = commands.expeditionCohesionHold == true,
+        -- A team member separated by a locked door may need the same
+        -- certified last-resort breach as the travelling leader. Navigation
+        -- still searches ordinary doors and windows first.
+        doorBashAsLastResort = commands.expeditionMoving == true,
         desiredDistance = desired,
         -- Catch-up speed is selected by Positioning.followMode. Navigation's
         -- urgent flag is reserved for a genuine far-behind regroup because it
@@ -1376,10 +1459,16 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
         end
         local ok, status = SC.Navigation.request(actor, target, commandMoveMode(commands, player), {
             action = "ordered_move", snapshot = snapshot,
+            doorBashAsLastResort = commands.doorBashAsLastResort == true,
         })
         if ok and navigationArrived(actor, target, status) then
-            local transitioned, transitionReason = switchToStay(actor, player)
-            if not transitioned then return false, transitionReason end
+            if SC.ExpeditionPrototype
+                and SC.ExpeditionPrototype.testWaypointFor(actor) then
+                SC.ExpeditionPrototype.noteTestWaypointArrived(actor)
+            else
+                local transitioned, transitionReason = switchToStay(actor, player)
+                if not transitioned then return false, transitionReason end
+            end
         end
         return ok, status
     end
@@ -1534,14 +1623,24 @@ end
 
 local function profiledDecisionPhase(name, actor, callback, ...)
     local performance = SC.Performance
-    if not performance or type(performance.isTracing) ~= "function"
-        or performance.isTracing() ~= true then return callback(...) end
-    local token = performance.beginScope("decision." .. tostring(name))
-    local started = U().nowMs()
+    if not performance or type(performance.preciseNowMs) ~= "function"
+        or type(performance.record) ~= "function" then return callback(...) end
+    local tracing = type(performance.isTracing) == "function"
+        and performance.isTracing() == true
+    local key = "decision." .. tostring(name)
+    local token = tracing and performance.beginScope(key) or nil
+    local started = performance.preciseNowMs()
     local values = SC.Call.pack(pcall(callback, ...))
-    performance.endScope(token)
-    performance.record("decision." .. tostring(name), U().idOf(actor),
-        U().nowMs() - started)
+    if token then performance.endScope(token) end
+    local elapsed = math.max(0, performance.preciseNowMs() - started)
+    performance.record(key, tracing and U().idOf(actor) or nil, elapsed)
+    if name == "delegate" then
+        local candidate = select(1, ...)
+        local kind = type(candidate) == "table" and candidate.kind or nil
+        if type(kind) == "string" then
+            performance.record(key .. "." .. kind, nil, elapsed)
+        end
+    end
     if values[1] ~= true then error(values[2], 0) end
     return SC.Call.unpack(values, 2, values.n)
 end
@@ -1831,6 +1930,13 @@ local function candidateInterval(candidate)
     end
     return 250
 end
+
+local retainedApproachKinds = {
+    logistics = true, infection_crisis = true, encounter = true,
+    scavenge = true, downtime = true, needs = true,
+    base_work = true, faction = true, purposeful_idle = true,
+    joy_response = true, ritual = true,
+}
 
 local function candidateDue(actor, candidate, current)
     return U().isDue(actor, "decision_" .. candidate.kind, candidateInterval(candidate), current)
@@ -2125,9 +2231,8 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
                 -- to select follow/stay again and cancel these actions every
                 -- few seconds as "decision_preempted".
                 local safe, _, downtimeReason = U().safeSubsystem(
-                    "downtime", actor, function()
-                        return SC.Downtime.update(actor, player, rootRuntime or {})
-                    end)
+                    "downtime", actor, SC.Downtime.update,
+                    actor, player, rootRuntime or {})
                 state.current, state.currentKey = "downtime", "downtime"
                 state.intent = safe and (downtimeReason or "owned_downtime_polled")
                     or "owned_downtime_poll_failed"
@@ -2154,9 +2259,8 @@ local function holdOwnedActivityOrPacing(actor, player, snapshot, assessment,
             and (phase == "active" or phase == "result_pending")
             and commands.order == "base_duty" and SC.BaseWork
             and type(SC.BaseWork.update) == "function" then
-            local safe, _, workReason = U().safeSubsystem("base-work", actor, function()
-                return SC.BaseWork.update(actor, player, rootRuntime or {})
-            end)
+            local safe, _, workReason = U().safeSubsystem("base-work", actor,
+                SC.BaseWork.update, actor, player, rootRuntime or {})
             state.current, state.currentKey = "base_work", "base_work"
             state.intent = safe and (workReason or "owned_work_polled")
                 or "owned_work_poll_failed"
@@ -2252,17 +2356,15 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     local state, rootRuntime = stateFor(actor, runtime)
     local current = tonumber(roundTimestamp) or utility.nowMs()
     if SC.Needs and type(SC.Needs.updateRates) == "function" then
-        utility.safeSubsystem("needs-rate", actor, function()
-            return SC.Needs.updateRates(actor, rootRuntime, current)
-        end)
+        utility.safeSubsystem("needs-rate", actor, SC.Needs.updateRates,
+            actor, rootRuntime, current)
     end
 
     local snapshot = rootRuntime.senses and rootRuntime.senses.current or rootRuntime.snapshot
     if utility.isDue(actor, "perception", utility.config("perceptionIntervalMs") or 500, current) then
         if SC.Senses and type(SC.Senses.snapshot) == "function" then
-            local safe, value = utility.safeSubsystem("senses", actor, function()
-                return SC.Senses.snapshot(actor, player, rootRuntime)
-            end)
+            local safe, value = utility.safeSubsystem("senses", actor,
+                SC.Senses.snapshot, actor, player, rootRuntime)
             if safe and type(value) == "table" then snapshot = value end
         end
     end
@@ -2272,17 +2374,15 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         player = { danger = 0 },
     }
     if SC.Senses and type(SC.Senses.refreshImmediate) == "function" then
-        local safe, value = utility.safeSubsystem("senses-reflex", actor, function()
-            return SC.Senses.refreshImmediate(actor, player, snapshot, rootRuntime)
-        end)
+        local safe, value = utility.safeSubsystem("senses-reflex", actor,
+            SC.Senses.refreshImmediate, actor, player, snapshot, rootRuntime)
         if safe and type(value) == "table" then snapshot = value end
     end
     rootRuntime.snapshot = snapshot
 
     if SC.Commands and type(SC.Commands.observeRelationship) == "function" then
-        utility.safeSubsystem("relationship", actor, function()
-            return SC.Commands.observeRelationship(actor, player, snapshot)
-        end)
+        utility.safeSubsystem("relationship", actor,
+            SC.Commands.observeRelationship, actor, player, snapshot)
     end
 
     local commands = commandsFor(actor)
@@ -2298,31 +2398,25 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         local rejoin, rejoinReason = SC.Encounter.formationRejoinRequired(
             actor, player, commands)
         if rejoin == true then
-            utility.safeSubsystem("scavenge-formation", actor, function()
-                return SC.Encounter.cancelScavenge(actor,
-                    rejoinReason or "formation_rejoin")
-            end)
+            utility.safeSubsystem("scavenge-formation", actor,
+                SC.Encounter.cancelScavenge, actor,
+                rejoinReason or "formation_rejoin")
         end
     end
     if SC.Combat and type(SC.Combat.observe) == "function" then
-        utility.safeSubsystem("combat-observe", actor, function()
-            return SC.Combat.observe(actor)
-        end)
+        utility.safeSubsystem("combat-observe", actor, SC.Combat.observe, actor)
     end
     -- Carrying a light is not an activity, so it is upkeep rather than a
     -- behaviour candidate: a companion lights its torch and keeps walking.
     if SC.Lighting and type(SC.Lighting.observe) == "function" then
-        utility.safeSubsystem("lighting", actor, function()
-            return SC.Lighting.observe(actor, player, rootRuntime, snapshot,
-                commands, current)
-        end)
+        utility.safeSubsystem("lighting", actor, SC.Lighting.observe,
+            actor, player, rootRuntime, snapshot, commands, current)
     end
     if SC.Autonomy and type(SC.Autonomy.observe) == "function" then
-        utility.safeSubsystem("autonomy-observe", actor, function()
-            return SC.Autonomy.observe(actor, player, rootRuntime, snapshot, commands)
-        end)
+        utility.safeSubsystem("autonomy-observe", actor, SC.Autonomy.observe,
+            actor, player, rootRuntime, snapshot, commands)
     end
-    local assessment = medicalAssessment(actor, rootRuntime)
+    local assessment = medicalAssessment(actor, rootRuntime, 100)
     local needs
     if SC.Needs and type(SC.Needs.assess) == "function" then
         local ok, value = pcall(SC.Needs.assess, actor, rootRuntime)
@@ -2340,9 +2434,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     -- Speech-only banter: a surrounded companion's deadpan distraction or a
     -- taunt for a grabbed ally. It never changes what the companion does.
     if SC.Banter and type(SC.Banter.combatPulse) == "function" then
-        utility.safeSubsystem("banter-combat", actor, function()
-            return SC.Banter.combatPulse(actor, player, snapshot, commands, assessment, current)
-        end)
+        utility.safeSubsystem("banter-combat", actor, SC.Banter.combatPulse,
+            actor, player, snapshot, commands, assessment, current)
     end
 
     -- A completed hit may remove the final perceived threat before the native
@@ -2352,9 +2445,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     if not assessment.downed and not (actionableMedical(actor, assessment, false)
         and (assessment.critical or assessment.health <= (utility.config("downedHealth") or 18)))
         and SC.Combat and type(SC.Combat.holdNativeAttack) == "function" then
-        local safe, held, holdReason = utility.safeSubsystem("combat-lease", actor, function()
-            return SC.Combat.holdNativeAttack(actor, rootRuntime)
-        end)
+        local safe, held, holdReason = utility.safeSubsystem("combat-lease",
+            actor, SC.Combat.holdNativeAttack, actor, rootRuntime)
         if not safe or held ~= nil then
             state.current, state.currentKey = "combat", "combat"
             state.intent = holdReason or "native_combat_hold_failed"
@@ -2376,10 +2468,9 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     end
 
     if SC.Quirks and type(SC.Quirks.observeRecognitionResolution) == "function" then
-        utility.safeSubsystem("recognition-resolution", actor, function()
-            return SC.Quirks.observeRecognitionResolution(
-                actor, snapshot, commands, current)
-        end)
+        utility.safeSubsystem("recognition-resolution", actor,
+            SC.Quirks.observeRecognitionResolution,
+            actor, snapshot, commands, current)
     end
     local threatSignalled = warnAboutThreat(actor, snapshot, commands, state, current)
     warnAboutHeardThreat(actor, snapshot, state, current)
@@ -2390,9 +2481,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         return true, state.intent
     end
     if SC.Navigation and type(SC.Navigation.serviceCrowdYield) == "function" then
-        local safe, moved, moveReason = utility.safeSubsystem("crowd-yield", actor, function()
-            return SC.Navigation.serviceCrowdYield(actor, snapshot)
-        end)
+        local safe, moved, moveReason = utility.safeSubsystem("crowd-yield",
+            actor, SC.Navigation.serviceCrowdYield, actor, snapshot)
         if safe and moved == true then
             state.current, state.currentKey = "movement", "crowd_yield"
             state.intent = moveReason or "crowd_yield_pathing"
@@ -2401,9 +2491,8 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         end
     end
     if SC.Dialogue and type(SC.Dialogue.ambientPulse) == "function" then
-        utility.safeSubsystem("ambient-dialogue", actor, function()
-            return SC.Dialogue.ambientPulse(actor, player, snapshot, commands, current)
-        end)
+        utility.safeSubsystem("ambient-dialogue", actor,
+            SC.Dialogue.ambientPulse, actor, player, snapshot, commands, current)
     end
     local candidates = profiledDecisionPhase("evaluate", actor, evaluate,
         actor, player, snapshot, commands, assessment, needs, state, current)
@@ -2418,7 +2507,42 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         return false, "no_candidate"
     end
 
-    if not candidateDue(actor, selected, current) then return false, "deferred" end
+    if not candidateDue(actor, selected, current) then
+        -- Work discovery/transfer stays on its normal one-second cadence.
+        -- While the same Scavenge task is approaching a container, Navigation
+        -- owns the retained route and refreshes native movement input on every
+        -- ordinary decision beat. Its input otherwise expires after 250 ms.
+        if (selected.kind == "scavenge" or selected.kind == "encounter")
+            and SC.Navigation and type(SC.Navigation.sustainScavenge) == "function"
+            and SC.Encounter and type(SC.Encounter.peek) == "function" then
+            local encounter = SC.Encounter.peek(actor)
+            local task = encounter and encounter.task
+            if task and task.phase == "approach" then
+                local sustained, sustainReason = SC.Navigation.sustainScavenge(
+                    actor, task, snapshot)
+                if sustained then
+                    state.current = selected.kind
+                    state.currentKey = selected.key
+                    state.intent = sustainReason or "approaching_container"
+                    state.lastHandledAt = current
+                    return true, state.intent
+                end
+            end
+        end
+        if retainedApproachKinds[selected.kind]
+            and state.current == selected.kind and state.currentKey == selected.key
+            and SC.Navigation
+            and type(SC.Navigation.sustainDecisionApproach) == "function" then
+            local sustained, sustainReason = SC.Navigation.sustainDecisionApproach(
+                actor, selected.kind, selected.key, snapshot)
+            if sustained then
+                state.intent = sustainReason or "approaching"
+                state.lastHandledAt = current
+                return true, state.intent
+            end
+        end
+        return false, "deferred"
+    end
 
     local previous = state.current
     local previousKey = state.currentKey
@@ -2477,6 +2601,9 @@ function Decision.update(actor, player, runtime, roundTimestamp)
             end
         end
     end
+    local navigationSerial = SC.Navigation
+        and type(SC.Navigation.requestSerial) == "function"
+        and SC.Navigation.requestSerial(actor) or 0
     local handled, reason = profiledDecisionPhase("delegate", actor, delegate,
         selected, actor, player, rootRuntime, commands, snapshot, state)
     if handled then state.safetyHoldSince, state.safetyHoldLastAt = nil, nil end
@@ -2503,11 +2630,15 @@ function Decision.update(actor, player, runtime, roundTimestamp)
                     or (fallback.safetyRank or safetyRank[fallback.safetyTier] or 1)
                         == selectedRank)
                 and candidateDue(actor, fallback, current) then
+                local fallbackNavigationSerial = SC.Navigation
+                    and type(SC.Navigation.requestSerial) == "function"
+                    and SC.Navigation.requestSerial(actor) or 0
                 local fallbackHandled, fallbackReason = profiledDecisionPhase(
                     "delegate", actor, delegate, fallback, actor, player,
                     rootRuntime, commands, snapshot, state)
                 if fallbackHandled then
                     handled, reason, selected = true, fallbackReason, fallback
+                    navigationSerial = fallbackNavigationSerial
                     break
                 end
             end
@@ -2530,11 +2661,15 @@ function Decision.update(actor, player, runtime, roundTimestamp)
             end
             local outcome = "held"
             if leashFollow then
+                local followNavigationSerial = SC.Navigation
+                    and type(SC.Navigation.requestSerial) == "function"
+                    and SC.Navigation.requestSerial(actor) or 0
                 local followHandled, followReason = profiledDecisionPhase(
                     "delegate", actor, delegate, leashFollow, actor, player,
                     rootRuntime, commands, snapshot, state)
                 if followHandled then
                     handled, reason, selected = true, followReason, leashFollow
+                    navigationSerial = followNavigationSerial
                     outcome = followOutcome
                 end
             end
@@ -2555,6 +2690,11 @@ function Decision.update(actor, player, runtime, roundTimestamp)
     end
 
     if handled then
+        if retainedApproachKinds[selected.kind] and SC.Navigation
+            and type(SC.Navigation.retainDecisionApproach) == "function" then
+            SC.Navigation.retainDecisionApproach(actor, selected.kind,
+                selected.key, navigationSerial)
+        end
         if previousKey ~= selected.key then
             state.enteredAt = current
             state.minimumUntil = current + (utility.config("decisionMinStateMs") or 900)

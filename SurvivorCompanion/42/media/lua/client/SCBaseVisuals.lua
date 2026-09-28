@@ -391,7 +391,7 @@ local function screenPosition(x, y, z, playerIndex)
     return sx / zoom, sy / zoom, zoom
 end
 
-local function drawScreenLabel(value, sx, sy, color, occupied, alpha, stackDirection)
+local function drawScreenLabel(value, sx, sy, color, occupied, alpha, stackDirection, viewport)
     local core = type(getCore) == "function" and getCore() or nil
     local width = core and numberMethod(core, "getScreenWidth") or 0
     local height = core and numberMethod(core, "getScreenHeight") or 0
@@ -401,10 +401,19 @@ local function drawScreenLabel(value, sx, sy, color, occupied, alpha, stackDirec
     end
     local lane = math.floor(sx / 96) .. ":" .. math.floor(sy / 14)
     local collision = tonumber(occupied[lane]) or 0
-    occupied[lane] = collision + 1
     sy = sy + collision * 13 * (tonumber(stackDirection) or 1)
     local manager = type(getTextManager) == "function" and getTextManager() or nil
     if not manager or type(manager.DrawStringCentre) ~= "function" then return false end
+    if viewport then
+        local measured = safeMethod(manager, "MeasureStringX", UIFont.Small, value)
+        local halfWidth = math.max(0, (tonumber(measured) or 0) / 2)
+        local fontHeight = safeMethod(manager, "getFontHeight", UIFont.Small)
+        if sx - halfWidth < viewport.left or sx + halfWidth + 1 > viewport.right
+            or sy < viewport.top or sy + (tonumber(fontHeight) or 14) + 1 > viewport.bottom then
+            return false
+        end
+    end
+    occupied[lane] = collision + 1
     manager:DrawStringCentre(UIFont.Small, sx + 1, sy + 1, value,
         0.02, 0.02, 0.02, math.min(0.94, alpha))
     manager:DrawStringCentre(UIFont.Small, sx, sy, value,
@@ -423,10 +432,9 @@ local function companionNamePosition(actor, x, y, z, playerIndex)
     local zoom = zoomFor(playerIndex)
     local offsetX = numberMethod(actor, "getOffsetX") or 0
     local offsetY = numberMethod(actor, "getOffsetY") or 0
-    -- getNameCoords applies the current camera zoom. Keep the body-space head
-    -- clearance independent from UI zoom, then anchor the label by its bottom
-    -- edge below. The vanilla 128/2/tileScale offset lands around an NPC's hips
-    -- because companions do not have the player's overhead UI stack.
+    -- isoToScreenX/Y include the selected player's camera and viewport origin.
+    -- getNameCoords uses the current camera, which can be either split-screen view
+    -- when OnPreUIDraw runs, and its result has no viewport origin.
     local headClearance = math.max(0,
         tonumber(configured("companionNameLabelHeadClearance", 120)) or 120)
     local manager = type(getTextManager) == "function" and getTextManager() or nil
@@ -434,27 +442,34 @@ local function companionNamePosition(actor, x, y, z, playerIndex)
     fontHeight = math.max(1, tonumber(fontHeight) or 14)
     local bottomGap = math.max(0,
         tonumber(configured("companionNameLabelOffsetY", 2)) or 2)
-    -- getNameCoords receives the character's render offset plus the configured
-    -- body-space head clearance. Its result is the label's bottom anchor, so
-    -- subtract the actual UI-font height before drawing.
-    local ok, vector = pcall(function()
-        local output = Vector2.new()
-        IsoGameCharacter.getNameCoords(
-            x, y, z, offsetX, offsetY + headClearance, zoom, output)
-        return output
-    end)
-    if ok and vector ~= nil then
-        local sx = numberMethod(vector, "getX")
-        local sy = numberMethod(vector, "getY")
-        if sx ~= nil and sy ~= nil then return sx, sy - fontHeight - bottomGap end
+    if type(isoToScreenX) ~= "function" or type(isoToScreenY) ~= "function" then
+        return nil, nil
     end
-
-    -- Older/test runtimes may not expose getNameCoords. Keep the fallback in
-    -- UI coordinates and apply the same bottom-edge contract explicitly.
-    local sx, sy = screenPosition(x, y, z, playerIndex)
-    if sx == nil then return nil, nil end
+    local xOk, projectedX = pcall(isoToScreenX, playerIndex, x, y, z)
+    local yOk, projectedY = pcall(isoToScreenY, playerIndex, x, y, z)
+    local sx = xOk and tonumber(projectedX) or nil
+    local sy = yOk and tonumber(projectedY) or nil
+    if sx == nil or sy == nil then return nil, nil end
     return sx - offsetX / zoom,
         sy - (offsetY + headClearance) / zoom - fontHeight - bottomGap
+end
+
+local function playerViewport(index)
+    if type(getPlayerScreenLeft) ~= "function"
+        or type(getPlayerScreenTop) ~= "function"
+        or type(getPlayerScreenWidth) ~= "function"
+        or type(getPlayerScreenHeight) ~= "function" then return nil end
+    local required = { getPlayerScreenLeft, getPlayerScreenTop,
+        getPlayerScreenWidth, getPlayerScreenHeight }
+    local values = {}
+    for slot, method in ipairs(required) do
+        local ok, value = pcall(method, index)
+        values[slot] = ok and tonumber(value) or nil
+        if values[slot] == nil then return nil end
+    end
+    if values[3] <= 0 or values[4] <= 0 then return nil end
+    return { left = values[1], top = values[2],
+        right = values[1] + values[3], bottom = values[2] + values[4] }
 end
 
 local function firstName(record)
@@ -515,22 +530,30 @@ local function renderCompanionLabels(occupied)
         or type(SC.Registry) ~= "table" or type(SC.Registry.records) ~= "function" then
         return 0
     end
-    local subject = player()
-    local px, py, pz = playerPosition(subject)
-    if subject == nil or px == nil then return 0 end
-    local playerNumber = safeMethod(subject, "getPlayerNum")
-    local index = tonumber(playerNumber) or 0
     local ok, records = pcall(SC.Registry.records)
     if not ok or type(records) ~= "table" then return 0 end
     local drawn = 0
-    for _, record in ipairs(records) do
-        local row = visibleCompanionLabel(record, subject, px, py, pz, index)
-        if row then
-            local sx, sy = companionNamePosition(
-                row.actor, row.x, row.y, row.z, index)
-            if sx and drawScreenLabel(row.name, sx, sy,
-                { r = 0.84, g = 0.92, b = 1.00 }, occupied, row.alpha, -1) then
-                drawn = drawn + 1
+    for index = 0, 3 do
+        local subject
+        if type(getSpecificPlayer) == "function" then
+            local found, value = pcall(getSpecificPlayer, index)
+            if found then subject = value end
+        end
+        if index == 0 and subject == nil then subject = player() end
+        local px, py, pz = playerPosition(subject)
+        if subject and px ~= nil then
+            local viewport = playerViewport(index)
+            for _, record in ipairs(records) do
+                local row = visibleCompanionLabel(record, subject, px, py, pz, index)
+                if row then
+                    local sx, sy = companionNamePosition(
+                        row.actor, row.x, row.y, row.z, index)
+                    if sx and drawScreenLabel(row.name, sx, sy,
+                        { r = 0.84, g = 0.92, b = 1.00 }, occupied,
+                        row.alpha, -1, viewport) then
+                        drawn = drawn + 1
+                    end
+                end
             end
         end
     end

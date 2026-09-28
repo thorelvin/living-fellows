@@ -91,7 +91,13 @@ local function windowClimbStillValid(record)
 end
 
 local function windowAnimationActive(actor, action)
-    if action == "remove_glass" then return false end
+    if action == "remove_glass" then
+        local visual = SC.NativeActions
+        if visual and type(visual.visualStatus) == "function" then
+            return visual.visualStatus(actor, "remove_broken_glass") == "active"
+        end
+        return false
+    end
     local observed, active = invoke(actor, "isCompanionTraversalActive")
     if observed and type(active) == "boolean" then return active end
     local flag = action == "open_window" and "bOpenWindow" or "bSmashWindow"
@@ -108,6 +114,13 @@ end
 local function cancelNative(actor, record, current)
     if current < (record.cancelNextAt or 0) then return false end
     record.cancelNextAt = current + 250
+    if record.action == "remove_glass" then
+        local visual = SC.NativeActions
+        if visual and type(visual.cancelVisual) == "function" then
+            return visual.cancelVisual(actor, "glass_removal_interrupted") == true
+        end
+        return false
+    end
     local methodName = "cancelCompanionStuckClimb"
     if SC.GameplayUtil and SC.GameplayUtil.hasMethod(actor, "cancelCompanionTraversal") then
         methodName = "cancelCompanionTraversal"
@@ -253,8 +266,25 @@ function Traversal.poll(actor, current)
             record.reason = "traversal_cancel_pending:" .. record.action
         end
     elseif record.effectOnly then
+        if record.action == "remove_glass" and not record.glassCommitted then
+            local visual = SC.NativeActions
+            local visualPhase = visual and type(visual.visualStatus) == "function"
+                and visual.visualStatus(actor, "remove_broken_glass") or "none"
+            if visualPhase == "completed" then
+                record.glassCommitted = true
+                invoke(record.object, "removeBrokenGlass")
+                record.effectVerified = effectDone(record)
+                if type(visual.clearVisual) == "function" then
+                    visual.clearVisual(actor)
+                end
+            elseif visualPhase == "stopped" or visualPhase == "interrupted" then
+                record.phase, record.reason = "failed", "glass_removal_interrupted"
+            end
+        end
         record.effectVerified = record.effectVerified or effectDone(record)
-        if windowAnimationActive(actor, record.action) then
+        if record.phase == "failed" then
+            -- The timed pose ended without its effect; do not mark a clear pane.
+        elseif windowAnimationActive(actor, record.action) then
             record.phase, record.observedAt = "active", record.observedAt or current
             record.reason = "traversal_active:" .. record.action
         elseif record.effectVerified and (record.observedAt or record.action == "remove_glass") then
@@ -455,9 +485,13 @@ function Traversal.window(actor, action, intent, provider)
         if not started or failure == false then return false, failure or "native window smash rejected" end
         return retainRequest(actor, action, intent, "window_smashed", true)
     elseif action == "remove_glass" then
-        local started, failure = invoke(object, "removeBrokenGlass")
+        local visual = SC.NativeActions
+        if not visual or type(visual.startGlassRemovalVisual) ~= "function" then
+            return false, "glass removal visual unavailable"
+        end
+        local started, failure = visual.startGlassRemovalVisual(actor, object, provider)
         if not started then return false, failure end
-        return retainRequest(actor, action, intent, "glass_removed", true)
+        return retainRequest(actor, action, intent, "glass_removal_started", true)
     end
 
     -- The stock E action reaches ISClimbThroughWindow for windows, empty frames

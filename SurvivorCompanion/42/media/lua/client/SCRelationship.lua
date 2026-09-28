@@ -268,7 +268,7 @@ end
 
 local function woundCount(actor)
     if SC.Medical and type(SC.Medical.assess) == "function" then
-        local ok, assessment = pcall(SC.Medical.assess, actor)
+        local ok, assessment = pcall(SC.Medical.assessCached or SC.Medical.assess, actor)
         if ok and type(assessment) == "table" then
             return tonumber(assessment.woundCount) or 0, tonumber(assessment.health) or U().nativeHealth(actor)
         end

@@ -1220,6 +1220,12 @@ do
     SurvivorCompanion.ZombieAttack.reset()
     local edgeBody, edgePart = woundableBody()
     local edgeVictim = actor("sc-edge-victim", 20, 20, { body = edgeBody })
+    local previousInvalidate = SurvivorCompanion.Medical.invalidate
+    local woundInvalidations = 0
+    SurvivorCompanion.Medical.invalidate = function(target)
+        if target == edgeVictim then woundInvalidations = woundInvalidations + 1 end
+        return previousInvalidate(target)
+    end
     local edgeZombie = zombie(21, 20, {
         target = edgeVictim, attacking = true, attackOutcome = "success",
     })
@@ -1250,6 +1256,9 @@ do
         "a scratch wounds without making the engine's Knox roll reachable")
     check(edgePart.infection == nil,
         "a new scratch does not erase an existing wound infection level")
+    check(woundInvalidations == 1,
+        "a zombie wound invalidates the victim's decision-level medical cache")
+    SurvivorCompanion.Medical.invalidate = previousInvalidate
     clockE = clockE + 50
     local _, _, s2 = SurvivorCompanion.ZombieAttack.resolve(edgeVictim, clockE, { edgeZombie })
     check(s2.landed == 1 and s2.applied == 0,
@@ -1465,6 +1474,29 @@ do
         and nativeInfo.kind == "Zombie",
         "a native paired grapple is read from the engine, not from our own record")
 
+    local priorRuntime = SurvivorCompanion.Runtime
+    local serial, reads = 40, 0
+    SurvivorCompanion.Runtime = { frameSerial = function() return serial end }
+    function held:isBeingGrappled()
+        reads = reads + 1
+        return self.beingGrappled == true
+    end
+    local first = SurvivorCompanion.ZombieAttack.nativeGrapple(held)
+    local reused = SurvivorCompanion.ZombieAttack.nativeGrapple(held)
+    check(first == reused and reads == 1,
+        "native grapple state is read once per actor in one production frame")
+    held.beingGrappled = false
+    SurvivorCompanion.ZombieAttack.invalidateGrapple(held)
+    check(SurvivorCompanion.ZombieAttack.nativeGrapple(held) == nil
+            and reads == 2,
+        "an in-frame native transition can invalidate the grapple answer")
+    held.beingGrappled = true
+    serial = serial + 1
+    check(SurvivorCompanion.ZombieAttack.nativeGrapple(held) ~= nil
+            and reads == 3,
+        "native grapple state refreshes on the next production frame")
+    SurvivorCompanion.Runtime = priorRuntime
+
     local heldNow, heldSource = SurvivorCompanion.ZombieAttack.isGrabbed(held)
     check(heldNow == true and heldSource == "native",
         "a native grapple is reported as native, never as the synthetic pin")
@@ -1669,6 +1701,22 @@ do
         swarm[index].target = nil
         swarm[index].square = nil
     end
+
+    attack.reset()
+    SCBridge.sustainZombieAttack = function() return "sustained" end
+    for index = 1, 8 do
+        attack._rememberPairForTests({}, victim, clock)
+    end
+    local originalIsDead = victim.isDead
+    local lifeReads = 0
+    victim.isDead = function(self)
+        lifeReads = lifeReads + 1
+        return originalIsDead(self)
+    end
+    attack.sustainPulse(clock + 16)
+    victim.isDead = originalIsDead
+    check(lifeReads == 1,
+        "one shared victim is validated once during the pair-sustain pulse")
 
     attack.reset()
     SCBridge = originalSCBridge
@@ -3623,15 +3671,43 @@ end
     local stopped = 0
     SurvivorCompanion.NativeActions = {
         pathTelemetry = function()
-            return { available = true, active = true, shouldBeMoving = true }
+            return { available = true, active = true, shouldBeMoving = true,
+                pathNextIsSet = true, pathNextX = -6, pathNextY = 11 }
         end,
         stopDirect = function() stopped = stopped + 1 return true end,
     }
+    stalledState.nativeLease.nativeNextKey = "-7:11:0"
     local result, reason = maintainLease(stalledActor, stalledState, stalledGoal, 2000)
     SurvivorCompanion.NativeActions = previousNativeActions
     check(result == "failed" and reason == "native_path_stalled"
             and stopped == 1 and stalledState.nativeLease == nil,
-        "native active telemetry cannot hide a path with no world, tile, goal, or next-node progress")
+        "a changing engine waypoint cannot renew a lease without actor translation")
+    local recoveryState = { lastProgressAt = 2000, nativeRecoveryDue = true,
+        lastAttemptFrom = stalledActor.square, lastAttemptTo = stalledGoal,
+        lastMovementReason = "native_path_stalled", blockedEdges = {},
+        blockedSquares = {}, routeMemory = {}, blockerHistory = {} }
+    local recovering, accepted = SurvivorCompanion.Navigation._recoverFromStuckForTests(
+        stalledActor, recoveryState, stalledGoal, "walk", {}, 2000)
+    check(recovering and accepted and recoveryState.stuckAttempts == 1
+            and recoveryState.nativeRecoveryDue == nil,
+        "repeated native path failures enter recovery even after route planning refreshed its timer")
+    local restartState = SurvivorCompanion.Navigation._stateForTests(stalledActor)
+    local beginLease = SurvivorCompanion.Navigation._beginNativeLeaseForTests
+    for _, at in ipairs({ 1000, 2500, 4500 }) do
+        beginLease(restartState, { stalledGoal }, stalledActor.square,
+            stalledGoal, stalledGoal, at, "native_edge", false, true,
+            nil, stalledActor, {})
+    end
+    check(restartState.nativeRestartRecoveryDue == true
+            and restartState.nativeNoMotionStarts == 3,
+        "restarted native leases from one fixed position trip the no-motion guard")
+    local broken = SurvivorCompanion.Navigation._breakRestartedNativeLease(
+        stalledActor, restartState, 4501)
+    check(broken and restartState.nativeLease == nil
+            and restartState.nativeRecoveryDue == true
+            and restartState.nativeNoMotionStarts == 0,
+        "the no-motion guard releases the engine lease and hands control to recovery")
+    SurvivorCompanion.Navigation.cancel(stalledActor, "test_complete")
 end)()
 
 do
@@ -4133,6 +4209,39 @@ local entryAdvanced = SurvivorCompanion.Navigation.request(
     entryActor, entryGoal, "walk", { action = "house_entry_test", snapshot = { allies = {} } })
 check(entryAdvanced and entryActor.lastIntent and entryActor.lastIntent.roomEntryChecked == true,
     "room-entry movement advances only after both corner checks")
+SurvivorCompanion.Navigation.reset(entryActor)
+registry[entryActor.id] = nil
+
+local cruiseActor = actor("sc-room-entry-scavenge", 13, 0, {})
+registry[cruiseActor.id] = cruiseActor
+local cruiseAccepted, cruiseReason = SurvivorCompanion.Navigation.request(
+    cruiseActor, entryGoal, "walk", {
+        action = "move_to_scavenge", continuousApproach = true,
+        snapshot = { allies = {}, immediateCount = 0, pressure = 0 },
+    })
+check(cruiseAccepted and cruiseActor.lastIntent
+        and cruiseActor.lastIntent.action == "move_to_scavenge"
+        and cruiseReason ~= "checking_room_entry"
+        and cruiseReason ~= "checking_room_entry_left"
+        and cruiseReason ~= "checking_room_entry_right",
+    "quiet container approach crosses a room threshold through normal navigation: "
+        .. tostring(cruiseAccepted) .. "/" .. tostring(cruiseReason)
+        .. "/" .. tostring(cruiseActor.lastIntent
+            and cruiseActor.lastIntent.action))
+SurvivorCompanion.Navigation.reset(cruiseActor)
+registry[cruiseActor.id] = nil
+
+local dangerActor = actor("sc-room-entry-danger", 13, 0, {})
+registry[dangerActor.id] = dangerActor
+local dangerHeld, dangerReason = SurvivorCompanion.Navigation.request(
+    dangerActor, entryGoal, "walk", {
+        action = "move_to_scavenge", continuousApproach = true,
+        snapshot = { allies = {}, immediateCount = 1, pressure = 2 },
+    })
+check(dangerHeld and dangerReason == "checking_room_entry",
+    "a threatened container approach retains the room-entry safety check")
+SurvivorCompanion.Navigation.reset(dangerActor)
+registry[dangerActor.id] = nil
 
 do
     local oscillatingActor = actor("sc-room-entry-multigoal", 13, 0, {})
@@ -4176,6 +4285,7 @@ end
 -- timer before its eventual movement dispatch is rejected.  This is the exact
 -- interleaving exercised by the live harness: the owner pauses at a doorway
 -- while the ordinary follow/stay scheduler also asks Navigation for a route.
+registry[entryActor.id] = entryActor
 SurvivorCompanion.Navigation.reset(entryActor)
 local ownedEntryClock = clock
 local entryOwner = assert(SurvivorCompanion.ActionSupervisor.begin(entryActor, {
@@ -4463,6 +4573,47 @@ check(trailTarget and trailContext and trailContext.mode == "trail"
         and type(trailContext.followTrack) == "table"
         and trailContext.followTrack[#trailContext.followTrack] == trailTarget,
     "a distant follower receives the exact shared leader track ending at its column target")
+local heldTarget, heldContext = SurvivorCompanion.Positioning.formationTarget(
+    trailFollower, trailLeader,
+    { order = "regroup", followDistance = 3, expeditionCohesionHold = true },
+    trailSnapshot)
+check(heldTarget and heldContext and heldContext.mode == "regroup"
+        and math.abs(heldTarget.x - trailLeader.square.x) <= 1
+        and math.abs(heldTarget.y - trailLeader.square.y) <= 1
+        and heldContext.followTrack == nil,
+    "a held expedition asks its laggard to regroup beside the leader instead of holding at an old breadcrumb")
+do
+    local crowdedLeader = actor("crowded-leader", 40, 40,
+        { className = "IsoPlayer", recruited = false })
+    crowdedLeader.modData.SC_Recruited = false
+    local rear = actor("sc-crowded-rear", 33, 40, {})
+    local left = actor("sc-crowded-left", 39, 40, {})
+    local right = actor("sc-crowded-right", 41, 40, {})
+    registry[rear.id], registry[left.id], registry[right.id] = rear, left, right
+    SurvivorCompanion.Commands.issue(rear.id, "follow", nil, crowdedLeader)
+    local oldSquareFree = SurvivorCompanion.GameplayUtil.isSquareFree
+    SurvivorCompanion.GameplayUtil.isSquareFree = function(square)
+        if square and math.abs(square.x - 40) <= 1
+            and math.abs(square.y - 40) <= 1 then return false end
+        return oldSquareFree(square)
+    end
+    local target = SurvivorCompanion.Positioning.formationTarget(rear,
+        crowdedLeader, { order = "follow", followDistance = 3,
+            expeditionCohesionHold = true }, {
+            threats = {}, allies = { { actor = left }, { actor = right } },
+            player = { actor = crowdedLeader, danger = 0 },
+        })
+    SurvivorCompanion.GameplayUtil.isSquareFree = oldSquareFree
+    check(target and (math.abs(target.x - 40) == 2
+            or math.abs(target.y - 40) == 2),
+        "third follower finds a separate second-ring regroup tile when nearby slots are occupied: "
+            .. tostring(target and target.x) .. "," .. tostring(target and target.y))
+    for _, value in ipairs({ rear, left, right }) do
+        SurvivorCompanion.Positioning.reset(value)
+        SurvivorCompanion.Commands.reset(value)
+        registry[value.id] = nil
+    end
+end
 SurvivorCompanion.Positioning.reset(trailFollower)
 SurvivorCompanion.Commands.reset(trailFollower)
 registry[trailFollower.id] = nil
@@ -4970,6 +5121,272 @@ end
     check(object == concreteWindow and kind == "window"
             and concreteEdge.traversable == true and concreteEdge.requiresNative == true,
         "concrete window getters detect opened and modded windows after collision flags clear")
+    local closedWindow = {
+        __class = "IsoWindow",
+        IsOpen = function() return false end,
+        isSmashed = function() return false end,
+        canClimbThrough = function() return false end,
+    }
+    function concreteFrom:getWindowTo(other)
+        return other == concreteTo and closedWindow or nil
+    end
+    local preparedEdge = SurvivorCompanion.Topology.classifyEdge(
+        fellow, concreteFrom, concreteTo, {})
+    check(preparedEdge.traversable == true
+            and preparedEdge.affordance == "window"
+            and preparedEdge.requiresNative == true,
+        "an intact closed IsoWindow stays routable for native open or smash")
+    closedWindow.__class = "IsoObject"
+    local unsupportedClosed = SurvivorCompanion.Topology.classifyEdge(
+        fellow, concreteFrom, concreteTo, {})
+    check(unsupportedClosed.traversable == false
+            and unsupportedClosed.reason == "window_not_climbable",
+        "an unsupported closed window object is not granted forced entry")
+    function concreteFrom:getWindowTo(other)
+        return other == concreteTo and concreteWindow or nil
+    end
+
+    local insideSquare = cell:getGridSquare(28, 9, 0)
+    local outsideSquare = cell:getGridSquare(29, 9, 0)
+    local priorInsideGetter, priorOutsideGetter =
+        insideSquare.getDoorTo, outsideSquare.getDoorTo
+    local priorInsideRoom, priorOutsideRoom = insideSquare.room, outsideSquare.room
+    local priorInsideOutside, priorOutsideOutside =
+        insideSquare.outside, outsideSquare.outside
+    local priorInsideHidden, priorOutsideHidden =
+        insideSquare.hidden, outsideSquare.hidden
+    local room = { name = "inside-door-test" }
+    insideSquare.room, insideSquare.outside = room, false
+    outsideSquare.room, outsideSquare.outside = nil, true
+    insideSquare.hidden, outsideSquare.hidden = false, false
+    local doorProperties = { forceLocked = false }
+    function doorProperties:has(name) return self[name] == true end
+    local insideDoor = {
+        __class = "IsoDoor", locked = true, open = false,
+        square = insideSquare, opposite = outsideSquare,
+        properties = doorProperties, modData = {}, toggles = 0,
+    }
+    function insideDoor:getSquare() return self.square end
+    function insideDoor:getOppositeSquare() return self.opposite end
+    function insideDoor:getProperties() return self.properties end
+    function insideDoor:getModData() return self.modData end
+    function insideDoor:getKeyId() return -1 end
+    function insideDoor:isLocked() return self.locked end
+    function insideDoor:IsOpen() return self.open end
+    function insideDoor:isBarricaded() return false end
+    function insideDoor:isObstructed() return false end
+    function insideDoor:ToggleDoor(character)
+        self.toggles = self.toggles + 1
+        if self.locked and not SurvivorCompanion.Topology.doorOpensFromInside(
+            character, self, character.square) then return end
+        self.locked, self.open = false, not self.open
+    end
+    function insideSquare:getDoorTo(other)
+        return other == outsideSquare and insideDoor or nil
+    end
+    function outsideSquare:getDoorTo(other)
+        return other == insideSquare and insideDoor or nil
+    end
+    local insideActor = { __class = "IsoPlayer", square = insideSquare }
+    function insideActor:getCurrentSquare() return self.square end
+    local topology = SurvivorCompanion.Topology
+    check(topology.doorOpensFromInside(insideActor, insideDoor, insideSquare)
+            and topology.actorCanUnlock(insideActor, insideDoor, insideSquare)
+            and not topology.actorCanUnlock(insideActor, insideDoor, outsideSquare),
+        "a keyless companion can open an ordinary IsoDoor only from its interior side")
+    local exitEdge = topology.classifyEdge(
+        insideActor, insideSquare, outsideSquare, {})
+    local entryEdge = topology.classifyEdge(
+        insideActor, outsideSquare, insideSquare, {})
+    check(exitEdge.traversable == true
+            and entryEdge.traversable == false
+            and entryEdge.reason == "door_locked",
+        "pathing admits an inside exit but keeps the locked outside entry blocked")
+    local doorState = { openedDoors = {} }
+    local doorContext = {
+        objectOpen = topology.objectOpen,
+        objectLocked = topology.objectLocked,
+        actorCanUnlock = topology.actorCanUnlock,
+        actorPassageKey = function() return "inside-test" end,
+    }
+    local opened = SurvivorCompanion.NavTraversal.handleDoor(
+        insideActor, doorState, insideDoor, insideSquare, outsideSquare,
+        1000, doorContext)
+    check(opened == true and insideDoor.open == true
+            and insideDoor.locked == false and insideDoor.toggles == 1,
+        "native door traversal opens an ordinary locked door from inside")
+    insideDoor.open, insideDoor.locked = false, true
+    function insideDoor:getObjectIndex() return 1 end
+    function insideDoor:getHealth() return 500 end
+    local bashTool = {
+        __class = "HandWeapon", isBroken = function() return false end,
+    }
+    local bashEdge = topology.classifyEdge(insideActor,
+        outsideSquare, insideSquare, {
+            allowDoorBash = true, doorBashTool = bashTool,
+        })
+    check(bashEdge.traversable == true and bashEdge.bashDoor == true
+            and bashEdge.cost >= 40,
+        "a concrete locked door is eligible only in the explicit bash search")
+    local scopedBashEdge = topology.classifyEdge(insideActor,
+        outsideSquare, insideSquare, {
+            allowDoorBash = true, doorBashTool = bashTool,
+            doorBashTargetRoom = room,
+        })
+    local otherRoomBashEdge = topology.classifyEdge(insideActor,
+        outsideSquare, insideSquare, {
+            allowDoorBash = true, doorBashTool = bashTool,
+            doorBashTargetRoom = { name = "other-room" },
+        })
+    check(scopedBashEdge.traversable == true
+            and scopedBashEdge.bashDoor == true
+            and scopedBashEdge.cost == 3
+            and otherRoomBashEdge.traversable == false
+            and otherRoomBashEdge.reason == "door_locked",
+        "a certified bash route is limited to its target room boundary")
+    local outsideActor = { __class = "IsoPlayer", square = outsideSquare }
+    function outsideActor:getCurrentSquare() return self.square end
+    local rememberedDoor = { blockedEdges = {} }
+    SurvivorCompanion.Navigation._blacklistEdgeForTests(
+        rememberedDoor, outsideSquare, insideSquare, "door",
+        insideDoor, 1000, "static_edge", "high", 10000)
+    local memoryAdmission = function(square)
+        return square == outsideSquare or square == insideSquare
+    end
+    local blockedOrdinary = SurvivorCompanion.Navigation.findPath(
+        outsideSquare, insideSquare, {
+            actor = outsideActor, nodeBudget = 50, now = 1000,
+            blockedEdges = rememberedDoor.blockedEdges,
+            squareAdmission = memoryAdmission,
+        })
+    local certifiedMemoryPath = SurvivorCompanion.Navigation.findPath(
+        outsideSquare, insideSquare, {
+            actor = outsideActor, nodeBudget = 50, now = 1000,
+            blockedEdges = rememberedDoor.blockedEdges,
+            squareAdmission = memoryAdmission,
+            allowDoorBash = true, doorBashTool = bashTool,
+            doorBashTargetRoom = room,
+        })
+    check(blockedOrdinary == nil
+            and certifiedMemoryPath ~= nil
+            and #certifiedMemoryPath == 2,
+        "a remembered locked door blocks ordinary travel but admits a certified bash route")
+    local bashOptions = {
+        actor = insideActor, doorBashAsLastResort = true,
+        doorBashTool = bashTool, nodeBudget = 50,
+        squareAdmission = function(square)
+            return square == outsideSquare or square == insideSquare
+        end,
+    }
+    local bashJob = SurvivorCompanion.Navigation.beginPathSearch(
+        outsideSquare, insideSquare, nil, bashOptions)
+    local bashStatus, bashPath
+    for _ = 1, 12 do
+        bashStatus, bashPath = SurvivorCompanion.Navigation.resumePathSearch(
+            bashJob, 50)
+        if bashStatus ~= "pending" then break end
+    end
+    local bashRejections = {}
+    for name, count in pairs(bashJob.search.rejections or {}) do
+        bashRejections[#bashRejections + 1] = name .. ":" .. tostring(count)
+    end
+    check(bashStatus == "complete" and bashPath ~= nil and #bashPath == 2
+            and bashJob.bashRetried == true
+            and bashJob.pathOptions.allowDoorBash == true,
+        "door-bash search starts only after the ordinary route is unreachable"
+            .. " status=" .. tostring(bashStatus)
+            .. " path=" .. tostring(bashPath and #bashPath)
+            .. " reason=" .. tostring(bashJob.reason)
+            .. " retried=" .. tostring(bashJob.bashRetried)
+            .. " allow=" .. tostring(bashJob.pathOptions.allowDoorBash)
+            .. " search_allow=" .. tostring(bashJob.search.options.allowDoorBash)
+            .. " tool=" .. tostring(bashJob.search.options.doorBashTool == bashTool)
+            .. " bashable=" .. tostring(topology.doorBashable(insideDoor, bashTool))
+            .. " edge=" .. tostring(topology.classifyEdge(insideActor,
+                outsideSquare, insideSquare, bashJob.search.options).reason)
+            .. " rejections=" .. table.concat(bashRejections, ","))
+    insideDoor.locked = false
+    local ordinaryJob = SurvivorCompanion.Navigation.beginPathSearch(
+        outsideSquare, insideSquare, nil, bashOptions)
+    local ordinaryStatus, ordinaryPath
+    for _ = 1, 12 do
+        ordinaryStatus, ordinaryPath = SurvivorCompanion.Navigation.resumePathSearch(
+            ordinaryJob, 50)
+        if ordinaryStatus ~= "pending" then break end
+    end
+    check(ordinaryStatus == "complete" and ordinaryPath ~= nil
+            and #ordinaryPath == 2 and ordinaryJob.bashRetried ~= true,
+        "an ordinary door route finishes before the bash fallback")
+    insideDoor.locked = true
+    local alternateOutside = cell:getGridSquare(29, 10, 0)
+    local alternateInside = cell:getGridSquare(28, 10, 0)
+    local priorAlternateRoom = alternateInside.room
+    local priorAlternateOutside = alternateInside.outside
+    local priorOutsideWindow = alternateOutside.getWindowTo
+    local priorInsideWindow = alternateInside.getWindowTo
+    alternateInside.room, alternateInside.outside = room, false
+    local alternateWindow = {
+        __class = "IsoWindow",
+        IsOpen = function() return false end,
+        isSmashed = function() return false end,
+        isBarricaded = function() return false end,
+        canClimbThrough = function() return false end,
+    }
+    function alternateOutside:getWindowTo(other)
+        return other == alternateInside and alternateWindow or nil
+    end
+    function alternateInside:getWindowTo(other)
+        return other == alternateOutside and alternateWindow or nil
+    end
+    local windowOptions = {
+        actor = insideActor, doorBashAsLastResort = true,
+        doorBashTool = bashTool, nodeBudget = 100,
+        squareAdmission = function(square)
+            return square == outsideSquare or square == insideSquare
+                or square == alternateOutside or square == alternateInside
+        end,
+    }
+    local windowJob = SurvivorCompanion.Navigation.beginPathSearch(
+        outsideSquare, insideSquare, nil, windowOptions)
+    local windowStatus, windowPath
+    for _ = 1, 12 do
+        windowStatus, windowPath = SurvivorCompanion.Navigation.resumePathSearch(
+            windowJob, 100)
+        if windowStatus ~= "pending" then break end
+    end
+    check(windowStatus == "complete" and windowPath ~= nil
+            and #windowPath >= 3 and windowJob.bashRetried ~= true,
+        "a breakable-window detour wins before a locked-door bash")
+    alternateOutside.getWindowTo = priorOutsideWindow
+    alternateInside.getWindowTo = priorInsideWindow
+    alternateInside.room, alternateInside.outside =
+        priorAlternateRoom, priorAlternateOutside
+    doorProperties.forceLocked = true
+    check(topology.actorCanUnlock(insideActor, insideDoor, insideSquare) == false,
+        "force-locked doors do not gain a free inside exit")
+    doorProperties.forceLocked = false
+    insideDoor.modData.CustomLock = true
+    check(topology.actorCanUnlock(insideActor, insideDoor, insideSquare) == false,
+        "custom-locked doors do not gain a free inside exit")
+    insideDoor.modData.CustomLock = nil
+    function insideDoor:isPermaLocked() return true end
+    check(topology.actorCanUnlock(insideActor, insideDoor, insideSquare) == false,
+        "permanently locked doors do not gain a free inside exit")
+    insideDoor.isPermaLocked = nil
+    function insideDoor:getLockedByCode() return 42 end
+    check(topology.actorCanUnlock(insideActor, insideDoor, insideSquare) == false,
+        "code-locked doors do not gain a free inside exit")
+    insideDoor.getLockedByCode = nil
+    insideDoor.__class = "IsoThumpable"
+    check(topology.actorCanUnlock(insideActor, insideDoor, insideSquare) == false,
+        "IsoThumpable doors do not inherit IsoDoor's inside-unlock rule")
+    insideSquare.getDoorTo, outsideSquare.getDoorTo =
+        priorInsideGetter, priorOutsideGetter
+    insideSquare.room, outsideSquare.room = priorInsideRoom, priorOutsideRoom
+    insideSquare.outside, outsideSquare.outside =
+        priorInsideOutside, priorOutsideOutside
+    insideSquare.hidden, outsideSquare.hidden =
+        priorInsideHidden, priorOutsideHidden
 
     local keyedActor = actor("sc-keyed-door", 0, 2, {
         inventory = inventory({ item("Base.Key1", "Key", { keyId = 4102 }) }),
@@ -5511,6 +5928,14 @@ local description = SurvivorCompanion.Commands.describe(fellow.id, player)
 check(fellow.modData.SC_Order == orderBefore, "describe must not write command state or mod data")
 check(description.id == fellow.id and description.actor == fellow and description.health == 100, "describe core identity and native health")
 check(description.supplies.bandages == 1 and description.personality ~= nil, "describe optional UI summaries")
+do
+    local describedLoad = SurvivorCompanion.Logistics.audit(fellow)
+    check(description.loadRole == describedLoad.role
+            and description.loadWeight == describedLoad.weight
+            and description.loadCapacity == describedLoad.capacity
+            and description.loadRatio == describedLoad.ratio,
+        "UI summary reports the same load facts without running a full logistics scan")
+end
 check(type(description.background) == "table" and description.relationshipTier == "cautious"
     and description.mood ~= nil and description.currentNeed ~= nil,
     "describe exposes persistent relationship, mood, need, and background summaries")
@@ -5550,6 +5975,60 @@ do
     SurvivorCompanion.Commands.reset(armedCompanion)
     SurvivorCompanion.Combat.reset(armedCompanion)
     registry[armedCompanion.id] = nil
+end
+
+do
+    local dryRifle = item("Base.TestRifle", "Weapon", {
+        ranged = true, ammo = 0, maxAmmo = 15,
+        magazineType = "Base.TestClip", ammoType = "Base.TestRounds",
+    })
+    local axe = item("Base.TestAxe", "Weapon", { ranged = false })
+    local clip = item("Base.TestClip", "Item", { ammo = 5, maxAmmo = 15 })
+    local bag = item("Base.TestBag", "Container")
+    local inside = inventory({ clip })
+    function bag:getItemContainer() return inside end
+    local carried = inventory({ dryRifle, axe, bag })
+    local fighter = actor("sc-indexed-combat", -7, 7, { inventory = carried })
+    fighter.primary = dryRifle
+    local index = SurvivorCompanion.InventoryIndex
+    local first = index.get(fighter)
+    check(first ~= nil and #first.weapons == 2
+            and index.get(fighter) == first,
+        "combat inventory index reuses one bounded weapon scan")
+    local carriedWeapons, usableWeapons = SurvivorCompanion.Combat.weaponAvailability(fighter)
+    check(carriedWeapons == 2 and usableWeapons == 2,
+        "a loaded nested magazine makes the dry rifle usable")
+
+    -- Native or player inventory operations can bypass the mod's mutation
+    -- helpers. A nested count change must still invalidate the cached answer.
+    inside.items = {}
+    local withoutClip = index.get(fighter)
+    carriedWeapons, usableWeapons = SurvivorCompanion.Combat.weaponAvailability(fighter)
+    check(withoutClip ~= first and carriedWeapons == 2 and usableWeapons == 1,
+        "external nested-bag removal immediately removes reload availability")
+
+    inside.items[1] = clip
+    clip.container = inside
+    local withClip = index.get(fighter)
+    check(withClip ~= withoutClip,
+        "external nested-bag addition invalidates the index")
+    clip.ammo = 0
+    carriedWeapons, usableWeapons = SurvivorCompanion.Combat.weaponAvailability(fighter)
+    check(carriedWeapons == 2 and usableWeapons == 1,
+        "magazine rounds stay live even while the inventory index is reused")
+
+    local personal = axe:getModData()
+    personal.SC_PersonalOwnerId = fighter.id
+    personal.SC_PersonalKey = "diary-pencil"
+    personal.SC_PersonalKind = "writing_implement"
+    index.touchItem(axe)
+    local protected = index.get(fighter)
+    check(protected ~= withClip and #protected.weapons == 1,
+        "personal writing implements leave the weapon index after marking")
+    index.release(fighter)
+    check(index.get(fighter) ~= protected,
+        "actor retirement discards retained inventory references")
+    index.release(fighter)
 end
 
 local statusOK = SurvivorCompanion.Commands.issue(fellow.id, "status", nil, player)
@@ -5609,6 +6088,85 @@ do
     check(woundedAssessment.woundCount == 1 and woundedAssessment.wounds[1].infected == true,
         "a local treatable wound infection is still assessed as a wound needing care")
 end
+do
+    local medical = SurvivorCompanion.Medical
+    local wound = bodyPart({ name = "bridge-wound", isBleeding = true, cut = true })
+    local dressing = bodyPart({ name = "bridge-dressing",
+        isBandaged = true, dirty = true })
+    local body = bodyDamage(73, { wound, dressing, bodyPart({ name = "healthy" }) })
+    local patient = actor("sc-medical-bulk", 43, 41, { body = body })
+    local oldBridge = SCBridge
+    SCBridge = nil
+    local fallback = medical.assess(patient)
+    local originalParts = body.getBodyParts
+    local walks = 0
+    function body:getBodyParts()
+        walks = walks + 1
+        return originalParts(self)
+    end
+    SCBridge = { fillBodyFacts = function(character, out)
+        check(character == patient, "bulk body facts use the requested patient")
+        for key in pairs(out) do out[key] = nil end
+        out.health, out.infected = body.health, body.infected == true
+        out.apparentInfection = body.infectionLevel or 0
+        out.infectionTime, out.infectionDuration = -1, -1
+        local count = 0
+        for index, part in ipairs(body.parts) do
+            local flags = (part.isBleeding and 1 or 0)
+                + (part.isBandaged and 8 or 0)
+                + (part.dirty and 16 or 0)
+                + (part.cut and 64 or 0)
+            if flags > 0 then
+                local base = count * 4 + 1
+                out[base], out[base + 1] = part, index - 1
+                out[base + 2], out[base + 3] = flags, part.name
+                count = count + 1
+            end
+        end
+        out.count = count
+        return count
+    end }
+    local bulk = medical.assess(patient)
+    check(walks == 0 and bulk.health == fallback.health
+            and bulk.woundCount == fallback.woundCount
+            and bulk.bleedingCount == fallback.bleedingCount
+            and bulk.dirtyBandages == fallback.dirtyBandages
+            and bulk.wounds[1].part == wound
+            and bulk.wounds[1].index == fallback.wounds[1].index,
+        "bulk body facts preserve wound identity, severity order and counts")
+    body:SetBandaged(0, true, 10, false, "Base.Bandage")
+    local treated = medical.assess(patient)
+    check(treated.bleedingCount == 0 and treated.wounds[1].bandaged == true,
+        "fresh bulk assessment observes a completed bandage")
+    SCBridge.fillBodyFacts = function() return -1 end
+    local recovered = medical.assess(patient)
+    check(walks == 1 and recovered.bleedingCount == 0,
+        "failed bridge capture falls back to the fresh Lua body walk")
+    SCBridge = oldBridge
+end
+do
+    local cacheBody = bodyDamage(80, { bodyPart({ name = "cache-part" }) })
+    local originalParts = cacheBody.getBodyParts
+    local walks = 0
+    function cacheBody:getBodyParts()
+        walks = walks + 1
+        return originalParts(self)
+    end
+    local cacheActor = actor("sc-medical-cache", 40, 41, { body = cacheBody })
+    local first = SurvivorCompanion.Medical.assessCached(cacheActor)
+    local second = SurvivorCompanion.Medical.assessCached(cacheActor)
+    check(first.health == 80 and second.health == 80 and walks == 1,
+        "decision-level medical cache reuses one body-part walk")
+    cacheBody.health = 79
+    local changed = SurvivorCompanion.Medical.assessCached(cacheActor)
+    check(changed.health == 79 and walks == 2,
+        "a changed health bucket refreshes the medical cache")
+    SurvivorCompanion.Medical.invalidate(cacheActor)
+    SurvivorCompanion.Medical.assessCached(cacheActor)
+    check(walks == 3,
+        "explicit medical invalidation forces a fresh body-part walk")
+    SurvivorCompanion.Medical.releaseActor(cacheActor)
+end
 local bondBeforeBackground = SurvivorCompanion.Commands.peek(fellow).bond
 check(SurvivorCompanion.Commands.conversation(fellow.id, "background", player)
     and SurvivorCompanion.Commands.peek(fellow).bond > bondBeforeBackground,
@@ -5666,7 +6224,7 @@ do
     -- Exercise the real follow controller and vehicle transaction together.
     -- Adapter-only tests cannot catch a Decision regression which builds a
     -- manifest but never dispatches entry or exit.
-    local carActor = actor("sc-follow-car-roundtrip", 4, 4, {})
+    local carActor = actor("sc-follow-car-roundtrip", 4, 8, {})
     registry[carActor.id] = carActor
     local car = { id = 912, passenger = nil, speed = 0 }
     function car:getId() return self.id end
@@ -5703,7 +6261,30 @@ do
     local oldMove, oldRecover = SurvivorCompanion.Actor.setMovement,
         SurvivorCompanion.Actor.recover
     local oldLiving = SurvivorCompanion.Registry.living
+    local oldRequestAny = SurvivorCompanion.Navigation.requestAny
+    local blockedDoorTile = cell:getGridSquare(4, 4, 0)
+    blockedDoorTile.solid = true
+    local approachCalls, approachTargetCount = 0, 0
     SurvivorCompanion.Registry.living = function() return { carActor } end
+    SurvivorCompanion.Navigation.requestAny = function(candidate, targets, mode, intent)
+        if candidate ~= carActor or intent.action ~= "approach_vehicle" then
+            return oldRequestAny(candidate, targets, mode, intent)
+        end
+        approachCalls = approachCalls + 1
+        approachTargetCount = #targets
+        check(#targets > 1 and intent.continuousApproach == true
+                and intent.arrivalDistance == 0.15
+                and intent.supervisorToken ~= nil,
+            "vehicle approach keeps ownership and offers alternate door tiles")
+        for _, target in ipairs(targets) do
+            check(target ~= blockedDoorTile and target:isFree()
+                    and car:getEnterSeatDistance(1,
+                        target:getX() + 0.5, target:getY() + 0.5) <= 2.56,
+                "every approach target is safe and inside native boarding range")
+        end
+        candidate.square = targets[2]
+        return true, "approaching_passenger_door"
+    end
     SurvivorCompanion.Actor.setMovement = function(candidate, mode, intent)
         if candidate == carActor and intent and intent.action == "board_vehicle" then
             return SurvivorCompanion.Vehicle.board(candidate, intent.vehicle,
@@ -5715,7 +6296,14 @@ do
         return oldMove(candidate, mode, intent)
     end
     SurvivorCompanion.Actor.recover = function(candidate, square)
-        if candidate == carActor then candidate.square = square return true, "recovered" end
+        if candidate == carActor then
+            check(square ~= blockedDoorTile and square:isFree()
+                    and car:getEnterSeatDistance(1,
+                        square:getX() + 0.5, square:getY() + 0.5) <= 2.56,
+                "vehicle exit restores the companion beside the passenger door")
+            candidate.square = square
+            return true, "recovered"
+        end
         if oldRecover then return oldRecover(candidate, square) end
         return false, "recover_unavailable"
     end
@@ -5724,6 +6312,8 @@ do
     local commands = SurvivorCompanion.Commands.peek(carActor)
     local quiet = { threats = {}, threatCount = 0, immediateCount = 0,
         pressure = 0, escapeSquares = {}, allies = {}, player = { danger = 0 } }
+    local approachedByFollow, approachStatus = SurvivorCompanion.Decision._doFollowForTests(
+        carActor, player, {}, commands, quiet)
     local boardedByFollow, boardStatus = SurvivorCompanion.Decision._doFollowForTests(
         carActor, player, {}, commands, quiet)
     player.vehicle = nil
@@ -5731,13 +6321,33 @@ do
         carActor, player, {}, commands, quiet)
     SurvivorCompanion.Actor.setMovement, SurvivorCompanion.Actor.recover = oldMove, oldRecover
     SurvivorCompanion.Registry.living = oldLiving
+    SurvivorCompanion.Navigation.requestAny = oldRequestAny
+    blockedDoorTile.solid = nil
     SurvivorCompanion.Vehicle.invalidateManifests(car)
-    check(boardedByFollow == true and boardStatus == "boarding_vehicle"
+    check(approachedByFollow == true and approachStatus == "approaching_passenger_door"
+            and approachCalls == 1 and approachTargetCount > 1
+            and boardedByFollow == true and boardStatus == "boarding_vehicle"
             and exitedByFollow == true and exitStatus == "exiting_vehicle"
             and carActor:getVehicle() == nil and car.passenger == nil
             and SurvivorCompanion.ActionSupervisor.snapshot(carActor).phase == "idle",
-        "automatic follow boards a stopped car and exits after the player leaves it: "
-            .. tostring(boardStatus) .. "/" .. tostring(exitStatus))
+        "automatic follow approaches a reachable passenger tile, boards, and exits: "
+            .. tostring(approachStatus) .. "/" .. tostring(boardStatus)
+            .. "/" .. tostring(exitStatus))
+    local positioning = SurvivorCompanion.Positioning
+    local navigation = SurvivorCompanion.Navigation
+    local oldFormation, oldHold = positioning.formationTarget, positioning.shouldHold
+    local oldPeek, oldCancel = navigation.peek, navigation.cancel
+    local cancelled = 0
+    positioning.formationTarget = function() return carActor.square, {} end
+    positioning.shouldHold = function() return true end
+    navigation.peek = function() return { goalAction = "follow_formation" } end
+    navigation.cancel = function() cancelled = cancelled + 1; return true end
+    local held, holdReason = SurvivorCompanion.Decision._doFollowForTests(
+        carActor, player, {}, commands, quiet)
+    positioning.formationTarget, positioning.shouldHold = oldFormation, oldHold
+    navigation.peek, navigation.cancel = oldPeek, oldCancel
+    check(held == true and cancelled == 1,
+        "formation hold releases a stale native follow lease")
     registry[carActor.id] = nil
 end
 
@@ -5772,6 +6382,9 @@ local woundedCompanion = actor("sc-hand-bandage-patient", 12, 12, {
 })
 local playerBandage = item("Base.Bandage", "Medical")
 local caretaker = actor("sc-hand-bandage-player", 12, 13, { inventory = inventory({ playerBandage }) })
+local cachedBeforeBandage = SurvivorCompanion.Medical.assessCached(woundedCompanion)
+check(cachedBeforeBandage.needsBandage == true,
+    "decision-level medical cache sees the untreated bleeding wound")
 local ready, readyReason, context = SurvivorCompanion.Medical.playerBandagePreflight(
     woundedCompanion, caretaker)
 check(ready and readyReason == "ready" and context.wound.part == patientWound
@@ -5780,6 +6393,10 @@ check(ready and readyReason == "ready" and context.wound.part == patientWound
 local applied, applyReason = SurvivorCompanion.Medical.applyPlayerBandage(woundedCompanion, caretaker)
 check(applied and applyReason == "bandaged" and patientWound.isBandaged and playerBandage.used,
     "the player's bandage is applied to the companion's wound and consumed from the player's inventory")
+local cachedAfterBandage = SurvivorCompanion.Medical.assessCached(woundedCompanion)
+check(cachedAfterBandage.needsBandage == false
+        and cachedAfterBandage.bleedingCount == 0,
+    "a successful treatment invalidates the decision-level wound cache immediately")
 -- BodyDamage:SetBandaged only flips the dressing flags. Without stopping the
 -- bleed the wound could never close, so it soiled its dressing and was dressed
 -- again all session, and Logistics kept reading an untreated injury.
@@ -8436,6 +9053,114 @@ check(SurvivorCompanion.Encounter.onPlayerContainerOpened(openedContainer)
     and SurvivorCompanion.Encounter.wasPlayerOpened(openedContainer),
     "production player-container-opened adapter marks the exclusion flag")
 do
+    local navigation = SurvivorCompanion.Navigation
+    local approachActor = actor("sc-sustained-approach", 2, 5, {})
+    local approachState = navigation._stateForTests(approachActor)
+    local goal = cell:getGridSquare(4, 5, 0)
+    local owner, token, freshSnapshot = {}, {}, { immediateCount = 0 }
+    navigation._rememberScavengeApproach(approachState, goal, "walk", {
+        action = "move_to_scavenge", continuousApproach = true,
+        object = owner, supervisorToken = token,
+    })
+    local originalRequest, captured = navigation.request
+    navigation.request = function(who, target, mode, intent)
+        captured = { who = who, target = target, mode = mode, intent = intent }
+        return true, "moving"
+    end
+    local sustained = navigation.sustainScavenge(approachActor,
+        { phase = "approach", owner = owner, supervisorToken = token },
+        freshSnapshot)
+    check(sustained and captured and captured.who == approachActor
+            and captured.target == goal and captured.mode == "walk"
+            and captured.intent.snapshot == freshSnapshot,
+        "Navigation renews the retained Scavenge route with fresh safety data")
+    local wrongOwner = navigation.sustainScavenge(approachActor,
+        { phase = "approach", owner = {}, supervisorToken = token },
+        freshSnapshot)
+    check(wrongOwner == false,
+        "a changed Scavenge target cannot renew the previous route")
+    navigation.request = originalRequest
+    navigation.cancel(approachActor, "test_complete")
+end
+do
+    local navigation = SurvivorCompanion.Navigation
+    local walker = actor("sc-retained-work-approach", 2, 6, {})
+    local state = navigation._stateForTests(walker)
+    local goal = cell:getGridSquare(5, 6, 0)
+    local snapshot = { immediateCount = 0 }
+    local token = {}
+    local actions = {
+        { "logistics", "move_to_base_storage" },
+        { "infection_crisis", "crisis_quarantine" },
+        { "encounter", "investigate_sound" },
+        { "downtime", "move_to_curtain" },
+        { "needs", "seek_water" },
+        { "base_work", "move_to_work" },
+        { "faction", "faction_patrol" },
+        { "purposeful_idle", "explore" },
+        { "joy_response", "move_to_friend" },
+        { "ritual", "move_to_ritual" },
+    }
+    local originalRequest = navigation.request
+    local calls = 0
+    navigation.request = function(who, target, mode, intent)
+        calls = calls + 1
+        check(who == walker and target == goal and mode == "walk"
+                and intent.snapshot == snapshot and intent.supervisorToken == token,
+            "retained approach renews the original Navigation request with fresh senses")
+        return true, "moving"
+    end
+    for _, entry in ipairs(actions) do
+        local kind, action = entry[1], entry[2]
+        state.goalSquare, state.goalAction, state.terminalGoalKey = goal, action, nil
+        state.lastApproachRequest = {
+            serial = calls + 1, goal = goal, mode = "walk",
+            intent = { action = action, supervisorToken = token },
+        }
+        check(navigation.retainDecisionApproach(walker, kind, kind .. ":key", calls),
+            "slow decision movement is retained for " .. kind)
+        local sustained = navigation.sustainDecisionApproach(
+            walker, kind, kind .. ":key", snapshot)
+        check(sustained and calls == state.lastApproachRequest.serial,
+            "slow decision movement is renewed for " .. kind)
+        check(not navigation.sustainDecisionApproach(
+            walker, kind, kind .. ":different", snapshot),
+            "another selected action cannot renew " .. kind .. " movement")
+    end
+    state.lastApproachRequest.arrived = true
+    check(not navigation.retainDecisionApproach(walker, "logistics", "done", calls - 1),
+        "a completed approach is released instead of renewed on another beat")
+    navigation.request = originalRequest
+    navigation.cancel(walker, "test_complete")
+end
+do
+    local navigation = SurvivorCompanion.Navigation
+    local originalNative = SurvivorCompanion.NativeTraversalActions
+    local native = originalNative or {}
+    SurvivorCompanion.NativeTraversalActions = native
+    local traversal = SurvivorCompanion.NavTraversal
+    local originalPoll, originalReset, originalRelease =
+        native.poll, native.reset, traversal.release
+    local preparedSquare = cell:getGridSquare(4, 5, 0)
+    native.poll = function()
+        return "completed", "traversal_effect_verified", {
+            effectOnly = true, object = {},
+            fromSquare = preparedSquare, toSquare = preparedSquare,
+        }
+    end
+    native.reset = function() return true end
+    traversal.release = function() return true end
+    local state = { lastProgressAt = 100, firstMotionRequestedAt = 100 }
+    local handled = navigation._maintainTraversalForRequest(
+        {}, state, preparedSquare, 10000)
+    check(handled == false and state.lastProgressAt == 10000
+            and state.firstMotionRequestedAt == 10000,
+        "completed portal preparation refreshes movement progress before climbing")
+    native.poll, native.reset, traversal.release =
+        originalPoll, originalReset, originalRelease
+    SurvivorCompanion.NativeTraversalActions = originalNative
+end
+do
     local sliceClock = clock
     local slicedFood = item("Base.CannedBolognese", "Food")
     local slicedActor = actor("sc-sliced-looter", 0, 4, {})
@@ -8879,7 +9604,9 @@ do
     local stuckMemory = stuckState.visited and stuckState.visited[stuckSource]
     navigation.requestAny, navigation.interactionTargets = savedRequestAny, savedTargets
     check(approaching and stuckPhase == "approach" and flips > 10
-            and scavengeApproachIntent and scavengeApproachIntent.nativeNearest == true
+            and scavengeApproachIntent
+            and scavengeApproachIntent.continuousApproach == true
+            and scavengeApproachIntent.requireSameSquare == true
             and stuckState.task == nil and stuckMemory ~= nil
             and stuckMemory.result == "navigation_failed" and stuckMemory.failures == 1
             and not stuckLooter.inventory:contains(stuckFood),
@@ -8933,6 +9660,10 @@ end
     local wanted = Encounter._wantedCategories(looter, {}, { food = 0.8, water = 0 })
     check(wanted.food == true and wanted.water == nil,
         "room affinity steers by what the companion is actually short of")
+    local requested = Encounter._wantedCategories(looter,
+        { scavengeRequestedCategory = "crafting" }, {})
+    check(requested.crafting == true,
+        "a supply request contributes its category to blind room search")
 
     -- Two steps from an open cupboard beats twenty to the next one.
     local stickyState = {}
@@ -8960,6 +9691,17 @@ end
     Encounter._noteContainerOpened(emptyState, hallContainer, lootClock)
     check(Encounter.stickyContainer(looter, emptyState, { food = 1 }, {}, nil, lootClock + 1000) == nil,
         "an open container holding nothing wanted releases the companion")
+
+    local requestSquare = cell:getGridSquare(23, 21, 0)
+    local requestedThread = item("Base.Thread", "Item")
+    local requestContainer, requestOwner = containerObject(requestSquare,
+        { item("Base.CannedCorn", "Food"), requestedThread })
+    local requestState = {}
+    Encounter._noteContainerOpened(requestState, requestContainer, lootClock)
+    local _, chosen = Encounter.stickyContainer(looter, requestState, {},
+        { scavengeRequestedCategory = "crafting" }, nil, lootClock + 1000)
+    check(chosen == requestedThread,
+        "an opened source selects the requested category despite other useful supplies")
 
     -- Crafting stock is what the base runs on, and nobody is ever short of it
     -- in the way they are short of food, so the need ladder used to leave it at
@@ -8993,6 +9735,17 @@ end
     craftAudit.weight = craftAudit.capacity * 2
     check(Logistics.itemNeedScore(looter, item("Base.Thread", "Item"), {}, craftAudit) == 0,
         "an over-target companion still stops gathering crafting stock once the pack is heavy")
+    local requestAudit = Logistics.audit(looter)
+    requestAudit.counts.food = 99
+    local requestedFood = item("Base.CannedCorn", "Food")
+    check(not Logistics.canTake(looter, requestedFood, "food", requestAudit)
+            and Logistics.canTake(looter, requestedFood,
+                "food", requestAudit, "food"),
+        "a supply request can exceed the personal food target")
+    requestAudit.weight = requestAudit.capacity * 2
+    check(not Logistics.canTake(looter, requestedFood,
+            "food", requestAudit, "food"),
+        "a supply request still respects the actual carry ceiling")
 
     registry[looter.id] = nil
     Encounter.reset(looter)
@@ -9004,6 +9757,11 @@ end
     end
     for index = #farSquare.objects, 1, -1 do
         if farSquare.objects[index] == farOwner then table.remove(farSquare.objects, index) end
+    end
+    for index = #requestSquare.objects, 1, -1 do
+        if requestSquare.objects[index] == requestOwner then
+            table.remove(requestSquare.objects, index)
+        end
     end
 end)()
 
@@ -10074,6 +10832,7 @@ do
     local assessment = { bleedingCount = 0, openWounds = 0, dirtyBandages = 0 }
     SurvivorCompanion.Medical = setmetatable({
         assess = function() return assessment end,
+        assessCached = function() return assessment end,
     }, { __index = priorMedical })
 
     local emptyAudit = { role = "generalist", counts = {}, items = {},
@@ -10514,13 +11273,13 @@ end
 local book = item("Base.BookFirstAid1", "Literature", { pages = 220 })
 local idleActor = actor("sc-idle", -2, 0, { inventory = inventory({ book }) })
 idleActor.modData.SC_Order = "stay"
-idleActor.modData.SC_WorkMode = "idle"
+idleActor.modData.SC_WorkMode = "craft" -- legacy preference must not suppress reading
 registry[idleActor.id] = idleActor
 local safeRuntime = { snapshot = { threats = {}, threatCount = 0, immediateCount = 0, player = { danger = 0 } } }
 local downtimeStarted = SurvivorCompanion.Downtime.update(idleActor, player, safeRuntime)
 clock = clock + 1
 local downtimeFinished = SurvivorCompanion.Downtime.update(idleActor, player, safeRuntime)
-check(downtimeStarted and downtimeFinished and SurvivorCompanion.Downtime.peek(idleActor).lastFact.activity == "read", "safe idle actor completes grounded reading downtime")
+check(downtimeStarted and downtimeFinished and SurvivorCompanion.Downtime.peek(idleActor).lastFact.activity == "read", "safe actor reads despite a legacy craft preference")
 clock = clock + 1
 SurvivorCompanion.Downtime.update(idleActor, player, safeRuntime)
 check(SurvivorCompanion.Downtime.peek(idleActor).active == nil,
@@ -10906,7 +11665,7 @@ local craftInventory = inventory({ craftSheet })
 craftInventory.rejectRemoveItem = craftSheet
 local craftActor = actor("sc-craft-rollback", -3, 2, { inventory = craftInventory })
 craftActor.modData.SC_Order = "stay"
-craftActor.modData.SC_WorkMode = "craft"
+craftActor.modData.SC_WorkMode = "idle" -- legacy preference must not suppress crafting
 registry[craftActor.id] = craftActor
 check(SurvivorCompanion.Downtime.update(craftActor, player, safeRuntime), "craft downtime action starts")
 local craftFinished = SurvivorCompanion.Downtime.update(craftActor, player, safeRuntime)
@@ -10919,10 +11678,10 @@ local successfulCraftInventory = inventory({ successfulSheet })
 local successfulCraftActor = actor("sc-craft-success", -4, 2,
     { inventory = successfulCraftInventory })
 successfulCraftActor.modData.SC_Order = "stay"
-successfulCraftActor.modData.SC_WorkMode = "craft"
+successfulCraftActor.modData.SC_WorkMode = "idle"
 registry[successfulCraftActor.id] = successfulCraftActor
 check(SurvivorCompanion.Downtime.update(successfulCraftActor, player, safeRuntime),
-    "explicit craft work mode starts the real sheet-rope recipe")
+    "autonomous downtime starts the real sheet-rope recipe despite legacy idle mode")
 check(SurvivorCompanion.Downtime.update(successfulCraftActor, player, safeRuntime)
     and not successfulCraftInventory:contains(successfulSheet)
     and successfulCraftInventory:contains("Base.SheetRope"),
@@ -11038,7 +11797,7 @@ local fixtures = {
 }
 
 local furnitureKind, seatActivity, approachFurniture, beginFurniture,
-    coolFurniture, furnitureCooling =
+    coolFurniture, furnitureCooling, _, _, failFurnitureActivity =
     SurvivorCompanion.Downtime._furnitureForTests()
 local fixtureObjects = {}
 for index, fixture in ipairs(fixtures) do
@@ -11075,6 +11834,34 @@ coolFurniture(furnitureState, wallCouch, clock)
 check(furnitureCooling(furnitureState, wallCouch, clock)
         and seatActivity(wallActor, furnitureState, clock) == nil,
     "failed furniture cools down instead of being selected every downtime pulse")
+local alternateChair, alternateChairSquare = furnitureFixture({
+    x = -5, y = -7, name = "Alternate Chair",
+    sprite = "furniture_seating_indoor_03_40", seatingPositions = 1,
+})
+local blockedRouteState = {
+    active = { kind = "sit", object = wallCouch, square = wallCouchSquare },
+}
+local blockedRouteAccepted = failFurnitureActivity(wallActor, blockedRouteState,
+    "path_blocked:blocked_static")
+local alternative = seatActivity(wallActor, blockedRouteState, clock)
+check(blockedRouteAccepted == false and blockedRouteState.active == nil
+        and blockedRouteState.furnitureBackoffUntil == nil
+        and furnitureCooling(blockedRouteState, wallCouch, clock)
+        and alternative and alternative.object == alternateChair,
+    "a blocked chair route cools that chair but leaves another reachable chair eligible")
+local nativeFailureState = {
+    active = { kind = "sit", object = wallCouch, square = wallCouchSquare },
+}
+failFurnitureActivity(wallActor, nativeFailureState, "sit_verification_failed")
+check(nativeFailureState.furnitureBackoffUntil > clock
+        and seatActivity(wallActor, nativeFailureState, clock) == nil,
+    "a native seating failure retains the room-wide furniture backoff")
+for index = #alternateChairSquare.objects, 1, -1 do
+    if alternateChairSquare.objects[index] == alternateChair then
+        table.remove(alternateChairSquare.objects, index)
+        break
+    end
+end
 wallCouchSquare.room = { name = "livingroom" }
 check(seatActivity(wallActor, {}, clock) == nil,
     "an outdoor companion does not discover an indoor couch through the outer wall")
@@ -11317,19 +12104,23 @@ do
     -- separate decisions (self-medicine with no action can now fall back to a
     -- rescue instead of being blocked as the same kind).
     local savedAssess = SurvivorCompanion.Medical.assess
+    local savedCachedAssess = SurvivorCompanion.Medical.assessCached
     local rescuePatient = { __rescuePatient = true }
-    SurvivorCompanion.Medical.assess = function(target)
+    local function assessRescuePatient(target)
         if target == rescuePatient then
             return { critical = true, bleedingCount = 2, downed = true, wounds = {} }
         end
         return { wounds = {} }
     end
+    SurvivorCompanion.Medical.assess = assessRescuePatient
+    SurvivorCompanion.Medical.assessCached = assessRescuePatient
     local identityCandidates = SurvivorCompanion.Decision._evaluateForTests(
         fellow, rescuePatient,
         { threats = {}, threatCount = 0, immediateCount = 0, allies = {} },
         { recruited = true },
         { downed = true, health = 8, wounds = {} }, {}, {}, 1000)
     SurvivorCompanion.Medical.assess = savedAssess
+    SurvivorCompanion.Medical.assessCached = savedCachedAssess
     local selfKey, rescueKey, medicalCount = nil, nil, 0
     for _, candidate in ipairs(identityCandidates) do
         if candidate.kind == "medical" then
@@ -12284,6 +13075,31 @@ clock = clock + 1001
 check(SurvivorCompanion.Needs.updateRates(rateActor, rateRuntime, clock)
     and math.abs(rateActor.hunger - 0.60) < 0.001,
     "accelerated-time positive hunger deltas are still halved")
+do
+    local utility = SurvivorCompanion.GameplayUtil
+    local originalStat = utility.characterStatValue
+    local originalNative = SurvivorCompanion.NativeActions
+    local statReads, finishes = 0, 0
+    utility.characterStatValue = function(value, ...)
+        if value == rateActor then statReads = statReads + 1 end
+        return originalStat(value, ...)
+    end
+    SurvivorCompanion.NativeActions = {
+        needsStatus = function() return false, nil end,
+        finishNeeds = function() finishes = finishes + 1 end,
+    }
+    local sampled = SurvivorCompanion.Needs.assess(rateActor, rateRuntime)
+    check(math.abs(sampled.hunger - 0.60) < 0.001 and statReads == 0,
+        "ordinary needs assessment reuses the one-second native stat sample")
+    rateActor.hunger = 0.15
+    SurvivorCompanion.NativeActions.needsStatus = function() return false, "eat" end
+    local finished = SurvivorCompanion.Needs.assess(rateActor, rateRuntime)
+    check(math.abs(finished.hunger - 0.15) < 0.001 and statReads == 3 and finishes == 1
+            and SurvivorCompanion.Needs.peek(rateActor).nextRateSampleAt == 0,
+        "finished eating refreshes native needs immediately and invalidates the next rate sample")
+    utility.characterStatValue = originalStat
+    SurvivorCompanion.NativeActions = originalNative
+end
 
 do
     local settings = SurvivorCompanion.Config.values
@@ -13990,6 +14806,11 @@ check(Dialogue.poolSize("danger.one", fellow, {}) >= 12
         and Dialogue.poolSize("danger.horde", fellow, {}) >= 12
         and Dialogue.poolSize("signal.horde", fellow, {}) >= 6,
     "every contact scale has a broad spoken pool and several silent hand-sign variants")
+local departure = Dialogue._poolForTests("expedition.departure")
+check(type(departure) == "table" and type(departure.common) == "table"
+        and #departure.common == 20
+        and Dialogue.poolSize("expedition.departure", fellow, {}) == 20,
+    "the expedition leader has twenty departure lines")
 check(Dialogue.poolSize("scavenge.loot.excited", fellow, {}) >= 10
         and Dialogue.poolSize("scavenge.loot.disappointed", fellow, {}) >= 10
         and Dialogue.poolSize("scavenge.loot.gross", fellow, {}) >= 10,
@@ -16958,6 +17779,47 @@ end)()
 -- A corpse, and the stand-in zombie Build 42 makes while a body is dragged,
 -- are neither perceived as threats nor attacked.
 ;(function()
+    local SC = SurvivorCompanion
+    local facts = SC.ZombieFacts
+    local originalRuntime = SC.Runtime
+    local serial = 1
+    SC.Runtime = { frameSerial = function() return serial end }
+    check(facts.get(nil).gone == true,
+        "a missing square-list candidate never enters the frame cache")
+    local firstTarget, secondTarget = {}, {}
+    local walker = zombie(47, 42, { target = firstTarget })
+    local targetReads = 0
+    function walker:getTarget()
+        targetReads = targetReads + 1
+        return self.target
+    end
+    local first = facts.get(walker)
+    local same = facts.get(walker)
+    walker.target, walker.attacking = secondTarget, true
+    local retained = facts.get(walker)
+    check(first == same and retained == first and targetReads == 1
+            and retained.target == firstTarget and retained.attacking == false,
+        "zombie-only facts are shared within one production frame")
+    facts.forget(walker)
+    local refreshed = facts.get(walker)
+    check(refreshed ~= first and refreshed.target == secondTarget
+            and refreshed.attacking == true and targetReads == 2,
+        "a same-frame zombie action invalidates the shared facts")
+    walker.attacking = false
+    serial = 2
+    local nextFrame = facts.get(walker)
+    check(nextFrame ~= refreshed and nextFrame.attacking == false
+            and targetReads == 3,
+        "the next production frame always reads current zombie facts")
+    SC.Runtime = originalRuntime
+    facts.reset()
+    local outside = facts.get(walker)
+    local outsideAgain = facts.get(walker)
+    check(outside ~= outsideAgain and targetReads == 5,
+        "out-of-tick callers never retain zombie facts")
+end)()
+
+;(function()
     local utility = SurvivorCompanion.GameplayUtil
     local corpse = { __class = "IsoDeadBody", isZombie = function() return true end }
     local live = { __class = "IsoZombie", isDead = function() return false end,
@@ -17049,6 +17911,9 @@ end)()
     local found, foundFrom, foundTo = navigation._nativePathDoorAheadForTests(walker,
         { nativeNextSquare = beyond })
     local state = navigation._stateForTests(walker)
+    state.path = { doorFrom, doorTo, beyond }
+    state.pathGoalSquare = beyond
+    state.pathReason = "player_track_route"
     state.nativeLease = { fromSquare = doorFrom, toSquare = beyond, nativeNextSquare = beyond,
         ultimateGoal = beyond, affordance = "engine_goal", startedAt = clock, targets = {} }
     local leaseStatus, leaseReason = navigation._maintainNativeLeaseForTests(
@@ -17062,8 +17927,9 @@ end)()
     end
     check(found == lockedDoor and foundFrom == doorFrom and foundTo == doorTo
             and leaseStatus == "failed" and leaseReason == "path_blocked:door_locked"
-            and state.nativeLease == nil and blocked and openAhead == nil,
-        "an engine route stops at a closed locked door and marks the doorway blocked instead of walking through")
+            and state.nativeLease == nil and state.path == nil
+            and state.pathGoalSquare == nil and blocked and openAhead == nil,
+        "an engine route stops at a closed locked door, invalidates its stale trail, and marks the doorway blocked")
 end)()
 
 -- An actor covering several tiles between checks (a stranger on the

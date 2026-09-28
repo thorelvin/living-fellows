@@ -14,7 +14,7 @@
 ## Provider invariants
 
 - [ ] Candidate is NPC and `isLocalPlayer()==false`.
-- [ ] Local singleton, player slots, `numPlayers`, split-screen indices, input and network state remain unchanged.
+- [ ] Outside an expedition, the local singleton, player slots, `numPlayers`, split-screen indices, input and network state remain unchanged. During an expedition, only the owned leader may occupy slot 1 and its teardown restores the original layout.
 - [ ] BodyDamage, Moodles, XP, emitter, inventory and HumanVisual remain non-null.
 - [ ] Ten actors update for 30 minutes without render/input/audio exceptions or static-player mutation.
 - [ ] Zombies target actors normally; actors never receive local-player input or UI ownership.
@@ -82,7 +82,7 @@
 - [ ] Place equal-distance zombies in front, beside and behind a companion: the companion turns on the rear/flank danger first; two companions distribute across unclaimed targets instead of repeatedly dogpiling one zombie.
 - [ ] A safe firearm user raises the weapon and settles before firing. High Aiming skill shortens the pause, panic/stress lengthen it, and an immediate close threat cancels the wait in favor of defense or escape.
 - [ ] The team Rules of Engagement selector applies Stealth, Close Defense, Ranged Support, or Weapons Free to all current and later recruits.
-- [ ] Main order, follow distance, work mode, movement, combat stance, weapon priority and group use one selector each; scavenging, overload, hold fire and Ride use one checkbox each.
+- [ ] Main order, follow distance, movement, combat stance, weapon priority and group use one selector each; scavenging, overload, hold fire and Ride use one checkbox each. Downtime has no Idle/Craft selector.
 - [ ] Defensive stance and Quiet weapon priority are selectable, persist independently, and do not silently rewrite the team Rules of Engagement.
 - [ ] Passenger firearms require Ranged Support or Weapons Free, an open/broken side window, safe speed, ammunition, range, sight, cadence, and a clear friendly-fire lane.
 - [ ] Three-sided close pressure forces a sustained break-contact response even in aggressive mode; distant targeting zombies alone do not trigger a false overrun.

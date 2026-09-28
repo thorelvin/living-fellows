@@ -354,7 +354,7 @@ class UIStaticContractTests(unittest.TestCase):
 
     def test_required_tabs_are_present(self) -> None:
         for tab in ("status", "orders", "loadout", "base", "more", "journal",
-                    "groups", "factions", "support"):
+                    "groups", "expeditions", "factions", "support"):
             self.assertRegex(self.ui, rf'\"{tab}\"')
 
     def test_debug_tab_is_private_build_only(self) -> None:
@@ -370,7 +370,7 @@ class UIStaticContractTests(unittest.TestCase):
         self.assertIsNotNone(tab_block)
         self.assertEqual(
             re.findall(r'"([a-z_]+)"', tab_block.group(1)),
-            ["status", "orders", "groups", "loadout", "more"],
+            ["status", "orders", "groups", "expeditions", "loadout", "more"],
         )
         self.assertIn('groups = "UI_SC_Tab_Squad"', self.ui)
         more = lua_function(self.ui, "function SCUIDetail:buildMore(panel, row)")
@@ -768,7 +768,6 @@ class UIStaticContractTests(unittest.TestCase):
             "set_scavenge",
             "set_ride_with_player",
             "set_allow_overload",
-            "set_work_mode",
             "set_move_mode",
             "set_combat_doctrine",
             "set_weapon_priority",
@@ -1154,12 +1153,12 @@ class UIStaticContractTests(unittest.TestCase):
                     "UI_SC_Info_LastActionFailure", "UI_SC_Support_ActionSupervisor"):
             self.assertIn(key, self.translations)
 
-    def test_work_mode_selector_matches_the_persistent_backend_contract(self) -> None:
+    def test_downtime_is_companion_chosen_in_orders(self) -> None:
         orders = lua_function(self.ui, "function SCUIDetail:buildOrders(panel)")
-        self.assertIn('WORK_MODES, "set_work_mode", "mode"', orders)
-        for mode in ("auto", "idle", "craft"):
-            self.assertIn(f'{{ id = "{mode}", key = "UI_SC_Select_Work', self.ui)
+        self.assertNotIn('"set_work_mode"', orders)
+        self.assertNotIn('"UI_SC_Select_WorkMode"', orders)
         self.assertIn("UI_SC_Section_WorkAutonomy", orders)
+        self.assertIn('"set_scavenge"', orders)
 
     def test_vehicle_policy_is_one_persistent_toggle_with_manifest_status(self) -> None:
         gear = lua_function(self.ui, "function SCUIDetail:buildLoadout(panel, row)")
@@ -1402,7 +1401,8 @@ class UIStaticContractTests(unittest.TestCase):
         hooks = set(re.findall(r"Events\.(On\w+)", self.all_source))
         self.assertEqual(
             hooks,
-            {"OnCreatePlayer", "OnGameStart", "OnKeyPressed", "OnMainMenuEnter", "OnFillWorldObjectContextMenu"},
+            {"OnCreatePlayer", "OnGameStart", "OnKeyPressed", "OnMainMenuEnter",
+             "OnFillWorldObjectContextMenu", "OnFillInventoryObjectContextMenu"},
         )
 
     def test_english_only_translation_coverage(self) -> None:

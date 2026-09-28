@@ -264,6 +264,7 @@ local valueData = {
     navigationSliceBudgetMs = 2,
     uiRefreshSliceBudgetMs = 0.5,
     uiRefreshMaximumLagMs = 500,
+    uiRefreshCadenceMs = 500,
     navigationMovingRouteMaxNodes = 256,
     navigationAlternativeRoutes = 3,
     navigationAlternativeNodeBudget = 80,
@@ -699,6 +700,7 @@ local valueData = {
     -- truthfully marked arrived can enter the treatment animation next tick.
     medicalRange = 1.5,
     medicalCriticalHealth = 35,
+    medicalAssessCacheMs = 500,
     medicalApproachTimeoutMs = 8000,
     -- Bounded recursive bandage search: how deep into carried bags/first-aid
     -- containers to look, and the total item budget across all containers.
@@ -1392,6 +1394,9 @@ local valueData = {
     factionFirstEligibleDay = 7,
     -- Faction locations name the nearest map street within this many tiles.
     factionStreetMaxDistance = 300,
+    -- The expedition picker includes map-derived nearby buildings by default.
+    -- A sandbox option can restrict it to interiors actually seen by the player.
+    expeditionDestinationScope = "all_nearby",
     factionSpawnCooldownDays = 7,
     factionDailySpawnChancePercent = 8,
     factionMaxHouseholds = 3,
@@ -1742,6 +1747,12 @@ function SC.Config.refreshSandbox(source)
     end
     local diaristChance = clamp(sandbox.DiaristChance, 0, 100)
     if diaristChance then runtimeOverrides.diaryWriterChancePercent = math.floor(diaristChance) end
+    local destinationScope = tonumber(sandbox.ExpeditionDestinationScope)
+    if destinationScope == 1 then
+        runtimeOverrides.expeditionDestinationScope = "all_nearby"
+    elseif destinationScope == 2 then
+        runtimeOverrides.expeditionDestinationScope = "known_only"
+    end
     return true
 end
 

@@ -32,9 +32,17 @@ end
 function CompanionMap.rows()
     local rows = {}
     if not SC.Registry or type(SC.Registry.records) ~= "function" then return rows end
+    local viewer = type(getSpecificPlayer) == "function"
+        and getSpecificPlayer(0) or nil
     for _, record in ipairs(SC.Registry.records() or {}) do
         local actor = type(record) == "table" and record.actor or nil
-        if actor and record.recruited == true and not U().isDead(actor) then
+        local remote = actor and SC.ExpeditionPrototype
+            and type(SC.ExpeditionPrototype.isMember) == "function"
+            and SC.ExpeditionPrototype.isMember(actor)
+            and (type(SC.ExpeditionPrototype.playerCanObserve) ~= "function"
+                or not SC.ExpeditionPrototype.playerCanObserve(actor, viewer))
+        if actor and record.recruited == true and not U().isDead(actor)
+            and not remote then
             local x, y, z = U().position(actor)
             if x ~= nil and y ~= nil then
                 rows[#rows + 1] = {

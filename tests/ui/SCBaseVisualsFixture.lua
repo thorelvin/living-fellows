@@ -34,6 +34,8 @@ local fixture = {
     labels = {},
     reports = {},
     draft = nil,
+    splitScreen = false,
+    cameraShift = {},
 }
 SCBaseVisualsFixture = fixture
 
@@ -43,10 +45,16 @@ function player:getY() return self.y end
 function player:getZ() return self.z end
 function player:getPlayerNum() return 0 end
 fixture.player = player
+local secondPlayer = { x = 12, y = 11, z = 0 }
+function secondPlayer:getX() return self.x end
+function secondPlayer:getY() return self.y end
+function secondPlayer:getZ() return self.z end
+function secondPlayer:getPlayerNum() return 1 end
+fixture.secondPlayer = secondPlayer
 
 local companionSquare = { visible = true }
 function companionSquare:getCanSee(index)
-    assert(index == 0)
+    assert(index == 0 or index == 1)
     return self.visible
 end
 local companion = {
@@ -57,7 +65,7 @@ function companion:getX() return self.x end
 function companion:getY() return self.y end
 function companion:getZ() return self.z end
 function companion:getCurrentSquare() return self.square end
-function companion:getTargetAlpha(index) assert(index == 0); return 1 end
+function companion:getTargetAlpha(index) assert(index == 0 or index == 1); return 1 end
 function companion:getVehicle() return nil end
 function companion:isDead() return false end
 function companion:getSayLine() return self.speech end
@@ -76,10 +84,24 @@ fixture.config = {
 }
 
 function getSpecificPlayer(index)
-    assert(index == 0)
-    return player
+    if index == 0 then return player end
+    if index == 1 and fixture.splitScreen then return fixture.secondPlayer end
+    return nil
 end
 function getPlayer() return player end
+function getPlayerScreenLeft(index)
+    return fixture.splitScreen and index == 1 and 960 or 0
+end
+function getPlayerScreenTop(index) return 0 end
+function getPlayerScreenWidth(index) return fixture.splitScreen and 960 or 1920 end
+function getPlayerScreenHeight(index) return 1080 end
+function isoToScreenX(index, x, y, z)
+    return getPlayerScreenLeft(index) + 321 + (x - 12) * 10
+        + (fixture.cameraShift[index] or 0)
+end
+function isoToScreenY(index, x, y, z)
+    return 222 + (y - 11) * 10
+end
 function getMouseX() return fixture.mouseX end
 function getMouseY() return fixture.mouseY end
 
@@ -119,6 +141,10 @@ function textManager:getFontHeight(font)
     assert(font == UIFont.Small)
     return 14
 end
+function textManager:MeasureStringX(font, value)
+    assert(font == UIFont.Small)
+    return #value * 8
+end
 function textManager:DrawStringCentre(font, x, y, value, red, green, blue, alpha)
     fixture.labels[#fixture.labels + 1] = {
         font = font, x = x, y = y, value = value,
@@ -137,7 +163,7 @@ function getTextManager() return textManager end
 local core = {}
 function core:getScreenWidth() return 1920 end
 function core:getScreenHeight() return 1080 end
-function core:getZoom(index) assert(index == 0); return fixture.zoom end
+function core:getZoom(index) assert(index == 0 or index == 1); return fixture.zoom end
 function getCore() return core end
 Core = { getTileScale = function() return 2 end }
 
@@ -236,7 +262,8 @@ SurvivorCompanion = {
     Registry = {
         records = function() return fixture.records end,
         isActive = function(actor, id)
-            return actor == companion and id == "sc-addy"
+            return (actor == companion and id == "sc-addy")
+                or (actor == fixture.otherCompanion and id == "sc-beth")
         end,
     },
 }

@@ -22,6 +22,8 @@ local clock = 0
 local logicalNow = 0
 local records = {}
 local registryCalls = 0
+local registryBuilds = 0
+local cachedRoster = nil
 local grabbedCalls = 0
 local serviceAt = {}
 local recording = false
@@ -34,12 +36,15 @@ local function charge(amount)
     clock = clock + (tonumber(amount) or 0)
 end
 
--- Registry.records() creates and sorts a fresh result in production. Charging a
--- deterministic size-dependent cost makes repeated materialization visible as a
--- budget/latency regression rather than relying on the host machine's wall clock.
-SC.Registry.records = function()
+-- The versioned roster is read every callback but built only after membership
+-- changes. Charge the build, so accidental re-materialization is visible.
+SC.Registry.snapshot = function()
     registryCalls = registryCalls + 1
-    charge(0.03 + #records * 0.008)
+    if cachedRoster ~= records then
+        registryBuilds = registryBuilds + 1
+        cachedRoster = records
+        charge(0.03 + #records * 0.008)
+    end
     return records
 end
 
@@ -101,6 +106,7 @@ local function resetScenario()
     SC.Scheduler.reset(true)
     resetDispatch()
     registryCalls = 0
+    registryBuilds = 0
     grabbedCalls = 0
     serviceAt = {}
     recording = false
@@ -111,6 +117,7 @@ local function primeOrdinary(base)
     logicalNow = base - 200
     dispatch(logicalNow, 1000)
     registryCalls = 0
+    registryBuilds = 0
     grabbedCalls = 0
     serviceAt = {}
 end
@@ -163,8 +170,8 @@ for _, companionCount in ipairs({ 1, 4, 8, 16 }) do
         tostring(companionCount) .. " ordinary companions respond within 96 ms")
     check(p95 <= 2,
         tostring(companionCount) .. " ordinary dispatch p95 stays inside the 2 ms budget")
-    check(registryCalls == frames,
-        tostring(companionCount) .. " companions materialize the sorted registry exactly once per callback")
+    check(registryCalls == frames and registryBuilds == 0,
+        tostring(companionCount) .. " companions reuse the primed roster without rebuilding")
     profileLines[#profileLines + 1] = string.format(
         "ordinary:%d max-response=%.0fms p95=%.3fms frames=%d registry=%d",
         companionCount, response, p95, frames, registryCalls)
@@ -180,8 +187,8 @@ local criticalFrames, criticalSamples = runUntilCovered(criticalBase,
     function() return true end, 4, 2)
 check(maximumResponse(criticalBase, function() return true end) == 0,
     "a newly critical companion is serviced in the discovery callback")
-check(registryCalls == criticalFrames,
-    "critical entry still uses one sorted registry snapshot per callback")
+check(registryCalls == criticalFrames and registryBuilds == 1,
+    "critical entry builds the new roster once and reuses it")
 
 -- Clear the emergency for one callback, then reintroduce it well before the
 -- existing 50 ms critical clock can be due. Re-entry must also bypass that old
@@ -214,8 +221,8 @@ check(criticalResponse <= 48,
     "16 simultaneous emergencies all receive service within 48 ms")
 check(criticalP95 <= 2.5,
     "saturated critical dispatch has a bounded 2.5 ms p95")
-check(registryCalls == criticalFrames,
-    "critical saturation never rematerializes the registry inside a callback")
+check(registryCalls == criticalFrames and registryBuilds == 1,
+    "critical saturation builds the roster only once")
 check(grabbedCalls <= criticalFrames
         * (#records + SC.Config.get("decisionCriticalPerTick")),
     "critical classification is cached per actor within each callback")
@@ -238,8 +245,8 @@ local ordinaryMixedResponse = maximumResponse(mixedBase,
     function(record) return tonumber(string.match(record.id, "(%d+)$")) > 8 end)
 check(ordinaryMixedResponse <= 112,
     "ordinary companions remain responsive during critical saturation")
-check(registryCalls == mixedFrames,
-    "mixed dispatch uses one roster snapshot per callback")
+check(registryCalls == mixedFrames and registryBuilds == 0,
+    "mixed dispatch reuses the primed roster")
 profileLines[#profileLines + 1] = string.format(
     "mixed:8+8 ordinary-max=%.0fms p95=%.3fms frames=%d registry=%d",
     ordinaryMixedResponse, percentile(mixedSamples, 0.95), mixedFrames, registryCalls)

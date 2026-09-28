@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.20.4-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.25.30-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.1-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -26,6 +26,7 @@ This is a public playtest release. Back up important saves and include logs when
 - [First five minutes](#first-five-minutes)
 - [Companion panel](#companion-panel) · [Orders](#orders)
 - [How companions behave](#how-companions-behave)
+- [Expeditions (experimental)](#expeditions-experimental)
 - [Base life and production](#base-life-and-production)
 - [Survivor households and bandits](#survivor-households-and-bandits)
 - [Sandbox options](#sandbox-options)
@@ -46,10 +47,11 @@ Full change history lives in [CHANGELOG.md](CHANGELOG.md).
 - Survivor households that trade, remember how you treat them, and offer contracts, quests, and recruitment, plus rare hostile bandit camps.
 - Private diaries: some companions write short entries in a real book about what actually happened to them, including wounds, bites, and the Knox fever. The book stays with them when they die.
 - A translucent companion panel, context-menu commands, first-name labels, minimap markers, a base-layout overlay, and a Support page for diagnostics.
+- Experimental expeditions: choose a configured squad, leader, nearby building, return timer, and combat style; watch the actual leader in a second local view.
 
 ## Requirements
 
-Living Fellows targets **Project Zomboid Build 42.20.4** and is **single-player only**. Multiplayer and split-screen are refused so they cannot corrupt a save.
+Living Fellows targets **Project Zomboid Build 42.20.4** and is **single-player only**. Multiplayer and user-added split-screen players are refused. An experimental expedition may temporarily put its own companion leader in a second local view to load the mission area.
 
 | Method | What you need | Best for |
 | --- | --- | --- |
@@ -109,8 +111,9 @@ The panel is translucent so you can still see the world. It can be docked left o
 | Tab | Purpose |
 | --- | --- |
 | Status | Health and needs, current action, order, distance, relationship summary, and conversation |
-| Orders | Direct orders, movement and follow distance, combat doctrine, and work policy |
+| Orders | Direct orders, movement and follow distance, combat doctrine, and scavenging |
 | Squad | Group assignment, group orders, movement and fire signals |
+| Expeditions | Experimental squad mission planner and active mission status |
 | Loadout | Wounds and treatment, inventory, weapon and carry policy, and vehicle status |
 | More | Base (camp operations), Factions (households, trade, standing), Journal (history, relationships, memories, goals), and Support (runtime health) |
 
@@ -121,7 +124,7 @@ The panel is translucent so you can still see the world. It can be docked left o
 - **Assigned objectives:** Right-click a recruited companion and choose **Assign objective** to set a concrete priority such as medical supplies, reading material, gear, shelter, or a proper meal. Their own personal goal is kept and resumes after the assigned objective is completed.
 - **Follow distance:** how far behind you the team keeps. When you stop, followers hold formation for a few seconds before they start downtime or scavenging nearby.
 - **Movement:** Copy player, walk, sneak, or run. Escapes and combat can override it.
-- **Work mode:** useful chores, downtime, or supply crafting when it is safe.
+- **Downtime:** companions choose safe reading, rest, repair, crafting, and other available activities using their needs, personality, goals, and recent activity. There is no manual Idle/Craft selector.
 - **Scavenging:** on or off.
 - **Weapon priority:** best available, melee, firearms, or quiet weapons.
 - **Combat doctrine:** Stealth, Close Defense, Ranged Support, or Weapons Free, for one companion or the whole team.
@@ -130,6 +133,14 @@ The panel is translucent so you can still see the world. It can be docked left o
 - **Allow overload:** lets a companion carry more than its normal limit, up to a cap.
 
 Right-click the world for the **Living Fellows** menu. The selected companion gets **Move here** plus one action for the clicked object: open or close a door, barricade, remove a barricade, dismantle, or **Check room** for an indoor room. Talk, target actions, care, squad signals, base work, and households sit in submenus. Dismissing a companion asks for confirmation.
+
+## Expeditions (experimental)
+
+Use a disposable save for this 0.26.1 playtest. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose its leader, Scout or Search, a nearby location, time before turning home, and combat style. Search also lets you request a supply type and quantity. Review the plan and select **Send squad**. The actual leader appears in a second local view while the team moves; the remaining members follow that leader.
+
+The team can leave without radios. To order an immediate return while they are away, equip a powered walkie-talkie on your character and the leader, tune them to the same channel, then right-click your equipped radio and choose **Return immediately**. The order requires a received transmission; the panel does not show unseen position or health as live facts.
+
+This is an incomplete expedition playtest. Departure from the Riverside gas station has intermittently stalled on a native path, and a full distant return has not passed live verification. The selected time limits when the team turns home; it does not promise an arrival time. See [the verification ledger](docs/expedition-v5-verification-ledger.md) for observed results and open checks.
 
 ## How companions behave
 
@@ -262,7 +273,7 @@ Do not remove the mod from an important save without a backup.
 ## Compatibility
 
 - Supported game version: **42.20.4**.
-- Single-player only; multiplayer and split-screen are refused.
+- Single-player only; multiplayer and user-added split-screen players are refused. An expedition may create its own second local view for the leader.
 - The Workshop edition requires **ZombieBuddy 2.3.3 or newer**.
 - The standalone edition is Windows-only and uses its bundled bridge.
 - Mods that replace player actor construction, animation ownership, pathfinding, vehicle passenger state, UI key bindings, or the same launcher `mainClass` may conflict.

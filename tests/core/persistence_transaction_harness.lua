@@ -147,6 +147,16 @@ check(mixedRestored == true and mixedReason ~= nil
     "mixed numeric/string keys restore without a sort exception: restored="
         .. tostring(mixedRestored) .. " reason=" .. tostring(mixedReason)
         .. " pending=" .. tostring(SC.Persistence.isPending("sc-mixed-valid")))
+local bootstrap = SC.Persistence.pendingBootstrap(mixedValid.id)
+check(bootstrap ~= nil and bootstrap.id == mixedValid.id
+        and bootstrap.x == 10 and bootstrap.y == 20 and bootstrap.z == 0
+        and bootstrap.forename == "Morgan" and bootstrap.surname == "Reed"
+        and bootstrap.female == true,
+    "a pending distant actor exposes only its validated bootstrap tile and identity")
+bootstrap.x = 9000
+check(SC.Persistence.pendingBootstrap(mixedValid.id).x == 10
+        and SC.Persistence.pendingBootstrap("missing") == nil,
+    "bootstrap reads are detached from the pending snapshot")
 local mixedSaved, mixedOutgoing = SC.Persistence.save(mixedPlayer)
 check(mixedSaved == true and mixedOutgoing.companions[7].marker == mixedRaw.marker
         and mixedData.document.companions[7].marker == mixedRaw.marker,

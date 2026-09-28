@@ -12,7 +12,7 @@ Do not enable Workshop and standalone copies together. See the main [README](REA
 
 ## Maintainer native playtest
 
-The current release includes an original `SCNativeCompanion extends IsoPlayer` implementation. The companion is an NPC, uses reserved internal index 3 for APIs that require an index, and is never inserted into the four static local-player slots. Construction is deferred until the Lua-to-Java request has unwound, and `OnCreateLivingCharacter` callbacks are muted only around the owned NPC constructor before being restored exactly. Updates run through Build 42's generic character loop, bypassing the local-player controller and its input, event, singleton and camera side effects. The bridge rejects multiplayer, split-screen, occupied extra player slots, unsafe squares, missing native components, and any local-player state mutation.
+The current release includes an original `SCNativeCompanion extends IsoPlayer` implementation. Normally a companion is an NPC, uses reserved internal index 3 for APIs that require an index, and stays out of the four local-player slots. Construction is deferred until the Lua-to-Java request has unwound, and `OnCreateLivingCharacter` callbacks are muted only around the owned NPC constructor before being restored exactly. Updates run through Build 42's generic character loop, bypassing the local-player controller and its input, event, singleton and camera side effects. The experimental expedition path may temporarily promote its owned leader into slot 1 to stream a second local view. The bridge still rejects multiplayer, unrelated split-screen players, unsafe squares, missing native components, and unowned local-player state mutation.
 
 The installer does not install Java, alter JVM arguments, instrument classes, or modify `projectzomboid.jar`. It does update `ProjectZomboid64.json`: it appends an external owned JAR to the classpath and changes the configured main class to `SCLauncher`. A uniquely named copy of the original JSON is retained under `build\game-config-backups` for audit and rollback. The launcher initializes the bridge and delegates to the original game main class.
 
@@ -28,7 +28,7 @@ The installed private copy enables the debug-only tab, including explicit househ
 
 ## Release candidate and Workshop publication
 
-The current release-ready branch is `living_fellows/0.25.5`; later releases follow `living_fellows/<version>`. For every public candidate:
+The 0.26.1 playtest branch is `living_fellows/0.26.1`; later releases follow `living_fellows/<version>`. For every public candidate:
 
 1. Update `VERSION.txt`, both `mod.info` files, `SC.Identity.release`, the README badge, the shipped `SurvivorCompanion/README.txt`, and the top changelog entry together.
 2. Run `scripts\Test-Project.ps1` against the pinned Project Zomboid runtime, then install the private native-bridge build and complete [PLAYTEST-CHECKLIST.md](PLAYTEST-CHECKLIST.md) on a disposable copy of a save.

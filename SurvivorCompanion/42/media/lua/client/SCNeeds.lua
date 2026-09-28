@@ -180,18 +180,29 @@ end
 
 function Needs.assess(actor, runtime)
     local state = stateFor(actor, runtime)
-    local hunger = U().characterStatValue(actor, "HUNGER", state.hunger or 0)
-    local thirst = U().characterStatValue(actor, "THIRST", state.thirst or 0)
-    local fatigue = U().characterStatValue(actor, "FATIGUE", state.fatigue or 0)
-    state.hunger, state.thirst, state.fatigue = hunger, thirst, fatigue
     local active = false
+    local actionFinished = false
     if SC.NativeActions and type(SC.NativeActions.needsStatus) == "function" then
         local ok, value, kind = pcall(SC.NativeActions.needsStatus, actor)
         active = ok and value == true
         if ok and value ~= true and kind ~= nil
             and type(SC.NativeActions.finishNeeds) == "function" then
             pcall(SC.NativeActions.finishNeeds, actor)
+            actionFinished = true
         end
+    end
+    if actionFinished then state.nextRateSampleAt = 0 end
+    local sampled = not actionFinished and state.nextRateSampleAt ~= nil
+        and type(state.hunger) == "number" and type(state.thirst) == "number"
+        and type(state.fatigue) == "number"
+    local hunger, thirst, fatigue
+    if sampled then
+        hunger, thirst, fatigue = state.hunger, state.thirst, state.fatigue
+    else
+        hunger = U().characterStatValue(actor, "HUNGER", state.hunger or 0)
+        thirst = U().characterStatValue(actor, "THIRST", state.thirst or 0)
+        fatigue = U().characterStatValue(actor, "FATIGUE", state.fatigue or 0)
+        state.hunger, state.thirst, state.fatigue = hunger, thirst, fatigue
     end
     return {
         hunger = hunger,
@@ -305,11 +316,14 @@ local function firstInventoryItem(actor, predicate)
     return best
 end
 
-local function nativeNeedsActive(actor)
+local function nativeNeedsActive(actor, state)
     if not SC.NativeActions or type(SC.NativeActions.needsStatus) ~= "function" then return false end
     local active, kind = SC.NativeActions.needsStatus(actor)
     if active then return true, kind end
-    if type(SC.NativeActions.finishNeeds) == "function" then SC.NativeActions.finishNeeds(actor) end
+    if type(SC.NativeActions.finishNeeds) == "function" then
+        SC.NativeActions.finishNeeds(actor)
+        if kind ~= nil and state then state.nextRateSampleAt = 0 end
+    end
     return false
 end
 
@@ -417,7 +431,7 @@ end
 function Needs.update(actor, player, runtime)
     if not U().isValidActor(actor) then return false, "invalid_actor" end
     local state = stateFor(actor, runtime)
-    local active, kind = nativeNeedsActive(actor)
+    local active, kind = nativeNeedsActive(actor, state)
     if active then return true, kind == "eat" and "eating" or "drinking" end
     local root = U().actorState(actor, runtime)
     local snapshot = root.senses and root.senses.current or root.snapshot or {}

@@ -105,6 +105,8 @@ public final class SCNativeApiSignatureTest {
 
         require(bridge.getDeclaredMethod("captureItemFacts", inventoryItem, kahluaTable)
                         .getReturnType() == int.class
+                        && bridge.getDeclaredMethod("fillBodyFacts", gameCharacter,
+                                kahluaTable).getReturnType() == int.class
                         && bridge.getDeclaredMethod("fillEdgeFacts", gameCharacter,
                                 square, square, kahluaTable).getReturnType() == boolean.class
                         && bridge.getDeclaredMethod("fillZombieSnapshot", kahluaTable,
@@ -115,7 +117,7 @@ public final class SCNativeApiSignatureTest {
                                 .getReturnType() == boolean.class
                         && bridge.getDeclaredMethod("clearViewOffset")
                                 .getReturnType() == boolean.class,
-                "protocol-9 native bulk-read/view signatures changed");
+                "native bulk-read/view signatures changed");
         require(camera.getField("cameras").getType().isArray()
                         && camera.getField("cameras").getType().getComponentType() == playerCamera
                         && playerCamera.getField("deferedX").getType() == float.class
@@ -458,6 +460,15 @@ public final class SCNativeApiSignatureTest {
         Constructor<?> constructor = player.getConstructor(cell, descriptor,
                 int.class, int.class, int.class, boolean.class);
         require(Modifier.isPublic(constructor.getModifiers()), "IsoPlayer NPC constructor is not public");
+        require(player.getField("sqlId").getType() == int.class
+                        && !Modifier.isStatic(player.getField("sqlId").getModifiers()),
+                "IsoPlayer local save identity field changed");
+        Class<?> playerDb = Class.forName("zombie.savefile.PlayerDB");
+        require(method(playerDb, "getInstance").getReturnType() == playerDb
+                        && Modifier.isStatic(method(playerDb, "getInstance").getModifiers())
+                        && method(playerDb, "saveLocalPlayersForce").getReturnType()
+                                == void.class,
+                "PlayerDB forced local-player save signatures changed");
         require(method(player, "setNpc", boolean.class).getReturnType() == void.class,
                 "setNpc(boolean) signature changed");
         require(method(player, "isNpc").getReturnType() == boolean.class,
@@ -682,6 +693,27 @@ public final class SCNativeApiSignatureTest {
                 "BodyDamage.ReduceGeneralHealth(float) signature changed");
         require(method(bodyPart, "SetHealth", float.class).getReturnType() == void.class,
                 "BodyPart.SetHealth(float) signature changed");
+        require(method(bodyDamage, "getBodyParts").getReturnType() == java.util.ArrayList.class
+                        && method(bodyDamage, "getHealth").getReturnType() == float.class
+                        && method(bodyDamage, "IsInfected").getReturnType() == boolean.class
+                        && method(bodyDamage, "getApparentInfectionLevel").getReturnType() == float.class
+                        && method(bodyDamage, "getInfectionTime").getReturnType() == float.class
+                        && method(bodyDamage, "getInfectionMortalityDuration").getReturnType() == float.class,
+                "BodyDamage bulk assessment inputs changed");
+        for (String name : new String[] { "bleeding", "bitten", "isInfectedWound",
+                "bandaged", "isBandageDirty", "scratched", "isCut", "deepWounded",
+                "haveBullet", "haveGlass" }) {
+            require(method(bodyPart, name).getReturnType() == boolean.class,
+                    "BodyPart." + name + "() signature changed");
+        }
+        for (String name : new String[] { "getBleedingTime", "getBurnTime",
+                "getFractureTime" }) {
+            require(method(bodyPart, name).getReturnType() == float.class,
+                    "BodyPart." + name + "() signature changed");
+        }
+        require(method(bodyPart, "getType").getReturnType()
+                        == Class.forName("zombie.characters.BodyDamage.BodyPartType"),
+                "BodyPart.getType() signature changed");
         require(method(bodyPart, "SetBitten", boolean.class).getReturnType() == void.class,
                 "BodyPart.SetBitten(boolean) signature changed");
         require(method(bodyPart, "setScratched", boolean.class, boolean.class).getReturnType() == void.class,
@@ -841,6 +873,6 @@ public final class SCNativeApiSignatureTest {
                 + " reflection-contract=true cleanup-retry=true"
                 + " reaction-states=" + reactionStates.length + " movement-owner=true"
                  + " attack-continuation=true outgoing-receipts=true door-guard=true swing-sound=true aim-steadying=true"
-                 + " camera-offset=true");
+                 + " camera-offset=true local-save-id=true");
     }
 }

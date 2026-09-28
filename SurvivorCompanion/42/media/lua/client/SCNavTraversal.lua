@@ -69,8 +69,8 @@ local function completeDoorInteraction(actor, state, object, action, fromSquare,
             return false, "door_open_failed"
         end
         if wasLocked then
-            -- Only a key the companion carries opens a locked door.
-            utility.diagnostic("navigation-door", actor, "action=opened_locked_door with_key=true")
+            utility.diagnostic("navigation-door", actor,
+                "action=opened_locked_door by_key_or_inside=true")
         end
     elseif action == "close_door" and invoke(context, "objectOpen", object) then
         local result, toggled = utility.call(object, "ToggleDoor", actor)
@@ -107,7 +107,7 @@ function Traversal.interactDoor(actor, state, door, action, fromSquare, toSquare
     local obstructed, obstructedOk = U().call(door, "isObstructed")
     if obstructedOk and obstructed == true then return false, "obstructed_door" end
     if desiredOpen and invoke(context, "objectLocked", door)
-        and not invoke(context, "actorCanUnlock", actor, door) then
+        and not invoke(context, "actorCanUnlock", actor, door, fromSquare) then
         return false, "locked_door"
     end
     local ok, status = beginInteraction(actor, state, door, action, now, {
@@ -123,7 +123,7 @@ function Traversal.handleDoor(actor, state, door, fromSquare, toSquare, now, con
     local obstructed, obstructedOk = U().call(door, "isObstructed")
     if obstructedOk and obstructed == true then return false, "obstructed_door" end
     if invoke(context, "objectLocked", door)
-        and not invoke(context, "actorCanUnlock", actor, door) then
+        and not invoke(context, "actorCanUnlock", actor, door, fromSquare) then
         return false, "locked_door"
     end
     local ok, status = beginInteraction(actor, state, door, "open_door", now, {

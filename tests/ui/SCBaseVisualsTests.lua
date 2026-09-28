@@ -16,14 +16,46 @@ assert(#fixture.labels == 2 and fixture.labels[1].value == "Addy"
     "a recruited visible companion needs one shadowed first-name label even when base visuals are hidden; labels="
         .. tostring(#fixture.labels) .. " report="
         .. tostring(fixture.reports[1] and fixture.reports[1][4]))
-assert(fixture.labels[2].x == 321
-        and fixture.labels[2].y == 222 - 14
-            - fixture.config.companionNameLabelOffsetY
-        and fixture.nameCoordsCall and fixture.nameCoordsCall.zoom == fixture.zoom
-        and fixture.nameCoordsCall.offsetX == fixture.companion.renderOffsetX
-        and fixture.nameCoordsCall.offsetY == fixture.companion.renderOffsetY
-            + fixture.config.companionNameLabelHeadClearance,
-    "companion names must use a zoom-aware bottom-edge anchor above the head")
+assert(fixture.labels[2].x == 321 - fixture.companion.renderOffsetX / fixture.zoom
+        and fixture.labels[2].y == 222
+            - (fixture.companion.renderOffsetY
+                + fixture.config.companionNameLabelHeadClearance) / fixture.zoom
+            - 14 - fixture.config.companionNameLabelOffsetY
+        and fixture.nameCoordsCall == nil,
+    "companion names must project through the player's explicit camera")
+fixture.labels = {}
+
+fixture.splitScreen = true
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 4 and fixture.labels[2].x == 318
+        and fixture.labels[4].x == 1278
+        and fixture.labels[2].y == fixture.labels[4].y,
+    "each split-screen view must anchor the same companion over its own camera")
+fixture.labels = {}
+fixture.cameraShift[0] = 1000
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 2 and fixture.labels[2].x == 1278,
+    "a name outside the first viewport must not fly across the second view")
+fixture.cameraShift[0] = nil
+local originalSecondPlayer = fixture.secondPlayer
+fixture.secondPlayer = fixture.companion
+fixture.otherCompanion = setmetatable({ x = 13, y = 11, z = 0,
+    square = fixture.companion.square, speech = "",
+    renderOffsetX = 6, renderOffsetY = -10 },
+    { __index = fixture.companion })
+fixture.records[2] = { id = "sc-beth", actor = fixture.otherCompanion,
+    recruited = true, identity = { forename = "Beth" }, runtime = {} }
+fixture.labels = {}
+Events.OnPreUIDraw.callback()
+assert(#fixture.labels == 6 and fixture.labels[2].value == "Addy"
+        and fixture.labels[4].value == "Beth"
+        and fixture.labels[6].value == "Beth"
+        and fixture.labels[6].x > 960,
+    "a companion leading the second view sees teammates' names there, not her own")
+fixture.records[2] = nil
+fixture.otherCompanion = nil
+fixture.secondPlayer = originalSecondPlayer
+fixture.splitScreen = false
 fixture.labels = {}
 
 Events.OnRenderTick.callback()

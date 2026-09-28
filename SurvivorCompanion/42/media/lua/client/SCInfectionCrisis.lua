@@ -190,7 +190,7 @@ end
 
 local function assess(actor)
     if not actor or not SC.Medical or type(SC.Medical.assess) ~= "function" then return nil end
-    local ok, value = pcall(SC.Medical.assess, actor)
+    local ok, value = pcall(SC.Medical.assessCached or SC.Medical.assess, actor)
     return ok and type(value) == "table" and value or nil
 end
 

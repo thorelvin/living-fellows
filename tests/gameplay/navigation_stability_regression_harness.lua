@@ -166,6 +166,28 @@ local baseline = P.new(nodes.A, nodes.D, { nodeBudget = 20 }, adapter)
 local baselineStatus, baselinePath = P.resume(baseline, 100)
 check(baselineStatus == status and baseline.nodes.D.g == job.nodes.D.g
     and baselinePath[2] == path[2], "deadline and unrestricted searches produce the same optimum")
+local keyedCalls = 0
+local keyedAdapter = {
+    sameSquare = adapter.sameSquare,
+    key = function(node)
+        keyedCalls = keyedCalls + 1
+        return node.id
+    end,
+    heuristic = adapter.heuristic,
+    neighbors = function(node)
+        local result, keys = {}, {}
+        for _, id in ipairs(links[node.id]) do
+            result[#result + 1], keys[#keys + 1] = nodes[id], id
+        end
+        return result, keys
+    end,
+    edge = adapter.edge,
+}
+local keyedJob = P.new(nodes.A, nodes.D, { nodeBudget = 20 }, keyedAdapter)
+local keyedStatus, keyedPath = P.resume(keyedJob, 100)
+check(keyedStatus == "complete" and keyedPath[2] == nodes.C
+        and keyedJob.nodes.D.g == 3 and keyedCalls == 2,
+    "precomputed neighbor keys preserve the route without rereading square coordinates")
 local budgetJob = P.new(nodes.A, nodes.D, { nodeBudget = 1, sliceBudgetMs = 1,
     clock = function() return clockValue end }, adapter)
 costPerEdge = 2
@@ -224,6 +246,22 @@ end
 check(status == "complete" and path[1] == square(0, 0) and path[#path] == square(7, 0)
     and slices > 1 and deadlineSeen and routeJob.attempt > 1,
     "production alternative-route job completes across bounded real-time slices")
+check(type(routeJob.search.startKey) == "number"
+        and type(routeJob.search.goalKey) == "number"
+        and type(routeJob.startKey) == "string",
+    "A* node keys are numeric while public route identities remain strings")
+local penaltyKeyCount = 0
+local numericPenaltyCount = 0
+for key in pairs(routeJob.penalties) do
+    check(type(key) == "number" or type(key) == "string"
+            and string.find(key, "-", 1, true) ~= nil,
+        "alternative-route penalties use numeric map keys or out-of-bounds fallbacks: "
+            .. tostring(key))
+    if type(key) == "number" then numericPenaltyCount = numericPenaltyCount + 1 end
+    penaltyKeyCount = penaltyKeyCount + 1
+end
+check(penaltyKeyCount > 0 and numericPenaltyCount > 0,
+    "alternative-route penalties were populated with numeric map keys")
 check(batchCalls == slices and not insideBatch, "each resumed route releases its topology read batch")
 SC.Topology.withReadBatch, SC.Topology.classifyEdge = savedBatch, oldClassify
 edgeDelay = 0
@@ -384,6 +422,29 @@ do
     check(N._updateProgressForTests(actor, shuffling, 1100) == true
             and shuffling.stuckAttempts == 0 and shuffling.recoveryAnchorX == nil,
         "walking clear of the anchor credits the ladder as it always did")
+
+    -- The remote return playtest accepted direct movement commands while the
+    -- actor stayed in IdleState and shuffled inside one tile. That must reach
+    -- the ordinary recovery ladder even if heading bookkeeping sees motion.
+    local direct = { path = { square(10, 10), square(9, 10) },
+        lastMovementReason = "moving", lastDirectMotionCommandAt = 2000 }
+    actor.x, actor.y = 10.3, 10.2
+    check(N._directRouteNoNetMotionForTests(actor, direct, 2000, 5000) == false,
+        "direct-route net-motion timer begins at the actual actor position")
+    actor.x, actor.y = 10.49, 10.21
+    direct.lastDirectMotionCommandAt = 7000
+    check(N._directRouteNoNetMotionForTests(actor, direct, 7000, 5000) == true,
+        "five seconds of accepted commands and confined jitter is a direct-route stall")
+    direct.lastMovementReason = "path_started"
+    check(N._directRouteNoNetMotionForTests(actor, direct, 7001, 5000) == true,
+        "a native provider path acknowledgement still exposes direct-route no-motion")
+    actor.x, actor.y = 11.1, 10.2
+    direct.lastDirectMotionCommandAt = 7100
+    check(N._directRouteNoNetMotionForTests(actor, direct, 7100, 5000) == false,
+        "leaving the tile resets the direct-route stall anchor")
+    actor.x, actor.y = 11.11, 10.2
+    check(N._directRouteNoNetMotionForTests(actor, direct, 13000, 5000) == false,
+        "an old movement command cannot trigger direct-route recovery")
     actor.x, actor.y = savedX, savedY
 end
 
@@ -392,6 +453,83 @@ end
 -- expanded node, and each of those asks again for its own eight-square
 -- clearance, so one slice re-read the same squares dozens of times and spent
 -- its whole 2 ms budget doing it.
+do
+    local fromSquare, toSquare = square(90, 2), square(91, 2)
+    local memory = { blockedEdges = {}, blockedSquares = {}, routeMemory = {},
+        blockedEdgeCount = 0, blockedSquareCount = 0, routeMemoryCount = 0 }
+    local originalKey, keyBuilds = U.squareKey, 0
+    U.squareKey = function(value)
+        keyBuilds = keyBuilds + 1
+        return originalKey(value)
+    end
+    check(N._edgeBlacklistEntryForTests(memory.blockedEdges,
+            fromSquare, toSquare, 1000, actor, memory.blockedEdgeCount, memory) == nil,
+        "an empty edge blacklist has no entry")
+    check(N._squareBlacklistEntryForTests(memory.blockedSquares,
+            toSquare, 1000, memory.blockedSquareCount, memory) == nil,
+        "an empty square blacklist has no entry")
+    local penalty, familiarity = N._routeMemoryAdjustmentForTests(
+        memory.routeMemory, fromSquare, toSquare, 1000,
+        memory.routeMemoryCount, memory)
+    check(penalty == 0 and familiarity == 0 and keyBuilds == 0,
+        "empty navigation memories build no square or edge keys")
+    local owned = N._stateForTests(actor)
+    local passable = N._passableEdgeForTests(fromSquare, toSquare, 1, {
+        actor = actor, blockedEdges = owned.blockedEdges,
+        blockedSquares = owned.blockedSquares, routeMemory = owned.routeMemory,
+        allowOccupiedGoal = true, now = 1000,
+    })
+    check(passable == true and keyBuilds == 0,
+        "the production edge adapter passes its empty-memory counts")
+    U.squareKey = originalKey
+
+    N._blacklistEdgeForTests(owned, fromSquare, toSquare,
+        "unknown", nil, 1000, "unknown", "low", 50)
+    local admitted, _, reason = N._passableEdgeForTests(fromSquare, toSquare, 1, {
+        actor = actor, blockedEdges = owned.blockedEdges,
+        blockedSquares = owned.blockedSquares, routeMemory = owned.routeMemory,
+        allowOccupiedGoal = true, now = 1020,
+    })
+    check(admitted == false and string.find(tostring(reason), "blacklisted", 1, true),
+        "the production edge adapter still rejects a remembered blocker")
+    N._edgeBlacklistEntryForTests(owned.blockedEdges,
+        fromSquare, toSquare, 1051, actor, owned.blockedEdgeCount, owned)
+
+    N._blacklistEdgeForTests(memory, fromSquare, toSquare, "unknown", nil,
+        1000, "unknown", "low", 50)
+    check(memory.blockedEdgeCount == 1
+            and N._edgeBlacklistEntryForTests(memory.blockedEdges,
+                fromSquare, toSquare, 1020, actor,
+                memory.blockedEdgeCount, memory) ~= nil,
+        "adding one blocked edge opens its keyed lookup")
+    check(N._edgeBlacklistEntryForTests(memory.blockedEdges,
+            fromSquare, toSquare, 1051, actor,
+            memory.blockedEdgeCount, memory) == nil
+            and memory.blockedEdgeCount == 0,
+        "expiry closes the edge lookup gate")
+    N._blacklistSquareForTests(memory, toSquare, "unknown", nil,
+        1000, "unknown", "low")
+    check(memory.blockedSquareCount == 1
+            and N._squareBlacklistEntryForTests(memory.blockedSquares,
+                toSquare, 1020, memory.blockedSquareCount, memory) ~= nil,
+        "adding one blocked square opens its keyed lookup")
+    check(N._squareBlacklistEntryForTests(memory.blockedSquares,
+            toSquare, 100000, memory.blockedSquareCount, memory) == nil
+            and memory.blockedSquareCount == 0,
+        "expiry closes the square lookup gate")
+    N._rememberRouteEdgeForTests(memory, fromSquare, toSquare,
+        true, "open", nil, 1000)
+    penalty, familiarity = N._routeMemoryAdjustmentForTests(
+        memory.routeMemory, fromSquare, toSquare, 1020,
+        memory.routeMemoryCount, memory)
+    check(memory.routeMemoryCount == 1 and penalty == 0 and familiarity > 0,
+        "one remembered route opens its keyed lookup")
+    N._routeMemoryAdjustmentForTests(memory.routeMemory,
+        fromSquare, toSquare, 100000, memory.routeMemoryCount, memory)
+    check(memory.routeMemoryCount == 0,
+        "expiry closes the route-memory lookup gate")
+end
+
 do
     local probes = 0
     local wooded = square(20, 3)
@@ -412,11 +550,51 @@ do
     local clearanceProbes = 0
     local centre, neighbour = square(40, 3), square(41, 3)
     function neighbour:HasTree() clearanceProbes = clearanceProbes + 1 return true end
+    local oldClock = SC.GameplayUtil.nowMs
+    local oldCacheGet, oldCachePut = SC.Performance.cacheGet, SC.Performance.cachePut
+    local now = 100000
+    SC.GameplayUtil.nowMs = function() return now end
+    SC.Performance.cacheGet = function() error("clearance used the shared cache") end
+    SC.Performance.cachePut = function() error("clearance used the shared cache") end
     local first = N._treeClearanceCostForTests(centre)
     local second = N._treeClearanceCostForTests(centre)
     check(first > 0 and second == first and clearanceProbes == 1,
-        "neighbouring-tree clearance is computed once and cached like the vehicle clearance beside it: probes="
+        "neighbouring-tree clearance is computed once in the dedicated cache: probes="
             .. tostring(clearanceProbes) .. " cost=" .. tostring(first))
+    local vehicleProbes = 0
+    local vehicleCentre, vehicleNeighbour = square(50, 3), square(51, 3)
+    function vehicleNeighbour:getVehicleContainer()
+        vehicleProbes = vehicleProbes + 1
+        return { id = "clearance-vehicle" }
+    end
+    local vehicleFirst = N._vehicleClearanceCostForTests(vehicleCentre)
+    local vehicleSecond = N._vehicleClearanceCostForTests(vehicleCentre)
+    check(vehicleFirst > 0 and vehicleSecond == vehicleFirst and vehicleProbes == 1,
+        "vehicle clearance also reuses the dedicated square facts")
+    now = now + 501
+    function neighbour:HasTree() clearanceProbes = clearanceProbes + 1 return false end
+    function vehicleNeighbour:getVehicleContainer()
+        vehicleProbes = vehicleProbes + 1
+        return nil
+    end
+    check(N._treeClearanceCostForTests(centre) == 0 and clearanceProbes == 2,
+        "expired tree clearance reads changed world state")
+    check(N._vehicleClearanceCostForTests(vehicleCentre) == 0
+            and vehicleProbes == 2,
+        "expired vehicle clearance reads changed world state")
+    check(N._clearanceKey(1, 2, -1) ~= N._clearanceKey(1, 2, 0)
+            and N._clearanceKey(1, 2, 0) ~= N._clearanceKey(2, 1, 0)
+            and type(N._clearanceKey(-1, 2, 0)) == "string",
+        "numeric clearance keys preserve floors and fall back outside map bounds")
+    for index = 1, 2100 do
+        N._clearanceEntry(index + 1000, 7, 0, now, 500)
+    end
+    local retained = 0
+    for _ in pairs(N._clearance.facts) do retained = retained + 1 end
+    check(retained <= N._clearance.limit,
+        "the clearance ring bounds its retained square facts")
+    SC.GameplayUtil.nowMs = oldClock
+    SC.Performance.cacheGet, SC.Performance.cachePut = oldCacheGet, oldCachePut
 end
 
 -- A cross-floor goal is handed to the engine whole, so when it comes back with
@@ -916,6 +1094,32 @@ do
     local openX = N.combatVector(actor, quarry, "approach", nil)
     check(openX ~= nil and openX > 0,
         "an unobstructed approach still steers straight at the target: " .. tostring(openX))
+    local bystander = { x = 66.5, y = 6.5 }
+    function bystander:getX() return self.x end
+    function bystander:getY() return self.y end
+    function bystander:getZ() return 0 end
+    function bystander:isDead() return false end
+    local oldIsDead, oldProbe = U.isDead, actor.isCompanionMovementClear
+    local deathReads, probeReads = 0, 0
+    U.isDead = function(value)
+        if value == bystander then deathReads = deathReads + 1 end
+        return oldIsDead(value)
+    end
+    actor.isCompanionMovementClear = function(_, _, toY)
+        probeReads = probeReads + 1
+        return math.abs(toY - actor.y) > 0.05
+    end
+    local sideX, sideY, sideSteered = N.combatVector(actor, quarry, "approach",
+        { threats = { { actor = bystander } } })
+    actor.isCompanionMovementClear, U.isDead = oldProbe, oldIsDead
+    check(sideX ~= nil and sideY ~= nil and sideSteered == true
+            and probeReads > 1 and deathReads == 1,
+        "combat steering checks each nearby threat once while probing several headings")
+    check(U.bodyBlocksSegmentAt(actor.x, actor.y, bystander.x, bystander.y,
+            61, 4.5, 0.6) == U.bodyBlocksSegment(bystander, actor, 61, 4.5, 0.6)
+            and U.bodyBlocksSegmentAt(actor.x, actor.y, bystander.x, bystander.y,
+                60.5, 5, 0.6) == U.bodyBlocksSegment(bystander, actor, 60.5, 5, 0.6),
+        "combat's coordinate-only body clearance matches the existing actor probe")
 
     -- Now put a fence on every edge leaving the actor's tile.
     local savedBarrier = SC.Topology.barrierBetween

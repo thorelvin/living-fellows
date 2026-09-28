@@ -13,6 +13,30 @@ Dialogue.VERSION = 1
 -- subsystem the same anti-repetition rules and lets personality influence
 -- wording without changing what an action means.
 local pools = {
+    ["expedition.departure"] = {
+        common = {
+            "Gather up, people. We're heading out.",
+            "Kentucky's still out there. Let's see what it kept.",
+            "Keep your boots dry and your eyes open. The county's lying again.",
+            "Pack light. Trouble never needs an invitation.",
+            "We leave together. We come back together. That's the deal.",
+            "The road's quiet. I don't trust it.",
+            "If the church bell rings, it wasn't me.",
+            "Gray sky, empty pumps. Feels like a fine day to be disappointed.",
+            "Check your straps. I won't stop twice for loose gear.",
+            "The dead own the front porch. We'll try the back.",
+            "There's daylight enough for one mistake. Let's make none.",
+            "I know a place past the tobacco fields. Stay close.",
+            "Rain on tin, mud on boots. Could be worse. Usually is.",
+            "Nobody gets left on a Kentucky road. Not while I'm breathing.",
+            "We'll take what we need and leave the ghosts their furniture.",
+            "The map says home is this way. Maps have been wrong before.",
+            "Keep the noise down. Even the crows are listening.",
+            "I've seen warmer welcomes from a boarded-up diner.",
+            "If we find coffee, I'm calling this a victory.",
+            "Zip up, count heads, and follow me into the gray.",
+        },
+    },
     ["team.recruit"] = {
         common = {
             "All right. I'll come with you.",
@@ -2343,7 +2367,7 @@ function Dialogue.monitorMortality(actor, player, source)
     -- so a badly food-poisoned companion used to speak its turning last words.
     local infected, infectionLevel = false, 0
     if SC.Medical and type(SC.Medical.assess) == "function" then
-        local ok, assessment = pcall(SC.Medical.assess, actor)
+        local ok, assessment = pcall(SC.Medical.assessCached or SC.Medical.assess, actor)
         if ok and type(assessment) == "table" then
             infected = assessment.knoxInfected == true
             infectionLevel = tonumber(assessment.infectionLevel) or 0

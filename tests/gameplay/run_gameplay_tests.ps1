@@ -29,6 +29,7 @@ $LuaFiles = @(
 )
 $LuaFiles += @(
     'SCGameplayUtil.lua',
+    'SCInventoryIndex.lua',
     'SCVitalsTrace.lua',
     'SCBaseObjectRef.lua',
     'SCTopology.lua',
@@ -47,6 +48,7 @@ $LuaFiles += @(
     'SCThreatSet.lua',
     'SCCombatThreatModel.lua',
     'SCPerceptionScan.lua',
+    'SCZombieFacts.lua',
     'SCSenses.lua',
     'SCWorkRoutes.lua',
     'SCNavigation.lua',

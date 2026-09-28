@@ -83,6 +83,9 @@ end
 
 function U.hasMethod(obj, methodName)
     if obj == nil then return false end
+    if SC.Call and type(SC.Call.resolve) == "function" then
+        return SC.Call.resolve(obj, methodName) == true
+    end
     local ok, value = pcall(function() return obj[methodName] end)
     return ok and type(value) == "function"
 end
@@ -169,6 +172,11 @@ end
 
 function U.idOf(actor)
     if actor == nil then return nil end
+    local registry = SC.Registry
+    if registry and type(registry.idOf) == "function" then
+        local registeredId = registry.idOf(actor)
+        if registeredId ~= nil then return registeredId end
+    end
     local modData, ok = U.call(actor, "getModData")
     if ok and type(modData) == "table" and type(modData.SC_Id) == "string" then
         return modData.SC_Id
@@ -253,24 +261,25 @@ function U.diagnostic(subsystem, actor, message)
         .. tostring(actorId) .. " " .. tostring(message))
 end
 
-function U.safeSubsystem(subsystem, actor, callback)
+function U.safeSubsystem(subsystem, actor, callback, ...)
     -- Core scheduler/runtime and gameplay modules share one circuit state when
     -- diagnostics is loaded.  Keep the local implementation only as a narrow
     -- standalone-test fallback for this utility module.
     if SC.Diagnostics and type(SC.Diagnostics.guard) == "function" then
+        local actorId = U.idOf(actor)
         if SC.Performance and type(SC.Performance.isTracing) == "function"
             and SC.Performance.isTracing() == true then
             local token = SC.Performance.beginScope(subsystem)
             local started = U.nowMs()
             local values = SC.Call.pack(pcall(
-                SC.Diagnostics.guard, subsystem, U.idOf(actor), callback))
+                SC.Diagnostics.guard, subsystem, actorId, callback, ...))
             SC.Performance.endScope(token)
-            SC.Performance.record("subsystem." .. tostring(subsystem), U.idOf(actor),
+            SC.Performance.record("subsystem." .. tostring(subsystem), actorId,
                 U.nowMs() - started)
             if values[1] ~= true then error(values[2], 0) end
             return SC.Call.unpack(values, 2, values.n)
         end
-        return SC.Diagnostics.guard(subsystem, U.idOf(actor), callback)
+        return SC.Diagnostics.guard(subsystem, actorId, callback, ...)
     end
     local now = U.nowMs()
     local bucket
@@ -289,7 +298,7 @@ function U.safeSubsystem(subsystem, actor, callback)
         bucket[subsystem] = circuit
     end
     if circuit.disabledUntil > now then return false, "disabled" end
-    local ok, a, b, c = pcall(callback)
+    local ok, a, b, c = pcall(callback, ...)
     if ok then
         circuit.failures = 0
         return true, a, b, c
@@ -424,10 +433,16 @@ function U.arrived(actor, target, options)
 end
 
 function U.cell()
+    local cached = spatialReadBatch and spatialReadBatch.cell
+    if cached ~= nil then return cached or nil end
     if type(getCell) == "function" then
         local ok, cell = pcall(getCell)
-        if ok then return cell end
+        if ok then
+            if spatialReadBatch then spatialReadBatch.cell = cell or false end
+            return cell
+        end
     end
+    if spatialReadBatch then spatialReadBatch.cell = false end
     return nil
 end
 
@@ -681,10 +696,7 @@ end
 
 -- Character bodies occupy a capsule, not their entire map tile. This is used
 -- by execution traffic checks; planner crowd costs can remain conservative.
-function U.bodyBlocksSegment(other, actor, toX, toY, clearance)
-    if other == nil or other == actor or not U.sameFloor(other, actor) then return false end
-    local ax, ay = U.position(actor)
-    local ox, oy = U.position(other)
+function U.bodyBlocksSegmentAt(ax, ay, ox, oy, toX, toY, clearance)
     if ax == nil or ox == nil or toX == nil or toY == nil then return true end
     local dx, dy = toX - ax, toY - ay
     local lengthSq = dx * dx + dy * dy
@@ -699,6 +711,13 @@ function U.bodyBlocksSegment(other, actor, toX, toY, clearance)
     if startDistanceSq < radius * radius and projection <= 0.001
         and endDistanceSq > startDistanceSq + 0.01 then return false end
     return distanceSq < radius * radius
+end
+
+function U.bodyBlocksSegment(other, actor, toX, toY, clearance)
+    if other == nil or other == actor or not U.sameFloor(other, actor) then return false end
+    local ax, ay = U.position(actor)
+    local ox, oy = U.position(other)
+    return U.bodyBlocksSegmentAt(ax, ay, ox, oy, toX, toY, clearance)
 end
 
 function U.movingBlocker(square, actor, options)
@@ -894,6 +913,20 @@ function U.canSee(observer, target)
     return false
 end
 
+-- Call the native character sight check when the caller already has both
+-- squares and their floors. Perception evaluates many contacts for one
+-- observer, so rediscovering those facts inside canSee costs more than LOS.
+function U.canSeeCharacter(observer, observerSquare, observerZ,
+        target, targetSquare, targetZ)
+    if observer == nil or target == nil or observerSquare == nil
+        or targetSquare == nil then return false end
+    if math.floor(observerZ or 0) ~= math.floor(targetZ or 0) then
+        return false
+    end
+    local visible, ok = U.call(observer, "CanSee", target)
+    return ok and visible == true
+end
+
 function U.characterStatValue(actor, statName, fallback)
     local stats, statsOk = U.call(actor, "getStats")
     if not statsOk or not stats then return fallback end
@@ -1020,6 +1053,14 @@ function U.inventory(actor)
     return nil
 end
 
+function U.touchInventoryIndex(container)
+    local index = SC.InventoryIndex
+    if index and type(index.touchContainer) == "function" then
+        return index.touchContainer(container)
+    end
+    return false
+end
+
 function U.inventoryItems(inventory, limit)
     if inventory == nil then return {} end
     local items, ok = U.call(inventory, "getItems")
@@ -1039,7 +1080,7 @@ end
 -- bounded, so the answer is complete enough to be trusted without ever becoming
 -- an unlimited tree walk.
 function U.inventoryItemsDeep(inventory, limit, containerLimit)
-    if inventory == nil then return {} end
+    if inventory == nil then return {}, {} end
     limit = math.max(1, math.floor(tonumber(limit) or 240))
     containerLimit = math.max(0, math.floor(tonumber(containerLimit) or 12))
     local result = {}
@@ -1077,7 +1118,7 @@ function U.inventoryItemsDeep(inventory, limit, containerLimit)
             result[#result + 1] = item
         end
     end
-    return result
+    return result, containers
 end
 
 function U.inventoryContains(inventory, item)
@@ -1220,6 +1261,7 @@ function U.consumeItem(inventory, item)
     local used, useOk = U.call(item, "Use")
     if useOk then
         if used == false then return false end
+        U.touchInventoryIndex(inventory)
         if inventory and not U.inventoryContains(inventory, item) then return true end
         local usesAfter, afterOk = U.call(item, "getUses")
         if usesOk and afterOk and type(usesBefore) == "number" and type(usesAfter) == "number" then
@@ -1229,11 +1271,19 @@ function U.consumeItem(inventory, item)
     end
     if inventory then
         local removed, removeOk = U.call(inventory, "Remove", item)
-        if removeOk then return removed ~= false and not U.inventoryContains(inventory, item) end
+        if removeOk then
+            local absent = removed ~= false and not U.inventoryContains(inventory, item)
+            if absent then U.touchInventoryIndex(inventory) end
+            return absent
+        end
     end
     if type(inventory) == "table" and type(inventory.items) == "table" then
         for index, value in ipairs(inventory.items) do
-            if value == item then table.remove(inventory.items, index) return true end
+            if value == item then
+                table.remove(inventory.items, index)
+                U.touchInventoryIndex(inventory)
+                return true
+            end
         end
     end
     return false
@@ -1242,12 +1292,16 @@ end
 function U.addItem(inventory, itemOrType)
     if inventory == nil then return nil, "inventory_unavailable" end
     local item, ok, failure = U.call(inventory, "AddItem", itemOrType)
-    if ok and item ~= nil then return item end
+    if ok and item ~= nil then
+        U.touchInventoryIndex(inventory)
+        return item
+    end
     if ok then return nil, "add_item_returned_nil" end
     if type(inventory) == "table" then
         inventory.items = inventory.items or {}
         local value = type(itemOrType) == "table" and itemOrType or { type = itemOrType, fullType = itemOrType }
         inventory.items[#inventory.items + 1] = value
+        U.touchInventoryIndex(inventory)
         return value
     end
     return nil, tostring(failure or "add_item_call_failed")
@@ -1287,6 +1341,7 @@ function U.transferItemVerified(source, destination, item)
         end
     end
     if not removed then return false, "source_remove_failed" end
+    U.touchInventoryIndex(source)
 
     U.addItem(destination, item)
     if U.inventoryContains(destination, item) and not U.inventoryContains(source, item) then
@@ -1298,7 +1353,10 @@ function U.transferItemVerified(source, destination, item)
 
     -- A hostile or capacity-constrained destination may reject AddItem. Remove
     -- any partial destination reference before restoring the exact object.
-    if U.inventoryContains(destination, item) then U.call(destination, "Remove", item) end
+    if U.inventoryContains(destination, item) then
+        U.call(destination, "Remove", item)
+        U.touchInventoryIndex(destination)
+    end
     U.addItem(source, item)
     if U.inventoryContains(source, item) and not U.inventoryContains(destination, item) then
         return false, "destination_add_failed_rolled_back"
@@ -1319,6 +1377,7 @@ function U.dropItem(source, square, item, xOffset, yOffset, zOffset)
     local removeResult, removeCalled = U.call(source, "Remove", item)
     local removed = removeCalled and removeResult ~= false and not U.inventoryContains(source, item)
     if not removed then return false, "drop_remove_failed" end
+    U.touchInventoryIndex(source)
     local addedItem, added = U.call(square, "AddWorldInventoryItem", item,
         tonumber(xOffset) or 0.5, tonumber(yOffset) or 0.5,
         tonumber(zOffset) or 0, false)
@@ -1476,7 +1535,9 @@ local function removeInventoryIdentity(container, item)
     if not container or not U.inventoryContains(container, item) then return true end
     U.call(container, "DoRemoveItem", item)
     if U.inventoryContains(container, item) then U.call(container, "Remove", item) end
-    return not U.inventoryContains(container, item)
+    local removed = not U.inventoryContains(container, item)
+    if removed then U.touchInventoryIndex(container) end
+    return removed
 end
 
 local function addInventoryIdentity(container, item)
@@ -1484,7 +1545,9 @@ local function addInventoryIdentity(container, item)
     if U.inventoryContains(container, item) then return true end
     U.call(container, "DoAddItemBlind", item)
     if not U.inventoryContains(container, item) then U.addItem(container, item) end
-    return U.inventoryContains(container, item)
+    local added = U.inventoryContains(container, item)
+    if added then U.touchInventoryIndex(container) end
+    return added
 end
 
 local function restoreWorldOwnership(square, oldWorldItem, item, source, sourceHadItem,

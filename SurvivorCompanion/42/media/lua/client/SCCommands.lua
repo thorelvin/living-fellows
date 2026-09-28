@@ -1671,22 +1671,43 @@ function Commands.describe(companionId, player)
     local alive = not U().isDead(actor) and U().nativeHealth(actor) > 0
     local medical
     if SC.Medical and type(SC.Medical.assess) == "function" then
-        local ok, value = pcall(SC.Medical.assess, actor)
+        local ok, value = pcall(SC.Medical.assessCached or SC.Medical.assess, actor)
         if ok then medical = value end
     end
     medical = medical or { health = U().nativeHealth(actor), wounds = {}, woundCount = 0, knoxInfected = false, infectionLevel = 0 }
+    local performance = SC.Performance
+    local inventoryStarted = performance and type(performance.preciseNowMs) == "function"
+        and performance.preciseNowMs() or nil
     local supplies = inventorySummary(actor)
+    if inventoryStarted and type(performance.record) == "function" then
+        performance.record("ui.inventory-summary", nil,
+            math.max(0, performance.preciseNowMs() - inventoryStarted))
+    end
+    local logisticsStarted = performance and type(performance.preciseNowMs) == "function"
+        and performance.preciseNowMs() or nil
     local load
-    if SC.Logistics and type(SC.Logistics.audit) == "function" then
-        local ok, value = pcall(SC.Logistics.audit, actor)
-        if ok and type(value) == "table" then load = value end
+    if SC.Logistics and type(SC.Logistics.roleOf) == "function" then
+        local ok, role = pcall(SC.Logistics.roleOf, actor)
+        if ok then
+            local loadOk, weight, capacity, ratio = pcall(U().inventoryLoad, actor)
+            if loadOk then
+                load = { role = role, weight = weight,
+                    capacity = capacity, ratio = ratio }
+            end
+        end
+    end
+    if logisticsStarted and type(performance.record) == "function" then
+        performance.record("ui.logistics-audit", nil,
+            math.max(0, performance.preciseNowMs() - logisticsStarted))
     end
     local status = SC.Medical and type(SC.Medical.statusText) == "function"
-        and SC.Medical.statusText(actor) or (alive and "Stable" or "Dead")
+        and SC.Medical.statusText(actor, medical) or (alive and "Stable" or "Dead")
     local knox = medical.knoxInfected
         and (U().text("UI_SC_Status_Knox", "Knox symptoms") .. " (" .. tostring(math.floor(medical.infectionLevel or 0)) .. "%)")
         or U().text("UI_SC_Status_NoKnox", "No Knox symptoms")
     local relationship = {}
+    local relationshipStarted = performance and type(performance.preciseNowMs) == "function"
+        and performance.preciseNowMs() or nil
     if SC.Relationship and type(SC.Relationship.summary) == "function" then
         relationship = SC.Relationship.summary(actor, state, {
             health = medical.health,
@@ -1698,6 +1719,10 @@ function Commands.describe(companionId, player)
             knox = knox,
             knoxInfected = medical.knoxInfected == true,
         }) or {}
+    end
+    if relationshipStarted and type(performance.record) == "function" then
+        performance.record("ui.relationship-summary", nil,
+            math.max(0, performance.preciseNowMs() - relationshipStarted))
     end
     local autonomy = {}
     if SC.Autonomy and type(SC.Autonomy.summary) == "function" then
@@ -1911,6 +1936,21 @@ end
 local function issueOne(companionId, command, payload, player)
     local actor, entry, reason = resolve(companionId)
     if not actor then return false, reason end
+    local radioAuthorized = SC.ExpeditionPrototype
+        and SC.ExpeditionPrototype.radioCommandAuthorized(actor, command, payload, player)
+    -- Test-build boundary: watching an AI leader in co-op slot 1 must not
+    -- convert the ordinary Orders UI, hand signs or whistle into remote control.
+    -- A separate native-radio receive proof must authorize any new order.
+    if SC.ExpeditionPrototype and SC.ExpeditionPrototype.isMember(actor)
+        and not radioAuthorized then
+        return false, "expedition_leader_radio_required"
+    end
+    if SCSplitScreenProbe ~= nil then
+        local checked, isLeader = pcall(SCSplitScreenProbe.isLeader, actor)
+        if checked and isLeader == true and not radioAuthorized then
+            return false, "expedition_leader_radio_required"
+        end
+    end
     if type(command) ~= "string" then return false, "invalid_command" end
     local state = stateFor(actor, entry)
     if state.factionId ~= nil or type(entry) == "table" and entry.factionId ~= nil then
@@ -2062,6 +2102,15 @@ local function issueMemberSetAtomic(members, command, payload, player)
     for _, member in ipairs(members) do
         local actor, entry, reason = resolve(member.id)
         if not actor then return false, reason, {} end
+        if SC.ExpeditionPrototype and SC.ExpeditionPrototype.isMember(actor) then
+            return false, "group_prevalidation:expedition_leader_radio_required", {}
+        end
+        if SCSplitScreenProbe ~= nil then
+            local checked, isLeader = pcall(SCSplitScreenProbe.isLeader, actor)
+            if checked and isLeader == true then
+                return false, "group_prevalidation:expedition_leader_radio_required", {}
+            end
+        end
         local current = states[actor] or stateFor(actor, entry)
         if not current.recruited then return false, "not_recruited", {} end
         local before, beforeReason = copyCommandState(current)
@@ -2239,6 +2288,9 @@ local function issueGroupVehicle(group, command, payload, player)
     for _, member in ipairs(members) do
         local actor, entry, reason = resolve(member.id)
         if not actor then return false, reason, {} end
+        if SC.ExpeditionPrototype and SC.ExpeditionPrototype.isMember(actor) then
+            return false, "group_prevalidation:expedition_leader_radio_required", {}
+        end
         local memberVehicle = vehicle
         if command == "exit_vehicle" then
             memberVehicle = select(1, U().call(actor, "getVehicle"))

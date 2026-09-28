@@ -1012,6 +1012,57 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
     end
 end
 
+local function returnExpeditionFromRadio(_target, player)
+    local expedition = SC.ExpeditionPrototype
+    if not expedition or not player then return end
+    local ok, accepted, reason = pcall(expedition.sendRadioOrder,
+        player, "return_now", "now")
+    local feedback = ok and accepted == true
+        and text("UI_SC_Expedition_ReturnSent")
+        or ok and reason == "radio_no_ack"
+            and text("UI_SC_Expedition_NoReceipt")
+        or text("UI_SC_Expedition_Failed", tostring(ok and reason or accepted))
+    safeMethod(player, "setHaloNote", feedback)
+    if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+    return ok and accepted == true, ok and reason or tostring(accepted)
+end
+
+function Context.fillRadioContextMenu(playerIndex, context, items)
+    local expedition = SC.ExpeditionPrototype
+    local mission = expedition and type(expedition.current) == "function"
+        and expedition.current() or nil
+    if not mission or not mission.scout
+        or mission.scout.phase == "inbound" or playerIndex ~= 0 then return end
+    local player = type(getSpecificPlayer) == "function"
+        and getSpecificPlayer(playerIndex) or nil
+    if not player or type(items) ~= "table" then return end
+    local rootInventory = safeMethod(player, "getInventory")
+    local function equippedRadio(item)
+        return item and rootInventory ~= nil and SC.GameplayUtil
+            and SC.GameplayUtil.instanceOf(item, "Radio")
+            and safeMethod(item, "getContainer") == rootInventory
+            and (item == safeMethod(player, "getPrimaryHandItem")
+                or item == safeMethod(player, "getSecondaryHandItem")
+                or item == safeMethod(player, "getClothingItem_Back"))
+    end
+    for _, entry in ipairs(items) do
+        if equippedRadio(entry) then
+            context:addOptionOnTop(text("UI_SC_Expedition_ReturnNow"), nil,
+                returnExpeditionFromRadio, player)
+            return
+        end
+        if type(entry) == "table" and type(entry.items) == "table" then
+            for _, item in ipairs(entry.items) do
+                if equippedRadio(item) then
+                    context:addOptionOnTop(text("UI_SC_Expedition_ReturnNow"), nil,
+                        returnExpeditionFromRadio, player)
+                    return
+                end
+            end
+        end
+    end
+end
+
 function Context.install()
     if Context._installed then
         return
@@ -1019,6 +1070,9 @@ function Context.install()
     if Events and Events.OnFillWorldObjectContextMenu then
         Events.OnFillWorldObjectContextMenu.Add(Context.fillWorldObjectContextMenu)
         Context._installed = true
+    end
+    if Events and Events.OnFillInventoryObjectContextMenu then
+        Events.OnFillInventoryObjectContextMenu.Add(Context.fillRadioContextMenu)
     end
 end
 
@@ -1028,6 +1082,9 @@ function Context.remove()
     end
     if Events and Events.OnFillWorldObjectContextMenu then
         Events.OnFillWorldObjectContextMenu.Remove(Context.fillWorldObjectContextMenu)
+    end
+    if Events and Events.OnFillInventoryObjectContextMenu then
+        Events.OnFillInventoryObjectContextMenu.Remove(Context.fillRadioContextMenu)
     end
     Context._installed = false
 end

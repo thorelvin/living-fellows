@@ -12,6 +12,8 @@ SC.Performance = SC.Performance or {}
 
 local Performance = SC.Performance
 local clockOverride = nil
+local bridgeClockOwner = nil
+local bridgeClockMethod = nil
 local frame = nil
 local frameSequence = 0
 local systems = {}
@@ -56,6 +58,26 @@ local function nowMs()
         if numeric ~= nil then return numeric end
     end
     return math.floor((os.clock and os.clock() or 0) * 1000)
+end
+
+-- Use only for durations and in-frame deadlines. Cache expiry keeps the wall
+-- clock above because nanoTime has an arbitrary origin.
+function Performance.preciseNowMs()
+    if clockOverride ~= nil then return tonumber(clockOverride()) or 0 end
+    local bridge = type(_G) == "table" and rawget(_G, "SCBridge") or nil
+    if bridge ~= bridgeClockOwner then
+        bridgeClockOwner, bridgeClockMethod = bridge, nil
+    end
+    if bridge ~= nil and bridgeClockMethod == nil then
+        local ok, callback = pcall(function() return bridge.nowMsPrecise end)
+        if ok and type(callback) == "function" then bridgeClockMethod = callback end
+    end
+    if bridgeClockMethod ~= nil then
+        local ok, value = pcall(bridgeClockMethod)
+        local numeric = ok and tonumber(value) or nil
+        if numeric ~= nil then return numeric end
+    end
+    return nowMs()
 end
 
 local function configured(key, fallback)
@@ -200,9 +222,15 @@ local function sampleWindow()
 end
 
 local function pushSample(list, value)
-    list[#list + 1] = math.max(0, tonumber(value) or 0)
     local limit = sampleWindow()
-    while #list > limit do table.remove(list, 1) end
+    if list.limit ~= limit then
+        for index = 1, list.count or #list do list[index] = nil end
+        list.count, list.head, list.limit = 0, 0, limit
+    end
+    local head = (list.head % limit) + 1
+    list[head] = math.max(0, tonumber(value) or 0)
+    list.head = head
+    if list.count < limit then list.count = list.count + 1 end
 end
 
 local function percentile(list, amount)
@@ -256,6 +284,7 @@ local function metricSnapshot(metric)
         key = metric.key,
         label = metric.label,
         runs = metric.runs,
+        recentSamples = #metric.samples,
         averageMs = average,
         p50Ms = percentile(metric.samples, 0.50),
         p95Ms = percentile(metric.samples, 0.95),
@@ -414,9 +443,9 @@ end
 
 function Performance.measure(system, companionId, callback, ...)
     if type(callback) ~= "function" then return false, "invalid callback" end
-    local started = nowMs()
+    local started = Performance.preciseNowMs()
     local values = SC.Call.pack(pcall(callback, ...))
-    Performance.record(system, companionId, nowMs() - started)
+    Performance.record(system, companionId, Performance.preciseNowMs() - started)
     if not values[1] then return false, values[2] end
     return true, SC.Call.unpack(values, 2, values.n)
 end
@@ -563,8 +592,10 @@ function Performance.snapshot()
     for key, value in pairs(counters) do counterCopy[key] = value end
     return {
         frames = totals.frames,
+        frameSamples = #frameSamples,
+        sampleWindow = sampleWindow(),
         frameBudgetMs = configured("frameBudgetMs", 2),
-        lastFrameMs = frameSamples[#frameSamples] or 0,
+        lastFrameMs = frameSamples[frameSamples.head or 0] or 0,
         p50FrameMs = percentile(frameSamples, 0.50),
         p95FrameMs = percentile(frameSamples, 0.95),
         maxFrameMs = percentile(frameSamples, 1),
@@ -577,6 +608,10 @@ function Performance.snapshot()
         cacheEvictions = totals.cacheEvictions,
         cacheExpired = totals.cacheExpired,
         loadLevel = loadLevel,
+        wholeTick = systems["tick.total"]
+            and metricSnapshot(systems["tick.total"]) or nil,
+        preSchedulerTick = systems["tick.pre-scheduler"]
+            and metricSnapshot(systems["tick.pre-scheduler"]) or nil,
         topSystems = sortedMetrics(systems, 12),
         topActors = sortedMetrics(actors, 12),
         counters = counterCopy,
@@ -591,6 +626,8 @@ function Performance.summary()
         "Living Fellows AI performance report",
         "Frames: " .. tostring(snapshot.frames),
         "Budget: " .. tostring(snapshot.frameBudgetMs) .. " ms",
+        "Percentiles use the latest up to " .. tostring(snapshot.sampleWindow)
+            .. " samples per metric; per-system maxima and run counts are since reset.",
         string.format("Frame p50 / p95 / max: %.2f / %.2f / %.2f ms",
             snapshot.p50FrameMs, snapshot.p95FrameMs, snapshot.maxFrameMs),
         "Load level: " .. tostring(snapshot.loadLevel),
@@ -599,11 +636,54 @@ function Performance.summary()
         "Yielded jobs: " .. tostring(snapshot.yieldedJobs),
         "Cache hits / misses: " .. tostring(snapshot.cacheHits) .. " / "
             .. tostring(snapshot.cacheMisses),
-        "Top systems:",
     }
+    if snapshot.wholeTick ~= nil then
+        lines[#lines + 1] = string.format(
+            "Whole mod tick p50 / p95 / max: %.3f / %.3f / %.3f ms",
+            snapshot.wholeTick.p50Ms, snapshot.wholeTick.p95Ms,
+            snapshot.wholeTick.maxMs)
+    end
+    if snapshot.preSchedulerTick ~= nil then
+        lines[#lines + 1] = string.format(
+            "Pre-scheduler p50 / p95 / max: %.3f / %.3f / %.3f ms",
+            snapshot.preSchedulerTick.p50Ms, snapshot.preSchedulerTick.p95Ms,
+            snapshot.preSchedulerTick.maxMs)
+    end
+    lines[#lines + 1] = "Top systems:"
     for _, metric in ipairs(snapshot.topSystems) do
         lines[#lines + 1] = string.format("  %s: p95 %.2f ms, max %.2f ms, runs %d, yields %d",
             metric.label, metric.p95Ms, metric.maxMs, metric.runs, metric.yielded)
+    end
+    lines[#lines + 1] = "Focused decision, combat and UI systems:"
+    for _, key in ipairs({
+        "decision.evaluate", "decision.targeting", "decision.delegate",
+        "decision.rescue", "medical.assess", "ui.describe-entry",
+        "ui.inventory-summary", "ui.logistics-audit", "ui.relationship-summary",
+        "ui.detail-rebuild", "ui.roster-refresh",
+    }) do
+        local source = systems[key]
+        if source then
+            local metric = metricSnapshot(source)
+            lines[#lines + 1] = string.format(
+                "  %s: p95 %.3f ms, max %.3f ms, runs %d",
+                key, metric.p95Ms, metric.maxMs, metric.runs)
+        end
+    end
+    local delegateKeys = {}
+    for key in pairs(systems) do
+        if string.sub(key, 1, 18) == "decision.delegate."
+            or string.sub(key, 1, 7) == "combat."
+            or string.sub(key, 1, 18) == "perception.reflex."
+            or string.sub(key, 1, 18) == "perception.escape." then
+            delegateKeys[#delegateKeys + 1] = key
+        end
+    end
+    table.sort(delegateKeys)
+    for _, key in ipairs(delegateKeys) do
+        local metric = metricSnapshot(systems[key])
+        lines[#lines + 1] = string.format(
+            "  %s: p95 %.3f ms, max %.3f ms, runs %d",
+            key, metric.p95Ms, metric.maxMs, metric.runs)
     end
     lines[#lines + 1] = "Top companions:"
     for _, metric in ipairs(snapshot.topActors) do

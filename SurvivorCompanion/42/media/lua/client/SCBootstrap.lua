@@ -321,6 +321,13 @@ end
 local function onSave()
     local ok, reason = SC.Runtime.save()
     if not ok then SC.Diagnostics.report("persistence", nil, "OnSave failed", reason) end
+    if SCSplitScreenProbe ~= nil then
+        local saved, value = pcall(SCSplitScreenProbe.saveRetainedCorpseChunksNow)
+        if not saved or value ~= true then
+            SC.Diagnostics.report("persistence", nil,
+                "native corpse chunk save failed", tostring(value))
+        end
+    end
 end
 
 local function onInitGlobalModData(isNewGame)

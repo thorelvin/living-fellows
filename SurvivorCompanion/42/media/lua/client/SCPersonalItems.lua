@@ -91,6 +91,9 @@ local function mark(item, personal, favorite)
         rollback()
         return false, "personal_marker_not_retained"
     end
+    if SC.InventoryIndex and type(SC.InventoryIndex.touchItem) == "function" then
+        SC.InventoryIndex.touchItem(item)
+    end
     return true, verified
 end
 

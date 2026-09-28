@@ -396,6 +396,20 @@ check(#corridorCandidates == 2
         and corridorCandidates[2].corridorDanger == 1,
     "escape scoring rejects an empty endpoint whose actual parent corridor brushes a zombie")
 
+SC.Config._overrides.escapeValidatedCandidateLimit = 2
+local twoThreatCandidates = S._collectEscapeSquaresForTests(observer, {
+    { actor = corridorThreat, x = 5, y = 0, z = 0 },
+    { actor = actor(5, 1, 0, "IsoZombie"), x = 5, y = 1, z = 0 },
+}, corridorState, current, 1)
+SC.Config._overrides.escapeValidatedCandidateLimit = savedValidatedCandidateLimit
+check(#twoThreatCandidates == 2
+        and twoThreatCandidates[1].square == shelteredEnd.square
+        and twoThreatCandidates[1].corridorDanger == 0
+        and twoThreatCandidates[2].square == exposedEnd.square
+        and twoThreatCandidates[2].danger == 0
+        and twoThreatCandidates[2].corridorDanger == 2,
+    "shared corridor traversal counts each distinct threat once without endpoint danger")
+
 deepNode.square.vehicle = {}
 check(not T.validateEscapeNode(observer, deepNode, {}),
     "a vehicle inserted on an earlier escape result invalidates that route")

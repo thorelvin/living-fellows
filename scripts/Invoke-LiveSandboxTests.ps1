@@ -7,11 +7,12 @@ param(
     [string]$UserCache = (Join-Path ([Environment]::GetFolderPath('UserProfile')) 'Zomboid'),
     [string]$SeedSave,
     [string]$GameMode,
-    [ValidateRange(45, 600)]
+    [ValidateRange(45, 900)]
     # Large mod lists can spend more than three minutes in script, map and
     # asset loading before Build 42 exposes its click-to-start gate. The
     # in-game harness retains its own bounded deadline once play begins.
     [int]$TimeoutSeconds = 300,
+    [switch]$HiddenWindow,
     [switch]$LivingFellowsOnly,
     [string[]]$ExcludeModId = @(),
     [string]$FactionMapScreenshot = '',
@@ -19,6 +20,85 @@ param(
     [string]$BaseLayoutScreenshot = '',
     [switch]$BaseLayoutOnly,
     [switch]$PathingOnly,
+    [switch]$PlaceMetadataOnly,
+    [switch]$SplitScreenOnly,
+    [switch]$ColdCompanionProbe,
+    [switch]$ColdRestartProbe,
+    [switch]$ColdRestartHandoff,
+    [switch]$ColdRestartCrashProbe,
+    [switch]$ColdRestartLfFirstCrashProbe,
+    [switch]$LeaderSlotOnly,
+    [switch]$LeaderRemote,
+    [ValidateRange(-2048, 2048)][int]$LeaderRemoteOffsetX = 512,
+    [ValidateRange(-2048, 2048)][int]$LeaderRemoteOffsetY = 0,
+    [switch]$TeamHandoff,
+    [switch]$TeamRadioFixture,
+    [switch]$TeamRadioPlacedProbe,
+    [switch]$TeamRadioTimedPlacementProbe,
+    [switch]$TeamRadioPlacedPickupProbe,
+    [long]$TeamRadioPlacedExpectedWalkieId = 0,
+    [long]$TeamRadioPlacedExpectedHamId = 0,
+    [switch]$TeamRadioTextProbe,
+    [switch]$TeamRadioCommandProbe,
+    [switch]$TeamWaypointProbe,
+    [switch]$TeamLocalTravelProbe,
+    [switch]$TeamLocalLootRoundTripProbe,
+    [switch]$TeamExtendedRouteProbe,
+    [switch]$TeamExtendedQuietProbe,
+    [switch]$TeamExtendedReturnProbe,
+    [switch]$TeamExtendedReturnResumeProbe,
+    [int]$TeamExtendedReturnSourceX = 0,
+    [int]$TeamExtendedReturnSourceY = 0,
+    [switch]$TeamCorpseStreamingProbe,
+    [switch]$TeamCorpseStreamingReloadProbe,
+    [int]$TeamCorpseStreamVerifyX = 0,
+    [int]$TeamCorpseStreamVerifyY = 0,
+    [switch]$TeamAutonomousScoutProbe,
+    [switch]$TeamKnownPlaceScoutProbe,
+    [switch]$TeamUnvisitedPlaceScoutProbe,
+    [switch]$TeamAutonomousSearchProbe,
+    [switch]$TeamLeaderMotionProbe,
+    [switch]$TeamUnvisitedInteriorSearchProbe,
+    [switch]$TeamAutonomousSearchStageOnly,
+    [switch]$TeamAutonomousSearchResumeProbe,
+    [switch]$TeamBuildingProbe,
+    [switch]$TeamWindowProbe,
+    [switch]$TeamInsideDoorProbe,
+    [switch]$TeamDoorBashProbe,
+    [switch]$TeamDoorBashAutoProbe,
+    [switch]$TeamPursuerProbe,
+    [switch]$TeamPursuerFixture,
+    [switch]$TeamStragglerProbe,
+    [switch]$TeamRestartAuditOnly,
+    [switch]$TeamRestartStageOnly,
+    [switch]$TeamOverlapProbe,
+    [switch]$TeamReturnReleaseProbe,
+    [switch]$TeamReturnStageOnly,
+    [switch]$TeamIdleSlotRestartProbe,
+    [switch]$TeamAllDeadIdleRestartProbe,
+    [switch]$TeamCorpseReloadProbe,
+    [switch]$TeamLootSurvey,
+    [switch]$TeamLootProbe,
+    [switch]$TeamLootVerifyOnly,
+    [string]$TeamLootVerifyToken = '',
+    [string]$TeamLootVerifyItemType = '',
+    [long]$TeamLootVerifyNativeId = 0,
+    [switch]$TeamAllDeadCleanup,
+    [switch]$TeamAllDeadStageOnly,
+    [switch]$TeamAllDeadMenuCleanupProbe,
+    [switch]$TeamMenuCleanupProbe,
+    [switch]$PerformanceBaselineOnly,
+    [ValidateSet(4, 8, 16)][int]$PerformancePopulation = 4,
+    [switch]$TeamPerformanceProbe,
+    [switch]$TeamPerformanceRouteProbe,
+    [switch]$TeamPerformanceEncounterProbe,
+    [switch]$TeamRepeatedHandoff,
+    [switch]$TeamRadioKitOnly,
+    [switch]$TeamExpeditionUiProbe,
+    [switch]$TeamRadioKitVerifyOnly,
+    [ValidateRange(8, 180)][int]$LeaderWatchSeconds = 8,
+    [string]$SplitScreenScreenshot = '',
+    [string]$PostHandoffScreenshot = '',
     [switch]$PrepareOnly
 )
 
@@ -30,6 +110,255 @@ if ([string]::IsNullOrWhiteSpace($ProjectRoot)) {
 $ProjectRoot = [System.IO.Path]::GetFullPath($ProjectRoot)
 $GameRoot = [System.IO.Path]::GetFullPath($GameRoot)
 $UserCache = [System.IO.Path]::GetFullPath($UserCache)
+if ($SplitScreenOnly -and ($PathingOnly -or $FactionMapOnly -or $BaseLayoutOnly)) {
+    throw '-SplitScreenOnly cannot be combined with another focused mode.'
+}
+if ($LeaderSlotOnly -and -not $SplitScreenOnly) {
+    throw '-LeaderSlotOnly requires -SplitScreenOnly.'
+}
+if ($ColdCompanionProbe -and (-not $SplitScreenOnly -or $LeaderSlotOnly)) {
+    throw '-ColdCompanionProbe requires the standalone split-screen probe.'
+}
+if ($ColdRestartProbe -and -not $ColdCompanionProbe) {
+    throw '-ColdRestartProbe requires -ColdCompanionProbe.'
+}
+if ($ColdRestartHandoff -and -not $ColdRestartProbe) {
+    throw '-ColdRestartHandoff requires -ColdRestartProbe.'
+}
+if ($ColdRestartCrashProbe -and (-not $ColdRestartProbe -or $ColdRestartHandoff)) {
+    throw '-ColdRestartCrashProbe requires -ColdRestartProbe without -ColdRestartHandoff.'
+}
+if ($ColdRestartLfFirstCrashProbe -and (-not $ColdRestartProbe -or
+    $ColdRestartHandoff -or $ColdRestartCrashProbe)) {
+    throw '-ColdRestartLfFirstCrashProbe requires a standalone -ColdRestartProbe.'
+}
+if ($LeaderRemote -and -not $LeaderSlotOnly) {
+    throw '-LeaderRemote requires -LeaderSlotOnly.'
+}
+if ($TeamHandoff -and -not ($LeaderSlotOnly -and ($LeaderRemote -or $TeamLocalTravelProbe -or $TeamAutonomousScoutProbe -or $TeamAutonomousSearchProbe))) {
+    throw '-TeamHandoff requires -LeaderSlotOnly and a remote or local travel probe.'
+}
+if ($TeamRadioFixture -and -not $TeamHandoff) {
+    throw '-TeamRadioFixture requires -TeamHandoff.'
+}
+if ($TeamRadioPlacedProbe -and -not ($TeamRadioFixture -or $TeamRadioKitOnly -or $TeamRadioKitVerifyOnly)) {
+    throw '-TeamRadioPlacedProbe requires a radio fixture or radio-kit stage/reload.'
+}
+if ($TeamRadioPlacedProbe -and $TeamRadioKitVerifyOnly -and
+    ($TeamRadioPlacedExpectedWalkieId -le 0 -or $TeamRadioPlacedExpectedHamId -le 0)) {
+    throw '-TeamRadioPlacedProbe reload requires both staged native radio item IDs.'
+}
+if ($TeamRadioPlacedPickupProbe -and (-not $TeamRadioPlacedProbe -or -not $TeamRadioKitVerifyOnly)) {
+    throw '-TeamRadioPlacedPickupProbe requires -TeamRadioPlacedProbe and -TeamRadioKitVerifyOnly.'
+}
+if ($TeamRadioTimedPlacementProbe -and
+    (-not $TeamRadioPlacedProbe -or -not $TeamRadioKitOnly)) {
+    throw '-TeamRadioTimedPlacementProbe requires -TeamRadioPlacedProbe and -TeamRadioKitOnly.'
+}
+if ($TeamRadioTextProbe -and -not $TeamRadioFixture) {
+    throw '-TeamRadioTextProbe requires -TeamRadioFixture.'
+}
+if ($TeamRadioCommandProbe -and -not $TeamRadioTextProbe) {
+    throw '-TeamRadioCommandProbe requires -TeamRadioTextProbe.'
+}
+if ($TeamWaypointProbe -and -not $TeamHandoff) {
+    throw '-TeamWaypointProbe requires -TeamHandoff.'
+}
+if ($TeamLocalTravelProbe -and (-not $TeamHandoff -or $LeaderRemote -or $TeamWaypointProbe -or $TeamRadioFixture -or $TeamLootSurvey -or $TeamOverlapProbe -or $TeamAllDeadCleanup -or $TeamRepeatedHandoff)) {
+    throw '-TeamLocalTravelProbe requires a focused local team handoff run.'
+}
+if ($PlaceMetadataOnly -and ($SplitScreenOnly -or $PathingOnly -or
+    $FactionMapOnly -or $BaseLayoutOnly -or $LeaderSlotOnly)) {
+    throw '-PlaceMetadataOnly requires a standalone read-only run.'
+}
+if ($TeamAutonomousScoutProbe -and (-not $TeamHandoff -or $LeaderRemote -or
+    $TeamLocalTravelProbe -or $TeamExtendedRouteProbe -or $TeamRadioFixture -or
+    $TeamLootSurvey -or $TeamOverlapProbe)) {
+    throw '-TeamAutonomousScoutProbe requires a focused local team handoff run.'
+}
+if ($TeamKnownPlaceScoutProbe -and -not $TeamAutonomousScoutProbe) {
+    throw '-TeamKnownPlaceScoutProbe requires -TeamAutonomousScoutProbe.'
+}
+if ($TeamUnvisitedPlaceScoutProbe -and (-not $TeamAutonomousScoutProbe -or
+    $TeamKnownPlaceScoutProbe)) {
+    throw '-TeamUnvisitedPlaceScoutProbe requires a separate -TeamAutonomousScoutProbe run.'
+}
+if ($TeamAutonomousSearchProbe -and (-not $TeamHandoff -or $LeaderRemote -or
+    $TeamLocalTravelProbe -or $TeamAutonomousScoutProbe -or $TeamRadioFixture -or
+    $TeamLootSurvey -or $TeamOverlapProbe)) {
+    throw '-TeamAutonomousSearchProbe requires a focused local team handoff run.'
+}
+if ($TeamLeaderMotionProbe -and -not $TeamUnvisitedInteriorSearchProbe) {
+    throw '-TeamLeaderMotionProbe requires -TeamUnvisitedInteriorSearchProbe.'
+}
+if ($TeamUnvisitedInteriorSearchProbe -and (-not $TeamAutonomousSearchProbe -or
+    $TeamAutonomousSearchStageOnly -or $TeamAutonomousSearchResumeProbe)) {
+    throw '-TeamUnvisitedInteriorSearchProbe requires a separate -TeamAutonomousSearchProbe run.'
+}
+if ($TeamAutonomousSearchStageOnly -and -not $TeamAutonomousSearchProbe) {
+    throw '-TeamAutonomousSearchStageOnly requires -TeamAutonomousSearchProbe.'
+}
+if ($TeamAutonomousSearchResumeProbe -and (-not $LeaderSlotOnly -or $TeamHandoff -or
+    $LeaderRemote -or $TeamAutonomousSearchProbe)) {
+    throw '-TeamAutonomousSearchResumeProbe requires a focused -LeaderSlotOnly reload.'
+}
+if ($TeamLocalLootRoundTripProbe -and (-not $TeamLocalTravelProbe -or
+    $TeamExtendedRouteProbe -or $TeamBuildingProbe)) {
+    throw '-TeamLocalLootRoundTripProbe requires a focused local trip.'
+}
+if ($TeamExtendedRouteProbe -and -not ($TeamLocalTravelProbe -or ($TeamWaypointProbe -and $LeaderRemote))) {
+    throw '-TeamExtendedRouteProbe requires a local trip or remote waypoint probe.'
+}
+if ($TeamExtendedQuietProbe -and (-not ($TeamExtendedRouteProbe -or
+    $TeamExtendedReturnResumeProbe -or
+    $TeamAutonomousScoutProbe -or $TeamUnvisitedInteriorSearchProbe) -or
+    $TeamPursuerProbe)) {
+    throw '-TeamExtendedQuietProbe requires an extended route without the pursuer probe.'
+}
+if ($TeamExtendedReturnProbe -and (-not $TeamExtendedRouteProbe -or
+    -not $TeamHandoff -or $TeamPursuerProbe)) {
+    throw '-TeamExtendedReturnProbe requires a focused extended team route.'
+}
+if ($TeamExtendedReturnResumeProbe -and (-not $LeaderSlotOnly -or
+    $TeamHandoff -or $LeaderRemote -or -not $TeamExtendedQuietProbe -or
+    $TeamExtendedReturnSourceX -le 0 -or $TeamExtendedReturnSourceY -le 0)) {
+    throw '-TeamExtendedReturnResumeProbe requires a saved remote team and recorded route origin.'
+}
+if ($TeamCorpseStreamingProbe -and (-not $TeamExtendedRouteProbe -or
+    -not $LeaderRemote -or -not $TeamWaypointProbe -or -not $TeamExtendedQuietProbe)) {
+    throw '-TeamCorpseStreamingProbe requires a controlled quiet remote extended route.'
+}
+if ($TeamCorpseStreamingReloadProbe -and (-not $LeaderSlotOnly -or
+    $TeamHandoff -or $LeaderRemote -or
+    $TeamCorpseStreamVerifyX -le 0 -or $TeamCorpseStreamVerifyY -le 0)) {
+    throw '-TeamCorpseStreamingReloadProbe requires an idle slot-1 reload and recorded positive corpse coordinates.'
+}
+if ($TeamBuildingProbe -and (-not $TeamHandoff -or -not $LeaderRemote -or
+    $TeamWaypointProbe -or $TeamExtendedRouteProbe -or $TeamLootSurvey)) {
+    throw '-TeamBuildingProbe requires a focused remote team run.'
+}
+if ($TeamWindowProbe -and -not $TeamBuildingProbe) {
+    throw '-TeamWindowProbe requires -TeamBuildingProbe.'
+}
+if ($TeamInsideDoorProbe -and (-not $TeamBuildingProbe -or $TeamWindowProbe)) {
+    throw '-TeamInsideDoorProbe requires -TeamBuildingProbe without -TeamWindowProbe.'
+}
+if ($TeamDoorBashProbe -and (-not $TeamBuildingProbe -or $TeamWindowProbe)) {
+    throw '-TeamDoorBashProbe requires -TeamBuildingProbe without -TeamWindowProbe.'
+}
+if ($TeamDoorBashAutoProbe -and (-not $TeamDoorBashProbe -or $TeamInsideDoorProbe)) {
+    throw '-TeamDoorBashAutoProbe requires -TeamDoorBashProbe without -TeamInsideDoorProbe.'
+}
+if ($TeamPursuerProbe -and (-not $TeamExtendedRouteProbe -or
+    -not $LeaderRemote -or -not $TeamHandoff)) {
+    throw '-TeamPursuerProbe requires a remote extended team route.'
+}
+if ($TeamPursuerFixture -and -not $TeamPursuerProbe) {
+    throw '-TeamPursuerFixture requires -TeamPursuerProbe.'
+}
+if ($TeamStragglerProbe -and (-not $TeamHandoff -or -not $LeaderRemote -or
+    -not $TeamWaypointProbe -or $TeamExtendedRouteProbe)) {
+    throw '-TeamStragglerProbe requires a focused remote team waypoint probe.'
+}
+if ($TeamRestartAuditOnly -and (-not $LeaderSlotOnly -or $TeamHandoff -or $LeaderRemote)) {
+    throw '-TeamRestartAuditOnly requires -LeaderSlotOnly without a new mission.'
+}
+if ($TeamRestartStageOnly -and (-not $TeamHandoff -or (-not $LeaderRemote -and -not $TeamLocalTravelProbe) -or $TeamWaypointProbe -or $TeamRadioFixture -or $TeamLootSurvey)) {
+    throw '-TeamRestartStageOnly requires a focused remote or local team handoff run.'
+}
+if ($TeamOverlapProbe -and (-not $TeamHandoff -or $TeamWaypointProbe -or $TeamLootSurvey -or $TeamRadioFixture -or $TeamAllDeadCleanup -or $TeamRepeatedHandoff)) {
+    throw '-TeamOverlapProbe requires a focused remote team handoff run.'
+}
+if ($TeamReturnReleaseProbe -and -not $TeamOverlapProbe) {
+    throw '-TeamReturnReleaseProbe requires -TeamOverlapProbe.'
+}
+if ($TeamReturnStageOnly -and -not $TeamReturnReleaseProbe) {
+    throw '-TeamReturnStageOnly requires -TeamReturnReleaseProbe.'
+}
+if ($TeamIdleSlotRestartProbe -and (-not $LeaderSlotOnly -or $TeamHandoff -or
+    $LeaderRemote -or $TeamReturnStageOnly)) {
+    throw '-TeamIdleSlotRestartProbe requires a focused -LeaderSlotOnly reload.'
+}
+if ($TeamAllDeadIdleRestartProbe -and -not $TeamIdleSlotRestartProbe) {
+    throw '-TeamAllDeadIdleRestartProbe requires -TeamIdleSlotRestartProbe.'
+}
+if ($TeamCorpseReloadProbe -and -not $TeamAllDeadIdleRestartProbe) {
+    throw '-TeamCorpseReloadProbe requires -TeamAllDeadIdleRestartProbe.'
+}
+if ($TeamAllDeadStageOnly -and -not $TeamAllDeadCleanup) {
+    throw '-TeamAllDeadStageOnly requires -TeamAllDeadCleanup.'
+}
+if ($TeamAllDeadMenuCleanupProbe -and (-not $TeamAllDeadCleanup -or $TeamAllDeadStageOnly)) {
+    throw '-TeamAllDeadMenuCleanupProbe requires -TeamAllDeadCleanup without -TeamAllDeadStageOnly.'
+}
+if ($TeamMenuCleanupProbe -and (-not $TeamHandoff -or -not $LeaderRemote -or
+    $TeamAllDeadCleanup -or $TeamRestartStageOnly)) {
+    throw '-TeamMenuCleanupProbe requires a focused remote team handoff run.'
+}
+if ($PerformanceBaselineOnly -and (-not $SplitScreenOnly -or $LeaderSlotOnly -or $TeamHandoff)) {
+    throw '-PerformanceBaselineOnly requires a focused split-screen wrapper with no leader slot.'
+}
+if ($PerformancePopulation -ne 4 -and -not ($PerformanceBaselineOnly -or $TeamPerformanceProbe)) {
+    throw '-PerformancePopulation 8 or 16 requires -PerformanceBaselineOnly or -TeamPerformanceProbe.'
+}
+if ($TeamPerformanceProbe -and (-not $TeamHandoff -or -not $LeaderRemote -or
+    $PerformanceBaselineOnly -or $TeamAllDeadCleanup -or $TeamMenuCleanupProbe)) {
+    throw '-TeamPerformanceProbe requires a focused remote team handoff run.'
+}
+if ($TeamPerformanceRouteProbe -and (-not $TeamHandoff -or -not $LeaderRemote -or
+    -not $TeamWaypointProbe -or -not $TeamExtendedRouteProbe -or
+    -not $TeamExtendedQuietProbe -or
+    $TeamPerformanceProbe -or $PerformanceBaselineOnly -or
+    $PerformancePopulation -ne 4)) {
+    throw '-TeamPerformanceRouteProbe requires a focused quiet four-member extended remote route.'
+}
+if ($TeamPerformanceEncounterProbe -and -not ($TeamPerformanceProbe -or
+    $TeamPerformanceRouteProbe)) {
+    throw '-TeamPerformanceEncounterProbe requires a remote performance probe.'
+}
+if ($TeamLootSurvey -and -not $TeamHandoff) {
+    throw '-TeamLootSurvey requires -TeamHandoff.'
+}
+if ($TeamLootProbe -and -not $TeamLootSurvey) {
+    throw '-TeamLootProbe requires -TeamLootSurvey.'
+}
+if ($TeamLootVerifyOnly -and (-not $LeaderSlotOnly -or $TeamHandoff -or $LeaderRemote)) {
+    throw '-TeamLootVerifyOnly requires -LeaderSlotOnly without an expedition.'
+}
+$validLootToken = $TeamLootVerifyToken -match '^SC-Harness-[0-9]{8}-[0-9]{6}-[a-f0-9]{8}$'
+$validLootType = $TeamLootVerifyItemType -match '^[A-Za-z0-9_.]{1,128}$'
+if ($TeamLootVerifyOnly -and -not ($validLootToken -and $validLootType -and $TeamLootVerifyNativeId -gt 0)) {
+    throw '-TeamLootVerifyOnly requires a prior run token, item type and native id.'
+}
+if ($TeamLootSurvey -and ($TeamRadioFixture -or $TeamWaypointProbe)) {
+    throw '-TeamLootSurvey is a focused remote-container survey.'
+}
+if ($TeamAllDeadCleanup -and -not $TeamHandoff) {
+    throw '-TeamAllDeadCleanup requires -TeamHandoff.'
+}
+if ($TeamRepeatedHandoff -and -not $TeamHandoff) {
+    throw '-TeamRepeatedHandoff requires -TeamHandoff.'
+}
+if ($TeamRadioKitOnly -and (-not $LeaderSlotOnly -or $TeamHandoff -or $LeaderRemote)) {
+    throw '-TeamRadioKitOnly requires -LeaderSlotOnly without an expedition.'
+}
+if ($TeamRadioKitVerifyOnly -and (-not $LeaderSlotOnly -or $TeamHandoff -or $LeaderRemote -or $TeamRadioKitOnly)) {
+    throw '-TeamRadioKitVerifyOnly requires -LeaderSlotOnly without kit provisioning.'
+}
+if ($SplitScreenOnly -ne (-not [string]::IsNullOrWhiteSpace($SplitScreenScreenshot))) {
+    throw '-SplitScreenOnly requires -SplitScreenScreenshot, and that screenshot requires -SplitScreenOnly.'
+}
+if ($ColdRestartHandoff -ne (-not [string]::IsNullOrWhiteSpace($PostHandoffScreenshot))) {
+    throw '-ColdRestartHandoff requires -PostHandoffScreenshot, and that screenshot requires -ColdRestartHandoff.'
+}
+if ($ColdRestartHandoff) {
+    $PostHandoffScreenshot = [System.IO.Path]::GetFullPath($PostHandoffScreenshot)
+    New-Item -ItemType Directory -Path (Split-Path -Parent $PostHandoffScreenshot) -Force | Out-Null
+}
+if ($SplitScreenOnly) {
+    $SplitScreenScreenshot = [System.IO.Path]::GetFullPath($SplitScreenScreenshot)
+    New-Item -ItemType Directory -Path (Split-Path -Parent $SplitScreenScreenshot) -Force | Out-Null
+}
 $captureFactionMap = -not [string]::IsNullOrWhiteSpace($FactionMapScreenshot)
 if ($captureFactionMap) {
     $FactionMapScreenshot = [System.IO.Path]::GetFullPath($FactionMapScreenshot)
@@ -416,6 +745,83 @@ $config = @(
     ('capture_faction_map=' + $captureFactionMap.ToString().ToLowerInvariant()),
     ('faction_map_only=' + $FactionMapOnly.IsPresent.ToString().ToLowerInvariant()),
     ('pathing_only=' + $PathingOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('place_metadata_only=' + $PlaceMetadataOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('split_screen_only=' + $SplitScreenOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('cold_companion_probe=' + $ColdCompanionProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('cold_restart_probe=' + $ColdRestartProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('cold_restart_handoff=' + $ColdRestartHandoff.IsPresent.ToString().ToLowerInvariant()),
+    ('cold_restart_crash_probe=' + $ColdRestartCrashProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('cold_restart_lf_first_crash_probe=' + $ColdRestartLfFirstCrashProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('leader_slot_only=' + $LeaderSlotOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('leader_remote=' + $LeaderRemote.IsPresent.ToString().ToLowerInvariant()),
+    ('leader_remote_offset_x=' + $LeaderRemoteOffsetX),
+    ('leader_remote_offset_y=' + $LeaderRemoteOffsetY),
+    ('team_handoff=' + $TeamHandoff.IsPresent.ToString().ToLowerInvariant()),
+    ('team_radio_fixture=' + $TeamRadioFixture.IsPresent.ToString().ToLowerInvariant()),
+    ('team_radio_placed_probe=' + $TeamRadioPlacedProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_radio_timed_placement_probe=' + $TeamRadioTimedPlacementProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_radio_placed_pickup_probe=' + $TeamRadioPlacedPickupProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_radio_placed_expected_walkie_id=' + $TeamRadioPlacedExpectedWalkieId),
+    ('team_radio_placed_expected_ham_id=' + $TeamRadioPlacedExpectedHamId),
+    ('team_radio_text_probe=' + $TeamRadioTextProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_radio_command_probe=' + $TeamRadioCommandProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_waypoint_probe=' + $TeamWaypointProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_local_travel_probe=' + $TeamLocalTravelProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_local_loot_round_trip_probe=' + $TeamLocalLootRoundTripProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_extended_route_probe=' + $TeamExtendedRouteProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_extended_quiet_probe=' + $TeamExtendedQuietProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_extended_return_probe=' + $TeamExtendedReturnProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_extended_return_resume_probe=' + $TeamExtendedReturnResumeProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_extended_return_source_x=' + $TeamExtendedReturnSourceX),
+    ('team_extended_return_source_y=' + $TeamExtendedReturnSourceY),
+    ('team_corpse_streaming_probe=' + $TeamCorpseStreamingProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_corpse_streaming_reload_probe=' + $TeamCorpseStreamingReloadProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_corpse_stream_verify_x=' + $TeamCorpseStreamVerifyX),
+    ('team_corpse_stream_verify_y=' + $TeamCorpseStreamVerifyY),
+    ('team_autonomous_scout_probe=' + $TeamAutonomousScoutProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_known_place_scout_probe=' + $TeamKnownPlaceScoutProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_unvisited_place_scout_probe=' + $TeamUnvisitedPlaceScoutProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_autonomous_search_probe=' + $TeamAutonomousSearchProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_leader_motion_probe=' + $TeamLeaderMotionProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_unvisited_interior_search_probe=' + $TeamUnvisitedInteriorSearchProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_autonomous_search_stage_only=' + $TeamAutonomousSearchStageOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('team_autonomous_search_resume_probe=' + $TeamAutonomousSearchResumeProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_building_probe=' + $TeamBuildingProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_window_probe=' + $TeamWindowProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_inside_door_probe=' + $TeamInsideDoorProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_door_bash_probe=' + $TeamDoorBashProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_door_bash_auto_probe=' + $TeamDoorBashAutoProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_pursuer_probe=' + $TeamPursuerProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_pursuer_fixture=' + $TeamPursuerFixture.IsPresent.ToString().ToLowerInvariant()),
+    ('team_straggler_probe=' + $TeamStragglerProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_restart_audit_only=' + $TeamRestartAuditOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('team_restart_stage_only=' + $TeamRestartStageOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('team_overlap_probe=' + $TeamOverlapProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_return_release_probe=' + $TeamReturnReleaseProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_return_stage_only=' + $TeamReturnStageOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('team_idle_slot_restart_probe=' + $TeamIdleSlotRestartProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_all_dead_idle_restart_probe=' + $TeamAllDeadIdleRestartProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_corpse_reload_probe=' + $TeamCorpseReloadProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_loot_survey=' + $TeamLootSurvey.IsPresent.ToString().ToLowerInvariant()),
+    ('team_loot_probe=' + $TeamLootProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_loot_verify_only=' + $TeamLootVerifyOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('team_loot_verify_token=' + $TeamLootVerifyToken),
+    ('team_loot_verify_item_type=' + $TeamLootVerifyItemType),
+    ('team_loot_verify_native_id=' + $TeamLootVerifyNativeId),
+    ('team_all_dead_cleanup=' + $TeamAllDeadCleanup.IsPresent.ToString().ToLowerInvariant()),
+    ('team_all_dead_stage_only=' + $TeamAllDeadStageOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('team_all_dead_menu_cleanup_probe=' + $TeamAllDeadMenuCleanupProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_menu_cleanup_probe=' + $TeamMenuCleanupProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('performance_baseline_only=' + $PerformanceBaselineOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('performance_population_target=' + $PerformancePopulation),
+    ('team_performance_probe=' + $TeamPerformanceProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_performance_route_probe=' + $TeamPerformanceRouteProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_performance_encounter_probe=' + $TeamPerformanceEncounterProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_repeated_handoff=' + $TeamRepeatedHandoff.IsPresent.ToString().ToLowerInvariant()),
+    ('team_radio_kit_only=' + $TeamRadioKitOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('team_expedition_ui_probe=' + $TeamExpeditionUiProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_radio_kit_verify_only=' + $TeamRadioKitVerifyOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('leader_watch_ms=' + ($LeaderWatchSeconds * 1000)),
     ('capture_base_layout=' + $captureBaseLayout.ToString().ToLowerInvariant()),
     ('base_layout_only=' + $BaseLayoutOnly.IsPresent.ToString().ToLowerInvariant()),
     ('internal_timeout_ms=' + (($TimeoutSeconds - 15) * 1000))
@@ -444,6 +850,11 @@ $manifest = [ordered]@{
     baseLayoutScreenshot = if ($captureBaseLayout) { $BaseLayoutScreenshot } else { $null }
     baseLayoutOnly = $BaseLayoutOnly.IsPresent
     pathingOnly = $PathingOnly.IsPresent
+    splitScreenOnly = $SplitScreenOnly.IsPresent
+    leaderSlotOnly = $LeaderSlotOnly.IsPresent
+    leaderRemote = $LeaderRemote.IsPresent
+    leaderWatchSeconds = $LeaderWatchSeconds
+    splitScreenScreenshot = if ($SplitScreenOnly) { $SplitScreenScreenshot } else { $null }
     autoCleanup = $false
 }
 [System.IO.File]::WriteAllText((Join-Path $RunRoot 'run-manifest.json'),
@@ -452,6 +863,8 @@ $manifest = [ordered]@{
 $summaryPath = Join-Path $SandboxLua 'summary.txt'
 $eventsPath = Join-Path $SandboxLua 'events.log'
 $consolePath = Join-Path $CacheRoot 'console.txt'
+$performanceActivePath = Join-Path $SandboxLua 'performance-sampling-active.txt'
+$processSamplePath = Join-Path $SandboxLua 'performance-process.csv'
 $factionMapReadyPath = Join-Path $SandboxLua 'faction-map-ready.txt'
 $factionMapVisiblePath = Join-Path $SandboxLua 'faction-map-visible.txt'
 $factionMapCapturedPath = Join-Path $SandboxLua 'faction-map-captured.txt'
@@ -465,8 +878,14 @@ if ($PrepareOnly) {
 }
 
 $argumentLine = '-cachedir="' + $CacheRoot + '" -nosound -novoip -debuglog=+General,+Lua'
-$process = Start-Process -FilePath $gameExe -WorkingDirectory $GameRoot `
-    -ArgumentList $argumentLine -PassThru
+$startOptions = @{
+    FilePath = $gameExe
+    WorkingDirectory = $GameRoot
+    ArgumentList = $argumentLine
+    PassThru = $true
+}
+if ($HiddenWindow) { $startOptions.WindowStyle = 'Hidden' }
+$process = Start-Process @startOptions
 Write-Output "Started real Project Zomboid client test pid=$($process.Id)"
 
 function Stop-OwnedSandboxProcess {
@@ -485,10 +904,32 @@ try {
     $loadingReadyObserved = $false
     $clickAttempts = 0
     $factionMapCaptureCompleted = $false
+    $splitScreenCaptureCompleted = $false
+    $postHandoffCaptureCompleted = $false
+    $crashProbeCompleted = $false
+    $nextProcessSample = [DateTime]::MinValue
     while ([DateTime]::UtcNow -lt $deadline -and -not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
         $process.Refresh()
         if ($process.HasExited) {
             throw "Live sandbox client exited before writing a summary (exit=$($process.ExitCode)). Run retained at $RunRoot"
+        }
+        if (($PerformanceBaselineOnly -or $TeamPerformanceProbe -or
+            $TeamPerformanceRouteProbe) -and
+            (Test-Path -LiteralPath $performanceActivePath -PathType Leaf) -and
+            (Select-String -LiteralPath $performanceActivePath -Pattern '^active=' -Quiet) -and
+            [DateTime]::UtcNow -ge $nextProcessSample) {
+            if (-not (Test-Path -LiteralPath $processSamplePath -PathType Leaf)) {
+                [System.IO.File]::WriteAllText($processSamplePath,
+                    "utc,private_bytes,working_set_bytes,cpu_total_s`n", $utf8NoBom)
+            }
+            $process.Refresh()
+            $cpuText = $process.TotalProcessorTime.TotalSeconds.ToString(
+                'F3', [Globalization.CultureInfo]::InvariantCulture)
+            $sampleLine = '{0},{1},{2},{3}' -f [DateTime]::UtcNow.ToString('o'),
+                $process.PrivateMemorySize64, $process.WorkingSet64, $cpuText
+            [System.IO.File]::AppendAllText($processSamplePath,
+                ($sampleLine + "`n"), $utf8NoBom)
+            $nextProcessSample = [DateTime]::UtcNow.AddSeconds(1)
         }
         if (-not $loadingReadyObserved -and (Test-Path -LiteralPath $consolePath -PathType Leaf)) {
             $loadingReadyObserved = Select-String -LiteralPath $consolePath `
@@ -536,6 +977,34 @@ try {
                 ('captured=true' + [Environment]::NewLine), $utf8NoBom)
             $factionMapCaptureCompleted = $true
         }
+        if ($SplitScreenOnly -and -not $splitScreenCaptureCompleted -and
+            (Test-Path -LiteralPath (Join-Path $SandboxLua 'split-screen-ready.txt') -PathType Leaf)) {
+            Start-Sleep -Milliseconds 1200
+            if (-not (Save-ClientScreenshot $process $SplitScreenScreenshot)) {
+                throw "Could not capture the split-screen client to $SplitScreenScreenshot"
+            }
+            [System.IO.File]::WriteAllText((Join-Path $SandboxLua 'split-screen-captured.txt'),
+                ('captured=true' + [Environment]::NewLine), $utf8NoBom)
+            Write-Output "Captured split-screen screenshot: $SplitScreenScreenshot"
+            $splitScreenCaptureCompleted = $true
+        }
+        if ($ColdRestartHandoff -and -not $postHandoffCaptureCompleted -and
+            (Test-Path -LiteralPath (Join-Path $SandboxLua 'split-restored-ready.txt') -PathType Leaf)) {
+            Start-Sleep -Milliseconds 1200
+            if (-not (Save-ClientScreenshot $process $PostHandoffScreenshot)) {
+                throw "Could not capture the restored companion client to $PostHandoffScreenshot"
+            }
+            [System.IO.File]::WriteAllText((Join-Path $SandboxLua 'split-restored-captured.txt'),
+                ('captured=true' + [Environment]::NewLine), $utf8NoBom)
+            Write-Output "Captured restored companion screenshot: $PostHandoffScreenshot"
+            $postHandoffCaptureCompleted = $true
+        }
+        if (($ColdRestartCrashProbe -or $ColdRestartLfFirstCrashProbe) -and
+            (Test-Path -LiteralPath (Join-Path $SandboxLua 'split-crash-ready.txt') -PathType Leaf)) {
+            Stop-OwnedSandboxProcess $process 'forced_cold_handoff_save_boundary'
+            $crashProbeCompleted = $true
+            break
+        }
         if ($captureBaseLayout -and -not $baseLayoutCaptureCompleted -and
             (Test-Path -LiteralPath (Join-Path $SandboxLua 'base-layout-ready.txt') -PathType Leaf)) {
             # 0x23 is the physical End key, the base layout hotkey's default.
@@ -568,12 +1037,18 @@ try {
         }
         Start-Sleep -Milliseconds 500
     }
-    if (-not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
+    if (-not $crashProbeCompleted -and -not (Test-Path -LiteralPath $summaryPath -PathType Leaf)) {
         throw "Live sandbox test timed out. Run retained at $RunRoot; inspect $consolePath."
     }
 } catch {
     Stop-OwnedSandboxProcess $process 'runner_failure'
     throw
+}
+
+if ($crashProbeCompleted) {
+    Get-Content -LiteralPath $eventsPath -ErrorAction SilentlyContinue
+    Write-Output "LIVE_SANDBOX_FORCED_CRASH run=$runId save=$TargetSave results=$eventsPath"
+    return
 }
 
 $summary = Get-Content -LiteralPath $summaryPath
@@ -596,6 +1071,11 @@ Write-Output "Live console: $consolePath"
 if ($captureFactionMap) {
     Write-Output "Faction map screenshot: $FactionMapScreenshot"
 }
+if ($SplitScreenOnly) { Write-Output "Split-screen screenshot: $SplitScreenScreenshot" }
+if ($PerformanceBaselineOnly -or $TeamPerformanceProbe -or $TeamPerformanceRouteProbe) {
+    Write-Output "Performance samples: $SandboxLua"
+}
+if ($ColdRestartHandoff) { Write-Output "Restored companion screenshot: $PostHandoffScreenshot" }
 if ($status -ne 'PASS') {
     throw "LIVE_SANDBOX_FAIL run=$runId results=$eventsPath"
 }

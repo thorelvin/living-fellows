@@ -462,6 +462,55 @@ local function isItemClass(item, className)
     return ok and result == true
 end
 
+local function captureRadioState(item)
+    if not isItemClass(item, "Radio") then return nil end
+    local dataOk, data = invoke(item, "getDeviceData")
+    if not dataOk or data == nil then return nil, "native radio data is unavailable" end
+    local function required(name)
+        local ok, value = invoke(data, name)
+        if not ok or value == nil then error("radio state is unavailable: " .. name) end
+        return value
+    end
+    local presets = required("getDevicePresets")
+    local entriesOk, entries = invoke(presets, "getPresets")
+    local maxOk, maximum = invoke(presets, "getMaxPresets")
+    if not entriesOk or entries == nil or not maxOk
+        or finite(maximum, nil) == nil then
+        return nil, "native radio presets are unavailable"
+    end
+    maximum = math.floor(finite(maximum, 0))
+    if maximum < 0 or maximum > 64 or listSize(entries) > maximum then
+        return nil, "native radio preset count is invalid"
+    end
+    local saved = {
+        hasBattery = required("getHasBattery") == true,
+        power = finite(required("getPower"), nil),
+        on = required("getIsTurnedOn") == true,
+        channel = finite(required("getChannel"), nil),
+        volume = finite(required("getDeviceVolume"), nil),
+        presets = {},
+    }
+    if saved.power == nil or saved.power < 0 or saved.power > 1
+        or saved.channel == nil or saved.channel ~= math.floor(saved.channel)
+        or saved.volume == nil or saved.volume < 0 or saved.volume > 1 then
+        return nil, "native radio state is invalid"
+    end
+    for index = 0, listSize(entries) - 1 do
+        local entry = listGet(entries, index)
+        local nameOk, name = invoke(entry, "getName")
+        local frequencyOk, frequency = invoke(entry, "getFrequency")
+        if not nameOk or not frequencyOk or type(name) ~= "string"
+            or finite(frequency, nil) == nil then
+            return nil, "native radio preset is invalid"
+        end
+        saved.presets[#saved.presets + 1] = {
+            name = text(name, "", 64),
+            frequency = math.floor(frequency),
+        }
+    end
+    return saved
+end
+
 local function captureFluid(item)
     local fluidOk, fluid = invoke(item, "getFluidContainer")
     if not fluidOk or fluid == nil then return nil end
@@ -796,6 +845,11 @@ local function captureItemCore(item)
     local fluid, fluidReason = captureFluid(item)
     if fluidReason then return nil, fluidReason end
     if fluid then entry.fluid = fluid end
+    if isItemClass(item, "Radio") then
+        local radio, radioReason = captureRadioState(item)
+        if not radio then return nil, radioReason end
+        entry.radio = radio
+    end
     entry.visual = captureItemVisual(item)
     return entry
 end
@@ -1333,6 +1387,8 @@ local function scheduledSubsystemDefinitions()
         { field = "community", owner = SC.Community, depth = 10, entries = 32768 },
         { field = "diaries", owner = SC.Diary, depth = 10, entries = 16384 },
         { field = "tradeRecovery", owner = SC.Trade, depth = 14, entries = 16384 },
+        { field = "expedition", owner = SC.ExpeditionPrototype,
+            depth = 8, entries = 1024 },
     }
 end
 
@@ -2293,6 +2349,9 @@ local function copyInventoryNode(source, context, depth)
     clean.food, copyReason = stableCopy(source.food, 3, 64,
         "$.inventory[].food")
     if copyReason ~= nil then return nil, copyReason end
+    clean.radio, copyReason = stableCopy(source.radio, 4, 256,
+        "$.inventory[].radio")
+    if copyReason ~= nil then return nil, copyReason end
     clean.fluid, copyReason = stableCopy(source.fluid, 4, 128,
         "$.inventory[].fluid")
     if copyReason ~= nil then return nil, copyReason end
@@ -2705,6 +2764,68 @@ local function applyItemVisual(item, saved)
 end
 persistence._applyItemVisualForTests = applyItemVisual
 
+local function applyRadioState(item, saved)
+    if saved == nil then return true end
+    if type(saved) ~= "table" or not isItemClass(item, "Radio")
+        or type(saved.hasBattery) ~= "boolean" or type(saved.on) ~= "boolean"
+        or type(saved.presets) ~= "table" then
+        return false, "saved radio state targets an invalid item"
+    end
+    local power = finite(saved.power, nil)
+    local channel = finite(saved.channel, nil)
+    local volume = finite(saved.volume, nil)
+    if power == nil or power < 0 or power > 1
+        or channel == nil or channel ~= math.floor(channel)
+        or volume == nil or volume < 0 or volume > 1 then
+        return false, "saved radio power, channel or volume is invalid"
+    end
+    local dataOk, data = invoke(item, "getDeviceData")
+    if not dataOk or data == nil then return false, "native radio data is unavailable" end
+    local presetsOk, presets = invoke(data, "getDevicePresets")
+    local maxOk, maximum = invoke(presets, "getMaxPresets")
+    maximum = maxOk and math.floor(finite(maximum, -1)) or -1
+    if not presetsOk or presets == nil or maximum < 0
+        or #saved.presets > maximum then
+        return false, "saved radio presets exceed the native device capacity"
+    end
+    for _, entry in ipairs(saved.presets) do
+        if type(entry) ~= "table" or type(entry.name) ~= "string"
+            or #entry.name > 64 or finite(entry.frequency, nil) == nil
+            or entry.frequency ~= math.floor(entry.frequency) then
+            return false, "saved radio preset is invalid"
+        end
+    end
+    if not invoke(data, "setIsTurnedOn", false)
+        or not invoke(data, "setHasBattery", saved.hasBattery)
+        or not invoke(data, "setPower", power)
+        or not invoke(presets, "clearPresets") then
+        return false, "native radio state could not be initialized"
+    end
+    for _, entry in ipairs(saved.presets) do
+        if not invoke(presets, "addPreset", entry.name, entry.frequency) then
+            return false, "native radio preset could not be restored"
+        end
+    end
+    if not invoke(data, "setChannel", channel)
+        or not invoke(data, "setDeviceVolume", volume)
+        or not invoke(data, "setIsTurnedOn", saved.on) then
+        return false, "native radio settings could not be restored"
+    end
+    local batteryOk, battery = invoke(data, "getHasBattery")
+    local powerOk, actualPower = invoke(data, "getPower")
+    local channelOk, actualChannel = invoke(data, "getChannel")
+    local onOk, actualOn = invoke(data, "getIsTurnedOn")
+    local volumeOk, actualVolume = invoke(data, "getDeviceVolume")
+    if not batteryOk or battery ~= saved.hasBattery
+        or not powerOk or math.abs(finite(actualPower, -1) - power) > 0.001
+        or not channelOk or actualChannel ~= channel
+        or not onOk or actualOn ~= saved.on
+        or not volumeOk or math.abs(finite(actualVolume, -1) - volume) > 0.001 then
+        return false, "native radio state differs after restore"
+    end
+    return true
+end
+
 local function applyItemState(item, entry, restoredKeys, reservedModData)
     if entry.condition ~= nil and not invoke(item, "setCondition",
         math.floor(finite(entry.condition, 0))) then
@@ -2784,6 +2905,8 @@ local function applyItemState(item, entry, restoredKeys, reservedModData)
     end
     local fluidApplied, fluidReason = applyFluid(item, entry.fluid)
     if not fluidApplied then return false, fluidReason end
+    local radioApplied, radioReason = applyRadioState(item, entry.radio)
+    if not radioApplied then return false, radioReason end
     local visualApplied, visualReason = applyItemVisual(item, entry.visual)
     if not visualApplied then return false, visualReason end
     local personal = type(entry.personal) == "table" and entry.personal or nil
@@ -3734,6 +3857,7 @@ function persistence.restore(player)
         factions = "factions", factionWorld = "faction-world", baseLife = "base-life",
         infectionCrisis = "infection-crisis", community = "community",
         diaries = "diary", tradeRecovery = "trade-recovery",
+        expedition = "expedition",
     }
     for _, definition in ipairs(subsystemDefinitions) do
         local raw = candidateDocument[definition.field]
@@ -3829,6 +3953,36 @@ end
 
 function persistence.isPending(id)
     return type(id) == "string" and pending[id] ~= nil
+end
+
+-- A remote expedition cannot recover its leader until native streaming owns
+-- the saved square. Give the loader only the validated tile and survivor
+-- identity needed to request that area; keep the inventory, vitals and raw
+-- pending record under the normal persistence transaction owner.
+function persistence.pendingBootstrap(id)
+    if type(id) ~= "string" then return nil end
+    local entry = pending[id]
+    if entry == nil or entry.vehicle == true or entry.spawnTicket ~= nil
+        or entry.status == "quarantined" then return nil end
+    local saved = entry.record
+    local position = type(saved) == "table" and saved.position or nil
+    local identity = type(saved) == "table" and saved.identity or nil
+    if type(position) ~= "table" or type(identity) ~= "table"
+        or type(identity.forename) ~= "string"
+        or type(identity.surname) ~= "string"
+        or (identity.gender ~= "female" and identity.gender ~= "male") then
+        return nil
+    end
+    local x, y, z = finite(position.x, nil),
+        finite(position.y, nil), finite(position.z, nil)
+    if x == nil or y == nil or z == nil then return nil end
+    return {
+        id = id,
+        x = math.floor(x), y = math.floor(y), z = math.floor(z),
+        forename = identity.forename,
+        surname = identity.surname,
+        female = identity.gender == "female",
+    }
 end
 
 function persistence.pendingSnapshot()

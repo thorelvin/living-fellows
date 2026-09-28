@@ -44,7 +44,17 @@ end
 local function commandState(actor)
     if SC.Commands and type(SC.Commands.peek) == "function" then
         local ok, value = pcall(SC.Commands.peek, actor)
-        if ok and type(value) == "table" then return value end
+        if ok and type(value) == "table" then
+            if SC.ExpeditionPrototype
+                and type(SC.ExpeditionPrototype.testWaypointActiveFor) == "function"
+                and SC.ExpeditionPrototype.testWaypointActiveFor(actor) then
+                local travelling = {}
+                for key, entry in pairs(value) do travelling[key] = entry end
+                travelling.order = "move_to"
+                return travelling
+            end
+            return value
+        end
     end
     return { order = "stay", commandSerial = 0, recruited = false }
 end
@@ -510,7 +520,7 @@ end
 
 local function dirtyBandageActivity(actor)
     if not SC.Medical or type(SC.Medical.assess) ~= "function" then return nil end
-    local assessment = SC.Medical.assess(actor)
+    local assessment = (SC.Medical.assessCached or SC.Medical.assess)(actor)
     -- Change a soiled dressing, or dress a wound that stopped bleeding undressed.
     if assessment and (assessment.dirtyBandages > 0
         or (tonumber(assessment.openWounds) or 0) > 0) then
@@ -1751,7 +1761,6 @@ end
 local function candidates(actor, commands, state, current, desiredKind)
     local utility = U()
     commands = type(commands) == "table" and commands or {}
-    local workMode = commands.workMode or "auto"
     local inventory = utility.inventory(actor)
     local items = utility.inventoryItems(inventory, 100)
     if SC.Logistics and type(SC.Logistics.audit) == "function" then
@@ -1766,41 +1775,35 @@ local function candidates(actor, commands, state, current, desiredKind)
     if activity then filtered[#filtered + 1] = activity end
     activity = washActivity(actor, items, state, current)
     if activity then filtered[#filtered + 1] = activity end
-    if workMode == "craft" then
-        activity = craftActivity(actor, items)
-        if activity then filtered[#filtered + 1] = activity end
-    elseif workMode == "idle" then
-        activity = availableReadActivity(actor, items)
-        if activity then filtered[#filtered + 1] = activity end
-    else
-        activity = repairActivity(actor, items)
-        if activity then filtered[#filtered + 1] = activity end
-        activity = availableReadActivity(actor, items)
-        if activity then filtered[#filtered + 1] = activity end
-        activity = craftActivity(actor, items)
-        if activity then filtered[#filtered + 1] = activity end
-    end
-    if workMode ~= "craft" and (desiredKind == nil or desiredKind == "study_corpse") then
+    -- Older saves may retain a manual idle/craft setting. Quiet activity is
+    -- now chosen by the companion's scored candidates, not that old setting.
+    activity = repairActivity(actor, items)
+    if activity then filtered[#filtered + 1] = activity end
+    activity = availableReadActivity(actor, items)
+    if activity then filtered[#filtered + 1] = activity end
+    activity = craftActivity(actor, items)
+    if activity then filtered[#filtered + 1] = activity end
+    if desiredKind == nil or desiredKind == "study_corpse" then
         activity = Study.activity(actor, commands, state or {}, current)
         if activity then filtered[#filtered + 1] = activity end
     end
-    if workMode ~= "craft" and (desiredKind == nil or desiredKind == "pay_respects") then
+    if desiredKind == nil or desiredKind == "pay_respects" then
         activity = Respect.activity(actor, commands, state or {}, current)
         if activity then filtered[#filtered + 1] = activity end
     end
-    if workMode ~= "craft" and (desiredKind == nil or desiredKind == "workout")
+    if (desiredKind == nil or desiredKind == "workout")
         and SC.Gestures and type(SC.Gestures.workoutActivity) == "function" then
         local ok, workout = pcall(SC.Gestures.workoutActivity, actor, commands, state or {}, current)
         if ok and type(workout) == "table" then filtered[#filtered + 1] = workout end
     end
     -- A private diary entry: SCDiary offers one only when a truthful page is
     -- prepared and the exact book and a pen are carried.
-    if workMode ~= "craft" and (desiredKind == nil or desiredKind == "write_diary")
+    if (desiredKind == nil or desiredKind == "write_diary")
         and SC.Diary and type(SC.Diary.writeActivity) == "function" then
         local ok, writing = pcall(SC.Diary.writeActivity, actor, current)
         if ok and type(writing) == "table" then filtered[#filtered + 1] = writing end
     end
-    if workMode ~= "craft" then
+    do
         local furniture = seatActivity(actor, state, current)
         local seatedTask, seatedTaskScore
         for _, candidate in ipairs(filtered) do
@@ -1934,12 +1937,17 @@ local function failActivity(actor, state, reason, detail)
         -- Remember the exact object long enough for another activity or piece
         -- of furniture to win while the world topology remains unchanged.
         coolFurniture(state, activity.object, U().nowMs())
-        -- A failure normally reflects unavailable/blocked SeatingManager data,
-        -- not one uniquely bad sprite. Stop cycling through every chair in the
-        -- room; during this bounded backoff a tired actor can choose floor rest
-        -- and read/diary activities may continue in the posture they have.
-        state.furnitureBackoffUntil = U().nowMs()
-            + (tonumber(U().config("downtimeFurnitureFailureCooldownMs")) or 60000)
+        -- A blocked approach describes this chair's route, not the other
+        -- chairs in the room. Let the next ordinary downtime pass try a
+        -- different object. Native seating failures can affect every chair,
+        -- so retain the broader backoff for those cases.
+        local routeBlocked = type(reason) == "string"
+            and (string.find(reason, "path_blocked:", 1, true) == 1
+                or reason == "no_interaction_targets")
+        if not routeBlocked then
+            state.furnitureBackoffUntil = U().nowMs()
+                + (tonumber(U().config("downtimeFurnitureFailureCooldownMs")) or 60000)
+        end
     end
     releaseDowntimeResources(actor, state, activity, reason)
     state.nextEvaluationAt = U().nowMs() + (U().config("downtimeIntervalMs") or 1500)
@@ -2827,7 +2835,8 @@ end
 
 function Downtime._furnitureForTests()
     return furnitureKind, seatActivity, approachFurniture, beginActivity,
-        coolFurniture, furnitureCooling, floorRestActivity, seatingStatus
+        coolFurniture, furnitureCooling, floorRestActivity, seatingStatus,
+        failActivity
 end
 
 function Downtime.reset(actor)

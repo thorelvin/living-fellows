@@ -39,6 +39,13 @@ local function nowMs()
     return math.floor(os.clock() * 1000)
 end
 
+local function preciseNowMs()
+    if SC.Performance and type(SC.Performance.preciseNowMs) == "function" then
+        return SC.Performance.preciseNowMs()
+    end
+    return nowMs()
+end
+
 local function rebuildOrder()
     ordered = {}
     for _, task in pairs(tasksByName) do
@@ -68,11 +75,13 @@ local function inferredLane(priority)
 end
 
 local function runnableBefore(left, right)
-    local leftRank = laneRank[left.lane] or 2
-    local rightRank = laneRank[right.lane] or 2
-    if leftRank ~= rightRank then return leftRank > rightRank end
     local leftOverdue = runnableSortNow - (left.nextDue or runnableSortNow)
     local rightOverdue = runnableSortNow - (right.nextDue or runnableSortNow)
+    local leftRank = left.maxDelayMs and leftOverdue >= left.maxDelayMs
+        and 5 or laneRank[left.lane] or 2
+    local rightRank = right.maxDelayMs and rightOverdue >= right.maxDelayMs
+        and 5 or laneRank[right.lane] or 2
+    if leftRank ~= rightRank then return leftRank > rightRank end
     if leftOverdue ~= rightOverdue then return leftOverdue > rightOverdue end
     if left.priority ~= right.priority then return left.priority > right.priority end
     return left.name < right.name
@@ -99,20 +108,28 @@ function scheduler.register(name, interval, priority, callback, options)
     if validLanes[lane] ~= true then
         return false, "scheduler lane must be critical, high, normal, or background"
     end
+    local maxDelayMs = options.maxDelayMs and tonumber(options.maxDelayMs) or nil
+    if options.maxDelayMs ~= nil and (maxDelayMs == nil or maxDelayMs < 1) then
+        return false, "scheduler max delay must be at least one millisecond"
+    end
+    if maxDelayMs then maxDelayMs = math.floor(maxDelayMs) end
     local unchanged = existing ~= nil and existing.interval == math.floor(interval)
         and existing.priority == priority and existing.callback == callback
         and existing.lane == lane
+        and existing.maxDelayMs == maxDelayMs
         and existing.fixedInterval == (options.fixedInterval == true)
     local keepSchedule = existing ~= nil
         and (options.preserveSchedule == true or unchanged)
     tasksByName[name] = {
         name = name,
+        metricName = "scheduler." .. name,
         interval = math.floor(interval),
         priority = priority,
         callback = callback,
         nextDue = keepSchedule and existing.nextDue or nil,
         runs = existing and existing.runs or 0,
         lane = lane,
+        maxDelayMs = maxDelayMs,
         fixedInterval = options.fixedInterval == true,
         reportFailure = options.reportFailure == nil and existing ~= nil
             and existing.reportFailure == true or options.reportFailure == true,
@@ -161,6 +178,7 @@ function scheduler.tick()
     end
 
     local started = nowMs()
+    local startedPrecise = preciseNowMs()
     local budget = SC.Config.get("runtime", "frameBudgetMs")
     if SC.Performance and type(SC.Performance.beginFrame) == "function" then
         SC.Performance.beginFrame(budget, started)
@@ -180,17 +198,18 @@ function scheduler.tick()
     table.sort(runnable, runnableBefore)
 
     for runnableIndex, task in ipairs(runnable) do
-        if current - started >= budget then
+        local elapsed = preciseNowMs() - startedPrecise
+        if elapsed >= budget then
             stats.deferredFrames = stats.deferredFrames + 1
             deferred = true
             break
         end
-        local callbackStarted = nowMs()
+        local callbackStarted = preciseNowMs()
         local ok, result, detail = SC.Diagnostics.guard(task.name, nil,
-            task.callback, current, budget - (current - started))
-        local callbackElapsed = math.max(0, nowMs() - callbackStarted)
+            task.callback, current, budget - elapsed)
+        local callbackElapsed = math.max(0, preciseNowMs() - callbackStarted)
         if SC.Performance and type(SC.Performance.record) == "function" then
-            SC.Performance.record("scheduler." .. task.name, nil, callbackElapsed)
+            SC.Performance.record(task.metricName, nil, callbackElapsed)
         end
         task.runs = task.runs + 1
         stats.callbacks = stats.callbacks + 1
@@ -211,7 +230,7 @@ function scheduler.tick()
             and SC.Performance.intervalScale(task.lane) or 1
         task.nextDue = current + math.max(1, math.floor(task.interval * scale))
     end
-    stats.lastFrameMs = nowMs() - started
+    stats.lastFrameMs = math.max(0, preciseNowMs() - startedPrecise)
     if stats.lastFrameMs > budget then stats.overBudgetFrames = stats.overBudgetFrames + 1 end
     if SC.Performance and type(SC.Performance.endFrame) == "function" then
         SC.Performance.endFrame(stats.lastFrameMs, deferred)

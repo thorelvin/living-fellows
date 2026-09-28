@@ -31,5 +31,9 @@
     "Sandbox_LivingFellows_DiariesEnabled": "Companions keep private diaries",
     "Sandbox_LivingFellows_DiariesEnabled_tooltip": "Some companions carry a diary and, in quiet moments, write short entries about things that really happened to them. Existing diaries and their pages are never removed when this is disabled.",
     "Sandbox_LivingFellows_DiaristChance": "Diary keeper chance",
-    "Sandbox_LivingFellows_DiaristChance_tooltip": "Chance, decided once per recruited companion and saved, that the companion keeps a diary. Changing it never re-decides companions that already had their chance."
+    "Sandbox_LivingFellows_DiaristChance_tooltip": "Chance, decided once per recruited companion and saved, that the companion keeps a diary. Changing it never re-decides companions that already had their chance.",
+    "Sandbox_LivingFellows_ExpeditionDestinationScope": "Expedition destination choices",
+    "Sandbox_LivingFellows_ExpeditionDestinationScope_tooltip": "All nearby includes buildings inferred from map data, even if you have not visited them. Known only lists buildings whose interiors your character has seen. Destinations still need a reachable route before departure.",
+    "Sandbox_LivingFellows_ExpeditionDestinationScope_option1": "All nearby (default)",
+    "Sandbox_LivingFellows_ExpeditionDestinationScope_option2": "Known places only"
 }

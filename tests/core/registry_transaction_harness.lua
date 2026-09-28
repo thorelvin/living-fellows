@@ -239,4 +239,38 @@ do
 end
 
 SC.Registry.reset()
+do
+    local initialVersion = SC.Registry.version()
+    check(SC.Registry.count() == 0 and #SC.Registry.snapshot() == 0,
+        "empty roster has a zero-count sorted snapshot")
+    local later = actorWith()
+    local earlier = actorWith()
+    local laterRecord = SC.Registry.register(later,
+        { id = "sc-roster-b", recruited = true })
+    local earlierRecord = SC.Registry.register(earlier,
+        { id = "sc-roster-a", recruited = true })
+    local snapshot = SC.Registry.snapshot()
+    check(laterRecord ~= nil and earlierRecord ~= nil
+            and SC.Registry.version() > initialVersion
+            and SC.Registry.count() == 2 and #snapshot == 2
+            and snapshot[1] == earlierRecord and snapshot[2] == laterRecord
+            and SC.Registry.snapshot() == snapshot,
+        "versioned roster snapshot is sorted and reused until membership changes")
+    local living = SC.Registry.livingFor(71)
+    check(SC.Registry.livingFor(71) == living
+            and SC.Registry.livingFor(nil) ~= SC.Registry.livingFor(nil),
+        "living list is reused only for a non-nil frame token")
+    earlier.isDead = function() return true end
+    check(SC.Registry.livingFor(72) ~= living
+            and #SC.Registry.livingFor(72) == 1,
+        "next frame refreshes live membership after native death")
+    SC.Registry.unregister(later)
+    local changed = SC.Registry.snapshot()
+    check(changed ~= snapshot and #snapshot == 2 and #changed == 1
+            and changed[1] == earlierRecord and SC.Registry.count() == 1,
+        "unregister publishes a new roster without mutating old list membership")
+    SC.Registry.reset()
+    check(SC.Registry.count() == 0 and #SC.Registry.snapshot() == 0,
+        "reset invalidates roster and clears count")
+end
 print("REGISTRY_TRANSACTION_KAHLUA_PASS checks=" .. tostring(checks))

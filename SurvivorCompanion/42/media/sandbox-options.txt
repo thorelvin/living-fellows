@@ -129,3 +129,13 @@ option LivingFellows.DiaristChance
     page = LivingFellows,
     translation = LivingFellows_DiaristChance,
 }
+
+option LivingFellows.ExpeditionDestinationScope
+{
+    type = enum,
+    numValues = 2,
+    default = 1,
+    page = LivingFellows,
+    translation = LivingFellows_ExpeditionDestinationScope,
+    valueTranslation = LivingFellows_ExpeditionDestinationScope,
+}

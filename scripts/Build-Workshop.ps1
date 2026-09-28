@@ -82,7 +82,7 @@ if ($payloadJars.Count -ne 1 -or $payloadJars[0].FullName -ne $expectedPayloadJa
 $rootMetadata = Get-Content -LiteralPath (Join-Path $Payload 'mod.info') -Raw -Encoding utf8
 $versionMetadata = Get-Content -LiteralPath (Join-Path $Payload '42\mod.info') -Raw -Encoding utf8
 if ($rootMetadata -ne $versionMetadata) { throw 'Root and 42 mod.info files must be identical.' }
-$metadataMatch = [regex]::Match($rootMetadata, '(?m)^modversion=([^\r\n]+)$')
+$metadataMatch = [regex]::Match($rootMetadata, '(?m)^modversion=([^\r\n]+)\r?$')
 if (-not $metadataMatch.Success -or $metadataMatch.Groups[1].Value.Trim() -ne $ReleaseVersion) {
     throw "mod.info version does not match release package version $ReleaseVersion."
 }

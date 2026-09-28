@@ -1101,7 +1101,7 @@ local function auditMedical(base)
             local actor = type(record) == "table" and (record.actor or record) or nil
             local medical
             if actor and SC.Medical and type(SC.Medical.assess) == "function" then
-                local ok, value = pcall(SC.Medical.assess, actor)
+                local ok, value = pcall(SC.Medical.assessCached or SC.Medical.assess, actor)
                 if ok then medical = value end
             end
             if medical and (medical.dirtyBandages or 0) > 0 then

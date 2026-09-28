@@ -525,7 +525,7 @@ local function notRealGear(item)
     return false
 end
 
-function Logistics.canTake(actor, item, category, audit)
+function Logistics.canTake(actor, item, category, audit, requestedCategory)
     if not actor or not item then return false, "invalid_loot" end
     if notRealGear(item) then return false, "not_real_gear" end
     audit = audit or Logistics.audit(actor)
@@ -549,6 +549,15 @@ function Logistics.canTake(actor, item, category, audit)
     end
     local target = dynamicTarget(audit, category, actor)
     if target <= 0 or (audit.counts[category] or 0) >= target then
+        -- A finite expedition request can exceed this survivor's personal
+        -- loadout target. The request never overrides the real carry limit.
+        if requestedCategory ~= nil and requestedCategory == category then
+            if audit.capacity > 0 and audit.weight + U().itemWeight(item)
+                > audit.capacity * audit.hardRatio then
+                return false, "loadout_too_heavy"
+            end
+            return true, "expedition_supply"
+        end
         -- The base always has a use for more nails, planks, thread and tape,
         -- so crafting stock is not capped by a per-role target the way a third
         -- axe is. Weight caps it instead, and at the soft ratio rather than the
@@ -619,7 +628,7 @@ end
 
 local function untreatedInjury(actor)
     if SC.Medical == nil or type(SC.Medical.assess) ~= "function" then return false, false end
-    local ok, assessment = pcall(SC.Medical.assess, actor)
+    local ok, assessment = pcall(SC.Medical.assessCached or SC.Medical.assess, actor)
     if not ok or type(assessment) ~= "table" then return false, false end
     -- Field names are Medical.assess's own: bleedingCount counts parts that
     -- are bleeding and NOT already bandaged, so it is exactly "needs a bandage
@@ -673,7 +682,10 @@ end
 function Logistics.itemNeedScore(actor, item, commands, audit)
     audit = audit or Logistics.audit(actor)
     local category = Logistics.itemCategory(item)
-    local accepted, reason = Logistics.canTake(actor, item, category, audit)
+    local requestedCategory = type(commands) == "table"
+        and commands.scavengeRequestedCategory or nil
+    local accepted, reason = Logistics.canTake(
+        actor, item, category, audit, requestedCategory)
     if not accepted then return 0, category end
     local target = math.max(1, dynamicTarget(audit, category, actor))
     local held = audit.counts[category] or 0
@@ -684,6 +696,9 @@ function Logistics.itemNeedScore(actor, item, commands, audit)
     local tier = Logistics.needTier(actor, category, audit, held >= target)
     local score = tier + 22 + deficit * 64
         + ((roleWeights[audit.role] or {})[category] or 0)
+    if requestedCategory ~= nil and requestedCategory == category then
+        score = math.max(score, TIER.useful + 20)
+    end
     -- Crafting material is always worth the space it takes. The base can
     -- always use nails, planks, thread and tape, and a companion that walks
     -- past them because nobody is short of anything today is how a workshop

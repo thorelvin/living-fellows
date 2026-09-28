@@ -66,8 +66,10 @@ final class SCExposure {
         // enum alongside the narrow bridge instead of relying on an absent
         // stock Kahlua global.
         Class<?> attackType = Class.forName("zombie.AttackType", false, loader);
+        Class<?> nativeRadio = Class.forName("zombie.radio.ZomboidRadio", false, loader);
         for (Class<?> type : new Class<?>[] {
-                SCBridge.class, SCNativeCompanion.class, attackType }) {
+                SCBridge.class, SCNativeCompanion.class,
+                SCSplitScreenProbe.class, attackType, nativeRadio }) {
             setExposed.invoke(exposer, type);
             expose.invoke(exposer, type, environment);
         }

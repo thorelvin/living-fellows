@@ -47,6 +47,26 @@ do
 end
 
 do
+    -- A heavy critical callback cannot keep the visible panel from receiving
+    -- a bounded slice. Ordinary background work retains its original order.
+    SC.Scheduler.reset(true)
+    local decisionRuns, uiRuns = 0, 0
+    SC.Scheduler.register("heavy-decision", 1, 100, function()
+        decisionRuns = decisionRuns + 1
+        clock = clock + 5
+    end, { lane = "critical" })
+    SC.Scheduler.register("visible-ui", 50, 20, function()
+        uiRuns = uiRuns + 1
+    end, { lane = "background", fixedInterval = true, maxDelayMs = 150 })
+    for _ = 1, 20 do
+        SC.Scheduler.tick()
+        clock = clock + 16
+    end
+    check(decisionRuns > 0 and uiRuns > 0,
+        "an overdue UI slice runs despite a repeatedly over-budget decision")
+end
+
+do
     SC.Scheduler.reset(true)
     SC.Diagnostics.reset()
     SC.Diagnostics.disable("skip-task", nil, "fixture circuit")
@@ -117,6 +137,39 @@ for _, companionCount in ipairs({ 1, 4, 8, 16 }) do
         tostring(companionCount) .. " companion nominal profile stays inside budget")
 end
 
+do
+    SC.Performance.reset()
+    for elapsed = 1, 200 do
+        SC.Performance.beginFrame(2, clock)
+        SC.Performance.record("ring-window", nil, elapsed)
+        clock = clock + 1
+        SC.Performance.endFrame(elapsed, false)
+    end
+    local snapshot = SC.Performance.snapshot()
+    local ringMetric
+    for _, metric in ipairs(snapshot.topSystems) do
+        if metric.key == "ring-window" then ringMetric = metric break end
+    end
+    check(snapshot.frameSamples == 120 and snapshot.lastFrameMs == 200
+            and snapshot.p50FrameMs == 140 and snapshot.p95FrameMs == 194
+            and ringMetric and ringMetric.recentSamples == 120
+            and ringMetric.p95Ms == 194,
+        "the rolling profiler keeps the newest 120 samples and their last-frame value")
+    local originalWindow = SC.Config._values.performanceSampleWindow
+    SC.Config._values.performanceSampleWindow = 16
+    for elapsed = 201, 216 do
+        SC.Performance.beginFrame(2, clock)
+        SC.Performance.record("ring-window", nil, elapsed)
+        clock = clock + 1
+        SC.Performance.endFrame(elapsed, false)
+    end
+    local resized = SC.Performance.snapshot()
+    SC.Config._values.performanceSampleWindow = originalWindow
+    check(resized.frameSamples == 16 and resized.lastFrameMs == 216
+            and resized.p50FrameMs == 208 and resized.p95FrameMs == 216,
+        "changing the profiler window discards old ring values and keeps new percentiles")
+end
+
 SC.Performance.reset()
 for _ = 1, 360 do
     SC.Performance.beginFrame(2, clock)
@@ -130,9 +183,9 @@ check(SC.Performance.intervalScale("background") > 1,
     "background work slows down under sustained load")
 
 do
-    -- UI/persistence slices are already bounded internally. Their 50 ms pulse
-    -- must remain stable under load while lane ordering still keeps them behind
-    -- due critical/high work.
+    -- Fixed background slices keep their 50 ms pulse under load; ordinary
+    -- background work still sheds load. The panel's optional max delay is
+    -- exercised separately above.
     local fixedRuns, scaledRuns = 0, 0
     SC.Scheduler.register("fixed-background", 50, 2,
         function() fixedRuns = fixedRuns + 1 end,
@@ -152,6 +205,8 @@ do
 end
 
 SC.Performance.record("perception", "actor-profile", 1, 72, false)
+SC.Performance.record("tick.pre-scheduler", nil, 0.375)
+SC.Performance.record("tick.total", nil, 1.625)
 SC.Performance.markYield("navigation", "actor-profile", 64)
 local report, snapshot = SC.Performance.summary()
 check(type(report) == "string" and string.find(report, "Top systems", 1, true) ~= nil,
@@ -161,6 +216,10 @@ check(#snapshot.topSystems > 0 and #snapshot.topActors > 0,
 check(#snapshot.topActors == 1 and snapshot.topActors[1].key == "actor-profile"
         and snapshot.topActors[1].yielded == 1,
     "per-companion metrics aggregate work and yields across subsystems")
+check(snapshot.wholeTick.p95Ms == 1.625
+        and snapshot.preSchedulerTick.p95Ms == 0.375
+        and string.find(report, "Whole mod tick", 1, true) ~= nil,
+    "whole-tick and pre-scheduler durations stay visible outside top-system truncation")
 
 SC.Performance.cachePut("test", "square", "cached", 75, clock)
 check(SC.Performance.cacheGet("test", "square", clock + 50) == "cached",
@@ -213,5 +272,10 @@ check(cacheStats.entries == 0 and cacheStats.expired > 0
 
 SC.Performance._setClock(nil)
 SC.Scheduler._setClock(nil)
+local priorBridge = rawget(_G, "SCBridge")
+_G.SCBridge = { nowMsPrecise = function() return 123.375 end }
+check(SC.Performance.preciseNowMs() == 123.375,
+    "duration clock preserves sub-millisecond values from the bridge")
+_G.SCBridge = priorBridge
 print("PERFORMANCE_SCALABILITY_PASS checks=" .. tostring(checks)
     .. " companions=1,4,8,16 critical-latency=preserved")

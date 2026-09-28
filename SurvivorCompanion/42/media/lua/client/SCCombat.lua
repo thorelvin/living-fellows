@@ -3,6 +3,12 @@
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
+if not SC.InventoryIndex and type(require) == "function" then
+    pcall(require, "SCInventoryIndex")
+end
+if not SC.ZombieFacts and type(require) == "function" then
+    pcall(require, "SCZombieFacts")
+end
 
 SC.Combat = SC.Combat or {}
 local Combat = SC.Combat
@@ -89,6 +95,7 @@ local function equipWeapon(actor, item, options)
     service.complete(token, "weapon_equipped", {
         weapon = U().itemName(item), preference = options.preference,
     })
+    if SC.InventoryIndex then SC.InventoryIndex.touch(actor) end
     return true, "weapon_equipped"
 end
 
@@ -156,7 +163,13 @@ local function commandState(actor)
     local commands = SC.Commands
     if type(commands) == "table" and type(commands.peek) == "function" then
         local ok, value = pcall(commands.peek, actor)
-        if ok and type(value) == "table" then return value end
+        if ok and type(value) == "table" then
+            if SC.ExpeditionPrototype
+                and type(SC.ExpeditionPrototype.effectiveDoctrineFor) == "function" then
+                return SC.ExpeditionPrototype.effectiveDoctrineFor(actor, value)
+            end
+            return value
+        end
     end
     return {
         combatMode = "defensive",
@@ -1050,23 +1063,27 @@ function Combat.holdNativeAttack(actor, runtime)
     return true, "attack_in_progress"
 end
 
-local function inventoryWeapons(actor)
+local function inventoryWeapons(actor, indexEntry)
     local utility = U()
     local result = {}
+    local index = SC.InventoryIndex
+    local entry = indexEntry or (index and index.get(actor))
     local primary, primaryOk = utility.call(actor, "getPrimaryHandItem")
     if primaryOk and primary then
         local record = weaponRecord(primary)
         if record then record.equipped = true result[#result + 1] = record end
     end
     local inventory = utility.inventory(actor)
-    for _, item in ipairs(utility.inventoryItemsDeep(inventory,
-        utility.config("combatInventoryScanLimit") or 240)) do
+    local items = entry and entry.weapons
+        or utility.inventoryItemsDeep(inventory,
+            utility.config("combatInventoryScanLimit") or 240)
+    for _, item in ipairs(items) do
         if item ~= primary then
             local record = weaponRecord(item)
             if record then result[#result + 1] = record end
         end
     end
-    return result, inventory
+    return result, inventory, entry
 end
 
 -- Tolerate a module prefix difference (e.g. "Base.M9Clip" vs "M9Clip") when
@@ -1078,7 +1095,14 @@ local function ammoTypeMatches(candidateType, wantedType)
     return short(candidateType) == short(wantedType)
 end
 
-local function hasReloadAmmo(inventory, weapon)
+local function ammoShortType(itemType)
+    if itemType == nil then return nil end
+    local value = tostring(itemType)
+    if value == "" then return nil end
+    return string.match(value, "%.([%w_]+)$") or value
+end
+
+local function hasReloadAmmo(inventory, weapon, indexEntry)
     local utility = U()
     if not inventory or not weapon or not weapon.ranged then return false end
     local item = weapon.item
@@ -1094,6 +1118,21 @@ local function hasReloadAmmo(inventory, weapon)
     ammoType = ammoType ~= nil and tostring(ammoType) or nil
     if (magType == nil or magType == "") and (ammoType == nil or ammoType == "") then
         return false
+    end
+    local index = SC.InventoryIndex
+    local entry = indexEntry or (index and index.forInventory(inventory))
+    if entry and entry.inventory == inventory then
+        local magKey = ammoShortType(magType)
+        if magKey ~= nil then
+            for _, candidate in ipairs(entry.itemsByType[magKey] or {}) do
+                local countValue = select(1, utility.call(candidate,
+                    "getCurrentAmmoCount"))
+                if (tonumber(countValue) or 0) > 0 then return true end
+            end
+        end
+        local ammoKey = ammoShortType(ammoType)
+        return ammoKey ~= nil and ammoKey ~= magKey
+            and (entry.itemCountByType[ammoKey] or 0) > 0
     end
     for _, candidate in ipairs(utility.inventoryItemsDeep(inventory,
         utility.config("combatInventoryScanLimit") or 240)) do
@@ -1114,11 +1153,11 @@ end
 -- something useful with it. Empty firearms without compatible ammunition used
 -- to suppress carried melee weapons; broken weapons could win for the same
 -- reason. A jammed firearm remains operational because unjamming is an action.
-local function weaponUsableNow(inventory, weapon)
+local function weaponUsableNow(inventory, weapon, indexEntry)
     if not weapon or (tonumber(weapon.condition) or 0) <= 0 then return false end
     if not weapon.ranged then return true end
     return weapon.jammed == true or (tonumber(weapon.ammo) or 0) > 0
-        or hasReloadAmmo(inventory, weapon)
+        or hasReloadAmmo(inventory, weapon, indexEntry)
 end
 
 -- How many weapons the companion is carrying, and how many of those could be
@@ -1126,10 +1165,10 @@ end
 -- "never picked one up" and "carrying a broken axe or an empty rifle".
 function Combat.weaponAvailability(actor)
     local ok, carried, usable = pcall(function()
-        local weapons, inventory = inventoryWeapons(actor)
+        local weapons, inventory, entry = inventoryWeapons(actor)
         local fit = 0
         for _, weapon in ipairs(weapons) do
-            if weaponUsableNow(inventory, weapon) then fit = fit + 1 end
+            if weaponUsableNow(inventory, weapon, entry) then fit = fit + 1 end
         end
         return #weapons, fit
     end)
@@ -1137,14 +1176,14 @@ function Combat.weaponAvailability(actor)
     return carried, usable
 end
 
-local function chooseWeapon(actor, preference, distance, pressure)
-    local weapons, inventory = inventoryWeapons(actor)
+local function chooseWeapon(actor, preference, distance, pressure, indexEntry)
+    local weapons, inventory, entry = inventoryWeapons(actor, indexEntry)
     local preferredAvailable = false
     if preference == "melee" or preference == "quiet" or preference == "firearm" then
         for _, weapon in ipairs(weapons) do
             local matches = (preference == "firearm" and weapon.ranged)
                 or ((preference == "melee" or preference == "quiet") and not weapon.ranged)
-            if matches and weaponUsableNow(inventory, weapon) then
+            if matches and weaponUsableNow(inventory, weapon, entry) then
                 preferredAvailable = true
                 break
             end
@@ -1152,7 +1191,7 @@ local function chooseWeapon(actor, preference, distance, pressure)
     end
     local best, bestScore
     for _, weapon in ipairs(weapons) do
-        if weaponUsableNow(inventory, weapon) then
+        if weaponUsableNow(inventory, weapon, entry) then
             local score = weapon.score
             local matchesPreference = (preference == "firearm" and weapon.ranged)
                 or ((preference == "melee" or preference == "quiet") and not weapon.ranged)
@@ -1171,7 +1210,7 @@ local function chooseWeapon(actor, preference, distance, pressure)
             if not bestScore or score > bestScore then best, bestScore = weapon, score end
         end
     end
-    return best, inventory
+    return best, inventory, entry
 end
 
 local function weaponDistanceBand(distance)
@@ -1180,15 +1219,22 @@ local function weaponDistanceBand(distance)
 end
 
 local function responsiveWeapon(actor, state, preference, distance, pressure, snapshot, now)
+    local index = SC.InventoryIndex
+    local indexEntry = index and index.get(actor) or nil
     local snapshotTime = tonumber(snapshot and snapshot.reflexTime)
         or tonumber(snapshot and snapshot.time)
-    if snapshotTime == nil then return chooseWeapon(actor, preference, distance, pressure) end
+    if indexEntry == nil and snapshotTime == nil then
+        return chooseWeapon(actor, preference, distance, pressure)
+    end
     local primary = select(1, U().call(actor, "getPrimaryHandItem"))
     local distanceBand = weaponDistanceBand(distance)
     local pressureBand = pressure >= 3 and 3 or (pressure >= 2 and 2 or 1)
     local cache = state.weaponCache
     if type(cache) == "table" and now < (cache.expires or 0)
-        and cache.snapshotTime == snapshotTime and cache.preference == preference
+        and ((indexEntry ~= nil and cache.indexEntry == indexEntry)
+            or (indexEntry == nil and cache.indexEntry == nil
+                and cache.snapshotTime == snapshotTime))
+        and cache.preference == preference
         and cache.distanceBand == distanceBand and cache.pressureBand == pressureBand
         and cache.primary == primary then
         state.weaponCacheHits = (state.weaponCacheHits or 0) + 1
@@ -1196,14 +1242,16 @@ local function responsiveWeapon(actor, state, preference, distance, pressure, sn
         local current = weaponRecord(cache.item)
         if current and current.condition > 0 and current.ammo == cache.ammo
             and current.jammed == cache.jammed
-            and weaponUsableNow(cache.inventory, current) then
+            and weaponUsableNow(cache.inventory, current, indexEntry) then
             current.equipped = primary == cache.item
             return current, cache.inventory
         end
     end
     state.weaponCacheMisses = (state.weaponCacheMisses or 0) + 1
-    local weapon, inventory = chooseWeapon(actor, preference, distance, pressure)
+    local weapon, inventory = chooseWeapon(actor, preference, distance,
+        pressure, indexEntry)
     state.weaponCache = {
+        indexEntry = indexEntry,
         snapshotTime = snapshotTime,
         preference = preference,
         distanceBand = distanceBand,
@@ -1382,6 +1430,7 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
         designation = nil
     end
     local liveSightRadius = utility.config("combatLiveSightRadius") or 2.5
+    local actorX, actorY, actorZ = utility.position(actor)
     for index = 1, math.min(#snapshot.threats, utility.config("perceptionThreatLimit") or 32) do
         local threat = snapshot.threats[index]
         -- Treat the snapshot as a bounded candidate list. Native LOS is checked
@@ -1393,19 +1442,39 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
         local sightCandidate = (threat.visible ~= false and threat.obstructed ~= true)
             or threat.attacking == true or threat.breaching == true
             or (tonumber(threat.distanceSq) or math.huge) <= liveSightRadius * liveSightRadius
-        if threat.actor and not utility.isGoneTarget(threat.actor) and sightCandidate
-            and utility.sameFloor(actor, threat.actor) then
+        local facts, nativeZombie, gone, sameFloor = nil, false, true, false
+        if sightCandidate and threat.actor then
+            facts = SC.ZombieFacts and SC.ZombieFacts.get(threat.actor) or nil
+            nativeZombie = facts and facts.zombie == true
+            if nativeZombie then
+                gone = facts.gone
+                sameFloor = actorZ ~= nil and facts.z ~= nil
+                    and math.floor(actorZ) == math.floor(facts.z)
+            else
+                gone = utility.isGoneTarget(threat.actor)
+                sameFloor = utility.sameFloor(actor, threat.actor)
+            end
+        end
+        if threat.actor and not gone and sightCandidate and sameFloor then
             local record = utility.copyShallow(threat)
-            record.square = utility.squareOf(threat.actor)
+            record.square = nativeZombie and facts.square
+                or utility.squareOf(threat.actor)
             -- Perception snapshots are timestamped and may be up to one scan old.
             -- Use them only as the bounded candidate list: close-combat spacing must
             -- use current geometry or a moving zombie makes the motor alternate
             -- between approach and backstep. Untimestamped synthetic snapshots keep
             -- their explicit distance so external/unit callers retain that contract.
+            local currentDistanceSq
+            if nativeZombie and actorX ~= nil and facts.x ~= nil then
+                local dx, dy = actorX - facts.x, actorY - facts.y
+                local dz = (actorZ or 0) - (facts.z or 0)
+                currentDistanceSq = dx * dx + dy * dy + dz * dz * 9
+            else
+                currentDistanceSq = utility.distanceSq(actor, threat.actor)
+            end
             record.distanceSq = tonumber(snapshot.time) ~= nil
-                and utility.distanceSq(actor, threat.actor)
-                or tonumber(threat.distanceSq)
-                or utility.distanceSq(actor, threat.actor)
+                and currentDistanceSq or tonumber(threat.distanceSq)
+                or currentDistanceSq
             record.distance = math.sqrt(record.distanceSq)
             record.visible = true
             record.obstructed = false
@@ -1584,8 +1653,10 @@ end
 
 local function medicalPressure(actor)
     local medical = SC.Medical
-    if type(medical) == "table" and type(medical.assess) == "function" then
-        local ok, assessment = pcall(medical.assess, actor)
+    local assess = type(medical) == "table"
+        and (medical.assessCached or medical.assess) or nil
+    if type(assess) == "function" then
+        local ok, assessment = pcall(assess, actor, nil, 100)
         if ok and type(assessment) == "table" then
             return assessment, assessment.bleedingCount * 0.8
                 + math.max(0, 45 - assessment.health) / 15
@@ -2593,6 +2664,14 @@ end
 -- zombie with no safe stomp from suppressing a viable swing at a standing one.
 local function selectViablePair(actor, player, snapshot, scored, commands, state,
         now, preference, preferredTarget)
+    local performance = SC.Performance
+    local weaponMs, readinessMs, actionsMs = 0, 0, 0
+    local function recordPairPhases()
+        if not performance then return end
+        performance.record("combat.pair-weapon", nil, weaponMs)
+        performance.record("combat.pair-readiness", nil, readinessMs)
+        performance.record("combat.pair-actions", nil, actionsMs)
+    end
     local targets, seen = {}, setmetatable({}, { __mode = "k" })
     local hardCap = math.max(1,
         math.floor(tonumber(U().config("combatTargetActionHardCap")) or 8))
@@ -2645,8 +2724,11 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
             local band = weaponDistanceBand(distance)
             local selection = weaponByBand[band]
             if selection == nil then
+                local phaseStarted = performance and performance.preciseNowMs()
                 local selected, items = responsiveWeapon(actor, state, preference, distance,
                     Combat._engagementPressure(snapshot), snapshot, now)
+                if phaseStarted then weaponMs = weaponMs
+                    + performance.preciseNowMs() - phaseStarted end
                 selection = { weapon = selected, inventory = items }
                 weaponByBand[band] = selection
             end
@@ -2655,11 +2737,17 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
         local readinessKey = weapon and weapon.item or "unarmed"
         local readiness = readinessByWeapon[readinessKey]
         if readiness == nil then
+            local phaseStarted = performance and performance.preciseNowMs()
             readiness = Combat.readiness(actor, snapshot, weapon, commands)
+            if phaseStarted then readinessMs = readinessMs
+                + performance.preciseNowMs() - phaseStarted end
             readinessByWeapon[readinessKey] = readiness
         end
+        local phaseStarted = performance and performance.preciseNowMs()
         local actions = actionUtilities(actor, player, snapshot, target, weapon,
             inventory, commands, readiness)
+        if phaseStarted then actionsMs = actionsMs
+            + performance.preciseNowMs() - phaseStarted end
         local useful = false
         for _, action in ipairs(actions) do
             if commands.combatDoctrine == "weapons_free"
@@ -2694,7 +2782,7 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
         return a.score > b.score
     end)
     local best = pairs[1]
-    if best == nil then return nil end
+    if best == nil then recordPairPhases() return nil end
 
     -- Target commitment applies only among viable pairs. It may stabilize a
     -- close contest, but it cannot preserve a target whose only action vanished.
@@ -2720,6 +2808,7 @@ local function selectViablePair(actor, player, snapshot, scored, commands, state
                 or (U().config("combatMeleeCommitMs") or 650))
         state.targetCommitUntil = now + commitMs
     end
+    recordPairPhases()
     return best
 end
 
@@ -3410,10 +3499,17 @@ function Combat.update(actor, player, runtime)
     -- different zombie must not redirect the current swing or revive old input.
     local swingHeld, swingReason = Combat.holdNativeAttack(actor, rootRuntime)
     if swingHeld ~= nil then return swingHeld, swingReason end
+    local performance = SC.Performance
+    local phaseStarted = performance and performance.preciseNowMs()
     local scored = Combat.scoreTargets(actor, player, snapshot, state.target)
+    if phaseStarted then performance.record("combat.score-targets", nil,
+        performance.preciseNowMs() - phaseStarted) end
     addNearbyGrounded(actor, scored)
+    phaseStarted = performance and performance.preciseNowMs()
     local followUpHandled, followUpReason = tryShoveFollowUp(
         actor, state, snapshot, now, commands)
+    if phaseStarted then performance.record("combat.shove-followup", nil,
+        performance.preciseNowMs() - phaseStarted) end
     if followUpReason == "native_combat_stop_failed" then return false, followUpReason end
     if followUpHandled then
         state.active = true
@@ -3503,8 +3599,11 @@ function Combat.update(actor, player, runtime)
     if seated and commands.combatDoctrine == "weapons_free" then
         preference = "firearm"
     end
+    phaseStarted = performance and performance.preciseNowMs()
     local weapon, inventory = responsiveWeapon(actor, state, preference, distance,
         Combat._engagementPressure(snapshot), snapshot, now)
+    if phaseStarted then performance.record("combat.responsive-weapon", nil,
+        performance.preciseNowMs() - phaseStarted) end
     if seated then
         clearAimPreparation(state)
         local ok, reason = vehicleCombat(
@@ -3525,7 +3624,10 @@ function Combat.update(actor, player, runtime)
         return ok, reason
     end
     local wasOverrun = type(state.overrun) == "table" and state.overrun.overrun == true
+    phaseStarted = performance and performance.preciseNowMs()
     local overrun = tacticalAssessment(actor, state, snapshot, target, weapon, commands, now)
+    if phaseStarted then performance.record("combat.tactical-assessment", nil,
+        performance.preciseNowMs() - phaseStarted) end
     rootRuntime.combatOverrun = overrun
     rootRuntime.combatOverrunCause = overrun.cause
     rootRuntime.combatReadiness = overrun.readiness
@@ -3601,8 +3703,11 @@ function Combat.update(actor, player, runtime)
         return false, "passive"
     end
 
+    phaseStarted = performance and performance.preciseNowMs()
     local pair = selectViablePair(actor, player, snapshot, scored, commands, state,
         now, preference, target)
+    if phaseStarted then performance.record("combat.select-pair", nil,
+        performance.preciseNowMs() - phaseStarted) end
     if not pair then return false, "no_viable_target_action" end
     target, weapon, inventory = pair.target, pair.weapon, pair.inventory
     local readiness = pair.readiness or overrun.readiness
@@ -3753,6 +3858,7 @@ function Combat.reset(actor)
     if actor then
         return Combat.releaseActor(actor)
     else
+        if SC.InventoryIndex then SC.InventoryIndex.reset() end
         if SC.NativeActions and type(SC.NativeActions.resetCombatEvents) == "function" then
             SC.NativeActions.resetCombatEvents(nil)
         end
@@ -3766,6 +3872,7 @@ end
 
 function Combat.releaseActor(actor)
     if actor == nil then return false end
+    if SC.InventoryIndex then SC.InventoryIndex.release(actor) end
     local affected = {}
     for owner, state in pairs(states) do
         if owner == actor or state.target == actor or state.engagementTarget == actor

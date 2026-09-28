@@ -18,6 +18,7 @@ public class IsoGridSquare {
     public int getY() { return 0; }
     public int getZ() { return 0; }
     public ArrayList<IsoMovingObject> getMovingObjects() { return null; }
+    public ArrayList<IsoMovingObject> getStaticMovingObjects() { return null; }
     public ArrayList<IsoObject> getSpecialObjects() { return null; }
     public boolean isBlockedTo(IsoGridSquare other) { return false; }
     public boolean isSomethingTo(IsoGridSquare other) { return false; }

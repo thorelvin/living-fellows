@@ -1,8 +1,9 @@
-Living Fellows 0.25.30 - public playtest
+Living Fellows 0.26.1 - public playtest
 
 Persistent companions, survivor households and living bases for Project
-Zomboid Build 42.20.4. Single-player only: multiplayer and split-screen are
-refused so they cannot corrupt a save.
+Zomboid Build 42.20.4. Single-player only: multiplayer and user-added
+split-screen players are refused. Experimental expeditions temporarily show
+their companion leader in a second local view.
 
 INSTALL
 Workshop: requires ZombieBuddy 2.3.3 or newer. Subscribe to it, complete its
@@ -15,7 +16,11 @@ Back up your save before a long session.
 GETTING STARTED
 - Press Home to open the companion panel, or click the small LF launcher.
 - Meet a survivor, select them in the panel and choose Recruit.
-- Orders sets follow/stay/guard, movement, combat doctrine and work policy.
+- Orders sets follow/stay/guard, movement, combat doctrine and scavenging.
+- Expeditions plans a mission from an existing squad. Select the leader,
+  nearby location, task, time to turn home and combat style. Departure needs
+  no radio; remote Return immediately needs powered, equipped walkie-talkies
+  on the player and leader, tuned to the same channel.
 - Hold Left bracket to peek through the selected companion and Right bracket
   to steer them toward the mouse; both keys are rebindable. Right-click a
   nearby companion to Watch, and right-click again to Stop watching.

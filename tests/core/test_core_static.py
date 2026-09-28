@@ -61,7 +61,8 @@ require("SC.Actor.validateNative(record.actor)" in runtime,
         "runtime does not remove a native companion that fails its health gate")
 require("SC.Community.noteCompanionDeath" in runtime
         and runtime.index("SC.Community.noteCompanionDeath")
-        < runtime.index("SC.Actor.retireDead(record.actor)"),
+        < runtime.rindex("finishNativeDeath(record)")
+        and "SC.Actor.retireDead(record.actor)" in runtime,
         "grief must be recorded once while the dead actor and nearby witnesses still exist")
 require("SC.ViewControl.update" in runtime
         and 'resetModule("view control", SC.ViewControl, "reset")' in runtime,
@@ -405,7 +406,8 @@ require(sandbox_options.is_file() and sandbox_translation.is_file(),
 sandbox_text = sandbox_options.read_text(encoding="utf-8")
 for option in ("EncountersEnabled", "EncounterFrequency", "MaxCompanions",
                "CompanionNeedsRate", "HouseholdSpawnsEnabled", "HouseholdDailyChance",
-               "MaxHouseholds", "UIOpacity", "ShowCompanionNames"):
+               "MaxHouseholds", "UIOpacity", "ShowCompanionNames",
+               "ExpeditionDestinationScope"):
     require(f"option LivingFellows.{option}" in sandbox_text,
             f"sandbox option missing: {option}")
 require("debugSpawnEnabled" not in sandbox_text and "Debug" not in sandbox_text,

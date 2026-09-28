@@ -52,7 +52,7 @@ do
         EncountersEnabled = false, EncounterFrequency = 4, MaxCompanions = 9,
         CompanionNeedsRate = 0.75, HouseholdSpawnsEnabled = false,
         HouseholdDailyChance = 17, MaxHouseholds = 1, UIOpacity = 0.44,
-        ShowCompanionNames = false,
+        ShowCompanionNames = false, ExpeditionDestinationScope = 2,
     } }
     local refreshed = SC.Config.refreshSandbox()
     check(refreshed and SC.Config.get("productionEncounterEnabled") == false
@@ -63,12 +63,14 @@ do
         and SC.Config.get("factionDailySpawnChancePercent") == 17
         and SC.Config.get("factionMaxHouseholds") == 1
         and SC.Config.get("uiPanelOpacity") == 0.44
-        and SC.Config.get("companionNameLabels") == false,
+        and SC.Config.get("companionNameLabels") == false
+        and SC.Config.get("expeditionDestinationScope") == "known_only",
         "sandbox options override the single canonical runtime configuration")
     SandboxVars = priorSandbox
     SC.Config.refreshSandbox()
     check(SC.Config.get("maxCompanions") == 16 and SC.Config.get("factionMaxHouseholds") == 3
-        and SC.Config.get("companionNameLabels") == true,
+        and SC.Config.get("companionNameLabels") == true
+        and SC.Config.get("expeditionDestinationScope") == "all_nearby",
         "sandbox refresh clears stale overrides when no options are available")
 end
 

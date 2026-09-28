@@ -2,6 +2,13 @@
 
 # Changelog
 
+## 0.26.1 - Expedition playtest
+
+- Added an experimental Expeditions tab using configured squads. Choose an actual companion as leader, a nearby target building, Scout or Search, requested supplies, time before turning home, and a mission combat style. The leader occupies a second local view while the squad travels; departure does not require a radio.
+- Added **Return immediately** to the player's equipped radio during an outbound mission. A powered, tuned radio on both the player and leader is required, and the order takes effect only when the native leader-side transmission is received. The active card does not reveal unseen team position or health.
+- Companions now select safe downtime activities themselves. The Orders tab no longer has an Idle/Craft selector; legacy saved values do not suppress reading, rest, repair, or crafting. The playtest also improves movement ownership during scavenging and other short actions, and adds alternate approach positions for vehicle doors and blocked seats. Native vehicle boarding and the visible chair pose still need live checks.
+- This is a playtest build. A three-member squad launched and accepted a radio return order in a disposable Riverside save, but departure from the crowded gas station was intermittent. A complete distant return, full team movement, and the remaining expedition acceptance gates are still unverified. Use a disposable save for expeditions.
+
 ## 0.25.30 - They load in wearing their own clothes
 
 - Restored companions are now built with nothing on, so the only clothes you ever see them in are their own. 0.25.28 tried to hide them instead and did not work: the flag it used controls building alarms and the stats panel, not whether a character is drawn, so the group still loaded in wearing the survivor factory's outfits and changed in front of you. The factory's clothes are now taken off at the instant the companion is created, before it has been drawn once, and the saved ones go on immediately afterwards. A newly recruited companion still keeps the outfit it was created in -- it has no other.

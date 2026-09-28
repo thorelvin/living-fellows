@@ -55,6 +55,23 @@ assert(#rows == 2, "only living recruited companions belong on the minimap")
 assert(rows[1].name == "Alice" and rows[1].id == "joined-alice")
 assert(rows[2].name == "Daryl" and rows[2].id == "joined-daryl")
 
+local viewer = {}
+getSpecificPlayer = function(index) return index == 0 and viewer or nil end
+SurvivorCompanion.ExpeditionPrototype = {
+    isMember = function(actor)
+        return actor == fixture.records[1].actor
+            or actor == fixture.records[4].actor
+    end,
+    playerCanObserve = function(actor, player)
+        assert(player == viewer, "map visibility uses the local player's sight")
+        return actor == fixture.records[4].actor
+    end,
+}
+rows = Map.rows()
+assert(#rows == 1 and rows[1].id == "joined-daryl",
+    "the map hides an unseen expedition member but retains a visible one")
+SurvivorCompanion.ExpeditionPrototype = nil
+
 local map = {
     width = 180,
     height = 120,

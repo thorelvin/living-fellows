@@ -27,6 +27,7 @@ import zombie.chat.ChatElement;
 import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoDirections;
+import zombie.iso.objects.IsoDeadBody;
 import zombie.pathfind.PathFindBehavior2;
 import zombie.pathfind.PolygonalMap2;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
@@ -38,6 +39,31 @@ import zombie.core.skinnedmodel.animation.AnimationTrack;
 /** A non-local human actor backed by Build 42's complete player character runtime. */
 public final class SCNativeCompanion extends IsoPlayer {
     public static final int RESERVED_NON_LOCAL_PLAYER_INDEX = 3;
+    private volatile boolean bridgeCoopLeaderForProbe;
+    private volatile boolean coldBootstrapHiddenForProbe;
+
+    void hideColdBootstrapForProbe() {
+        coldBootstrapHiddenForProbe = true;
+        setSceneCulled(true);
+    }
+
+    int bridgeExpectedPlayerIndex() {
+        return bridgeCoopLeaderForProbe ? 1 : RESERVED_NON_LOCAL_PLAYER_INDEX;
+    }
+
+    boolean isCoopLeaderForProbe() {
+        return bridgeCoopLeaderForProbe;
+    }
+
+    void markCoopLeaderForProbe() {
+        bridgeCoopLeaderForProbe = true;
+        playerIndex = 1;
+    }
+
+    void unmarkCoopLeaderForProbe() {
+        bridgeCoopLeaderForProbe = false;
+        playerIndex = RESERVED_NON_LOCAL_PLAYER_INDEX;
+    }
     private static final Method GENERIC_CHARACTER_UPDATE = resolveGenericCharacterUpdate();
     private static final Method PLAYER_VEHICLE_UPDATE = resolvePlayerVehicleUpdate();
     private static final Method PLAYER_ACTION_GROUP_CHECK = resolvePlayerActionGroupCheck();
@@ -65,6 +91,8 @@ public final class SCNativeCompanion extends IsoPlayer {
     private volatile String bridgeFailure = "";
     private volatile boolean bridgeDeathStarted;
     private volatile boolean corpseReady;
+    private volatile IsoDeadBody bridgeCorpse;
+    private volatile boolean bridgeCorpseListedAtCallback;
     private volatile boolean bridgeMoving;
     private volatile boolean bridgeMoveRequested;
     private volatile boolean bridgePathActive;
@@ -106,6 +134,9 @@ public final class SCNativeCompanion extends IsoPlayer {
     // companion wall-climb submission below; it is cleared before Lua regains
     // control and never makes the actor a split-screen/local-player singleton.
     private volatile boolean bridgeWallClimbOutcomeContext;
+    // Only the synchronous native radio dispatch below may expose the
+    // receiver to WaveSignalDevice's local-player text callback.
+    private volatile boolean bridgeRadioTextContext;
     // Inherited contextual-action submissions refused for this non-local actor.
     private volatile long bridgeSuppressedContextualActions;
     private volatile String bridgeLastSuppressedContextualAction = "";
@@ -183,7 +214,14 @@ public final class SCNativeCompanion extends IsoPlayer {
         // and real-JAR probes), not only the ordinary spawn request.
         descriptor.setVoicePrefix(descriptor.isFemale() ? "VoiceFemale" : "VoiceMale");
         descriptor.setInstance(this);
-        addOnDiedListener((character, body) -> corpseReady = body != null, false);
+        addOnDiedListener((character, body) -> {
+            bridgeCorpse = body;
+            var square = body == null ? null : body.getSquare();
+            bridgeCorpseListedAtCallback = square != null
+                    && square.getStaticMovingObjects() != null
+                    && square.getStaticMovingObjects().contains(body);
+            corpseReady = body != null;
+        }, false);
     }
 
     /**
@@ -233,7 +271,22 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     @Override
     public boolean isLocalPlayer() {
-        return bridgeWallClimbOutcomeContext;
+        return bridgeWallClimbOutcomeContext || bridgeRadioTextContext;
+    }
+
+    void beginCompanionRadioTextContext() {
+        if (bridgeRadioTextContext || bridgeWallClimbOutcomeContext) {
+            throw new IllegalStateException("companion local callback context is already active");
+        }
+        bridgeRadioTextContext = true;
+    }
+
+    void endCompanionRadioTextContext() {
+        bridgeRadioTextContext = false;
+    }
+
+    boolean isCompanionRadioTextContextActive() {
+        return bridgeRadioTextContext;
     }
 
     /** Kahlua-safe diagnostic view of the otherwise unexposed ActionContext. */
@@ -778,7 +831,7 @@ public final class SCNativeCompanion extends IsoPlayer {
                 // recoverable frames (same policy as update()) instead of tearing
                 // the companion down -- a health-gate naked respawn.
                 boolean repaired = localState.restore();
-                playerIndex = RESERVED_NON_LOCAL_PLAYER_INDEX;
+                playerIndex = bridgeExpectedPlayerIndex();
                 serverPlayerIndex = -1;
                 setNpc(true);
                 long now = System.nanoTime();
@@ -801,7 +854,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             // A clean standalone pass mutated only non-local state. Reassert the
             // non-local identity and restore the local player's slots/singleton/
             // camera, undoing any player-indexed ownership the vanilla pass borrowed.
-            playerIndex = RESERVED_NON_LOCAL_PLAYER_INDEX;
+            playerIndex = bridgeExpectedPlayerIndex();
             serverPlayerIndex = -1;
             setNpc(true);
             if (!localState.restore()) {
@@ -1988,6 +2041,7 @@ public final class SCNativeCompanion extends IsoPlayer {
             // stops ticking. Force full opacity after the generic update so the
             // companion is both visible and fully simulated.
             setAlphaAndTarget(1.0f);
+            if (coldBootstrapHiddenForProbe) setSceneCulled(true);
             applyCompanionAim();
             refreshCompanionSpeech();
             if (getVehicle() == null) applyBridgeMovement();
@@ -2000,7 +2054,7 @@ public final class SCNativeCompanion extends IsoPlayer {
         } catch (RuntimeException | LinkageError failure) {
             genericUpdateActive = false;
             boolean repaired = localState.restore();
-            playerIndex = RESERVED_NON_LOCAL_PLAYER_INDEX;
+            playerIndex = bridgeExpectedPlayerIndex();
             serverPlayerIndex = -1;
             // Local-player ownership is safe again (restored above). If this is a
             // transient hiccup, skip the rest of this frame and retry next tick
@@ -2022,13 +2076,13 @@ public final class SCNativeCompanion extends IsoPlayer {
         firstUpdateFailureNanos = 0L;
 
         // A generic character update must never borrow local-player ownership.
-        boolean actorStateIntact = playerIndex == RESERVED_NON_LOCAL_PLAYER_INDEX
+        boolean actorStateIntact = playerIndex == bridgeExpectedPlayerIndex()
                 && serverPlayerIndex == -1 && isNpc();
         boolean slotsIntact = localState.slotsMatch();
         boolean ownersIntact = localState.ownersMatch();
         boolean repaired = localState.restore();
         if (!actorStateIntact || !slotsIntact || !ownersIntact || !repaired) {
-            playerIndex = RESERVED_NON_LOCAL_PLAYER_INDEX;
+            playerIndex = bridgeExpectedPlayerIndex();
             serverPlayerIndex = -1;
             setNpc(true);
             disableBridge("native update isolation failure: actor=" + actorStateIntact
@@ -2798,6 +2852,15 @@ public final class SCNativeCompanion extends IsoPlayer {
 
     public boolean isCorpseReady() {
         return corpseReady;
+    }
+
+    /** The exact native corpse delivered by the game's death callback. */
+    public IsoDeadBody getCompanionCorpse() {
+        return bridgeCorpse;
+    }
+
+    public boolean wasCompanionCorpseListedAtCallback() {
+        return bridgeCorpseListedAtCallback;
     }
 
     public void disableBridge(String reason) {

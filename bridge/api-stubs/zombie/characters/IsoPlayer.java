@@ -10,6 +10,7 @@ public class IsoPlayer extends IsoLivingCharacter {
     public static int numPlayers = 1;
     public int playerIndex;
     public int serverPlayerIndex;
+    public int sqlId = -1;
     protected boolean isPlayerMoving;
     private boolean initiateAttack;
     private boolean attackStarted;

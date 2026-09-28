@@ -9,6 +9,7 @@ SC.Call = SC.Call or {}
 local Call = SC.Call
 local unpackFn = table.unpack or unpack
 local methodCache = {}
+local missingMethodCache = {}
 local staticCache = {}
 local nativeCallTracer = nil
 
@@ -25,9 +26,9 @@ local function unindexable(object)
         and getmetatable(object) == nil
 end
 
--- Kahlua exposes one stable metatable per Java class. Cache only successful
--- Java lookups: Lua fixtures may install instance-specific functions, and a
--- missing Java method may become available after a bridge exposure generation.
+-- Kahlua exposes one stable metatable per Java class. Lua fixtures may install
+-- instance-specific functions, so only Java lookups are cached. A bridge
+-- exposure generation resets both successful and missing-method entries.
 local function resolveMethod(object, name)
     if object == nil then return false, "object unavailable" end
     if type(object) ~= "table" then
@@ -36,9 +37,20 @@ local function resolveMethod(object, name)
             local byName = methodCache[metatable]
             local cached = byName and byName[name] or nil
             if cached ~= nil then return true, cached, true end
+            local missing = missingMethodCache[metatable]
+            if missing and missing[name] then
+                return false, "method unavailable: " .. tostring(name)
+            end
             local lookupOk, callback = pcall(lookupMember, object, name)
             if not lookupOk then return false, tostring(callback) end
             if type(callback) ~= "function" then
+                if type(object) ~= "string" then
+                    if missing == nil then
+                        missing = {}
+                        missingMethodCache[metatable] = missing
+                    end
+                    missing[name] = true
+                end
                 return false, "method unavailable: " .. tostring(name)
             end
             if byName == nil then
@@ -56,6 +68,10 @@ local function resolveMethod(object, name)
         return false, "method unavailable: " .. tostring(name)
     end
     return true, callback, false
+end
+
+function Call.resolve(object, name)
+    return resolveMethod(object, name)
 end
 
 local function resolveStatic(object, name)
@@ -90,6 +106,10 @@ end
 
 local function traceNative(name, isNative)
     if isNative and nativeCallTracer ~= nil then nativeCallTracer(name) end
+end
+
+function Call.traceResolved(name, isNative)
+    traceNative(name, isNative)
 end
 
 function Call.pack(...)
@@ -179,6 +199,7 @@ end
 
 function Call.resetMethodCache()
     methodCache = {}
+    missingMethodCache = {}
     staticCache = {}
     return true
 end

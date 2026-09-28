@@ -561,16 +561,28 @@ end
 local candidateDeltas = {
     { 0, 0 }, { -1, 0 }, { 1, 0 }, { 0, 1 }, { 0, -1 },
     { -1, 1 }, { 1, 1 }, { -1, -1 }, { 1, -1 },
+    -- Three followers cannot always fit in the immediate 3x3 ring when
+    -- personal-space checks keep them apart. Search the next ring before
+    -- reporting no formation target and leaving the rear member behind.
+    { -2, 0 }, { 2, 0 }, { 0, -2 }, { 0, 2 },
+    { -2, -1 }, { -2, 1 }, { 2, -1 }, { 2, 1 },
+    { -1, -2 }, { 1, -2 }, { -1, 2 }, { 1, 2 },
+    { -2, -2 }, { 2, -2 }, { -2, 2 }, { 2, 2 },
 }
 
 local function availableTarget(actor, x, y, z, snapshot, minimum, predicate)
     local utility = U()
     local current = utility.nowMs()
     sweepReservations(current)
-    local start = (utility.stableHash(utility.idOf(actor)) % (#candidateDeltas - 1)) + 2
+    local hash = utility.stableHash(utility.idOf(actor))
+    local start = (hash % 8) + 2
     local ordered = { candidateDeltas[1] }
-    for offset = 0, #candidateDeltas - 2 do
-        ordered[#ordered + 1] = candidateDeltas[((start - 2 + offset) % (#candidateDeltas - 1)) + 2]
+    for offset = 0, 7 do
+        ordered[#ordered + 1] = candidateDeltas[((start - 2 + offset) % 8) + 2]
+    end
+    local outerCount = #candidateDeltas - 9
+    for offset = 0, outerCount - 1 do
+        ordered[#ordered + 1] = candidateDeltas[10 + ((hash + offset) % outerCount)]
     end
     for _, delta in ipairs(ordered) do
         local square = utility.gridSquare(x + delta[1], y + delta[2], z)
@@ -711,7 +723,14 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     local mode = clearOpenFormation and current >= (state.trailModeUntil or 0)
         and "open" or "trail"
     local target, portal, followTrack, interceptPosition
-    if mode == "trail" then
+    if commands.expeditionCohesionHold == true then
+        -- A held expedition cannot resume while a follower is parked at an
+        -- old breadcrumb more than eight tiles from the stationary leader.
+        -- Bring that follower to a free square beside the leader; Navigation
+        -- still validates every intervening door, window, and hazard.
+        mode = "regroup"
+        target = availableTarget(actor, px, py, pz, snapshot, minimum)
+    elseif mode == "trail" then
         local trail = leaderState.trail or {}
         if #trail >= 2 and (leaderState.totalDistance or 0) >= 0.35 then
             local lag = desiredDistance == 1

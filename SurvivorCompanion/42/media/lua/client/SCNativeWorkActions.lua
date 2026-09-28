@@ -9,6 +9,7 @@ local context
 
 local productionActions = {
     chop_tree = "chopTree",
+    bash_door = "bashDoor",
     saw_logs = "sawLogs",
     dig_grave = "digGrave",
     bury_body = "buryBody",

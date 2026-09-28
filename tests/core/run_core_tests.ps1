@@ -130,6 +130,8 @@ try {
         (Join-Path $Client 'SCScheduler.lua'),
         (Join-Path $Client 'SCPersistence.lua'),
         (Join-Path $Client 'SCGameplayUtil.lua'),
+        (Join-Path $Client 'SCInventoryIndex.lua'),
+        (Join-Path $Client 'SCZombieFacts.lua'),
         (Join-Path $Client 'SCBaseObjectRef.lua'),
         (Join-Path $Client 'SCBaseLife.lua'),
         (Join-Path $Client 'SCLocomotion.lua'),
@@ -158,6 +160,23 @@ try {
             (Join-Path $TestRoot 'view_control_harness.lua')
         )
         Add-ScJvmStep 'view-control' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $viewControlFiles 'Companion Peek camera-control harness failed.'
+
+        $expeditionRestartFiles = @(
+            (Join-Path $Client 'SCExpeditionPrototype.lua'),
+            (Join-Path $TestRoot 'expedition_restart_harness.lua')
+        )
+        Add-ScJvmStep 'expedition-restart' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionRestartFiles 'Expedition restart and casualty-return harness failed.'
+
+        $expeditionPlacesFiles = @(
+            (Join-Path $Shared 'SCNamespace.lua'),
+            (Join-Path $Shared 'SCCall.lua'),
+            (Join-Path $Shared 'SCNativeList.lua'),
+            (Join-Path $Shared 'SCConfig.lua'),
+            (Join-Path $TestRoot 'expedition_places_fixture.lua'),
+            (Join-Path $Client 'SCExpeditionPlaces.lua'),
+            (Join-Path $TestRoot 'expedition_places_harness.lua')
+        )
+        Add-ScJvmStep 'expedition-places' @('-cp', "$BuildRoot;$Jar", 'KahluaTestRunner') $expeditionPlacesFiles 'Expedition place lookup harness failed.'
 
         $steeringFiles = @(
             (Join-Path $TestRoot 'core_fixture.lua'),

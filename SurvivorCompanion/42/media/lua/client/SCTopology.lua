@@ -250,8 +250,39 @@ function Topology.objectOpen(object)
     return ok and value == true
 end
 
-function Topology.actorCanUnlock(actor, object)
+-- IsoDoor.ToggleDoorActual clears its ordinary lock when an IsoPlayer opens
+-- from either interior room sharing the door, unless the sprite is forceLocked.
+-- The planner passes its prospective approach square; traversal passes the
+-- square the companion has actually reached. IsoThumpable doors do not use
+-- this native inside rule.
+function Topology.doorOpensFromInside(actor, object, fromSquare)
+    if not U().instanceOf(actor, "IsoPlayer")
+        or not U().instanceOf(object, "IsoDoor") then return false end
+    if callBoolean(object, "isPermaLocked") or callBoolean(object, "isLockedByCode") then
+        return false
+    end
+    local code, codeKnown = U().call(object, "getLockedByCode")
+    if codeKnown and type(code) == "number" and code > 0 then return false end
+    local side = fromSquare or U().squareOf(actor)
+    local room, roomKnown = U().call(side, "getRoom")
+    if not roomKnown or room == nil then return false end
+    local properties, propertiesKnown = U().call(object, "getProperties")
+    if not propertiesKnown or properties == nil then return false end
+    local forceLocked, forceKnown = U().call(properties, "has", "forceLocked")
+    if not forceKnown or forceLocked == true then return false end
+    local data = U().modData(object)
+    if type(data) == "table" and data.CustomLock == true then return false end
+    local owner, ownerKnown = U().call(object, "getSquare")
+    local opposite, oppositeKnown = U().call(object, "getOppositeSquare")
+    if not ownerKnown or not oppositeKnown then return false end
+    local ownerRoom = select(1, U().call(owner, "getRoom"))
+    local oppositeRoom = select(1, U().call(opposite, "getRoom"))
+    return room == ownerRoom or room == oppositeRoom
+end
+
+function Topology.actorCanUnlock(actor, object, fromSquare)
     if actor == nil or object == nil then return false end
+    if Topology.doorOpensFromInside(actor, object, fromSquare) then return true end
     if callBoolean(object, "isPermaLocked") or callBoolean(object, "isLockedByCode") then
         return false
     end
@@ -262,6 +293,16 @@ function Topology.actorCanUnlock(actor, object)
     local inventory = U().inventory(actor)
     local key, hasKey = U().call(inventory, "haveThisKeyId", keyId)
     return hasKey and key ~= nil and key ~= false
+end
+
+function Topology.doorBashable(object, tool)
+    if not U().instanceOf(object, "IsoDoor")
+        or not U().instanceOf(tool, "HandWeapon")
+        or callBoolean(tool, "isBroken") then return false end
+    local index, indexKnown = U().call(object, "getObjectIndex")
+    local health, healthKnown = U().call(object, "getHealth")
+    return indexKnown and tonumber(index) ~= nil and tonumber(index) >= 0
+        and healthKnown and tonumber(health) ~= nil and tonumber(health) > 0
 end
 
 function Topology.objectLocked(object)
@@ -709,7 +750,23 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
             result.reason = "door_obstructed" return result
         end
         if Topology.objectLocked(object) and not Topology.objectOpen(object)
-            and not Topology.actorCanUnlock(actor, object) then
+            and not Topology.actorCanUnlock(actor, object, fromSquare) then
+            local targetRoom = options.doorBashTargetRoom
+            local targetBoundary = targetRoom == nil
+                or (select(1, U().call(toSquare, "getRoom")) == targetRoom
+                    and select(1, U().call(fromSquare, "getRoom")) ~= targetRoom)
+            if options.allowDoorBash == true and targetBoundary
+                and Topology.doorBashable(object, options.doorBashTool) then
+                result.bashDoor = true
+                -- A sealed-room certificate has already ruled out every
+                -- ordinary entry. Keep the real destructive work, but avoid
+                -- expanding a county of cheaper A-star nodes first.
+                result.cost = targetRoom and 3 or 45
+                result.requiresNative = true
+                result.traversable = true
+                result.reason = "door_bash_required"
+                return result
+            end
             result.reason = "door_locked" return result
         end
         result.cost = Topology.objectOpen(object) and 1 or 2.2
@@ -722,7 +779,16 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
         end
         local climbable, verified = verifiedClimbability(object, actor)
         if not verified then result.reason = "window_climbability_unknown" return result end
-        if not climbable then result.reason = "window_not_climbable" return result end
+        -- Build 42's IsoWindow.canClimbThrough() returns false while an intact
+        -- window is shut, even when opening or smashing it is the next native
+        -- action. Keep only concrete, verified IsoWindows eligible for that
+        -- preparation; after the state changes, recheck actual climbability.
+        local intactClosed = not Topology.objectOpen(object)
+            and not Topology.windowSmashed(object)
+        local canPrepare = intactClosed and U().instanceOf(object, "IsoWindow")
+        if not climbable and not canPrepare then
+            result.reason = "window_not_climbable" return result
+        end
         result.cost = Topology.objectOpen(object) and 2.5
             or (Topology.windowSmashed(object) and 4 or 5)
         result.requiresNative = true
@@ -772,6 +838,10 @@ local function classifyEdgeCached(actor, fromSquare, toSquare, options)
     options = type(options) == "table" and options or {}
     local policy = (options.allowHazards == true and "hazards:" or "safe:")
         .. (options.ignoreSafehouse == true and "public" or "permission")
+        .. (options.allowDoorBash == true
+            and ":bash:" .. tostring(options.doorBashTool)
+                .. ":room:" .. tostring(options.doorBashTargetRoom)
+            or ":ordinary")
     local owner = actor or false
     local actors = readBatch.edges
     actors[owner] = actors[owner] or {}

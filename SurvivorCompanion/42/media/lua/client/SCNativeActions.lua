@@ -120,6 +120,8 @@ local ropeActions = { climb_sheet_rope = true, climb_down_sheet_rope = true }
 local visualActionSpecs = {
     loot_container = { animation = "Loot", event = "EventLootItem", lootPosition = "", ticks = 90,
         sound = "RummageInInventory" },
+    remove_broken_glass = { animation = "Loot", event = "EventLootItem",
+        lootPosition = "Mid", ticks = 100, sound = "RemoveBrokenGlass" },
     kneel_treat = { animation = "Bandage", animationEnum = true,
         event = "EventBandage", ticks = 100, sound = "FirstAidApplyBandage" },
     rip_clothing_for_bandage = { animation = "Craft", animationEnum = true, ticks = 120,
@@ -404,6 +406,13 @@ local function setWeaponReady(actor, enabled, target)
     end
     if enabled then return true, "weapon_ready" end
     return true, heldWeapon(actor) and "weapon_lowered" or "unarmed_ready_skipped"
+end
+
+-- Navigation may need to release a stale aiming pose before its normal
+-- movement tick reaches the stuck detector. This changes posture only; the
+-- shared navigation request continues to own route and locomotion.
+function actions.lowerWeaponForNavigation(actor)
+    return setWeaponReady(actor, false)
 end
 
 local function leaveFurniture(actor)
@@ -1183,6 +1192,9 @@ local function visualActionClass()
         endActionSounds(self, true)
         endFitnessPose(self)
         if self.reading then invoke(self.character, "setReading", false) end
+        if SC.InventoryIndex and type(SC.InventoryIndex.touch) == "function" then
+            SC.InventoryIndex.touch(self.character)
+        end
         ISBaseTimedAction.perform(self)
     end
 
@@ -1403,6 +1415,14 @@ local function startVerifiedVisual(actor, actionName, intent, provider)
         startedAt = nowMs(),
     }
     return true, "visual_timed_action_started:" .. actionName
+end
+
+-- Traversal owns the portal and commits glass removal only after this
+-- effect-free native pose has completed. This is the same Loot/Mid animation
+-- vanilla ISRemoveBrokenGlass uses.
+function actions.startGlassRemovalVisual(actor, window, provider)
+    return startVerifiedVisual(actor, "remove_broken_glass",
+        { faceTarget = window }, provider)
 end
 
 local function nativeListSize(list)
@@ -2208,6 +2228,10 @@ local function taggedWorkTool(actor, supplied, tagName)
     return foundOk and found or nil
 end
 
+function actions.doorBashTool(actor)
+    return taggedWorkTool(actor, nil, "CHOP_TREE")
+end
+
 local function newJavaList(values)
     local listClass = type(_G) == "table" and rawget(_G, "ArrayList") or nil
     if type(listClass) ~= "table" and type(listClass) ~= "userdata" then return nil end
@@ -2281,6 +2305,59 @@ local function startChopTree(actor, intent, provider)
         return false, tostring(timedAction)
     end
     return queueTrackedWork(actor, timedAction, record, "chop_tree")
+end
+
+-- The stock axe action sends a real ChopTree animation event for each swing.
+-- IsoDoor implements the same WeaponHit contract as a tree, so it owns door
+-- health, breakage, sound and weapon wear. This is deliberately an explicit
+-- action; route selection decides whether bashing is justified.
+local function startBashDoor(actor, intent, provider)
+    local door = intent.door or intent.object
+    if door == nil or not SC.GameplayUtil.instanceOf(door, "IsoDoor") then
+        return false, "bash target is not a native door"
+    end
+    local handled, reason = useProvider(provider, "bashDoor", actor, door, intent)
+    if handled ~= nil then return handled, reason end
+    if not provider.directNative then return false, reason end
+    local indexOk, index = invoke(door, "getObjectIndex")
+    local healthOk, health = invoke(door, "getHealth")
+    local openOk, open = invoke(door, "IsOpen")
+    local barricadedOk, barricaded = invoke(door, "isBarricaded")
+    local obstructedOk, obstructed = invoke(door, "isObstructed")
+    if not indexOk or tonumber(index) == nil or tonumber(index) < 0
+        or not healthOk or tonumber(health) == nil or tonumber(health) <= 0
+        or openOk and open == true
+        or barricadedOk and barricaded == true
+        or obstructedOk and obstructed == true then
+        return false, "door is no longer a bashable barrier"
+    end
+    local actorSquare = SC.GameplayUtil.squareOf(actor)
+    local ownerSquare = select(2, invoke(door, "getSquare"))
+    local oppositeSquare = select(2, invoke(door, "getOppositeSquare"))
+    if actorSquare == nil or not (SC.GameplayUtil.sameSquare(actorSquare, ownerSquare)
+        or SC.GameplayUtil.sameSquare(actorSquare, oppositeSquare)) then
+        return false, "door_not_adjacent"
+    end
+    local topology = SC.Topology
+    if type(topology) ~= "table"
+        or type(topology.objectLocked) ~= "function"
+        or type(topology.actorCanUnlock) ~= "function"
+        or not topology.objectLocked(door)
+        or topology.actorCanUnlock(actor, door, SC.GameplayUtil.squareOf(actor)) then
+        return false, "door_opens_normally"
+    end
+    local tool = taggedWorkTool(actor, intent.tool, "CHOP_TREE")
+    if tool == nil then return false, "companion needs an unbroken axe" end
+    local twoOk, twoHanded = invoke(tool, "isTwoHandWeapon")
+    local record, prepareReason = prepareWorkInventory(actor, { tool }, tool,
+        (twoOk and twoHanded == true) and tool or nil)
+    if not record then return false, prepareReason end
+    local created, timedAction = pcall(ISChopTreeAction.new, ISChopTreeAction, actor, door)
+    if not created then
+        restoreWorkInventory(actor, record)
+        return false, tostring(timedAction)
+    end
+    return queueTrackedWork(actor, timedAction, record, "bash_door")
 end
 
 local function startSawLogs(actor, intent, provider)
@@ -3885,6 +3962,7 @@ SC.NativeWorkActions.configure({
     dismantle = startDismantle,
     needs = startNeedsAction,
     chopTree = startChopTree,
+    bashDoor = startBashDoor,
     sawLogs = startSawLogs,
     digGrave = startDigGrave,
     buryBody = startBuryBody,

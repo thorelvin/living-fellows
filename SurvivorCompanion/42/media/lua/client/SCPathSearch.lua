@@ -223,9 +223,14 @@ function PathSearch.resume(job, expansionQuota, slice)
                 job.closed[bestKey] = true
                 job.expanded = job.expanded + 1
                 used = used + 1
+                -- Production neighbors can supply keys from the coordinates
+                -- already used for grid lookup. Other adapters keep the
+                -- square-only contract and use key() below.
+                local neighbors, neighborKeys =
+                    adapter.neighbors(node.square, job.goalSquare, job.options)
                 job.pendingExpansion = {
                     key = bestKey, node = node, index = 1,
-                    neighbors = adapter.neighbors(node.square, job.goalSquare, job.options) or {},
+                    neighbors = neighbors or {}, neighborKeys = neighborKeys,
                 }
             end
         else
@@ -238,7 +243,9 @@ function PathSearch.resume(job, expansionQuota, slice)
                 -- Advance only after remembering the edge being processed; a
                 -- resumed node neither skips neighbors nor repeats their costs.
                 pending.index = pending.index + 1
-                local otherKey = adapter.key(otherSquare)
+                local otherKey = pending.neighborKeys
+                    and pending.neighborKeys[pending.index - 1]
+                    or adapter.key(otherSquare)
                 if otherKey and not job.closed[otherKey] then
                     local passable, cost, rejection, ignoredObject, edgeFamiliarity =
                         adapter.edge(current.square, otherSquare, job.options,

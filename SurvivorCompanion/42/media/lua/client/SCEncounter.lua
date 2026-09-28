@@ -34,7 +34,28 @@ end
 local function commandState(actor)
     if SC.Commands and type(SC.Commands.peek) == "function" then
         local ok, value = pcall(SC.Commands.peek, actor)
-        if ok and type(value) == "table" then return value end
+        if ok and type(value) == "table" then
+            if SC.ExpeditionPrototype
+                and type(SC.ExpeditionPrototype.testSearchFor) == "function"
+                and SC.ExpeditionPrototype.testSearchFor(actor) then
+                local missionView = {}
+                for key, entry in pairs(value) do missionView[key] = entry end
+                missionView.order = "stay"
+                missionView.scavenge = true
+                missionView.scavengeTargetContainer =
+                    SC.ExpeditionPrototype.testSearchTargetFor(actor)
+                missionView.scavengeRequestedCategory =
+                    SC.ExpeditionPrototype.testSearchCategoryFor(actor)
+                missionView.scavengeMissionId =
+                    SC.ExpeditionPrototype.testSearchMissionIdFor(actor)
+                missionView.scavengeSite =
+                    SC.ExpeditionPrototype.searchSiteFor(actor)
+                missionView.scavengeSiteRadius =
+                    SC.ExpeditionPrototype.searchSiteRadiusFor(actor)
+                return missionView
+            end
+            return value
+        end
     end
     return { recruited = false, scavenge = false, order = "wander" }
 end
@@ -548,7 +569,7 @@ local function currentNeeds(actor, commands)
     local thirst = utility.characterStatValue(actor, "THIRST", 0.25)
     local medicalNeed = math.max(0, (70 - health) / 70)
     if SC.Medical and type(SC.Medical.assess) == "function" then
-        local ok, assessment = pcall(SC.Medical.assess, actor)
+        local ok, assessment = pcall(SC.Medical.assessCached or SC.Medical.assess, actor)
         if ok and assessment then
             medicalNeed = math.max(medicalNeed, math.min(1, assessment.bleedingCount * 0.6 + assessment.woundCount * 0.15))
         end
@@ -967,6 +988,9 @@ function Encounter._wantedCategories(actor, commands, needs)
     if type(commands) == "table" and commands.prioritizeMeleeWeapon == true then
         wanted.weapon = true
     end
+    if type(commands) == "table" and commands.scavengeRequestedCategory then
+        wanted[commands.scavengeRequestedCategory] = true
+    end
     if SC.Combat and type(SC.Combat.weaponAvailability) == "function" then
         local _, usable = SC.Combat.weaponAvailability(actor)
         if tonumber(usable) ~= nil and tonumber(usable) <= 0 then wanted.weapon = true end
@@ -1097,6 +1121,7 @@ scoreContainer = function(actor, container, needs, objectives, commands, audit, 
         local score, category = 0, nil
         if not protected then
             score, category = itemNeedScore(actor, item, needs, commands, audit)
+            local supplyCategory = category
             if category == "weapon" and usableMeleeWeapon(item)
                 and priorityMeleeAllowed(actor, item, audit, commands) then
                 score = score + weaponLocationBonus
@@ -1111,6 +1136,15 @@ scoreContainer = function(actor, container, needs, objectives, commands, audit, 
                     actor, item, commands)
                 if (tonumber(ritualScore) or 0) > score then
                     score, category = ritualScore, ritualCategory or "personal"
+                end
+            end
+            -- Objectives and quirks cannot turn another category into the
+            -- explicitly requested supply, even when they add a large bonus.
+            if commands and commands.scavengeRequestedCategory ~= nil then
+                if supplyCategory ~= commands.scavengeRequestedCategory then
+                    score = 0
+                else
+                    category = supplyCategory
                 end
             end
         end
@@ -1149,7 +1183,8 @@ local function scavengeOffsets(radius, budget, phase)
     return offsets
 end
 
-local function newContainerSearch(actor, state, allowCorpses, current, radius, budget)
+local function newContainerSearch(actor, state, allowCorpses, current,
+        radius, budget, site, siteRadius)
     local ax, ay, az = U().position(actor)
     state.scanPhase = ((state.scanPhase or 0) + 1) % 4
     return {
@@ -1158,6 +1193,10 @@ local function newContainerSearch(actor, state, allowCorpses, current, radius, b
         budget = budget,
         allowCorpses = allowCorpses == true,
         current = current,
+        siteX = site and site.x or nil,
+        siteY = site and site.y or nil,
+        siteZ = site and site.z or nil,
+        siteRadius = site and siteRadius or nil,
         offsets = scavengeOffsets(radius, budget, state.scanPhase),
         index = 1,
         candidates = {},
@@ -1165,9 +1204,14 @@ local function newContainerSearch(actor, state, allowCorpses, current, radius, b
     }
 end
 
-local function containerSearchInvalid(job, actor, allowCorpses, radius, budget)
+local function containerSearchInvalid(job, actor, allowCorpses,
+        radius, budget, site, siteRadius)
     if type(job) ~= "table" or job.allowCorpses ~= (allowCorpses == true)
-        or job.radius ~= radius or job.budget ~= budget then return true end
+        or job.radius ~= radius or job.budget ~= budget
+        or job.siteX ~= (site and site.x or nil)
+        or job.siteY ~= (site and site.y or nil)
+        or job.siteZ ~= (site and site.z or nil)
+        or job.siteRadius ~= (site and siteRadius or nil) then return true end
     local ax, ay, az = U().position(actor)
     if ax == nil or az ~= job.originZ then return true end
     local dx, dy = ax - job.originX, ay - job.originY
@@ -1187,6 +1231,20 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
     local utility = U()
     local ax, ay, az = utility.position(actor)
     if not ax then return {}, true end
+    local target = commands and commands.scavengeTargetContainer
+    if target ~= nil then
+        state.containerSearch = nil
+        local owner = containerOwner(target)
+        local square = utility.squareOf(owner)
+        if square ~= nil and ownerDistance(actor, owner) <= 18
+            and not containerOnCooldown(target, current)
+            and memoryAllows(state, target, current)
+            and not behindLockedDoor(actor, square, current)
+            and Encounter.mayTakeFrom(target, storageIndex(), insideBase(square)) then
+            return { target }, true, 1, 1
+        end
+        return {}, true, 1, 1
+    end
     local radius = math.floor(math.min(math.max(utility.config("scavengeRadius") or 14,
         allowCorpses and (utility.config("corpseLootRadius") or 10) or 0), 18))
     if player and type(commands) == "table" and commands.recruited == true
@@ -1198,9 +1256,14 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
     end
     local budget = math.max(utility.config("scavengeSquareBudget") or 100,
         allowCorpses and (utility.config("corpseLootSquareBudget") or 80) or 0)
+    local site = commands and commands.scavengeSite
+    local siteRadius = math.max(2, math.min(8,
+        tonumber(commands and commands.scavengeSiteRadius) or 5))
     local job = state.containerSearch
-    if containerSearchInvalid(job, actor, allowCorpses, radius, budget) then
-        job = newContainerSearch(actor, state, allowCorpses, current, radius, budget)
+    if containerSearchInvalid(job, actor, allowCorpses,
+            radius, budget, site, siteRadius) then
+        job = newContainerSearch(actor, state, allowCorpses, current,
+            radius, budget, site, siteRadius)
         state.containerSearch = job
     end
     local requested = math.max(0, #job.offsets - job.index + 1)
@@ -1214,8 +1277,15 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
         local offset = job.offsets[job.index]
         job.index = job.index + 1
         processed = processed + 1
-        local square = utility.gridSquare(job.originX + offset.x, job.originY + offset.y, job.originZ)
-        if square and (not player or utility.distanceSq(player, square) <= radius * radius)
+        local siteNear = site == nil or (site.z == job.originZ
+            and (site.x - (job.originX + offset.x))^2
+                + (site.y - (job.originY + offset.y))^2
+                    <= siteRadius * siteRadius)
+        local square = siteNear and utility.gridSquare(
+            job.originX + offset.x, job.originY + offset.y, job.originZ)
+            or nil
+        if square and siteNear
+            and (not player or utility.distanceSq(player, square) <= radius * radius)
             and not behindLockedDoor(actor, square, current) then
             local squareInside = insideBase(square)
             utility.squareObjects(square, function(object)
@@ -1515,6 +1585,8 @@ local function beginTask(actor, state, container, item, category, owner, utility
         utilityScore = tonumber(utilityScore) or 0,
         selectedAt = time,
         commandSerial = tonumber(commands.commandSerial) or 0,
+        scavengeRequestedCategory = commands.scavengeRequestedCategory,
+        scavengeMissionId = commands.scavengeMissionId,
     }
     state.container = container
     state.item = item
@@ -1599,7 +1671,10 @@ end
 local function selectTask(actor, player, state, commands, needs, audit, allowCorpses, time)
     local selection = state.selectionJob
     if selection and (selection.commandSerial ~= (tonumber(commands.commandSerial) or 0)
-        or selection.prioritizeMeleeWeapon ~= (commands.prioritizeMeleeWeapon == true)) then
+        or selection.prioritizeMeleeWeapon ~= (commands.prioritizeMeleeWeapon == true)
+        or selection.scavengeRequestedCategory ~= commands.scavengeRequestedCategory
+        or selection.scavengeMissionId ~= commands.scavengeMissionId
+        or selection.scavengeTargetContainer ~= commands.scavengeTargetContainer) then
         clearSearchFields(actor, state)
         selection = nil
     end
@@ -1609,7 +1684,8 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
     -- each in turn.
     local openContainer, openItem, openCategory, openOwner, openScore =
         Encounter.stickyContainer(actor, state, needs, commands, audit, time)
-    if openContainer ~= nil then
+    if openContainer ~= nil and (commands.scavengeTargetContainer == nil
+        or openContainer == commands.scavengeTargetContainer) then
         return beginTask(actor, state, openContainer, openItem, openCategory,
             openOwner, openScore, commands, audit, time)
     end
@@ -1629,6 +1705,9 @@ local function selectTask(actor, player, state, commands, needs, audit, allowCor
             candidates = candidates or {}, index = 1,
             commandSerial = tonumber(commands.commandSerial) or 0,
             prioritizeMeleeWeapon = commands.prioritizeMeleeWeapon == true,
+            scavengeRequestedCategory = commands.scavengeRequestedCategory,
+            scavengeMissionId = commands.scavengeMissionId,
+            scavengeTargetContainer = commands.scavengeTargetContainer,
         }
         state.selectionJob = selection
     end
@@ -1726,7 +1805,11 @@ local function commitTask(actor, state, task, commands, audit, time)
         local ok, fresh = pcall(SC.Logistics.audit, actor)
         if ok and type(fresh) == "table" then audit = fresh end
     end
-    if (tonumber(commands.commandSerial) or 0) ~= task.commandSerial then
+    if (tonumber(commands.commandSerial) or 0) ~= task.commandSerial
+        or task.scavengeRequestedCategory ~= commands.scavengeRequestedCategory
+        or task.scavengeMissionId ~= commands.scavengeMissionId
+        or (commands.scavengeRequestedCategory ~= nil
+            and task.category ~= commands.scavengeRequestedCategory) then
         resetScavengeTarget(actor, state, {
             reason = "command_changed", phase = "cancelled", memoryResult = "interrupted",
             time = time,
@@ -1758,7 +1841,8 @@ local function commitTask(actor, state, task, commands, audit, time)
     if not ritualAccepts and not priorityMeleeAllowed(
         actor, task.item, audit, commands) and SC.Logistics
         and type(SC.Logistics.canTake) == "function" then
-        local accepted, reason = SC.Logistics.canTake(actor, task.item, task.category, audit)
+        local accepted, reason = SC.Logistics.canTake(actor, task.item,
+            task.category, audit, commands.scavengeRequestedCategory)
         if accepted ~= true then
             resetScavengeTarget(actor, state, {
                 reason = reason or "loadout_changed", phase = "cancelled",
@@ -1812,6 +1896,11 @@ local function commitTask(actor, state, task, commands, audit, time)
         -- It is open, and they are standing at it. Worth finishing before
         -- walking anywhere.
         Encounter._noteContainerOpened(state, task.container, time)
+        local requested = commands.scavengeRequestedCategory ~= nil
+            and commands.scavengeRequestedCategory == task.category
+        local stableId = requested and utility.itemStableId(task.item, true) or nil
+        local sourceX, sourceY, sourceZ = utility.position(task.owner)
+        local sourceIndex = select(1, utility.call(task.owner, "getObjectIndex"))
         state.lastLoot = {
             type = task.itemType,
             name = task.itemName,
@@ -1821,7 +1910,18 @@ local function commitTask(actor, state, task, commands, audit, time)
             destinationName = task.destinationName,
             time = time,
             verified = receipt ~= nil,
+            requestedCategory = requested and task.category or nil,
+            stableId = stableId,
+            sourceX = sourceX and math.floor(sourceX) or nil,
+            sourceY = sourceY and math.floor(sourceY) or nil,
+            sourceZ = sourceZ and math.floor(sourceZ) or nil,
+            sourceObjectIndex = tonumber(sourceIndex),
+            missionId = requested and commands.scavengeMissionId or nil,
         }
+        if requested and SC.ExpeditionPrototype
+            and type(SC.ExpeditionPrototype.noteVerifiedSearchLoot) == "function" then
+            SC.ExpeditionPrototype.noteVerifiedSearchLoot(actor, state.lastLoot)
+        end
         if SC.Logistics and type(SC.Logistics.reset) == "function" then
             SC.Logistics.reset(actor)
         end
@@ -1922,6 +2022,15 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     local selectionPlayer = player
     if neutralOverride then selectionPlayer = nil end
     local task = state.task
+    if task and (task.scavengeRequestedCategory
+            ~= commands.scavengeRequestedCategory
+        or task.scavengeMissionId ~= commands.scavengeMissionId) then
+        resetScavengeTarget(actor, state, {
+            cancelVisual = true, stopMovement = true, reason = "request_changed",
+            phase = "cancelled", memoryResult = "interrupted", time = time,
+        })
+        return false, "request_changed"
+    end
     if task and containerOnCooldown(task.container, time) then
         resetScavengeTarget(actor, state, {
             cancelVisual = true, stopMovement = true, reason = "container_cooldown",
@@ -2018,9 +2127,8 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         setTaskPhase(actor, state, task, "approach", "approaching_container")
         local ok, status = SC.Navigation.requestAny(actor, targets, "walk", {
             action = "move_to_scavenge", container = task.container,
-            -- Retain object identity for route invalidation without disabling
-            -- Build 42's continuous nearest-interaction path.
-            nativeNearest = true,
+            -- Keep object identity for route invalidation. RequestAny selects
+            -- a contact square; Navigation.request owns movement to it.
             item = task.item, object = task.owner, snapshot = snapshot,
             arrivalDistance = 0.35, requireSameSquare = true,
             -- Walking across a room to a shelf is cruising, not a tactical
@@ -2029,6 +2137,9 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             -- paces -- step, turn, step -- while a follower covers the same
             -- ground smoothly for no reason other than this flag.
             continuousApproach = true,
+            -- Let Navigation establish one full portal-aware route, then keep
+            -- its ordinary movement owner through the whole container approach.
+            preferVerifiedPath = task.scavengeMissionId ~= nil,
             supervisorToken = task.supervisorToken,
         })
         local service = supervisor()
@@ -2129,7 +2240,8 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     if not ritualAccepts and not priorityMeleeAllowed(
         actor, task.item, audit, commands) and SC.Logistics
         and type(SC.Logistics.canTake) == "function" then
-        local accepted, reason = SC.Logistics.canTake(actor, task.item, task.category, audit)
+        local accepted, reason = SC.Logistics.canTake(actor, task.item,
+            task.category, audit, commands.scavengeRequestedCategory)
         if accepted ~= true then
             resetScavengeTarget(actor, state, {
                 reason = reason or "loadout_changed", phase = "cancelled",
@@ -2495,7 +2607,7 @@ local function neutralUpdate(actor, player, rootRuntime, snapshot, state)
     if snapshot and (snapshot.threatCount or 0) > 0 then return seekCover(actor, snapshot, "seek_cover") end
 
     if player and viableRescue(snapshot) and SC.Medical and type(SC.Medical.assess) == "function" then
-        local assessment = SC.Medical.assess(player)
+        local assessment = (SC.Medical.assessCached or SC.Medical.assess)(player)
         if assessment and (assessment.critical or assessment.needsBandage) and type(SC.Medical.treat) == "function" then
             local ok, reason = SC.Medical.treat(actor, player, rootRuntime)
             if ok then return true, reason or "neutral_rescue" end

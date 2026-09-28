@@ -22,6 +22,8 @@ import zombie.Lua.Event;
 import zombie.Lua.LuaEventManager;
 import zombie.ai.states.AttackState;
 import zombie.characters.IsoGameCharacter;
+import zombie.characters.BodyDamage.BodyDamage;
+import zombie.characters.BodyDamage.BodyPart;
 import zombie.characters.IsoPlayer;
 import zombie.characters.IsoZombie;
 import zombie.characters.SurvivorDesc;
@@ -56,12 +58,24 @@ import zombie.network.GameServer;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.20-isocompanion-11";
+    public static final String PROTOCOL = "42.20-isocompanion-12";
     public static final int ITEM_FACT_FOOD = 1;
     public static final int ITEM_FACT_DRAINABLE = 1 << 1;
     public static final int ITEM_FACT_HAND_WEAPON = 1 << 2;
     public static final int ITEM_FACT_MAGAZINE = 1 << 3;
     public static final int ITEM_FACT_KEY = 1 << 4;
+    public static final int BODY_BLEEDING = 1;
+    public static final int BODY_BITTEN = 1 << 1;
+    public static final int BODY_INFECTED_WOUND = 1 << 2;
+    public static final int BODY_BANDAGED = 1 << 3;
+    public static final int BODY_BANDAGE_DIRTY = 1 << 4;
+    public static final int BODY_SCRATCHED = 1 << 5;
+    public static final int BODY_CUT = 1 << 6;
+    public static final int BODY_DEEP = 1 << 7;
+    public static final int BODY_BURNED = 1 << 8;
+    public static final int BODY_FRACTURED = 1 << 9;
+    public static final int BODY_BULLET = 1 << 10;
+    public static final int BODY_GLASS = 1 << 11;
     /**
      * Core.getVersionNumber() reports the public release family (42.20) in a
      * live game, even though this bridge is compiled and signature-tested
@@ -256,6 +270,11 @@ public final class SCBridge {
         return SCBootstrap.getGeneration();
     }
 
+    /** Monotonic duration clock; its origin must never be used for saved timestamps. */
+    public static double nowMsPrecise() {
+        return System.nanoTime() / 1_000_000.0;
+    }
+
     /**
      * Moves only the local view centre in world-tile coordinates. This does not
      * replace the camera character, publish a companion in a local-player slot,
@@ -409,6 +428,67 @@ public final class SCBridge {
         } catch (RuntimeException | LinkageError failure) {
             try { out.wipe(); } catch (RuntimeException ignored) {}
             lastFailure = cleanFailure("item fact capture failed: "
+                    + failure.getClass().getSimpleName());
+            return -1;
+        }
+    }
+
+    /** Fresh body assessment in one Lua/Java crossing. The caller reuses out. */
+    public static int fillBodyFacts(IsoGameCharacter character, KahluaTable out) {
+        lastFailure = "";
+        if (!onGameThread() || character == null || out == null) {
+            lastFailure = "fillBodyFacts requires the game thread, a character, and an output table";
+            return -1;
+        }
+        try {
+            out.wipe();
+            BodyDamage body = character.getBodyDamage();
+            if (body == null) {
+                lastFailure = "character has no body damage";
+                return -1;
+            }
+            put(out, "health", body.getHealth());
+            put(out, "infected", body.IsInfected());
+            put(out, "apparentInfection", body.getApparentInfectionLevel());
+            put(out, "infectionTime", body.getInfectionTime());
+            put(out, "infectionDuration", body.getInfectionMortalityDuration());
+            ArrayList<BodyPart> parts = body.getBodyParts();
+            if (parts == null) {
+                lastFailure = "character has no body parts";
+                out.wipe();
+                return -1;
+            }
+            int output = 1;
+            int flagged = 0;
+            for (int index = 0; index < parts.size(); index++) {
+                BodyPart part = parts.get(index);
+                if (part == null) continue;
+                int flags = 0;
+                if (part.bleeding() || part.getBleedingTime() > 0) flags |= BODY_BLEEDING;
+                if (part.bitten()) flags |= BODY_BITTEN;
+                if (part.isInfectedWound()) flags |= BODY_INFECTED_WOUND;
+                boolean bandaged = part.bandaged();
+                if (bandaged) flags |= BODY_BANDAGED;
+                if (bandaged && part.isBandageDirty()) flags |= BODY_BANDAGE_DIRTY;
+                if (part.scratched()) flags |= BODY_SCRATCHED;
+                if (part.isCut()) flags |= BODY_CUT;
+                if (part.deepWounded()) flags |= BODY_DEEP;
+                if (part.getBurnTime() > 0) flags |= BODY_BURNED;
+                if (part.getFractureTime() > 0) flags |= BODY_FRACTURED;
+                if (part.haveBullet()) flags |= BODY_BULLET;
+                if (part.haveGlass()) flags |= BODY_GLASS;
+                if (flags == 0) continue;
+                put(out, output++, part);
+                put(out, output++, index);
+                put(out, output++, flags);
+                put(out, output++, String.valueOf(part.getType()));
+                flagged++;
+            }
+            put(out, "count", flagged);
+            return flagged;
+        } catch (RuntimeException | LinkageError failure) {
+            try { out.wipe(); } catch (RuntimeException ignored) {}
+            lastFailure = cleanFailure("body fact capture failed: "
                     + failure.getClass().getSimpleName());
             return -1;
         }
@@ -749,7 +829,7 @@ public final class SCBridge {
         if (actor == null) return "native companion is null";
         if (!actor.isBridgeHealthy()) return actor.getBridgeFailure();
         if (!actor.isNpc() || actor.isLocalPlayer()) return "native companion lost NPC isolation";
-        if (actor.getPlayerNum() != SCNativeCompanion.RESERVED_NON_LOCAL_PLAYER_INDEX) {
+        if (actor.getPlayerNum() != actor.bridgeExpectedPlayerIndex()) {
             return "native companion player index changed";
         }
         if (actor.getBodyDamage() == null || actor.getMoodles() == null || actor.getXp() == null
@@ -772,8 +852,11 @@ public final class SCBridge {
         String isolationFailure = localPlayerIsolationFailure();
         if (!isolationFailure.isEmpty()) return isolationFailure;
         IsoPlayer[] slots = IsoPlayer.players;
-        for (IsoPlayer slot : slots) {
-            if (slot == actor) return "native companion occupied a local-player slot";
+        for (int index = 0; index < slots.length; index++) {
+            if (slots[index] == actor
+                    && !(index == 1 && SCSplitScreenProbe.isLeader(actor))) {
+                return "native companion occupied an unexpected local-player slot";
+            }
         }
         return "";
     }
@@ -1380,7 +1463,10 @@ public final class SCBridge {
         try {
             float health = actor.getBodyDamage().getOverallBodyHealth();
             actor.getBodyDamage().ReduceGeneralHealth(Math.max(health + 1.0f, 101.0f));
-            return actor.isDead() || actor.getBodyDamage().getOverallBodyHealth() <= 0.0f;
+            // Build 42 applies the fatal health change on the following
+            // update. A successful native damage call is the result here;
+            // callers observe isDead separately on later frames.
+            return true;
         } catch (RuntimeException | LinkageError failure) {
             return failBoolean("native fatal injury failed: "
                     + failure.getClass().getSimpleName());
@@ -1604,6 +1690,15 @@ public final class SCBridge {
         return false;
     }
 
+    /** Disposable co-op bootstrap only; retains failed cleanup for retry. */
+    static boolean disposeColdProbeActor(SCNativeCompanion actor) {
+        if (actor == null || isOwned(actor) || IsoPlayer.players == null) return false;
+        for (IsoPlayer slot : IsoPlayer.players) {
+            if (slot == actor) return false;
+        }
+        return cleanupActor(actor, "cold co-op bootstrap removal");
+    }
+
     private static boolean isCleanupPending(SCNativeCompanion actor) {
         synchronized (CLEANUP_FAILURES) {
             return CLEANUP_FAILURES.containsKey(actor);
@@ -1654,13 +1749,18 @@ public final class SCBridge {
     private static String localPlayerIsolationFailure() {
         IsoPlayer[] slots = IsoPlayer.players;
         if (slots == null || slots.length != 4) return "unexpected local-player slot layout";
-        if (IsoPlayer.numPlayers != 1) return "split-screen or multiple local players are unsupported";
-        if (slots[0] == null || IsoPlayer.getInstance() != slots[0]
-                || slots[0].getPlayerNum() != 0 || !slots[0].isLocalPlayer()) {
+        if (IsoPlayer.numPlayers != 1 && !SCSplitScreenProbe.acceptsCurrentLayout(slots)) {
+            return "split-screen or multiple local players are unsupported";
+        }
+        if (slots[0] == null || slots[0].getPlayerNum() != 0
+                || !slots[0].isLocalPlayer()
+                || (IsoPlayer.getInstance() != slots[0]
+                    && !SCSplitScreenProbe.isLeader(IsoPlayer.getInstance()))) {
             return "primary local-player singleton or slot is not ready";
         }
-        if (slots[1] != null || slots[2] != null || slots[3] != null) {
-            return "local player slots 1-3 must be unused";
+        if ((slots[1] != null && !SCSplitScreenProbe.isLeader(slots[1]))
+                || slots[2] != null || slots[3] != null) {
+            return "local player slots 1-3 have an unsupported occupant";
         }
         return "";
     }
