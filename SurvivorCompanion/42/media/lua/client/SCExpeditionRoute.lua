@@ -189,10 +189,21 @@ function Route.target(route, actor)
     return route.goal
 end
 
+-- A nearby road entry must have a loaded local path before the squad leaves.
+-- A distant one (the native router allows up to 100 tiles off-road) cannot be
+-- streamed yet; the leader walks it in loaded local legs like the final
+-- approach, and each leg is still checked against any avoided horde.
+local LOCAL_ENTRY_CHECK = 45
+
 function Route.verifyEntry(route, actor)
     if type(route) ~= "table" or type(route.points) ~= "table"
         or actor == nil then return false, "NO_ENTRY_CANDIDATE" end
     local entry = route.points[1]
+    local ax, ay = SC.GameplayUtil.position(actor)
+    if ax ~= nil and ay ~= nil and entry ~= nil
+        and distance(ax, ay, entry) > LOCAL_ENTRY_CHECK then
+        return true
+    end
     local world = type(getWorld) == "function" and getWorld() or nil
     local cell = world and world:getCell() or nil
     local source = actor:getCurrentSquare()

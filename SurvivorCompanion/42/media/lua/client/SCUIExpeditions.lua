@@ -37,6 +37,9 @@ local QUANTITIES = {
     { value = 1, label = "1" }, { value = 2, label = "2" },
     { value = 4, label = "4" }, { value = 8, label = "8" },
 }
+-- A building usually sits well within this of its street; name longer
+-- off-road stretches in the review.
+local OFF_ROAD_NOTE = 25
 
 local function tr(key, ...)
     return SC.UI.text(key, ...)
@@ -296,6 +299,16 @@ function Planner.build(detail, panel)
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_RoutePreview",
                     draft.preview.distance, itinerary))
+            if (draft.preview.offRoadStart or 0) >= OFF_ROAD_NOTE then
+                y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    tr("UI_SC_Expedition_RouteOffRoadStart",
+                        draft.preview.offRoadStart))
+            end
+            if (draft.preview.offRoadEnd or 0) >= OFF_ROAD_NOTE then
+                y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    tr("UI_SC_Expedition_RouteOffRoadEnd",
+                        draft.preview.offRoadEnd))
+            end
             if draft.preview.provisional then
                 y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                     tr("UI_SC_Expedition_RouteProvisional"))
@@ -349,7 +362,7 @@ function Planner.build(detail, panel)
         "travelMode", TRAVEL)
     local places = { { value = nil, key = "UI_SC_Expedition_SelectPlace" } }
     for _, place in ipairs(draft.places) do
-        local suffix = place.street and (" · " .. place.street) or ""
+        local suffix = place.street and (" - " .. place.street) or ""
         places[#places + 1] = { value = place.id,
             label = place.label .. suffix .. " (" .. tostring(place.distance or "?") .. " tiles)" }
     end

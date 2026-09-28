@@ -606,10 +606,19 @@ function Expedition.previewAtPlace(leader, place, travelMode)
             streets[#streets + 1] = point.street
         end
     end
+    -- Off-road stretches at either end are walked in loaded local legs.
+    local x, y = SC.GameplayUtil.position(leader.actor)
+    local entry, exit = route.points[1], route.points[#route.points]
+    local function tiles(fromX, fromY, point)
+        return math.floor(math.sqrt((fromX - point.x)^2
+            + (fromY - point.y)^2) + 0.5)
+    end
     return { mode = "road", distance = math.floor(
         route.roadLength + 0.5), streets = streets,
         provisional = route.inferredJunctions > 0,
-        elapsedMs = route.elapsedMs }
+        elapsedMs = route.elapsedMs,
+        offRoadStart = x ~= nil and y ~= nil and tiles(x, y, entry) or 0,
+        offRoadEnd = tiles(exit.x, exit.y, approach) }
 end
 
 -- Persist only stable companion IDs and command serials. Native actors,

@@ -940,6 +940,20 @@ check(expedition.finishAtPlayer(player) == true
         and expedition.lastDebrief().site.id == place.id,
     "the read-only debrief names the same selected site")
 
+-- The review names long off-road stretches at either end of a road route.
+local realPlan = SC.ExpeditionRoute.plan
+SC.ExpeditionRoute.plan = function(actor, goal)
+    return { points = { { x = actor.x + 40, y = actor.y, street = "Oak St" },
+            { x = goal.x - 60, y = goal.y, street = "Oak St" } },
+        index = 1, roadLength = 150, inferredJunctions = 0,
+        goal = { x = goal.x, y = goal.y, z = goal.z } }
+end
+local preview = expedition.previewAtPlace({ actor = reserve }, place, "road")
+check(preview ~= nil and preview.mode == "road" and preview.distance == 150
+        and preview.offRoadStart == 40 and preview.offRoadEnd == 60,
+    "the road preview names the off-road stretches at both ends")
+SC.ExpeditionRoute.plan = realPlan
+
 -- The long road itinerary keeps native movement ownership and replans its
 -- return from the leader's real position. Save data has no native graph.
 local routeCalls = {}

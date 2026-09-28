@@ -9,6 +9,7 @@ public final class WorldMapStreet {
     public float getMinY() { return 0.0f; }
     public float getMaxX() { return 0.0f; }
     public float getMaxY() { return 0.0f; }
+    public int getWidth() { return 0; }
     public int getNumPoints() { return 0; }
     public float getPointX(int index) { return 0.0f; }
     public float getPointY(int index) { return 0.0f; }

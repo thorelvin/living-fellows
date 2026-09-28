@@ -25,14 +25,24 @@ final class SCRoadRouter {
     private static final int MAX_NODES = 8192;
     private static final int MAX_RESULT_POINTS = 512;
     private static final double REGION_MARGIN = 160.0;
-    private static final double MAX_CONNECTOR = 45.0;
-    private static final double MAX_AVOIDANCE_CONNECTOR = 24.0;
+    // Off-road access at either end: the leader walks it in loaded local legs.
+    // Connector length costs more than road length, so the route keeps to the
+    // streets as long as it can and leaves them as close to the goal as it can.
+    private static final double MAX_CONNECTOR = 100.0;
+    private static final double OFFROAD_WEIGHT = 3.0;
+    // Map streets end at the edge of the road they join, half that road's
+    // width short of its centre line. Join such an end across the gap.
+    private static final double JUNCTION_SLACK = 1.5;
+    private static final double MAX_JUNCTION_GAP = 12.0;
+    private static final double MAX_STREET_WIDTH = 64.0;
     private static final double EPSILON = 0.0001;
 
     private SCRoadRouter() {}
 
     record Point(double x, double y) {}
-    record StreetLine(String name, List<Point> points) {}
+    record StreetLine(String name, List<Point> points, double width) {
+        StreetLine(String name, List<Point> points) { this(name, points, 0); }
+    }
     record Step(double x, double y, String street) {}
     record Result(String status, String reason, List<Step> points,
                   double roadLength, double entryX, double entryY,
@@ -42,7 +52,9 @@ final class SCRoadRouter {
             return new Result(status, reason, List.of(), 0, 0, 0, 0, 0, 0, 0, "");
         }
     }
-    private record Segment(int id, Point a, Point b, String name) {}
+    private record Segment(int id, Point a, Point b, String name, int line,
+                           double width, boolean startsLine, boolean endsLine) {}
+    private record Junction(Point from, Point to, int segment, double t, String name) {}
     private record Edge(int id, int from, int to, double length, String name,
                         boolean inferred) {}
     private record Link(int to, int edgeId, double length) {}
@@ -171,10 +183,15 @@ final class SCRoadRouter {
         double maxX = Math.max(source.x, target.x) + REGION_MARGIN;
         double maxY = Math.max(source.y, target.y) + REGION_MARGIN;
         List<Segment> result = new ArrayList<>();
-        for (StreetLine line : lines) {
+        for (int lineId = 0; lineId < lines.size(); lineId++) {
+            StreetLine line = lines.get(lineId);
             if (line == null || line.points == null) continue;
+            double width = Double.isFinite(line.width)
+                    ? Math.max(0, Math.min(MAX_STREET_WIDTH, line.width)) : 0;
+            int last = line.points.size() - 1;
             Point previous = null;
-            for (Point point : line.points) {
+            for (int index = 0; index <= last; index++) {
+                Point point = line.points.get(index);
                 if (!finite(point)) { previous = null; continue; }
                 if (previous != null && distance(previous, point) > EPSILON
                         && Math.min(previous.x, point.x) <= maxX
@@ -182,7 +199,8 @@ final class SCRoadRouter {
                         && Math.min(previous.y, point.y) <= maxY
                         && Math.max(previous.y, point.y) >= minY) {
                     result.add(new Segment(result.size(), previous, point,
-                            line.name == null ? "" : line.name));
+                            line.name == null ? "" : line.name, lineId, width,
+                            previous == line.points.get(0), index == last));
                     if (result.size() > MAX_SEGMENTS) return null;
                 }
                 previous = point;
@@ -191,8 +209,69 @@ final class SCRoadRouter {
         return result;
     }
 
-    private static Graph graph(List<Segment> segments, String fingerprint,
-                               Avoidance avoidance) {
+    private static boolean bin(Map<Long, List<Integer>> bins, Segment segment) {
+        int minX = (int) Math.floor(Math.min(segment.a.x, segment.b.x) / 32);
+        int maxX = (int) Math.floor(Math.max(segment.a.x, segment.b.x) / 32);
+        int minY = (int) Math.floor(Math.min(segment.a.y, segment.b.y) / 32);
+        int maxY = (int) Math.floor(Math.max(segment.a.y, segment.b.y) / 32);
+        if ((long) (maxX - minX + 1) * (maxY - minY + 1) > 4096) return false;
+        for (int bx = minX; bx <= maxX; bx++) {
+            for (int by = minY; by <= maxY; by++) {
+                long cell = ((long) bx << 32) ^ (by & 0xffffffffL);
+                bins.computeIfAbsent(cell, ignored -> new ArrayList<>()).add(segment.id);
+            }
+        }
+        return true;
+    }
+
+    // A street end within the joined road's half-width (plus slack) of another
+    // street is a T-junction the map drew to the road edge. An end that already
+    // touches another street is left to the ordinary intersection pass.
+    private static List<Junction> junctions(List<Segment> segments) {
+        Map<Long, List<Integer>> bins = new HashMap<>();
+        for (Segment segment : segments) {
+            if (!bin(bins, segment)) return null;
+        }
+        List<Junction> result = new ArrayList<>();
+        for (Segment segment : segments) {
+            if (segment.startsLine) join(segments, bins, segment, segment.a, result);
+            if (segment.endsLine) join(segments, bins, segment, segment.b, result);
+        }
+        return result;
+    }
+
+    private static void join(List<Segment> segments, Map<Long, List<Integer>> bins,
+                             Segment own, Point end, List<Junction> result) {
+        Segment best = null;
+        double bestGap = Double.POSITIVE_INFINITY;
+        Set<Integer> seen = new HashSet<>();
+        for (int bx = (int) Math.floor((end.x - MAX_JUNCTION_GAP) / 32);
+                bx <= (int) Math.floor((end.x + MAX_JUNCTION_GAP) / 32); bx++) {
+            for (int by = (int) Math.floor((end.y - MAX_JUNCTION_GAP) / 32);
+                    by <= (int) Math.floor((end.y + MAX_JUNCTION_GAP) / 32); by++) {
+                List<Integer> ids = bins.get(((long) bx << 32) ^ (by & 0xffffffffL));
+                if (ids == null) continue;
+                for (int id : ids) {
+                    Segment other = segments.get(id);
+                    if (other.line == own.line || !seen.add(id)) continue;
+                    double gap = segmentDistance(end, other.a, other.b);
+                    if (gap <= EPSILON) return;
+                    double tolerance = Math.min(MAX_JUNCTION_GAP,
+                            other.width * 0.5 + JUNCTION_SLACK);
+                    if (gap <= tolerance && gap < bestGap) {
+                        best = other;
+                        bestGap = gap;
+                    }
+                }
+            }
+        }
+        if (best == null) return;
+        double t = project(end, best.a, best.b);
+        result.add(new Junction(end, interpolate(best, t), best.id, t, own.name));
+    }
+
+    private static Graph graph(List<Segment> segments, List<Junction> junctions,
+                               String fingerprint, Avoidance avoidance) {
         List<TreeMap<Double, Point>> splits = new ArrayList<>();
         for (Segment segment : segments) {
             TreeMap<Double, Point> points = new TreeMap<>();
@@ -228,6 +307,11 @@ final class SCRoadRouter {
                 }
             }
         }
+        // Split the joined road at the exact point the junction reaches, so
+        // both share one node rather than two nearly equal ones.
+        for (Junction junction : junctions) {
+            splits.get(junction.segment).put(junction.t, junction.to);
+        }
         for (Segment segment : segments) {
             Point previous = null;
             for (Point point : splits.get(segment.id).values()) {
@@ -235,19 +319,26 @@ final class SCRoadRouter {
                 previous = point;
             }
         }
+        for (Junction junction : junctions) {
+            graph.edge(junction.from, junction.to, junction.name, false);
+        }
         return graph.nodes.size() > MAX_NODES ? null : graph;
     }
 
-    private static List<Attachment> attachments(Graph graph, Point point,
-                                                 double maxConnector) {
+    // An off-road connector is a straight line walked in local legs. Around an
+    // observed horde it may be long, but it must not pass through the horde.
+    private static List<Attachment> attachments(Graph graph, Point point) {
         List<Attachment> all = new ArrayList<>();
+        Avoidance avoidance = graph.avoidance;
         for (Edge edge : graph.edges) {
             Point a = graph.nodes.get(edge.from), b = graph.nodes.get(edge.to);
             double t = project(point, a, b);
             Point projected = new Point(a.x + (b.x - a.x) * t,
                     a.y + (b.y - a.y) * t);
             double connector = distance(point, projected);
-            if (connector <= maxConnector) {
+            if (connector <= MAX_CONNECTOR && (avoidance == null
+                    || segmentDistance(avoidance.center, point, projected)
+                        > avoidance.radius)) {
                 all.add(new Attachment(edge.id, t, projected, connector));
             }
         }
@@ -303,14 +394,14 @@ final class SCRoadRouter {
             hash = (hash ^ Double.doubleToLongBits(segment.b.x)) * 1099511628211L;
             hash = (hash ^ Double.doubleToLongBits(segment.b.y)) * 1099511628211L;
         }
-        Graph graph = graph(raw, Long.toUnsignedString(hash, 16), avoidance);
+        List<Junction> junctions = junctions(raw);
+        if (junctions == null) return Result.failure("BUDGET_EXCEEDED", "graph_limit");
+        Graph graph = graph(raw, junctions, Long.toUnsignedString(hash, 16), avoidance);
         if (graph == null) return Result.failure("BUDGET_EXCEEDED", "graph_limit");
         if (graph.edges.isEmpty() && avoidance != null)
             return Result.failure("NO_SAFE_ROAD_DETOUR", "horde_avoidance_blocked");
-        double connectorLimit = avoidance == null
-                ? MAX_CONNECTOR : MAX_AVOIDANCE_CONNECTOR;
-        List<Attachment> entries = attachments(graph, source, connectorLimit);
-        List<Attachment> exits = attachments(graph, target, connectorLimit);
+        List<Attachment> entries = attachments(graph, source);
+        List<Attachment> exits = attachments(graph, target);
         if (entries.isEmpty()) return Result.failure(avoidance == null
                 ? "NO_ENTRY_CANDIDATE" : "NO_SAFE_ROAD_DETOUR", "road_too_far");
         if (exits.isEmpty()) return Result.failure(avoidance == null
@@ -332,7 +423,7 @@ final class SCRoadRouter {
             double[] lengths = { candidate.t * edge.length,
                     (1 - candidate.t) * edge.length };
             for (int side = 0; side < 2; side++) {
-                double next = candidate.connector + lengths[side];
+                double next = candidate.connector * OFFROAD_WEIGHT + lengths[side];
                 if (next < cost[ends[side]]) {
                     cost[ends[side]] = next;
                     entry[ends[side]] = i;
@@ -366,7 +457,8 @@ final class SCRoadRouter {
             double[] lengths = { exit.t * edge.length,
                     (1 - exit.t) * edge.length };
             for (int side = 0; side < 2; side++) {
-                double total = cost[ends[side]] + lengths[side] + exit.connector;
+                double total = cost[ends[side]] + lengths[side]
+                        + exit.connector * OFFROAD_WEIGHT;
                 if (total < best) {
                     best = total; bestNode = ends[side]; bestEntry = entry[bestNode];
                     bestExit = j; direct = false;
@@ -375,7 +467,7 @@ final class SCRoadRouter {
             for (int i = 0; i < entries.size(); i++) {
                 Attachment start = entries.get(i);
                 if (start.edgeId != exit.edgeId) continue;
-                double total = start.connector + exit.connector
+                double total = (start.connector + exit.connector) * OFFROAD_WEIGHT
                         + Math.abs(start.t - exit.t) * edge.length;
                 if (total < best) {
                     best = total; bestNode = -1; bestEntry = i;
@@ -415,7 +507,7 @@ final class SCRoadRouter {
         if (path.size() > MAX_RESULT_POINTS)
             return Result.failure("BUDGET_EXCEEDED", "route_payload_limit");
         return new Result("READY", "", List.copyOf(path),
-                best - start.connector - finish.connector,
+                best - (start.connector + finish.connector) * OFFROAD_WEIGHT,
                 start.point.x, start.point.y, finish.point.x, finish.point.y,
                 graph.inferredJunctions, expanded, graph.fingerprint);
     }
@@ -464,7 +556,8 @@ final class SCRoadRouter {
                     for (int p = 0; p < points; p++) {
                         polyline.add(new Point(street.getPointX(p), street.getPointY(p)));
                     }
-                    lines.add(new StreetLine(street.getUntranslatedText(), polyline));
+                    lines.add(new StreetLine(street.getUntranslatedText(), polyline,
+                            street.getWidth()));
                 }
             }
         } catch (RuntimeException | LinkageError failure) {

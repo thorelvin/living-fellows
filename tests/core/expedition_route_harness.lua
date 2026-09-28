@@ -54,6 +54,12 @@ check(route ~= nil and reason == nil and #route.points == 3
         and route.roadLength == 70, "bounded native geometry becomes a route")
 check(Route.verifyEntry(route, actor) == true,
     "entry connector needs a loaded local path")
+check(Route.verifyEntry({ index = 1,
+        points = { { x = 70, y = 10, street = "Oak St" } } }, actor) == true,
+    "a road entry beyond loaded range is walked in local legs, not refused")
+check(Route.verifyEntry({ index = 1,
+        points = { { x = 40, y = 10, street = "Oak St" } } }, actor) == false,
+    "a nearby road entry still needs a loaded local path")
 check(Route.target(route, actor).x == 20, "first leg reaches road entry")
 actor.x = 20
 check(Route.target(route, actor).x == 60, "reaching entry advances to road")

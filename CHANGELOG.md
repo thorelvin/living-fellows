@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.26.5 - Expedition road connections playtest
+
+- Road routes now follow T-junctions. The map draws a side street up to the edge of the road it joins, half that road's width short of its centre line, and the planner joined only streets whose lines touched, so most side streets were islands. In Riverside, Harbor St stops five tiles short of W Main St, so missions there failed with `NO_CONNECTED_ROUTE` or `INCOMPLETE_MAP_DATA`. A street end now joins the road it stops at when the gap is at most that road's half-width plus 1.5 tiles.
+- A destination far from any mapped street no longer fails with `NO_EXIT_CANDIDATE`. The squad keeps to the streets as long as it can, then walks up to 100 tiles off-road at either end, up from 45, in the same loaded local legs as the final approach. Off-road distance counts three times road distance when the route is chosen, so the squad leaves the streets as close to the building as it can. The review names any off-road stretch of 25 tiles or more. A return from such a building starts with the same off-road walk; a road entry farther than 45 tiles is no longer refused just because its path is not loaded yet.
+- Around an observed horde, an off-road stretch may now be as long as any other but must not pass through the horde; it was capped at 24 tiles.
+- Replaying the planner on the game's street data from a Riverside base, a road route is now found to 88% of points within 200 tiles, up from 37%. The rest are more than 100 tiles from any mapped street; use **Head straight for target** there.
+- Place labels and the base gathering progress line no longer show `?` where a middle dot could not be drawn.
+- Still unverified in game: a live mission across a joined T-junction and a long off-road final walk.
+
 ## 0.26.4 - Expedition road routing playtest
 
 - Expeditions now follow the map's streets by default. The review shows **Follow roads** or **Head straight for target**, with an approximate route length and the streets used. The street graph only picks targets; ordinary navigation still walks each loaded leg, including doors, collision, follower cohesion and the final building approach. Return plans a fresh road route from the leader's actual position, and a save/reload mid-mission rebuilds the route instead of storing it.

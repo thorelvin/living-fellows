@@ -449,6 +449,7 @@ public final class SCNativeApiSignatureTest {
                         && method(worldMapStreet, "getTranslatedText").getReturnType()
                                 == String.class
                         && method(worldMapStreet, "getNumPoints").getReturnType() == int.class
+                        && method(worldMapStreet, "getWidth").getReturnType() == int.class
                         && method(worldMapStreet, "getPointX", int.class).getReturnType()
                                 == float.class
                         && method(worldMapStreet, "getPointY", int.class).getReturnType()
