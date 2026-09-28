@@ -120,7 +120,11 @@ public final class SCSplitScreenProbe {
         if (store == null) {
             throw new IllegalStateException("native global ModData store is unavailable");
         }
-        store.save();
+        try {
+            store.save();
+        } catch (IOException failure) {
+            throw new IllegalStateException("native global ModData save failed", failure);
+        }
         return true;
     }
 
@@ -563,7 +567,11 @@ public final class SCSplitScreenProbe {
         if (store == null) {
             throw new IllegalStateException("native global ModData store is unavailable");
         }
-        store.save();
+        try {
+            store.save();
+        } catch (IOException failure) {
+            throw new IllegalStateException("native global ModData save failed", failure);
+        }
         return true;
     }
 

@@ -5,7 +5,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 
-/** Public-signature gate against the installed Project Zomboid 42.20.4 JAR. */
+/** Public-signature gate against the installed Project Zomboid 42.21.0 JAR. */
 public final class SCNativeApiSignatureTest {
     private SCNativeApiSignatureTest() {}
 
@@ -61,6 +61,9 @@ public final class SCNativeApiSignatureTest {
         Class<?> companion = Class.forName("survivorcompanion.bridge.SCNativeCompanion");
         Class<?> bridge = Class.forName("survivorcompanion.bridge.SCBridge");
         Class<?> square = Class.forName("zombie.iso.IsoGridSquare");
+        Class<?> edge = Class.forName("zombie.iso.objects.GridSquareEdge");
+        Class<?> windowFrame = Class.forName("zombie.iso.objects.IsoWindowFrame");
+        Class<?> globalModData = Class.forName("zombie.world.moddata.GlobalModData");
         Class<?> camera = Class.forName("zombie.iso.IsoCamera");
         Class<?> playerCamera = Class.forName("zombie.iso.PlayerCamera");
         Class<?> gameCharacter = Class.forName("zombie.characters.IsoGameCharacter");
@@ -164,12 +167,19 @@ public final class SCNativeApiSignatureTest {
                 "exact companion appearance persistence signatures changed");
         require(method(square, "getWindowThumpableTo", square).getReturnType() == thumpable
                         && method(square, "getSpecialObjects").getReturnType()
-                                == java.util.ArrayList.class
+                                == java.util.List.class
                         && method(square, "testPathFindAdjacent", movingObject,
                                 int.class, int.class, int.class).getReturnType() == boolean.class
                         && method(thumpable, "TestCollide", movingObject, square, square)
                                 .getReturnType() == boolean.class,
                 "protocol-8 edge fact dependencies changed");
+        require(edge.getField("NORTH").getType() == edge
+                        && edge.getField("WEST").getType() == edge
+                        && method(square, "getDoor", edge).getReturnType() == isoObject
+                        && method(square, "getWindow", edge).getReturnType() == window
+                        && method(square, "getThumpableWindow", edge).getReturnType() == thumpable
+                        && method(square, "getWindowFrame", edge).getReturnType() == windowFrame,
+                "42.21 edge-selector door/window signatures changed");
 
         require(Modifier.isFinal(survivor.getModifiers()), "stock IsoSurvivor must remain final");
         require(player.isAssignableFrom(companion) && Modifier.isFinal(companion.getModifiers()),
@@ -386,8 +396,14 @@ public final class SCNativeApiSignatureTest {
         }
         require(method(luaEventManager, "getEvents", java.util.ArrayList.class,
                         java.util.HashMap.class).getReturnType() == void.class
-                        && luaEvent.getField("callbacks").getType() == java.util.ArrayList.class,
+                        && luaEvent.getField("callbacks").getType() == java.util.ArrayList.class
+                        && luaEvent.getField("callbacks").getGenericType().getTypeName()
+                                .contains("se.krka.kahlua.vm.LuaClosure"),
                 "constructor event-guard signatures changed");
+        require(method(globalModData, "save").getReturnType() == void.class
+                        && java.util.Arrays.asList(method(globalModData, "save")
+                                .getExceptionTypes()).contains(java.io.IOException.class),
+                "42.21 global ModData save failure contract changed");
         require(method(mainThread, "queueInvokeOnMainThread", Runnable.class).getReturnType()
                         == void.class,
                 "Project Zomboid main-thread queue signature changed");

@@ -3,7 +3,7 @@
 # Real sandbox harness
 
 This is a private in-game integration harness for the real Project Zomboid
-42.20.4 single-player client. It is deliberately outside `SurvivorCompanion`
+42.21.0 single-player client. It is deliberately outside `SurvivorCompanion`
 and is not copied into Workshop staging or release archives.
 
 The runner creates a unique directory under `build/live-sandbox-runs`, clones a

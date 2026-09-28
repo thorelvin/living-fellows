@@ -3,6 +3,7 @@ package zombie.iso;
 
 import java.util.ArrayList;
 import zombie.iso.objects.IsoBrokenGlass;
+import zombie.iso.objects.GridSquareEdge;
 import zombie.iso.objects.IsoThumpable;
 import zombie.iso.objects.IsoTree;
 import zombie.iso.objects.IsoWindow;
@@ -19,7 +20,7 @@ public class IsoGridSquare {
     public int getZ() { return 0; }
     public ArrayList<IsoMovingObject> getMovingObjects() { return null; }
     public ArrayList<IsoMovingObject> getStaticMovingObjects() { return null; }
-    public ArrayList<IsoObject> getSpecialObjects() { return null; }
+    public java.util.List<IsoObject> getSpecialObjects() { return null; }
     public boolean isBlockedTo(IsoGridSquare other) { return false; }
     public boolean isSomethingTo(IsoGridSquare other) { return false; }
     public boolean isFree(boolean ignoreMovingObjects) { return false; }
@@ -45,10 +46,10 @@ public class IsoGridSquare {
     public IsoObject getDoorOrWindow(boolean north) { return null; }
     public boolean isDoorTo(IsoGridSquare other) { return false; }
     public boolean isWindowTo(IsoGridSquare other) { return false; }
-    public IsoObject getDoor(boolean north) { return null; }
-    public IsoWindow getWindow(boolean north) { return null; }
-    public IsoThumpable getThumpableWindow(boolean north) { return null; }
-    public IsoWindowFrame getWindowFrame(boolean north) { return null; }
+    public IsoObject getDoor(GridSquareEdge edge) { return null; }
+    public IsoWindow getWindow(GridSquareEdge edge) { return null; }
+    public IsoThumpable getThumpableWindow(GridSquareEdge edge) { return null; }
+    public IsoWindowFrame getWindowFrame(GridSquareEdge edge) { return null; }
     public IsoThumpable getHoppableThumpableTo(IsoGridSquare other) { return null; }
     public IsoObject getHoppableTo(IsoGridSquare other) { return null; }
     public IsoObject getWallHoppableTo(IsoGridSquare other) { return null; }

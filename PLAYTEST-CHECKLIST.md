@@ -4,7 +4,7 @@
 
 ## Mandatory gate before launch
 
-- [ ] `scripts\Test-Project.ps1` passes against Project Zomboid 42.20.4.
+- [ ] `scripts\Test-Project.ps1` passes against Project Zomboid 42.21.0.
 - [ ] `VERSION.txt`, both `mod.info` files, the shipped `README.txt` and the Support tab all report the same current release.
 - [ ] Workshop-path testing has ZombieBuddy 2.3.3 or newer subscribed and enabled before Living Fellows, and its one-time Java loader installation is complete.
 - [ ] The loose legacy `zombie\characters\IsoSurvivor.class` is absent and the game is closed.

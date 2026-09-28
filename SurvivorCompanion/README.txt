@@ -1,7 +1,7 @@
-Living Fellows 0.26.1 - public playtest
+Living Fellows 0.26.2 - public playtest
 
 Persistent companions, survivor households and living bases for Project
-Zomboid Build 42.20.4. Single-player only: multiplayer and user-added
+Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
 split-screen players are refused. Experimental expeditions temporarily show
 their companion leader in a second local view.
 

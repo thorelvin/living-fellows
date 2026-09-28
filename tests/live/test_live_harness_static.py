@@ -31,7 +31,7 @@ require(re.search(r"tonumber\s*\(\s*select\s*\(", lua) is None,
 for info in (root_info, version_info):
     require("id=SCRealSandboxHarness" in info, "harness mod id must be isolated")
     require("require=SurvivorCompanion" in info, "harness must load after the production mod")
-    require("versionMin=42.20.4" in info and "versionMax=42.20.4" in info,
+    require("versionMin=42.21.0" in info and "versionMax=42.21.0" in info,
             "harness must use the same exact game-family gate")
 
 require("-cachedir=" in runner, "runner must redirect the complete user cache")

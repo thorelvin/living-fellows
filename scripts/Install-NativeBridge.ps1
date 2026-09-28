@@ -16,9 +16,9 @@ $ErrorActionPreference = 'Stop'
 $Owner = 'SurvivorCompanion.NativeBridge'
 $WrapperMain = 'survivorcompanion/bridge/SCLauncher'
 $OriginalMain = 'zombie/gameStates/MainScreenState'
-$ExpectedProtocol = '42.20-isocompanion-12'
-$ExpectedSupportedGame = '42.20'
-$ExpectedCompiledGame = '42.20.4'
+$ExpectedProtocol = '42.21-isocompanion-13'
+$ExpectedSupportedGame = '42.21'
+$ExpectedCompiledGame = '42.21.0'
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 
 function Normalize-Path([string]$Path) {

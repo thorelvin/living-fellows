@@ -2,7 +2,8 @@
 package zombie.Lua;
 
 import java.util.ArrayList;
+import se.krka.kahlua.vm.LuaClosure;
 
 public final class Event {
-    public final ArrayList<Object> callbacks = new ArrayList<>();
+    public final ArrayList<LuaClosure> callbacks = new ArrayList<>();
 }

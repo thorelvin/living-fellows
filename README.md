@@ -11,8 +11,8 @@
 Persistent companions, survivor households, and living bases for Project Zomboid.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
-[![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.20.4-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.26.1-blue.svg)](CHANGELOG.md)
+[![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
+[![Release](https://img.shields.io/badge/release-0.26.2-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -51,12 +51,12 @@ Full change history lives in [CHANGELOG.md](CHANGELOG.md).
 
 ## Requirements
 
-Living Fellows targets **Project Zomboid Build 42.20.4** and is **single-player only**. Multiplayer and user-added split-screen players are refused. An experimental expedition may temporarily put its own companion leader in a second local view to load the mission area.
+Living Fellows targets **Project Zomboid Build 42.21.0** and is **single-player only**. Multiplayer and user-added split-screen players are refused. An experimental expedition may temporarily put its own companion leader in a second local view to load the mission area.
 
 | Method | What you need | Best for |
 | --- | --- | --- |
-| Steam Workshop | Project Zomboid 42.20.4 and ZombieBuddy 2.3.3 or newer, including its one-time loader setup | Automatic Living Fellows updates after ZombieBuddy is installed |
-| `Install.bat` | Windows and Project Zomboid 42.20.4 | Everyone else; no ZombieBuddy, no Workshop account needed |
+| Steam Workshop | Project Zomboid 42.21.0 and ZombieBuddy 2.3.3 or newer, including its one-time loader setup | Automatic Living Fellows updates after ZombieBuddy is installed |
+| `Install.bat` | Windows and Project Zomboid 42.21.0 | Everyone else; no ZombieBuddy, no Workshop account needed |
 
 Use only one copy. The Workshop and standalone editions share the mod ID `SurvivorCompanion`.
 
@@ -136,7 +136,7 @@ Right-click the world for the **Living Fellows** menu. The selected companion ge
 
 ## Expeditions (experimental)
 
-Use a disposable save for this 0.26.1 playtest. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose its leader, Scout or Search, a nearby location, time before turning home, and combat style. Search also lets you request a supply type and quantity. Review the plan and select **Send squad**. The actual leader appears in a second local view while the team moves; the remaining members follow that leader.
+Use a disposable save for this 0.26.2 playtest. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose its leader, Scout or Search, a nearby location, time before turning home, and combat style. Search also lets you request a supply type and quantity. Review the plan and select **Send squad**. The actual leader appears in a second local view while the team moves; the remaining members follow that leader.
 
 The team can leave without radios. To order an immediate return while they are away, equip a powered walkie-talkie on your character and the leader, tune them to the same channel, then right-click your equipped radio and choose **Return immediately**. The order requires a received transmission; the panel does not show unseen position or health as live facts.
 
@@ -272,7 +272,7 @@ Do not remove the mod from an important save without a backup.
 
 ## Compatibility
 
-- Supported game version: **42.20.4**.
+- Supported game version: **42.21.0**.
 - Single-player only; multiplayer and user-added split-screen players are refused. An expedition may create its own second local view for the leader.
 - The Workshop edition requires **ZombieBuddy 2.3.3 or newer**.
 - The standalone edition is Windows-only and uses its bundled bridge.
@@ -328,7 +328,7 @@ Remove server addresses, usernames, chat, and other personal information before 
 
 ## Building from source
 
-Building requires Project Zomboid 42.20.4 installed locally (the Java bridge compiles against the game's classes), a Java 17+ JDK, and Python 3.12+. The repository includes the versioned bridge JAR, so a source archive can also use `Install.bat` directly.
+Building and testing require Project Zomboid 42.21.0 installed locally, a Java 17 JDK for the reproducible bridge build, and Python 3.12+. The repository includes the versioned bridge JAR, so a source archive can also use `Install.bat` directly.
 
 Run the complete test gate:
 

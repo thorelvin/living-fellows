@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.26.2 - Build 42.21 compatibility playtest
+
+- Retargeted the native bridge and mod metadata to Project Zomboid 42.21.0 after the new stable game patch. The bridge keeps its exact runtime and protocol checks so a 42.20.4 loader cannot be mixed with this build.
+- Adapted 42.21's edge-selector door and window APIs and `List` return type for special objects. Global ModData save failures now propagate through the expedition handoff and world-exit paths. The companion-construction callback guard follows the game's typed Lua callback list.
+- Expedition behavior remains experimental. The earlier Riverside departure stall and complete distant-return verification remain open; use a disposable save for mission tests.
+
 ## 0.26.1 - Expedition playtest
 
 - Added an experimental Expeditions tab using configured squads. Choose an actual companion as leader, a nearby target building, Scout or Search, requested supplies, time before turning home, and a mission combat style. The leader occupies a second local view while the squad travels; departure does not require a radio.

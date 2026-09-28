@@ -88,20 +88,20 @@ public final class SCNativeBridgeExposureTest {
         thread.getClass().getMethod("call", Object.class, Object[].class)
                 .invoke(thread, closure, (Object) new Object[0]);
         Method rawget = tableClass.getMethod("rawget", Object.class);
-        require("42.20-isocompanion-12".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
+        require("42.21-isocompanion-13".equals(rawget.invoke(environment, "SC_TEST_PROTOCOL")),
                 "Lua received the wrong native bridge protocol");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_VIEW_API")),
                 "production bridge did not expose the camera offset contract");
         require(Boolean.TRUE.equals(rawget.invoke(environment, "SC_TEST_ATTACK_TYPES")),
                 "production bridge did not expose the native attack enum contract");
         String readiness = String.valueOf(rawget.invoke(environment, "SC_TEST_READY"));
-        require(SCBridge.isSupportedGameVersion("42.20")
-                        && SCBridge.isSupportedGameVersion("42.20.4")
+        require(SCBridge.isSupportedGameVersion("42.21")
+                        && SCBridge.isSupportedGameVersion("42.21.0")
                         && !SCBridge.isSupportedGameVersion("42.19")
-                        && !SCBridge.isSupportedGameVersion("42.21"),
+                        && !SCBridge.isSupportedGameVersion("42.20"),
                 "native bridge release-family gate is too broad or rejects a valid live label");
         require(!readiness.contains("requires Project Zomboid"),
-                "live 42.20 label was incorrectly rejected by the version gate: " + readiness);
+                "live 42.21 label was incorrectly rejected by the version gate: " + readiness);
         require(!readiness.isEmpty(),
                 "headless readiness unexpectedly bypassed the local-player isolation gate");
 

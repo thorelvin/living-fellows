@@ -6,7 +6,7 @@ Thank you for helping make survivors more believable, useful, and safe to play a
 
 ## Branches
 
-Living Fellows release branches use `living_fellows/<version>`; the current playtest branch is `living_fellows/0.26.1`. The separately retained PZ Radio Link line uses `pz_radio_link/<version>`. Living Fellows public tags and packages are cut from a tested versioned branch after Source CI, the local full gate, and the relevant playtest pass.
+Living Fellows release branches use `living_fellows/<version>`; the current playtest branch is `living_fellows/0.26.2`. The separately retained PZ Radio Link line uses `pz_radio_link/<version>`. Living Fellows public tags and packages are cut from a tested versioned branch after Source CI, the local full gate, and the relevant playtest pass.
 
 ## Before opening a pull request
 
@@ -19,7 +19,7 @@ Living Fellows release branches use `living_fellows/<version>`; the current play
 
 ## Development setup
 
-Living Fellows targets Project Zomboid 42.20.4. PowerShell 5.1 or newer and a local Windows installation of the game are currently required for the complete Java bridge build.
+Living Fellows targets Project Zomboid 42.21.0. PowerShell 5.1 or newer and a local Windows installation of the game are currently required for the complete Java bridge build.
 
 Run the complete project gate from the repository root:
 

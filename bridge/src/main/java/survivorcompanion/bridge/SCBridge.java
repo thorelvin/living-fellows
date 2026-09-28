@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
@@ -17,6 +18,7 @@ import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 
 import se.krka.kahlua.vm.KahluaTable;
+import se.krka.kahlua.vm.LuaClosure;
 import zombie.MainThread;
 import zombie.Lua.Event;
 import zombie.Lua.LuaEventManager;
@@ -50,6 +52,7 @@ import zombie.iso.IsoObject;
 import zombie.iso.IsoWorld;
 import zombie.iso.PlayerCamera;
 import zombie.iso.objects.IsoDoor;
+import zombie.iso.objects.GridSquareEdge;
 import zombie.iso.objects.IsoThumpable;
 import zombie.iso.objects.IsoWindow;
 import zombie.vehicles.BaseVehicle;
@@ -58,7 +61,7 @@ import zombie.network.GameServer;
 
 /** Narrow Lua-facing authority for creating and owning native companions. */
 public final class SCBridge {
-    public static final String PROTOCOL = "42.20-isocompanion-12";
+    public static final String PROTOCOL = "42.21-isocompanion-13";
     public static final int ITEM_FACT_FOOD = 1;
     public static final int ITEM_FACT_DRAINABLE = 1 << 1;
     public static final int ITEM_FACT_HAND_WEAPON = 1 << 2;
@@ -77,14 +80,14 @@ public final class SCBridge {
     public static final int BODY_BULLET = 1 << 10;
     public static final int BODY_GLASS = 1 << 11;
     /**
-     * Core.getVersionNumber() reports the public release family (42.20) in a
+     * Core.getVersionNumber() reports the public release family (42.21) in a
      * live game, even though this bridge is compiled and signature-tested
-     * against the installed 42.20.4 runtime. Keep both spellings explicit so
+     * against the installed 42.21.0 runtime. Keep both spellings explicit so
      * the live display label cannot incorrectly disable an otherwise verified
      * bridge, while unrelated game families still fail closed.
      */
-    public static final String SUPPORTED_GAME_VERSION = "42.20";
-    public static final String COMPILED_GAME_VERSION = "42.20.4";
+    public static final String SUPPORTED_GAME_VERSION = "42.21";
+    public static final String COMPILED_GAME_VERSION = "42.21.0";
 
     private static final int MAX_NAME_LENGTH = 48;
     private static final int MAX_OUTFIT_LENGTH = 96;
@@ -145,10 +148,10 @@ public final class SCBridge {
      * only this event and restore its exact callback sequence immediately.
      */
     private static final class MutedLivingCharacterEvent implements AutoCloseable {
-        private final ArrayList<Object> callbacks;
-        private final ArrayList<Object> saved;
+        private final ArrayList<LuaClosure> callbacks;
+        private final ArrayList<LuaClosure> saved;
 
-        private MutedLivingCharacterEvent(ArrayList<Object> callbacks) {
+        private MutedLivingCharacterEvent(ArrayList<LuaClosure> callbacks) {
             this.callbacks = callbacks;
             this.saved = new ArrayList<>(callbacks);
             callbacks.clear();
@@ -580,6 +583,7 @@ public final class SCBridge {
             else if (ty > fy) { owner = to; north = true; }
             else if (tx < fx) north = false;
             else { owner = to; north = false; }
+            GridSquareEdge edge = north ? GridSquareEdge.NORTH : GridSquareEdge.WEST;
 
             IsoObject barrier = from.getWindowTo(to);
             String kind = barrier == null ? null : "window";
@@ -597,13 +601,13 @@ public final class SCBridge {
                 }
             }
             if (barrier == null && from.isDoorTo(to)) {
-                barrier = owner.getDoor(north); kind = "door";
+                barrier = owner.getDoor(edge); kind = "door";
             }
             if (barrier == null && from.isWindowTo(to)) {
-                barrier = owner.getWindow(north);
-                if (barrier == null) barrier = owner.getThumpableWindow(north);
+                barrier = owner.getWindow(edge);
+                if (barrier == null) barrier = owner.getThumpableWindow(edge);
                 if (barrier == null) {
-                    barrier = owner.getWindowFrame(north);
+                    barrier = owner.getWindowFrame(edge);
                     kind = barrier == null ? "window" : "window_frame";
                 } else kind = "window";
             }
@@ -636,7 +640,7 @@ public final class SCBridge {
     private static void writeThumpableBlocker(IsoGameCharacter actor,
             IsoGridSquare from, IsoGridSquare to, KahluaTable out) {
         for (IsoGridSquare square : new IsoGridSquare[] { from, to }) {
-            ArrayList<IsoObject> objects = square.getSpecialObjects();
+            List<IsoObject> objects = square.getSpecialObjects();
             if (objects == null) continue;
             int maximum = Math.min(objects.size(), 48);
             for (int index = 0; index < maximum; index++) {

@@ -40,7 +40,7 @@ if ($Jobs -le 0) {
 $jarMissing = -not (Test-Path -LiteralPath $Jar -PathType Leaf)
 $runtimeMissing = -not (Test-Path -LiteralPath $GameJava -PathType Leaf)
 if ($jarMissing -or $runtimeMissing) {
-    throw "Project Zomboid 42.20.4 runtime not found under $GameRoot"
+    throw "Project Zomboid 42.21.0 runtime not found under $GameRoot"
 }
 
 New-Item -ItemType Directory -Path $BuildRoot -Force | Out-Null
