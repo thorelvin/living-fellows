@@ -760,25 +760,10 @@ local function handleSetBaseRole(actor, entry, state, payload)
     if type(role) ~= "string" or not SC.BaseLife.ROLES[role] then
         return false, "invalid_base_role"
     end
-    local id = U().idOf(actor)
-    local resident = type(SC.BaseLife.resident) == "function" and SC.BaseLife.resident(id) or nil
-    local duty = resident and resident.duty == true or state.order == "base_duty"
-    local assignment, reason = type(SC.BaseLife.planResidentAssignment) == "function"
-        and SC.BaseLife.planResidentAssignment(id, role, duty) or nil
-    if groupStaging then
-        if not assignment then return false, reason or "base_assignment_unavailable" end
-        if not groupCurrentPlan then return false, "group_base_plan_missing" end
-        groupCurrentPlan.baseAssignment = assignment
-    else
-        local assigned
-        if assignment and type(SC.BaseLife.applyResidentAssignment) == "function" then
-            assigned, reason = SC.BaseLife.applyResidentAssignment(assignment)
-        else
-            assigned, reason = SC.BaseLife.assign(id, role, duty)
-        end
-        if assigned ~= true then return false, reason end
-    end
-    markCommand(actor, entry, state)
+    -- Selecting a job is the whole assignment. It places the companion on
+    -- base duty so the role can find work without a second command.
+    local assigned, reason = enterBaseDuty(actor, entry, state, role)
+    if assigned ~= true then return false, reason end
     return true, "base_role_" .. role
 end
 

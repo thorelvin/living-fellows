@@ -13,7 +13,7 @@ BaseLife.VERSION = 1
 BaseLife.WORK_VERSION = 1
 BaseLife.ROLES = {
     generalist = true, guard = true, builder = true, quartermaster = true, medic = true,
-    farmer = true,
+    farmer = true, woodcutter = true, corpsekeeper = true, maintainer = true,
 }
 -- Standing marks an infection crisis can leave on a survivor. All of them bar
 -- camp duty: watch and quarantine keep someone inside under supervision,
@@ -116,6 +116,9 @@ local roleAffinity = {
         craft_supply = 4, production = 4 },
     medic = { replace_bandage = 10, fetch = 5, haul = 1, production = 2 },
     farmer = { farm = 30, haul = 3, sort = 2, fetch = 3, production = 2 },
+    woodcutter = { production = 30, gather_materials = 8, haul = 3 },
+    corpsekeeper = { production = 30, maintain = 2 },
+    maintainer = { maintain = 30, barricade = 25, repair = 15, fetch = 4 },
 }
 
 local WORK_ORDER_STATES = {
@@ -129,6 +132,10 @@ local WORK_RECEIPT_PHASES = {
 local document
 local draftZone
 local operationsCache
+local autonomousTreeScan
+local autonomousBodyScan
+local autonomousWorkerCursor = 0
+local autonomousRetryAt = {}
 local workConsistencyRevision = 0
 
 local DEFENSE_POLICIES = { rotation = true, role_based = true, all_hands = true }
@@ -2342,6 +2349,185 @@ function BaseLife.createProductionOrder(spec)
     return true, order, enabledDuty
 end
 
+local function autonomousStorage(base, category, withdrawal, exclude)
+    for _, storage in ipairs(base.storages or {}) do
+        if storage.id ~= exclude and (category == nil or storage.category == category)
+            and (withdrawal ~= true or storage.withdrawals ~= false)
+            and (withdrawal == true or storage.deposits ~= false)
+            and BaseLife.resolveContainer(storage) then
+            return storage
+        end
+    end
+    return nil
+end
+
+local function autonomousBodyWaiting(base)
+    local zones = {}
+    for _, zone in ipairs(base.zones or {}) do
+        if zone.kind == "area" or zone.kind == "lumber" then
+            zones[#zones + 1] = zone
+        end
+    end
+    if #zones == 0 then return false end
+    local scan = autonomousBodyScan
+    if not scan or scan.baseId ~= base.id or scan.zoneCount ~= #zones
+        or not zones[scan.index] or scan.zoneId ~= zones[scan.index].id then
+        scan = { baseId = base.id, zoneCount = #zones, index = 1,
+            zoneId = zones[1].id, x = zones[1].x1, y = zones[1].y1 }
+        autonomousBodyScan = scan
+    end
+    for _ = 1, 32 do
+        local zone = zones[scan.index]
+        if not zone then return false end
+        local square = U().gridSquare(scan.x, scan.y, zone.z)
+        local found = false
+        U().squareStaticMovingObjects(square, function(object)
+            if U().instanceOf(object, "IsoDeadBody") then
+                local fake = select(1, U().call(object, "isFakeDead"))
+                local animal = select(1, U().call(object, "isAnimal"))
+                if fake ~= true and animal ~= true then found = true end
+            end
+        end, 16)
+        scan.x = scan.x + 1
+        if scan.x > zone.x2 then scan.x, scan.y = zone.x1, scan.y + 1 end
+        if scan.y > zone.y2 then
+            scan.index = scan.index % #zones + 1
+            scan.zoneId = zones[scan.index].id
+            scan.x, scan.y = zones[scan.index].x1, zones[scan.index].y1
+        end
+        if found then return true end
+    end
+    return false
+end
+
+local function autonomousTreeWaiting(base)
+    local zones = {}
+    for _, zone in ipairs(base.zones or {}) do
+        if zone.kind == "lumber" and productionZone(base,
+            BaseLife.PRODUCTION_OPERATIONS.fell_trees, zone.id) then
+            local busy = false
+            for _, order in ipairs(productionFor(base).orders or {}) do
+                if order.operation == "fell_trees" and order.zoneId == zone.id
+                    and not orderIsTerminal(order) then busy = true break end
+            end
+            if not busy then zones[#zones + 1] = zone end
+        end
+    end
+    if #zones == 0 then return nil end
+    local scan = autonomousTreeScan
+    if not scan or scan.baseId ~= base.id or scan.zoneCount ~= #zones
+        or not zones[scan.index] or scan.zoneId ~= zones[scan.index].id then
+        scan = { baseId = base.id, zoneCount = #zones, index = 1,
+            zoneId = zones[1].id, x = zones[1].x1, y = zones[1].y1 }
+        autonomousTreeScan = scan
+    end
+    for _ = 1, 32 do
+        local zone = zones[scan.index]
+        local square = U().gridSquare(scan.x, scan.y, zone.z)
+        local tree = square and select(1, U().call(square, "getTree")) or nil
+        local index = tree and select(1, U().call(tree, "getObjectIndex")) or nil
+        local size = tree and select(1, U().call(tree, "getSize")) or nil
+        local found = tree ~= nil and tonumber(index) ~= nil
+            and tonumber(index) >= 0
+            and (tonumber(size) == nil
+                or tonumber(size) >= (U().config("productionMinimumTreeSize") or 2))
+        scan.x = scan.x + 1
+        if scan.x > zone.x2 then scan.x, scan.y = zone.x1, scan.y + 1 end
+        if scan.y > zone.y2 then
+            scan.index = scan.index % #zones + 1
+            scan.zoneId = zones[scan.index].id
+            scan.x, scan.y = zones[scan.index].x1, zones[scan.index].y1
+        end
+        if found then return zone end
+    end
+    return nil
+end
+
+local function autonomousProductionSpec(base, actorId, role)
+    if role == "woodcutter" then
+        local destination = autonomousStorage(base, "construction", false)
+            or autonomousStorage(base, "general", false)
+            or autonomousStorage(base, "output", false)
+        if not destination or BaseLife.availableCount(destination, "Base.Log") >= 4 then
+            return nil
+        end
+        local zone = autonomousTreeWaiting(base)
+        if not zone then return nil end
+        return { operation = "fell_trees", zoneId = zone.id,
+            requested = 1,
+            destinationStorageId = destination.id,
+            settings = { haulLogs = true }, workers = { actorId } }
+    elseif role == "builder" then
+        local source
+        for _, storage in ipairs(base.storages or {}) do
+            if storage.withdrawals ~= false and BaseLife.resolveContainer(storage)
+                and BaseLife.availableCount(storage, "Base.Log") > 0 then
+                source = storage break
+            end
+        end
+        local destination = source and (autonomousStorage(base, "construction", false, source.id)
+            or autonomousStorage(base, "output", false, source.id)
+            or autonomousStorage(base, nil, false, source.id)) or nil
+        if not destination then return nil end
+        return { operation = "saw_planks", requested = 3,
+            sourceStorageId = source.id, destinationStorageId = destination.id,
+            workers = { actorId } }
+    elseif role == "corpsekeeper" and autonomousBodyWaiting(base) then
+        for _, kind in ipairs({ "burial", "pyre" }) do
+            for _, zone in ipairs(base.zones or {}) do
+                if zone.kind == kind and productionZone(base,
+                    BaseLife.PRODUCTION_OPERATIONS.collect_bodies, zone.id) then
+                    return { operation = "collect_bodies", zoneId = zone.id,
+                        requested = 1, workers = { actorId },
+                        settings = { fromCamp = true, fromLumber = true,
+                            withBelongings = false, requireDry = true } }
+                end
+            end
+        end
+    end
+    return nil
+end
+
+-- One resident and one candidate per scheduled audit. The existing work and
+-- survival owners decide when the companion actually accepts the resulting job.
+function BaseLife.auditRoleProduction()
+    local base = activeBase()
+    if not base then return false, "base_missing" end
+    local workers = {}
+    for id, resident in pairs(ensure().residents) do
+        local record = SC.Registry and SC.Registry.byId
+            and SC.Registry.byId(id) or nil
+        if resident.baseId == base.id and resident.duty == true
+            and record and record.recruited == true and record.actor
+            and not U().isDead(record.actor)
+            and not BaseLife.RESTRICTIONS[ensure().restrictions[id]]
+            and (resident.role == "woodcutter" or resident.role == "builder"
+                or resident.role == "corpsekeeper") then
+            workers[#workers + 1] = { id = id, role = resident.role }
+        end
+    end
+    table.sort(workers, function(a, b) return a.id < b.id end)
+    if #workers == 0 then return false, "no_production_resident" end
+    autonomousWorkerCursor = autonomousWorkerCursor % #workers + 1
+    local worker = workers[autonomousWorkerCursor]
+    if now() < (autonomousRetryAt[worker.id] or 0)
+        or BaseLife.jobFor(worker.id) ~= nil then
+        return false, "production_worker_busy"
+    end
+    for _, order in ipairs(productionFor(base).orders or {}) do
+        if not orderIsTerminal(order) then
+            for _, id in ipairs(order.workers or {}) do
+                if id == worker.id then return false, "production_order_active" end
+            end
+        end
+    end
+    local spec = autonomousProductionSpec(base, worker.id, worker.role)
+    if not spec then return false, "no_production_need" end
+    local created, order = BaseLife.createProductionOrder(spec)
+    autonomousRetryAt[worker.id] = now() + (created and 90000 or 60000)
+    return created, order
+end
+
 function BaseLife.blockProductionOrder(id, reason)
     local order = productionOrderIn(activeBase(), id)
     if not order or orderIsTerminal(order) then return false, "unknown_production_order" end
@@ -3816,6 +4002,8 @@ end
 function BaseLife.restore(source)
     if source == nil then
         document, draftZone, operationsCache = emptyDocument(), nil, nil
+        autonomousTreeScan, autonomousBodyScan = nil, nil
+        autonomousWorkerCursor, autonomousRetryAt = 0, {}
         return true, document
     end
     local stable, reason = stableCopy(source, 24, { count = 65536 })
@@ -3828,12 +4016,16 @@ function BaseLife.restore(source)
     end
     document = candidate
     draftZone, operationsCache = nil, nil
+    autonomousTreeScan, autonomousBodyScan = nil, nil
+    autonomousWorkerCursor, autonomousRetryAt = 0, {}
     bumpWorkConsistencyRevision()
     return true, document
 end
 
 function BaseLife.reset()
     document, draftZone, operationsCache = emptyDocument(), nil, nil
+    autonomousTreeScan, autonomousBodyScan = nil, nil
+    autonomousWorkerCursor, autonomousRetryAt = 0, {}
     bumpWorkConsistencyRevision()
 end
 

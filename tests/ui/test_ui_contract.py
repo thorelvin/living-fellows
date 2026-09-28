@@ -462,14 +462,14 @@ class UIStaticContractTests(unittest.TestCase):
             self.assertIn(f"SC.BaseLife.{method}", dispatch)
         for rows in ("base.zoneRows", "base.storageRows", "base.maintenanceRows"):
             self.assertIn(rows, base)
-        self.assertIn('job.state == "blocked"', base)
-        self.assertIn('"retry_job"', base)
-        self.assertIn('"cancel_job"', base)
-        self.assertIn('for amount = 1, 100 do', self.ui)
-        self.assertIn('"start_gather"', base)
-        self.assertIn('"release_gather_cargo"', base)
-        self.assertIn("order.workerPhases", base)
-        self.assertIn("UI_SC_Base_GatherWorkerPhase", base)
+        self.assertIn('"UI_SC_Base_JobRoleSelector"', base)
+        self.assertIn('"set_base_role", "role"', base)
+        self.assertIn('resident and resident.duty and resident.role or "off"', base)
+        self.assertNotIn('"retry_job"', base)
+        self.assertNotIn('"cancel_job"', base)
+        self.assertNotIn('for amount = 1, 100 do', self.ui)
+        self.assertNotIn('"start_gather"', base)
+        self.assertNotIn('"release_gather_cargo"', base)
         self.assertIn("UI.confirmBaseAction", self.ui)
         self.assertIn("self:buildProductionSection(panel, y, base, row)", base)
         production = lua_function(
@@ -477,19 +477,14 @@ class UIStaticContractTests(unittest.TestCase):
         for action in ("start_production", "pause_production", "resume_production",
                        "retry_production", "cancel_production", "add_production_worker"):
             self.assertIn(f'action == "{action}"', dispatch)
-            self.assertIn(f'"{action}"', production)
+            self.assertNotIn(f'"{action}"', production)
         for method in ("createProductionOrder", "pauseProductionOrder", "resumeProductionOrder",
                        "retryProductionOrder", "cancelProductionOrder", "addProductionWorker"):
             self.assertIn(f"SC.BaseLife.{method}", dispatch)
-        self.assertIn("UI_SC_Base_ProductionCancelConfirm", production)
         self.assertIn("base.productionOrders", production)
-        self.assertIn('operation == "collect_bodies"', production)
-        self.assertIn('"UI_SC_Base_ProductionDisposalSelector", "disposal"', production)
-        self.assertIn('and productionDraft.disposal or PRODUCTION_ZONE_KIND[operation]', production)
+        self.assertIn("UI_SC_Base_AutonomousProductionHint", production)
         detail_signature = lua_function(self.ui, "local function baseDetailSignature()")
-        self.assertIn("productionDraft = {", detail_signature)
-        self.assertIn("operation = productionDraft.operation", detail_signature)
-        self.assertIn("disposal = productionDraft.disposal", detail_signature)
+        self.assertNotIn("productionDraft = {", detail_signature)
 
     def test_base_context_is_hidden_outside_camp_and_dismiss_is_confirmed(self) -> None:
         relevant = lua_function(self.context, "local function baseMenuRelevant(square)")

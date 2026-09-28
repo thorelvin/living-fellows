@@ -1178,7 +1178,7 @@ function BaseWork.auditMaintenance(player)
     -- Farming participates in the same bounded round-robin as every other
     -- maintenance family. A productive field must not starve bandages,
     -- sorting, routines, or barricade inspection indefinitely.
-    auditPhase = (auditPhase % 5) + 1
+    auditPhase = (auditPhase % 6) + 1
     if auditPhase == 1 then
         if SC.FarmWork and type(SC.FarmWork.audit) == "function" then
             return SC.FarmWork.audit(base, now())
@@ -1199,7 +1199,23 @@ function BaseWork.auditMaintenance(player)
         end
         return auditRoutine(base)
     end
-    if settings.autoMaintenance == false then return false, "automatic_maintenance_disabled" end
+    if auditPhase == 6 then
+        if type(SC.BaseLife.auditRoleProduction) == "function" then
+            return SC.BaseLife.auditRoleProduction()
+        end
+        return false, "role_production_unavailable"
+    end
+    local maintainerId
+    for _, id in ipairs(SC.BaseLife.dutyResidentIds()) do
+        local resident = SC.BaseLife.resident(id)
+        if resident and resident.role == "maintainer" then
+            maintainerId = id
+            break
+        end
+    end
+    if settings.autoMaintenance == false and maintainerId == nil then
+        return false, "automatic_maintenance_disabled"
+    end
     if #base.maintenanceTargets == 0 then return false, "no_maintenance_targets" end
     if maintenanceCursor > #base.maintenanceTargets then maintenanceCursor = 1 end
     local target = base.maintenanceTargets[maintenanceCursor]
@@ -1215,7 +1231,7 @@ function BaseWork.auditMaintenance(player)
         local planks = math.max(tonumber(samePlanks) or 0, tonumber(oppositePlanks) or 0)
         if tonumber(planks) < 1 then
             return SC.BaseLife.enqueueJob({
-                type = "barricade", priority = 4,
+                type = "barricade", priority = 4, assignedId = maintainerId,
                 target = {
                     x = target.x, y = target.y, z = target.z,
                     objectIndex = target.objectIndex, maintenanceId = target.id,

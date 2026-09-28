@@ -214,18 +214,21 @@ Residents on base duty sort storage, repair gear, craft supplies, keep watch, pa
 
 To see the base layout, press End (rebindable under Options, Key bindings, Living Fellows), use right-click, Living Fellows, Base life, or use the button in the Base tab. Each zone gets a see-through floor tint and outline in its colour, registered storage gets a tile and outline in its category colour, and a legend lists what is on screen.
 
-**Gathering.** One or two residents carry a set number of loose logs or planks from a work area or lumber area into one storage container. They walk to each item, pick it up, and deposit that exact item; nothing is created from thin air.
+**Gathering.** Residents can still finish gathering orders already in the save. The Base view shows their progress without asking you to manage quantities, destinations, or workers.
 
-**Production.** The **Production** section of the Base view gives one or two residents a finite order. Tools and materials come from camp storage.
+**Choose a base job.** Select a companion in **More → Base** and choose one job from the dropdown near the top. This puts them on base duty. Choose **No base job (follow me)** to bring them back. Their job survives a save and reload. They take work when the existing survival and work scheduler gives them time, and the Base view shows active production and blockers without an order form.
 
-| Job | You need | What happens |
+Woodcutters choose a marked lumber area with standing trees and make small logging orders when stored logs are low. Carpenters saw stored logs into planks when a separate output container is available. Gravekeepers look for bodies in the camp or lumber areas and use a marked burial ground, or a safe marked pyre. Farmers tend marked plots. Maintainers handle damaged barricades among marked maintenance targets. Quartermasters, medics, guards, and generalists use the existing base chores. The marked areas and storage are one-time places and safety boundaries; you no longer set a quantity, area, destination, or worker for each production order.
+
+Tools and materials come from camp storage. The underlying work actions remain finite so a resident can pause, recover, and choose the next task safely.
+
+| Base job | You need | What happens |
 | --- | --- | --- |
-| Fell trees | One or more lumber areas and an axe in storage | Residents automatically choose the area with the most visible standing trees after subtracting unfinished logging commitments; stable area IDs break ties. They chop with the game's own action. A tree counts only once it is down, and its logs can be hauled to storage automatically across as many bounded hauling batches as needed. |
-| Saw planks | Logs in one storage, a saw, and a second storage for planks | Residents take one log at a time, saw it into three planks with the vanilla recipe, and store the planks. Completed output is recovered after a pause or reload before another log can be taken. |
-| Dig graves | A burial ground and a shovel | Residents dig vanilla graves on natural ground. |
-| Bury the dead | A burial ground and a shovel | Residents match each body to a usable open grave, reserve both while working, and dig near an eligible body if needed. They fill the grave when it is full or the order is done, and can add a wooden cross (hammer, two planks, two nails). |
-| Collect the dead (experimental) | A burial ground and a shovel, or a pyre with a lighter and a petrol can | Residents find bodies in the camp and lumber areas, take hold of one at a time with the game's own corpse grapple, drag it to the chosen burial ground or pyre, and bury or burn it there. The chosen area decides the method. |
-| Burn the dead (experimental) | A pyre, a lighter, and a petrol can | Residents light each body already on the pyre with the game's own action, one fire at a time, and watch from a distance until it is out. |
+| Woodcutter | A lumber area, axe, and marked construction, general, or output storage | Scans a few loaded tiles at a time, chops one standing tree with the game's own action, and hauls its logs to storage. |
+| Carpenter | Logs in marked storage, a saw, and a second marked container for planks | Takes one log, saws it into three planks with the vanilla recipe, and stores them. Completed output is recovered after a pause or reload. |
+| Gravekeeper | A burial ground and shovel, or a safe pyre with lighter and petrol | Finds a body within the camp or lumber areas, drags it to the burial ground or pyre, then buries or burns it. Burial can dig and fill a grave as needed. Bodies carrying items are left for you to loot. |
+| Farmer | A farm area over existing plots and marked farming supplies | Uses the existing bounded field audit to find watering, tending, and harvest work. |
+| Maintainer | Marked maintenance targets | Takes damaged barricade work when one needs planks. |
 
 - Chopping is loud. No tree is started while danger is visible nearby, winded residents rest, and a chop that gets stuck is abandoned after three minutes.
 - Outside the camp boundary, residents start no new tree and fetch no body at night (21:00–06:00).
@@ -233,7 +236,7 @@ To see the base layout, press End (rebindable under Options, Key bindings, Livin
 - A resident dragging a body takes no fences, windows, or stairs, and drops it at once when danger shows up. The body stays where it fell.
 - Fire is real. A pyre must be outdoors on open ground, away from buildings, stored goods, trees, vehicles, and loose items. Nothing is lit in the rain unless you allow it, nobody else may stand close to the body being lit, and if fire appears beyond the pyre every worker stops and the order waits for your Retry.
 - A fallen companion found by Collect the dead gets an empty grave of their own and always a cross, and the grave keeps their name. Fallen companions are never burned. A body whose identity is not certain is treated as a stranger, and your own body is never touched.
-- A blocked order shows the reason and tries again on its own; a spreading fire waits for Retry.
+- A blocked order shows the reason and tries again on its own; a spreading fire stops disposal until the area is safe.
 
 Every closed grave gets a few words: a short prayer or a line of bleak gallows humor depending on who holds the shovel, a salute, and sometimes an "Amen" from a friend nearby. Lighting a pyre may earn a "Burn, baby, burn!" or "Disco inferno!", a burned-out pyre gets its own prayer or gallows line, and a fallen companion's grave closes with their name instead of a joke.
 

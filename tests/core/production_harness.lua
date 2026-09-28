@@ -2195,4 +2195,70 @@ do
         "an undiggable site restores the hands: " .. tostring(reason))
 end
 
+-- A saved job role is sufficient to create bounded work from actual supplies.
+do
+    local ctx = setup()
+    local selected = SC.Commands.issue(ctx.id, "set_base_role",
+        { role = "woodcutter" }, nil)
+    local resident = SC.BaseLife.resident(ctx.id)
+    check(selected == true and resident.role == "woodcutter"
+        and resident.duty == true
+        and SC.Commands.peek(ctx.actor).order == "base_duty",
+        "one job selection puts the companion on working base duty")
+    local saved = SC.BaseLife.export()
+    check(SC.BaseLife.restore(saved) == true
+        and SC.BaseLife.resident(ctx.id).role == "woodcutter"
+        and SC.BaseLife.resident(ctx.id).duty == true,
+        "the chosen job and duty survive a base save and restore")
+    check(SC.Commands.issue(ctx.id, "follow", nil, nil) == true
+        and SC.BaseLife.resident(ctx.id).duty == false,
+        "choosing to follow ends base work")
+end
+
+do
+    local ctx = setup()
+    check(SC.BaseLife.assign(ctx.id, "woodcutter", true) == true,
+        "woodcutter is a persistent base role")
+    check(SC.BaseLife.auditRoleProduction() == false,
+        "woodcutter does not create an order without a standing tree")
+    makeTree(sq(3, 2), 20)
+    local created, order = SC.BaseLife.auditRoleProduction()
+    check(created == true and order.operation == "fell_trees"
+        and order.workers[1] == ctx.id and order.zoneId == ctx.lumber.id,
+        "woodcutter selects visible trees and owns a small logging order")
+    check(SC.BaseLife.auditRoleProduction() == false,
+        "an active production order is not duplicated")
+end
+
+do
+    local ctx = setup()
+    check(SC.BaseLife.assign(ctx.id, "builder", true) == true,
+        "carpenter uses the existing saved builder role")
+    check(SC.BaseLife.auditRoleProduction() == false,
+        "carpenter waits when no logs are available")
+    ctx.logsObject.container:AddItem(makeItem("Base.Log"))
+    local created, order = SC.BaseLife.auditRoleProduction()
+    check(created == true and order.operation == "saw_planks"
+        and order.sourceStorageId == ctx.logs.id
+        and order.destinationStorageId ~= ctx.logs.id,
+        "carpenter chooses loaded log and plank storage without a form")
+end
+
+do
+    local ctx = setup()
+    check(SC.BaseLife.assign(ctx.id, "corpsekeeper", true) == true,
+        "gravekeeper is a persistent base role")
+    check(SC.BaseLife.auditRoleProduction() == false,
+        "gravekeeper does not create an order without a body")
+    makeBody(sq(4, -4))
+    local created, order
+    for _ = 1, 10 do
+        created, order = SC.BaseLife.auditRoleProduction()
+        if created == true then break end
+    end
+    check(created == true and order.operation == "collect_bodies"
+        and order.zoneId == ctx.burial.id and order.workers[1] == ctx.id,
+        "gravekeeper finds a body in bounded scans and chooses burial")
+end
+
 print("PRODUCTION_HARNESS_PASS checks=" .. tostring(checks))
