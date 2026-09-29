@@ -1062,6 +1062,71 @@ SC.Senses.cached = ordinaryCached
 SC.ExpeditionRoute.plan = successfulRoadPlan
 check(expedition.finishAtPlayer(player) == true,
     "the blocked-road return releases the native leader")
+local savedMedical = SC.Medical
+local escort = actorAt(24, 20)
+actors.escort = escort
+SC.Medical = { assessCached = function(actor)
+    return { health = actor == reserve and 40 or 100,
+        bleedingCount = actor == reserve and 1 or 0 }
+end }
+local woundedStarted, woundedMission = expedition.start(
+    { { id = "delta", actor = reserve }, { id = "escort", actor = escort } },
+    { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+        travelMode = "road" })
+local beforeWithdrawalPlans = #routeCalls
+check(woundedStarted and expedition.roadCombatFor(escort)
+        and expedition.roadCombatFor(escort).radius == 2.5,
+    "a road follower shares the leader's short combat pursuit leash")
+scoutClock = scoutClock + 1000
+SC.Senses.cached = function()
+    local threats = {}
+    for index = 1, 3 do
+        threats[index] = { x = 28, y = 20,
+            visible = true, obstructed = false }
+    end
+    return { valid = true, reflexTime = scoutClock, threats = threats }
+end
+expedition.pulse()
+check(woundedStarted and woundedMission.scout.phase == "inbound"
+        and woundedMission.scout.endReason == "squad_wounded"
+        and #routeCalls == beforeWithdrawalPlans + 1
+        and routeCalls[#routeCalls].goalX == player.x
+        and routeCalls[#routeCalls].avoidance ~= nil,
+    "a bleeding low-health member turns the whole road squad home around a smaller group")
+SC.Medical = savedMedical
+SC.Senses.cached = ordinaryCached
+check(expedition.finishAtPlayer(player) == true,
+    "the wounded squad can release its leader after turning home")
+actors.escort = nil
+local stalledStarted, stalledMission = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+        travelMode = "road" })
+stalledMission.scout.phase = "inbound"
+stalledMission.scout.returnIndex = 0
+stalledMission.scout.replans = 5
+stalledMission.scout.bestDistanceToWaypoint = 10
+stalledMission.scout.lastProgressAt = scoutClock - 31000
+stalledMission.scout.waypointStagedAt = scoutClock - 31000
+stalledMission.scout.nextHordeCheckAt = scoutClock + 10000
+stalledMission.testWaypoint = { x = reserve.x + 10, y = reserve.y, z = 0 }
+SC.Senses.cached = function()
+    return { valid = true, reflexTime = scoutClock,
+        threats = { { x = reserve.x + 5, y = reserve.y,
+            visible = true, obstructed = false } } }
+end
+local beforeStallPlans = #routeCalls
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(stalledStarted and stalledMission.technicalIssue == nil
+        and stalledMission.scout.hordeDetours == 1
+        and stalledMission.scout.replans == 0
+        and #routeCalls == beforeStallPlans + 1
+        and routeCalls[#routeCalls].avoidance ~= nil,
+    "a single roadside contact that stalls inbound combat gets one alternate-road plan")
+SC.Senses.cached = ordinaryCached
+check(expedition.finishAtPlayer(player) == true,
+    "the combat-stall detour can release the native leader")
 local meetingStarted, meetingMission = expedition.start(
     { { id = "delta", actor = reserve } },
     { kind = "scout", destination = { x = 80, y = 20, z = 0 },

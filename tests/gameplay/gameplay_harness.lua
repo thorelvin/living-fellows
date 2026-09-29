@@ -3048,6 +3048,17 @@ check(builtFenceEdge.traversable == true and builtFenceEdge.object == builtFence
         .. tostring(fenceActor.lastIntent and fenceActor.lastIntent.action))
 table.remove(fenceFrom.specialObjects)
 SurvivorCompanion.Navigation.reset(fenceActor)
+local falseFence = {}
+function falseFence:isHoppable() return false end
+function falseFence:isTallHoppable() return false end
+function fenceFrom:getWallHoppableTo(other)
+    return other == fenceTo and falseFence or nil
+end
+local rejectedFence = SurvivorCompanion.Topology.classifyEdge(
+    fenceActor, fenceFrom, fenceTo, {})
+check(rejectedFence.traversable == false
+        and rejectedFence.reason == "fence_not_hoppable",
+    "a concrete fence with both native hop flags false is rejected during planning")
 function fenceFrom:getWallHoppableTo() return nil end
 local priorSquareWall = fenceFrom.isPlayerAbleToHopWallTo
 local priorFenceBlockedTo = fenceFrom.isBlockedTo
@@ -8323,6 +8334,17 @@ local distantAttackers = SurvivorCompanion.Combat.assessOverrun(overrunActor, {
 }, nil, { combatMode = "defensive" })
 check(not distantAttackers.overrun,
     "targeting zombies outside the close-threat radius do not masquerade as a surrounding grab group")
+local woundedFighter = actor("sc-wounded-withdrawal", -8, -5, {
+    body = bodyDamage(40), inventory = inventory({ overrunBat }),
+})
+local woundedPressure = SurvivorCompanion.Combat.assessOverrun(woundedFighter, {
+    immediateCount = 0, closeThreatCount = 2, closeImmediateCount = 0,
+    directionalPressure = 0, occupiedThreatSectors = 1,
+    escapeSquares = { { square = cell:getGridSquare(-8, -4, 0), danger = 0 } },
+    allies = {}, player = { available = false },
+}, nil, { combatMode = "aggressive" })
+check(woundedPressure.overrun and woundedPressure.cause == "health",
+    "a wounded fighter withdraws from two close zombies even under aggressive orders")
 
 -- WP-A: the refusal cause is a deterministic explanation of the existing
 -- arithmetic. Lower only the test threshold so each isolated positive term can
@@ -8453,6 +8475,31 @@ check(fallbackHandled and fallbackOverrunActor.lastIntent
         and fallbackOverrunActor.lastIntent.targetSquare == overrunSnapshot.escapeSquares[1].square,
     "combat escape keeps a concrete native destination when the Lua navigator is unavailable")
 SurvivorCompanion.Combat.reset(fallbackOverrunActor)
+do
+    local failedExit = cell:getGridSquare(-7, -4, 0)
+    local openExit = cell:getGridSquare(-6, -4, 0)
+    local savedRequest = SurvivorCompanion.Navigation.request
+    local savedTarget = SurvivorCompanion.Navigation.retreatTarget
+    local attempts = {}
+    SurvivorCompanion.Navigation.retreatTarget = function() return nil end
+    SurvivorCompanion.Navigation.request = function(_, square)
+        attempts[#attempts + 1] = square
+        return square == openExit, square == openExit and "retreating" or "fence_not_hoppable"
+    end
+    local accepted = SurvivorCompanion.Combat._executeRetreatForTests(
+        woundedFighter, player, {
+            escapeSquares = {
+                { square = failedExit, score = 20, danger = 0 },
+                { square = openExit, score = 10, danger = 0 },
+            },
+        }, nil, true, { cohortKey = "party:blocked-retreat" },
+        { recruited = false })
+    SurvivorCompanion.Navigation.request = savedRequest
+    SurvivorCompanion.Navigation.retreatTarget = savedTarget
+    check(accepted and #attempts == 2 and attempts[1] == failedExit
+            and attempts[2] == openExit,
+        "a rejected fence retreat tries another free escape square on the same pulse")
+end
 do
     -- Report 5: a combat retreat must break contact locally and never sprint to a
     -- distant remembered egress (its far map-entry route), which ran companions
@@ -12837,8 +12884,9 @@ clock = clock + 101
 local gatedFallback = SurvivorCompanion.Decision.update(fallbackActor, player, fallbackRuntime)
 check(gatedFallback
         and string.find(tostring(SurvivorCompanion.Decision.peek(fallbackActor).intent),
-            "safety_guarded_hold:medical", 1, true) ~= nil,
-    "failed emergency medicine holds defensively until the combat fallback is due")
+            "medical", 1, true) == nil,
+    "unsafe bleeding yields to combat instead of retrying medicine beside an attacker: "
+        .. tostring(SurvivorCompanion.Decision.peek(fallbackActor).intent))
 
 local function testDecisionReturnPropagation()
 local transitionPlayer = actor("transition-player", 21, 21, { className = "IsoPlayer", recruited = false })
@@ -18225,24 +18273,24 @@ end)()
     local combat = SurvivorCompanion.Combat
     local leader = actor("sc-road-combat-leader", 40, 30, {})
     local offRoad = zombie(45, 35, {})
-    local onRoad = zombie(45, 31, {})
-    local policy = { radius = 6, first = { x = 35, y = 30 },
+    local onRoad = zombie(42, 31, {})
+    local policy = { radius = 2.5, first = { x = 35, y = 30 },
         last = { x = 55, y = 30 }, width = 6 }
     local orders = { combatDoctrine = "weapons_free",
         expeditionTravelCombat = policy }
     local snapshot = { allies = {} }
     local detached = { actor = offRoad, distanceSq = 50 }
-    local close = { actor = onRoad, distanceSq = 26 }
+    local close = { actor = onRoad, distanceSq = 5 }
     check(combat._doctrineMayFightForTests(leader, detached, nil,
             snapshot, { combatDoctrine = "weapons_free" })
             and not combat._doctrineMayFightForTests(leader, detached,
                 nil, snapshot, orders)
             and combat._doctrineMayFightForTests(leader, close,
                 nil, snapshot, orders)
-            and combat._doctrineMayFightForTests(leader, {
+            and not combat._doctrineMayFightForTests(leader, {
                 actor = offRoad, distanceSq = 50, attacking = true,
             }, nil, snapshot, orders),
-        "travelling weapons-free leader stays on-road but still defends nearby attackers")
+        "travelling weapons-free squad fights close contacts without chasing even a distant attacker")
 end)()
 
 -- A zombie at arm's length that the last perception pass marked unseen still
@@ -22129,6 +22177,35 @@ end)()
 
     glassFrom.specialObjects, glassTo.specialObjects = {}, {}
     wallFrom.specialObjects, wallTo.specialObjects = {}, {}
+end)()
+
+;(function()
+    local trapped = actor("sc-wounded-breakout", 20, 20, {
+        body = bodyDamage(35), inventory = inventory({ item("Base.BreakoutBat", "Weapon", {}) }),
+    })
+    registry[trapped.id] = trapped
+    local blocker = zombie(21, 20, { attacking = true, target = trapped })
+    local snapshot = {
+        threats = { { actor = blocker, square = blocker.square, distanceSq = 1 } },
+        escapeSquares = {}, allies = {}, immediateCount = 1, encircled = true,
+    }
+    local savedTarget = SurvivorCompanion.Navigation.retreatTarget
+    SurvivorCompanion.Navigation.retreatTarget = function() return nil end
+    local state = { cohortKey = "party:wounded-breakout" }
+    local shoved, shoveReason = SurvivorCompanion.Combat._executeRetreatForTests(
+        trapped, player, snapshot, snapshot.threats[1], true, state,
+        { recruited = false })
+    local ran, runReason = SurvivorCompanion.Combat._executeRetreatForTests(
+        trapped, player, snapshot, snapshot.threats[1], true, state,
+        { recruited = false })
+    SurvivorCompanion.Navigation.retreatTarget = savedTarget
+    check(shoved and shoveReason == "breakout_shove"
+            and ran and runReason == "breakout_run"
+            and trapped.lastIntent.action == "corner_escape"
+            and trapped.lastIntent.targetSquare == cell:getGridSquare(22, 20, 0),
+        "a cornered wounded companion shoves through one zombie tile and runs beyond it")
+    SurvivorCompanion.Combat.reset(trapped)
+    registry[trapped.id] = nil
 end)()
 
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")

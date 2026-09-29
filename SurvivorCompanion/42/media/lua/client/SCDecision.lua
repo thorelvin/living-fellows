@@ -387,7 +387,9 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         -- The player is bandaging this companion: hold still for it.
         add("medical", 150, true, { mode = "receiving_care" })
     end
-    if actionableMedical(actor, assessment, true) then
+    if actionableMedical(actor, assessment, true)
+        and (not SC.Medical or type(SC.Medical.canTreatNow) ~= "function"
+            or SC.Medical.canTreatNow(actor, snapshot)) then
         if assessment.downed or (assessment.health > 0
             and assessment.health <= (U().config("downedHealth") or 18)) then
             add("medical", 140, true)

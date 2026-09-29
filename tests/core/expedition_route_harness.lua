@@ -114,6 +114,18 @@ local avoid = Route.visibleHorde(route, actor, snapshot, 4, 1100)
 check(avoid ~= nil and avoid.x == 35 and avoid.y == 10
         and avoid.radius == 8 and avoid.seen == 13,
     "more than three visible zombies per member identifies a road hazard")
+local woundedContacts = {}
+for index = 1, 4 do
+    woundedContacts[index] = { x = 35, y = 10,
+        visible = true, obstructed = false }
+end
+check(Route.visibleHorde(route, actor,
+        { valid = true, reflexTime = 1000, threats = woundedContacts },
+        4, 1100) == nil
+        and Route.visibleHorde(route, actor,
+            { valid = true, reflexTime = 1000, threats = woundedContacts },
+            4, 1100, 2).seen == 4,
+    "a wounded squad can avoid a smaller road group without changing the ordinary horde threshold")
 check(Route.visibleHorde(route, actor, snapshot, 4, 4000) == nil,
     "old sight data cannot change the expedition route")
 local scattered = { { x = 35, y = 10,

@@ -8291,6 +8291,18 @@ function Harness.probeAutonomousScout(current)
     end
     local scout = mission.scout
     if scout == nil or mission.technicalIssue ~= nil then
+        local screenshotName = tostring(Harness.config.run_id)
+            .. "-scout-stall.png"
+        local captured, screenshotError = pcall(function()
+            getCore():TakeFullScreenshot(screenshotName)
+        end)
+        local directory, dirOk = SC.GameplayUtil.call(getCore(),
+            "getScreenshotDir")
+        result(captured and "PASS" or "FAIL",
+            "autonomous_scout_stall_screenshot_requested",
+            "file=" .. screenshotName
+                .. " directory=" .. tostring(dirOk and directory)
+                .. " error=" .. tostring(screenshotError))
         result("FAIL", "autonomous_scout_itinerary_active",
             "phase=" .. tostring(scout and scout.phase)
                 .. " issue=" .. tostring(mission.technicalIssue

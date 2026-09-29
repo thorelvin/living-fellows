@@ -1939,12 +1939,18 @@ function Combat.assessOverrun(actor, snapshot, weapon, commands, options)
         pushDelta = SC.Relationship.pushThresholdDelta(commands, socialContext)
         threshold = threshold + pushDelta
     end
-    local overrun = immediate >= 3 or occupied >= 3
+    -- A wounded companion cannot afford another exchange in close contact.
+    -- Give retreat an explicit trigger before a bite drains the last health;
+    -- nearby allies and an aggressive doctrine do not cancel this limit.
+    local woundedWithdrawal = assessment.health <= 55
+        and (immediate >= 1 or close >= 2)
+    local overrun = woundedWithdrawal or immediate >= 3 or occupied >= 3
         or readiness.staminaCritical and (immediate >= 1 or close >= 2)
         or risk >= threshold
     local cause
     if overrun then
-        if immediate >= 3 then cause = "immediate_count"
+        if woundedWithdrawal then cause = "health"
+        elseif immediate >= 3 then cause = "immediate_count"
         elseif occupied >= 3 then cause = "occupied_sectors"
         elseif readiness.staminaCritical and (immediate >= 1 or close >= 2) then
             cause = "stamina"
@@ -2636,9 +2642,13 @@ local function doctrineMayFight(actor, target, player, snapshot, commands)
         and commands.expeditionTravelCombat or nil
     if travel then
         radius = math.min(radius, tonumber(travel.radius) or 6)
-        if target.attacking ~= true
-            and (target.distanceSq or U().distanceSq(actor, target.actor)) > 9
-            and outsideTravelRoad(target, travel) then return false end
+        local distanceSq = target.distanceSq or U().distanceSq(actor, target.actor)
+        -- "Attacking" can mean a zombie is after another squad member. It
+        -- must not turn a road escort into a long pursuit during travel.
+        if distanceSq > radius * radius then return false end
+        if distanceSq > 9 and outsideTravelRoad(target, travel) then
+            return false
+        end
     end
     return target.attacking == true
         or (target.distanceSq or U().distanceSq(actor, target.actor)) <= radius * radius
@@ -3068,6 +3078,44 @@ function Combat.sharedRetreatTarget(actor, player, snapshot, target)
         player, commandState(actor))
 end
 
+local function breakoutLane(actor, player, snapshot)
+    local utility = U()
+    local origin = utility.squareOf(actor)
+    local ax, ay, az = utility.position(origin)
+    if not ax or not SC.Topology or not SC.Topology.classifyEdge then return nil end
+    local best, bestDanger
+    for _, threat in ipairs(snapshot.threats or {}) do
+        local zombie = threat.actor
+        local square = threat.square or utility.squareOf(zombie)
+        local x, y, z = utility.position(square)
+        local dx, dy = x and x - ax, y and y - ay
+        if zombie and square and not utility.isGoneTarget(zombie)
+            and z == az and math.abs(dx) + math.abs(dy) == 1
+            and utility.distanceSq(actor, zombie) <= 2.25
+            and not lineBlockedByFriendly(actor, zombie, player, snapshot, "melee") then
+            local beyond = utility.gridSquare(x + dx, y + dy, z)
+            local entry = SC.Topology.classifyEdge(actor, origin, square, {})
+            local exit = beyond and SC.Topology.classifyEdge(actor, square, beyond, {})
+            if entry and entry.traversable and entry.affordance == "open"
+                and exit and exit.traversable and exit.affordance == "open" then
+                local danger = 0
+                for _, other in ipairs(snapshot.threats or {}) do
+                    if other ~= threat and other.actor and not utility.isGoneTarget(other.actor) then
+                        local distanceSq = utility.distanceSq(beyond, other.actor)
+                        if distanceSq <= 1 then danger = danger + 5
+                        elseif distanceSq <= 4 then danger = danger + 1 end
+                    end
+                end
+                if danger < 5 and (not best or danger < bestDanger) then
+                    best = { zombie = zombie, square = square, beyond = beyond }
+                    bestDanger = danger
+                end
+            end
+        end
+    end
+    return best
+end
+
 local function executeRetreat(actor, player, snapshot, target, survivalCritical, state, commands)
     local utility = U()
     local tether = retreatTether(actor, player, snapshot, commands)
@@ -3098,28 +3146,41 @@ local function executeRetreat(actor, player, snapshot, target, survivalCritical,
         if utility.distance(actor, remembered) > retreatCap
             or not retreatCandidateAllowed(tether, remembered) then remembered = nil end
     end
-    if remembered and SC.Navigation and type(SC.Navigation.request) == "function" then
-        return SC.Navigation.request(actor, remembered, "jog", {
-            action = "combat_retreat",
-            snapshot = snapshot,
-            awayFrom = target and target.actor,
-            urgent = true,
-            escapeSpeedOverride = true,
-            survivalCritical = survivalCritical == true,
-            retreatPlan = retreatPlan,
-            sharedRetreat = sharedPlan,
-        })
-    end
-    if escape and SC.Navigation and type(SC.Navigation.request) == "function" then
-        return SC.Navigation.request(actor, escape.square, "jog", {
-            action = "combat_retreat",
-            snapshot = snapshot,
-            awayFrom = target and target.actor,
-            urgent = true,
-            escapeSpeedOverride = true,
-            survivalCritical = survivalCritical == true,
-            sharedRetreat = sharedPlan,
-        })
+    if SC.Navigation and type(SC.Navigation.request) == "function" then
+        local tried = {}
+        local function trySquare(square, plan)
+            local key = square and utility.squareKey(square)
+            if not square or key and tried[key] then return nil end
+            if key then tried[key] = true end
+            local ok, reason = SC.Navigation.request(actor, square, "jog", {
+                action = "combat_retreat",
+                snapshot = snapshot,
+                awayFrom = target and target.actor,
+                urgent = true,
+                escapeSpeedOverride = true,
+                survivalCritical = survivalCritical == true,
+                retreatPlan = plan,
+                sharedRetreat = sharedPlan,
+            })
+            if ok then return true, reason end
+            return nil
+        end
+        local ok, reason = trySquare(remembered, retreatPlan)
+        if ok then return true, reason end
+        ok, reason = trySquare(escape and escape.square)
+        if ok then return true, reason end
+        -- A fence or vegetation edge may fail even after route preflight.
+        -- Try other nearby exits on this same combat pulse instead of holding
+        -- beside the zombie until the next decision interval.
+        local attempts = 0
+        for _, candidate in ipairs(snapshot.escapeSquares or {}) do
+            if attempts >= 4 then break end
+            if retreatCandidateAllowed(tether, candidate.square) then
+                attempts = attempts + 1
+                ok, reason = trySquare(candidate.square)
+                if ok then return true, reason end
+            end
+        end
     end
     if escape then
         local accepted = utility.move(actor, "jog", {
@@ -3132,13 +3193,13 @@ local function executeRetreat(actor, player, snapshot, target, survivalCritical,
             escapeSpeedOverride = true,
             survivalCritical = survivalCritical == true,
         })
-        return accepted == true, accepted and "retreating" or "retreat_rejected"
+        if accepted then return true, "retreating" end
     end
     if tether and tether.currentDistance >= tether.hard
         and SC.Navigation and type(SC.Navigation.request) == "function" then
         local anchorSquare = utility.squareOf(tether.anchor)
         if anchorSquare then
-            return SC.Navigation.request(actor, anchorSquare, "jog", {
+            local accepted, reason = SC.Navigation.request(actor, anchorSquare, "jog", {
                 action = "combat_retreat",
                 snapshot = snapshot,
                 player = tether.anchor,
@@ -3149,7 +3210,45 @@ local function executeRetreat(actor, player, snapshot, target, survivalCritical,
                 regroupTether = true,
                 awayFrom = target and target.actor,
             })
+            if accepted then return true, reason end
         end
+    end
+    -- A critically wounded companion with no usable clear exit may have to
+    -- shove one zombie aside and run through its tile. Use only an open two-edge
+    -- lane; a barricade, fence, or second zombie is never a shortcut.
+    local currentState = state or stateFor(actor)
+    if survivalCritical == true
+        and (tonumber(medicalPressure(actor).health) or 100) <= 55 then
+        local now = utility.nowMs()
+        local lane = currentState.breakoutLane
+        if lane and (now >= (lane.expires or 0)
+            or utility.distance(actor, lane.beyond) <= 0.7) then
+            lane = nil
+            currentState.breakoutLane = nil
+        end
+        if not lane then
+            lane = breakoutLane(actor, player, snapshot)
+            if lane then
+                lane.expires = now + 2400
+                local shoved = utility.move(actor, "walk", {
+                    action = "shove", target = lane.zombie,
+                    retreatCounter = true, breakout = true,
+                })
+                if shoved then
+                    currentState.breakoutLane = lane
+                    return true, "breakout_shove"
+                end
+            end
+        else
+            local moved = utility.move(actor, "jog", {
+                action = "corner_escape", targetSquare = lane.beyond,
+                urgent = true, escapeSpeedOverride = true,
+                survivalCritical = true, breakout = true,
+            })
+            if moved then return true, "breakout_run" end
+        end
+    else
+        currentState.breakoutLane = nil
     end
     local threat = target and target.actor or nil
     if threat == nil then
@@ -3170,6 +3269,7 @@ local function executeRetreat(actor, player, snapshot, target, survivalCritical,
     })
     return accepted == true, accepted and "corner_escape" or "retreat_rejected"
 end
+Combat._executeRetreatForTests = executeRetreat
 
 local function executeRetreatCounter(actor, player, snapshot, target, weapon, commands,
         overrun, state, now)
@@ -3679,8 +3779,11 @@ function Combat.update(actor, player, runtime)
         and overrun.risk >= (utility.config("combatOverrunRecoveryRisk") or 38)
     if overrun.overrun or keepRetreating then
         clearAimPreparation(state)
-        local countered, counterAction = executeRetreatCounter(actor, player, snapshot,
-            target, weapon, commands, overrun, state, now)
+        local countered, counterAction
+        if not state.breakoutLane then
+            countered, counterAction = executeRetreatCounter(actor, player, snapshot,
+                target, weapon, commands, overrun, state, now)
+        end
         if countered then
             enterRetreat(actor, state, commands, now, true, snapshot)
             recordOffensiveAction(actor, state, commands, target.actor, now, false, snapshot)

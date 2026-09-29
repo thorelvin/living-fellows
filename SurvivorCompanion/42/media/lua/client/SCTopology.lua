@@ -800,6 +800,16 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
         result.cost, result.requiresNative = 2.5, true
     elseif kind == "fence" then
         local tall, tallOk = U().call(object, "isTallHoppable")
+        local low, lowOk = U().call(object, "isHoppable")
+        -- Some concrete IsoObjects are returned by a square's hoppable-edge
+        -- getter even though both native climb flags reject them. Do not send
+        -- a retreating companion up to that fence only to discover this at
+        -- dispatch time with a zombie already in reach.
+        if object ~= nil and tallOk and tall == false
+            and lowOk and low == false then
+            result.reason = "fence_not_hoppable"
+            return result
+        end
         if tallOk and tall == true then
             -- canClimbOverWall(direction) is relative to the actor's current
             -- square. Calling it while A-star evaluates a distant fence tests

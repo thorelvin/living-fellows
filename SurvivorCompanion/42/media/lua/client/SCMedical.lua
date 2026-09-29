@@ -1323,6 +1323,13 @@ local function bandageSemiSafe(helper, snapshot)
     return true
 end
 
+-- Decision must use the same safety gate as the treatment executor. Otherwise
+-- urgent bleeding repeatedly wins selection while Medical can only say that
+-- no action is safe, leaving the companion stationary beside attackers.
+function Medical.canTreatNow(actor, snapshot)
+    return bandageSemiSafe(actor, snapshot)
+end
+
 local function treatmentCapability(helper, patient, options)
     options = type(options) == "table" and options or {}
     local assessment = Medical.assess(patient)

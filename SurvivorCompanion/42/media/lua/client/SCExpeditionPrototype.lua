@@ -288,6 +288,31 @@ local function alive(record)
     return ok and dead == false
 end
 
+local function squadNeedsWithdrawal(roster)
+    for _, record in ipairs(roster or {}) do
+        if alive(record) then
+            local assessment
+            if SC.Medical and type(SC.Medical.assessCached) == "function" then
+                local ok, value = pcall(SC.Medical.assessCached,
+                    record.actor, nil, 250)
+                if ok and type(value) == "table" then assessment = value end
+            end
+            local health = tonumber(assessment and assessment.health)
+            if health == nil
+                and type(SC.GameplayUtil.nativeHealth) == "function" then
+                health = tonumber(SC.GameplayUtil.nativeHealth(record.actor))
+            end
+            local bleeding = tonumber(assessment and assessment.bleedingCount) or 0
+            if health ~= nil and (health <= 30
+                or (health <= 55 and bleeding > 0)) then
+                return true, record, health
+            end
+        end
+    end
+    return false
+end
+Expedition._squadNeedsWithdrawalForTests = squadNeedsWithdrawal
+
 -- getEquipedRadio() is cached by the native character update. A hand change
 -- can leave it pointing at the old device until the next tick, so validate
 -- the current physical slot before accepting either endpoint.
@@ -1094,7 +1119,7 @@ end
 -- fight threats close to the squad, but should not chase one across a verge
 -- and strand the entire mission away from the mapped road.
 function Expedition.roadCombatFor(actor)
-    if mission == nil or mission.leader.actor ~= actor
+    if not Expedition.isMember(actor)
         or mission.scout == nil then return nil end
     local scout = mission.scout
     if (scout.phase ~= "outbound" and scout.phase ~= "inbound")
@@ -1102,7 +1127,7 @@ function Expedition.roadCombatFor(actor)
     local route = scout.roadRoute
     local first, last = route.points[route.index - 1],
         route.points[route.index]
-    local policy = { radius = 6 }
+    local policy = { radius = 2.5 }
     if first and last and (last.width or 0) >= 6 then
         policy.first, policy.last, policy.width = first, last, last.width
     end
@@ -1725,7 +1750,35 @@ local function pulseScout()
             return
         end
     end
-    if mission.cohesionHold ~= nil then return end
+    local wounded, woundedRecord, woundedHealth =
+        squadNeedsWithdrawal(mission.roster)
+    if wounded and scout.phase == "outbound" then
+        -- The expedition is optional; a bleeding or critically weak member
+        -- turns the whole party home. Preserve a visible roadside hazard so
+        -- the return planner does not simply retrace through the fight.
+        if scout.roadRoute ~= nil then
+            local leader = mission.leader.actor
+            local registered = SC.Registry.byId(mission.leader.id)
+            local snapshot = SC.Senses and SC.Senses.cached
+                and SC.Senses.cached(leader,
+                    registered and registered.runtime) or nil
+            local living = 0
+            for _, record in ipairs(mission.roster) do
+                if alive(record) then living = living + 1 end
+            end
+            scout.roadAvoidance = SC.ExpeditionRoute.visibleHorde(
+                scout.roadRoute, leader, snapshot, living, now,
+                math.max(2, living - 2))
+        end
+        if type(SC.GameplayUtil.diagnostic) == "function" then
+            SC.GameplayUtil.diagnostic("expedition-squad", mission.leader.actor,
+                "action=withdraw member=" .. tostring(woundedRecord.id)
+                    .. " health=" .. tostring(math.floor(woundedHealth)))
+        end
+        startReturnFromSite(scout, "squad_wounded")
+        return
+    end
+    if mission.cohesionHold ~= nil and not wounded then return end
     if scout.roadRoute ~= nil
         and (scout.phase == "outbound" or scout.phase == "inbound")
         and now >= (scout.nextHordeCheckAt or 0) then
@@ -1740,7 +1793,8 @@ local function pulseScout()
             if alive(record) then living = living + 1 end
         end
         local avoidance = SC.ExpeditionRoute.visibleHorde(
-            scout.roadRoute, leader, snapshot, living, now)
+            scout.roadRoute, leader, snapshot, living, now,
+            wounded and math.max(2, living - 2) or nil)
         local previous = scout.road and scout.road.avoidance
         if avoidance ~= nil and previous ~= nil
             and math.sqrt((avoidance.x - previous.x)^2
@@ -1854,7 +1908,48 @@ local function pulseScout()
                     and "road_path_unreachable"
                     or "straight_path_unreachable")
             else
-                mission.technicalIssue = { reason = "scout_stall_replan_limit" }
+                -- Repeated contact at one road segment may keep Combat in
+                -- charge even though the leader cannot advance west. Try a
+                -- different street around the visible contact before ending
+                -- an inbound mission in a permanent technical hold.
+                local rerouted = false
+                if scout.roadRoute ~= nil
+                    and (scout.hordeDetours or 0) < 3 then
+                    local registered = SC.Registry.byId(mission.leader.id)
+                    local snapshot = SC.Senses and SC.Senses.cached
+                        and SC.Senses.cached(leader,
+                            registered and registered.runtime) or nil
+                    local living = 0
+                    for _, record in ipairs(mission.roster) do
+                        if alive(record) then living = living + 1 end
+                    end
+                    local avoidance = SC.ExpeditionRoute.visibleHorde(
+                        scout.roadRoute, leader, snapshot, living, now, 0)
+                    if avoidance then
+                        local route = SC.ExpeditionRoute.plan(
+                            leader, scout.returnPoint, true, avoidance)
+                        local ready = route and SC.ExpeditionRoute.verifyEntry(
+                            route, leader)
+                        if ready then
+                            Expedition.clearTestWaypoint(leader)
+                            if SC.Navigation
+                                and type(SC.Navigation.cancel) == "function" then
+                                SC.Navigation.cancel(leader,
+                                    "scout_combat_stall_detour")
+                            end
+                            scout.roadRoute = route
+                            scout.road = SC.ExpeditionRoute.descriptor(
+                                route, "inbound")
+                            scout.hordeDetours = (scout.hordeDetours or 0) + 1
+                            scout.replans = 0
+                            scout.lastProgressAt = now
+                            rerouted = true
+                        end
+                    end
+                end
+                if not rerouted then
+                    mission.technicalIssue = { reason = "scout_stall_replan_limit" }
+                end
             end
             return
         end

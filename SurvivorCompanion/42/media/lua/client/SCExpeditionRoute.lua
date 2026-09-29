@@ -137,7 +137,7 @@ end
 
 -- Use the leader's fresh visual contacts. A horde elsewhere in sight need not
 -- divert a road journey; one contact must be near the road section ahead.
-function Route.visibleHorde(route, actor, snapshot, livingCount, now)
+function Route.visibleHorde(route, actor, snapshot, livingCount, now, maxThreats)
     if type(route) ~= "table" or type(route.points) ~= "table"
         or type(route.index) ~= "number" or route.index > #route.points
         or type(snapshot) ~= "table" or snapshot.valid ~= true
@@ -165,7 +165,8 @@ function Route.visibleHorde(route, actor, snapshot, livingCount, now)
             seen[#seen + 1] = threat
         end
     end
-    if #seen <= livingCount * 3 then return nil end
+    local threshold = tonumber(maxThreats) or livingCount * 3
+    if #seen <= threshold then return nil end
     local cluster, bestGap
     -- A lone zombie beside the road must not mask a larger group a little
     -- farther along it. Test each road-near contact as a possible group center.
@@ -179,7 +180,7 @@ function Route.visibleHorde(route, actor, snapshot, livingCount, now)
                     nearby[#nearby + 1] = threat
                 end
             end
-            if #nearby > livingCount * 3
+            if #nearby > threshold
                 and (bestGap == nil or gap < bestGap) then
                 cluster, bestGap = nearby, gap
             end
