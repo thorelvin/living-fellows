@@ -398,7 +398,8 @@ function Places.loadedApproach(place, actor)
             "south", sourceX, sourceY)
     end
     local candidates = {}
-    for _, side in ipairs({ "west", "east", "north", "south" }) do
+    local sideOrder = { "west", "east", "north", "south" }
+    for _, side in ipairs(sideOrder) do
         local items = sides[side]
         table.sort(items, function(a, b)
             if a.distanceSq ~= b.distanceSq then
@@ -407,8 +408,14 @@ function Places.loadedApproach(place, actor)
             if a.x ~= b.x then return a.x < b.x end
             return a.y < b.y
         end)
-        for index = 1, math.min(3, #items) do
-            candidates[#candidates + 1] = items[index]
+    end
+    -- Try more than the three closest squares on each face. A boarded window
+    -- or dense vegetation can block those while another part of the same
+    -- loaded building has a sound exterior approach.
+    for rank = 1, 6 do
+        for _, side in ipairs(sideOrder) do
+            local candidate = sides[side][rank]
+            if candidate then candidates[#candidates + 1] = candidate end
         end
     end
     if #candidates == 0 then return nil, "approach_exterior_unavailable" end
@@ -446,6 +453,63 @@ function Places.loadedSiteApproach(siteId, actor)
     if place == nil then return nil, "invalid_place_reference" end
     place.groundFloor = true
     return Places.loadedApproach(place, actor)
+end
+
+-- Emergency refuge must be an actual reachable interior square. A map house
+-- label or an exterior doorstep alone is not shelter from a blocked road.
+function Places.nearestLoadedShelter(actor, hazard)
+    local source = actor and actor:getCurrentSquare()
+    local x, y = SC.GameplayUtil.position(actor)
+    local world = type(getWorld) == "function" and getWorld() or nil
+    local cell = world and world:getCell() or nil
+    if source == nil or x == nil or y == nil or cell == nil
+        or SC.Navigation == nil or type(SC.Navigation.findPath) ~= "function" then
+        return nil, "shelter_area_unavailable"
+    end
+    local places, reason = Places.nearby(math.floor(x), math.floor(y),
+        40, 64, true)
+    if places == nil then return nil, reason end
+    local checked = 0
+    for _, place in ipairs(places) do
+        if place.kind == "residence" and place.groundFloor == true then
+            checked = checked + 1
+            if checked > 8 then break end
+            local options = {}
+            local bounds = place.bounds
+            local area = (bounds.x2 - bounds.x + 1)
+                * (bounds.y2 - bounds.y + 1)
+            local stride = math.max(1, math.ceil(math.sqrt(area / 256)))
+            for sx = bounds.x, bounds.x2, stride do
+                for sy = bounds.y, bounds.y2, stride do
+                    local square = cell:getGridSquare(sx, sy, 0)
+                    if square and square:getRoom() ~= nil
+                        and SC.GameplayUtil.isSquareFree(square)
+                        and (hazard == nil or math.sqrt((sx - hazard.x)^2
+                            + (sy - hazard.y)^2) > hazard.radius + 3) then
+                        options[#options + 1] = { square = square,
+                            x = sx, y = sy,
+                            distance = (sx - x)^2 + (sy - y)^2 }
+                    end
+                end
+            end
+            table.sort(options, function(a, b)
+                return a.distance < b.distance
+            end)
+            for index = 1, math.min(8, #options) do
+                local candidate = options[index]
+                local path = SC.Navigation.findPath(source,
+                    candidate.square, { actor = actor, nodeBudget = 1800 })
+                if path and #path >= 1 and #path <= 80
+                    and (hazard == nil or SC.ExpeditionRoute.withinCorridor(
+                        { points = {}, index = 1, avoidance = hazard,
+                            allowEscapeFromAvoidance = true }, path)) then
+                    return { x = candidate.x, y = candidate.y, z = 0,
+                        buildingId = place.id, pathNodes = #path }
+                end
+            end
+        end
+    end
+    return nil, "shelter_no_loaded_path"
 end
 
 local function seenInterior(place, grid, cell)

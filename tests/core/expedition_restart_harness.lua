@@ -680,7 +680,8 @@ function reserve:getInventory() return reserveInventory end
 local sender = { container = playerInventory,
     getDeviceData = function() return senderData end }
 function sender:getContainer() return self.container end
-local receiver = { container = reserveInventory }
+local receiver = { container = reserveInventory,
+    getDeviceData = function() return senderData end }
 function receiver:getContainer() return self.container end
 function player:getEquipedRadio() return sender end
 function player:getPrimaryHandItem() return sender end
@@ -1103,6 +1104,193 @@ SC.Senses.cached = ordinaryCached
 SC.ExpeditionRoute.plan = successfulRoadPlan
 check(expedition.finishAtPlayer(player) == true,
     "the blocked-road return releases the native leader")
+SC.ExpeditionRoute.plan = function(actor, goal, continuing, avoidance)
+    if avoidance ~= nil then return nil, "NO_SAFE_ROAD_DETOUR" end
+    return successfulRoadPlan(actor, goal, continuing, avoidance)
+end
+sender.container = {}
+reserve.x, reserve.y = 23, 20
+local noRadioStarted, noRadioMission = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+        travelMode = "road" })
+SC.Senses.cached = function()
+    local threats = {}
+    for index = 1, 4 do
+        threats[index] = { x = 28, y = 20,
+            visible = true, obstructed = false }
+    end
+    return { valid = true, reflexTime = scoutClock,
+        threats = threats }
+end
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(noRadioStarted and noRadioMission.scout.phase == "inbound"
+        and noRadioMission.scout.pause ~= nil
+        and noRadioMission.scout.pause.mode == "seeking_shelter"
+        and noRadioMission.scout.pause.reported == false,
+    "without radio or a safe road home the squad seeks cover")
+SC.Senses.cached = ordinaryCached
+sender.container = playerInventory
+check(expedition.finishAtPlayer(player) == true,
+    "the unconnected blocked-road probe releases its native leader")
+-- A real player-side receipt exposes three choices. The leader changes course
+-- only after its own exact radio acknowledgement, including on the way home.
+SCSplitScreenProbe.sendTestRadioWithLeaderText = function(_x, _y, _channel,
+        message, guid, codes)
+    local device = (string.find(message, "Horde blocks our route", 1, true)
+        or string.find(message, "Sheltered inside a house", 1, true))
+        and sender or receiver
+    radioHook(guid, codes, 0, 0, 0, message, device)
+end
+local function blockingContacts(x)
+    SC.Senses.cached = function()
+        local threats = {}
+        for index = 1, 4 do
+            threats[index] = { x = x, y = 20,
+                visible = true, obstructed = false }
+        end
+        return { valid = true, reflexTime = scoutClock,
+            threats = threats }
+    end
+end
+SC.ExpeditionRoute.plan = function(actor, goal, continuing, avoidance)
+    if avoidance ~= nil then return nil, "NO_SAFE_ROAD_DETOUR" end
+    return successfulRoadPlan(actor, goal, continuing, avoidance)
+end
+for _, answer in ipairs({ "hold_position", "push_on", "return" }) do
+    reserve.x, reserve.y = 23, 20
+    worldHour = worldHour + 1
+    local radioStarted, radioMission = expedition.start(
+        { { id = "delta", actor = reserve } },
+        { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+            travelMode = "road" })
+    blockingContacts(28)
+    scoutClock = scoutClock + 1000
+    expedition.pulse()
+    local view = expedition.describeForPlayer(player)
+    check(radioStarted and radioMission.scout.phase == "outbound"
+            and radioMission.scout.pause ~= nil
+            and radioMission.scout.pause.reported == true
+            and view.helpRequest ~= nil,
+        "blocked outbound road reports the horde to the player radio")
+    local ordered, orderReason = expedition.sendRadioOrder(player,
+        "expedition_decision", answer)
+    check(ordered == true and radioMission.lastRadioOrder.payload == answer
+            and (answer == "hold_position"
+                and radioMission.scout.pause.mode == "holding"
+                or answer == "push_on"
+                    and radioMission.scout.pause == nil
+                    and radioMission.scout.pushUntilHour > worldHour
+                or answer == "return"
+                    and radioMission.scout.pause == nil
+                    and radioMission.scout.phase == "inbound"),
+        "leader acknowledges and applies the selected blocked-road answer: "
+            .. answer .. " / " .. tostring(orderReason))
+    SC.Senses.cached = ordinaryCached
+    check(expedition.finishAtPlayer(player) == true,
+        "answered blocked-road mission releases its native leader")
+end
+reserve.x, reserve.y = 23, 20
+worldHour = worldHour + 1
+local homeStarted, homeMission = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+        turnHomeAfterHours = 1, travelMode = "road" })
+reserve.x = 125
+worldHour = worldHour + 1.2
+SC.Senses.cached = ordinaryCached
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(homeStarted and homeMission.scout.phase == "inbound"
+        and homeMission.scout.roadRoute ~= nil,
+    "the return-road radio probe starts on the home route")
+blockingContacts(120)
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(homeMission.scout.pause ~= nil
+        and homeMission.scout.pause.mode == "seeking_shelter"
+        and homeMission.scout.pause.reported == true
+        and homeMission.scout.trailReturn == true,
+    "a blocked return road reports in and diverts toward shelter")
+local homeHold = expedition.sendRadioOrder(player,
+    "expedition_decision", "hold_position")
+check(homeHold == true and homeMission.scout.pause.mode == "seeking_shelter",
+    "a homeward hold order keeps the squad moving to cover")
+local shelterLookup = SC.ExpeditionPlaces.nearestLoadedShelter
+SC.ExpeditionPlaces.nearestLoadedShelter = function()
+    return { x = 126, y = 20, z = 0 }
+end
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(homeMission.scout.pause.shelterTarget.x == 126,
+    "the blocked home squad selects a loaded interior refuge")
+local pausedSave = expedition.export()
+check(pausedSave.scout.pause.reported == true
+        and expedition.prepareReset() and expedition.reset()
+        and expedition.restore(pausedSave) and expedition.pulse()
+        and expedition.current().scout.pause.shelterTarget.x == 126,
+    "the blocked home decision and shelter target survive restart")
+local originalReserveSquare = reserve.getCurrentSquare
+function reserve:getCurrentSquare()
+    local square = originalReserveSquare(self)
+    if self.x == 126 then
+        square.getRoom = function() return { id = "refuge" } end
+    end
+    return square
+end
+reserve.x = 126
+scoutClock = scoutClock + 1000
+expedition.pulse()
+scoutClock = scoutClock + 1000
+expedition.pulse()
+local shelteredView = expedition.describeForPlayer(player)
+check(expedition.current().scout.pause.mode == "sheltered"
+        and expedition.current().scout.pause.shelterReported == true
+        and shelteredView.helpRequest.shelter == true
+        and shelteredView.helpRequest.x == 126,
+    "shelter arrival sends a second exact radio report with pickup coordinates")
+reserve.getCurrentSquare = originalReserveSquare
+SC.ExpeditionPlaces.nearestLoadedShelter = shelterLookup
+SC.Senses.cached = ordinaryCached
+reserve.x = player.x + 3
+check(expedition.finishAtPlayer(player) == true,
+    "a sheltered return squad can reunite with the player")
+reserve.x, reserve.y = 23, 20
+worldHour = worldHour + 1
+local trailStarted, trailMission = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+        turnHomeAfterHours = 1, travelMode = "road" })
+reserve.x = 125
+worldHour = worldHour + 1.2
+scoutClock = scoutClock + 1000
+expedition.pulse()
+trailMission.scout.roadRoute = nil
+trailMission.scout.trailReturn = true
+trailMission.scout.returnIndex = 1
+blockingContacts(120)
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(trailStarted and trailMission.scout.pause ~= nil
+        and trailMission.scout.pause.mode == "seeking_shelter"
+        and trailMission.scout.pause.reported == true,
+    "a new horde on the reached return trail also requests help")
+local unsafeReturn, unsafeReason = expedition.sendRadioOrder(player,
+    "expedition_decision", "return")
+check(unsafeReturn == false and unsafeReason == "NO_SAFE_ROAD_DETOUR"
+        and trailMission.scout.pause ~= nil,
+    "an acknowledged return order keeps shelter intent when no safe return exists")
+local pushed = expedition.sendRadioOrder(player,
+    "expedition_decision", "push_on")
+check(pushed == true and trailMission.scout.pause == nil
+        and trailMission.scout.pushUntilHour > worldHour,
+    "an acknowledged push order explicitly releases the blocked trail")
+SC.Senses.cached = ordinaryCached
+reserve.x = player.x + 3
+check(expedition.finishAtPlayer(player) == true,
+    "the trail-horde probe releases its native leader")
+SC.ExpeditionRoute.plan = successfulRoadPlan
 ;(function()
     local returnPlans = 0
     SC.ExpeditionRoute.plan = function(actor, goal, continuing, avoidance)

@@ -239,8 +239,22 @@ function Planner.build(detail, panel)
             y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
                 tr("UI_SC_Expedition_PlannedDestination", view.plannedSite))
         end
-        y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
-            tr("UI_SC_Expedition_AwayStatus"))
+        if view and view.helpRequest then
+            local request = view.helpRequest
+            if request.shelter then
+                y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    tr("UI_SC_Expedition_ShelterRequest", view.leaderName,
+                        math.floor(request.x), math.floor(request.y)))
+            else
+                y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                    tr("UI_SC_Expedition_HelpRequest", view.leaderName,
+                        math.floor(request.x), math.floor(request.y),
+                        tr("UI_SC_Expedition_Help_" .. request.mode)))
+            end
+        else
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_AwayStatus"))
+        end
         return y
     end
     y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",

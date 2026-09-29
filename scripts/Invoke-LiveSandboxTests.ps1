@@ -58,6 +58,7 @@ param(
     [ValidateRange(20, 200)][int]$TeamRoadDistanceTiles = 180,
     [switch]$TeamRoadMovementProbe,
     [switch]$TeamRoadHordeProbe,
+    [switch]$TeamRoadBlockedRadioProbe,
     [switch]$TeamRoadAlternateProbe,
     [switch]$TeamRoadRestartStageOnly,
     [switch]$TeamRoadRestartResumeProbe,
@@ -179,7 +180,8 @@ if ($PlaceMetadataOnly -and ($SplitScreenOnly -or $PathingOnly -or
     throw '-PlaceMetadataOnly requires a standalone read-only run.'
 }
 if ($TeamAutonomousScoutProbe -and (-not $TeamHandoff -or $LeaderRemote -or
-    $TeamLocalTravelProbe -or $TeamExtendedRouteProbe -or $TeamRadioFixture -or
+    $TeamLocalTravelProbe -or $TeamExtendedRouteProbe -or
+    ($TeamRadioFixture -and -not $TeamRoadBlockedRadioProbe) -or
     $TeamLootSurvey -or $TeamOverlapProbe)) {
     throw '-TeamAutonomousScoutProbe requires a focused local team handoff run.'
 }
@@ -191,6 +193,10 @@ if ($TeamRoadMovementProbe -and -not $TeamRoadRouteProbe) {
 }
 if ($TeamRoadHordeProbe -and -not $TeamRoadRouteProbe) {
     throw '-TeamRoadHordeProbe requires -TeamRoadRouteProbe.'
+}
+if ($TeamRoadBlockedRadioProbe -and
+    (-not $TeamRoadHordeProbe -or -not $TeamRadioFixture)) {
+    throw '-TeamRoadBlockedRadioProbe requires -TeamRoadHordeProbe and -TeamRadioFixture.'
 }
 if ($TeamRoadAlternateProbe -and -not $TeamRoadHordeProbe) {
     throw '-TeamRoadAlternateProbe requires -TeamRoadHordeProbe.'
@@ -810,6 +816,7 @@ $config = @(
     ('team_road_distance_tiles=' + $TeamRoadDistanceTiles),
     ('team_road_movement_probe=' + $TeamRoadMovementProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_road_horde_probe=' + $TeamRoadHordeProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_road_blocked_radio_probe=' + $TeamRoadBlockedRadioProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_road_alternate_probe=' + $TeamRoadAlternateProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_road_restart_stage_only=' + $TeamRoadRestartStageOnly.IsPresent.ToString().ToLowerInvariant()),
     ('team_road_restart_resume_probe=' + $TeamRoadRestartResumeProbe.IsPresent.ToString().ToLowerInvariant()),

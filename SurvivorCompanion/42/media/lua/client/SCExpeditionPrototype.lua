@@ -44,6 +44,40 @@ local function copyRoadAvoidance(value)
     return { x = value.x, y = value.y, radius = value.radius }
 end
 
+local PAUSE_MODES = { awaiting_orders = true, holding = true,
+    seeking_shelter = true, sheltered = true }
+local function validWorldCoordinate(value)
+    return type(value) == "number" and value == value
+        and value >= 0 and value <= 30000
+end
+local function validAvoidance(value)
+    return type(value) == "table" and validWorldCoordinate(value.x)
+        and validWorldCoordinate(value.y) and type(value.radius) == "number"
+        and value.radius == value.radius
+        and value.radius >= 1 and value.radius <= 24
+end
+local function validPause(value)
+    return type(value) == "table" and PAUSE_MODES[value.mode] == true
+        and (value.reason == "horde_no_safe_detour"
+            or value.reason == "return_horde_blocked")
+        and validAvoidance(value.hazard)
+        and type(value.reported) == "boolean"
+        and (value.shelterReported == nil
+            or type(value.shelterReported) == "boolean")
+        and (value.shelterTarget == nil or validPoint(value.shelterTarget))
+        and (value.shelterReported ~= true
+            or value.shelterTarget ~= nil)
+end
+local function copyPause(value)
+    if value == nil then return nil end
+    return { mode = value.mode, reason = value.reason,
+        hazard = copyRoadAvoidance(value.hazard),
+        reported = value.reported,
+        shelterReported = value.shelterReported,
+        shelterTarget = value.shelterTarget
+            and copyPoint(value.shelterTarget) or nil }
+end
+
 local function scoutWorldHour()
     if type(getGameTime) ~= "function" then return nil end
     local ok, gameTime = pcall(getGameTime)
@@ -266,6 +300,19 @@ local function validSlotSqlId(value)
 end
 
 local function radioTextReceived(guid, codes, _x, _y, _z, message, device)
+    local report = mission and mission.pendingReport
+    if report and not report.received
+        and tostring(guid) == report.guid
+        and tostring(codes) == report.codes
+        and tostring(message) == report.text
+        and device == report.receiver
+        and mission.leader.actor == report.leader
+        and getSpecificPlayer(1) == report.leader
+        and SCSplitScreenProbe ~= nil
+        and SCSplitScreenProbe.isLeaderRadioTextContextActive() == true then
+        report.received = true
+        return
+    end
     local pending = mission and mission.pendingRadio
     if pending == nil or pending.received == true
         or tostring(guid) ~= pending.guid
@@ -328,6 +375,77 @@ local function currentEquippedRadio(actor)
         return radio
     end
     return nil
+end
+
+local function operationalRadio(actor, transmitting)
+    local radio = currentEquippedRadio(actor)
+    local data = radio and radio:getDeviceData()
+    if data == nil or not data:getIsTwoWay()
+        or not data:getIsTurnedOn() or not data:getHasBattery()
+        or data:getPower() <= 0 or data:getTransmitRange() <= 0
+        or (transmitting and (data:getMicIsMuted()
+            or data:isNoTransmit())) then return nil end
+    return radio, data
+end
+
+local function transmitBlockRequest(shelterUpdate)
+    local pause = mission and mission.scout and mission.scout.pause
+    local leader = mission and mission.leader and mission.leader.actor
+    local player = type(getSpecificPlayer) == "function"
+        and getSpecificPlayer(0) or nil
+    if pause == nil or player == nil
+        or (shelterUpdate and (pause.shelterReported == true
+            or pause.mode ~= "sheltered" or pause.shelterTarget == nil))
+        or (not shelterUpdate and pause.reported == true)
+        or not mission.radioTextHooked
+        or mission.pendingRadio ~= nil or mission.pendingReport ~= nil
+        or not alive(mission.leader) or getSpecificPlayer(1) ~= leader then
+        return false
+    end
+    local source, sourceData = operationalRadio(leader, true)
+    local receiver, receiverData = operationalRadio(player, false)
+    if source == nil or receiver == nil
+        or sourceData:getChannel() ~= receiverData:getChannel() then
+        return false
+    end
+    mission.radioSequence = mission.radioSequence + 1
+    local name = mission.leader.name or "Squad leader"
+    local message
+    if shelterUpdate then
+        message = name .. ": Sheltered inside a house at "
+            .. tostring(pause.shelterTarget.x) .. ", "
+            .. tostring(pause.shelterTarget.y)
+            .. ". Holding here for pickup."
+    else
+        message = name .. ": Horde blocks our route near "
+            .. tostring(math.floor(leader:getX())) .. ", "
+            .. tostring(math.floor(leader:getY()))
+            .. ". Need backup or orders: return, push on, or hold position."
+    end
+    local pending = { leader = leader, receiver = receiver,
+        guid = "LF-EXP-" .. mission.radioSession,
+        codes = (shelterUpdate and "SHELTER-" or "HELP-")
+            .. tostring(mission.radioSequence),
+        text = message }
+    mission.pendingReport = pending
+    local sent = pcall(SCSplitScreenProbe.sendTestRadioWithLeaderText,
+        math.floor(leader:getX()), math.floor(leader:getY()),
+        sourceData:getChannel(), message, pending.guid, pending.codes,
+        0.95, 0.7, 0.35, sourceData:getTransmitRange(), false)
+    mission.pendingReport = nil
+    if sent and pending.received == true then
+        if shelterUpdate then
+            pause.shelterReported = true
+        else
+            pause.reported = true
+        end
+        SC.GameplayUtil.call(player, "setHaloNote", message)
+        if SC.UI and type(SC.UI.refresh) == "function" then
+            SC.UI.refresh()
+        end
+        return true
+    end
+    return false
 end
 
 -- Private playtest kit. These are real inventory items and native DeviceData;
@@ -724,6 +842,8 @@ function Expedition.export()
             } or nil,
             trailReturn = mission.scout.trailReturn == true or nil,
             hordeDetours = mission.scout.hordeDetours,
+            pause = copyPause(mission.scout.pause),
+            pushUntilHour = mission.scout.pushUntilHour,
         } or nil,
     }
 end
@@ -840,6 +960,11 @@ function Expedition.restore(saved)
                 and (type(scout.hordeDetours) ~= "number"
                     or scout.hordeDetours < 0 or scout.hordeDetours > 3
                     or scout.hordeDetours ~= math.floor(scout.hordeDetours)))
+            or (scout.pause ~= nil and (saved.schema ~= 5
+                or (scout.phase ~= "outbound" and scout.phase ~= "inbound")
+                or not validPause(scout.pause)))
+            or (scout.pushUntilHour ~= nil
+                and not validWorldHour(scout.pushUntilHour))
             or (scout.returnIndex ~= nil
                 and (type(scout.returnIndex) ~= "number"
                     or scout.returnIndex < 0
@@ -879,6 +1004,8 @@ function Expedition.restore(saved)
             } or nil,
             trailReturn = scout.trailReturn == true,
             hordeDetours = scout.hordeDetours or 0,
+            pause = copyPause(scout.pause),
+            pushUntilHour = scout.pushUntilHour,
         }
     elseif scout ~= nil then
         return false, "saved expedition descriptor is invalid"
@@ -1064,6 +1191,23 @@ function Expedition.describeForPlayer(viewer)
             and itinerary.site.label or nil,
         turnHomeAtHour = itinerary and itinerary.turnHomeAtHour or nil,
         members = members,
+        helpRequest = viewer ~= nil
+            and type(getSpecificPlayer) == "function"
+            and getSpecificPlayer(0) == viewer
+            and itinerary and itinerary.pause
+            and itinerary.pause.reported and {
+                mode = itinerary.pause.mode == "sheltered"
+                    and not itinerary.pause.shelterReported
+                    and "seeking_shelter" or itinerary.pause.mode,
+                reason = itinerary.pause.reason,
+                shelter = itinerary.pause.shelterReported == true,
+                x = itinerary.pause.shelterReported
+                    and itinerary.pause.shelterTarget.x
+                    or itinerary.pause.hazard.x,
+                y = itinerary.pause.shelterReported
+                    and itinerary.pause.shelterTarget.y
+                    or itinerary.pause.hazard.y,
+            } or nil,
     }
 end
 
@@ -1151,6 +1295,67 @@ function Expedition.radioCommandAuthorized(actor, command, payload, player)
         and auth.player == player and mission.leader.actor == actor
 end
 
+local function applyBlockDecision(payload)
+    local scout = mission.scout
+    local pause = scout and scout.pause
+    if pause == nil then return false, "no_blocked_route_request" end
+    local leader = mission.leader.actor
+    if payload == "hold_position" then
+        if scout.phase == "inbound" and (pause.mode == "seeking_shelter"
+            or pause.mode == "sheltered") then
+            -- The homeward squad holds after reaching cover, rather than
+            -- obeying a radio hold on the exposed blocked road.
+            return true, pause.mode
+        end
+        if mission.testWaypoint ~= nil then
+            Expedition.clearTestWaypoint(leader)
+        end
+        pause.mode = "holding"
+        return true, "holding_position"
+    end
+    if payload == "return" then
+        if scout.phase == "outbound" then
+            local hazard = copyRoadAvoidance(pause.hazard)
+            scout.pause = nil
+            scout.roadAvoidance = hazard
+            startReturnFromSite(scout, "radio_return")
+            return true, "returning"
+        end
+        local route, reason = SC.ExpeditionRoute.plan(
+            leader, scout.returnPoint, true, pause.hazard)
+        if route == nil then return false, reason or "no_safe_return" end
+        local ready, entryReason = SC.ExpeditionRoute.verifyEntry(route, leader)
+        if not ready then return false, entryReason or "no_safe_return" end
+        if mission.testWaypoint ~= nil then
+            Expedition.clearTestWaypoint(leader)
+        end
+        scout.pause = nil
+        scout.roadRoute = route
+        scout.trailReturn = nil
+        scout.road = SC.ExpeditionRoute.descriptor(route, "inbound")
+        scout.replans = 0
+        scout.lastStalledTarget = nil
+        return true, "returning"
+    end
+    if payload == "push_on" then
+        if mission.testWaypoint ~= nil then
+            Expedition.clearTestWaypoint(leader)
+        end
+        local worldHour = scoutWorldHour()
+        if worldHour == nil then return false, "expedition_clock_unavailable" end
+        scout.pause = nil
+        scout.pushUntilHour = worldHour + 0.25
+        scout.roadAvoidance = nil
+        if scout.road then scout.road.avoidance = nil end
+        if scout.roadRoute then scout.roadRoute.avoidance = nil end
+        scout.lastStalledTarget = nil
+        scout.firstPlanFailureAt = nil
+        scout.replans = 0
+        return true, "pushing_on"
+    end
+    return false, "unsupported_radio_order"
+end
+
 -- Private vertical slice: send one real native radio message, accept only its
 -- exact receiver-side text event, then use the existing Commands owner.
 function Expedition.sendRadioOrder(player, command, payload)
@@ -1159,9 +1364,17 @@ function Expedition.sendRadioOrder(player, command, payload)
         return false, "invalid_local_operator"
     end
     local returnNow = command == "return_now" and payload == "now"
-    if not returnNow and (command ~= "set_move_mode"
+    local blockDecision = command == "expedition_decision"
+        and (payload == "return" or payload == "push_on"
+            or payload == "hold_position")
+    if not returnNow and not blockDecision and (command ~= "set_move_mode"
         or (payload ~= "walk" and payload ~= "sneak")) then
         return false, "unsupported_radio_order"
+    end
+    if blockDecision and (mission.scout == nil
+        or mission.scout.pause == nil
+        or mission.scout.pause.reported ~= true) then
+        return false, "no_blocked_route_request"
     end
     if returnNow and (mission.scout == nil
         or mission.scout.phase == "inbound") then
@@ -1224,6 +1437,16 @@ function Expedition.sendRadioOrder(player, command, payload)
         }
         return true, "returning"
     end
+    if blockDecision then
+        local accepted, reason = applyBlockDecision(payload)
+        if accepted then
+            mission.lastRadioOrder = {
+                sequence = sequence, command = command, payload = payload,
+                leader = pending.leader,
+            }
+        end
+        return accepted, reason
+    end
     mission.radioAuthorization = {
         actor = pending.leader, command = command,
         payload = payload, player = player,
@@ -1281,6 +1504,8 @@ function Expedition.testWaypointFor(actor)
         if mission.cohesionHold ~= nil or mission.technicalIssue ~= nil then
             return nil
         end
+        local pause = mission.scout and mission.scout.pause
+        if pause and pause.mode ~= "seeking_shelter" then return nil end
         return mission.testWaypoint
     end
     return nil
@@ -1575,7 +1800,8 @@ local function scoutFollowersNearLeader()
     return true
 end
 
-local function scoutSiteSnapshot(actor, runtime, worldHour, now, siteId)
+local function scoutSiteSnapshot(actor, runtime, worldHour, now, siteId,
+        target)
     if SC.Senses == nil or type(SC.Senses.cached) ~= "function" then
         return nil, "senses_unavailable"
     end
@@ -1600,19 +1826,24 @@ local function scoutSiteSnapshot(actor, runtime, worldHour, now, siteId)
     if cell == nil or type(SC.GameplayUtil.canSee) ~= "function" then
         return nil, "site_squares_unavailable"
     end
-    local ax, ay, az = math.floor(actor:getX()),
-        math.floor(actor:getY()), math.floor(actor:getZ())
-    local visibleSquares = 0
+    local ax, ay, az = target and target.x or math.floor(actor:getX()),
+        target and target.y or math.floor(actor:getY()),
+        math.floor(actor:getZ())
+    local visibleSquares, centerVisible = 0, false
     for _, dx in ipairs({ -4, 0, 4 }) do
         for _, dy in ipairs({ -4, 0, 4 }) do
             local square = cell:getGridSquare(ax + dx, ay + dy, az)
             if square ~= nil and (square == actorSquare
                 or SC.GameplayUtil.canSee(actor, square) == true) then
                 visibleSquares = visibleSquares + 1
+                if dx == 0 and dy == 0 then centerVisible = true end
             end
         end
     end
-    if visibleSquares == 0 then return nil, "site_not_visible" end
+    if visibleSquares == 0 or (siteId == nil
+        and not centerVisible and visibleSquares < 3) then
+        return nil, "site_not_visible"
+    end
     if siteId ~= nil and (SC.ExpeditionPlaces == nil
         or type(SC.ExpeditionPlaces.visibleSiteSquare) ~= "function"
         or not SC.ExpeditionPlaces.visibleSiteSquare(siteId, actor)) then
@@ -1718,6 +1949,49 @@ startReturnFromSite = function(itinerary, reason)
     end
 end
 
+local function blockForOrders(itinerary, avoidance, reason)
+    local leader = mission.leader.actor
+    if mission.testWaypoint ~= nil then
+        Expedition.clearTestWaypoint(leader)
+        local owner = SC.ActionSupervisor
+            and type(SC.ActionSupervisor.current) == "function"
+            and SC.ActionSupervisor.current(leader) or nil
+        if owner == nil and SC.Navigation
+            and type(SC.Navigation.cancel) == "function" then
+            SC.Navigation.cancel(leader, "expedition_horde_blocked")
+        end
+    end
+    local inbound = itinerary.phase == "inbound"
+    itinerary.roadAvoidance = copyRoadAvoidance(avoidance)
+    if inbound then
+        useReachedTrailForReturn(itinerary, avoidance)
+    end
+    itinerary.pause = { mode = inbound and "seeking_shelter"
+        or "awaiting_orders", reason = reason,
+        hazard = copyRoadAvoidance(avoidance), reported = false }
+    local delivered = transmitBlockRequest()
+    if type(SC.GameplayUtil.diagnostic) == "function" then
+        SC.GameplayUtil.diagnostic("expedition-road", leader,
+            "action=blocked phase=" .. itinerary.phase
+                .. " reason=" .. reason
+                .. " radio_receipt=" .. tostring(delivered)
+                .. " hazard=" .. tostring(math.floor(avoidance.x))
+                .. "," .. tostring(math.floor(avoidance.y)))
+    end
+    if not inbound and not delivered then
+        -- Without a real radio receipt there is no remote decision to await.
+        itinerary.pause = nil
+        startReturnFromSite(itinerary, "horde_no_safe_detour")
+        if itinerary.trailReturn == true then
+            -- The same horde also blocks a planned road return. Do not walk
+            -- the saved outbound trail blindly through the contact.
+            itinerary.pause = { mode = "seeking_shelter",
+                reason = "return_horde_blocked",
+                hazard = copyRoadAvoidance(avoidance), reported = false }
+        end
+    end
+end
+
 -- The trail consists of actually reached local waypoints. Use its measured
 -- outbound pace and length to reserve a return window along the same ground.
 -- Before four tiles of evidence, use a conservative fallback rather than
@@ -1800,6 +2074,63 @@ local function pulseScout()
     if scout == nil or mission.restoring or mission.technicalIssue
         or not alive(mission.leader) then return end
     local now = SC.GameplayUtil.nowMs()
+    local pushActive = scout.pushUntilHour ~= nil
+        and (scoutWorldHour() or math.huge) < scout.pushUntilHour
+    if scout.pushUntilHour ~= nil and not pushActive then
+        scout.pushUntilHour = nil
+    end
+    local pause = scout.pause
+    if pause ~= nil then
+        local player = type(getSpecificPlayer) == "function"
+            and getSpecificPlayer(0) or nil
+        if scout.phase == "inbound" and player ~= nil
+            and distanceToPoint(mission.leader.actor, {
+                x = math.floor(player:getX()),
+                y = math.floor(player:getY()),
+                z = math.floor(player:getZ()),
+            }) <= 10 and scoutFollowersNearLeader() then
+            local met = Expedition.finishAtPlayer(player)
+            if met then return end
+        end
+        if not pause.reported and now >= (pause.nextReportAt or 0) then
+            pause.nextReportAt = now + 30000
+            transmitBlockRequest()
+        end
+        if pause.mode == "sheltered" and not pause.shelterReported
+            and now >= (pause.nextShelterReportAt or 0) then
+            pause.nextShelterReportAt = now + 30000
+            transmitBlockRequest(true)
+        end
+        if pause.mode == "seeking_shelter" then
+            if pause.shelterTarget == nil then
+                local shelter = SC.ExpeditionPlaces
+                    and SC.ExpeditionPlaces.nearestLoadedShelter
+                    and SC.ExpeditionPlaces.nearestLoadedShelter(
+                        mission.leader.actor, pause.hazard)
+                if shelter == nil then
+                    pause.mode = "holding"
+                    if type(SC.GameplayUtil.diagnostic) == "function" then
+                        SC.GameplayUtil.diagnostic("expedition-road",
+                            mission.leader.actor,
+                            "action=shelter_unavailable holding=true")
+                    end
+                    return
+                end
+                pause.shelterTarget = { x = shelter.x,
+                    y = shelter.y, z = shelter.z }
+                if type(SC.GameplayUtil.diagnostic) == "function" then
+                    SC.GameplayUtil.diagnostic("expedition-road",
+                        mission.leader.actor,
+                        "action=seek_shelter target=" .. tostring(shelter.x)
+                            .. "," .. tostring(shelter.y))
+                end
+                scout.lastStalledTarget = nil
+                scout.replans = 0
+            end
+        else
+            return
+        end
+    end
     if scout.road ~= nil and scout.roadRoute == nil
         and scout.trailReturn ~= true
         and (scout.phase == "outbound" or scout.phase == "inbound") then
@@ -1832,7 +2163,7 @@ local function pulseScout()
         scout.roadRoute = route
         scout.road = SC.ExpeditionRoute.descriptor(route, scout.phase)
     end
-    if now >= (scout.nextReturnCheckAt or -math.huge)
+    if pause == nil and now >= (scout.nextReturnCheckAt or -math.huge)
         and (scout.turnHomeAtHour ~= nil or scout.arriveByHour ~= nil)
         and (scout.phase == "outbound" or scout.phase == "observing"
             or scout.phase == "searching") then
@@ -1896,8 +2227,15 @@ local function pulseScout()
         startReturnFromSite(scout, "squad_wounded")
         return
     end
-    if mission.cohesionHold ~= nil and not wounded then return end
-    if scout.roadRoute ~= nil
+    local hazardRoute = scout.roadRoute
+    if hazardRoute == nil and scout.phase == "inbound"
+        and scout.trailReturn == true and scout.returnIndex ~= nil
+        and scout.returnIndex >= 1
+        and scout.trail[scout.returnIndex] ~= nil then
+        hazardRoute = { points = { scout.trail[scout.returnIndex] },
+            index = 1 }
+    end
+    if pause == nil and not pushActive and hazardRoute ~= nil
         and (scout.phase == "outbound" or scout.phase == "inbound")
         and now >= (scout.nextHordeCheckAt or 0) then
         scout.nextHordeCheckAt = now + 1000
@@ -1908,7 +2246,7 @@ local function pulseScout()
             if alive(record) then living = living + 1 end
         end
         local avoidance = SC.ExpeditionRoute.visibleHorde(
-            scout.roadRoute, leader, snapshot, living, now,
+            hazardRoute, leader, snapshot, living, now,
             wounded and math.max(2, living - 2) or nil)
         local previous = scout.road and scout.road.avoidance
         if avoidance ~= nil and previous ~= nil
@@ -1956,16 +2294,45 @@ local function pulseScout()
                 scout.lastStalledTarget = nil
                 scout.firstPlanFailureAt = nil
                 scout.replans = 0
-            elseif scout.phase == "outbound" then
-                scout.roadAvoidance = avoidance
-                scout.lastRoadFailure = routeReason
-                startReturnFromSite(scout, "horde_no_safe_detour")
             else
-                useReachedTrailForReturn(scout, avoidance)
+                blockForOrders(scout, avoidance,
+                    scout.phase == "inbound" and "return_horde_blocked"
+                        or "horde_no_safe_detour")
                 scout.lastRoadFailure = routeReason or "horde_no_safe_detour"
             end
             return
         end
+    end
+    if mission.cohesionHold ~= nil and not wounded then return end
+    -- Scouting needs a fresh view of the destination, not a foot on its exact
+    -- tile. A fence, window, or occupied approach can leave a safe exterior
+    -- vantage nearby. Search still requires its actual building access.
+    if scout.phase == "outbound" and scout.kind == "scout"
+        and distanceToPoint(mission.leader.actor, scout.destination) <= 10 then
+        scout.nearObservationSince = scout.nearObservationSince or now
+        if now - scout.nearObservationSince >= 5000
+            and now >= (scout.nextObservationCheckAt or 0) then
+            scout.nextObservationCheckAt = now + 1000
+            local worldHour = scoutWorldHour()
+            local registered = SC.Registry.byId(mission.leader.id)
+            local runtime = registered and registered.runtime
+            local snapshot = SC.Senses and SC.Senses.cached
+                and SC.Senses.cached(mission.leader.actor, runtime)
+            if worldHour ~= nil and snapshot ~= nil
+                and (tonumber(snapshot.immediateCount) or 0) == 0 then
+                local observation = scoutSiteSnapshot(
+                    mission.leader.actor, runtime, worldHour, now,
+                    scout.site and scout.site.id or nil,
+                    scout.destination)
+                if observation and observation.status == "complete" then
+                    scout.observation = observation
+                    startReturnFromSite(scout, "observed")
+                    return
+                end
+            end
+        end
+    else
+        scout.nearObservationSince = nil
     end
     if mission.testWaypoint ~= nil then
         local leader = mission.leader.actor
@@ -2014,7 +2381,10 @@ local function pulseScout()
         end
         scout.replans = (scout.replans or 0) + 1
         if scout.replans > 5 then
-            if scout.phase == "outbound" then
+            if pause ~= nil and pause.mode == "seeking_shelter" then
+                Expedition.clearTestWaypoint(leader)
+                pause.mode = "holding"
+            elseif scout.phase == "outbound" then
                 Expedition.clearTestWaypoint(leader)
                 if SC.Navigation and type(SC.Navigation.cancel) == "function" then
                     SC.Navigation.cancel(leader, "scout_road_stall_return")
@@ -2039,6 +2409,7 @@ local function pulseScout()
                     end
                     local avoidance = SC.ExpeditionRoute.visibleHorde(
                         scout.roadRoute, leader, snapshot, living, now, 0)
+                    if pushActive then avoidance = nil end
                     if avoidance then
                         stallAvoidance = avoidance
                         local route = SC.ExpeditionRoute.plan(
@@ -2064,7 +2435,10 @@ local function pulseScout()
                     end
                 end
                 if not rerouted then
-                    if scout.roadRoute ~= nil then
+                    if stallAvoidance ~= nil then
+                        blockForOrders(scout, stallAvoidance,
+                            "return_horde_blocked")
+                    elseif scout.roadRoute ~= nil then
                         Expedition.clearTestWaypoint(leader)
                         if SC.Navigation and type(SC.Navigation.cancel) == "function" then
                             SC.Navigation.cancel(leader, "scout_trail_return")
@@ -2140,7 +2514,8 @@ local function pulseScout()
         local registered = SC.Registry.byId(mission.leader.id)
         local observation, observationReason = scoutSiteSnapshot(
             mission.leader.actor, registered and registered.runtime,
-            worldHour, now, scout.site and scout.site.id or nil)
+            worldHour, now, scout.site and scout.site.id or nil,
+            scout.destination)
         scout.observationReason = observationReason
         if observation == nil and elapsed < 30000 then return end
         scout.observation = observation or {
@@ -2187,10 +2562,12 @@ local function pulseScout()
         if player ~= nil then Expedition.finishAtPlayer(player) end
         return
     end
-    local target = scout.phase == "outbound" and scout.destination
+    local target = pause and pause.mode == "seeking_shelter"
+            and pause.shelterTarget
+        or scout.phase == "outbound" and scout.destination
         or scout.returnIndex ~= nil and scout.returnIndex >= 1
             and scout.trail[scout.returnIndex] or scout.returnPoint
-    if scout.roadRoute ~= nil then
+    if scout.roadRoute ~= nil and pause == nil then
         local registered = SC.Registry.byId(mission.leader.id)
         local snapshot = SC.Senses and SC.Senses.cached
             and SC.Senses.cached(mission.leader.actor,
@@ -2224,6 +2601,16 @@ local function pulseScout()
         end
     end
     local close = distanceToPoint(mission.leader.actor, target)
+    if pause and pause.mode == "seeking_shelter" and close <= 2 then
+        local square = mission.leader.actor:getCurrentSquare()
+        if square and square:getRoom() ~= nil then
+            pause.mode = "sheltered"
+            if mission.testWaypoint ~= nil then
+                Expedition.clearTestWaypoint(mission.leader.actor)
+            end
+            return
+        end
+    end
     if scout.phase == "outbound" and close <= 4
         and (scout.roadRoute == nil
             or scout.roadRoute.index > #scout.roadRoute.points) then
@@ -2242,12 +2629,13 @@ local function pulseScout()
         end
         return
     end
-    if scout.roadRoute == nil and scout.phase == "inbound" and scout.returnIndex ~= nil
+    if pause == nil and scout.roadRoute == nil
+        and scout.phase == "inbound" and scout.returnIndex ~= nil
         and scout.returnIndex >= 1 and close <= 4 then
         scout.returnIndex = scout.returnIndex - 1
         return
     end
-    if scout.phase == "inbound" and (scout.roadRoute ~= nil
+    if pause == nil and scout.phase == "inbound" and (scout.roadRoute ~= nil
             and scout.roadRoute.index > #scout.roadRoute.points
             or scout.roadRoute == nil and (scout.returnIndex == nil
                 or scout.returnIndex == 0)) and close <= 4 then
@@ -2267,7 +2655,7 @@ local function pulseScout()
         and leaderSquare:getRoom() ~= nil
     local leg, reason = nextScoutLeg(mission.leader.actor, target,
         scout.lastStalledTarget,
-        SC.ExpeditionRoute.allowInteriorAccess(scout.roadRoute,
+        pause ~= nil or SC.ExpeditionRoute.allowInteriorAccess(scout.roadRoute,
             scout.kind, scout.phase, leaderInRoom),
         scout.roadRoute or (scout.trailReturn and scout.road
             and scout.road.avoidance and { points = {}, index = 1,
@@ -2284,7 +2672,9 @@ local function pulseScout()
         scout.lastPlanFailure = reason
         if scout.firstPlanFailureAt == nil then scout.firstPlanFailureAt = now end
         if now - scout.firstPlanFailureAt >= 30000 then
-            if scout.phase == "outbound" then
+            if pause ~= nil then
+                pause.mode = "holding"
+            elseif scout.phase == "outbound" then
                 startReturnFromSite(scout, scout.travelMode == "road"
                     and "road_path_unreachable"
                     or "straight_path_unreachable")

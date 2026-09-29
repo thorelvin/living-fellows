@@ -34,3 +34,14 @@ One fresh natural-danger 200-tile cloned run, `SC-Harness-20260929-161711-43c248
 This was a **safe-return pass, not a full mission pass**. The leader fought near the far end and then encountered a window and vegetation around `(6285-6288,5293-5294)` while approaching the destination. After five stalled outbound replans, the safety rule ordered the squad home without an observation. The harness therefore failed `autonomous_scout_actual_site_observed` and `autonomous_scout_debrief_retained`; destination-distance and return checks passed. The next distinct issue is choosing a reachable, visible observation position near a blocked target, then retaining a real observation before return. Do not mark this run as a completed scouting mission.
 
 - [Follow-up harness events](../build/live-sandbox-runs/SC-Harness-20260929-161711-43c248b6/cache/Lua/SurvivorCompanionHarness/events.log) and [console](../build/live-sandbox-runs/SC-Harness-20260929-161711-43c248b6/cache/console.txt)
+
+## Barrier and blocked-route follow-up
+
+The site approach now tests six loaded exterior squares per building face, and a Scout may complete a fresh observation from a reachable position within ten tiles of its target. The isolated 200-tile Riverside run `SC-Harness-20260929-165344-62c9e2fe` observed the actual destination from `(6281,5289)` with four visible target-neighborhood squares, then started home. This verifies the far-end window and vegetation barrier no longer forces an unobserved turn home. The return did **not** complete: movement stopped near `(6218,5272)` by the junction and the progress timer captured a screenshot. The old harness did not record the new blocked-route pause state, so this run alone cannot distinguish a deliberate horde hold from another return stall.
+
+- [Barrier run events](../build/live-sandbox-runs/SC-Harness-20260929-165344-62c9e2fe/cache/Lua/SurvivorCompanionHarness/events.log)
+- [Return stop screenshot](../build/live-sandbox-runs/SC-Harness-20260929-165344-62c9e2fe/cache/Screenshots/SC-Harness-20260929-165344-62c9e2fe-scout-progress-stall.png)
+
+The short isolated radio run `SC-Harness-20260929-171103-acb4420f` used five real equipped walkie-talkies and a controlled 13-contact horde on the active route. It confirmed a native player-side help receipt, an `awaiting_orders` pause, and an acknowledged `hold_position` reply. The first fixture attempt (`170720`) did not trigger its horde check; the passing fixture clears prior avoidance and verifies the synthetic contact is on the current segment before injection. Core checks cover return-path blocking, reached-trail blocking, shelter selection, pickup coordinates, and all three radio answers. A real inbound shelter and pickup run remains to be observed.
+
+- [Passing radio run events](../build/live-sandbox-runs/SC-Harness-20260929-171103-acb4420f/cache/Lua/SurvivorCompanionHarness/events.log)

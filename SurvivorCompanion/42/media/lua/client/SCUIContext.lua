@@ -1027,12 +1027,30 @@ local function returnExpeditionFromRadio(_target, player)
     return ok and accepted == true, ok and reason or tostring(accepted)
 end
 
+local function answerExpeditionFromRadio(_target, player, answer)
+    local expedition = SC.ExpeditionPrototype
+    if not expedition or not player then return end
+    local ok, accepted, reason = pcall(expedition.sendRadioOrder,
+        player, "expedition_decision", answer)
+    local feedback = ok and accepted == true
+        and text("UI_SC_Expedition_OrderSent")
+        or ok and reason == "radio_no_ack"
+            and text("UI_SC_Expedition_NoReceipt")
+        or ok and (reason == "NO_SAFE_ROAD_DETOUR"
+            or reason == "NO_ENTRY_CANDIDATE"
+            or reason == "no_safe_return")
+            and text("UI_SC_Expedition_NoSafeReturn")
+        or text("UI_SC_Expedition_Failed", tostring(ok and reason or accepted))
+    safeMethod(player, "setHaloNote", feedback)
+    if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+    return ok and accepted == true, ok and reason or tostring(accepted)
+end
+
 function Context.fillRadioContextMenu(playerIndex, context, items)
     local expedition = SC.ExpeditionPrototype
     local mission = expedition and type(expedition.current) == "function"
         and expedition.current() or nil
-    if not mission or not mission.scout
-        or mission.scout.phase == "inbound" or playerIndex ~= 0 then return end
+    if not mission or not mission.scout or playerIndex ~= 0 then return end
     local player = type(getSpecificPlayer) == "function"
         and getSpecificPlayer(playerIndex) or nil
     if not player or type(items) ~= "table" then return end
@@ -1045,17 +1063,28 @@ function Context.fillRadioContextMenu(playerIndex, context, items)
                 or item == safeMethod(player, "getSecondaryHandItem")
                 or item == safeMethod(player, "getClothingItem_Back"))
     end
-    for _, entry in ipairs(items) do
-        if equippedRadio(entry) then
+    local function addRadioOptions()
+        if mission.scout.pause and mission.scout.pause.reported then
+            context:addOptionOnTop(text("UI_SC_Expedition_AnswerHold"),
+                nil, answerExpeditionFromRadio, player, "hold_position")
+            context:addOptionOnTop(text("UI_SC_Expedition_AnswerPush"),
+                nil, answerExpeditionFromRadio, player, "push_on")
+            context:addOptionOnTop(text("UI_SC_Expedition_AnswerReturn"),
+                nil, answerExpeditionFromRadio, player, "return")
+        elseif mission.scout.phase ~= "inbound" then
             context:addOptionOnTop(text("UI_SC_Expedition_ReturnNow"), nil,
                 returnExpeditionFromRadio, player)
+        end
+    end
+    for _, entry in ipairs(items) do
+        if equippedRadio(entry) then
+            addRadioOptions()
             return
         end
         if type(entry) == "table" and type(entry.items) == "table" then
             for _, item in ipairs(entry.items) do
                 if equippedRadio(item) then
-                    context:addOptionOnTop(text("UI_SC_Expedition_ReturnNow"), nil,
-                        returnExpeditionFromRadio, player)
+                    addRadioOptions()
                     return
                 end
             end

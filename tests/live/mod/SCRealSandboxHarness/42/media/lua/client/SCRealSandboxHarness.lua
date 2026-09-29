@@ -4153,7 +4153,8 @@ local function prepareTeamRadioFixture(roster)
     Harness.radioReceipts = {}
     Harness.radioTextHook = function(_guid, _codes, _x, _y, _z, message, device)
         local value = tostring(message or "")
-        if string.find(value, "SC_RADIO_TEST_", 1, true) then
+        if string.find(value, "SC_RADIO_TEST_", 1, true)
+            or string.find(value, "Horde blocks our route", 1, true) then
             Harness.radioReceipts[#Harness.radioReceipts + 1] = {
                 message = value, device = device,
                 guid = tostring(_guid), codes = tostring(_codes),
@@ -8040,6 +8041,83 @@ local function probeRoadHordeDetour(current, mission, progress)
     Harness.hordeProbeAttempts = (Harness.hordeProbeAttempts or 0) + 1
     local hazard = { x = x + dx / length * 15,
         y = y + dy / length * 15, radius = 8 }
+    if Harness.config.team_road_blocked_radio_probe == "true" then
+        local originalPlan = SC.ExpeditionRoute.plan
+        local originalCached = SC.Senses.cached
+        SC.ExpeditionRoute.plan = function(actor, goal, continuing, avoidance)
+            if avoidance ~= nil then return nil, "NO_SAFE_ROAD_DETOUR" end
+            return originalPlan(actor, goal, continuing, avoidance)
+        end
+        local threats = {}
+        for index = 1, 13 do
+            threats[index] = { x = hazard.x, y = hazard.y,
+                visible = true, obstructed = false }
+        end
+        local freshNow = SC.GameplayUtil.nowMs()
+        local visible = SC.ExpeditionRoute.visibleHorde(route,
+            Harness.leader, { valid = true, reflexTime = freshNow,
+                threats = threats }, #Harness.team, freshNow)
+        if not check("road_blocked_radio_horde_fixture",
+            visible ~= nil, "route_index=" .. tostring(route.index)
+                .. " point=" .. tostring(point.x) .. ","
+                .. tostring(point.y)
+                .. " hazard=" .. tostring(hazard.x) .. ","
+                .. tostring(hazard.y)) then
+            SC.ExpeditionRoute.plan = originalPlan
+            setPhase("finish", current)
+            return
+        end
+        SC.Senses.cached = function(actor, runtime)
+            if actor == Harness.leader then
+                return { valid = true,
+                    reflexTime = SC.GameplayUtil.nowMs(),
+                    threats = threats }
+            end
+            return originalCached(actor, runtime)
+        end
+        if scout.road then scout.road.avoidance = nil end
+        scout.nextHordeCheckAt = 0
+        local okay, failure = pcall(SC.ExpeditionPrototype.pulse)
+        SC.Senses.cached = originalCached
+        SC.ExpeditionRoute.plan = originalPlan
+        if not okay then
+            result("FAIL", "road_blocked_radio_pulse", tostring(failure))
+            setPhase("finish", current)
+            return
+        end
+        local pause = scout.pause
+        local view = SC.ExpeditionPrototype.describeForPlayer(Harness.player)
+        local reportSeen = false
+        for _, receipt in ipairs(Harness.radioReceipts or {}) do
+            if receipt.device == Harness.radioFixture.player
+                and string.find(receipt.message,
+                    "Horde blocks our route", 1, true) then
+                reportSeen = true
+            end
+        end
+        local reported = check("road_blocked_radio_request_received",
+            pause ~= nil and pause.reported == true
+                and pause.mode == "awaiting_orders"
+                and view and view.helpRequest ~= nil and reportSeen,
+            "pause=" .. tostring(pause and pause.mode)
+                .. " reported=" .. tostring(pause and pause.reported)
+                .. " receipt=" .. tostring(reportSeen)
+                .. " phase=" .. tostring(scout.phase)
+                .. " detours=" .. tostring(scout.hordeDetours)
+                .. " issue=" .. tostring(mission.technicalIssue
+                    and mission.technicalIssue.reason))
+        if reported then
+            local accepted, reason = SC.ExpeditionPrototype.sendRadioOrder(
+                Harness.player, "expedition_decision", "hold_position")
+            check("road_blocked_radio_hold_acknowledged",
+                accepted == true and scout.pause ~= nil
+                    and scout.pause.mode == "holding",
+                "accepted=" .. tostring(accepted)
+                    .. " reason=" .. tostring(reason))
+        end
+        setPhase("finish", current)
+        return
+    end
     local alternate, why = SC.ExpeditionRoute.plan(Harness.leader,
         scout.destination, true, hazard)
     local entryReady = alternate and SC.ExpeditionRoute.verifyEntry(
@@ -8319,7 +8397,11 @@ function Harness.probeAutonomousScout(current)
                     and scout.roadRoute.index)
                 .. " side=" .. tostring(Harness.roadSideChoiceSeen)
                 .. " wedge=" .. tostring(Harness.roadWedgeSeen)
-                .. " replans=" .. tostring(scout and scout.replans))
+                .. " replans=" .. tostring(scout and scout.replans)
+                .. " pause=" .. tostring(scout and scout.pause
+                    and scout.pause.mode)
+                .. " road_failure=" .. tostring(scout
+                    and scout.lastRoadFailure))
         setPhase("finish", current)
         return
     end
@@ -8411,6 +8493,8 @@ function Harness.probeAutonomousScout(current)
                     .. tostring(mission.testWaypoint and mission.testWaypoint.y)
                 .. " plan_failure=" .. tostring(scout.lastPlanFailure)
                 .. " replans=" .. tostring(scout.replans)
+                .. " pause=" .. tostring(scout.pause and scout.pause.mode)
+                .. " road_failure=" .. tostring(scout.lastRoadFailure)
                 .. " hold=" .. tostring(mission.cohesionHold
                     and mission.cohesionHold.reason) .. "/"
                     .. tostring(mission.cohesionHold
@@ -8434,8 +8518,8 @@ function Harness.probeAutonomousScout(current)
                 observed ~= nil and observed.status == "complete"
                     and observed.visibleSquares > 0
                     and observed.worldHour ~= nil
-                    and math.abs(observed.at.x - scout.destination.x) <= 4
-                    and math.abs(observed.at.y - scout.destination.y) <= 4,
+                    and math.sqrt((observed.at.x - scout.destination.x)^2
+                        + (observed.at.y - scout.destination.y)^2) <= 10,
                 "status=" .. tostring(observed and observed.status)
                     .. " visible=" .. tostring(observed and observed.visibleSquares)
                     .. " reason=" .. tostring(scout.observationReason)

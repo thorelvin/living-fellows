@@ -73,6 +73,56 @@ check(approach ~= nil and approachReason == nil
 local restoredApproach = Places.loadedSiteApproach(nearby[1].id, actor)
 check(restoredApproach ~= nil and restoredApproach.x == 19,
     "arrival can recheck exterior access from a saved site ID")
+local firstPath = SurvivorCompanion.Navigation.findPath
+SurvivorCompanion.Navigation.findPath = function(source, destination)
+    if destination:getX() == 19 and destination:getY() == 23 then
+        return { source, destination }
+    end
+    return nil
+end
+local alternateFace = Places.loadedApproach(nearby[1], actor)
+check(alternateFace ~= nil and alternateFace.x == 19
+        and alternateFace.y == 23,
+    "a reachable fourth face square survives three blocked window approaches")
+SurvivorCompanion.Navigation.findPath = firstPath
+local originalPosition = SurvivorCompanion.GameplayUtil.position
+local originalShelterSquare = fixture.cell.getGridSquare
+local originalShelterPath = SurvivorCompanion.Navigation.findPath
+SurvivorCompanion.GameplayUtil.position = function(value)
+    return value:getX(), value:getY(), 0
+end
+fixture.cell.getGridSquare = function(self, x, y, z)
+    local square = originalShelterSquare(self, x, y, z)
+    if x >= 100 and x <= 110 and y >= 20 and y <= 30 then
+        square.getRoom = function() return { id = "house-room" } end
+    end
+    return square
+end
+SurvivorCompanion.Navigation.findPath = function(source, destination)
+    if destination:getX() >= 100 and destination:getX() <= 110 then
+        return { source, destination }
+    end
+    return nil
+end
+local shelterActor = {
+    getX = function() return 95 end,
+    getY = function() return 25 end,
+    getCurrentSquare = function()
+        return originalShelterSquare(fixture.cell, 95, 25, 0)
+    end,
+}
+local shelter, shelterReason = Places.nearestLoadedShelter(shelterActor)
+check(shelter ~= nil and shelterReason == nil
+        and shelter.x >= 100 and shelter.x <= 110
+        and shelter.buildingId == nearby[4].id,
+    "emergency refuge selects a native reachable square inside a house")
+SurvivorCompanion.Navigation.findPath = function() return nil end
+shelter, shelterReason = Places.nearestLoadedShelter(shelterActor)
+check(shelter == nil and shelterReason == "shelter_no_loaded_path",
+    "an unreachable map house cannot be reported as shelter")
+SurvivorCompanion.Navigation.findPath = originalShelterPath
+fixture.cell.getGridSquare = originalShelterSquare
+SurvivorCompanion.GameplayUtil.position = originalPosition
 check(Places.siteContainsPoint(nearby[1].id, 20, 25, 0)
         and not Places.siteContainsPoint(nearby[1].id, 19, 25, 0)
         and not Places.siteContainsPoint(nearby[1].id, 55, 25, 0),

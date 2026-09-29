@@ -43,6 +43,7 @@ param(
     [ValidateRange(20, 200)][int]$TeamRoadDistanceTiles = 180,
     [switch]$TeamRoadMovementProbe,
     [switch]$TeamRoadHordeProbe,
+    [switch]$TeamRoadBlockedRadioProbe,
     [switch]$TeamRoadAlternateProbe,
     [switch]$TeamRoadRestartStageOnly,
     [switch]$TeamRoadRestartResumeProbe,
@@ -178,6 +179,7 @@ try {
         -TeamRoadDistanceTiles $TeamRoadDistanceTiles `
         -TeamRoadMovementProbe:$TeamRoadMovementProbe `
         -TeamRoadHordeProbe:$TeamRoadHordeProbe `
+        -TeamRoadBlockedRadioProbe:$TeamRoadBlockedRadioProbe `
         -TeamRoadAlternateProbe:$TeamRoadAlternateProbe `
         -TeamRoadRestartStageOnly:$TeamRoadRestartStageOnly `
         -TeamRoadRestartResumeProbe:$TeamRoadRestartResumeProbe `
