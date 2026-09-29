@@ -1,5 +1,14 @@
 # Companion playtest fix queue
 
+## Expedition design review follow-ups
+
+- **Inbound road failure (fixed in working tree, 2026-09-29):** A failed return-road plan, unsafe entry, horde detour, or exhausted road waypoint used to leave the squad in a permanent technical hold. The leader now falls back to the waypoints the squad actually reached, including after an inbound save reload. Each short leg still requires a loaded native path; a known horde exclusion is retained. A genuinely blocked trail can still stop after bounded retries and needs an in-game acceptance check.
+- **Wounded Search squad / deadline (queued, high):** Wounded withdrawal currently starts only in the outbound phase. Search and observation should also turn home promptly. The Search deadline check must run before the wait for followers near the leader so a separated member cannot indefinitely suppress return.
+- **Search building identity (queued, high):** Nearby containers are counted by radius around an exterior approach point. Restrict verified loot and completion to the selected building footprint; do not mark a target searched from an adjacent building.
+- **Combat leash across styles (queued, medium):** The road travel leash currently applies only to `weapons_free`. Apply the same nearby-threat limit to stealth and close-defense decisions while keeping immediate self-defense.
+- **Squad horde awareness (queued, medium):** Road detours use the leader's cached contacts alone. Include recent visible threats from living squad members before comparing the group with the 3x team-size threshold.
+- **Scout observation evidence (queued, medium):** Observation can complete without seeing a square in the selected building. Require a visible building square for a confirmed site result, and report unconfirmed when the sight deadline expires.
+
 ## Companions speak rarely during ordinary play
 
 - **Reported:** 2026-09-28 after the chair playtest. The latest user `console.txt` is a 0.26.2 session, so it predates this fix and the local 0.26.3 chair install.

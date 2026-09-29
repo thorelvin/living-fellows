@@ -722,6 +722,7 @@ function Expedition.export()
                 avoidance = copyRoadAvoidance(
                     mission.scout.road.avoidance),
             } or nil,
+            trailReturn = mission.scout.trailReturn == true or nil,
             hordeDetours = mission.scout.hordeDetours,
         } or nil,
     }
@@ -798,6 +799,9 @@ function Expedition.restore(saved)
                     or scout.phase == "searching")
                     and scout.road.phase ~= "outbound")))
             or (saved.schema ~= 5 and scout.road ~= nil)
+            or (scout.trailReturn ~= nil and (scout.trailReturn ~= true
+                or saved.schema ~= 5 or scout.travelMode ~= "road"
+                or scout.phase ~= "inbound" or scout.road == nil))
             or not validPoint(scout.destination)
             or not validPoint(scout.returnPoint)
             or (saved.schema == 5 and scout.road ~= nil and (
@@ -873,6 +877,7 @@ function Expedition.restore(saved)
                 goal = copyPoint(scout.road.goal),
                 avoidance = copyRoadAvoidance(scout.road.avoidance),
             } or nil,
+            trailReturn = scout.trailReturn == true,
             hordeDetours = scout.hordeDetours or 0,
         }
     elseif scout ~= nil then
@@ -1621,6 +1626,28 @@ local function scoutSiteSnapshot(actor, runtime, worldHour, now)
     }
 end
 
+local function useReachedTrailForReturn(itinerary, avoidance)
+    -- A road graph can fail after departure even though the squad has already
+    -- crossed real, loaded ground. Resume toward the nearest reached waypoint
+    -- on that trail; every new short leg still needs a loaded native path.
+    local nearest, gap = 1, math.huge
+    for index, point in ipairs(itinerary.trail) do
+        local distance = distanceToPoint(mission.leader.actor, point)
+        if distance < gap then nearest, gap = index, distance end
+    end
+    itinerary.returnIndex = math.max(0, nearest - (gap <= 4 and 1 or 0))
+    itinerary.roadRoute = nil
+    itinerary.trailReturn = true
+    itinerary.replans = 0
+    itinerary.firstPlanFailureAt = nil
+    itinerary.lastStalledTarget = nil
+    if itinerary.road then
+        itinerary.road.phase = "inbound"
+        itinerary.road.goal = copyPoint(itinerary.returnPoint)
+        if avoidance then itinerary.road.avoidance = copyRoadAvoidance(avoidance) end
+    end
+end
+
 startReturnFromSite = function(itinerary, reason)
     if itinerary.search ~= nil then
         itinerary.search.endReason = reason
@@ -1647,17 +1674,18 @@ startReturnFromSite = function(itinerary, reason)
             mission.leader.actor, itinerary.returnPoint, true,
             avoidance)
         if route == nil then
-            mission.technicalIssue = { reason = routeReason or "road_return_unavailable" }
-            itinerary.roadRoute = nil
+            useReachedTrailForReturn(itinerary, avoidance)
+            itinerary.lastRoadFailure = routeReason or "road_return_unavailable"
         else
             local entryReady, entryReason = SC.ExpeditionRoute.verifyEntry(
                 route, mission.leader.actor)
             if not entryReady then
-                mission.technicalIssue = { reason = entryReason }
-                itinerary.roadRoute = nil
+                useReachedTrailForReturn(itinerary, avoidance)
+                itinerary.lastRoadFailure = entryReason
                 return
             end
             itinerary.roadRoute = route
+            itinerary.trailReturn = nil
             itinerary.road = SC.ExpeditionRoute.descriptor(route, "inbound")
         end
     end
@@ -1693,6 +1721,7 @@ local function pulseScout()
         or not alive(mission.leader) then return end
     local now = SC.GameplayUtil.nowMs()
     if scout.road ~= nil and scout.roadRoute == nil
+        and scout.trailReturn ~= true
         and (scout.phase == "outbound" or scout.phase == "inbound") then
         local goal = scout.phase == "inbound"
             and scout.returnPoint or scout.destination
@@ -1700,14 +1729,24 @@ local function pulseScout()
             mission.leader.actor, goal, true,
             scout.road.avoidance)
         if route == nil then
-            mission.technicalIssue = {
-                reason = routeReason or "road_restart_replan_failed" }
+            if scout.phase == "inbound" then
+                useReachedTrailForReturn(scout, scout.road.avoidance)
+                scout.lastRoadFailure = routeReason or "road_restart_replan_failed"
+            else
+                mission.technicalIssue = {
+                    reason = routeReason or "road_restart_replan_failed" }
+            end
             return
         end
         local entryReady, entryReason = SC.ExpeditionRoute.verifyEntry(
             route, mission.leader.actor)
         if not entryReady then
-            mission.technicalIssue = { reason = entryReason }
+            if scout.phase == "inbound" then
+                useReachedTrailForReturn(scout, scout.road.avoidance)
+                scout.lastRoadFailure = entryReason
+            else
+                mission.technicalIssue = { reason = entryReason }
+            end
             return
         end
         scout.roadRoute = route
@@ -1834,6 +1873,7 @@ local function pulseScout()
             end
             if alternative ~= nil then
                 scout.roadRoute = alternative
+                scout.trailReturn = nil
                 scout.road = SC.ExpeditionRoute.descriptor(
                     alternative, scout.phase)
                 scout.hordeDetours = (scout.hordeDetours or 0) + 1
@@ -1845,8 +1885,8 @@ local function pulseScout()
                 scout.lastRoadFailure = routeReason
                 startReturnFromSite(scout, "horde_no_safe_detour")
             else
-                mission.technicalIssue = {
-                    reason = routeReason or "horde_no_safe_detour" }
+                useReachedTrailForReturn(scout, avoidance)
+                scout.lastRoadFailure = routeReason or "horde_no_safe_detour"
             end
             return
         end
@@ -1938,6 +1978,7 @@ local function pulseScout()
                                     "scout_combat_stall_detour")
                             end
                             scout.roadRoute = route
+                            scout.trailReturn = nil
                             scout.road = SC.ExpeditionRoute.descriptor(
                                 route, "inbound")
                             scout.hordeDetours = (scout.hordeDetours or 0) + 1
@@ -1948,7 +1989,17 @@ local function pulseScout()
                     end
                 end
                 if not rerouted then
-                    mission.technicalIssue = { reason = "scout_stall_replan_limit" }
+                    if scout.roadRoute ~= nil then
+                        Expedition.clearTestWaypoint(leader)
+                        if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+                            SC.Navigation.cancel(leader, "scout_trail_return")
+                        end
+                        useReachedTrailForReturn(scout,
+                            scout.road and scout.road.avoidance)
+                        scout.lastRoadFailure = "scout_stall_replan_limit"
+                    else
+                        mission.technicalIssue = { reason = "scout_stall_replan_limit" }
+                    end
                 end
             end
             return
@@ -2142,7 +2193,10 @@ local function pulseScout()
         scout.lastStalledTarget,
         SC.ExpeditionRoute.allowInteriorAccess(scout.roadRoute,
             scout.kind, scout.phase, leaderInRoom),
-        scout.roadRoute)
+        scout.roadRoute or (scout.trailReturn and scout.road
+            and scout.road.avoidance and { points = {}, index = 1,
+                avoidance = scout.road.avoidance,
+                allowEscapeFromAvoidance = true }) or nil)
     if leg == nil then
         if scout.roadRoute ~= nil
             and SC.ExpeditionRoute.skipLane(scout.roadRoute) then
@@ -2158,6 +2212,10 @@ local function pulseScout()
                 startReturnFromSite(scout, scout.travelMode == "road"
                     and "road_path_unreachable"
                     or "straight_path_unreachable")
+            elseif scout.roadRoute ~= nil then
+                useReachedTrailForReturn(scout,
+                    scout.road and scout.road.avoidance)
+                scout.lastRoadFailure = reason
             else
                 mission.technicalIssue = { reason = reason }
             end

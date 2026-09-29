@@ -156,6 +156,21 @@ check(detour ~= nil and Route.validDescriptor(
     "detour geometry and bounded avoidance survive route description")
 check(not Route.withinCorridor(detour, { { x = 35, y = 10 } }),
     "a local shortcut through the visible horde is rejected")
+local trailEscape = { points = {}, index = 1,
+    avoidance = { x = 35, y = 10, radius = 8 },
+    allowEscapeFromAvoidance = true }
+check(Route.withinCorridor(trailEscape, {
+        { x = 35, y = 12 }, { x = 35, y = 16 }, { x = 35, y = 21 } }),
+    "trail return can leave a hazard circle from inside")
+check(not Route.withinCorridor(trailEscape, {
+        { x = 35, y = 12 }, { x = 35, y = 10 }, { x = 35, y = 21 } }),
+    "trail return cannot dive closer to the hazard before escaping")
+check(not Route.withinCorridor(trailEscape, {
+        { x = 35, y = 12 }, { x = 35, y = 21 }, { x = 35, y = 16 } }),
+    "trail return cannot reenter the hazard after escaping")
+check(not Route.withinCorridor(trailEscape, {
+        { x = 35, y = 21 }, { x = 35, y = 16 } }),
+    "trail return cannot enter a hazard from a safe start")
 nativeGeometry = "20,10,8,0,Oak St;100,10,8,1,Oak St"
 actor.x = 10
 local oldRandom = ZombRand

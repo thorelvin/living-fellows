@@ -373,12 +373,32 @@ function Route.withinCorridor(route, path)
     if type(route) ~= "table" or type(path) ~= "table" then return false end
     local index, points = route.index, route.points
     if route.avoidance ~= nil then
+        local radius = route.avoidance.radius + 2
+        local startX, startY = SC.GameplayUtil.position(path[1])
+        local startDistance = startX and startY
+            and distance(startX, startY, route.avoidance) or math.huge
+        local escaping = route.allowEscapeFromAvoidance == true
+            and startDistance <= radius
+        local leftHazard = false
+        local lastDistance = startDistance
         for _, square in ipairs(path) do
             local x, y = SC.GameplayUtil.position(square)
-            if x == nil or y == nil
-                or distance(x, y, route.avoidance)
-                    <= route.avoidance.radius + 2 then return false end
+            if x == nil or y == nil then return false end
+            local gap = distance(x, y, route.avoidance)
+            if gap <= radius then
+                -- When contact already surrounds the leader, allow a verified
+                -- path *out* of its circle. Never cut back into it or move
+                -- materially closer to the observed cluster.
+                if not escaping or leftHazard or gap < startDistance - 1 then
+                    return false
+                end
+            else
+                leftHazard = true
+            end
+            lastDistance = gap
         end
+        if escaping and not leftHazard
+            and lastDistance < startDistance + 1 then return false end
     end
     if index <= 1 or index > #points then return true end
     local first, last = points[index - 1], points[index]

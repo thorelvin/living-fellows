@@ -1062,6 +1062,61 @@ SC.Senses.cached = ordinaryCached
 SC.ExpeditionRoute.plan = successfulRoadPlan
 check(expedition.finishAtPlayer(player) == true,
     "the blocked-road return releases the native leader")
+;(function()
+    local returnPlans = 0
+    SC.ExpeditionRoute.plan = function(actor, goal, continuing, avoidance)
+        if continuing and goal.x == player.x then
+            returnPlans = returnPlans + 1
+            return nil, "NO_RETURN_ROAD"
+        end
+        return successfulRoadPlan(actor, goal, continuing, avoidance)
+    end
+    reserve.x, reserve.y = 23, 20
+    worldHour = 1200
+    local started, active = expedition.start(
+        { { id = "delta", actor = reserve } },
+        { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+            turnHomeAfterHours = 1, travelMode = "road" })
+    active.scout.trail = {
+        { x = 23, y = 20, z = 0 },
+        { x = 60, y = 20, z = 0 },
+        { x = 100, y = 20, z = 0 },
+    }
+    reserve.x = 100
+    worldHour = 1201.2
+    scoutClock = scoutClock + 1000
+    expedition.pulse()
+    local saved = expedition.export()
+    check(started and active.scout.phase == "inbound"
+            and active.scout.trailReturn == true
+            and active.scout.returnIndex == 2
+            and active.technicalIssue == nil and returnPlans == 1
+            and saved.scout.trailReturn == true,
+        "failed inbound road planning falls back to reached trail instead of pausing")
+    check(expedition.prepareReset() and expedition.reset()
+            and expedition.restore(saved) and expedition.pulse(),
+        "trail return survives reload with its native leader")
+    scoutClock = scoutClock + 2000
+    expedition.pulse()
+    check(expedition.current().scout.trailReturn == true
+            and expedition.current().technicalIssue == nil
+            and returnPlans == 1,
+        "restored trail return does not retry the failed road graph every pulse")
+    saved.scout.trailReturn = nil
+    check(expedition.prepareReset() and expedition.reset()
+            and expedition.restore(saved) and expedition.pulse(),
+        "an older inbound road save can restore its native leader")
+    scoutClock = scoutClock + 2000
+    expedition.pulse()
+    check(expedition.current().scout.trailReturn == true
+            and expedition.current().technicalIssue == nil
+            and returnPlans == 2,
+        "an older inbound road save can recover when its new route fails")
+    reserve.x = player.x + 3
+    check(expedition.finishAtPlayer(player) == true,
+        "trail return can still release the native view at the player")
+    SC.ExpeditionRoute.plan = successfulRoadPlan
+end)()
 local savedMedical = SC.Medical
 local escort = actorAt(24, 20)
 actors.escort = escort
