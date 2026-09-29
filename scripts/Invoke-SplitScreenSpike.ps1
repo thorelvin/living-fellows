@@ -41,6 +41,7 @@ param(
     [switch]$TeamAutonomousScoutProbe,
     [switch]$TeamRoadRouteProbe,
     [switch]$TeamRoadHordeProbe,
+    [switch]$TeamRoadAlternateProbe,
     [switch]$TeamRoadRestartStageOnly,
     [switch]$TeamRoadRestartResumeProbe,
     [switch]$TeamKnownPlaceScoutProbe,
@@ -173,6 +174,7 @@ try {
         -TeamAutonomousScoutProbe:$TeamAutonomousScoutProbe `
         -TeamRoadRouteProbe:$TeamRoadRouteProbe `
         -TeamRoadHordeProbe:$TeamRoadHordeProbe `
+        -TeamRoadAlternateProbe:$TeamRoadAlternateProbe `
         -TeamRoadRestartStageOnly:$TeamRoadRestartStageOnly `
         -TeamRoadRestartResumeProbe:$TeamRoadRestartResumeProbe `
         -TeamKnownPlaceScoutProbe:$TeamKnownPlaceScoutProbe `

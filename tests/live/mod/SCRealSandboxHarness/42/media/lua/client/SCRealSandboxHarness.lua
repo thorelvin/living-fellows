@@ -8042,7 +8042,8 @@ local function probeRoadHordeDetour(current, mission, progress)
     local entryReady = alternate and SC.ExpeditionRoute.verifyEntry(
         alternate, Harness.leader)
     local safeReturn, returnReason
-    if alternate == nil or entryReady ~= true then
+    if Harness.config.team_road_alternate_probe ~= "true"
+        and (alternate == nil or entryReady ~= true) then
         safeReturn, returnReason = SC.ExpeditionRoute.plan(
             Harness.leader, scout.returnPoint, true, hazard)
         if safeReturn ~= nil then
@@ -8090,7 +8091,10 @@ local function probeRoadHordeDetour(current, mission, progress)
         and scout.roadRoute ~= nil
         and scout.endReason == "horde_no_safe_detour"
     local passed = check("road_horde_live_response",
-        (tookDetour or turnedHome)
+        ((Harness.config.team_road_alternate_probe == "true"
+                and tookDetour)
+            or (Harness.config.team_road_alternate_probe ~= "true"
+                and (tookDetour or turnedHome)))
             and scout.road and scout.road.avoidance ~= nil
             and mission.technicalIssue == nil,
         "detours=" .. tostring(scout.hordeDetours)
@@ -8105,6 +8109,16 @@ local function probeRoadHordeDetour(current, mission, progress)
     Harness.hordeInjected = true
     Harness.hordeAvoid = hazard
     Harness.hordeOutcome = tookDetour and "detour" or "return"
+    if Harness.config.team_road_alternate_probe == "true" then
+        local streets = {}
+        for _, candidate in ipairs(scout.roadRoute.points) do
+            streets[candidate.street] = true
+        end
+        check("road_horde_connected_bypass_selected",
+            streets["Ark Lane"] and streets["Lincoln St"]
+                and streets["Johannes Jr St"],
+            "road route must traverse Ark Lane, Lincoln St and Johannes Jr St")
+    end
 end
 
 function Harness.probeAutonomousScout(current)
@@ -8146,8 +8160,36 @@ function Harness.probeAutonomousScout(current)
         end
     end
     Harness.autonomousMaxGap = math.max(Harness.autonomousMaxGap or 0, gap)
+    if Harness.config.team_road_alternate_probe == "true"
+        and Harness.hordeInjected then
+        if not Harness.alternateArkEntered
+            and math.abs(x - 6040) <= 12 and y >= 5320 and y <= 5405 then
+            Harness.alternateArkEntered = true
+            check("road_horde_team_walked_ark_lane",
+                step < 3 and gap < 20,
+                "leader=" .. tostring(x) .. "," .. tostring(y)
+                    .. " follower_gap=" .. tostring(gap))
+        end
+        if not Harness.alternateLincolnEntered
+            and x >= 6070 and x <= 6175
+            and math.abs(y - 5400) <= 12 then
+            Harness.alternateLincolnEntered = true
+            check("road_horde_team_walked_lincoln_st",
+                Harness.alternateArkEntered == true
+                    and step < 3 and gap < 20,
+                "leader=" .. tostring(x) .. "," .. tostring(y)
+                    .. " follower_gap=" .. tostring(gap))
+        end
+    end
     if mission == nil then
         local debrief = SC.ExpeditionPrototype.lastDebrief()
+        if Harness.config.team_road_alternate_probe == "true" then
+            check("road_horde_connected_bypass_traversed",
+                Harness.alternateArkEntered == true
+                    and Harness.alternateLincolnEntered == true,
+                "ark=" .. tostring(Harness.alternateArkEntered)
+                    .. " lincoln=" .. tostring(Harness.alternateLincolnEntered))
+        end
         if Harness.hordeOutcome == "return" then
             check("road_horde_early_return_debrief",
                 debrief ~= nil and debrief.kind == "scout"

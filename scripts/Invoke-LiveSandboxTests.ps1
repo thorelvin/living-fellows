@@ -56,6 +56,7 @@ param(
     [switch]$TeamAutonomousScoutProbe,
     [switch]$TeamRoadRouteProbe,
     [switch]$TeamRoadHordeProbe,
+    [switch]$TeamRoadAlternateProbe,
     [switch]$TeamRoadRestartStageOnly,
     [switch]$TeamRoadRestartResumeProbe,
     [switch]$TeamKnownPlaceScoutProbe,
@@ -185,6 +186,9 @@ if ($TeamRoadRouteProbe -and -not $TeamAutonomousScoutProbe) {
 }
 if ($TeamRoadHordeProbe -and -not $TeamRoadRouteProbe) {
     throw '-TeamRoadHordeProbe requires -TeamRoadRouteProbe.'
+}
+if ($TeamRoadAlternateProbe -and -not $TeamRoadHordeProbe) {
+    throw '-TeamRoadAlternateProbe requires -TeamRoadHordeProbe.'
 }
 if ($TeamRoadRestartStageOnly -and -not $TeamRoadRouteProbe) {
     throw '-TeamRoadRestartStageOnly requires -TeamRoadRouteProbe.'
@@ -799,6 +803,7 @@ $config = @(
     ('team_autonomous_scout_probe=' + $TeamAutonomousScoutProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_road_route_probe=' + $TeamRoadRouteProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_road_horde_probe=' + $TeamRoadHordeProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_road_alternate_probe=' + $TeamRoadAlternateProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_road_restart_stage_only=' + $TeamRoadRestartStageOnly.IsPresent.ToString().ToLowerInvariant()),
     ('team_road_restart_resume_probe=' + $TeamRoadRestartResumeProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_known_place_scout_probe=' + $TeamKnownPlaceScoutProbe.IsPresent.ToString().ToLowerInvariant()),
