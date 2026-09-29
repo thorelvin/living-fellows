@@ -1065,6 +1065,29 @@ function Expedition.followDistanceFor(actor)
     return 2
 end
 
+-- Shared Positioning owns follower movement. The road route supplies only the
+-- current street geometry so its open formation can stay within the road.
+function Expedition.roadFormationFor(actor)
+    if not Expedition.isFollower(actor) or mission.scout == nil then return nil end
+    local scout = mission.scout
+    if scout.phase ~= "outbound" and scout.phase ~= "inbound" then return nil end
+    local route = scout.roadRoute
+    if route == nil or SC.ExpeditionRoute == nil then return nil end
+    local first = route.points[route.index - 1]
+    local last = route.points[route.index]
+    if (first and first.junction == true
+        and distanceToPoint(mission.leader.actor,
+            { x = first.x, y = first.y, z = 0 }) <= 6)
+        or (last and last.junction == true
+            and distanceToPoint(mission.leader.actor,
+                { x = last.x, y = last.y, z = 0 }) <= 6) then
+        return { column = true }
+    end
+    return SC.ExpeditionRoute.formationSegment
+        and SC.ExpeditionRoute.formationSegment(
+            route, mission.leader.actor) or nil
+end
+
 function Expedition.radioCommandAuthorized(actor, command, payload, player)
     local auth = mission and mission.radioAuthorization
     return auth ~= nil and auth.actor == actor
@@ -1789,9 +1812,29 @@ local function pulseScout()
             and type(SC.ActionSupervisor.current) == "function"
             and SC.ActionSupervisor.current(leader) or nil
         if owner ~= nil then return end
+        if scout.roadRoute ~= nil
+            and SC.ExpeditionRoute.skipLane(scout.roadRoute) then
+            scout.lastStalledTarget = nil
+            Expedition.clearTestWaypoint(leader)
+            if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+                SC.Navigation.cancel(leader, "road_lane_unreachable")
+            end
+            return
+        end
         scout.replans = (scout.replans or 0) + 1
         if scout.replans > 5 then
-            mission.technicalIssue = { reason = "scout_stall_replan_limit" }
+            if scout.phase == "outbound" then
+                Expedition.clearTestWaypoint(leader)
+                if SC.Navigation and type(SC.Navigation.cancel) == "function" then
+                    SC.Navigation.cancel(leader, "scout_road_stall_return")
+                end
+                scout.replans = 0
+                startReturnFromSite(scout, scout.travelMode == "road"
+                    and "road_path_unreachable"
+                    or "straight_path_unreachable")
+            else
+                mission.technicalIssue = { reason = "scout_stall_replan_limit" }
+            end
             return
         end
         scout.lastStalledTarget = copyPoint(mission.testWaypoint)
@@ -1905,8 +1948,37 @@ local function pulseScout()
         or scout.returnIndex ~= nil and scout.returnIndex >= 1
             and scout.trail[scout.returnIndex] or scout.returnPoint
     if scout.roadRoute ~= nil then
+        local registered = SC.Registry.byId(mission.leader.id)
+        local snapshot = SC.Senses and SC.Senses.cached
+            and SC.Senses.cached(mission.leader.actor,
+                registered and registered.runtime) or nil
         target = SC.ExpeditionRoute.target(scout.roadRoute,
-            mission.leader.actor) or target
+            mission.leader.actor, snapshot) or target
+        local crossing = SC.ExpeditionRoute.takeJunction(scout.roadRoute)
+        if crossing ~= nil and now - (scout.lastJunctionCalloutAt or -math.huge)
+                >= 30000 and SC.Dialogue
+                and type(SC.Dialogue.say) == "function"
+                and type(ZombRand) == "function" and ZombRand(100) < 40 then
+            local candidates = {}
+            for _, member in ipairs(mission.roster) do
+                if alive(member) and distanceToPoint(member.actor,
+                        crossing) <= 12 then
+                    local lastSpoken = type(SC.Dialogue.lastSpokenAt)
+                        == "function" and SC.Dialogue.lastSpokenAt(member.actor)
+                        or -math.huge
+                    if now - lastSpoken >= 10000 then
+                        candidates[#candidates + 1] = member.actor
+                    end
+                end
+            end
+            if #candidates > 0 then
+                local speaker = candidates[ZombRand(#candidates) + 1]
+                local spoken = SC.Dialogue.say(speaker,
+                    "expedition.road_intersection", nil,
+                    { crossing.street or "the next road" })
+                if spoken then scout.lastJunctionCalloutAt = now end
+            end
+        end
     end
     local close = distanceToPoint(mission.leader.actor, target)
     if scout.phase == "outbound" and close <= 4
@@ -1956,6 +2028,13 @@ local function pulseScout()
             scout.kind, scout.phase, leaderInRoom),
         scout.roadRoute)
     if leg == nil then
+        if scout.roadRoute ~= nil
+            and SC.ExpeditionRoute.skipLane(scout.roadRoute) then
+            scout.lastStalledTarget = nil
+            scout.firstPlanFailureAt = nil
+            scout.lastPlanFailure = nil
+            return
+        end
         scout.lastPlanFailure = reason
         if scout.firstPlanFailureAt == nil then scout.firstPlanFailureAt = now end
         if now - scout.firstPlanFailureAt >= 30000 then

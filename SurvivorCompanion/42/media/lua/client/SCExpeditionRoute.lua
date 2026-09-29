@@ -13,15 +13,47 @@ local function parseGeometry(value)
     if type(value) ~= "string" or #value > 65536 then return nil end
     local points = {}
     for item in string.gmatch(value, "[^;]+") do
-        local sx, sy, street = item:match("^([^,]+),([^,]+),(.*)$")
+        local sx, sy, widthText, junctionText, street =
+            item:match("^([^,]+),([^,]+),([^,]+),([^,]+),(.*)$")
+        if sx == nil then
+            sx, sy, street = item:match("^([^,]+),([^,]+),(.*)$")
+        end
         local x, y = tonumber(sx), tonumber(sy)
+        local width = widthText and tonumber(widthText) or 0
         if not x or not y or x ~= x or y ~= y
             or x < 0 or y < 0 or x > 30000 or y > 30000
+            or not width or width ~= width or width < 0 or width > 64
+            or (junctionText ~= nil and junctionText ~= "0"
+                and junctionText ~= "1")
             or not street or #street > 128 then return nil end
-        points[#points + 1] = { x = x, y = y, street = street }
+        points[#points + 1] = { x = x, y = y, street = street,
+            width = width, junction = junctionText == "1" }
         if #points > 512 then return nil end
     end
-    return #points >= 2 and points or nil
+    if #points < 2 then return nil end
+    -- Break a long mapped street into bounded lane runs. Original junctions
+    -- remain explicit centerline points; inserted anchors are ordinary road.
+    local expanded = { points[1] }
+    for index = 2, #points do
+        local first, last = points[index - 1], points[index]
+        local dx, dy = last.x - first.x, last.y - first.y
+        local length = math.sqrt(dx * dx + dy * dy)
+        if last.width >= 6 and length > 48 then
+            local runs = math.ceil(length / 36)
+            if #expanded + runs + (#points - index) <= 512 then
+                for part = 1, runs - 1 do
+                    local t = part / runs
+                    expanded[#expanded + 1] = {
+                        x = first.x + dx * t, y = first.y + dy * t,
+                        street = last.street, width = last.width,
+                        junction = false,
+                    }
+                end
+            end
+        end
+        expanded[#expanded + 1] = last
+    end
+    return expanded
 end
 
 local function segmentDistance(x, y, first, last)
@@ -172,21 +204,125 @@ end
 
 -- Advance only when the leader reaches a street vertex. A source/exit access
 -- leg may leave the street, but ordinary road legs aim at the next vertex.
-function Route.target(route, actor)
+function Route.target(route, actor, snapshot)
     if type(route) ~= "table" or type(route.points) ~= "table"
         or type(route.index) ~= "number" then return nil end
     local x, y = SC.GameplayUtil.position(actor)
     if x == nil or y == nil then return nil end
     while route.index <= #route.points
         and distance(x, y, route.points[route.index]) <= 4 do
+        local reached = route.points[route.index]
+        if reached.junction == true then
+            local nextPoint = route.points[route.index + 1]
+            route.passedJunction = {
+                x = reached.x, y = reached.y, z = 0,
+                street = nextPoint and nextPoint.street ~= ""
+                    and nextPoint.street or reached.street,
+            }
+        end
         route.index = route.index + 1
+        route.laneStage = nil
+        route.laneIndex = nil
     end
     local point = route.points[route.index]
     if point then
+        local previous = route.points[route.index - 1]
+        if previous and (point.width or 0) >= 6 then
+            local dx, dy = point.x - previous.x, point.y - previous.y
+            local length = math.sqrt(dx * dx + dy * dy)
+            if length >= 24 then
+                route.laneChoices = route.laneChoices or {}
+                if route.laneChoices[route.index] == nil then
+                    route.laneChoices[route.index] =
+                        type(ZombRand) == "function" and ZombRand(3) - 1
+                        or math.random(3) - 2
+                end
+                local side = route.laneChoices[route.index]
+                if side ~= 0 then
+                    if route.laneIndex ~= route.index then
+                        route.laneIndex, route.laneStage = route.index, 1
+                    end
+                    local offset = side * math.min(2.75,
+                        point.width * 0.28, point.width * 0.5 - 1.25)
+                    while route.laneStage <= 2 do
+                        local fraction = route.laneStage == 1 and 0.22 or 0.78
+                        local lane = {
+                            x = previous.x + dx * fraction - dy / length * offset,
+                            y = previous.y + dy * fraction + dx / length * offset,
+                        }
+                        local center = {
+                            x = previous.x + dx * fraction,
+                            y = previous.y + dy * fraction,
+                        }
+                        local towardThreat = false
+                        for _, threat in ipairs(type(snapshot) == "table"
+                                and snapshot.threats or {}) do
+                            if threat.visible == true and threat.obstructed ~= true
+                                and type(threat.x) == "number"
+                                and type(threat.y) == "number"
+                                and distance(lane.x, lane.y, threat) < 12
+                                and distance(lane.x, lane.y, threat)
+                                    < distance(center.x, center.y, threat) then
+                                towardThreat = true
+                                break
+                            end
+                        end
+                        if towardThreat then
+                            route.laneStage = 3
+                            break
+                        end
+                        local lx, ly = math.floor(lane.x + 0.5),
+                            math.floor(lane.y + 0.5)
+                        local world = type(getWorld) == "function" and getWorld() or nil
+                        local cell = world and world:getCell() or nil
+                        local square = cell and cell:getGridSquare(lx, ly, 0) or nil
+                        if distance(x, y, lane) > 2.5 and (square == nil
+                            or SC.GameplayUtil.isSquareFree(square)) then
+                            return { x = lx, y = ly, z = 0 }
+                        end
+                        route.laneStage = route.laneStage + 1
+                    end
+                end
+            end
+        end
         return { x = math.floor(point.x + 0.5),
             y = math.floor(point.y + 0.5), z = 0 }
     end
     return route.goal
+end
+
+function Route.skipLane(route)
+    if type(route) ~= "table" or route.laneIndex ~= route.index
+        or route.laneStage == nil or route.laneStage > 2 then return false end
+    route.laneStage = 3
+    return true
+end
+
+function Route.takeJunction(route)
+    if type(route) ~= "table" then return nil end
+    local crossed = route.passedJunction
+    route.passedJunction = nil
+    return crossed
+end
+
+function Route.formationSegment(route, actor)
+    if type(route) ~= "table" or type(route.index) ~= "number"
+        or type(route.points) ~= "table" or actor == nil then return nil end
+    local first, last = route.points[route.index - 1],
+        route.points[route.index]
+    if not first or not last or (last.width or 0) < 6 then return nil end
+    local dx, dy = last.x - first.x, last.y - first.y
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length < 14 then return nil end
+    local x, y = SC.GameplayUtil.position(actor)
+    if x == nil or y == nil
+        or segmentDistance(x, y, first, last) > last.width * 0.5 then
+        return nil
+    end
+    local along = ((x - first.x) * dx + (y - first.y) * dy) / length
+    if along < 5 or along > length - 5 then return nil end
+    return { first = first, last = last, width = last.width,
+        forwardX = dx / length, forwardY = dy / length }
 end
 
 -- A nearby road entry must have a loaded local path before the squad leaves.
@@ -245,12 +381,25 @@ function Route.withinCorridor(route, path)
     end
     if index <= 1 or index > #points then return true end
     local first, last = points[index - 1], points[index]
+    -- Combat or a blocked verge can briefly push the leader off the mapped
+    -- street. Let a verified exterior path curve back toward it; the ordinary
+    -- road corridor resumes as soon as the leader is near the centerline.
+    local startX, startY = SC.GameplayUtil.position(path[1])
+    local startOffset = startX and startY
+        and segmentDistance(startX, startY, first, last) or 0
+    local reentryWidth = startX and startY and math.min(24,
+        math.max(12, startOffset + 8)) or 12
     for _, square in ipairs(path) do
         local x, y = SC.GameplayUtil.position(square)
         if x == nil or y == nil
-            or segmentDistance(x, y, first, last) > 12 then
+            or segmentDistance(x, y, first, last) > reentryWidth then
             return false
         end
+    end
+    if startOffset > 12 then
+        local endX, endY = SC.GameplayUtil.position(path[#path])
+        if not endX or not endY or segmentDistance(endX, endY,
+                first, last) >= startOffset - 1 then return false end
     end
     return true
 end

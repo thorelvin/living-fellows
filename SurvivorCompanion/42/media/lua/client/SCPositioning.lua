@@ -65,6 +65,15 @@ local function normalized(x, y)
     return x / length, y / length
 end
 
+local function lineDistance(x, y, first, last)
+    local dx, dy = last.x - first.x, last.y - first.y
+    local lengthSq = dx * dx + dy * dy
+    local t = lengthSq > 0 and math.max(0, math.min(1,
+        ((x - first.x) * dx + (y - first.y) * dy) / lengthSq)) or 0
+    return math.sqrt((x - first.x - dx * t)^2
+        + (y - first.y - dy * t)^2)
+end
+
 local function leaderStateFor(leader)
     local state = leaderStates[leader]
     if state == nil then
@@ -295,6 +304,23 @@ local function cqbOpenOffset(entry, slot)
     return formationOffsets[((slot - 1) % #formationOffsets) + 1]
 end
 
+-- One shared open-ground shape for player-led and expedition-led teams. The
+-- combat roles keep stable side assignments; portals still use the trail.
+local function travellingOffset(entry, slot, count, threatNearby)
+    if count < 2 then return cqbOpenOffset(entry, slot) end
+    local flank = threatNearby and 2.7 or 2.3
+    if entry and entry.cqbRole == "point" then return { -flank, 0.8 } end
+    if entry and entry.cqbRole == "assault" then return { flank, 0.8 } end
+    if entry and entry.cqbRole == "rear_guard" then
+        return count == 2 and { flank, 0.8 } or { 0, 3 }
+    end
+    if entry and entry.cqbRole == "ranged_support" then
+        local side = (entry.roleIndex or 1) % 2 == 1 and 1 or -1
+        return { side * 2, 2 }
+    end
+    return formationOffsets[((slot - 1) % #formationOffsets) + 1]
+end
+
 local function rosterGroupKey(group)
     return group == nil and "__ungrouped" or "group:" .. tostring(group)
 end
@@ -302,24 +328,49 @@ end
 local function followerRoster(leader, current, group)
     local utility = U()
     local leaderState = leaderStateFor(leader)
+    local expedition = SC.ExpeditionPrototype
+        and type(SC.ExpeditionPrototype.current) == "function"
+        and SC.ExpeditionPrototype.current() or nil
+    local activeMission = expedition and expedition.leader
+        and expedition.leader.actor == leader
+    local requestedKey = activeMission and "__expedition"
+        or rosterGroupKey(group)
     if current >= (leaderState.fireteamsExpires or 0) then
         local fireteams = {}
         -- Partition the whole recruited roster once per leader pulse. Selecting
         -- Alpha, Bravo and an ungrouped follower in the same frame must not turn
         -- into three registry scans.
-        for _, other in ipairs(utility.registryLiving(false)) do
-            local commands = commandState(other)
-            if commands and commands.recruited
-                and (commands.order == "follow" or commands.order == "regroup") then
-                local key = rosterGroupKey(commands.group)
-                local bucket = fireteams[key]
-                if not bucket then
-                    bucket = {}
-                    fireteams[key] = bucket
+        local function add(other, commands)
+            local key = activeMission and "__expedition"
+                or rosterGroupKey(commands.group)
+            local bucket = fireteams[key]
+            if not bucket then
+                bucket = {}
+                fireteams[key] = bucket
+            end
+            bucket[#bucket + 1] = {
+                actor = other, id = utility.idOf(other), commands = commands,
+            }
+        end
+        if activeMission then
+            -- The expedition Follow order is temporary. Build the fireteam
+            -- from its live roster, including members whose saved order is
+            -- Wander, without rewriting their player-team preferences.
+            for _, record in ipairs(expedition.roster or {}) do
+                local other = record.actor
+                if other and other ~= leader and not utility.isDead(other) then
+                    local commands = commandState(other)
+                    if commands then add(other, commands) end
                 end
-                bucket[#bucket + 1] = {
-                    actor = other, id = utility.idOf(other), commands = commands,
-                }
+            end
+        else
+            for _, other in ipairs(utility.registryLiving(false)) do
+                local commands = commandState(other)
+                if commands and commands.recruited
+                    and (commands.order == "follow"
+                        or commands.order == "regroup") then
+                    add(other, commands)
+                end
             end
         end
         for key, followers in pairs(fireteams) do
@@ -336,7 +387,7 @@ local function followerRoster(leader, current, group)
         leaderState.fireteams = fireteams
         leaderState.fireteamsExpires = current + 250
     end
-    local cached = leaderState.fireteams and leaderState.fireteams[rosterGroupKey(group)] or nil
+    local cached = leaderState.fireteams and leaderState.fireteams[requestedKey] or nil
     if cached then return cached.roster, cached.slots end
     return emptyFireteam, emptyFireteamSlots
 end
@@ -398,6 +449,7 @@ local function sampleLeader(leader, current, roster, cohort)
         if velocityX ~= nil then
             state.headingX, state.headingY = velocityX, velocityY
             state.headingAt = current
+            state.lastMovedAt = current
             if elapsed > 0 and elapsed <= 1000 then
                 local sampleX, sampleY = deltaX / elapsed, deltaY / elapsed
                 -- Smooth one noisy world-position sample without lagging far behind
@@ -649,13 +701,41 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     local forwardX, forwardY = leaderState.headingX or 0, leaderState.headingY or -1
     local velocityX, velocityY = leaderState.velocityX or 0, leaderState.velocityY or 0
     local rightX, rightY = -forwardY, forwardX
-    local localOffset = cqbOpenOffset(fireteamMember, slot)
+    local moving, movingOk = utility.call(leader, "isMoving")
+    -- A promoted local companion can report isMoving=false during a native
+    -- route even while its sampled world position advances. Use that measured
+    -- travel for expedition leaders; player-led groups retain native movement
+    -- semantics and their existing target hysteresis.
+    local expedition = SC.ExpeditionPrototype
+        and type(SC.ExpeditionPrototype.current) == "function"
+        and SC.ExpeditionPrototype.current() or nil
+    local missionLeader = expedition and expedition.leader
+        and expedition.leader.actor == leader
+    local travelling = #roster >= 2 and ((movingOk and moving == true)
+        or missionLeader and current
+            - (leaderState.lastMovedAt or -math.huge) <= 650)
+    local threatNearby = false
+    if travelling and type(snapshot) == "table" then
+        for _, threat in ipairs(snapshot.threats or {}) do
+            if threat.visible == true and threat.obstructed ~= true
+                and type(threat.x) == "number"
+                and type(threat.y) == "number"
+                and (threat.x - px)^2 + (threat.y - py)^2 <= 12 * 12 then
+                threatNearby = true
+                break
+            end
+        end
+    end
+    local localOffset = travelling
+        and travellingOffset(fireteamMember, slot, #roster, threatNearby)
+        or cqbOpenOffset(fireteamMember, slot)
     local desiredDistance = tonumber(commands.followDistance) or 3
     local scale = commands.order == "regroup" and 0.75
+        or travelling and math.max(0.9, math.min(1.3,
+            desiredDistance / 3))
         or desiredDistance == 1 and 0.5
         or math.max(0.75, desiredDistance / 3)
     local predictionX, predictionY = 0, 0
-    local moving, movingOk = utility.call(leader, "isMoving")
     if movingOk and moving == true then
         local leadMs = math.max(0, tonumber(utility.config("formationPredictionMs")) or 250)
         predictionX, predictionY = velocityX * leadMs, velocityY * leadMs
@@ -667,10 +747,29 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
             predictionX, predictionY = predictionX * scaleDown, predictionY * scaleDown
         end
     end
-    local targetX = px + predictionX
-        + rightX * localOffset[1] * scale - forwardX * localOffset[2] * scale
-    local targetY = py + predictionY
-        + rightY * localOffset[1] * scale - forwardY * localOffset[2] * scale
+    local road = type(commands.expeditionRoad) == "table"
+        and commands.expeditionRoad or nil
+    local targetX, targetY
+    if road and road.first and road.last and travelling then
+        forwardX, forwardY = road.forwardX, road.forwardY
+        rightX, rightY = -forwardY, forwardX
+        local along = (px - road.first.x) * forwardX
+            + (py - road.first.y) * forwardY
+        local centerX = road.first.x + forwardX * along
+        local centerY = road.first.y + forwardY * along
+        local lateral = math.max(-road.width * 0.5 + 1,
+            math.min(road.width * 0.5 - 1,
+                localOffset[1] * scale))
+        targetX = centerX + rightX * lateral
+            - forwardX * localOffset[2] * scale + predictionX
+        targetY = centerY + rightY * lateral
+            - forwardY * localOffset[2] * scale + predictionY
+    else
+        targetX = px + predictionX
+            + rightX * localOffset[1] * scale - forwardX * localOffset[2] * scale
+        targetY = py + predictionY
+            + rightY * localOffset[1] * scale - forwardY * localOffset[2] * scale
+    end
     local minimum = utility.config("formationSeparation") or 1.25
     local state = stateFor(actor)
     local distanceToLeader = utility.distance(actor, leader)
@@ -679,7 +778,21 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
             utility.config("formationOpenInterceptDistance")) or 14)
         and (utility.canSee(actor, leader)
             or utility.canSee(actor, utility.squareOf(leader)))
-    if clearOpenFormation and SC.Navigation
+    if road and road.column == true then clearOpenFormation = false end
+    -- The road geometry already establishes a common, wide corridor. Two
+    -- members on the same straight segment may use flank slots even when the
+    -- fast direct-to-leader check sees a car or shrub between them. Navigation
+    -- still owns and validates the actual path to each chosen slot.
+    local ax, ay = utility.position(actor)
+    local sharedRoad = road and road.first and road.last
+        and ax ~= nil and ay ~= nil
+        and lineDistance(ax, ay, road.first, road.last)
+            <= road.width * 0.5
+        and lineDistance(px, py, road.first, road.last)
+            <= road.width * 0.5
+    if sharedRoad and utility.sameFloor(actor, leader)
+        and distanceToLeader <= 14 then clearOpenFormation = true end
+    if clearOpenFormation and not sharedRoad and SC.Navigation
         and type(SC.Navigation._fastOpenRouteForRequest) == "function" then
         -- Visibility alone is not a movement contract (it commonly passes
         -- through fences). Only intercept when every edge to the leader is
@@ -722,6 +835,9 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     end
     local mode = clearOpenFormation and current >= (state.trailModeUntil or 0)
         and "open" or "trail"
+    local shape = mode == "open" and (travelling
+        and (threatNearby and "combat_spread" or "wedge") or "hold")
+        or "column"
     local target, portal, followTrack, interceptPosition
     if commands.expeditionCohesionHold == true then
         -- A held expedition cannot resume while a follower is parked at an
@@ -729,6 +845,7 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         -- Bring that follower to a free square beside the leader; Navigation
         -- still validates every intervening door, window, and hazard.
         mode = "regroup"
+        shape = "regroup"
         target = availableTarget(actor, px, py, pz, snapshot, minimum)
     elseif mode == "trail" then
         local trail = leaderState.trail or {}
@@ -755,7 +872,17 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     end
     if not target then
         if mode == "open" then
-            target = availableTarget(actor, targetX, targetY, pz, snapshot, minimum)
+            local roadPredicate = road and road.first and road.last
+                and function(square)
+                    local sx, sy = utility.position(square)
+                    return sx ~= nil and sy ~= nil
+                        and lineDistance(sx, sy, road.first, road.last)
+                            <= road.width * 0.5 - 0.5
+                end or nil
+            target = roadPredicate and availableTarget(actor,
+                targetX, targetY, pz, snapshot, minimum, roadPredicate)
+                or availableTarget(actor,
+                    targetX, targetY, pz, snapshot, minimum)
         else
             mode = "bootstrap"
             target = availableTarget(actor, px, py, pz, snapshot, minimum)
@@ -785,6 +912,7 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         state.predictionX, state.predictionY = predictionX, predictionY
         state.predictionDistance = math.sqrt(predictionX * predictionX + predictionY * predictionY)
         state.formationMode = mode
+        state.formationShape = shape
         state.trailRevision = leaderState.revision or 0
         state.portalKey = portal and portal.key or nil
         state.columnIndex = slot
@@ -795,6 +923,7 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     end
     return target, {
         mode = mode,
+        shape = shape,
         trailRevision = leaderState.revision or 0,
         portalKey = portal and portal.key or nil,
         portal = portal,
@@ -1139,6 +1268,7 @@ function Positioning.debug(actor)
         velocityX = state.velocityX or 0,
         velocityY = state.velocityY or 0,
         formationMode = state.formationMode,
+        formationShape = state.formationShape,
         trailRevision = state.trailRevision,
         portalKey = state.portalKey,
         columnIndex = state.columnIndex,

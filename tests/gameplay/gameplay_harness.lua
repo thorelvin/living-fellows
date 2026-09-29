@@ -4487,6 +4487,70 @@ local settledHeadingTarget = SurvivorCompanion.Positioning.formationTarget(
 check(settledHeadingTarget and settledHeadingTarget ~= leftTarget,
     "a sustained leader heading eventually rotates the travel formation")
 
+positioningLeader.moving = true
+positioningLeader.worldY = positioningLeader:getY() + 0.5
+clock = clock + 300
+local flankLeft, wedgeLeft = SurvivorCompanion.Positioning.formationTarget(
+    formationAssault, positioningLeader, formationAssaultCommands,
+    formationSnapshot)
+local flankRight, wedgeRight = SurvivorCompanion.Positioning.formationTarget(
+    formationRanged, positioningLeader, formationRangedCommands,
+    formationSnapshot)
+check(flankLeft and flankRight and flankLeft ~= flankRight
+        and wedgeLeft.shape == "wedge" and wedgeRight.shape == "wedge"
+        and wedgeLeft.mode == "open" and wedgeRight.mode == "open",
+    "moving player-led team spreads into assigned flanks using shared Positioning")
+local threatenedSnapshot = { threats = { {
+    x = positioningLeader:getX() + 5, y = positioningLeader:getY(),
+    visible = true, obstructed = false,
+} }, allies = {}, player = { actor = positioningLeader, danger = 1 } }
+local _, combatShape = SurvivorCompanion.Positioning.formationTarget(
+    formationAssault, positioningLeader, formationAssaultCommands,
+    threatenedSnapshot)
+check(combatShape.shape == "combat_spread",
+    "visible nearby danger widens the shared moving formation")
+
+local wanderingMember = actor("formation-wanderer", 17, 20, {})
+registry[wanderingMember.id] = wanderingMember
+SurvivorCompanion.Commands.issue(wanderingMember.id, "set_group", "bravo",
+    positioningLeader)
+local wanderingCommands = SurvivorCompanion.Commands.peek(wanderingMember)
+wanderingCommands.order = "wander"
+local oldExpedition = SurvivorCompanion.ExpeditionPrototype
+SurvivorCompanion.ExpeditionPrototype = { current = function() return {
+    leader = { actor = positioningLeader },
+    roster = {
+        { actor = positioningLeader },
+        { actor = formationAssault }, { actor = formationRanged },
+        { actor = wanderingMember },
+    },
+} end }
+clock = clock + 300
+positioningLeader.moving = false
+local roadTarget, roadContext = SurvivorCompanion.Positioning.formationTarget(
+    wanderingMember, positioningLeader, {
+        order = "follow", group = "bravo", followDistance = 2,
+        expeditionRoad = { first = { x = 10, y = 20 },
+            last = { x = 50, y = 20 }, width = 8,
+            forwardX = 1, forwardY = 0 },
+    }, formationSnapshot)
+check(roadTarget and roadContext.shape == "wedge"
+        and roadContext.fireteamSize == 3
+        and math.abs(roadTarget.y - 20) <= 4
+        and (function()
+            for _, entry in ipairs(roadContext.participants) do
+                if entry.actor == wanderingMember then return true end
+            end
+            return false
+        end)(),
+    "expedition roster gives a saved Wander member a bounded road flank")
+SurvivorCompanion.ExpeditionPrototype = oldExpedition
+positioningLeader.moving = false
+SurvivorCompanion.Positioning.reset(wanderingMember)
+SurvivorCompanion.Commands.reset(wanderingMember)
+registry[wanderingMember.id] = nil
+clock = clock + 300
+
 local predictionLeader = actor("prediction-player", 30, 20, {
     className = "IsoPlayer", recruited = false, forwardX = 1, forwardY = 0,
 })
@@ -4640,7 +4704,10 @@ clock = clock + 100
 local stickyMoved = SurvivorCompanion.Positioning.formationTarget(
     stickyFollower, stickyLeader, SurvivorCompanion.Commands.peek(stickyFollower), stickySnapshot)
 check(stickyFirst and stickyNeighbour == stickyFirst and stickyMoved ~= stickyFirst,
-    "formation target hysteresis ignores one neighbouring tile of jitter but follows a material leader move")
+    "formation target hysteresis ignores one neighbouring tile of jitter but follows a material leader move: "
+        .. tostring(stickyFirst and stickyFirst.x) .. "," .. tostring(stickyFirst and stickyFirst.y)
+        .. " -> " .. tostring(stickyNeighbour and stickyNeighbour.x) .. "," .. tostring(stickyNeighbour and stickyNeighbour.y)
+        .. " -> " .. tostring(stickyMoved and stickyMoved.x) .. "," .. tostring(stickyMoved and stickyMoved.y))
 SurvivorCompanion.Positioning.reset(stickyFollower)
 SurvivorCompanion.Commands.reset(stickyFollower)
 registry[stickyFollower.id] = nil

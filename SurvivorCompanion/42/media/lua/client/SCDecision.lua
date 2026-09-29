@@ -92,6 +92,8 @@ local function commandsFor(actor)
                     missionOrder.followDistance =
                         SC.ExpeditionPrototype.followDistanceFor(actor)
                             or missionOrder.followDistance
+                    missionOrder.expeditionRoad =
+                        SC.ExpeditionPrototype.roadFormationFor(actor)
                 end
                 missionOrder.expeditionCohesionHold = regroup == true
                 missionOrder.anchor = nil

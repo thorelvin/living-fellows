@@ -96,6 +96,11 @@ public final class SCRoadRouterTest {
         check("READY".equals(tee.status())
                 && Math.abs(tee.roadLength() - 530) < 0.001,
                 "a street ending at the joined road's edge connects to that road");
+        check(tee.points().stream().anyMatch(point -> point.junction()
+                    && Math.abs(point.x() - 300) < 0.001
+                    && Math.abs(point.y()) < 0.001)
+                && tee.points().stream().anyMatch(point -> point.width() == 8),
+                "road output carries actual street width and traversed junctions");
         var apart = SCRoadRouter.routeLines(List.of(
                 wide("Main", 10, 0, 0, 400, 0),
                 wide("Side", 8, 300, 8, 300, 300)), 20, 0, 300, 250);

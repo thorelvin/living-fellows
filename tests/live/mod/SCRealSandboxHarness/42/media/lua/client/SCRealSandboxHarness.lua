@@ -8160,6 +8160,28 @@ function Harness.probeAutonomousScout(current)
         end
     end
     Harness.autonomousMaxGap = math.max(Harness.autonomousMaxGap or 0, gap)
+    if Harness.config.team_road_route_probe == "true" and mission
+        and mission.scout and mission.scout.roadRoute then
+        local route = mission.scout.roadRoute
+        for _, side in pairs(route.laneChoices or {}) do
+            if side ~= 0 then Harness.roadSideChoiceSeen = true end
+        end
+        for index = 2, #Harness.team do
+            local member = Harness.team[index].actor
+            local detail = member and SC.Positioning.debug(member) or nil
+            if detail and detail.formationShape == "wedge" then
+                Harness.roadWedgeSeen = true
+            end
+        end
+        if not Harness.roadMovementChecked and Harness.roadSideChoiceSeen
+            and Harness.roadWedgeSeen and progress >= 40 then
+            check("road_lane_variation_selected", true,
+                "side lane chosen on a mapped street")
+            check("road_shared_wedge_formation_used", true,
+                "expedition follower used shared Positioning wedge")
+            Harness.roadMovementChecked = true
+        end
+    end
     if Harness.config.team_road_alternate_probe == "true"
         and Harness.hordeInjected then
         if not Harness.alternateArkEntered
@@ -8181,8 +8203,41 @@ function Harness.probeAutonomousScout(current)
                     .. " follower_gap=" .. tostring(gap))
         end
     end
+    if Harness.config.team_road_movement_probe == "true"
+        and mission and progress >= 75 then
+        local formation = {}
+        for index = 2, #Harness.team do
+            local member = Harness.team[index].actor
+            local detail = member and SC.Positioning.debug(member) or nil
+            formation[#formation + 1] = tostring(detail and detail.formationMode)
+                .. "/" .. tostring(detail and detail.formationShape)
+                .. "/" .. tostring(detail and detail.fireteamSize)
+        end
+        if not Harness.roadMovementChecked then
+            check("road_lane_variation_selected",
+                Harness.roadSideChoiceSeen == true,
+                "side=" .. tostring(Harness.roadSideChoiceSeen))
+            check("road_shared_wedge_formation_used",
+                Harness.roadWedgeSeen == true,
+                "formation=" .. table.concat(formation, ","))
+        end
+        check("road_movement_squad_cohesion", gap < 20,
+            "gap=" .. tostring(gap) .. " formation="
+                .. table.concat(formation, ","))
+        setPhase("finish", current)
+        return
+    end
     if mission == nil then
         local debrief = SC.ExpeditionPrototype.lastDebrief()
+        if Harness.config.team_road_route_probe == "true"
+            and not Harness.roadMovementChecked then
+            check("road_lane_variation_selected",
+                Harness.roadSideChoiceSeen == true,
+                "side_choice=" .. tostring(Harness.roadSideChoiceSeen))
+            check("road_shared_wedge_formation_used",
+                Harness.roadWedgeSeen == true,
+                "wedge=" .. tostring(Harness.roadWedgeSeen))
+        end
         if Harness.config.team_road_alternate_probe == "true" then
             check("road_horde_connected_bypass_traversed",
                 Harness.alternateArkEntered == true
@@ -8245,6 +8300,10 @@ function Harness.probeAutonomousScout(current)
                     and mission.testWaypoint.x) .. ","
                     .. tostring(mission.testWaypoint and mission.testWaypoint.y)
                 .. " return_index=" .. tostring(scout and scout.returnIndex)
+                .. " road_index=" .. tostring(scout and scout.roadRoute
+                    and scout.roadRoute.index)
+                .. " side=" .. tostring(Harness.roadSideChoiceSeen)
+                .. " wedge=" .. tostring(Harness.roadWedgeSeen)
                 .. " replans=" .. tostring(scout and scout.replans))
         setPhase("finish", current)
         return

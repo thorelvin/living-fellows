@@ -40,6 +40,7 @@ param(
     [int]$TeamCorpseStreamVerifyY = 0,
     [switch]$TeamAutonomousScoutProbe,
     [switch]$TeamRoadRouteProbe,
+    [switch]$TeamRoadMovementProbe,
     [switch]$TeamRoadHordeProbe,
     [switch]$TeamRoadAlternateProbe,
     [switch]$TeamRoadRestartStageOnly,
@@ -173,6 +174,7 @@ try {
         -TeamCorpseStreamVerifyY $TeamCorpseStreamVerifyY `
         -TeamAutonomousScoutProbe:$TeamAutonomousScoutProbe `
         -TeamRoadRouteProbe:$TeamRoadRouteProbe `
+        -TeamRoadMovementProbe:$TeamRoadMovementProbe `
         -TeamRoadHordeProbe:$TeamRoadHordeProbe `
         -TeamRoadAlternateProbe:$TeamRoadAlternateProbe `
         -TeamRoadRestartStageOnly:$TeamRoadRestartStageOnly `

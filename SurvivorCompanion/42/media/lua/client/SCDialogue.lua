@@ -37,6 +37,22 @@ local pools = {
             "Zip up, count heads, and follow me into the gray.",
         },
     },
+    ["expedition.road_intersection"] = {
+        common = {
+            "%1 coming up. Eyes on both sides.",
+            "Crossing at %1. Check the corners.",
+            "Here's %1. Nobody drift off alone.",
+            "%1 ahead. Keep the spacing.",
+            "At %1, we look before we commit.",
+            "Another junction. %1 is our line through.",
+            "Watch the side street at %1.",
+            "%1. Quiet feet, open eyes.",
+        },
+        cautious = { "%1. Something could be waiting past the corner." },
+        brave = { "%1. I'll watch the far side." },
+        practical = { "%1. Count heads before we cross." },
+        caring = { "%1. Stay where I can see you." },
+    },
     ["team.recruit"] = {
         common = {
             "All right. I'll come with you.",

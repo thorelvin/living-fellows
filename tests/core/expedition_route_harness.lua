@@ -22,6 +22,7 @@ end }
 SC.Factions = { streetDataApi = function() return {} end }
 SCBridge = {}
 local nativeStatus = "READY"
+local nativeGeometry = "20.0,10.0,Oak St;60.0,10.0,Oak St;90.0,10.0,Pine Rd"
 local actor
 SC.Call = { static = function(_, method, _, sx, sy, tx, ty, ...)
     local args = { ... }
@@ -36,7 +37,7 @@ SC.Call = { static = function(_, method, _, sx, sy, tx, ty, ...)
     end
     out.status = nativeStatus
     out.reason = "missing"
-    out.geometry = "20.0,10.0,Oak St;60.0,10.0,Oak St;90.0,10.0,Pine Rd"
+    out.geometry = nativeGeometry
     out.roadLength = 70
     out.fingerprint = "abc123"
     out.inferredJunctions = 1
@@ -65,6 +66,9 @@ actor.x = 20
 check(Route.target(route, actor).x == 60, "reaching entry advances to road")
 check(Route.withinCorridor(route, { { x = 30, y = 10 } }),
     "on-road path remains inside corridor")
+check(Route.withinCorridor(route, {
+        { x = 30, y = 20 }, { x = 30, y = 23 }, { x = 30, y = 12 } }),
+    "exterior reentry may curve around a blocked road verge")
 check(not Route.withinCorridor(route, { { x = 30, y = 30 } }),
     "a long detour outside the road corridor is rejected")
 check(Route.allowInteriorAccess(route, "search", "outbound", false) == false,
@@ -140,6 +144,46 @@ check(detour ~= nil and Route.validDescriptor(
     "detour geometry and bounded avoidance survive route description")
 check(not Route.withinCorridor(detour, { { x = 35, y = 10 } }),
     "a local shortcut through the visible horde is rejected")
+nativeGeometry = "20,10,8,0,Oak St;100,10,8,1,Oak St"
+actor.x = 10
+local oldRandom = ZombRand
+ZombRand = function() return 2 end
+local spread = Route.plan(actor, { x = 100, y = 10, z = 0 })
+check(spread and #spread.points == 4
+        and spread.points[2].width == 8
+        and spread.points[4].junction == true,
+    "wide street is divided into bounded lane runs without losing junctions")
+actor.x = 20
+local side = Route.target(spread, actor)
+check(side.x > 20 and side.x < 47 and side.y > 10,
+    "one chosen lane uses the road width instead of the centerline")
+actor.x = 30
+check(Route.formationSegment(spread, actor) ~= nil,
+    "shared formation receives current road width and heading")
+check(Route.skipLane(spread) and Route.target(spread, actor).y == 10,
+    "a blocked lane target falls back to the centerline")
+actor.x = 10
+local threatened = Route.plan(actor, { x = 100, y = 10, z = 0 })
+actor.x = 20
+check(Route.target(threatened, actor, { threats = { {
+        x = 27, y = 14, visible = true, obstructed = false,
+    } } }).y == 10,
+    "a side lane toward a visible zombie yields to the road center")
+spread.index = #spread.points
+actor.x = 100
+Route.target(spread, actor)
+local crossing = Route.takeJunction(spread)
+check(crossing and crossing.x == 100 and crossing.street == "Oak St"
+        and Route.takeJunction(spread) == nil,
+    "crossed junction is emitted once for optional dialogue")
+actor.x = 10
+ZombRand = function() return 1 end
+local center = Route.plan(actor, { x = 100, y = 10, z = 0 })
+actor.x = 20
+check(Route.target(center, actor).y == 10,
+    "center remains one of the randomized road positions")
+ZombRand = oldRandom
+nativeGeometry = "20.0,10.0,Oak St;60.0,10.0,Oak St;90.0,10.0,Pine Rd"
 nativeStatus = "INCOMPLETE_MAP_DATA"
 local unavailable, failure = Route.plan(actor, { x = 100, y = 10, z = 0 })
 check(unavailable == nil and failure == "INCOMPLETE_MAP_DATA",

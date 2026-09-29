@@ -55,6 +55,7 @@ param(
     [int]$TeamCorpseStreamVerifyY = 0,
     [switch]$TeamAutonomousScoutProbe,
     [switch]$TeamRoadRouteProbe,
+    [switch]$TeamRoadMovementProbe,
     [switch]$TeamRoadHordeProbe,
     [switch]$TeamRoadAlternateProbe,
     [switch]$TeamRoadRestartStageOnly,
@@ -183,6 +184,9 @@ if ($TeamAutonomousScoutProbe -and (-not $TeamHandoff -or $LeaderRemote -or
 }
 if ($TeamRoadRouteProbe -and -not $TeamAutonomousScoutProbe) {
     throw '-TeamRoadRouteProbe requires -TeamAutonomousScoutProbe.'
+}
+if ($TeamRoadMovementProbe -and -not $TeamRoadRouteProbe) {
+    throw '-TeamRoadMovementProbe requires -TeamRoadRouteProbe.'
 }
 if ($TeamRoadHordeProbe -and -not $TeamRoadRouteProbe) {
     throw '-TeamRoadHordeProbe requires -TeamRoadRouteProbe.'
@@ -802,6 +806,7 @@ $config = @(
     ('team_corpse_stream_verify_y=' + $TeamCorpseStreamVerifyY),
     ('team_autonomous_scout_probe=' + $TeamAutonomousScoutProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_road_route_probe=' + $TeamRoadRouteProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_road_movement_probe=' + $TeamRoadMovementProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_road_horde_probe=' + $TeamRoadHordeProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_road_alternate_probe=' + $TeamRoadAlternateProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_road_restart_stage_only=' + $TeamRoadRestartStageOnly.IsPresent.ToString().ToLowerInvariant()),

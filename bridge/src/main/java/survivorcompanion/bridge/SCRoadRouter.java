@@ -43,7 +43,8 @@ final class SCRoadRouter {
     record StreetLine(String name, List<Point> points, double width) {
         StreetLine(String name, List<Point> points) { this(name, points, 0); }
     }
-    record Step(double x, double y, String street) {}
+    record Step(double x, double y, String street, double width,
+                boolean junction) {}
     record Result(String status, String reason, List<Step> points,
                   double roadLength, double entryX, double entryY,
                   double exitX, double exitY, int inferredJunctions,
@@ -56,7 +57,7 @@ final class SCRoadRouter {
                            double width, boolean startsLine, boolean endsLine) {}
     private record Junction(Point from, Point to, int segment, double t, String name) {}
     private record Edge(int id, int from, int to, double length, String name,
-                        boolean inferred) {}
+                        double width, boolean inferred) {}
     private record Link(int to, int edgeId, double length) {}
     private record Attachment(int edgeId, double t, Point point, double connector) {}
     private record Intersection(double firstT, double secondT, Point point,
@@ -90,7 +91,7 @@ final class SCRoadRouter {
             return id;
         }
 
-        void edge(Point a, Point b, String name, boolean inferred) {
+        void edge(Point a, Point b, String name, double width, boolean inferred) {
             double length = distance(a, b);
             if (length <= EPSILON) return;
             if (avoidance != null && distance(avoidance.center,
@@ -102,7 +103,7 @@ final class SCRoadRouter {
             int from = node(a), to = node(b);
             if (from == to) return;
             int id = edges.size();
-            edges.add(new Edge(id, from, to, length, name, inferred));
+            edges.add(new Edge(id, from, to, length, name, width, inferred));
             links.get(from).add(new Link(to, id, length));
             links.get(to).add(new Link(from, id, length));
         }
@@ -315,12 +316,14 @@ final class SCRoadRouter {
         for (Segment segment : segments) {
             Point previous = null;
             for (Point point : splits.get(segment.id).values()) {
-                if (previous != null) graph.edge(previous, point, segment.name, false);
+                if (previous != null)
+                    graph.edge(previous, point, segment.name, segment.width, false);
                 previous = point;
             }
         }
         for (Junction junction : junctions) {
-            graph.edge(junction.from, junction.to, junction.name, false);
+            graph.edge(junction.from, junction.to, junction.name,
+                    segments.get(junction.segment).width, false);
         }
         return graph.nodes.size() > MAX_NODES ? null : graph;
     }
@@ -484,8 +487,9 @@ final class SCRoadRouter {
         }
         Attachment start = entries.get(bestEntry), finish = exits.get(bestExit);
         List<Step> path = new ArrayList<>();
+        Edge startEdge = graph.edges.get(start.edgeId);
         path.add(new Step(start.point.x, start.point.y,
-                graph.edges.get(start.edgeId).name));
+                startEdge.name, startEdge.width, false));
         if (!direct) {
             List<Integer> reversed = new ArrayList<>();
             int cursor = bestNode;
@@ -497,13 +501,14 @@ final class SCRoadRouter {
                 int nodeId = reversed.get(index);
                 Point point = graph.nodes.get(nodeId);
                 int edgeId = previousEdge[nodeId];
-                String street = edgeId < 0 ? graph.edges.get(start.edgeId).name
-                        : graph.edges.get(edgeId).name;
-                path.add(new Step(point.x, point.y, street));
+                Edge arrivedOn = edgeId < 0 ? startEdge : graph.edges.get(edgeId);
+                path.add(new Step(point.x, point.y, arrivedOn.name,
+                        arrivedOn.width, graph.links.get(nodeId).size() >= 3));
             }
         }
+        Edge finishEdge = graph.edges.get(finish.edgeId);
         path.add(new Step(finish.point.x, finish.point.y,
-                graph.edges.get(finish.edgeId).name));
+                finishEdge.name, finishEdge.width, false));
         if (path.size() > MAX_RESULT_POINTS)
             return Result.failure("BUDGET_EXCEEDED", "route_payload_limit");
         return new Result("READY", "", List.copyOf(path),

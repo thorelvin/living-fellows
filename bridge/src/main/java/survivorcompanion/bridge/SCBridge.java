@@ -745,6 +745,8 @@ public final class SCBridge {
                         .replaceAll("[\\t\\r\\n;,]", " ").trim();
                 if (label.length() > 128) label = label.substring(0, 128);
                 geometry.append(point.x()).append(',').append(point.y())
+                        .append(',').append(point.width()).append(',')
+                        .append(point.junction() ? '1' : '0')
                         .append(',').append(label);
             }
             put(out, "geometry", geometry.toString());
