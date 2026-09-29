@@ -2587,6 +2587,23 @@ local function closeDefenseMayFight(actor, target, player, snapshot)
     return false
 end
 
+local function outsideTravelRoad(target, policy)
+    if type(policy) ~= "table" or type(policy.first) ~= "table"
+        or type(policy.last) ~= "table" or not tonumber(policy.width) then
+        return false
+    end
+    local x, y = U().position(target.actor)
+    if x == nil or y == nil then return false end
+    local first, last = policy.first, policy.last
+    local dx, dy = last.x - first.x, last.y - first.y
+    local lengthSq = dx * dx + dy * dy
+    local t = lengthSq > 0 and math.max(0, math.min(1,
+        ((x - first.x) * dx + (y - first.y) * dy) / lengthSq)) or 0
+    local offset = math.sqrt((x - first.x - t * dx)^2
+        + (y - first.y - t * dy)^2)
+    return offset > policy.width * 0.5 + 1
+end
+
 local function doctrineMayFight(actor, target, player, snapshot, commands)
     local doctrine = commands.combatDoctrine
     if doctrine == nil then
@@ -2615,6 +2632,14 @@ local function doctrineMayFight(actor, target, player, snapshot, commands)
         return target.visible == true and target.obstructed ~= true
     end
     local radius = U().config("combatWeaponsFreeRadius") or 14
+    local travel = type(commands.expeditionTravelCombat) == "table"
+        and commands.expeditionTravelCombat or nil
+    if travel then
+        radius = math.min(radius, tonumber(travel.radius) or 6)
+        if target.attacking ~= true
+            and (target.distanceSq or U().distanceSq(actor, target.actor)) > 9
+            and outsideTravelRoad(target, travel) then return false end
+    end
     return target.attacking == true
         or (target.distanceSq or U().distanceSq(actor, target.actor)) <= radius * radius
 end

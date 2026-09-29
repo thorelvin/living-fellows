@@ -18219,6 +18219,32 @@ end)()
         "a climbing or just-fallen zombie is breaching and is fought inside the breach radius; a pinned ally's attacker always is")
 end)()
 
+-- A travelling expedition may defend the road without chasing one zombie
+-- through a verge and losing its loaded route.
+;(function()
+    local combat = SurvivorCompanion.Combat
+    local leader = actor("sc-road-combat-leader", 40, 30, {})
+    local offRoad = zombie(45, 35, {})
+    local onRoad = zombie(45, 31, {})
+    local policy = { radius = 6, first = { x = 35, y = 30 },
+        last = { x = 55, y = 30 }, width = 6 }
+    local orders = { combatDoctrine = "weapons_free",
+        expeditionTravelCombat = policy }
+    local snapshot = { allies = {} }
+    local detached = { actor = offRoad, distanceSq = 50 }
+    local close = { actor = onRoad, distanceSq = 26 }
+    check(combat._doctrineMayFightForTests(leader, detached, nil,
+            snapshot, { combatDoctrine = "weapons_free" })
+            and not combat._doctrineMayFightForTests(leader, detached,
+                nil, snapshot, orders)
+            and combat._doctrineMayFightForTests(leader, close,
+                nil, snapshot, orders)
+            and combat._doctrineMayFightForTests(leader, {
+                actor = offRoad, distanceSq = 50, attacking = true,
+            }, nil, snapshot, orders),
+        "travelling weapons-free leader stays on-road but still defends nearby attackers")
+end)()
+
 -- A zombie at arm's length that the last perception pass marked unseen still
 -- gets a live sight check, and a zombie holding a pinned ally down outranks an
 -- ordinary one.
@@ -19857,6 +19883,17 @@ end)()
         { order = "stay" })
     check(resumed ~= nil and resumed.kind == "scavenge",
         "after combat finds nothing to engage, a searching companion resumes its search")
+    local travel = { order = "move_to", tacticalTarget = { x = 55, y = 30, z = 0 },
+        expeditionTravelCombat = { radius = 6 } }
+    local move = { kind = "tactical" }
+    check(decision._unscoredExpeditionMoveCandidate({ kind = "combat" },
+            "no_threat", { move }, travel) == move
+            and decision._unscoredExpeditionMoveCandidate({ kind = "combat" },
+                "no_credible_target", { move }, travel) == move
+            and decision._unscoredExpeditionMoveCandidate({ kind = "combat" },
+                "no_threat", { move }, { order = "move_to",
+                    tacticalTarget = travel.tacticalTarget }) == nil,
+        "an unscored road threat releases only the expedition leader's loaded move")
 
     combat.peek = saved.peek
     downtime.reset(leader)

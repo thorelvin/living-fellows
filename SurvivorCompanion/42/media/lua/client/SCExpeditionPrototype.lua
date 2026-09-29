@@ -1048,6 +1048,8 @@ function Expedition.effectiveDoctrineFor(actor, saved)
     effective.combatMode = mission.doctrine == "stealth" and "passive"
         or mission.doctrine == "weapons_free" and "aggressive"
         or "defensive"
+    effective.expeditionTravelCombat = Expedition.roadCombatFor
+        and Expedition.roadCombatFor(actor) or nil
     return effective
 end
 
@@ -1086,6 +1088,25 @@ function Expedition.roadFormationFor(actor)
     return SC.ExpeditionRoute.formationSegment
         and SC.ExpeditionRoute.formationSegment(
             route, mission.leader.actor) or nil
+end
+
+-- Aggressive combat remains defensive while the leader is travelling: it may
+-- fight threats close to the squad, but should not chase one across a verge
+-- and strand the entire mission away from the mapped road.
+function Expedition.roadCombatFor(actor)
+    if mission == nil or mission.leader.actor ~= actor
+        or mission.scout == nil then return nil end
+    local scout = mission.scout
+    if (scout.phase ~= "outbound" and scout.phase ~= "inbound")
+        or scout.roadRoute == nil then return nil end
+    local route = scout.roadRoute
+    local first, last = route.points[route.index - 1],
+        route.points[route.index]
+    local policy = { radius = 6 }
+    if first and last and (last.width or 0) >= 6 then
+        policy.first, policy.last, policy.width = first, last, last.width
+    end
+    return policy
 end
 
 function Expedition.radioCommandAuthorized(actor, command, payload, player)

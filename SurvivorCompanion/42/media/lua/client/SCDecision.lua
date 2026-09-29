@@ -1468,6 +1468,9 @@ local function doTactical(actor, player, rootRuntime, commands, snapshot, state)
         local ok, status = SC.Navigation.request(actor, target, commandMoveMode(commands, player), {
             action = "ordered_move", snapshot = snapshot,
             doorBashAsLastResort = commands.doorBashAsLastResort == true,
+            -- A follower in combat can request priority 80; the mission
+            -- leader needs the right of way to get the whole team through.
+            movementPriority = commands.expeditionTravelCombat and 90 or nil,
         })
         if ok and navigationArrived(actor, target, status) then
             if SC.ExpeditionPrototype
@@ -1863,6 +1866,24 @@ function Decision._targetlessFollowCandidate(selected, failure, snapshot, candid
         if rank and (bestRank == nil or rank > bestRank) then best, bestRank = candidate, rank end
     end
     return best
+end
+
+-- A road leader can have several close contacts in its sense snapshot yet no
+-- attackable zombie in Combat's fresh target list (for example through a
+-- wall). In that case let Navigation attempt the already ordered loaded leg
+-- instead of standing still until the expedition stall counter expires.
+function Decision._unscoredExpeditionMoveCandidate(selected, failure,
+        candidates, commands)
+    if type(selected) ~= "table" or selected.kind ~= "combat"
+        or (failure ~= "no_threat" and failure ~= "no_credible_target")
+        or type(commands) ~= "table"
+        or type(commands.expeditionTravelCombat) ~= "table"
+        or commands.order ~= "move_to"
+        or commands.tacticalTarget == nil then return nil end
+    for _, candidate in ipairs(candidates or {}) do
+        if candidate.kind == "tactical" then return candidate end
+    end
+    return nil
 end
 
 -- Bounded evidence for an otherwise silent stationary hold: which decision
@@ -2670,6 +2691,11 @@ function Decision.update(actor, player, runtime, roundTimestamp)
                     snapshot, candidates, commands)
                 followOutcome = leashFollow and leashFollow.kind ~= "follow"
                     and "resumed_order" or "followed_leader"
+            end
+            if not leashFollow then
+                leashFollow = Decision._unscoredExpeditionMoveCandidate(
+                    selected, selectedFailure, candidates, commands)
+                if leashFollow then followOutcome = "resumed_order" end
             end
             local outcome = "held"
             if leashFollow then
