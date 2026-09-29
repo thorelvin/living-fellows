@@ -40,6 +40,7 @@ param(
     [int]$TeamCorpseStreamVerifyY = 0,
     [switch]$TeamAutonomousScoutProbe,
     [switch]$TeamRoadRouteProbe,
+    [ValidateRange(20, 200)][int]$TeamRoadDistanceTiles = 180,
     [switch]$TeamRoadMovementProbe,
     [switch]$TeamRoadHordeProbe,
     [switch]$TeamRoadAlternateProbe,
@@ -174,6 +175,7 @@ try {
         -TeamCorpseStreamVerifyY $TeamCorpseStreamVerifyY `
         -TeamAutonomousScoutProbe:$TeamAutonomousScoutProbe `
         -TeamRoadRouteProbe:$TeamRoadRouteProbe `
+        -TeamRoadDistanceTiles $TeamRoadDistanceTiles `
         -TeamRoadMovementProbe:$TeamRoadMovementProbe `
         -TeamRoadHordeProbe:$TeamRoadHordeProbe `
         -TeamRoadAlternateProbe:$TeamRoadAlternateProbe `

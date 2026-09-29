@@ -4714,9 +4714,12 @@ local function beginLeaderSlotProbe(current)
                         .. " path_nodes=" .. tostring(approach.pathNodes))
             else
                 local x, y = position(chosen.actor)
+                local roadDistance = math.max(20, math.min(200,
+                    math.floor(tonumber(
+                        Harness.config.team_road_distance_tiles) or 180)))
                 plan = { kind = "scout", destination = {
                     x = math.floor(x) + (Harness.config.team_road_route_probe
-                        == "true" and 180 or 85), y = math.floor(y),
+                        == "true" and roadDistance or 85), y = math.floor(y),
                     z = math.floor(chosen.actor:getZ()),
                 }, travelMode = Harness.config.team_road_route_probe
                     == "true" and "road" or "straight" }
@@ -8385,7 +8388,20 @@ function Harness.probeAutonomousScout(current)
                 .. ":" .. tostring(nav.phase)
                 .. ":" .. tostring(nav.reason)
                 .. ":" .. tostring(decision.current)
+                .. ":target=" .. tostring(nav.target)
+                .. ":nodes=" .. tostring(nav.expandedNodes)
+                .. ":stuck=" .. tostring(nav.stuckAttempts)
+                .. ":path=" .. tostring(nav.pathReason)
         end
+        local screenshotName = tostring(Harness.config.run_id)
+            .. "-scout-progress-stall.png"
+        local captured, screenshotError = pcall(function()
+            getCore():TakeFullScreenshot(screenshotName)
+        end)
+        result(captured and "PASS" or "FAIL",
+            "autonomous_scout_progress_screenshot_requested",
+            "file=" .. screenshotName
+                .. " error=" .. tostring(screenshotError))
         result("FAIL", "autonomous_scout_progress",
             "phase=" .. tostring(scout.phase)
                 .. " legs=" .. tostring(scout.legs)
