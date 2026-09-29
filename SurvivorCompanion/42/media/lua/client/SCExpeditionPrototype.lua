@@ -1353,7 +1353,9 @@ function Expedition.searchSiteFor(actor)
     if Expedition.testSearchFor(actor) and mission.scout
         and mission.scout.phase == "searching"
         and mission.scout.search then
-        return mission.scout.destination
+        local destination = mission.scout.destination
+        return { x = destination.x, y = destination.y, z = destination.z,
+            buildingId = mission.scout.site and mission.scout.site.id or nil }
     end
     return nil
 end
@@ -1385,6 +1387,10 @@ function Expedition.noteVerifiedSearchLoot(actor, loot)
     local source = {
         x = loot.sourceX, y = loot.sourceY, z = loot.sourceZ,
     }
+    if itinerary.site ~= nil and (SC.ExpeditionPlaces == nil
+        or type(SC.ExpeditionPlaces.siteContainsPoint) ~= "function"
+        or not SC.ExpeditionPlaces.siteContainsPoint(itinerary.site.id,
+            source.x, source.y, source.z)) then return false end
     local sourceObjectIndex = tonumber(loot.sourceObjectIndex)
     if sourceObjectIndex == nil or sourceObjectIndex < 0
         or sourceObjectIndex > 65535
@@ -1564,7 +1570,7 @@ local function scoutFollowersNearLeader()
     return true
 end
 
-local function scoutSiteSnapshot(actor, runtime, worldHour, now)
+local function scoutSiteSnapshot(actor, runtime, worldHour, now, siteId)
     if SC.Senses == nil or type(SC.Senses.cached) ~= "function" then
         return nil, "senses_unavailable"
     end
@@ -1602,6 +1608,11 @@ local function scoutSiteSnapshot(actor, runtime, worldHour, now)
         end
     end
     if visibleSquares == 0 then return nil, "site_not_visible" end
+    if siteId ~= nil and (SC.ExpeditionPlaces == nil
+        or type(SC.ExpeditionPlaces.visibleSiteSquare) ~= "function"
+        or not SC.ExpeditionPlaces.visibleSiteSquare(siteId, actor)) then
+        return nil, "selected_site_not_visible"
+    end
     local native = snapshot.nativeDiscovery
     local complete = snapshot.scanComplete == true
         and snapshot.scanDiscoveryComplete == true
@@ -1649,6 +1660,17 @@ local function useReachedTrailForReturn(itinerary, avoidance)
 end
 
 startReturnFromSite = function(itinerary, reason)
+    if mission.testWaypoint ~= nil then
+        local leader = mission.leader.actor
+        Expedition.clearTestWaypoint(leader)
+        local owner = SC.ActionSupervisor
+            and type(SC.ActionSupervisor.current) == "function"
+            and SC.ActionSupervisor.current(leader) or nil
+        if owner == nil and SC.Navigation
+            and type(SC.Navigation.cancel) == "function" then
+            SC.Navigation.cancel(leader, "expedition_turn_home")
+        end
+    end
     if itinerary.search ~= nil then
         itinerary.search.endReason = reason
         if SC.Encounter and type(SC.Encounter.cancelScavenge) == "function" then
@@ -1713,6 +1735,59 @@ local function estimatedReturnHours(itinerary, actor, worldHour)
     local hoursPerTile = distance >= 4 and elapsed >= 0.01
         and math.max(0.001, elapsed / distance) or 0.005
     return math.max(0.25, distance * hoursPerTile * 1.5 + 0.1)
+end
+
+local function squadRoadSnapshot(now)
+    if SC.Senses == nil or type(SC.Senses.cached) ~= "function" then
+        return nil
+    end
+    local threats, seenActors, anonymousCounts = {}, {}, {}
+    local fresh = false
+    for _, member in ipairs(mission.roster) do
+        if alive(member) then
+            local registered = SC.Registry.byId(member.id)
+            local snapshot = SC.Senses.cached(member.actor,
+                registered and registered.runtime)
+            if snapshot and snapshot.valid == true
+                and type(snapshot.reflexTime) == "number"
+                and now - snapshot.reflexTime >= 0
+                and now - snapshot.reflexTime <= 2000
+                and type(snapshot.threats) == "table" then
+                fresh = true
+                local localCounts = {}
+                for _, threat in ipairs(snapshot.threats) do
+                    if threat.visible == true and threat.obstructed ~= true
+                        and type(threat.x) == "number"
+                        and type(threat.y) == "number"
+                        and threat.x == threat.x and threat.y == threat.y
+                        and threat.x >= 0 and threat.x <= 30000
+                        and threat.y >= 0 and threat.y <= 30000 then
+                        local actor = threat.actor
+                        local include = actor == nil or not seenActors[actor]
+                        if actor == nil then
+                            -- Synthetic or incomplete records can lack an
+                            -- actor identity. Keep the largest count at each
+                            -- coordinate instead of multiplying it by viewers.
+                            local key = tostring(threat.x) .. ":"
+                                .. tostring(threat.y)
+                            localCounts[key] = (localCounts[key] or 0) + 1
+                            include = localCounts[key]
+                                > (anonymousCounts[key] or 0)
+                            if include then
+                                anonymousCounts[key] = localCounts[key]
+                            end
+                        end
+                        if include and #threats < 128 then
+                            threats[#threats + 1] = threat
+                            if actor ~= nil then seenActors[actor] = true end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return fresh and { valid = true, reflexTime = now,
+        threats = threats } or nil
 end
 
 local function pulseScout()
@@ -1791,16 +1866,15 @@ local function pulseScout()
     end
     local wounded, woundedRecord, woundedHealth =
         squadNeedsWithdrawal(mission.roster)
-    if wounded and scout.phase == "outbound" then
+    if wounded and (scout.phase == "outbound"
+            or scout.phase == "observing"
+            or scout.phase == "searching") then
         -- The expedition is optional; a bleeding or critically weak member
         -- turns the whole party home. Preserve a visible roadside hazard so
         -- the return planner does not simply retrace through the fight.
         if scout.roadRoute ~= nil then
             local leader = mission.leader.actor
-            local registered = SC.Registry.byId(mission.leader.id)
-            local snapshot = SC.Senses and SC.Senses.cached
-                and SC.Senses.cached(leader,
-                    registered and registered.runtime) or nil
+            local snapshot = squadRoadSnapshot(now)
             local living = 0
             for _, record in ipairs(mission.roster) do
                 if alive(record) then living = living + 1 end
@@ -1823,10 +1897,7 @@ local function pulseScout()
         and now >= (scout.nextHordeCheckAt or 0) then
         scout.nextHordeCheckAt = now + 1000
         local leader = mission.leader.actor
-        local registered = SC.Registry.byId(mission.leader.id)
-        local snapshot = SC.Senses and SC.Senses.cached
-            and SC.Senses.cached(leader,
-                registered and registered.runtime) or nil
+        local snapshot = squadRoadSnapshot(now)
         local living = 0
         for _, record in ipairs(mission.roster) do
             if alive(record) then living = living + 1 end
@@ -1955,10 +2026,7 @@ local function pulseScout()
                 local rerouted = false
                 if scout.roadRoute ~= nil
                     and (scout.hordeDetours or 0) < 3 then
-                    local registered = SC.Registry.byId(mission.leader.id)
-                    local snapshot = SC.Senses and SC.Senses.cached
-                        and SC.Senses.cached(leader,
-                            registered and registered.runtime) or nil
+                    local snapshot = squadRoadSnapshot(now)
                     local living = 0
                     for _, record in ipairs(mission.roster) do
                         if alive(record) then living = living + 1 end
@@ -2054,6 +2122,8 @@ local function pulseScout()
         scout.observingSince = scout.observingSince or now
         local elapsed = now - scout.observingSince
         if elapsed < 5000 then return end
+        if now < (scout.nextObservationCheckAt or 0) then return end
+        scout.nextObservationCheckAt = now + 1000
         local worldHour = scoutWorldHour()
         if worldHour == nil then
             if elapsed >= 30000 then
@@ -2064,7 +2134,7 @@ local function pulseScout()
         local registered = SC.Registry.byId(mission.leader.id)
         local observation, observationReason = scoutSiteSnapshot(
             mission.leader.actor, registered and registered.runtime,
-            worldHour, now)
+            worldHour, now, scout.site and scout.site.id or nil)
         scout.observationReason = observationReason
         if observation == nil and elapsed < 30000 then return end
         scout.observation = observation or {
@@ -2081,7 +2151,6 @@ local function pulseScout()
         return
     end
     if scout.phase == "searching" then
-        if not scoutFollowersNearLeader() then return end
         local search = scout.search
         if #search.acquisitions >= search.request.quantity then
             startReturnFromSite(scout, "quantity_met")
@@ -2096,6 +2165,7 @@ local function pulseScout()
             startReturnFromSite(scout, "search_deadline")
             return
         end
+        if not scoutFollowersNearLeader() then return end
         local audit = SC.Logistics and SC.Logistics.audit(
             mission.leader.actor) or nil
         if audit and tonumber(audit.capacity) and audit.capacity > 0

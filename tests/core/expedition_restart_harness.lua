@@ -885,6 +885,7 @@ SC.ExpeditionPlaces = {
         end
         return { x = 80, y = 19, z = 0 }
     end,
+    visibleSiteSquare = function() return false end,
 }
 local beforePlaceDraft = promotions
 local missingChoices, missingReason = expedition.placeCandidates("missing")
@@ -927,6 +928,16 @@ check(newMission.scout.destination.x == 80
         and newMission.scout.siteApproachConfirmed == true
         and newMission.scout.phase == "observing",
     "the loaded arrival rechecks access and selects the reachable exterior")
+scoutClock = scoutClock + 6000
+expedition.pulse()
+check(newMission.scout.phase == "observing"
+        and newMission.scout.observationReason == "selected_site_not_visible",
+    "a selected building remains unconfirmed when only nearby squares are visible")
+scoutClock = scoutClock + 30000
+expedition.pulse()
+check(newMission.scout.phase == "inbound"
+        and newMission.scout.observation.status == "unavailable",
+    "the sight deadline reports an unconfirmed site before returning")
 reserve.x, reserve.y = 23, 20
 local placedSave = expedition.export()
 check(placedSave.scout.site.street == "Oak St"
@@ -939,6 +950,36 @@ check(expedition.pulse() == true
 check(expedition.finishAtPlayer(player) == true
         and expedition.lastDebrief().site.id == place.id,
     "the read-only debrief names the same selected site")
+SC.ExpeditionPlaces.siteContainsPoint = function(siteId, x, y, z)
+    return siteId == place.id and x >= 70 and x <= 90
+        and y >= 10 and y <= 30 and z == 0
+end
+local siteSearchStarted, siteSearch = expedition.startAtPlace(
+    { { id = "delta", actor = reserve } }, place.id, "search",
+    { request = { category = "construction", quantity = 1 } })
+siteSearch.scout.phase = "searching"
+siteSearch.scout.search.startedHour = 431.25
+siteSearch.scout.search.deadlineHour = 432.25
+local scopedSite = expedition.searchSiteFor(reserve)
+check(siteSearchStarted and scopedSite.buildingId == place.id,
+    "the selected building identity reaches the Search scan")
+local siteMissionId = siteSearch.radioSession
+check(not expedition.noteVerifiedSearchLoot(reserve, {
+        verified = true, missionId = siteMissionId,
+        requestedCategory = "construction", stableId = "outside-source",
+        type = "Base.FiberglassTape", sourceX = 65,
+        sourceY = 20, sourceZ = 0,
+    }) and #siteSearch.scout.search.acquisitions == 0,
+    "verified loot from the next building cannot satisfy this Search")
+check(expedition.noteVerifiedSearchLoot(reserve, {
+        verified = true, missionId = siteMissionId,
+        requestedCategory = "construction", stableId = "inside-source",
+        type = "Base.FiberglassTape", sourceX = 80,
+        sourceY = 20, sourceZ = 0,
+    }) and #siteSearch.scout.search.acquisitions == 1,
+    "only a source in the selected building counts toward the request")
+check(expedition.finishAtPlayer(player) == true,
+    "the scoped Search releases its leader")
 
 -- The review names long off-road stretches at either end of a road route.
 local realPlan = SC.ExpeditionRoute.plan
@@ -1148,10 +1189,78 @@ check(woundedStarted and woundedMission.scout.phase == "inbound"
         and routeCalls[#routeCalls].goalX == player.x
         and routeCalls[#routeCalls].avoidance ~= nil,
     "a bleeding low-health member turns the whole road squad home around a smaller group")
-SC.Medical = savedMedical
 SC.Senses.cached = ordinaryCached
 check(expedition.finishAtPlayer(player) == true,
     "the wounded squad can release its leader after turning home")
+escort.x = reserve.x + 1
+worldHour = 1300
+local woundedSearchStarted, woundedSearch = expedition.start(
+    { { id = "delta", actor = reserve }, { id = "escort", actor = escort } },
+    { kind = "search", destination = { x = 190, y = 20, z = 0 },
+        request = { category = "construction", quantity = 1 },
+        travelMode = "straight" })
+woundedSearch.scout.phase = "searching"
+woundedSearch.scout.search.startedHour = worldHour
+woundedSearch.scout.search.deadlineHour = worldHour + 1
+escort.x = reserve.x + 50
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(woundedSearchStarted and woundedSearch.scout.phase == "inbound"
+        and woundedSearch.scout.search.endReason == "squad_wounded",
+    "a wounded Search squad returns even while one follower is separated")
+escort.x = reserve.x + 1
+check(expedition.finishAtPlayer(player) == true,
+    "the wounded Search can release its leader")
+SC.Medical = { assessCached = function()
+    return { health = 100, bleedingCount = 0 }
+end }
+escort.x = reserve.x + 1
+local deadlineStarted, deadlineSearch = expedition.start(
+    { { id = "delta", actor = reserve }, { id = "escort", actor = escort } },
+    { kind = "search", destination = { x = 190, y = 20, z = 0 },
+        request = { category = "construction", quantity = 1 },
+        travelMode = "straight" })
+deadlineSearch.scout.phase = "searching"
+deadlineSearch.scout.search.startedHour = worldHour - 1
+deadlineSearch.scout.search.deadlineHour = worldHour
+escort.x = reserve.x + 50
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(deadlineStarted and deadlineSearch.scout.phase == "inbound"
+        and deadlineSearch.scout.search.endReason == "search_deadline",
+    "a Search deadline takes effect before waiting for a distant follower")
+escort.x = reserve.x + 1
+check(expedition.finishAtPlayer(player) == true,
+    "the deadline Search can release its leader")
+SC.Medical = savedMedical
+escort.x = reserve.x + 1
+local sharedSightStarted, sharedSight = expedition.start(
+    { { id = "delta", actor = reserve }, { id = "escort", actor = escort } },
+    { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+        travelMode = "road" })
+local memberContacts = { [reserve] = {}, [escort] = {} }
+for _, member in ipairs({ reserve, escort }) do
+    for index = 1, 4 do
+        memberContacts[member][index] = { actor = {},
+            x = reserve.x + 5, y = reserve.y,
+            visible = true, obstructed = false }
+    end
+end
+SC.Senses.cached = function(actor)
+    return { valid = true, reflexTime = scoutClock,
+        threats = memberContacts[actor] }
+end
+local beforeSharedSightPlans = #routeCalls
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(sharedSightStarted and sharedSight.scout.hordeDetours == 1
+        and #routeCalls == beforeSharedSightPlans + 1
+        and routeCalls[#routeCalls].avoidance ~= nil
+        and routeCalls[#routeCalls].avoidance.seen == 8,
+    "contacts seen across the squad trigger a detour above the team threshold")
+SC.Senses.cached = ordinaryCached
+check(expedition.finishAtPlayer(player) == true,
+    "the shared-sight squad releases its leader")
 actors.escort = nil
 local stalledStarted, stalledMission = expedition.start(
     { { id = "delta", actor = reserve } },

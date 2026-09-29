@@ -2618,6 +2618,23 @@ local function doctrineMayFight(actor, target, player, snapshot, commands)
             or commands.weaponPriority == "firearm" and "ranged_support"
             or "close_defense"
     end
+    local travel = type(commands.expeditionTravelCombat) == "table"
+        and commands.expeditionTravelCombat or nil
+    if travel then
+        local radius = tonumber(travel.radius) or 2.5
+        local distanceSq = target.distanceSq
+            or U().distanceSq(actor, target.actor)
+        -- The temporary travel leash applies before doctrine-specific early
+        -- returns. A zombie chasing another member cannot pull this actor off
+        -- the road; an adjacent rescue remains an immediate squad defense.
+        if distanceSq > radius * radius
+            and not (target.rescue == true and distanceSq <= 9) then
+            return false
+        end
+        if distanceSq > 9 and outsideTravelRoad(target, travel) then
+            return false
+        end
+    end
     -- A zombie holding an ally down is always fought. One coming through a
     -- window or over a fence (or lying where it fell in) is fought within the
     -- breach radius under every doctrine; stealth only answers it close by.
@@ -2638,18 +2655,7 @@ local function doctrineMayFight(actor, target, player, snapshot, commands)
         return target.visible == true and target.obstructed ~= true
     end
     local radius = U().config("combatWeaponsFreeRadius") or 14
-    local travel = type(commands.expeditionTravelCombat) == "table"
-        and commands.expeditionTravelCombat or nil
-    if travel then
-        radius = math.min(radius, tonumber(travel.radius) or 6)
-        local distanceSq = target.distanceSq or U().distanceSq(actor, target.actor)
-        -- "Attacking" can mean a zombie is after another squad member. It
-        -- must not turn a road escort into a long pursuit during travel.
-        if distanceSq > radius * radius then return false end
-        if distanceSq > 9 and outsideTravelRoad(target, travel) then
-            return false
-        end
-    end
+    if travel then radius = math.min(radius, tonumber(travel.radius) or 2.5) end
     return target.attacking == true
         or (target.distanceSq or U().distanceSq(actor, target.actor)) <= radius * radius
 end

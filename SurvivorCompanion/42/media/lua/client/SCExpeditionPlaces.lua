@@ -215,6 +215,80 @@ local function validBounds(place)
     return bounds
 end
 
+local function savedSite(siteId)
+    if type(siteId) ~= "string" then return nil end
+    local x, y, x2, y2 = siteId:match("^(%d+):(%d+):(%d+):(%d+)$")
+    local place = { id = siteId, bounds = {
+        x = tonumber(x), y = tonumber(y),
+        x2 = tonumber(x2), y2 = tonumber(y2),
+    } }
+    return validBounds(place) and place or nil
+end
+
+-- The exterior approach point is not the search area. Verify the saved map
+-- footprint against the current metagrid before accepting a source square.
+function Places.siteContainsPoint(siteId, x, y, z)
+    local place = savedSite(siteId)
+    local bounds = place and place.bounds
+    x, y, z = tonumber(x), tonumber(y), tonumber(z)
+    if bounds == nil or not coordinate(x) or not coordinate(y)
+        or z ~= 0 or x < bounds.x or x > bounds.x2
+        or y < bounds.y or y > bounds.y2 then return false end
+    local world = type(getWorld) == "function" and getWorld() or nil
+    local grid, ready = call(world, "getMetaGrid")
+    return ready and grid ~= nil
+        and matchingBuildingAt(grid, place, x, y) or false
+end
+
+-- A scout confirms its selected building only from a square it can actually
+-- see. Bound the inspection to loaded squares near the leader.
+function Places.visibleSiteSquare(siteId, actor)
+    local place = savedSite(siteId)
+    if place == nil or actor == nil or SC.GameplayUtil == nil
+        or type(SC.GameplayUtil.canSee) ~= "function" then return false end
+    local ax, xOk = call(actor, "getX")
+    local ay, yOk = call(actor, "getY")
+    local az, zOk = call(actor, "getZ")
+    ax, ay, az = tonumber(ax), tonumber(ay), tonumber(az)
+    if not xOk or not yOk or not zOk or ax == nil or ay == nil
+        or az == nil or not coordinate(math.floor(ax))
+        or not coordinate(math.floor(ay)) or math.floor(az) ~= 0 then
+        return false
+    end
+    local world = type(getWorld) == "function" and getWorld() or nil
+    local grid, gridOk = call(world, "getMetaGrid")
+    local cell, cellOk = call(world, "getCell")
+    if not gridOk or not cellOk or grid == nil or cell == nil then
+        return false
+    end
+    local bounds = place.bounds
+    local axTile, ayTile = math.floor(ax), math.floor(ay)
+    local checked = 0
+    for radius = 0, 8 do
+        for dx = -radius, radius do
+            for dy = -radius, radius do
+                if math.max(math.abs(dx), math.abs(dy)) == radius then
+                    local x, y = axTile + dx, ayTile + dy
+                    if x >= bounds.x and x <= bounds.x2
+                        and y >= bounds.y and y <= bounds.y2
+                        and matchingBuildingAt(grid, place, x, y) then
+                        local square, loaded = call(cell,
+                            "getGridSquare", x, y, 0)
+                        if loaded and square ~= nil then
+                            checked = checked + 1
+                            if SC.GameplayUtil.canSee(actor, square) == true then
+                                return true
+                            end
+                            if checked >= 64 then return false end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
 -- A map footprint can be selected before its chunks are loaded. Pick the
 -- nearest exterior coordinate from that footprint without searching a route
 -- on the UI thread. The leader will validate the actual loaded approach when
@@ -368,13 +442,9 @@ end
 -- Saved site descriptions retain the footprint ID but not the draft-only
 -- bounds. Rebuild those bounds for the final, loaded arrival check.
 function Places.loadedSiteApproach(siteId, actor)
-    if type(siteId) ~= "string" then
-        return nil, "invalid_place_reference"
-    end
-    local x, y, x2, y2 = siteId:match("^(%d+):(%d+):(%d+):(%d+)$")
-    local place = { id = siteId, groundFloor = true,
-        bounds = { x = tonumber(x), y = tonumber(y),
-            x2 = tonumber(x2), y2 = tonumber(y2) } }
+    local place = savedSite(siteId)
+    if place == nil then return nil, "invalid_place_reference" end
+    place.groundFloor = true
     return Places.loadedApproach(place, actor)
 end
 

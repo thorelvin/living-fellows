@@ -73,6 +73,24 @@ check(approach ~= nil and approachReason == nil
 local restoredApproach = Places.loadedSiteApproach(nearby[1].id, actor)
 check(restoredApproach ~= nil and restoredApproach.x == 19,
     "arrival can recheck exterior access from a saved site ID")
+check(Places.siteContainsPoint(nearby[1].id, 20, 25, 0)
+        and not Places.siteContainsPoint(nearby[1].id, 19, 25, 0)
+        and not Places.siteContainsPoint(nearby[1].id, 55, 25, 0),
+    "the selected footprint excludes its exterior approach and other buildings")
+local sightActor = {
+    getX = function() return 19 end,
+    getY = function() return 25 end,
+    getZ = function() return 0 end,
+}
+SurvivorCompanion.GameplayUtil.canSee = function(_, square)
+    return square:getX() == 20 and square:getY() == 25
+end
+check(Places.visibleSiteSquare(nearby[1].id, sightActor)
+        and not Places.visibleSiteSquare(nearby[2].id, sightActor),
+    "a scout can confirm only a visible square in the selected building")
+SurvivorCompanion.GameplayUtil.canSee = function() return false end
+check(not Places.visibleSiteSquare(nearby[1].id, sightActor),
+    "map metadata alone cannot confirm a building the scout cannot see")
 local originalFindPath = SurvivorCompanion.Navigation.findPath
 SurvivorCompanion.Navigation.findPath = function() return nil end
 planned, plannedReason = Places.plannedApproach(nearby[1], actor)

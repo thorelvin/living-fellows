@@ -18291,6 +18291,23 @@ end)()
                 actor = offRoad, distanceSq = 50, attacking = true,
             }, nil, snapshot, orders),
         "travelling weapons-free squad fights close contacts without chasing even a distant attacker")
+    local farAttacker = { actor = offRoad, distanceSq = 50,
+        attacking = true }
+    check(not combat._doctrineMayFightForTests(leader, farAttacker,
+            nil, snapshot, { combatDoctrine = "close_defense",
+                expeditionTravelCombat = policy })
+            and not combat._doctrineMayFightForTests(leader, farAttacker,
+                nil, snapshot, { combatDoctrine = "stealth",
+                    expeditionTravelCombat = policy })
+            and combat._doctrineMayFightForTests(leader,
+                { actor = onRoad, distanceSq = 5, attacking = true },
+                nil, snapshot, { combatDoctrine = "stealth",
+                    expeditionTravelCombat = policy })
+            and combat._doctrineMayFightForTests(leader,
+                { actor = onRoad, distanceSq = 8, rescue = true },
+                nil, snapshot, { combatDoctrine = "close_defense",
+                    expeditionTravelCombat = policy }),
+        "stealth and close-defense travel stay near the squad while allowing immediate defense")
 end)()
 
 -- A zombie at arm's length that the last perception pass marked unseen still

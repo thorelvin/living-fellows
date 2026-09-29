@@ -1196,6 +1196,7 @@ local function newContainerSearch(actor, state, allowCorpses, current,
         siteX = site and site.x or nil,
         siteY = site and site.y or nil,
         siteZ = site and site.z or nil,
+        siteId = site and site.buildingId or nil,
         siteRadius = site and siteRadius or nil,
         offsets = scavengeOffsets(radius, budget, state.scanPhase),
         index = 1,
@@ -1211,6 +1212,7 @@ local function containerSearchInvalid(job, actor, allowCorpses,
         or job.siteX ~= (site and site.x or nil)
         or job.siteY ~= (site and site.y or nil)
         or job.siteZ ~= (site and site.z or nil)
+        or job.siteId ~= (site and site.buildingId or nil)
         or job.siteRadius ~= (site and siteRadius or nil) then return true end
     local ax, ay, az = U().position(actor)
     if ax == nil or az ~= job.originZ then return true end
@@ -1227,16 +1229,28 @@ local function behindLockedDoor(actor, square, current)
     return ok and blocked == true
 end
 
+local function inSelectedSite(siteId, square)
+    if siteId == nil then return true end
+    local places = SC.ExpeditionPlaces
+    if places == nil or type(places.siteContainsPoint) ~= "function"
+        or square == nil then return false end
+    local x, y, z = U().position(square)
+    return places.siteContainsPoint(siteId, x, y, z)
+end
+
 local function candidateContainers(actor, player, state, allowCorpses, current, commands)
     local utility = U()
     local ax, ay, az = utility.position(actor)
     if not ax then return {}, true end
     local target = commands and commands.scavengeTargetContainer
+    local site = commands and commands.scavengeSite
+    local siteId = site and site.buildingId or nil
     if target ~= nil then
         state.containerSearch = nil
         local owner = containerOwner(target)
         local square = utility.squareOf(owner)
-        if square ~= nil and ownerDistance(actor, owner) <= 18
+        if square ~= nil and inSelectedSite(siteId, square)
+            and ownerDistance(actor, owner) <= 18
             and not containerOnCooldown(target, current)
             and memoryAllows(state, target, current)
             and not behindLockedDoor(actor, square, current)
@@ -1256,7 +1270,6 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
     end
     local budget = math.max(utility.config("scavengeSquareBudget") or 100,
         allowCorpses and (utility.config("corpseLootSquareBudget") or 80) or 0)
-    local site = commands and commands.scavengeSite
     local siteRadius = math.max(2, math.min(8,
         tonumber(commands and commands.scavengeSiteRadius) or 5))
     local job = state.containerSearch
@@ -1277,14 +1290,14 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
         local offset = job.offsets[job.index]
         job.index = job.index + 1
         processed = processed + 1
-        local siteNear = site == nil or (site.z == job.originZ
+        local siteNear = site == nil or siteId ~= nil or (site.z == job.originZ
             and (site.x - (job.originX + offset.x))^2
                 + (site.y - (job.originY + offset.y))^2
                     <= siteRadius * siteRadius)
         local square = siteNear and utility.gridSquare(
             job.originX + offset.x, job.originY + offset.y, job.originZ)
             or nil
-        if square and siteNear
+        if square and siteNear and inSelectedSite(siteId, square)
             and (not player or utility.distanceSq(player, square) <= radius * radius)
             and not behindLockedDoor(actor, square, current) then
             local squareInside = insideBase(square)
