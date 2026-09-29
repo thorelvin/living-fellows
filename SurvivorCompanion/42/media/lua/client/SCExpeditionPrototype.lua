@@ -1128,13 +1128,18 @@ function Expedition.roadCombatFor(actor)
         or mission.scout == nil then return nil end
     local scout = mission.scout
     if (scout.phase ~= "outbound" and scout.phase ~= "inbound")
-        or scout.roadRoute == nil then return nil end
+        or scout.travelMode ~= "road" then return nil end
     local route = scout.roadRoute
-    local first, last = route.points[route.index - 1],
-        route.points[route.index]
+    -- A failed road plan can return along verified outbound trail legs. Keep
+    -- the same close-defense leash there: losing the graph must not restore
+    -- weapons-free pursuit away from the squad's return direction.
     local policy = { radius = 2.5 }
-    if first and last and (last.width or 0) >= 6 then
-        policy.first, policy.last, policy.width = first, last, last.width
+    if route then
+        local first, last = route.points[route.index - 1],
+            route.points[route.index]
+        if first and last and (last.width or 0) >= 6 then
+            policy.first, policy.last, policy.width = first, last, last.width
+        end
     end
     return policy
 end
@@ -2024,6 +2029,7 @@ local function pulseScout()
                 -- different street around the visible contact before ending
                 -- an inbound mission in a permanent technical hold.
                 local rerouted = false
+                local stallAvoidance = scout.road and scout.road.avoidance
                 if scout.roadRoute ~= nil
                     and (scout.hordeDetours or 0) < 3 then
                     local snapshot = squadRoadSnapshot(now)
@@ -2034,6 +2040,7 @@ local function pulseScout()
                     local avoidance = SC.ExpeditionRoute.visibleHorde(
                         scout.roadRoute, leader, snapshot, living, now, 0)
                     if avoidance then
+                        stallAvoidance = avoidance
                         local route = SC.ExpeditionRoute.plan(
                             leader, scout.returnPoint, true, avoidance)
                         local ready = route and SC.ExpeditionRoute.verifyEntry(
@@ -2062,8 +2069,7 @@ local function pulseScout()
                         if SC.Navigation and type(SC.Navigation.cancel) == "function" then
                             SC.Navigation.cancel(leader, "scout_trail_return")
                         end
-                        useReachedTrailForReturn(scout,
-                            scout.road and scout.road.avoidance)
+                        useReachedTrailForReturn(scout, stallAvoidance)
                         scout.lastRoadFailure = "scout_stall_replan_limit"
                     else
                         mission.technicalIssue = { reason = "scout_stall_replan_limit" }

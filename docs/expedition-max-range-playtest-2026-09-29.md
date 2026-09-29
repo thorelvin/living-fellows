@@ -24,3 +24,13 @@ Artifacts:
 - [First-run harness events](../build/live-sandbox-runs/SC-Harness-20260929-154004-83d0e898/cache/Lua/SurvivorCompanionHarness/events.log)
 
 The harness now accepts a bounded `-TeamRoadDistanceTiles` option and requests a full screenshot when its progress timeout fires. Its static checks passed with 137 assertions. These are test harness changes only; expedition gameplay was not changed by this playtest.
+
+## Follow-up: keep road combat discipline on trail return
+
+The second run exposed a specific transition bug: `roadCombatFor` returned no combat policy as soon as the mapped road route was discarded. Its verified outbound trail still represented road travel, but the selected aggressive doctrine could then pursue beyond the 2.5-tile squad defense leash. A failed combat detour also dropped its newly observed avoidance area when switching to the trail. The fallback now retains both the combat leash and any observed hazard. The core suite passed 49 of 49 harnesses, including focused checks for these transitions.
+
+One fresh natural-danger 200-tile cloned run, `SC-Harness-20260929-161711-43c248b6`, travelled 207.39 tiles from departure and returned to the original player at `(6090.02, 5300.50)`. Maximum sampled leader step was 0.18 tile and maximum follower gap was 13.36 tiles. No companion death was logged. Side-lane and wedge checks passed, and the return continued after the mapped road route gave way to reached trail legs.
+
+This was a **safe-return pass, not a full mission pass**. The leader fought near the far end and then encountered a window and vegetation around `(6285-6288,5293-5294)` while approaching the destination. After five stalled outbound replans, the safety rule ordered the squad home without an observation. The harness therefore failed `autonomous_scout_actual_site_observed` and `autonomous_scout_debrief_retained`; destination-distance and return checks passed. The next distinct issue is choosing a reachable, visible observation position near a blocked target, then retaining a real observation before return. Do not mark this run as a completed scouting mission.
+
+- [Follow-up harness events](../build/live-sandbox-runs/SC-Harness-20260929-161711-43c248b6/cache/Lua/SurvivorCompanionHarness/events.log) and [console](../build/live-sandbox-runs/SC-Harness-20260929-161711-43c248b6/cache/console.txt)

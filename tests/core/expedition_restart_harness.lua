@@ -1134,6 +1134,9 @@ check(expedition.finishAtPlayer(player) == true,
             and active.technicalIssue == nil and returnPlans == 1
             and saved.scout.trailReturn == true,
         "failed inbound road planning falls back to reached trail instead of pausing")
+    check(expedition.roadCombatFor(reserve)
+            and expedition.roadCombatFor(reserve).radius == 2.5,
+        "road return keeps its short combat leash on reached trail legs")
     check(expedition.prepareReset() and expedition.reset()
             and expedition.restore(saved) and expedition.pulse(),
         "trail return survives reload with its native leader")
@@ -1291,11 +1294,46 @@ check(stalledStarted and stalledMission.technicalIssue == nil
 SC.Senses.cached = ordinaryCached
 check(expedition.finishAtPlayer(player) == true,
     "the combat-stall detour can release the native leader")
+local savedRoadPlan = SC.ExpeditionRoute.plan
+local failedDetourStarted, failedDetour = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+        travelMode = "road" })
+failedDetour.scout.phase = "inbound"
+failedDetour.scout.replans = 5
+failedDetour.scout.bestDistanceToWaypoint = 10
+failedDetour.scout.lastProgressAt = scoutClock - 31000
+failedDetour.scout.waypointStagedAt = scoutClock - 31000
+failedDetour.scout.nextHordeCheckAt = scoutClock + 10000
+failedDetour.testWaypoint = { x = reserve.x + 10, y = reserve.y, z = 0 }
+SC.ExpeditionRoute.plan = function(actor, goal, continuing, avoidance)
+    if avoidance then return nil, "NO_SAFE_ROAD" end
+    return savedRoadPlan(actor, goal, continuing, avoidance)
+end
+SC.Senses.cached = function()
+    return { valid = true, reflexTime = scoutClock,
+        threats = { { x = reserve.x + 5, y = reserve.y,
+            visible = true, obstructed = false } } }
+end
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(failedDetourStarted and failedDetour.technicalIssue == nil
+        and failedDetour.scout.trailReturn == true
+        and failedDetour.scout.road.avoidance ~= nil
+        and failedDetour.scout.road.avoidance.seen == nil
+        and expedition.roadCombatFor(reserve).radius == 2.5,
+    "failed combat detour keeps the observed hazard and combat leash on trail return")
+SC.ExpeditionRoute.plan = savedRoadPlan
+SC.Senses.cached = ordinaryCached
+check(expedition.finishAtPlayer(player) == true,
+    "the protected trail return can release the native leader")
 local meetingStarted, meetingMission = expedition.start(
     { { id = "delta", actor = reserve } },
     { kind = "scout", destination = { x = 80, y = 20, z = 0 },
         travelMode = "straight" })
 check(meetingStarted == true, "return rendezvous probe starts")
+check(expedition.roadCombatFor(reserve) == nil,
+    "straight expedition travel has no road combat leash")
 meetingMission.scout.phase = "inbound"
 meetingMission.scout.returnIndex = 0
 reserve.x = player.x + 9
