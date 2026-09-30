@@ -2022,6 +2022,15 @@ public final class SCNativeCompanion extends IsoPlayer {
             reconcileBridgePathState();
             synchronizePlayerLocomotion();
             genericUpdateActive = true;
+            // A promoted expedition leader is a real local player in slot 1.
+            // Vanilla IsoPlayer.update calls updateLOS before the generic
+            // character update; this bridge intentionally skips that input/UI
+            // path. Without its sight pass, zombies keep targetAlpha[1] at zero
+            // and fight the leader while invisible in the second viewport.
+            if (bridgeCoopLeaderForProbe && IsoPlayer.players != null
+                    && IsoPlayer.players[1] == this && getCurrentSquare() != null) {
+                updateLOS();
+            }
             if (seated) {
                 updatePlayerVehicleState();
             } else {

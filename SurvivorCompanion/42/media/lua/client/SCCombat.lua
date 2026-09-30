@@ -2448,7 +2448,23 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
                 -- otherwise a safe early backstep preserves the stance. It feeds
                 -- the existing stomp follow-up even when a wall makes backstep
                 -- impossible. Backstep remains an option when clearance exists.
-                if distance <= (utility.config("combatShoveDistance") or 1.35) then
+                -- Inside the defensive band is not necessarily inside native
+                -- minimum reach. Swing while the weapon can still hit; reserve
+                -- the shove for a zombie that has crowded the weapon or is
+                -- already landing an attack at contact distance.
+                local weaponStillReaches = distance >=
+                    (spacing and spacing.nativeMinimum or swingMin) + 0.05
+                local contactAttack = target.attacking == true
+                    and distance < (spacing and spacing.nativeMinimum or swingMin) + 0.1
+                local closingFast = (tonumber(target.closingSpeed) or 0) >= 0.8
+                if weaponStillReaches and not contactAttack and not closingFast
+                    and distance <= swingMax then
+                    actions[#actions + 1] = {
+                        kind = "melee",
+                        score = 108 + weapon.damage * 5 + readiness.combatSkill * 1.8
+                            + readiness.weaponQuality * 8 - pressure * 3 - fatiguePenalty,
+                    }
+                elseif distance <= (utility.config("combatShoveDistance") or 1.35) then
                     actions[#actions + 1] = {
                         kind = "shove",
                         score = 96 + pressure * 7 + readiness.strength
@@ -2618,7 +2634,7 @@ local function stabilizeSpacingAction(state, chosen, target, now)
 end
 
 local function passiveMayFight(target, player, snapshot)
-    local emergency = U().config("combatStealthEmergencyRadius") or 1.5
+    local emergency = U().config("combatStealthEmergencyRadius") or 2.5
     if target.attacking or (target.distanceSq or math.huge) <= emergency * emergency then return true end
     if player and U().distanceSq(player, target.actor) <= 4 and snapshot.player and snapshot.player.immediateThreats > 0 then return true end
     if type(snapshot.allies) == "table" then

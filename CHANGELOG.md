@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.26.10 - Split-view zombie sight and close combat
+
+- Restored the native local-player sight pass for the companion leading the second view, so visible zombies can render there.
+- Quiet squads now react before contact range, and armed companions strike when the target remains inside the weapon's native reach. Fast closing contacts still trigger defensive movement.
+- Added a local playtest launcher that prioritizes the installed mod over older staged Workshop copies with the same mod ID.
+
 ## 0.26.9 - Seat ownership and vehicle transactions
 
 - Urgent survival callbacks now require confirmed dispatch and cancellation. A queued escape can update its target while another action finishes, without extending its deadline.

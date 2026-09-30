@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.26.9-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.10-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -138,7 +138,9 @@ Right-click the world for the **Living Fellows** menu. The selected companion ge
 
 ## Expeditions (experimental)
 
-Use a disposable save for this 0.26.9 playtest. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose its leader, Scout or Search, a location within 200 tiles (32 per page), how to travel, time before turning home, and combat style. Search also lets you request a supply type and quantity. Review the plan and select **Send squad**. The actual leader appears in a second local view while the team moves; the remaining members follow that leader.
+For private local playtests, launch with `scripts/Start-LocalPlaytest.ps1`. It selects the installed local build ahead of older staged Workshop copies that share the same mod ID.
+
+Use a disposable save for this 0.26.10 playtest. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose its leader, Scout or Search, a location within 200 tiles (32 per page), how to travel, time before turning home, and combat style. Search also lets you request a supply type and quantity. Review the plan and select **Send squad**. The actual leader appears in a second local view while the team moves; the remaining members follow that leader.
 
 **Follow roads** is the default: the squad walks the map's streets and plans a fresh road route home. A building far from any mapped street is reached by leaving the streets as close to it as possible and walking up to 100 tiles off-road; the review names any long off-road stretch. If the leader sees a group of more than three zombies per living squad member on the road ahead, the squad plans around it, or turns home when no connected detour exists on the way out. **Head straight for target** takes the direct course and turns home if no path out is found for 30 seconds.
 

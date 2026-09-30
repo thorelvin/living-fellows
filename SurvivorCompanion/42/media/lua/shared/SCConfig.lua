@@ -567,7 +567,10 @@ local valueData = {
     combatAllySupportRadius = 6,
     combatAllySupportMax = 12,
     combatCloseThreatRadius = 4.5,
-    combatStealthEmergencyRadius = 1.5,
+    -- Quiet travel still defends the squad before a zombie reaches grab range.
+    -- At 1.5 tiles the first accepted contact often arrives inside the native
+    -- weapon's minimum swing range, leaving only a shove available.
+    combatStealthEmergencyRadius = 2.5,
     combatCloseDefenseRadius = 5,
     combatWeaponsFreeRadius = 14,
     -- A zombie climbing through a window or over a fence, or lying where it

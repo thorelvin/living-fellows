@@ -71,6 +71,8 @@ public final class SCNativeApiSignatureTest {
         Class<?> luaEventManager = Class.forName("zombie.Lua.LuaEventManager");
         Class<?> luaEvent = Class.forName("zombie.Lua.Event");
         Class<?> gameTime = Class.forName("zombie.GameTime");
+        require(method(player, "updateLOS").getReturnType() == void.class,
+                "local-player sight pass needed by the companion split view changed");
         Class<?> roomDef = Class.forName("zombie.iso.RoomDef");
         Class<?> mapItem = Class.forName("zombie.inventory.types.MapItem");
         Class<?> worldMapSymbols = Class.forName("zombie.worldMap.symbols.WorldMapSymbols");

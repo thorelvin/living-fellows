@@ -38,5 +38,6 @@ public class IsoPlayer extends IsoLivingCharacter {
     public void StopAllActionQueue() {}
     public void setNpc(boolean npc) {}
     public void updateMovementRates() {}
+    public void updateLOS() {}
     public void update() {}
 }

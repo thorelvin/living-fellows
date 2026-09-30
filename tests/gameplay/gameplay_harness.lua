@@ -7732,6 +7732,23 @@ local cleaverContact, cleaverContactReason = SurvivorCompanion.Combat.update(
 check(cleaverContact and cleaverContactReason == "shove"
         and cleaverActor.lastIntent.action == "shove",
     "a melee wielder only uses the defensive shove inside the weapon's true minimum reach")
+-- A closing zombie can cross the preferred stance before the next combat
+-- pulse. The weapon still reaches here, so this must remain a strike rather
+-- than the contact shove reserved for inside native minimum range.
+cleaverActor.worldX = 30.25
+cleaverSnapshot.threats[1].distanceSq = 0.75 * 0.75
+local insideDefendActions = SurvivorCompanion.Combat._actionUtilitiesForTests(
+    cleaverActor, player, cleaverSnapshot, cleaverSnapshot.threats[1],
+    { item = cleaver, ranged = false, damage = 1.6, range = 1,
+        conditionRatio = 1, staminaCost = 1, weight = 1 },
+    cleaverActor.inventory, { combatDoctrine = "close_defense" })
+local offeredWeaponStrike, offeredShove = false, false
+for _, action in ipairs(insideDefendActions or {}) do
+    if action.kind == "melee" then offeredWeaponStrike = true end
+    if action.kind == "shove" then offeredShove = true end
+end
+check(offeredWeaponStrike and not offeredShove,
+    "a melee weapon strikes inside its defensive band while still beyond native minimum reach")
 SurvivorCompanion.Combat.reset(cleaverActor)
 registry[cleaverActor.id] = nil
 cleaverZed.dead = true
@@ -18403,7 +18420,7 @@ end)()
     check(combat._doctrineMayFightForTests(fighter, defender, nil,
             { allies = {} }, stealth)
             and not combat._doctrineMayFightForTests(fighter,
-                { actor = standing, distanceSq = 6.25 }, nil,
+                { actor = standing, distanceSq = 9 }, nil,
                 { allies = {} }, stealth)
             and not combat._doctrineMayFightForTests(fighter, defender,
                 nil, { allies = {} }, travel),
@@ -18468,6 +18485,26 @@ end)()
         "a recovered zombie immediately loses its grounded opening")
     fallen.dead, standing.dead = true, true
     combat.reset(fighter)
+end)()
+
+-- Stealth avoids distant fights, but a zombie already inside the squad's
+-- travel leash must be assessed while there is still room for a weapon swing
+-- or an overrun retreat. The old 1.5-tile gate refused even 1.6-tile contacts.
+;(function()
+    local combat = SurvivorCompanion.Combat
+    local fighter = actor("sc-stealth-reaction", 40, 34, {})
+    local threat = zombie(42, 34, {})
+    local snapshot = { allies = {} }
+    local travel = { combatDoctrine = "stealth",
+        expeditionTravelCombat = { radius = 2.5 } }
+    check(combat._doctrineMayFightForTests(fighter,
+            { actor = threat, distanceSq = 4, visible = true }, nil,
+            snapshot, travel)
+            and not combat._doctrineMayFightForTests(fighter,
+                { actor = threat, distanceSq = 9, visible = true }, nil,
+                snapshot, travel),
+        "stealth travel reacts at two tiles without chasing a zombie three tiles away")
+    threat.dead = true
 end)()
 
 -- A travelling expedition may defend the road without chasing one zombie
