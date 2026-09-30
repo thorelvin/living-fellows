@@ -1044,6 +1044,9 @@ end
 check(teamArrived and #departures > beforeArrivalSpeech
         and departures[#departures].topic == "expedition.search_arrival",
     "the arriving squad occasionally calls out before searching")
+check(teamArrived and math.abs(teamSearch.scout.search.deadlineHour
+        - teamSearch.scout.search.startedHour - 1.25) < 0.0001,
+    "a three-carrier request gets enough Search time for separate approaches")
 for _, actor in ipairs({ reserve, scouts[1], scouts[2] }) do
     check(expedition.testSearchFor(actor)
             and expedition.testSearchCategoryFor(actor) == "useful"
@@ -1064,9 +1067,9 @@ for index, actor in ipairs({ reserve, scouts[1], scouts[2] }) do
             "a member who just looted yields the next search turn")
     end
     if index == 1 then
-        scoutClock = scoutClock + 20001
+        scoutClock = scoutClock + 60001
         check(expedition.testSearchFor(reserve),
-            "a quiet search lets a previous carrier resume after twenty seconds")
+            "a quiet search lets a previous carrier resume after sixty seconds")
     end
 end
 check(#teamSearch.scout.search.acquisitions == 3

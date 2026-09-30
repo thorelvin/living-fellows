@@ -4807,9 +4807,15 @@ local function beginLeaderSlotProbe(current)
                 -- The mission sees only a destination and a category; it does not
                 -- receive a container or inspect contents before arrival.
                 plan = { kind = "search", destination = {
-                    x = 6077, y = 5303, z = 0,
-                }, request = { category = "construction", quantity = 1 },
-                    radius = 2 }
+                    x = Harness.config.team_shared_search_probe == "true"
+                        and 6079 or 6077,
+                    y = Harness.config.team_shared_search_probe == "true"
+                        and 5309 or 5303, z = 0,
+                }, request = { category = "construction",
+                    quantity = Harness.config.team_shared_search_probe == "true"
+                        and #roster or 1 },
+                    radius = Harness.config.team_shared_search_probe == "true"
+                        and 8 or 2 }
             end
         end
         local started, accepted, detail = pcall(
@@ -4823,7 +4829,14 @@ local function beginLeaderSlotProbe(current)
         end
         check("expedition_starts_without_radio_gate", promoted,
             tostring(#roster)
-                .. " saved companions; start has no radio argument or inventory prerequisite")
+                .. " saved companions; start has no radio argument or inventory prerequisite"
+                .. " leader=" .. tostring(chosen.actor:getX()) .. ","
+                .. tostring(chosen.actor:getY()) .. ","
+                .. tostring(chosen.actor:getZ())
+                .. " target=" .. tostring(plan and plan.destination
+                    and plan.destination.x) .. ","
+                .. tostring(plan and plan.destination and plan.destination.y)
+                .. " reason=" .. tostring(actorOrFailure))
     else
         promoted, actorOrFailure = pcall(SCSplitScreenProbe.promote, chosen.actor)
     end
@@ -7249,7 +7262,199 @@ function Harness.observeExtendedFootprint()
     Harness.extendedOldSquareReleased = true
 end
 
+function Harness.probeSharedSearch(current)
+    local SC = SurvivorCompanion
+    local mission = SC.ExpeditionPrototype.current()
+    if mission == nil then
+        local debrief = SC.ExpeditionPrototype.lastDebrief()
+        local carriers = {}
+        local exact = debrief ~= nil and debrief.kind == "search"
+            and debrief.request.quantity == #Harness.team
+            and #debrief.acquisitions == #Harness.team
+            and #debrief.returnedIds == #Harness.team
+            and debrief.inventoryComplete == true
+            and debrief.endReason == "quantity_met"
+            and SC.ExpeditionPrototype.lastOutcome() == "returned"
+        if exact then
+            local returned = {}
+            for _, id in ipairs(debrief.returnedIds) do returned[id] = true end
+            for _, receipt in ipairs(debrief.acquisitions) do
+                local count, item, carrier = teamStableItem(Harness.team, receipt.id)
+                carriers[receipt.memberId] = (carriers[receipt.memberId] or 0) + 1
+                if count ~= 1 or carrier ~= receipt.memberId
+                    or item:getFullType() ~= receipt.itemType
+                    or not returned[receipt.id] then exact = false end
+            end
+            for _, member in ipairs(Harness.team) do
+                if carriers[member.id] ~= 1 then exact = false end
+            end
+        end
+        check("shared_search_all_members_return_exact_native_loot", exact,
+            "members=" .. tostring(#Harness.team)
+                .. " receipts=" .. tostring(debrief and #debrief.acquisitions)
+                .. " returned=" .. tostring(debrief and #debrief.returnedIds)
+                .. " reason=" .. tostring(debrief and debrief.endReason))
+        check("shared_search_destination_speech",
+            Harness.sharedSearchSpeech == true,
+            "site or loot topic spoken=" .. tostring(Harness.sharedSearchSpeech))
+        setPhase("finish", current)
+        return
+    end
+    if mission.technicalIssue then
+        result("FAIL", "shared_search_technical_issue",
+            tostring(mission.technicalIssue.reason))
+        setPhase("finish", current)
+        return
+    end
+    if current - (Harness.autonomousSearchStartedAt or current) > 480000 then
+        result("FAIL", "shared_search_deadline",
+            "phase=" .. tostring(mission.scout and mission.scout.phase)
+                .. " receipts=" .. tostring(mission.scout and mission.scout.search
+                    and #mission.scout.search.acquisitions))
+        setPhase("finish", current)
+        return
+    end
+    local scout = mission.scout
+    local phase = scout and scout.phase or "none"
+    if phase == "searching" and not Harness.sharedSearchStocked then
+        -- Test-only supplies in the cloned world. The squad still selects,
+        -- approaches, animates, and debits real native world containers.
+        local placed, containers, sources = 0, 0, {}
+        local center = scout.destination
+        local cell = getWorld():getCell()
+        for sx = center.x - 8, center.x + 8 do
+            for sy = center.y - 8, center.y + 8 do
+                if (sx - center.x)^2 + (sy - center.y)^2 <= 64 then
+                    local square = cell:getGridSquare(sx, sy, center.z)
+                    if square and not SC.Navigation.behindLockedDoor(
+                            Harness.leader, square) then
+                        SC.GameplayUtil.squareObjects(square, function(object)
+                            local container = select(1,
+                                SC.GameplayUtil.call(object, "getContainer"))
+                            if container and SC.Encounter.mayTakeFrom(container) then
+                                containers = containers + 1
+                                if placed < 64 then
+                                    local okay, item = pcall(container.AddItem,
+                                        container, "Base.FiberglassTape")
+                                    if okay and item ~= nil then
+                                        placed = placed + 1
+                                        sources[#sources + 1] = tostring(sx)
+                                            .. "," .. tostring(sy)
+                                    end
+                                end
+                            end
+                        end, 64)
+                    end
+                end
+            end
+        end
+        Harness.sharedSearchStocked = true
+        if not check("shared_search_native_supplies_staged", placed >= 4,
+            "items=" .. tostring(placed)
+                .. " containers=" .. tostring(containers)
+                .. " squares=" .. table.concat(sources, ";")) then
+            setPhase("finish", current)
+            return
+        end
+    end
+    if phase ~= Harness.sharedSearchLastPhase then
+        result("PASS", "shared_search_phase_" .. tostring(phase),
+            "members=" .. tostring(#mission.roster)
+                .. " receipts=" .. tostring(scout and scout.search
+                    and #scout.search.acquisitions))
+        Harness.sharedSearchLastPhase = phase
+    end
+    Harness.sharedSearchSeenSpeech = Harness.sharedSearchSeenSpeech or {}
+    for _, member in ipairs(mission.roster) do
+        local actor = member.actor
+        if actor ~= nil and SC.Dialogue
+            and type(SC.Dialogue.lastSpokenTopic) == "function" then
+            local topic = SC.Dialogue.lastSpokenTopic(actor)
+            local spokenAt = SC.Dialogue.lastSpokenAt(actor)
+            local key = tostring(member.id) .. ":" .. tostring(spokenAt)
+            if topic ~= nil and not Harness.sharedSearchSeenSpeech[key] then
+                Harness.sharedSearchSeenSpeech[key] = true
+                if topic == "expedition.search_arrival"
+                    or string.find(topic, "scavenge.loot.", 1, true) == 1 then
+                    Harness.sharedSearchSpeech = true
+                    result("PASS", "shared_search_spoke",
+                        "member=" .. tostring(member.id)
+                            .. " topic=" .. tostring(topic))
+                end
+            end
+        end
+    end
+    Harness.sharedSearchSeenReceipts = Harness.sharedSearchSeenReceipts or {}
+    for _, receipt in ipairs(scout.search.acquisitions) do
+        if not Harness.sharedSearchSeenReceipts[receipt.id] then
+            Harness.sharedSearchSeenReceipts[receipt.id] = true
+            local count, item, carrier = teamStableItem(Harness.team, receipt.id)
+            local atSource = sourceStableItemCount(receipt)
+            local exact = count == 1 and carrier == receipt.memberId
+                and item ~= nil and item:getFullType() == receipt.itemType
+                and atSource == 0
+            if not check("shared_search_exact_pickup", exact,
+                "member=" .. tostring(receipt.memberId)
+                    .. " type=" .. tostring(receipt.itemType)
+                    .. " stable=" .. tostring(receipt.id)
+                    .. " carrier=" .. tostring(carrier)
+                    .. " source_matches=" .. tostring(atSource)) then
+                setPhase("finish", current)
+                return
+            end
+        end
+    end
+    -- This probe verifies site participation. Return travel is covered by
+    -- separate full-trip probes and can hit an unrelated navigation barrier.
+    if phase == "inbound" then
+        local carriers = {}
+        local exact = #scout.search.acquisitions == #mission.roster
+        for _, receipt in ipairs(scout.search.acquisitions) do
+            carriers[receipt.memberId] = (carriers[receipt.memberId] or 0) + 1
+            local count, item, carrier = teamStableItem(Harness.team, receipt.id)
+            if count ~= 1 or carrier ~= receipt.memberId
+                or item == nil or item:getFullType() ~= receipt.itemType
+                or sourceStableItemCount(receipt) ~= 0 then
+                exact = false
+            end
+        end
+        for _, member in ipairs(mission.roster) do
+            if carriers[member.id] ~= 1 then exact = false end
+        end
+        check("shared_search_all_members_exact_native_loot", exact,
+            "members=" .. tostring(#mission.roster)
+                .. " receipts=" .. tostring(#scout.search.acquisitions)
+                .. " reason=" .. tostring(scout.returnReason))
+        check("shared_search_destination_speech",
+            Harness.sharedSearchSpeech == true,
+            "site or loot topic spoken=" .. tostring(Harness.sharedSearchSpeech))
+        setPhase("finish", current)
+        return
+    end
+    if current >= (Harness.sharedSearchNextTraceAt or 0) then
+        Harness.sharedSearchNextTraceAt = current + 10000
+        local details = {}
+        for _, member in ipairs(mission.roster) do
+            local actor = member.actor
+            local x, y = position(actor)
+            local decision = actor and SC.Decision.peek(actor) or nil
+            local status = actor and SC.Encounter.status(actor) or nil
+            details[#details + 1] = tostring(member.id) .. "@"
+                .. tostring(math.floor(tonumber(x) or -1)) .. ","
+                .. tostring(math.floor(tonumber(y) or -1)) .. ":"
+                .. tostring(decision and decision.current) .. "/"
+                .. tostring(status and status.phase)
+        end
+        print("SC_SHARED_SEARCH_TRACE|phase=" .. tostring(phase)
+            .. "|receipts=" .. tostring(#scout.search.acquisitions)
+            .. "|actors=" .. table.concat(details, ";"))
+    end
+end
+
 function Harness.probeAutonomousSearch(current)
+    if Harness.config.team_shared_search_probe == "true" then
+        return Harness.probeSharedSearch(current)
+    end
     local SC = SurvivorCompanion
     local U = SC.GameplayUtil
     local mission = SC.ExpeditionPrototype.current()

@@ -66,6 +66,7 @@ param(
     [switch]$TeamKnownPlaceScoutProbe,
     [switch]$TeamUnvisitedPlaceScoutProbe,
     [switch]$TeamAutonomousSearchProbe,
+    [switch]$TeamSharedSearchProbe,
     [switch]$TeamLeaderMotionProbe,
     [switch]$TeamUnvisitedInteriorSearchProbe,
     [switch]$TeamAutonomousSearchStageOnly,
@@ -221,6 +222,10 @@ if ($TeamAutonomousSearchProbe -and (-not $TeamHandoff -or $LeaderRemote -or
     $TeamLocalTravelProbe -or $TeamAutonomousScoutProbe -or $TeamRadioFixture -or
     $TeamLootSurvey -or $TeamOverlapProbe)) {
     throw '-TeamAutonomousSearchProbe requires a focused local team handoff run.'
+}
+if ($TeamSharedSearchProbe -and (-not $TeamAutonomousSearchProbe -or
+    $TeamAutonomousSearchStageOnly -or $TeamUnvisitedInteriorSearchProbe)) {
+    throw '-TeamSharedSearchProbe requires the ordinary -TeamAutonomousSearchProbe run.'
 }
 if ($TeamLeaderMotionProbe -and -not $TeamUnvisitedInteriorSearchProbe) {
     throw '-TeamLeaderMotionProbe requires -TeamUnvisitedInteriorSearchProbe.'
@@ -834,6 +839,7 @@ $config = @(
     ('team_known_place_scout_probe=' + $TeamKnownPlaceScoutProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_unvisited_place_scout_probe=' + $TeamUnvisitedPlaceScoutProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_autonomous_search_probe=' + $TeamAutonomousSearchProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_shared_search_probe=' + $TeamSharedSearchProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_leader_motion_probe=' + $TeamLeaderMotionProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_unvisited_interior_search_probe=' + $TeamUnvisitedInteriorSearchProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_autonomous_search_stage_only=' + $TeamAutonomousSearchStageOnly.IsPresent.ToString().ToLowerInvariant()),

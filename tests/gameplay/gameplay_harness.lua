@@ -9810,6 +9810,10 @@ do
             and Encounter._approachExpired(approach, 46001)
             and not Encounter._approachExpired({}, 99999999),
         "a scavenge approach fails after 45 seconds without reaching its container")
+    approach.scavengeMissionId = "search-test"
+    check(not Encounter._approachExpired(approach, 26000)
+            and Encounter._approachExpired(approach, 26001),
+        "an expedition search abandons a crowded container after 25 seconds")
 
     local stuckFood = item("Base.CannedBologneseStuck", "Food")
     local stuckLooter = actor("sc-loot-stuck-approach", 50, 50, {})

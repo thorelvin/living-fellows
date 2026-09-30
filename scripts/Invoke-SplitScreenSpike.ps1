@@ -52,6 +52,7 @@ param(
     [switch]$TeamKnownPlaceScoutProbe,
     [switch]$TeamUnvisitedPlaceScoutProbe,
     [switch]$TeamAutonomousSearchProbe,
+    [switch]$TeamSharedSearchProbe,
     [switch]$TeamLeaderMotionProbe,
     [switch]$TeamUnvisitedInteriorSearchProbe,
     [switch]$TeamAutonomousSearchStageOnly,
@@ -190,6 +191,7 @@ try {
         -TeamKnownPlaceScoutProbe:$TeamKnownPlaceScoutProbe `
         -TeamUnvisitedPlaceScoutProbe:$TeamUnvisitedPlaceScoutProbe `
         -TeamAutonomousSearchProbe:$TeamAutonomousSearchProbe `
+        -TeamSharedSearchProbe:$TeamSharedSearchProbe `
         -TeamLeaderMotionProbe:$TeamLeaderMotionProbe `
         -TeamUnvisitedInteriorSearchProbe:$TeamUnvisitedInteriorSearchProbe `
         -TeamAutonomousSearchStageOnly:$TeamAutonomousSearchStageOnly `

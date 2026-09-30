@@ -1600,7 +1600,7 @@ function Expedition.testSearchFor(actor)
         search.lastAcquisitionAt = current
     end
     return current ~= nil and search.lastAcquisitionAt ~= nil
-        and current - search.lastAcquisitionAt >= 20000
+        and current - search.lastAcquisitionAt >= 60000
 end
 
 function Expedition.testSearchTargetFor(actor)
@@ -2681,7 +2681,14 @@ local function pulseScout()
                 return
             end
             scout.search.startedHour = worldHour
+            -- One actor can search for 45 in-game minutes, but a request
+            -- sized for several carriers needs room for their separate
+            -- approaches and native loot animations. The mission's chosen
+            -- turn-home time is still checked independently above.
+            local carriersNeeded = math.min(#mission.roster,
+                scout.search.request.quantity)
             scout.search.deadlineHour = worldHour + SEARCH_HOURS
+                + 0.25 * math.max(0, carriersNeeded - 1)
             scout.phase = "searching"
             if SC.Dialogue and type(SC.Dialogue.say) == "function"
                 and type(ZombRand) == "function" and ZombRand(100) < 65 then

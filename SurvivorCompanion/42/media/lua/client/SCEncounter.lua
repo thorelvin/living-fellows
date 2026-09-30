@@ -36,6 +36,32 @@ local function stateFor(actor)
     return state
 end
 
+local function sourceSquareKey(x, y, z)
+    if x == nil or y == nil or z == nil then return nil end
+    return tostring(math.floor(x)) .. ":" .. tostring(math.floor(y))
+        .. ":" .. tostring(math.floor(z))
+end
+
+local function expeditionSourceOnCooldown(state, square, time)
+    local remembered = state.failedSiteSources
+    if remembered == nil then return false end
+    local x, y, z = U().position(square)
+    local key = sourceSquareKey(x, y, z)
+    local expires = key and remembered[key] or nil
+    if expires == nil then return false end
+    if time >= expires then remembered[key] = nil return false end
+    return true
+end
+
+local function rememberFailedExpeditionSource(state, task, time)
+    if task.scavengeMissionId == nil then return end
+    local key = sourceSquareKey(task.containerX, task.containerY,
+        task.containerZ)
+    if key == nil then return end
+    state.failedSiteSources = state.failedSiteSources or {}
+    state.failedSiteSources[key] = time + 60000
+end
+
 local function commandState(actor)
     if SC.Commands and type(SC.Commands.peek) == "function" then
         local ok, value = pcall(SC.Commands.peek, actor)
@@ -1311,6 +1337,8 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
             job.originX + offset.x, job.originY + offset.y, job.originZ)
             or nil
         if square and siteNear and inSelectedSite(siteId, square)
+            and (commands.scavengeMissionId == nil
+                or not expeditionSourceOnCooldown(state, square, current))
             and (not player or utility.distanceSq(player, square) <= radius * radius)
             and not behindLockedDoor(actor, square, current) then
             local squareInside = insideBase(square)
@@ -2151,6 +2179,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     if not atInteractionTarget then
         task.approachStartedAt = task.approachStartedAt or time
         if Encounter._approachExpired(task, time) then
+            rememberFailedExpeditionSource(state, task, time)
             resetScavengeTarget(actor, state, {
                 cancelVisual = true, stopMovement = true,
                 reason = "approach_timeout", phase = "failed", cooldown = true,
@@ -2326,6 +2355,7 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
             -- so a marginal use position could keep a companion forever.
             task.approachStartedAt = task.approachStartedAt or time
             if Encounter._approachExpired(task, time) then
+                rememberFailedExpeditionSource(state, task, time)
                 resetScavengeTarget(actor, state, {
                     cancelVisual = true, stopMovement = true,
                     reason = "approach_timeout", phase = "failed", cooldown = true,
@@ -2438,8 +2468,9 @@ function Encounter._approachExpired(task, time)
         or tonumber(time) == nil then
         return false
     end
-    return tonumber(time) - tonumber(task.approachStartedAt)
-        > (tonumber(U().config("scavengeApproachMaxMs")) or 45000)
+    local limit = tonumber(U().config("scavengeApproachMaxMs")) or 45000
+    if task.scavengeMissionId ~= nil then limit = math.min(limit, 25000) end
+    return tonumber(time) - tonumber(task.approachStartedAt) > limit
 end
 
 -- Approach progress means getting at least half a tile closer than ever
