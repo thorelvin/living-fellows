@@ -149,19 +149,29 @@ function Route.visibleHorde(route, actor, snapshot, livingCount, now, maxThreats
         or now - snapshot.reflexTime > 2000 then return nil end
     local first = route.points[math.max(1, route.index - 1)]
     local last = route.points[route.index]
+    local x, y = SC.GameplayUtil.position(actor)
+    if x == nil or y == nil then return nil end
     if route.index <= 1 then
-        local x, y = SC.GameplayUtil.position(actor)
-        if x == nil or y == nil then return nil end
         first = { x = x, y = y }
     end
     if first == nil or last == nil then return nil end
+    local dx, dy = last.x - first.x, last.y - first.y
+    local lengthSq = dx * dx + dy * dy
+    if lengthSq <= 0 then return nil end
+    local progress = math.max(0, math.min(1,
+        ((x - first.x) * dx + (y - first.y) * dy) / lengthSq))
+    first = { x = first.x + dx * progress, y = first.y + dy * progress }
+    local forwardX, forwardY = last.x - first.x, last.y - first.y
+    if forwardX * forwardX + forwardY * forwardY <= 0 then return nil end
     local seen = {}
     for _, threat in ipairs(snapshot.threats) do
         if threat.visible == true and threat.obstructed ~= true
             and type(threat.x) == "number" and type(threat.y) == "number"
             and threat.x == threat.x and threat.y == threat.y
             and threat.x >= 0 and threat.x <= 30000
-            and threat.y >= 0 and threat.y <= 30000 then
+            and threat.y >= 0 and threat.y <= 30000
+            and (threat.x - first.x) * forwardX
+                + (threat.y - first.y) * forwardY >= 0 then
             seen[#seen + 1] = threat
         end
     end
@@ -281,7 +291,11 @@ function Route.target(route, actor, snapshot)
                         local world = type(getWorld) == "function" and getWorld() or nil
                         local cell = world and world:getCell() or nil
                         local square = cell and cell:getGridSquare(lx, ly, 0) or nil
-                        if distance(x, y, lane) > 2.5 and (square == nil
+                        local passedLane = (x - previous.x) * dx
+                            + (y - previous.y) * dy
+                            >= fraction * length * length
+                        if not passedLane and distance(x, y, lane) > 2.5
+                            and (square == nil
                             or SC.GameplayUtil.isSquareFree(square)) then
                             return { x = lx, y = ly, z = 0 }
                         end

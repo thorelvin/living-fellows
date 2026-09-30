@@ -261,4 +261,58 @@ local later, laterReason = Places.targetableById(20, 20, 200,
     secondPage[#secondPage].id)
 check(later ~= nil and laterReason == nil,
     "dispatch can revalidate a building on a later page")
+
+local oversized = fixture.building(20, 130, 101, 140, { "bedroom" })
+fixture.buildings[#fixture.buildings + 1] = oversized
+local tooWideId = "20:130:101:140"
+local originalWideSquare = fixture.cell.getGridSquare
+fixture.cell.getGridSquare = function(self, x, y, z)
+    local square = originalWideSquare(self, x, y, z)
+    if x >= 20 and x <= 101 and y >= 130 and y <= 140 then
+        square.getRoom = function() return { id = "seen-wide-interior" } end
+        square.getRoomDef = function()
+            return { getName = function() return "bedroom" end }
+        end
+        square.isSeen = function() return true end
+    end
+    return square
+end
+local afterWide, wideReason, wideTotal = Places.targetableNearby(
+    20, 20, 200, 32, 0)
+local wideKnown = Places.knownNearby(20, 20, 200, 8)
+local wideLookup, wideLookupReason = Places.targetableById(
+    20, 20, 200, tooWideId)
+check(wideReason == nil and wideTotal == 46 and #afterWide == 32
+        and wideKnown ~= nil and #wideKnown == 1
+        and wideLookup == nil
+        and wideLookupReason == "place_no_longer_selectable",
+    "an 81-tile footprint is excluded from lists, counts, and dispatch")
+fixture.cell.getGridSquare = originalWideSquare
+fixture.buildings[#fixture.buildings] = nil
+
+local departureBuilding = fixture.buildings[1]
+local room = { getBuilding = function() return departureBuilding end }
+local hall = { getBuilding = function() return departureBuilding end }
+local interior = {
+    getX = function() return 25 end,
+    getY = function() return 25 end,
+    getRoom = function() return room end,
+}
+local hallwaySquare = { getRoom = function() return hall end }
+local insideActor = { getCurrentSquare = function() return interior end }
+local originalHallPath = SurvivorCompanion.Navigation.findPath
+SurvivorCompanion.Navigation.findPath = function(start, destination)
+    if destination:getX() == 19 and destination:getY() == 25 then
+        return { start, hallwaySquare, destination }
+    end
+end
+local hallwayExit = Places.loadedApproach(nearby[1], insideActor)
+check(hallwayExit ~= nil and hallwayExit.x == 19
+        and hallwayExit.pathNodes == 3,
+    "an exit through a hallway in the same building remains usable")
+hall = { getBuilding = function() return fixture.buildings[2] end }
+local foreignHall, foreignReason = Places.loadedApproach(nearby[1], insideActor)
+check(foreignHall == nil and foreignReason == "approach_no_loaded_path",
+    "a path through another building is not a valid exterior exit")
+SurvivorCompanion.Navigation.findPath = originalHallPath
 print("EXPEDITION_PLACES_PASS checks=" .. tostring(checks))

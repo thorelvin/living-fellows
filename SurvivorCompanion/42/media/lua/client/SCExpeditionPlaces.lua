@@ -178,13 +178,21 @@ end
 
 local function isOutsidePath(path, sourceRoom)
     local outside = sourceRoom == nil
+    local sourceBuilding, buildingOk
+    if sourceRoom ~= nil then
+        sourceBuilding, buildingOk = call(sourceRoom, "getBuilding")
+    end
     for _, square in ipairs(path) do
         local room, roomOk = call(square, "getRoom")
         if not roomOk then return false end
-        if outside and room ~= nil then return false end
-        if sourceRoom ~= nil and room ~= sourceRoom then
-            if room ~= nil then return false end
+        if room == nil then
             outside = true
+        elseif outside then
+            return false
+        elseif room ~= sourceRoom then
+            local building, known = call(room, "getBuilding")
+            if not buildingOk or sourceBuilding == nil or not known
+                or building ~= sourceBuilding then return false end
         end
     end
     return outside
@@ -576,7 +584,8 @@ function Places.knownNearby(x, y, radius, limit, offset)
     end
     local result, anyLoaded, total = {}, false, 0
     for _, place in ipairs(candidates) do
-        local withinRange = place.distanceSq <= radius * radius
+        local withinRange = validBounds(place) ~= nil
+            and place.distanceSq <= radius * radius
         local known, loaded, seenNames
         if withinRange then
             known, loaded, seenNames = seenInterior(place, grid, cell)
@@ -627,7 +636,8 @@ function Places.targetableNearby(x, y, radius, limit, offset)
     if candidates == nil then return nil, reason end
     local result, total = {}, 0
     for _, place in ipairs(candidates) do
-        if place.groundFloor and place.distanceSq <= radius * radius then
+        if place.groundFloor and validBounds(place) ~= nil
+            and place.distanceSq <= radius * radius then
             total = total + 1
             if total > offset and #result < limit then
                 addStreet(place)
@@ -659,7 +669,7 @@ function Places.targetableById(x, y, radius, id)
     local candidates, reason = Places.nearby(x, y, radius, 4096, true)
     if candidates == nil then return nil, reason end
     for _, place in ipairs(candidates) do
-        if place.id == id and place.groundFloor
+        if place.id == id and place.groundFloor and validBounds(place) ~= nil
             and place.distanceSq <= radius * radius then
             local knowledge = "map_metadata_unconfirmed"
             if SC.Config and SC.Config.get("expeditionDestinationScope") == "known_only" then

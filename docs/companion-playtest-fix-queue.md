@@ -1,5 +1,12 @@
 # Companion playtest fix queue
 
+## Expedition ten-fix review bundle (2026-09-30)
+
+- **Source and scope:** The [0.26.11 review archive](https://drive.google.com/file/d/1TE7YiGEAExVCaitZOvUVNQq86lm9tU7H/view) describes ten defects against commit `3df822a`. Its patcher requires exact old file hashes and its recorded tests used manually transcribed excerpts. I inspected the current source and ported the fixes manually; the archive's apply script and excerpt tests were not executed as project code.
+- **Changed:** Pre-search aborts and arrived trail returns can restore; general radio recall releases a hold while preserving its observed hazard; mid-leg recall retraces the last reached trail point with fresh inbound planning state. Road horde checks ignore the traversed section and passed lane anchors cannot pull the leader backward. Destination menus exclude footprints wider than the supported 80 tiles, and a same-building hall can form part of a verified exit. Restored road missions retry transient `DATA_NOT_READY` without a terminal hold; return time is checked before that retry.
+- **Verified:** Focused Kahlua regressions cover the ten cases and nearby controls. Core harnesses passed 49/49 and gameplay contracts passed 919 assertions. Disposable Riverside run `SC-Harness-20260930-193002-09ca3e97` passed an 80-tile four-member road site visit and return, with a side lane, shared wedge, complete observation, and all surviving members within 13.14 tiles. The source save and launcher settings were restored.
+- **Native follow-up:** The live smoke did not force pre-search recall/reload, awaiting-player trail reload, delayed street-data readiness, same-building hallway exit, or a rear-horde contact. Exercise those when naturally encountered or in focused disposable-save scenarios before treating them as game-verified.
+
 ## Whole-squad Search participation (2026-09-30)
 
 - **Finding:** The expedition Search permission was leader-only. Followers stayed in formation at the destination and ordinary nearby banter was out of range of the player.

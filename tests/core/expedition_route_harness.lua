@@ -154,6 +154,22 @@ local fartherHazard = Route.visibleHorde(route, actor,
 check(fartherHazard ~= nil and fartherHazard.seen == 13
         and fartherHazard.x == 44,
     "one closer contact does not hide a larger group along the road")
+actor.x = 50
+local rearContacts, aheadContacts = {}, {}
+for index = 1, 4 do
+    rearContacts[index] = { x = 35, y = 10,
+        visible = true, obstructed = false }
+    aheadContacts[index] = { x = 55, y = 10,
+        visible = true, obstructed = false }
+end
+check(Route.visibleHorde(route, actor,
+        { valid = true, reflexTime = 1000, threats = rearContacts },
+        1, 1100) == nil
+        and Route.visibleHorde(route, actor,
+            { valid = true, reflexTime = 1000, threats = aheadContacts },
+            1, 1100).seen == 4,
+    "only the untraversed road ahead can trigger a horde detour")
+actor.x = 20
 local detour = Route.plan(actor, { x = 100, y = 10, z = 0 }, true,
     { x = 35, y = 10, radius = 9 })
 check(detour ~= nil and Route.validDescriptor(
@@ -189,6 +205,18 @@ actor.x = 20
 local side = Route.target(spread, actor)
 check(side.x > 20 and side.x < 47 and side.y > 10,
     "one chosen lane uses the road width instead of the centerline")
+actor.x = 10
+local displaced = Route.plan(actor, { x = 100, y = 10, z = 0 })
+actor.x = 20
+Route.target(displaced, actor)
+actor.x = 35
+local nextLane = Route.target(displaced, actor)
+check(nextLane.x >= 35 and nextLane.y > 10,
+    "displacement past the first lane anchor advances to the next anchor")
+actor.x = 45
+local forwardPoint = Route.target(displaced, actor)
+check(forwardPoint.x >= 45,
+    "displacement past both lane anchors cannot send the leader backward")
 actor.x = 30
 check(Route.formationSegment(spread, actor) ~= nil,
     "shared formation receives current road width and heading")

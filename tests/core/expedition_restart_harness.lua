@@ -1121,8 +1121,9 @@ SC.ExpeditionRoute.plan = function(actor, goal, _, avoidance)
     routeCalls[#routeCalls + 1] = { x = actor.x, y = actor.y,
         goalX = goal.x, goalY = goal.y,
         avoidance = avoidance }
-    return { points = { { x = actor.x + 10, y = actor.y },
-            { x = goal.x - 10, y = goal.y } },
+    local direction = goal.x >= actor.x and 1 or -1
+    return { points = { { x = actor.x + direction * 10, y = actor.y },
+            { x = goal.x - direction * 10, y = goal.y } },
         index = 1, fingerprint = "test-roads", goal = {
             x = goal.x, y = goal.y, z = goal.z }, roadLength = 150,
         avoidance = avoidance }
@@ -1671,5 +1672,141 @@ check(straightMission.scout.phase == "inbound"
 SC.Navigation.findPath = originalFindPath
 check(expedition.finishAtPlayer(player) == true,
     "the straight-path fallback releases the leader after return")
+
+-- A Search can turn home before it ever started looking in containers.
+reserve.x, reserve.y = 23, 20
+local earlyStarted, earlySearch = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "search", destination = { x = 80, y = 20, z = 0 },
+        request = { category = "construction", quantity = 2 },
+        travelMode = "straight" })
+check(earlyStarted == true, "the pre-search recall probe starts")
+earlySearch.scout.trail = {
+    { x = 23, y = 20, z = 0 }, { x = 40, y = 20, z = 0 },
+    { x = 50, y = 20, z = 0 },
+}
+reserve.x = 55
+earlySearch.scout.replans = 5
+earlySearch.scout.firstPlanFailureAt = scoutClock - 31000
+earlySearch.scout.lastPlanFailure = "old_outbound_goal"
+earlySearch.scout.lastStalledTarget = { x = 60, y = 20, z = 0 }
+earlySearch.scout.lastPlanAt = scoutClock
+local recalled, recallReason = expedition.sendRadioOrder(player,
+    "return_now", "now")
+check(recalled == true and recallReason == "returning"
+        and earlySearch.scout.phase == "inbound"
+        and earlySearch.scout.returnIndex == 3
+        and earlySearch.scout.replans == 0
+        and earlySearch.scout.firstPlanFailureAt == nil
+        and earlySearch.scout.lastPlanFailure == nil
+        and earlySearch.scout.lastStalledTarget == nil
+        and earlySearch.scout.lastPlanAt == nil,
+    "mid-leg recall retraces the reached corner with clean inbound planning")
+local earlySaved = expedition.export()
+local invalidEarly = expedition.export()
+invalidEarly.scout.search.endReason = "quantity_met"
+check(earlySaved.scout.search.startedHour == nil
+        and earlySaved.scout.search.endReason == "radio_return"
+        and expedition.prepareReset() and expedition.reset()
+        and not expedition.restore(invalidEarly)
+        and expedition.restore(earlySaved),
+    "a pre-search recall restores while an invented completed Search does not")
+reserve.x = player.x + 3
+check(expedition.pulse() and expedition.finishAtPlayer(player),
+    "the restored pre-search return can rejoin the player")
+
+reserve.x, reserve.y = 23, 20
+local heldStarted, heldRoad = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+        travelMode = "road" })
+check(heldStarted == true, "the held-road recall probe starts")
+local heldHazard = { x = 80, y = 20, radius = 10 }
+heldRoad.scout.pause = { mode = "holding",
+    reason = "horde_no_safe_detour", hazard = heldHazard,
+    reported = true }
+local heldReturn = expedition.sendRadioOrder(player, "return_now", "now")
+check(heldReturn == true and heldRoad.scout.phase == "inbound"
+        and heldRoad.scout.pause == nil
+        and heldRoad.scout.road.avoidance ~= nil
+        and heldRoad.scout.road.avoidance.x == heldHazard.x,
+    "general radio recall releases a hold and retains its known hazard")
+reserve.x = player.x + 3
+check(expedition.finishAtPlayer(player),
+    "the recalled held-road squad can rejoin the player")
+
+reserve.x, reserve.y = 23, 20
+local trailSavedStarted, arrivedTrail = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+        travelMode = "road" })
+check(trailSavedStarted == true, "the reached-trail restore probe starts")
+arrivedTrail.scout.phase = "awaiting_player"
+arrivedTrail.scout.trailReturn = true
+arrivedTrail.scout.returnIndex = 0
+arrivedTrail.scout.road.phase = "inbound"
+arrivedTrail.scout.road.goal = { x = player.x, y = player.y, z = 0 }
+local awaitingTrail = expedition.export()
+check(expedition.prepareReset() and expedition.reset()
+        and expedition.restore(awaitingTrail)
+        and expedition.current().scout.phase == "awaiting_player"
+        and expedition.current().scout.trailReturn == true,
+    "an arrived trail-return itinerary remains restorable while awaiting the player")
+reserve.x = player.x + 3
+check(expedition.pulse() and expedition.finishAtPlayer(player),
+    "the restored trail return can finish")
+
+reserve.x, reserve.y = 23, 20
+local readyStarted, delayedRoad = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+        travelMode = "road" })
+check(readyStarted == true, "the delayed-road-data probe starts")
+delayedRoad.scout.roadRoute = nil
+local planCalls = 0
+SC.ExpeditionRoute.plan = function()
+    planCalls = planCalls + 1
+    return nil, "DATA_NOT_READY"
+end
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(delayedRoad.technicalIssue == nil
+        and delayedRoad.scout.trailReturn ~= true
+        and delayedRoad.scout.nextRoadRestartAt == scoutClock + 1000
+        and planCalls == 1,
+    "missing street data waits instead of terminating or switching to trail")
+scoutClock = scoutClock + 500
+expedition.pulse()
+check(planCalls == 1, "road restart throttles a transient map-data retry")
+SC.ExpeditionRoute.plan = savedRoadPlan
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(delayedRoad.scout.roadRoute ~= nil
+        and delayedRoad.scout.nextRoadRestartAt == nil
+        and delayedRoad.scout.lastRoadFailure == nil,
+    "road restart resumes when native street data becomes ready")
+reserve.x = player.x + 3
+check(expedition.finishAtPlayer(player),
+    "the recovered road probe releases its leader")
+reserve.x, reserve.y = 23, 20
+worldHour = 1500
+local timedStarted, timedRoad = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "scout", destination = { x = 190, y = 20, z = 0 },
+        travelMode = "road", turnHomeAfterHours = 0.25 })
+check(timedStarted == true, "the timed map-readiness probe starts")
+timedRoad.scout.roadRoute = nil
+SC.ExpeditionRoute.plan = function() return nil, "DATA_NOT_READY" end
+worldHour = 1500.3
+scoutClock = scoutClock + 1000
+expedition.pulse()
+check(timedRoad.scout.phase == "inbound"
+        and timedRoad.scout.endReason == "return_time_reached"
+        and timedRoad.technicalIssue == nil,
+    "return time still takes effect while street data is unavailable")
+SC.ExpeditionRoute.plan = savedRoadPlan
+reserve.x = player.x + 3
+check(expedition.finishAtPlayer(player),
+    "the timed map-readiness probe releases its leader")
 
 print("EXPEDITION_RESTART_KAHLUA_PASS checks=" .. tostring(checks))

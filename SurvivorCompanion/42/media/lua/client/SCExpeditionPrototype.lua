@@ -186,6 +186,21 @@ local function validSearch(value)
             and #value.endReason <= 64))
 end
 
+-- Search can turn home before reaching the site. Admit only return reasons
+-- that can genuinely occur without a started Search clock.
+local function unstartedSearchReturn(itinerary)
+    if itinerary.phase ~= "inbound" and itinerary.phase ~= "awaiting_player" then
+        return false
+    end
+    local reason = itinerary.search and itinerary.search.endReason
+    return (reason == "return_time_reached" and itinerary.turnHomeAtHour ~= nil)
+        or (reason == "arrival_reserve_reached" and itinerary.arriveByHour ~= nil)
+        or reason == "radio_return" or reason == "squad_wounded"
+        or reason == "horde_no_safe_detour" or reason == "site_unreachable"
+        or reason == "road_path_unreachable"
+        or reason == "straight_path_unreachable"
+end
+
 local function copySearch(value)
     if value == nil then return nil end
     return {
@@ -903,10 +918,7 @@ function Expedition.restore(saved)
                 or not validSearch(scout.search)
                 or (scout.phase ~= "outbound"
                     and scout.search.startedHour == nil
-                    and (scout.search.endReason ~= "return_time_reached"
-                        or scout.turnHomeAtHour == nil)
-                    and (scout.search.endReason ~= "arrival_reserve_reached"
-                        or scout.arriveByHour == nil))
+                    and not unstartedSearchReturn(scout))
                 or ((scout.phase == "inbound"
                         or scout.phase == "awaiting_player")
                     and scout.search.endReason == nil)
@@ -931,7 +943,9 @@ function Expedition.restore(saved)
             or (saved.schema ~= 5 and scout.road ~= nil)
             or (scout.trailReturn ~= nil and (scout.trailReturn ~= true
                 or saved.schema ~= 5 or scout.travelMode ~= "road"
-                or scout.phase ~= "inbound" or scout.road == nil))
+                or (scout.phase ~= "inbound"
+                    and scout.phase ~= "awaiting_player")
+                or scout.road == nil))
             or not validPoint(scout.destination)
             or not validPoint(scout.returnPoint)
             or (saved.schema == 5 and scout.road ~= nil and (
@@ -1952,6 +1966,10 @@ local function useReachedTrailForReturn(itinerary, avoidance)
 end
 
 startReturnFromSite = function(itinerary, reason)
+    if itinerary.pause ~= nil then
+        itinerary.roadAvoidance = copyRoadAvoidance(itinerary.pause.hazard)
+        itinerary.pause = nil
+    end
     if mission.testWaypoint ~= nil then
         local leader = mission.leader.actor
         Expedition.clearTestWaypoint(leader)
@@ -1977,7 +1995,18 @@ startReturnFromSite = function(itinerary, reason)
         itinerary.endReason = reason
     end
     itinerary.phase = "inbound"
-    itinerary.returnIndex = math.max(0, #itinerary.trail - 1)
+    itinerary.replans = 0
+    itinerary.firstPlanFailureAt = nil
+    itinerary.lastPlanFailure = nil
+    itinerary.lastStalledTarget = nil
+    itinerary.lastPlanAt = nil
+    itinerary.nextRoadRestartAt = nil
+    itinerary.returnIndex = #itinerary.trail
+    while itinerary.returnIndex >= 1
+        and distanceToPoint(mission.leader.actor,
+            itinerary.trail[itinerary.returnIndex]) <= 4 do
+        itinerary.returnIndex = itinerary.returnIndex - 1
+    end
     itinerary.observingSince = nil
     if itinerary.road ~= nil then
         local avoidance = itinerary.roadAvoidance
@@ -2191,44 +2220,12 @@ local function pulseScout()
             return
         end
     end
-    if scout.road ~= nil and scout.roadRoute == nil
-        and scout.trailReturn ~= true
-        and (scout.phase == "outbound" or scout.phase == "inbound") then
-        local goal = scout.phase == "inbound"
-            and scout.returnPoint or scout.destination
-        local route, routeReason = SC.ExpeditionRoute.plan(
-            mission.leader.actor, goal, true,
-            scout.road.avoidance)
-        if route == nil then
-            if scout.phase == "inbound" then
-                useReachedTrailForReturn(scout, scout.road.avoidance)
-                scout.lastRoadFailure = routeReason or "road_restart_replan_failed"
-            else
-                mission.technicalIssue = {
-                    reason = routeReason or "road_restart_replan_failed" }
-            end
-            return
-        end
-        local entryReady, entryReason = SC.ExpeditionRoute.verifyEntry(
-            route, mission.leader.actor)
-        if not entryReady then
-            if scout.phase == "inbound" then
-                useReachedTrailForReturn(scout, scout.road.avoidance)
-                scout.lastRoadFailure = entryReason
-            else
-                mission.technicalIssue = { reason = entryReason }
-            end
-            return
-        end
-        scout.roadRoute = route
-        scout.road = SC.ExpeditionRoute.descriptor(route, scout.phase)
-    end
+    -- A delayed street-data refresh must not suspend the player's return
+    -- deadline. Check it before any transient road-reconstruction retry.
     if pause == nil and now >= (scout.nextReturnCheckAt or -math.huge)
         and (scout.turnHomeAtHour ~= nil or scout.arriveByHour ~= nil)
         and (scout.phase == "outbound" or scout.phase == "observing"
             or scout.phase == "searching") then
-        -- The world-hour getter and trail estimate need only a one-second
-        -- cadence; the ordinary movement pulse may run every game frame.
         scout.nextReturnCheckAt = now + 1000
         local worldHour = scoutWorldHour()
         if worldHour == nil then
@@ -2259,6 +2256,46 @@ local function pulseScout()
             startReturnFromSite(scout, returnReason)
             return
         end
+    end
+    if scout.road ~= nil and scout.roadRoute == nil
+        and scout.trailReturn ~= true
+        and (scout.phase == "outbound" or scout.phase == "inbound") then
+        if now < (scout.nextRoadRestartAt or 0) then return end
+        local goal = scout.phase == "inbound"
+            and scout.returnPoint or scout.destination
+        local route, routeReason = SC.ExpeditionRoute.plan(
+            mission.leader.actor, goal, true,
+            scout.road.avoidance)
+        if route == nil and routeReason == "DATA_NOT_READY" then
+            scout.nextRoadRestartAt = now + 1000
+            scout.lastRoadFailure = routeReason
+            return
+        end
+        scout.nextRoadRestartAt = nil
+        if route == nil then
+            if scout.phase == "inbound" then
+                useReachedTrailForReturn(scout, scout.road.avoidance)
+                scout.lastRoadFailure = routeReason or "road_restart_replan_failed"
+            else
+                mission.technicalIssue = {
+                    reason = routeReason or "road_restart_replan_failed" }
+            end
+            return
+        end
+        local entryReady, entryReason = SC.ExpeditionRoute.verifyEntry(
+            route, mission.leader.actor)
+        if not entryReady then
+            if scout.phase == "inbound" then
+                useReachedTrailForReturn(scout, scout.road.avoidance)
+                scout.lastRoadFailure = entryReason
+            else
+                mission.technicalIssue = { reason = entryReason }
+            end
+            return
+        end
+        scout.roadRoute = route
+        scout.road = SC.ExpeditionRoute.descriptor(route, scout.phase)
+        scout.lastRoadFailure = nil
     end
     local wounded, woundedRecord, woundedHealth =
         squadNeedsWithdrawal(mission.roster)
