@@ -1172,7 +1172,7 @@ local function issueCommandButton(target, button, requestedRow)
         ok, accepted, reason, extra = pcall(SC.Commands.issue,
             row.id, button.scCommand, button.scPayload, player)
     end
-    if not ok or accepted == false then
+    if not ok or accepted ~= true then
         setButtonFeedback(target,
             UI.text("UI_SC_CommandRejectedDetail", buttonFeedbackLabel(button)), false)
         if SC.Interaction and SC.Interaction.descriptor(button.scCommand) then
@@ -1196,7 +1196,7 @@ local function issueCommandButton(target, button, requestedRow)
                 or UI.text("UI_SC_CommandAcceptedDetail", buttonFeedbackLabel(button)),
             true)
     end
-    if button.scCommand == "status" and ok and accepted ~= false
+    if button.scCommand == "status" and ok and accepted == true
         and not (target.root and target.root.selectedTab == "talk") then
         local description = commandResultDescription(accepted, reason, extra)
         if description then
@@ -1207,7 +1207,7 @@ local function issueCommandButton(target, button, requestedRow)
     else
         UI.refresh()
     end
-    return ok and accepted ~= false
+    return ok and accepted == true
 end
 
 local function onCommandButton(target, button)
@@ -1329,7 +1329,7 @@ local function onSignalButton(target, button)
     else
         ok, accepted, reason, extra, results = pcall(SC.Commands.handSign, player, button.scSignal)
     end
-    if not ok or accepted == false then
+    if not ok or accepted ~= true then
         setButtonFeedback(target, signalResultText(reason)
             or UI.text("UI_SC_CommandRejectedDetail", buttonFeedbackLabel(button)), false)
     else

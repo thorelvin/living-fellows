@@ -4878,6 +4878,70 @@ local socialDistance = SurvivorCompanion.GameplayUtil.distance(
 check(socialDistance >= 1.2 and socialDistance <= 2.8,
     "conversation approach target remains inside the configured minimum/maximum ring")
 
+;(function()
+    local positioning = SurvivorCompanion.Positioning
+    local decision = SurvivorCompanion.Decision
+    local speaker = actor("sc-talk-stop-boundary", 22, 18, {})
+    local partner = actor("sc-talk-stop-partner", 22, 20, {})
+    local replies = 0
+    speaker.rejectStop = true
+    check(positioning.beginConversation(speaker, partner, {
+            action = "status", onReady = function() replies = replies + 1; return true end,
+        }), "conversation stages before movement ownership is available")
+    local blocked, blockedReason = positioning.updateConversation(speaker, {})
+    check(not blocked and blockedReason == "conversation_stop_rejected" and replies == 0,
+        "a rejected native stop cannot commit a conversation reply")
+    speaker.rejectStop = false
+    check(positioning.updateConversation(speaker, {}) and replies == 1,
+        "the reply commits once after native stop accepts ownership")
+
+    local farReason
+    positioning.beginConversation(speaker, partner, {
+        action = "needs", onCancel = function(reason) farReason = reason end,
+    })
+    partner.square = cell:getGridSquare(45, 45, 0)
+    local chased, chaseReason = positioning.updateConversation(speaker, {})
+    check(not chased and chaseReason == "conversation_partner_too_far"
+            and farReason == chaseReason and not positioning.activeConversation(speaker),
+        "a player leaving conversation range cancels instead of being chased")
+
+    partner.square = cell:getGridSquare(22, 20, 0)
+    local floorReason
+    positioning.beginConversation(speaker, partner, {
+        action = "needs", onCancel = function(reason) floorReason = reason end,
+    })
+    partner.square = cell:getGridSquare(22, 20, 1)
+    local crossed, crossReason = positioning.updateConversation(speaker, {})
+    check(not crossed and crossReason == "conversation_partner_unavailable"
+            and floorReason == crossReason,
+        "a partner changing floors ends a pending conversation promptly")
+
+    local selected = decision._selectWithHysteresisForTests({
+        currentKey = "scavenge", minimumUntil = clock + 1000,
+    }, {
+        { kind = "conversation", key = "conversation", score = 94, safetyRank = 1 },
+        { kind = "scavenge", key = "scavenge", score = 76, safetyRank = 2 },
+    }, clock)
+    check(selected.kind == "conversation",
+        "a direct Talk request interrupts routine scavenge hysteresis")
+    local inspired = decision._selectWithHysteresisForTests({
+        currentKey = "logistics", minimumUntil = clock + 1000,
+    }, {
+        { kind = "logistics", key = "logistics", score = 107, safetyRank = 2 },
+        { kind = "conversation", key = "conversation", score = 94, safetyRank = 1 },
+    }, clock)
+    check(inspired.kind == "conversation",
+        "inspired routine logistics cannot starve an explicit Talk request")
+    local urgent = decision._selectWithHysteresisForTests({}, {
+        { kind = "medical", key = "medical", score = 112, safetyRank = 4,
+            emergency = true },
+        { kind = "conversation", key = "conversation", score = 94, safetyRank = 1 },
+    }, clock)
+    check(urgent.kind == "medical",
+        "emergency medicine still outranks a pending conversation")
+    positioning.reset(speaker)
+end)()
+
 local spaceActor = actor("space-yielding", 10, 10, {})
 local spaceBlocker = actor("space-blocker", 11, 10, {})
 registry[spaceActor.id], registry[spaceBlocker.id] = spaceActor, spaceBlocker
@@ -11938,7 +12002,8 @@ local fixtures = {
 }
 
 local furnitureKind, seatActivity, approachFurniture, beginFurniture,
-    coolFurniture, furnitureCooling, _, _, failFurnitureActivity =
+    coolFurniture, furnitureCooling, _, _, failFurnitureActivity,
+    reserveFurniture, releaseFurniture =
     SurvivorCompanion.Downtime._furnitureForTests()
 local fixtureObjects = {}
 for index, fixture in ipairs(fixtures) do
@@ -11979,6 +12044,12 @@ local alternateChair, alternateChairSquare = furnitureFixture({
     x = -5, y = -7, name = "Alternate Chair",
     sprite = "furniture_seating_indoor_03_40", seatingPositions = 1,
 })
+local otherSitter = actor("sc-other-sitter", -7, -7, {})
+check(reserveFurniture(wallCouch, wallActor, clock)
+        and seatActivity(otherSitter, {}, clock).object == alternateChair
+        and seatActivity(wallActor, {}, clock).object == wallCouch,
+    "another companion selects the free chair while the first holds the couch")
+releaseFurniture(wallCouch, wallActor)
 local blockedRouteState = {
     active = { kind = "sit", object = wallCouch, square = wallCouchSquare },
 }

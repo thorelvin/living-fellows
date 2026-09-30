@@ -1239,8 +1239,15 @@ function Positioning.updateConversation(actor, snapshot)
     local minimum = utility.config("conversationMinimumDistance") or 1.2
     local maximum = utility.config("conversationMaximumDistance") or 2.8
     local partnerDistance = utility.distance(actor, partner)
-    if not utility.sameFloor(actor, partner) or partnerDistance > maximum
-        or partnerDistance < minimum then
+    if not utility.sameFloor(actor, partner) then
+        Positioning.cancelConversation(actor, "conversation_partner_unavailable")
+        return false, "conversation_partner_unavailable"
+    end
+    if partnerDistance > 16 then
+        Positioning.cancelConversation(actor, "conversation_partner_too_far")
+        return false, "conversation_partner_too_far"
+    end
+    if partnerDistance > maximum or partnerDistance < minimum then
         local target = conversationTarget(actor, partner, snapshot)
         if not target then
             Positioning.cancelConversation(actor, "conversation_position_unavailable")
@@ -1258,6 +1265,9 @@ function Positioning.updateConversation(actor, snapshot)
         })
     end
 
+    -- Native stop must accept ownership before dialogue commits any speech or
+    -- relationship change. A refused stop leaves the request pending.
+    if not utility.stop(actor) then return false, "conversation_stop_rejected" end
     if conversation.onReady then
         local callback = conversation.onReady
         conversation.onReady = nil
@@ -1270,7 +1280,6 @@ function Positioning.updateConversation(actor, snapshot)
             + (utility.config("conversationHoldMs") or 5000)
         conversation.onCancel = nil
     end
-    if not utility.stop(actor) then return false, "conversation_stop_rejected" end
     local action = conversation.posed and "face_conversation" or "conversation_pose"
     local emote = conversation.emote
     if not conversation.posed and (type(emote) ~= "string" or emote == "") then

@@ -7,6 +7,14 @@ local row = { id = "sam", actor = {}, alive = true, available = true,
 assert(#interaction.categories == 3)
 assert(#interaction.quickOrders == 4)
 assert(interaction.availability(row, "doing", player))
+SurvivorCompanion.GameplayUtil = {
+    sameFloor = function() return false end,
+}
+local sameFloorAllowed, floorReason = interaction.availability(row, "doing", player)
+assert(not sameFloorAllowed and floorReason == "UI_SC_Talk_DifferentFloor")
+SurvivorCompanion.GameplayUtil = nil
+assert(interaction.reasonText("conversation_partner_too_far") ==
+    "UI_SC_Disabled_TooFar:16")
 local neutral = { id = "stranger", actor = {}, alive = true, available = true,
     recruited = false, distance = 2 }
 assert(interaction.availability(neutral, "doing", player))

@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.26.8 - Conversation and seating reliability
+
+- Talk requests now take precedence over routine work, wait for movement ownership before speaking, and stop pursuing a player who changes floors or moves beyond speaking range. Nearby neutral survivors can be opened from their right-click Talk shortcut.
+- Rejected command and hand-sign calls no longer appear successful when a service returns no acceptance. Distance errors display their limit correctly.
+- Companions skip a seat already reserved by another companion instead of repeatedly selecting it. The ten focused fixes and verification evidence are recorded in `docs/0.26.8-ten-bug-audit.md`. The Talk and seating visuals still need an in-game playtest.
+
 ## 0.26.7 - Conversations that wait for people
 
 - Right-clicking a nearby companion opens a dedicated Talk view for that person. The view groups ten choices by topic, shows identity and current context, and keeps a bounded transcript. Quick Follow, Stay, Regroup, and Retreat orders remain on the right-click menu; the full Orders panel is one click away.

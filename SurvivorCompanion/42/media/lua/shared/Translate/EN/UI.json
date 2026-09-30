@@ -27,6 +27,7 @@
     "UI_SC_Talk_Danger": "Danger interrupted the conversation.",
     "UI_SC_Talk_OrderInterrupted": "An order interrupted the conversation.",
     "UI_SC_Talk_PartnerUnavailable": "The companion or player is unavailable.",
+    "UI_SC_Talk_DifferentFloor": "Move to the same floor to talk.",
     "UI_SC_Talk_PathUnavailable": "There is no clear place to stand and talk.",
     "UI_SC_Talk_Cancelled": "The conversation ended before they answered.",
     "UI_SC_Tab_Overview":  "Overview",

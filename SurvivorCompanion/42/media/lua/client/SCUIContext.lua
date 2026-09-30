@@ -664,33 +664,44 @@ end
 
 local function nearbyRows(player)
     local rows = {}
+    local talkRows = {}
     if not SC.Registry or type(SC.Registry.living) ~= "function" then
-        return rows
+        return rows, talkRows
     end
     local ok, living = pcall(SC.Registry.living)
     if not ok or type(living) ~= "table" then
-        return rows
+        return rows, talkRows
     end
     for _, entry in pairs(living) do
         local row = SC.UI and SC.UI.describeEntry and SC.UI.describeEntry(entry, player) or nil
         local recruited = row and row.recruited == true
+        local validRecord = row and row.id and row.id ~= ""
         if row and row.id and row.id ~= "" and SC.Registry
             and type(SC.Registry.byId) == "function" then
             local recordOk, record = pcall(SC.Registry.byId, row.id)
+            validRecord = recordOk and type(record) == "table"
+                and record.actor == entry
             recruited = recordOk and type(record) == "table"
                 and record.actor == entry and record.recruited == true
         end
-        if recruited and row and row.id and row.id ~= "" then
+        if validRecord then
+            row.recruited = recruited
             local distance = tonumber(row.distance)
             if not distance or distance <= Context.maximumShortcutDistance then
-                rows[#rows + 1] = row
+                if recruited then rows[#rows + 1] = row end
+                if recruited or (row.factionMember ~= true and row.factionId == nil) then
+                    talkRows[#talkRows + 1] = row
+                end
             end
         end
     end
     table.sort(rows, function(left, right)
         return string.lower(tostring(left.name)) < string.lower(tostring(right.name))
     end)
-    return rows
+    table.sort(talkRows, function(left, right)
+        return string.lower(tostring(left.name)) < string.lower(tostring(right.name))
+    end)
+    return rows, talkRows
 end
 
 local function openTalkFromContext(_, row)
@@ -941,14 +952,15 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             end, 16)
         end
     end
-    local rows = nearbyRows(player)
-    local clickedCompanion, clickedMatches = clickedCompanionRow(rows, worldObjects, clickSquare)
+    local rows, talkRows = nearbyRows(player)
+    local clickedCompanion, clickedMatches = clickedCompanionRow(talkRows, worldObjects, clickSquare)
     local factions = talkableFactions(player)
     local baseRelevant = baseMenuRelevant(clickSquare)
     local watchStatus = SC.ViewControl and type(SC.ViewControl.status) == "function"
         and SC.ViewControl.status() or {}
     if #rows == 0 and #factions == 0 and not baseRelevant
-        and watchStatus.watching ~= true then return end
+        and watchStatus.watching ~= true and not clickedCompanion
+        and not (clickedMatches and #clickedMatches > 1) then return end
     if test and ISWorldObjectContextMenu and ISWorldObjectContextMenu.setTest then
         return ISWorldObjectContextMenu.setTest()
     end
@@ -963,24 +975,24 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         context:addOption(text("UI_SC_Action_StopWatchingNamed",
             companionName(watchStatus.watchId or "")), nil,
             stopWatchingFromContext, player)
-    elseif clickedCompanion then
+    elseif clickedCompanion and clickedCompanion.recruited == true then
         context:addOption(text("UI_SC_Action_Watch", clickedCompanion.name), nil,
             watchFromContext, clickedCompanion, player)
     end
-    if clickedCompanion and clickedCompanion.recruited == true then
+    if clickedCompanion then
         context:addOption(text("UI_SC_Talk_To", clickedCompanion.name),
             nil, openTalkFromContext, clickedCompanion)
-        for _, action in ipairs(SC.Interaction.quickOrders) do
-            addInteractionShortcut(context, clickedCompanion, action, player)
+        if clickedCompanion.recruited == true then
+            for _, action in ipairs(SC.Interaction.quickOrders) do
+                addInteractionShortcut(context, clickedCompanion, action, player)
+            end
+            context:addOption(text("UI_SC_Talk_OpenOrders"), nil,
+                openOrdersFromContext, clickedCompanion)
         end
-        context:addOption(text("UI_SC_Talk_OpenOrders"), nil,
-            openOrdersFromContext, clickedCompanion)
     elseif clickedMatches and #clickedMatches > 1 then
         local choose = addCategory(context, "UI_SC_Talk_ChoosePerson")
         for _, row in ipairs(clickedMatches) do
-            if row.recruited == true then
-                choose:addOption(row.name, nil, openTalkFromContext, row)
-            end
+            choose:addOption(row.name, nil, openTalkFromContext, row)
         end
     end
     if selected and targetPayload then
@@ -990,6 +1002,8 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             barricadeTarget, barricadePayload, removeBarricadeTarget,
             removeBarricadePayload, dismantleTarget, dismantlePayload, player)
     end
+
+    if #rows == 0 and #factions == 0 and not baseRelevant then return end
 
     local rootOption = context:addOption(text("UI_SC_Context_LivingFellows"), nil, nil)
     local rootMenu = ISContextMenu:getNew(context)

@@ -91,6 +91,10 @@ function Interaction.availability(row, action, player)
         if ok and leader then return false, "UI_SC_Talk_RadioRequired" end
     end
     if descriptor.kind == "talk" then
+        if SC.GameplayUtil and type(SC.GameplayUtil.sameFloor) == "function"
+            and not SC.GameplayUtil.sameFloor(row.actor, player) then
+            return false, "UI_SC_Talk_DifferentFloor"
+        end
         if Interaction.sessions[tostring(row.id)]
             and Interaction.sessions[tostring(row.id)].state == "approaching" then
             return false, "UI_SC_Talk_Busy"
@@ -138,11 +142,13 @@ local interruptionKeys = {
     conversation_rejected = "UI_SC_Talk_Cancelled",
     conversation_cancelled = "UI_SC_Talk_Cancelled",
     conversation_replaced = "UI_SC_Talk_Cancelled",
+    conversation_partner_too_far = "UI_SC_Disabled_TooFar",
 }
 
 function Interaction.reasonText(reason, argument)
     local key = interruptionKeys[reason] or reason
     if type(key) == "string" and string.sub(key, 1, 6) == "UI_SC_" then
+        if key == "UI_SC_Disabled_TooFar" and argument == nil then argument = 16 end
         return argument ~= nil and label(key, argument) or label(key)
     end
     return label("UI_SC_Talk_Cancelled")

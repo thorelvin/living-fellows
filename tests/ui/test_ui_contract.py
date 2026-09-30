@@ -435,7 +435,7 @@ class UIStaticContractTests(unittest.TestCase):
             "function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, test)",
         )
         watch = lua_function(self.context, "local function watchFromContext(")
-        self.assertIn("clickedCompanionRow(rows, worldObjects, clickSquare)", fill)
+        self.assertIn("clickedCompanionRow(talkRows, worldObjects, clickSquare)", fill)
         self.assertIn('text("UI_SC_Action_Watch", clickedCompanion.name)', fill)
         self.assertIn('text("UI_SC_Action_StopWatchingNamed"', fill)
         self.assertIn("SC.UI.selectCompanion(row.id)", watch)
@@ -1038,7 +1038,8 @@ class UIStaticContractTests(unittest.TestCase):
         nearby = lua_function(self.context, "local function nearbyRows(player)")
         self.assertIn('type(SC.Registry.byId) == "function"', nearby)
         self.assertIn("record.actor == entry and record.recruited == true", nearby)
-        self.assertIn("if recruited and row", nearby)
+        self.assertIn("if recruited then rows[#rows + 1] = row end", nearby)
+        self.assertIn("talkRows[#talkRows + 1] = row", nearby)
         fill = lua_function(
             self.context,
             "function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, test)",

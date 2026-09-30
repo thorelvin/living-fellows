@@ -832,6 +832,9 @@ local function seatActivity(actor, state, current, seatOnly)
                                 object, "isFurnitureOccupied", actor)
                             if value and (seatOnly ~= true or value == "sit")
                                 and not (occupiedOk and occupied == true)
+                                and not (reservations[object]
+                                    and reservations[object].actor ~= actor
+                                    and reservations[object].expires > current)
                                 and not furnitureCooling(state, object, current) then
                                 found, kind = object, value
                                 return false
@@ -2836,7 +2839,7 @@ end
 function Downtime._furnitureForTests()
     return furnitureKind, seatActivity, approachFurniture, beginActivity,
         coolFurniture, furnitureCooling, floorRestActivity, seatingStatus,
-        failActivity
+        failActivity, reserve, release
 end
 
 function Downtime.reset(actor)

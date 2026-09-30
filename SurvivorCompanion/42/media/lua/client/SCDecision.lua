@@ -426,7 +426,9 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
     if threatCount == 0 and SC.Positioning
         and type(SC.Positioning.activeConversation) == "function"
         and SC.Positioning.activeConversation(actor) then
-        add("conversation", 68, false)
+        -- A direct player request must outlast routine scavenging, logistics,
+        -- and formation work while retaining emergency survival priority.
+        add("conversation", 94, false)
     end
     -- Quiet-time wound care: dress a wound that stopped bleeding before anyone
     -- covered it, or change a soiled dressing, once nothing is around and a
@@ -663,6 +665,14 @@ local function selectWithHysteresis(state, candidates, now)
     local best = candidates[1]
     if not best then return nil end
     if best.emergency then return best end
+    -- Personality, inspiration, and goal bonuses can lift a routine chore
+    -- above the fixed Talk score. A pending player request takes that routine
+    -- slot until it answers or times out, while tactical/survival work wins.
+    if (best.safetyRank or 0) <= safetyRank[Decision.SafetyTier.ROUTINE] then
+        for _, candidate in ipairs(candidates) do
+            if candidate.kind == "conversation" then return candidate end
+        end
+    end
     if state.currentKey and now < (state.minimumUntil or 0) then
         local currentCandidate
         for _, candidate in ipairs(candidates) do
@@ -675,6 +685,7 @@ local function selectWithHysteresis(state, candidates, now)
     end
     return best
 end
+Decision._selectWithHysteresisForTests = selectWithHysteresis
 
 local function enforceVehicleExitPolicy(actor, player, commands)
     local utility = U()
