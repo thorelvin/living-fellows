@@ -4555,6 +4555,23 @@ check(roadTarget and roadContext.shape == "wedge"
             return false
         end)(),
     "expedition roster gives a saved Wander member a bounded road flank")
+local oldLeaderRoom = positioningLeader.square.room
+local oldRoadTargetRoom = roadTarget.room
+positioningLeader.square.room = nil
+roadTarget.room = { name = "station restroom" }
+local exteriorFlank = SurvivorCompanion.Positioning.formationTarget(
+    wanderingMember, positioningLeader, {
+        order = "follow", group = "bravo", followDistance = 2,
+        expeditionMoving = true,
+        expeditionRoad = { first = { x = 10, y = 20 },
+            last = { x = 50, y = 20 }, width = 8,
+            forwardX = 1, forwardY = 0 },
+    }, formationSnapshot)
+check(exteriorFlank and exteriorFlank ~= roadTarget
+        and exteriorFlank:getRoom() == nil,
+    "a travelling squad does not flank into an adjacent restroom")
+positioningLeader.square.room = oldLeaderRoom
+roadTarget.room = oldRoadTargetRoom
 SurvivorCompanion.ExpeditionPrototype = oldExpedition
 positioningLeader.moving = false
 SurvivorCompanion.Positioning.reset(wanderingMember)

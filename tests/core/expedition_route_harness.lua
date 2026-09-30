@@ -11,6 +11,8 @@ SC.Config = { get = function(key)
     if key == "expeditionRoadRoutingEnabled" then return enabled end
 end }
 local source = { x = 10, y = 10 }
+local indoorRoom = {}
+source.getRoom = function() return indoorRoom end
 local entry = { x = 20, y = 10 }
 SC.GameplayUtil = {
     position = function(object) return object.x, object.y, 0 end,
@@ -63,6 +65,9 @@ check(Route.verifyEntry({ index = 1,
     "a nearby road entry still needs a loaded local path")
 check(Route.target(route, actor).x == 20, "first leg reaches road entry")
 actor.x = 20
+check(Route.target(route, actor).x == 20 and route.index == 1,
+    "being close to a road point through an interior wall does not advance it")
+source.getRoom = function() return nil end
 check(Route.target(route, actor).x == 60, "reaching entry advances to road")
 check(Route.withinCorridor(route, { { x = 30, y = 10 } }),
     "on-road path remains inside corridor")
@@ -74,16 +79,16 @@ check(not Route.withinCorridor(route, { { x = 30, y = 30 } }),
 check(Route.allowInteriorAccess(route, "search", "outbound", false) == false,
     "a Search team may not cut through an unrelated house between roads")
 route.index = 1
-check(Route.allowInteriorAccess(route, "search", "outbound", true),
-    "the road-entry leg may leave an indoor departure point")
+check(not Route.allowInteriorAccess(route, "search", "outbound", true),
+    "an indoor departure seeks an exterior path to the road entry")
 check(not Route.allowInteriorAccess(route, "search", "outbound", false),
     "an outdoor road-entry leg does not cross an unrelated house")
 route.index = #route.points + 1
 check(Route.allowInteriorAccess(route, "search", "outbound", false),
     "final site access may use the building's door")
 route.index = 2
-check(Route.allowInteriorAccess(route, "search", "inbound", true),
-    "return can leave the searched building")
+check(not Route.allowInteriorAccess(route, "search", "inbound", true),
+    "an indoor return seeks an exterior path before the road")
 check(not Route.allowInteriorAccess(route, "search", "inbound", false),
     "road return does not enter an unrelated building")
 check(Route.allowInteriorAccess(nil, "search", "outbound", false),

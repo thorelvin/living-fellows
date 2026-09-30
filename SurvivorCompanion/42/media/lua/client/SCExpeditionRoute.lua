@@ -210,7 +210,11 @@ function Route.target(route, actor, snapshot)
         or type(route.index) ~= "number" then return nil end
     local x, y = SC.GameplayUtil.position(actor)
     if x == nil or y == nil then return nil end
+    local square = actor.getCurrentSquare and actor:getCurrentSquare() or nil
+    local inside = square ~= nil and square.getRoom
+        and square:getRoom() ~= nil
     while route.index <= #route.points
+        and not inside
         and distance(x, y, route.points[route.index]) <= 4 do
         local reached = route.points[route.index]
         if reached.junction == true then
@@ -425,8 +429,8 @@ function Route.withinCorridor(route, path)
     return true
 end
 
--- Only the access legs may enter a building. Search expeditions must not use
--- their broader site-access permission while traversing intermediate roads.
+-- Road waypoints are exterior. Indoor departure and return first seek an
+-- exterior path; only the final site/player access leg may enter a building.
 function Route.allowInteriorAccess(route, kind, phase, leaderInRoom)
     if route == nil then
         return phase == "inbound"
@@ -435,13 +439,10 @@ function Route.allowInteriorAccess(route, kind, phase, leaderInRoom)
     if type(route.points) ~= "table" or type(route.index) ~= "number" then
         return false
     end
-    if route.index <= 1 then
-        return leaderInRoom == true
-    end
     if route.index > #route.points then
         return true
     end
-    return phase == "inbound" and leaderInRoom == true
+    return false
 end
 
 function Route.descriptor(route, phase)

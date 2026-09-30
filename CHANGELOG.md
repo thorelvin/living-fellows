@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.26.11 - Expedition travel stays outside the station
+
+- Travelling squads keep their movement state while the leader replans or waits for stragglers, so companions do not start indoor downtime between waypoints.
+- Road waypoints require the leader to actually leave a building before they count as reached. Indoor exit routes can pass through a hall, but outdoor travel no longer cuts through an unrelated room.
+- A squad flanking an outdoor leader chooses outdoor formation tiles. Departure diagnostics now record the selected target and travel mode for the next playtest.
+
 ## 0.26.10 - Split-view zombie sight and close combat
 
 - Restored the native local-player sight pass for the companion leading the second view, so visible zombies can render there.

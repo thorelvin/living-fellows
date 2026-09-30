@@ -1,5 +1,11 @@
 # Companion playtest fix queue
 
+## Station restroom expedition stall (2026-09-30)
+
+- **Reported:** A squad sent about 90 tiles away entered the station restrooms and stayed there. The 14:52 game log loaded 0.26.6 from an older staged Workshop copy, even though 0.26.10 was installed in the local mods folder. It repeatedly logged unreachable movement goals around `(6083,5302)` and `(6084,5304)`; the log does not record the selected expedition destination, so the exact route and leader identity cannot be reconstructed.
+- **0.26.11 fix:** Keep expedition movement active for every squad member during waypoint gaps, so an indoor pause cannot start routine downtime. A road waypoint only advances after the leader is outside. Local legs may leave a building through multiple rooms, but cannot reenter an unrelated building. Outdoor leaders keep their formation slots outside adjacent restrooms. Departure logging now includes the destination and travel mode.
+- **Next live check:** Save and close the current game before installing. Remove the stale 0.26.6 Workshop staging copy from the mod load path, then confirm the next log says `release=0.26.11`. Repeat one short station departure with the same squad and destination; inspect the new departure line and any navigation blocker before a longer run.
+
 ## Expedition design review follow-ups
 
 - **Inbound road failure (fixed in working tree, 2026-09-29):** A failed return-road plan, unsafe entry, horde detour, or exhausted road waypoint used to leave the squad in a permanent technical hold. The leader now falls back to the waypoints the squad actually reached, including after an inbound save reload. Each short leg still requires a loaded native path; a known horde exclusion is retained. A genuinely blocked trail can still stop after bounded retries and needs an in-game acceptance check.

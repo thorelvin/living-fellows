@@ -711,6 +711,15 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         and SC.ExpeditionPrototype.current() or nil
     local missionLeader = expedition and expedition.leader
         and expedition.leader.actor == leader
+    local leaderSquare = missionLeader and utility.squareOf(leader) or nil
+    local leaderRoom = leaderSquare and leaderSquare.getRoom
+        and leaderSquare:getRoom() or nil
+    local keepLeaderRoom = missionLeader and commands.expeditionMoving == true
+        and leaderSquare ~= nil
+    local function sameLeaderRoom(square)
+        return not keepLeaderRoom or square ~= nil
+            and square.getRoom and square:getRoom() == leaderRoom
+    end
     local travelling = #roster >= 2 and ((movingOk and moving == true)
         or missionLeader and current
             - (leaderState.lastMovedAt or -math.huge) <= 650)
@@ -846,7 +855,8 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         -- still validates every intervening door, window, and hazard.
         mode = "regroup"
         shape = "regroup"
-        target = availableTarget(actor, px, py, pz, snapshot, minimum)
+        target = availableTarget(actor, px, py, pz, snapshot,
+            minimum, sameLeaderRoom)
     elseif mode == "trail" then
         local trail = leaderState.trail or {}
         if #trail >= 2 and (leaderState.totalDistance or 0) >= 0.35 then
@@ -867,7 +877,8 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
             -- distinct from open formation so Navigation never treats wall-blocked
             -- startup as an ordinary lateral formation adjustment.
             mode = "bootstrap"
-            target = availableTarget(actor, px, py, pz, snapshot, minimum)
+            target = availableTarget(actor, px, py, pz, snapshot,
+                minimum, sameLeaderRoom)
         end
     end
     if not target then
@@ -875,17 +886,20 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
             local roadPredicate = road and road.first and road.last
                 and function(square)
                     local sx, sy = utility.position(square)
-                    return sx ~= nil and sy ~= nil
+                    return sameLeaderRoom(square)
+                        and sx ~= nil and sy ~= nil
                         and lineDistance(sx, sy, road.first, road.last)
                             <= road.width * 0.5 - 0.5
                 end or nil
             target = roadPredicate and availableTarget(actor,
                 targetX, targetY, pz, snapshot, minimum, roadPredicate)
                 or availableTarget(actor,
-                    targetX, targetY, pz, snapshot, minimum)
+                    targetX, targetY, pz, snapshot, minimum,
+                    sameLeaderRoom)
         else
             mode = "bootstrap"
-            target = availableTarget(actor, px, py, pz, snapshot, minimum)
+            target = availableTarget(actor, px, py, pz, snapshot,
+                minimum, sameLeaderRoom)
         end
     end
     local previous = state.targetSquare
@@ -893,6 +907,7 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     if mode == "open" and target and previous and reservationKey(previous) ~= reservationKey(target)
         and utility.sameFloor(previous, target)
         and utility.distance(previous, target) <= retainDistance
+        and sameLeaderRoom(previous)
         and utility.isSquareFree(previous) and allyClear(actor, previous, snapshot, minimum)
         and canReserve(actor, previous, current) then
         -- The continuous ideal point often straddles a tile boundary as a player

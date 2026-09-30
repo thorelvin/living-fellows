@@ -111,10 +111,16 @@ local function commandsFor(actor)
                 missionOrder.tacticalTarget = nil
                 missionOrder.pendingInteraction = nil
                 local waypoint = SC.ExpeditionPrototype.testWaypointFor(actor)
+                local phase = expedition and expedition.scout
+                    and expedition.scout.phase or nil
+                -- A route briefly has no staged waypoint while its leader
+                -- replans or waits for the tail. Keep the squad travelling so
+                -- followers do not start indoor downtime in that gap.
                 missionOrder.expeditionMoving =
                     SC.ExpeditionPrototype.testWaypointActiveFor(actor)
-                    or (expedition and expedition.scout
-                        and expedition.scout.phase == "searching")
+                    or phase == "outbound" or phase == "inbound"
+                    or phase == "searching" or phase == "observing"
+                    or phase == "awaiting_player"
                 if waypoint ~= nil then
                     missionOrder.order = "move_to"
                     missionOrder.moveMode = "walk"

@@ -653,6 +653,15 @@ function Expedition.start(records, plan)
     if SC.Dialogue and type(SC.Dialogue.say) == "function" then
         pcall(SC.Dialogue.say, roster[1].actor, "expedition.departure")
     end
+    if scout ~= nil and SC.GameplayUtil
+        and type(SC.GameplayUtil.diagnostic) == "function" then
+        SC.GameplayUtil.diagnostic("expedition", roster[1].actor,
+            "action=depart kind=" .. tostring(scout.kind)
+                .. " travel=" .. tostring(scout.travelMode)
+                .. " target=" .. tostring(scout.destination.x)
+                .. "," .. tostring(scout.destination.y)
+                .. " members=" .. tostring(#roster))
+    end
     return true, mission
 end
 
@@ -1679,10 +1688,9 @@ local function exteriorRoute(path, sourceRoom)
     for _, node in ipairs(path) do
         local room = node:getRoom()
         if outside and room ~= nil then return false end
-        if sourceRoom ~= nil and room ~= sourceRoom then
-            if room ~= nil then return false end
-            outside = true
-        end
+        -- A leader leaving a station may need to cross its hall from a
+        -- restroom. Once outside, never cut through another building.
+        if room == nil then outside = true end
     end
     return outside
 end
@@ -1757,7 +1765,9 @@ local function nextScoutLeg(actor, target, excluded, allowInteriorRoute,
                         { actor = actor, nodeBudget = 1800 })
                     local direct = math.sqrt((tx - x)^2 + (ty - y)^2)
                     if path ~= nil and #path >= 2
-                        and #path <= direct * 1.8 + 8
+                        and #path <= (sourceRoom ~= nil
+                            and math.max(40, direct * 1.8 + 8)
+                            or direct * 1.8 + 8)
                         and exteriorRoute(path, sourceRoom)
                         and (roadRoute == nil
                             or SC.ExpeditionRoute.withinCorridor(
