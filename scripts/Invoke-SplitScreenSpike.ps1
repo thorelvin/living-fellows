@@ -6,6 +6,7 @@ param(
     [Parameter(Mandatory)][string]$SeedSave,
     [string]$GameMode = 'Rising',
     [string]$Screenshot = '',
+    [string]$ZombieVisibilityScreenshot = '',
     [string]$PostHandoffScreenshot = '',
     [switch]$ColdCompanionProbe,
     [switch]$ColdRestartProbe,
@@ -39,6 +40,7 @@ param(
     [int]$TeamCorpseStreamVerifyX = 0,
     [int]$TeamCorpseStreamVerifyY = 0,
     [switch]$TeamAutonomousScoutProbe,
+    [switch]$TeamZombieVisibilityProbe,
     [switch]$TeamRoadRouteProbe,
     [ValidateRange(20, 200)][int]$TeamRoadDistanceTiles = 180,
     [switch]$TeamRoadMovementProbe,
@@ -175,6 +177,8 @@ try {
         -TeamCorpseStreamVerifyX $TeamCorpseStreamVerifyX `
         -TeamCorpseStreamVerifyY $TeamCorpseStreamVerifyY `
         -TeamAutonomousScoutProbe:$TeamAutonomousScoutProbe `
+        -TeamZombieVisibilityProbe:$TeamZombieVisibilityProbe `
+        -ZombieVisibilityScreenshot $ZombieVisibilityScreenshot `
         -TeamRoadRouteProbe:$TeamRoadRouteProbe `
         -TeamRoadDistanceTiles $TeamRoadDistanceTiles `
         -TeamRoadMovementProbe:$TeamRoadMovementProbe `

@@ -54,6 +54,7 @@ param(
     [int]$TeamCorpseStreamVerifyX = 0,
     [int]$TeamCorpseStreamVerifyY = 0,
     [switch]$TeamAutonomousScoutProbe,
+    [switch]$TeamZombieVisibilityProbe,
     [switch]$TeamRoadRouteProbe,
     [ValidateRange(20, 200)][int]$TeamRoadDistanceTiles = 180,
     [switch]$TeamRoadMovementProbe,
@@ -106,6 +107,7 @@ param(
     [switch]$TeamRadioKitVerifyOnly,
     [ValidateRange(8, 180)][int]$LeaderWatchSeconds = 8,
     [string]$SplitScreenScreenshot = '',
+    [string]$ZombieVisibilityScreenshot = '',
     [string]$PostHandoffScreenshot = '',
     [switch]$PrepareOnly
 )
@@ -391,6 +393,14 @@ if ($ColdRestartHandoff) {
 if ($SplitScreenOnly) {
     $SplitScreenScreenshot = [System.IO.Path]::GetFullPath($SplitScreenScreenshot)
     New-Item -ItemType Directory -Path (Split-Path -Parent $SplitScreenScreenshot) -Force | Out-Null
+}
+if ($TeamZombieVisibilityProbe -and (-not $TeamAutonomousScoutProbe -or
+    -not $TeamRoadRouteProbe -or [string]::IsNullOrWhiteSpace($ZombieVisibilityScreenshot))) {
+    throw '-TeamZombieVisibilityProbe requires a road scout and a screenshot path.'
+}
+if ($TeamZombieVisibilityProbe) {
+    $ZombieVisibilityScreenshot = [System.IO.Path]::GetFullPath($ZombieVisibilityScreenshot)
+    New-Item -ItemType Directory -Path (Split-Path -Parent $ZombieVisibilityScreenshot) -Force | Out-Null
 }
 $captureFactionMap = -not [string]::IsNullOrWhiteSpace($FactionMapScreenshot)
 if ($captureFactionMap) {
@@ -812,6 +822,7 @@ $config = @(
     ('team_corpse_stream_verify_x=' + $TeamCorpseStreamVerifyX),
     ('team_corpse_stream_verify_y=' + $TeamCorpseStreamVerifyY),
     ('team_autonomous_scout_probe=' + $TeamAutonomousScoutProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_zombie_visibility_probe=' + $TeamZombieVisibilityProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_road_route_probe=' + $TeamRoadRouteProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_road_distance_tiles=' + $TeamRoadDistanceTiles),
     ('team_road_movement_probe=' + $TeamRoadMovementProbe.IsPresent.ToString().ToLowerInvariant()),
@@ -909,6 +920,8 @@ $processSamplePath = Join-Path $SandboxLua 'performance-process.csv'
 $factionMapReadyPath = Join-Path $SandboxLua 'faction-map-ready.txt'
 $factionMapVisiblePath = Join-Path $SandboxLua 'faction-map-visible.txt'
 $factionMapCapturedPath = Join-Path $SandboxLua 'faction-map-captured.txt'
+$zombieVisibilityReadyPath = Join-Path $SandboxLua 'zombie-visibility-ready.txt'
+$zombieVisibilityCapturedPath = Join-Path $SandboxLua 'zombie-visibility-captured.txt'
 Write-Output "Prepared isolated live sandbox: $RunRoot"
 Write-Output "Source save remains untouched: $SeedSave"
 if ($PrepareOnly) {
@@ -946,6 +959,7 @@ try {
     $clickAttempts = 0
     $factionMapCaptureCompleted = $false
     $splitScreenCaptureCompleted = $false
+    $zombieVisibilityCaptureCompleted = $false
     $postHandoffCaptureCompleted = $false
     $crashProbeCompleted = $false
     $nextProcessSample = [DateTime]::MinValue
@@ -1028,6 +1042,17 @@ try {
                 ('captured=true' + [Environment]::NewLine), $utf8NoBom)
             Write-Output "Captured split-screen screenshot: $SplitScreenScreenshot"
             $splitScreenCaptureCompleted = $true
+        }
+        if ($TeamZombieVisibilityProbe -and -not $zombieVisibilityCaptureCompleted -and
+            (Test-Path -LiteralPath $zombieVisibilityReadyPath -PathType Leaf)) {
+            Start-Sleep -Milliseconds 500
+            if (-not (Save-ClientScreenshot $process $ZombieVisibilityScreenshot)) {
+                throw "Could not capture the zombie encounter to $ZombieVisibilityScreenshot"
+            }
+            [System.IO.File]::WriteAllText($zombieVisibilityCapturedPath,
+                ('captured=true' + [Environment]::NewLine), $utf8NoBom)
+            Write-Output "Captured companion zombie encounter: $ZombieVisibilityScreenshot"
+            $zombieVisibilityCaptureCompleted = $true
         }
         if ($ColdRestartHandoff -and -not $postHandoffCaptureCompleted -and
             (Test-Path -LiteralPath (Join-Path $SandboxLua 'split-restored-ready.txt') -PathType Leaf)) {
@@ -1113,6 +1138,7 @@ if ($captureFactionMap) {
     Write-Output "Faction map screenshot: $FactionMapScreenshot"
 }
 if ($SplitScreenOnly) { Write-Output "Split-screen screenshot: $SplitScreenScreenshot" }
+if ($TeamZombieVisibilityProbe) { Write-Output "Zombie visibility screenshot: $ZombieVisibilityScreenshot" }
 if ($PerformanceBaselineOnly -or $TeamPerformanceProbe -or $TeamPerformanceRouteProbe) {
     Write-Output "Performance samples: $SandboxLua"
 }

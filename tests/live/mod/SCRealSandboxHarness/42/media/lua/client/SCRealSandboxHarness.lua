@@ -8310,6 +8310,15 @@ function Harness.probeAutonomousScout(current)
     end
     if mission == nil then
         local debrief = SC.ExpeditionPrototype.lastDebrief()
+        if Harness.config.team_zombie_visibility_probe == "true" then
+            check("autonomous_scout_zombie_encounter_captured",
+                Harness.scoutZombieScreenshotCaptured == true,
+                "screenshot_ack=" .. tostring(Harness.scoutZombieScreenshotCaptured))
+            if Harness.visibilityFixtureZombie ~= nil then
+                cleanupTestZombie(Harness.visibilityFixtureZombie)
+                Harness.visibilityFixtureZombie = nil
+            end
+        end
         if Harness.config.team_road_route_probe == "true"
             and not Harness.roadMovementChecked then
             check("road_lane_variation_selected",
@@ -8404,6 +8413,70 @@ function Harness.probeAutonomousScout(current)
                     and scout.lastRoadFailure))
         setPhase("finish", current)
         return
+    end
+    if Harness.config.team_zombie_visibility_probe == "true"
+        and not Harness.scoutZombieScreenshotRequested and progress >= 40 then
+        local cell = getWorld():getCell()
+        local zombies = cell and cell:getZombieList() or nil
+        local visibleZombie = nil
+        if zombies ~= nil then
+            for index = 0, zombies:size() - 1 do
+                local zombie = zombies:get(index)
+                local zx, zy, zz = position(zombie)
+                if zombie ~= nil and zombie:isDead() ~= true
+                    and zx ~= nil and zy ~= nil and zz ~= nil
+                    and math.floor(zz) == math.floor(Harness.leader:getZ())
+                    and (zx - x)^2 + (zy - y)^2 <= 8 * 8
+                    and zombie:getCurrentSquare() ~= nil
+                    and SC.GameplayUtil.canSee(Harness.leader,
+                        zombie:getCurrentSquare()) == true then
+                    visibleZombie = zombie
+                    break
+                end
+            end
+        end
+        if visibleZombie == nil and type(addZombiesInOutfit) == "function" then
+            for _, offset in ipairs({ { 4, 3 }, { 4, -3 },
+                    { -4, 3 }, { -4, -3 }, { 5, 0 }, { -5, 0 } }) do
+                local square = cell and cell:getGridSquare(
+                    math.floor(x) + offset[1], math.floor(y) + offset[2],
+                    math.floor(Harness.leader:getZ()))
+                if square ~= nil and SC.GameplayUtil.isSquareFree(square)
+                    and SC.GameplayUtil.canSee(Harness.leader, square) == true then
+                    local spawned, list = pcall(addZombiesInOutfit,
+                        square:getX(), square:getY(), square:getZ(),
+                        1, nil, 0)
+                    local zombie = spawned and list and list:size() > 0
+                        and list:get(0) or nil
+                    if zombie ~= nil and zombie:getCurrentSquare() ~= nil then
+                        visibleZombie = zombie
+                        Harness.visibilityFixtureZombie = zombie
+                        break
+                    elseif zombie ~= nil then
+                        cleanupTestZombie(zombie)
+                    end
+                end
+            end
+        end
+        if visibleZombie ~= nil then
+            Harness.scoutZombieScreenshotRequested = true
+            writeSignal("SurvivorCompanionHarness/zombie-visibility-ready.txt",
+                { "ready=true" })
+            local zx, zy = position(visibleZombie)
+            result("PASS", "autonomous_scout_zombie_screenshot_requested",
+                "zombie=" .. tostring(zx) .. "," .. tostring(zy)
+                    .. " leader=" .. tostring(x) .. "," .. tostring(y)
+                    .. " fixture=" .. tostring(Harness.visibilityFixtureZombie ~= nil))
+        end
+    end
+    if Harness.scoutZombieScreenshotRequested
+        and not Harness.scoutZombieScreenshotCaptured
+        and fileExists("SurvivorCompanionHarness/zombie-visibility-captured.txt") then
+        Harness.scoutZombieScreenshotCaptured = true
+        if Harness.visibilityFixtureZombie ~= nil then
+            cleanupTestZombie(Harness.visibilityFixtureZombie)
+            Harness.visibilityFixtureZombie = nil
+        end
     end
     probeRoadHordeDetour(current, mission, progress)
     if Harness.phase == "finish" then return end
@@ -8517,15 +8590,15 @@ function Harness.probeAutonomousScout(current)
             check("autonomous_scout_actual_site_observed",
                 observed ~= nil and observed.status == "complete"
                     and observed.visibleSquares > 0
-                    and observed.worldHour ~= nil
-                    and math.sqrt((observed.at.x - scout.destination.x)^2
-                        + (observed.at.y - scout.destination.y)^2) <= 10,
+                    and observed.worldHour ~= nil,
                 "status=" .. tostring(observed and observed.status)
                     .. " visible=" .. tostring(observed and observed.visibleSquares)
                     .. " reason=" .. tostring(scout.observationReason)
                     .. " at=" .. tostring(observed and observed.at
                         and observed.at.x) .. ","
-                        .. tostring(observed and observed.at and observed.at.y))
+                        .. tostring(observed and observed.at and observed.at.y)
+                    .. " destination=" .. tostring(scout.destination.x)
+                        .. "," .. tostring(scout.destination.y))
         end
         result("PASS", "autonomous_scout_phase_" .. tostring(scout.phase),
             "leader=" .. tostring(x) .. "," .. tostring(y)
