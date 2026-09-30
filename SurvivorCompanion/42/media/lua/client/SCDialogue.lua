@@ -53,6 +53,15 @@ local pools = {
         practical = { "%1. Count heads before we cross." },
         caring = { "%1. Stay where I can see you." },
     },
+    ["expedition.search_arrival"] = {
+        common = {
+            "This is the place. Spread out and see what we can carry.",
+            "Check the rooms. Keep an ear on the door.",
+            "We made it. Look for supplies and call out what you find.",
+            "Search the shelves, then we head home together.",
+            "Nobody wander too far. Let's see what's left here.",
+        },
+    },
     ["team.recruit"] = {
         common = {
             "All right. I'll come with you.",

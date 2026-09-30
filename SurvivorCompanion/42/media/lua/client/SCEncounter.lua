@@ -2019,7 +2019,8 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
         return false, formationReason
     end
     local radius = utility.config("scavengeRadius") or 14
-    if player and not neutralOverride and utility.distanceSq(actor, player) > radius * radius then
+    if player and not neutralOverride and commands.scavengeMissionId == nil
+        and utility.distanceSq(actor, player) > radius * radius then
         resetScavengeTarget(actor, state, {
             cancelVisual = true, stopMovement = state.task ~= nil,
             reason = "outside_scavenge_radius", phase = "cancelled",
@@ -2049,7 +2050,11 @@ function Encounter.tryScavenge(actor, player, runtime, neutralOverride)
     end
     local allowCorpses = safeForCorpseLoot(actor, snapshot, state, time)
     local selectionPlayer = player
-    if neutralOverride then selectionPlayer = nil end
+    -- A remote Search is bounded by its selected site, not by the leader's
+    -- current tile. Followers may search different rooms of that site.
+    if neutralOverride or commands.scavengeMissionId ~= nil then
+        selectionPlayer = nil
+    end
     local task = state.task
     if task and (task.scavengeRequestedCategory
             ~= commands.scavengeRequestedCategory

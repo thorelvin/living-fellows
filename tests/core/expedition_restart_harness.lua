@@ -1006,6 +1006,97 @@ check(not expedition.noteVerifiedSearchLoot(reserve, {
 check(expedition.finishAtPlayer(player) == true,
     "the everything-useful Search releases its leader")
 
+-- Every living member of a Search may use Encounter's own container search.
+-- Each exact receipt belongs to the actor carrying it, and the shared target
+-- closes the request before a fourth item can be credited.
+local scouts = { actorAt(reserve.x + 1, reserve.y),
+    actorAt(reserve.x, reserve.y + 1) }
+for index, actor in ipairs(scouts) do
+    actors["search-mate-" .. index] = actor
+    function actor:getCurrentSquare() return { getRoom = function() return {} end } end
+end
+local formerRand = ZombRand
+ZombRand = function() return 0 end
+local beforeArrivalSpeech = #departures
+local teamStarted, teamSearch = expedition.start({
+    { id = "delta", actor = reserve },
+    { id = "search-mate-1", actor = scouts[1] },
+    { id = "search-mate-2", actor = scouts[2] },
+}, {
+    kind = "search",
+    destination = { x = reserve.x + 12, y = reserve.y, z = 0 },
+    request = { category = "useful", quantity = 3 },
+})
+check(teamStarted == true, "a three-member supply team starts")
+local teamArrived = false
+for index = 1, 30 do
+    scoutClock = scoutClock + 1000
+    for _, actor in ipairs(scouts) do
+        actor.x, actor.y = reserve.x + 1, reserve.y
+    end
+    expedition.pulse()
+    if teamSearch.scout.phase == "searching" then teamArrived = true break end
+    if teamSearch.testWaypoint then
+        reserve.x, reserve.y = teamSearch.testWaypoint.x, teamSearch.testWaypoint.y
+        expedition.noteTestWaypointArrived(reserve)
+    end
+end
+check(teamArrived and #departures > beforeArrivalSpeech
+        and departures[#departures].topic == "expedition.search_arrival",
+    "the arriving squad occasionally calls out before searching")
+for _, actor in ipairs({ reserve, scouts[1], scouts[2] }) do
+    check(expedition.testSearchFor(actor)
+            and expedition.testSearchCategoryFor(actor) == "useful"
+            and expedition.searchSiteFor(actor) ~= nil,
+        "each living member receives the same site-scoped Search")
+end
+local teamSession = teamSearch.radioSession
+for index, actor in ipairs({ reserve, scouts[1], scouts[2] }) do
+    check(expedition.noteVerifiedSearchLoot(actor, {
+        verified = true, missionId = teamSession,
+        requestedCategory = "useful", stableId = "team-loot-" .. index,
+        type = "Base.CannedCorn", sourceX = teamSearch.scout.destination.x,
+        sourceY = teamSearch.scout.destination.y, sourceZ = 0,
+    }) == true, "each member can contribute an exact native loot receipt")
+    if index < 3 then
+        check(not expedition.testSearchFor(actor)
+                and expedition.testSearchFor(scouts[index]),
+            "a member who just looted yields the next search turn")
+    end
+    if index == 1 then
+        scoutClock = scoutClock + 20001
+        check(expedition.testSearchFor(reserve),
+            "a quiet search lets a previous carrier resume after twenty seconds")
+    end
+end
+check(#teamSearch.scout.search.acquisitions == 3
+        and teamSearch.scout.search.acquisitions[1].memberId == "delta"
+        and teamSearch.scout.search.acquisitions[2].memberId == "search-mate-1"
+        and teamSearch.scout.search.acquisitions[3].memberId == "search-mate-2"
+        and not expedition.testSearchFor(scouts[1]),
+    "cargo is attributed to each carrier and the shared quantity closes Search")
+local cancelled = {}
+SC.Encounter = { cancelScavenge = function(actor)
+    cancelled[actor] = true
+end }
+expedition.pulse()
+check(teamSearch.scout.phase == "inbound"
+        and cancelled[reserve] and cancelled[scouts[1]]
+        and cancelled[scouts[2]],
+    "turning home cancels all three container approaches")
+SC.Encounter = nil
+ZombRand = formerRand
+reserve.x, reserve.y = player.x + 1, player.y
+for index, actor in ipairs(scouts) do
+    actor.x, actor.y = player.x + index + 1, player.y
+    actor.testItems = { { stableId = "team-loot-" .. (index + 1) } }
+end
+reserve.testItems = { { stableId = "team-loot-1" } }
+check(expedition.finishAtPlayer(player) == true,
+    "the team Search releases its leader after recording all carriers")
+check(#expedition.lastDebrief().returnedIds == 3,
+    "the debrief finds the three exact requested items on their carriers")
+
 -- The review names long off-road stretches at either end of a road route.
 local realPlan = SC.ExpeditionRoute.plan
 SC.ExpeditionRoute.plan = function(actor, goal)

@@ -1160,6 +1160,14 @@ local function missionRecord(id)
     return nil
 end
 
+local function missionRecordForActor(actor)
+    if mission == nil then return nil end
+    for _, record in ipairs(mission.roster) do
+        if record.actor == actor then return record end
+    end
+    return nil
+end
+
 function Expedition.isMemberId(id)
     return missionRecord(id) ~= nil
 end
@@ -1551,14 +1559,48 @@ function Expedition.stageTestSearch(actor, targetContainer, requestedCategory)
 end
 
 function Expedition.testSearchFor(actor)
-    if mission == nil or mission.terminal or mission.leader.actor ~= actor
-        or mission.technicalIssue ~= nil then return false end
-    if mission.testSearch == true then return true end
+    if mission == nil or mission.terminal or mission.technicalIssue ~= nil
+        or not Expedition.isMember(actor) then return false end
+    -- The fixed-container probe is leader-only. A real Search belongs to the
+    -- whole living squad, with Encounter reserving containers per actor.
+    if mission.testSearch == true then return mission.leader.actor == actor end
+    local member = missionRecordForActor(actor)
+    if member == nil or not alive(member)
+        or mission.survivors and mission.survivors[member.id] ~= true then
+        return false
+    end
     local itinerary = mission.scout
     local search = itinerary and itinerary.search
-    return itinerary ~= nil and itinerary.phase == "searching"
-        and search ~= nil
-        and #search.acquisitions < search.request.quantity
+    if itinerary == nil or itinerary.phase ~= "searching" or search == nil
+        or #search.acquisitions >= search.request.quantity then return false end
+    -- Give every squad member a first chance at the supplies when the request
+    -- is large enough. If a member cannot find a usable container, the others
+    -- resume after a short quiet interval rather than waiting until deadline.
+    local counts, living, smallest = {}, 0, math.huge
+    for _, record in ipairs(mission.roster) do
+        if alive(record) and (mission.survivors == nil
+                or mission.survivors[record.id] == true) then
+            counts[record.id] = 0
+            living = living + 1
+        end
+    end
+    if search.request.quantity < living then return true end
+    for _, receipt in ipairs(search.acquisitions) do
+        if counts[receipt.memberId] ~= nil then
+            counts[receipt.memberId] = counts[receipt.memberId] + 1
+        end
+    end
+    for _, count in pairs(counts) do smallest = math.min(smallest, count) end
+    if counts[member.id] <= smallest then return true end
+    local clock = SC.GameplayUtil and SC.GameplayUtil.nowMs
+    local current = type(clock) == "function" and clock() or nil
+    if current ~= nil and search.lastAcquisitionAt == nil then
+        -- Receipt history persists; the short fairness timer starts anew after
+        -- a save reload instead of blocking an eligible carrier forever.
+        search.lastAcquisitionAt = current
+    end
+    return current ~= nil and search.lastAcquisitionAt ~= nil
+        and current - search.lastAcquisitionAt >= 20000
 end
 
 function Expedition.testSearchTargetFor(actor)
@@ -1639,10 +1681,13 @@ function Expedition.noteVerifiedSearchLoot(actor, loot)
     end
     search.acquisitions[#search.acquisitions + 1] = {
         id = loot.stableId, itemType = loot.type,
-        memberId = mission.leader.id,
+        memberId = missionRecordForActor(actor).id,
         source = validPoint(source) and source or nil,
         sourceObjectIndex = sourceObjectIndex,
     }
+    if SC.GameplayUtil and type(SC.GameplayUtil.nowMs) == "function" then
+        search.lastAcquisitionAt = SC.GameplayUtil.nowMs()
+    end
     return true
 end
 
@@ -1921,8 +1966,12 @@ startReturnFromSite = function(itinerary, reason)
     if itinerary.search ~= nil then
         itinerary.search.endReason = reason
         if SC.Encounter and type(SC.Encounter.cancelScavenge) == "function" then
-            SC.Encounter.cancelScavenge(mission.leader.actor,
-                "expedition_search_finished")
+            for _, member in ipairs(mission.roster) do
+                if member.actor ~= nil then
+                    SC.Encounter.cancelScavenge(member.actor,
+                        "expedition_search_finished")
+                end
+            end
         end
     else
         itinerary.endReason = reason
@@ -2634,6 +2683,25 @@ local function pulseScout()
             scout.search.startedHour = worldHour
             scout.search.deadlineHour = worldHour + SEARCH_HOURS
             scout.phase = "searching"
+            if SC.Dialogue and type(SC.Dialogue.say) == "function"
+                and type(ZombRand) == "function" and ZombRand(100) < 65 then
+                local speakers = {}
+                for _, member in ipairs(mission.roster) do
+                    if alive(member) and distanceToPoint(member.actor,
+                            scout.destination) <= 12 then
+                        local lastSpoken = type(SC.Dialogue.lastSpokenAt)
+                            == "function" and SC.Dialogue.lastSpokenAt(member.actor)
+                            or -math.huge
+                        if now - lastSpoken >= 10000 then
+                            speakers[#speakers + 1] = member.actor
+                        end
+                    end
+                end
+                if #speakers > 0 then
+                    SC.Dialogue.say(speakers[ZombRand(#speakers) + 1],
+                        "expedition.search_arrival")
+                end
+            end
         else
             scout.phase = "observing"
             scout.observingSince = now

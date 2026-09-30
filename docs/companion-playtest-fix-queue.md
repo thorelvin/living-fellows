@@ -1,5 +1,11 @@
 # Companion playtest fix queue
 
+## Whole-squad Search participation (2026-09-30)
+
+- **Finding:** The expedition Search permission was leader-only. Followers stayed in formation at the destination and ordinary nearby banter was out of range of the player.
+- **Development fix:** Every living squad member now receives the same site-scoped Search request and may use the existing container reservations and native loot transfer. Members take turns while enough requested items remain for everyone; after 20 seconds without a pickup, any member may resume so an empty bag or blocked path does not stall the trip. The debrief credits each exact item to its carrier, and turning home cancels every member's Search. A squad member can call out on arrival; existing loot reactions can speak after individual pickups.
+- **Verified:** The three-member restart harness covers each member's permission and exact receipt, turn sharing, the arrival callout, and cancellation on return. Core harnesses passed 49/49. **Live acceptance remains:** In an isolated save, send at least three companions for at least three useful items, observe separate native container pickups and occasional speech in the second view, then confirm the debrief's carrier IDs and actual inventory items. A smaller request can finish before every member finds an item.
+
 ## Station restroom expedition stall (2026-09-30)
 
 - **Reported:** A squad sent about 90 tiles away entered the station restrooms and stayed there. The 14:52 game log loaded 0.26.6 from an older staged Workshop copy, even though 0.26.10 was installed in the local mods folder. It repeatedly logged unreachable movement goals around `(6083,5302)` and `(6084,5304)`; the log does not record the selected expedition destination, so the exact route and leader identity cannot be reconstructed.

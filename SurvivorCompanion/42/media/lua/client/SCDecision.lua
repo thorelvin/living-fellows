@@ -84,10 +84,13 @@ local function commandsFor(actor)
                 end
                 local follower = SC.ExpeditionPrototype.isFollower(actor)
                 local expedition = SC.ExpeditionPrototype.current()
+                local searching = SC.ExpeditionPrototype.testSearchFor(actor)
+                    and expedition and expedition.scout
+                    and expedition.scout.phase == "searching"
                 local regroup = follower and expedition
                     and expedition.cohesionHold ~= nil
                 missionOrder.order = regroup and "regroup"
-                    or follower and "follow" or "stay"
+                    or follower and not searching and "follow" or "stay"
                 if follower then
                     missionOrder.followDistance =
                         SC.ExpeditionPrototype.followDistanceFor(actor)
