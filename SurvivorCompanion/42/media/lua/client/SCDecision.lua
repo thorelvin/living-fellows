@@ -2410,6 +2410,12 @@ function Decision.update(actor, player, runtime, roundTimestamp)
         if safe and type(value) == "table" then snapshot = value end
     end
     rootRuntime.snapshot = snapshot
+    if SC.Positioning and type(SC.Positioning.cancelConversation) == "function"
+        and ((tonumber(snapshot.threatCount) or 0) > 0
+            or (tonumber(snapshot.immediateCount) or 0) > 0
+            or snapshot.humanThreat ~= nil) then
+        SC.Positioning.cancelConversation(actor, "conversation_interrupted_by_danger")
+    end
 
     if SC.Commands and type(SC.Commands.observeRelationship) == "function" then
         utility.safeSubsystem("relationship", actor,

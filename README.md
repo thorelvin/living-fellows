@@ -12,7 +12,7 @@ Persistent companions, survivor households, and living bases for Project Zomboid
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Project Zomboid](https://img.shields.io/badge/Project%20Zomboid-42.21.0-red.svg)](#requirements)
-[![Release](https://img.shields.io/badge/release-0.26.6-blue.svg)](CHANGELOG.md)
+[![Release](https://img.shields.io/badge/release-0.26.7-blue.svg)](CHANGELOG.md)
 [![Single-player](https://img.shields.io/badge/mode-single--player-orange.svg)](#requirements)
 
 Living Fellows turns the survivors you meet into persistent people. They can join you, fight and travel with you, help run a base, and make their own survival decisions. Companions are native human actors with real inventories, injuries, skills, and permanent death.
@@ -110,12 +110,14 @@ The panel is translucent so you can still see the world. It can be docked left o
 
 | Tab | Purpose |
 | --- | --- |
-| Status | Health and needs, current action, order, distance, relationship summary, and conversation |
+| Status | Health and needs, current action, order, distance, and relationship summary |
 | Orders | Direct orders, movement and follow distance, combat doctrine, and scavenging |
 | Squad | Group assignment, group orders, movement and fire signals |
 | Expeditions | Experimental squad mission planner and active mission status |
 | Loadout | Wounds and treatment, inventory, weapon and carry policy, and vehicle status |
 | More | Base (camp operations), Factions (households, trade, standing), Journal (history, relationships, memories, goals), and Support (runtime health) |
+
+Use the persistent **Talk** button above the tabs, or right-click a nearby companion and choose **Talk to [name]**. Choose a topic and a line; the companion walks into speaking distance before answering. The view keeps recent dialogue and explains interruptions. Right-click also offers Follow, Stay, Regroup, Retreat, and a link to the full Orders panel.
 
 ## Orders
 
@@ -132,11 +134,11 @@ The panel is translucent so you can still see the world. It can be docked left o
 - **Ride with player:** takes free passenger seats and gets out with you. Extra followers wait safely on foot.
 - **Allow overload:** lets a companion carry more than its normal limit, up to a cap.
 
-Right-click the world for the **Living Fellows** menu. The selected companion gets **Move here** plus one action for the clicked object: open or close a door, barricade, remove a barricade, dismantle, or **Check room** for an indoor room. Talk, target actions, care, squad signals, base work, and households sit in submenus. Dismissing a companion asks for confirmation.
+Right-click the world for the **Living Fellows** menu. The selected companion gets **Move here** plus one action for the clicked object: open or close a door, barricade, remove a barricade, dismantle, or **Check room** for an indoor room. Target actions, care, squad signals, base work, and households sit in submenus. Dismissing a companion asks for confirmation.
 
 ## Expeditions (experimental)
 
-Use a disposable save for this 0.26.6 playtest. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose its leader, Scout or Search, a location within 200 tiles (32 per page), how to travel, time before turning home, and combat style. Search also lets you request a supply type and quantity. Review the plan and select **Send squad**. The actual leader appears in a second local view while the team moves; the remaining members follow that leader.
+Use a disposable save for this 0.26.7 playtest. Assign one to four companions to a squad on **Squad**, then open **Expeditions**. Choose its leader, Scout or Search, a location within 200 tiles (32 per page), how to travel, time before turning home, and combat style. Search also lets you request a supply type and quantity. Review the plan and select **Send squad**. The actual leader appears in a second local view while the team moves; the remaining members follow that leader.
 
 **Follow roads** is the default: the squad walks the map's streets and plans a fresh road route home. A building far from any mapped street is reached by leaving the streets as close to it as possible and walking up to 100 tiles off-road; the review names any long off-road stretch. If the leader sees a group of more than three zombies per living squad member on the road ahead, the squad plans around it, or turns home when no connected detour exists on the way out. **Head straight for target** takes the direct course and turns home if no path out is found for 30 seconds.
 

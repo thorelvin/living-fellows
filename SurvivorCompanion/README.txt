@@ -1,4 +1,4 @@
-Living Fellows 0.26.6 - public playtest
+Living Fellows 0.26.7 - public playtest
 
 Persistent companions, survivor households and living bases for Project
 Zomboid Build 42.21.0. Single-player only: multiplayer and user-added
@@ -16,6 +16,8 @@ Back up your save before a long session.
 GETTING STARTED
 - Press Home to open the companion panel, or click the small LF launcher.
 - Meet a survivor, select them in the panel and choose Recruit.
+- Use Talk in the panel header or right-click a nearby companion to start a
+  conversation. They approach and answer when close enough.
 - Orders sets follow/stay/guard, movement, combat doctrine and scavenging.
 - Expeditions plans a mission from an existing squad. Select the leader,
   nearby location, task, time to turn home and combat style. Departure needs

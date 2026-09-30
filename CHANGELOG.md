@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.26.7 - Conversations that wait for people
+
+- Right-clicking a nearby companion opens a dedicated Talk view for that person. The view groups ten choices by topic, shows identity and current context, and keeps a bounded transcript. Quick Follow, Stay, Regroup, and Retreat orders remain on the right-click menu; the full Orders panel is one click away.
+- A conversation now begins when the companion reaches speaking distance. Speech and relationship changes wait for arrival. Danger, a new order, an unavailable partner, or a timeout interrupts the request with a readable message. The companion uses the same navigation and movement ownership as other actions.
+- This branch also includes the combat and vehicle fixes accumulated since 0.26.6. The Talk flow still needs a live in-game visual check.
+
 ## 0.26.6 - Standing down beside a zombie they will not fight
 
 - A companion no longer freezes with its guard up beside a zombie it will not fight. When combat finds nothing it may engage and the companion has nothing else to do, it is meant to stand at ease. That check compared combat's verdict with a timestamp taken at the start of the decision round; the verdict is stamped a few milliseconds later, so it looked like it came from the future and was rejected. The companion instead stopped, turned to the zombie and raised its guard every decision, shown on its card as `safety_guarded_hold:combat`. This affected every companion, not only expeditions. In 0.26.5 an unarmed expedition leader using the stealth style held like this for over a minute beside zombies 16 to 20 tiles away.

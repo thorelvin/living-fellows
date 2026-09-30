@@ -1181,13 +1181,19 @@ function Positioning.beginConversation(actor, partner, options)
     end
     local state = stateFor(actor)
     local current = utility.nowMs()
+    if state.conversation and type(state.conversation.onCancel) == "function" then
+        pcall(state.conversation.onCancel, "conversation_replaced")
+    end
     state.conversation = {
         partner = partner,
         action = type(options) == "table" and options.action or nil,
         emote = type(options) == "table" and options.emote or nil,
         stress = type(options) == "table" and tonumber(options.stress) or 0,
-        expires = current + (utility.config("conversationHoldMs") or 5000),
+        expires = current + (type(options) == "table" and tonumber(options.timeoutMs)
+            or utility.config("conversationHoldMs") or 5000),
         posed = false,
+        onReady = type(options) == "table" and options.onReady or nil,
+        onCancel = type(options) == "table" and options.onCancel or nil,
     }
     return true, "conversation_staged"
 end
@@ -1196,12 +1202,27 @@ function Positioning.activeConversation(actor)
     local state = actor and states[actor] or nil
     local conversation = state and state.conversation or nil
     if not conversation then return nil end
-    if U().nowMs() >= (conversation.expires or 0)
-        or not U().isValidActor(conversation.partner) then
+    local partnerAvailable = U().isValidActor(conversation.partner)
+    if U().nowMs() >= (conversation.expires or 0) or not partnerAvailable then
         state.conversation = nil
+        if type(conversation.onCancel) == "function" then
+            pcall(conversation.onCancel, partnerAvailable
+                and "conversation_timed_out" or "conversation_partner_unavailable")
+        end
         return nil
     end
     return conversation
+end
+
+function Positioning.cancelConversation(actor, reason)
+    local state = actor and states[actor] or nil
+    local conversation = state and state.conversation or nil
+    if not conversation then return false end
+    state.conversation = nil
+    if type(conversation.onCancel) == "function" then
+        pcall(conversation.onCancel, reason or "conversation_cancelled")
+    end
+    return true
 end
 
 function Positioning.updateConversation(actor, snapshot)
@@ -1210,7 +1231,7 @@ function Positioning.updateConversation(actor, snapshot)
     if not conversation then return false, "no_conversation" end
     if type(snapshot) == "table" and ((tonumber(snapshot.threatCount) or 0) > 0
         or (tonumber(snapshot.immediateCount) or 0) > 0) then
-        stateFor(actor).conversation = nil
+        Positioning.cancelConversation(actor, "conversation_interrupted_by_danger")
         return false, "conversation_interrupted_by_danger"
     end
 
@@ -1221,8 +1242,12 @@ function Positioning.updateConversation(actor, snapshot)
     if not utility.sameFloor(actor, partner) or partnerDistance > maximum
         or partnerDistance < minimum then
         local target = conversationTarget(actor, partner, snapshot)
-        if not target then return false, "conversation_position_unavailable" end
+        if not target then
+            Positioning.cancelConversation(actor, "conversation_position_unavailable")
+            return false, "conversation_position_unavailable"
+        end
         if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
+            Positioning.cancelConversation(actor, "conversation_navigation_unavailable")
             return false, "conversation_navigation_unavailable"
         end
         return SC.Navigation.request(actor, target, "walk", {
@@ -1233,6 +1258,18 @@ function Positioning.updateConversation(actor, snapshot)
         })
     end
 
+    if conversation.onReady then
+        local callback = conversation.onReady
+        conversation.onReady = nil
+        local called, accepted = pcall(callback)
+        if not called or accepted ~= true then
+            Positioning.cancelConversation(actor, "conversation_rejected")
+            return false, "conversation_rejected"
+        end
+        conversation.expires = utility.nowMs()
+            + (utility.config("conversationHoldMs") or 5000)
+        conversation.onCancel = nil
+    end
     if not utility.stop(actor) then return false, "conversation_stop_rejected" end
     local action = conversation.posed and "face_conversation" or "conversation_pose"
     local emote = conversation.emote
@@ -1296,6 +1333,7 @@ end
 
 function Positioning.releaseActor(actor)
     if actor == nil then return false end
+    Positioning.cancelConversation(actor, "conversation_partner_unavailable")
     local state = states[actor]
     if state and state.reservationKey then
         local reservation = targetReservations[state.reservationKey]

@@ -1,6 +1,7 @@
 -- SPDX-License-Identifier: MIT
 
 require "ISUI/ISContextMenu"
+require "SCInteraction"
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -42,6 +43,18 @@ local function hasMethod(object, methodName)
 end
 
 local function executeFromContext(companionId, command, payload, player)
+    if payload == nil and SC.Interaction and SC.Interaction.descriptor(command)
+        and SC.Registry and type(SC.Registry.byId) == "function" then
+        local record = SC.Registry.byId(companionId)
+        local row = record and SC.UI and SC.UI.describeEntry
+            and SC.UI.describeEntry(record, player) or nil
+        local accepted, reason = SC.Interaction.issue(row, command, player)
+        if player then safeMethod(player, "setHaloNote", accepted
+            and text("UI_SC_CommandAccepted")
+            or SC.Interaction.reasonText(reason)) end
+        if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+        return
+    end
     if SC.Commands and type(SC.Commands.issue) == "function" then
         local ok, first, second, third = pcall(SC.Commands.issue, companionId, command, payload, player)
         if command == "status" and ok and first ~= false and SC.UI then
@@ -680,28 +693,32 @@ local function nearbyRows(player)
     return rows
 end
 
-local function descriptorGroup(name, fallback)
-    local groups = SC.UI and SC.UI.commandGroups or nil
-    return type(groups) == "table" and type(groups[name]) == "table"
-        and groups[name] or fallback
-end
-
-local function addDescriptorCommands(menu, row, player, descriptors)
-    for _, descriptor in ipairs(descriptors or {}) do
-        addCommand(menu, descriptor.key, row.id, descriptor.command,
-            descriptor.payload, player)
+local function openTalkFromContext(_, row)
+    if SC.UI and type(SC.UI.open) == "function" then
+        SC.UI.open("talk", row.id)
     end
 end
 
-local function addConversation(menu, row, player)
-    if row.recruited ~= true then return end
-    addDescriptorCommands(menu, row, player, descriptorGroup("essentialTalk", {
-        { key = "UI_SC_Action_Doing", command = "doing" },
-        { key = "UI_SC_Action_Status", command = "status" },
-        { key = "UI_SC_Action_Needs", command = "needs" },
-        { key = "UI_SC_Action_Encourage", command = "encourage" },
-        { key = "UI_SC_Action_Praise", command = "praise" },
-    }))
+local function openOrdersFromContext(_, row)
+    if SC.UI and type(SC.UI.open) == "function" then
+        SC.UI.open("orders", row.id)
+    end
+end
+
+local function addInteractionShortcut(menu, row, action, player)
+    local descriptor = SC.Interaction.descriptor(action)
+    if not descriptor then return end
+    local label = text(descriptor.key)
+    local available, reason, argument = SC.Interaction.availability(row, action, player)
+    local option = available and menu:addOption(label, nil, issueFromContext,
+        row.id, action, nil, player) or addUnavailableOption(menu, label)
+    if option and not available and type(ISToolTip) == "table" then
+        local tooltip = ISToolTip:new()
+        tooltip:initialise()
+        tooltip:setVisible(false)
+        tooltip.description = argument and text(reason, argument) or text(reason)
+        option.toolTip = tooltip
+    end
 end
 
 local function addObjectiveAssignments(menu, row, player)
@@ -718,14 +735,9 @@ local function addObjectiveAssignments(menu, row, player)
     end
 end
 
-local function addDirectOrders(menu, row, player)
-    addDescriptorCommands(menu, row, player, descriptorGroup("personalOrders", {
-        { key = "UI_SC_Action_Follow", command = "follow" },
-        { key = "UI_SC_Action_Stay", command = "stay" },
-        { key = "UI_SC_Action_Guard", command = "guard" },
-        { key = "UI_SC_Action_Regroup", command = "regroup" },
-        { key = "UI_SC_Action_Retreat", command = "retreat" },
-    }))
+local function addOrdersShortcut(menu, row, player)
+    menu:addOption(text("UI_SC_Talk_OpenOrders"), nil,
+        openOrdersFromContext, row)
     if type(row.vehicleStatus) == "table"
         and row.vehicleStatus.status == "in_vehicle"
         and row.vehicleStatus.canExitNow == true then
@@ -770,17 +782,22 @@ local function addWorldOrders(menu, row, targetSquare, targetPayload, door, door
 end
 
 local function clickedCompanionRow(rows, worldObjects, clickSquare)
+    local matches = {}
     for _, row in ipairs(rows or {}) do
         for _, object in ipairs(worldObjects or {}) do
-            if row.actor == object then return row end
+            if row.actor == object then matches[#matches + 1] = row; break end
         end
     end
+    if #matches == 1 then return matches[1], matches end
+    if #matches > 1 then return nil, matches end
     if clickSquare then
         for _, row in ipairs(rows or {}) do
-            if safeMethod(row.actor, "getSquare") == clickSquare then return row end
+            if safeMethod(row.actor, "getSquare") == clickSquare then
+                matches[#matches + 1] = row
+            end
         end
     end
-    return nil
+    return #matches == 1 and matches[1] or nil, matches
 end
 
 local function addWatchControl(menu, row, player)
@@ -925,7 +942,7 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         end
     end
     local rows = nearbyRows(player)
-    local clickedCompanion = clickedCompanionRow(rows, worldObjects, clickSquare)
+    local clickedCompanion, clickedMatches = clickedCompanionRow(rows, worldObjects, clickSquare)
     local factions = talkableFactions(player)
     local baseRelevant = baseMenuRelevant(clickSquare)
     local watchStatus = SC.ViewControl and type(SC.ViewControl.status) == "function"
@@ -950,6 +967,22 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         context:addOption(text("UI_SC_Action_Watch", clickedCompanion.name), nil,
             watchFromContext, clickedCompanion, player)
     end
+    if clickedCompanion and clickedCompanion.recruited == true then
+        context:addOption(text("UI_SC_Talk_To", clickedCompanion.name),
+            nil, openTalkFromContext, clickedCompanion)
+        for _, action in ipairs(SC.Interaction.quickOrders) do
+            addInteractionShortcut(context, clickedCompanion, action, player)
+        end
+        context:addOption(text("UI_SC_Talk_OpenOrders"), nil,
+            openOrdersFromContext, clickedCompanion)
+    elseif clickedMatches and #clickedMatches > 1 then
+        local choose = addCategory(context, "UI_SC_Talk_ChoosePerson")
+        for _, row in ipairs(clickedMatches) do
+            if row.recruited == true then
+                choose:addOption(row.name, nil, openTalkFromContext, row)
+            end
+        end
+    end
     if selected and targetPayload then
         addNamedShortcut(context, selected, "UI_SC_Action_MoveHere",
             "move_to", targetPayload, player)
@@ -966,8 +999,9 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
         local selectedMenu = addNamedCategory(rootMenu,
             "UI_SC_Context_SelectedCompanion", selected.name)
         addWatchControl(selectedMenu, selected, player)
-        addDirectOrders(selectedMenu, selected, player)
-        addConversation(addCategory(selectedMenu, "UI_SC_Context_Talk"), selected, player)
+        addOrdersShortcut(selectedMenu, selected, player)
+        selectedMenu:addOption(text("UI_SC_Talk_Open"), nil,
+            openTalkFromContext, selected)
         addObjectiveAssignments(selectedMenu, selected, player)
         local targetMenu = addCategory(selectedMenu, "UI_SC_Context_TargetActions")
         addWorldOrders(targetMenu, selected, square, targetPayload, door, doorPayload,
@@ -991,8 +1025,9 @@ function Context.fillWorldObjectContextMenu(playerIndex, context, worldObjects, 
             local companionMenu = ISContextMenu:getNew(otherMenu)
             otherMenu:addSubMenu(companionOption, companionMenu)
             addWatchControl(companionMenu, row, player)
-            addDirectOrders(companionMenu, row, player)
-            addConversation(addCategory(companionMenu, "UI_SC_Context_Talk"), row, player)
+            addOrdersShortcut(companionMenu, row, player)
+            companionMenu:addOption(text("UI_SC_Talk_Open"), nil,
+                openTalkFromContext, row)
             addObjectiveAssignments(companionMenu, row, player)
             addCompanionCare(addCategory(companionMenu, "UI_SC_Context_Care"), row, player)
             addCommand(companionMenu, "UI_SC_Action_Dismiss", row.id,

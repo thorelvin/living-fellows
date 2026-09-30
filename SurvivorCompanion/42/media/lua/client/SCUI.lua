@@ -7,11 +7,13 @@ require "ISUI/ISComboBox"
 require "ISUI/ISLabel"
 require "ISUI/ISScrollingListBox"
 require "ISUI/ISModalDialog"
+pcall(require, "ISUI/ISUI3DModel")
 require "SCUIBounds"
 require "SCUIBridge"
 require "SCUIFormat"
 require "SCUIPixels"
 require "SCUIExpeditions"
+require "SCInteraction"
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -106,6 +108,7 @@ local TAB_KEYS = {
     sheet = "UI_SC_Tab_Sheet",
     support = "UI_SC_Tab_Support",
     debug = "UI_SC_Tab_Debug",
+    talk = "UI_SC_Tab_Talk",
 }
 
 function UI.tabIds()
@@ -218,30 +221,8 @@ local CQB_ROLE_KEYS = {
     rear_guard = "UI_SC_CQB_Role_rear_guard",
 }
 
--- Shared descriptors keep panel and context-menu vocabulary in sync while
--- allowing each surface to choose the depth appropriate to it.
 UI.commandGroups = {
-    essentialTalk = {
-        { key = "UI_SC_Action_Doing", command = "doing" },
-        { key = "UI_SC_Action_Status", command = "status" },
-        { key = "UI_SC_Action_Needs", command = "needs" },
-        { key = "UI_SC_Action_Encourage", command = "encourage" },
-        { key = "UI_SC_Action_Praise", command = "praise" },
-    },
-    journalTalk = {
-        { key = "UI_SC_Action_Memory", command = "memory" },
-        { key = "UI_SC_Action_Background", command = "background" },
-        { key = "UI_SC_Action_Opinion", command = "opinion" },
-        { key = "UI_SC_Action_Relationship", command = "relationship" },
-        { key = "UI_SC_Action_Plans", command = "plans" },
-    },
-    personalOrders = {
-        { key = "UI_SC_Action_Follow", command = "follow" },
-        { key = "UI_SC_Action_Stay", command = "stay" },
-        { key = "UI_SC_Action_Guard", command = "guard" },
-        { key = "UI_SC_Action_Regroup", command = "regroup" },
-        { key = "UI_SC_Action_Retreat", command = "retreat" },
-    },
+    personalOrders = {},
     squadMovementSignals = {
         { key = "UI_SC_Action_WhistleRegroup", signal = "whistle" },
         { key = "UI_SC_Action_HandSignFollow", signal = "follow" },
@@ -256,6 +237,12 @@ UI.commandGroups = {
         { key = "UI_SC_Action_HandSignFire", signal = "fire" },
     },
 }
+for _, action in ipairs({ "follow", "stay", "guard", "regroup", "retreat" }) do
+    local descriptor = SC.Interaction.descriptor(action)
+    UI.commandGroups.personalOrders[#UI.commandGroups.personalOrders + 1] = {
+        key = descriptor.key, command = action,
+    }
+end
 
 function UI.normalizeTab(tab)
     if type(tab) ~= "string" then
@@ -483,6 +470,17 @@ end
 -- text and selector values must not tear that tree down (especially while a
 -- combo is open); only branches that add/remove controls are structural.
 local function detailStructureSignature(row, tab)
+    if tab == "talk" then
+        local conversation = row and SC.Interaction.state(row.id) or nil
+        return stableSignatureValue({
+            id = row and row.id or nil,
+            name = row and row.name or nil,
+            activity = row and row.activity or nil,
+            need = row and row.currentNeed or nil,
+            relationship = row and row.relationshipTier or nil,
+            serial = conversation and conversation.serial or 0,
+        }, 2, { count = 24 }, {})
+    end
     if tab == "status" then
         local actionFailure = UI.actionFailureText(row and row.actionSummary or nil)
         return stableSignatureValue({
@@ -966,6 +964,10 @@ local function usableGroup(group)
 end
 
 function UI.commandAvailability(row, command, payload)
+    if SC.Interaction and SC.Interaction.descriptor(command)
+        and type(payload) ~= "table" then
+        return SC.Interaction.availability(row, command, playerForUI())
+    end
     if not row or not row.id or row.id == "" then
         return false, "UI_SC_Disabled_NoSelection"
     end
@@ -1161,11 +1163,21 @@ local function issueCommandButton(target, button, requestedRow)
         return false
     end
     local player = playerForUI()
-    local ok, accepted, reason, extra = pcall(SC.Commands.issue, row.id, button.scCommand, button.scPayload, player)
+    local ok, accepted, reason, extra
+    if SC.Interaction and SC.Interaction.descriptor(button.scCommand)
+        and type(button.scPayload) ~= "table" then
+        ok, accepted, reason, extra = pcall(SC.Interaction.issue,
+            row, button.scCommand, player)
+    else
+        ok, accepted, reason, extra = pcall(SC.Commands.issue,
+            row.id, button.scCommand, button.scPayload, player)
+    end
     if not ok or accepted == false then
         setButtonFeedback(target,
             UI.text("UI_SC_CommandRejectedDetail", buttonFeedbackLabel(button)), false)
-        if type(reason) == "string" and string.sub(reason, 1, 6) == "UI_SC_" then
+        if SC.Interaction and SC.Interaction.descriptor(button.scCommand) then
+            setButtonFeedback(target, SC.Interaction.reasonText(reason, extra), false)
+        elseif type(reason) == "string" and string.sub(reason, 1, 6) == "UI_SC_" then
             setButtonFeedback(target, UI.text(reason), false)
         end
     else
@@ -1184,7 +1196,8 @@ local function issueCommandButton(target, button, requestedRow)
                 or UI.text("UI_SC_CommandAcceptedDetail", buttonFeedbackLabel(button)),
             true)
     end
-    if button.scCommand == "status" and ok and accepted ~= false then
+    if button.scCommand == "status" and ok and accepted ~= false
+        and not (target.root and target.root.selectedTab == "talk") then
         local description = commandResultDescription(accepted, reason, extra)
         if description then
             UI.showStatus(description)
@@ -2644,6 +2657,129 @@ function SCUIDetail:addTradeChoice(panel, y, side, factionId, row, selected)
     return y + math.max(metrics.buttonHeight, tick:getHeight()) + 2
 end
 
+local function onTalkLinkButton(target)
+    if target.root then target.root:setSelectedTab("talk") end
+end
+
+local function onTalkTopicButton(target, button)
+    target.talkTopic = button.scTalkTopic
+    target:rebuild()
+end
+
+local function onTalkOrdersButton(target)
+    if target.root then target.root:setSelectedTab("orders") end
+end
+
+function SCUIDetail:addTalkLink(panel, y)
+    local metrics = self.metrics or UI.layoutMetrics()
+    local title = UI.text("UI_SC_Talk_Open")
+    local button = ISButton:new(8, y, math.max(100, panel:getWidth() - 28),
+        metrics.buttonHeight, title, self, onTalkLinkButton)
+    button:initialise()
+    makeButtonTranslucent(button)
+    panel:addChild(button)
+    return y + metrics.buttonHeight + 4
+end
+
+function SCUIDetail:buildTalk(panel, row)
+    local y = 7
+    if not row then
+        return self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_NoSelection"))
+    end
+    local metrics = self.metrics or UI.layoutMetrics()
+    local portraitHeight = 72
+    local portraitDrawn = false
+    if row.actor and ISUI3DModel then
+        local ok = pcall(function()
+            local portrait = ISUI3DModel:new(8, y, 64, 68)
+            panel:addChild(portrait)
+            portrait:setCharacter(row.actor)
+            portrait:setIsometric(false)
+            portrait:setDirection(IsoDirections.S)
+            portrait:setDoRandomExtAnimations(false)
+            portrait:setState("idle")
+            portrait:setZoom(10)
+        end)
+        portraitDrawn = ok
+    end
+    if not portraitDrawn then
+        local fallback = ISLabel:new(28, y + 20, metrics.fontHeight, "?",
+            0.78, 0.78, 0.68, 1, UIFont.Medium, true)
+        fallback:initialise()
+        panel:addChild(fallback)
+    end
+    for _, value in ipairs({
+        row.name or unknownValue(),
+        UI.text("UI_SC_Roster_Activity", UI.stateText(row.activity)),
+        UI.text("UI_SC_Info_CurrentNeed", UI.stateText(row.currentNeed)),
+        UI.text("UI_SC_Info_Relationship", UI.stateText(row.relationshipTier)),
+    }) do
+        local available = math.max(50, panel:getWidth() - 96)
+        local header = ISLabel:new(80, y, metrics.fontHeight,
+            fitText(UIFont.Small, value, available), 0.88, 0.89, 0.83, 1,
+            UIFont.Small, true)
+        header:initialise()
+        header.tooltip = value
+        panel:addChild(header)
+        y = y + metrics.infoLineHeight
+    end
+    y = math.max(7 + portraitHeight, y) + 6
+    y = self:addSection(panel, y, "UI_SC_Section_Talk")
+    local topic = self.talkTopic or "check_in"
+    local topicWidth = math.floor((panel:getWidth() - 16) / #SC.Interaction.categories)
+    for index, category in ipairs(SC.Interaction.categories) do
+        local title = UI.text(category.key)
+        local button = ISButton:new(8 + (index - 1) * topicWidth, y,
+            topicWidth - 2, metrics.buttonHeight,
+            fitText(UIFont.Small, title, topicWidth - 12), self, onTalkTopicButton)
+        button:initialise()
+        makeButtonTranslucent(button)
+        button.scTalkTopic = category.id
+        button.tooltip = title
+        if topic == category.id then
+            button.backgroundColor = { r = 0.34, g = 0.38, b = 0.27, a = 0.8 }
+        end
+        panel:addChild(button)
+    end
+    y = y + metrics.buttonHeight + 6
+    for _, choice in ipairs(SC.Interaction.choices(topic, row)) do
+        local descriptor = SC.Interaction.descriptor(choice.action)
+        y = self:addCommand(panel, y, descriptor.key, choice.action)
+    end
+    local conversation = SC.Interaction.state(row.id)
+    y = self:addSection(panel, y + 4, "UI_SC_Talk_Recent")
+    if conversation.state ~= "idle" then
+        local stateKeys = {
+            approaching = "UI_SC_Talk_State_approaching",
+            replied = "UI_SC_Talk_State_replied",
+            interrupted = "UI_SC_Talk_State_interrupted",
+        }
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text(stateKeys[conversation.state] or "UI_SC_Talk_State_interrupted"))
+    end
+    if #conversation.lines == 0 then
+        y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+            UI.text("UI_SC_Talk_Empty"))
+    else
+        for _, line in ipairs(conversation.lines) do
+            local speaker = line.speaker == "player" and UI.text("UI_SC_Talk_You")
+                or line.speaker == "companion" and row.name
+                or UI.text("UI_SC_Talk_System")
+            y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tostring(speaker) .. ": " .. tostring(line.text))
+        end
+    end
+    local orders = ISButton:new(8, y + 4, math.max(100, panel:getWidth() - 28),
+        metrics.buttonHeight, UI.text("UI_SC_Talk_OpenOrders"), self,
+        onTalkOrdersButton)
+    orders:initialise()
+    makeButtonTranslucent(orders)
+    panel:addChild(orders)
+    y = y + metrics.buttonHeight + 8
+    return y
+end
+
 function SCUIDetail:buildStatus(panel, row)
     local y = 7
     if row and row.recruited ~= true then
@@ -2730,10 +2866,7 @@ function SCUIDetail:buildStatus(panel, row)
                 end))
         end
     end
-    y = self:addSection(panel, y + 4, "UI_SC_Section_Talk")
-    for _, descriptor in ipairs(UI.commandGroups.essentialTalk) do
-        y = self:addCommand(panel, y, descriptor.key, descriptor.command, descriptor.payload)
-    end
+    y = self:addTalkLink(panel, y + 4)
     return y
 end
 
@@ -3226,10 +3359,7 @@ function SCUIDetail:buildJournal(panel, row)
         UI.text("UI_SC_Journal_CareValues", tonumber(care.treatment) or 0,
             tonumber(care.meals) or 0, tonumber(care.rescues) or 0,
             tonumber(care.goalsCompleted) or 0))
-    y = self:addSection(panel, y + 4, "UI_SC_Section_PersonalConversation")
-    for _, descriptor in ipairs(UI.commandGroups.journalTalk) do
-        y = self:addCommand(panel, y, descriptor.key, descriptor.command, descriptor.payload)
-    end
+    y = self:addTalkLink(panel, y + 4)
     return y
 end
 
@@ -4141,6 +4271,8 @@ function SCUIDetail:rebuild(preserveScroll)
     local bottom = 0
     if self.tab == "status" then
         bottom = self:buildStatus(panel, row)
+    elseif self.tab == "talk" then
+        bottom = self:buildTalk(panel, row)
     elseif self.tab == "orders" then
         bottom = self:buildOrders(panel)
     elseif self.tab == "loadout" then
@@ -4242,6 +4374,10 @@ local function onTabButton(target, button)
     target:setSelectedTab(button.scTab)
 end
 
+local function onTalkHeaderButton(target)
+    target:setSelectedTab("talk")
+end
+
 local SCUIRoot = ISPanel:derive("SCUIRoot")
 
 function SCUIRoot:new(rect, settings)
@@ -4285,6 +4421,11 @@ function SCUIRoot:createChildren()
     self.dockButton:initialise()
     makeButtonTranslucent(self.dockButton)
     self:addChild(self.dockButton)
+    self.talkButton = ISButton:new(0, 5, 58, metrics.buttonHeight,
+        UI.text("UI_SC_Tab_Talk"), self, onTalkHeaderButton)
+    self.talkButton:initialise()
+    makeButtonTranslucent(self.talkButton)
+    self:addChild(self.talkButton)
     self.roster = SCUIRoster:new(6, metrics.headerHeight + 1, 160, provisionalHeight - metrics.headerHeight - 7, self)
     self.roster:initialise()
     self:addChild(self.roster)
@@ -4352,6 +4493,10 @@ function SCUIRoot:applyLayout()
     self.dockButton:setY(5)
     self.dockButton:setWidth(dockWidth)
     self.dockButton:setHeight(metrics.buttonHeight)
+    self.talkButton:setX(width - 64)
+    self.talkButton:setY(5)
+    self.talkButton:setWidth(58)
+    self.talkButton:setHeight(metrics.buttonHeight)
     self.titleX = 18 + collapseWidth + dockWidth
     self.roster:setX(6)
     self.roster:setY(headerHeight + 1)
@@ -4387,6 +4532,13 @@ function SCUIRoot:applyLayout()
 end
 
 function SCUIRoot:updateTabButtons()
+    if self.talkButton then
+        self.talkButton.backgroundColor = self.selectedTab == "talk"
+            and { r = 0.34, g = 0.38, b = 0.27,
+                a = configuredOpacity(1.15, 0.46, 0.88) }
+            or { r = 0.12, g = 0.13, b = 0.12,
+                a = configuredOpacity(0.88, 0.22, 0.78) }
+    end
     for _, button in ipairs(self.tabButtons or {}) do
         if button.scTab == self.selectedTab
             or (button.scTab == "more" and MORE_TABS[self.selectedTab] == true) then
@@ -4415,6 +4567,7 @@ end
 function SCUIRoot:setChromeVisible(visible)
     if self.collapseButton then self.collapseButton:setVisible(visible) end
     if self.dockButton then self.dockButton:setVisible(visible) end
+    if self.talkButton then self.talkButton:setVisible(visible) end
     if self.roster then self.roster:setVisible(visible) end
     if self.detail then self.detail:setVisible(visible) end
     for _, button in ipairs(self.tabButtons or {}) do
@@ -4757,7 +4910,7 @@ function SCUIRoot:render()
     ISPanel.render(self)
     local metrics = self.metrics or UI.layoutMetrics()
     local titleX = self.titleX or 202
-    local maximumTitleWidth = math.max(1, self:getWidth() - titleX - 8)
+    local maximumTitleWidth = math.max(1, self:getWidth() - titleX - 72)
     local core = type(getCore) == "function" and getCore() or nil
     local locale = core and safeMethod(core, "getOptionLanguageName") or ""
     local translatedTitle = UI.text("UI_SC_Title")
@@ -5178,6 +5331,7 @@ end
 function UI.reset()
     UI.clearDebugHouseLocator()
     UI.close()
+    if SC.Interaction then SC.Interaction.reset() end
     UI._gameStarted = false
     UI._scheduledRefreshJob = nil
 end

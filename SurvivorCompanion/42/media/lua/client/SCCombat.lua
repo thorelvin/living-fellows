@@ -1323,6 +1323,12 @@ local function threatScore(threat, actor, player, snapshot)
     if threat.visible then score = score + 10 else score = score - 8 end
     if threat.obstructed then score = score - 12 end
     if threat.fenced then score = score - 7 end
+    -- A live knockdown is the same opening whether a shove, fence, or window
+    -- caused it. Keep the bonus local: do not chase a prone zombie across the
+    -- street while an upright attacker is closing in.
+    if threat.fallen and distance <= (utility.config("combatStompPursuitDistance") or 3.25) then
+        score = score + (utility.config("combatGroundedPriority") or 24)
+    end
     -- A zombie mid-climb or just fallen in, and one holding an ally down, go
     -- first: both are helpless or deadly for only a few seconds.
     if threat.breaching then score = score + (utility.config("combatBreachPriority") or 40) end
@@ -1476,6 +1482,16 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
                 and currentDistanceSq or tonumber(threat.distanceSq)
                 or currentDistanceSq
             record.distance = math.sqrt(record.distanceSq)
+            local posture = nativeZombie and facts.posture or nil
+            record.fallen = posture == "downed"
+                or (posture == nil and (boolCall(threat.actor, "isOnFloor")
+                    or boolCall(threat.actor, "isProne")))
+            record.grounded = record.fallen or posture == "crawler"
+                or (posture == nil and boolCall(threat.actor, "isCrawling"))
+            -- The scan can describe yesterday's climb. Keep its short landing
+            -- priority only while the live zombie is climbing or still down.
+            record.breaching = threat.breaching == true
+                and ((nativeZombie and facts.climbing == true) or record.grounded)
             record.visible = true
             record.obstructed = false
             record.rescue = Combat._rescuing(actor, threat.actor, pinnedAllies)
@@ -1572,7 +1588,7 @@ function Combat.scoreTargets(actor, player, snapshot, previousTarget)
     return visible
 end
 
-local function addNearbyGrounded(actor, scored)
+local function addNearbyGrounded(actor, player, snapshot, scored)
     local utility = U()
     local x, y, z = utility.position(actor)
     if not x then return end
@@ -1588,7 +1604,7 @@ local function addNearbyGrounded(actor, scored)
                     and utility.canSee(actor, value)
                     and (boolCall(value, "isOnFloor") or boolCall(value, "isProne")) then
                     seen[value] = true
-                    scored[#scored + 1] = {
+                    local record = {
                         actor = value,
                         square = square,
                         distanceSq = utility.distanceSq(actor, value),
@@ -1596,8 +1612,11 @@ local function addNearbyGrounded(actor, scored)
                         obstructed = false,
                         attacking = false,
                         grounded = true,
-                        score = 42,
+                        fallen = true,
                     }
+                    record.score, record.bearing, record.facingDot =
+                        threatScore(record, actor, player, snapshot)
+                    scored[#scored + 1] = record
                 end
             end, 10)
         end
@@ -2301,6 +2320,24 @@ end
 
 Combat._tryShoveFollowUpForTests = tryShoveFollowUp
 
+local function groundedStrikeBarrier(actor, target)
+    local topology = SC.Topology
+    if not topology or type(topology.barrierBetween) ~= "function" then return nil end
+    local fromSquare, toSquare = U().squareOf(actor), U().squareOf(target)
+    if not fromSquare or not toSquare then return nil end
+    local fx, fy, fz = U().position(fromSquare)
+    local tx, ty, tz = U().position(toSquare)
+    if fx == nil or tx == nil or math.floor(fz or 0) ~= math.floor(tz or 0)
+        or math.abs(math.floor(fx) - math.floor(tx))
+            + math.abs(math.floor(fy) - math.floor(ty)) ~= 1 then return nil end
+    local object, kind = topology.barrierBetween(fromSquare, toSquare)
+    if kind == "door" and object and type(topology.objectOpen) == "function"
+        and topology.objectOpen(object) then return nil end
+    if kind == "fence" or kind == "window" or kind == "window_frame"
+        or kind == "door" or kind == "blocked" then return kind end
+    return nil
+end
+
 local function actionUtilities(actor, player, snapshot, target, weapon, inventory, commands,
         readiness)
     local utility = U()
@@ -2329,6 +2366,16 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
     end
     if grounded and readiness.immediate <= 1 and isolatedFront then
         local finisher = Combat.groundedFinisher(actor, target.actor, weapon, readiness, commands)
+        local barrier = finisher.kind ~= "hold_range"
+            and groundedStrikeBarrier(actor, target.actor) or nil
+        if barrier then
+            -- A fallen zombie beyond a fence or window is tempting but cannot
+            -- receive a floor hit through that edge. Movement owns crossing it.
+            finisher.kind = "approach"
+            finisher.floorAttack = false
+            finisher.requiresRoute = true
+            finisher.vectorReason = "barrier:" .. barrier
+        end
         -- Offer only the committed physical choice. Offering both and adding
         -- generic weapon utility afterwards silently defeated weighted variation.
         finisher.score = (finisher.kind == "hold_range" and 56
@@ -2474,8 +2521,13 @@ local function actionUtilities(actor, player, snapshot, target, weapon, inventor
             local action = actions[index]
             if action.kind == "approach" or action.kind == "backstep"
                 or action.kind == "kite" then
-                local moveX, moveY, steered, vectorReason =
-                    SC.Navigation.combatVector(actor, target.actor, action.kind, snapshot)
+                local moveX, moveY, steered, vectorReason
+                if action.requiresRoute then
+                    vectorReason = action.vectorReason
+                else
+                    moveX, moveY, steered, vectorReason =
+                        SC.Navigation.combatVector(actor, target.actor, action.kind, snapshot)
+                end
                 local routable = action.kind == "approach"
                     and type(vectorReason) == "string"
                     and string.sub(vectorReason, 1, 8) == "barrier:"
@@ -2646,6 +2698,13 @@ local function doctrineMayFight(actor, target, player, snapshot, commands)
         if (target.distanceSq or U().distanceSq(actor, target.actor)) <= reach * reach then
             return true
         end
+    end
+    -- The landing opening is independent of its cause. A quiet squad may
+    -- finish a nearby downed zombie, but expedition travel still keeps its
+    -- leash because that check ran above.
+    if target.fallen == true and (target.distanceSq or U().distanceSq(actor, target.actor))
+        <= (U().config("combatStompPursuitDistance") or 3.25) ^ 2 then
+        return true
     end
     if doctrine == "stealth" then return passiveMayFight(target, player, snapshot) end
     if doctrine == "close_defense" then
@@ -3406,6 +3465,18 @@ local function execute(actor, player, snapshot, target, weapon, action, commands
         accepted, nativeReason = utility.move(actor, "walk", { action = "stomp", target = targetActor, floorAttack = true })
     elseif action.kind == "approach" then
         if not utility.sameFloor(actor, targetActor) then return false, "different_floor" end
+        if action.requiresRoute == true then
+            local crossing = utility.squareOf(targetActor)
+            if crossing and SC.Navigation and type(SC.Navigation.request) == "function" then
+                local routed, routeReason = SC.Navigation.request(actor, crossing, "walk", {
+                    action = "combat_approach", target = targetActor,
+                    facingTarget = targetActor, snapshot = snapshot, urgent = true,
+                })
+                if routed then return true, "approach_routed:" .. tostring(action.vectorReason) end
+                return false, "approach_blocked:" .. tostring(routeReason or action.vectorReason)
+            end
+            return false, "approach_route_unavailable"
+        end
         local ax, ay = utility.position(actor)
         local tx, ty = utility.position(targetActor)
         if ax == nil or tx == nil then return false, "approach_position_unavailable" end
@@ -3635,7 +3706,7 @@ function Combat.update(actor, player, runtime)
     local scored = Combat.scoreTargets(actor, player, snapshot, state.target)
     if phaseStarted then performance.record("combat.score-targets", nil,
         performance.preciseNowMs() - phaseStarted) end
-    addNearbyGrounded(actor, scored)
+    addNearbyGrounded(actor, player, snapshot, scored)
     phaseStarted = performance and performance.preciseNowMs()
     local followUpHandled, followUpReason = tryShoveFollowUp(
         actor, state, snapshot, now, commands)
@@ -3815,26 +3886,6 @@ function Combat.update(actor, player, runtime)
             rootRuntime.combatAction = "retreat"
         end
         return ok, ok and "overrun_retreat" or reason
-    end
-
-    if commands.combatDoctrine == "stealth" and not passiveMayFight(target, player, snapshot) then
-        if Combat._engagementPressure(snapshot) > 0 then
-            releaseActorClaims(actor)
-            state.combatRole = nil
-            rootRuntime.combatRole = nil
-            local ok, reason = executeRetreat(actor, player, snapshot, target, false, state, commands)
-            if ok then
-                enterRetreat(actor, state, commands, now, false, snapshot)
-                state.active = true
-                state.target = target.actor
-                state.lastAction = "retreat"
-            end
-            return ok, reason
-        end
-        if state.active then utility.stop(actor) end
-        state.active = false
-        state.retreating = false
-        return false, "passive"
     end
 
     phaseStarted = performance and performance.preciseNowMs()

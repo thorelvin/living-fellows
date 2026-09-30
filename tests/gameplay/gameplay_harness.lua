@@ -6109,10 +6109,37 @@ do
     index.release(fighter)
 end
 
+-- Command acceptance stages dialogue; a reply is spoken only after positioning
+-- reaches the same 1.2-2.8 tile ring used during ordinary decisions.
+function finishPendingConversation(subject, partner)
+    local previousSquare = subject.square
+    subject.square = cell:getGridSquare(partner.square.x,
+        partner.square.y + 2, partner.square.z)
+    local accepted, reason = SurvivorCompanion.Positioning.updateConversation(subject,
+        { threatCount = 0, immediateCount = 0, allies = {} })
+    subject.square = previousSquare
+    return accepted, reason
+end
+
+function talkAtArrival(id, action, partner)
+    local subject = assert(registry[id])
+    local previousSquare = subject.square
+    subject.square = cell:getGridSquare(partner.square.x,
+        partner.square.y + 2, partner.square.z)
+    local beforeSpeech = subject.lastSpeech
+    local accepted, reason = SurvivorCompanion.Commands.conversation(id, action, partner)
+    check(not accepted or subject.lastSpeech == beforeSpeech,
+        "conversation request must not speak before arrival")
+    if accepted then finishPendingConversation(subject, partner) end
+    subject.square = previousSquare
+    return accepted, accepted and subject.lastSpeech or reason
+end
+
 local statusOK = SurvivorCompanion.Commands.issue(fellow.id, "status", nil, player)
+if statusOK then finishPendingConversation(fellow, player) end
 check(statusOK and fellow.lastSpeech and SurvivorCompanion.UI.lastStatus.id == fellow.id, "status speaks on the companion and emits readable UI data")
-check(SurvivorCompanion.Commands.conversation(fellow.id, "needs", player)
-    and SurvivorCompanion.Commands.conversation(fellow.id, "opinion", player),
+check(talkAtArrival(fellow.id, "needs", player)
+    and talkAtArrival(fellow.id, "opinion", player),
     "contextual needs and opinion conversations speak successfully")
 do
     local doingToken = assert(SurvivorCompanion.ActionSupervisor.begin(fellow, {
@@ -6121,7 +6148,7 @@ do
         priority = SurvivorCompanion.ActionSupervisor.Priority.WORK,
     }))
     fellow.lastSpeech, player.lastSpeech = nil, nil
-    local doingAccepted, doingSentence = SurvivorCompanion.Commands.conversation(
+    local doingAccepted, doingSentence = talkAtArrival(
         fellow.id, "doing", player)
     check(doingAccepted and type(doingSentence) == "string" and #doingSentence > 10
             and fellow.lastSpeech == doingSentence and player.lastSpeech == nil
@@ -6136,7 +6163,7 @@ do
         priority = SurvivorCompanion.ActionSupervisor.Priority.WORK,
     }))
     fellow.lastSpeech, player.lastSpeech = nil, nil
-    local doingAccepted, doingSentence = SurvivorCompanion.Commands.conversation(
+    local doingAccepted, doingSentence = talkAtArrival(
         fellow.id, "doing", player)
     local lowerSentence = string.lower(tostring(doingSentence or ""))
     check(doingAccepted and fellow.lastSpeech == doingSentence
@@ -6246,20 +6273,20 @@ do
     SurvivorCompanion.Medical.releaseActor(cacheActor)
 end
 local bondBeforeBackground = SurvivorCompanion.Commands.peek(fellow).bond
-check(SurvivorCompanion.Commands.conversation(fellow.id, "background", player)
+check(talkAtArrival(fellow.id, "background", player)
     and SurvivorCompanion.Commands.peek(fellow).bond > bondBeforeBackground,
     "asking about background reveals one persistent personal detail without a generic health response")
 SurvivorCompanion.Commands.peek(fellow).stress = 80
-check(SurvivorCompanion.Commands.conversation(fellow.id, "encourage", player)
+check(talkAtArrival(fellow.id, "encourage", player)
     and SurvivorCompanion.Commands.peek(fellow).stress < 80,
     "contextual reassurance reduces high stress and persists relationship state")
 check(SurvivorCompanion.Commands.noteDowntime(fellow, { activity = "repair" }),
     "useful downtime work is available to the relationship memory")
 local bondBeforePraise = SurvivorCompanion.Commands.peek(fellow).bond
-check(SurvivorCompanion.Commands.conversation(fellow.id, "praise", player)
+check(talkAtArrival(fellow.id, "praise", player)
     and SurvivorCompanion.Commands.peek(fellow).bond > bondBeforePraise,
     "earned praise acknowledges recent useful work and strengthens the bond")
-check(SurvivorCompanion.Commands.conversation(fellow.id, "relationship", player),
+check(talkAtArrival(fellow.id, "relationship", player),
     "companion can describe the current relationship tier")
 check(SurvivorCompanion.Commands.issue(fellow.id, "emote", { emote = "thankyou" }, player)
     and fellow.lastIntent.emote == "thankyou"
@@ -13510,7 +13537,7 @@ check(SurvivorCompanion.Commands.observeRelationship(caredActor, player, {
 }) and SurvivorCompanion.Commands.peek(caredActor).trust >= 5
     and SurvivorCompanion.Commands.peek(caredActor).memories[#SurvivorCompanion.Commands.peek(caredActor).memories].kind == "treatment",
     "nearby native health improvement becomes a bounded care memory and grows trust")
-check(SurvivorCompanion.Commands.conversation(caredActor.id, "memory", player)
+check(talkAtArrival(caredActor.id, "memory", player)
     and string.find(caredActor.lastSpeech, "patched", 1, true) ~= nil,
     "structured care memory is rendered as human dialogue")
 end
@@ -18265,6 +18292,104 @@ end)()
             and closeBreach and not farBreach and not calmZombie
             and not stealthFar and stealthNear and rescue,
         "a climbing or just-fallen zombie is breaching and is fought inside the breach radius; a pinned ally's attacker always is")
+end)()
+
+-- Shoves and fence/window falls feed the same live grounded target decision.
+-- Stale scan posture must not suppress a landing, nor keep a standing zombie
+-- marked as a free floor hit after it gets back up.
+;(function()
+    local combat = SurvivorCompanion.Combat
+    local facts = SurvivorCompanion.ZombieFacts
+    local fighter = actor("sc-grounded-opportunity", 40, 32, {})
+    local fallen = zombie(41, 32, { onFloor = true })
+    local standing = zombie(42, 32, {})
+    local picture = { time = clock, allies = {}, threats = {
+        { actor = fallen, distanceSq = 1, visible = true, obstructed = false,
+            grounded = false, posture = "standing" },
+        { actor = standing, distanceSq = 4, visible = true, obstructed = false,
+            grounded = true, posture = "downed" },
+    } }
+    facts.reset()
+    local scores = combat.scoreTargets(fighter, nil, picture, nil)
+    local byActor = {}
+    for _, record in ipairs(scores) do byActor[record.actor] = record end
+    check(byActor[fallen] and byActor[fallen].fallen == true
+            and byActor[standing] and byActor[standing].fallen == false
+            and byActor[fallen].score > byActor[standing].score,
+        "live knockdown state outranks stale scan posture regardless of how the zombie fell")
+
+    local defender = { actor = fallen, fallen = true, distanceSq = 6.25 }
+    local stealth = { combatDoctrine = "stealth" }
+    local travel = { combatDoctrine = "stealth",
+        expeditionTravelCombat = { radius = 2 } }
+    check(combat._doctrineMayFightForTests(fighter, defender, nil,
+            { allies = {} }, stealth)
+            and not combat._doctrineMayFightForTests(fighter,
+                { actor = standing, distanceSq = 6.25 }, nil,
+                { allies = {} }, stealth)
+            and not combat._doctrineMayFightForTests(fighter, defender,
+                nil, { allies = {} }, travel),
+        "stealth takes a nearby grounded opening while expedition travel keeps its leash")
+
+    local hammer = item("Base.GroundedBarrierHammer", "Weapon", {
+        damage = 1.4, range = 1.5, minRange = 0.2,
+    })
+    fighter.primary = hammer
+    local snapshot = { threats = { { actor = fallen, distanceSq = 1 } },
+        allies = {}, escapeSquares = {}, immediateCount = 0,
+        closeImmediateCount = 0, closeThreatCount = 1,
+        occupiedThreatSectors = 1, pressure = 0 }
+    local weapon = { item = hammer, ranged = false, equipped = true,
+        damage = 1.4, range = 1.5, conditionRatio = 1, staminaCost = 1 }
+    local priorNativeActions = SurvivorCompanion.NativeActions
+    SurvivorCompanion.NativeActions = SurvivorCompanion.NativeActions or {}
+    local priorFloor = SurvivorCompanion.NativeActions.floorAttackAvailable
+    SurvivorCompanion.NativeActions.floorAttackAvailable = function() return true end
+    local fromSquare = fighter.square
+    local priorWindow, priorFence = fromSquare.getWindowTo, fromSquare.isHoppableTo
+    local function chosenGroundAction()
+        local actions = combat._actionUtilitiesForTests(fighter, nil, snapshot,
+            { actor = fallen, distanceSq = 1, visible = true, score = 80 },
+            weapon, fighter.inventory, { combatDoctrine = "close_defense" })
+        for _, action in ipairs(actions or {}) do
+            if action.floorAttack == true or action.kind == "stomp"
+                or action.requiresRoute == true then return action end
+        end
+        return nil
+    end
+    local openAction = chosenGroundAction()
+    fromSquare.getWindowTo = function(_, square)
+        if square == fallen.square then return {} end
+        return nil
+    end
+    local windowAction = chosenGroundAction()
+    fromSquare.getWindowTo = priorWindow
+    fromSquare.isHoppableTo = function(_, square)
+        return square == fallen.square
+    end
+    local fenceAction = chosenGroundAction()
+    fromSquare.isHoppableTo = priorFence
+    SurvivorCompanion.NativeActions.floorAttackAvailable = priorFloor
+    SurvivorCompanion.NativeActions = priorNativeActions
+    check(openAction and openAction.requiresRoute ~= true
+            and (openAction.floorAttack == true or openAction.kind == "stomp")
+            and windowAction and windowAction.kind == "approach"
+            and windowAction.requiresRoute == true
+            and fenceAction and fenceAction.kind == "approach"
+            and fenceAction.requiresRoute == true,
+        "grounded zombies use native floor attacks on open ground and movement across windows or fences")
+
+    fallen.onFloor = false
+    facts.reset()
+    local upright = combat.scoreTargets(fighter, nil, picture, nil)
+    local restored
+    for _, record in ipairs(upright) do
+        if record.actor == fallen then restored = record break end
+    end
+    check(restored and restored.fallen == false and restored.grounded == false,
+        "a recovered zombie immediately loses its grounded opening")
+    fallen.dead, standing.dead = true, true
+    combat.reset(fighter)
 end)()
 
 -- A travelling expedition may defend the road without chasing one zombie

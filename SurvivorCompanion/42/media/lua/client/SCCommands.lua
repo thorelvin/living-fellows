@@ -1857,7 +1857,7 @@ local recruitedConversationActions = {
     praise = true,
 }
 
-local function showConversation(actor, entry, state, id, action, player)
+local function commitConversation(actor, entry, state, id, action, player)
     if recruitedConversationActions[action] and not state.recruited then
         return false, "not_recruited"
     end
@@ -1897,25 +1897,64 @@ local function showConversation(actor, entry, state, id, action, player)
         pcall(SC.Autonomy.offerSupport, actor)
     end
     U().say(actor, sentence)
-    local stagedConversation = false
-    if SC.Positioning and type(SC.Positioning.beginConversation) == "function" then
-        local called, accepted = pcall(SC.Positioning.beginConversation, actor, player, {
-            action = action,
-            emote = emote,
-            stress = state.stress,
-        })
-        stagedConversation = called and accepted == true
-    end
-    if not stagedConversation and type(emote) == "string"
-        and type(SC.Relationship.playEmote) == "function" then
-        pcall(SC.Relationship.playEmote, actor, emote)
-    end
-    if action == "status" then
+    if action == "status" and not (SC.UI and SC.UI.instance
+        and SC.UI.instance.selectedTab == "talk") then
         if not callUI("showStatus", description) then callUI("open", "Overview", id, description) end
-        return true, description
+        return true, sentence, emote
     end
-    if action == "memory" then callUI("showMemory", id, state.memories) end
-    return true, sentence
+    if action == "memory" and not (SC.UI and SC.UI.instance
+        and SC.UI.instance.selectedTab == "talk") then
+        callUI("showMemory", id, state.memories)
+    end
+    return true, sentence, emote
+end
+
+local function showConversation(actor, entry, state, id, action, player)
+    if recruitedConversationActions[action] and not state.recruited then
+        return false, "not_recruited"
+    end
+    if not U().isValidActor(player) or not U().sameFloor(actor, player) then
+        return false, "conversation_partner_unavailable"
+    end
+    if U().distance(actor, player) > 16 then
+        return false, "UI_SC_Disabled_TooFar"
+    end
+    if not SC.Positioning or type(SC.Positioning.beginConversation) ~= "function" then
+        return false, "positioning_unavailable"
+    end
+    local function onReady()
+        if not U().isValidActor(actor) or not U().isValidActor(player)
+            or not U().sameFloor(actor, player) then
+            return false
+        end
+        if SC.ExpeditionPrototype and SC.ExpeditionPrototype.isMember(actor) then
+            return false
+        end
+        local accepted, result, emote = commitConversation(actor, entry,
+            stateFor(actor, entry), id, action, player)
+        if accepted and type(emote) == "string" and SC.Positioning
+            and type(SC.Positioning.activeConversation) == "function" then
+            local conversation = SC.Positioning.activeConversation(actor)
+            if conversation then conversation.emote = emote end
+        end
+        if SC.Interaction then
+            SC.Interaction.finish(id, action, accepted and result or nil,
+                not accepted and result or nil)
+        end
+        if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+        return accepted == true
+    end
+    local function onCancel(reason)
+        if SC.Interaction then SC.Interaction.finish(id, action, nil, reason) end
+        if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+    end
+    local accepted, reason = SC.Positioning.beginConversation(actor, player, {
+        action = action, stress = state.stress, timeoutMs = 30000,
+        onReady = onReady, onCancel = onCancel,
+    })
+    if accepted ~= true then return false, reason end
+    if SC.Interaction then SC.Interaction.begin(id, action) end
+    return true, "conversation_approaching"
 end
 
 local function issueOne(companionId, command, payload, player)
@@ -1958,6 +1997,9 @@ local function issueOne(companionId, command, payload, player)
         restoreStorage(actor, entry, storageBefore)
         if not ok then return false, a end
         return false, b
+    end
+    if SC.Positioning and type(SC.Positioning.cancelConversation) == "function" then
+        SC.Positioning.cancelConversation(actor, "conversation_interrupted_by_order")
     end
     return a, b, c
 end

@@ -293,6 +293,7 @@ class UIStaticContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.ui = read(CLIENT / "SCUI.lua")
         cls.context = read(CLIENT / "SCUIContext.lua")
+        cls.interaction = read(CLIENT / "SCInteraction.lua")
         cls.bounds = read(CLIENT / "SCUIBounds.lua")
         cls.bridge = read(CLIENT / "SCUIBridge.lua")
         cls.format = read(CLIENT / "SCUIFormat.lua")
@@ -791,6 +792,10 @@ class UIStaticContractTests(unittest.TestCase):
         command_literals.update(re.findall(r'scCommand\s*=\s*\"([a-z_]+)\"', self.ui))
         command_literals.update(re.findall(r'\"(set_[a-z_]+)\"', self.ui))
         command_literals.update(re.findall(r'command\s*=\s*\"([a-z_]+)\"', self.ui))
+        command_literals.update(re.findall(
+            r'^\s*([a-z_]+)\s*=\s*\{\s*key\s*=\s*"UI_SC_Action_',
+            self.interaction, re.M,
+        ))
         self.assertFalse(required - command_literals, f"missing commands: {sorted(required - command_literals)}")
         self.assertIn("pcall(SC.Commands.issue", self.ui)
         self.assertIn("pcall(SC.Commands.issue, companionId, command, payload, player)", self.context)
@@ -861,7 +866,8 @@ class UIStaticContractTests(unittest.TestCase):
         )
         self.assertIn('text("UI_SC_Context_LivingFellows")', fill)
         self.assertIn('"UI_SC_Context_SelectedCompanion", selected.name', fill)
-        self.assertIn('addCategory(selectedMenu, "UI_SC_Context_Talk")', fill)
+        self.assertIn('text("UI_SC_Talk_To", clickedCompanion.name)', fill)
+        self.assertIn('openTalkFromContext, selected)', fill)
         self.assertIn('addCategory(selectedMenu, "UI_SC_Context_TargetActions")', fill)
         self.assertIn('addCategory(selectedMenu, "UI_SC_Context_Care")', fill)
         self.assertIn('addCategory(rootMenu, "UI_SC_Context_OtherCompanions")', fill)
@@ -996,23 +1002,22 @@ class UIStaticContractTests(unittest.TestCase):
     def test_relationship_detail_moves_to_journal_and_manual_emotes_are_hidden(self) -> None:
         status = lua_function(self.ui, "function SCUIDetail:buildStatus(panel, row)")
         journal = lua_function(self.ui, "function SCUIDetail:buildJournal(panel, row)")
+        talk = lua_function(self.ui, "function SCUIDetail:buildTalk(panel, row)")
         groups = self.ui[self.ui.index("UI.commandGroups = {"):self.ui.index("function UI.normalizeTab(tab)")]
-        for command in ("doing", "status", "needs", "encourage", "praise"):
-            self.assertIn(f'command = "{command}"', groups)
-        for command in ("memory", "background", "opinion", "relationship", "plans"):
-            self.assertIn(f'command = "{command}"', groups)
+        for command in ("doing", "status", "needs", "encourage", "praise",
+                        "memory", "background", "opinion", "relationship", "plans"):
+            self.assertRegex(self.interaction, rf'\b{command} = \{{ key = "UI_SC_Action_')
         for key in ("UI_SC_Info_Mood", "UI_SC_Info_Relationship",
                     "UI_SC_Info_CurrentNeed", "UI_SC_Info_RecentMemory"):
             self.assertIn(key, status)
         for key in ("UI_SC_Journal_Who", "UI_SC_Journal_Relationship",
-                    "UI_SC_Journal_Memories", "UI_SC_Section_PersonalConversation"):
+                    "UI_SC_Journal_Memories"):
             self.assertIn(key, journal)
         self.assertNotIn('command = "emote"', groups)
-        self.assertNotIn('"emote"', lua_function(
-            self.context, "local function addConversation(menu, row, player)"))
-        conversation = lua_function(self.context, "local function addConversation(menu, row, player)")
-        self.assertIn('descriptorGroup("essentialTalk"', conversation)
-        self.assertIn("if row.recruited ~= true then return end", conversation)
+        self.assertIn("self:addTalkLink", status)
+        self.assertIn("self:addTalkLink", journal)
+        self.assertIn("SC.Interaction.choices(topic, row)", talk)
+        self.assertIn("SC.Interaction.state(row.id)", talk)
 
     def test_recruitment_is_primary_and_hides_after_joining(self) -> None:
         overview = lua_function(self.ui, "function SCUIDetail:buildStatus(panel, row)")
@@ -1024,9 +1029,10 @@ class UIStaticContractTests(unittest.TestCase):
         confirm = lua_function(self.ui, "function UI.confirmDismiss(companionName, execute)")
         self.assertIn("ISModalDialog:new", confirm)
         self.assertIn("dismissDialogAnswer", confirm)
-        context = lua_function(self.context, "local function addConversation(menu, row, player)")
-        self.assertIn("if row.recruited ~= true then return end", context)
-        self.assertNotIn('"recruit"', context)
+        availability = lua_function(self.interaction,
+                                    "function Interaction.availability(row, action, player)")
+        self.assertIn("row.recruited ~= true", availability)
+        self.assertNotIn('"recruit"', availability)
 
     def test_world_companion_commands_only_list_recruited_team_members(self) -> None:
         nearby = lua_function(self.context, "local function nearbyRows(player)")
@@ -1140,10 +1146,10 @@ class UIStaticContractTests(unittest.TestCase):
         support = lua_function(self.ui, "function SCUIDetail:buildSupport(panel)")
         self.assertIn("UI_SC_Info_CurrentAction", overview)
         self.assertIn("UI_SC_Info_LastActionFailure", overview)
-        self.assertIn("UI.commandGroups.essentialTalk", overview)
-        self.assertIn('{ key = "UI_SC_Action_Doing", command = "doing" }', self.ui)
+        self.assertIn("self:addTalkLink", overview)
+        self.assertIn('doing = { key = "UI_SC_Action_Doing"', self.interaction)
         self.assertIn("UI_SC_Support_ActionSupervisor", support)
-        self.assertIn('descriptorGroup("essentialTalk"', self.context)
+        self.assertIn('openTalkFromContext', self.context)
         for key in ("UI_SC_Action_Doing", "UI_SC_Info_CurrentAction",
                     "UI_SC_Info_LastActionFailure", "UI_SC_Support_ActionSupervisor"):
             self.assertIn(key, self.translations)

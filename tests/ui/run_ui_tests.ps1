@@ -25,7 +25,10 @@ try {
         (Join-Path $TestRoot 'SCBaseVisualsTests.lua'),
         (Join-Path $TestRoot 'SCCompanionMapFixture.lua'),
         (Join-Path $Client 'SCCompanionMap.lua'),
-        (Join-Path $TestRoot 'SCCompanionMapTests.lua')
+        (Join-Path $TestRoot 'SCCompanionMapTests.lua'),
+        (Join-Path $TestRoot 'SCInteractionFixture.lua'),
+        (Join-Path $Client 'SCInteraction.lua'),
+        (Join-Path $TestRoot 'SCInteractionTests.lua')
     )
     Push-Location -LiteralPath $GameRoot
     try {
