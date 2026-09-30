@@ -324,10 +324,11 @@ local function manifestCandidate(actor, player)
     if id == nil then return nil end
     local actorX, actorY = coordinates(actor)
     local playerX, playerY = coordinates(player)
-    local distance = math.huge
-    if actorX ~= nil and playerX ~= nil then
-        distance = (actorX - playerX) ^ 2 + (actorY - playerY) ^ 2
-    end
+    -- A passenger with no loaded world position cannot walk to this car.
+    -- Reserving a seat for one can strand present followers, especially when
+    -- its low health gives it the first priority band.
+    if actorX == nil or playerX == nil then return nil end
+    local distance = (actorX - playerX) ^ 2 + (actorY - playerY) ^ 2
     local bodyOk, body = invoke(actor, "getBodyDamage")
     local healthOk, health = false, 100
     if bodyOk then
@@ -394,8 +395,10 @@ local function buildManifest(vehicle, player)
 
     local candidates = {}
     local living = SC.Registry and SC.Registry.living and SC.Registry.living() or {}
-    for index = 1, math.min(#living, finite(SC.Config.get("maxCompanions"), 16)) do
-        local actor = living[index]
+    -- The registry also contains neutral survivors and household members.
+    -- Scan eligible recruits across the registry, or a follower sorted after
+    -- enough neutrals never gets a passenger assignment.
+    for _, actor in ipairs(living) do
         if eligibleFollower(actor, vehicle) then
             local candidate = manifestCandidate(actor, player)
             if candidate and not occupiedIds[candidate.id] then candidates[#candidates + 1] = candidate end
@@ -872,15 +875,27 @@ function vehicleService.board(actor, vehicle, requestedSeat, intent)
     reservations[reservation] = id
 
     local service = supervisor()
-    service.transition(transaction.supervisorToken, "committing", {
-        seat = prepared.seat, vehicleKey = prepared.vehicleKey,
-    })
+    local committing, commitReason = service.transition(
+        transaction.supervisorToken, "committing", {
+            seat = prepared.seat, vehicleKey = prepared.vehicleKey,
+        })
+    if committing ~= true then
+        return finishTransaction(transaction, false,
+            commitReason or "vehicle_board_commit_rejected")
+    end
 
     local entered, nativeReason, safeFallback = nativeBoard(actor, vehicle, prepared.seat)
     if entered then
-        service.transition(transaction.supervisorToken, "verifying", {
-            result = nativeReason, seat = prepared.seat,
-        })
+        local verifying, verifyReason = service.transition(
+            transaction.supervisorToken, "verifying", {
+                result = nativeReason, seat = prepared.seat,
+            })
+        if verifying ~= true then
+            local rolledBack = rollbackNativeEntry(actor, vehicle)
+            return finishTransaction(transaction, false,
+                verifyReason or "vehicle_board_verification_rejected",
+                { preserveReservation = rolledBack ~= true })
+        end
         local record = SC.Registry.byId(id)
         if record ~= nil then
             record.runtime = type(record.runtime) == "table" and record.runtime or {}
@@ -971,12 +986,29 @@ function vehicleService.exit(actor, vehicle, requestedSeat, intent)
         return false, "companion could not stop before vehicle exit"
     end
     local service = supervisor()
-    service.transition(transaction.supervisorToken, "committing", { seat = seat })
+    local committing, commitReason = service.transition(
+        transaction.supervisorToken, "committing", { seat = seat })
+    if committing ~= true then
+        return finishTransaction(transaction, false,
+            commitReason or "vehicle_exit_commit_rejected")
+    end
     local exitedOk, exited = invoke(vehicle, "exit", actor)
     if not exitedOk or exited ~= true then
         return finishTransaction(transaction, false, "native vehicle exit was rejected")
     end
-    service.transition(transaction.supervisorToken, "verifying", { seat = seat })
+    local verifying, verifyReason = service.transition(
+        transaction.supervisorToken, "verifying", { seat = seat })
+    if verifying ~= true then
+        local rollbackOk, rollbackEntered = invoke(vehicle, "enter", seat, actor)
+        local vehicleOk, restoredVehicle = invoke(actor, "getVehicle")
+        local seatOk, restoredSeat = invoke(vehicle, "getSeat", actor)
+        local restored = rollbackOk and rollbackEntered == true
+            and vehicleOk and restoredVehicle == vehicle
+            and seatOk and tonumber(restoredSeat) == seat
+        return finishTransaction(transaction, false,
+            verifyReason or "vehicle_exit_verification_rejected",
+            { preserveReservation = true, rollbackVerified = restored })
+    end
     local verifyOk, after = invoke(actor, "getVehicle")
     if not verifyOk or after ~= nil then
         return finishTransaction(transaction, false,

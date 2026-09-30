@@ -53,6 +53,28 @@ check(cancelled == 1 and Supervisor.current(actor) == urgent,
 check(Supervisor.complete(urgent, "safe") == true and Supervisor.current(actor) == nil,
     "completion releases actor ownership")
 
+local unconfirmedCancelActor = testActor("unconfirmed-cancel")
+local unconfirmedToken = assert(Supervisor.begin(unconfirmedCancelActor, {
+    owner = "downtime", action = "read", ignoreRetry = true,
+    interruptible = true, onCancel = function() return nil end,
+}))
+local unconfirmedResource = {}
+assert(Supervisor.reserve(unconfirmedToken, unconfirmedResource, "book"))
+local cancelAccepted = Supervisor.cancel(unconfirmedCancelActor, "interrupt")
+check(cancelAccepted == false and Supervisor.current(unconfirmedCancelActor) == unconfirmedToken
+        and Supervisor.reservationCount(unconfirmedCancelActor) == 1,
+    "a cancellation without explicit acceptance retains its owner and reservation")
+assert(Supervisor.fail(unconfirmedToken, "fixture_cleanup"))
+
+local unconfirmedUrgentActor = testActor("unconfirmed-urgent")
+local dispatchAccepted = Supervisor.queueUrgent(unconfirmedUrgentActor, {
+    owner = "locomotion", action = "retreat", ignoreRetry = true,
+    dispatch = function() return nil end,
+})
+check(dispatchAccepted == false
+        and Supervisor.urgentStatus(unconfirmedUrgentActor).state == "failed",
+    "an urgent callback without explicit acceptance is not reported as dispatched")
+
 local invalidOrder = assert(Supervisor.begin(actor, {
     owner = "test", action = "invalid_order", ignoreRetry = true,
 }))
@@ -165,6 +187,30 @@ local dispatchedUrgent = Supervisor.urgentStatus(urgentActor)
 check(urgentDispatches == 1 and dispatchedUrgent.state == "dispatched"
         and dispatchedUrgent.reason == "retreat_dispatched",
     "the queued urgent intent is eventually dispatched and observable")
+
+local redirectedActor = testActor("urgent-retarget")
+local redirectedOwner = assert(Supervisor.begin(redirectedActor, {
+    owner = "medical", action = "bandage", ignoreRetry = true,
+}))
+assert(Supervisor.transition(redirectedOwner, "committing"))
+local dispatchedTarget
+local queuedRedirect, _, firstRedirect = Supervisor.queueUrgent(redirectedActor, {
+    owner = "locomotion", action = "flee", targetKey = "tile:old",
+    dispatch = function() dispatchedTarget = "old"; return true end,
+})
+assert(queuedRedirect)
+local retargeted, retargetReason, updatedRedirect = Supervisor.queueUrgent(redirectedActor, {
+    owner = "locomotion", action = "flee", targetKey = "tile:new",
+    dispatch = function() dispatchedTarget = "new"; return true end,
+})
+check(retargeted == true and retargetReason == "urgent_retargeted"
+        and updatedRedirect.expiresAt == firstRedirect.expiresAt,
+    "a queued escape adopts the latest target without replacing the owner")
+assert(Supervisor.commit(redirectedOwner, { handled = true }))
+assert(Supervisor.transition(redirectedOwner, "verifying"))
+assert(Supervisor.complete(redirectedOwner, "done"))
+check(dispatchedTarget == "new",
+    "the queued escape dispatches its updated destination after medical work exits")
 
 do
     -- Review 2.5: when begin() itself services a queued urgent (its update() pass

@@ -12003,7 +12003,7 @@ local fixtures = {
 
 local furnitureKind, seatActivity, approachFurniture, beginFurniture,
     coolFurniture, furnitureCooling, _, _, failFurnitureActivity,
-    reserveFurniture, releaseFurniture =
+    reserveFurniture, releaseFurniture, furnitureStateFor =
     SurvivorCompanion.Downtime._furnitureForTests()
 local fixtureObjects = {}
 for index, fixture in ipairs(fixtures) do
@@ -12049,6 +12049,13 @@ check(reserveFurniture(wallCouch, wallActor, clock)
         and seatActivity(otherSitter, {}, clock).object == alternateChair
         and seatActivity(wallActor, {}, clock).object == wallCouch,
     "another companion selects the free chair while the first holds the couch")
+furnitureStateFor(wallActor).active = {
+    kind = "sit", object = wallCouch, square = wallCouchSquare,
+}
+check(seatActivity(otherSitter, {}, clock + 30001).object == alternateChair
+        and not reserveFurniture(wallCouch, otherSitter, clock + 30001),
+    "a long occupied seat remains reserved after its initial lease expires")
+furnitureStateFor(wallActor).active = nil
 releaseFurniture(wallCouch, wallActor)
 local blockedRouteState = {
     active = { kind = "sit", object = wallCouch, square = wallCouchSquare },

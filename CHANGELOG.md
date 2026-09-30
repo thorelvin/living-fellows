@@ -2,6 +2,12 @@
 
 # Changelog
 
+## 0.26.9 - Seat ownership and vehicle transactions
+
+- Urgent survival callbacks now require confirmed dispatch and cancellation. A queued escape can update its target while another action finishes, without extending its deadline.
+- Downtime resources stay reserved throughout an active activity, including sits longer than the initial lease.
+- Vehicle manifests find recruited followers after neutral registry entries and skip followers without a readable position. Boarding and exiting now respect rejected commit and verification transitions, with native seat rollback where needed. The ten fixes and their regression checks are recorded in `docs/0.26.9-ten-more-bugs.md`; visible vehicle and chair checks remain for a disposable-save playtest.
+
 ## 0.26.8 - Conversation and seating reliability
 
 - Talk requests now take precedence over routine work, wait for movement ownership before speaking, and stop pursuing a player who changes floors or moves beyond speaking range. Nearby neutral survivors can be opened from their right-click Talk shortcut.

@@ -527,7 +527,7 @@ local function runCancel(token, reason, force, terminalFailure, recoveryAttempt)
             return false, obligation.exhausted and "rollback_quarantined"
                 or "rollback_failed", safeDetail(obligation, 0)
         end
-        if accepted == false then
+        if accepted ~= true then
             token.cancelling = false
             if obligation then
                 obligation = retainRollback(token, reason, terminalFailure,
@@ -602,7 +602,7 @@ dispatchQueuedUrgent = function(actor, releaseReason)
     if not callOk then
         record.state, record.reason = "failed", "urgent_dispatch_error"
         record.result = { error = clean(accepted, 160) }
-    elseif accepted == false then
+    elseif accepted ~= true then
         record.state, record.reason = "failed", clean(reason, 128)
             or "urgent_dispatch_rejected"
         record.result = safeDetail(detail, 0)
@@ -631,6 +631,19 @@ function Supervisor.queueUrgent(actor, spec)
     end
     if existing then
         if existing.owner == clean(spec.owner, 48) and existing.action == action then
+            local targetKey = clean(spec.targetKey, 120)
+            if existing.targetKey ~= targetKey then
+                -- The actor can choose a new escape tile while an earlier
+                -- owner is still committing. Keep the original deadline, but
+                -- dispatch the latest safe destination when that owner exits.
+                existing.targetKey = targetKey
+                existing.targetLabel = clean(spec.targetLabel, 96)
+                existing.dispatch = spec.dispatch
+                existing.detail = safeDetail(spec.detail, 0)
+                appendUrgent(actor, "urgent_retargeted", existing,
+                    "urgent_retargeted", existing.detail)
+                return true, "urgent_retargeted", urgentPublic(existing)
+            end
             return true, "urgent_already_queued", urgentPublic(existing)
         end
         return false, "urgent_queue_occupied", urgentPublic(existing)

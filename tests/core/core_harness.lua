@@ -995,6 +995,32 @@ for _, candidate in ipairs(manifestActors) do
         "team doctrine is applied atomically to every recruited companion")
 end
 SC.Vehicle.invalidateManifests()
+local originalManifestLiving = SC.Registry.living
+SC.Registry.living = function()
+    local mixed = {}
+    for index = 1, 20 do mixed[#mixed + 1] = { neutral = index } end
+    for _, candidate in ipairs(manifestActors) do mixed[#mixed + 1] = candidate end
+    return mixed
+end
+local mixedAssignment = SC.Vehicle.assignmentFor(
+    manifestActors[1], manifestVehicle, manifestPlayer)
+check(mixedAssignment ~= nil and mixedAssignment.capacity == 3,
+    "vehicle boarding finds recruited followers after neutral registry entries")
+SC.Registry.living = originalManifestLiving
+SC.Vehicle.invalidateManifests()
+manifestActors[1].getX = function() return nil end
+manifestActors[1].getBodyDamage = function()
+    return { getHealth = function() return 10 end }
+end
+local availablePassenger = SC.Vehicle.assignmentFor(
+    manifestActors[2], manifestVehicle, manifestPlayer)
+local positionlessPassenger = SC.Vehicle.assignmentFor(
+    manifestActors[1], manifestVehicle, manifestPlayer)
+check(availablePassenger ~= nil and positionlessPassenger == nil,
+    "an unloaded wounded follower cannot reserve a seat ahead of a present follower")
+manifestActors[1].getX = nil
+manifestActors[1].getBodyDamage = nil
+SC.Vehicle.invalidateManifests()
 local assignedSeats, waitingCount = {}, 0
 for _, candidate in ipairs(manifestActors) do
     local assignment, assignmentReason, capacity = SC.Vehicle.assignmentFor(
@@ -1093,6 +1119,31 @@ function SC.__testVehicleTransaction()
 end
 SC.__testVehicleTransaction()
 SC.__testVehicleTransaction = nil
+local originalVehicleTransition = SC.ActionSupervisor.transition
+SC.ActionSupervisor.transition = function(token, phase, detail)
+    if phase == "committing" then return false, "commit_owner_refused" end
+    return originalVehicleTransition(token, phase, detail)
+end
+local refusedBoard, refusedBoardReason = SC.Vehicle.board(actor, vehicle, nil,
+    { preflight = preflight })
+SC.ActionSupervisor.transition = originalVehicleTransition
+check(refusedBoard == false and refusedBoardReason == "commit_owner_refused"
+        and actor:getVehicle() == nil
+        and SC.Vehicle.isSeatReserved(vehicle, 1) == false,
+    "boarding refuses native entry when its commit owner is not accepted")
+SC.ActionSupervisor.resetRetry(actor, "next_fault_case", "board_vehicle")
+SC.ActionSupervisor.transition = function(token, phase, detail)
+    if phase == "verifying" then return false, "board_verify_owner_refused" end
+    return originalVehicleTransition(token, phase, detail)
+end
+local unverifiedBoard, unverifiedBoardReason = SC.Vehicle.board(actor, vehicle, nil,
+    { preflight = preflight })
+SC.ActionSupervisor.transition = originalVehicleTransition
+check(unverifiedBoard == false and unverifiedBoardReason == "board_verify_owner_refused"
+        and actor:getVehicle() == nil and vehicle.passenger == nil
+        and SC.Vehicle.isSeatReserved(vehicle, 1) == false,
+    "boarding rolls native entry back if verification ownership is rejected")
+SC.ActionSupervisor.resetRetry(actor, "next_fault_case", "board_vehicle")
 local boarded, boardReason = SC.Vehicle.board(actor, vehicle, nil, { preflight = preflight })
 check(boarded and boardReason == "native_seat" and SC.Vehicle.isNativeSeated(actor)
     and SC.Registry.byId("sc-core-actor") ~= nil
@@ -1113,6 +1164,27 @@ function SC.__testVehiclePolicyStatus()
     local seatedStatus = SC.Vehicle.statusFor(actor, manifestPlayer)
     check(seatedStatus.status == "in_vehicle" and seatedStatus.canExitNow == true,
         "a stopped seated companion exposes the contextual emergency exit")
+    local originalTransition = SC.ActionSupervisor.transition
+    SC.ActionSupervisor.transition = function(token, phase, detail)
+        if phase == "committing" then return false, "exit_commit_owner_refused" end
+        return originalTransition(token, phase, detail)
+    end
+    local refusedExit, refusedExitReason = SC.Vehicle.exit(actor, vehicle)
+    SC.ActionSupervisor.transition = originalTransition
+    check(refusedExit == false and refusedExitReason == "exit_commit_owner_refused"
+            and actor:getVehicle() == vehicle,
+        "exiting refuses native seat mutation when its commit owner is not accepted")
+    SC.ActionSupervisor.resetRetry(actor, "next_fault_case", "exit_vehicle")
+    SC.ActionSupervisor.transition = function(token, phase, detail)
+        if phase == "verifying" then return false, "exit_verify_owner_refused" end
+        return originalTransition(token, phase, detail)
+    end
+    local unverifiedExit, unverifiedExitReason = SC.Vehicle.exit(actor, vehicle)
+    SC.ActionSupervisor.transition = originalTransition
+    check(unverifiedExit == false and unverifiedExitReason == "exit_verify_owner_refused"
+            and actor:getVehicle() == vehicle and vehicle.passenger == actor,
+        "exiting restores the occupied seat if verification ownership is rejected")
+    SC.ActionSupervisor.resetRetry(actor, "next_fault_case", "exit_vehicle")
     local exited, exitReason = SC.Vehicle.exit(actor, vehicle)
     check(exited and exitReason == "native_exit" and actor:getVehicle() == nil
         and actor:getCurrentSquare() ~= nil

@@ -59,10 +59,27 @@ local function commandState(actor)
     return { order = "stay", commandSerial = 0, recruited = false }
 end
 
+local function reservationHeldByOther(value, actor, now)
+    local existing = value and reservations[value] or nil
+    if not existing or existing.actor == actor then return false end
+    if existing.expires > now then return true end
+    -- A long sit, read, or repair can exceed the lease. The active owner still
+    -- holds its resources until completion or cancellation releases them.
+    local owner = existing.actor
+    local state = owner and states[owner] or nil
+    local activity = state and state.active or nil
+    if not activity or U().isDead(owner) then return false end
+    if activity.object == value or activity.item == value
+        or activity.material == value then return true end
+    for _, scrap in ipairs(activity.scraps or {}) do
+        if scrap == value then return true end
+    end
+    return false
+end
+
 local function reserve(value, actor, now)
     if not value then return true end
-    local existing = reservations[value]
-    if existing and existing.actor ~= actor and existing.expires > now then return false end
+    if reservationHeldByOther(value, actor, now) then return false end
     reservations[value] = {
         actor = actor,
         expires = now + (U().config("downtimeReservationMs") or 30000),
@@ -832,9 +849,7 @@ local function seatActivity(actor, state, current, seatOnly)
                                 object, "isFurnitureOccupied", actor)
                             if value and (seatOnly ~= true or value == "sit")
                                 and not (occupiedOk and occupied == true)
-                                and not (reservations[object]
-                                    and reservations[object].actor ~= actor
-                                    and reservations[object].expires > current)
+                                and not reservationHeldByOther(object, actor, current)
                                 and not furnitureCooling(state, object, current) then
                                 found, kind = object, value
                                 return false
@@ -2839,7 +2854,7 @@ end
 function Downtime._furnitureForTests()
     return furnitureKind, seatActivity, approachFurniture, beginActivity,
         coolFurniture, furnitureCooling, floorRestActivity, seatingStatus,
-        failActivity, reserve, release
+        failActivity, reserve, release, stateFor
 end
 
 function Downtime.reset(actor)
