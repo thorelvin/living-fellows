@@ -862,6 +862,60 @@ local function zoneContains(zone, point)
         and point.y >= zone.y1 and point.y <= zone.y2
 end
 
+local function mapBuildingAt(point)
+    if type(getWorld) ~= "function" or point == nil then return nil end
+    local utility = U()
+    if utility == nil then return nil end
+    local world = getWorld()
+    local grid, ready = utility.call(world, "getMetaGrid")
+    if not ready or grid == nil then return nil end
+    local building, found = utility.call(grid, "getBuildingAt",
+        point.x, point.y, point.z)
+    return found and building or nil
+end
+
+local function sameMapBuilding(first, second)
+    local a, b = mapBuildingAt(first), mapBuildingAt(second)
+    if a == nil or b == nil then return false end
+    if a == b then return true end
+    local utility = U()
+    for _, method in ipairs({ "getX", "getY", "getX2", "getY2" }) do
+        local left, leftOk = utility.call(a, method)
+        local right, rightOk = utility.call(b, method)
+        if not leftOk or not rightOk or left ~= right then return false end
+    end
+    return true
+end
+
+-- Context-menu access to another floor of the same building. An area on that
+-- floor is still drawn explicitly by the player; this only makes the first
+-- corner available before that floor has any camp zones.
+function BaseLife.mayExtendAreaToFloor(value)
+    local point, base = position(value), activeBase()
+    if point == nil or base == nil then return false end
+    for _, area in ipairs(base.zones) do
+        if area.kind == "area" and area.z ~= point.z
+            and point.x >= area.x1 and point.x <= area.x2
+            and point.y >= area.y1 and point.y <= area.y2
+            and sameMapBuilding(point,
+                { x = point.x, y = point.y, z = area.z }) then
+            return true
+        end
+    end
+    return false
+end
+
+-- Native stairs own the geometry. Their camp-work handoff is allowed only
+-- between designated floors of one building. Native lease maintenance checks
+-- each newly occupied square against camp admission while the route runs.
+function BaseLife.allowsFloorTransit(source, destination)
+    local first, last = position(source), position(destination)
+    return first ~= nil and last ~= nil and first.z ~= last.z
+        and BaseLife.isInside(first) == true
+        and BaseLife.isInside(last) == true
+        and sameMapBuilding(first, last)
+end
+
 -- Prove rectangle containment against the union of all camp-area rectangles.
 -- The sweep checks only Y bands where area membership can change, then merges
 -- clipped integer X intervals. Runtime is bounded by baseMaxZones rather than by

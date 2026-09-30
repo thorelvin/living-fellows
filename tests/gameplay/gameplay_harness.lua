@@ -9437,6 +9437,55 @@ do
     SurvivorCompanion.Performance.reset()
     clock = sliceClock
 end
+do
+    local SC = SurvivorCompanion
+    local previousExpedition, previousPlaces =
+        SC.ExpeditionPrototype, SC.ExpeditionPlaces
+    local looter = actor("sc-upstairs-looter", 50, 50, {})
+    registry[looter.id] = looter
+    looter.hunger = 0.95
+    local upstairsSquare = cell:getGridSquare(51, 50, 1)
+    containerObject(upstairsSquare, { item("Base.CannedUpstairs", "Food") })
+    SC.Commands.issue(looter.id, "set_scavenge", true, player)
+    SC.ExpeditionPlaces = {
+        siteFloors = function(id) return id == "upstairs-site" and { 0, 1 } or nil end,
+        siteContainsPoint = function(id, x, y, z)
+            return id == "upstairs-site" and x >= 50 and x <= 52
+                and y >= 50 and y <= 52 and (z == 0 or z == 1)
+        end,
+    }
+    SC.ExpeditionPrototype = {
+        testSearchFor = function(candidate) return candidate == looter end,
+        testSearchTargetFor = function() return nil end,
+        testSearchCategoryFor = function() return "food" end,
+        testSearchMissionIdFor = function() return "upstairs-mission" end,
+        searchSiteFor = function()
+            return { x = 50, y = 50, z = 0, buildingId = "upstairs-site" }
+        end,
+        searchSiteRadiusFor = function() return 5 end,
+    }
+    local runtime = { snapshot = { threats = {}, immediateCount = 0,
+        threatCount = 0, pressure = 0, escapeSquares = {} } }
+    local layered = false
+    for _ = 1, 24 do
+        SC.Performance.beginFrame(2, clock)
+        SC.Encounter.tryScavenge(looter, player, runtime)
+        clock = clock + 16
+        SC.Performance.endFrame(1, false)
+        local state = SC.Encounter.peek(looter)
+        if state and state.task and state.task.containerZ == 1 then
+            layered = true
+            break
+        end
+    end
+    check(layered,
+        "a remote Search selects a real upper-floor container through the ordinary approach")
+    SC.Encounter.reset(looter)
+    registry[looter.id] = nil
+    SC.ExpeditionPrototype, SC.ExpeditionPlaces =
+        previousExpedition, previousPlaces
+    SC.Performance.reset()
+end
 SurvivorCompanion.Commands.issue(fellow.id, "set_scavenge", true, player)
 fellow.hunger = 0.9
 do
@@ -14225,6 +14274,41 @@ check(defaultCampArea and defaultCampArea.x1 == -5 and defaultCampArea.y1 == -5
         and BaseLife.isInside(cell:getGridSquare(9, 2, 0)) == true
         and BaseLife.isInside(cell:getGridSquare(10, 2, 0)) == false,
     "the automatic camp boundary extends seven tiles from its core")
+do
+    local previousWorld = getWorld
+    local buildingA, buildingB = {}, {}
+    for _, building in ipairs({ buildingA, buildingB }) do
+        building.getX = function(self) return self == buildingA and 0 or 10 end
+        building.getY = function() return 0 end
+        building.getX2 = function(self) return self == buildingA and 5 or 15 end
+        building.getY2 = function() return 10 end
+    end
+    getWorld = function()
+        return { getMetaGrid = function()
+            return { getBuildingAt = function(_, x, y, z)
+                if y < 0 or y > 10 or z < 0 or z > 1 then return nil end
+                return x >= 0 and x <= 5 and buildingA
+                    or x >= 10 and x <= 15 and buildingB or nil
+            end }
+        end }
+    end
+    local upper = cell:getGridSquare(2, 2, 1)
+    local neighbor = cell:getGridSquare(12, 2, 1)
+    local extensionAllowed = BaseLife.mayExtendAreaToFloor(upper)
+    local neighborAllowed = BaseLife.mayExtendAreaToFloor(neighbor)
+    check(extensionAllowed and not neighborAllowed,
+        "an upper-floor area can start over the camp in the same building, not its neighbor: "
+            .. tostring(extensionAllowed) .. "/" .. tostring(neighborAllowed))
+    local started = BaseLife.beginZone("area", upper)
+    local finished, upperArea = BaseLife.finishZone(
+        cell:getGridSquare(4, 4, 1), "Upstairs")
+    check(started and finished and BaseLife.allowsFloorTransit(
+            campSquare, upper)
+            and not BaseLife.allowsFloorTransit(campSquare, neighbor),
+        "designated upper and lower areas of one building admit stair transit")
+    if upperArea then BaseLife.removeZone(upperArea.id) end
+    getWorld = previousWorld
+end
 local endpointStarted = BaseLife.beginZone("work", campSquare)
 local endpointLocked = endpointStarted
     and BaseLife.lockZoneEndpoint(cell:getGridSquare(4, 5, 0))
@@ -21518,9 +21602,8 @@ end)()
 end)()
 
 ;(function()
-    -- Review N5: cross-floor dispatch hands the whole move to a rope climb or an
-    -- opaque engine route, neither of which can honour the no-climb rule for a
-    -- dragged body or the admitted-area rule for camp work.
+    -- Camp work uses native stairs only after BaseLife admits both floors, and
+    -- its lease stops if the actor leaves the designated area on the way.
     local multi = SurvivorCompanion.Navigation._requestMultiLevelPath
     local upstairsActor = actor("sc-cross-floor", 24, 48, {})
     local upstairs = cell:getGridSquare(26, 48, 1)
@@ -21538,8 +21621,31 @@ end)()
         upstairsActor.square, upstairs, { workCampOnly = true }, 1000)
     check(workHandled == true and workAccepted == false
             and workStatus == "path_blocked:cross_floor_work_area",
-        "camp-only work is refused a cross-floor handoff it cannot prove: "
+        "camp-only work is refused without a same-building area proof: "
             .. tostring(workStatus))
+    local baseLife = SurvivorCompanion.BaseLife
+    local previousTransit = baseLife.allowsFloorTransit
+    local previousAdmission = baseLife.admitsWork
+    baseLife.allowsFloorTransit = function() return true end
+    baseLife.admitsWork = function(square) return square ~= nil
+        and square:getX() ~= 25 end
+    local state = {}
+    local admitted, started, status = multi(upstairsActor, state,
+        upstairsActor.square, upstairs,
+        { workCampOnly = true, mode = "walk" }, 1000)
+    check(admitted and started and status == "multi_level_path"
+            and state.nativeLease and state.nativeLease.workCampOnly,
+        "approved camp work owns a native stair path")
+    upstairsActor.square = cell:getGridSquare(25, 48, 0)
+    local leaseState, leaseReason =
+        SurvivorCompanion.Navigation._maintainNativeLeaseForTests(
+            upstairsActor, state, upstairs, 1100)
+    check(leaseState == "failed"
+            and leaseReason == "path_blocked:cross_floor_work_area"
+            and state.nativeLease == nil,
+        "native stair movement stops when work leaves the marked camp")
+    baseLife.allowsFloorTransit = previousTransit
+    baseLife.admitsWork = previousAdmission
 end)()
 
 ;(function()

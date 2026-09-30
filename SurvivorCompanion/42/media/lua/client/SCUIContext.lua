@@ -583,6 +583,8 @@ local function baseMenuRelevant(square)
     end
     if type(SC.BaseLife.isInside) == "function"
         and SC.BaseLife.isInside(square) == true then return true end
+    if type(SC.BaseLife.mayExtendAreaToFloor) == "function"
+        and SC.BaseLife.mayExtendAreaToFloor(square) == true then return true end
     -- Lumber areas may be marked in the bounded reach band outside the camp.
     return type(SC.BaseLife.withinWorkReach) == "function"
         and SC.BaseLife.withinWorkReach(square) == true
@@ -622,8 +624,11 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
         menu:addSubMenu(zoneOption, zoneMenu)
         -- Outside the camp only bounded reach zones may start, inside
         -- the bounded reach band around the camp.
+        local upstairsArea = type(SC.BaseLife.mayExtendAreaToFloor) == "function"
+            and SC.BaseLife.mayExtendAreaToFloor(square) == true
         local kinds = inside and { "area", "work", "lumber", "farm", "burial", "pyre", "rest",
             "social", "guard", "rally", "quarantine" }
+            or upstairsArea and { "area" }
             or { "lumber", "farm", "burial", "pyre" }
         for _, kind in ipairs(kinds) do
             zoneMenu:addOption(text("UI_SC_Base_Zone_" .. kind), nil, baseAction, "zone_begin",

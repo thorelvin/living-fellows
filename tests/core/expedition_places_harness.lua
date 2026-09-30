@@ -124,9 +124,15 @@ SurvivorCompanion.Navigation.findPath = originalShelterPath
 fixture.cell.getGridSquare = originalShelterSquare
 SurvivorCompanion.GameplayUtil.position = originalPosition
 check(Places.siteContainsPoint(nearby[1].id, 20, 25, 0)
+        and Places.siteContainsPoint(nearby[1].id, 20, 25, 1)
         and not Places.siteContainsPoint(nearby[1].id, 19, 25, 0)
-        and not Places.siteContainsPoint(nearby[1].id, 55, 25, 0),
-    "the selected footprint excludes its exterior approach and other buildings")
+        and not Places.siteContainsPoint(nearby[1].id, 55, 25, 1)
+        and not Places.siteContainsPoint(nearby[1].id, 20, 25, 2),
+    "selected building includes its upper floor but excludes neighbors and absent floors")
+local siteFloors = Places.siteFloors(nearby[1].id)
+check(siteFloors and #siteFloors == 2 and siteFloors[1] == 0
+        and siteFloors[2] == 1,
+    "saved site resolves the selected building's bounded floor range")
 local sightActor = {
     getX = function() return 19 end,
     getY = function() return 25 end,

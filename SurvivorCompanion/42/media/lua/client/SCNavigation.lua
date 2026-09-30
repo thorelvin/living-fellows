@@ -4292,6 +4292,8 @@ local function beginNativeLease(state, targets, fromSquare, toSquare, ultimateGo
         cqbRole = intent and intent.cqbRole,
         groupParticipants = intent and intent.groupParticipants,
         urgent = intent and intent.urgent == true,
+        workCampOnly = intent and intent.workCampOnly == true,
+        workReach = intent and intent.workReach == true,
         arrivalDistance = intent and tonumber(intent.arrivalDistance) or nil,
         supervisorToken = intent and intent.supervisorToken,
     }
@@ -4510,6 +4512,16 @@ local function maintainNativeLease(actor, state, goalSquare, now)
     end
     local currentSquare = U().squareOf(actor)
     local currentKey = squareKey(currentSquare)
+    if lease.affordance == "multi_level" and lease.workCampOnly
+        and currentKey ~= lease.progressSquareKey
+        and not SC.Navigation._workSquareAdmitted(currentSquare, lease) then
+        if SC.NativeActions and type(SC.NativeActions.stopDirect) == "function" then
+            pcall(SC.NativeActions.stopDirect, actor, { preservePosture = true })
+        end
+        state.nativeLease = nil
+        state.nativeLeaseEndReason = "work_path_outside_camp"
+        return "failed", "path_blocked:cross_floor_work_area"
+    end
     local progressed = false
     if currentKey and currentKey ~= lease.progressSquareKey then
         lease.progressSquareKey = currentKey
@@ -5508,17 +5520,16 @@ local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
     if not differentFloor(sourceSquare, goalSquare) then return nil end
     -- This runs before the planar planner's options exist, and it hands the
     -- whole vertical move either to a stock rope climb or to an opaque engine
-    -- route. Neither can show where it goes in between, so neither can honour
-    -- the no-climb rule for a companion dragging a body or the admitted-area
-    -- rule for camp work -- a restricted request reached a movement mode the
-    -- planner itself would have refused. Refuse the handoff instead of
-    -- escaping the policy through it. The caller treats this as an ordinary
-    -- bounded failure and may replan on the floor it is already on.
+    -- route. Corpse dragging cannot use it. Camp work may use it only between
+    -- designated areas of one building; the lease checks occupied squares as
+    -- the native path moves between floors.
     if type(requestIntent) == "table" then
         if requestIntent.draggingBody == true then
             return true, false, "path_blocked:cross_floor_dragging"
         end
-        if requestIntent.workCampOnly == true then
+        if requestIntent.workCampOnly == true and not (SC.BaseLife
+            and type(SC.BaseLife.allowsFloorTransit) == "function"
+            and SC.BaseLife.allowsFloorTransit(sourceSquare, goalSquare)) then
             return true, false, "path_blocked:cross_floor_work_area"
         end
     end
@@ -5527,7 +5538,8 @@ local function requestMultiLevelPath(actor, state, sourceSquare, goalSquare,
     -- transition is a character action rather than an ordinary path edge. If
     -- the companion is already standing on a valid rope square, hand the whole
     -- vertical move to the same native climb state a player uses.
-    if SC.Topology and type(SC.Topology.squareHasSheetRope) == "function"
+    if requestIntent.workCampOnly ~= true
+        and SC.Topology and type(SC.Topology.squareHasSheetRope) == "function"
         and SC.Topology.squareHasSheetRope(sourceSquare) then
         local _, _, sourceZ = utility.position(sourceSquare)
         local _, _, goalZ = utility.position(goalSquare)

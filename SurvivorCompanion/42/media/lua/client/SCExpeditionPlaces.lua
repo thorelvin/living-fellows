@@ -198,15 +198,61 @@ local function isOutsidePath(path, sourceRoom)
     return outside
 end
 
-local function matchingBuildingAt(grid, place, x, y)
-    local building, found = call(grid, "getBuildingAt", x, y, 0)
+local savedSite
+local function matchingBuildingAt(grid, place, x, y, z)
+    local building, found = call(grid, "getBuildingAt", x, y, z or 0)
     if not found or building == nil then return false end
+    if z ~= nil and z ~= 0 then
+        local low, lowOk = call(building, "getMinLevel")
+        local high, highOk = call(building, "getMaxLevel")
+        if not lowOk or not highOk or tonumber(low) == nil
+            or tonumber(high) == nil or z < tonumber(low)
+            or z > tonumber(high) then return false end
+    end
     local bx, bxOk = call(building, "getX")
     local by, byOk = call(building, "getY")
     local bx2, bx2Ok = call(building, "getX2")
     local by2, by2Ok = call(building, "getY2")
-    return bxOk and byOk and bx2Ok and by2Ok
+    local matching = bxOk and byOk and bx2Ok and by2Ok
         and table.concat({ bx, by, bx2, by2 }, ":") == place.id
+    return matching, matching and building or nil
+end
+
+-- Read the floor range afresh from the saved site's map building. A mission
+-- stores only the stable footprint ID, not mutable planner page metadata.
+function Places.siteFloors(siteId)
+    local place = savedSite(siteId)
+    if place == nil then return nil end
+    local world = type(getWorld) == "function" and getWorld() or nil
+    local grid, ready = call(world, "getMetaGrid")
+    if not ready or grid == nil then return nil end
+    local bounds = place.bounds
+    local midX = math.floor((bounds.x + bounds.x2) / 2)
+    local midY = math.floor((bounds.y + bounds.y2) / 2)
+    local building
+    for _, point in ipairs({
+        { midX, midY }, { bounds.x, bounds.y },
+        { bounds.x2, bounds.y }, { bounds.x, bounds.y2 },
+        { bounds.x2, bounds.y2 },
+    }) do
+        local matching, candidate = matchingBuildingAt(
+            grid, place, point[1], point[2], 0)
+        if matching then
+            building = candidate
+            break
+        end
+    end
+    if building == nil then return nil end
+    local low, lowOk = call(building, "getMinLevel")
+    local high, highOk = call(building, "getMaxLevel")
+    low, high = tonumber(low), tonumber(high)
+    if not lowOk or not highOk or low == nil or high == nil
+        or low ~= math.floor(low) or high ~= math.floor(high)
+        or low < -32 or high > 31 or low > 0 or high < 0
+        or high - low > 7 then return nil end
+    local floors = {}
+    for z = low, high do floors[#floors + 1] = z end
+    return floors
 end
 
 local function validBounds(place)
@@ -223,7 +269,7 @@ local function validBounds(place)
     return bounds
 end
 
-local function savedSite(siteId)
+savedSite = function(siteId)
     if type(siteId) ~= "string" then return nil end
     local x, y, x2, y2 = siteId:match("^(%d+):(%d+):(%d+):(%d+)$")
     local place = { id = siteId, bounds = {
@@ -240,12 +286,13 @@ function Places.siteContainsPoint(siteId, x, y, z)
     local bounds = place and place.bounds
     x, y, z = tonumber(x), tonumber(y), tonumber(z)
     if bounds == nil or not coordinate(x) or not coordinate(y)
-        or z ~= 0 or x < bounds.x or x > bounds.x2
+        or z == nil or z ~= math.floor(z) or z < -32 or z > 31
+        or x < bounds.x or x > bounds.x2
         or y < bounds.y or y > bounds.y2 then return false end
     local world = type(getWorld) == "function" and getWorld() or nil
     local grid, ready = call(world, "getMetaGrid")
-    return ready and grid ~= nil
-        and matchingBuildingAt(grid, place, x, y) or false
+    if not ready or grid == nil then return false end
+    return matchingBuildingAt(grid, place, x, y, z) == true
 end
 
 -- A scout confirms its selected building only from a square it can actually

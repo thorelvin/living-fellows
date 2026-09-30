@@ -49,10 +49,11 @@ function grid:getBuildingsIntersecting(x, y, width, height, output)
         end
     end
 end
-function grid:getBuildingAt(x, y, _z)
+function grid:getBuildingAt(x, y, z)
     for _, value in ipairs(buildings) do
         if x >= value:getX() and x <= value:getX2()
-            and y >= value:getY() and y <= value:getY2() then
+            and y >= value:getY() and y <= value:getY2()
+            and z >= value:getMinLevel() and z <= value:getMaxLevel() then
             return value
         end
     end

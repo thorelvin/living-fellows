@@ -1226,6 +1226,18 @@ local function newContainerSearch(actor, state, allowCorpses, current,
         radius, budget, site, siteRadius)
     local ax, ay, az = U().position(actor)
     state.scanPhase = ((state.scanPhase or 0) + 1) % 4
+    local offsets = scavengeOffsets(radius, budget, state.scanPhase)
+    local scanFloors = { az }
+    local siteId = site and site.buildingId or nil
+    if siteId ~= nil and SC.ExpeditionPlaces
+        and type(SC.ExpeditionPlaces.siteFloors) == "function" then
+        local floors = SC.ExpeditionPlaces.siteFloors(siteId)
+        if type(floors) == "table" and #floors > 0 then
+            for _, z in ipairs(floors) do
+                if z ~= az then scanFloors[#scanFloors + 1] = z end
+            end
+        end
+    end
     return {
         originX = ax, originY = ay, originZ = az,
         radius = radius,
@@ -1237,7 +1249,9 @@ local function newContainerSearch(actor, state, allowCorpses, current,
         siteZ = site and site.z or nil,
         siteId = site and site.buildingId or nil,
         siteRadius = site and siteRadius or nil,
-        offsets = scavengeOffsets(radius, budget, state.scanPhase),
+        offsets = offsets,
+        scanFloors = scanFloors,
+        total = #offsets * #scanFloors,
         index = 1,
         candidates = {},
         seenContainers = setmetatable({}, { __mode = "k" }),
@@ -1318,15 +1332,18 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
             radius, budget, site, siteRadius)
         state.containerSearch = job
     end
-    local requested = math.max(0, #job.offsets - job.index + 1)
+    local requested = math.max(0, job.total - job.index + 1)
     local granted = requested
     if SC.Performance and type(SC.Performance.claimUnits) == "function" then
         granted = SC.Performance.claimUnits("scavengeSquares", requested, false)
     end
     local startedAt, processed = utility.nowMs(), 0
     local storages = storageIndex()
-    while processed < granted and job.index <= #job.offsets do
-        local offset = job.offsets[job.index]
+    while processed < granted and job.index <= job.total do
+        local offsetIndex = math.floor((job.index - 1) / #job.scanFloors) + 1
+        local floorIndex = (job.index - 1) % #job.scanFloors + 1
+        local offset = job.offsets[offsetIndex]
+        local scanZ = job.scanFloors[floorIndex]
         job.index = job.index + 1
         processed = processed + 1
         local siteNear = site == nil or siteId ~= nil or (site.z == job.originZ
@@ -1334,7 +1351,7 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
                 + (site.y - (job.originY + offset.y))^2
                     <= siteRadius * siteRadius)
         local square = siteNear and utility.gridSquare(
-            job.originX + offset.x, job.originY + offset.y, job.originZ)
+            job.originX + offset.x, job.originY + offset.y, scanZ)
             or nil
         if square and siteNear and inSelectedSite(siteId, square)
             and (commands.scavengeMissionId == nil
@@ -1371,7 +1388,7 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
             end
         end
     end
-    local complete = job.index > #job.offsets
+    local complete = job.index > job.total
     if SC.Performance and type(SC.Performance.record) == "function" then
         SC.Performance.record("scavenge.scan", utility.idOf(actor),
             utility.nowMs() - startedAt, processed, false)
@@ -1380,11 +1397,11 @@ local function candidateContainers(actor, player, state, allowCorpses, current, 
         if SC.Performance and type(SC.Performance.markYield) == "function" then
             SC.Performance.markYield("scavenge.scan", utility.idOf(actor), processed)
         end
-        return nil, false, job.index - 1, #job.offsets
+        return nil, false, job.index - 1, job.total
     end
     local candidates = job.candidates
     state.containerSearch = nil
-    return candidates, true, #job.offsets, #job.offsets
+    return candidates, true, job.total, job.total
 end
 
 local function safeForScavenging(snapshot, commands)
