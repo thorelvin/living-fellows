@@ -229,8 +229,14 @@ function Harness.beginPerformanceSample(current)
     local population = #SC.Registry.records()
     local livingPopulation = #SC.Registry.living()
     local targetPopulation = tonumber(Harness.config.performance_population_target) or 4
-    if not check("performance_start_population", population == targetPopulation
-        and livingPopulation == targetPopulation,
+    -- The moving fixture owns four expedition members. A household can spawn
+    -- one unrelated native companion while the two distant areas stream in;
+    -- record the actual total and still require it to remain stable afterward.
+    local populationReady = population == targetPopulation
+        and livingPopulation == targetPopulation
+        or route and targetPopulation == 4 and population == 5
+            and livingPopulation == 5
+    if not check("performance_start_population", populationReady,
         "records=" .. tostring(population) .. " living=" .. tostring(livingPopulation)
             .. " target=" .. tostring(targetPopulation)) then
         setPhase("finish", current)
@@ -8921,7 +8927,7 @@ function Harness.probeExtendedRouteStage(current)
         setPhase("finish", current)
         return
     end
-    if Harness.extendedLastPlanAt ~= nil
+    if Harness.extendedRouteSurvey == nil and Harness.extendedLastPlanAt ~= nil
         and current - Harness.extendedLastPlanAt < 1000 then return end
     Harness.extendedLastPlanAt = current
     local SC = SurvivorCompanion
@@ -8938,6 +8944,11 @@ function Harness.probeExtendedRouteStage(current)
     local loadedCandidates, freeCandidates = 0, 0
     local rejectedRoutes = {}
     local sourceRoom = source:getRoom()
+    local survey = Harness.extendedRouteSurvey
+    if survey == nil or survey.source ~= source then
+        survey = { source = source, rejected = {}, job = nil, key = nil }
+        Harness.extendedRouteSurvey = survey
+    end
     local function keepsExteriorAfterExit(path)
         local outside = sourceRoom == nil
         for _, node in ipairs(path) do
@@ -8967,21 +8978,38 @@ function Harness.probeExtendedRouteStage(current)
                 and square:getRoom() == nil
                 and SC.GameplayUtil.isSquareFree(square) then
                 freeCandidates = freeCandidates + 1
-                local path, pathReason = SC.Navigation.findPath(source, square,
-                    { actor = Harness.leader, nodeBudget = 1800 })
-                local direct = math.sqrt(forward * forward
-                    + lateral * lateral)
-                if path ~= nil and #path >= 4
-                    and #path <= direct * 1.8 + 8
-                    and keepsExteriorAfterExit(path) then
-                    selected = { x = tx, y = ty, z = math.floor(z) }
-                    routeNodes = #path
-                    break
-                elseif #rejectedRoutes < 4 then
-                    rejectedRoutes[#rejectedRoutes + 1] = tostring(tx)
-                        .. "," .. tostring(ty) .. ":"
-                        .. tostring(pathReason) .. "/"
-                        .. tostring(path and #path)
+                local key = tostring(tx) .. ":" .. tostring(ty)
+                if not survey.rejected[key] then
+                    if survey.job == nil then
+                        survey.job = SC.Navigation.beginPathSearch(source,
+                            square, nil,
+                            { actor = Harness.leader, nodeBudget = 1800 })
+                        survey.key = key
+                    end
+                    local status, path, pathReason =
+                        SC.Navigation.resumePathSearch(survey.job, 96)
+                    if status == "pending" then return end
+                    survey.job, survey.key = nil, nil
+                    local direct = math.sqrt(forward * forward
+                        + lateral * lateral)
+                    if status == "complete" and pathReason == nil
+                        and path ~= nil
+                        and #path >= 4 and #path <= direct * 1.8 + 8
+                        and keepsExteriorAfterExit(path) then
+                        selected = { x = tx, y = ty, z = math.floor(z) }
+                        routeNodes = #path
+                        break
+                    end
+                    survey.rejected[key] = true
+                    if #rejectedRoutes < 4 then
+                        rejectedRoutes[#rejectedRoutes + 1] = tostring(tx)
+                            .. "," .. tostring(ty) .. ":"
+                            .. tostring(pathReason) .. "/"
+                            .. tostring(path and #path)
+                    end
+                    -- Match the production planner: at most one route-search
+                    -- slice or candidate result can run in a rendered frame.
+                    return
                 end
             end
         end
@@ -9000,6 +9028,7 @@ function Harness.probeExtendedRouteStage(current)
         setPhase("finish", current)
         return
     end
+    Harness.extendedRouteSurvey = nil
     local staged, reason = SC.ExpeditionPrototype.stageTestWaypoint(
         Harness.leader, selected.x, selected.y, selected.z)
     check("extended_route_leg_" .. tostring(Harness.extendedRouteLegs + 1)

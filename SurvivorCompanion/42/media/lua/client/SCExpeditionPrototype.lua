@@ -1760,97 +1760,123 @@ end
 -- the ordinary local pathfinder. Outdoor legs keep followers from entering a
 -- locked building that only the leader could unlock from its inside face.
 local function nextScoutLeg(actor, target, excluded, allowInteriorRoute,
-        roadRoute)
+        roadRoute, scout)
     local source = actor:getCurrentSquare()
     local world = type(getWorld) == "function" and getWorld() or nil
     local cell = world and world:getCell() or nil
     local x, y, z = SC.GameplayUtil.position(actor)
     if source == nil or cell == nil or x == nil or y == nil or z == nil
-        or SC.Navigation == nil or type(SC.Navigation.findPath) ~= "function" then
+        or SC.Navigation == nil
+        or type(SC.Navigation.beginPathSearch) ~= "function"
+        or type(SC.Navigation.resumePathSearch) ~= "function" then
         return nil, "scout_area_unavailable"
     end
     local dx, dy = target.x - x, target.y - y
     local distance = math.sqrt(dx * dx + dy * dy)
     if distance < 1 then return nil, "scout_already_near_target" end
-    if allowInteriorRoute and distance <= 18
-        and not (excluded and excluded.x == target.x
-            and excluded.y == target.y) then
-        local destination = cell:getGridSquare(target.x, target.y, target.z)
-        if destination ~= nil and SC.GameplayUtil.isSquareFree(destination) then
-            local path = SC.Navigation.findPath(source, destination, {
-                actor = actor, nodeBudget = 2500,
-            })
-            if path ~= nil and #path >= 2 and #path <= 80
-                and (roadRoute == nil or SC.ExpeditionRoute.withinCorridor(
-                    roadRoute, path)) then
-                if roadRoute ~= nil and roadRoute.index <= 1
-                    and #path <= 40 then
-                    -- An indoor road-entry connector is already fully loaded.
-                    -- Let native Navigation keep its door approach intact.
-                    return { x = target.x, y = target.y, z = target.z }
-                end
-                -- The synchronous survey establishes a traversable route, but
-                -- an ordinary move to its far end must plan again under the
-                -- shared per-frame navigation budget. Locked portals can put
-                -- that second search past the scout's stall interval. Walk
-                -- the verified route in short native legs so each request
-                -- reaches its first door or window before the next survey.
-                local node = path[math.min(#path, 5)]
-                local nx, ny, nz = SC.GameplayUtil.position(node)
-                if nx ~= nil and ny ~= nil and nz ~= nil then
-                    return { x = math.floor(nx), y = math.floor(ny),
-                        z = math.floor(nz) }
-                end
+    local plan = scout.legPlan
+    if plan ~= nil and (plan.source ~= source
+        or plan.target.x ~= target.x or plan.target.y ~= target.y
+        or plan.target.z ~= target.z
+        or plan.excludedX ~= (excluded and excluded.x)
+        or plan.excludedY ~= (excluded and excluded.y)
+        or plan.allowInterior ~= allowInteriorRoute
+        or (plan.roadRoute ~= roadRoute
+            and not (plan.roadRoute ~= nil and roadRoute ~= nil
+                and #plan.roadRoute.points == 0 and #roadRoute.points == 0
+                and plan.roadRoute.avoidance ~= nil
+                and roadRoute.avoidance ~= nil
+                and plan.roadRoute.avoidance.x == roadRoute.avoidance.x
+                and plan.roadRoute.avoidance.y == roadRoute.avoidance.y
+                and plan.roadRoute.avoidance.radius
+                    == roadRoute.avoidance.radius))) then
+        plan = nil
+    end
+    if plan == nil then
+        plan = { source = source, target = copyPoint(target),
+            excludedX = excluded and excluded.x,
+            excludedY = excluded and excluded.y,
+            allowInterior = allowInteriorRoute, roadRoute = roadRoute,
+            sourceRoom = source:getRoom(), candidates = {}, index = 1 }
+        local candidates = plan.candidates
+        if allowInteriorRoute and distance <= 18
+            and not (excluded and excluded.x == target.x
+                and excluded.y == target.y) then
+            local destination = cell:getGridSquare(target.x, target.y, target.z)
+            if destination ~= nil and SC.GameplayUtil.isSquareFree(destination) then
+                candidates[#candidates + 1] = {
+                    square = destination, interior = true, budget = 2500,
+                }
             end
         end
-    end
-    local forwardX, forwardY = dx / distance, dy / distance
-    local sideX, sideY = -forwardY, forwardX
-    local sourceRoom = source:getRoom()
-    local attempts = {}
-    for _, length in ipairs({ math.min(12, distance),
-            math.min(10, distance), math.min(8, distance),
-            math.min(5, distance), math.min(3, distance) }) do
-        for _, lateral in ipairs({ 0, 3, -3, 6, -6, 10, -10,
-                14, -14, 18, -18 }) do
-            local tx = math.floor(x + forwardX * length + sideX * lateral)
-            local ty = math.floor(y + forwardY * length + sideY * lateral)
-            local projected = (tx - x) * forwardX + (ty - y) * forwardY
-            if projected > 1 and not (excluded ~= nil
-                and excluded.x == tx and excluded.y == ty) then
-                local square = cell:getGridSquare(tx, ty, target.z)
-                if square ~= nil and square:getRoom() == nil
-                    and SC.GameplayUtil.isSquareFree(square) then
-                    local path = SC.Navigation.findPath(source, square,
-                        { actor = actor, nodeBudget = 1800 })
-                    local direct = math.sqrt((tx - x)^2 + (ty - y)^2)
-                    if path ~= nil and #path >= 2
-                        and #path <= (sourceRoom ~= nil
-                            and math.max(40, direct * 1.8 + 8)
-                            or direct * 1.8 + 8)
-                        and exteriorRoute(path, sourceRoom)
-                        and (roadRoute == nil
-                            or SC.ExpeditionRoute.withinCorridor(
-                                roadRoute, path)) then
-                        -- Use a nearby point on this verified route. The
-                        -- native movement owner can then handle the corner
-                        -- before the itinerary asks it to cross a building.
-                        local node = path[math.min(#path, 8)]
-                        local nx, ny, nz = SC.GameplayUtil.position(node)
-                        if nx ~= nil and ny ~= nil and nz ~= nil
-                            and not (excluded ~= nil
-                                and excluded.x == math.floor(nx)
-                                and excluded.y == math.floor(ny)) then
-                            return { x = math.floor(nx), y = math.floor(ny),
-                                z = math.floor(nz) }
-                        end
+        local forwardX, forwardY = dx / distance, dy / distance
+        local sideX, sideY = -forwardY, forwardX
+        for _, length in ipairs({ math.min(12, distance),
+                math.min(10, distance), math.min(8, distance),
+                math.min(5, distance), math.min(3, distance) }) do
+            for _, lateral in ipairs({ 0, 3, -3, 6, -6, 10, -10,
+                    14, -14, 18, -18 }) do
+                local tx = math.floor(x + forwardX * length + sideX * lateral)
+                local ty = math.floor(y + forwardY * length + sideY * lateral)
+                local projected = (tx - x) * forwardX + (ty - y) * forwardY
+                if projected > 1 and not (excluded ~= nil
+                    and excluded.x == tx and excluded.y == ty) then
+                    local square = cell:getGridSquare(tx, ty, target.z)
+                    if square ~= nil and square:getRoom() == nil
+                        and SC.GameplayUtil.isSquareFree(square) then
+                        candidates[#candidates + 1] = {
+                            square = square, budget = 1800,
+                            direct = math.sqrt((tx - x)^2 + (ty - y)^2),
+                        }
                     end
-                    attempts[#attempts + 1] = tostring(tx) .. "," .. tostring(ty)
                 end
             end
         end
+        scout.legPlan = plan
     end
-    return nil, "scout_no_exterior_path:" .. tostring(#attempts)
+    local candidate = plan.candidates[plan.index]
+    if candidate == nil then
+        scout.legPlan = nil
+        return nil, "scout_no_exterior_path:" .. tostring(#plan.candidates)
+    end
+    if plan.job == nil then
+        plan.job = SC.Navigation.beginPathSearch(source, candidate.square, nil,
+            { actor = actor, nodeBudget = candidate.budget })
+    end
+    -- One resumable search slice per update. A blocked first candidate can
+    -- otherwise turn the 55-candidate survey into a several-hundred-ms frame.
+    local status, path, pathReason = SC.Navigation.resumePathSearch(plan.job, 96)
+    if status == "pending" then return nil, "planning" end
+    plan.job = nil
+    plan.index = plan.index + 1
+    if status == "complete" and pathReason == nil
+        and path ~= nil and #path >= 2
+        and (roadRoute == nil or SC.ExpeditionRoute.withinCorridor(
+            roadRoute, path)) then
+        local accepted = candidate.interior and #path <= 80
+            or not candidate.interior and #path <= (plan.sourceRoom ~= nil
+                and math.max(40, candidate.direct * 1.8 + 8)
+                or candidate.direct * 1.8 + 8)
+                and exteriorRoute(path, plan.sourceRoom)
+        if accepted then
+            if candidate.interior and roadRoute ~= nil
+                and roadRoute.index <= 1 and #path <= 40 then
+                scout.legPlan = nil
+                return copyPoint(target)
+            end
+            local node = path[math.min(#path, candidate.interior and 5 or 8)]
+            local nx, ny, nz = SC.GameplayUtil.position(node)
+            if nx ~= nil and ny ~= nil and nz ~= nil
+                and (candidate.interior or excluded == nil
+                    or excluded.x ~= math.floor(nx)
+                    or excluded.y ~= math.floor(ny)) then
+                scout.legPlan = nil
+                return { x = math.floor(nx), y = math.floor(ny),
+                    z = math.floor(nz) }
+            end
+        end
+    end
+    return nil, "planning"
 end
 
 local function scoutFollowersNearLeader()
@@ -2771,7 +2797,8 @@ local function pulseScout()
         mission.technicalIssue = { reason = "scout_leg_limit" }
         return
     end
-    if now - (scout.lastPlanAt or -math.huge) < 1500 then return end
+    if scout.legPlan == nil
+        and now - (scout.lastPlanAt or -math.huge) < 1500 then return end
     scout.lastPlanAt = now
     local leaderSquare = mission.leader.actor:getCurrentSquare()
     local leaderInRoom = leaderSquare ~= nil
@@ -2783,7 +2810,8 @@ local function pulseScout()
         scout.roadRoute or (scout.trailReturn and scout.road
             and scout.road.avoidance and { points = {}, index = 1,
                 avoidance = scout.road.avoidance,
-                allowEscapeFromAvoidance = true }) or nil)
+                allowEscapeFromAvoidance = true }) or nil, scout)
+    if reason == "planning" then return end
     if leg == nil then
         if scout.roadRoute ~= nil
             and SC.ExpeditionRoute.skipLane(scout.roadRoute) then

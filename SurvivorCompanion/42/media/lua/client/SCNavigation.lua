@@ -7349,9 +7349,9 @@ function Navigation.findPath(sourceSquare, destinationSquare, options)
     return boundedPath(sourceSquare, destinationSquare, options)
 end
 
--- Test/debug contract for the same resumable search used by production
--- movement. Callers own the returned job and may advance it with a bounded
--- number of node expansions per frame.
+-- Shared resumable search for production movement, expedition leg surveys,
+-- and focused tests. Callers own the returned job and advance it with a
+-- bounded number of node expansions per frame.
 function Navigation.beginPathSearch(sourceSquare, destinationSquare, snapshot, options)
     options = type(options) == "table" and options or {}
     return newRouteSearchJob(sourceSquare, destinationSquare, snapshot, options,
