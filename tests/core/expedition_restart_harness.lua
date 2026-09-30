@@ -982,6 +982,30 @@ check(expedition.noteVerifiedSearchLoot(reserve, {
 check(expedition.finishAtPlayer(player) == true,
     "the scoped Search releases its leader")
 
+local usefulStarted, usefulSearch = expedition.startAtPlace(
+    { { id = "delta", actor = reserve } }, place.id, "search",
+    { request = { category = "useful", quantity = 1 } })
+check(usefulStarted and usefulSearch.scout.search.request.category == "useful",
+    "an everything-useful supply request is admitted as a real Search")
+usefulSearch.scout.phase = "searching"
+usefulSearch.scout.search.startedHour = 431.25
+usefulSearch.scout.search.deadlineHour = 432.25
+local usefulMissionId = usefulSearch.radioSession
+check(not expedition.noteVerifiedSearchLoot(reserve, {
+        verified = true, missionId = usefulMissionId,
+        requestedCategory = "food", stableId = "useful-wrong-request",
+        type = "Base.CannedCorn", sourceX = 80, sourceY = 20,
+        sourceZ = 0,
+    }) and expedition.noteVerifiedSearchLoot(reserve, {
+        verified = true, missionId = usefulMissionId,
+        requestedCategory = "useful", stableId = "useful-food",
+        type = "Base.CannedCorn", sourceX = 80, sourceY = 20,
+        sourceZ = 0,
+    }) and #usefulSearch.scout.search.acquisitions == 1,
+    "only a verified receipt for the broad request counts toward its quantity")
+check(expedition.finishAtPlayer(player) == true,
+    "the everything-useful Search releases its leader")
+
 -- The review names long off-road stretches at either end of a road route.
 local realPlan = SC.ExpeditionRoute.plan
 SC.ExpeditionRoute.plan = function(actor, goal)

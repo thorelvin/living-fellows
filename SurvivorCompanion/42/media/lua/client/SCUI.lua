@@ -687,6 +687,7 @@ function UI.projectExpeditionRow(row, player)
     if type(row) ~= "table" or expedition == nil
         or type(expedition.isMemberId) ~= "function"
         or not expedition.isMemberId(row.id) then return row end
+    row.expeditionMember = true
     if row.actor ~= nil
         and type(expedition.playerCanObserve) == "function"
         and expedition.playerCanObserve(row.actor, player) then return row end
@@ -696,7 +697,7 @@ function UI.projectExpeditionRow(row, player)
         id = row.id, name = name or UI.text("UI_SC_Value_UnknownCompanion"),
         group = row.group, recruited = true, available = false,
         order = "expedition", activity = "away",
-        expeditionAway = true,
+        expeditionAway = true, expeditionMember = true,
     }
 end
 
@@ -877,21 +878,39 @@ function SCUIRoster:doDrawItem(y, item, alternate)
     local metrics = self.metrics or UI.layoutMetrics()
     local height = metrics.rosterItemHeight
     item.height = height
-    if self.selected == item.index then
+    local selected = self.selected == item.index
+    local away = row.expeditionMember == true or row.expeditionAway == true
+    if selected then
         self:drawRect(0, y, self:getWidth(), height, 0.34, 0.36, 0.43, 0.31)
     elseif alternate then
         self:drawRect(0, y, self:getWidth(), height, 0.12, 0.12, 0.12, 0.2)
     end
-    self:drawRectBorder(0, y, self:getWidth(), height, 0.22, 0.55, 0.58, 0.51)
+    if selected then
+        self:drawRect(0, y, 3, height, 0.95, 0.94, 0.72, 0.33)
+        self:drawRectBorder(0, y, self:getWidth(), height,
+            0.85, 0.94, 0.72, 0.33)
+    else
+        self:drawRectBorder(0, y, self:getWidth(), height,
+            0.22, 0.55, 0.58, 0.51)
+    end
     local maximumWidth = self:getWidth() - 16
     local lineY = y + 5
-    self:drawText(fitText(UIFont.Small, row.name, maximumWidth), 8, lineY, 0.92, 0.93, 0.89, 1, UIFont.Small)
+    self:drawText(fitText(UIFont.Small, row.name, maximumWidth), 8, lineY,
+        selected and 0.99 or away and 0.64 or 0.92,
+        selected and 0.86 or away and 0.67 or 0.93,
+        selected and 0.46 or away and 0.65 or 0.89, 1, UIFont.Small)
     lineY = lineY + metrics.lineHeight
-    self:drawText(fitText(UIFont.Small, UI.text("UI_SC_Roster_HealthDistance", UI.healthText(row.health), UI.distanceText(row.distance)), maximumWidth), 8, lineY, 0.72, 0.77, 0.72, 1, UIFont.Small)
+    self:drawText(fitText(UIFont.Small, UI.text("UI_SC_Roster_HealthDistance", UI.healthText(row.health), UI.distanceText(row.distance)), maximumWidth), 8, lineY,
+        away and 0.56 or 0.72, away and 0.60 or 0.77,
+        away and 0.59 or 0.72, 1, UIFont.Small)
     lineY = lineY + metrics.lineHeight
-    self:drawText(fitText(UIFont.Small, UI.text("UI_SC_Roster_Order", UI.stateText(row.order)), maximumWidth), 8, lineY, 0.78, 0.80, 0.73, 1, UIFont.Small)
+    self:drawText(fitText(UIFont.Small, UI.text("UI_SC_Roster_Order", UI.stateText(row.order)), maximumWidth), 8, lineY,
+        away and 0.56 or 0.78, away and 0.60 or 0.80,
+        away and 0.59 or 0.73, 1, UIFont.Small)
     lineY = lineY + metrics.lineHeight
-    self:drawText(fitText(UIFont.Small, UI.text("UI_SC_Roster_Activity", UI.stateText(row.activity)), maximumWidth), 8, lineY, 0.67, 0.72, 0.68, 1, UIFont.Small)
+    self:drawText(fitText(UIFont.Small, UI.text("UI_SC_Roster_Activity", UI.stateText(row.activity)), maximumWidth), 8, lineY,
+        away and 0.54 or 0.67, away and 0.58 or 0.72,
+        away and 0.57 or 0.68, 1, UIFont.Small)
     item.tooltip = row.tooltip
     return y + height
 end
@@ -2688,18 +2707,19 @@ function SCUIDetail:buildTalk(panel, row)
             UI.text("UI_SC_NoSelection"))
     end
     local metrics = self.metrics or UI.layoutMetrics()
-    local portraitHeight = 72
+    local portraitHeight = 104
     local portraitDrawn = false
     if row.actor and ISUI3DModel then
         local ok = pcall(function()
-            local portrait = ISUI3DModel:new(8, y, 64, 68)
+            local portrait = ISUI3DModel:new(8, y, 70, 100)
             panel:addChild(portrait)
             portrait:setCharacter(row.actor)
             portrait:setIsometric(false)
             portrait:setDirection(IsoDirections.S)
             portrait:setDoRandomExtAnimations(false)
             portrait:setState("idle")
-            portrait:setZoom(10)
+            portrait:setZoom(-3)
+            portrait:setYOffset(0)
         end)
         portraitDrawn = ok
     end
@@ -2715,8 +2735,8 @@ function SCUIDetail:buildTalk(panel, row)
         UI.text("UI_SC_Info_CurrentNeed", UI.stateText(row.currentNeed)),
         UI.text("UI_SC_Info_Relationship", UI.stateText(row.relationshipTier)),
     }) do
-        local available = math.max(50, panel:getWidth() - 96)
-        local header = ISLabel:new(80, y, metrics.fontHeight,
+        local available = math.max(50, panel:getWidth() - 102)
+        local header = ISLabel:new(86, y, metrics.fontHeight,
             fitText(UIFont.Small, value, available), 0.88, 0.89, 0.83, 1,
             UIFont.Small, true)
         header:initialise()
@@ -4718,6 +4738,11 @@ function SCUIRoot:refreshRoster(preferredId, description, preserveScroll, deferD
         entries[index] = UI.projectExpeditionRow(row, player)
     end
     table.sort(entries, function(left, right)
+        local leftPriority = Format.rosterPriority(left)
+        local rightPriority = Format.rosterPriority(right)
+        if leftPriority ~= rightPriority then
+            return leftPriority < rightPriority
+        end
         local leftName = string.lower(tostring(left.name or ""))
         local rightName = string.lower(tostring(right.name or ""))
         if leftName == rightName then

@@ -4,6 +4,8 @@
 
 ## 0.26.11 - Expedition travel stays outside the station
 
+- The companion list now puts followers first, other recruited companions next, expedition members in a dimmed middle group, and unrecruited survivors last. The selected name and row edge are highlighted. The Talk portrait uses the game's full-body framing so it fits its panel.
+- Search expeditions can request **Everything useful**. The leader chooses supplies from any useful category using normal carry and gear checks, and counts verified pickups toward the requested quantity. The mission review shows the selected supply category and item count.
 - Travelling squads keep their movement state while the leader replans or waits for stragglers, so companions do not start indoor downtime between waypoints.
 - Road waypoints require the leader to actually leave a building before they count as reached. Indoor exit routes can pass through a hall, but outdoor travel no longer cuts through an unrelated room.
 - A squad flanking an outdoor leader chooses outdoor formation tiles. Departure diagnostics now record the selected target and travel mode for the next playtest.

@@ -3,6 +3,20 @@
 local Format = SurvivorCompanion and SurvivorCompanion.UIFormat
 assert(Format, "SCUIFormat must be loaded before this test")
 
+local roster = {
+    { recruited = false, name = "Francis" },
+    { recruited = true, order = "stay", name = "Merle" },
+    { recruited = true, order = "follow", name = "Sam" },
+    { recruited = true, order = "follow", expeditionMember = true,
+        name = "Rochelle" },
+}
+table.sort(roster, function(left, right)
+    return Format.rosterPriority(left) < Format.rosterPriority(right)
+end)
+assert(roster[1].name == "Sam" and roster[2].name == "Merle"
+    and roster[3].name == "Rochelle" and roster[4].name == "Francis",
+    "following, other recruits, expedition members, and unrecruited stay grouped")
+
 local translations = {
     UI_SC_Value_Unknown = "Unknown",
     UI_SC_Value_On = "On",

@@ -9903,6 +9903,12 @@ end
         { scavengeRequestedCategory = "crafting" }, {})
     check(requested.crafting == true,
         "a supply request contributes its category to blind room search")
+    local allUseful = Encounter._wantedCategories(looter,
+        { scavengeRequestedCategory = "useful" }, {})
+    check(allUseful.food == true and allUseful.medicine == true
+            and allUseful.tools == true and allUseful.weapon == true
+            and allUseful.useful == nil,
+        "everything useful searches plausible supply rooms without a fake item category")
 
     -- Two steps from an open cupboard beats twenty to the next one.
     local stickyState = {}
@@ -9941,6 +9947,12 @@ end
         { scavengeRequestedCategory = "crafting" }, nil, lootClock + 1000)
     check(chosen == requestedThread,
         "an opened source selects the requested category despite other useful supplies")
+    local _, usefulItem, usefulCategory = Encounter.stickyContainer(
+        looter, requestState, {},
+        { scavengeRequestedCategory = "useful" }, nil, lootClock + 1000)
+    check(usefulItem ~= nil and (usefulCategory == "food"
+            or usefulCategory == "crafting"),
+        "everything useful selects an accepted supply across categories")
 
     -- Crafting stock is what the base runs on, and nobody is ever short of it
     -- in the way they are short of food, so the need ladder used to leave it at

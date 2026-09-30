@@ -26,6 +26,7 @@ local TIMES = {
     { value = 8, key = "UI_SC_Expedition_EightHours" },
 }
 local CATEGORIES = {
+    { value = "useful", key = "UI_SC_Expedition_EverythingUseful" },
     { value = "food", key = "UI_SC_Expedition_Food" },
     { value = "water", key = "UI_SC_Expedition_Water" },
     { value = "medicine", key = "UI_SC_Expedition_Medicine" },
@@ -296,6 +297,18 @@ function Planner.build(detail, panel)
                 leaderName, #team,
                 place and place.label or "?", draft.hours,
                 styleName))
+        if draft.kind == "search" then
+            local categoryName = draft.category
+            for _, option in ipairs(CATEGORIES) do
+                if option.value == draft.category then
+                    categoryName = optionLabel(option)
+                    break
+                end
+            end
+            y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
+                tr("UI_SC_Expedition_SearchRequest", categoryName,
+                    draft.quantity))
+        end
         y = detail:addInformationLine(panel, y, "UI_SC_Info_Message",
             tr("UI_SC_Expedition_TravelSummary",
                 draft.travelMode == "straight"

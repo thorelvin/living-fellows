@@ -60,6 +60,8 @@
     "UI_SC_Expedition_FourHours": "4 game hours",
     "UI_SC_Expedition_EightHours": "8 game hours",
     "UI_SC_Expedition_Food": "Food",
+    "UI_SC_Expedition_EverythingUseful": "Everything useful",
+    "UI_SC_Expedition_SearchRequest": "Supplies: %1; requested items: %2.",
     "UI_SC_Expedition_Water": "Water",
     "UI_SC_Expedition_Medicine": "Medicine",
     "UI_SC_Expedition_Ammunition": "Ammunition",

@@ -41,6 +41,16 @@ function Format.normalizeState(value)
     return state
 end
 
+function Format.rosterPriority(row)
+    if type(row) ~= "table" then return 3 end
+    if row.expeditionMember == true or row.expeditionAway == true
+        or Format.normalizeState(row.order) == "expedition" then return 2 end
+    if row.recruited == true then
+        return Format.normalizeState(row.order) == "follow" and 0 or 1
+    end
+    return 3
+end
+
 function Format.humanize(value)
     if value == nil then
         return ""

@@ -15,6 +15,7 @@ local TEST_RADIO_PRESET = "Living Fellows Team"
 local SEARCH_HOURS = 0.75
 local startReturnFromSite
 local SUPPLY_CATEGORIES = {
+    useful = true,
     food = true, water = true, medicine = true, ammunition = true,
     weapon = true, tools = true, construction = true, crafting = true,
     farming = true, clothing = true, container = true, literature = true,

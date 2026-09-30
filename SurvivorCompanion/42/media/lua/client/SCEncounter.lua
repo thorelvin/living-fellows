@@ -18,6 +18,11 @@ local function U()
     return SC.GameplayUtil
 end
 
+local function matchesSupplyRequest(requestedCategory, category)
+    return requestedCategory == "useful" and category ~= nil
+        or requestedCategory == category
+end
+
 local function stateFor(actor)
     local state = states[actor]
     if not state then
@@ -989,7 +994,12 @@ function Encounter._wantedCategories(actor, commands, needs)
         wanted.weapon = true
     end
     if type(commands) == "table" and commands.scavengeRequestedCategory then
-        wanted[commands.scavengeRequestedCategory] = true
+        if commands.scavengeRequestedCategory == "useful" then
+            for category in pairs(categoryRoomTokens) do wanted[category] = true end
+            wanted.weapon = true
+        else
+            wanted[commands.scavengeRequestedCategory] = true
+        end
     end
     if SC.Combat and type(SC.Combat.weaponAvailability) == "function" then
         local _, usable = SC.Combat.weaponAvailability(actor)
@@ -1122,6 +1132,7 @@ scoreContainer = function(actor, container, needs, objectives, commands, audit, 
         if not protected then
             score, category = itemNeedScore(actor, item, needs, commands, audit)
             local supplyCategory = category
+            local supplyScore = score
             if category == "weapon" and usableMeleeWeapon(item)
                 and priorityMeleeAllowed(actor, item, audit, commands) then
                 score = score + weaponLocationBonus
@@ -1141,7 +1152,9 @@ scoreContainer = function(actor, container, needs, objectives, commands, audit, 
             -- Objectives and quirks cannot turn another category into the
             -- explicitly requested supply, even when they add a large bonus.
             if commands and commands.scavengeRequestedCategory ~= nil then
-                if supplyCategory ~= commands.scavengeRequestedCategory then
+                local request = commands.scavengeRequestedCategory
+                if not matchesSupplyRequest(request, supplyCategory)
+                    or (request == "useful" and (tonumber(supplyScore) or 0) <= 0) then
                     score = 0
                 else
                     category = supplyCategory
@@ -1822,7 +1835,8 @@ local function commitTask(actor, state, task, commands, audit, time)
         or task.scavengeRequestedCategory ~= commands.scavengeRequestedCategory
         or task.scavengeMissionId ~= commands.scavengeMissionId
         or (commands.scavengeRequestedCategory ~= nil
-            and task.category ~= commands.scavengeRequestedCategory) then
+            and not matchesSupplyRequest(commands.scavengeRequestedCategory,
+                task.category)) then
         resetScavengeTarget(actor, state, {
             reason = "command_changed", phase = "cancelled", memoryResult = "interrupted",
             time = time,
@@ -1910,7 +1924,8 @@ local function commitTask(actor, state, task, commands, audit, time)
         -- walking anywhere.
         Encounter._noteContainerOpened(state, task.container, time)
         local requested = commands.scavengeRequestedCategory ~= nil
-            and commands.scavengeRequestedCategory == task.category
+            and matchesSupplyRequest(commands.scavengeRequestedCategory,
+                task.category)
         local stableId = requested and utility.itemStableId(task.item, true) or nil
         local sourceX, sourceY, sourceZ = utility.position(task.owner)
         local sourceIndex = select(1, utility.call(task.owner, "getObjectIndex"))
@@ -1923,7 +1938,8 @@ local function commitTask(actor, state, task, commands, audit, time)
             destinationName = task.destinationName,
             time = time,
             verified = receipt ~= nil,
-            requestedCategory = requested and task.category or nil,
+            requestedCategory = requested
+                and commands.scavengeRequestedCategory or nil,
             stableId = stableId,
             sourceX = sourceX and math.floor(sourceX) or nil,
             sourceY = sourceY and math.floor(sourceY) or nil,
