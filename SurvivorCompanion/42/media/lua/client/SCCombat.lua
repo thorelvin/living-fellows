@@ -1642,9 +1642,9 @@ function Combat.friendlyFireBlocked(actor, target, context)
         return utility.pointSegmentDistanceSq(friendly, actor, target) <= corridorSq
     end
     local player = context.player
-    if blocks(player) then return true end
+    if blocks(player) then return true, player end
     for _, friendly in ipairs(type(context.allies) == "table" and context.allies or {}) do
-        if blocks(friendly) then return true end
+        if blocks(friendly) then return true, friendly end
     end
     local snapshot = context.snapshot
     if snapshot then
@@ -1658,7 +1658,7 @@ function Combat.friendlyFireBlocked(actor, target, context)
                     actor, row.actor, player)
                 stillProtected = ok and value == true
             end
-            if stillProtected and blocks(row.actor) then return true end
+            if stillProtected and blocks(row.actor) then return true, row.actor end
         end
     end
     return false
@@ -1668,6 +1668,75 @@ local function lineBlockedByFriendly(actor, target, player, snapshot, kind)
     return Combat.friendlyFireBlocked(actor, target, {
         player = player, snapshot = snapshot, kind = kind or "ranged",
     })
+end
+
+-- When two companions converge on one fallen zombie, the ordinary melee lane
+-- check correctly stops both attacks. Move the less suitable finisher out of
+-- that lane; keep the veto in force until its actual position has cleared.
+local function groundedLaneYield(actor, target, partner, snapshot, maximum)
+    local utility = U()
+    local ax, ay, az = utility.position(actor)
+    local tx, ty = utility.position(target)
+    local px, py = utility.position(partner)
+    if ax == nil or tx == nil or px == nil or SC.Navigation == nil
+        or type(SC.Navigation.openSegment) ~= "function" then return nil end
+    local alongX, alongY = tx - px, ty - py
+    local length = math.sqrt(alongX * alongX + alongY * alongY)
+    if length < 0.05 then
+        alongX, alongY = tx - ax, ty - ay
+        length = math.sqrt(alongX * alongX + alongY * alongY)
+    end
+    if length < 0.05 then alongX, alongY, length = 1, 0, 1 end
+    alongX, alongY = alongX / length, alongY / length
+    local side = utility.stableHash(utility.idOf(actor)) % 2 == 0 and 1 or -1
+    local awayX, awayY = ax - tx, ay - ty
+    local awayLength = math.sqrt(awayX * awayX + awayY * awayY)
+    if awayLength < 0.05 then awayX, awayY = -alongX, -alongY
+    else awayX, awayY = awayX / awayLength, awayY / awayLength end
+    local directions = {
+        { -alongY * side, alongX * side },
+        { alongY * side, -alongX * side },
+        { awayX, awayY },
+    }
+    local corridor = (utility.config("friendlyFireMeleeCorridor") or 0.9) + 0.2
+    local friendly = type(snapshot) == "table"
+        and (snapshot.protectedActors or snapshot.allies) or nil
+    local radius = math.max(corridor + 0.12,
+        math.min((tonumber(maximum) or 1.35) - 0.1, 1.25))
+    local candidates = {
+        { tx + directions[1][1] * radius, ty + directions[1][2] * radius },
+        { tx + directions[2][1] * radius, ty + directions[2][2] * radius },
+    }
+    -- Short weapons and boots cannot share a safe strike arc at the same time.
+    -- The fallback still opens the lane for the nearer companion's finisher.
+    for _, step in ipairs({ 1.2, 1.8 }) do
+        for _, direction in ipairs(directions) do
+            candidates[#candidates + 1] = {
+                ax + direction[1] * step, ay + direction[2] * step,
+            }
+        end
+    end
+    for _, candidate in ipairs(candidates) do
+        local x, y = candidate[1], candidate[2]
+        local point = { x = x, y = y, z = az }
+        local clear = utility.pointSegmentDistanceSq(point, partner, target)
+            > corridor * corridor
+            and utility.distanceSq(point, partner) > 0.75 * 0.75
+        if clear and type(friendly) == "table" then
+            for _, row in ipairs(friendly) do
+                local other = type(row) == "table" and row.actor or nil
+                if other and other ~= actor and utility.sameFloor(actor, other)
+                    and utility.distanceSq(point, other) <= 0.75 * 0.75 then
+                    clear = false
+                    break
+                end
+            end
+        end
+        if clear and SC.Navigation.openSegment(actor, x, y, az) then
+            return x - ax, y - ay
+        end
+    end
+    return nil
 end
 
 local function medicalPressure(actor)
@@ -3951,12 +4020,41 @@ function Combat.update(actor, player, runtime)
             chosen, target, snapshot) then
         chosen = { kind = "hold_range", score = chosen.score, roleHold = true }
     end
-    if (chosen.kind == "shoot" or chosen.kind == "melee"
-        or chosen.kind == "shove" or chosen.kind == "stomp")
-        and lineBlockedByFriendly(actor, target.actor, player, snapshot,
-            chosen.kind == "shoot" and "ranged" or "melee") then
-        chosen = { kind = "hold_range", score = chosen.score,
-            friendlyFireHold = true }
+    if chosen.kind == "shoot" or chosen.kind == "melee"
+        or chosen.kind == "shove" or chosen.kind == "stomp" then
+        local blocked, blocker = lineBlockedByFriendly(actor, target.actor,
+            player, snapshot, chosen.kind == "shoot" and "ranged" or "melee")
+        if blocked then
+            local floorFinisher = chosen.kind == "stomp"
+                or (chosen.kind == "melee" and chosen.floorAttack == true)
+            local grounded = floorFinisher and (boolCall(target.actor, "isOnFloor")
+                or boolCall(target.actor, "isProne")
+                or boolCall(target.actor, "isCrawling"))
+            local partner = grounded and Combat.claimPartner(target.actor, actor, now) or nil
+            local yieldLane = false
+            if partner ~= nil and blocker == partner
+                and utility.sameFloor(actor, partner) then
+                local mine = utility.distanceSq(actor, target.actor)
+                local theirs = utility.distanceSq(partner, target.actor)
+                yieldLane = mine > theirs + 0.16
+                    or (math.abs(mine - theirs) <= 0.16
+                        and combatRole ~= "primary")
+            end
+            if yieldLane then
+                local dx, dy = groundedLaneYield(actor, target.actor,
+                    partner, snapshot, chosen.maximum)
+                if dx ~= nil then
+                    chosen = { kind = "kite", score = chosen.score,
+                        moveX = dx, moveY = dy, floorLaneYield = true }
+                    utility.diagnostic("combat-flank", actor,
+                        "action=grounded_lane_yield")
+                end
+            end
+            if chosen.kind ~= "kite" or chosen.floorLaneYield ~= true then
+                chosen = { kind = "hold_range", score = chosen.score,
+                    friendlyFireHold = true }
+            end
+        end
     end
 
     if chosen.kind == "shoot" then

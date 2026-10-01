@@ -2,6 +2,15 @@
 
 # Changelog
 
+## 0.26.13 - Expedition return and close combat playtest
+
+- When two companions crowd a fallen zombie, the better placed fighter keeps the finishing lane while the other tries a clear flank or backs out of the narrow space. The friendly-fire check still blocks an actual unsafe swing.
+- Search expeditions choose the nearest reached return-trail point by horizontal position even when the leader is upstairs or in a basement. A point is consumed only after the leader has fully reached its floor.
+- Returns from upper storeys and basements stage one loaded stair transition at a time. The squad keeps the verified stair exit available for followers after the leader descends, and the leader may clear the lower landing while the team follows.
+- Stair searches now resume in bounded decision slices instead of surveying the entire 25-by-25 area in one frame.
+- Downtime washing skips dirty dressings protected as personal items or work cargo, checks protection again before replacement, and retains an ordinary dressing's favorite flag and custom name.
+- A four-member cloned-save playtest took an exact item from an upstairs container, returned everyone to ground level, and released the leader view. Two earlier runs stalled at fractional stair heights before the final arrival check; other stair layouts still need playtesting.
+
 ## 0.26.12 - Companion care and voice polish
 
 - Added 42 bandaging lines for minor wounds, serious wounds, and dressing changes, plus eight splinting lines. Companions speak when treatment animation starts for the player or another companion, with a short repeat guard.

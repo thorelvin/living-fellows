@@ -7832,6 +7832,20 @@ function Harness.probeAutonomousSearch(current)
                 (x - Harness.unvisitedSearchDestination.x)^2
                 + (y - Harness.unvisitedSearchDestination.y)^2))
             .. "|legs=" .. tostring(mission.scout.legs)
+            .. "|return=" .. tostring(mission.scout.returnIndex)
+            .. "/" .. tostring(mission.scout.trail
+                and mission.scout.trail[mission.scout.returnIndex or 0]
+                and mission.scout.trail[mission.scout.returnIndex].z)
+            .. "|descent=" .. tostring(mission.scout.descent
+                and mission.scout.descent.fromZ)
+            .. ">" .. tostring(mission.scout.descent
+                and mission.scout.descent.toZ)
+            .. "|issue=" .. tostring(mission.technicalIssue
+                and mission.technicalIssue.reason)
+            .. "|pause=" .. tostring(mission.scout.pause
+                and mission.scout.pause.mode)
+            .. "|trailReturn=" .. tostring(mission.scout.trailReturn)
+            .. "|roadRoute=" .. tostring(mission.scout.roadRoute ~= nil)
             .. "|waypoint=" .. tostring(waypoint and waypoint.x)
             .. "," .. tostring(waypoint and waypoint.y)
             .. "|hold=" .. tostring(mission.cohesionHold

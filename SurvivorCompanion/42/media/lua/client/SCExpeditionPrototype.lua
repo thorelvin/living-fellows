@@ -32,9 +32,12 @@ end
 
 local function validPoint(point)
     return type(point) == "table" and validTile(point.x)
-        and validTile(point.y) and validTile(point.z)
-        and point.z <= 16
+        and validTile(point.y) and type(point.z) == "number"
+        and point.z == math.floor(point.z)
+        and point.z >= -16 and point.z <= 16
 end
+
+Expedition._validPointForTests = validPoint
 
 local function copyPoint(point)
     return { x = point.x, y = point.y, z = point.z }
@@ -308,6 +311,11 @@ local function distanceToPoint(actor, point)
     if x == nil or y == nil or z == nil
         or math.floor(z) ~= point.z then return math.huge end
     return math.sqrt((x - point.x)^2 + (y - point.y)^2)
+end
+
+local function settledOnFloor(actor, floor)
+    local _, _, z = SC.GameplayUtil.position(actor)
+    return z ~= nil and math.abs(z - floor) <= 0.05
 end
 
 local function validSlotSqlId(value)
@@ -1899,14 +1907,16 @@ local function scoutFollowersNearLeader()
     local descent = scout and scout.descent
     local descending = scout and scout.phase == "inbound"
         and type(descent) == "table"
-        and lz > descent.lowerZ + 0.2
+        -- Include the lower landing so the leader can clear the crossing
+        -- while the tail is still descending behind them.
+        and lz >= descent.lowerZ - 0.05
         and lz <= descent.lowerZ + 1.1
     for _, record in ipairs(mission.roster) do
         if record ~= mission.leader and alive(record) then
             local x, y, z = SC.GameplayUtil.position(record.actor)
             if x == nil or y == nil or z == nil
-                or not descending
-                    and math.floor(z) ~= math.floor(lz)
+                or descending and math.abs(z - lz) > 1.1
+                or not descending and math.floor(z) ~= math.floor(lz)
                 or math.sqrt((x - lx)^2 + (y - ly)^2) >= 12 then
                 return false
             end
@@ -1988,16 +1998,28 @@ local function scoutSiteSnapshot(actor, runtime, worldHour, now, siteId,
     }
 end
 
-local function useReachedTrailForReturn(itinerary, avoidance)
-    -- A road graph can fail after departure even though the squad has already
-    -- crossed real, loaded ground. Resume toward the nearest reached waypoint
-    -- on that trail; every new short leg still needs a loaded native path.
-    local nearest, gap = 1, math.huge
-    for index, point in ipairs(itinerary.trail) do
-        local distance = distanceToPoint(mission.leader.actor, point)
-        if distance < gap then nearest, gap = index, distance end
+local function reachedTrailReturnIndex(actor, trail)
+    local x, y, z = SC.GameplayUtil.position(actor)
+    if x == nil or y == nil or z == nil then return #trail end
+    local nearest, gapSq = #trail, math.huge
+    for index, point in ipairs(trail) do
+        local dx, dy = x - point.x, y - point.y
+        local distanceSq = dx * dx + dy * dy
+        if distanceSq < gapSq then nearest, gapSq = index, distanceSq end
     end
-    itinerary.returnIndex = math.max(0, nearest - (gap <= 4 and 1 or 0))
+    local point = trail[nearest]
+    local reached = point ~= nil and math.abs(z - point.z) <= 0.05
+        and gapSq <= 4 * 4
+    return math.max(0, nearest - (reached and 1 or 0))
+end
+
+Expedition._reachedTrailReturnIndexForTests = reachedTrailReturnIndex
+
+local function useReachedTrailForReturn(itinerary, avoidance)
+    -- Rank the reached trail in the horizontal plane, including while the
+    -- leader is upstairs. Only a same-floor waypoint may be consumed.
+    itinerary.returnIndex = reachedTrailReturnIndex(
+        mission.leader.actor, itinerary.trail)
     itinerary.roadRoute = nil
     itinerary.trailReturn = true
     itinerary.replans = 0
@@ -2010,54 +2032,152 @@ local function useReachedTrailForReturn(itinerary, avoidance)
     end
 end
 
--- The return trail is planar, so a leader on the upper floor needs a loaded
--- stair run before the native cross-floor path can take over. Keep candidates
--- distinct: a failed landing must not pin every retry to the same staircase.
-local function chooseLoadedDescent(lx, ly, lowerZ, target, rejected)
-    local best, bestDistance = nil, math.huge
-    for tx = math.floor(lx) - 12, math.floor(lx) + 12 do
-        for ty = math.floor(ly) - 12, math.floor(ly) + 12 do
-            local square = SC.GameplayUtil.gridSquare(tx, ty, lowerZ)
-            if square ~= nil and SC.GameplayUtil.isSquareFree(square)
-                and not SC.Topology.squareHasStairs(square) then
-                for _, direction in ipairs({ { 1, 0 }, { -1, 0 },
-                        { 0, 1 }, { 0, -1 } }) do
-                    local dx, dy = direction[1], direction[2]
-                    local first = SC.GameplayUtil.gridSquare(
-                        tx + dx, ty + dy, lowerZ)
-                    local middle = SC.GameplayUtil.gridSquare(
-                        tx + dx * 2, ty + dy * 2, lowerZ)
-                    local last = SC.GameplayUtil.gridSquare(
-                        tx + dx * 3, ty + dy * 3, lowerZ)
-                    local landingX, landingY = tx + dx * 4, ty + dy * 4
-                    local landing = SC.GameplayUtil.gridSquare(
-                        landingX, landingY, lowerZ + 1)
-                    local key = tostring(landingX) .. ":" .. tostring(landingY)
-                        .. ":" .. tostring(lowerZ + 1)
-                    if first and middle and last and landing
-                        and not (rejected and rejected[key])
-                        and SC.Topology.squareHasStairs(first)
-                        and SC.Topology.squareHasStairs(middle)
-                        and SC.Topology.squareHasStairs(last)
-                        and SC.GameplayUtil.isSquareFree(landing) then
-                        local distance = (tx - target.x)^2
-                            + (ty - target.y)^2
-                        if distance < bestDistance then
-                            bestDistance = distance
-                            best = {
-                                key = key, lowerZ = lowerZ,
-                                exit = { x = tx, y = ty, z = lowerZ },
-                                landing = { x = landingX,
-                                    y = landingY, z = lowerZ + 1 },
-                            }
-                        end
-                    end
+-- Search the loaded area from the leader outward. Each decision pulse checks
+-- at most 16 candidate exits (272 grid reads in the worst all-loaded case),
+-- so a building with no usable stairs cannot monopolize one frame.
+local STAIR_SCAN_OFFSETS = {}
+for dx = -12, 12 do
+    for dy = -12, 12 do
+        STAIR_SCAN_OFFSETS[#STAIR_SCAN_OFFSETS + 1] = {
+            x = dx, y = dy, distanceSq = dx * dx + dy * dy,
+        }
+    end
+end
+table.sort(STAIR_SCAN_OFFSETS, function(a, b)
+    if a.distanceSq ~= b.distanceSq then return a.distanceSq < b.distanceSq end
+    if a.x ~= b.x then return a.x < b.x end
+    return a.y < b.y
+end)
+local STAIR_SCAN_POINTS_PER_PULSE = 16
+local STAIR_DIRECTIONS = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }
+local function chooseLoadedDescent(lx, ly, lowerZ, rejected, scan)
+    local originX, originY = math.floor(lx), math.floor(ly)
+    if type(scan) ~= "table" or scan.originX ~= originX
+        or scan.originY ~= originY or scan.lowerZ ~= lowerZ
+        or scan.rejected ~= rejected then
+        scan = { originX = originX, originY = originY, lowerZ = lowerZ,
+            rejected = rejected, index = 1 }
+    end
+    for _ = 1, STAIR_SCAN_POINTS_PER_PULSE do
+        local offset = STAIR_SCAN_OFFSETS[scan.index]
+        if offset == nil then return nil, true, nil end
+        scan.index = scan.index + 1
+        local tx, ty = originX + offset.x, originY + offset.y
+        local square = SC.GameplayUtil.gridSquare(tx, ty, lowerZ)
+        if square ~= nil and SC.GameplayUtil.isSquareFree(square)
+            and not SC.Topology.squareHasStairs(square) then
+            for _, direction in ipairs(STAIR_DIRECTIONS) do
+                local dx, dy = direction[1], direction[2]
+                local first = SC.GameplayUtil.gridSquare(
+                    tx + dx, ty + dy, lowerZ)
+                local middle = SC.GameplayUtil.gridSquare(
+                    tx + dx * 2, ty + dy * 2, lowerZ)
+                local last = SC.GameplayUtil.gridSquare(
+                    tx + dx * 3, ty + dy * 3, lowerZ)
+                local landingX, landingY = tx + dx * 4, ty + dy * 4
+                local landing = SC.GameplayUtil.gridSquare(
+                    landingX, landingY, lowerZ + 1)
+                local key = tostring(landingX) .. ":" .. tostring(landingY)
+                    .. ":" .. tostring(lowerZ + 1)
+                if first and middle and last and landing
+                    and not (rejected and rejected[key])
+                    and SC.Topology.squareHasStairs(first)
+                    and SC.Topology.squareHasStairs(middle)
+                    and SC.Topology.squareHasStairs(last)
+                    and SC.GameplayUtil.isSquareFree(landing) then
+                    return {
+                        key = key, lowerZ = lowerZ,
+                        exit = { x = tx, y = ty, z = lowerZ },
+                        landing = { x = landingX,
+                            y = landingY, z = lowerZ + 1 },
+                    }, true, nil
                 end
             end
         end
     end
-    return best
+    return nil, false, scan
 end
+
+local function stairTransitionTarget(scout, actor, routeTarget, now)
+    local lx, ly, lz = SC.GameplayUtil.position(actor)
+    if lx == nil or ly == nil or lz == nil then return routeTarget end
+    local floor = math.floor(lz)
+    if floor == routeTarget.z then
+        local crossing = scout.descent and scout.descent.crossing
+        if crossing ~= nil and scout.descent.toZ == routeTarget.z
+            and math.abs(lz - routeTarget.z) > 0.05 then
+            -- A fractional Z near the bottom of the slope still needs the
+            -- native crossing goal before ordinary ground routing resumes.
+            return crossing
+        end
+        -- The leader reaches the lower landing before the tail does.
+        -- Positioning still needs this verified exit for their stair rejoin.
+        scout.descentRejected, scout.descentRetryAt, scout.descentScan = nil, nil, nil
+        return routeTarget
+    end
+    local transition = scout.descent
+    if type(transition) == "table" and floor == transition.toZ then
+        -- A native stair traversal is complete only after the actor is on the
+        -- adjacent floor. Its landing is not a reached return-trail waypoint.
+        if distanceToPoint(actor, transition.crossing) > 4 then
+            return transition.crossing
+        end
+        scout.descent, scout.descentRejected = nil, nil
+        scout.descentRetryAt, scout.descentScan = nil, nil
+        transition = nil
+    elseif type(transition) == "table" and floor ~= transition.fromZ then
+        scout.descent, scout.descentRejected = nil, nil
+        scout.descentRetryAt, scout.descentScan = nil, nil
+        transition = nil
+    end
+    local nextFloor = floor + (routeTarget.z > floor and 1 or -1)
+    local lowerZ = math.min(floor, nextFloor)
+    if type(transition) == "table" and transition.lowerZ ~= lowerZ then
+        scout.descent, scout.descentRejected, scout.descentScan = nil, nil, nil
+        transition = nil
+    end
+    if type(transition) == "table" and scout.lastStalledTarget ~= nil
+        and scout.lastStalledTarget ~= transition.stallAtSelection then
+        local rejected = scout.descentRejected or {}
+        if transition.key ~= nil then rejected[transition.key] = true end
+        scout.descentRejected = rejected
+        scout.descent = nil
+        scout.descentScan = nil
+        scout.descentRetryAt = now
+        transition = nil
+    end
+    if transition == nil and now >= (scout.descentRetryAt or 0) then
+        local complete
+        transition, complete, scout.descentScan = chooseLoadedDescent(
+            lx, ly, lowerZ, scout.descentRejected, scout.descentScan)
+        if not complete then return nil, "planning" end
+        if transition == nil and scout.descentRejected ~= nil then
+            scout.descentRejected = nil
+            scout.descentScan = nil
+            scout.lastStalledTarget = nil
+            return nil, "planning"
+        end
+        if transition ~= nil then
+            transition.fromZ, transition.toZ = floor, nextFloor
+            transition.approach = floor > nextFloor
+                and transition.landing or transition.exit
+            transition.crossing = floor > nextFloor
+                and transition.exit or transition.landing
+            transition.stallAtSelection = scout.lastStalledTarget
+        end
+        scout.descent = transition
+        scout.descentRetryAt = transition == nil and now + 3000 or nil
+    end
+    if type(transition) ~= "table" then return routeTarget end
+    if not transition.approachReached
+        and distanceToPoint(actor, transition.approach) <= 0.75 then
+        transition.approachReached = true
+    end
+    return transition.approachReached and transition.crossing
+        or transition.approach
+end
+
+Expedition._stairTransitionTargetForTests = stairTransitionTarget
 
 local function playerMetSearchSquad(player, leader)
     local util = SC.GameplayUtil
@@ -2112,7 +2232,9 @@ startReturnFromSite = function(itinerary, reason)
     itinerary.returnIndex = #itinerary.trail
     while itinerary.returnIndex >= 1
         and distanceToPoint(mission.leader.actor,
-            itinerary.trail[itinerary.returnIndex]) <= 4 do
+            itinerary.trail[itinerary.returnIndex]) <= 4
+        and settledOnFloor(mission.leader.actor,
+            itinerary.trail[itinerary.returnIndex].z) do
         itinerary.returnIndex = itinerary.returnIndex - 1
     end
     itinerary.observingSince = nil
@@ -2826,68 +2948,28 @@ local function pulseScout()
             end
         end
     end
-    -- An upstairs search must approach the top of a loaded stair run before
-    -- asking the native pathfinder to descend. From elsewhere on the upper
-    -- floor, a direct cross-floor request can walk away from the stairwell.
+    local routeTarget = target
+    -- Stage one adjacent stair transition at a time. This also handles an
+    -- upper storey above z=1 and a basement below z=0; the distant ground
+    -- trail waypoint remains separate from each temporary stair target.
     if pause == nil and scout.phase == "inbound" and scout.search ~= nil
         and scout.roadRoute == nil then
-        local lx, ly, lz = SC.GameplayUtil.position(mission.leader.actor)
-        local lowerZ = target and target.z
-        if lx ~= nil and lz ~= nil and lowerZ ~= nil
-            and math.floor(lz) == lowerZ + 1 then
-            local descent = scout.descent
-            if type(descent) == "table" and descent.lowerZ ~= lowerZ then
-                scout.descentRejected = nil
-                scout.descent = nil
-                descent = nil
-            end
-            if type(descent) == "table" and scout.lastStalledTarget ~= nil
-                and scout.lastStalledTarget ~= descent.stallAtSelection then
-                local rejected = scout.descentRejected or {}
-                if descent.key ~= nil then rejected[descent.key] = true end
-                scout.descentRejected = rejected
-                scout.descent = nil
-                scout.descentRetryAt = now
-                descent = nil
-            end
-            if descent == nil and now >= (scout.descentRetryAt or 0) then
-                descent = chooseLoadedDescent(lx, ly, lowerZ, target,
-                    scout.descentRejected)
-                if descent == nil and scout.descentRejected ~= nil then
-                    -- Every loaded stair has had a failed attempt. Give them
-                    -- another bounded pass in case a door or actor moved.
-                    scout.descentRejected = nil
-                    descent = chooseLoadedDescent(lx, ly, lowerZ, target)
-                    scout.lastStalledTarget = nil
-                end
-                if descent ~= nil then
-                    descent.stallAtSelection = scout.lastStalledTarget
-                end
-                scout.descent = descent
-                scout.descentRetryAt = descent == nil and now + 3000 or nil
-            end
-            if type(descent) == "table" then
-                if not descent.landingReached
-                    and (lx - descent.landing.x - 0.5)^2
-                        + (ly - descent.landing.y - 0.5)^2 <= 0.75^2 then
-                    descent.landingReached = true
-                end
-                target = descent.landingReached
-                    and descent.exit or descent.landing
-                local waypoint = mission.testWaypoint
-                if waypoint ~= nil and (waypoint.x ~= target.x
-                    or waypoint.y ~= target.y or waypoint.z ~= target.z) then
-                    Expedition.clearTestWaypoint(mission.leader.actor)
-                    local owner = SC.ActionSupervisor
-                        and type(SC.ActionSupervisor.current) == "function"
-                        and SC.ActionSupervisor.current(
-                            mission.leader.actor) or nil
-                    if owner == nil and SC.Navigation
-                        and type(SC.Navigation.cancel) == "function" then
-                        SC.Navigation.cancel(mission.leader.actor,
-                            "expedition_stair_stage_changed")
-                    end
-                end
+        local stairTarget, stairReason = stairTransitionTarget(scout, mission.leader.actor,
+            routeTarget, now)
+        if stairReason == "planning" then return end
+        target = stairTarget
+        local waypoint = mission.testWaypoint
+        if waypoint ~= nil and (waypoint.x ~= target.x
+            or waypoint.y ~= target.y or waypoint.z ~= target.z) then
+            Expedition.clearTestWaypoint(mission.leader.actor)
+            local owner = SC.ActionSupervisor
+                and type(SC.ActionSupervisor.current) == "function"
+                and SC.ActionSupervisor.current(
+                    mission.leader.actor) or nil
+            if owner == nil and SC.Navigation
+                and type(SC.Navigation.cancel) == "function" then
+                SC.Navigation.cancel(mission.leader.actor,
+                    "expedition_stair_stage_changed")
             end
         end
     end
@@ -2948,15 +3030,18 @@ local function pulseScout()
     end
     if pause == nil and scout.roadRoute == nil
         and scout.phase == "inbound" and scout.returnIndex ~= nil
-        and scout.returnIndex >= 1 and close <= 4
-        and not (scout.descent and not scout.descent.landingReached) then
+        and scout.returnIndex >= 1
+        and distanceToPoint(mission.leader.actor, routeTarget) <= 4
+        and settledOnFloor(mission.leader.actor, routeTarget.z) then
         scout.returnIndex = scout.returnIndex - 1
         return
     end
     if pause == nil and scout.phase == "inbound" and (scout.roadRoute ~= nil
             and scout.roadRoute.index > #scout.roadRoute.points
             or scout.roadRoute == nil and (scout.returnIndex == nil
-                or scout.returnIndex == 0)) and close <= 4 then
+                or scout.returnIndex == 0))
+        and distanceToPoint(mission.leader.actor, routeTarget) <= 4
+        and settledOnFloor(mission.leader.actor, routeTarget.z) then
         scout.phase = "awaiting_player"
         local player = getSpecificPlayer(0)
         if player ~= nil then Expedition.finishAtPlayer(player) end
@@ -3035,7 +3120,7 @@ local function updateWaypointCohesion()
     local descent = scout and scout.descent
     local descending = scout and scout.phase == "inbound"
         and type(descent) == "table" and lz ~= nil
-        and lz > descent.lowerZ + 0.2
+        and lz >= descent.lowerZ - 0.05
         and lz <= descent.lowerZ + 1.1
     local leaderSquare = leader:getCurrentSquare()
     local maxGap, laggard, missing = 0, nil, nil
@@ -3052,8 +3137,8 @@ local function updateWaypointCohesion()
                 if actor:getCurrentSquare() == nil or lx == nil or ly == nil
                     or fx == nil or fy == nil
                     or lz == nil or fz == nil
-                    or not descending
-                        and math.floor(fz) ~= math.floor(lz) then
+                    or descending and math.abs(fz - lz) > 1.1
+                    or not descending and math.floor(fz) ~= math.floor(lz) then
                     missing = record.id
                 else
                     local gap = math.sqrt((fx - lx)^2 + (fy - ly)^2)

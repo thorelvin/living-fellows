@@ -15,6 +15,12 @@ local visualActivities = {
     study_corpse = true, pay_respects = true,
     workout = true, write_diary = true,
 }
+local CLEAN_DRESSING_TYPES = {
+    ["base.bandagedirty"] = "Base.Bandage",
+    ["base.rippedsheetsdirty"] = "Base.RippedSheets",
+    ["base.denimstripsdirty"] = "Base.DenimStrips",
+    ["base.leatherstripsdirty"] = "Base.LeatherStrips",
+}
 local restPostures = { sit = true, rest_bed = true, rest_floor = true }
 
 local function U()
@@ -711,24 +717,27 @@ local function itemDirt(item)
     return math.max(0, tonumber(blood) or 0) + math.max(0, tonumber(dirt) or 0)
 end
 
+local function washBandageProtected(actor, item)
+    local personal = SC.PersonalItems
+    return personal == nil or type(personal.isProtected) ~= "function"
+        or personal.isProtected(item, actor, "wash_bandage") == true
+end
+
 local function washActivity(actor, items, state, current)
     local bodyScore = bodyDirt(actor)
     local bestItem, bestItemScore
     local dirtyBandage
-    local washable = {
-        ["base.bandagedirty"] = "Base.Bandage",
-        ["base.rippedsheetsdirty"] = "Base.RippedSheets",
-        ["base.denimstripsdirty"] = "Base.DenimStrips",
-        ["base.leatherstripsdirty"] = "Base.LeatherStrips",
-    }
     local inventory = U().inventory(actor)
     for _, item in ipairs(items) do
+        local cleanType = CLEAN_DRESSING_TYPES[string.lower(U().itemType(item))]
+        local protected = cleanType ~= nil and washBandageProtected(actor, item)
         if dirtyBandage == nil
-            and washable[string.lower(U().itemType(item))]
-            and U().inventoryContains(inventory, item) then
+            and cleanType
+            and U().inventoryContains(inventory, item)
+            and not protected then
             dirtyBandage = item
         end
-        local score = itemDirt(item)
+        local score = not protected and itemDirt(item) or 0
         if score > 0.01 and (not bestItemScore or score > bestItemScore) then
             bestItem, bestItemScore = item, score
         end
@@ -742,7 +751,8 @@ local function washActivity(actor, items, state, current)
         return {
             kind = "wash_bandage", score = 62,
             object = source, square = square, item = dirtyBandage,
-            cleanType = washable[string.lower(U().itemType(dirtyBandage))],
+            cleanType = CLEAN_DRESSING_TYPES[
+                string.lower(U().itemType(dirtyBandage))],
             fact = { activity = "wash_bandage",
                 itemType = U().itemType(dirtyBandage) },
         }
@@ -2408,6 +2418,8 @@ end
 local function completeWashEquipment(actor, activity)
     local item = activity.item
     if not item or itemDirt(item) <= 0.01 then return false end
+    if CLEAN_DRESSING_TYPES[string.lower(U().itemType(item))]
+        and washBandageProtected(actor, item) then return false end
     if not washSourceValid(activity.object) then return false end
     if not washSourceInReach(actor, activity) then return false end
     local required = math.max(U().config("downtimeWashMinimumWater") or 4,
@@ -2448,10 +2460,35 @@ local function completeWashBandage(actor, activity)
     local inventory = utility.inventory(actor)
     if not inventory or not activity.item or not activity.cleanType
         or not utility.inventoryContains(inventory, activity.item)
+        or CLEAN_DRESSING_TYPES[string.lower(utility.itemType(activity.item))]
+            ~= activity.cleanType
+        or washBandageProtected(actor, activity.item)
         or not washSourceValid(activity.object)
         or not washSourceInReach(actor, activity) then return false end
     local clean = utility.addItem(inventory, activity.cleanType)
     if not clean then return false end
+    local favorite, favoriteOk = utility.call(activity.item, "isFavorite")
+    if favoriteOk and favorite == true then
+        local setResult, setOk = utility.call(clean, "setFavorite", true)
+        local retained, retainedOk = utility.call(clean, "isFavorite")
+        if not setOk or setResult == false or retainedOk and retained ~= true then
+            consumeExact(inventory, clean)
+            return false
+        end
+    end
+    local customName, customOk = utility.call(activity.item, "isCustomName")
+    if customOk and customName == true then
+        local name, nameOk = utility.call(activity.item, "getName")
+        if not nameOk or type(name) ~= "string" or name == "" then
+            consumeExact(inventory, clean)
+            return false
+        end
+        local setResult, setOk = utility.call(clean, "setName", name)
+        if not setOk or setResult == false then
+            consumeExact(inventory, clean)
+            return false
+        end
+    end
     if not useWashWater(activity.object, 0.5) then
         consumeExact(inventory, clean)
         return false
@@ -2954,7 +2991,7 @@ end
 function Downtime._washForTests()
     return nearbyWashSource, approachWashSource, coolWashSource, washSourceCooling,
         washSourceInReach, completeWashSelf, completeWashEquipment,
-        completeWashBandage
+        completeWashBandage, washActivity
 end
 
 -- Test seam: the camp-book checkout policy re-read at transfer time.

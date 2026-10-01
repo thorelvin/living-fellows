@@ -96,6 +96,9 @@ local function item(itemType, category, options)
     function value:getFullType() return self.itemType end
     function value:getType() return string.gsub(self.itemType, "Base%.", "") end
     function value:getDisplayName() return self.itemType end
+    function value:getName() return self.customName or self.itemType end
+    function value:isCustomName() return self.customName ~= nil end
+    function value:setName(name) self.customName = name end
     function value:getCategory() return self.category end
     function value:getDisplayCategory() return self.displayCategory or self.category end
     function value:hasTag(tag) return self.tags and self.tags[tag] == true end
@@ -7774,6 +7777,93 @@ cleaverZed.dead = true
 end
 
 (function()
+    -- Two companions closing on a zombie fallen through a window must open
+    -- separate melee lanes instead of both pinning it without a floor hit.
+    local firstWeapon = item("Base.LaneAxe", "Weapon", {
+        damage = 2, range = 1.5, minRange = 0.2, sharpness = 1,
+    })
+    local secondWeapon = item("Base.LaneClub", "Weapon", {
+        damage = 2, range = 1.5, minRange = 0.2,
+    })
+    local first = actor("sc-floor-lane-first", 50, 50, {
+        inventory = inventory({ firstWeapon }),
+    })
+    local second = actor("sc-floor-lane-second", 50, 50, {
+        inventory = inventory({ secondWeapon }),
+    })
+    first.primary, second.primary = firstWeapon, secondWeapon
+    first.worldX, second.worldX = 50.5, 50.4
+    local fallen = zombie(51, 50, { onFloor = true })
+    local function scene(self, other)
+        local threat = { actor = fallen, square = fallen.square,
+            distanceSq = SurvivorCompanion.GameplayUtil.distanceSq(self, fallen),
+            visible = true, obstructed = false, grounded = true, score = 90 }
+        return { snapshot = { threats = { threat },
+            allies = { { actor = other } }, escapeSquares = {},
+            threatCount = 1, immediateCount = 0, closeImmediateCount = 0,
+            closeThreatCount = 1, occupiedThreatSectors = 1,
+            pressure = 0, encircled = false,
+            player = { danger = 0, immediateThreats = 0 } } }
+    end
+    local firstHeld = SurvivorCompanion.Combat.update(first, player,
+        scene(first, second))
+    local secondMoved = SurvivorCompanion.Combat.update(second, player,
+        scene(second, first))
+    check(firstHeld and first.lastIntent.action == "ready_weapon"
+            and secondMoved and second.lastIntent.action == "lateral_kite"
+            and second.lastIntent.dx ~= nil,
+        "blocked floor finisher moves one companion to a separate lane")
+    local flankDx, flankDy = second.lastIntent.dx, second.lastIntent.dy
+    local openSegment = SurvivorCompanion.Navigation.openSegment
+    SurvivorCompanion.Navigation.openSegment = function() return false end
+    local trapped = SurvivorCompanion.Combat.update(second, player,
+        scene(second, first))
+    check(trapped and second.lastIntent.action == "ready_weapon",
+        "a blocked flank keeps the friendly-fire veto instead of forcing a swing")
+    SurvivorCompanion.Navigation.openSegment = function(_, x)
+        return x < 50
+    end
+    local backedOff = SurvivorCompanion.Combat.update(second, player,
+        scene(second, first))
+    local backDx, backDy = second.lastIntent.dx, second.lastIntent.dy
+    check(backedOff and second.lastIntent.action == "lateral_kite"
+            and backDx < -0.5,
+        "one companion backs away when the corridor has no side flank")
+    SurvivorCompanion.Navigation.openSegment = openSegment
+    second.worldX, second.worldY = 50.4 + backDx, 50.5 + backDy
+    local narrowHit = SurvivorCompanion.Combat.update(first, player,
+        scene(first, second))
+    check(narrowHit and first.lastIntent.action == "attack_melee",
+        "the companion left in front finishes the fallen zombie")
+    second.worldX, second.worldY = 50.4 + flankDx, 50.5 + flankDy
+    check(SurvivorCompanion.GameplayUtil.distance(second, fallen) <= 1.5
+            and not SurvivorCompanion.Combat.friendlyFireBlocked(first, fallen, {
+                allies = { second }, kind = "melee",
+            })
+            and not SurvivorCompanion.Combat.friendlyFireBlocked(second, fallen, {
+                allies = { first }, kind = "melee",
+            }),
+        "the new flank is in weapon reach with clear lanes for both swings")
+    local firstHit, firstReason = SurvivorCompanion.Combat.update(first, player,
+        scene(first, second))
+    local secondHit, secondReason = SurvivorCompanion.Combat.update(second, player,
+        scene(second, first))
+    local secondDistance = SurvivorCompanion.GameplayUtil.distance(second, fallen)
+    check(firstHit and secondHit
+            and first.lastIntent.action == "attack_melee"
+            and second.lastIntent.action == "attack_melee"
+            and first.lastIntent.floorAttack == true
+            and second.lastIntent.floorAttack == true,
+        "both companions can floor attack after fanning out: "
+            .. tostring(firstReason) .. "/" .. tostring(first.lastIntent.action)
+            .. " + " .. tostring(secondReason) .. "/" .. tostring(second.lastIntent.action)
+            .. " distance=" .. tostring(secondDistance))
+    SurvivorCompanion.Combat.reset(first)
+    SurvivorCompanion.Combat.reset(second)
+    fallen.dead = true
+end)()
+
+;(function()
 local vectorWeaponItem = item("Base.VectorAxe", "Weapon", {
     damage = 2.2, range = 1.5, minRange = 0.3, sharpness = 1,
 })
@@ -21280,7 +21370,7 @@ end)()
 ;(function()
     local downtime = SurvivorCompanion.Downtime
     local _, _, _, _, washSourceInReach, _, completeWashEquipment,
-        completeWashBandage = downtime._washForTests()
+        completeWashBandage, washActivity = downtime._washForTests()
     local washer = actor("sc-wash-wall", -9, 8, {})
     local sinkSquare = cell:getGridSquare(-9, 9, 0)
     local sink = { square = sinkSquare, fluid = 20, used = 0 }
@@ -21317,6 +21407,30 @@ end)()
         "the same sink with a clear side washes the item and spends its water")
     local dirty = item("Base.BandageDirty", "Medical")
     washer.inventory:AddItem(dirty)
+    local personalDirty = item("Base.BandageDirty", "Medical")
+    personalDirty:getModData().SC_PersonalOwnerId = washer.id
+    personalDirty:getModData().SC_PersonalKey = "saved-dressing"
+    personalDirty.bloodLevel = 80
+    washer.inventory:AddItem(personalDirty)
+    local previousTransport = SurvivorCompanion.WorkTransport
+    SurvivorCompanion.WorkTransport = {
+        isCargoProtected = function(carried)
+            return carried:getModData().LF_ProductionOrderId ~= nil
+        end,
+    }
+    local cargoDirty = item("Base.BandageDirty", "Medical")
+    cargoDirty:getModData().LF_ProductionOrderId = "wash-review-order"
+    cargoDirty.bloodLevel = 80
+    washer.inventory:AddItem(cargoDirty)
+    local personalWash = washActivity(washer, { personalDirty }, {}, clock)
+    local cargoWash = washActivity(washer, { cargoDirty }, {}, clock)
+    local ordinaryWash = washActivity(washer, { dirty }, {}, clock)
+    check(personalWash == nil and cargoWash == nil
+            and ordinaryWash ~= nil and ordinaryWash.item == dirty,
+        "personal and production-owned dressings are skipped during wash selection: "
+            .. tostring(personalWash and personalWash.kind) .. "/"
+            .. tostring(cargoWash and cargoWash.kind) .. "/"
+            .. tostring(ordinaryWash and ordinaryWash.kind))
     local canWash, washReason = downtime.canPerform(washer, "wash_bandage")
     local washBandage = {
         kind = "wash_bandage", object = sink, square = sinkSquare,
@@ -21335,14 +21449,26 @@ end)()
             .. "/" .. tostring(washer.inventory:contains(dirty)))
     washer.square.blocked[sinkSquare] = nil
     sinkSquare.blocked[washer.square] = nil
+    dirty:getModData().LF_ProductionOrderId = "wash-review-late-order"
+    check(not completeWashBandage(washer, washBandage)
+            and washer.inventory:contains(dirty)
+            and sink.used == waterBefore,
+        "a dressing protected after selection is not consumed at wash commit")
+    dirty:getModData().LF_ProductionOrderId = nil
+    dirty.favorite = true
+    dirty.customName = "Clinic spare"
     local cleaned = completeWashBandage(washer, washBandage)
-    local cleanCount = 0
+    local cleanCount, cleanItem = 0, nil
     for _, carried in ipairs(washer.inventory.items) do
-        if carried.itemType == "Base.Bandage" then cleanCount = cleanCount + 1 end
+        if carried.itemType == "Base.Bandage" then
+            cleanCount, cleanItem = cleanCount + 1, carried
+        end
     end
     check(cleaned and cleanCount == 1 and not washer.inventory:contains(dirty)
-            and sink.used == waterBefore + 0.5,
-        "washing spends water and replaces exactly one dirty bandage with a clean one")
+            and sink.used == waterBefore + 0.5 and cleanItem:isFavorite()
+            and cleanItem:getName() == "Clinic spare",
+        "washing preserves favorite and custom name on the new clean bandage")
+    SurvivorCompanion.WorkTransport = previousTransport
     sinkSquare.objects[#sinkSquare.objects] = nil
 end)()
 

@@ -1929,16 +1929,24 @@ check(descentStarted, "the stair retry probe starts")
 reserve.z = 1
 descentMission.scout.phase = "inbound"
 descentMission.scout.search = {}
-descentMission.scout.returnIndex = 0
+descentMission.scout.returnIndex = 1
 descentMission.scout.lastPlanAt = scoutClock
-expedition.pulse()
+for _ = 1, 45 do
+    expedition.pulse()
+    if descentMission.scout.descent ~= nil then break end
+end
 local firstDescent = descentMission.scout.descent
-check(firstDescent ~= nil and firstDescent.landing.y == 20,
-    "the closest loaded staircase is chosen first")
+check(firstDescent ~= nil and firstDescent.landing.y == 20
+        and descentMission.scout.returnIndex == 1,
+    "the closest stair is chosen without consuming the ground return waypoint")
 descentMission.scout.lastStalledTarget = {
     x = firstDescent.landing.x, y = firstDescent.landing.y, z = 1,
 }
-expedition.pulse()
+for _ = 1, 90 do
+    expedition.pulse()
+    if descentMission.scout.descent ~= nil
+        and descentMission.scout.descent.key ~= firstDescent.key then break end
+end
 check(descentMission.scout.descent ~= nil
         and descentMission.scout.descent.landing.y == 23
         and descentMission.scout.descentRejected[firstDescent.key] == true
@@ -1955,6 +1963,131 @@ reserve.getCurrentSquare = oldReserveSquare
 SC.GameplayUtil.position = oldPosition
 SC.GameplayUtil.gridSquare = oldGridSquare
 SC.Topology = oldTopology
+end)()
+
+-- A return trail is horizontal for waypoint selection, but physical arrival
+-- still requires the leader to stand on that waypoint's floor. Cross-floor
+-- returns stage adjacent stairs even when the ground trail lies far away.
+;(function()
+    local oldPosition = SC.GameplayUtil.position
+    SC.GameplayUtil.position = function(value)
+        return value.x, value.y, value.z or 0
+    end
+    local traveller = actorAt(100, 100)
+    traveller.z = 2
+    function traveller:getZ() return self.z end
+    local trail = {
+        { x = 0, y = 100, z = 0 },
+        { x = 40, y = 100, z = 0 },
+        { x = 90, y = 100, z = 0 },
+    }
+    for _, floor in ipairs({ -1, 0, 1, 2 }) do
+        traveller.z = floor
+        check(expedition._reachedTrailReturnIndexForTests(traveller, trail) == 3,
+            "return fallback chooses the nearest trail point from floor "
+                .. tostring(floor))
+    end
+    traveller.x, traveller.z = 90, 1
+    check(expedition._reachedTrailReturnIndexForTests(traveller, trail) == 3,
+        "standing directly above a ground waypoint does not consume it")
+    traveller.z = 0
+    check(expedition._reachedTrailReturnIndexForTests(traveller, trail) == 2,
+        "the same waypoint is consumed only after reaching its floor")
+    traveller.z = 0.188
+    check(expedition._reachedTrailReturnIndexForTests(traveller, trail) == 3,
+        "a fractional stair height cannot consume the ground waypoint")
+    check(expedition._validPointForTests({ x = 110, y = 100, z = -1 }),
+        "internal stair waypoints admit basement floors")
+
+    local oldGridSquare = SC.GameplayUtil.gridSquare
+    local oldSquareFree = SC.GameplayUtil.isSquareFree
+    local oldTopology = SC.Topology
+    local squares = {}
+    local function seed(x, y, z, stairs)
+        local key = tostring(x) .. ":" .. tostring(y) .. ":" .. tostring(z)
+        squares[key] = { x = x, y = y, z = z, stairs = stairs == true }
+    end
+    local function stair(exitX, lowerZ)
+        seed(exitX, 100, lowerZ, false)
+        for offset = 1, 3 do seed(exitX + offset, 100, lowerZ, true) end
+        seed(exitX + 4, 100, lowerZ + 1, false)
+    end
+    stair(100, 1)
+    stair(105, 0)
+    stair(110, -1)
+    SC.GameplayUtil.gridSquare = function(x, y, z)
+        return squares[tostring(x) .. ":" .. tostring(y) .. ":" .. tostring(z)]
+    end
+    SC.GameplayUtil.isSquareFree = function() return true end
+    SC.Topology = { squareHasStairs = function(square)
+        return square.stairs == true
+    end }
+    local function staged(scout, actor, goal, now)
+        for _ = 1, 45 do
+            local point, reason = expedition._stairTransitionTargetForTests(
+                scout, actor, goal, now)
+            if reason ~= "planning" then return point end
+        end
+        return nil
+    end
+    local ground = { x = 0, y = 100, z = 0 }
+    local scout = { returnIndex = 3 }
+    traveller.x, traveller.y, traveller.z = 104.5, 100.5, 2
+    local nextPoint = staged(
+        scout, traveller, ground, 1000)
+    check(nextPoint.z == 1 and scout.descent.fromZ == 2
+            and scout.descent.toZ == 1 and scout.returnIndex == 3,
+        "second-storey return stages a nearby 2-to-1 stair crossing")
+    traveller.x, traveller.z = 100.5, 1
+    nextPoint = staged(
+        scout, traveller, ground, 1100)
+    check(nextPoint.z == 1 and nextPoint.x == 109
+            and scout.descent.fromZ == 1 and scout.descent.toZ == 0
+            and scout.returnIndex == 3,
+        "reaching floor one stages the next landing without advancing the trail")
+    traveller.x = 109.5
+    nextPoint = staged(
+        scout, traveller, ground, 1200)
+    check(nextPoint.z == 0 and nextPoint.x == 105,
+        "the second adjacent crossing leads to the ground floor")
+    traveller.x, traveller.z = 105.5, 0.188
+    nextPoint = staged(scout, traveller, ground, 1250)
+    check(nextPoint.z == 0 and nextPoint.x == 105
+            and scout.returnIndex == 3,
+        "the stair exit remains the goal until the leader is off the slope")
+    traveller.x, traveller.z = 105.5, 0
+    nextPoint = staged(
+        scout, traveller, ground, 1300)
+    check(nextPoint == ground and scout.descent.toZ == 0
+            and scout.returnIndex == 3,
+        "the ground trail resumes while retaining the squad stair exit")
+    scout = { returnIndex = 3 }
+    traveller.x, traveller.z = 110.5, -1
+    nextPoint = staged(
+        scout, traveller, ground, 1400)
+    check(nextPoint.z == 0 and nextPoint.x == 114
+            and scout.descent.fromZ == -1 and scout.descent.toZ == 0,
+        "a basement return stages ascent to the adjacent ground landing")
+    traveller.x, traveller.z = 114.5, 0
+    nextPoint = staged(
+        scout, traveller, ground, 1500)
+    check(nextPoint == ground and scout.descent.toZ == 0
+            and scout.returnIndex == 3,
+        "basement ascent restores the distant ground target without skipping it")
+    local gridReads = 0
+    SC.GameplayUtil.gridSquare = function(x, y, z)
+        gridReads = gridReads + 1
+        return { x = x, y = y, z = z, stairs = false }
+    end
+    traveller.x, traveller.z = 300, 2
+    local _, pending = expedition._stairTransitionTargetForTests(
+        { returnIndex = 3 }, traveller, ground, 1600)
+    check(pending == "planning" and gridReads <= 272,
+        "a no-stair scan spends at most one bounded square-read slice per pulse")
+    SC.GameplayUtil.gridSquare = oldGridSquare
+    SC.GameplayUtil.isSquareFree = oldSquareFree
+    SC.GameplayUtil.position = oldPosition
+    SC.Topology = oldTopology
 end)()
 
 print("EXPEDITION_RESTART_KAHLUA_PASS checks=" .. tostring(checks))
