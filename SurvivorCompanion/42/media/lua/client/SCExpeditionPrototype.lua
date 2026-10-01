@@ -1773,7 +1773,19 @@ local function nextScoutLeg(actor, target, excluded, allowInteriorRoute,
     end
     local dx, dy = target.x - x, target.y - y
     local distance = math.sqrt(dx * dx + dy * dy)
-    if distance < 1 then return nil, "scout_already_near_target" end
+    -- The bounded waypoint planner is planar. A nearby loaded destination on
+    -- another floor must go to Navigation's native stair route as one goal;
+    -- reducing it to a stair tile makes the engine stop on the wrong landing.
+    if math.floor(z) ~= target.z then
+        local destination = cell:getGridSquare(target.x, target.y, target.z)
+        if allowInteriorRoute and distance <= 18 and destination ~= nil
+            and SC.GameplayUtil.isSquareFree(destination) then
+            scout.legPlan = nil
+            return copyPoint(target)
+        end
+        return nil, "scout_cross_floor_destination_unavailable"
+    end
+    if distance < 1 then return copyPoint(target) end
     local plan = scout.legPlan
     if plan ~= nil and (plan.source ~= source
         or plan.target.x ~= target.x or plan.target.y ~= target.y
@@ -1883,11 +1895,18 @@ local function scoutFollowersNearLeader()
     local leader = mission.leader.actor
     local lx, ly, lz = SC.GameplayUtil.position(leader)
     if lx == nil or ly == nil or lz == nil then return false end
+    local scout = mission.scout
+    local descent = scout and scout.descent
+    local descending = scout and scout.phase == "inbound"
+        and type(descent) == "table"
+        and lz > descent.lowerZ + 0.2
+        and lz <= descent.lowerZ + 1.1
     for _, record in ipairs(mission.roster) do
         if record ~= mission.leader and alive(record) then
             local x, y, z = SC.GameplayUtil.position(record.actor)
             if x == nil or y == nil or z == nil
-                or math.floor(z) ~= math.floor(lz)
+                or not descending
+                    and math.floor(z) ~= math.floor(lz)
                 or math.sqrt((x - lx)^2 + (y - ly)^2) >= 12 then
                 return false
             end
@@ -1989,6 +2008,69 @@ local function useReachedTrailForReturn(itinerary, avoidance)
         itinerary.road.goal = copyPoint(itinerary.returnPoint)
         if avoidance then itinerary.road.avoidance = copyRoadAvoidance(avoidance) end
     end
+end
+
+-- The return trail is planar, so a leader on the upper floor needs a loaded
+-- stair run before the native cross-floor path can take over. Keep candidates
+-- distinct: a failed landing must not pin every retry to the same staircase.
+local function chooseLoadedDescent(lx, ly, lowerZ, target, rejected)
+    local best, bestDistance = nil, math.huge
+    for tx = math.floor(lx) - 12, math.floor(lx) + 12 do
+        for ty = math.floor(ly) - 12, math.floor(ly) + 12 do
+            local square = SC.GameplayUtil.gridSquare(tx, ty, lowerZ)
+            if square ~= nil and SC.GameplayUtil.isSquareFree(square)
+                and not SC.Topology.squareHasStairs(square) then
+                for _, direction in ipairs({ { 1, 0 }, { -1, 0 },
+                        { 0, 1 }, { 0, -1 } }) do
+                    local dx, dy = direction[1], direction[2]
+                    local first = SC.GameplayUtil.gridSquare(
+                        tx + dx, ty + dy, lowerZ)
+                    local middle = SC.GameplayUtil.gridSquare(
+                        tx + dx * 2, ty + dy * 2, lowerZ)
+                    local last = SC.GameplayUtil.gridSquare(
+                        tx + dx * 3, ty + dy * 3, lowerZ)
+                    local landingX, landingY = tx + dx * 4, ty + dy * 4
+                    local landing = SC.GameplayUtil.gridSquare(
+                        landingX, landingY, lowerZ + 1)
+                    local key = tostring(landingX) .. ":" .. tostring(landingY)
+                        .. ":" .. tostring(lowerZ + 1)
+                    if first and middle and last and landing
+                        and not (rejected and rejected[key])
+                        and SC.Topology.squareHasStairs(first)
+                        and SC.Topology.squareHasStairs(middle)
+                        and SC.Topology.squareHasStairs(last)
+                        and SC.GameplayUtil.isSquareFree(landing) then
+                        local distance = (tx - target.x)^2
+                            + (ty - target.y)^2
+                        if distance < bestDistance then
+                            bestDistance = distance
+                            best = {
+                                key = key, lowerZ = lowerZ,
+                                exit = { x = tx, y = ty, z = lowerZ },
+                                landing = { x = landingX,
+                                    y = landingY, z = lowerZ + 1 },
+                            }
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
+local function playerMetSearchSquad(player, leader)
+    local util = SC.GameplayUtil
+    if player == nil or leader == nil or util == nil then return false end
+    local playerSquare = player:getCurrentSquare()
+    local leaderSquare = leader:getCurrentSquare()
+    if playerSquare == nil or leaderSquare == nil
+        or not util.canSee(player, leaderSquare) then return false end
+    local playerRoom = playerSquare:getRoom()
+    if playerRoom ~= nil and playerRoom == leaderSquare:getRoom() then
+        return true
+    end
+    return util.directInteractionAccess(player, leaderSquare) == true
 end
 
 startReturnFromSite = function(itinerary, reason)
@@ -2457,6 +2539,24 @@ local function pulseScout()
     else
         scout.nearObservationSince = nil
     end
+    -- Check a physical reunion even while the return waypoint is active.
+    -- Its movement owner otherwise returns early for several seconds.
+    local player = type(getSpecificPlayer) == "function"
+        and getSpecificPlayer(0) or nil
+    if scout.phase == "inbound" and scout.search ~= nil
+        and scout.site ~= nil and scout.site.id ~= nil
+        and player ~= nil and scoutFollowersNearLeader()
+        and SC.ExpeditionPlaces.siteContainsPoint(scout.site.id,
+            math.floor(player:getX()), math.floor(player:getY()),
+            math.floor(player:getZ()))
+        and distanceToPoint(mission.leader.actor, {
+            x = math.floor(player:getX()), y = math.floor(player:getY()),
+            z = math.floor(player:getZ()),
+        }) <= 10
+        and playerMetSearchSquad(player, mission.leader.actor) then
+        local finished = Expedition.finishAtPlayer(player)
+        if finished then return end
+    end
     if mission.testWaypoint ~= nil then
         local leader = mission.leader.actor
         local remaining = distanceToPoint(leader, mission.testWaypoint)
@@ -2716,10 +2816,78 @@ local function pulseScout()
             end
             if #candidates > 0 then
                 local speaker = candidates[ZombRand(#candidates) + 1]
+                local street = type(crossing.street) == "string"
+                    and crossing.street:match("^%s*(.-)%s*$") or nil
+                if street == "" then street = nil end
                 local spoken = SC.Dialogue.say(speaker,
                     "expedition.road_intersection", nil,
-                    { crossing.street or "the next road" })
+                    { street or "the next road" })
                 if spoken then scout.lastJunctionCalloutAt = now end
+            end
+        end
+    end
+    -- An upstairs search must approach the top of a loaded stair run before
+    -- asking the native pathfinder to descend. From elsewhere on the upper
+    -- floor, a direct cross-floor request can walk away from the stairwell.
+    if pause == nil and scout.phase == "inbound" and scout.search ~= nil
+        and scout.roadRoute == nil then
+        local lx, ly, lz = SC.GameplayUtil.position(mission.leader.actor)
+        local lowerZ = target and target.z
+        if lx ~= nil and lz ~= nil and lowerZ ~= nil
+            and math.floor(lz) == lowerZ + 1 then
+            local descent = scout.descent
+            if type(descent) == "table" and descent.lowerZ ~= lowerZ then
+                scout.descentRejected = nil
+                scout.descent = nil
+                descent = nil
+            end
+            if type(descent) == "table" and scout.lastStalledTarget ~= nil
+                and scout.lastStalledTarget ~= descent.stallAtSelection then
+                local rejected = scout.descentRejected or {}
+                if descent.key ~= nil then rejected[descent.key] = true end
+                scout.descentRejected = rejected
+                scout.descent = nil
+                scout.descentRetryAt = now
+                descent = nil
+            end
+            if descent == nil and now >= (scout.descentRetryAt or 0) then
+                descent = chooseLoadedDescent(lx, ly, lowerZ, target,
+                    scout.descentRejected)
+                if descent == nil and scout.descentRejected ~= nil then
+                    -- Every loaded stair has had a failed attempt. Give them
+                    -- another bounded pass in case a door or actor moved.
+                    scout.descentRejected = nil
+                    descent = chooseLoadedDescent(lx, ly, lowerZ, target)
+                    scout.lastStalledTarget = nil
+                end
+                if descent ~= nil then
+                    descent.stallAtSelection = scout.lastStalledTarget
+                end
+                scout.descent = descent
+                scout.descentRetryAt = descent == nil and now + 3000 or nil
+            end
+            if type(descent) == "table" then
+                if not descent.landingReached
+                    and (lx - descent.landing.x - 0.5)^2
+                        + (ly - descent.landing.y - 0.5)^2 <= 0.75^2 then
+                    descent.landingReached = true
+                end
+                target = descent.landingReached
+                    and descent.exit or descent.landing
+                local waypoint = mission.testWaypoint
+                if waypoint ~= nil and (waypoint.x ~= target.x
+                    or waypoint.y ~= target.y or waypoint.z ~= target.z) then
+                    Expedition.clearTestWaypoint(mission.leader.actor)
+                    local owner = SC.ActionSupervisor
+                        and type(SC.ActionSupervisor.current) == "function"
+                        and SC.ActionSupervisor.current(
+                            mission.leader.actor) or nil
+                    if owner == nil and SC.Navigation
+                        and type(SC.Navigation.cancel) == "function" then
+                        SC.Navigation.cancel(mission.leader.actor,
+                            "expedition_stair_stage_changed")
+                    end
+                end
             end
         end
     end
@@ -2780,7 +2948,8 @@ local function pulseScout()
     end
     if pause == nil and scout.roadRoute == nil
         and scout.phase == "inbound" and scout.returnIndex ~= nil
-        and scout.returnIndex >= 1 and close <= 4 then
+        and scout.returnIndex >= 1 and close <= 4
+        and not (scout.descent and not scout.descent.landingReached) then
         scout.returnIndex = scout.returnIndex - 1
         return
     end
@@ -2862,6 +3031,12 @@ local function updateWaypointCohesion()
         or not alive(mission.leader) then return end
     local leader = mission.leader.actor
     local lx, ly, lz = SC.GameplayUtil.position(leader)
+    local scout = mission.scout
+    local descent = scout and scout.descent
+    local descending = scout and scout.phase == "inbound"
+        and type(descent) == "table" and lz ~= nil
+        and lz > descent.lowerZ + 0.2
+        and lz <= descent.lowerZ + 1.1
     local leaderSquare = leader:getCurrentSquare()
     local maxGap, laggard, missing = 0, nil, nil
     for _, record in ipairs(mission.roster) do
@@ -2877,7 +3052,8 @@ local function updateWaypointCohesion()
                 if actor:getCurrentSquare() == nil or lx == nil or ly == nil
                     or fx == nil or fy == nil
                     or lz == nil or fz == nil
-                    or math.floor(fz) ~= math.floor(lz) then
+                    or not descending
+                        and math.floor(fz) ~= math.floor(lz) then
                     missing = record.id
                 else
                     local gap = math.sqrt((fx - lx)^2 + (fy - ly)^2)
@@ -2996,7 +3172,25 @@ function Expedition.finishAtPlayer(player)
         return false, "return_busy_or_paused"
     end
     local px, py, pz = player:getX(), player:getY(), player:getZ()
+    local intactRoster = true
+    local homecomingSpeaker
+    local alternateSpeakers = {}
+    local speakingDistance = SC.GameplayUtil
+        and tonumber(SC.GameplayUtil.config
+            and SC.GameplayUtil.config("ambientDialogueDistance")) or 10
     for _, record in ipairs(mission.roster) do
+        if not alive(record) or (mission.survivors ~= nil
+            and mission.survivors[record.id] ~= true) then
+            intactRoster = false
+        elseif math.abs(record.actor:getZ() - pz) <= 0.2
+            and ((record.actor:getX() - px) ^ 2
+                + (record.actor:getY() - py) ^ 2) <= speakingDistance ^ 2 then
+            if record == mission.leader then
+                homecomingSpeaker = record.actor
+            else
+                alternateSpeakers[#alternateSpeakers + 1] = record.actor
+            end
+        end
         -- A casualty saved before restart has no restored actor. Its stable ID
         -- remains in the historical roster, but only saved survivors need to
         -- assemble at the player before the second view can be released.
@@ -3005,11 +3199,16 @@ function Expedition.finishAtPlayer(player)
             if not record.actor:isDead() then
                 if not alive(record) or math.abs(record.actor:getX() - px) > 12
                     or math.abs(record.actor:getY() - py) > 12
-                    or math.floor(record.actor:getZ()) ~= math.floor(pz) then
+                    or math.abs(record.actor:getZ() - pz) > 0.2 then
                     return false, "return_member_not_assembled"
                 end
             end
         end
+    end
+    if homecomingSpeaker == nil and #alternateSpeakers > 0 then
+        local index = type(ZombRand) == "function"
+            and ZombRand(#alternateSpeakers) + 1 or 1
+        homecomingSpeaker = alternateSpeakers[index]
     end
     if SCSplitScreenProbe == nil
         or SCSplitScreenProbe.canReleaseJoinedLeader() ~= true
@@ -3037,6 +3236,10 @@ function Expedition.finishAtPlayer(player)
         Events.OnDeviceText.Remove(radioTextReceived)
     end
     mission.terminal = "returned"
+    if intactRoster and homecomingSpeaker ~= nil
+        and SC.Dialogue and type(SC.Dialogue.say) == "function" then
+        pcall(SC.Dialogue.say, homecomingSpeaker, "expedition.homecoming")
+    end
     if mission.scout ~= nil then
         lastDebrief = pendingDebrief or {
             kind = "scout",

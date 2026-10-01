@@ -13,6 +13,23 @@ local SC = SurvivorCompanion
 SC.Background = SC.Background or {}
 local Background = SC.Background
 
+Background.HOMES = {
+    muldraugh = "Muldraugh", rosewood = "Rosewood",
+    riverside = "Riverside", west_point = "West Point",
+    louisville = "Louisville", brandenburg = "Brandenburg",
+}
+
+function Background.homeLabel(key)
+    local normalized = string.lower(tostring(key or ""))
+    if Background.HOMES[normalized] then return Background.HOMES[normalized] end
+    local words = normalized:gsub("_", " ")
+        :gsub("^%s+", ""):gsub("%s+$", "")
+    if words == "" then return "Kentucky" end
+    return (words:gsub("(%a)([%a]*)", function(first, rest)
+        return string.upper(first) .. rest
+    end))
+end
+
 -- These IDs and starting skill boosts mirror Project Zomboid 42.20.4's
 -- generated character_professions.txt.  The extra AI fields are deliberately
 -- small preferences: a career informs a companion without deciding every act.

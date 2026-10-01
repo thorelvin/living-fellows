@@ -42,7 +42,7 @@ local POOLS = {
     },
     ["tales.body"] = {
         common = {
-            "%2 of 'em. Came out of nowhere at %1.",
+            "%2 of 'em. Came out of nowhere, %6.",
             "I counted %2. Maybe more. Hard to count and swing.",
             "%2 zombies, one of me. Do the math.",
             "They just kept coming. %2, easy.",
@@ -110,9 +110,9 @@ local POOLS = {
     ["tales.close"] = {
         common = {
             "Anyway. I'm still here. They're not.",
-            "And that's why I don't go to %1 anymore.",
+            "And that's why I stay away from %1 now.",
             "True story. Mostly.",
-            "Point is, don't ever mess with me at %1.",
+            "Point is, don't ever mess with me %6.",
             "Anyway. Pass the beans.",
             "And that's the truth. Most of it.",
             "Somebody write that down. For history.",
@@ -541,8 +541,9 @@ end
 
 function Tales.toldCount(kills, telling)
     kills = math.max(0, math.floor(tonumber(kills) or 0))
+    if kills == 0 then return 0 end
     local factor = GROWTH[math.min(#GROWTH, math.max(1, math.floor(tonumber(telling) or 1)))]
-    return math.max(kills, math.floor(kills * factor + 0.5))
+    return math.max(2, kills, math.floor(kills * factor + 0.5))
 end
 
 -- Title case without the leading article; proper names ("Spiffo's") keep
@@ -617,7 +618,20 @@ local function nearbyWitness(tale, teller)
 end
 
 local function arguments(first, count, guest, name, weapon)
-    return { tostring(first), tostring(count), tostring(guest), tostring(name), tostring(weapon) }
+    local place = tostring(first)
+    local noun = place == "out in the open" and "open ground" or place
+    local location
+    if place == "out in the open" then location = place
+    elseif place == "the road" or place == "a farm" then
+        location = "on " .. place
+    elseif place == "the woods" or place == "the middle of town"
+        or place == "that building" or place:find("^somebody's ") then
+        location = "in " .. place
+    else
+        location = "at " .. place
+    end
+    return { noun, tostring(count), tostring(guest), tostring(name),
+        tostring(weapon), location }
 end
 
 -- The beats of one telling. The numbers grow with each telling; the second

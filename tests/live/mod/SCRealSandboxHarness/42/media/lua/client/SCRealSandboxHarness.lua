@@ -4589,7 +4589,9 @@ local function beginLeaderSlotProbe(current)
     if Harness.config.team_handoff == "true" then
         local roster = { chosen }
         local requested = (Harness.config.team_loot_probe == "true"
-            or Harness.config.team_leader_motion_probe == "true") and 1
+            or Harness.config.team_leader_motion_probe == "true"
+            or Harness.config.team_multifloor_search_probe == "true"
+                and Harness.config.team_multifloor_squad_probe ~= "true") and 1
             or (Harness.config.team_all_dead_cleanup == "true"
                 or Harness.config.team_all_dead_stage_only == "true"
                 or Harness.config.team_all_dead_menu_cleanup_probe == "true")
@@ -4805,8 +4807,25 @@ local function beginLeaderSlotProbe(current)
                 end
                 Harness.unvisitedSearchBuildingId = place.id
                 Harness.unvisitedSearchDestination = interior
+                if Harness.config.team_multifloor_search_probe == "true" then
+                    local floors = places.siteFloors(place.id)
+                    local upper = false
+                    for _, floor in ipairs(floors or {}) do
+                        if floor == 1 then upper = true end
+                    end
+                    if not check("multifloor_search_site_has_upper_floor",
+                        upper, "site=" .. tostring(place.id)
+                            .. " floors=" .. tostring(floors
+                                and table.concat(floors, ","))) then
+                        setPhase("finish", current) return
+                    end
+                end
                 plan = { kind = "search", destination = interior,
-                    request = { category = "construction", quantity = 1 },
+                    site = Harness.config.team_multifloor_search_probe == "true"
+                        and place or nil,
+                    request = { category = Harness.config.team_multifloor_search_probe
+                            == "true" and "ammunition" or "construction",
+                        quantity = 1 },
                     radius = 8 }
             else
                 -- Known cupboard district in this disposable Riverside seed.
@@ -7457,6 +7476,138 @@ function Harness.probeSharedSearch(current)
     end
 end
 
+function Harness.stageMultifloorSearchTarget(current)
+    local SC = SurvivorCompanion
+    local U = SC.GameplayUtil
+    local actor = Harness.leader
+    local siteId = Harness.unvisitedSearchBuildingId
+    local square = actor and actor:getCurrentSquare()
+    local cell = getWorld() and getWorld():getCell()
+    if square == nil or cell == nil or siteId == nil then return false end
+    local ax, ay = square:getX(), square:getY()
+    local stairs = {}
+    for x = 6156, 6174 do
+        for y = 5236, 5266 do
+            for z = 0, 1 do
+                local candidate = cell:getGridSquare(x, y, z)
+                if candidate and SC.Topology.squareHasStairs(candidate)
+                    and SC.ExpeditionPlaces.siteContainsPoint(siteId,
+                        x, y, z) then
+                    stairs[#stairs + 1] = { x = x, y = y, z = z }
+                end
+            end
+        end
+    end
+    local stairLabels = {}
+    for _, stair in ipairs(stairs) do
+        stairLabels[#stairLabels + 1] = stair.x .. "," .. stair.y
+            .. "," .. stair.z
+    end
+    result(#stairs > 0 and "PASS" or "FAIL", "multifloor_search_stair_geometry",
+        table.concat(stairLabels, ";"))
+    if #stairs == 0 then
+        setPhase("finish", current)
+        return false
+    end
+    local best, bestDistance
+    for x = 6156, 6174 do
+        for y = 5236, 5266 do
+            local actorDistance = (x - ax)^2 + (y - ay)^2
+            local nearestStair = math.huge
+            for _, stair in ipairs(stairs) do
+                local stairDistance = (x - stair.x)^2 + (y - stair.y)^2
+                if stairDistance < nearestStair then
+                    nearestStair = stairDistance
+                end
+            end
+            local distance = actorDistance + nearestStair * 2
+            if actorDistance <= 16 * 16 and (bestDistance == nil
+                or distance < bestDistance) then
+                local upper = cell:getGridSquare(x, y, 1)
+                if upper and upper:getRoom()
+                    and SC.ExpeditionPlaces.siteContainsPoint(siteId,
+                        x, y, 1) then
+                    U.squareObjects(upper, function(object)
+                        local container = select(1,
+                            U.call(object, "getContainer"))
+                        if container and SC.Encounter.mayTakeFrom(container)
+                            == true then
+                            best = { square = upper, container = container }
+                            bestDistance = distance
+                        end
+                    end, 40)
+                end
+            end
+        end
+    end
+    if best == nil then return false end
+    local added, item = pcall(function()
+        return best.container:AddItem("Base.Bullets9mm")
+    end)
+    if not added or item == nil then
+        result("FAIL", "multifloor_search_item_fixture",
+            "upstairs container could not receive native ammunition")
+        setPhase("finish", current)
+        return false
+    end
+    local staged, reason = SC.ExpeditionPrototype.stageTestSearch(
+        actor, best.container, "ammunition")
+    if not staged then
+        result("FAIL", "multifloor_search_target_fixture", reason)
+        setPhase("finish", current)
+        return false
+    end
+    Harness.multifloorSearchTarget = {
+        square = best.square, container = best.container, item = item,
+    }
+    result("PASS", "multifloor_search_real_upstairs_source",
+        "source=" .. tostring(best.square:getX()) .. ","
+            .. tostring(best.square:getY()) .. ",1"
+            .. " native_item=" .. tostring(item:getID()))
+    return true
+end
+
+function Harness.stageMultifloorGroundStart(current)
+    local SC = SurvivorCompanion
+    local U = SC.GameplayUtil
+    local siteId = Harness.unvisitedSearchBuildingId
+    local chosen = {}
+    for x = 6160, 6166 do
+        for y = 5239, 5246 do
+            local square = U.gridSquare(x, y, 0)
+            if square and square:getRoom()
+                and SC.ExpeditionPlaces.siteContainsPoint(siteId, x, y, 0)
+                and not SC.Topology.squareHasStairs(square)
+                and U.squareStaticBlocker(square) == nil then
+                chosen[#chosen + 1] = square
+            end
+        end
+    end
+    if #chosen < #Harness.teamActors then
+        result("FAIL", "multifloor_ground_start_fixture",
+            "safe interior tiles=" .. tostring(#chosen))
+        setPhase("finish", current)
+        return false
+    end
+    table.sort(chosen, function(a, b)
+        local ad = (a:getX() - 6163)^2 + (a:getY() - 5244)^2
+        local bd = (b:getX() - 6163)^2 + (b:getY() - 5244)^2
+        return ad < bd
+    end)
+    for index, actor in ipairs(Harness.teamActors) do
+        local square = chosen[index]
+        actor:teleportTo(square:getX() + 0.5, square:getY() + 0.5, 0)
+    end
+    Harness.autonomousSearchLastX = nil
+    Harness.autonomousSearchLastY = nil
+    Harness.multifloorGroundStaged = true
+    result("PASS", "multifloor_ground_start_fixture",
+        "test-only squad placement inside the target building; leader="
+            .. tostring(chosen[1]:getX()) .. ","
+            .. tostring(chosen[1]:getY()) .. ",0")
+    return true
+end
+
 function Harness.probeAutonomousSearch(current)
     if Harness.config.team_shared_search_probe == "true" then
         return Harness.probeSharedSearch(current)
@@ -7466,12 +7617,62 @@ function Harness.probeAutonomousSearch(current)
     local mission = SC.ExpeditionPrototype.current()
     local unvisited = Harness.config.team_unvisited_interior_search_probe
         == "true"
-    local x, y = position(Harness.leader)
+    local x, y, z = position(Harness.leader)
     if x == nil or y == nil then
         result("FAIL", "autonomous_search_leader_position",
             "native leader has no position")
         setPhase("finish", current)
         return
+    end
+    if Harness.config.team_multifloor_search_probe == "true"
+        and mission and mission.scout
+        and mission.scout.phase == "inbound"
+        and not Harness.multifloorPlayerMoved then
+        local meeting = U.gridSquare(6160, 5244, 0)
+        if meeting == nil or meeting:getRoom() == nil
+            or U.squareStaticBlocker(meeting) ~= nil then
+            result("FAIL", "multifloor_ground_reunion_fixture",
+                "no safe ground-floor meeting square")
+            setPhase("finish", current)
+            return
+        end
+        Harness.player:teleportTo(6160.5, 5244.5, 0)
+        Harness.playerX, Harness.playerY, Harness.playerZ =
+            6160.5, 5244.5, 0
+        Harness.multifloorPlayerMoved = true
+        result("PASS", "multifloor_ground_reunion_fixture",
+            "test-only player moved to 6160,5244,0 after the upstairs pickup")
+    end
+    if Harness.config.team_multifloor_search_probe == "true"
+        and math.floor(z or 0) == 1 and not Harness.multifloorSawUpper then
+        Harness.multifloorSawUpper = true
+        result("PASS", "multifloor_search_leader_reached_upper_floor",
+            "leader=" .. tostring(x) .. "," .. tostring(y) .. ",1")
+    end
+    if Harness.config.team_multifloor_search_probe == "true"
+        and mission and mission.scout
+        and mission.scout.phase == "searching"
+        and not Harness.multifloorGroundStaged then
+        Harness.stageMultifloorGroundStart(current)
+        return
+    end
+    if Harness.config.team_multifloor_search_probe == "true"
+        and mission and mission.scout
+        and mission.scout.phase == "searching"
+        and Harness.multifloorSearchTarget == nil
+        and current >= (Harness.multifloorStageNextAt or 0) then
+        Harness.multifloorStageStartedAt =
+            Harness.multifloorStageStartedAt or current
+        Harness.multifloorStageNextAt = current + 1000
+        Harness.stageMultifloorSearchTarget(current)
+        if Harness.phase == "finish" then return end
+        if Harness.multifloorSearchTarget == nil
+            and current - Harness.multifloorStageStartedAt > 30000 then
+            result("FAIL", "multifloor_search_upper_source_unavailable",
+                "no loaded upper-floor container within 16 tiles")
+            setPhase("finish", current)
+            return
+        end
     end
     -- Keep this movement-isolation fixture quiet as the second local map
     -- streams new chunks. The initial spawn-area clear does not cover the
@@ -7576,7 +7777,7 @@ function Harness.probeAutonomousSearch(current)
         for index = 2, #(Harness.team or {}) do
             local record = Harness.team[index]
             local actor = record.actor
-            local fx, fy = position(actor)
+            local fx, fy, fz = position(actor)
             gap = math.max(gap, fx and fy
                 and math.sqrt((fx - x)^2 + (fy - y)^2) or 999)
             local followerNav = SC.Navigation.status(actor) or {}
@@ -7589,6 +7790,7 @@ function Harness.probeAutonomousSearch(current)
             local treatment = SC.Medical and SC.Medical.peek(actor) or nil
             followers[#followers + 1] = tostring(record.id)
                 .. "@" .. tostring(fx) .. "," .. tostring(fy)
+                .. "," .. tostring(fz)
                 .. ":" .. tostring(followerNav.phase)
                 .. "/" .. tostring(followerNav.target)
                 .. "/" .. tostring(followerNav.reason)
@@ -7625,6 +7827,7 @@ function Harness.probeAutonomousSearch(current)
         print("SC_UNVISITED_SEARCH_PROGRESS|phase="
             .. tostring(mission.scout.phase)
             .. "|pos=" .. tostring(x) .. "," .. tostring(y)
+                .. "," .. tostring(Harness.leader:getZ())
             .. "|distance=" .. tostring(math.sqrt(
                 (x - Harness.unvisitedSearchDestination.x)^2
                 + (y - Harness.unvisitedSearchDestination.y)^2))
@@ -7836,6 +8039,19 @@ function Harness.probeAutonomousSearch(current)
     end
     local encounter = SC.Encounter.peek(Harness.leader)
     local task = encounter and encounter.task
+    if task and task.phase == "animate"
+        and Harness.autonomousSearchLootVisualObserved ~= true
+        and SC.NativeActions and type(SC.NativeActions.visualStatus) == "function" then
+        local visual = SC.NativeActions.visualStatus(Harness.leader, "loot_container")
+        if visual == "active" then
+            Harness.autonomousSearchLootVisualObserved = true
+            local sourceType = task.container and task.container:getType() or "unknown"
+            result("PASS", "autonomous_search_native_loot_pose",
+                "source=" .. tostring(task.sourceKind)
+                    .. " container=" .. tostring(sourceType)
+                    .. " action=loot_container visual=active")
+        end
+    end
     if task and task.container then
         Harness.autonomousSearchSeenContainers =
             Harness.autonomousSearchSeenContainers or setmetatable({}, {
@@ -7870,13 +8086,16 @@ function Harness.probeAutonomousSearch(current)
     local status = SC.Encounter.status(Harness.leader)
     local loot = status and status.lastLoot
     local selected = Harness.autonomousSearchSelected
+    local requestedCategory = Harness.config.team_multifloor_search_probe
+        == "true" and "ammunition" or "construction"
     if selected and loot and loot.missionId ~= nil
         and Harness.autonomousSearchLootVerified ~= true then
         local sourceCountAfter = selected.source:getItems():size()
         local exact = loot.verified == true
+            and Harness.autonomousSearchLootVisualObserved == true
             and loot.missionId == (mission and mission.radioSession
                 or Harness.autonomousSearchMissionId)
-            and loot.requestedCategory == "construction"
+            and loot.requestedCategory == requestedCategory
             and type(loot.stableId) == "string"
             and U.itemStableId(selected.item, false) == loot.stableId
             and selected.item:getID() == selected.nativeId
@@ -7901,7 +8120,7 @@ function Harness.probeAutonomousSearch(current)
             check("unvisited_search_entered_and_returned",
                 Harness.unvisitedSearchEntered == true
                     and debrief ~= nil and debrief.kind == "search"
-                    and debrief.request.category == "construction"
+                    and debrief.request.category == requestedCategory
                     and debrief.request.quantity == 1
                     and debrief.inventoryComplete == true
                     and #debrief.acquisitions == #debrief.returnedIds
@@ -7923,6 +8142,32 @@ function Harness.probeAutonomousSearch(current)
                     .. " chunks=" .. tostring(chunks)
                     .. " max_step=" .. tostring(
                         Harness.autonomousSearchMaxStep))
+            if Harness.config.team_multifloor_search_probe == "true" then
+                local receipt = debrief and debrief.acquisitions
+                    and debrief.acquisitions[1]
+                local source = receipt and receipt.source
+                local grounded, groundedCount = true, 0
+                for _, member in ipairs(Harness.team or {}) do
+                    if member.actor and not member.actor:isDead() then
+                        groundedCount = groundedCount + 1
+                        grounded = grounded and math.abs(
+                            member.actor:getZ() - Harness.player:getZ()) <= 0.2
+                    end
+                end
+                check("multifloor_search_real_upper_loot_and_ground_return",
+                    Harness.multifloorSawUpper == true
+                        and Harness.multifloorSearchTarget ~= nil
+                        and source ~= nil and source.z == 1
+                        and SC.ExpeditionPrototype.lastOutcome() == "returned"
+                        and math.abs((z or -1) - Harness.player:getZ()) <= 0.2
+                        and grounded and groundedCount == #(Harness.team or {}),
+                    "reached_upper=" .. tostring(Harness.multifloorSawUpper)
+                        .. " source_z=" .. tostring(source and source.z)
+                        .. " return_z=" .. tostring(z)
+                        .. " grounded=" .. tostring(groundedCount)
+                        .. " outcome=" .. tostring(
+                            SC.ExpeditionPrototype.lastOutcome()))
+            end
             setPhase("finish", current)
             return
         end

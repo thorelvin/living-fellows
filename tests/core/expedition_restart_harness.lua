@@ -8,6 +8,13 @@ SC.GameplayUtil = {
     canSee = function() return false end,
 }
 local departures = {}
+local function homecomingCount()
+    local count = 0
+    for _, speech in ipairs(departures) do
+        if speech.topic == "expedition.homecoming" then count = count + 1 end
+    end
+    return count
+end
 SC.Dialogue = {
     say = function(actor, topic)
         departures[#departures + 1] = { actor = actor, topic = topic }
@@ -173,6 +180,8 @@ follower.x, follower.y = 22, 20
 finished, reason = expedition.finishAtPlayer(player)
 check(finished == true and reason == "returned" and uiDestroyed and released,
     "the team returns even though the saved casualty has no actor")
+check(homecomingCount() == 0,
+    "a mission with a lost roster member has no all-survived homecoming line")
 check(expedition.current() == nil, "completed mission relinquishes ownership")
 local idle = expedition.export()
 check(idle ~= nil and idle.schema == 2 and idle.state == "idle"
@@ -195,9 +204,21 @@ check(started == true and newMission.leader.actor == follower
 check(#departures == 1 and departures[1].actor == follower
         and departures[1].topic == "expedition.departure",
     "a successful mission start makes its leader speak once")
+local normalRelease = SCSplitScreenProbe.releaseJoinedLeader
+SCSplitScreenProbe.releaseJoinedLeader = function() return false end
+finished, reason = expedition.finishAtPlayer(player)
+check(finished == false and newMission.technicalIssue.reason == "return_view_release_failed"
+        and homecomingCount() == 0,
+    "a failed native view release cannot speak a return line")
+SCSplitScreenProbe.releaseJoinedLeader = normalRelease
+newMission.technicalIssue = nil
 finished, reason = expedition.finishAtPlayer(player)
 check(finished == true and reason == "returned",
     "the second mission releases the same slot cleanly")
+check(homecomingCount() == 1
+        and departures[#departures].actor == follower
+        and departures[#departures].topic == "expedition.homecoming",
+    "an intact squad has exactly one leader homecoming after release")
 
 -- The native cold loader may already have handed the view to the saved
 -- leader before the mission pulse observes all restored members.
@@ -330,8 +351,15 @@ SC.GameplayUtil = {
 }
 scoutClock = 1000
 local squareFor
+local squareCache = {}
 squareFor = function(x, y)
-    return { x = x, y = y, getRoom = function() return nil end }
+    local key = tostring(x) .. ":" .. tostring(y)
+    if squareCache[key] == nil then
+        squareCache[key] = {
+            x = x, y = y, getRoom = function() return nil end,
+        }
+    end
+    return squareCache[key]
 end
 function reserve:getCurrentSquare()
     return squareFor(math.floor(self.x), math.floor(self.y))
@@ -346,6 +374,12 @@ end
 SC.Navigation = {
     findPath = function(source, target)
         return { source, squareFor(source.x + 1, source.y), target }
+    end,
+    beginPathSearch = function(source, target)
+        return { source = source, target = target }
+    end,
+    resumePathSearch = function(job)
+        return "complete", SC.Navigation.findPath(job.source, job.target)
     end,
 }
 SC.Senses = {
@@ -979,8 +1013,47 @@ check(expedition.noteVerifiedSearchLoot(reserve, {
         sourceY = 20, sourceZ = 0,
     }) and #siteSearch.scout.search.acquisitions == 1,
     "only a source in the selected building counts toward the request")
-check(expedition.finishAtPlayer(player) == true,
-    "the scoped Search releases its leader")
+;(function()
+local formerCanSee = SC.GameplayUtil.canSee
+local formerDirectAccess = SC.GameplayUtil.directInteractionAccess
+local formerPlayerSquare = player.getCurrentSquare
+local formerReserveSquare = reserve.getCurrentSquare
+local roomA, roomB = {}, {}
+local playerRoom, leaderRoom = roomA, roomB
+local sightClear, directlyAccessible = false, false
+function player:getCurrentSquare()
+    return { x = self.x, y = self.y, z = 0,
+        getRoom = function() return playerRoom end }
+end
+function reserve:getCurrentSquare()
+    return { x = self.x, y = self.y, z = 0,
+        getRoom = function() return leaderRoom end }
+end
+SC.GameplayUtil.canSee = function() return sightClear end
+SC.GameplayUtil.directInteractionAccess = function()
+    return directlyAccessible
+end
+player.x, player.y = 80, 20
+reserve.x, reserve.y = 81, 20
+siteSearch.scout.phase = "inbound"
+expedition.pulse()
+check(expedition.current() == siteSearch,
+    "the destination reunion does not release a squad behind a wall")
+sightClear = true
+expedition.pulse()
+check(expedition.current() == siteSearch,
+    "sight through an inaccessible boundary does not release the squad")
+directlyAccessible = true
+expedition.pulse()
+check(expedition.current() == nil,
+    "an accessible destination reunion releases the scoped Search")
+player.x, player.y = 20, 20
+reserve.x, reserve.y = 23, 20
+player.getCurrentSquare = formerPlayerSquare
+reserve.getCurrentSquare = formerReserveSquare
+SC.GameplayUtil.canSee = formerCanSee
+SC.GameplayUtil.directInteractionAccess = formerDirectAccess
+end)()
 
 local usefulStarted, usefulSearch = expedition.startAtPlace(
     { { id = "delta", actor = reserve } }, place.id, "search",
@@ -1664,11 +1737,21 @@ check(straightStarted == true and straightMission.scout.road == nil
     "straight travel can target 200 tiles without inventing a road")
 expedition.pulse()
 scoutClock = scoutClock + 31000
-expedition.pulse()
+for _ = 1, 500 do
+    expedition.pulse()
+    if straightMission.scout.phase == "inbound" then break end
+    scoutClock = scoutClock + 250
+end
 check(straightMission.scout.phase == "inbound"
         and straightMission.scout.endReason == "straight_path_unreachable"
         and straightMission.technicalIssue == nil,
-    "a blocked straight outbound path turns the team home")
+    "a blocked straight outbound path turns the team home: "
+        .. tostring(straightMission.scout.phase) .. "/"
+        .. tostring(straightMission.scout.endReason) .. "/"
+        .. tostring(straightMission.scout.lastPlanFailure) .. "/"
+        .. tostring(straightMission.scout.legPlan
+            and straightMission.scout.legPlan.index) .. "/"
+        .. tostring(straightMission.scout.firstPlanFailureAt))
 SC.Navigation.findPath = originalFindPath
 check(expedition.finishAtPlayer(player) == true,
     "the straight-path fallback releases the leader after return")
@@ -1808,5 +1891,70 @@ SC.ExpeditionRoute.plan = savedRoadPlan
 reserve.x = player.x + 3
 check(expedition.finishAtPlayer(player),
     "the timed map-readiness probe releases its leader")
+
+;(function()
+local oldPosition = SC.GameplayUtil.position
+local oldGridSquare = SC.GameplayUtil.gridSquare
+local oldTopology = SC.Topology
+local oldReserveZ = reserve.getZ
+local oldReserveSquare = reserve.getCurrentSquare
+SC.GameplayUtil.position = function(value)
+    return value.x, value.y, value.z or 0
+end
+SC.GameplayUtil.gridSquare = function(x, y, z)
+    if z == 0 then
+        return { x = x, y = y, z = z,
+            stairs = (x >= 26 and x <= 28)
+                and (y == 20 or y == 23) }
+    end
+    if z == 1 and x == 29 and (y == 20 or y == 23) then
+        return { x = x, y = y, z = z }
+    end
+    return nil
+end
+SC.Topology = { squareHasStairs = function(square)
+    return square.stairs == true
+end }
+function reserve:getZ() return self.z or 0 end
+function reserve:getCurrentSquare()
+    return { x = self.x, y = self.y, z = self.z,
+        getRoom = function() return nil end }
+end
+reserve.x, reserve.y, reserve.z = 29, 21, 0
+local descentStarted, descentMission = expedition.start(
+    { { id = "delta", actor = reserve } },
+    { kind = "scout", destination = { x = 80, y = 20, z = 0 },
+        travelMode = "straight" })
+check(descentStarted, "the stair retry probe starts")
+reserve.z = 1
+descentMission.scout.phase = "inbound"
+descentMission.scout.search = {}
+descentMission.scout.returnIndex = 0
+descentMission.scout.lastPlanAt = scoutClock
+expedition.pulse()
+local firstDescent = descentMission.scout.descent
+check(firstDescent ~= nil and firstDescent.landing.y == 20,
+    "the closest loaded staircase is chosen first")
+descentMission.scout.lastStalledTarget = {
+    x = firstDescent.landing.x, y = firstDescent.landing.y, z = 1,
+}
+expedition.pulse()
+check(descentMission.scout.descent ~= nil
+        and descentMission.scout.descent.landing.y == 23
+        and descentMission.scout.descentRejected[firstDescent.key] == true
+        and descentMission.technicalIssue == nil,
+    "a stalled descent rotates to the other loaded staircase")
+descentMission.scout.search = nil
+reserve.z = 0
+reserve.x, reserve.y = player.x + 3, player.y
+check(expedition.finishAtPlayer(player),
+    "the stair retry probe releases its leader")
+reserve.z = nil
+reserve.getZ = oldReserveZ
+reserve.getCurrentSquare = oldReserveSquare
+SC.GameplayUtil.position = oldPosition
+SC.GameplayUtil.gridSquare = oldGridSquare
+SC.Topology = oldTopology
+end)()
 
 print("EXPEDITION_RESTART_KAHLUA_PASS checks=" .. tostring(checks))

@@ -37,6 +37,38 @@ local pools = {
             "Zip up, count heads, and follow me into the gray.",
         },
     },
+    ["expedition.homecoming"] = {
+        common = {
+            "We're back. Everybody who left is standing right here.",
+            "Told you. We leave together, we come back together.",
+            "That's the trip. Count heads. We're all here.",
+            "Made it back. Somebody tell me there's coffee.",
+            "Back in one piece. Several pieces, technically, all still attached.",
+            "The road let us go. I'm not going to ask why.",
+            "Back before the county changed its mind about us.",
+            "We're back. Give us a minute, then you get the full report.",
+            "Boots off soon. Stories later. Most of them true.",
+            "Every one of us walked back. Somebody write that down.",
+            "Kentucky tried its best. We came back anyway.",
+            "Good to see a face that isn't trying to bite me.",
+        },
+        brave = {
+            "Back already. The road should've tried harder.",
+            "Out and back. Point me at the next one.",
+        },
+        cautious = {
+            "We're back. I checked behind us twice. Keep an eye on the road anyway.",
+            "Made it. I'll relax once there's a locked door between us and the road.",
+        },
+        caring = {
+            "We're back, all of us. Now let me look at you for a change.",
+            "Everyone made it. I kept counting the whole way.",
+        },
+        practical = {
+            "Squad's back, headcount matches. Report when you're ready.",
+            "Returned with everyone we left with. That's the number that matters.",
+        },
+    },
     ["expedition.road_intersection"] = {
         common = {
             "%1 coming up. Eyes on both sides.",
@@ -180,7 +212,7 @@ local pools = {
             "One zombie ahead.", "Single walker, up ahead.", "I've got one moving out there.",
             "One of them, straight ahead.", "Just one zombie in sight.", "One deadhead, out ahead.",
             "Contact. One zombie.", "One walker crossing our path.", "I see one. Keep your eyes on it.",
-            "One walker. I've got it.", "Single contact ahead — nothing we can't handle.",
+            "One walker. I've got it.", "Single contact ahead - nothing we can't handle.",
             "Lone zombie ahead.", "One body moving. Not alive.", "We've got a single contact.",
         },
         brave = { "Only one. I can handle it.", "One walker. Easy does it." },
@@ -349,7 +381,7 @@ local pools = {
         cautious = { "%1. Nobody touch my hands until I disinfect them.", "Found %1. Bag it separately. Very separately." },
         caring = { "%1. Please let me clean this before anyone uses it.", "Found %1. Don't touch it bare-handed like I just did." },
         practical = { "%1. Contaminated-looking, but salvageable.", "Found %1. Hygiene cost: unacceptable." },
-        stressed = { "%1—oh God, it squished.", "Found %1. Nope. I hate this. I hate all of this." },
+        stressed = { "%1 - oh God, it squished.", "Found %1. Nope. I hate this. I hate all of this." },
         low = { "%1. Somehow this is exactly the day I deserved.", "Found %1. I miss clean shelves." },
         steady = { "Found %1. It has been a difficult day for soap.",
             "%1. Still useful. Best not to discuss the texture." },
@@ -416,19 +448,19 @@ local pools = {
     },
     ["grab.pinned"] = {
         common = {
-            "They've got me! Get them off!", "Help! I'm down!", "I'm pinned — help!",
-            "Get them off me!", "They're on me — help!", "I can't get up — hurry!",
+            "They've got me! Get them off!", "Help! I'm down!", "I'm pinned - help!",
+            "Get them off me!", "They're on me - help!", "I can't get up - hurry!",
         },
-        brave = { "Get them off and I'll make them pay!", "I'm down, not done — help me up!" },
-        cautious = { "Too many! Pull them off me!", "I'm pinned — don't lose me!" },
-        caring = { "Help — I don't want to leave you like this!", "Get them off, please!" },
-        practical = { "Pinned. Clear the ones on top of me!", "I'm down — thin them out!" },
-        stressed = { "No no no — get them OFF!", "They've got me! Please!" },
+        brave = { "Get them off and I'll make them pay!", "I'm down, not done - help me up!" },
+        cautious = { "Too many! Pull them off me!", "I'm pinned - don't lose me!" },
+        caring = { "Help - I don't want to leave you like this!", "Get them off, please!" },
+        practical = { "Pinned. Clear the ones on top of me!", "I'm down - thin them out!" },
+        stressed = { "No no no - get them OFF!", "They've got me! Please!" },
     },
     ["grab.rescued"] = {
         common = {
-            "Thank you — I'm up!", "That was too close.", "I owe you one.",
-            "Back on my feet. Thanks.", "You pulled me out of that — thank you.",
+            "Thank you - I'm up!", "That was too close.", "I owe you one.",
+            "Back on my feet. Thanks.", "You pulled me out of that - thank you.",
         },
         brave = { "Ha! Not today. Thanks.", "Back up. Let's finish them." },
         cautious = { "Close. Let's not do that again.", "Up. Watch the flanks this time." },
@@ -438,12 +470,12 @@ local pools = {
     },
     ["grab.escaped"] = {
         common = {
-            "Got loose!", "Off me — I'm up!", "Broke free!", "Shook them off!", "Not today.",
+            "Got loose!", "Off me - I'm up!", "Broke free!", "Shook them off!", "Not today.",
         },
         brave = { "You'll have to do better than that!", "Ha! Off me!" },
-        cautious = { "Free — regrouping.", "Up. Keeping my distance now." },
+        cautious = { "Free - regrouping.", "Up. Keeping my distance now." },
         practical = { "Loose. Back to it.", "Free and standing." },
-        stressed = { "Off! Get off!", "Free — barely!" },
+        stressed = { "Off! Get off!", "Free - barely!" },
     },
     ["lastwords.pinned"] = {
         common = {
@@ -763,9 +795,9 @@ local pools = {
             "Horde! One opening, then we move!", "We're not holding here! Clear the exit!",
         },
         brave = { "Horde! We hit once and get out!", "No heroics! Cut a path!",
-            "Too many to fight — punch through and go!", "Stay on me! One line, straight out!" },
+            "Too many to fight - punch through and go!", "Stay on me! One line, straight out!" },
         cautious = { "Horde contact. Do not stop moving!", "Break sight as soon as the path opens!",
-            "Do not let them box us in — keep an exit open!", "Quiet feet, keep moving, do not turn to fight!" },
+            "Do not let them box us in - keep an exit open!", "Quiet feet, keep moving, do not turn to fight!" },
         caring = { "Everyone out! I'll help clear the way!", "Stay together! Nobody disappears in that horde!" },
         practical = { "Horde. Engagement objective is escape only.", "Mass contact. Clear one lane and withdraw." },
         stressed = { "Oh God, they're all coming!", "Horde! Run as soon as you can!" },
@@ -1024,34 +1056,34 @@ local pools = {
             "Farm work paused. Our equipment has other plans." },
     },
     ["doing.active"] = { common = {
-        "I'm %1 right now.", "I'm working on %1.",
+        "I'm %1 right now.", "I'm busy %1.",
         "Right now, I'm %1.", "Give me a moment. I'm %1.",
     }, steady = { "I'm %1. Nothing unusual to report.",
         "Still %1. Could be worse." } },
     ["doing.target"] = { common = {
-        "I'm %1 at %2.", "I'm working on %1 near %2.",
-        "The current job is %1 at %2.", "I'm handling %1 by %2.",
+        "I'm %1 at %2.", "I'm busy %1 near %2.",
+        "The current job is %1 at %2.", "I'm %1 over by %2.",
     }, steady = { "I'm %1 at %2. That's the plan, anyway.",
         "%1 near %2. Everything's fine enough." } },
     ["doing.waiting"] = { common = {
         "I'm waiting before I can finish %1.", "I'm held up trying to finish %1.",
-        "I haven't abandoned it. I'm waiting on %1.", "I need a clear moment to continue %1.",
-    }, steady = { "Waiting on %1. It seems committed to taking its time.",
+        "I haven't abandoned it. I'm still waiting to finish %1.", "I need a clear moment to continue %1.",
+    }, steady = { "Still waiting to finish %1. It seems committed to taking its time.",
         "%1 is delayed. Not cancelled. Merely testing character." } },
     ["doing.recovering"] = { common = {
-        "That route failed. I'm finding another way to %1.",
+        "That route failed. I'm finding another way. Still %1.",
         "I'm working around an obstacle so I can finish %1.",
-        "The approach is blocked. I'm replanning %1.",
-        "I'm still on it. I need a safer route for %1.",
-    }, steady = { "Finding another way to %1. The first way had opinions.",
-        "Replanning %1. Nothing's simple, which is at least consistent." } },
+        "The approach is blocked. I'm finding a way to finish %1.",
+        "I'm still %1. I just need a safer route.",
+    }, steady = { "Still %1, by another route. The first one had opinions.",
+        "Still %1. Rethinking the approach." } },
     ["doing.failed"] = { common = {
-        "I couldn't finish %1. I'll try again in about %2 seconds.",
-        "%1 failed. Give me roughly %2 seconds before I try again.",
-        "I hit a problem with %1. The next attempt is in about %2 seconds.",
-        "That %1 attempt didn't work. I'm waiting %2 seconds before another try.",
-    }, steady = { "%1 failed. Give it %2 seconds to reconsider.",
-        "No luck with %1. Trying again in %2 seconds, with modest expectations." } },
+        "I couldn't finish %1. I'll try again in about %2.",
+        "%1 failed. Give me roughly %2 before I try again.",
+        "I hit a problem with %1. The next attempt is in about %2.",
+        "That attempt at %1 didn't work. I'm waiting %2 before another try.",
+    }, steady = { "%1 failed. Give it %2 to reconsider.",
+        "No luck with %1. Trying again in %2, with modest expectations." } },
     ["doing.idle"] = { common = {
         "Nothing urgent. I'm %1.", "For now, I'm %1.",
         "I'm clear at the moment, so I'm %1.", "No active job. I'm %1.",
@@ -1267,6 +1299,64 @@ local pools = {
         "I am still functional, but I need treatment.",
     }, brave = { "I can keep moving, but patch me up when we get a chance." },
       cautious = { "This wound is a liability. We should treat it now." } },
+    ["medical.bandage.minor"] = { common = {
+        "Just a scratch. Hold still anyway.",
+        "Let me wrap that before the dirt gets in.",
+        "Easy now. This should do it.",
+        "A little blood looks worse than it is.",
+        "Keep your hand steady. I've got the bandage.",
+        "That's a small one. We can handle small ones.",
+        "You caught the edge of something. Sit tight.",
+        "Clean cloth, tight knot, then we move.",
+        "Don't pick at it once I cover it.",
+        "Here. The bleeding should stop in a minute.",
+        "I've seen worse on a fence post.",
+        "Hold that there while I tie it off.",
+        "We'll keep the Kentucky dust out of this one.",
+        "There. One less thing trying to kill us.",
+    } },
+    ["medical.bandage.serious"] = { common = {
+        "Shit, that looks bad. Hold still.",
+        "That will need time to heal. First we stop the bleeding.",
+        "Look at me, not at the blood.",
+        "Press here. Hard. I need both hands.",
+        "Stay with me. I'm getting this wrapped.",
+        "That's deeper than I like. Keep pressure on it.",
+        "Don't try to walk that off. Let me work.",
+        "I need another second. Keep breathing.",
+        "The cloth is clean. I can't promise the rest.",
+        "We've got you. Let me stop the bleeding.",
+        "This is going to sting. Better than leaving it open.",
+        "I know it hurts. Keep still for me.",
+        "That's a hard hit. You're still here.",
+        "Give me room. I'm not losing you to this.",
+        "Blood first, fear later. Hold on.",
+        "The wound is ugly, but I can cover it.",
+    } },
+    ["medical.bandage.replace"] = { common = {
+        "That dressing's filthy. Let's change it.",
+        "Fresh cloth. The old one has done its time.",
+        "Hold still while I get this dirty wrap off.",
+        "This bandage has seen enough of Kentucky.",
+        "We'll clean the old cloth when we find water.",
+        "A dry, clean wrap will help this heal.",
+        "Don't pull at the wound. I'll lift the cloth.",
+        "There. That should breathe a little easier.",
+        "The old dressing is spent. I've got another.",
+        "Let's keep the grime out of this cut.",
+        "One clean bandage buys us another day.",
+        "Easy. The worst part is peeling it loose.",
+    } },
+    ["medical.splint"] = { common = {
+        "That leg needs a splint. Hold still.",
+        "Don't put weight on it yet. I'll brace it.",
+        "This will keep the bone steady while it heals.",
+        "I know it hurts. Let me tie this in place.",
+        "The brace is crude, but it'll hold.",
+        "Keep breathing. I've got the splint ready.",
+        "You aren't walking that off. Give me a minute.",
+        "We'll get it straight, then keep it still.",
+    } },
     ["status.water"] = { common = {
         "Water, if we can spare it. I am getting very thirsty.", "I need a drink soon.",
         "My canteen is empty and I am running dry.", "Water is my first priority right now.",
@@ -1915,12 +2005,12 @@ local pools = {
     },
     ["faction.life.supply_crisis"] = {
         common = {
-            "We are running out of %1.", "Our %1 stock is almost gone.",
+            "We are running out of %1.", "Our stock of %1 is almost gone.",
             "We have a serious shortage of %1.", "If we cannot find %1 soon, this house is in trouble.",
             -- Added 0.25.13: need, with the ceremony stripped off.
             "We're short on %1. That's the part we can't talk around.",
             "We need %1. More than we need another promise.",
-            "There's not enough %1. That's our problem right now.",
+            "We don't have enough %1. That's our problem right now.",
             "Our %1 won't stretch much further.",
         },
         brave = { "We need %1. Tell us whether you can help." },
@@ -1986,10 +2076,10 @@ local pools = {
         "The watch continues, even after losing %1. Keep this conversation brief.",
     } },
     ["faction.status.normal"] = { common = {
-        "We are %1 toward you. Supplies are %2.",
-        "Our position toward you is %1, and our stores are %2.",
-        "Right now relations are %1. Supply levels remain %2.",
-        "The house stands. We are %1 toward you, with %2 supplies.",
+        "We are %1. Supplies are %2.",
+        "As for you, we are %1. Our stores are %2.",
+        "Right now we are %1. Supply levels remain %2.",
+        "The house stands. We are %1, and our supplies are %2.",
     } },
     ["faction.access"] = { common = {
         "Ask clearly and keep your weapon lowered. The household will decide.",
@@ -2003,6 +2093,8 @@ local actorHistory = setmetatable({}, { __mode = "k" })
 local idHistory = {}
 local lastAmbientGroupAt = -math.huge
 local partyRecent = {}
+local missingArgumentWarnings = {}
+local missingArgumentWarningCount = 0
 
 local function U() return SC.GameplayUtil end
 
@@ -2153,10 +2245,32 @@ end
 
 local function interpolate(value, arguments)
     local result = tostring(value or "")
-    for index, argument in ipairs(type(arguments) == "table" and arguments or {}) do
-        result = string.gsub(result, "%%" .. tostring(index), function() return tostring(argument) end)
+    local supplied = type(arguments) == "table" and arguments or {}
+    local parts, cursor = {}, 1
+    while true do
+        local at, after, marker = string.find(result, "%%(%d+)", cursor)
+        if at == nil then break end
+        parts[#parts + 1] = string.sub(result, cursor, at - 1)
+        local argument = supplied[tonumber(marker)]
+        if argument == nil or (type(argument) == "string"
+                and string.match(argument, "^%s*$")) then
+            return nil, "dialogue_argument_missing"
+        end
+        local fill = tostring(argument)
+        if string.find(fill, "%%[0-9]") then
+            return nil, "dialogue_argument_missing"
+        end
+        local before = string.sub(result, 1, at - 1)
+        if string.match(before, "^%s*$")
+            or string.match(before, "^%*[^*]+%*%s*$")
+            or string.match(before, "[%.!?]%s*$") then
+            fill = string.gsub(fill, "^([a-z])", string.upper, 1)
+        end
+        parts[#parts + 1] = fill
+        cursor = after + 1
     end
-    return result
+    parts[#parts + 1] = string.sub(result, cursor)
+    return table.concat(parts)
 end
 
 local function recentlyUsed(value, recent)
@@ -2168,6 +2282,10 @@ end
 -- actually be offered from it. Authored pool size is not one speaker's eligible
 -- pool: the selector combines common lines with that speaker's archetype only.
 function Dialogue._poolForTests(topic) return pools[topic] end
+function Dialogue._allPoolsForTests() return pools end
+function Dialogue._interpolateForTests(value, arguments)
+    return interpolate(value, arguments)
+end
 function Dialogue._candidatesForTests(specification, voice, mood, includeRegisters)
     return candidatesFor(specification, voice, mood, includeRegisters)
 end
@@ -2215,6 +2333,27 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
         end
         candidates[1] = options.fallback
     end
+    local eligible = {}
+    for _, line in ipairs(candidates) do
+        if interpolate(line, arguments) ~= nil then
+            eligible[#eligible + 1] = line
+        end
+    end
+    if #eligible == 0 and type(options.fallback) == "string"
+        and options.fallback ~= ""
+        and interpolate(options.fallback, arguments) ~= nil then
+        eligible[1] = options.fallback
+    end
+    if #eligible == 0 then
+        if not missingArgumentWarnings[topic]
+            and missingArgumentWarningCount < 32 then
+            missingArgumentWarnings[topic] = true
+            missingArgumentWarningCount = missingArgumentWarningCount + 1
+            print("[SurvivorCompanion/dialogue_argument_missing] topic=" .. topic)
+        end
+        return nil, "dialogue_argument_missing"
+    end
+    candidates = eligible
     local recent = runtime.recent[topic] or {}
     local sharedRecent = partyExclusions(topic, actor)
     local available = {}

@@ -2,6 +2,20 @@
 
 # Changelog
 
+## 0.26.12 - Companion care and voice polish
+
+- Added 42 bandaging lines for minor wounds, serious wounds, and dressing changes, plus eight splinting lines. Companions speak when treatment animation starts for the player or another companion, with a short repeat guard.
+- Restored companions now keep their saved survival clock before their Knox infection time is re-anchored. A fresh actor can no longer lower the displayed infection percentage when its new clock is younger than the saved illness.
+- Companions now approach and animate first aid for the player's treatable wounds and unsplinted limbs. Applying a splint consumes a carried splint only after the animation and native body state succeed; urgent bleeding remains the first priority.
+- Companions yield immediately when the player queues bandaging or splinting themselves, leaving the player's supplies and wound state alone.
+- During downtime, companions make splints from clean strips and wood, and wash recovered dirty dressings at reachable clean water sources for reuse. Replacing a dirty dressing returns the used one to the helper's inventory.
+- Dialogue now fills placeholders in one pass, skips lines with missing arguments, and capitalizes names and phrases that begin a sentence. Loot, broken tools, homes, tall tales, faction status, action answers, and retry times use grammatical phrases.
+- Speech pools use printable ASCII where em dashes or a damaged character could display incorrectly. A render sweep and action-label inventory guard the lines.
+- An intact expedition squad says one of twenty homecoming lines after its leader view is released. A casualty or failed release stays quiet.
+- Upstairs Search returns now approach the stair landing before descending. Followers rejoin at the ground exit instead of holding old upper-floor trail slots, and the view handoff waits until every living member is fully downstairs.
+- A stalled upstairs return tries another loaded staircase. Meeting a returning Search squad inside its destination now requires visible, accessible contact, including while its return waypoint is active.
+- Looting uses the game's container-height pose for shelves, cabinets, boxes, corpses, floor items, and freezers. A failed native animation-status read keeps the item in its source container.
+
 ## 0.26.11 - Expedition travel stays outside the station
 
 - The companion list now puts followers first, other recruited companions next, expedition members in a dimmed middle group, and unrecruited survivors last. The selected name and row edge are highlighted. The Talk portrait uses the game's full-body framing so it fits its panel.

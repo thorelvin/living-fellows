@@ -124,6 +124,8 @@ local visualActionSpecs = {
         lootPosition = "Mid", ticks = 100, sound = "RemoveBrokenGlass" },
     kneel_treat = { animation = "Bandage", animationEnum = true,
         event = "EventBandage", ticks = 100, sound = "FirstAidApplyBandage" },
+    apply_splint = { animation = "Loot", event = "EventLootItem",
+        lootPosition = "Mid", ticks = 140, sound = "FirstAidApplySplint" },
     rip_clothing_for_bandage = { animation = "Craft", animationEnum = true, ticks = 120,
         sound = "ClothesRipping" },
     read = { animation = "Read", animationEnum = true, event = "EventRead",
@@ -142,6 +144,8 @@ local visualActionSpecs = {
     wash_self = { animation = "WashFace", event = "EventWashClothing", ticks = 240,
         sound = "WashYourself" },
     wash_equipment = { animation = "ScrubClothWithSoap", event = "EventWashClothing",
+        primaryItem = true, ticks = 240, sound = "WashClothing" },
+    wash_bandage = { animation = "ScrubClothWithSoap", event = "EventWashClothing",
         primaryItem = true, ticks = 240, sound = "WashClothing" },
     -- No verified non-local projectile throw exists in Build 42.20.4. These
     -- stay effect-free; the autonomy layer applies sound/item consequences
@@ -1212,19 +1216,26 @@ local function visualActionClass()
                 local positionOk, containerPosition = invoke(intent.container, "getContainerPosition")
                 if positionOk and containerPosition ~= nil and tostring(containerPosition) ~= "" then
                     value.lootPosition = tostring(containerPosition)
-                else
-                    local typeOk, containerType = invoke(intent.container, "getType")
-                    local loweredType = typeOk and string.lower(tostring(containerType or "")) or ""
-                    local parentOk, parent = invoke(intent.container, "getParent")
-                    local corpse = false
-                    if parentOk and parent ~= nil and type(instanceof) == "function" then
-                        local classOk, isCorpse = pcall(instanceof, parent, "IsoDeadBody")
-                        corpse = classOk and isCorpse == true
+                end
+                local typeOk, containerType = invoke(intent.container, "getType")
+                local loweredType = typeOk and string.lower(tostring(containerType or "")) or ""
+                if loweredType == "freezer" then
+                    local freezerOk, freezerPosition = invoke(intent.container, "getFreezerPosition")
+                    if freezerOk and freezerPosition ~= nil and tostring(freezerPosition) ~= "" then
+                        value.lootPosition = tostring(freezerPosition)
                     end
-                    if loweredType == "floor" or loweredType == "freezer"
-                        or corpse then
-                        value.lootPosition = "Low"
-                    end
+                end
+                local parentOk, parent = invoke(intent.container, "getParent")
+                local corpse = false
+                if parentOk and parent ~= nil and type(instanceof) == "function" then
+                    local classOk, isCorpse = pcall(instanceof, parent, "IsoDeadBody")
+                    corpse = classOk and isCorpse == true
+                end
+                local itemOk, containingItem = invoke(intent.container, "getContainingItem")
+                local worldItemOk, worldItem = invoke(containingItem, "getWorldItem")
+                if loweredType == "floor" or corpse
+                    or (itemOk and worldItemOk and worldItem ~= nil) then
+                    value.lootPosition = "Low"
                 end
             end
         end

@@ -526,6 +526,95 @@ local doingLabels = {
     logistics_wear = "changing my equipment",
     unfinished_action = "finishing an action",
     action_animation_state = "finishing an action",
+    approach_interaction = "walking over to talk",
+    attack_firearm = "firing at a threat",
+    attack_melee = "fighting a threat",
+    backstep = "stepping back",
+    barricade = "barricading an opening",
+    base_guard_patrol = "patrolling the camp",
+    bash_door = "forcing a door",
+    burn_body = "tending a pyre",
+    bury_body = "burying someone",
+    check_room = "checking a room",
+    chop_tree = "chopping a tree",
+    climb_window = "climbing through a window",
+    collision_recovery = "finding a clear step",
+    combat_approach = "closing on a threat",
+    combat_retreat = "falling back",
+    conversation_approach = "coming over to talk",
+    conversation_pose = "talking",
+    copy_player_posture = "matching your posture",
+    corner_escape = "escaping a corner",
+    crisis_approach = "going to help someone",
+    crowd_yield_order = "making room for the group",
+    dig_grave = "digging a grave",
+    dismantle = "taking something apart",
+    drag_body_to_pyre = "dragging a body to the pyre",
+    drink_item = "getting a drink",
+    drink_source = "getting a drink",
+    drop_body = "setting a body down",
+    eat_food = "eating",
+    ext_gesture = "making a gesture",
+    face_alert = "watching for danger",
+    face_conversation = "listening",
+    face_formation = "watching our formation",
+    fill_grave = "filling a grave",
+    grab_body = "lifting a body",
+    guard_patrol = "patrolling",
+    hand_signal = "signaling the team",
+    hide_indoors = "staying out of sight",
+    idle = "keeping watch",
+    investigate_sound = "checking a noise",
+    lateral_kite = "keeping distance from a threat",
+    leave_base = "leaving camp",
+    leave_group = "going my own way",
+    move_to_base_build = "heading to the work site",
+    move_to_base_storage = "heading to storage",
+    move_to_camp_storage = "heading to storage",
+    move_to_corpse = "going to a body",
+    move_to_farm_plot = "heading to the plot",
+    move_to_pyre_watch = "heading to the pyre",
+    move_to_quarantine = "heading to quarantine",
+    move_to_scavenge = "heading to supplies",
+    move_to_seat = "finding a seat",
+    move_to_treat = "going to treat someone",
+    move_to_water_source = "heading to water",
+    none = "taking a breath",
+    offscreen_safe_recovery = "getting clear of an obstacle",
+    ordered_move = "moving as ordered",
+    ordered_retreat = "falling back as ordered",
+    purposeful_idle = "keeping busy",
+    ready_weapon = "getting my weapon ready",
+    rear_guard_watch = "watching our rear",
+    rear_scan = "checking behind us",
+    recover_from_downed = "getting back up",
+    reload = "reloading",
+    remove_barricade = "removing a barricade",
+    retreat_cover_fire = "covering our retreat",
+    retreat_shove = "pushing through",
+    return_to_base = "heading back to camp",
+    right_of_way_yield = "making room to pass",
+    rip_clothing_for_bandage = "making a bandage",
+    room_sweep = "checking the room",
+    saw_logs = "sawing logs",
+    shove = "pushing a threat back",
+    sit_ground = "resting on the ground",
+    stand_ground = "getting back up",
+    steer = "steering clear",
+    stomp = "finishing a fallen threat",
+    stress_bottle_smash = "venting my nerves",
+    stress_furniture_hit = "venting my nerves",
+    survival_reassess = "checking our situation",
+    traversal_exit = "clearing a crossing",
+    unjam = "clearing my weapon",
+    window_approach = "reaching a window",
+}
+
+local doingPrefixes = {
+    farm_ = "tending the farm",
+    logistics_ = "organizing supplies",
+    faction_ = "handling household business",
+    return_to_ = "heading back",
 }
 
 -- A logistics target is the item being moved, not a place. Feeding its
@@ -542,8 +631,19 @@ local targetlessDoingActions = {
 local function readableAction(value)
     local key = tostring(value or "idle")
     if doingLabels[key] then return doingLabels[key] end
-    local readable = string.gsub(key, "[_%-]+", " ")
-    return string.lower(readable)
+    for prefix, label in pairs(doingPrefixes) do
+        if string.sub(key, 1, #prefix) == prefix then return label end
+    end
+    return "busy with a job"
+end
+Relationship.readableAction = readableAction
+Relationship.hasDoingLabel = function(value)
+    local key = tostring(value or "")
+    if doingLabels[key] then return true end
+    for prefix in pairs(doingPrefixes) do
+        if string.sub(key, 1, #prefix) == prefix then return true end
+    end
+    return false
 end
 
 local function idleAction(state)
@@ -567,7 +667,7 @@ local function doingResponse(actor, state, description)
     if summary.active == true then
         if summary.phase == "recovering" then
             return varied(actor, "doing.recovering",
-                "That route failed. I'm finding another way to %1.", { action }, state),
+                "That route failed. I'm finding another way. Still %1.", { action }, state),
                 "undecided", false
         end
         if summary.phase == "waiting" or summary.phase == "cooling_down" then
@@ -587,9 +687,10 @@ local function doingResponse(actor, state, description)
     local retry = type(summary.retry) == "table" and summary.retry or nil
     if failure and retry and (tonumber(retry.remainingMs) or 0) > 0 then
         local seconds = math.max(1, math.ceil((tonumber(retry.remainingMs) or 0) / 1000))
+        local duration = tostring(seconds) .. (seconds == 1 and " second" or " seconds")
         return varied(actor, "doing.failed",
-            "I couldn't finish %1. I'll try again in about %2 seconds.",
-            { readableAction(failure.action), seconds }, state), "undecided", false
+            "I couldn't finish %1. I'll try again in about %2.",
+            { readableAction(failure.action), duration }, state), "undecided", false
     end
     return varied(actor, "doing.idle", "Nothing urgent. I'm %1.",
         { idleAction(state) }, state), "shrug", false
@@ -609,7 +710,7 @@ function Relationship.respond(action, actor, player, state, description)
     elseif action == "status" then
         local grief = type(description.grief) == "table" and description.grief or nil
         if grief and tonumber(grief.currentIntensity or 0) > 0 then
-            local subject = grief.subjectName or "Someone from our group"
+            local subject = grief.subjectName or "someone from our group"
             return varied(actor, "status.grief", text("IGUI_SC_Status_Grieving",
                 "I am not all right yet. %1 is gone, and I need time.", subject),
                 { subject }, state), "undecided", false
@@ -644,7 +745,7 @@ function Relationship.respond(action, actor, player, state, description)
         local memory = latestMemory(state)
         if type(memory) == "table" and memory.kind == "companion_died" then
             local subject = type(memory.subjectName) == "string"
-                and memory.subjectName or "Someone from our group"
+                and memory.subjectName or "someone from our group"
             return varied(actor, "memory.companion_died",
                 Relationship.memoryText(memory), { subject }, state), "undecided", false
         end

@@ -782,6 +782,13 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
     local minimum = utility.config("formationSeparation") or 1.25
     local state = stateFor(actor)
     local distanceToLeader = utility.distance(actor, leader)
+    local descent = missionLeader and expedition.scout
+        and expedition.scout.phase == "inbound"
+        and expedition.scout.descent or nil
+    local _, _, followerZ = utility.position(actor)
+    local stairRejoin = type(descent) == "table"
+        and pz <= descent.lowerZ + 0.2
+        and followerZ ~= nil and followerZ > descent.lowerZ + 0.2
     local clearOpenFormation = utility.sameFloor(actor, leader)
         and distanceToLeader <= (tonumber(
             utility.config("formationOpenInterceptDistance")) or 14)
@@ -848,7 +855,16 @@ function Positioning.formationTarget(actor, leader, commands, snapshot)
         and (threatNearby and "combat_spread" or "wedge") or "hold")
         or "column"
     local target, portal, followTrack, interceptPosition
-    if commands.expeditionCohesionHold == true then
+    if stairRejoin then
+        -- A long trail lag can leave a follower holding an upper-floor slot
+        -- after the leader has descended. Rejoin through the same verified
+        -- stair exit before returning to the ordinary formation trail.
+        mode = "stair_rejoin"
+        shape = "column"
+        local exit = descent.exit
+        target = utility.gridSquare(exit.x, exit.y, descent.lowerZ)
+        if target and not utility.isSquareFree(target) then target = nil end
+    elseif commands.expeditionCohesionHold == true then
         -- A held expedition cannot resume while a follower is parked at an
         -- old breadcrumb more than eight tiles from the stationary leader.
         -- Bring that follower to a free square beside the leader; Navigation

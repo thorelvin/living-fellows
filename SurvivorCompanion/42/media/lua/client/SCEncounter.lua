@@ -141,11 +141,13 @@ end
 -- inventory mutation wait for the rummage action instead of racing it.
 local function nativeVisualStatus(actor, expectedAction)
     local adapter = SC.NativeActions
-    if type(adapter) ~= "table" or type(adapter.visualStatus) ~= "function" then
-        return nil
+    if type(adapter) ~= "table" then return nil end
+    if type(adapter.visualStatus) ~= "function" then
+        return type(adapter.dispatch) == "function" and "unavailable" or nil
     end
     local ok, status, actionName = pcall(adapter.visualStatus, actor, expectedAction)
-    if not ok then return nil end
+    -- A failed live status read must not count as a finished rummage animation.
+    if not ok then return "unavailable" end
     return status, actionName
 end
 
@@ -1591,9 +1593,12 @@ local function maybeReactToLoot(actor, state, task, commands, time)
         return false, "loot_reaction_roll"
     end
 
+    if task.pendingItem == true or task.itemName == "unopened" then
+        return false, "loot_source_unread"
+    end
     local tone = lootReactionTone(actor, task, commands, state.lootReactionSequence)
     local topic = "scavenge.loot." .. tone
-    local itemName = tostring(task.itemName or task.itemType or "something")
+    local itemName = utility.itemPhrase(task.itemName or task.itemType or "something")
         :gsub("[%c]", " "):sub(1, 80)
     local spoken, line
     if SC.Dialogue and type(SC.Dialogue.say) == "function" then

@@ -2406,6 +2406,37 @@ check(not blockedByPolygon and polygonReason == "continuous_collision_blocked"
     "direct movement obeys the native door-aware continuous polygon collision probe")
 actor.continuousCollisionBlocked = false
 ISTimedActionQueue.queues[actor] = nil
+-- Exercise the real native timed action with the same container posture rules
+-- used by vanilla ISInventoryTransferAction, including corpses and floor loot.
+for _, fixture in ipairs({
+    { name = "shelf", position = "High", expected = "High" },
+    { name = "cabinet", position = "Mid", expected = "Mid" },
+    { name = "box", position = "Low", expected = "Low" },
+    { name = "corpse", position = "High", corpse = true, expected = "Low" },
+    { name = "freezer", position = "Mid", freezer = "Low", expected = "Low" },
+    { name = "floor", position = "High", expected = "Low" },
+    { name = "world item", position = "High", worldItem = true, expected = "Low" },
+}) do
+    local container = {
+        getType = function() return fixture.name end,
+        getContainerPosition = function() return fixture.position end,
+        getFreezerPosition = function() return fixture.freezer end,
+        getParent = function() return fixture.corpse and { __class = "IsoDeadBody" } or nil end,
+        getContainingItem = function()
+            return fixture.worldItem and { getWorldItem = function() return {} end } or nil
+        end,
+    }
+    local started = SC.Actor.setMovement(actor, "walk", {
+        action = "loot_container", container = container,
+    })
+    check(started and actor.lastAnimation == "Loot"
+            and actor.lastAnimVariable.key == "LootPosition"
+            and actor.lastAnimVariable.value == fixture.expected
+            and SC.NativeActions.visualStatus(actor, "loot_container") == "active",
+        "native " .. fixture.name .. " looting starts a tracked Loot pose at the correct height")
+    SC.NativeActions.cancelVisual(actor, "test_container_pose")
+    ISTimedActionQueue.queues[actor] = nil
+end
 local testWearLocation = {}
 WearClothingAnimations = { [testWearLocation] = "Jacket" }
 local wearOk, wearReason = SC.Actor.setMovement(actor, "walk", {

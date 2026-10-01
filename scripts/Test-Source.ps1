@@ -77,6 +77,7 @@ try {
 
     foreach ($test in @(
         'tests\core\test_core_static.py',
+        'tests\core\voice_action_labels_test.py',
         'tests\gameplay\test_gameplay_static.py',
         'tests\ui\test_ui_contract.py',
         'tests\live\test_live_harness_static.py',

@@ -195,10 +195,22 @@ local function rescueNeed(actor, player, snapshot)
     if player and type(assess) == "function" then
         local ok, assessment = pcall(assess, player, nil, 500)
         if ok and assessment and livingPatient(player, assessment)
-            and actionableMedical(player, assessment, false) then
-            local playerScore = (assessment.critical and 35 or 0)
+            and (actionableMedical(player, assessment, false)
+                or (tonumber(assessment.openWounds) or 0) > 0)
+            and not (SC.Medical.playerSelfCareActive
+                and SC.Medical.playerSelfCareActive(player)) then
+            local splintCount = assessment.needsSplint
+                and SC.Medical.hasSplint and SC.Medical.hasSplint(actor)
+                and (tonumber(assessment.unsplintedFractures) or 1) or 0
+            local treatable = (tonumber(assessment.bleedingCount) or 0) > 0
+                or splintCount > 0
+                or (tonumber(assessment.openWounds) or 0) > 0
+                or assessment.critical and assessment.needsBandageChange
+            local playerScore = treatable and ((assessment.critical and 35 or 0)
                 + (assessment.bleedingCount or 0) * 22
+                + (assessment.openWounds or 0) * 14
                 + (assessment.downed and 45 or 0)
+                + splintCount * 28) or 0
             if playerScore > 0 then score, target = playerScore, player end
         end
     end
@@ -213,11 +225,23 @@ local function rescueNeed(actor, player, snapshot)
             end
             if stillAllied then
                 local assessment = medicalAssessment(ally.actor, nil, 500)
-                local allyScore = (assessment.critical and 25 or 0)
+                local splintCount = assessment.needsSplint
+                    and SC.Medical and SC.Medical.hasSplint
+                    and SC.Medical.hasSplint(actor)
+                    and (tonumber(assessment.unsplintedFractures) or 1) or 0
+                local treatable = (tonumber(assessment.bleedingCount) or 0) > 0
+                    or splintCount > 0
+                    or (tonumber(assessment.openWounds) or 0) > 0
+                    or assessment.critical and assessment.needsBandageChange
+                local allyScore = treatable and ((assessment.critical and 25 or 0)
                     + (assessment.bleedingCount or 0) * 18
+                    + (assessment.openWounds or 0) * 12
                     + (assessment.downed and 40 or 0)
+                    + splintCount * 25) or 0
                 if livingPatient(ally.actor, assessment)
-                    and actionableMedical(ally.actor, assessment, false) and allyScore > score then
+                    and (actionableMedical(ally.actor, assessment, false)
+                        or (tonumber(assessment.openWounds) or 0) > 0)
+                    and allyScore > score then
                     score, target = allyScore, ally.actor
                 end
             end
@@ -397,6 +421,11 @@ local function evaluate(actor, player, snapshot, commands, assessment, needs, st
         add("medical", 150, true, { mode = "receiving_care" })
     end
     if actionableMedical(actor, assessment, true)
+        and (assessment.needsSplint ~= true
+            or (tonumber(assessment.bleedingCount) or 0) > 0
+            or assessment.critical and assessment.needsBandageChange
+            or SC.Medical and SC.Medical.hasSplint
+                and SC.Medical.hasSplint(actor))
         and (not SC.Medical or type(SC.Medical.canTreatNow) ~= "function"
             or SC.Medical.canTreatNow(actor, snapshot)) then
         if assessment.downed or (assessment.health > 0

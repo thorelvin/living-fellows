@@ -537,7 +537,7 @@ local function startMourning(actor, grief)
     mind.activeEpisode = "mourning"
     runtimeState(actor).episode = {
         kind = "mourning", stage = "begin", startedAt = U().nowMs(),
-        subjectId = grief.subjectId, subjectName = grief.subjectName or "Someone from our group",
+        subjectId = grief.subjectId, subjectName = grief.subjectName or "someone from our group",
         intensity = finite(grief.currentIntensity, grief.intensity),
         witnessed = grief.witnessed == true, sit = sit, square = quietSpot(actor),
     }
@@ -816,7 +816,7 @@ end
 local function updateMourning(actor, runtime, episode)
     if episode.stage == "begin" then
         sayDialogue(actor, "grief.mourn",
-            { episode.subjectName or "Someone from our group" }, "%1 is gone. I need a minute.",
+            { episode.subjectName or "someone from our group" }, "%1 is gone. I need a minute.",
             { salt = episode.subjectId })
         if SC.Relationship and type(SC.Relationship.playEmote) == "function" then
             pcall(SC.Relationship.playEmote, actor, "undecided")

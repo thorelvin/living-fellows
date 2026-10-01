@@ -3,6 +3,7 @@
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
+if not SC.Background and type(require) == "function" then pcall(require, "SCBackground") end
 
 SC.Downtime = SC.Downtime or {}
 local Downtime = SC.Downtime
@@ -10,7 +11,8 @@ local states = setmetatable({}, { __mode = "k" })
 local reservations = setmetatable({}, { __mode = "k" })
 local visualActivities = {
     read = true, repair = true, craft_supply = true,
-    wash_self = true, wash_equipment = true, study_corpse = true, pay_respects = true,
+    wash_self = true, wash_equipment = true, wash_bandage = true,
+    study_corpse = true, pay_respects = true,
     workout = true, write_diary = true,
 }
 local restPostures = { sit = true, rest_bed = true, rest_floor = true }
@@ -556,6 +558,36 @@ end
 
 local function craftActivity(actor, items)
     local utility = U()
+    local inventory = utility.inventory(actor)
+    local rag, wood, splints
+    splints = 0
+    local rags = {
+        ["base.rippedsheets"] = true, ["base.denimstrips"] = true,
+        ["base.leatherstrips"] = true,
+    }
+    local woods = {
+        ["base.plank"] = true, ["base.treebranch2"] = true,
+        ["base.woodenstick2"] = true,
+    }
+    for _, item in ipairs(items) do
+        local itemType = string.lower(utility.itemType(item))
+        if utility.inventoryContains(inventory, item) then
+            if itemType == "base.splint" then splints = splints + 1 end
+            local protected = SC.PersonalItems and SC.PersonalItems.isProtected(
+                item, actor, "craft_material")
+            if not protected then
+                if rag == nil and rags[itemType] then rag = item end
+                if wood == nil and woods[itemType] then wood = item end
+            end
+        end
+    end
+    if splints < 2 and rag and wood then
+        return {
+            kind = "craft_supply", score = 51,
+            scraps = { rag, wood }, outputType = "Base.Splint",
+            fact = { activity = "craft_supply", itemType = "Base.Splint" },
+        }
+    end
     for _, item in ipairs(items) do
         local itemType = string.lower(utility.itemType(item))
         local protected = SC.PersonalItems and SC.PersonalItems.isProtected(
@@ -682,17 +714,39 @@ end
 local function washActivity(actor, items, state, current)
     local bodyScore = bodyDirt(actor)
     local bestItem, bestItemScore
+    local dirtyBandage
+    local washable = {
+        ["base.bandagedirty"] = "Base.Bandage",
+        ["base.rippedsheetsdirty"] = "Base.RippedSheets",
+        ["base.denimstripsdirty"] = "Base.DenimStrips",
+        ["base.leatherstripsdirty"] = "Base.LeatherStrips",
+    }
+    local inventory = U().inventory(actor)
     for _, item in ipairs(items) do
+        if dirtyBandage == nil
+            and washable[string.lower(U().itemType(item))]
+            and U().inventoryContains(inventory, item) then
+            dirtyBandage = item
+        end
         local score = itemDirt(item)
         if score > 0.01 and (not bestItemScore or score > bestItemScore) then
             bestItem, bestItemScore = item, score
         end
     end
-    if bodyScore <= 0.01 and not bestItem then return nil end
+    if bodyScore <= 0.01 and not bestItem and not dirtyBandage then return nil end
     local source, square = nearbyWashSource(actor, function(object)
         return washSourceCooling(state, object, current)
     end)
     if not source then return nil end
+    if dirtyBandage then
+        return {
+            kind = "wash_bandage", score = 62,
+            object = source, square = square, item = dirtyBandage,
+            cleanType = washable[string.lower(U().itemType(dirtyBandage))],
+            fact = { activity = "wash_bandage",
+                itemType = U().itemType(dirtyBandage) },
+        }
+    end
     if bodyScore > 0.01 and bodyScore * 100 >= (bestItemScore or 0) then
         return {
             kind = "wash_self", score = 48 + math.min(25, bodyScore * 5),
@@ -1311,10 +1365,7 @@ Study.PROFESSION_ALIASES = {
     burgerflipper = "chef", rancher = "farmer", engineer = "mechanics",
     electrician = "mechanics", repairman = "mechanics",
 }
-Study.HOMES = {
-    muldraugh = "Muldraugh", rosewood = "Rosewood", riverside = "Riverside",
-    west_point = "West Point", louisville = "Louisville", brandenburg = "Brandenburg",
-}
+Study.HOMES = SC.Background and SC.Background.HOMES or {}
 -- How each temperament likes to sign off: a closing thought, a civil-defense
 -- joke or a word about Kentucky.
 Study.CLOSER_WEIGHTS = {
@@ -1697,7 +1748,7 @@ function Respect.memento(body)
             or string.lower(tostring(category or "")) == "memento" then
             local name = utility.call(item, "getDisplayName")
             if type(name) == "string" and name ~= "" then
-                return string.lower(string.sub(name, 1, 40))
+                return utility.itemPhrase(string.sub(name, 1, 40), true)
             end
         end
     end
@@ -2163,7 +2214,8 @@ local function beginActivity(actor, state, activity, commands, now)
         return false, ownerReason or "downtime_owner_rejected"
     end
     local utility = U()
-    local wash = activity.kind == "wash_self" or activity.kind == "wash_equipment"
+    local wash = activity.kind == "wash_self"
+        or activity.kind == "wash_equipment" or activity.kind == "wash_bandage"
     local study = activity.kind == "study_corpse" or activity.kind == "pay_respects"
     local furniture = activity.kind == "sit" or activity.kind == "rest_bed"
     local floorRest = activity.kind == "rest_floor"
@@ -2391,6 +2443,26 @@ local function consumeExact(inventory, item)
     return false
 end
 
+local function completeWashBandage(actor, activity)
+    local utility = U()
+    local inventory = utility.inventory(actor)
+    if not inventory or not activity.item or not activity.cleanType
+        or not utility.inventoryContains(inventory, activity.item)
+        or not washSourceValid(activity.object)
+        or not washSourceInReach(actor, activity) then return false end
+    local clean = utility.addItem(inventory, activity.cleanType)
+    if not clean then return false end
+    if not useWashWater(activity.object, 0.5) then
+        consumeExact(inventory, clean)
+        return false
+    end
+    if not consumeExact(inventory, activity.item) then
+        consumeExact(inventory, clean)
+        return false
+    end
+    return utility.inventoryContains(inventory, clean)
+end
+
 local function completeRepair(actor, activity)
     local utility = U()
     local condition, conditionOk = utility.call(activity.item, "getCondition")
@@ -2455,6 +2527,8 @@ local function finishActivity(actor, state, now)
         success = completeWashSelf(actor, activity)
     elseif activity.kind == "wash_equipment" then
         success = completeWashEquipment(actor, activity)
+    elseif activity.kind == "wash_bandage" then
+        success = completeWashBandage(actor, activity)
     elseif activity.kind == "study_corpse" or activity.kind == "pay_respects"
         or activity.kind == "workout" then
         success = activity.actionAccepted == true
@@ -2474,6 +2548,7 @@ local function finishActivity(actor, state, now)
         rest_floor = "floor_rest_verification_failed",
         wash_self = "wash_self_commit_failed",
         wash_equipment = "wash_equipment_commit_failed",
+        wash_bandage = "wash_bandage_commit_failed",
         study_corpse = "study_verification_failed",
         pay_respects = "respects_verification_failed",
         workout = "workout_verification_failed",
@@ -2636,6 +2711,7 @@ function Downtime.update(actor, player, runtime, desiredKind)
         end
         local washing = state.active.kind == "wash_self"
             or state.active.kind == "wash_equipment"
+            or state.active.kind == "wash_bandage"
         if washing and state.active.approaching and state.active.atSource ~= true
             and not washSourceInReach(actor, state.active) then
             local accepted, status = approachWashSource(actor, state.active)
@@ -2877,7 +2953,8 @@ end
 -- every start and commit shares, and the two commits themselves.
 function Downtime._washForTests()
     return nearbyWashSource, approachWashSource, coolWashSource, washSourceCooling,
-        washSourceInReach, completeWashSelf, completeWashEquipment
+        washSourceInReach, completeWashSelf, completeWashEquipment,
+        completeWashBandage
 end
 
 -- Test seam: the camp-book checkout policy re-read at transfer time.

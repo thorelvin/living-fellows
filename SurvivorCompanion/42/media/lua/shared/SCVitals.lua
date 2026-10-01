@@ -199,6 +199,7 @@ function vitals.capture(actor)
 
     local result = {
         health = finite(invoke(actor, "getHealth", 100), 100),
+        hoursSurvived = finite(invoke(actor, "getHoursSurvived", -1), -1),
         infectionElapsedHours = infectionElapsed,
         overallHealth = finite(invoke(body, "getOverallBodyHealth", 100), 100),
         infected = invoke(body, "isInfected", false) == true,
@@ -301,6 +302,22 @@ function vitals.apply(actor, saved)
         end
     end
 
+    -- A replacement IsoPlayer starts with a fresh survival clock. Preserve the
+    -- original age before re-anchoring infection time; otherwise an infection
+    -- older than the new clock is clamped to hour zero and its percentage falls
+    -- every time the companion is loaded. Older saves at least need a clock as
+    -- long as their recorded infection span.
+    local savedHours = finite(saved.hoursSurvived, -1)
+    local elapsed = saved.infected == true
+        and finite(saved.infectionElapsedHours, -1) or -1
+    local clockTarget = savedHours >= 0 and math.max(savedHours, elapsed)
+        or elapsed >= 0 and math.max(finite(vitals.infectionClock(actor), 0), elapsed)
+        or nil
+    if clockTarget ~= nil then
+        local clockOk, clockReason = setRequired(actor, "setHoursSurvived", clockTarget)
+        if not clockOk then return false, clockReason end
+    end
+
     local overall = math.max(0.1, finite(saved.overallHealth, finite(saved.health, 100)))
     local actorHealth = math.max(0.1, finite(saved.health, overall))
     local operations = {
@@ -333,7 +350,11 @@ function vitals.apply(actor, saved)
     if verified == nil then return false, verifyReason end
     if verified.infected ~= (saved.infected == true)
         or math.abs(finite(verified.overallHealth, -1) - overall) > 0.1
-        or math.abs(finite(verified.health, -1) - actorHealth) > 0.1 then
+        or math.abs(finite(verified.health, -1) - actorHealth) > 0.1
+        or clockTarget ~= nil and math.abs(finite(verified.hoursSurvived, -1)
+            - clockTarget) > 0.001
+        or elapsed >= 0 and math.abs(finite(verified.infectionElapsedHours, -1)
+            - elapsed) > 0.001 then
         return false, "native vitals did not retain restored health/infection state"
     end
     for _, entry in ipairs(restoredNeeds) do

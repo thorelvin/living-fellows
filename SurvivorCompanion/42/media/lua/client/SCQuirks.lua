@@ -2,6 +2,7 @@
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
+if not SC.Background and type(require) == "function" then pcall(require, "SCBackground") end
 if not SC.GameplayUtil and type(require) == "function" then pcall(require, "SCGameplayUtil") end
 
 SC.Quirks = SC.Quirks or {}
@@ -240,7 +241,7 @@ local maleNames = { "Dillard", "Earl", "Waylon", "Mercer", "Bobby", "Lester", "H
 local surnames = { "Talbot", "McCrary", "Hensley", "Pruitt", "Givens", "Ratliff", "Boone", "Copley" }
 
 local professionRoles = {
-    fitness_instructor = "old football coach", fitnessinstructor = "old football coach",
+    fitness_instructor = "football coach", fitnessinstructor = "football coach",
     burger_flipper = "fryer-shift manager", burgerflipper = "fryer-shift manager",
     police_officer = "county deputy", policeofficer = "county deputy",
     veteran = "former sergeant", farmer = "feed-store regular", rancher = "neighboring rancher",
@@ -279,9 +280,9 @@ local function localIdentity(actor, threat, state, current)
     local p = pronouns(gender)
     local background = type(state.background) == "table" and state.background or {}
     local occupation = string.lower(tostring(background.occupation or ""))
-    local role = professionRoles[occupation] or "someone from back home"
-    local home = boundedText(background.home ~= nil and background.home or "Kentucky", 40)
-    home = home:gsub("_", " ")
+    local role = professionRoles[occupation] or "neighbor"
+    local home = boundedText(SC.Background and SC.Background.homeLabel
+        and SC.Background.homeLabel(background.home) or "Kentucky", 40)
     local seed = tostring(U().idOf(actor)) .. ":" .. tostring(threat) .. ":" .. tostring(current)
     local names = gender == "female" and femaleNames or gender == "male" and maleNames or surnames
     local first = names[(U().stableHash(seed .. ":first") % #names) + 1]
@@ -1079,19 +1080,19 @@ local function registerDialogue()
             "%1? Hell, that walker even leans like %5. Keep your distance.",
             "I swear that's %1, the %3 from %4. Eyes on that one.",
             "That looks like %1. %2 used to be the %3 back in %4.",
-            "%1? No. Couldn't be. Still—watch that walker.",
+            "%1? No. Couldn't be. Still, watch that walker.",
             "Same coat, same walk. Could be %1 from %4. Contact ahead.",
-            "Tell me that isn't %1. %2 was our %3. Stay sharp.",
+            "Tell me that isn't %1. Our %3, once. Stay sharp.",
             "I knew a %3 named %1. That dead thing stole %6 face.",
             "That walker has %1's eyes. Kentucky is too damn small.",
-            "%1 used to wave from across the road. Now %2 is crossing it dead.",
+            "%1 used to wave from across the road. Now that walker is crossing it dead.",
             "Looks like %1 from back home. Don't let %5 get close.",
             "For half a second I thought that was %1. Half a second too long.",
             "That deadhead could be %1. Same walk, worse manners.",
         },
         brave = {
             "%1? If that's you, you picked the wrong survivor to bite.",
-            "Looks like %1. Doesn't matter—I'm putting %5 down if %2 comes closer.",
+            "Looks like %1. Doesn't matter. I'm putting %5 down if that walker comes closer.",
             "Our old %3, maybe. Keep moving. I can grieve after.",
             "%1 always tackled high. This one won't get the chance.",
         },
@@ -1104,17 +1105,17 @@ local function registerDialogue()
         caring = {
             "%1? Oh, no. %2 didn't deserve this. Please stay back.",
             "That might be %1. I hope it isn't. I really hope it isn't.",
-            "%1 was kind to me in %4. Watch that walker—please.",
+            "%1 was kind to me in %4. Watch that walker. Please.",
             "I knew %5. Or someone with that face. Don't make me look twice.",
         },
         practical = {
-            "Possible match: %1, %3. Identification changes nothing—walker ahead.",
+            "Possible match: %1, %3. Identification changes nothing. Walker ahead.",
             "Could be %1. Bad posture, active decay, immediate problem.",
             "Familiar face. Irrelevant teeth. Keep distance.",
             "Maybe %1. We confirm after it stops moving, from here.",
         },
         stressed = {
-            "%1? No. No, %2 was safe. Wasn't %2?",
+            "%1? No. No, %1 got out. Didn't %2?",
             "That is %1. It can't be %1. Watch it!",
             "I know that face. I know that face. Keep it away from me.",
             "Kentucky keeps sending everybody back wrong.",
@@ -1124,7 +1125,7 @@ local function registerDialogue()
         common = {
             "%1? No. We already lost you. Walker ahead.",
             "That looks like %1. Same face. Same damned ending.",
-            "%1, is that— no. Keep your distance from it.",
+            "%1, is that... no. Keep your distance from it.",
             "For one second I saw %1 standing there alive.",
             "That dead thing is wearing %1's memory. Watch it.",
             "%1 died with us. Whatever that is, it isn't %5 anymore.",
@@ -1146,7 +1147,7 @@ local function registerDialogue()
             "Nope. %1 had all their teeth last I checked.",
             "Wasn't them. Good. That's good, right?",
         },
-        brave = { "Not %1. Shame—I had a speech ready.", "%1 would've put up more of a fight." },
+        brave = { "Not %1. Shame. I had a speech ready.", "%1 would've put up more of a fight." },
         cautious = { "Probably not %1. Probably is doing too much work there.", "Not enough left to be certain. Leave it." },
         caring = { "Wasn't %1. Thank God for one small mercy.", "Not them. I can breathe again." },
         practical = { "Negative identification. Moving on.", "Not %1. Resemblance resolved." },
@@ -1210,7 +1211,7 @@ local function registerDialogue()
         common = {
             "Well now. The Duck has found me.",
             "A rubber duck. Finally, competent leadership.",
-            "Look at youâ€”yellow, unbitten, and coming with me.",
+            "Look at you. Yellow, unbitten, and coming with me.",
             "This is either a sign or a bath toy. Both beat canned peas.",
             "General Quack, I presume. Your transport awaits.",
             "Nobody tell the others, but this may be our best find yet.",

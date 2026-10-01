@@ -838,12 +838,20 @@ function Contracts.talk(groupOrId, player, topic, forced)
                     { fallback = "We lost %1. We are keeping watch, but give us time to grieve." })
                 or ("We lost " .. subject .. ". We are keeping watch, but give us time to grieve.")
         else
-            local standing = string.lower(tostring(group.standing or "wary"))
-            local supplies = string.lower(tostring(group.life and group.life.resources.level or "uncertain"))
+            local standingKey = string.lower(tostring(group.standing or "wary"))
+            local supplyKey = string.lower(tostring(group.life
+                and group.life.resources and group.life.resources.level or "unknown"))
+            local standing = ({ trusted = "on good terms with you",
+                tolerated = "willing to deal with you",
+                wary = "wary of you", hostile = "hostile to you" })[standingKey]
+                or "wary of you"
+            local supplies = ({ stable = "steady", low = "low",
+                critical = "critical", unknown = "uncertain" })[supplyKey]
+                or "uncertain"
             response = SC.Dialogue and type(SC.Dialogue.choose) == "function"
                 and SC.Dialogue.choose(actor, "faction.status.normal", nil,
-                    { standing, supplies }, { fallback = "We are %1 toward you. Supplies are %2." })
-                or ("We are " .. standing .. " toward you. Supplies are " .. supplies .. ".")
+                    { standing, supplies }, { fallback = "We are %1. Supplies are %2." })
+                or ("We are " .. standing .. ". Supplies are " .. supplies .. ".")
         end
     else return false, "unknown_conversation_topic" end
     local record = recordForMember(memberByKey(group, speakerKey))

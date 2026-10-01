@@ -196,12 +196,12 @@ local POOLS = {
     ["work.tool.broken"] = {
         common = {
             "%1's done. Died doing what it loved.",
-            "That's the end of this %1. Anyone got a spare?",
-            "Broke the %1. Put it on my tab.",
+            "That's the end of %1. Anyone got a spare?",
+            "Broke %1. Put it on my tab.",
         },
         practical = { "%1 failed. I need a replacement from storage." },
         steady = { "%1's finished. It chose an inconvenient time.",
-            "The %1 broke. Nothing dramatic, apart from stopping the work." },
+            "%1 broke. Nothing dramatic, apart from stopping the work." },
     },
     ["work.saw.done"] = {
         common = {
@@ -1192,11 +1192,12 @@ end
 
 local function visualStatus(actor)
     local native = natives()
-    if native and type(native.visualStatus) == "function" then
-        local ok, value = pcall(native.visualStatus, actor, "loot_container")
-        if ok then return value end
+    if not native then return nil end
+    if type(native.visualStatus) ~= "function" then
+        return type(native.dispatch) == "function" and "unavailable" or nil
     end
-    return nil
+    local ok, value = pcall(native.visualStatus, actor, "loot_container")
+    return ok and value or "unavailable"
 end
 
 local function clearVisual(actor)
@@ -1406,7 +1407,7 @@ local function pollChop(actor, order, state, context)
     local square = U().gridSquare(work.x, work.y, work.z)
     local felled = not treeInWorld(work.tree) or (square ~= nil and treeOn(square) ~= work.tree)
     if work.tool and not notBroken(work.tool) then
-        speak(actor, "work.tool.broken", { U().itemName(work.tool) },
+        speak(actor, "work.tool.broken", { U().itemPhrase(work.tool) },
             "broken:" .. tostring(work.startedAt), context.runtime)
     end
     if not felled then
@@ -1669,7 +1670,7 @@ local function pollSaw(actor, order, state, context)
     local finished, finishReason = finishWork(actor)
     if finished ~= true then return false, finishReason or "saw_finish_failed" end
     if work.saw and not notBroken(work.saw) then
-        speak(actor, "work.tool.broken", { U().itemName(work.saw) },
+        speak(actor, "work.tool.broken", { U().itemPhrase(work.saw) },
             "broken:" .. tostring(work.startedAt), context.runtime)
     end
     local reconciled, reason = reconcileSaw(actor, order, work)

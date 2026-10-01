@@ -6995,11 +6995,13 @@ SurvivorCompanion.NativeActions = {
 SurvivorCompanion.Actor.setMovement = function(value, mode, intent)
     local accepted, reason = originalActorMovement(value, mode, intent)
     if accepted and intent and (intent.action == "kneel_treat"
+        or intent.action == "apply_splint"
         or intent.action == "replace_bandage"
         or intent.action == "rip_clothing_for_bandage"
         or intent.action == "read" or intent.action == "repair"
         or intent.action == "craft_supply" or intent.action == "wash_self"
-        or intent.action == "wash_equipment" or intent.action == "wear_clothing"
+        or intent.action == "wash_equipment"
+        or intent.action == "wash_bandage" or intent.action == "wear_clothing"
         or intent.action == "loot_container" or intent.action == "write_diary") then
         visualStates[value] = { action = intent.action, status = "active" }
     end
@@ -10367,6 +10369,7 @@ end)()
 
 do
 local stagedFood = item("Base.CannedChili", "Food")
+function stagedFood:getDisplayName() return "Canned Chili" end
 local stagedLootActor = actor("sc-loot-transaction", -20, 4, {})
 registry[stagedLootActor.id] = stagedLootActor
 SurvivorCompanion.Commands.issue(stagedLootActor.id, "set_scavenge", true, player)
@@ -10414,7 +10417,7 @@ check(stagedFinished and stagedFinishReason == "looted" and stagedClears == 1
         and stagedCompleted.last and stagedCompleted.last.event == "completed"
         and SurvivorCompanion.Dialogue.lastSpokenTopic(stagedLootActor)
             == "scavenge.loot.excited"
-        and string.find(tostring(stagedLootActor.lastSpeech), "Base.CannedChili", 1, true)
+        and string.find(tostring(stagedLootActor.lastSpeech), "a canned chili", 1, true)
             ~= nil,
     "completed rummage commits once, releases ownership, then names the verified pickup")
 SurvivorCompanion.NativeActions = nil
@@ -10425,6 +10428,7 @@ do
 local wornOutFood = item("Base.DentedMysteryCan", "Food", {
     condition = 2, conditionMax = 10,
 })
+function wornOutFood:getDisplayName() return "Dented Mystery Can" end
 local disappointedLooter = actor("sc-loot-disappointed", -40, 40, {})
 registry[disappointedLooter.id] = disappointedLooter
 SurvivorCompanion.Commands.issue(disappointedLooter.id, "set_scavenge", true, player)
@@ -10440,8 +10444,8 @@ local looted, lootReason = SurvivorCompanion.Encounter.tryScavenge(
 local reactionState = SurvivorCompanion.Encounter.peek(disappointedLooter)
 check(looted and lootReason == "looted" and reactionState.lastLoot
         and reactionState.lastLoot.reactionTopic == "scavenge.loot.disappointed"
-        and string.find(tostring(disappointedLooter.lastSpeech),
-            "Base.DentedMysteryCan", 1, true) ~= nil,
+        and string.find(string.lower(tostring(disappointedLooter.lastSpeech)),
+            "a dented mystery can", 1, true) ~= nil,
     "a poor-condition verified pickup gets a disappointed line that names the item")
 SurvivorCompanion.Config.values.scavengeLootReactionChancePercent = savedReactionChance
 SurvivorCompanion.Encounter.reset(disappointedLooter)
@@ -15165,6 +15169,81 @@ check(type(departure) == "table" and type(departure.common) == "table"
         and #departure.common == 20
         and Dialogue.poolSize("expedition.departure", fellow, {}) == 20,
     "the expedition leader has twenty departure lines")
+local homecoming = Dialogue._poolForTests("expedition.homecoming")
+local homecomingLines = 0
+for _, rows in pairs(homecoming or {}) do
+    for _, line in ipairs(rows) do
+        homecomingLines = homecomingLines + 1
+        check(not string.find(line, "%%[0-9]")
+                and not string.find(line, "[^\032-\126]"),
+            "homecoming lines contain only printable ASCII and no arguments")
+    end
+end
+check(homecomingLines == 20 and #homecoming.common == 12,
+    "homecoming offers twelve shared and eight voice-specific lines")
+local render = Dialogue._interpolateForTests
+check(render("%1 came here. %2 waited.", { "they", "my friend" })
+        == "They came here. My friend waited."
+        and render("*looks up* %1 arrived.", { "my friend" })
+            == "*looks up* My friend arrived."
+        and render("%1 and %2", { "A", nil, "C" }) == nil
+        and render("%1 and %2", { "A", "" }) == nil
+        and render("%1 then %2", { "%2", "done" }) == nil,
+    "single-pass interpolation handles sentence starts, missing arguments, and marker-like fills")
+local guardedLine = Dialogue.choose(fellow, "voice.render.negative",
+    { common = { "Missing %1", "Safe fallback" } }, {})
+check(guardedLine == "Safe fallback",
+    "dialogue selection skips an unfillable line without speaking its marker")
+local renderedCount, invalidTopic, invalidLine = 0, nil, nil
+local edgeFills = { "they", "some canned beans", "some water", "an axe",
+    "West Point", "in the woods" }
+for topic, specification in pairs(Dialogue._allPoolsForTests()) do
+    for _, rows in pairs(specification) do
+        if type(rows) == "table" then
+            for _, line in ipairs(rows) do
+                local rendered = render(line, edgeFills)
+                renderedCount = renderedCount + 1
+                if rendered == nil or string.find(rendered, "%%[0-9]")
+                    or string.find(rendered, "  ", 1, true)
+                    or string.find(rendered, " %.([^%.])")
+                    or string.find(rendered, " %.$")
+                    or string.find(rendered, "[^\032-\126]") then
+                    invalidTopic = topic
+                    invalidLine = tostring(rendered)
+                    break
+                end
+            end
+        end
+        if invalidTopic then break end
+    end
+    if invalidTopic then break end
+end
+check(invalidTopic == nil and renderedCount > 1000,
+    "all registered speech pools render without tokens, spacing errors, or non-ASCII: "
+        .. tostring(invalidTopic) .. ": " .. tostring(invalidLine))
+check(string.find("They  waited", "  ", 1, true) ~= nil
+        and render("%1 arrived", { nil }) == nil
+        and string.find("bad\195\169", "[^\032-\126]") ~= nil,
+    "voice render guard rejects spacing, missing arguments, and non-ASCII controls")
+check(SurvivorCompanion.GameplayUtil.itemPhrase("Canned Beans (Opened)")
+        == "some canned beans"
+        and SurvivorCompanion.GameplayUtil.itemPhrase("Water") == "some water"
+        and SurvivorCompanion.GameplayUtil.itemPhrase("Axe") == "an axe"
+        and SurvivorCompanion.GameplayUtil.itemPhrase("Box of Nails")
+            == "a box of nails"
+        and SurvivorCompanion.GameplayUtil.itemPhrase("Spiffo's Mug")
+            == "a Spiffo's mug",
+    "item phrases choose the article and strip parenthetical condition labels")
+check(SurvivorCompanion.Background.homeLabel("west_point") == "West Point"
+        and SurvivorCompanion.Background.homeLabel("riverside") == "Riverside"
+        and SurvivorCompanion.Relationship.hasDoingLabel("chop_tree")
+        and SurvivorCompanion.Relationship.hasDoingLabel("farm_weed")
+        and not SurvivorCompanion.Relationship.hasDoingLabel("unknown_action")
+        and SurvivorCompanion.Relationship.readableAction("unknown_action")
+            == "busy with a job"
+        and SurvivorCompanion.Tales.toldCount(0, 1) == 0
+        and SurvivorCompanion.Tales.toldCount(1, 1) >= 2,
+    "home, action, and one-kill tall-tale edge cases have grammatical forms")
 check(Dialogue.poolSize("scavenge.loot.excited", fellow, {}) >= 10
         and Dialogue.poolSize("scavenge.loot.disappointed", fellow, {}) >= 10
         and Dialogue.poolSize("scavenge.loot.gross", fellow, {}) >= 10,
@@ -21200,7 +21279,8 @@ end)()
 -- camp's water and cleaning itself without ever reaching the water.
 ;(function()
     local downtime = SurvivorCompanion.Downtime
-    local _, _, _, _, washSourceInReach, _, completeWashEquipment = downtime._washForTests()
+    local _, _, _, _, washSourceInReach, _, completeWashEquipment,
+        completeWashBandage = downtime._washForTests()
     local washer = actor("sc-wash-wall", -9, 8, {})
     local sinkSquare = cell:getGridSquare(-9, 9, 0)
     local sink = { square = sinkSquare, fluid = 20, used = 0 }
@@ -21235,6 +21315,34 @@ end)()
     check(openReach == true and openCommit == true and sink.used > 0
             and shirt.bloodLevel == 0 and shirt.dirtiness == 0,
         "the same sink with a clear side washes the item and spends its water")
+    local dirty = item("Base.BandageDirty", "Medical")
+    washer.inventory:AddItem(dirty)
+    local canWash, washReason = downtime.canPerform(washer, "wash_bandage")
+    local washBandage = {
+        kind = "wash_bandage", object = sink, square = sinkSquare,
+        item = dirty, cleanType = "Base.Bandage",
+    }
+    washer.square.blocked[sinkSquare] = true
+    sinkSquare.blocked[washer.square] = true
+    local waterBefore = sink.used
+    check(canWash and not completeWashBandage(washer, washBandage)
+            and sink.used == waterBefore
+            and washer.inventory:contains(dirty),
+        "a companion may plan to clean a dirty bandage but cannot wash through a wall: "
+            .. tostring(canWash) .. "/" .. tostring(washReason)
+            .. "/" .. tostring(sink.used)
+            .. "/" .. tostring(waterBefore)
+            .. "/" .. tostring(washer.inventory:contains(dirty)))
+    washer.square.blocked[sinkSquare] = nil
+    sinkSquare.blocked[washer.square] = nil
+    local cleaned = completeWashBandage(washer, washBandage)
+    local cleanCount = 0
+    for _, carried in ipairs(washer.inventory.items) do
+        if carried.itemType == "Base.Bandage" then cleanCount = cleanCount + 1 end
+    end
+    check(cleaned and cleanCount == 1 and not washer.inventory:contains(dirty)
+            and sink.used == waterBefore + 0.5,
+        "washing spends water and replaces exactly one dirty bandage with a clean one")
     sinkSquare.objects[#sinkSquare.objects] = nil
 end)()
 
@@ -22489,8 +22597,9 @@ end)()
 
     local captured = V.capture(sick)
     check(type(captured) == "table"
+            and captured.hoursSurvived == 300
             and math.abs((tonumber(captured.infectionElapsedHours) or -1) - 12) < 0.001,
-        "the capture records how far the infection had got: "
+        "the capture records the infection span and the native survival clock: "
             .. tostring(captured and captured.infectionElapsedHours))
 
     local replacement = { hours = 320 }
@@ -22507,6 +22616,43 @@ end)()
     replacement.hours = 6
     check(V.restoredInfectionTime(replacement, captured) == 0,
         "a clock younger than the infection clamps instead of going negative")
+
+    local loadedBody = { health = 100, infected = false,
+        infectionTime = -1, mortality = -1 }
+    function loadedBody:getHealth() return self.health end
+    function loadedBody:getOverallBodyHealth() return self.health end
+    function loadedBody:getBodyParts() return {} end
+    function loadedBody:isInfected() return self.infected end
+    function loadedBody:getInfectionTime() return self.infectionTime end
+    function loadedBody:getInfectionMortalityDuration() return self.mortality end
+    function loadedBody:getApparentInfectionLevel() return 0 end
+    function loadedBody:setInfected(value) self.infected = value end
+    function loadedBody:setInfectionTime(value) self.infectionTime = value end
+    function loadedBody:setInfectionMortalityDuration(value) self.mortality = value end
+    function loadedBody:setOverallBodyHealth(value) self.health = value end
+    local loaded = { hours = 4, health = 100 }
+    function loaded:getBodyDamage() return loadedBody end
+    function loaded:getHealth() return self.health end
+    function loaded:setHealth(value) self.health = value end
+    function loaded:getHoursSurvived() return self.hours end
+    function loaded:setHoursSurvived(value) self.hours = value end
+    local applied, applyReason = V.apply(loaded, captured)
+    local loadedVitals = V.capture(loaded)
+    local loadedMedical = SurvivorCompanion.Medical.assess(loaded)
+    check(applied and loaded.hours == 300 and loadedBody.infectionTime == 288
+            and math.abs((loadedVitals.infectionElapsedHours or -1) - 12) < 0.001
+            and math.abs(loadedMedical.infectionLevel - 25) < 0.001,
+        "a newly spawned companion retains 25% Knox progress after save/load: "
+            .. tostring(applyReason) .. "/" .. tostring(loadedMedical.infectionLevel))
+
+    local olderSave = { infected = true, infectionTime = 288,
+        infectionElapsedHours = 12, infectionMortalityDuration = 48,
+        health = 80, overallHealth = 80 }
+    loaded.hours, loadedBody.infected, loadedBody.infectionTime = 4, false, -1
+    local oldApplied = V.apply(loaded, olderSave)
+    check(oldApplied and loaded.hours == 12 and loadedBody.infectionTime == 0
+            and math.abs(SurvivorCompanion.Medical.assess(loaded).infectionLevel - 25) < 0.001,
+        "an older save with elapsed Knox time also keeps its percentage")
 end)()
 
 ;(function()
@@ -22602,6 +22748,240 @@ end)()
         "a cornered wounded companion shoves through one zombie tile and runs beyond it")
     SurvivorCompanion.Combat.reset(trapped)
     registry[trapped.id] = nil
+end)()
+
+;(function()
+    local sourceItem = item("Base.CannedPeachesUnreadableLoot", "Food")
+    local looter = actor("sc-loot-status-fault", -21, 4, {})
+    registry[looter.id] = looter
+    SurvivorCompanion.Commands.issue(looter.id, "set_scavenge", true, player)
+    looter.hunger = 0.95
+    local source = containerObject(looter.square, { sourceItem })
+    local previousNative = SurvivorCompanion.NativeActions
+    SurvivorCompanion.NativeActions = {
+        dispatch = function() return true end,
+        visualStatus = function() error("fixture status read failed") end,
+    }
+    local accepted, reason = SurvivorCompanion.Encounter.tryScavenge(
+        looter, nil, { snapshot = { threats = {}, immediateCount = 0,
+            threatCount = 0, pressure = 0, escapeSquares = {} } })
+    check(not accepted and reason == "loot_animation_unavailable"
+            and source:contains(sourceItem)
+            and not looter.inventory:contains(sourceItem),
+        "a failed native Loot status read never transfers the source item")
+    SurvivorCompanion.NativeActions = previousNative
+    SurvivorCompanion.Encounter.reset(looter)
+    registry[looter.id] = nil
+end)()
+
+check(string.find(
+        SurvivorCompanion.Relationship.memoryText({ kind = "companion_died" }),
+        "Someone from our group died", 1, true) == 1,
+    "a grief memory with no named companion starts with a capital letter")
+
+;(function()
+    local previousNative = SurvivorCompanion.NativeActions
+    local previousMovement = SurvivorCompanion.Actor.setMovement
+    local previousDialogueSay = SurvivorCompanion.Dialogue.say
+    local spokenTopics = {}
+    SurvivorCompanion.Dialogue.say = function(_, topic)
+        spokenTopics[#spokenTopics + 1] = topic
+        return true, "fixture medical line"
+    end
+    local bandagePoolCount = 0
+    for _, topic in ipairs({ "medical.bandage.minor", "medical.bandage.serious",
+            "medical.bandage.replace" }) do
+        local pool = SurvivorCompanion.Dialogue._poolForTests(topic)
+        bandagePoolCount = bandagePoolCount + (pool and #(pool.common or {}) or 0)
+    end
+    check(bandagePoolCount >= 40,
+        "the treatment dialogue offers at least forty authored bandaging lines")
+    local visuals = {}
+    SurvivorCompanion.NativeActions = {
+        visualStatus = function(value, expected)
+            local visual = visuals[value]
+            if not visual then return "none" end
+            if expected ~= visual.action then return "different" end
+            return visual.status
+        end,
+        cancelVisual = function(value) visuals[value] = nil return true end,
+        clearVisual = function(value) visuals[value] = nil return true end,
+        noteResult = function() return true end,
+    }
+    SurvivorCompanion.Actor.setMovement = function(value, _, intent)
+        if intent and (intent.action == "apply_splint"
+            or intent.action == "kneel_treat"
+            or intent.action == "replace_bandage"
+            or intent.action == "craft_supply") then
+            visuals[value] = { action = intent.action, status = "active" }
+        end
+        return true
+    end
+
+    local medic = actor("sc-player-splint-medic", 9, 6, {
+        inventory = inventory({ item("Base.Splint", "Medical") }),
+    })
+    local leg = bodyPart({ name = "LowerLeg_L", fracture = 30 })
+    function leg:getSplintFactor() return self.splintFactor or 0 end
+    function leg:setSplint(enabled, factor)
+        self.splintFactor = enabled and factor or 0
+    end
+    function leg:setSplintItem(value) self.splintItem = value end
+    local patient = actor("sc-player-broken-leg", 10, 6, {
+        body = bodyDamage(70, { leg }),
+    })
+    local assessment = SurvivorCompanion.Medical.assess(patient)
+    local candidates = SurvivorCompanion.Decision._evaluateForTests(
+        medic, patient,
+        { threats = {}, threatCount = 0, immediateCount = 0,
+            allies = {}, player = { danger = 0 } },
+        { recruited = true, order = "follow" },
+        SurvivorCompanion.Medical.assess(medic), {}, {}, clock)
+    local rescueSelected = false
+    for _, candidate in ipairs(candidates) do
+        if candidate.kind == "medical" and candidate.detail
+            and candidate.detail.rescue then rescueSelected = true end
+    end
+    check(rescueSelected,
+        "a carried splint makes an unsplinted player fracture a rescue candidate")
+    local started, startReason = SurvivorCompanion.Medical.treat(
+        medic, patient, { snapshot = { threats = {}, immediateCount = 0 } })
+    check(assessment.needsSplint == true and started
+            and startReason == "treatment_animation_started"
+            and visuals[medic] and visuals[medic].action == "apply_splint"
+            and spokenTopics[#spokenTopics] == "medical.splint"
+            and leg:getSplintFactor() == 0,
+        "a fractured player's leg selects the animated splint treatment and line")
+    visuals[medic].status = "completed"
+    local finished, finishReason = SurvivorCompanion.Medical.treat(medic, patient, {})
+    check(finished and finishReason == "splinted"
+            and leg:getSplintFactor() > 0 and leg.splintItem == "Base.Splint"
+            and not medic.inventory:contains("Base.Splint"),
+        "a completed splint animation consumes one splint and braces the leg")
+
+    local oldSpecificPlayer, oldQueue = getSpecificPlayer, ISTimedActionQueue
+    local wound = bodyPart({ name = "ForeArm_L", isBleeding = true })
+    local selfPatient = actor("sc-player-self-bandage", 10, 6, {
+        body = bodyDamage(70, { wound }),
+    })
+    local dressing = item("Base.Bandage", "Medical")
+    local helper = actor("sc-self-care-yield-medic", 9, 6, {
+        inventory = inventory({ dressing }),
+    })
+    getSpecificPlayer = function(index)
+        return index == 0 and selfPatient or nil
+    end
+    ISTimedActionQueue = { queues = {
+        [selfPatient] = { queue = {} },
+    } }
+    local offered = SurvivorCompanion.Medical.treat(helper, selfPatient,
+        { snapshot = { threats = {}, immediateCount = 0 } })
+    check(offered and spokenTopics[#spokenTopics] == "medical.bandage.minor",
+        "a companion addresses the player when starting a bandage")
+    ISTimedActionQueue.queues[selfPatient].queue[1] = {
+        Type = "ISApplyBandage", character = selfPatient,
+        otherPlayer = selfPatient,
+    }
+    local yieldCandidates = SurvivorCompanion.Decision._evaluateForTests(
+        helper, selfPatient,
+        { threats = {}, threatCount = 0, immediateCount = 0,
+            allies = {}, player = { danger = 0 } },
+        { recruited = true, order = "follow" },
+        SurvivorCompanion.Medical.assess(helper), {}, {}, clock)
+    local stillOfferingRescue = false
+    for _, candidate in ipairs(yieldCandidates) do
+        if candidate.kind == "medical" and candidate.detail
+            and candidate.detail.rescue then stillOfferingRescue = true end
+    end
+    local continued, reason = SurvivorCompanion.Medical.treat(
+        helper, selfPatient, {})
+    check(offered and not continued and reason == "player_self_care_started"
+            and not stillOfferingRescue
+            and SurvivorCompanion.Medical.peek(helper) == nil
+            and SurvivorCompanion.Medical.treatmentHolder(selfPatient) == nil
+            and not dressing.used and not wound.isBandaged,
+        "queued player self care aborts companion treatment without spending supplies")
+    getSpecificPlayer, ISTimedActionQueue = oldSpecificPlayer, oldQueue
+
+    local rag = item("Base.RippedSheets", "Medical")
+    local branch = item("Base.TreeBranch2", "Material")
+    local crafter = actor("sc-downtime-splint-crafter", 9, 5, {
+        inventory = inventory({ rag, branch }),
+    })
+    crafter.modData.SC_Order = "stay"
+    local calm = { threats = {}, threatCount = 0, immediateCount = 0,
+        player = { danger = 0 }, indoors = true }
+    local canCraft = SurvivorCompanion.Downtime.canPerform(
+        crafter, "craft_supply")
+    local craftStarted = SurvivorCompanion.Downtime.update(
+        crafter, player, { snapshot = calm }, "craft_supply")
+    local active = SurvivorCompanion.Downtime.peek(crafter).active
+    check(canCraft and craftStarted and active
+            and active.outputType == "Base.Splint"
+            and visuals[crafter] and visuals[crafter].action == "craft_supply",
+        "downtime chooses a splint when carrying a rag and wooden branch")
+    visuals[crafter].status = "completed"
+    local craftFinished = SurvivorCompanion.Downtime.update(
+        crafter, player, { snapshot = calm }, "craft_supply")
+    local madeSplint = false
+    for _, carried in ipairs(crafter.inventory.items) do
+        if carried.itemType == "Base.Splint" then madeSplint = true end
+    end
+    check(craftFinished and madeSplint
+            and not crafter.inventory:contains(rag)
+            and not crafter.inventory:contains(branch),
+        "verified downtime crafting consumes exact materials and leaves a splint")
+    SurvivorCompanion.Downtime.reset(crafter)
+
+    local freshDressing = item("Base.Bandage", "Medical")
+    local soiledPart = bodyPart({ name = "ForeArm_R", isBandaged = true,
+        dirty = true, bandageLife = 0, bandageType = "Base.Bandage" })
+    local recycler = actor("sc-dirty-bandage-recycler", 9, 5, {
+        body = bodyDamage(80, { soiledPart }),
+        inventory = inventory({ freshDressing }),
+    })
+    local replaceStarted = SurvivorCompanion.Medical.replaceDirtyBandage(recycler)
+    if visuals[recycler] then visuals[recycler].status = "completed" end
+    local replaced, replaceReason = SurvivorCompanion.Medical.replaceDirtyBandage(recycler)
+    local returnedDirty = false
+    for _, carried in ipairs(recycler.inventory.items) do
+        if carried.itemType == "Base.BandageDirty" then returnedDirty = true end
+    end
+    check(replaceStarted and replaced and soiledPart.isBandaged
+            and not soiledPart.dirty and returnedDirty
+            and freshDressing.used and replaceReason == "bandaged",
+        "replacing a dirty dressing returns it for downtime cleaning")
+
+    local friendBandage = item("Base.Bandage", "Medical")
+    local friendWound = bodyPart({ name = "Hand_L", isBleeding = true,
+        deep = true })
+    local friend = actor("sc-medical-voice-friend", 10, 5, {
+        body = bodyDamage(55, { friendWound }),
+    })
+    local friendMedic = actor("sc-medical-voice-helper", 9, 5, {
+        inventory = inventory({ friendBandage }),
+    })
+    local friendStarted = SurvivorCompanion.Medical.treat(friendMedic, friend,
+        { snapshot = { threats = {}, immediateCount = 0 } })
+    check(friendStarted and spokenTopics[#spokenTopics] == "medical.bandage.serious",
+        "a companion addresses another companion when treating a serious wound")
+    SurvivorCompanion.Medical.cancel(friendMedic, "fixture_complete")
+    local changedPart = bodyPart({ name = "ForeArm_R", isBandaged = true,
+        dirty = true, bandageLife = 0, bandageType = "Base.Bandage" })
+    local changedPatient = actor("sc-voice-dressing-patient", 10, 5, {
+        body = bodyDamage(70, { changedPart }),
+    })
+    local changedMedic = actor("sc-voice-dressing-medic", 9, 5, {
+        inventory = inventory({ item("Base.Bandage", "Medical") }),
+    })
+    local changing = SurvivorCompanion.Medical.treat(changedMedic, changedPatient,
+        { snapshot = { threats = {}, immediateCount = 0 } })
+    check(changing and spokenTopics[#spokenTopics] == "medical.bandage.replace",
+        "a companion uses dressing-change lines for another companion")
+    SurvivorCompanion.Medical.cancel(changedMedic, "fixture_complete")
+    SurvivorCompanion.Actor.setMovement = previousMovement
+    SurvivorCompanion.NativeActions = previousNative
+    SurvivorCompanion.Dialogue.say = previousDialogueSay
 end)()
 
 print("Gameplay harness PASS: " .. tostring(checks) .. " checks")

@@ -1146,12 +1146,14 @@ local function safeToManage(actor, runtime)
 end
 
 local function visualStatus(actor, expectedAction)
-    if not SC.NativeActions or type(SC.NativeActions.visualStatus) ~= "function" then
-        return nil
+    if not SC.NativeActions then return nil end
+    if type(SC.NativeActions.visualStatus) ~= "function" then
+        return type(SC.NativeActions.dispatch) == "function"
+            and "unavailable" or nil
     end
     local ok, status = pcall(SC.NativeActions.visualStatus, actor,
         expectedAction or "loot_container")
-    return ok and status or nil
+    return ok and status or "unavailable"
 end
 
 local function clearVisual(actor)

@@ -522,6 +522,8 @@ try {
     if (-not $SkipSharedSourceChecks) {
         & $Python (Join-Path $TestRoot 'test_core_static.py')
         if ($LASTEXITCODE -ne 0) { throw 'Core static tests failed.' }
+        & $Python (Join-Path $TestRoot 'voice_action_labels_test.py')
+        if ($LASTEXITCODE -ne 0) { throw 'Voice action label inventory failed.' }
         & $Python (Join-Path $ProjectRoot 'tests\source\test_release_sync.py')
         if ($LASTEXITCODE -ne 0) { throw 'Release constants/documentation synchronization failed.' }
         & (Join-Path $TestRoot 'test_installer.ps1') -ProjectRoot $ProjectRoot -Jobs $Jobs

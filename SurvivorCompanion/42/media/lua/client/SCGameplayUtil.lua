@@ -1176,6 +1176,50 @@ function U.itemName(item)
     return U.itemType(item)
 end
 
+local massItemWords = {
+    water = true, rice = true, flour = true, bleach = true,
+    ammunition = true, gasoline = true, fuel = true, milk = true,
+    coffee = true, sugar = true, salt = true, soap = true,
+    bandage = false,
+}
+
+function U.itemBareName(itemOrName)
+    local name = type(itemOrName) == "string" and itemOrName
+        or U.itemName(itemOrName)
+    name = tostring(name or ""):gsub("%s*%b()$", "")
+        :gsub("^%s+", ""):gsub("%s+$", "")
+    if name == "" then return "something" end
+    return (name:gsub("%S+", function(word)
+        if word:match("^[A-Z][A-Z%d]+$")
+            or word:match("^[A-Z][%a]+['']s") then return word end
+        return string.lower(word)
+    end))
+end
+
+function U.itemPhrase(itemOrName, bare)
+    local noun = U.itemBareName(itemOrName)
+    if bare == true or noun == "something" then return noun end
+    local first = noun:match("^([%a]+)") or noun
+    local last = noun:match("([%a]+)$") or noun
+    local plural = not noun:find(" of ", 1, true)
+        and not noun:find("'s", 1, true)
+        and (massItemWords[last] == true
+            or (last:match("s$") and not last:match("ss$")
+                and last ~= "gas" and last ~= "bus"))
+    if massItemWords[first] == true or plural then
+        return "some " .. noun
+    end
+    if first:match("^hour") or first:match("^honest") then
+        return "an " .. noun
+    end
+    if first:match("^uni") or first:match("^used")
+        or first:match("^one") or first:match("^euro") then
+        return "a " .. noun
+    end
+    if first:match("^[aeiou]") then return "an " .. noun end
+    return "a " .. noun
+end
+
 function U.itemWeight(item)
     if item == nil then return 0 end
     local value, ok = U.call(item, "getActualWeight")

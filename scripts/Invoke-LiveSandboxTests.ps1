@@ -69,6 +69,8 @@ param(
     [switch]$TeamSharedSearchProbe,
     [switch]$TeamLeaderMotionProbe,
     [switch]$TeamUnvisitedInteriorSearchProbe,
+    [switch]$TeamMultifloorSearchProbe,
+    [switch]$TeamMultifloorSquadProbe,
     [switch]$TeamAutonomousSearchStageOnly,
     [switch]$TeamAutonomousSearchResumeProbe,
     [switch]$TeamBuildingProbe,
@@ -233,6 +235,12 @@ if ($TeamLeaderMotionProbe -and -not $TeamUnvisitedInteriorSearchProbe) {
 if ($TeamUnvisitedInteriorSearchProbe -and (-not $TeamAutonomousSearchProbe -or
     $TeamAutonomousSearchStageOnly -or $TeamAutonomousSearchResumeProbe)) {
     throw '-TeamUnvisitedInteriorSearchProbe requires a separate -TeamAutonomousSearchProbe run.'
+}
+if ($TeamMultifloorSearchProbe -and -not $TeamUnvisitedInteriorSearchProbe) {
+    throw '-TeamMultifloorSearchProbe requires -TeamUnvisitedInteriorSearchProbe.'
+}
+if ($TeamMultifloorSquadProbe -and -not $TeamMultifloorSearchProbe) {
+    throw '-TeamMultifloorSquadProbe requires -TeamMultifloorSearchProbe.'
 }
 if ($TeamAutonomousSearchStageOnly -and -not $TeamAutonomousSearchProbe) {
     throw '-TeamAutonomousSearchStageOnly requires -TeamAutonomousSearchProbe.'
@@ -842,6 +850,8 @@ $config = @(
     ('team_shared_search_probe=' + $TeamSharedSearchProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_leader_motion_probe=' + $TeamLeaderMotionProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_unvisited_interior_search_probe=' + $TeamUnvisitedInteriorSearchProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_multifloor_search_probe=' + $TeamMultifloorSearchProbe.IsPresent.ToString().ToLowerInvariant()),
+    ('team_multifloor_squad_probe=' + $TeamMultifloorSquadProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_autonomous_search_stage_only=' + $TeamAutonomousSearchStageOnly.IsPresent.ToString().ToLowerInvariant()),
     ('team_autonomous_search_resume_probe=' + $TeamAutonomousSearchResumeProbe.IsPresent.ToString().ToLowerInvariant()),
     ('team_building_probe=' + $TeamBuildingProbe.IsPresent.ToString().ToLowerInvariant()),
