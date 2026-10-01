@@ -1445,6 +1445,17 @@ class UIStaticContractTests(unittest.TestCase):
             f"EN missing payload translation literals: {sorted(complete_project_literals - en_keys)}",
         )
 
+    def test_construction_notes_never_show_internal_reason_codes(self) -> None:
+        planner = read(CLIENT / "SCConstructionPlanner.lua")
+        for name, source in (("SCUIContext.lua", self.context),
+                             ("SCConstructionPlanner.lua", planner)):
+            self.assertNotRegex(source, r'setHaloNote"\s*,\s*tostring\(', name)
+            self.assertNotIn('"Construction planned"', source, name)
+            self.assertNotIn('"Invalid construction plan"', source, name)
+            self.assertNotIn('"Construction plan failed"', source, name)
+        self.assertGreaterEqual(
+            self.context.count("SC.ConstructionPlanner.reasonText(reason)"), 4)
+
     def test_every_shipped_ui_lua_file_has_spdx(self) -> None:
         for path in CLIENT.glob("SCUI*.lua"):
             self.assertTrue(read(path).startswith("-- SPDX-License-Identifier: MIT"), path)

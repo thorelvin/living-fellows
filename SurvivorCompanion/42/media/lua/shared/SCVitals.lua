@@ -348,13 +348,19 @@ function vitals.apply(actor, saved)
 
     local verified, verifyReason = vitals.capture(actor)
     if verified == nil then return false, verifyReason end
+    -- The survival clock is a double, but BodyDamage stores infection time as
+    -- a 32-bit float on that same clock. Years into a game its rounding alone
+    -- exceeds a thousandth of an hour, so allow a few float steps at this
+    -- magnitude rather than rejecting a correct restore.
+    local infectionTolerance = math.max(0.001,
+        math.abs(finite(verified.hoursSurvived, 0)) * 2 ^ -22)
     if verified.infected ~= (saved.infected == true)
         or math.abs(finite(verified.overallHealth, -1) - overall) > 0.1
         or math.abs(finite(verified.health, -1) - actorHealth) > 0.1
         or clockTarget ~= nil and math.abs(finite(verified.hoursSurvived, -1)
             - clockTarget) > 0.001
         or elapsed >= 0 and math.abs(finite(verified.infectionElapsedHours, -1)
-            - elapsed) > 0.001 then
+            - elapsed) > infectionTolerance then
         return false, "native vitals did not retain restored health/infection state"
     end
     for _, entry in ipairs(restoredNeeds) do

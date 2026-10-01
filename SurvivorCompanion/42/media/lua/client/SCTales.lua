@@ -160,27 +160,34 @@ local POOLS = {
 }
 
 -- Room definitions worth naming; anything else indoors is "that building".
+-- Each place carries the preposition that puts a story there, so adding or
+-- renaming a place cannot silently break "Came out of nowhere, %6."
+local OPEN_PLACE = "out in the open"
+local function at(label) return { label = label, preposition = "at" } end
+local function inside(label) return { label = label, preposition = "in" } end
+local function on(label) return { label = label, preposition = "on" } end
+
 local ROOM_PLACES = {
-    gasstore = "the gas station", fossoil = "the gas station",
-    policestorage = "the police station", policelocker = "the police station",
-    prisoncells = "the jail", church = "the church", bar = "the bar",
-    liquorstore = "the liquor store", classroom = "the school",
-    elementaryschool = "the school", library = "the library", gunstore = "the gun store",
-    pharmacy = "the pharmacy", hospitalroom = "the hospital", medical = "the hospital",
-    morgue = "the morgue", spiffo_dining = "Spiffo's", spiffoskitchen = "Spiffo's",
-    jayschicken_dining = "Jay's Chicken", gigamart = "the Gigamart", grocery = "the grocery",
-    mechanic = "the garage", firestorage = "the fire station",
-    armystorage = "the army depot", theatre = "the movie theater",
-    bowlingalley = "the bowling alley", motelroom = "the motel", laundry = "the laundromat",
-    gym = "the gym", warehouse = "the warehouse", storageunit = "the storage units",
-    kitchen = "somebody's kitchen", bedroom = "somebody's house",
-    livingroom = "somebody's house", bathroom = "somebody's bathroom",
+    gasstore = at("the gas station"), fossoil = at("the gas station"),
+    policestorage = at("the police station"), policelocker = at("the police station"),
+    prisoncells = at("the jail"), church = at("the church"), bar = at("the bar"),
+    liquorstore = at("the liquor store"), classroom = at("the school"),
+    elementaryschool = at("the school"), library = at("the library"), gunstore = at("the gun store"),
+    pharmacy = at("the pharmacy"), hospitalroom = at("the hospital"), medical = at("the hospital"),
+    morgue = at("the morgue"), spiffo_dining = at("Spiffo's"), spiffoskitchen = at("Spiffo's"),
+    jayschicken_dining = at("Jay's Chicken"), gigamart = at("the Gigamart"), grocery = at("the grocery"),
+    mechanic = at("the garage"), firestorage = at("the fire station"),
+    armystorage = at("the army depot"), theatre = at("the movie theater"),
+    bowlingalley = at("the bowling alley"), motelroom = at("the motel"), laundry = at("the laundromat"),
+    gym = at("the gym"), warehouse = at("the warehouse"), storageunit = at("the storage units"),
+    kitchen = inside("somebody's kitchen"), bedroom = inside("somebody's house"),
+    livingroom = inside("somebody's house"), bathroom = inside("somebody's bathroom"),
 }
 
 local ZONE_PLACES = {
-    Forest = "the woods", DeepForest = "the woods", Vegitation = "the woods",
-    Farm = "a farm", FarmLand = "a farm", Nav = "the road",
-    TownZone = "the middle of town", TrailerPark = "the trailer park",
+    Forest = inside("the woods"), DeepForest = inside("the woods"), Vegitation = inside("the woods"),
+    Farm = on("a farm"), FarmLand = on("a farm"), Nav = on("the road"),
+    TownZone = inside("the middle of town"), TrailerPark = at("the trailer park"),
 }
 
 local GUESTS = {
@@ -305,14 +312,14 @@ local function placeOf(actor)
     local square = utility.squareOf(actor)
     local room = utility.roomName and utility.roomName(square) or nil
     if room ~= nil then
-        return ROOM_PLACES[string.lower(tostring(room))] or "that building",
-            ROOM_PLACES[string.lower(tostring(room))] and "room" or "building"
+        local place = ROOM_PLACES[string.lower(tostring(room))]
+        return place and place.label or "that building", place and "room" or "building"
     end
     local zone = square and utility.call(square, "getZone") or nil
     local zoneType = zone and utility.call(zone, "getType") or nil
-    local label = zoneType and ZONE_PLACES[tostring(zoneType)] or nil
-    if label then return label, "zone" end
-    return "out in the open", "open"
+    local place = zoneType and ZONE_PLACES[tostring(zoneType)] or nil
+    if place then return place.label, "zone" end
+    return OPEN_PLACE, "open"
 end
 
 local function weaponOf(actor)
@@ -392,7 +399,7 @@ local function normalizeTale(tale)
     return {
         id = string.sub(tale.id, 1, 64),
         day = clampInteger(tale.day, 0, 1000000, 0),
-        place = text(tale.place, "out in the open", 48),
+        place = text(tale.place, OPEN_PLACE, 48),
         placeKind = text(tale.placeKind, "open", 16),
         timeOfDay = text(tale.timeOfDay, "afternoon", 16),
         kills = clampInteger(tale.kills, 0, 999, 0),
@@ -575,7 +582,7 @@ end
 function Tales.title(tale, telling)
     telling = math.max(1, math.floor(tonumber(telling) or 1))
     local open = type(tale) == "table" and tale.placeKind == "open"
-    local place = type(tale) == "table" and tale.place or "out in the open"
+    local place = type(tale) == "table" and tale.place or OPEN_PLACE
     local name, article = "Nowhere", ""
     if not open then name, article = titled(place) end
     if telling <= 1 then return "that thing " .. (open and place or ("at " .. place)) end
@@ -617,22 +624,29 @@ local function nearbyWitness(tale, teller)
     return nil
 end
 
+-- A saved tale keeps only its place label; read the preposition from the
+-- place tables so the grammar follows the data, with "at" for anything else.
+local function prepositionFor(label)
+    if label == "that building" then return "in" end
+    for _, places in ipairs({ ROOM_PLACES, ZONE_PLACES }) do
+        for _, place in pairs(places) do
+            if place.label == label then return place.preposition end
+        end
+    end
+    return "at"
+end
+
 local function arguments(first, count, guest, name, weapon)
     local place = tostring(first)
-    local noun = place == "out in the open" and "open ground" or place
-    local location
-    if place == "out in the open" then location = place
-    elseif place == "the road" or place == "a farm" then
-        location = "on " .. place
-    elseif place == "the woods" or place == "the middle of town"
-        or place == "that building" or place:find("^somebody's ") then
-        location = "in " .. place
-    else
-        location = "at " .. place
-    end
+    local open = place == OPEN_PLACE
+    local noun = open and "open ground" or place
+    local location = open and place or prepositionFor(place) .. " " .. place
     return { noun, tostring(count), tostring(guest), tostring(name),
         tostring(weapon), location }
 end
+
+Tales._argumentsForTests = arguments
+function Tales._placesForTests() return { room = ROOM_PLACES, zone = ZONE_PLACES } end
 
 -- The beats of one telling. The numbers grow with each telling; the second
 -- is suddenly pitch dark, the third gains an absurd guest, the fourth an

@@ -2,6 +2,19 @@
 
 # Changelog
 
+## 0.26.14 - Blueprints and a ten-point review
+
+- Base construction is planned with a placement cursor. Drag a run of wall, place a door or floor, or plan a wooden barricade on a window or door; planned work shows as a blueprint ghost that companions build in stages. Right-click a blueprint to build that segment yourself, retry a blocked one, or cancel it. The Base view can hide the blueprints.
+- A returning squad now finishes its trip when you are standing on a staircase. The arrival check compared every member with your exact height, so a squad settled on either floor of the stairs never counted as assembled. Members still have to finish their own stair transition first.
+- Loot lines name compound items by their head noun: "a water bottle", "an ammunition box" and "a milk carton" instead of "some water bottle". A model number is read by its letters, as in "an M1911 auto magazine".
+- A companion names its own broken tool as that tool: "The hand axe's done", not "A hand axe's done".
+- The barricade placement preview draws an upright ghost for west-facing windows and doors. A false from the game's facing check was being read as unknown and drawn as north-facing.
+- Restoring an infected companion no longer fails on a very long survival clock. Infection time is a 32-bit float in the game, and several in-game years in, its rounding alone exceeded the restore check's tolerance.
+- Medical scoring searches a companion's inventory for a splint once per second at most instead of once per injured ally on every decision. A used splint stops counting at once.
+- Construction messages are shown as plain sentences, such as "That is outside the camp.", instead of internal codes such as `build_outside_camp`.
+- Tall-tale places carry their own preposition, so "in the woods", "on the road" and "at the gas station" follow the place data rather than a list of matched strings.
+- A dialogue line that cannot be filled is reported through the mod's diagnostics instead of a bare console print, and a returning Search squad checks for a reunion with you twice a second instead of every frame.
+
 ## 0.26.13 - Expedition return and close combat playtest
 
 - When two companions crowd a fallen zombie, the better placed fighter keeps the finishing lane while the other tries a clear flank or backs out of the narrow space. The friendly-fire check still blocks an actual unsafe swing.

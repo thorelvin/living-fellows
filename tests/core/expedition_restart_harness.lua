@@ -1029,7 +1029,11 @@ function reserve:getCurrentSquare()
     return { x = self.x, y = self.y, z = 0,
         getRoom = function() return leaderRoom end }
 end
-SC.GameplayUtil.canSee = function() return sightClear end
+local reunionSightChecks = 0
+SC.GameplayUtil.canSee = function(viewer)
+    if viewer == player then reunionSightChecks = reunionSightChecks + 1 end
+    return sightClear
+end
 SC.GameplayUtil.directInteractionAccess = function()
     return directlyAccessible
 end
@@ -1039,10 +1043,17 @@ siteSearch.scout.phase = "inbound"
 expedition.pulse()
 check(expedition.current() == siteSearch,
     "the destination reunion does not release a squad behind a wall")
+local sightChecksAfterFirstPulse = reunionSightChecks
+expedition.pulse()
+check(sightChecksAfterFirstPulse == 1
+        and reunionSightChecks == sightChecksAfterFirstPulse,
+    "the reunion sight and access test waits its interval instead of running every tick")
+scoutClock = scoutClock + 600
 sightClear = true
 expedition.pulse()
 check(expedition.current() == siteSearch,
     "sight through an inaccessible boundary does not release the squad")
+scoutClock = scoutClock + 600
 directlyAccessible = true
 expedition.pulse()
 check(expedition.current() == nil,
@@ -1953,10 +1964,17 @@ check(descentMission.scout.descent ~= nil
         and descentMission.technicalIssue == nil,
     "a stalled descent rotates to the other loaded staircase")
 descentMission.scout.search = nil
-reserve.z = 0
 reserve.x, reserve.y = player.x + 3, player.y
+local playerGetZ = player.getZ
+function player:getZ() return 0.6 end
+reserve.z = 0.5
+local midStairs, midStairsReason = expedition.finishAtPlayer(player)
+check(midStairs == false and midStairsReason == "return_member_not_assembled",
+    "a squad member still on the stairs has not assembled")
+reserve.z = 0
 check(expedition.finishAtPlayer(player),
-    "the stair retry probe releases its leader")
+    "a player standing on the stairs meets a squad settled on the floor below")
+player.getZ = playerGetZ
 reserve.z = nil
 reserve.getZ = oldReserveZ
 reserve.getCurrentSquare = oldReserveSquare

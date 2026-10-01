@@ -298,8 +298,11 @@ SC.NativeActions.stopDirect = function() return true end
 
 local originalSay = SC.Dialogue.say
 SC.Dialogue.say = function(actor, topic, specification, arguments, options)
-    spokenTopics[#spokenTopics + 1] = { actor = actor, topic = topic }
-    return originalSay(actor, topic, specification, arguments, options)
+    local entry = { actor = actor, topic = topic }
+    spokenTopics[#spokenTopics + 1] = entry
+    local spoken, line, detail = originalSay(actor, topic, specification, arguments, options)
+    if spoken == true then entry.line = line end
+    return spoken, line, detail
 end
 
 SC.Navigation = {
@@ -2164,6 +2167,38 @@ do
         check(steady >= base + 2,
             "production work has two wired steady understatement lines: " .. topic)
     end
+end
+
+-- A companion names its own broken tool as that tool, never as "a" tool.
+do
+    local ctx = setup()
+    local axe = makeItem("Base.HandAxe", { tags = { choptree = true }, treeDamage = 5 })
+    function axe:getDisplayName() return "Hand Axe" end
+    ctx.actor.inventory:AddItem(axe)
+    makeTree(sq(3, 2), 10, { logs = 2 })
+    start(ctx, {
+        operation = "fell_trees", zoneId = ctx.lumber.id, requested = 1,
+        destinationStorageId = ctx.logs.id,
+    })
+    tick(ctx)
+    local action = current(ctx.actor)
+    action:animEvent("ChopTree")
+    tick(ctx)
+    action:animEvent("ChopTree")
+    axe.broken = true
+    action:perform()
+    -- Step past the production group speech cooldown that the chop's opening
+    -- line may have started, so the broken-tool line is free to play.
+    tick(ctx, nil, nil, 13000)
+    local said
+    for _, entry in ipairs(spokenTopics) do
+        if entry.topic == "work.tool.broken" and entry.actor == ctx.actor then said = entry end
+    end
+    local line = said and said.line or nil
+    check(type(line) == "string"
+            and (line:find("[Tt]he hand axe") ~= nil or line:find("this hand axe") ~= nil)
+            and line:find("[Aa] hand axe") == nil,
+        "a companion names its own broken tool as that tool: " .. tostring(line))
 end
 
 do

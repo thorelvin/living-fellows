@@ -2349,7 +2349,11 @@ function Dialogue.choose(actor, topic, specification, arguments, options)
             and missingArgumentWarningCount < 32 then
             missingArgumentWarnings[topic] = true
             missingArgumentWarningCount = missingArgumentWarningCount + 1
-            print("[SurvivorCompanion/dialogue_argument_missing] topic=" .. topic)
+            local utility = U()
+            if utility and type(utility.diagnostic) == "function" then
+                utility.diagnostic("dialogue", actor,
+                    "argument_missing topic=" .. topic)
+            end
         end
         return nil, "dialogue_argument_missing"
     end

@@ -15326,6 +15326,20 @@ local guardedLine = Dialogue.choose(fellow, "voice.render.negative",
     { common = { "Missing %1", "Safe fallback" } }, {})
 check(guardedLine == "Safe fallback",
     "dialogue selection skips an unfillable line without speaking its marker")
+local dialogueDiagnostics = {}
+local formerDiagnostic = SurvivorCompanion.GameplayUtil.diagnostic
+SurvivorCompanion.GameplayUtil.diagnostic = function(subsystem, _, message)
+    dialogueDiagnostics[#dialogueDiagnostics + 1] =
+        tostring(subsystem) .. ":" .. tostring(message)
+end
+local unfillable, unfillableReason = Dialogue.choose(fellow, "voice.render.unfillable",
+    { common = { "Missing %1" } }, {})
+SurvivorCompanion.GameplayUtil.diagnostic = formerDiagnostic
+check(unfillable == nil and unfillableReason == "dialogue_argument_missing"
+        and #dialogueDiagnostics == 1
+        and dialogueDiagnostics[1] == "dialogue:argument_missing topic=voice.render.unfillable",
+    "an unfillable topic is reported through the diagnostics channel, not printed: "
+        .. tostring(dialogueDiagnostics[1]))
 local renderedCount, invalidTopic, invalidLine = 0, nil, nil
 local edgeFills = { "they", "some canned beans", "some water", "an axe",
     "West Point", "in the woods" }
@@ -15366,6 +15380,52 @@ check(SurvivorCompanion.GameplayUtil.itemPhrase("Canned Beans (Opened)")
         and SurvivorCompanion.GameplayUtil.itemPhrase("Spiffo's Mug")
             == "a Spiffo's mug",
     "item phrases choose the article and strip parenthetical condition labels")
+-- Countability belongs to the head noun, and a model number is read by its
+-- letters. These are real Build 42.21 item names.
+local phrase = SurvivorCompanion.GameplayUtil.itemPhrase
+local phraseCases = {
+    { "Water Bottle", "a water bottle" }, { "Ammunition Box", "an ammunition box" },
+    { "Milk Carton", "a milk carton" }, { "Sugar Cookie", "a sugar cookie" },
+    { "Salt Lick", "a salt lick" }, { "Milk Powder", "some milk powder" },
+    { "Sugar Cubes", "some sugar cubes" }, { "Duct Tape", "some duct tape" },
+    { "M1911 Auto Magazine", "an M1911 auto magazine" },
+    { "B-F Magazine", "a B-F magazine" }, { "Box of 9mm Rounds", "a box of 9mm rounds" },
+}
+local wrongPhrase
+for _, case in ipairs(phraseCases) do
+    if phrase(case[1]) ~= case[2] then
+        wrongPhrase = case[1] .. " -> " .. tostring(phrase(case[1]))
+        break
+    end
+end
+check(wrongPhrase == nil,
+    "item phrases follow the head noun and read model numbers by letter: "
+        .. tostring(wrongPhrase))
+-- A tall tale's preposition is part of its place data, so a newly added place
+-- reads correctly without touching the story code.
+local tales = SurvivorCompanion.Tales
+local talePlaces = tales._placesForTests()
+local everyPlacePrepositioned = true
+for _, group in pairs(talePlaces) do
+    for _, place in pairs(group) do
+        if type(place.label) ~= "string" or (place.preposition ~= "at"
+            and place.preposition ~= "in" and place.preposition ~= "on") then
+            everyPlacePrepositioned = false
+        end
+    end
+end
+talePlaces.zone.SCTestQuarry = { label = "the old quarry", preposition = "in" }
+local quarry = tales._argumentsForTests("the old quarry", 3, "a llama", "Ada", "bare hands")
+talePlaces.zone.SCTestQuarry = nil
+local openGround = tales._argumentsForTests("out in the open", 3, "", "", "")
+check(everyPlacePrepositioned and quarry[6] == "in the old quarry"
+        and tales._argumentsForTests("the road", 3, "", "", "")[6] == "on the road"
+        and tales._argumentsForTests("somebody's kitchen", 3, "", "", "")[6]
+            == "in somebody's kitchen"
+        and tales._argumentsForTests("the gas station", 3, "", "", "")[6]
+            == "at the gas station"
+        and openGround[6] == "out in the open" and openGround[1] == "open ground",
+    "a tall tale's preposition comes from its place data: " .. tostring(quarry[6]))
 check(SurvivorCompanion.Background.homeLabel("west_point") == "West Point"
         and SurvivorCompanion.Background.homeLabel("riverside") == "Riverside"
         and SurvivorCompanion.Relationship.hasDoingLabel("chop_tree")
@@ -22824,6 +22884,30 @@ end)()
     check(oldApplied and loaded.hours == 12 and loadedBody.infectionTime == 0
             and math.abs(SurvivorCompanion.Medical.assess(loaded).infectionLevel - 25) < 0.001,
         "an older save with elapsed Knox time also keeps its percentage")
+
+    -- BodyDamage stores infection time as a 32-bit float. On a clock past
+    -- 40,000 hours one float step is about 0.004 hours, so a faithful
+    -- restore can differ from the saved span by more than 0.001 hours.
+    local function float32(value)
+        if value == 0 then return 0 end
+        local magnitude = math.abs(value)
+        local exponent = math.floor(math.log(magnitude) / math.log(2))
+        local step = 2 ^ (exponent - 23)
+        local rounded = math.floor(magnitude / step + 0.5) * step
+        return value < 0 and -rounded or rounded
+    end
+    local exactSetInfectionTime = loadedBody.setInfectionTime
+    function loadedBody:setInfectionTime(value) self.infectionTime = float32(value) end
+    local longSave = { infected = true, infectionTime = 39990.00195,
+        infectionElapsedHours = 10, hoursSurvived = 40000.00195,
+        infectionMortalityDuration = 48, health = 80, overallHealth = 80 }
+    loaded.hours, loadedBody.infected, loadedBody.infectionTime = 4, false, -1
+    local longApplied, longReason = V.apply(loaded, longSave)
+    local rounding = math.abs((loaded.hours - loadedBody.infectionTime) - 10)
+    loadedBody.setInfectionTime = exactSetInfectionTime
+    check(rounding > 0.001 and longApplied == true,
+        "a years-long survival clock restores despite float infection-time rounding: "
+            .. tostring(longReason) .. "/" .. tostring(rounding))
 end)()
 
 ;(function()
@@ -23029,6 +23113,30 @@ check(string.find(
             and leg:getSplintFactor() > 0 and leg.splintItem == "Base.Splint"
             and not medic.inventory:contains("Base.Splint"),
         "a completed splint animation consumes one splint and braces the leg")
+    check(not SurvivorCompanion.Medical.hasSplint(medic),
+        "a used splint stops counting at once, even inside the scan cache window")
+
+    -- Decision scoring asks about a helper's splint once per injured ally on
+    -- every pass; one recursive inventory scan serves that whole pass.
+    local splintScans = 0
+    local formerInventoryItems = SurvivorCompanion.GameplayUtil.inventoryItems
+    SurvivorCompanion.GameplayUtil.inventoryItems = function(...)
+        splintScans = splintScans + 1
+        return formerInventoryItems(...)
+    end
+    local carrier = actor("sc-splint-cache-medic", 9, 7, {
+        inventory = inventory({ item("Base.Splint", "Medical") }),
+    })
+    local firstLook = SurvivorCompanion.Medical.hasSplint(carrier)
+    local secondLook = SurvivorCompanion.Medical.hasSplint(carrier)
+    local scansInWindow = splintScans
+    clock = clock + 1500
+    local laterLook = SurvivorCompanion.Medical.hasSplint(carrier)
+    SurvivorCompanion.GameplayUtil.inventoryItems = formerInventoryItems
+    check(firstLook and secondLook and laterLook
+            and scansInWindow == 1 and splintScans == 2,
+        "one splint inventory scan serves a decision pass and refreshes after a second: "
+            .. tostring(scansInWindow) .. "/" .. tostring(splintScans))
 
     local oldSpecificPlayer, oldQueue = getSpecificPlayer, ISTimedActionQueue
     local wound = bodyPart({ name = "ForeArm_L", isBleeding = true })

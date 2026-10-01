@@ -1176,12 +1176,30 @@ function U.itemName(item)
     return U.itemType(item)
 end
 
+-- Head nouns that take "some": a water bottle is one bottle, but water,
+-- duct tape and milk powder are not counted one by one.
 local massItemWords = {
     water = true, rice = true, flour = true, bleach = true,
-    ammunition = true, gasoline = true, fuel = true, milk = true,
-    coffee = true, sugar = true, salt = true, soap = true,
-    bandage = false,
+    ammunition = true, gasoline = true, gunpowder = true, fuel = true,
+    milk = true, coffee = true, sugar = true, salt = true, soap = true,
+    powder = true, vinegar = true, oil = true, sauce = true, tape = true,
+    glue = true, thread = true, twine = true, wire = true, bread = true,
+    cheese = true, butter = true, honey = true, pasta = true,
 }
+-- Singular head nouns that happen to end in "s".
+local singularHeadWords = {
+    gas = true, bus = true, lens = true, canvas = true, thermos = true,
+    atlas = true, cactus = true, chassis = true, octopus = true,
+}
+-- A model number or acronym is read letter by letter: "an M1911", "an SKS".
+local vowelSoundLetters = {
+    A = true, E = true, F = true, H = true, I = true, L = true,
+    M = true, N = true, O = true, R = true, S = true, X = true,
+}
+
+local function acronymWord(word)
+    return #word >= 2 and word:match("^[A-Z][A-Z%d%-]*[A-Z%d]$") ~= nil
+end
 
 function U.itemBareName(itemOrName)
     local name = type(itemOrName) == "string" and itemOrName
@@ -1190,7 +1208,7 @@ function U.itemBareName(itemOrName)
         :gsub("^%s+", ""):gsub("%s+$", "")
     if name == "" then return "something" end
     return (name:gsub("%S+", function(word)
-        if word:match("^[A-Z][A-Z%d]+$")
+        if acronymWord(word)
             or word:match("^[A-Z][%a]+['']s") then return word end
         return string.lower(word)
     end))
@@ -1199,21 +1217,26 @@ end
 function U.itemPhrase(itemOrName, bare)
     local noun = U.itemBareName(itemOrName)
     if bare == true or noun == "something" then return noun end
-    local first = noun:match("^([%a]+)") or noun
-    local last = noun:match("([%a]+)$") or noun
-    local plural = not noun:find(" of ", 1, true)
-        and not noun:find("'s", 1, true)
-        and (massItemWords[last] == true
-            or (last:match("s$") and not last:match("ss$")
-                and last ~= "gas" and last ~= "bus"))
-    if massItemWords[first] == true or plural then
+    -- Countability belongs to the head noun: the last word, or the word
+    -- before "of" in "box of nails".
+    local headPhrase = noun:match("^(.-) of ") or noun
+    local head = string.lower(headPhrase:match("([%a]+)[^%a]*$") or headPhrase)
+    if massItemWords[head] == true
+        or (head:match("s$") and not head:match("ss$")
+            and not singularHeadWords[head]) then
         return "some " .. noun
     end
+    local token = noun:match("^(%S+)") or noun
+    if acronymWord(token) then
+        return (vowelSoundLetters[token:sub(1, 1)] and "an " or "a ") .. noun
+    end
+    local first = string.lower(token:match("^([%a]+)") or token)
     if first:match("^hour") or first:match("^honest") then
         return "an " .. noun
     end
     if first:match("^uni") or first:match("^used")
-        or first:match("^one") or first:match("^euro") then
+        or first:match("^one") or first:match("^euro")
+        or first:match("^uti") then
         return "a " .. noun
     end
     if first:match("^[aeiou]") then return "an " .. noun end

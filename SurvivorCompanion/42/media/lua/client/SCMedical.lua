@@ -15,6 +15,11 @@ local receivingCare = setmetatable({}, { __mode = "k" })
 local helpRequestedAt = setmetatable({}, { __mode = "k" })
 -- Kahlua does not reliably collect weak-key tables. Release entries explicitly.
 local assessmentCache = {}
+-- Decision scoring asks whether a helper carries a splint once per injured
+-- ally on every pass; one recursive inventory scan serves them all briefly.
+-- Treatment itself always searches afresh before taking the item.
+local splintPresence = setmetatable({}, { __mode = "k" })
+local SPLINT_PRESENCE_MS = 1000
 local bodyFactsScratch = {}
 local treatmentSpeechAt = setmetatable({}, { __mode = "k" })
 
@@ -317,7 +322,10 @@ function Medical.assess(character, runtime)
 end
 
 function Medical.invalidate(character)
-    if character ~= nil then assessmentCache[character] = nil end
+    if character ~= nil then
+        assessmentCache[character] = nil
+        splintPresence[character] = nil
+    end
 end
 
 -- Decision and presentation reads only. Treatment and its verification use
@@ -519,7 +527,15 @@ local function findSplint(character)
 end
 
 function Medical.hasSplint(character)
-    return findSplint(character) ~= nil
+    if character == nil then return false end
+    local now = U().nowMs()
+    local cached = splintPresence[character]
+    if cached ~= nil and now >= cached.at and now - cached.at < SPLINT_PRESENCE_MS then
+        return cached.present
+    end
+    local present = findSplint(character) ~= nil
+    splintPresence[character] = { at = now, present = present }
+    return present
 end
 
 -- A local player's queued vanilla first-aid action owns their wound as soon
@@ -1286,6 +1302,7 @@ local function commitSplint(helper, state, wound)
         utility.call(wound.part, "setSplint", false, 0)
         return false, "splint_consume_failed"
     end
+    splintPresence[helper] = nil
     utility.call(wound.part, "setSplintItem", utility.itemType(state.bandage))
     if type(syncBodyPart) == "function" then
         pcall(syncBodyPart, wound.part, 0x430000000)

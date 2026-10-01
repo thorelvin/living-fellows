@@ -15,12 +15,49 @@ local function note(player, message)
     end
 end
 
+local function translated(key, fallback)
+    local value = type(getText) == "function" and getText(key) or nil
+    if type(value) ~= "string" or value == "" or value == key then return fallback end
+    return value
+end
+
+-- Player-facing text for a planning result. Internal reason codes belong in
+-- logs; one without its own line gets the general refusal.
+local reasonKeys = {
+    build_outside_camp = "UI_SC_Base_Plan_OutsideCamp",
+    barricade_outside_camp = "UI_SC_Base_Plan_OutsideCamp",
+    build_target_unloaded = "UI_SC_Base_Plan_Unloaded",
+    build_target_invalid = "UI_SC_Base_Plan_Blocked",
+    barricade_target_invalid = "UI_SC_Base_Plan_Blocked",
+    already_built = "UI_SC_Base_Plan_AlreadyBuilt",
+    build_plan_overlaps = "UI_SC_Base_Plan_Overlaps",
+    barricade_plan_overlaps = "UI_SC_Base_Plan_Overlaps",
+    job_limit = "UI_SC_Base_Plan_JobLimit",
+    barricade_full = "UI_SC_Base_Plan_BarricadeFull",
+    close_target_first = "UI_SC_Base_Plan_CloseFirst",
+    barricade_not_allowed = "UI_SC_Base_Plan_CannotBarricade",
+    player_build_materials_or_target_invalid = "UI_SC_Base_Plan_PlayerMaterials",
+    player_build_in_progress = "UI_SC_Base_Plan_PlayerBuilding",
+    base_missing = "UI_SC_Base_Plan_NoCamp",
+}
+
+function Planner.reasonText(reason)
+    return translated(reasonKeys[tostring(reason)] or "UI_SC_Base_Plan_Failed",
+        "That can't be planned right now.")
+end
+
+function Planner.acceptedText()
+    return translated("UI_SC_Base_Plan_Accepted", "Construction planned.")
+end
+
 local function call(object, method, ...)
     if not object then return nil end
     local found, callable = pcall(function() return object[method] end)
     if not found or type(callable) ~= "function" then return nil end
     local okay, result = pcall(callable, object, ...)
-    return okay and result or nil
+    -- Keep a real false: getNorth() == false is a west-facing object.
+    if not okay then return nil end
+    return result
 end
 
 local function loadedSquare(x, y, z)
@@ -307,7 +344,7 @@ local function cursorClass()
             or { r = 1.00, g = 0.16, b = 0.12 }
         if self.kind == "barricade" then
             Planner.renderBarricadeGhost({ x = x, y = y, z = z,
-                side = self.side, north = call(self.object, "getNorth") },
+                side = self.side, north = call(self.object, "getNorth") == true },
                 color, 0.85)
         else
             for index = 1, math.min(#placements, 32) do
@@ -323,15 +360,15 @@ local function cursorClass()
     function Cursor:tryBuild(x, y, z)
         local square = loadedSquare(x, y, z)
         local placements, valid, reason = self:preview(square, true)
-        if not valid then note(self.character, reason or "Invalid construction plan") return nil end
+        if not valid then note(self.character, Planner.reasonText(reason)) return nil end
         local okay, result
         if self.kind == "barricade" then
             okay, result = SC.BaseLife.enqueueBarricadePlan(self.object, self.side)
         else
             okay, result = SC.BaseLife.enqueueBuildPlan(placements)
         end
-        note(self.character, okay and "Construction planned"
-            or result or "Construction plan failed")
+        note(self.character, okay and Planner.acceptedText()
+            or Planner.reasonText(result))
         self:reinit()
         self.lastDragEndpoint, self.dragAnchorKey = nil, nil
         if SC.BaseVisuals and type(SC.BaseVisuals.refresh) == "function" then
@@ -341,6 +378,9 @@ local function cursorClass()
     end
     return Cursor
 end
+
+Planner._cursorClassForTests = cursorClass
+function Planner._resetCursorForTests() Cursor = nil end
 
 function Planner.start(kind, player)
     if not buildKinds[kind] or not player then return false, "invalid_build_kind" end

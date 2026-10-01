@@ -87,6 +87,55 @@ action.cancel()
 assert(entity.cleaned == true and job.state == "pending",
     "cancelled native build must release the blueprint for another worker")
 
+-- A west-facing window or door (getNorth() == false) shows an upright
+-- barricade ghost on the placement cursor, not a north-facing one.
+local formerRender, formerUtility = renderIsoLine, SC.GameplayUtil
+ISBuildingObject = { derive = function()
+    local class = {}
+    class.__index = class
+    function class:init() end
+    function class:reinit() end
+    return class
+end }
+local ghostLines = {}
+renderIsoLine = function(x1, y1, _, x2, y2)
+    ghostLines[#ghostLines + 1] = { x1 = x1, y1 = y1, x2 = x2, y2 = y2 }
+end
+local window = {}
+function window:getNorth() return false end
+function window:getSquare() return square end
+function window:getBarricadeOnSameSquare() return nil end
+function window:getBarricadeOnOppositeSquare() return nil end
+function window:isBarricadeAllowed() return true end
+function window:IsOpen() return false end
+SC.BaseLife = { isInside = function() return true end }
+SC.GameplayUtil = { hasMethod = function(object, method)
+    return type(object[method]) == "function"
+end }
+planner._resetCursorForTests()
+local cursor = planner._cursorClassForTests():new(player, "barricade", window, "same")
+cursor:render(4, 5, 0, square)
+assert(#ghostLines == 3 and ghostLines[1].x1 == ghostLines[1].x2
+        and ghostLines[1].y1 ~= ghostLines[1].y2,
+    "a west-facing barricade target must draw an upright ghost")
+-- Planning results are shown as translated text, never as internal codes.
+local formerGetText = getText
+getText = function(key) return "T:" .. key end
+assert(planner.reasonText("build_outside_camp") == "T:UI_SC_Base_Plan_OutsideCamp"
+        and planner.reasonText("an_internal_code") == "T:UI_SC_Base_Plan_Failed"
+        and planner.acceptedText() == "T:UI_SC_Base_Plan_Accepted",
+    "planning results map to translated text")
+function player:setHaloNote(value) self.halo = value end
+function window:isBarricadeAllowed() return false end
+cursor:tryBuild(4, 5, 0)
+assert(player.halo == "T:UI_SC_Base_Plan_Blocked",
+    "an invalid barricade plan shows translated text, not its reason code: "
+        .. tostring(player.halo))
+getText = formerGetText
+
+planner._resetCursorForTests()
+renderIsoLine, SC.GameplayUtil = formerRender, formerUtility
+
 SC.BaseLife, SC.BaseWork = formerLife, formerWork
 ISBuildIsoEntity, ISBuildingObject = formerEntity, formerObject
 ISInventoryPaneContextMenu, getCell = formerPane, formerCell

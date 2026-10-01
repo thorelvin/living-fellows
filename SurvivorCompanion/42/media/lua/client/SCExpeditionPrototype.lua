@@ -2179,6 +2179,8 @@ end
 
 Expedition._stairTransitionTargetForTests = stairTransitionTarget
 
+local REUNION_CHECK_INTERVAL_MS = 500
+
 local function playerMetSearchSquad(player, leader)
     local util = SC.GameplayUtil
     if player == nil or leader == nil or util == nil then return false end
@@ -2662,12 +2664,20 @@ local function pulseScout()
         scout.nearObservationSince = nil
     end
     -- Check a physical reunion even while the return waypoint is active.
-    -- Its movement owner otherwise returns early for several seconds.
+    -- Its movement owner otherwise returns early for several seconds. The
+    -- pulse runs every tick; a reunion does not need sight and access tests
+    -- more often than twice a second.
     local player = type(getSpecificPlayer) == "function"
         and getSpecificPlayer(0) or nil
-    if scout.phase == "inbound" and scout.search ~= nil
-        and scout.site ~= nil and scout.site.id ~= nil
-        and player ~= nil and scoutFollowersNearLeader()
+    local reunionDue = scout.phase == "inbound" and scout.search ~= nil
+        and scout.site ~= nil and scout.site.id ~= nil and player ~= nil
+        and now >= (scout.nextReunionCheckAt or -math.huge)
+    if reunionDue then
+        scout.nextReunionCheckAt = now + REUNION_CHECK_INTERVAL_MS
+    end
+    if reunionDue and scoutFollowersNearLeader()
+        and SC.ExpeditionPlaces
+        and type(SC.ExpeditionPlaces.siteContainsPoint) == "function"
         and SC.ExpeditionPlaces.siteContainsPoint(scout.site.id,
             math.floor(player:getX()), math.floor(player:getY()),
             math.floor(player:getZ()))
@@ -3257,6 +3267,14 @@ function Expedition.finishAtPlayer(player)
         return false, "return_busy_or_paused"
     end
     local px, py, pz = player:getX(), player:getY(), player:getZ()
+    -- A member must have finished any stair transition, but the player may be
+    -- standing on a staircase: either floor it connects counts as theirs.
+    local lowestFloor, highestFloor = math.floor(pz + 0.05), math.ceil(pz - 0.05)
+    local function assembledFloor(z)
+        local level = math.floor(z + 0.5)
+        return math.abs(z - level) <= 0.2
+            and level >= lowestFloor and level <= highestFloor
+    end
     local intactRoster = true
     local homecomingSpeaker
     local alternateSpeakers = {}
@@ -3267,7 +3285,7 @@ function Expedition.finishAtPlayer(player)
         if not alive(record) or (mission.survivors ~= nil
             and mission.survivors[record.id] ~= true) then
             intactRoster = false
-        elseif math.abs(record.actor:getZ() - pz) <= 0.2
+        elseif assembledFloor(record.actor:getZ())
             and ((record.actor:getX() - px) ^ 2
                 + (record.actor:getY() - py) ^ 2) <= speakingDistance ^ 2 then
             if record == mission.leader then
@@ -3284,7 +3302,7 @@ function Expedition.finishAtPlayer(player)
             if not record.actor:isDead() then
                 if not alive(record) or math.abs(record.actor:getX() - px) > 12
                     or math.abs(record.actor:getY() - py) > 12
-                    or math.abs(record.actor:getZ() - pz) > 0.2 then
+                    or not assembledFloor(record.actor:getZ()) then
                     return false, "return_member_not_assembled"
                 end
             end

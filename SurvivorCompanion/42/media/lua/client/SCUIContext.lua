@@ -533,27 +533,33 @@ local function toggleBaseLayout(_, player)
     end
 end
 
+-- Halo notes show translated text; internal reason codes never reach the player.
+local function planNote(player, message)
+    if player then safeMethod(player, "setHaloNote", message) end
+end
+
 local function startConstruction(_, kind, player)
     local okay, reason = SC.ConstructionPlanner.start(kind, player)
-    if not okay and player then safeMethod(player, "setHaloNote", tostring(reason)) end
+    if not okay then planNote(player, SC.ConstructionPlanner.reasonText(reason)) end
 end
 
 local function startBarricadePlan(_, object, player)
     local okay, reason = SC.ConstructionPlanner.startBarricade(object, player)
-    if not okay and player then safeMethod(player, "setHaloNote", tostring(reason)) end
+    if not okay then planNote(player, SC.ConstructionPlanner.reasonText(reason)) end
 end
 
 local function buildBlueprint(_, id, player)
     local okay, reason = SC.ConstructionPlanner.buildSegment(player, id)
-    if player then safeMethod(player, "setHaloNote", okay
-        and text("UI_SC_Base_Blueprint_PlayerStarted") or tostring(reason)) end
+    planNote(player, okay and reason ~= "already_built"
+        and text("UI_SC_Base_Blueprint_PlayerStarted")
+        or SC.ConstructionPlanner.reasonText(reason))
 end
 
 local function manageBlueprint(_, action, id, player)
     local method = action == "retry" and SC.BaseLife.retryJob or SC.BaseLife.cancelJob
     local okay, reason = method(id)
-    if player then safeMethod(player, "setHaloNote", okay
-        and text("UI_SC_Base_ActionAccepted") or tostring(reason)) end
+    planNote(player, okay and text("UI_SC_Base_ActionAccepted")
+        or SC.ConstructionPlanner.reasonText(reason))
     if SC.BaseVisuals then SC.BaseVisuals.refresh() end
     if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
 end
