@@ -2522,6 +2522,20 @@ end
 local function completeCraft(actor, activity)
     local utility = U()
     local inventory = utility.inventory(actor)
+    if not inventory then return false end
+    local seen = {}
+    for _, scrap in ipairs(activity.scraps or {}) do
+        local holder = reservations[scrap]
+        if seen[scrap] or not holder or holder.actor ~= actor
+            or not utility.inventoryContains(inventory, scrap)
+            or (SC.PersonalItems and type(SC.PersonalItems.isProtected) == "function"
+                and SC.PersonalItems.isProtected(scrap, actor, "craft_material")) then
+            return false
+        end
+        seen[scrap] = true
+    end
+    -- The player can protect or move a selected scrap while the animation is
+    -- running. Recheck exact items before creating output or consuming either.
     local output = utility.addItem(inventory, activity.outputType)
     if not output then return false end
     local removed = {}

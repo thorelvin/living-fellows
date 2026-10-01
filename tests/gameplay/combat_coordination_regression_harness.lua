@@ -327,6 +327,48 @@ if type(claimed) == "function" then
 end
 SC.Navigation.openSegment = priorOpenSegment
 
+-- The grounded pair keeps one finisher while their relative distance changes
+-- during the sidestep. After the short lease it may choose again.
+local fallen = character("z-grounded-lane", 25.5, 25.5, "IsoZombie")
+function fallen:isOnFloor() return true end
+local closer = character("sc-grounded-closer", 24.8, 25.5)
+local farther = character("sc-grounded-farther", 24.2, 25.5)
+local laneClaim = SC.Combat._groundedLaneClaimForTests
+local claim, created = laneClaim(farther, fallen, closer, "support", 1000)
+check(created == true and claim.finisher == closer and claim.yielder == farther,
+    "the farther companion initially yields the grounded finishing lane")
+farther.x, closer.x = 25.0, 23.8
+local held, changed = laneClaim(closer, fallen, farther, "support", 1100)
+check(changed == false and held == claim and held.yielder == farther,
+    "distance reversal cannot swap finisher while the lane claim is live")
+claim.goalX, claim.goalY = 25.0, 26.8
+local previousOpen = SC.Navigation.openSegment
+SC.Navigation.openSegment = function() return true end
+local retained = SC.Combat._retainGroundedLaneActionForTests(farther, fallen,
+    { kind = "approach", score = 10 }, 1200)
+check(retained.kind == "kite" and retained.floorLaneYield == true
+        and retained.moveY > 0,
+    "the yielding companion continues to its clear side instead of re-approaching")
+SC.Navigation.openSegment = function() return false end
+local blockedRetain = SC.Combat._retainGroundedLaneActionForTests(farther, fallen,
+    { kind = "approach", score = 10 }, 1200)
+check(blockedRetain.kind == "hold_range",
+    "an invalidated side route holds instead of crossing an unproven tile")
+SC.Navigation.openSegment = previousOpen
+local renewed, renewedNow = laneClaim(closer, fallen, farther, "support", 3000)
+check(renewedNow == true and renewed.yielder == closer,
+    "an expired lane claim permits a new finisher decision")
+previousOpen = SC.Navigation.openSegment
+SC.Navigation.openSegment = function() return false end
+check(SC.Combat._groundedLaneYieldForTests(farther, fallen, closer, {}, 1.5) == nil,
+    "a grounded sidestep must not cross unproven ground")
+SC.Navigation.openSegment = function() return true end
+local stepX, stepY = SC.Combat._groundedLaneYieldForTests(farther, fallen,
+    closer, {}, 1.5)
+check(stepX ~= nil and stepY ~= nil,
+    "a loaded, pathable sidestep can clear the finishing lane")
+SC.Navigation.openSegment = previousOpen
+
 -- T06: a companion being bitten is a companion who needs help. isGrabbed only
 -- becomes true once a grapple or synthetic pin exists, so during the bite
 -- itself -- exactly when help is wanted -- the victim did not register as

@@ -23,6 +23,8 @@ try {
         (Join-Path $TestRoot 'SCBaseVisualsFixture.lua'),
         (Join-Path $Client 'SCBaseVisuals.lua'),
         (Join-Path $TestRoot 'SCBaseVisualsTests.lua'),
+        (Join-Path $Client 'SCConstructionPlanner.lua'),
+        (Join-Path $TestRoot 'SCConstructionPlannerTests.lua'),
         (Join-Path $TestRoot 'SCCompanionMapFixture.lua'),
         (Join-Path $Client 'SCCompanionMap.lua'),
         (Join-Path $TestRoot 'SCCompanionMapTests.lua'),

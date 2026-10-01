@@ -799,7 +799,16 @@ local function barricadeTarget(actor, payload)
     end
     local open, openOk = U().call(object, "IsOpen")
     if openOk and open == true then return nil, nil, "close_target_first" end
-    local existing, existingOk = U().call(object, "getBarricadeForCharacter", actor)
+    local side = type(payload) == "table" and payload.barricadeSide or nil
+    local selectedMethod = side == "same" and "getBarricadeOnSameSquare"
+        or side == "opposite" and "getBarricadeOnOppositeSquare"
+        or "getBarricadeForCharacter"
+    local existing, existingOk
+    if selectedMethod == "getBarricadeForCharacter" then
+        existing, existingOk = U().call(object, selectedMethod, actor)
+    else
+        existing, existingOk = U().call(object, selectedMethod)
+    end
     if existingOk and existing then
         local canAdd, canAddOk = U().call(existing, "canAddPlank")
         if canAddOk and canAdd ~= true then return nil, nil, "barricade_full" end
@@ -823,7 +832,16 @@ local function handleBarricade(actor, entry, state, payload)
     if not object then return false, reason end
     local descriptor, identityReason = describeWorkObject(object)
     if not descriptor then return false, identityReason end
-    local existing = select(1, U().call(object, "getBarricadeForCharacter", actor))
+    local side = type(payload) == "table" and payload.barricadeSide or nil
+    local selectedMethod = side == "same" and "getBarricadeOnSameSquare"
+        or side == "opposite" and "getBarricadeOnOppositeSquare"
+        or "getBarricadeForCharacter"
+    local existing
+    if selectedMethod == "getBarricadeForCharacter" then
+        existing = select(1, U().call(object, selectedMethod, actor))
+    else
+        existing = select(1, U().call(object, selectedMethod))
+    end
     local initialPlanks = 0
     if existing then
         local count, countOk = U().call(existing, "getNumPlanks")
@@ -852,6 +870,8 @@ local function handleBarricade(actor, entry, state, payload)
         objectSignature = descriptor.objectSignature,
         initialPlanks = initialPlanks,
         baseJobId = type(payload) == "table" and payload.baseJobId or nil,
+        barricadeSide = side == "same" and "same"
+            or side == "opposite" and "opposite" or nil,
         kind = "barricade",
     }
     markCommand(actor, entry, state)
@@ -924,7 +944,7 @@ local function handleTargetedWork(actor, entry, state, payload, kind)
     return true, kind .. "_ordered"
 end
 
-local function handleFinishWork(actor, entry, state)
+local function handleFinishWork(actor, entry, state, payload)
     if state.order ~= "work" or state.workMode ~= "build"
         or type(state.workTarget) ~= "table"
         or targetedWorkKinds[state.workTarget.kind] ~= true then
@@ -950,8 +970,28 @@ local function handleFinishWork(actor, entry, state)
     state.pendingInteraction = nil
     if nextOrder == "stay" and not state.anchor then state.anchor = positionTable(actor) end
     if nextOrder == "follow" then state.anchor = nil end
-    if baseJobId and SC.BaseLife and type(SC.BaseLife.completeJob) == "function" then
-        SC.BaseLife.completeJob(baseJobId, U().idOf(actor), "barricaded")
+    if baseJobId and SC.BaseLife then
+        local reason = type(payload) == "table" and payload.reason or nil
+        local object = SC.BaseLife.resolveObject(completedTarget)
+        local side = completedTarget.barricadeSide
+        local method = side == "same" and "getBarricadeOnSameSquare"
+            or side == "opposite" and "getBarricadeOnOppositeSquare"
+            or "getBarricadeForCharacter"
+        local barricade
+        if object then
+            if method == "getBarricadeForCharacter" then
+                barricade = select(1, U().call(object, method, actor))
+            else
+                barricade = select(1, U().call(object, method))
+            end
+        end
+        local canAdd = barricade and select(1, U().call(barricade, "canAddPlank"))
+        if reason == "barricade_completed" and barricade and canAdd == false then
+            SC.BaseLife.completeJob(baseJobId, U().idOf(actor), "barricaded")
+        else
+            SC.BaseLife.blockJob(baseJobId, U().idOf(actor),
+                reason or "barricade_unverified")
+        end
     end
     if (completedKind == "remove_barricade" or completedKind == "dismantle")
         and SC.Factions and type(SC.Factions.atPosition) == "function"

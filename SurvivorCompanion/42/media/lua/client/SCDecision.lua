@@ -1137,7 +1137,8 @@ end
 Decision._resolveWorkObjectForTests = resolveWorkObject
 
 local function removalInteractionSquare(object, target, fallback)
-    if type(target) ~= "table" or target.kind ~= "remove_barricade"
+    if type(target) ~= "table"
+        or (target.kind ~= "remove_barricade" and target.kind ~= "barricade")
         or target.barricadeSide ~= "opposite" then return fallback end
     local north, northOk = U().call(object, "getNorth")
     local x, y, z = U().position(fallback)
@@ -1147,7 +1148,7 @@ local function removalInteractionSquare(object, target, fallback)
         y = northOk and north == true and y - 1 or y,
         z = z or 0,
     }
-    return U().loadedSquare(candidate) or fallback
+    return U().loadedSquare(candidate)
 end
 
 local function barricadePlanks(object, actor)
@@ -1294,7 +1295,12 @@ local function doWork(actor, player, commands, snapshot, state)
         return true, reservationReason
     end
     local interactionSquare = removalInteractionSquare(object, commands.workTarget, targetSquare)
-    local wrongRemovalSide = commands.workTarget.kind == "remove_barricade"
+    if not interactionSquare then
+        return finishWork(actor, player, state, "work_side_unloaded")
+    end
+    local wrongRemovalSide = (commands.workTarget.kind == "remove_barricade"
+        or (commands.workTarget.kind == "barricade"
+            and commands.workTarget.barricadeSide ~= nil))
         and utility.squareKey(utility.squareOf(actor)) ~= utility.squareKey(interactionSquare)
     if utility.distance(actor, object) > 1.75 or wrongRemovalSide then
         if not SC.Navigation or type(SC.Navigation.request) ~= "function" then
@@ -1378,13 +1384,29 @@ local function doWork(actor, player, commands, snapshot, state)
         return true, "dismantle_started"
     end
 
-    local currentPlanks = barricadePlanks(object, actor)
+    local currentPlanks = selectedBarricadePlanks(object, actor, commands.workTarget) or 0
+    local baseBarricade = commands.workTarget.baseJobId ~= nil
+    local selected = selectedBarricade(object, actor, commands.workTarget)
+    local canAdd = selected and select(1, utility.call(selected, "canAddPlank"))
+    if baseBarricade and selected and canAdd == false then
+        if SC.NativeActions and type(SC.NativeActions.isWorkActive) == "function"
+            and SC.NativeActions.isWorkActive(actor) then
+            return true, "barricade_finishing"
+        end
+        return finishWork(actor, player, state, "barricade_completed")
+    end
     local work = state.workAction
     if work then
         if currentPlanks > (work.initialPlanks or 0) then
             if SC.NativeActions and type(SC.NativeActions.isWorkActive) == "function"
                 and SC.NativeActions.isWorkActive(actor) then
                 return true, "barricade_finishing"
+            end
+            if baseBarricade then
+                local cleaned, cleanupReason = SC.NativeActions.finishWork(actor)
+                if cleaned ~= true then return false, cleanupReason end
+                state.workAction = nil
+                return true, "barricade_continuing"
             end
             return finishWork(actor, player, state, "barricade_completed")
         end
@@ -1405,7 +1427,7 @@ local function doWork(actor, player, commands, snapshot, state)
     -- applying the construction twice.
     local initialPlanks = math.max(0,
         math.floor(tonumber(commands.workTarget.initialPlanks) or 0))
-    if currentPlanks > initialPlanks then
+    if not baseBarricade and currentPlanks > initialPlanks then
         return finishWork(actor, player, state, "barricade_already_completed")
     end
 

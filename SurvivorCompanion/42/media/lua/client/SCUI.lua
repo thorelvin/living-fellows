@@ -1417,6 +1417,14 @@ local function runBaseManagementAction(target, action, payload)
         method, arguments = SC.BaseLife.cancelJob, { payload.id }
     elseif action == "retry_job" then
         method, arguments = SC.BaseLife.retryJob, { payload.id }
+    elseif action == "build_blueprint" and SC.ConstructionPlanner then
+        method, arguments = SC.ConstructionPlanner.buildSegment,
+            { playerForUI(), payload.id }
+    elseif action == "toggle_blueprints" then
+        method, arguments = function()
+            return SC.BaseLife.setBlueprintsVisible(
+                not SC.BaseLife.blueprintsVisible())
+        end, {}
     elseif action == "start_gather" then
         method, arguments = SC.BaseLife.createGatherOrder, { {
             material = payload.material, requested = payload.requested,
@@ -3112,6 +3120,31 @@ function SCUIDetail:buildBase(panel, row)
         local jobs = base.jobs or {}
         y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
             UI.text("UI_SC_Base_Jobs", jobs.pending or 0, jobs.active or 0, jobs.blocked or 0))
+        y = self:addBaseManagementAction(panel, y,
+            UI.text(SC.BaseLife.blueprintsVisible()
+                and "UI_SC_Base_Blueprint_Hide" or "UI_SC_Base_Blueprint_Show"),
+            "toggle_blueprints", {}, nil)
+        local constructionRows = {}
+        for _, job in ipairs(base.rows or {}) do
+            if job.type == "build" or job.type == "barricade" then
+                constructionRows[#constructionRows + 1] = job
+            end
+        end
+        if #constructionRows > 0 then
+            y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Queue")
+            for _, job in ipairs(constructionRows) do
+                local target = type(job.target) == "table" and job.target or {}
+                local label = UI.text("UI_SC_Base_Blueprint_Row",
+                    UI.humanize(job.kind or job.type),
+                    UI.humanize(job.state),
+                    tostring(target.x or "?") .. "," .. tostring(target.y or "?"))
+                y = self:addInformationLine(panel, y, "UI_SC_Info_Message", label)
+                if job.blocker then
+                    y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
+                        UI.text("UI_SC_Base_Blueprint_Blocked", job.blocker))
+                end
+            end
+        end
         y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Selected")
         if row then
             local resident = SC.BaseLife and SC.BaseLife.resident

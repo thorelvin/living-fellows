@@ -180,6 +180,34 @@ assert(#fixture.lines == 4 and #fixture.circles == 2
     "native IsoUtils projection must support clients without the server-side helper")
 
 fixture.draft = nil
+local previousCell = getCell
+getCell = function() return { getGridSquare = function(_, x, y, z)
+    if x == 12 and y == 12 and z == 0 then return {} end
+    return nil
+end } end
+local ghosts = 0
+SurvivorCompanion.ConstructionPlanner = {
+    renderBuildGhost = function(recipe, face, x, y, z)
+        assert(recipe == "wood_wall" and face == 2
+            and x == 12 and y == 12 and z == 0)
+        ghosts = ghosts + 1
+    end,
+}
+fixture.summary.constructionRows = { {
+    id = "job:blueprint", type = "build", kind = "wall",
+    x = 12, y = 12, z = 0, face = 2,
+    stages = { "wood_frame", "wood_wall" }, state = "pending",
+} }
+fixture.summary.blueprints = true
+fixture.clock = fixture.clock + 500
+Events.OnRenderTick.callback()
+assert(ghosts == 1, "queued construction must render outside Base Layout mode")
+fixture.summary.blueprints = false
+fixture.clock = fixture.clock + 500
+Events.OnRenderTick.callback()
+assert(ghosts == 1, "hidden construction blueprints must stop rendering")
+SurvivorCompanion.ConstructionPlanner = nil
+getCell = previousCell
 local removed, removeReason = Visuals.remove()
 assert(removed == true and removeReason == "removed")
 assert(Events.OnRenderTick.callback == nil and Events.OnPreUIDraw.callback == nil)

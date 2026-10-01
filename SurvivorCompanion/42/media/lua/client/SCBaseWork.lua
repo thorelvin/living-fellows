@@ -93,14 +93,19 @@ local function resolveRecipeName(info)
     return nameOk and tostring(name) or nil
 end
 
+local recipeInfoCache = {}
 function BaseWork.recipeInfo(recipeId)
+    if recipeInfoCache[recipeId] then return recipeInfoCache[recipeId] end
     if type(ISBuildIsoEntity) ~= "table"
         or type(ISBuildIsoEntity.GetAllBuildableEntities) ~= "function" then return nil end
     local ok, infos = pcall(ISBuildIsoEntity.GetAllBuildableEntities)
     if not ok or infos == nil then return nil end
     for index = 1, #infos do
         local info = infos[index]
-        if resolveRecipeName(info) == recipeId then return info end
+        if resolveRecipeName(info) == recipeId then
+            recipeInfoCache[recipeId] = info
+            return info
+        end
     end
     return nil
 end
@@ -112,6 +117,43 @@ function BaseWork.recipeForKind(kind)
         if BaseWork.recipeInfo(recipeId) then return recipeId end
     end
     return candidates[1]
+end
+
+local function faceIndex(face)
+    if face == 2 then return 0 end -- north
+    if face == 4 then return 2 end -- south
+    return face -- west or east
+end
+
+function BaseWork.recipeFace(recipeId, requestedFace)
+    local info = BaseWork.recipeInfo(recipeId)
+    if not info then return nil, nil end
+    requestedFace = math.max(1, math.min(4, math.floor(tonumber(requestedFace) or 1)))
+    for offset = 0, 3 do
+        local face = ((requestedFace + offset - 1) % 4) + 1
+        local value = select(1, invoke(info, "getFace", faceIndex(face)))
+        if value then return value, face end
+    end
+    return nil, nil
+end
+
+function BaseWork.recipeSprite(recipeId, requestedFace)
+    local face, resolvedFace = BaseWork.recipeFace(recipeId, requestedFace)
+    if not face then return nil, resolvedFace end
+    local rawWidth = select(1, invoke(face, "getWidth"))
+    local rawHeight = select(1, invoke(face, "getHeight"))
+    local width = tonumber(rawWidth) or 1
+    local height = tonumber(rawHeight) or 1
+    for x = 0, width - 1 do
+        for y = 0, height - 1 do
+            local tile = select(1, invoke(face, "getTileInfo", x, y, 0))
+            local sprite = tile and select(1, invoke(tile, "getSpriteName")) or nil
+            if type(sprite) == "string" and sprite ~= "" then
+                return sprite, resolvedFace
+            end
+        end
+    end
+    return nil, resolvedFace
 end
 
 local function buildProtected(actor, item)
@@ -579,6 +621,68 @@ local function squareHasSprite(square, spriteName)
     return nil
 end
 
+-- A normal player build may finish a queued segment without going through the
+-- companion action. Only world evidence advances it; an absent action cannot.
+function BaseWork.reconcileBuildJob(job, actorId)
+    if type(job) ~= "table" or job.type ~= "build" then return false, "not_build_job" end
+    if actorId == nil and job.reservedBy ~= nil then return false, "worker_owns_job" end
+    local square = targetSquare(job)
+    if not square then return false, "build_target_unloaded" end
+    local stages = type(job.stages) == "table" and job.stages or {}
+    local lastRecipe = #stages > 0 and stages[#stages] or job.recipeId
+    local finalSprite = BaseWork.recipeSprite(lastRecipe, job.face)
+    if squareHasSprite(square, finalSprite) == true then
+        return SC.BaseLife.completeJob(job.id, actorId, "built")
+    end
+    local currentSprite = BaseWork.recipeSprite(job.recipeId, job.face)
+    if squareHasSprite(square, currentSprite) == true then
+        return SC.BaseLife.advanceBuildStage(job.id, actorId)
+    end
+    return false, "build_not_present"
+end
+
+function BaseWork.reconcileBarricadeJob(job, actorId)
+    if type(job) ~= "table" or job.type ~= "barricade"
+        or type(job.target) ~= "table" then return false, "not_barricade_job" end
+    if actorId == nil and job.reservedBy ~= nil then return false, "worker_owns_job" end
+    local object = SC.BaseLife.resolveObject(job.target)
+    if not object then return false, "barricade_target_unloaded" end
+    local method = job.target.barricadeSide == "opposite"
+        and "getBarricadeOnOppositeSquare" or "getBarricadeOnSameSquare"
+    local barricade = select(1, invoke(object, method))
+    if barricade and select(1, invoke(barricade, "canAddPlank")) == false then
+        return SC.BaseLife.completeJob(job.id, actorId, "barricaded")
+    end
+    return false, "barricade_not_full"
+end
+
+local externalBuildCursor = 1
+function BaseWork.reconcileExternalBuilds()
+    local base = SC.BaseLife and SC.BaseLife.active and SC.BaseLife.active() or nil
+    local jobs = base and base.jobs or nil
+    if type(jobs) ~= "table" or #jobs == 0 then return 0 end
+    local checked, changed = 0, 0
+    while checked < math.min(4, #jobs) do
+        if externalBuildCursor > #jobs then externalBuildCursor = 1 end
+        local job = jobs[externalBuildCursor]
+        checked = checked + 1
+        if job and (job.type == "build" or job.type == "barricade")
+            and job.reservedBy == nil then
+            local okay
+            if job.type == "build" then
+                okay = BaseWork.reconcileBuildJob(job, nil)
+            else
+                okay = BaseWork.reconcileBarricadeJob(job, nil)
+            end
+            if okay == true then changed = changed + 1
+            else externalBuildCursor = externalBuildCursor + 1 end
+        else
+            externalBuildCursor = externalBuildCursor + 1
+        end
+    end
+    return changed
+end
+
 -- "complete", "missing" or "cancelled". A cancelled action, an unrelated
 -- object appearing, or placement turning invalid are never a finished build.
 local function buildOutcome(state, square)
@@ -636,6 +740,14 @@ end
 local function updateBuild(actor, state, job)
     local square = targetSquare(job)
     if not square then return false, "build_target_unloaded", true end
+    if state.phase ~= "building" then
+        local reconciled = BaseWork.reconcileBuildJob(job, actorId(actor))
+        if reconciled == true then
+            state.phase, state.action, state.entity = "idle", nil, nil
+            state.buildSpriteName = nil
+            return true, "build_already_present"
+        end
+    end
     local info = BaseWork.recipeInfo(job.recipeId)
     if not info then return false, "build_recipe_missing", true end
     if state.phase ~= "building" then
@@ -664,7 +776,7 @@ local function updateBuild(actor, state, job)
     end
     local outcome = buildOutcome(state, square)
     if outcome == "complete" then
-        SC.BaseLife.completeJob(job.id, actorId(actor), "built")
+        SC.BaseLife.advanceBuildStage(job.id, actorId(actor))
         state.phase, state.action, state.entity = "idle", nil, nil
         state.buildSpriteName = nil
         if SC.NativeActions and type(SC.NativeActions.noteResult) == "function" then
@@ -876,6 +988,8 @@ local function updateTransfer(actor, state, job)
 end
 
 local function queueBarricade(actor, job)
+    local alreadyFull = BaseWork.reconcileBarricadeJob(job, actorId(actor))
+    if alreadyFull == true then return true, "barricade_already_full" end
     local object = type(job.target) == "table" and SC.BaseLife.resolveObject(job.target) or nil
     if not object then return false, "barricade_target_unloaded", true end
     if not SC.Commands or type(SC.Commands.issue) ~= "function" then
@@ -883,6 +997,7 @@ local function queueBarricade(actor, job)
     end
     local ok, reason = SC.Commands.issue(actorId(actor), "barricade", {
         object = object, baseJobId = job.id,
+        barricadeSide = job.target.barricadeSide,
     })
     return ok == true, reason, ok ~= true
 end

@@ -15,6 +15,8 @@ local Combat = SC.Combat
 local states = setmetatable({}, { __mode = "k" })
 local targetClaims = setmetatable({}, { __mode = "k" })
 local actorClaims = setmetatable({}, { __mode = "k" })
+local groundedLaneClaims = setmetatable({}, { __mode = "k" })
+local groundedLaneLoggedAt = setmetatable({}, { __mode = "k" })
 local retreatPlans = {}
 local lastGroupCombatBarkAt = -math.huge
 
@@ -1738,6 +1740,64 @@ local function groundedLaneYield(actor, target, partner, snapshot, maximum)
     end
     return nil
 end
+
+local function activeGroundedLaneClaim(target, now)
+    local claim = target and groundedLaneClaims[target] or nil
+    if claim and ((claim.untilAt or 0) <= now or U().isDead(target)
+        or U().isDead(claim.finisher) or U().isDead(claim.yielder)
+        or not (boolCall(target, "isOnFloor") or boolCall(target, "isProne")
+            or boolCall(target, "isCrawling"))) then
+        groundedLaneClaims[target] = nil
+        return nil
+    end
+    return claim
+end
+
+-- A distance advantage can change while the yielded companion is stepping
+-- sideways. Keep one finisher for this short window so the pair does not swap
+-- jobs each decision tick and walk back into the same blocked strike lane.
+local function groundedLaneClaim(actor, target, partner, role, now)
+    local prior = activeGroundedLaneClaim(target, now)
+    if prior and (prior.finisher == actor and prior.yielder == partner
+        or prior.finisher == partner and prior.yielder == actor) then
+        return prior, false
+    end
+    local mine, theirs = U().distanceSq(actor, target), U().distanceSq(partner, target)
+    local yielder
+    if mine > theirs + 0.16 then yielder = actor
+    elseif theirs > mine + 0.16 then yielder = partner
+    else yielder = role == "primary" and partner or actor end
+    local claim = {
+        finisher = yielder == actor and partner or actor,
+        yielder = yielder,
+        untilAt = now + math.max(500,
+            tonumber(U().config("combatGroundedLaneYieldMs")) or 1800),
+    }
+    groundedLaneClaims[target] = claim
+    return claim, true
+end
+
+Combat._groundedLaneClaimForTests = groundedLaneClaim
+Combat._groundedLaneYieldForTests = groundedLaneYield
+
+local function retainGroundedLaneAction(actor, target, chosen, now)
+    if chosen.kind ~= "approach" then return chosen end
+    local lane = activeGroundedLaneClaim(target, now)
+    if not lane or lane.yielder ~= actor then return chosen end
+    local ax, ay, az = U().position(actor)
+    local goalX, goalY = lane.goalX, lane.goalY
+    if ax ~= nil and goalX ~= nil
+        and (goalX - ax) ^ 2 + (goalY - ay) ^ 2 > 0.25 * 0.25
+        and SC.Navigation and type(SC.Navigation.openSegment) == "function"
+        and SC.Navigation.openSegment(actor, goalX, goalY, az) then
+        return { kind = "kite", score = chosen.score,
+            moveX = goalX - ax, moveY = goalY - ay, floorLaneYield = true }
+    end
+    return { kind = "hold_range", score = chosen.score,
+        floorLaneYield = true }
+end
+
+Combat._retainGroundedLaneActionForTests = retainGroundedLaneAction
 
 local function medicalPressure(actor)
     local medical = SC.Medical
@@ -3992,6 +4052,7 @@ function Combat.update(actor, player, runtime)
     rootRuntime.combatRole = combatRole
     rootRuntime.combatReadiness = readiness
     chosen = stabilizeSpacingAction(state, chosen, target, now)
+    chosen = retainGroundedLaneAction(actor, target.actor, chosen, now)
     if chosen.kind == "approach" and state.attackAnchor
         and state.attackAnchor.target == target.actor
         and now < (state.attackAnchor.expires or 0)
@@ -4031,23 +4092,40 @@ function Combat.update(actor, player, runtime)
                 or boolCall(target.actor, "isProne")
                 or boolCall(target.actor, "isCrawling"))
             local partner = grounded and Combat.claimPartner(target.actor, actor, now) or nil
-            local yieldLane = false
+            local laneClaim
             if partner ~= nil and blocker == partner
                 and utility.sameFloor(actor, partner) then
-                local mine = utility.distanceSq(actor, target.actor)
-                local theirs = utility.distanceSq(partner, target.actor)
-                yieldLane = mine > theirs + 0.16
-                    or (math.abs(mine - theirs) <= 0.16
-                        and combatRole ~= "primary")
+                laneClaim = groundedLaneClaim(actor, target.actor,
+                    partner, combatRole, now)
             end
-            if yieldLane then
-                local dx, dy = groundedLaneYield(actor, target.actor,
-                    partner, snapshot, chosen.maximum)
+            if laneClaim and laneClaim.yielder == actor then
+                local ax, ay, az = utility.position(actor)
+                local dx, dy
+                if ax ~= nil and laneClaim.goalX ~= nil
+                    and (laneClaim.goalX - ax) ^ 2
+                        + (laneClaim.goalY - ay) ^ 2 > 0.25 * 0.25
+                    and SC.Navigation and type(SC.Navigation.openSegment) == "function"
+                    and SC.Navigation.openSegment(actor,
+                        laneClaim.goalX, laneClaim.goalY, az) then
+                    dx, dy = laneClaim.goalX - ax, laneClaim.goalY - ay
+                else
+                    dx, dy = groundedLaneYield(actor, target.actor,
+                        partner, snapshot, chosen.maximum)
+                end
                 if dx ~= nil then
+                    laneClaim.goalX, laneClaim.goalY = ax + dx, ay + dy
                     chosen = { kind = "kite", score = chosen.score,
                         moveX = dx, moveY = dy, floorLaneYield = true }
+                end
+                local logged = groundedLaneLoggedAt[target.actor]
+                if not logged or logged.yielder ~= actor
+                    or now - logged.at >= 5000 then
+                    groundedLaneLoggedAt[target.actor] = {
+                        yielder = actor, at = now,
+                    }
                     utility.diagnostic("combat-flank", actor,
-                        "action=grounded_lane_yield")
+                        "action=grounded_lane_yield path="
+                            .. tostring(dx ~= nil))
                 end
             end
             if chosen.kind ~= "kite" or chosen.floorLaneYield ~= true then
@@ -4171,6 +4249,8 @@ function Combat.reset(actor)
         states = setmetatable({}, { __mode = "k" })
         targetClaims = setmetatable({}, { __mode = "k" })
         actorClaims = setmetatable({}, { __mode = "k" })
+        groundedLaneClaims = setmetatable({}, { __mode = "k" })
+        groundedLaneLoggedAt = setmetatable({}, { __mode = "k" })
         retreatPlans = {}
         lastGroupCombatBarkAt = -math.huge
     end
@@ -4178,6 +4258,14 @@ end
 
 function Combat.releaseActor(actor)
     if actor == nil then return false end
+    groundedLaneClaims[actor] = nil
+    groundedLaneLoggedAt[actor] = nil
+    for target, claim in pairs(groundedLaneClaims) do
+        if claim.finisher == actor or claim.yielder == actor then
+            groundedLaneClaims[target] = nil
+            groundedLaneLoggedAt[target] = nil
+        end
+    end
     if SC.InventoryIndex then SC.InventoryIndex.release(actor) end
     local affected = {}
     for owner, state in pairs(states) do

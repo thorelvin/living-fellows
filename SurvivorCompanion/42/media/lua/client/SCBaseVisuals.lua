@@ -13,6 +13,9 @@ local refreshDue = 0
 local cachedZ = nil
 local cachedZones = {}
 local cachedStorages = {}
+local cachedConstruction = {}
+local constructionRefreshDue = 0
+local externalReconcileDue = 0
 local highlightedObjects = {}
 local lastReportAt = {}
 
@@ -192,6 +195,32 @@ local function refreshCache(force)
     return true
 end
 
+local function refreshConstruction(force)
+    local subject = player()
+    local px, py, pz = playerPosition(subject)
+    if px == nil or not SC.BaseLife
+        or type(SC.BaseLife.visualRows) ~= "function" then
+        cachedConstruction = {}
+        return false
+    end
+    local current = now()
+    if force ~= true and current < constructionRefreshDue then return true end
+    constructionRefreshDue = current + REFRESH_MILLIS
+    cachedConstruction = {}
+    local okay, summary = pcall(SC.BaseLife.visualRows)
+    if not okay or type(summary) ~= "table" or summary.configured ~= true
+        or summary.blueprints == false then return false end
+    local cell = type(getCell) == "function" and getCell() or nil
+    for _, row in ipairs(type(summary.constructionRows) == "table"
+        and summary.constructionRows or {}) do
+        if nearPlayer(row, px, py, pz) and cell
+            and safeMethod(cell, "getGridSquare", row.x, row.y, row.z) then
+            cachedConstruction[#cachedConstruction + 1] = row
+        end
+    end
+    return true
+end
+
 local function bounds(row)
     local x1, y1 = tonumber(row.x1), tonumber(row.y1)
     local x2, y2 = tonumber(row.x2), tonumber(row.y2)
@@ -316,6 +345,25 @@ end
 
 function Visuals.renderWorld()
     local draft = currentDraft()
+    refreshConstruction(false)
+    if SC.ConstructionPlanner then
+        for _, row in ipairs(cachedConstruction) do
+            local color = row.state == "blocked"
+                and { r = 1.00, g = 0.68, b = 0.12 }
+                or (row.state == "active" or row.state == "manual")
+                    and { r = 0.10, g = 0.94, b = 0.95 }
+                or { r = 0.24, g = 0.70, b = 1.00 }
+            local alpha = enabled and 0.58 or 0.35
+            if row.type == "barricade" then
+                SC.ConstructionPlanner.renderBarricadeGhost(row, color, alpha)
+            else
+                local stages = type(row.stages) == "table" and row.stages or {}
+                local recipe = stages[#stages] or row.recipeId
+                SC.ConstructionPlanner.renderBuildGhost(recipe, row.face,
+                    row.x, row.y, row.z, color, alpha)
+            end
+        end
+    end
     if enabled then
         refreshCache(false)
         for _, zone in ipairs(cachedZones) do
@@ -657,6 +705,14 @@ local function reportFailure(system, detail)
 end
 
 function Visuals.onRenderTick()
+    local current = now()
+    if current >= externalReconcileDue then
+        externalReconcileDue = current + 1000
+        if SC.BaseWork and type(SC.BaseWork.reconcileExternalBuilds) == "function" then
+            local okay, reason = pcall(SC.BaseWork.reconcileExternalBuilds)
+            if not okay then reportFailure("base-build-reconcile", reason) end
+        end
+    end
     local ok, reason = pcall(Visuals.renderWorld)
     if not ok then reportFailure("base-visuals-world", reason) end
 end
@@ -691,6 +747,7 @@ end
 
 function Visuals.refresh()
     refreshDue = 0
+    constructionRefreshDue = 0
     return true
 end
 
@@ -698,12 +755,15 @@ function Visuals.status()
     return {
         enabled = enabled, focusKind = focusKind, focusId = focusId,
         visibleZones = #cachedZones, visibleStorages = #cachedStorages,
+        visibleBlueprints = #cachedConstruction,
     }
 end
 
 function Visuals.reset()
     Visuals.setEnabled(false)
     refreshDue = 0
+    constructionRefreshDue, externalReconcileDue = 0, 0
+    cachedConstruction = {}
     lastReportAt = {}
     return true
 end

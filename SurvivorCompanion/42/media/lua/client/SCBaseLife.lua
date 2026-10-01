@@ -102,7 +102,7 @@ BaseLife.PRODUCTION_OPERATIONS = {
 
 local JOB_STATES = {
     pending = true, reserved = true, active = true, blocked = true,
-    completed = true, cancelled = true,
+    manual = true, completed = true, cancelled = true,
 }
 local roleAffinity = {
     generalist = { haul = 4, sort = 4, fetch = 4, gather_materials = 5,
@@ -345,11 +345,23 @@ local function normalizeJob(source)
     if type(source) ~= "table" or not validId(source.id, "job:")
         or not BaseLife.JOB_TYPES[source.type] then return nil end
     local state = JOB_STATES[source.state] and source.state or "pending"
-    if state == "reserved" or state == "active" then state = "pending" end
+    if state == "reserved" or state == "active" or state == "manual" then
+        state = "pending"
+    end
+    local stages = {}
+    for _, recipeId in ipairs(type(source.stages) == "table" and source.stages or {}) do
+        if type(recipeId) == "string" and recipeId ~= "" and #recipeId <= 128
+            and #stages < 2 then stages[#stages + 1] = recipeId end
+    end
+    local stageIndex = integer(source.stageIndex, 1, 1, math.max(1, #stages))
     return {
         id = source.id, type = source.type, priority = integer(source.priority, 3, 1, 5),
         state = state, target = stableCopy(source.target, 3, { count = 64 }),
         recipeId = type(source.recipeId) == "string" and cleanText(source.recipeId, "", 128) or nil,
+        stages = stages, stageIndex = stageIndex,
+        planId = type(source.planId) == "string" and cleanText(source.planId, "", 64) or nil,
+        buildKind = type(source.buildKind) == "string"
+            and cleanText(source.buildKind, "", 32) or nil,
         face = integer(source.face, 1, 1, 4),
         assignedId = type(source.assignedId) == "string" and source.assignedId or nil,
         reservedBy = nil, leaseUntil = 0, blocker = source.blocker ~= nil
@@ -720,6 +732,7 @@ local function normalizeBase(source)
             workload = WORKLOAD_POLICIES[settings.workload] and settings.workload or "balanced",
             routines = settings.routines ~= false,
             autoMaintenance = settings.autoMaintenance ~= false,
+            blueprints = settings.blueprints ~= false,
             stockTargets = stockTargets,
         },
         createdAt = math.max(0, finite(source.createdAt, 0)),
@@ -1401,7 +1414,8 @@ end
 -- refresh would do unrelated work merely because the player enabled outlines.
 function BaseLife.visualRows()
     local base = activeBase()
-    local result = { configured = base ~= nil, zoneRows = {}, storageRows = {} }
+    local result = { configured = base ~= nil, zoneRows = {}, storageRows = {},
+        constructionRows = {}, blueprints = base == nil or base.settings.blueprints ~= false }
     if not base then return result end
     for _, zone in ipairs(base.zones or {}) do
         result.zoneRows[#result.zoneRows + 1] = {
@@ -1417,7 +1431,33 @@ function BaseLife.visualRows()
         if references then references.copy(storage, row) end
         result.storageRows[#result.storageRows + 1] = row
     end
+    for _, job in ipairs(base.jobs or {}) do
+        if (job.type == "build" or job.type == "barricade")
+            and type(job.target) == "table" then
+            result.constructionRows[#result.constructionRows + 1] = {
+                id = job.id, planId = job.planId, type = job.type,
+                kind = job.buildKind, x = job.target.x, y = job.target.y,
+                z = job.target.z, face = job.face, side = job.target.barricadeSide,
+                north = job.target.north,
+                recipeId = job.recipeId, stages = job.stages,
+                stageIndex = job.stageIndex, state = job.state,
+                blocker = job.blocker,
+            }
+        end
+    end
     return result
+end
+
+function BaseLife.setBlueprintsVisible(value)
+    local base = activeBase()
+    if not base then return false, "base_missing" end
+    base.settings.blueprints = value == true
+    return true, base.settings.blueprints
+end
+
+function BaseLife.blueprintsVisible()
+    local base = activeBase()
+    return base == nil or base.settings.blueprints ~= false
 end
 
 function BaseLife.resolveContainer(storage)
@@ -2891,6 +2931,171 @@ function BaseLife.enqueueJob(spec)
     return true, job
 end
 
+local function buildEdgeKey(target, face, kind)
+    if type(target) ~= "table" then return nil end
+    local x, y, z = tonumber(target.x), tonumber(target.y), tonumber(target.z)
+    if not x or not y or not z then return nil end
+    if kind == "floor" then return "floor:" .. x .. ":" .. y .. ":" .. z end
+    face = tonumber(face) or 1
+    if face == 3 then x = x + 1 face = 1 end
+    if face == 4 then y = y + 1 face = 2 end
+    return "edge:" .. x .. ":" .. y .. ":" .. z .. ":" .. face
+end
+
+function BaseLife.validateBuildPlan(specs)
+    local base = activeBase()
+    if not base then return false, "base_missing" end
+    if type(specs) ~= "table" or #specs < 1 then return false, "empty_build_plan" end
+    local maximum = U().config("baseMaxJobs") or 64
+    if #base.jobs + #specs > maximum then return false, "job_limit" end
+    local occupied, pending = {}, {}
+    for _, job in ipairs(base.jobs) do
+        if job.type == "build" then
+            local key = buildEdgeKey(job.target, job.face, job.buildKind)
+            if key then occupied[key] = true end
+        end
+    end
+    for _, spec in ipairs(specs) do
+        local target = position(spec.target)
+        local stages = type(spec.stages) == "table" and spec.stages or {}
+        local kind = spec.kind
+        local face = integer(spec.face, 1, 1, 4)
+        if not target or not BaseLife.isInside(target) then
+            return false, "build_outside_camp"
+        end
+        if kind ~= "wall" and kind ~= "wall_frame" and kind ~= "door"
+            and kind ~= "door_frame" and kind ~= "floor" then
+            return false, "invalid_build_kind"
+        end
+        if #stages < 1 or #stages > 2 then return false, "invalid_build_stages" end
+        for _, recipeId in ipairs(stages) do
+            if type(recipeId) ~= "string" or recipeId == "" or #recipeId > 128 then
+                return false, "invalid_build_recipe"
+            end
+        end
+        local key = buildEdgeKey(target, face, kind)
+        if occupied[key] then return false, "build_plan_overlaps" end
+        occupied[key] = true
+        pending[#pending + 1] = {
+            type = "build", priority = 3, target = target, face = face,
+            recipeId = stages[1], stages = stages, stageIndex = 1,
+            buildKind = kind,
+        }
+    end
+    return true, pending
+end
+
+function BaseLife.enqueueBuildPlan(specs)
+    local accepted, pending = BaseLife.validateBuildPlan(specs)
+    if accepted ~= true then return false, pending end
+    local base = activeBase()
+    local planId = "plan:" .. tostring(ensure().nextJobSerial)
+    local result = {}
+    for _, spec in ipairs(pending) do
+        spec.id = nextId("nextJobSerial", "job:")
+        spec.planId = planId
+        spec.state, spec.createdAt, spec.updatedAt = "pending", now(), now()
+        result[#result + 1] = normalizeJob(spec)
+    end
+    for _, job in ipairs(result) do base.jobs[#base.jobs + 1] = job end
+    return true, result
+end
+
+function BaseLife.enqueueBarricadePlan(object, side)
+    local base = activeBase()
+    if not base then return false, "base_missing" end
+    if side ~= "same" and side ~= "opposite" then return false, "invalid_barricade_side" end
+    local allowed = select(1, U().call(object, "isBarricadeAllowed"))
+    local canBarricade = select(1, U().call(object, "getCanBarricade"))
+    if allowed ~= true and canBarricade ~= true then
+        return false, "barricade_not_allowed"
+    end
+    if select(1, U().call(object, "IsOpen")) == true then
+        return false, "close_target_first"
+    end
+    local method = side == "same" and "getBarricadeOnSameSquare"
+        or "getBarricadeOnOppositeSquare"
+    if not U().hasMethod(object, method) then
+        return false, "barricade_side_unavailable"
+    end
+    local barricade = select(1, U().call(object, method))
+    if barricade and select(1, U().call(barricade, "canAddPlank")) == false then
+        return false, "barricade_full"
+    end
+    local descriptor, reason = BaseLife.describeObject(object, true)
+    if not descriptor or not BaseLife.isInside(descriptor) then
+        return false, reason or "barricade_outside_camp"
+    end
+    for _, job in ipairs(base.jobs) do
+        if job.type == "barricade" and type(job.target) == "table"
+            and job.target.objectId == descriptor.objectId
+            and job.target.barricadeSide == side then
+            return false, "barricade_plan_overlaps"
+        end
+    end
+    descriptor.barricadeSide = side
+    descriptor.north = select(1, U().call(object, "getNorth")) == true
+    return BaseLife.enqueueJob({ type = "barricade", priority = 4,
+        target = descriptor, buildKind = "barricade" })
+end
+
+function BaseLife.constructionAt(value)
+    local point, base = position(value), activeBase()
+    local result = {}
+    if not point or not base then return result end
+    for _, job in ipairs(base.jobs) do
+        if (job.type == "build" or job.type == "barricade")
+            and type(job.target) == "table" and job.target.x == point.x
+            and job.target.y == point.y and job.target.z == point.z then
+            result[#result + 1] = job
+        end
+    end
+    return result
+end
+
+function BaseLife.advanceBuildStage(id, actorId)
+    local job = BaseLife.job(id)
+    if not job or job.type ~= "build" then return false, "unknown_build_job" end
+    if actorId ~= nil and job.reservedBy ~= actorId then return false, "job_not_owned" end
+    local stages = job.stages or {}
+    if (job.stageIndex or 1) >= #stages then
+        return BaseLife.completeJob(id, actorId, "built")
+    end
+    job.stageIndex = job.stageIndex + 1
+    job.recipeId = stages[job.stageIndex]
+    job.state, job.reservedBy, job.leaseUntil = "pending", nil, 0
+    job.blocker, job.retryAt, job.updatedAt = nil, 0, now()
+    return true, job
+end
+
+function BaseLife.takeOverBuild(id)
+    local job = BaseLife.job(id)
+    if not job or job.type ~= "build" then return false, "unknown_build_job" end
+    if job.state == "manual" then return false, "player_already_building" end
+    if job.reservedBy ~= nil then
+        if not SC.BaseWork or type(SC.BaseWork.cancelJob) ~= "function" then
+            return false, "build_action_cancel_unavailable"
+        end
+        local okay, reason = SC.BaseWork.cancelJob(id, job.reservedBy, "player_takeover")
+        if okay ~= true then return false, reason or "build_action_cancel_failed" end
+        local actor = U().resolveActor and U().resolveActor(job.reservedBy) or nil
+        if actor and SC.Navigation and type(SC.Navigation.cancel) == "function" then
+            pcall(SC.Navigation.cancel, actor, "player_takeover")
+        end
+    end
+    job.state, job.reservedBy, job.leaseUntil = "manual", nil, 0
+    job.blocker, job.updatedAt = nil, now()
+    return true, job
+end
+
+function BaseLife.releaseManualBuild(id, reason)
+    local job = BaseLife.job(id)
+    if not job or job.state ~= "manual" then return false, "manual_job_missing" end
+    job.state, job.updatedAt = "pending", now()
+    job.blocker = reason and cleanText(reason, "", 160) or nil
+    return true, job
+end
+
 function BaseLife.job(id)
     local base = activeBase()
     return base and findById(base.jobs, id) or nil
@@ -3088,6 +3293,7 @@ function BaseLife.cancelJob(id)
     local job, index
     if base then job, index = findById(base.jobs, id) end
     if not job then return false, "unknown_job" end
+    if job.state == "manual" then return false, "player_build_in_progress" end
     if job.type == "farm" and SC.FarmWork and type(SC.FarmWork.cancelJob) == "function" then
         local okay, reason = SC.FarmWork.cancelJob(job.id, "farm_job_cancelled")
         if okay ~= true then return false, reason or "farm_recovery_pending" end
@@ -3460,6 +3666,9 @@ function BaseLife.summary()
                 result.rows[#result.rows + 1] = {
                     id = job.id, type = job.type, priority = job.priority, state = job.state,
                     reservedBy = job.reservedBy, blocker = job.blocker,
+                    kind = job.buildKind, planId = job.planId, target = job.target,
+                    stageIndex = job.stageIndex,
+                    stageCount = type(job.stages) == "table" and #job.stages or 0,
                 }
             end
         end

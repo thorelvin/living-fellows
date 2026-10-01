@@ -8964,6 +8964,10 @@ do
             allies = { meleeFriend }, kind = "melee",
         }),
         "friendly-fire veto covers muzzle, target endpoint, and melee swing arc")
+    local blocked, blocker = SurvivorCompanion.Combat.friendlyFireBlocked(
+        shooter, distantZed, { allies = { meleeFriend }, kind = "melee" })
+    check(blocked == true and blocker == meleeFriend,
+        "melee lane decisions receive the exact blocking companion")
     local priorFriendlyFire = SurvivorCompanion.Config.values.friendlyFire
     SurvivorCompanion.Config.values.friendlyFire = true
     check(not SurvivorCompanion.Combat.friendlyFireBlocked(shooter, distantZed, {
@@ -15099,6 +15103,39 @@ local queuedCancel, cancelledJob = BaseLife.enqueueJob({
 check(queuedCancel and BaseLife.cancelJob(cancelledJob.id)
         and cancelledJob.state == "cancelled",
     "queued base jobs can be cancelled explicitly")
+local planned, segments = BaseLife.enqueueBuildPlan({
+    { kind = "wall", target = { x = 5, y = 2, z = 0 }, face = 2,
+        stages = { "ES_Wood_Wallframe", "ES_Wood_WallLvl1" } },
+    { kind = "wall", target = { x = 6, y = 2, z = 0 }, face = 2,
+        stages = { "ES_Wood_Wallframe", "ES_Wood_WallLvl1" } },
+})
+check(planned and #segments == 2 and segments[1].planId == segments[2].planId
+        and segments[1].stageIndex == 1,
+    "one wall stroke queues two durable staged segments")
+local countBeforeOverlap = #BaseLife.active().jobs
+local overlap, overlapReason = BaseLife.enqueueBuildPlan({
+    { kind = "door", target = { x = 5, y = 2, z = 0 }, face = 2,
+        stages = { "ES_Wood_DoorLvl1" } },
+})
+check(not overlap and overlapReason == "build_plan_overlaps"
+        and #BaseLife.active().jobs == countBeforeOverlap,
+    "an overlapping opening rejects the whole plan without partial jobs")
+local visibleJobs = BaseLife.visualRows()
+check(visibleJobs.blueprints == true and #visibleJobs.constructionRows >= 2
+        and BaseLife.setBlueprintsVisible(false)
+        and BaseLife.visualRows().blueprints == false
+        and BaseLife.setBlueprintsVisible(true),
+    "construction blueprints have a saved visibility preference")
+local playerClaim, playerJob = BaseLife.takeOverBuild(segments[1].id)
+check(playerClaim and playerJob.state == "manual"
+        and not BaseLife.cancelJob(playerJob.id)
+        and BaseLife.releaseManualBuild(playerJob.id),
+    "player takeover retains the job and prevents deletion during a native action")
+local frameDone, nextStage = BaseLife.advanceBuildStage(segments[1].id, nil)
+check(frameDone and nextStage.stageIndex == 2
+        and nextStage.recipeId == "ES_Wood_WallLvl1"
+        and nextStage.state == "pending",
+    "verified frame construction advances the same segment to its wall stage")
 local operations = BaseLife.auditOperations(true)
 local constructionStock
 for _, stock in ipairs(operations.stock or {}) do
@@ -15120,6 +15157,7 @@ check(BaseLife.guardStatus(fellow.id, clock),
 check(BaseLife.setRestriction(fellow.id, "quarantine")
     and BaseLife.restriction(fellow.id) == "quarantine",
     "infection restrictions are represented in base state")
+BaseLife.setBlueprintsVisible(false)
 local baseSave = BaseLife.export()
 local savedBase = baseSave.bases[baseSave.activeBaseId]
 for _, zone in ipairs(savedBase and savedBase.zones or {}) do
@@ -15139,8 +15177,12 @@ check(BaseLife.restore(baseSave) and BaseLife.active().name == "Test Camp"
     and BaseLife.summary().maintenanceRows[1].enabled == false
     and BaseLife.policies().defense == "role_based"
     and BaseLife.policies().workload == "continuous"
-    and BaseLife.policies().routines == false,
-    "base zones, legacy default expansion, storage, policies and quarantine rules round-trip transactionally")
+    and BaseLife.policies().routines == false
+    and BaseLife.blueprintsVisible() == false
+    and BaseLife.job(segments[1].id).stageIndex == 2
+    and BaseLife.job(segments[1].id).recipeId == "ES_Wood_WallLvl1",
+    "base zones, staged blueprints, visibility, storage, policies and quarantine round-trip transactionally")
+BaseLife.setBlueprintsVisible(true)
 local postRestoreStore = {
     square = campSquare, objectIndex = #campSquare.objects, modData = {},
     container = inventory({}),
@@ -22770,6 +22812,9 @@ end)()
             and math.abs(loadedMedical.infectionLevel - 25) < 0.001,
         "a newly spawned companion retains 25% Knox progress after save/load: "
             .. tostring(applyReason) .. "/" .. tostring(loadedMedical.infectionLevel))
+    loaded.hours = 312
+    check(math.abs(SurvivorCompanion.Medical.assess(loaded).infectionLevel - 50) < 0.001,
+        "Knox progress resumes from the restored value as survival time advances")
 
     local olderSave = { infected = true, infectionTime = 288,
         infectionElapsedHours = 12, infectionMortalityDuration = 48,
@@ -23025,8 +23070,9 @@ check(string.find(
             and not stillOfferingRescue
             and SurvivorCompanion.Medical.peek(helper) == nil
             and SurvivorCompanion.Medical.treatmentHolder(selfPatient) == nil
+            and SurvivorCompanion.ActionSupervisor.current(helper) == nil
             and not dressing.used and not wound.isBandaged,
-        "queued player self care aborts companion treatment without spending supplies")
+        "queued player self care cancels medical ownership without spending supplies")
     getSpecificPlayer, ISTimedActionQueue = oldSpecificPlayer, oldQueue
 
     local rag = item("Base.RippedSheets", "Medical")
@@ -23058,6 +23104,33 @@ check(string.find(
             and not crafter.inventory:contains(branch),
         "verified downtime crafting consumes exact materials and leaves a splint")
     SurvivorCompanion.Downtime.reset(crafter)
+
+    local protectedRag = item("Base.RippedSheets", "Medical")
+    local spareBranch = item("Base.TreeBranch2", "Material")
+    local guardedCrafter = actor("sc-protected-splint-crafter", 9, 5, {
+        inventory = inventory({ protectedRag, spareBranch }),
+    })
+    guardedCrafter.modData.SC_Order = "stay"
+    local guardedStart = SurvivorCompanion.Downtime.update(
+        guardedCrafter, player, { snapshot = calm }, "craft_supply")
+    local protectedMethod = SurvivorCompanion.PersonalItems.isProtected
+    SurvivorCompanion.PersonalItems.isProtected = function(candidate, owner, operation)
+        if candidate == protectedRag and operation == "craft_material" then return true end
+        return protectedMethod(candidate, owner, operation)
+    end
+    if visuals[guardedCrafter] then visuals[guardedCrafter].status = "completed" end
+    SurvivorCompanion.Downtime.update(
+        guardedCrafter, player, { snapshot = calm }, "craft_supply")
+    SurvivorCompanion.PersonalItems.isProtected = protectedMethod
+    local protectedOutput = false
+    for _, carried in ipairs(guardedCrafter.inventory.items) do
+        if carried.itemType == "Base.Splint" then protectedOutput = true end
+    end
+    check(guardedStart and not protectedOutput
+            and guardedCrafter.inventory:contains(protectedRag)
+            and guardedCrafter.inventory:contains(spareBranch),
+        "craft commit leaves both materials untouched when protection changes mid-animation")
+    SurvivorCompanion.Downtime.reset(guardedCrafter)
 
     local freshDressing = item("Base.Bandage", "Medical")
     local soiledPart = bodyPart({ name = "ForeArm_R", isBandaged = true,

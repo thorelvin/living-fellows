@@ -2,6 +2,7 @@
 
 require "ISUI/ISContextMenu"
 require "SCInteraction"
+require "SCConstructionPlanner"
 
 SurvivorCompanion = SurvivorCompanion or {}
 local SC = SurvivorCompanion
@@ -532,6 +533,31 @@ local function toggleBaseLayout(_, player)
     end
 end
 
+local function startConstruction(_, kind, player)
+    local okay, reason = SC.ConstructionPlanner.start(kind, player)
+    if not okay and player then safeMethod(player, "setHaloNote", tostring(reason)) end
+end
+
+local function startBarricadePlan(_, object, player)
+    local okay, reason = SC.ConstructionPlanner.startBarricade(object, player)
+    if not okay and player then safeMethod(player, "setHaloNote", tostring(reason)) end
+end
+
+local function buildBlueprint(_, id, player)
+    local okay, reason = SC.ConstructionPlanner.buildSegment(player, id)
+    if player then safeMethod(player, "setHaloNote", okay
+        and text("UI_SC_Base_Blueprint_PlayerStarted") or tostring(reason)) end
+end
+
+local function manageBlueprint(_, action, id, player)
+    local method = action == "retry" and SC.BaseLife.retryJob or SC.BaseLife.cancelJob
+    local okay, reason = method(id)
+    if player then safeMethod(player, "setHaloNote", okay
+        and text("UI_SC_Base_ActionAccepted") or tostring(reason)) end
+    if SC.BaseVisuals then SC.BaseVisuals.refresh() end
+    if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
+end
+
 local function zonesAtSquare(square)
     local point = squarePayload(square)
     if not point or not SC.BaseLife or type(SC.BaseLife.visualRows) ~= "function" then
@@ -649,18 +675,36 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
     if inside and barricadeTarget then
         menu:addOption(text("UI_SC_Base_MaintainBarricade"), nil, baseAction, "maintenance",
             { object = barricadeTarget, kind = "barricade" }, player)
+        menu:addOption(text("UI_SC_Base_PlanBarricade"), nil,
+            startBarricadePlan, barricadeTarget, player)
     end
     if inside then
         local buildOption = menu:addOption(text("UI_SC_Base_QueueBuild"), nil, nil)
         local buildMenu = ISContextMenu:getNew(menu)
         menu:addSubMenu(buildOption, buildMenu)
         for _, kind in ipairs({ "wall_frame", "wall", "floor", "door_frame", "door" }) do
-            local kindOption = buildMenu:addOption(text("UI_SC_Base_Build_" .. kind), nil, nil)
-            local faceMenu = ISContextMenu:getNew(buildMenu)
-            buildMenu:addSubMenu(kindOption, faceMenu)
-            for face = 1, 4 do
-                faceMenu:addOption(text("UI_SC_Base_Face_" .. tostring(face)), nil, baseAction,
-                    "build", { square = squarePayload(square), kind = kind, face = face }, player)
+            buildMenu:addOption(text("UI_SC_Base_Build_" .. kind), nil,
+                startConstruction, kind, player)
+        end
+        local plans = SC.BaseLife.constructionAt(square)
+        for _, job in ipairs(plans) do
+            local label = text("UI_SC_Base_Blueprint_Row",
+                text("UI_SC_Base_Build_" .. tostring(job.buildKind or job.type)),
+                tostring(job.state), tostring(job.id))
+            local planOption = menu:addOption(label, nil, nil)
+            local planMenu = ISContextMenu:getNew(menu)
+            menu:addSubMenu(planOption, planMenu)
+            if job.type == "build" and job.state ~= "manual" then
+                planMenu:addOption(text("UI_SC_Base_Blueprint_Build"), nil,
+                    buildBlueprint, job.id, player)
+            end
+            if job.state == "blocked" then
+                planMenu:addOption(text("UI_SC_Base_Blueprint_Retry"), nil,
+                    manageBlueprint, "retry", job.id, player)
+            end
+            if job.state ~= "manual" then
+                planMenu:addOption(text("UI_SC_Base_Blueprint_Cancel"), nil,
+                    manageBlueprint, "cancel", job.id, player)
             end
         end
     end
