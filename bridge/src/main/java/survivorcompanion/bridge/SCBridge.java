@@ -1233,6 +1233,10 @@ public final class SCBridge {
             actor.setSquare(square);
             actor.setMovingSquare(square);
             actor.addToWorld();
+            // A restored stay/base-duty companion may never take a movement
+            // step. Register its update slot now: square membership alone
+            // leaves it on the minimap while its model alpha stays at zero.
+            boolean scheduled = actor.ensureScheduled();
 
             String renderFailure = consumeFailureForTests("spawn:render-validation")
                     ? "injected native companion render validation failure"
@@ -1247,9 +1251,11 @@ public final class SCBridge {
                 actor.hiddenUntilReadyAt = System.currentTimeMillis();
             }
             String actorFailure = checkActorState(actor);
-            if (!renderFailure.isEmpty() || !actorFailure.isEmpty()
+            if (!scheduled || !renderFailure.isEmpty() || !actorFailure.isEmpty()
                     || !actor.isExistInTheWorld()) {
-                String reason = !renderFailure.isEmpty() ? renderFailure
+                String reason = !scheduled
+                        ? "native companion did not enter the update scheduler"
+                        : !renderFailure.isEmpty() ? renderFailure
                         : actorFailure.isEmpty() ? "native companion did not enter the world"
                         : actorFailure;
                 boolean removed = cleanupActor(actor, "failed spawn");

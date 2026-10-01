@@ -19,6 +19,7 @@ param(
     [switch]$FactionMapOnly,
     [string]$BaseLayoutScreenshot = '',
     [switch]$BaseLayoutOnly,
+    [switch]$FurniturePoseOnly,
     [switch]$PathingOnly,
     [switch]$PlaceMetadataOnly,
     [switch]$SplitScreenOnly,
@@ -892,6 +893,7 @@ $config = @(
     ('leader_watch_ms=' + ($LeaderWatchSeconds * 1000)),
     ('capture_base_layout=' + $captureBaseLayout.ToString().ToLowerInvariant()),
     ('base_layout_only=' + $BaseLayoutOnly.IsPresent.ToString().ToLowerInvariant()),
+    ('furniture_pose_only=' + $FurniturePoseOnly.IsPresent.ToString().ToLowerInvariant()),
     ('internal_timeout_ms=' + (($TimeoutSeconds - 15) * 1000))
 ) -join [Environment]::NewLine
 [System.IO.File]::WriteAllText((Join-Path $SandboxLua 'config.ini'),

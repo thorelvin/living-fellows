@@ -521,8 +521,10 @@ local function baseAction(target, action, payload, player)
         end
     end
     if player then
+        local failure = SC.UI and type(SC.UI.baseFailureReason) == "function"
+            and SC.UI.baseFailureReason(result) or tostring(result)
         safeMethod(player, "setHaloNote", ok and text("UI_SC_Base_ActionAccepted")
-            or text("UI_SC_Base_ActionFailed", tostring(result)))
+            or text("UI_SC_Base_ActionFailed", failure))
     end
     if SC.UI and type(SC.UI.refresh) == "function" then SC.UI.refresh() end
 end
@@ -638,9 +640,18 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
     menu:addOption(text(layoutShown and "UI_SC_Base_Visual_Hide" or "UI_SC_Base_Visual_Show"),
         nil, toggleBaseLayout, player)
     if layoutShown then
+        local areaCount = 0
+        local base = SC.BaseLife.active()
+        for _, zone in ipairs(base and base.zones or {}) do
+            if zone.kind == "area" then areaCount = areaCount + 1 end
+        end
         for _, zone in ipairs(zonesAtSquare(square)) do
-            menu:addOption(text("UI_SC_Base_RemoveZone", zone.name or zone.kind or zone.id),
-                nil, removeZoneFromContext, zone, player)
+            if zone.kind == "area" and areaCount <= 1 then
+                addUnavailableOption(menu, text("UI_SC_Base_LastAreaMenu"))
+            else
+                menu:addOption(text("UI_SC_Base_RemoveZone", zone.name or zone.kind or zone.id),
+                    nil, removeZoneFromContext, zone, player)
+            end
         end
     end
     local draft = SC.BaseLife.zoneDraft()

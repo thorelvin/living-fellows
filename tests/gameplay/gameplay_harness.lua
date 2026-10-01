@@ -6085,22 +6085,27 @@ check(not noOpGlass and noOpGlassReason == "remove_glass_verification_timeout" a
 testWindow.noopRemoveGlass = false
 for _, blocker in ipairs(windowBlockers) do blocker.solid = false end
 
-local orderBefore = fellow.modData.SC_Order
-local description = SurvivorCompanion.Commands.describe(fellow.id, player)
-check(fellow.modData.SC_Order == orderBefore, "describe must not write command state or mod data")
-check(description.id == fellow.id and description.actor == fellow and description.health == 100, "describe core identity and native health")
-check(description.supplies.bandages == 1 and description.personality ~= nil, "describe optional UI summaries")
 do
+    local orderBefore = fellow.modData.SC_Order
+    local hiddenDressing = item("Base.Bandage", "Medical")
+    function hiddenDressing:isHidden() return true end
+    fellow.inventory:AddItem(hiddenDressing)
+    local description = SurvivorCompanion.Commands.describe(fellow.id, player)
+    check(fellow.modData.SC_Order == orderBefore, "describe must not write command state or mod data")
+    check(description.id == fellow.id and description.actor == fellow and description.health == 100, "describe core identity and native health")
+    check(description.supplies.bandages == 1 and description.personality ~= nil,
+        "supply summary counts only dressings visible in the inventory pane")
     local describedLoad = SurvivorCompanion.Logistics.audit(fellow)
     check(description.loadRole == describedLoad.role
             and description.loadWeight == describedLoad.weight
             and description.loadCapacity == describedLoad.capacity
             and description.loadRatio == describedLoad.ratio,
         "UI summary reports the same load facts without running a full logistics scan")
+    check(type(description.background) == "table" and description.relationshipTier == "cautious"
+        and description.mood ~= nil and description.currentNeed ~= nil,
+        "describe exposes persistent relationship, mood, need, and background summaries")
+    fellow.inventory:Remove(hiddenDressing)
 end
-check(type(description.background) == "table" and description.relationshipTier == "cautious"
-    and description.mood ~= nil and description.currentNeed ~= nil,
-    "describe exposes persistent relationship, mood, need, and background summaries")
 local invalidDistance = SurvivorCompanion.Commands.issue(fellow.id, "set_follow_distance", 4, player)
 check(not invalidDistance, "invalid follow distance is rejected")
 check(SurvivorCompanion.Commands.issue(

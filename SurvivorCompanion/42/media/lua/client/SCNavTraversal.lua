@@ -300,7 +300,16 @@ function Traversal.alignDoorApproach(actor, fromSquare, toSquare, intent, afford
     local progress, lateral, forwardX, forwardY = Traversal.doorGeometry(entry, actor)
     if progress == nil then return false, "door_geometry_unavailable" end
     local tolerance = utility.config("navigationDoorApproachLateralTolerance") or 0.18
-    if lateral <= tolerance then return true, "door_approach_aligned" end
+    local fence = affordance == "fence"
+    local setback = utility.config("doorClearanceDistance") or 0.38
+    local normalTolerance = utility.config("navigationFenceApproachNormalTolerance") or 0.12
+    -- Unlike a door, the fence climb must begin beside the rail. Being
+    -- centred sideways while still most of a tile away is not an aligned
+    -- climb position for the native action.
+    if lateral <= tolerance and (not fence
+        or math.abs(progress + setback) <= normalTolerance) then
+        return true, "door_approach_aligned"
+    end
 
     local fromX, fromY, fromZ = utility.position(fromSquare)
     local toX, toY = utility.position(toSquare)
@@ -310,8 +319,7 @@ function Traversal.alignDoorApproach(actor, fromSquare, toSquare, intent, afford
     end
     local thresholdX = (fromX + toX) * 0.5 + 0.5
     local thresholdY = (fromY + toY) * 0.5 + 0.5
-    local setback = utility.config("doorClearanceDistance") or 0.38
-    local desiredProgress = math.min(progress, -setback)
+    local desiredProgress = fence and -setback or math.min(progress, -setback)
     local targetX = thresholdX + forwardX * desiredProgress
     local targetY = thresholdY + forwardY * desiredProgress
     local prefix = affordance == "fence" and "fence" or "door"

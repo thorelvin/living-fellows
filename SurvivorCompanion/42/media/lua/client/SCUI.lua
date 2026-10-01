@@ -345,6 +345,18 @@ function UI.text(key, ...)
     return key
 end
 
+function UI.baseFailureReason(reason)
+    if type(reason) ~= "string" then return tostring(reason) end
+    local known = {
+        last_base_area = true,
+        base_area_in_use = true,
+        work_order_uses_zone = true,
+        production_order_uses_zone = true,
+    }
+    return known[reason] and UI.text("UI_SC_Base_Reason_" .. reason)
+        or reason
+end
+
 function UI.fontHeight(font, override)
     local explicit = tonumber(override)
     if explicit then
@@ -1485,7 +1497,8 @@ local function runBaseManagementAction(target, action, payload)
     local ok, accepted, reason = pcall(method, unpack(arguments))
     setButtonFeedback(target, ok and accepted == true
         and UI.text("UI_SC_Base_ActionAccepted")
-        or UI.text("UI_SC_Base_ActionFailed", tostring(reason or accepted)),
+        or UI.text("UI_SC_Base_ActionFailed",
+            UI.baseFailureReason(reason or accepted)),
         ok and accepted == true)
     if ok and accepted == true and SC.BaseVisuals
         and type(SC.BaseVisuals.refresh) == "function" then

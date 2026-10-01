@@ -15,6 +15,7 @@ import zombie.ai.AIBrainPlayerControlVars;
 import zombie.ai.State;
 import zombie.ai.astar.AStarPathFinder;
 import zombie.ai.states.IdleState;
+import zombie.ai.states.OpenWindowState;
 import zombie.ai.states.PathFindState;
 import zombie.ai.states.SwipeStatePlayer;
 import zombie.characters.IsoGameCharacter;
@@ -28,6 +29,7 @@ import zombie.iso.IsoCamera;
 import zombie.iso.IsoCell;
 import zombie.iso.IsoDirections;
 import zombie.iso.objects.IsoDeadBody;
+import zombie.iso.objects.IsoWindow;
 import zombie.pathfind.PathFindBehavior2;
 import zombie.pathfind.PolygonalMap2;
 import zombie.core.skinnedmodel.advancedanimation.AnimEvent;
@@ -926,7 +928,29 @@ public final class SCNativeCompanion extends IsoPlayer {
      */
     @Override
     public void OnAnimEvent(AnimLayer layer, AnimationTrack track, AnimEvent event) {
+        // OpenWindowState.onSuccess only toggles the world object for a local
+        // player. A companion receives the success animation as an NPC, so the
+        // window otherwise stays shut and navigation repeats the same action.
+        // Capture the state's exact target before super dispatches the event;
+        // apply its stock ToggleWindow effect only if vanilla left it closed.
+        IsoWindow openedWindow = null;
+        if (!bridgeDisabled && event != null
+                && "WindowOpenSuccess".equalsIgnoreCase(event.eventName)
+                && getVariableBoolean("bOpenWindow")) {
+            var machine = getStateMachine();
+            if (machine != null) {
+                boolean opening = machine.getCurrent() == OpenWindowState.instance();
+                for (int index = 0; !opening && index < machine.getSubStateCount(); index++) {
+                    opening = machine.getSubStateAt(index) == OpenWindowState.instance();
+                }
+                if (opening) openedWindow = get(OpenWindowState.WINDOW);
+            }
+        }
         super.OnAnimEvent(layer, track, event);
+        if (openedWindow != null && openedWindow.getObjectIndex() != -1
+                && !openedWindow.IsOpen()) {
+            openedWindow.ToggleWindow(this);
+        }
         if (event == null) return;
         if ("AttackCollisionCheck".equals(event.eventName)) {
             if (driveCompanionAttackCollision(event.parameterValue)) {
@@ -2446,7 +2470,17 @@ public final class SCNativeCompanion extends IsoPlayer {
      * routes back through isMoving()/isPlayerMoving().
      */
     private void reconcileBridgePathState() {
-        if (bridgeDisabled || getVehicle() != null || !bridgePathActive) return;
+        if (bridgeDisabled || getVehicle() != null) return;
+        // Vanilla ISPathFindAction (including pathToSitOnFurniture and bed
+        // entry) starts PathFindBehavior2 itself. The non-local companion does
+        // not run IsoPlayer.updateInternal2, so it must adopt that timed path
+        // before our shared path step and animation-rate code can advance it.
+        if (!bridgePathActive && hasCompanionTimedPathAction()) {
+            // PFB may use a clear-line shortcut and leave bPathfind false;
+            // without local player input that shortcut animates in place.
+            forceBridgePathfindingState(true);
+        }
+        if (!bridgePathActive) return;
         PathFindBehavior2 behavior = getPathFindBehavior2();
         if (behavior == null) return;
         try {
@@ -2476,6 +2510,19 @@ public final class SCNativeCompanion extends IsoPlayer {
         } catch (RuntimeException | LinkageError failure) {
             // Can't read the terminal status this frame; leave the flag untouched.
         }
+    }
+
+    private boolean hasCompanionTimedPathAction() {
+        try {
+            var actions = getCharacterActions();
+            if (actions == null) return false;
+            for (BaseAction action : actions) {
+                if (action != null && action.isPathfinding()) return true;
+            }
+        } catch (RuntimeException | LinkageError ignored) {
+            // An unobservable action must not claim native path ownership.
+        }
+        return false;
     }
 
     static boolean pathRequestTerminal(boolean requested, boolean cancelled,

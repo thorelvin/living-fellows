@@ -1094,6 +1094,16 @@ do
     local openX = N.combatVector(actor, quarry, "approach", nil)
     check(openX ~= nil and openX > 0,
         "an unobstructed approach still steers straight at the target: " .. tostring(openX))
+    local ally = { x = 61.1, y = 4.5 }
+    function ally:getX() return self.x end
+    function ally:getY() return self.y end
+    function ally:getZ() return 0 end
+    function ally:isDead() return false end
+    local spacedX, spacedY, spacedSteered = N.combatVector(actor, quarry,
+        "approach", { allies = { { actor = ally } } })
+    check(spacedX ~= nil and math.abs(spacedY) > 0.5
+            and spacedSteered == true,
+        "combat approach steers sideways around a companion blocking its short step")
     local bystander = { x = 66.5, y = 6.5 }
     function bystander:getX() return self.x end
     function bystander:getY() return self.y end

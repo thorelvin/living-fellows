@@ -810,7 +810,24 @@ local function classifyEdge(actor, fromSquare, toSquare, options)
             result.reason = "fence_not_hoppable"
             return result
         end
-        if tallOk and tall == true then
+        if object ~= nil and not (tallOk and tall == true)
+            and not (lowOk and low == true) then
+            -- Generic IsoObjects have neither flag. A square getter can still
+            -- return one for a solid fence, while the player's hop test will
+            -- reject it. Require positive square-level low or wall evidence
+            -- when those probes are available, so A-star routes around it.
+            local lowEdge, lowEdgeOk = U().call(fromSquare, "isHoppableTo", toSquare)
+            local direction = cardinalDirection(fromSquare, toSquare)
+            local wallEdge, wallEdgeOk = U().call(fromSquare,
+                "isPlayerAbleToHopWallTo", direction, toSquare)
+            if (lowEdgeOk or wallEdgeOk) and lowEdge ~= true
+                and wallEdge ~= true then
+                result.reason = "fence_not_hoppable"
+                return result
+            end
+            if wallEdgeOk and wallEdge == true then tall = true end
+        end
+        if tall == true then
             -- canClimbOverWall(direction) is relative to the actor's current
             -- square. Calling it while A-star evaluates a distant fence tests
             -- an unrelated edge and rejects valid routes. Keep the concrete

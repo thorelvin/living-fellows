@@ -478,6 +478,67 @@ check(stalledState.lastBlocker.diagnostic:find("beforeStop=moving", 1, true)
     "blocker consumes pre-stop FSM/path evidence exactly once")
 SC.NativeActions = oldNativeActions
 
+do
+    local oldGridSquare = U.gridSquare
+    local oldBarrierBetween = SC.Topology.barrierBetween
+    local source, east, north, upstairs = square(0, 0), square(1, 0),
+        square(0, -1), square(3, 3, 1)
+    local eastDoor = { opened = false }
+    function eastDoor:IsOpen() return self.opened end
+    function eastDoor:IsLocked() return false end
+    function eastDoor:ToggleDoor() self.opened = not self.opened return true end
+    local northDoor = { IsOpen = function() return false end }
+    U.gridSquare = function(x, y, z)
+        if z ~= 0 then return nil end
+        if x == 0 and y == 0 then return source end
+        if x == 1 and y == 0 then return east end
+        if x == 0 and y == -1 then return north end
+        return nil
+    end
+    SC.Topology.barrierBetween = function(from, to)
+        if from == source and to == east then return eastDoor, "door" end
+        if from == source and to == north then return northDoor, "door" end
+        return nil, "open"
+    end
+    local follower = actor()
+    follower.square = source
+    function follower:isCompanionPathBlockedByDoor() return true end
+    function follower:getForwardDirection() return { x = 1, y = 0 } end
+    local found, from, to = N.nativeHeldDoorAtActor(follower,
+        { pathNextX = 1.5, pathNextY = 0.5 })
+    check(found == eastDoor and from == source and to == east,
+        "native door hold selects the closed doorway along the actual path step")
+    found = N.nativeHeldDoorAtActor(follower, {})
+    check(found == eastDoor,
+        "native door hold can use actor facing before a cross-floor waypoint is exposed")
+    follower.isCompanionPathBlockedByDoor = function() return false end
+    check(N.nativeHeldDoorAtActor(follower, {}) == nil,
+        "a nearby door alone never interrupts an unblocked native route")
+    follower.isCompanionPathBlockedByDoor = function() return true end
+    local oldActions = SC.NativeActions
+    SC.NativeActions = {
+        pathTelemetry = function()
+            return { available = true, active = true, pending = false,
+                status = "moving", pathNextIsSet = true,
+                pathNextX = 1.5, pathNextY = 0.5 }
+        end,
+        stopDirect = function(value) value.stopped = true return true end,
+    }
+    local state = { openedDoors = {}, nativeLease = {
+        targets = { upstairs }, fromSquare = source, toSquare = upstairs,
+        ultimateGoal = upstairs, affordance = "multi_level",
+        startedAt = current, expires = current + 6000,
+        positionProgressAt = current - 500, progressSquareKey = "0:0:0",
+        lastWorldX = follower.x, lastWorldY = follower.y, lastWorldZ = follower.z,
+    } }
+    local phase = N._maintainNativeLeaseForTests(follower, state, upstairs, current)
+    check(phase == "active" and eastDoor.opened and state.nativeLease ~= nil,
+        "cross-floor follow opens the held first-floor door without dropping movement")
+    SC.NativeActions = oldActions
+    SC.Topology.barrierBetween = oldBarrierBetween
+    U.gridSquare = oldGridSquare
+end
+
 local mover, destination = actor(), square(1, 0)
 local oldBarrier = SC.Topology.barrierBetween
 local door = { IsOpen = function() return true end }
@@ -569,6 +630,46 @@ for _, goal in ipairs({ square(1, 0), square(-1, 0), square(0, 1), square(0, -1)
         and intent.movementArrivalTolerance < 0.18 and intent.movementTargetTtlMs == 750,
         "door alignment sends a bounded exact endpoint in every orientation")
 end
+mover.x, mover.y, mover.lastIntent = 0.5, 0.20, nil
+local fenceAligned = SC.NavTraversal.alignDoorApproach(
+    mover, square(0, 0), square(0, 1), {}, "fence", {})
+check(fenceAligned == nil and mover.lastIntent.action == "fence_approach"
+        and math.abs(mover.lastIntent.targetPosition.y - 0.62) < 0.001,
+    "a centred fighter first walks to the fence before native hop preflight")
+mover.y, mover.lastIntent = 0.62, nil
+check(SC.NavTraversal.alignDoorApproach(
+        mover, square(0, 0), square(0, 1), {}, "fence", {}) == true
+        and mover.lastIntent == nil,
+    "the fence hop is submitted only from its aligned source-side setback")
+do
+    local source, crossing, after = square(240, 0), square(241, 0), square(242, 0)
+    local north, south = square(240, -1), square(240, 1)
+    local oldBarrier, oldGrid = SC.Topology.barrierBetween, U.gridSquare
+    SC.Topology.barrierBetween = function(from, to)
+        if from == source and to == crossing then return {}, "fence" end
+        return nil, "open"
+    end
+    U.gridSquare = function(x, y)
+        if x == 240 and y == -1 then return north end
+        if x == 240 and y == 1 then return south end
+        return nil
+    end
+    local first, second = actor(), actor()
+    first.x, first.y, first.square = 240.5, 0.5, source
+    second.x, second.y, second.square = 240.4, 0.5, source
+    local approach = { action = "combat_approach", urgent = true, snapshot = {} }
+    local firstAccepted = N._tacticalStepForTests(first, { openedDoors = {} },
+        source, crossing, after, "fence", approach, current)
+    local secondAccepted, secondStatus = N._tacticalStepForTests(second,
+        { openedDoors = {} }, source, crossing, after, "fence",
+        approach, current)
+    check(firstAccepted == true and secondAccepted == nil
+            and secondStatus == "yielding_combat_choke"
+            and second.lastIntent.action == "right_of_way_yield",
+        "urgent combat approaches queue at a fence and move the waiting fighter aside")
+    SC.NavTraffic.reset()
+    SC.Topology.barrierBetween, U.gridSquare = oldBarrier, oldGrid
+end
 for _, goal in ipairs({ square(1, 0), square(-1, 0), square(0, 1), square(0, -1) }) do
     mover.x, mover.y = goal.x ~= 0 and 0.5 or 0.75, goal.y ~= 0 and 0.5 or 0.75
     mover.lastIntent = nil
@@ -620,6 +721,27 @@ check(treeEdge.traversable ~= true and treeEdge.affordance == "tree"
         and treeEdge.reason == "tree_occupied",
     "a tree trunk square is a non-passable detour, not merely costly terrain")
 fastGrid["2:1"].HasTree = nil
+do
+    local from, to = fastGrid["1:1"], fastGrid["2:1"]
+    local genericFence = {}
+    function from:getHoppableTo(other) return other == to and genericFence or nil end
+    function from:isHoppableTo() return false end
+    function from:isPlayerAbleToHopWallTo() return false end
+    local blocked = SC.Topology.classifyEdge(mover, from, to, {})
+    check(blocked.affordance == "fence" and blocked.traversable ~= true
+            and blocked.reason == "fence_not_hoppable",
+        "a generic fence rejected by both player hop probes becomes a detour")
+    function from:isHoppableTo() return true end
+    local low = SC.Topology.classifyEdge(mover, from, to, {})
+    check(low.traversable == true and low.cost == 2.5,
+        "positive low-fence evidence remains a valid crossing")
+    function from:isHoppableTo() return false end
+    function from:isPlayerAbleToHopWallTo() return true end
+    local tall = SC.Topology.classifyEdge(mover, from, to, {})
+    check(tall.traversable == true and tall.cost == 4.5,
+        "positive wall-hop evidence remains a native climb")
+    from.getHoppableTo, from.isHoppableTo, from.isPlayerAbleToHopWallTo = nil, nil, nil
+end
 fastGrid["3:2"].isSolid = function() return true end
 fastGrid["3:2"].isFree = function() return false end
 check(N._fastOpenRouteForTests(

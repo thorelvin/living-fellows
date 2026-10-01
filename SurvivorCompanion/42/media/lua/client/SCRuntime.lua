@@ -542,6 +542,34 @@ local function finishNativeDeath(record)
     end
 end
 
+local function repairNativeSchedule(record, current)
+    local actor = record and record.actor
+    if actor == nil then return false, "missing_actor" end
+    local seated = SC.Vehicle ~= nil
+        and type(SC.Vehicle.isNativeSeated) == "function"
+        and SC.Vehicle.isNativeSeated(actor) == true
+    if seated then return true, "seated" end
+    local scheduledOk, scheduled = invoke(actor, "isScheduled")
+    if not scheduledOk then return true, "scheduler_probe_unavailable" end
+    if scheduled == true then return true, "scheduled" end
+    local repairedOk, repaired = invoke(actor, "ensureScheduled")
+    if repairedOk and repaired == true then
+        record.runtime.nativeScheduleRepairReportedAt = nil
+        print("[SurvivorCompanion][recovery] repaired companion update scheduling actor="
+            .. tostring(record.id))
+        return true, "repaired"
+    end
+    if record.runtime.nativeScheduleRepairReportedAt == nil
+        or current - record.runtime.nativeScheduleRepairReportedAt >= 30000 then
+        record.runtime.nativeScheduleRepairReportedAt = current
+        SC.Diagnostics.report("actor-provider", record.id,
+            "companion update scheduling recovery deferred",
+            "native actor still has its world square")
+    end
+    return false, "repair_deferred"
+end
+runtime._repairNativeScheduleForTests = repairNativeSchedule
+
 local function vitalsTask(current)
     local record
     record, vitalsCursor = nextRecord(vitalsCursor, SC.Registry.snapshot())
@@ -605,6 +633,7 @@ local function vitalsTask(current)
     end
     local healthy, healthReason = SC.Actor.validateNative(record.actor)
     record.runtime = type(record.runtime) == "table" and record.runtime or {}
+    if healthy then repairNativeSchedule(record, current) end
     local missingSquare = not healthy and isRecoverablePlacementFailure(healthReason)
     local detachedFromMovingList = not healthy
         and tostring(healthReason)

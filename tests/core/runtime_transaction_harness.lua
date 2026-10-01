@@ -187,6 +187,30 @@ do
         "both missing-square and missing moving-list membership are recoverable placement failures")
     check(not placementFailure("native companion occupied a local-player slot"),
         "a non-placement native contract failure still uses the ordinary health gate")
+
+    local repairSchedule = SC.Runtime._repairNativeScheduleForTests
+    local ghost = { scheduled = false, repairs = 0 }
+    function ghost:isScheduled() return self.scheduled end
+    function ghost:ensureScheduled()
+        self.repairs = self.repairs + 1
+        self.scheduled = true
+        return true
+    end
+    local record = { id = "old-base-companion", actor = ghost, runtime = {} }
+    local repaired, status = repairSchedule(record, 1000)
+    check(repaired == true and status == "repaired"
+            and ghost.scheduled == true and ghost.repairs == 1,
+        "a mapped but unticked companion rejoins the native update scheduler")
+    repaired, status = repairSchedule(record, 2000)
+    check(repaired == true and status == "scheduled" and ghost.repairs == 1,
+        "a healthy scheduled companion is not registered twice")
+    local wasSeated = SC.Vehicle.isNativeSeated
+    SC.Vehicle.isNativeSeated = function() return true end
+    ghost.scheduled = false
+    repaired, status = repairSchedule(record, 3000)
+    SC.Vehicle.isNativeSeated = wasSeated
+    check(repaired == true and status == "seated" and ghost.repairs == 1,
+        "a vehicle passenger is not inserted into an on-foot update slot")
 end
 
 print("RUNTIME_TRANSACTION_KAHLUA_PASS checks=" .. tostring(checks))

@@ -3263,7 +3263,10 @@ end
 
 local function tacticalStep(actor, state, sourceSquare, nextSquare, afterSquare, kind, intent, now)
     local utility = U()
-    local urgent = intent.urgent == true
+    -- An approach to an enemy is time-sensitive, but crossing a one-person
+    -- fence or doorway is not an escape. Keep the choke reservation so several
+    -- attackers do not enter the same source tile and climb over each other.
+    local urgent = intent.urgent == true and intent.action ~= "combat_approach"
     local fence = kind == "fence"
     local stair = kind == "stairs" or kind == "slope"
         or squareHasStairs(sourceSquare) or squareHasStairs(nextSquare)
@@ -3275,6 +3278,12 @@ local function tacticalStep(actor, state, sourceSquare, nextSquare, afterSquare,
             sourceSquare, nextSquare, afterSquare, actor, state, intent, now)
     end
     if choke and not urgent and not chokeAccepted then
+        if intent.action == "combat_approach" then
+            state.yieldBlocker = chokeOwner
+            if lateralYield(actor, state, sourceSquare, nextSquare, intent, now) then
+                return nil, "yielding_combat_choke"
+            end
+        end
         if not stopAndObserve(actor, nextSquare, intent) then
             return false, "choke_reservation_stop_rejected"
         end
@@ -4154,6 +4163,24 @@ function Navigation.combatVector(actor, target, kind, snapshot)
             end
         end
     end
+    local crowdFacts = {}
+    if type(snapshot) == "table" then
+        local function addBody(other)
+            if other == nil or other == actor or utility.isDead(other)
+                or not utility.sameFloor(actor, other) then return end
+            local ox, oy = utility.position(other)
+            if ox and (ox - ax)^2 + (oy - ay)^2
+                <= (probeDistance + 0.5)^2 then
+                crowdFacts[#crowdFacts + 1] = { x = ox, y = oy }
+            end
+        end
+        for _, ally in ipairs(snapshot.allies or {}) do
+            addBody(ally and ally.actor)
+        end
+        if type(snapshot.player) == "table" then
+            addBody(snapshot.player.actor)
+        end
+    end
     for index, angle in ipairs(angles) do
         local dx, dy = rotatedVector(baseX, baseY, angle)
         local toX, toY = ax + dx * probeDistance, ay + dy * probeDistance
@@ -4193,6 +4220,15 @@ function Navigation.combatVector(actor, target, kind, snapshot)
             clear = select(1, passableEdge(sourceSquare, destination, 1, {
                 actor = actor, now = utility.nowMs(), allowOccupiedGoal = false,
             })) == true
+        end
+        if clear then
+            for _, body in ipairs(crowdFacts) do
+                if utility.bodyBlocksSegmentAt(ax, ay, body.x, body.y,
+                    toX, toY, 0.5) then
+                    clear = false
+                    break
+                end
+            end
         end
         local danger = index * 0.001
         if clear and threatFacts then
@@ -4388,6 +4424,51 @@ local function nativePathDoorAhead(actor, lease, steps)
         or tonumber(utility.config("navigationNativeDoorScanSteps")) or 6))
     return closedDoorOnLine(math.floor(x), math.floor(y), z,
         math.floor(tx), math.floor(ty), limit)
+end
+
+-- A native route to another floor has no same-floor destination to scan until
+-- PathFindBehavior2 publishes its next waypoint. Even with a waypoint, its
+-- straight grid scan can miss a door immediately beside a diagonal approach.
+-- When the bridge reports that its current path step is physically held by a
+-- closed door, inspect only the four edges touching the actor and choose the
+-- door in the actual movement direction. Do not infer a door from the distant
+-- upstairs goal: the route may first turn toward a staircase elsewhere.
+function Navigation.nativeHeldDoorAtActor(actor, telemetry)
+    local blocked, checked = U().call(actor, "isCompanionPathBlockedByDoor")
+    if not checked or blocked ~= true then return nil end
+    local utility = U()
+    local current = utility.squareOf(actor)
+    local ax, ay, az = utility.position(actor)
+    if current == nil or ax == nil then return nil end
+    local tx, ty = telemetry.pathNextX, telemetry.pathNextY
+    if tx == nil or ty == nil or (tx - ax) ^ 2 + (ty - ay) ^ 2 < 0.01 then
+        local facing, ok = utility.call(actor, "getForwardDirection")
+        if not ok or facing == nil then return nil end
+        tx, ty = utility.position(facing)
+        if tx == nil or ty == nil then return nil end
+        tx, ty = ax + tx, ay + ty
+    end
+    local dx, dy = tx - ax, ty - ay
+    local length = math.sqrt(dx * dx + dy * dy)
+    if length < 0.01 then return nil end
+    dx, dy = dx / length, dy / length
+    local x, y = math.floor(ax), math.floor(ay)
+    local bestDoor, bestFrom, bestTo, bestScore
+    for _, edge in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+        local alignment = dx * edge[1] + dy * edge[2]
+        if alignment > 0.5 then
+            local neighbor = utility.gridSquare(x + edge[1], y + edge[2], az or 0)
+            if neighbor then
+                local door, kind = barrierBetween(current, neighbor)
+                if kind == "door" and door ~= nil and not objectOpen(door)
+                    and (bestScore == nil or alignment > bestScore) then
+                    bestDoor, bestFrom, bestTo, bestScore =
+                        door, current, neighbor, alignment
+                end
+            end
+        end
+    end
+    return bestDoor, bestFrom, bestTo
 end
 
 local function roomKeyOf(square)
@@ -4626,7 +4707,18 @@ local function maintainNativeLease(actor, state, goalSquare, now)
                 stride, tostring(objectLocked(crossed))))
         end
     end
-    local aheadDoor, doorFrom, doorTo = nativePathDoorAhead(actor, lease, scanSteps)
+    -- The native door probe tests PolygonalMap2 twice. Only ask after the
+    -- actor has stopped translating long enough to suggest an actual hold.
+    local heldWithoutProgress = now - (tonumber(lease.positionProgressAt)
+        or lease.startedAt) >= 400
+    local aheadDoor, doorFrom, doorTo
+    if heldWithoutProgress then
+        aheadDoor, doorFrom, doorTo =
+            Navigation.nativeHeldDoorAtActor(actor, telemetry)
+    end
+    if aheadDoor == nil then
+        aheadDoor, doorFrom, doorTo = nativePathDoorAhead(actor, lease, scanSteps)
+    end
     if aheadDoor ~= nil then
         if objectLocked(aheadDoor)
             and not actorCanUnlock(actor, aheadDoor, doorFrom) then
@@ -6746,7 +6838,8 @@ function Navigation.request(actor, target, movementMode, intent)
     end
     configureTacticalRetreat(actor, sourceSquare, nextSquare, afterSquare, kind, requestIntent)
 
-    local blocker = not requestIntent.urgent
+    local blocker = (not requestIntent.urgent
+            or requestIntent.action == "combat_approach")
         and personalSpaceBlocker(actor, nextSquare, requestIntent.snapshot) or nil
     local crowdChoke = kind == "door" or kind == "fence"
         or kind == "stairs" or kind == "slope"

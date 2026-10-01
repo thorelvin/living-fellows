@@ -44,6 +44,7 @@ local activeFinal = setmetatable({}, { __mode = "k" })
 local activeVisual = setmetatable({}, { __mode = "k" })
 local activeFurnitureActions = setmetatable({}, { __mode = "k" })
 local activeBedActions = setmetatable({}, { __mode = "k" })
+local leavingFurniture = setmetatable({}, { __mode = "k" })
 local activeGroundActions = setmetatable({}, { __mode = "k" })
 local pacingStates = setmetatable({}, { __mode = "k" })
 local resultHistory = setmetatable({}, { __mode = "k" })
@@ -420,23 +421,38 @@ function actions.lowerWeaponForNavigation(actor)
 end
 
 local function leaveFurniture(actor)
+    local leaving = leavingFurniture[actor]
+    if leaving then
+        local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
+        local contextOk, context = invoke(actor, "getCurrentActionContextStateName")
+        context = contextOk and string.lower(tostring(context or "")) or ""
+        -- The sit state clears its flag when it enters getup, before the getup
+        -- clip has carried the actor back to the floor. Keep the seat reference
+        -- and its height/translation until that native transition completes.
+        if (sittingOk and sitting == true) or context == "sitonfurniture"
+            or context == "getup" then
+            return false, "standing_from_furniture"
+        end
+        leavingFurniture[actor] = nil
+        if leaving.object then invoke(leaving.object, "setSatChair", false) end
+        invoke(actor, "setSitOnFurnitureObject", nil)
+        return true, "stood_from_furniture"
+    end
     local record = activeFurnitureActions[actor]
     if record and cancelSeatingRecord then cancelSeatingRecord(actor, record) end
     activeFurnitureActions[actor] = nil
-    if record and record.object then invoke(record.object, "setSatChair", false) end
     local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")
-    if not sittingOk or sitting ~= true then
-        invoke(actor, "setSitOnFurnitureObject", nil)
-        return true, record and "furniture_entry_cancelled" or "already_standing"
+    if sittingOk and sitting == true then
+        local objectOk, object = invoke(actor, "getSitOnFurnitureObject")
+        leavingFurniture[actor] = {
+            object = objectOk and object or record and record.object,
+        }
+        invoke(actor, "setVariable", "forceGetUp", true)
+        return false, "standing_from_furniture"
     end
-    invoke(actor, "setVariable", "forceGetUp", true)
-    local stateOk = invoke(actor, "setSittingOnFurniture", false)
-    local objectOk = invoke(actor, "setSitOnFurnitureObject", nil)
-    local verifyOk, after = invoke(actor, "isSittingOnFurniture")
-    if not stateOk or not objectOk or not verifyOk or after == true then
-        return false, "native furniture-sitting state could not be cleared"
-    end
-    return true, "stood_from_furniture"
+    if record and record.object then invoke(record.object, "setSatChair", false) end
+    invoke(actor, "setSitOnFurnitureObject", nil)
+    return true, record and "furniture_entry_cancelled" or "already_standing"
 end
 
 local function groundSeatState(actor)
@@ -4300,6 +4316,7 @@ end
 
 function actions.seatingStatus(actor)
     if actor == nil then return "standing" end
+    if leavingFurniture[actor] then return "furniture" end
     local onBedOk, onBed = invoke(actor, "isOnBed")
     if onBedOk and onBed == true then return "bed" end
     local sittingOk, sitting = invoke(actor, "isSittingOnFurniture")

@@ -262,8 +262,17 @@ public final class SCNativeApiSignatureTest {
                         && method(character, "isMeleeButtonDown").getReturnType() == boolean.class,
                 "actor-owned native manual floor-attack input contract changed");
         Class<?> stateParam = Class.forName("zombie.ai.State$Param");
+        Class<?> openWindowState = Class.forName("zombie.ai.states.OpenWindowState");
         Class<?> swipeState = Class.forName("zombie.ai.states.SwipeStatePlayer");
         Class<?> finderResult = Class.forName("zombie.ai.astar.AStarPathFinderResult");
+        require(method(openWindowState, "instance").getReturnType() == openWindowState
+                        && openWindowState.getField("WINDOW").getType() == stateParam
+                        && method(window, "ToggleWindow", character).getReturnType() == void.class
+                        && method(window, "IsOpen").getReturnType() == boolean.class
+                        && method(window, "getObjectIndex").getReturnType() == int.class
+                        && method(stateMachine, "getSubStateCount").getReturnType() == int.class
+                        && method(stateMachine, "getSubStateAt", int.class).getReturnType() == state,
+                "native window success event effect contract changed");
         require(method(character, "get", stateParam).getReturnType() == Object.class
                         && method(character, "set", stateParam, Object.class).getReturnType() == void.class
                         && swipeState.getField("ATTACKED").getType() == stateParam
@@ -901,6 +910,6 @@ public final class SCNativeApiSignatureTest {
                 + " reflection-contract=true cleanup-retry=true"
                 + " reaction-states=" + reactionStates.length + " movement-owner=true"
                  + " attack-continuation=true outgoing-receipts=true door-guard=true swing-sound=true aim-steadying=true"
-                 + " camera-offset=true local-save-id=true");
+                 + " camera-offset=true local-save-id=true window-success=true");
     }
 }

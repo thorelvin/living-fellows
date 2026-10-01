@@ -335,8 +335,10 @@ end
 function actor:setKnockedDown(value) self.knockedDown = value end
 function actor:isKnockedDown() return self.knockedDown == true end
 function actor:setSitOnFurnitureObject(value) self.seatObject = value end
+function actor:getSitOnFurnitureObject() return self.seatObject end
 function actor:setSittingOnFurniture(value) self.sitting = value end
 function actor:isSittingOnFurniture() return self.sitting == true end
+function actor:getCurrentActionContextStateName() return self.actionContextName or "idle" end
 function actor:isOnBed() return self.onBed == true end
 function actor:setOnBed(value) self.onBed = value == true end
 function actor:setbOnBed(value) self.onBed = value == true end
@@ -2136,10 +2138,22 @@ if passiveSeatAction then ISBaseTimedAction.perform(passiveSeatAction) end
 check(SC.NativeActions.activityStatus(actor) == "none"
         and SC.NativeActions.seatingStatus(actor) == "furniture",
     "a completed sit becomes a passive posture that does not block reading or diary actions")
-local leftSeat = SC.NativeActions.leaveSeating(actor)
-check(leftSeat and actor.sitting == false and actor.seatObject == nil
-        and seat.occupied == false,
-    "leaving furniture cancels only its owned action and clears occupancy")
+local leftSeat, leavingReason = SC.NativeActions.leaveSeating(actor)
+check(leftSeat == false and leavingReason == "standing_from_furniture"
+        and actor.sitting == true and actor.seatObject == seat
+        and seat.occupied == true and actor.lastVariable == "forceGetUp",
+    "leaving furniture requests native getup while retaining the seat geometry")
+actor.sitting = false
+actor.actionContextName = "getup"
+local midGetup, midReason = SC.NativeActions.leaveSeating(actor)
+check(midGetup == false and midReason == "standing_from_furniture"
+        and actor.seatObject == seat and seat.occupied == true
+        and SC.NativeActions.seatingStatus(actor) == "furniture",
+    "getup keeps furniture placement until the exit clip completes")
+actor.actionContextName = "idle"
+local finishedGetup = SC.NativeActions.leaveSeating(actor)
+check(finishedGetup and actor.seatObject == nil and seat.occupied == false,
+    "completed furniture getup releases the seat and occupancy")
 
 local fallbackOk = SC.Actor.setMovement(actor, "walk", { action = "sit", object = seat })
 check(fallbackOk and lastFurniturePath ~= nil,
@@ -2200,10 +2214,16 @@ actor.climbing = false
 actor.sitting = true
 actor.seatObject = seat
 
+local sweepWait, sweepWaitReason = SC.Actor.setMovement(actor, "walk", { action = "room_sweep" })
+check(sweepWait == false and sweepWaitReason == "standing_from_furniture"
+        and actor.sitting == true and actor.seatObject == seat,
+    "room sweep waits for furniture getup before moving")
+actor.sitting = false
+actor.actionContextName = "idle"
 local sweepOk, sweepReason = SC.Actor.setMovement(actor, "walk", { action = "room_sweep" })
 check(sweepOk and sweepReason == "room_sweep_facing_started" and actor.forwardY > 0.9
-    and actor.sitting == false and actor.seatObject == nil,
-    "room sweep stands from furniture and verifies native human facing")
+    and actor.seatObject == nil,
+    "room sweep resumes after the native furniture getup")
 ISPathFindAction, ISRestAction, ISGetOnBedAction, SeatingManager =
     oldPathFindAction, oldRestAction, oldGetOnBedAction, oldSeatingManager
 end

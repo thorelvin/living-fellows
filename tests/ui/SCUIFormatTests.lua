@@ -38,7 +38,7 @@ local translations = {
     UI_SC_Wound_DeepWound = "Deep wound",
     UI_SC_Wound_Burned = "Burned",
     UI_SC_Wound_Fractured = "Fractured",
-    UI_SC_Supplies_Summary = "Bandages: %1 | Food: %2 | Water: %3",
+    UI_SC_Supplies_Summary = "Bandages/rags: %1 | Food: %2 | Water: %3",
     UI_SC_Ammunition_Count = "%1 rounds",
     UI_SC_Signal_Recipients = "%1 companions received the signal.",
     UI_SC_CommandAccepted = "Command accepted.",
@@ -106,7 +106,7 @@ assert(string.find(wounds, "Fractured", 1, true))
 assert(string.find(wounds, "Severity: 7", 1, true))
 
 assert(Format.formatWounds({}, text) == "No active wounds")
-assert(Format.formatSupplies(description.supplies, text) == "Bandages: 3 | Food: 2 | Water: 4")
+assert(Format.formatSupplies(description.supplies, text) == "Bandages/rags: 3 | Food: 2 | Water: 4")
 assert(Format.formatAmmunition(description.supplies.ammunition, text) == "37 rounds")
 assert(Format.formatKnox(description.knox, text) == "No Knox symptoms observed")
 assert(Format.stateText(description.combatStance, text) == "Defensive")

@@ -13131,6 +13131,175 @@ Harness.BASE_LAYOUT_READY_FILE = "SurvivorCompanionHarness/base-layout-ready.txt
 Harness.BASE_LAYOUT_VISIBLE_FILE = "SurvivorCompanionHarness/base-layout-visible.txt"
 Harness.BASE_LAYOUT_CAPTURED_FILE = "SurvivorCompanionHarness/base-layout-captured.txt"
 
+-- A disposable high-seat fixture exercises the same native rest action as a
+-- player. Its SeatingManager height makes a premature getup look like a fall.
+function Harness.beginFurniturePose(current)
+    if current - Harness.phaseStartedAt < 3000 then return end
+    local SC = SurvivorCompanion
+    local U = SC.GameplayUtil
+    local px, py, pz = position(Harness.player)
+    if px == nil then result("FAIL", "furniture_fixture", "observer position missing")
+        setPhase("finish", current) return end
+    local cx, cy, z = math.floor(px), math.floor(py), math.floor(pz or 0)
+    local seatSquare, spawnSquare
+    local function openPatch(x, y)
+        for nx = -1, 1 do
+            for ny = -1, 1 do
+                local square = U.gridSquare(x + nx, y + ny, z)
+                local objects = square and square:getObjects()
+                if not square or not U.isSquareFree(square)
+                    or not objects or objects:size() > 1 then return false end
+            end
+        end
+        return true
+    end
+    for radius = 2, 9 do
+        for dx = -radius, radius do
+            for dy = -radius, radius do
+                local candidate = U.gridSquare(cx + dx, cy + dy, z)
+                if candidate and openPatch(cx + dx, cy + dy) then
+                    for _, side in ipairs({ { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } }) do
+                        local adjacent = U.gridSquare(cx + dx + side[1],
+                            cy + dy + side[2], z)
+                        if adjacent and U.isSquareFree(adjacent)
+                            and adjacent ~= Harness.player:getCurrentSquare() then
+                            seatSquare, spawnSquare = candidate, adjacent
+                            break
+                        end
+                    end
+                end
+                if seatSquare then break end
+            end
+            if seatSquare then break end
+        end
+        if seatSquare then break end
+    end
+    if not seatSquare then
+        result("FAIL", "furniture_fixture", "no two adjacent free loaded squares")
+        setPhase("finish", current) return
+    end
+    local spriteName = "location_restaurant_bar_01_26"
+    local object = IsoObject.new(seatSquare, spriteName, "Bar Stool")
+    seatSquare:AddTileObject(object)
+    local count = SeatingManager.getInstance():getTilePositionCount(object)
+    local properties = object:getSprite():getProperties()
+    local tileName = properties and properties:get("CustomName") or "unknown"
+    if not check("furniture_fixture", count > 0,
+        "sprite=" .. spriteName .. " custom=" .. tostring(tileName)
+            .. " positions=" .. tostring(count) .. " x=" .. tostring(seatSquare:getX())
+            .. " y=" .. tostring(seatSquare:getY())) then
+        setPhase("finish", current) return
+    end
+    Harness.poseSeat = object
+    local ticket, reason = SC.Actor.beginSpawn(spawnSquare, {
+        recruited = true,
+        identity = { forename = "Seat", surname = "Tester",
+            gender = "man", outfit = "Generic01" },
+    })
+    if not ticket then result("FAIL", "furniture_spawn", reason)
+        setPhase("finish", current) return end
+    Harness.poseTicket = ticket
+    setPhase("furniture_pose_spawn", current)
+end
+
+function Harness.probeFurniturePose(current)
+    local SC = SurvivorCompanion
+    if Harness.phase == "furniture_pose_spawn" then
+        local actor, reason = SC.Actor.pollSpawn(Harness.poseTicket)
+        if not actor then
+            if reason ~= "spawn_pending" or current - Harness.phaseStartedAt > 12000 then
+                result("FAIL", "furniture_spawn", reason)
+                setPhase("finish", current)
+            end
+            return
+        end
+        Harness.poseActor = actor
+        -- This probe directly owns the actor's timed rest action. Pause ordinary
+        -- AI decisions in the disposable clone so they do not issue Follow or
+        -- Stay between the sit and screenshot frames.
+        SC.Scheduler.unregister("decision")
+        local accepted, status = SC.Actor.setMovement(actor, "walk", {
+            action = "sit", object = Harness.poseSeat,
+        })
+        if not check("furniture_sit_requested", accepted == true, status) then
+            setPhase("finish", current) return end
+        setPhase("furniture_pose_entry", current)
+        return
+    end
+    local actor = Harness.poseActor
+    if Harness.phase == "furniture_pose_entry" then
+        if current >= (Harness.poseNextTraceAt or 0) then
+            Harness.poseNextTraceAt = current + 2000
+            local phase, owner, action = SC.NativeActions.activityStatus(actor)
+            local x, y = position(actor)
+            local route = SC.NativeActions.pathTelemetry(actor)
+            local queue = actor:getCharacterActions()
+            local pathAction = queue and queue:size() > 0 and queue:get(0) or nil
+            print("SC_REAL_SANDBOX|FURNITURE_TRACE|phase=" .. tostring(phase)
+                .. " owner=" .. tostring(owner) .. " action=" .. tostring(action)
+                .. " seat_status=" .. tostring(SC.NativeActions.furnitureStatus(actor))
+                .. " context=" .. tostring(actor:getCurrentActionContextStateName())
+                .. " x=" .. tostring(x) .. " y=" .. tostring(y)
+                .. " move_owner=" .. tostring(actor:getCompanionMovementOwner())
+                .. " bPathfind=" .. tostring(actor:getVariableBoolean("bPathfind"))
+                .. " timed_path=" .. tostring(pathAction and pathAction:isPathfinding())
+                .. " route=" .. tostring(route.status) .. "/"
+                    .. tostring(route.shouldBeMoving) .. "/"
+                    .. tostring(route.hasStartedMoving))
+        end
+        if SC.NativeActions.furnitureStatus(actor) == "entered" then
+            Harness.poseEnteredAt = Harness.poseEnteredAt or current
+            local context = tostring(actor:getCurrentActionContextStateName() or "")
+            if string.lower(context) ~= "sitonfurniture"
+                or current - Harness.poseEnteredAt < 650 then return end
+            local seated = actor:isSittingOnFurniture()
+            local attached = actor:getSitOnFurnitureObject() == Harness.poseSeat
+            check("furniture_seated", seated and attached,
+                "seated=" .. tostring(seated) .. " attached=" .. tostring(attached)
+                    .. " state=" .. context)
+            local name = tostring(Harness.config.run_id) .. "-stool-seated"
+            local ok, errorText = pcall(function() getCore():TakeFullScreenshot(name) end)
+            check("furniture_seated_screenshot", ok, name .. " " .. tostring(errorText))
+            local leaving, reason = SC.NativeActions.leaveSeating(actor)
+            check("furniture_getup_requested", leaving == false
+                and reason == "standing_from_furniture"
+                and actor:getSitOnFurnitureObject() == Harness.poseSeat,
+                "reason=" .. tostring(reason))
+            setPhase("furniture_pose_exit", current)
+            return
+        end
+        if current - Harness.phaseStartedAt > 20000 then
+            result("FAIL", "furniture_seated", "seat entry timed out: "
+                .. tostring(SC.NativeActions.furnitureStatus(actor)))
+            setPhase("finish", current)
+        end
+        return
+    end
+    if Harness.phase == "furniture_pose_exit" then
+        local context = tostring(actor:getCurrentActionContextStateName() or "")
+        if string.lower(context) == "getup" and not Harness.poseExitCaptured
+            and current - Harness.phaseStartedAt >= 250 then
+            Harness.poseExitCaptured = true
+            local name = tostring(Harness.config.run_id) .. "-stool-getup"
+            local ok, errorText = pcall(function() getCore():TakeFullScreenshot(name) end)
+            check("furniture_getup_screenshot", ok, name .. " " .. tostring(errorText))
+        end
+        local standing, status = SC.NativeActions.leaveSeating(actor)
+        if standing then
+            check("furniture_getup_completed", status == "stood_from_furniture"
+                and actor:getSitOnFurnitureObject() == nil
+                and Harness.poseSeat:isFurnitureOccupied(actor) == false,
+                "status=" .. tostring(status) .. " context=" .. context)
+            check("furniture_getup_visible", Harness.poseExitCaptured == true,
+                "native getup animation rendered before movement resumed")
+            setPhase("finish", current)
+        elseif current - Harness.phaseStartedAt > 10000 then
+            result("FAIL", "furniture_getup_completed", "timeout context=" .. context)
+            setPhase("finish", current)
+        end
+    end
+end
+
 function Harness.nearestContainer(x, y, z, radius)
     local U = SurvivorCompanion.GameplayUtil
     local best, bestDistance
@@ -13866,6 +14035,11 @@ local function tick()
         Harness.beginBaseLayout(current)
     elseif Harness.phase == "base_layout_capture" then
         Harness.probeBaseLayout(current)
+    elseif Harness.phase == "furniture_pose_begin" then
+        Harness.beginFurniturePose(current)
+    elseif Harness.phase == "furniture_pose_spawn" or Harness.phase == "furniture_pose_entry"
+        or Harness.phase == "furniture_pose_exit" then
+        Harness.probeFurniturePose(current)
     elseif Harness.phase == "finish" then
         finish()
     end
@@ -14017,6 +14191,8 @@ local function onGameStart()
         setPhase("split_start", Harness.startedAt)
     elseif Harness.config.base_layout_only == "true" then
         setPhase("base_layout_begin", Harness.startedAt)
+    elseif Harness.config.furniture_pose_only == "true" then
+        setPhase("furniture_pose_begin", Harness.startedAt)
     elseif Harness.config.faction_map_only == "true" then
         setPhase("faction_begin", Harness.startedAt)
     else
