@@ -6,7 +6,7 @@ Thank you for helping make survivors more believable, useful, and safe to play a
 
 ## Branches
 
-Living Fellows release branches use `living_fellows/<version>`; the current playtest branch is `living_fellows/0.26.20`. The separately retained PZ Radio Link line uses `pz_radio_link/<version>`. Living Fellows public tags and packages are cut from a tested versioned branch after Source CI, the local full gate, and the relevant playtest pass.
+Living Fellows release branches use `living_fellows/<version>`; the current playtest branch is `living_fellows/0.26.21`. The separately retained PZ Radio Link line uses `pz_radio_link/<version>`. Living Fellows public tags and packages are cut from a tested versioned branch after Source CI, the local full gate, and the relevant playtest pass.
 
 ## Before opening a pull request
 

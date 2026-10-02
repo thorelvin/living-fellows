@@ -1870,11 +1870,9 @@ function Respect.finish(actor, activity, now)
     return Respect.react(actor, now)
 end
 
-local function candidates(actor, commands, state, current, desiredKind)
+local function carriedItems(actor)
     local utility = U()
-    commands = type(commands) == "table" and commands or {}
-    local inventory = utility.inventory(actor)
-    local items = utility.inventoryItems(inventory, 100)
+    local items = utility.inventoryItems(utility.inventory(actor), 100)
     if SC.Logistics and type(SC.Logistics.audit) == "function" then
         local ok, audit = pcall(SC.Logistics.audit, actor)
         if ok and type(audit) == "table" and type(audit.items) == "table" then
@@ -1882,6 +1880,24 @@ local function candidates(actor, commands, state, current, desiredKind)
             for _, record in ipairs(audit.items) do items[#items + 1] = record.item end
         end
     end
+    return items
+end
+
+-- A carried book or a diary page ready to write: something to do without
+-- getting up. Camp shelf books are excluded, since fetching one means standing.
+local function seatedTaskReady(actor, now)
+    if readActivity(actor, carriedItems(actor)) ~= nil then return true end
+    if SC.Diary and type(SC.Diary.writeActivity) == "function" then
+        local ok, writing = pcall(SC.Diary.writeActivity, actor, now)
+        return ok and type(writing) == "table"
+    end
+    return false
+end
+
+local function candidates(actor, commands, state, current, desiredKind)
+    local utility = U()
+    commands = type(commands) == "table" and commands or {}
+    local items = carriedItems(actor)
     local filtered = {}
     local activity = dirtyBandageActivity(actor)
     if activity then filtered[#filtered + 1] = activity end
@@ -2657,6 +2673,12 @@ local function finishActivity(actor, state, now)
     -- Skip the ordinary post-action look-around pause here: that observation
     -- is a standing action and could undo the seat before the follow-up starts.
     if activity.kind == "sit" and activity.furnitureEntered == true then
+        activity.preserveSeating = true
+    elseif (activity.kind == "rest_bed" or activity.kind == "rest_floor")
+        and activity.furnitureEntered == true and seatedTaskReady(actor, now) then
+        -- A rested companion with a book or its diary to hand reads or writes
+        -- where it sits, on the bed, cot or floor. Otherwise it gets up as
+        -- before, so a tired companion's rest cycle is unchanged.
         activity.preserveSeating = true
     end
     if success then

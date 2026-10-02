@@ -7735,6 +7735,43 @@ do
     registry[tiredActor.id] = nil
 end
 
+do
+    -- A rested companion with a book stays where it rested and reads there,
+    -- the same hand-off a chair sit gets. Without one it still gets up.
+    local restBook = item("Base.BookRested", "Literature", { pages = 180 })
+    local restedReader = actor("sc-floor-reader", 32, -7, {
+        inventory = inventory({ restBook }),
+    })
+    restedReader.modData.SC_Order = "stay"
+    restedReader.modData.SC_WorkMode = "idle"
+    restedReader.fatigue = 0.80
+    registry[restedReader.id] = restedReader
+    local calm = { snapshot = { threats = {}, threatCount = 0, immediateCount = 0,
+        player = { danger = 0 }, indoors = true } }
+    local rested, restReason = SurvivorCompanion.Downtime.update(restedReader, player, calm)
+    SurvivorCompanion.Downtime.update(restedReader, player, calm)
+    clock = clock + SurvivorCompanion.Config.get("downtimeFloorRestMs") + 1
+    SurvivorCompanion.Downtime.update(restedReader, player, calm)
+    local afterRest = SurvivorCompanion.Downtime.peek(restedReader)
+    local stillSeated = seatingStates[restedReader] == "ground"
+        and (restedReader.leftTestSeating or 0) == 0
+    clock = clock + SurvivorCompanion.Config.get("downtimeIntervalMs") + 1
+    local readStarted, readReason = SurvivorCompanion.Downtime.update(
+        restedReader, player, calm)
+    check(rested and restReason == "rest_floor"
+            and afterRest.lastFact.activity == "rest_floor" and stillSeated
+            and readStarted and readReason == "read"
+            and seatingStates[restedReader] == "ground"
+            and restedReader.lastIntent.action == "read",
+        "a companion who rested on the floor with a book reads there without getting up: "
+            .. tostring(restReason) .. "/" .. tostring(readReason)
+            .. " seated=" .. tostring(stillSeated))
+    visualStates[restedReader].status = "completed"
+    SurvivorCompanion.Downtime.update(restedReader, player, calm)
+    SurvivorCompanion.Downtime.reset(restedReader)
+    registry[restedReader.id] = nil
+end
+
 local stagedVestInventory = inventory()
 stagedVestInventory.capacity = 16
 local stagedBag = item("Base.Bag_Schoolbag", "Container", {

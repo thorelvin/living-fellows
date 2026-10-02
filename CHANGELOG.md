@@ -2,6 +2,11 @@
 
 # Changelog
 
+## 0.26.21 - Reading where they rest
+
+- A companion who finishes resting on a bed, cot or the floor with a book or its diary to hand stays where it is and reads or writes there, the same way it already did after sitting down on a chair. Without one it gets up as before, so a tired companion's rest is unchanged. Books on the camp shelf still need the companion to stand up and fetch them.
+- A gameplay regression covers reading after a floor rest, and it was confirmed to fail with the change reverted.
+
 ## 0.26.20 - Camp cancellation safety and companion playtest fixes
 
 - Abandoning a camp checks farm recovery, active worker actions and reserved builds before cancelling its first order. An unexpected later refusal restores the camp's orders, jobs and residents. Farm-zone removal plans every affected job before changing one and restores camp state if cancellation still refuses.
