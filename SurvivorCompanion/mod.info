@@ -1,4 +1,5 @@
 name=Living Fellows: Companion
+author=TH0R
 id=SurvivorCompanion
 description=Single-player native companions, survivor households, and living-base systems for Project Zomboid 42.21.x. Requires ZombieBuddy 2.3.3 or newer.
 poster=poster.png
