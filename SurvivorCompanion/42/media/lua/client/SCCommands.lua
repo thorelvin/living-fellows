@@ -136,6 +136,13 @@ local function teamDoctrineForPlayer(player)
     return SC.Config and SC.Config.get("defaultCombatDoctrine") or "close_defense"
 end
 
+-- A survivor joins the team scavenging when safe unless the configured
+-- default says otherwise. As a neutral it carried scavenge=false, and the
+-- registry default only fills a missing value, so joining has to apply it.
+local function recruitScavengeDefault()
+    return not SC.Config or SC.Config.get("orders", "defaultScavenge") ~= false
+end
+
 local function storeTeamDoctrine(player, doctrine)
     if not combatDoctrines[doctrine] then return false, "invalid_combat_doctrine" end
     local data = rawModData(player)
@@ -1427,6 +1434,7 @@ local function handleRecruit(actor, entry, state, payload, player)
     state.recruited = true
     state.order = "follow"
     state.rideWithPlayer = true
+    state.scavenge = recruitScavengeDefault()
     state.moveMode = "copy"
     state.moveModeVersion = 2
     applyDoctrine(state, teamDoctrineForPlayer(player))
@@ -2429,6 +2437,26 @@ function Commands.issueGroup(group, command, payload, player)
     return issueGroupAtomic(group, command, payload, player)
 end
 
+-- Once the camp is abandoned, a loaded companion still on base duty stays
+-- where it stands instead of working for a camp that no longer exists. Stay
+-- releases its resident duty and any in-flight base action on the way.
+function Commands.leaveAbandonedBase(player)
+    if SC.BaseLife and type(SC.BaseLife.active) == "function"
+        and SC.BaseLife.active() ~= nil then
+        return 0, "base_still_active"
+    end
+    local released = 0
+    for _, actor in ipairs(SC.Registry and SC.Registry.living() or {}) do
+        local state = Commands.peek(actor)
+        local id = U().idOf(actor)
+        if type(state) == "table" and state.order == "base_duty" and id ~= nil
+            and Commands.issue(id, "stay", nil, player) == true then
+            released = released + 1
+        end
+    end
+    return released, "released_base_duty"
+end
+
 function Commands.whistle(player)
     if not player or U().isDead(player) then return false, "invalid_player" end
     local x, y, z = U().position(player)
@@ -2637,6 +2665,9 @@ local function transitionFactionMembership(actor, specification, player)
     staged.returnWorkMode = nil
     if staged.recruited then
         staged.rideWithPlayer = true
+        -- Joining from a household starts with the team default; a trial
+        -- member who completes keeps whatever the player has set since.
+        if current.recruited ~= true then staged.scavenge = recruitScavengeDefault() end
         staged.workMode = workModes[staged.workMode] and staged.workMode or "auto"
         applyDoctrine(staged, teamDoctrineForPlayer(player))
     else

@@ -1299,6 +1299,42 @@ class UIStaticContractTests(unittest.TestCase):
                     "UI_SC_Base_ZoneBusyMenu", "UI_SC_Base_ZoneLockedMenu"):
             self.assertIn(key, translations)
 
+    def test_a_camp_can_be_abandoned_from_both_menus_after_confirmation(self) -> None:
+        # Without this a camp could never move: the last boundary is
+        # protected and "Set camp core here" only appears with no camp.
+        base_menu = lua_function(
+            self.context,
+            "local function addBaseMenu(context, square, containerTarget, barricadeTarget, player)",
+        )
+        self.assertIn('text("UI_SC_Base_Abandon"), nil, abandonBaseFromContext', base_menu)
+        abandon = lua_function(
+            self.context, "local function abandonBaseFromContext(_, player)"
+        )
+        self.assertIn("SC.UI.confirmBaseAction", abandon)
+        self.assertIn('"UI_SC_Base_AbandonConfirm"', abandon)
+        action = lua_function(
+            self.context, "local function baseAction(target, action, payload, player)"
+        )
+        self.assertIn("SC.BaseLife.abandon()", action)
+        self.assertIn("SC.Commands.leaveAbandonedBase(player)", action)
+        panel = lua_function(self.ui, "function SCUIDetail:buildBase(panel, row)")
+        self.assertIn('"abandon_base", {}, UI.text("UI_SC_Base_AbandonConfirm"', panel)
+        # The Base tab asks the same removal check as the context menu.
+        self.assertIn("SC.BaseLife.canRemoveZone(zone.id)", panel)
+        self.assertNotIn("areaCount", panel)
+        dispatch = lua_function(
+            self.ui, "local function runBaseManagementAction(target, action, payload)"
+        )
+        self.assertIn("SC.BaseLife.abandon()", dispatch)
+        self.assertIn("SC.Commands.leaveAbandonedBase(playerForUI())", dispatch)
+        translations = json.loads(read(TRANSLATE / "EN" / "UI.json"))
+        for key in ("UI_SC_Base_Abandon", "UI_SC_Base_AbandonConfirm",
+                    "UI_SC_Base_Section_Abandon",
+                    "UI_SC_Base_Reason_player_build_in_progress",
+                    "UI_SC_Base_Reason_farm_recovery_pending",
+                    "UI_SC_Base_Reason_base_missing"):
+            self.assertIn(key, translations)
+
     def test_peek_is_a_hold_binding_for_the_selected_roster_actor(self) -> None:
         self.assertIn(
             'UI.PEEK_HOTKEY_ACTION = "Hold to peek through selected companion"',

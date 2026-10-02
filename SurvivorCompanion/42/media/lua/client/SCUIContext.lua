@@ -505,6 +505,11 @@ local function baseAction(target, action, payload, player)
     elseif action == "zone_finish" then ok, result = SC.BaseLife.finishZone(payload.square, payload.name)
     elseif action == "zone_cancel" then ok, result = SC.BaseLife.cancelZone()
     elseif action == "zone_remove" then ok, result = SC.BaseLife.removeZone(payload.id)
+    elseif action == "abandon" then
+        ok, result = SC.BaseLife.abandon()
+        if ok and SC.Commands and type(SC.Commands.leaveAbandonedBase) == "function" then
+            SC.Commands.leaveAbandonedBase(player)
+        end
     elseif action == "storage" then
         ok, result = SC.BaseLife.registerStorage(payload.object, payload.category)
     elseif action == "maintenance" then
@@ -607,6 +612,20 @@ local function removeZoneFromContext(_, zone, player)
     end
 end
 
+-- Abandoning is how a camp moves: once it is gone, "Set camp core here"
+-- returns to the menu. Always confirmed first.
+local function abandonBaseFromContext(_, player)
+    local base = SC.BaseLife and SC.BaseLife.active() or nil
+    if not base then return end
+    local execute = function()
+        baseAction(nil, "abandon", {}, player)
+    end
+    if SC.UI and type(SC.UI.confirmBaseAction) == "function" then
+        SC.UI.confirmBaseAction(text("UI_SC_Base_AbandonConfirm",
+            base.name or "Main Camp"), execute)
+    end
+end
+
 local function baseMenuRelevant(square)
     if not square or not SC.BaseLife or type(SC.BaseLife.active) ~= "function" then
         return false
@@ -639,6 +658,7 @@ local function addBaseMenu(context, square, containerTarget, barricadeTarget, pl
         and SC.BaseVisuals.status().enabled == true
     menu:addOption(text(layoutShown and "UI_SC_Base_Visual_Hide" or "UI_SC_Base_Visual_Show"),
         nil, toggleBaseLayout, player)
+    menu:addOption(text("UI_SC_Base_Abandon"), nil, abandonBaseFromContext, player)
     if layoutShown then
         -- Ask BaseLife for every refusal rule, not only the last boundary: a
         -- zone pinned by an order or holding other zones would otherwise

@@ -2,6 +2,14 @@
 
 # Changelog
 
+## 0.26.18 - Moving camp, recruits that scavenge, and talk on the road
+
+- A camp can now be abandoned and set up somewhere else. **Abandon camp** is in the camp's right-click menu and at the end of **More → Base**, and always asks first. Running camp orders and jobs are cancelled through their usual paths, residents leave duty and stay where they stand, and the camp's zones, storage marks and plans are removed. Buildings and stored items stay in the world. While you are building something yourself, the camp is kept until you finish or release it.
+- The **More → Base** zone list uses the same removal check as the right-click menu. A zone that cannot be removed says why instead of offering a removal that fails.
+- New recruits start with **Scavenge when safe** switched on, following the existing default setting. Survivors carried their neutral "off" setting into the team, so the default never applied. Companions already in your team keep their current setting.
+- Followers talk on the road. While you are walking, one nearby companion says something about every two minutes from a new set of twenty lines that vary by personality. Before, a follower had nothing to say unless you stood still for three minutes or reached a notable building, and the work chatter only covered companions with a job. Once you have stood still for 30 seconds, the existing idle lines take over.
+- Production, gameplay and UI regressions cover each change, and each new test was confirmed to fail with its change reverted.
+
 ## 0.26.17 - Review fixes for stairs, seats and rescue
 
 - A follower that reaches the foot of the stairs picked by the stair fallback now climbs them. Arrival at the stairs was measured to the tile's corner while navigation stops at its centre, so a follower arriving from the east or south was sent back to the same tile again and again.

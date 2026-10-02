@@ -3333,6 +3333,73 @@ function BaseLife.cancelJob(id)
     return true, job
 end
 
+-- Leave the active camp so a new one can be set somewhere else. Running work
+-- is cancelled through each order's own path, residents leave duty, and the
+-- camp record goes with its zones, storages and blueprints. World objects,
+-- buildings and stored items stay where they are. A build the player is doing
+-- by hand must finish first, and a cancel that refuses (a farm job still
+-- recovering) stops the abandonment with its reason and the camp in place.
+function BaseLife.abandon()
+    local state, base = ensure(), activeBase()
+    if not base then return false, "base_missing" end
+    for _, job in ipairs(base.jobs) do
+        if job.state == "manual" then return false, "player_build_in_progress" end
+    end
+    local function orderIds(owner)
+        local ids = {}
+        for _, order in ipairs(owner and owner.orders or {}) do
+            if not orderIsTerminal(order) then ids[#ids + 1] = order.id end
+        end
+        return ids
+    end
+    for _, id in ipairs(orderIds(productionFor(base))) do
+        if productionOrderIn(base, id) then
+            local okay, reason = BaseLife.cancelProductionOrder(id)
+            if okay ~= true then return false, reason end
+        end
+    end
+    for _, id in ipairs(orderIds(workFor(base))) do
+        if workOrderIn(base, id) then
+            local okay, reason = BaseLife.cancelGatherOrder(id)
+            if okay ~= true then return false, reason end
+        end
+    end
+    local jobIds = {}
+    for _, job in ipairs(base.jobs) do jobIds[#jobIds + 1] = job.id end
+    for _, id in ipairs(jobIds) do
+        local job, index = findById(base.jobs, id)
+        if job and (job.type == "gather_materials" or job.type == "production") then
+            -- Its order was cancelled or had already finished above.
+            table.remove(base.jobs, index)
+        elseif job and job.state ~= "completed" and job.state ~= "cancelled" then
+            local okay, reason = BaseLife.cancelJob(id)
+            if okay ~= true then return false, reason end
+        end
+    end
+    local leaving = {}
+    for id, resident in pairs(state.residents) do
+        if resident.baseId == base.id then leaving[#leaving + 1] = id end
+    end
+    for _, id in ipairs(leaving) do
+        if state.residents[id].duty == true then BaseLife.setDuty(id, false) end
+    end
+    -- A resident belongs to its camp, and a save refuses one that names a camp
+    -- that no longer exists. Joining the next camp assigns a role afresh.
+    for _, id in ipairs(leaving) do state.residents[id] = nil end
+    local farmZones = {}
+    for _, zone in ipairs(base.zones) do
+        if zone.kind == "farm" then farmZones[#farmZones + 1] = zone.id end
+    end
+    state.bases[base.id], state.activeBaseId = nil, nil
+    draftZone, operationsCache = nil, nil
+    if SC.FarmWork and type(SC.FarmWork.zoneRemoved) == "function" then
+        for _, id in ipairs(farmZones) do pcall(SC.FarmWork.zoneRemoved, id) end
+    end
+    bumpWorkConsistencyRevision()
+    BaseLife.noteHistory("base_abandoned", { baseId = base.id, name = base.name })
+    return true, base
+end
+
 function BaseLife.retryJob(id)
     local job = BaseLife.job(id)
     if not job then return false, "unknown_job" end

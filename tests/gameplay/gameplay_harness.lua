@@ -11664,11 +11664,17 @@ do
     check(SurvivorCompanion.Commands.restore(recruit, record),
         "recruitment-sound fixture restores a neutral survivor")
     local before = #uiSounds
+    local neutralScavenge = SurvivorCompanion.Commands.describe(recruit.id, player).scavenge
     local accepted, reason = SurvivorCompanion.Commands.issue(
         recruit.id, "recruit", nil, player)
     check(accepted and reason == "recruited" and #uiSounds == before + 1
             and uiSounds[#uiSounds] == "UIAchievement",
         "successful permanent recruitment plays one vanilla UI achievement cue")
+    -- A neutral carries scavenge=false; joining applies the configured
+    -- default, so "Scavenge when safe" starts switched on.
+    check(neutralScavenge == false
+            and SurvivorCompanion.Commands.describe(recruit.id, player).scavenge == true,
+        "a new recruit scavenges when safe by default")
     local again, againReason = SurvivorCompanion.Commands.issue(
         recruit.id, "recruit", nil, player)
     check(again and againReason == "already_recruited" and #uiSounds == before + 1,
@@ -19797,6 +19803,39 @@ end)()
     end
     check(#problems == 0, "every banter line is printable ASCII and distinct, with at least four per topic: "
         .. table.concat(problems, ", "))
+
+    -- A follower walking with the player has no owned task, so routine banter
+    -- skips it, and the idle jokes wait for a three-minute stop. It still
+    -- talks on the move, at a bounded cadence and only while the player walks.
+    banter.reset()
+    local walker = recruit("sc-banter-walker", 2, 1)
+    local walkRecords = { { actor = walker, runtime = { snapshot = calmSnapshot } } }
+    local walkStartX, walkMoves = player.worldX, walker.movementCalls
+    local w0 = clock + 1000000
+    clock = w0
+    banter.update(player, walkRecords, w0)
+    local beforeStep = dialogue.lastSpokenTopic(walker)
+    player.worldX = (player.worldX or 0.5) + 2
+    clock = w0 + 1000
+    local walkSpoken, walkTopic = banter.update(player, walkRecords, clock)
+    player.worldX = player.worldX + 2
+    clock = w0 + 61000
+    local walkEarly = banter.update(player, walkRecords, clock)
+    player.worldX = player.worldX + 2
+    clock = w0 + 122000
+    local walkAgain, walkAgainTopic = banter.update(player, walkRecords, clock)
+    clock = w0 + 300000
+    local standing = banter.update(player, walkRecords, clock)
+    player.worldX = walkStartX
+    check(beforeStep ~= "banter.follow" and walkSpoken == true
+            and walkTopic == "banter.follow" and not walkEarly
+            and walkAgain == true and walkAgainTopic == "banter.follow"
+            and not standing and walker.movementCalls == walkMoves
+            and dialogue.poolSize("banter.follow", walker, {}) >= 12,
+        "a follower talks while the player walks, at most every two minutes, never on a standstill and without moving: "
+            .. tostring(walkSpoken) .. "/" .. tostring(walkTopic) .. " early="
+            .. tostring(walkEarly) .. " again=" .. tostring(walkAgain)
+            .. " standing=" .. tostring(standing))
 
     for key, value in pairs(savedValues) do values[key] = value end
     banter.reset()

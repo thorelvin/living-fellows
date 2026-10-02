@@ -2299,4 +2299,62 @@ do
         "gravekeeper finds a body in bounded scans and chooses burial")
 end
 
+-- ---------------------------------------------------------------------------
+-- Moving the camp
+-- ---------------------------------------------------------------------------
+
+-- A camp could never be removed: its last boundary is protected and "Set
+-- camp core here" only appears without a camp. Abandoning cancels running
+-- work through each order's own path, takes residents off duty and removes
+-- the camp, so a new core can be set somewhere else.
+do
+    local ctx = setup()
+    local onDuty, dutyReason = SC.Commands.issue(ctx.id, "base_duty", nil, nil)
+    check(onDuty == true and SC.Commands.peek(ctx.actor).order == "base_duty",
+        "the abandonment fixture puts its worker on base duty: " .. tostring(dutyReason))
+    local order = start(ctx, {
+        operation = "dig_graves", zoneId = ctx.burial.id, requested = 2,
+    })
+    local manual = { id = "job:abandon-manual", type = "build", state = "manual" }
+    local liveJobs = SC.BaseLife.active().jobs
+    liveJobs[#liveJobs + 1] = manual
+    local refused, refusedReason = SC.BaseLife.abandon()
+    check(refused == false and refusedReason == "player_build_in_progress"
+            and SC.BaseLife.active() ~= nil
+            and SC.BaseLife.productionOrder(order.id).state ~= "cancelled",
+        "a build the player is doing by hand keeps the camp and its orders untouched")
+    for index = #liveJobs, 1, -1 do
+        if liveJobs[index] == manual then table.remove(liveJobs, index) end
+    end
+
+    local abandoned, gone = SC.BaseLife.abandon()
+    local cancelled
+    for _, row in ipairs(gone and gone.production and gone.production.orders or {}) do
+        if row.id == order.id then cancelled = row.state == "cancelled" end
+    end
+    check(abandoned == true and gone.id == ctx.base.id
+            and SC.BaseLife.active() == nil and cancelled == true
+            and SC.BaseLife.resident(ctx.id) == nil
+            and SC.BaseLife.jobFor(ctx.id) == nil
+            and SC.BaseLife.summary().configured == false,
+        "abandoning cancels the running order, releases its residents and removes the camp")
+    local released = SC.Commands.leaveAbandonedBase(nil)
+    check(released == 1 and SC.Commands.peek(ctx.actor).order == "stay",
+        "a companion left on base duty stays where it stands: "
+            .. tostring(released) .. "/" .. tostring(SC.Commands.peek(ctx.actor).order))
+
+    local moved, newBase = SC.BaseLife.create(sq(5, 5), "New Camp")
+    check(moved == true and newBase.id ~= gone.id
+            and newBase.core.x == 5 and newBase.core.y == 5
+            and #newBase.zones == 1 and newBase.zones[1].kind == "area",
+        "a new camp core can be set once the old camp is abandoned")
+    local exported = SC.BaseLife.export()
+    SC.BaseLife.reset()
+    local restored, restoreReason = SC.BaseLife.restore(exported)
+    check(restored == true and SC.BaseLife.active() ~= nil
+            and SC.BaseLife.active().id == newBase.id,
+        "the moved camp saves and restores without the abandoned one: "
+            .. tostring(restored) .. "/" .. tostring(restoreReason))
+end
+
 print("PRODUCTION_HARNESS_PASS checks=" .. tostring(checks))

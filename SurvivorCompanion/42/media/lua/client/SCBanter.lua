@@ -405,6 +405,32 @@ local POOLS = {
         practical = { "We should count what we carry before moving on." },
         steady = { "Nothing moving nearby. Let's keep it that way." },
     },
+    -- Walking with the player. Followers have no owned task, so routine
+    -- banter never picks them and the idle jokes wait for a long stop.
+    ["banter.follow"] = {
+        common = {
+            "Right behind you.",
+            "You lead. I'll listen behind us.",
+            "Watch the corners. They don't announce themselves.",
+            "I'm counting the turns, in case we need to come back fast.",
+            "Every quiet street still makes me look twice.",
+            "Mind the cars. Something always hides behind one.",
+            "If we stop, I'll take the side you're not watching.",
+            "I keep expecting to hear a bus.",
+            "Knox County never looked this empty on a weekday.",
+            "Walking together beats walking alone. Even now.",
+            "Funny. I used to come this way for groceries.",
+            "Keep going. I've got your back.",
+        },
+        brave = { "Point the way. I'll handle whatever's on it.",
+            "I'd rather be out front, but fine. Lead on." },
+        cautious = { "Slow is fine. Slow is alive.",
+            "I keep checking behind us. Don't mind me." },
+        caring = { "Shout if you need a breather. I won't think less of you." },
+        practical = { "Let's not carry more than we can run with." },
+        steady = { "Same road, same rules. Eyes open.",
+            "Nothing behind us. I checked twice." },
+    },
     ["banter.idle.first"] = {
         common = {
             "If you're waiting for a sign, this is it. It says 'beans'.",
@@ -881,6 +907,8 @@ local function freshParty()
         lastPlaceAt = -math.huge,
         lastJokeAt = -math.huge,
         lastRoutineAt = -math.huge,
+        lastFollowAt = -math.huge,
+        lastMovedAt = -math.huge,
         idle = nil,
         placeKeys = {},
         placeKeyCount = 0,
@@ -1568,9 +1596,11 @@ local function trackIdle(player, current)
     if x == nil then party.idle = nil return nil, false end
     local vehicle, driving = playerVehicle(player)
     local idle = party.idle
-    local moved = idle == nil or math.floor(z or 0) ~= math.floor(idle.z or 0)
-        or (x - idle.x) * (x - idle.x) + (y - idle.y) * (y - idle.y) > 0.09
-    if moved or driving or playerBusy(player) then
+    local stepped = idle ~= nil and (math.floor(z or 0) ~= math.floor(idle.z or 0)
+        or (x - idle.x) * (x - idle.x) + (y - idle.y) * (y - idle.y) > 0.09)
+    -- First sight of the player is not a step; follow chatter needs a real one.
+    if stepped then party.lastMovedAt = current end
+    if idle == nil or stepped or driving or playerBusy(player) then
         party.idle = { x = x, y = y, z = z, since = current }
         return nil, vehicle ~= nil
     end
@@ -1738,6 +1768,44 @@ local function routinePulse(player, records, current)
     return true, "banter.routine"
 end
 
+-- A follower walking with the player has no owned task, so routine banter
+-- skips it, and the idle jokes wait for a three-minute stop. Without this the
+-- party said nothing at all on the move. Overhead speech only: it never
+-- touches the formation, route or posture.
+local function followPulse(player, records, current, inVehicle)
+    if inVehicle then return false, "follow_in_vehicle" end
+    if current - party.lastMovedAt >= config("followBanterSettledMs", 30000) then
+        return false, "follow_leader_settled"
+    end
+    if current - party.lastFollowAt < config("followBanterIntervalMs", 120000) then
+        return false, "follow_cooldown"
+    end
+    if not budgetAllows(current) then return false, "flavor_budget" end
+    local supervisor = SC.ActionSupervisor
+    local best, bestCommands, oldest
+    for _, record in ipairs(records or {}) do
+        local actor = record.actor
+        local commands = available(record, player, current,
+            config("ambientDialogueDistance", 10), true)
+        if commands and commands.order == "follow"
+            and not (supervisor and type(supervisor.current) == "function"
+                and supervisor.current(actor) ~= nil) then
+            local prior = actorState(actor).lastFollowAt or -math.huge
+            if best == nil or prior < oldest then
+                best, bestCommands, oldest = actor, commands, prior
+            end
+        end
+    end
+    if best == nil then return false, "follow_no_speaker" end
+    if not speak(best, "banter.follow", bestCommands) then
+        return false, "follow_speech_rejected"
+    end
+    party.lastFollowAt = current
+    party.lastFlavorAt = current
+    actorState(best).lastFollowAt = current
+    return true, "banter.follow"
+end
+
 -- ---------------------------------------------------------------------------
 -- Party pulse
 -- ---------------------------------------------------------------------------
@@ -1771,7 +1839,9 @@ function Banter.update(player, records, current)
     if joked then return true, jokeReason end
     local remarked, routineReason = routinePulse(player, records, current)
     if remarked then return true, routineReason end
-    return false, jokeReason or routineReason
+    local walked, followReason = followPulse(player, records, current, inVehicle)
+    if walked then return true, followReason end
+    return false, jokeReason or routineReason or followReason
 end
 
 function Banter.reset(actor)

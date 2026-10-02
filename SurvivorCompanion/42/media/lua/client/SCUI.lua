@@ -352,6 +352,9 @@ function UI.baseFailureReason(reason)
         base_area_in_use = true,
         work_order_uses_zone = true,
         production_order_uses_zone = true,
+        player_build_in_progress = true,
+        farm_recovery_pending = true,
+        base_missing = true,
     }
     return known[reason] and UI.text("UI_SC_Base_Reason_" .. reason)
         or reason
@@ -1417,6 +1420,15 @@ local function runBaseManagementAction(target, action, payload)
     local method, arguments
     if action == "remove_zone" then
         method, arguments = SC.BaseLife.removeZone, { payload.id }
+    elseif action == "abandon_base" then
+        method, arguments = function()
+            local okay, reason = SC.BaseLife.abandon()
+            if okay and SC.Commands
+                and type(SC.Commands.leaveAbandonedBase) == "function" then
+                SC.Commands.leaveAbandonedBase(playerForUI())
+            end
+            return okay, reason
+        end, {}
     elseif action == "remove_storage" then
         method, arguments = SC.BaseLife.removeStorage, { payload.id }
     elseif action == "set_storage_category" then
@@ -3228,10 +3240,6 @@ function SCUIDetail:buildBase(panel, row)
             y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                 UI.text("UI_SC_Base_NoZones"))
         else
-            local areaCount = 0
-            for _, zone in ipairs(base.zoneRows) do
-                if zone.kind == "area" then areaCount = areaCount + 1 end
-            end
             for _, zone in ipairs(base.zoneRows) do
                 y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
                     UI.text("UI_SC_Base_ZoneRow", zone.name, UI.humanize(zone.kind),
@@ -3239,9 +3247,13 @@ function SCUIDetail:buildBase(panel, row)
                 y = self:addBaseManagementAction(panel, y,
                     UI.text("UI_SC_Base_Visual_FocusZone", zone.name), "focus_zone",
                     { id = zone.id }, nil)
-                if zone.kind == "area" and areaCount <= 1 then
+                -- The same check removeZone enforces, so a confirmed removal
+                -- cannot fail on a rule this list did not know about.
+                local removable, refusal = SC.BaseLife.canRemoveZone(zone.id)
+                if removable ~= true then
                     y = self:addInformationLine(panel, y, "UI_SC_Info_Message",
-                        UI.text("UI_SC_Base_CoreZoneProtected"))
+                        refusal == "last_base_area" and UI.text("UI_SC_Base_CoreZoneProtected")
+                            or UI.baseFailureReason(refusal))
                 else
                     y = self:addBaseManagementAction(panel, y,
                         UI.text("UI_SC_Base_RemoveZone", zone.name), "remove_zone",
@@ -3295,6 +3307,11 @@ function SCUIDetail:buildBase(panel, row)
                     { id = target.id }, UI.text("UI_SC_Base_RemoveMaintenanceConfirm"))
             end
         end
+        -- Moving the camp: abandon this one, then set a new camp core.
+        y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Abandon")
+        y = self:addBaseManagementAction(panel, y, UI.text("UI_SC_Base_Abandon"),
+            "abandon_base", {}, UI.text("UI_SC_Base_AbandonConfirm",
+                base.name or "Main Camp"))
     end
     y = self:addSection(panel, y + 4, "UI_SC_Base_Section_Crisis")
     local crises = SC.InfectionCrisis and SC.InfectionCrisis.summary
